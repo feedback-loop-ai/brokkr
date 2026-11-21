@@ -36,7 +36,7 @@ mod success;
 pub(in crate::engine) use compose::StepComposition;
 pub(crate) use step_facts::needs_change;
 pub(super) use step_facts::{dialect_attempt_outcome, expand_dialect_argv, nearest_change};
-use step_facts::{retained_stderr, tailed_outcome, vocabulary_problem};
+use step_facts::{retained_stderr, vocabulary_problem};
 
 /// Where a step leaves its attempt, at each stage of settling it.
 enum StepVerdict<T> {
@@ -127,11 +127,9 @@ struct StepRun {
     /// What the step's terminal event carries when its tree is not
     /// proven over (#403).
     unproven: Unproven,
-    /// A single or dialect step driver's retained stderr, told to the
-    /// engine's own stderr once the attempt's terminal event and any park
-    /// it takes are appended (#1199); empty for a panel step and a driver
-    /// that never spawned, which tell nothing.
-    stderr: String,
+    /// A single or dialect step driver's retained stderr. A panel step
+    /// or a driver that never spawned has no single stream to name.
+    stderr: Option<String>,
 }
 
 /// The results a step may report: the seat's own for the final step, which
@@ -332,7 +330,7 @@ impl Engine {
         if at.step.class == SeatClass::Gate {
             self.active_gate_head = Some(git_head(&self.repo));
         }
-        let ran = match &at.step.body {
+        let mut ran = match &at.step.body {
             StepBody::Invocation(Invocation::Single { command, .. }) => {
                 self.single_step(run, at, command)?
             }
@@ -346,6 +344,19 @@ impl Engine {
                 }
             }
         };
+        self.stderr.active = ran.stderr.take();
+        let settled = self.settle_step_with_head(run, at, ran, carried);
+        self.stderr.active = None;
+        settled
+    }
+
+    fn settle_step_with_head(
+        &mut self,
+        run: &SequenceRun,
+        at: &StepAt,
+        ran: StepRun,
+        carried: &mut Carried,
+    ) -> Result<StepVerdict<()>, EngineError> {
         if self
             .finish_gate_head_check(run.effect_id, Some(run.attempt_id.to_string()))?
             .is_some()
@@ -417,7 +428,7 @@ impl Engine {
                     start_failures,
                     refused,
                     unproven: Unproven::seat(&report),
-                    outcome: tailed_outcome(&report),
+                    outcome: report.settled_outcome(),
                     stderr,
                 }
             }
@@ -474,7 +485,7 @@ impl Engine {
             refused,
             unproven,
             outcome: outcome.outcome(),
-            stderr: String::new(),
+            stderr: None,
         })
     }
 
@@ -485,7 +496,7 @@ impl Engine {
         &mut self,
         run: &SequenceRun,
         at: &StepAt,
-        mut ran: StepRun,
+        ran: StepRun,
         carried: &mut Carried,
     ) -> Result<StepVerdict<()>, EngineError> {
         // A step's result that names a model carries the step's
@@ -493,28 +504,17 @@ impl Engine {
         // names none and carries none.
         let boundary = self.site_boundary(&at.label);
         let start_failures = ran.start_failures.clone();
-        // Told only once the attempt's terminal event, and any park it
-        // takes, is appended, so a stalled stderr cannot keep the
-        // attempt from settling (#1199).
-        let stderr = std::mem::take(&mut ran.stderr);
         let StepVerdict::Goes(result) = self.step_result(run, at, ran, boundary)? else {
-            self.tell_stderr(run.attempt_id, &stderr);
             return Ok(StepVerdict::Ended);
         };
         // A step's result the fence refuses (decision 0034, ruling
         // 6) fails the attempt at that step, with the same facts a
         // step that failed on its own would carry.
-        let fenced = std::cell::Cell::new(false);
         let refused = |mut refusal: String| {
-            fenced.set(true);
             run.bound.deadline.name_words(&mut refusal);
             run.failed_payload(at, &refusal, &start_failures)
         };
-        let verdict = self.settle_result(run, at, result, boundary, carried, &refused)?;
-        if fenced.get() {
-            self.tell_stderr(run.attempt_id, &stderr);
-        }
-        Ok(verdict)
+        self.settle_result(run, at, result, boundary, carried, &refused)
     }
 
     /// A step's successful result, through the checks a step before the

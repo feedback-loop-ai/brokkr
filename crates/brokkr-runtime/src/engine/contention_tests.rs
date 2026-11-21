@@ -1148,27 +1148,7 @@ fn a_terminal_event_the_lock_outlasts_lands_its_real_outcome_in_the_lawful_end()
     let dir = tempfile::tempdir().unwrap();
     let body = finishing_behind_a_lock(dir.path());
     let mut engine = driving(dir.path(), body, std::time::Duration::from_millis(50));
-    let peer = std::sync::Mutex::new(None);
-    let mut lawful_ends = Vec::new();
-
-    let ended = std::thread::scope(|scope| {
-        scope.spawn(|| {
-            arrive(dir.path(), "finishing");
-            *peer.lock().unwrap() = Some(write_lock_on(&dir.path().join("realm.db")));
-            std::fs::write(dir.path().join("locked"), "").unwrap();
-        });
-        engine.drive_racing(|error| {
-            lawful_ends.push(matches!(
-                error,
-                EngineError::Store(StoreError::Contended {
-                    operation: "append",
-                    ..
-                })
-            ));
-            drop(peer.lock().unwrap().take());
-        })
-    })
-    .expect("a held outcome that lands in the lawful end does not end the engine");
+    let (ended, lawful_ends) = drive_unlocking_at_lawful_end(&mut engine, dir.path());
 
     assert_eq!(lawful_ends, [true]);
     assert_eq!(
@@ -1184,6 +1164,60 @@ fn a_terminal_event_the_lock_outlasts_lands_its_real_outcome_in_the_lawful_end()
         .iter()
         .any(|event| event.payload.to_string().contains("journal contention")));
     assert_eq!(ended.state.run.status(), Status::AwaitingOperator);
+}
+
+fn drive_unlocking_at_lawful_end(engine: &mut Engine, dir: &Path) -> (DriveEnd, Vec<bool>) {
+    let peer = std::sync::Mutex::new(None);
+    let mut lawful_ends = Vec::new();
+    let ended = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            arrive(dir, "finishing");
+            *peer.lock().unwrap() = Some(write_lock_on(&dir.join("realm.db")));
+            std::fs::write(dir.join("locked"), "").unwrap();
+        });
+        engine.drive_racing(|error| {
+            lawful_ends.push(matches!(
+                error,
+                EngineError::Store(StoreError::Contended {
+                    operation: "append",
+                    ..
+                })
+            ));
+            drop(peer.lock().unwrap().take());
+        })
+    })
+    .expect("a held outcome that lands in the lawful end does not end the engine");
+    (ended, lawful_ends)
+}
+
+#[test]
+fn a_held_terminal_event_parks_then_tells_its_stderr_once() {
+    use super::tests::driver_stderr::Watch;
+    let dir = tempfile::tempdir().unwrap();
+    let said = "held terminal stderr";
+    let middle = [
+        signal_line(dir.path(), "finishing"),
+        wait_line(dir.path(), "locked"),
+        format!("printf '%s\n' '{said}' >&2; exit 0"),
+    ];
+    let body = signalling_driver(&middle, &[]);
+    let mut engine = driving(dir.path(), body, std::time::Duration::from_millis(50));
+    let watch = Watch::on_db(dir.path().join("realm.db"), &mut engine);
+    let (ended, lawful_ends) = drive_unlocking_at_lawful_end(&mut engine, dir.path());
+
+    assert_eq!(lawful_ends, [true]);
+    assert_eq!(ended.state.run.status(), Status::AwaitingOperator);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let (outcome, park) = (&events[events.len() - 2], events.last().unwrap());
+    assert_eq!(outcome.event_type, EventType::EffectIndeterminate);
+    assert_eq!(park.event_type, EventType::RunParked);
+    let id = outcome.attempt_id.as_deref().unwrap();
+    let (told, held) = watch.told_and_held();
+    assert_eq!(told, format!("{id}: driver stderr: {said}\n"));
+    assert_eq!(
+        &held[held.len() - 2..],
+        [EventType::EffectIndeterminate, EventType::RunParked]
+    );
 }
 
 /// A lock that outlasts both windows, end to end: nothing is writable, so
@@ -1408,6 +1442,7 @@ fn held_success(attempt_id: &str, result: Value) -> checkpoints::HeldOutcome {
         event_type: EventType::EffectSucceeded,
         payload: json!({"effect_id": "effect-1", "attempt_id": attempt_id, "result": result}),
         attempt_id: Some(attempt_id.into()),
+        stderr: None,
     }
 }
 

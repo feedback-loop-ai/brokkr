@@ -64,13 +64,26 @@ pub(super) fn invoke_exec(
                 String::from_utf8_lossy(&bytes).into_owned()
             })
         })
-        .transpose()?;
+        .transpose();
+    let stderr_text = String::from_utf8_lossy(&stderr);
+    let state = match state {
+        Ok(state) => state,
+        Err(mut error) => {
+            let start = stderr_tail_start(&stderr_text);
+            let _ = std::io::stderr().write_all(stderr_text[start..].as_bytes());
+            if let Some(evidence) = validator_evidence(&stderr) {
+                error.push('\n');
+                error.push_str(&evidence);
+            }
+            return Err(error);
+        }
+    };
     Ok(Invocation {
         answer: None,
         exit_code: lost::exit_code(out.status),
         session_meta,
         notes,
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        stderr: stderr_text.into_owned(),
         state,
         // Decision 0053: exec has no model turn and no provider
         // to refuse it. Its failures are the script's own, and
@@ -91,14 +104,21 @@ pub(super) fn invoke_exec(
 /// the captured masked bytes themselves, never a lossy reading of them.
 fn dialect_notes(stdout: &[u8], stderr: &[u8]) -> String {
     let mut notes = String::from_utf8_lossy(stdout).trim().to_string();
-    if !stderr.is_empty() {
+    if let Some(evidence) = validator_evidence(stderr) {
         if !notes.is_empty() {
             notes.push('\n');
         }
-        let evidence = crate::process::Evidence::of(stderr);
-        notes.push_str(&format!("validator stderr: {evidence}"));
+        notes.push_str(&evidence);
     }
     notes
+}
+
+fn validator_evidence(stderr: &[u8]) -> Option<String> {
+    if stderr.is_empty() {
+        return None;
+    }
+    let evidence = crate::process::Evidence::of(stderr);
+    Some(format!("validator stderr: {evidence}"))
 }
 
 #[cfg(test)]

@@ -109,27 +109,15 @@ const RESULT_RECORD_FIELDS: [&str; 9] = [
     "transcript",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AdapterKind {
-    Claude,
-    Lanetally,
-    Codex,
-    Dsh,
-    Exec,
+probe::adapter_kinds! {
+    Claude => "claude",
+    Lanetally => "lanetally",
+    Codex => "codex",
+    Dsh => "dsh",
+    Exec => "exec",
 }
 
 impl AdapterKind {
-    pub fn parse(name: &str) -> Option<AdapterKind> {
-        match name {
-            "claude" => Some(AdapterKind::Claude),
-            "lanetally" => Some(AdapterKind::Lanetally),
-            "codex" => Some(AdapterKind::Codex),
-            "dsh" => Some(AdapterKind::Dsh),
-            "exec" => Some(AdapterKind::Exec),
-            _ => None,
-        }
-    }
-
     /// What this adapter honours of the protocol's OPTIONAL vocabulary.
     ///
     /// `resume` is **offer receipt** and nothing more (proposed decision
@@ -3658,7 +3646,7 @@ fn claude_launch(
 /// `exec --json` JSONL live. Shared by the cold and resume argvs so the
 /// two paths differ in exactly one thing: the command line.
 fn invoke_codex(
-    command: &[String],
+    model_pin: Option<&str>,
     prompt: &str,
     workdir: &str,
     bindings: &[secret::BoundSecret],
@@ -3680,7 +3668,7 @@ fn invoke_codex(
     // before this invocation's `…:00.900Z` start is history, not this
     // seat's refusal (decision 0053's boundary).
     let started = epoch_now_nanos();
-    let (mut child, stderr_thread) = spawn_fed(command, prompt, workdir, bindings)?;
+    let (mut child, stderr_thread) = spawn_fed(&hold.plan.command, prompt, workdir, bindings)?;
     let mut session_meta = Map::new();
     let mut turn = 0;
     // Decision 0053: codex's wire protocol DOES carry the distinction —
@@ -3765,7 +3753,7 @@ fn invoke_codex(
             .or_insert_with(|| Value::String(effort));
     }
     if !session_meta.contains_key("model") {
-        if let Some(model) = model_in_header(&stderr, pinned_model(command)) {
+        if let Some(model) = model_in_header(&stderr, model_pin) {
             session_meta.insert("model".into(), Value::String(model));
         }
     }
@@ -5460,6 +5448,7 @@ fn invoke_with_stager(
         .unwrap_or("")
         .to_string();
     let mut probe = ProbeAnswer::new(probe);
+    let model_pin = pinned_model(extra, kind.model_flag());
     let invocation = match kind {
         // Same harness, same stream: LaneTally's wrapper is
         // argv-compatible with claude (including stream-json), so the
@@ -5485,10 +5474,9 @@ fn invoke_with_stager(
         AdapterKind::Codex => {
             let (plan, validated_cold) =
                 codex::launch_on_host(bin, extra, &workdir, session, input, codex::present)?;
-            let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
             let mut invocation = invoke_codex(
-                &command, prompt, &workdir, bindings, &mut hold, &mut probe, emit,
+                model_pin, prompt, &workdir, bindings, &mut hold, &mut probe, emit,
             )?;
             hold.finish(emit);
             invocation.launch = hold.terminal();
@@ -5527,10 +5515,9 @@ fn invoke_with_stager(
                 // launch, checked on its own (rebuild unit 15).
                 let cold =
                     LaunchPlan::cold(validated_cold, "codex-thread", Some("harness-refused"));
-                let command = cold.command.clone();
                 let mut replacement = LaunchHold::new("codex", cold);
                 let mut outcome = invoke_codex(
-                    &command,
+                    model_pin,
                     prompt,
                     &workdir,
                     bindings,
@@ -5558,7 +5545,7 @@ fn invoke_with_stager(
     // absence, never a guess. A route outside the one form the wire reads
     // refuses the refusal before emission, by name, rather than being
     // rewritten or sent unreadable (fix round 430s4a6 L2).
-    let route = pinned_model(extra).and_then(|model| kind.served_route(model));
+    let route = model_pin.and_then(|model| kind.served_route(model));
     let mut invocation = invocation;
     if let Some(refusal) = invocation.refusal.take() {
         invocation.refusal = Some(

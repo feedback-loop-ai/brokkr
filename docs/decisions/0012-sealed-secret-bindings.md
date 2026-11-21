@@ -141,3 +141,11 @@ does no I/O, and a stalled or closed stderr can no longer keep an attempt
 from settling or hold the run between its failure and its park. A
 dialect step keeps its driver's stderr for that tell, so a validator a
 signal kills still leaves its tail on the engine's stderr.
+
+**2026-11-21, round three (#1199, proposed).** The Codex stderr header is checked
+against the pin in the seat's own validated passthrough. The driver uses
+`--model` and Codex's declared `-m` there. Other built-in adapters use
+`--model` alone for refusal attribution. The engine queues the masked tail
+while it appends the terminal event and any park due on that ending, then
+tells it after those appends. A terminal event held for journal contention
+keeps its tail until the event lands and its turn's appends finish.

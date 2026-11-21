@@ -409,7 +409,7 @@ fn served_model_evidence_is_strict_and_dsh_reads_nested_usage_chunks() {
     assert_eq!(model_in_header(invalid, Some("not valid")), None);
     let short = |extra: &[&str]| {
         let extra: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
-        pinned_model(&extra).map(str::to_string)
+        pinned_model(&extra, AdapterKind::Codex.model_flag()).map(str::to_string)
     };
     assert_eq!(short(&["exec", "-m", "gpt-x"]).as_deref(), Some("gpt-x"));
     assert_eq!(short(&["exec", "-m=gpt-x"]).as_deref(), Some("gpt-x"));

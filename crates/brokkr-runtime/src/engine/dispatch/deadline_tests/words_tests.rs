@@ -619,7 +619,7 @@ fn a_sequences_unraised_early_ending_keeps_todays_words() {
     );
     assert_eq!(
         error,
-        "sequence step 'draft': reported 'halt', outside its declared results [\"complete\"]"
+        "sequence step 'draft': reported 'halt', outside its declared results [\"complete\"]; driver stderr: empty"
     );
 }
 

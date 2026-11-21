@@ -51,6 +51,7 @@ pub use broker::evidence;
 // The test modules compare a box's argv through `use super::*`.
 #[cfg(test)]
 use boxed::hands_command;
+mod attempt_stderr;
 mod capability_calls;
 mod carry;
 mod checkpoints;
@@ -534,9 +535,7 @@ pub struct Engine {
     /// The run's lock while this process drives it (decision 0108 ruling
     /// 1), taken before the first append and let go as the engine is.
     run_lock: Option<crate::run_lock::RunLock>,
-    /// Where a failed attempt's masked stderr tail is told, after its
-    /// terminal event is appended (#1199): the engine's stderr, never the
-    /// journal. A test hands its own writer to watch the order.
+    stderr: attempt_stderr::AttemptStderr,
     told: Box<dyn std::io::Write + Send>,
 }
 
@@ -618,6 +617,7 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         fence: None,
         held: None,
         run_lock: None,
+        stderr: Default::default(),
         told: Box::new(std::io::stderr()),
     }
 }
@@ -794,7 +794,9 @@ impl Engine {
                 Ok(None) => {}
                 Err(error) => {
                     before_lawful_end(&error);
-                    if let Some(end) = self.lawful_end_under_contention(error)? {
+                    let end = self.lawful_end_under_contention(error)?;
+                    self.finish_turn()?;
+                    if let Some(end) = end {
                         return Ok(end);
                     }
                 }
@@ -838,6 +840,7 @@ impl Engine {
             }
         }
         self.replay = replay;
+        self.finish_turn()?;
         Ok(None)
     }
 
@@ -925,24 +928,26 @@ impl Engine {
         effect_id: &str,
     ) -> Result<(), EngineError> {
         let attempt_id = held.attempt_id.clone();
-        match self.append_raw(held.event_type, held.payload, held.attempt_id) {
+        self.stderr.active = held.stderr;
+        let landed = match self.append_raw(held.event_type, held.payload, held.attempt_id) {
             Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
                 let reason = format!(
                     "the journal refused the result a peer's lock had held back: {refusal}"
                 );
                 let settled =
                     json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
-                self.append_raw(EventType::EffectIndeterminate, settled, attempt_id)
+                self.append(EventType::EffectIndeterminate, settled, attempt_id)
             }
             landed => landed,
-        }
-        .map(drop)
+        };
+        self.stderr.active = None;
+        landed.map(drop)
     }
 
     fn append(
         &mut self,
         event_type: EventType,
-        payload: Value,
+        mut payload: Value,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, EngineError> {
         // Decision 0106 ruling 1: every `run/parked` states its cause, and
@@ -967,6 +972,7 @@ impl Engine {
                 return Ok(moved);
             }
         }
+        self.stderr.name(event_type, &mut payload);
         self.append_raw(event_type, payload, attempt_id)
     }
 
@@ -1491,29 +1497,21 @@ impl Engine {
             DriverRun::Ran(report) => report,
         };
         let start_failure = failed_to_start(&report);
-        let stderr = brokkr_protocol::process::DriverStderr::of(&report.stderr);
         let unproven = Unproven::seat(&report);
-        // Told only once the terminal event is appended, so a stalled
-        // stderr cannot keep the attempt from settling (#1199).
-        let mut told = true;
-        match report.settled_outcome() {
+        let outcome = report.settled_outcome();
+        self.stderr.active = Some(report.stderr);
+        match outcome {
             AttemptOutcome::Succeeded { result } => {
                 let result = stamp_boundary(result, boundary);
-                told = false;
                 self.append_succeeded(effect_id, attempt_id, result, |refusal| {
-                    told = true;
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "error": stderr.named(&refusal),
-                    })
+                    json!({"effect_id": effect_id, "attempt_id": attempt_id, "error": refusal})
                 })?;
             }
             AttemptOutcome::Failed { error } => {
                 let mut payload = json!({
                     "effect_id": effect_id,
                     "attempt_id": attempt_id,
-                    "error": stderr.named(&error),
+                    "error": error,
                 });
                 if start_failure {
                     start_failure_fields(&mut payload, selection, vec![None]);
@@ -1536,23 +1534,14 @@ impl Engine {
                     json!(Indeterminate {
                         effect_id,
                         attempt_id,
-                        reason: stderr.named(&reason),
+                        reason,
                         unproven,
                     }),
                     Some(attempt_id.to_string()),
                 )?;
             }
         }
-        if told {
-            stderr.tell(attempt_id, &mut self.told);
-        }
         Ok(())
-    }
-
-    /// Tell a step driver's masked stderr tail to the engine's stderr,
-    /// once its terminal event is appended (#1199).
-    fn tell_stderr(&mut self, attempt_id: &str, stderr: &str) {
-        brokkr_protocol::process::DriverStderr::of(stderr).tell(attempt_id, &mut self.told);
     }
 
     /// Spawn one driver and run one attempt, journaling its live

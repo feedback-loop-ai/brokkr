@@ -125,27 +125,59 @@ pub(super) fn seat_row(
     data
 }
 
-/// The concrete model id a seat's argv pins, where it pins one. The
-/// engine composes exactly one `--model`, or the `-m` an adapter whose
-/// harness takes it declares as its `model_flag` (Codex does), in every
-/// spelling the compiler's pin reader admits for it: split, `-m=VALUE`
-/// and the short flag's attached `-mVALUE`. A driver reading its own
-/// launch facts takes the first, never a later duplicate.
-pub(super) fn pinned_model(extra: &[String]) -> Option<&str> {
+/// The seat's validated passthrough has the pin in the compiler's split
+/// or equals form, or in attached form for the adapter's short flag.
+pub(super) fn pinned_model<'a>(extra: &'a [String], model_flag: Option<&str>) -> Option<&'a str> {
     let mut parts = extra.iter();
     while let Some(part) = parts.next() {
-        if part == "--model" || part == "-m" {
+        if part == "--model" || Some(part.as_str()) == model_flag {
             return parts.next().map(String::as_str);
         }
         if let Some(value) = part.strip_prefix("--model=") {
             return Some(value);
         }
-        if let Some(value) = part.strip_prefix("-m") {
+        if let Some(value) = model_flag.and_then(|flag| part.strip_prefix(flag)) {
             return Some(value.strip_prefix('=').unwrap_or(value));
         }
     }
     None
 }
+
+impl super::AdapterKind {
+    /// The built-in short model flag, in addition to `--model`.
+    pub(super) fn model_flag(self) -> Option<&'static str> {
+        match self {
+            Self::Codex => Some("-m"),
+            Self::Claude | Self::Lanetally | Self::Dsh | Self::Exec => None,
+        }
+    }
+}
+
+/// Define the kinds, their wire names, and the test inventory together.
+macro_rules! adapter_kinds {
+    ($($kind:ident => $name:literal),+ $(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum AdapterKind { $($kind),+ }
+
+        impl AdapterKind {
+            pub fn parse(name: &str) -> Option<AdapterKind> {
+                match name {
+                    $($name => Some(Self::$kind),)+
+                    _ => None,
+                }
+            }
+
+            #[cfg(test)]
+            const ALL: &[Self] = &[$(Self::$kind),+];
+
+            #[cfg(test)]
+            fn command_name(self) -> &'static str {
+                match self { $(Self::$kind => $name),+ }
+            }
+        }
+    };
+}
+pub(super) use adapter_kinds;
 
 /// Report a probe's one answer, or its typed refusal, or say it has
 /// neither. The answer is the checkpoint the model-output event emitted;

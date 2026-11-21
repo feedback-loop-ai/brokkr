@@ -77,8 +77,12 @@ impl std::io::Write for Watch {
 impl Watch {
     /// Hand `engine` a watch for its stderr, journaled under `dir`.
     pub(in crate::engine) fn on(dir: impl AsRef<std::path::Path>, engine: &mut Engine) -> Watch {
+        Self::on_db(dir.as_ref().join("forge.db"), engine)
+    }
+
+    pub(in crate::engine) fn on_db(db: std::path::PathBuf, engine: &mut Engine) -> Watch {
         let watch = Watch {
-            db: dir.as_ref().join("forge.db"),
+            db,
             run_id: engine.run_id.clone(),
             held_at_first_byte: Arc::default(),
             told: Arc::default(),
@@ -142,6 +146,7 @@ fn executed(command: Vec<String>) -> (tempfile::TempDir, Engine, Watch) {
     let watch = Watch::on(&dir, &mut driven);
     let requested = requested(&driven, "effect");
     execute_work(&mut driven, &[requested]).unwrap();
+    driven.stderr.tell(&mut driven.told);
     (dir, driven, watch)
 }
 
@@ -196,6 +201,7 @@ fn sequenced(command: Vec<String>) -> (tempfile::TempDir, Engine, Watch) {
         &Selection::new(),
     )
     .unwrap();
+    driven.stderr.tell(&mut driven.told);
     (dir, driven, watch)
 }
 
@@ -245,6 +251,7 @@ fn a_tell_to_a_closed_stderr_still_settles_the_attempt() {
     driven.told = Box::new(Closed);
     let requested = requested(&driven, "effect");
     execute_work(&mut driven, &[requested]).unwrap();
+    driven.stderr.tell(&mut driven.told);
     assert_eq!(failed_error(&driven), format!("boom; {}", evidence()));
 }
 
@@ -358,6 +365,7 @@ fn dialect_run(steps: &[SequenceStep]) -> (tempfile::TempDir, Engine, Watch) {
     let at = SequenceAt::new("effect", "attempt", "work");
     let input = json!({"role_path": "role.md", "inputs": {}});
     run_sequence(&mut driven, &at, steps, &input, 30, &Selection::new()).unwrap();
+    driven.stderr.tell(&mut driven.told);
     (dir, driven, watch)
 }
 
@@ -406,7 +414,7 @@ fn a_dialect_checks_stderr_reaches_no_journal_event() {
             format!("diag\n{named}"),
         ),
     ] {
-        let (_dir, driven, _watch) = dialect_run(&steps);
+        let (_dir, driven, watch) = dialect_run(&steps);
         let events = assert_sealed(&driven);
         let (event_type, result) = events
             .iter()
@@ -421,7 +429,12 @@ fn a_dialect_checks_stderr_reaches_no_journal_event() {
                 }
                 _ => None,
             })
-            .unwrap_or_else(|| panic!("the validator's result is journaled: {events:#?}"));
+            .unwrap_or_else(|| {
+                panic!(
+                    "the validator's result is journaled: {events:#?}; stderr: {:?}",
+                    watch.told_and_held().0
+                )
+            });
         assert_eq!(
             (event_type, &result["result"], &result["notes"]),
             (journaled, &json!(verdict), &json!(notes)),
@@ -445,6 +458,13 @@ fn a_killed_validators_tail_is_told_after_its_step_settles() {
     let parked = terminal(&events, EventType::EffectIndeterminate);
     let attempt = parked.payload["attempt_id"].as_str().unwrap();
     assert_eq!(
+        parked.payload["reason"],
+        format!(
+            "sequence step 'validate': {LOST}; driver stderr: 72 bytes \
+                 (first byte: letter; sha256: 4e6fcb0a6f0bc1e6)"
+        )
+    );
+    assert_eq!(
         watch.told_after(EventType::EffectIndeterminate),
         (
             format!(
@@ -454,6 +474,23 @@ fn a_killed_validators_tail_is_told_after_its_step_settles() {
             true
         )
     );
+}
+
+#[test]
+fn a_single_seat_refused_by_the_fence_names_and_tells_its_stderr() {
+    let command = driver_command(
+        "effect",
+        "attempt",
+        AttemptOutcome::Succeeded {
+            result: json!({"result": "complete", "commits": ["see the branch"]}),
+        },
+    );
+    let body = single_body(saying(command));
+    let events = assert_park_precedes_tell(body, EventType::EffectFailed);
+    let failure = terminal(&events, EventType::EffectFailed);
+    let error = failure.payload["error"].as_str().unwrap();
+    assert!(error.starts_with("seat record at journal seq "), "{error}");
+    assert!(error.ends_with(&format!("; {}", evidence())), "{error}");
 }
 
 /// A step's result the seat-record fence refuses fails the attempt there,
@@ -479,11 +516,242 @@ fn a_fenced_steps_tail_is_told_after_its_failure() {
         let watch = Watch::on(&dir, &mut driven);
         let at = SequenceAt::new("effect", "attempt", "work");
         run_sequence(&mut driven, &at, &steps, &input, 5, &Selection::new()).unwrap();
+        driven.stderr.tell(&mut driven.told);
         let events = assert_sealed(&driven);
         let failed = terminal(&events, EventType::EffectFailed);
+        let error = failed.payload["error"].as_str().unwrap();
+        assert!(
+            error.starts_with("sequence step 'fenced': seat record at journal seq "),
+            "{error}"
+        );
+        assert!(error.ends_with(&format!("; {}", evidence())), "{error}");
         assert_eq!(
             watch.told_after(EventType::EffectFailed),
             (told(failed), true)
         );
     }
+}
+
+/// Hold the first write until a separate observer has seen the journal.
+struct BlockingTell {
+    watch: Watch,
+    first_write: Option<std::sync::mpsc::SyncSender<()>>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+impl std::io::Write for BlockingTell {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if let Some(first_write) = self.first_write.take() {
+            first_write.send(()).unwrap();
+            self.release.recv().unwrap();
+        }
+        self.watch.write(bytes)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn assert_park_precedes_tell(body: SeatBody, ending: EventType) -> Vec<EventEnvelope> {
+    let (dir, mut driven) = engine(body);
+    driven
+        .bundle
+        .seats
+        .get_mut("work")
+        .unwrap()
+        .limits
+        .max_attempts = 1;
+    let watch = Watch::on(&dir, &mut driven);
+    driven
+        .append(EventType::PhaseEntered, json!({"phase": "work"}), None)
+        .unwrap();
+    let mut request = requested(&driven, "effect").payload;
+    request["phase"] = json!("work");
+    request["seat"] = json!("work");
+    request["idempotency_key"] = json!("work:test");
+    driven
+        .append(EventType::EffectRequested, request, None)
+        .unwrap();
+    let (send, first) = std::sync::mpsc::sync_channel(0);
+    let (release, proceed) = std::sync::mpsc::channel();
+    driven.told = Box::new(BlockingTell {
+        watch: watch.clone(),
+        first_write: Some(send),
+        release: proceed,
+    });
+    let journal = watch.db.clone();
+    let run_id = driven.run_id.clone();
+    let events = std::thread::scope(|scope| {
+        let observer = scope.spawn(move || {
+            first
+                .recv_timeout(std::time::Duration::from_secs(15))
+                .unwrap();
+            let record = Store::open(&journal).unwrap().load(&run_id).unwrap();
+            release.send(()).unwrap();
+            record
+        });
+        let run = driven.drive().unwrap();
+        assert_eq!(
+            run.state.run.status(),
+            brokkr_core::fold::Status::AwaitingOperator
+        );
+        observer.join().unwrap()
+    });
+    let kinds: Vec<_> = events.iter().map(|e| e.event_type).collect();
+    assert_eq!(&kinds[kinds.len() - 2..], [ending, EventType::RunParked]);
+    assert_eq!(watch.told_and_held().0, told(terminal(&events, ending)));
+    events
+}
+
+fn lost_driver() -> Vec<String> {
+    saying(driver_command(
+        "effect",
+        "attempt",
+        AttemptOutcome::Indeterminate {
+            reason: "lost".into(),
+        },
+    ))
+}
+
+#[test]
+fn an_indeterminate_attempt_parks_before_its_first_stderr_write() {
+    assert_park_precedes_tell(single_body(lost_driver()), EventType::EffectIndeterminate);
+}
+
+#[test]
+fn an_indeterminate_step_parks_before_its_first_stderr_write() {
+    assert_park_precedes_tell(
+        SeatBody::Sequence {
+            steps: vec![step("lost", lost_driver())],
+        },
+        EventType::EffectIndeterminate,
+    );
+}
+
+#[test]
+fn a_failure_at_the_attempt_cap_parks_before_its_first_stderr_write() {
+    assert_park_precedes_tell(single_body(saying(failing())), EventType::EffectFailed);
+}
+
+fn reporting(name: &str, result: Value) -> SequenceStep {
+    step(
+        name,
+        saying(driver_command(
+            "effect",
+            "attempt",
+            AttemptOutcome::Succeeded { result },
+        )),
+    )
+}
+
+fn assert_step_ending(
+    driven: &mut Engine,
+    watch: &Watch,
+    event: EventType,
+    field: &str,
+    reason: &str,
+) {
+    driven.stderr.tell(&mut driven.told);
+    let events = assert_sealed(driven);
+    assert_eq!(
+        terminal_text(&events, event, field),
+        format!("{reason}; {}", evidence())
+    );
+    assert_eq!(
+        watch.told_after(event),
+        (told(terminal(&events, event)), true)
+    );
+}
+
+#[test]
+fn a_nonfinal_step_without_a_result_word_names_and_tells_its_stderr() {
+    assert_vocabulary_ending(json!({"notes": "missing word"}), "has no 'result' string");
+}
+
+#[test]
+fn a_nonfinal_step_with_an_undeclared_word_names_and_tells_its_stderr() {
+    assert_vocabulary_ending(
+        json!({"result": "invented"}),
+        "reported 'invented', outside its declared results [\"complete\"]",
+    );
+}
+
+fn assert_vocabulary_ending(result: Value, reason: &str) {
+    let steps = [
+        reporting("first", result),
+        step("never", vec!["missing-driver".into()]),
+    ];
+    let (dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    let watch = Watch::on(&dir, &mut driven);
+    let at = SequenceAt::new("effect", "attempt", "work");
+    run_sequence(
+        &mut driven,
+        &at,
+        &steps,
+        &two_step_input(),
+        5,
+        &Selection::new(),
+    )
+    .unwrap();
+    assert_step_ending(
+        &mut driven,
+        &watch,
+        EventType::EffectFailed,
+        "error",
+        &format!("sequence step 'first': {reason}"),
+    );
+}
+
+#[test]
+fn a_step_with_a_malformed_change_names_and_tells_its_stderr() {
+    let steps = [reporting(
+        "change",
+        json!({"result": "complete", "inputs": {"change": "BAD!"}}),
+    )];
+    let (dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    driven
+        .bundle
+        .seats
+        .get_mut("work")
+        .unwrap()
+        .inputs
+        .push("change".into());
+    let watch = Watch::on(&dir, &mut driven);
+    let at = SequenceAt::new("effect", "attempt", "work");
+    run_sequence(
+        &mut driven,
+        &at,
+        &steps,
+        &step_input(),
+        5,
+        &Selection::new(),
+    )
+    .unwrap();
+    assert_step_ending(
+        &mut driven, &watch, EventType::EffectIndeterminate, "reason",
+        "sequence step 'change': declared input 'change' must match ^[a-z0-9][a-z0-9._-]*$, got \"BAD!\"",
+    );
+}
+
+#[test]
+fn a_step_that_contradicts_the_validator_names_and_tells_its_stderr() {
+    let (dir, mut driven, mut steps, selection) = judged_sequence(
+        "clarify",
+        "check",
+        json!({"result": "clear"}),
+        json!({"result": "ambiguous"}),
+    );
+    let StepBody::Invocation(Invocation::Single { command, .. }) = &mut steps[1].body else {
+        panic!("the judge must be a single driver");
+    };
+    *command = saying(std::mem::take(command));
+    let watch = Watch::on(&dir, &mut driven);
+    let mut current = state(Some("clarify"), Cursor::RequestEffect);
+    drafted(&mut current, "proof-change");
+    let _ = sequence_journal(&mut driven, &current, "check", &steps, &selection);
+    assert_step_ending(
+        &mut driven, &watch, EventType::EffectIndeterminate, "reason",
+        "sequence step 'judge': result '\"clear\"' contradicts deterministic step 'check' result 'ambiguous'",
+    );
 }

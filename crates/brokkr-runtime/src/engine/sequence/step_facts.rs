@@ -1,33 +1,14 @@
-//! The pure step facts a sequence's settling reads: its driver's outcome
-//! with its stderr's evidence, the step's own result vocabulary, the change a
+//! The pure step facts a sequence's settling reads: its driver's stderr,
+//! the step's own result vocabulary, the change a
 //! dialect step expands, and a dialect step's outcome. Moved out of
 //! `sequence.rs` mechanically so that file stays within ruling 4's 800-line
 //! ceiling (decision 0103 slice 4c2b); no behaviour changed.
 
-use brokkr_protocol::process::DriverStderr;
 use brokkr_protocol::AttemptOutcome;
 use serde_json::Value;
 
 use super::super::{DriverRun, Unproven};
 use crate::bundle::{DialectExecution, SequenceStep};
-
-/// A step driver's outcome, its failure or indeterminate reason naming
-/// the driver's stderr by evidence, as a single seat's does (#1199). Pure:
-/// the masked tail is told by the step's settling, after its terminal
-/// event is appended. It reads the settled outcome (#403): a step whose
-/// tree is not proven over is indeterminate.
-pub(super) fn tailed_outcome(report: &brokkr_protocol::AttemptReport) -> AttemptOutcome {
-    let stderr = DriverStderr::of(&report.stderr);
-    match report.settled_outcome() {
-        AttemptOutcome::Succeeded { result } => AttemptOutcome::Succeeded { result },
-        AttemptOutcome::Failed { error } => AttemptOutcome::Failed {
-            error: stderr.named(&error),
-        },
-        AttemptOutcome::Indeterminate { reason } => AttemptOutcome::Indeterminate {
-            reason: stderr.named(&reason),
-        },
-    }
-}
 
 /// Whether a dialect step's argv or state names `{change}`.
 pub(crate) fn needs_change(execution: &DialectExecution) -> bool {
@@ -69,10 +50,10 @@ pub(crate) fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> 
 /// A step driver's retained stderr, which its settling tells once the
 /// attempt's terminal event is appended (#1199); a driver that never
 /// spawned retained none.
-pub(super) fn retained_stderr(run: &DriverRun) -> String {
+pub(super) fn retained_stderr(run: &DriverRun) -> Option<String> {
     match run {
-        DriverRun::SpawnFailed(_) => String::new(),
-        DriverRun::Ran(report) => report.stderr.clone(),
+        DriverRun::SpawnFailed(_) => None,
+        DriverRun::Ran(report) => Some(report.stderr.clone()),
     }
 }
 

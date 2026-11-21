@@ -316,10 +316,10 @@ printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You ha
     assert_eq!(error, "probe ended without an answer");
 }
 
-/// What a Claude seat pinned to `model` reports when its harness answers
-/// only a 429 `rate_limit_event`.
+/// What a Claude seat with this passthrough reports when its harness
+/// answers only a 429 `rate_limit_event`.
 #[cfg(unix)]
-fn rate_limited_claude_seat(model: &str) -> Vec<Body> {
+fn rate_limited_claude_seat(passthrough: &[&str]) -> Vec<Body> {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
@@ -331,7 +331,7 @@ printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You ha
 "#,
     );
     env.set("BROKKR_CLAUDE_BIN", &shim);
-    let extra = ["--model".to_string(), model.to_string()];
+    let extra: Vec<_> = passthrough.iter().map(|part| part.to_string()).collect();
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Claude,
@@ -352,7 +352,7 @@ printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You ha
 #[cfg(unix)]
 #[test]
 fn chief_review_attributed_refusal_must_roundtrip_its_own_reader() {
-    let messages = rate_limited_claude_seat("featherless:qwen/qwen3");
+    let messages = rate_limited_claude_seat(&["--model", "featherless:qwen/qwen3"]);
     let Body::Result {
         refusal: Some(refusal),
         ..
@@ -379,7 +379,7 @@ fn chief_review_attributed_refusal_must_roundtrip_its_own_reader() {
 #[cfg(unix)]
 #[test]
 fn a_refusal_whose_route_the_wire_cannot_carry_fails_the_invocation_by_name() {
-    let messages = rate_limited_claude_seat("bad!route/qwen3");
+    let messages = rate_limited_claude_seat(&["--model", "bad!route/qwen3"]);
     assert!(
         !messages
             .iter()
@@ -986,5 +986,30 @@ fn a_refusal_with_no_token_keeps_a_default_and_each_adapter_names_itself() {
         (AdapterKind::Exec, "exec"),
     ] {
         assert_eq!(kind.provider_name(), provider, "{kind:?}");
+    }
+}
+
+#[test]
+fn claude_refusal_attribution_reads_only_the_long_model_flag() {
+    for (extra, route) in [
+        (&["-mwrong/model"][..], None),
+        (
+            &["-mwrong/model", "--model=anthropic/claude-x"][..],
+            Some("anthropic"),
+        ),
+    ] {
+        let bodies = rate_limited_claude_seat(extra);
+        let Some(Body::Result {
+            status: ResultStatus::Failed,
+            refusal: Some(refusal),
+            ..
+        }) = bodies.last()
+        else {
+            panic!("Claude should report a typed refusal: {bodies:?}");
+        };
+        assert_eq!(
+            (refusal.class(), refusal.provider(), refusal.route()),
+            (RefusalClass::RateLimit, "claude", route)
+        );
     }
 }

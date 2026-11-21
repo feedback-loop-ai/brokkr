@@ -7,44 +7,35 @@
 
 use super::tests::executable;
 use super::*;
-use crate::env_guard::EnvGuard;
+use std::process::{Command, Output};
 
 /// What the harness prints that no seat binds, so no driver masks it.
 const SENTINEL: &str = "UNBOUND-SENTINEL-1199";
 
-/// How `kind`'s seat is staged with its harness pinned to `shim`: the
-/// passthrough it runs with, and the kind the test visits after it.
-/// Exhaustive with no wildcard, and the one place the kinds are listed:
-/// a new kind must say how it is staged, and is visited only once the
-/// kind before it names it, as the last names none.
-fn staged(
-    kind: AdapterKind,
-    env: &mut EnvGuard,
-    dir: &Path,
-    shim: &Path,
-) -> (Vec<String>, Option<AdapterKind>) {
+/// The passthrough for `kind`, with its harness pinned to `shim`.
+/// This match must stage every kind in the enum's generated inventory.
+fn staged(kind: AdapterKind, child: &mut Command, dir: &Path, shim: &Path) -> Vec<String> {
     let pinned = |model: &str| vec!["--model".to_string(), model.to_string()];
     match kind {
         AdapterKind::Claude => {
-            env.set("BROKKR_CLAUDE_BIN", shim);
-            (pinned("claude-x"), Some(AdapterKind::Lanetally))
+            child.env("BROKKR_CLAUDE_BIN", shim);
+            pinned("claude-x")
         }
         AdapterKind::Lanetally => {
-            env.set("BROKKR_LANETALLY_BIN", shim);
-            env.set("BROKKR_CLAUDE_BIN", shim);
-            (pinned("claude-x"), Some(AdapterKind::Codex))
+            child
+                .env("BROKKR_LANETALLY_BIN", shim)
+                .env("BROKKR_CLAUDE_BIN", shim);
+            pinned("claude-x")
         }
         AdapterKind::Codex => {
-            env.set("BROKKR_CODEX_BIN", shim);
-            (pinned("gpt-x"), Some(AdapterKind::Dsh))
+            child.env("BROKKR_CODEX_BIN", shim);
+            pinned("gpt-x")
         }
         AdapterKind::Dsh => {
-            env.set("BROKKR_DSH_BIN", shim);
-            env.set("DSH_HOME", dir);
-            (Vec::new(), Some(AdapterKind::Exec))
+            child.env("BROKKR_DSH_BIN", shim).env("DSH_HOME", dir);
+            Vec::new()
         }
-        // The exec seat is a dialect validator: its command is the shim.
-        AdapterKind::Exec => (vec![shim.to_string_lossy().into_owned()], None),
+        AdapterKind::Exec => vec![shim.to_string_lossy().into_owned()],
     }
 }
 
@@ -66,22 +57,61 @@ fn harness(dir: &Path, code: i32) -> String {
     )
 }
 
-/// The driver's stdout, line by line, for one start of `kind` on `extra`.
-fn served(kind: AdapterKind, extra: &[String], input: Value) -> Vec<String> {
+const DRIVER: &str = "BROKKR_TEST_STDERR_ADAPTER";
+const ARGS: &str = "BROKKR_TEST_STDERR_PASSTHROUGH";
+
+/// Run the production stdio entry point when the parent starts this test
+/// binary as a driver. Libtest banners are outside the driver's JSON lines.
+#[test]
+fn stdio_driver_child() {
+    let Ok(name) = std::env::var(DRIVER) else {
+        return;
+    };
+    let kind = AdapterKind::parse(&name).unwrap();
+    let extra = serde_json::from_str(&std::env::var(ARGS).unwrap()).unwrap();
+    super::serve(kind, extra, super::tests::unconfined).unwrap();
+}
+
+fn driver(kind: AdapterKind) -> Command {
+    let mut child = Command::new(std::env::current_exe().unwrap());
+    child
+        .args([
+            "--exact",
+            concat!(module_path!(), "::stdio_driver_child")
+                .strip_prefix("brokkr_protocol::")
+                .unwrap(),
+            "--nocapture",
+            "--quiet",
+        ])
+        .env(DRIVER, kind.command_name())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    child
+}
+
+fn served(mut child: Command, extra: &[String], input: Value) -> Output {
     let (hello, start) = start::hello_and_start(input);
-    let mut stdout = Vec::new();
-    let wire = format!("{hello}\n{start}\n");
-    start::serve_io(kind, extra, wire.as_bytes(), &mut stdout).unwrap();
-    String::from_utf8(stdout)
-        .unwrap()
+    let mut child = child
+        .env(ARGS, serde_json::to_string(extra).unwrap())
+        .spawn()
+        .unwrap();
+    writeln!(child.stdin.take().unwrap(), "{hello}\n{start}").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    output
+}
+
+fn wire(stdout: &str) -> Vec<&str> {
+    stdout
         .lines()
-        .map(str::to_string)
+        .filter(|line| line.starts_with('{'))
         .collect()
 }
 
 /// The terminal result's status and its result's verdict, `null` where
 /// it carries none.
-fn terminal(stdout: &[String]) -> (Value, Value) {
+fn terminal(stdout: &[&str]) -> (Value, Value) {
     let last: Value = serde_json::from_str(stdout.last().unwrap()).unwrap();
     assert_eq!(last["type"], "result", "{stdout:?}");
     (last["status"].clone(), last["result"]["result"].clone())
@@ -90,23 +120,22 @@ fn terminal(stdout: &[String]) -> (Value, Value) {
 #[cfg(unix)]
 #[test]
 fn no_adapter_puts_its_harness_stderr_on_the_wire() {
-    let mut env = EnvGuard::lock();
-    let mut visited = Vec::new();
-    let mut next = Some(AdapterKind::Claude);
-    while let Some(kind) = next {
-        visited.push(kind);
+    for &kind in AdapterKind::ALL {
         for code in [0, 3] {
             let dir = tempfile::tempdir().unwrap();
             let shim = executable(dir.path(), "harness", &harness(dir.path(), code));
-            let (extra, after) = staged(kind, &mut env, dir.path(), &shim);
-            next = after;
+            let mut child = driver(kind);
+            let extra = staged(kind, &mut child, dir.path(), &shim);
             let result = dir.path().join("result.json");
             let mut input = json!({"role_path": "/dev/null", "allowed_results": ["complete"],
                                    "result_path": result, "workdir": dir.path()});
             if kind == AdapterKind::Exec {
                 input["dialect_exec"] = json!({"failure_result": "fail"});
             }
-            let stdout = served(kind, &extra, input);
+            let output = served(child, &extra, input);
+            let raw = String::from_utf8(output.stdout).unwrap();
+            assert!(!raw.contains(SENTINEL), "{kind:?} {code}: {raw}");
+            let stdout = wire(&raw);
             assert!(
                 dir.path().join("ran").exists(),
                 "{kind:?} {code}: {stdout:?}"
@@ -120,10 +149,95 @@ fn no_adapter_puts_its_harness_stderr_on_the_wire() {
                 (_, _) => (json!("failed"), Value::Null),
             };
             assert_eq!(terminal(&stdout), expected, "{kind:?} {code}: {stdout:?}");
-            for message in &stdout {
-                assert!(!message.contains(SENTINEL), "{kind:?} {code}: {message}");
-            }
         }
     }
-    assert_eq!(visited.len(), 5, "{visited:?}");
+}
+
+fn assert_codex_stderr_model(extra: &[&str], header: &str, expected: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "-mgpt-y",
+        "#!/bin/sh\ncat >/dev/null\nprintf 'model: %s\n' \"$BROKKR_TEST_HEADER\" >&2\n",
+    );
+    assert_eq!(shim.file_name().unwrap(), "-mgpt-y");
+    let path = std::env::join_paths(
+        std::iter::once(dir.path().to_path_buf())
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    let extra: Vec<_> = extra.iter().map(|part| part.to_string()).collect();
+    let mut child = driver(AdapterKind::Codex);
+    child
+        .env("PATH", &path)
+        .env("BROKKR_CODEX_BIN", shim.file_name().unwrap())
+        .env("BROKKR_TEST_HEADER", header);
+    let output = served(
+        child,
+        &extra,
+        json!({
+            "role_path": "/dev/null", "workdir": dir.path(),
+            "result_path": dir.path().join("result.json"),
+            "allowed_results": ["complete"]
+        }),
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let model = wire(&stdout)
+        .into_iter()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|row| row["data"]["step"] == "codex-session-finished")
+        .unwrap_or_else(|| {
+            panic!(
+                "{stdout}; stderr: {:?}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+        });
+    assert_eq!(model["data"]["model"], expected, "{extra:?}, {header}");
+}
+
+#[test]
+fn codex_stderr_does_not_take_the_executable_name_as_its_pin() {
+    assert_codex_stderr_model(&["--model", "gpt-x"], "gpt-y", MODEL_NOT_REPORTED);
+}
+
+#[test]
+fn codex_stderr_admits_the_seat_pin_with_a_short_flag_shaped_executable() {
+    assert_codex_stderr_model(&["--model", "gpt-x"], "gpt-x", "gpt-x");
+}
+
+#[test]
+fn codex_stderr_with_no_passthrough_pin_does_not_report_a_model() {
+    assert_codex_stderr_model(&[], "gpt-y", MODEL_NOT_REPORTED);
+}
+
+#[test]
+fn an_exec_state_spawn_failure_preserves_masked_validator_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let extra = [
+        "sh".into(),
+        "-c".into(),
+        format!("cat >/dev/null; printf '%s\n' '{SENTINEL}' >&2"),
+    ];
+    let output = served(
+        driver(AdapterKind::Exec),
+        &extra,
+        json!({
+            "role_path": "/dev/null", "workdir": dir.path(),
+            "result_path": dir.path().join("result.json"),
+            "dialect_exec": {"state": [dir.path().join("missing-state")]}
+        }),
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!stdout.contains(SENTINEL), "{stdout}");
+    let rows = wire(&stdout);
+    let last: Value = serde_json::from_str(rows.last().unwrap()).unwrap();
+    assert_eq!(last["data"]["step"], "exec-started");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let evidence = crate::process::Evidence::of(format!("{SENTINEL}\n").as_bytes());
+    assert_eq!(stderr.lines().next(), Some(SENTINEL), "{stderr}");
+    assert_eq!(stderr.matches(SENTINEL).count(), 1, "{stderr}");
+    assert_eq!(
+        stderr.lines().last().unwrap(),
+        format!("validator stderr: {evidence}; the command was spawned, so no result is sent")
+    );
 }

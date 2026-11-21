@@ -340,10 +340,42 @@ impl Engine {
         // gate earned.
         let dispatched = self.execute(events, state, effect_id, seat);
         self.cooldown.answers.clear();
+        self.stderr.active = None;
         if dispatched.is_err() {
             self.active_gate_head = None;
         }
         dispatched
+    }
+
+    /// Append any park the terminal record already requires before stderr
+    /// can stall the engine. A retry itself belongs to the next turn.
+    pub(super) fn park_after_terminal(&mut self) -> Result<(), EngineError> {
+        let mut replay = std::mem::take(&mut self.replay);
+        let state = replay.caught_up(&mut self.store, &self.run_id)?;
+        (self.current_cause, self.fence) = super::fence::tip_of(&replay.events);
+        let result = match &state.run {
+            brokkr_core::fold::Run::Running(Cursor::Park { reason }) => {
+                self.park_at_cursor(&replay.events, &state, reason.clone())
+            }
+            brokkr_core::fold::Run::Running(Cursor::ExecuteEffect {
+                effect_id,
+                seat,
+                failed_attempts,
+            }) => {
+                let max = self.seat_limits(Some(seat)).max_attempts;
+                self.park_on_record(
+                    &replay.events,
+                    effect_id,
+                    *failed_attempts,
+                    max,
+                    state.strategy.as_deref(),
+                )
+                .map(drop)
+            }
+            _ => Ok(()),
+        };
+        self.replay = replay;
+        result
     }
 
     /// The `Park` arm: the parked row, with the moved head's observations
