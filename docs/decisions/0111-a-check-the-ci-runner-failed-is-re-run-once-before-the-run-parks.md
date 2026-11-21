@@ -930,8 +930,8 @@ predicates are `green`'s own conditions, stated once here and nowhere else:
 - **P3, every required entry matched once, currently.** Every entry of `required_checks` in the
   entry set (ruling 6) has exactly one **eligible current match**: a check from its bound
   producer (its app, workflow path, job and event) in that producer's current execution, the
-  one run attempt defined below. A check from the same producer in another run, or in another
-  attempt of the current run, is **stale**, whatever it concluded, and never counts. "Exactly
+  one run attempt defined below. A check from the same producer in an earlier run or attempt is
+  **stale**, whatever it concluded, and never counts; one in a newer run or attempt is P8's. "Exactly
   one" is read over the complete check list and the complete job list of that attempt (P2), so
   a second job reporting the entry's name on a page the observer did not read can never leave
   the entry looking matched once.
@@ -944,6 +944,8 @@ predicates are `green`'s own conditions, stated once here and nowhere else:
   (above).
 - **P7, a readable observation from a trusted launch.** The launch passed ruling 2's rules, and
   the observation parsed under its contract, inside its bound.
+- **P8, one consistent snapshot.** For each entry, every list names the same attempt, the
+  current execution's, and none shows anything newer (the currentness rule, below).
 
 Each pass predicate is the negation of the rows that name it in the `Negates` column, so no
 predicate holds while one of its rows is true, and each predicate is named by at least one row.
@@ -977,6 +979,8 @@ default, and each paged list carries whether it was read to its last page.
 | `missing-required` | each entry's matches | P3 | an entry has no eligible current match; a stale check never makes it present | `a_required_audit_missing_from_the_observation_parks_as_missing_required` |
 | `ambiguous-required` | each entry's matches over the check and job lists | P3 | an entry matches more than one check, or more than one job of its current run attempt; or it is seen exactly once over a list whose `-incomplete` row is true, where a second may sit on the unread page; it names every match | `two_matches_for_one_required_check_park_as_ambiguous_required` |
 | `execution-ambiguous` | each key's complete run list | P3 | an entry's current execution cannot be told, as below | `two_unsettled_runs_for_one_entry_park_as_execution_ambiguous` |
+| `snapshot-inconsistent` | each item bearing on the entry, on every list, and the attempt it names; the entry's current execution | P8 | an item names a newer run or attempt of the entry's key, in any status, or two lists name different attempts as the entry's; it names the list, the item and both attempts | `a_complete_green_attempt_beside_a_queued_newer_attempt_on_the_check_list_parks_live_and_on_replay` |
+| `attempt-unnamed` | the same items | P8 | an item names no attempt, or its attempt is `unread`; a status under the entry's name is one | `a_status_under_the_name_of_a_required_entry_parks_as_attempt_unnamed_live_and_on_replay` |
 | `not-settled` | each match's status | P4 | a match is still queued or in progress when the observer's polling bound ends | `a_required_check_still_in_progress_parks_as_not_settled` |
 | `not-success` | each match's conclusion | P4 | a match concluded anything but `success`; it names the check and the word | `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success` |
 | `association-unproven` | each current execution's `pull_requests` | P5 | it does not name this pull request, its head and its base, or is empty | `a_run_with_an_empty_association_parks_as_association_unproven` |
@@ -1009,12 +1013,16 @@ subject is not evaluated, so it is never read as false in place of a park:
 - **No match for an entry.** `missing-required` is true for that entry, and the rows that read a
   match (`not-settled`, `not-success`, `association-unproven`, `association-ambiguous`,
   `revision-unproven`, `revision-disagrees`) have nothing to read for it and are false for it.
+  `snapshot-inconsistent` and `attempt-unnamed` read the items bearing on the entry, not its
+  match, so they are evaluated whether or not it has one.
 - **No current execution for an entry.** `execution-ambiguous` is true, and the entry has no
   eligible current match, so `missing-required` is true for it as well.
 - **More than one match.** `ambiguous-required` is true, and the match rows read every match.
 - **An incomplete list.** Its row is true, and the rows that read it are evaluated over what was
   read: a fact the unread pages could change is not established, so an entry seen with no match
-  is `missing-required` and one seen once is `ambiguous-required`.
+  is `missing-required` and one seen once is `ambiguous-required`. Every other row reads only
+  what was read; what the unread pages could hold is the list's own row. An overflow witness
+  holds no entry, so over it every entry is seen with no match.
 
 So every entry that is not exactly one settled, successful, singly associated, revision-proven
 match makes at least one row true, and no subject's absence lets green through. Worked, in the
@@ -1052,6 +1060,29 @@ attempt. Any other run for that key still queued or in progress, or a run list t
 could not read whole, is `execution-ambiguous`. The sealed observation holds each check's run id
 and attempt and each key's whole run list, so which match is current, and which stale, is
 re-derived from the journal alone.
+
+**The currentness rule: `green` needs one consistent snapshot.** This is its one home; P8 and
+its two rows cite it. The lists are read one after another, and a run can gain an attempt between two
+reads: a person's re-run, or a new run on an unchanged head, which HEAD's `labeled` and
+`unlabeled` events start (`.github/workflows/ci.yml:6-10`). The snapshot is the lists as
+sealed, and the rule reads nothing else:
+
+- **One attempt.** An item **bears on** an entry when it is a check run or a job of the entry's
+  bound producer under the entry's name, or a run of the entry's key. Every such item, on every
+  list (check runs, statuses, workflow runs and jobs), names one run and attempt, and each names
+  the entry's current execution. An item that names a newer run or attempt of the key, queued,
+  in progress or concluded, whether it succeeded or failed, or two lists that name different
+  attempts as the entry's, make `snapshot-inconsistent` true for the entry.
+- **A list that names no attempt cannot establish it.** An item that bears on an entry and names
+  no attempt, or carries it `unread`, makes `attempt-unnamed` true. A commit status names none
+  (ruling 3), so a status under an entry's name is such an item. The open pull requests on the
+  head carry no attempt and bear on no entry's; P5 and `pulls-incomplete` read them. Which field
+  of each list names the attempt is **unmeasured** until 0111a, so until its evidence every item
+  is `unread` there: that fails closed, as `revision-unproven` does.
+- **No winner is picked.** The rule says only when the snapshot is consistent; it never chooses
+  between two attempts. An attempt that starts after the last read is outside the snapshot: its
+  reach is a wrong `green`, landing as it is today, and the forge's checks at merge
+  ([The gate grants nothing](#the-gate-grants-nothing)).
 
 So a required audit with no check in its current run, an older same-producer `success` on the
 same head, and a second required job with an ordinary failed test parks, naming
@@ -1645,6 +1676,8 @@ member, `pull_request`, built in 0111b.
    - what a run's and a check run's `pull_requests` association holds, and in which cases it is
      empty, a fork's pull request among them (ruling 3);
    - whether the forge reports a job's key, and the app's numeric id (ruling 3);
+   - which field of each list names the run and attempt an item belongs to (the currentness
+     rule);
    - how each list pages, and how the observer tells the last page (ruling 3's bounded reads);
    - the largest page each list returned, against the 8 MiB response bound, and whether
      `gh api` streams a response body or holds it whole before writing it (ruling 3);
@@ -1831,6 +1864,25 @@ member, `pull_request`, built in 0111b.
      the first page of the check-run list is past 8 MiB, served by a stub `gh` to 0111b's real
      observer script and its pinned `head`; `CI-PARK` names `response-too-large` and
      `checks-incomplete`, and no byte of that page is parsed);
+   - the currentness rule, each live and on replay as the inventories are, over two entries A
+     (`test (ubuntu-latest)`) and B (the audit) of one key, every list complete, each
+     expecting `CI-PARK` with exactly these rows:
+     `a_complete_green_attempt_beside_a_queued_newer_attempt_on_the_check_list_parks_live_and_on_replay`
+     (the run list names run R at attempt 1, completed, its jobs complete and successful; the
+     check list holds those successes and A's check queued in R/2: `snapshot-inconsistent` for A);
+     `a_newer_attempt_in_progress_on_the_run_list_only_parks_live_and_on_replay` (the run list
+     names R/2 in progress, its job list complete and empty, the check list R/1's successes:
+     `missing-required` for A and B, then `snapshot-inconsistent` for A and B);
+     `two_lists_naming_different_attempts_park_live_and_on_replay` (the run and job lists name
+     R/2 completed and successful; the check list holds A's check in R/1 only and B's in R/2:
+     `missing-required` for A, then `snapshot-inconsistent` for A);
+     `a_newer_attempt_that_already_failed_parks_live_and_on_replay` (the run list names R/1
+     completed; the check list holds R/1's successes and A's R/2 `failure`:
+     `snapshot-inconsistent` for A, and no `not-success`, since R/1's is the current match);
+     `a_status_under_the_name_of_a_required_entry_parks_as_attempt_unnamed_live_and_on_replay`
+     (`attempt-unnamed` for A); and its control,
+     `a_consistent_single_attempt_snapshot_is_green_live_and_on_replay` (every item names R/1:
+     `CI-PASS`);
    - the shared facts and the dependency rule, each its worked case in the
      [park table](#the-park-table):
      `an_unread_engine_head_names_unrelated_and_head_unpublished`;
