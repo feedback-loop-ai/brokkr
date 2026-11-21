@@ -30,6 +30,7 @@ macro_rules! uncompiled_sequence_step {
             ends_on: Vec::new(),
             hard_results: Vec::new(),
             residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
+            declares_change: false,
         }
     };
 }
@@ -63,10 +64,10 @@ mod survey;
 mod tier;
 mod walk;
 
-pub use aggregate::Aggregate;
 pub(crate) use aggregate::{
     laws_of, MemberFindings, MemberLaw, MemberLaws, MemberVerdict, PanelJoin,
 };
+pub use aggregate::{Aggregate, BodyRefusal};
 use capability_record::{record_capabilities, CapabilityWalk};
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
@@ -148,6 +149,9 @@ pub enum CompileError {
     /// A seat that cannot be the folder's own (decision 0091 ruling 1).
     #[error("bundle: {0}")]
     Folder(compose::FolderSeatRefusal),
+    /// A body the engine can never take (decision 0109 follow-ups, #1221).
+    #[error("bundle: {0}")]
+    Body(BodyRefusal),
 }
 /// How [`CompileError::Capability`] renders.
 fn capability_line(reason: &str) -> String {
@@ -295,6 +299,9 @@ pub struct SequenceStep {
     /// The residual pair its seat compiles, which a gate step's or a panel
     /// step's word is bound to before a later step runs (decision 0109).
     pub residual: brokkr_core::findings::ResidualPair,
+    /// Whether its seat's compiled input set declares `change`, read at
+    /// compile from the seat scope, a select case's included (#1221 E).
+    pub declares_change: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1038,10 +1045,11 @@ impl Bundle {
         // Every compiled step's endings, after the dialect wrapper has
         // written the synthetic verify sequence (decision 0050, ruling 7).
         for (phase, seat) in &mut seated.seats {
+            let protected = *phase == table.protected_phase;
             sequence::stamp_endings(
                 &table.machine,
                 &resolved.name,
-                phase,
+                (phase, protected),
                 &seat.results,
                 &mut seat.body,
             )?;

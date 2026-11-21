@@ -41,6 +41,7 @@ fn bundle_with_sequence() -> Bundle {
         ends_on: Vec::new(),
         hard_results: Vec::new(),
         residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
+        declares_change: false,
     };
     let mut seats = BTreeMap::new();
     seats.insert(

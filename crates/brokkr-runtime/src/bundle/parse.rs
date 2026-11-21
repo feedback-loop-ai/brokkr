@@ -45,13 +45,21 @@ pub(super) struct SiteCompiler<'a> {
 /// seat's results and bindings. A select case is written by its own
 /// layer, and a panel step declares its own results. Every review-panel
 /// member's word is bound to the seat's `residual` pair (decision 0109
-/// ruling 2), whatever contains the member.
+/// ruling 2), whatever contains the member, and every sequence step knows
+/// whether the seat declares `change`, a select case's included (#1221 E).
 #[derive(Clone, Copy)]
 pub(super) struct SeatScope<'s> {
     pub(super) dir: &'s Path,
     pub(super) results: &'s [String],
     pub(super) secrets: &'s [String],
     pub(super) residual: ResidualPair,
+    pub(super) declares_change: bool,
+}
+
+/// Whether a compiled input set declares `change`, the seat's own
+/// identifier of the change a sequence carries on.
+pub(super) fn declares_change(inputs: &[String]) -> bool {
+    inputs.iter().any(|input| input == "change")
 }
 
 impl<'a> SiteCompiler<'a> {
@@ -287,6 +295,7 @@ impl<'a> SiteCompiler<'a> {
                 Aggregate::known()
             ))
         })?;
+        (aggregate.refuse_unbindable(what, at.residual)).map_err(CompileError::Body)?;
         for required in aggregate.required_results() {
             if !at.results.iter().any(|r| r == required) {
                 return Err(CompileError::Invalid(format!(
