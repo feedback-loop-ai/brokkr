@@ -103,24 +103,65 @@ impl<'a> Walk<'a> {
         } else if !consumed_here && path.is_dir() {
             self.stack.push((path, None));
         } else if consumed_here || path.is_file() {
-            refuse_secrets_store(&path)?;
+            refuse_secrets_store(&path).map_err(refused)?;
             self.paths.push(path);
         }
         Ok(())
     }
 }
 
+/// Why the walk refused a layer, one variant per check, each field borrowed
+/// from what the check read (#353). Its `Display` is the operator's text
+/// byte for byte; [`refused`] is the one place it becomes a
+/// [`CompileError`].
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum WalkRefusal<'a> {
+    /// An entry to pin is named `secrets.env` (decision 0012, layer 2).
+    #[error(
+        "bundle contains a secrets store '{}'; the store must \
+         live outside the bundle dir (e.g. .forge/secrets.env) \
+         so digests carry names only",
+        .path.display()
+    )]
+    SecretsStore { path: &'a Path },
+    /// A component of a pinned path is not UTF-8, so no manifest key can
+    /// preserve it; `path` is the whole path.
+    #[error(
+        "bundle filename '{}' is not UTF-8; manifest keys must preserve exact names",
+        .path.display()
+    )]
+    NotUtf8 { path: &'a Path },
+    /// A pinned key stands under a namespace the resolver computes.
+    #[error(
+        "bundle file '{rel}' uses the reserved '{prefix}' namespace; \
+         composition provenance is computed by the resolver, never \
+         supplied by a bundle"
+    )]
+    Reserved { rel: String, prefix: &'static str },
+    /// A consumed key no walked entry lists (decision 0065 slice one,
+    /// design D7), named through [`bounded_reference`].
+    #[error(
+        "{consumer}, which the walk that pins the layer lists under no entry of the name {} it was \
+         read by: the name reached the file through a case or normalization alias the \
+         filesystem accepted, or the entry was removed after the read. A layer's identity \
+         names a consumed file by the entry its directory lists, so it is refused; write the \
+         reference as its directory lists it (decision 0065 slice one, design D7)",
+        bounded_reference(.key)
+    )]
+    Unlisted { consumer: &'a str, key: &'a str },
+}
+
+/// The one conversion of a walk's refusal into the compiler's error.
+fn refused(refusal: WalkRefusal<'_>) -> CompileError {
+    CompileError::Invalid(refusal.to_string())
+}
+
 /// A secrets store inside the bundle would ride the manifest digest:
 /// rotation would change the digest AND the manifest would embed a SHA-256
 /// of the secret file — an offline-guessing oracle (decision 0012, layer 2).
-fn refuse_secrets_store(path: &Path) -> Result<(), CompileError> {
+fn refuse_secrets_store(path: &Path) -> Result<(), WalkRefusal<'_>> {
     if path.file_name().and_then(|n| n.to_str()) == Some("secrets.env") {
-        return Err(CompileError::Invalid(format!(
-            "bundle contains a secrets store '{}'; the store must \
-             live outside the bundle dir (e.g. .forge/secrets.env) \
-             so digests carry names only",
-            path.display()
-        )));
+        return Err(WalkRefusal::SecretsStore { path });
     }
     Ok(())
 }
@@ -131,8 +172,16 @@ pub(super) fn walk_keys(
     dir: &Path,
     mut paths: Vec<PathBuf>,
 ) -> Result<Vec<(PathBuf, String)>, CompileError> {
+    let keys = sorted_keys(dir, &mut paths).map_err(refused)?;
+    Ok(paths.into_iter().zip(keys).collect())
+}
+
+/// Sort `paths`, then each one's manifest key relative to `dir`, in that
+/// order, refusing the first path no key may name.
+fn sorted_keys<'a>(dir: &Path, paths: &'a mut [PathBuf]) -> Result<Vec<String>, WalkRefusal<'a>> {
     paths.sort();
-    let mut walked = Vec::with_capacity(paths.len());
+    let paths: &'a [PathBuf] = paths;
+    let mut keys = Vec::with_capacity(paths.len());
     for path in paths {
         // Join actual components, never replace bytes inside a name:
         // Unix `scripts\gate.sh` is a different file from `scripts/gate.sh`.
@@ -141,28 +190,17 @@ pub(super) fn walk_keys(
             .strip_prefix(dir)
             .expect("walked under dir")
             .iter()
-            .map(|name| {
-                name.to_str().ok_or_else(|| {
-                    CompileError::Invalid(format!(
-                        "bundle filename '{}' is not UTF-8; manifest keys must preserve exact names",
-                        path.display()
-                    ))
-                })
-            })
+            .map(|name| name.to_str().ok_or(WalkRefusal::NotUtf8 { path }))
             .collect::<Result<Vec<_>, _>>()?
             .join("/");
         // The composition and folder namespaces are computed, never read
         // from disk: a real file under one could otherwise forge provenance.
         if let Some(prefix) = super::compose::reserved_prefix(&rel) {
-            return Err(CompileError::Invalid(format!(
-                "bundle file '{rel}' uses the reserved '{prefix}' namespace; \
-                 composition provenance is computed by the resolver, never \
-                 supplied by a bundle"
-            )));
+            return Err(WalkRefusal::Reserved { rel, prefix });
         }
-        walked.push((path, rel));
+        keys.push(rel);
     }
-    Ok(walked)
+    Ok(keys)
 }
 
 /// The most pinned files and pinned bytes one bundle's walk may hold
@@ -385,21 +423,25 @@ pub(super) fn refuse_unlisted_consumed(
     consumed: &BTreeMap<String, Supplied>,
     walked: &[(PathBuf, String)],
 ) -> Result<(), CompileError> {
-    if let Some((key, supplied)) = consumed
+    unlisted_consumed(consumed, walked).map_err(refused)
+}
+
+/// The first consumed key, in `consumed`'s order, that no `walked` entry
+/// lists, refused naming who consumed it.
+fn unlisted_consumed<'a>(
+    consumed: &'a BTreeMap<String, Supplied>,
+    walked: &[(PathBuf, String)],
+) -> Result<(), WalkRefusal<'a>> {
+    match consumed
         .iter()
         .find(|(key, _)| !walked.iter().any(|(_, rel)| rel == *key))
     {
-        return Err(CompileError::Invalid(format!(
-            "{}, which the walk that pins the layer lists under no entry of the name {} it was \
-             read by: the name reached the file through a case or normalization alias the \
-             filesystem accepted, or the entry was removed after the read. A layer's identity \
-             names a consumed file by the entry its directory lists, so it is refused; write the \
-             reference as its directory lists it (decision 0065 slice one, design D7)",
-            supplied.consumer,
-            bounded_reference(key)
-        )));
+        Some((key, supplied)) => Err(WalkRefusal::Unlisted {
+            consumer: &supplied.consumer,
+            key,
+        }),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 /// Each walked entry's digest, a consumed one's that of the buffer it was
@@ -521,3 +563,6 @@ pub(super) fn read_within<R: std::io::Read>(reader: R, left: u64) -> std::io::Re
 fn read_file_within(path: &Path, left: u64) -> Result<Vec<u8>, CompileError> {
     Ok(read_within(std::fs::File::open(path)?, left)?)
 }
+
+#[cfg(test)]
+mod tests;
