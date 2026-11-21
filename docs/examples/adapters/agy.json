@@ -114,6 +114,50 @@
         "process_read": {
           "unmeasured": "process reads under the terminal sandbox are not measured: the record's host has none, and ps -e saw the host's processes under --sandbox in sandbox-skip-permissions (docs/evidence/adapters/agy-cli-1-5.md, Facts and Not measured)"
         }
+      },
+      {
+        "invocation": "cold",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "agy",
+          "binary": "agy",
+          "version": "1.5.13",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "iso-01, the positive control: all six sentinels started; iso-02, iso-05 and iso-06: a scratch HOME started none of the user's; iso-07, and box-engine-workspace-tool for brokkr hands serve itself: the engine's own server in that HOME's document started and answered; the driver refuses a workspace that carries agy's configuration (docs/evidence/adapters/agy-cli-1-5.md)"
+        },
+        "native_write": {
+          "measured": "box-engine-workspace-tool and box-other-natives: with the gate listing call_mcp_tool alone, write_file, edit_file and run_command were denied by name, and the hands tool wrote inside the worktree (box-engine-workspace-tool, box-default-notice); the denial is the gate's, by name, in agy's own process, not a boundary of the operating system (docs/evidence/adapters/agy-cli-1-5.md)"
+        },
+        "store_read": {
+          "unmeasured": "box-engine-workspace-tool and box-default-notice-carbon: the native read_file was denied by name by the gate; no box whose reach names a store was measured (docs/evidence/adapters/agy-cli-1-5.md, Fourth measurement, for level 3)"
+        },
+        "process_read": {
+          "measured": "box-reach: the hands tool's command saw 4 entries in /proc with bubblewrap as pid 1; box-engine-workspace-tool: the native shell, run_command, was denied by name by the gate (docs/evidence/adapters/agy-cli-1-5.md, Fourth measurement, for level 3)"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "agy",
+          "binary": "agy",
+          "version": "1.5.13",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "a replacement is a cold launch again under a fresh engine HOME; iso-01, the positive control: all six sentinels started; iso-02, iso-05 and iso-06: a scratch HOME started none of the user's; iso-07 and box-engine-workspace-tool: the engine's own server in that HOME's document started and answered; the driver refuses a workspace carrying agy's configuration (docs/evidence/adapters/agy-cli-1-5.md)"
+        },
+        "native_write": {
+          "measured": "a replacement is a cold launch again under a fresh engine HOME; box-engine-workspace-tool and box-other-natives: with the gate listing call_mcp_tool alone, write_file, edit_file and run_command were denied by name, and the hands tool wrote inside the worktree (box-default-notice); the denial is the gate's, by name, in agy's own process, not an operating-system boundary"
+        },
+        "store_read": {
+          "unmeasured": "a replacement is a cold launch again under a fresh engine HOME; box-engine-workspace-tool and box-default-notice-carbon: the native read_file was denied by name by the gate; no box whose reach names a store was measured (docs/evidence/adapters/agy-cli-1-5.md, Fourth measurement, for level 3)"
+        },
+        "process_read": {
+          "measured": "a replacement is a cold launch again under a fresh engine HOME; box-reach: the hands tool's command saw 4 entries in /proc with bubblewrap as pid 1; box-engine-workspace-tool: the native shell, run_command, was denied by name by the gate (docs/evidence/adapters/agy-cli-1-5.md, Fourth measurement, for level 3)"
+        }
       }
     ]
   },
@@ -168,7 +212,7 @@
     }
   },
   "hands": {
-    "unsupported": "level 1 is unboxed (#1200, decision 0075): a boxed Antigravity turn, its egress and its process reach are not measured, and the record's host has no terminal sandbox (docs/evidence/adapters/agy-cli-1-5.md, Not measured), so a site that boxes its hands refuses this seat"
+    "workspace": []
   },
   "resume": {
     "stream-work-site": {

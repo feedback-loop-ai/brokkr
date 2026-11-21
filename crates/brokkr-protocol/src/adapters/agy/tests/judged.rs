@@ -429,7 +429,7 @@ fn a_refused_option_is_named_and_never_quoted() {
         ("--model=x", "--model"),
         ("--no-such=secretvalue", "--no-such"),
     ] {
-        let error = launch("agy", &argv(&["--model", FLASH, part]), &[]).unwrap_err();
+        let error = launch("agy", &argv(&["--model", FLASH, part]), Hands::Native).unwrap_err();
         assert!(
             matches!(&error, LaunchError::Unadmitted(said) if said == name),
             "{error:?}"
@@ -454,14 +454,19 @@ fn a_rule_is_checked_whole_and_may_hold_several_words() {
         "mcp(a)b)",
     ];
     for rule in refused {
-        let error = launch("agy", &argv(&["--model", FLASH, "--allow", rule]), &[]).unwrap_err();
+        let error = launch(
+            "agy",
+            &argv(&["--model", FLASH, "--allow", rule]),
+            Hands::Native,
+        )
+        .unwrap_err();
         assert!(matches!(error, LaunchError::Untargeted), "{rule:?}");
         assert!(error.to_string().contains("--allow"));
     }
     let admitted = launch(
         "agy",
         &argv(&["--model", FLASH, "--allow", "command(git status)"]),
-        &[],
+        Hands::Native,
     );
     assert_eq!(
         admitted.unwrap().command.last().unwrap(),

@@ -24,8 +24,8 @@ Changes merged since v0.15.1 that the next release's notes carry.
   binds `HOME` is refused. The
   adapter ships as an example, `docs/examples/adapters/agy.json`, which a
   world copies into its adapters directory. It maps the four Gemini 4
-  models as provisional, holds no gate, declares no hands and is never
-  resumed; its route is class `contracted`. A seat whose served model is
+  models as provisional, holds no gate and is never resumed; its route is
+  class `contracted`. A seat whose served model is
   not exactly its pin is refused, and a turn agy stopped at a denial is
   never read as an answer: each row is judged as agy wrote it, one launch
   is one turn, and a denial once seen stands. Grants ride one
@@ -37,3 +37,16 @@ Changes merged since v0.15.1 that the next release's notes carry.
   shapes without hands are measured on Linux, so an agy seat compiles
   there ([provider
   adapters](../guides/provider-adapters.md#antigravity-cli-a-provisional-harness)).
+- **An Antigravity CLI seat holds boxed hands** (#1224). Agy's example
+  adapter declares hands that ride no argument, and its cold and
+  replacement shapes boxed, measured on Antigravity CLI 1.5.13 on Linux,
+  so an agy work seat at a site that boxes its hands compiles in a listed
+  provisional office. A boxed launch leaves the model one tool, the
+  engine's workspace tool: the engine HOME's MCP document names the hands
+  server, the one `--settings` value holds its one rule, the gate lists
+  `call_mcp_tool` alone, and there is no `--mode accept-edits`. Agy's own
+  process still runs on the host, and its native tools are switched off
+  by agy's hook, not by a boundary of the operating system. A boxed seat
+  that passes `--allow` is refused before agy starts. The unboxed launch
+  is unchanged ([provider
+  adapters](../guides/provider-adapters.md#a-boxed-agy-seat)).

@@ -450,12 +450,12 @@ fn a_launch_is_the_stream_head_the_pin_the_effort_and_one_settings_value() {
         ],
     ];
     for seat in seats {
-        let launched = launch("agy", &argv(seat), &[]).unwrap();
+        let launched = launch("agy", &argv(seat), Hands::Native).unwrap();
         assert_eq!(launched.command, golden);
         assert_eq!(launched.pin, "gemini-4-neon");
     }
     // No grant and no effort: the settings flag still rides, once.
-    let bare = launch("agy", &argv(&["--model", "gemini-4-argon"]), &[]).unwrap();
+    let bare = launch("agy", &argv(&["--model", "gemini-4-argon"]), Hands::Native).unwrap();
     let tail = [
         "--model",
         "gemini-4-argon",
@@ -472,25 +472,9 @@ fn a_launch_is_the_stream_head_the_pin_the_effort_and_one_settings_value() {
     }
 }
 
-/// The engine's rule joins the seat's in the one value, after them, and
-/// alone where the seat grants nothing.
-#[test]
-fn an_engine_rule_joins_the_one_settings_value() {
-    let rules = ["mcp(brokkr/workspace)".to_string()];
-    let settings_of = |seat: &[&str]| launch("agy", &argv(seat), &rules).unwrap().command.pop();
-    assert_eq!(
-        settings_of(&["--model", "gemini-4-neon", "--allow", "command(git)"]).unwrap(),
-        r#"{"permissions":{"allow":["command(git)","mcp(brokkr/workspace)"]}}"#
-    );
-    assert_eq!(
-        settings_of(&["--model", "gemini-4-neon"]).unwrap(),
-        r#"{"permissions":{"allow":["mcp(brokkr/workspace)"]}}"#
-    );
-}
-
 #[test]
 fn a_seat_writes_only_its_three_controls_once_each_with_a_value_a_pin_and_rules() {
-    let refused = |parts: &[&str]| launch("agy", &argv(parts), &[]).unwrap_err();
+    let refused = |parts: &[&str]| launch("agy", &argv(parts), Hands::Native).unwrap_err();
     for never in [
         "--add-dir",
         "--conversation",
@@ -533,7 +517,8 @@ fn a_seat_writes_only_its_three_controls_once_each_with_a_value_a_pin_and_rules(
         let error = refused(&["--model", "gemini-4-neon", "--allow", rule]);
         assert!(matches!(error, LaunchError::Unruled), "{rule}");
     }
-    let untargeted = launch("agy", &argv(&["--model", "m"]), &["mcp()".to_string()]);
+    let rules = ["mcp()".to_string()];
+    let untargeted = launch("agy", &argv(&["--model", "m"]), Hands::Boxed(&rules));
     assert!(matches!(untargeted, Err(LaunchError::Untargeted)));
 }
 
@@ -561,6 +546,7 @@ fn each_launch_refusal_states_what_was_written_and_never_a_value() {
         (LaunchError::Configured("/w/.agents/plugins".into()), "/w/.agents/plugins stands in the agy seat's working directory or a directory above it, and brokkr driver agy refuses a seat there; remove it, or run the seat elsewhere (#1200)"),
         (LaunchError::SignedOut, "Antigravity CLI is signed out: run `agy` once and sign in; the login is ~/.gemini/antigravity-cli/antigravity-oauth-token (#1200)"),
         (LaunchError::Unhomed(io()), "the engine's HOME for the agy seat was not made: entity not found"),
+        (LaunchError::BoxedGrant, "the seat's arguments carry '--allow', and an agy seat whose hands are boxed takes no native grant: its gate switches off every native tool, so the grant would do nothing (#1224)"),
     ];
     for (error, words) in stated {
         assert_eq!(
@@ -1416,42 +1402,6 @@ fn the_admission_refuses_before_spawn_or_serves_the_empty_set() {
     assert_eq!(settings, r#"{"permissions":{"allow":[]}}"#);
 }
 
-/// With one engine server: its document in the engine's HOME, its rule in
-/// the one settings value and `call_mcp_tool` on the gate's list.
-#[test]
-fn an_engine_server_rides_the_home_the_settings_and_the_gate() {
-    let served = crate::native_controls::mcp::agy::Served {
-        document: json!({"mcpServers": {"brokkr": {"command": "/opt/brokkr", "args": []}}}),
-        rules: vec!["mcp(brokkr/workspace)".to_string()],
-    };
-    let launched = launch("agy", &argv(&["--model", "gemini-4-neon"]), &served.rules).unwrap();
-    assert_eq!(
-        launched.command.last().unwrap(),
-        r#"{"permissions":{"allow":["mcp(brokkr/workspace)"]}}"#
-    );
-    let hooks = gate::hooks(Path::new("/opt/brokkr"), !served.rules.is_empty()).unwrap();
-    let root = tempfile::tempdir().unwrap();
-    let operator = operator_home(root.path());
-    let homes = Homes {
-        temp: root.path(),
-        operator: Some(&operator),
-    };
-    let home = home::made(
-        homes,
-        Written {
-            mcp: &served.document,
-            hooks: &hooks,
-        },
-    )
-    .unwrap();
-    let config = Path::new(home.path()).join(".gemini/config");
-    let document: Value =
-        serde_json::from_slice(&std::fs::read(config.join("mcp_config.json")).unwrap()).unwrap();
-    assert_eq!(document, served.document);
-    let hook = std::fs::read_to_string(config.join("hooks.json")).unwrap();
-    assert!(hook.contains("'manage_task' 'call_mcp_tool'\""), "{hook}");
-}
-
 /// A short secret bound to the seat, and agy's stderr and `error` text
 /// carrying it.
 const SECRET: &str = "tok9z";
@@ -1528,6 +1478,7 @@ fn a_bound_secret_in_agys_stderr_or_error_text_reaches_no_word() {
     assert!(answered.stderr.contains(&masked));
 }
 
+mod boxed;
 mod judged;
 mod last;
 mod resolved;

@@ -16,7 +16,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::LaunchError;
+use super::{Hands, LaunchError};
 use crate::adapters::AdapterKind;
 
 /// The driver's own word that turns it into the gate: `brokkr driver agy --
@@ -26,7 +26,8 @@ const GATE: &str = "--gate";
 
 /// The tools a level-1 seat may call, in the spellings the hook is told
 /// (the record's "The hook is told the tool's own name"): reads, writes,
-/// edits, shell commands and the task list. This is the list's one home.
+/// edits, shell commands and the task list. This is the list's one home,
+/// and a boxed seat is handed none of it.
 const LISTED: [&str; 5] = [
     "read_file",
     "write_file",
@@ -35,9 +36,21 @@ const LISTED: [&str; 5] = [
     "manage_task",
 ];
 
-/// The built-in an MCP call goes through (`iso-07`, `iso-08`), listed only
-/// where the engine's document names a server.
+/// The built-in an MCP call goes through (`iso-07`, `iso-08`), and the one
+/// tool a boxed seat's gate lists (`box-engine-workspace-tool`): the
+/// engine HOME's document names one server, the box's hands, so it reaches
+/// no other, and the gate reads its name alone.
 const MCP_TOOL: &str = "call_mcp_tool";
+
+/// The names the gate of a launch with `hands` is handed: the level-1 list
+/// where they are native, and [`MCP_TOOL`] alone where they are boxed, so
+/// every native call is denied by name (`box-other-natives`).
+fn listed(hands: Hands<'_>) -> &'static [&'static str] {
+    match hands {
+        Hands::Native => &LISTED,
+        Hands::Boxed(_) => &[MCP_TOOL],
+    }
+}
 
 /// How long agy waits on the hook, in seconds (the record: "`timeout` is
 /// seconds").
@@ -136,15 +149,13 @@ struct Hook {
 
 /// The engine HOME's `hooks.json` for a launch run by `brokkr`: one
 /// `PreToolUse` hook on every tool, its command the gate mode handed the
-/// list, with [`MCP_TOOL`] where `served` is that the document names a
-/// server. agy runs the command with a shell (the record), so every word
-/// of it is quoted for one. A `brokkr` whose path is not UTF-8 names no
-/// command.
-pub(super) fn hooks(brokkr: &Path, served: bool) -> Result<String, LaunchError> {
+/// list of `hands` ([`listed`]). agy runs the command with a shell (the
+/// record), so every word of it is quoted for one. A `brokkr` whose path
+/// is not UTF-8 names no command.
+pub(super) fn hooks(brokkr: &Path, hands: Hands<'_>) -> Result<String, LaunchError> {
     let program = brokkr.to_str().ok_or(LaunchError::Unnamed)?;
     let mut words = vec![program, "driver", "agy", "--", GATE];
-    words.extend(LISTED);
-    words.extend(served.then_some(MCP_TOOL));
+    words.extend(listed(hands));
     let quoted: Vec<String> = words.into_iter().map(quoted).collect();
     let hook = Hook {
         kind: "command",

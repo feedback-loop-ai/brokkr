@@ -1,5 +1,6 @@
 //! `brokkr driver agy`: Antigravity CLI as a provisional harness at level 1
-//! (#1200; decision 0075). The seat is unboxed and never resumed, every
+//! (#1200; decision 0075) and, where its site boxes its hands, at level 3
+//! (#1224). The seat is never resumed, every
 //! model it serves is provisional, it runs under a HOME the engine owns, and
 //! it never reads a turn agy stopped at a denial, or a model it did not
 //! pin, as an answer. The facts come from the controller's hand
@@ -12,6 +13,9 @@
 //! - Permissions ride one `--settings` value of `permissions.allow` rules
 //!   (`allow-list-*`), and `--mode accept-edits` runs a write in the
 //!   workspace (`denied-command-accept-edits`).
+//! - A boxed launch ([`Hands::Boxed`]) is left one tool, the engine's: no
+//!   mode, the engine's rules alone, a gate that lists `call_mcp_tool`
+//!   alone, and no `--allow` (the record's fourth measurement).
 //! - The engine's HOME ([`home`]), its gate ([`gate`]) and the fold
 //!   ([`fold`]) each have one home below.
 
@@ -39,16 +43,50 @@ use fold::{AgyFold, Failed, Verdict};
 pub(super) use gate::{gate, gate_listed};
 use home::{Home, Homes, Written};
 
-/// What every agy launch runs before the seat's pin, effort and settings:
-/// a stream turn read from stdin, accepting edits.
-const HEAD: [&str; 6] = [
+/// What every agy launch runs first: a stream turn read from stdin.
+const HEAD: [&str; 4] = [
     "--input-format",
     "stream-json",
     "--output-format",
     "stream-json",
-    "--mode",
-    "accept-edits",
 ];
+
+/// The mode an unboxed launch runs in after [`HEAD`], accepting edits. A
+/// boxed launch carries no mode, as every boxed turn of the record ran.
+const ACCEPT_EDITS: [&str; 2] = ["--mode", "accept-edits"];
+
+/// Whether a launch's hands are boxed: the one value that decides the
+/// launch's mode, the gate's list and whether the seat's `--allow` is
+/// admitted, made once in [`prepared_with`] from the engine's set (#1224).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Hands<'a> {
+    /// No engine server: level 1, the native tools on the gate's list, the
+    /// seat's own grants, accepting edits.
+    Native,
+    /// The engine's set serves the box's hands, granted by these rules:
+    /// `call_mcp_tool` alone on the gate's list, the rules alone in the
+    /// settings, and no mode.
+    Boxed(&'a [String]),
+}
+
+impl<'a> Hands<'a> {
+    /// The hands the engine's set gives a launch granted `rules`: boxed
+    /// where they grant anything, since no rule is no server.
+    fn of(rules: &'a [String]) -> Hands<'a> {
+        match rules.is_empty() {
+            true => Hands::Native,
+            false => Hands::Boxed(rules),
+        }
+    }
+
+    /// The mode the launch runs in, after [`HEAD`].
+    fn mode(self) -> &'static [&'static str] {
+        match self {
+            Hands::Native => &ACCEPT_EDITS,
+            Hands::Boxed(_) => &[],
+        }
+    }
+}
 
 /// The three controls a seat's argv may carry, each once and each with one
 /// value: the adapter's model flag, its effort flag and its tool
@@ -181,6 +219,15 @@ pub(super) enum LaunchError {
         .0.display()
     )]
     Unowned(PathBuf),
+    /// A boxed seat granted a native tool: every native tool is switched
+    /// off beside boxed hands, so the grant would do nothing, and it is
+    /// refused rather than dropped (#1224). Its value is never named.
+    #[error(
+        "refusing to invoke the agent CLI: the seat's arguments carry '--allow', and an agy seat \
+         whose hands are boxed takes no native grant: its gate switches off every native tool, \
+         so the grant would do nothing (#1224)"
+    )]
+    BoxedGrant,
     /// The launch's one MCP admission refused it, in the words every
     /// driver states it with ([`McpRefusal::at_launch`]).
     #[error("{}", .0.at_launch())]
@@ -249,19 +296,25 @@ fn admitted(extra: &[String]) -> Result<[Option<&String>; 3], LaunchError> {
     Ok(values)
 }
 
-/// The launch for `extra`, the arguments behind the driver's `--`, granted
-/// the engine's `rules` beside the seat's own: the head, the pin, the
-/// effort where the seat names one, and the one `--settings` value.
-fn launch(bin: &str, extra: &[String], rules: &[String]) -> Result<Launch, LaunchError> {
+/// The launch for `extra`, the arguments behind the driver's `--`, with
+/// `hands`: the head, the mode, the pin, the effort where the seat names
+/// one, and the one `--settings` value, which holds the seat's grants on a
+/// native launch and the engine's rules alone on a boxed one, where a
+/// seat's `--allow` refuses.
+fn launch(bin: &str, extra: &[String], hands: Hands<'_>) -> Result<Launch, LaunchError> {
     let [pin, effort, allow] = admitted(extra)?;
     let pin = pin.ok_or(LaunchError::Unpinned)?;
-    let mut allowed: Vec<&str> = allow.map_or_else(Vec::new, |allow| allow.split(',').collect());
-    allowed.extend(rules.iter().map(String::as_str));
+    let allowed: Vec<&str> = match (hands, allow) {
+        (Hands::Boxed(_), Some(_)) => return Err(LaunchError::BoxedGrant),
+        (Hands::Boxed(rules), None) => rules.iter().map(String::as_str).collect(),
+        (Hands::Native, allow) => allow.map_or_else(Vec::new, |allow| allow.split(',').collect()),
+    };
     for rule in &allowed {
         targeted(target(rule).ok_or(LaunchError::Unruled)?)?;
     }
     let mut command = vec![bin.to_string()];
     command.extend(HEAD.iter().map(|part| part.to_string()));
+    command.extend(hands.mode().iter().map(|part| part.to_string()));
     command.extend([CONTROLS[0].to_string(), pin.clone()]);
     if let Some(effort) = effort {
         command.extend([CONTROLS[1].to_string(), effort.clone()]);
@@ -394,8 +447,9 @@ struct Prepared {
 /// ([`mcp::isolated`]), the engine's set read from the intent it checked
 /// ([`mcp::agy_set`]), the launch, the working directory resolved, and the
 /// engine's HOME made under `homes` with the set's document and the gate
-/// run by `brokkr`. No launch is offered a rejoin, so the cold assessment
-/// is the one admitted.
+/// run by `brokkr`. Whether the hands are boxed is read here, once, from
+/// the set ([`Hands::of`]), and decides the launch and the gate alike. No
+/// launch is offered a rejoin, so the cold assessment is the one admitted.
 fn prepared(
     bin: &str,
     extra: &[String],
@@ -418,9 +472,10 @@ fn prepared_with(
     let isolated = mcp::isolated("agy", &edge, extra, false)?;
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
     let served = mcp::agy_set(&edge, &isolated, workdir)?;
-    let launch = launch(bin, &isolated.argv, &served.rules)?;
+    let hands = Hands::of(&served.rules);
+    let launch = launch(bin, &isolated.argv, hands)?;
     let workdir = home::resolved(workdir)?;
-    let hooks = gate::hooks(brokkr, !served.rules.is_empty())?;
+    let hooks = gate::hooks(brokkr, hands)?;
     let written = Written {
         mcp: &served.document,
         hooks: &hooks,

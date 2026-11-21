@@ -105,35 +105,36 @@ fn split(command: &str) -> Vec<String> {
 
 /// The engine HOME's one hook is the record's document under the name
 /// `brokkr-gate`: every tool, ten seconds. Its command, as a shell splits
-/// it, is the engine's own binary in gate mode handed the level-1 list, and
-/// `call_mcp_tool` only where the document names a server (J10).
+/// it, is the engine's own binary in gate mode handed the level-1 list
+/// where the hands are native (J10), and `call_mcp_tool` alone where they
+/// are boxed (#1224, `box-engine-workspace-tool`).
 #[test]
-fn the_hook_runs_the_gate_on_every_tool_with_the_level_one_list() {
+fn the_hook_runs_the_gate_on_every_tool_with_the_level_one_list_or_the_mcp_tool_alone() {
     let mut recorded: Value = serde_json::from_str(&recorded_hooks()).unwrap();
     let mut golden = recorded["gate"].take();
     command_of(&mut golden);
-    let listed = [
-        BROKKR,
-        "driver",
-        "agy",
-        "--",
-        "--gate",
+    let program = [BROKKR, "driver", "agy", "--", "--gate"];
+    let level_one = [
         "read_file",
         "write_file",
         "edit_file",
         "run_command",
         "manage_task",
     ];
-    for served in [false, true] {
-        let written = hooks(Path::new(BROKKR), served).unwrap();
+    let rules = ["mcp(brokkr/workspace)".to_string()];
+    let lists: [(Hands<'_>, &[&str]); 2] = [
+        (Hands::Native, &level_one),
+        (Hands::Boxed(&rules), &["call_mcp_tool"]),
+    ];
+    for (hands, list) in lists {
+        let written = hooks(Path::new(BROKKR), hands).unwrap();
         let mut document: Value = serde_json::from_str(&written).unwrap();
         let keys: Vec<&String> = document.as_object().unwrap().keys().collect();
         assert_eq!(keys, ["brokkr-gate"]);
         let mut hook = document["brokkr-gate"].take();
         let command = command_of(&mut hook);
         assert_eq!(hook, golden);
-        let mut words = names(&listed);
-        words.extend(served.then(|| "call_mcp_tool".to_string()));
+        let words = names(&[&program[..], list].concat());
         assert_eq!(split(&command), words, "{command}");
         // Every word quoted, the program's quote closed, escaped, reopened.
         let quoted: Vec<String> = words
@@ -146,5 +147,62 @@ fn the_hook_runs_the_gate_on_every_tool_with_the_level_one_list() {
     }
     use std::os::unix::ffi::OsStrExt;
     let lossy = Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xfdbrokkr"));
-    assert!(matches!(hooks(lossy, false), Err(LaunchError::Unnamed)));
+    assert!(matches!(
+        hooks(lossy, Hands::Native),
+        Err(LaunchError::Unnamed)
+    ));
+}
+
+/// Every tool name the fourth measurement's gates saw, `call_mcp_tool`
+/// among them, read from their logs when the test runs.
+fn recorded_box_names() -> std::collections::BTreeSet<String> {
+    let dir = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/evidence/adapters/agy-cli-1-5"
+    );
+    let logs = [
+        "box-engine-workspace-tool",
+        "box-reach",
+        "box-other-natives",
+    ];
+    let notices = ["box-default-notice", "box-default-notice-carbon"];
+    let mut seen = std::collections::BTreeSet::new();
+    for log in logs.iter().chain(&notices) {
+        let text = std::fs::read_to_string(format!("{dir}/{log}.hooklog")).unwrap();
+        for line in text.lines() {
+            let rest = line.strip_prefix("box3 gate saw tool: ").unwrap();
+            seen.insert(rest.split(' ').next().unwrap().to_string());
+        }
+    }
+    seen
+}
+
+/// The gate a boxed launch hands its list answers `deny_unless_prior_grant`
+/// for `call_mcp_tool` and denies by name each of the thirteen native names
+/// the record's gates saw (#1224, `box-other-natives`).
+#[test]
+fn the_boxed_gate_leaves_the_mcp_tool_and_denies_every_native_the_record_saw() {
+    let rules = ["mcp(brokkr/workspace)".to_string()];
+    let boxed = names(listed(Hands::Boxed(&rules)));
+    let call = |name: &str| json!({"toolCall": {"name": name}}).to_string();
+    let answer = |name: &str| {
+        let mut printed = Vec::new();
+        gate(&boxed, call(name).as_bytes(), &mut printed).unwrap();
+        serde_json::from_slice::<Value>(&printed).unwrap()
+    };
+    let mut seen = recorded_box_names();
+    assert!(seen.remove("call_mcp_tool"));
+    assert_eq!(seen.len(), 13, "{seen:?}");
+    assert_eq!(
+        answer("call_mcp_tool"),
+        json!({"decision": "deny_unless_prior_grant"})
+    );
+    for native in &seen {
+        let reason = format!("the engine's gate does not offer the tool {native}");
+        assert_eq!(
+            answer(native),
+            json!({"decision": "deny", "reason": reason}),
+            "{native}"
+        );
+    }
 }
