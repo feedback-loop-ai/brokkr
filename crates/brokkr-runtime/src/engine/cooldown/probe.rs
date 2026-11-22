@@ -10,6 +10,7 @@ use brokkr_core::fold::RunState;
 use brokkr_core::park::Park;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::Cleanup;
 use brokkr_store::ProbeHold;
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -681,7 +682,33 @@ impl Engine {
             |_| {},
         );
         settlement::ended(&mut self.held, at.site_name, &report.cleanup);
-        self.probe_end(at.effect_id, wait, report)
+        // The hold ends on evidence, never on a clock (fix round 0106b1r10,
+        // H1): right after the settlement above proved the driver's whole
+        // tree ended, for a probe that reported no refusal. A refusal's hold
+        // ends with its renewed round's commit, or stands to its stored end
+        // where that round is not written; a tree not proven ended, like a
+        // probe never spawned, leaves it standing to that end too.
+        let proven = matches!(report.cleanup, Cleanup::Settled) && report.refusal.is_none();
+        let probe = self.probe_end(at.effect_id, wait, report);
+        match proven {
+            true => self.end_the_hold(wait, probe),
+            false => probe,
+        }
+    }
+
+    /// End the probe's own hold once its tree is proven ended, and go on
+    /// with what the probe left. A hold the store cannot end parks the
+    /// probe by the store's words: its route stays held to the stored end.
+    fn end_the_hold(&mut self, wait: &ProviderWait, probe: Probe) -> Probe {
+        let hold = self.cooldown.hold.take();
+        match self.store.end_probe_hold(hold, self.now()) {
+            Ok(()) => probe,
+            Err(error) => Probe::Parked(Park::ruled(format!(
+                "the cool-down probe for {}/{} ended, and its route's hold could not be ended: \
+                 {error}",
+                wait.provider, wait.route
+            ))),
+        }
     }
 }
 

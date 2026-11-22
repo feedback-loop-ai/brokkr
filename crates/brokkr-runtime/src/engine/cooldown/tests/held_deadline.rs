@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use super::held_route::{deadline_of, held_to_its_deadline, probing, slicing, unended_holds};
+use super::held_route::{deadline_of, held_to_its_deadline, legs, probing, slicing, unended_holds};
 use super::held_wait::standing;
 use super::*;
 
@@ -102,8 +102,10 @@ fn a_probe_whose_deadline_passes_under_the_registry_lock_is_not_spawned_and_hold
 /// A pause after the probe's sample, one second of the seat's two: the
 /// watchdog kills the hanging probe at the probe's own deadline, and its
 /// kill's words name the one second that remained at the fork, not the two
-/// seconds the sample saw. Its hold stands past that kill, to the whole
-/// second after the deadline.
+/// seconds the sample saw. Its hold stands through that kill and ends once
+/// the engine's settlement proves the killed tree ended, never at a clock
+/// (fix round 0106b1r10, H1): the route then opens at the very instant the
+/// probe ran.
 #[test]
 fn a_probe_paused_after_its_sample_is_killed_at_its_deadline() {
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::Hang);
@@ -117,5 +119,6 @@ fn a_probe_paused_after_its_sample_is_killed_at_its_deadline() {
         reason.contains("attempt exceeded its 1s deadline and was killed"),
         "{reason}"
     );
-    held_to_its_deadline(&engine, &gates, deadline_of(probe_at));
+    assert_eq!(unended_holds(engine.store.path()), 0);
+    assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
 }
