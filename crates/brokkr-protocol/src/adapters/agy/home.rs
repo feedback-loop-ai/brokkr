@@ -106,6 +106,16 @@ impl Home {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The session of every HOME [`made`] on this thread, recorded as it
+    /// is created, before anything can fail: a test checks each HOME its
+    /// own launches made is gone by these paths, whatever another test
+    /// makes or reaps beside them in the shared parent (#1200 Z3).
+    pub(super) static MADE: std::cell::RefCell<Vec<PathBuf>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// The parent every engine HOME under `temp` is made in.
 pub(super) fn parent(temp: &Path) -> PathBuf {
     let uid = rustix::process::geteuid().as_raw();
@@ -131,6 +141,8 @@ pub(super) fn made(homes: Homes<'_>, written: Written<'_>) -> Result<Home, Launc
     // reaping kept or removed is no fact of this launch's.
     crate::hands::reap_dead_sessions_under(&parent);
     let session = Session::create_under(&parent, LABEL).map_err(unsessioned)?;
+    #[cfg(test)]
+    MADE.with(|made| made.borrow_mut().push(session.path().to_path_buf()));
     let home = session.path().join(HOME_DIR);
     let path = home.to_str().ok_or(LaunchError::Unnamed)?.to_string();
     furnished(&home, operator, &login, written).map_err(LaunchError::Unhomed)?;

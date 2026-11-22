@@ -610,10 +610,11 @@ fn settled(result: &Ending, session_meta: &mut Map<String, Value>) {
 /// `text` masked whole through `bindings`, as written, and then escaped:
 /// the order every value the driver's words hold is built in, before any
 /// bound reads them, so no cut falls inside a value the mask has not
-/// replaced (#1200 Z1).
-fn masked(text: &str, bindings: &[secret::BoundSecret]) -> String {
+/// replaced (#1200 Z1). Only the first `limit` escaped characters are
+/// built.
+fn masked(text: &str, bindings: &[secret::BoundSecret], limit: usize) -> String {
     let masked = secret::mask_text(text.as_bytes(), bindings);
-    masked.escape_debug().collect()
+    masked.escape_debug().take(limit).collect()
 }
 
 /// `text`, a word of agy's, as the driver's words name it (K3): [`masked`],
@@ -621,13 +622,13 @@ fn masked(text: &str, bindings: &[secret::BoundSecret]) -> String {
 /// such a word: every status, denied action and served model the driver
 /// names is built here.
 pub(super) fn named(text: &str, bindings: &[secret::BoundSecret]) -> String {
-    masked(text, bindings).chars().take(NAMED).collect()
+    masked(text, bindings, NAMED)
 }
 
 /// The refusal of a seat agy served another model than its `pin`, the pin
-/// [`masked`] through `bindings` and the served model [`named`].
+/// [`masked`] whole through `bindings` and the served model [`named`].
 fn substituted(pin: &str, served: &str, bindings: &[secret::BoundSecret]) -> PreSessionRefusal {
-    let pin = masked(pin, bindings);
+    let pin = masked(pin, bindings, usize::MAX);
     let words = format!("the seat pinned \"{pin}\" and agy served \"{served}\"");
     refusal_reason("model_substituted", None, Some(&words))
 }
@@ -641,13 +642,13 @@ fn refused(token: &str, words: &str, seen: &Seen) -> PreSessionRefusal {
 /// The refusal of a seat no init row confirmed the model of. This and the
 /// three builders below are each a refusal built on what the result showed,
 /// and the driver's tests call each with a long status (M5). The `pin` is
-/// [`masked`] through `bindings` before the bound reads it (#1200 Z1).
+/// [`masked`] whole through `bindings` before the bound reads it (#1200 Z1).
 pub(super) fn unconfirmed(
     pin: &str,
     bindings: &[secret::BoundSecret],
     seen: &Seen,
 ) -> PreSessionRefusal {
-    let pin = masked(pin, bindings);
+    let pin = masked(pin, bindings, usize::MAX);
     let words = format!("the seat pinned \"{pin}\" and no init row named the model agy served");
     refused("model_unconfirmed", &words, seen)
 }

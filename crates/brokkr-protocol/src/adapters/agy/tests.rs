@@ -1082,14 +1082,18 @@ fn fake_agy(
 }
 
 /// One run's world: the seat's directory and an operator HOME of its own,
-/// with the process environment held for the world's life.
+/// with the process environment held for the world's life, and how many
+/// engine HOME sessions this thread had made before it.
 struct World {
     root: tempfile::TempDir,
     env: crate::env_guard::EnvGuard,
+    before: usize,
 }
 
-/// The login below an operator or engine HOME.
-const LOGIN: &str = ".gemini/antigravity-cli/antigravity-oauth-token";
+/// The session of each engine HOME made on this thread, in order.
+fn made_here() -> Vec<std::path::PathBuf> {
+    home::MADE.with(|made| made.borrow().clone())
+}
 
 impl World {
     fn new() -> World {
@@ -1097,7 +1101,8 @@ impl World {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir(root.path().join("seat")).unwrap();
         operator_home(root.path());
-        World { root, env }
+        let before = made_here().len();
+        World { root, env, before }
     }
 
     fn path(&self, name: &str) -> std::path::PathBuf {
@@ -1170,31 +1175,18 @@ impl World {
         self.seat().join("argv").exists()
     }
 
-    /// The names of the sessions standing in the shared agy parent whose
-    /// HOME links this world's own operator login: each engine HOME this
-    /// world's launches made, and no other seat's, whichever another test
-    /// makes or reaps beside them.
-    fn own_homes(&self) -> Vec<std::ffi::OsString> {
-        let login = self.path("operator").join(LOGIN);
-        let entries = std::fs::read_dir(home::parent(&std::env::temp_dir()));
-        let sessions = entries.into_iter().flatten().flatten();
-        let linked = |session: &std::fs::DirEntry| {
-            let link = std::fs::read_link(session.path().join("home").join(LOGIN));
-            link.is_ok_and(|to| to == login)
-        };
-        sessions
-            .filter(linked)
-            .map(|session| session.file_name())
-            .collect()
-    }
-
-    /// Whether every engine HOME the world's seats made is gone: no session
-    /// of the world's own stands, and the HOME the fake ran under, where
-    /// it started, is gone by its own session's path.
+    /// Whether every engine HOME made on this thread since the world began
+    /// is gone, each by the path its session was recorded at as it was
+    /// created, whatever stood in it and whatever another seat makes or
+    /// reaps beside it in the shared parent. The HOME the fake ran under,
+    /// where it started, is one of them.
     fn homes_gone(&self) -> bool {
+        let made = made_here().split_off(self.before);
         let ran = std::fs::read_to_string(self.seat().join("home")).ok();
         let session = ran.as_deref().and_then(|home| Path::new(home).parent());
-        self.own_homes().is_empty() && !session.is_some_and(Path::exists)
+        assert!(session.is_none_or(|ran| made.iter().any(|made| made == ran)));
+        let stands = |session: &std::path::PathBuf| std::fs::symlink_metadata(session).is_ok();
+        !made.iter().any(stands)
     }
 
     fn recorded(&self, name: &str) -> String {
@@ -1450,21 +1442,45 @@ fn served_refusal(serving: Value) -> (World, Option<String>) {
     (world, error)
 }
 
+/// An engine HOME made under the shared parent from `operator`.
+fn made_from(operator: &Path) -> Home {
+    let temp = std::env::temp_dir();
+    let homes = Homes {
+        temp: &temp,
+        operator: Some(operator),
+    };
+    home::made(homes, written(&empty_set())).unwrap()
+}
+
 /// Another engine HOME standing in the shared parent beside a launch, made
-/// from another operator's HOME, is no HOME of the launch's: the world's
-/// cleanup check holds while it stands, the launch's own gone (Z3).
+/// by another seat's thread from another operator's HOME, is no HOME of the
+/// launch's: the world's cleanup check holds while it stands, the launch's
+/// own gone (Z3).
 #[test]
 fn the_cleanup_check_holds_beside_another_engine_home_in_the_shared_parent() {
     let mut world = World::new();
     let other = tempfile::tempdir().unwrap();
-    let (operator, temp) = (operator_home(other.path()), std::env::temp_dir());
-    let homes = Homes {
-        temp: &temp,
-        operator: Some(&operator),
-    };
-    let beside = home::made(homes, written(&empty_set())).unwrap();
+    let operator = operator_home(other.path());
+    let beside = std::thread::scope(|scope| scope.spawn(|| made_from(&operator)).join());
+    let beside = beside.unwrap();
     world.answers();
     assert!(Path::new(beside.path()).exists());
+    assert!(world.homes_gone());
+}
+
+/// A HOME the world's own seat made still stands while it is held, though
+/// no child ran under it and its login link is gone: the cleanup check
+/// knows it by the path its session was made at, and holds once it goes
+/// (Z3).
+#[test]
+fn the_cleanup_check_knows_a_standing_home_by_its_session_not_by_what_it_holds() {
+    let world = World::new();
+    let held = made_from(&world.path("operator"));
+    let login = ".gemini/antigravity-cli/antigravity-oauth-token";
+    std::fs::remove_file(Path::new(held.path()).join(login)).unwrap();
+    assert!(!world.started());
+    assert!(!world.homes_gone());
+    drop(held);
     assert!(world.homes_gone());
 }
 
