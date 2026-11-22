@@ -13,6 +13,7 @@ use crate::places::places_tests::clean_git_config;
 use pin_walk_tests::typed_seats;
 use serde_json::json;
 
+mod dsh_gate_tests;
 mod dsh_hands_tests;
 mod pin_walk_tests;
 mod site_form_tests;
@@ -2028,7 +2029,8 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         // 0021 addendum, operator ruled 2026-09-02: trusted for every
         // seat class; the clearance to RECEIVE stays a separate bar.
         ("codex", TrustTier::Trusted, EgressClass::Uncontracted),
-        ("dsh", TrustTier::Untrusted, EgressClass::Uncontracted),
+        // 0021 addendum, operator ruled 2026-11-22: trusted, to judge with qwen4-max only.
+        ("dsh", TrustTier::Trusted, EgressClass::Uncontracted),
         ("exec", TrustTier::Untrusted, EgressClass::Contracted),
         // Not named by this slice's scope, and so left undeclared:
         // fail-closed defaults are the correct reading of silence.
@@ -2066,7 +2068,7 @@ fn the_shipped_adapters_declare_exactly_the_decision_0041_judges() {
     for (provider, judges) in [
         ("claude", vec!["fable", "opus"]),
         ("codex", vec!["astra", "sol"]),
-        ("dsh", vec![]),
+        ("dsh", vec!["qwen4-max"]),
         ("exec", vec![]),
         ("lanetally", vec!["fable-tallied", "opus-tallied"]),
     ] {
@@ -3342,7 +3344,7 @@ fn a_gate_without_hands_is_untouched_and_an_inline_model_site_with_hands_is_refu
 /// adapter's digest.
 ///
 /// D33: mapped hands chains face the boundary law before the resolver's
-/// workspace capability gap: namespace refuses the untrusted tier;
+/// workspace capability gap: namespace refuses the tier or the judges;
 /// harness refuses the absent gate fragment, naming the provider and link.
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
@@ -3406,18 +3408,28 @@ fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
         Some(json!({"fable-tallied": "high"})),
         true,
     );
-    for (agent, provider) in [("flash-judge", "dsh"), ("tallied-judge", "lanetally")] {
+    // The trusted dsh refuses `flash` by its judges, lanetally by its tier.
+    let judges = "which driver 'dsh' does not declare in 'judges' (decision 0041 ruling 3";
+    let tier = "which does not hold the trusted tier; a gate seat IS the check, and nobody \
+                stands behind the judges (decision 0021 ruling 2";
+    let gate_refusal = |agent: &str, boundary| {
+        let compiled = fixture.compile_roots(
+            boxed_seat(agent, "gate"),
+            &fixture.agents(),
+            &shipped_adapters(),
+            boundary,
+        );
+        compiled
+            .map(|_| ())
+            .expect_err("this gate is refused")
+            .to_string()
+    };
+    for (agent, provider, law) in [
+        ("flash-judge", "dsh", judges),
+        ("tallied-judge", "lanetally", tier),
+    ] {
         for boundary in [Boundary::Namespace, Boundary::Harness] {
-            let refusal = fixture
-                .compile_roots(
-                    boxed_seat(agent, "gate"),
-                    &fixture.agents(),
-                    &shipped_adapters(),
-                    boundary,
-                )
-                .map(|_| ())
-                .expect_err("a hands agent on a provider without hands is refused")
-                .to_string();
+            let refusal = gate_refusal(agent, boundary);
             assert!(refusal.contains("seat 'work'"), "{refusal}");
             assert!(
                 refusal.contains(&format!("provider '{provider}'"))
@@ -3426,8 +3438,7 @@ fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
             );
             match boundary {
                 Boundary::Namespace => {
-                    assert!(refusal.contains("trusted tier"), "{refusal}");
-                    assert!(refusal.contains("decision 0021 ruling 2"), "{refusal}");
+                    assert!(refusal.contains(law), "{refusal}");
                 }
                 _ => {
                     assert!(refusal.contains("gate link 1"), "{refusal}");
@@ -3447,8 +3458,8 @@ fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
             .unwrap();
     }
 
-    // Without hands the law returns at once and decision 0021 ruling 2's
-    // trust-tier refusal is what stands, under both boundaries.
+    // Without hands the law returns at once and the same refusals stand,
+    // under both boundaries.
     fixture.write_agent_file(
         "flash-bare",
         &["flash"],
@@ -3461,29 +3472,10 @@ fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
         Some(json!({"fable-tallied": "high"})),
         false,
     );
-    for (agent, provider) in [("flash-bare", "dsh"), ("tallied-bare", "lanetally")] {
+    for (agent, law) in [("flash-bare", judges), ("tallied-bare", tier)] {
         for boundary in [Boundary::Namespace, Boundary::Harness] {
-            let refusal = fixture
-                .compile_roots(
-                    boxed_seat(agent, "gate"),
-                    &fixture.agents(),
-                    &shipped_adapters(),
-                    boundary,
-                )
-                .map(|_| ())
-                .expect_err("an untrusted provider may not hold a gate")
-                .to_string();
-            assert!(
-                refusal.contains(&format!(
-                    "seat 'work' is gate class but seats driver '{provider}', which does not \
-                     hold the trusted tier"
-                )),
-                "{boundary}: {refusal}"
-            );
-            assert!(
-                refusal.contains("decision 0021 ruling 2"),
-                "{boundary}: {refusal}"
-            );
+            let refusal = gate_refusal(agent, boundary);
+            assert!(refusal.contains(law), "{boundary}: {refusal}");
         }
     }
 }

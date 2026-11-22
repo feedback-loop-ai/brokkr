@@ -91,6 +91,8 @@ fn adapter() -> Value {
     .unwrap();
     let mut adapter: Value = serde_json::from_str(&shipped).unwrap();
     adapter["models"] = json!({"spark": CONCRETE});
+    // No judge stays mapped once the models are replaced.
+    adapter["judges"] = json!([]);
     adapter["routes"]["spark-glm"] = json!({
         "egress": "local",
         "overlay": {
