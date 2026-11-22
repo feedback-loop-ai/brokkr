@@ -97,16 +97,17 @@ fn change(
     let said = match command {
         // Priority orders first, so the place held can be other than the
         // place asked for: say the one the command journaled.
+        // `Store::queue_command` returns the place its command journaled,
+        // and a move always journals one.
         QueueCommand::Move { .. } => {
-            place.map(|place| format!("moved queue entry {entry} to place {place}"))
+            let place = place.expect("a move journals the place it holds");
+            format!("moved queue entry {entry} to place {place}")
         }
-        QueueCommand::Hold => Some(format!("held queue entry {entry}")),
-        QueueCommand::Release => Some(format!("released queue entry {entry}")),
-        QueueCommand::Drop => Some(format!("dropped queue entry {entry}")),
+        QueueCommand::Hold => format!("held queue entry {entry}"),
+        QueueCommand::Release => format!("released queue entry {entry}"),
+        QueueCommand::Drop => format!("dropped queue entry {entry}"),
     };
-    if let Some(said) = said {
-        writeln!(stderr, "{said}")?;
-    }
+    writeln!(stderr, "{said}")?;
     Ok(Exit::Completed.into())
 }
 
