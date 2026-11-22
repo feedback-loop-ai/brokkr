@@ -1019,6 +1019,8 @@ it once, saving each shell's script where that shell looks:
 brokkr completions bash
 brokkr completions zsh
 brokkr completions fish
+brokkr completions powershell
+brokkr completions elvish
 ```
 
 - bash: save the output as `brokkr` in
@@ -1026,25 +1028,36 @@ brokkr completions fish
 - zsh: save it as `_brokkr` in a directory on your `fpath`, such as
   `~/.zfunc`, before `compinit` runs.
 - fish: save it as `brokkr.fish` in `~/.config/fish/completions/`.
+  clap_complete's fish script offers the flags of verbs one and two
+  words deep, so a three-word verb such as `library agents show`
+  completes its arguments' values live but not its flags.
+- powershell: add `brokkr completions powershell | Out-String |
+  Invoke-Expression` to your `$PROFILE`.
+- elvish: add `eval (brokkr completions elvish | slurp)` to
+  `~/.config/elvish/rc.elv`.
 
 The live completer completes values as well. Register it instead of the
 static script, with the one line for your shell in its startup file
-(`~/.bashrc`, `~/.zshrc` or `~/.config/fish/config.fish`):
+(`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`, `$PROFILE` or
+`~/.config/elvish/rc.elv`):
 
 ```text
 source <(COMPLETE=bash brokkr)
 source <(COMPLETE=zsh brokkr)
 COMPLETE=fish brokkr | source
+$env:COMPLETE = "powershell"; brokkr | Out-String | Invoke-Expression; Remove-Item Env:\COMPLETE
+eval (E:COMPLETE=elvish brokkr | slurp)
 ```
 
 It offers the 50 newest run ids for `--run`, `--by-run` and `runs
 compare`, newest first, and the phases and seats of the run a `--run`
-on the line names. It also offers recipe and agent names from the
-libraries, realm names from the map, and the waiting queue entries for
+on the line names, read from that run's seat rows. It also offers recipe
+names from the project and personal shelves, agent names from the
+library, realm names from the map, and the waiting queue entries for
 the queue's commands. It reads the journal the completed command would
 read, and a `--db` or `--realms` on the line wins. It opens that journal
-read-only, creates no file beside it and never waits on a busy one. Any
-failure completes nothing and prints nothing (decision 0115).
+read-only, creates no file beside it, and waits at most 50 ms on a busy
+one. Any failure completes nothing and prints nothing (decision 0115).
 
 ### Limits worth knowing
 

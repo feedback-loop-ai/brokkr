@@ -28,6 +28,20 @@ const RECENT_SQL: &str = "SELECT runs.run_id, run_summary.feature_line FROM runs
      LEFT JOIN run_summary ON run_summary.run_id = runs.run_id
      ORDER BY runs.created_at DESC, runs.rowid DESC LIMIT ?1";
 
+/// `run_seats`' statement: the run's seat rows by their key, `?2` of them,
+/// in the order the projection opened them. No event is read.
+const SEATS_SQL: &str = "SELECT phase, seat, member FROM seat_summary
+     WHERE run_id = ?1 ORDER BY opened LIMIT ?2";
+
+/// A participant's names as its seat row keeps them: the phase it sat in,
+/// its seat, and its member's name where it is a panel member.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeatNames {
+    pub phase: Option<String>,
+    pub seat: Option<String>,
+    pub member: Option<String>,
+}
+
 /// `prefixed_runs`' statement: the key range a prefix reads.
 const PREFIX_SQL: &str =
     "SELECT run_id, created_at, rowid FROM runs WHERE run_id >= ?1 ORDER BY run_id";
@@ -76,6 +90,28 @@ impl Store {
             let mut statement = self.conn.prepare(RECENT_SQL)?;
             let found = statement
                 .query_map(params![limit], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            self.note(&statement);
+            Ok(found)
+        })
+    }
+
+    /// The names of the first `limit` participants of `run_id`, as their
+    /// seat rows keep them: one range of the `(run_id, opened)` key,
+    /// whatever the run's or the journal's size (decision 0115 ruling 4).
+    /// No event is read, no chain verified, and a lagging row is read as
+    /// it stands: these are candidates, never a readout.
+    pub fn run_seats(&self, run_id: &str, limit: u32) -> Result<Vec<SeatNames>, StoreError> {
+        patiently("run_seats", self.patience, &self.path, || {
+            let mut statement = self.conn.prepare(SEATS_SQL)?;
+            let found = statement
+                .query_map(params![run_id, limit], |row| {
+                    Ok(SeatNames {
+                        phase: row.get(0)?,
+                        seat: row.get(1)?,
+                        member: row.get(2)?,
+                    })
+                })?
                 .collect::<Result<Vec<_>, _>>()?;
             self.note(&statement);
             Ok(found)

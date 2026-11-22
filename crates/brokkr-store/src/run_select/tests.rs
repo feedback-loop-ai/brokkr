@@ -289,3 +289,66 @@ fn recent_runs_costs_one_page_whatever_the_journal_holds() {
     );
     assert_eq!(large_steps, small_steps, "the page reads fifty rows");
 }
+
+/// `run`'s first `count` seat rows, each its own phase and seat, every
+/// third a panel member's, planted directly as [`planted`]'s runs are.
+fn seated(store: &mut Store, run: &str, count: u32) {
+    let tx = store.conn.transaction().unwrap();
+    for n in 0..count {
+        let member = (n % 3 == 0).then(|| format!("member-{n}"));
+        tx.execute(
+            "INSERT INTO seat_summary (run_id, opened, phase, seat, member, digest)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'planted')",
+            params![
+                run,
+                n,
+                format!("phase-{n:05}"),
+                format!("seat-{n:05}"),
+                member
+            ],
+        )
+        .unwrap();
+    }
+    tx.commit().unwrap();
+}
+
+/// The completer's phase and seat page (decision 0115 ruling 4): the
+/// run's own seat rows, in the order they opened, within the limit, and
+/// none of another run's.
+#[test]
+fn run_seats_lists_the_runs_own_rows_in_their_order_within_the_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    seated(&mut store, "run-a", 3);
+    seated(&mut store, "run-b", 2);
+    let names = |n: u32, member: Option<&str>| super::SeatNames {
+        phase: Some(format!("phase-{n:05}")),
+        seat: Some(format!("seat-{n:05}")),
+        member: member.map(str::to_string),
+    };
+    assert_eq!(
+        store.run_seats("run-a", 50).unwrap(),
+        vec![names(0, Some("member-0")), names(1, None), names(2, None)]
+    );
+    assert_eq!(
+        store.run_seats("run-a", 2).unwrap(),
+        vec![names(0, Some("member-0")), names(1, None)],
+        "the limit is the page"
+    );
+    assert_eq!(store.run_seats("run-c", 50).unwrap(), vec![]);
+}
+
+/// A page of fifty seat rows costs the same in a run of sixty and in one
+/// of ten thousand: the read stops at the page.
+#[test]
+fn run_seats_costs_one_page_whatever_the_run_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    seated(&mut store, "small", 60);
+    seated(&mut store, "large", 10_000);
+
+    let (small, small_steps) = steps(&store, || store.run_seats("small", 50).unwrap());
+    let (large, large_steps) = steps(&store, || store.run_seats("large", 50).unwrap());
+    assert_eq!((small.len(), large.len()), (50, 50));
+    assert_eq!(large_steps, small_steps, "the page reads fifty rows");
+}

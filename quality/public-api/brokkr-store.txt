@@ -504,6 +504,10 @@ pub fn brokkr_store::Redactor::learn(&[&str]) -> brokkr_store::Redactor
 pub struct brokkr_store::Rows<'a, T>
 pub brokkr_store::Rows::payload: &'a dyn core::ops::function::Fn(&T) -> serde_json::value::Value
 pub brokkr_store::Rows::rows: &'a [T]
+pub struct brokkr_store::SeatNames
+pub brokkr_store::SeatNames::member: core::option::Option<alloc::string::String>
+pub brokkr_store::SeatNames::phase: core::option::Option<alloc::string::String>
+pub brokkr_store::SeatNames::seat: core::option::Option<alloc::string::String>
 pub struct brokkr_store::SeatRecordError
 pub brokkr_store::SeatRecordError::contract: &'static str
 pub brokkr_store::SeatRecordError::path: alloc::string::String
@@ -601,6 +605,7 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::latest_run(&self) -> core::result::Result<core::option::Option<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::recent_runs(&self, u32) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, core::option::Option<alloc::string::String>)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::run_candidates(&self, &str) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::run_seats(&self, &str, u32) -> core::result::Result<alloc::vec::Vec<brokkr_store::SeatNames>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::open_kept(&self, &str) -> core::result::Result<(brokkr_store::Opened, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>), brokkr_store::StoreError>
 pub fn brokkr_store::Store::open_run(&self, &str) -> core::result::Result<brokkr_store::Opened, brokkr_store::StoreError>

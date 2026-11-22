@@ -9,12 +9,10 @@ const PATIENCE: Duration = Duration::from_millis(50);
 
 /// Every name in `dir`, sorted.
 fn names(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+    let found: std::collections::BTreeSet<String> = (std::fs::read_dir(dir).unwrap())
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
         .collect();
-    names.sort();
-    names
+    found.into_iter().collect()
 }
 
 /// A journal at `db` holding `run-a`, its writer closed.

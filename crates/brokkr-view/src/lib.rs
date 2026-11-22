@@ -102,7 +102,7 @@ pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
     GRAPH_VIEW_VERSION,
 };
-pub use participant::Subject;
+pub use participant::{label_of as participant_label, Subject};
 pub use run_summary::{summary, Summary};
 pub use scope::{
     keeps_participant, keeps_phase, keeps_row, lens_for, Lens, Membership, Scope, ScopeError,

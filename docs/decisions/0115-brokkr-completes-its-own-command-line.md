@@ -26,7 +26,11 @@ are writing. So what it may read has to be ruled.
    It offers no hidden verb (`driver`, `hands`, `bridge`, `broker`,
    `fake-driver`) and none of 0.16's flat aliases. The aliases are
    respellings made before the tree parses, so they are not in the tree
-   at all.
+   at all. clap_complete's fish generator writes the flags of verbs one
+   and two words deep only, so fish's static script offers no flag of a
+   three-word verb such as `library agents show`. That is the
+   generator's limit, recorded here and in the quickstart, not worked
+   around.
 
 2. **Dynamic completion is clap_complete's protocol.** `COMPLETE=bash
    brokkr` prints the line a shell registers, and each shell has its
@@ -53,12 +57,19 @@ are writing. So what it may read has to be ruled.
    summary's feature line as its description. Queue entries are the 50
    newest waiting entries, queued or held. Phases and seats, for
    `--phase` and `--seat`, are offered only when `--run` is already on
-   the line. They are the named run's visited phases and participants,
-   from the frame `brokkr runs inspect` paints. No candidate read loads
-   a run's whole journal.
+   the line. They are read from the named run's seat rows
+   (`Store::run_seats`), the first 500 in the order they opened, one
+   range of the `seat_summary (run_id, opened)` key: the phases its
+   seats sat in, and each participant by the label `runs inspect`
+   scopes by. No event is read and no chain is verified, so the cost
+   does not grow with the run. A row a lagging fold has not yet
+   written is not offered, and a phase no seat sat in is not offered.
+   These are candidates, not a readout. No candidate read loads a
+   run's events or the whole journal.
 
 5. **Only the journal, the library and the map.** Recipe names come
-   from the recipe library `--recipe` resolves in, agent names from the
+   from the shelves `--recipe` resolves in, the project's and then the
+   personal one (#697), each name once, agent names from the
    agent library, and realm names from the realms map. No candidate
    comes from the network, a provider or an environment secret.
 
@@ -80,7 +91,15 @@ are writing. So what it may read has to be ruled.
 
 ## Out of scope
 
-- The Homebrew formula's completion install. The formula lives in the
-  tap repository, not here.
+- The Homebrew formula's completion install. The published formula
+  lives in the tap repository. Its template,
+  `packaging/homebrew/brokkr.rb`, is in this repository and the release
+  workflow renders it into the tap. Adding the install to the template
+  and the tap is a follow-up for packaging.
+- The nix flake's completion install. The flake fetches the release
+  tarball and builds nothing, and the tarball carries no scripts.
+  Generating them would mean running the binary inside the derivation
+  after `autoPatchelfHook` has patched it, which is a change to the
+  packaging, not to the command line. It is left out.
 - Removing 0.16's aliases, which is 0.17's (decision 0113 ruling 6).
   Until then, completion already offers only the new spellings.

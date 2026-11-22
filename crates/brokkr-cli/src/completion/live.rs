@@ -22,6 +22,11 @@ const VAR: &str = "COMPLETE";
 /// The most candidates one read lists (ruling 4).
 const PAGE: u32 = 50;
 
+/// The most seat rows a phase or seat read takes from one run (ruling 4):
+/// a run's participants in the order they opened, never its events, so
+/// the read is bounded however many events the run holds.
+const SEATS: u32 = 500;
+
 /// What a read spends on a peer's lock, at most (ruling 8).
 const PATIENCE: Duration = Duration::from_millis(50);
 
@@ -176,14 +181,14 @@ type Listed = anyhow::Result<Vec<(String, Option<String>)>>;
 fn listed(values: Values, line: &Line) -> Listed {
     match values {
         Values::Runs => Ok(journal(line)?.recent_runs(PAGE)?),
-        Values::Phases => Ok(named(line, |view| {
-            view.phases.iter().map(|phase| phase.name.clone()).collect()
-        })?),
-        Values::Seats => Ok(named(line, |view| {
-            (view.participants.iter())
-                .map(|part| part.label.clone())
-                .collect()
-        })?),
+        Values::Phases => named(line, |names| names.phase.clone()),
+        Values::Seats => named(line, |names| {
+            let seat = names.seat.as_deref()?;
+            Some(brokkr_view::participant_label(
+                seat,
+                names.member.as_deref(),
+            ))
+        }),
         Values::Recipes => recipes(line),
         Values::Agents => agents(line),
         Values::Realms => realms(line),
@@ -208,28 +213,39 @@ fn journal(line: &Line) -> anyhow::Result<Store> {
     )?)
 }
 
-/// The names `of` reads from the frame of the run `--run` names, the frame
-/// `runs inspect` paints; none without a `--run` on the line.
-fn named(line: &Line, of: fn(&brokkr_view::RunView) -> Vec<String>) -> Listed {
+/// The names `of` reads from the first [`SEATS`] seat rows of the run
+/// `--run` names, never its events (ruling 4); none without a `--run` on
+/// the line.
+fn named(line: &Line, of: fn(&brokkr_store::SeatNames) -> Option<String>) -> Listed {
     let Some(run) = &line.run else {
         return Ok(Vec::new());
     };
     let store = journal(line)?;
     let run = crate::selector::resolve_run(&store, run)?;
-    let shows = crate::run_pages::Shows::Frame;
-    let viewed = crate::run_pages::viewed(&store, &run, shows, &crate::now_rfc3339())?;
-    let mut names = of(&viewed.view);
+    let rows = store.run_seats(&run, SEATS)?;
+    let mut names: Vec<String> = rows.iter().filter_map(of).collect();
     names.sort();
     names.dedup();
     Ok(names.into_iter().map(|name| (name, None)).collect())
 }
 
-/// The recipe library `--recipe` resolves in.
+/// The recipes `--recipe` resolves: the project shelf's, then the personal
+/// shelf's where this machine places one, each name once. A shelf that
+/// cannot be read offers nothing, and the other still offers its own.
 fn recipes(line: &Line) -> Listed {
     let layout = crate::folder::Layout::discover(Path::new("."))?;
     let flag = line.recipes_dir.clone().or_else(|| line.dir.clone());
-    let shelf = crate::recipes::listed(&layout.recipes(flag))?;
-    Ok(shelf.into_iter().map(|(name, _)| (name, None)).collect())
+    let shelves = [
+        Some(layout.recipes(flag)),
+        crate::recipes::personal::placed(),
+    ];
+    let mut names: Vec<String> = (shelves.iter().flatten())
+        .flat_map(|shelf| crate::recipes::listed(shelf).unwrap_or_default())
+        .map(|(name, _)| name)
+        .collect();
+    names.sort();
+    names.dedup();
+    Ok(names.into_iter().map(|name| (name, None)).collect())
 }
 
 /// The agent library seats hire from.

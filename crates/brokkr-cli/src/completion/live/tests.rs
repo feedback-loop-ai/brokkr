@@ -60,6 +60,22 @@ fn the_line_reads_its_flags_after_the_protocols_separator() {
         line(&["brokkr", "--", "brokkr", "runs", "inspect", "--db", ""]),
         Line::default()
     );
+    let words = [
+        "brokkr",
+        "--",
+        "brokkr",
+        "--agents-dir=team",
+        "--dir",
+        "lib",
+    ];
+    assert_eq!(
+        line(&words),
+        Line {
+            agents_dir: Some(PathBuf::from("team")),
+            dir: Some(PathBuf::from("lib")),
+            ..Line::default()
+        }
+    );
 }
 
 /// Each visible `verb-path argument` the completer gives values to, and

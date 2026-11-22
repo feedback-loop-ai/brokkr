@@ -114,6 +114,7 @@ pub use queue::{
 };
 pub use redact::{redact_export, Redactor};
 pub use run_read::RunRead;
+pub use run_select::SeatNames;
 pub use schema::DATABASE_SCHEMA;
 pub use seat_read::SeatRead;
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};

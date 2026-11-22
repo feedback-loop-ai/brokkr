@@ -19,7 +19,8 @@ const IFS: &str = "\n";
 
 fn brokkr(dir: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    command.current_dir(dir).env_remove("COMPLETE");
+    // The personal shelf is the scratch folder's, never this machine's.
+    (command.current_dir(dir).env_remove("COMPLETE")).env("XDG_CONFIG_HOME", dir.join("config"));
     command
 }
 
@@ -164,10 +165,31 @@ fn the_live_root_offers_no_hidden_verb_and_no_alias() {
     }
     let drives = offered(dir.path(), &["brokkr", "queue", "dispatch", ""]);
     assert!(!drives.contains(&"drive".to_string()), "{drives:?}");
+    // Where the journal holds runs, the verb completes them and its old
+    // flat name completes none.
+    let dir = folder();
+    let named = offered(dir.path(), &["brokkr", "runs", "inspect", "--run", ""]);
+    assert_eq!(named, ["run-new", "run-mid", "run-old"]);
     let aliased = offered(dir.path(), &["brokkr", "inspect", "--run", ""]);
     assert!(
         !aliased.iter().any(|word| word.starts_with("run-")),
         "{aliased:?}"
+    );
+}
+
+/// A shell clap_complete does not speak is refused with exit 1, and still
+/// nothing is printed to the prompt.
+#[test]
+fn an_unknown_shell_is_refused_silently() {
+    let dir = tempfile::tempdir().unwrap();
+    let answer = brokkr(dir.path())
+        .env("COMPLETE", "nushell")
+        .args(["--", "brokkr", ""])
+        .output()
+        .unwrap();
+    assert_eq!(
+        (answer.status.code(), answer.stdout, answer.stderr),
+        (Some(1), Vec::new(), Vec::new())
     );
 }
 
@@ -324,6 +346,42 @@ fn phases_and_seats_are_the_named_runs() {
     assert_eq!(offered(dir.path(), &bare), Vec::<String>::new());
 }
 
+/// Phases and seats are read from the run's seat rows alone, never its
+/// events (ruling 4): a run whose rows stand and whose events do not
+/// still completes them, a member's seat by its label.
+#[test]
+fn phases_and_seats_read_the_seat_rows_and_no_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    journal(&db, &[("run-rows", "2026-01-01T00:00:00Z")]);
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "INSERT INTO seat_summary (run_id, opened, phase, seat, member, digest) VALUES
+            ('run-rows', 0, 'implement', 'implementer', NULL, 'planted'),
+            ('run-rows', 1, 'review', 'panel', 'security', 'planted'),
+            ('run-rows', 2, 'review', 'panel', 'correctness', 'planted');",
+    )
+    .unwrap();
+    drop(conn);
+    let line = [
+        "brokkr",
+        "runs",
+        "inspect",
+        "--db",
+        text(&db),
+        "--run",
+        "run-rows",
+    ];
+    assert_eq!(
+        offered(dir.path(), &[&line[..], &["--phase", ""]].concat()),
+        ["implement", "review"]
+    );
+    assert_eq!(
+        offered(dir.path(), &[&line[..], &["--seat", ""]].concat()),
+        ["implementer", "panel:correctness", "panel:security"]
+    );
+}
+
 /// Recipe names come from the folder's shelf and queue entries from its
 /// journal: only those still waiting, newest first.
 #[test]
@@ -336,6 +394,18 @@ fn recipes_and_waiting_entries_come_from_the_folder() {
         offered(dir.path(), &["brokkr", "run", "--recipe", ""]),
         ["alpha", "beta"]
     );
+    // The personal shelf's recipes join the project's, each name once.
+    for recipe in ["alpha", "gamma"] {
+        std::fs::create_dir_all(dir.path().join("config/brokkr/recipes").join(recipe)).unwrap();
+    }
+    assert_eq!(
+        values(dir.path(), &["brokkr", "library", "recipes", "show", ""]),
+        ["alpha", "beta", "gamma"]
+    );
+    // `--dir` moves the project shelf; the personal one stays.
+    std::fs::create_dir_all(dir.path().join("shelf/delta")).unwrap();
+    let words = ["brokkr", "library", "recipes", "show", "--dir", "shelf", ""];
+    assert_eq!(values(dir.path(), &words), ["alpha", "delta", "gamma"]);
     let by = Attribution {
         operator: "op",
         reason: "test",
@@ -361,6 +431,36 @@ fn recipes_and_waiting_entries_come_from_the_folder() {
     );
 }
 
+/// Agent names come from the library `--agents-dir` names: this
+/// checkout's own, read and never written.
+#[test]
+fn agent_names_come_from_the_library_the_line_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let library = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../agents");
+    let mut stems: Vec<String> = (std::fs::read_dir(&library).unwrap().flatten())
+        .filter_map(|entry| {
+            let path = entry.path();
+            (path.extension()? == "json").then(|| path.file_stem()?.to_str().map(str::to_string))?
+        })
+        .collect();
+    stems.sort();
+    assert!(stems.contains(&"analyst".to_string()), "{stems:?}");
+    let words = [
+        "brokkr",
+        "library",
+        "agents",
+        "show",
+        "--agents-dir",
+        text(&library),
+        "",
+    ];
+    let mut offered = values(dir.path(), &words);
+    offered.sort();
+    assert_eq!(offered, stems);
+    let bare = ["brokkr", "library", "agents", "show", ""];
+    assert_eq!(values(dir.path(), &bare), Vec::<String>::new());
+}
+
 /// A missing journal, one a peer holds exclusively, a file that is no
 /// journal and a folder of an old layout each complete nothing, print
 /// nothing on stderr and never wait out the writer's patience.
@@ -383,7 +483,9 @@ fn every_failure_completes_nothing_and_prints_nothing() {
         assert_eq!(offered(dir.path(), &line), Vec::<String>::new(), "{db:?}");
         let line = ["brokkr", "queue", "drop", "--db", text(db), ""];
         assert_eq!(values(dir.path(), &line), Vec::<String>::new(), "{db:?}");
-        assert!(started.elapsed() < Duration::from_secs(10), "{db:?} waited");
+        // Two requests, each waiting at most its 50 ms patience on the
+        // peer: far below the writer's patience of seconds.
+        assert!(started.elapsed() < Duration::from_secs(2), "{db:?} waited");
     }
     assert!(!missing.exists(), "a missing journal is never created");
     let bare = ["brokkr", "runs", "inspect", "--run", ""];
