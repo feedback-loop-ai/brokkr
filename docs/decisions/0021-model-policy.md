@@ -126,3 +126,106 @@ run whatever their harness permits, `claude` included. A comparison
 across drivers must say so rather than claim a symmetry the data cannot
 express.
 
+## Addendum — 2026-11-22, operator ruled: dsh is trusted, to judge with qwen4-max only
+
+dsh is granted the **`trusted` tier**, and its `judges` list names
+**`qwen4-max` alone**: Qwen 4.0 Max, pinned `dashscope/qwen4-max` on the
+Model Studio route the adapter's other `dashscope/` aliases use. This is
+ruling 3's road, taken in the order the operator ruled it, and it is
+enacted as data in `adapters/dsh.json` for 0.16.0.
+
+The rulings:
+
+- **2026-11-19/20:** a trust wager for Qwen 4.0 Max as review chief ("ok,
+  a wager then for qwen-4.0 max?").
+- **2026-11-20, after the wager:** option 1, "1, this session does it": a
+  lane trial first, then this repository change and this addendum, for
+  0.16.0.
+- **2026-11-21:** "the qwen4-max trust PR - let's wait for 22nd": the
+  escalation replay first, then this change, reviewed with an Astra chief.
+
+The evidence line:
+
+1. **The wager, 2026-11-20.** Eight recorded review visits were replayed
+   exactly: the same commission, head, implement and verify results, and
+   the same panel members' positions, byte for byte. Qwen 4.0 Max sat as
+   chief, at `high`. The Codex scorers, gpt-6.2-sol and gpt-6.2-astra,
+   are neutral between the Qwen and Fable families, and they scored each
+   chief against the incumbent. The bar was met.
+2. **The lane trial, 2026-11-20,** on a lane library where dsh was trusted
+   with `judges: ["qwen4-max"]` only. There were five live reviews: three
+   on #1187's 1187a and two on 1187b.
+   - The panel's floor held every time, and no severity was lowered.
+   - Every citation checked was correct.
+   - One side-correction was wrong: it said decision 0071 has rulings 1
+     to 10, when it has 11.
+   - It raised no finding of its own.
+   - The negative controls refused: an untrusted dsh as a gate driver,
+     and a `judges` list without the pin.
+3. **The escalation replay, 2026-11-22.** The trial never saw a
+   chief-raised hold, so the ground-truth case was replayed through the
+   wager harness: #1137's run 1137a at its decision 653. Its panel was
+   residual at `high` with no security flag, and the incumbent chief
+   raised it to REVIEW-SECURITY-HOLD. Qwen 4.0 Max as chief raised
+   SECURITY-HOLD on the same confirmed high finding, that `group_gone`
+   reads EPERM as gone, which fails open. Its words: "the charter forbids
+   a high security finding becoming a residual".
+
+**`judges` confines the gate.** The tier admits the provider, and
+decision 0041 ruling 3 admits the abstract hire. So a gate seat on dsh
+compiles on `qwen4-max` and is refused on any other dsh model, in that
+ruling's existing words: "names model '…', which driver 'dsh' does not
+declare in 'judges'". The check runs on every fallback link, so a chain
+cannot fall back to another dsh model at a gate. The bundle tests in
+`model_policy_tests/dsh_gate_tests.rs` hold the admission, the refusal
+of each of the other sixteen models the adapter maps, and a removal
+control for each half of the grant.
+
+**The tier's reach.** The tier is read in one place: ruling 2's compile
+check on a gate link (`bundle/route_policy.rs`). The engine, the view
+and the doctor do not read it, and neither does any seat record. What
+the grant does and does not reach:
+
+- **Gate eligibility.** A gate seat, or any link of a gate's chain, may
+  name dsh, but only on `qwen4-max`.
+- **Egress, unchanged.** dsh stays `uncontracted`, with `spark` and
+  `spark-glm` ruled `local` as before. A seat that binds a secret is still
+  refused on dsh's cloud routes (ruling 4, decision 0036 ruling 4). Trust
+  to judge is not clearance to receive.
+- **Hands, unchanged in law, but now reachable at a gate.** The tier
+  grants no hands, and the boundary law does not read it. With the tier,
+  though, a qwen4-max gate seat reaches that law:
+  - Under `namespace`, a gate whose office declares boxed hands compiles.
+    Its overlay disables dsh's native tool rows, sets dsh's own sandbox
+    from the office's declared access (`read-only` for an office that
+    writes no worktree file) and serves Brokkr's workspace tool.
+  - Under `harness`, the same gate is refused: dsh declares no
+    `hands.harness.gate`.
+  - Under `open`, a gate with hands is refused, as for every model.
+  - A gate that declares no hands compiles under every boundary. The
+    driver then serves dsh's own native tool surface under the mode
+    `DSH_PERMISSION_MODE` names, which the seat's class does not narrow.
+    The adapter's own records say what that surface holds. Its cold
+    shape without hands records dsh's native shell reading a 0600 store
+    canary (`store_read: unsupported`). Its native web tools are
+    unmeasured, with no OFF control. "No hands" therefore means no
+    Brokkr hands, not no tools.
+- **Identity.** The adapter's digest is pinned by every bundle that
+  consults it, so the manifests of six recipes moved with this edit.
+- **Other drivers' shells, unchanged.** No gate-class agent gains
+  `Bash(dsh:*)`. The second addendum of 2026-09-02 kept that grant to the
+  implementers, and nothing here widens it.
+- **The scaffold, unchanged.** The dsh adapter `brokkr init` writes is
+  its own declaration. It maps no `qwen4-max`, stays untrusted and names
+  no judges, so a dsh scaffold still keeps its reviewer on claude.
+
+**The limits, stated plainly.**
+
+- dsh seats are not boxed on the hosts that ran this evidence (#1158).
+  The Qwen chief ran with no hands, as a read-and-judge seat, under the
+  native surface described above.
+- The provider's token plan is capped, and a quota refusal parks the run.
+  A gate seat on qwen4-max never steps down to another model (ruling 5).
+- The trial measured the chief's judgment, not its discovery: it raised
+  no finding of its own, and one side-correction was wrong.
+
