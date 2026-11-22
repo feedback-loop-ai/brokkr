@@ -18,8 +18,9 @@ use super::{
     string_array, trust_tier, EgressClass, HarnessHands, LibraryError, McpSupport, ToolPermissions,
     TrustTier, ROUTE_GRAMMAR,
 };
-use crate::agents::kinds::{kind_word, RecordKinds};
+use crate::agents::kinds::{kind_word, RecordKinds, RootKind, RootShapeUnmet};
 use crate::agents::mcp::McpDecoded;
+use crate::agents::ResumeAssessment;
 
 /// Every top-level key an adapter file may write; any other is refused.
 pub(super) const ADAPTER_KEYS: [&str; 21] = [
@@ -51,10 +52,13 @@ pub(super) const ADAPTER_KEYS: [&str; 21] = [
 /// `root_session` kind, each one seat-record v8 kind. Absent declares
 /// nothing, which every shipped adapter is: the built-in drivers declare
 /// their own kinds by writing them. `none` needs no declaration, so it is
-/// refused here as a declaration of nothing.
+/// refused here as a declaration of nothing. A `root_session` kind names
+/// in `resume_shape` the one shape of `resume` its seats rejoin by, and a
+/// `resume_shape` stands only beside one (the controller's ruling R14).
 pub(super) fn record_kinds(
     map: &Map<String, Value>,
     what: &str,
+    resume: &ResumeAssessment,
 ) -> Result<Option<RecordKinds>, LibraryError> {
     let Some(declared) = map.get("record_kinds") else {
         return Ok(None);
@@ -62,7 +66,7 @@ pub(super) fn record_kinds(
     let adapter = what;
     let what = format!("{what} 'record_kinds'");
     let raw = object(declared, &what)?;
-    only_keys(raw, &["transcript", "root_session"], &what)?;
+    only_keys(raw, &["transcript", "root_session", "resume_shape"], &what)?;
     let kind = |key: &str| -> Result<String, LibraryError> {
         let kind = string(raw, key, &what)?;
         match kind_word(&kind) && kind != "none" {
@@ -85,6 +89,23 @@ pub(super) fn record_kinds(
         let adapter = adapter.to_string();
         return Err(LibraryError::RootWithoutResume { adapter });
     }
+    let shape = match raw.contains_key("resume_shape") {
+        true => Some(string(raw, "resume_shape", &what)?),
+        false => None,
+    };
+    let refused = |unmet| {
+        let adapter = adapter.to_string();
+        Err(LibraryError::RootShape { adapter, unmet })
+    };
+    let root_session = match (root_session, shape) {
+        (None, None) => None,
+        (Some(_), None) => return refused(RootShapeUnmet::Unnamed),
+        (None, Some(_)) => return refused(RootShapeUnmet::Rootless),
+        (Some(_), Some(shape)) if resume.shape(&shape).is_none() => {
+            return refused(RootShapeUnmet::Undeclared(shape))
+        }
+        (Some(kind), Some(resume_shape)) => Some(RootKind { kind, resume_shape }),
+    };
     Ok(Some(RecordKinds {
         transcript,
         root_session,

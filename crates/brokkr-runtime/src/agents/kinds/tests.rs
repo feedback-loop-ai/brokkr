@@ -52,12 +52,16 @@ fn argv(words: &[&str]) -> Vec<String> {
 fn loaded() -> DeclaredKinds {
     let adapter = |declared: Option<RecordKinds>| AdapterKinds {
         declared,
-        resumable: Vec::new(),
+        rejoin: None,
     };
     let fixture = |transcript: &str, root: &str| {
+        let root = RootKind {
+            kind: root.into(),
+            resume_shape: "headless".into(),
+        };
         adapter(Some(RecordKinds {
             transcript: transcript.into(),
-            root_session: Some(root.into()),
+            root_session: Some(root),
         }))
     };
     DeclaredKinds(BTreeMap::from([
@@ -97,10 +101,20 @@ fn record(transcript: &str, root: &str) -> Value {
 }
 
 fn refused(member: Member, kind: &str) -> Result<(), UndeclaredKind> {
-    Err(UndeclaredKind {
+    refused_as(member, Recorded::Word(kind.into()))
+}
+
+/// The refusal of seat `work`'s `member` recording a kind outside the
+/// grammar.
+fn outside(member: Member) -> Result<(), UndeclaredKind> {
+    refused_as(member, Recorded::Outside)
+}
+
+fn refused_as(member: Member, kind: Recorded) -> Result<(), UndeclaredKind> {
+    Err(UndeclaredKind::Named {
         seat: "work".into(),
         member,
-        kind: kind.into(),
+        kind,
     })
 }
 
@@ -122,10 +136,11 @@ fn each_seat_is_judged_by_its_own_harness_and_never_by_another() {
         (&trellis, "trellis-trail", "trellis-thread"),
         (&trellis, "none", "trellis-thread"),
         (&arbor, "arbor-log", "arbor-root"),
-        (&trellis, "Not A Kind", "trellis-thread"),
     ] {
         assert_eq!(seat.admit(&record(transcript, root), "work"), Ok(()));
     }
+    let stray = record("Not A Kind", "trellis-thread");
+    assert_eq!(trellis.admit(&stray, "work"), outside(Member::Transcript));
     for (seat, transcript, root, member, kind) in [
         (
             &trellis,
@@ -210,10 +225,9 @@ fn each_seat_is_judged_by_its_own_harness_and_never_by_another() {
 
 /// The reader walks every place v8 admits a kind (the controller's ruling
 /// Q2): the top level of a checkpoint or result, and a checkpoint's nested
-/// result, whose members are refused when undeclared and, since the
-/// schema does not judge an open nested result, when outside the grammar,
-/// without echoing them. A member that does not read keeps no sibling
-/// from being read.
+/// result, whose members are refused when undeclared and when outside the
+/// grammar, without echoing them. A nested result that is not an object
+/// names no kind place and keeps no sibling from being read.
 #[test]
 fn every_place_a_record_names_a_kind_is_read() {
     let trellis = loaded().seat(Some("trellis"), &argv(&["sh"]));
@@ -240,8 +254,8 @@ fn every_place_a_record_names_a_kind_is_read() {
             Member::ResultRootSession,
         ),
         (
-            json!({"step": "s", "transcript": 7, "result": {"transcript": kind("stray")}}),
-            Member::ResultTranscript,
+            json!({"step": "s", "result": [kind("trellis-trail")], "transcript": kind("stray")}),
+            Member::Transcript,
         ),
         (
             json!({"step": "s", "result": [1], "root_session": kind("stray")}),
@@ -254,9 +268,9 @@ fn every_place_a_record_names_a_kind_is_read() {
             "{record}"
         );
     }
-    let outside = json!({"step": "s", "result": {"transcript": kind("Not A Kind")}});
-    let refusal = trellis.admit(&outside, "work");
-    assert_eq!(refusal, refused(Member::ResultTranscript, "Not A Kind"));
+    let stray = json!({"step": "s", "result": {"transcript": kind("Not A Kind")}});
+    let refusal = trellis.admit(&stray, "work");
+    assert_eq!(refusal, outside(Member::ResultTranscript));
     assert_eq!(
         refusal.unwrap_err().to_string(),
         "seat 'work' recorded nested result's transcript kind outside seat-record v8's \
@@ -265,6 +279,56 @@ fn every_place_a_record_names_a_kind_is_read() {
     let declared = json!({"step": "s", "result": {"transcript": kind("trellis-trail"),
                                                   "root_session": kind("trellis-thread")}});
     assert_eq!(trellis.admit(&declared, "work"), Ok(()));
+}
+
+/// A kind place is a declared kind or absent, and nothing else passes
+/// (the controller's ruling R13 of 2026-11-22): a string outside the
+/// grammar, a kind that is no string, a place that is not an object, an
+/// array read as nothing by position, and `null` are each refused at the
+/// top level as in a nested result, never echoed; a record that is not
+/// an object is refused as unread.
+#[test]
+fn a_kind_place_that_is_not_a_declared_kind_is_refused_whatever_it_holds() {
+    let trellis = loaded().seat(Some("trellis"), &argv(&["sh"]));
+    let held = [
+        json!({"kind": "trellis--stray"}),
+        json!({"kind": 7}),
+        json!({"locator": "t-1"}),
+        json!("trellis-thread"),
+        json!(["trellis-trail"]),
+        json!(null),
+    ];
+    for place in held {
+        for (record, member) in [
+            (json!({"transcript": place}), Member::Transcript),
+            (json!({"root_session": place}), Member::RootSession),
+            (
+                json!({"result": {"transcript": place}}),
+                Member::ResultTranscript,
+            ),
+            (
+                json!({"result": {"root_session": place}}),
+                Member::ResultRootSession,
+            ),
+        ] {
+            let refusal = trellis.admit(&record, "work");
+            assert_eq!(refusal, outside(member), "{record}");
+            assert!(!refusal.unwrap_err().to_string().contains("stray"));
+        }
+    }
+    for record in [json!(7), json!("trellis-trail"), json!([{"kind": "x"}])] {
+        let refusal = trellis.admit(&record, "work");
+        let unread = UndeclaredKind::Unread {
+            seat: "work".into(),
+        };
+        assert_eq!(refusal, Err(unread), "{record}");
+    }
+    assert_eq!(
+        trellis.admit(&json!(7), "work").unwrap_err().to_string(),
+        "seat 'work' wrote a record that is not an object, so the kinds it names cannot be \
+         read (decision 0075 ruling 2)"
+    );
+    assert_eq!(trellis.admit(&json!({"result": 7}), "work"), Ok(()));
 }
 
 /// The driver is the one the seat's own command runs (the controller's

@@ -60,6 +60,13 @@ pub enum LibraryError {
          'resume'; a rejoin is declared, never defaulted (decision 0075 ruling 1)"
     )]
     RootWithoutResume { adapter: String },
+    /// An adapter's root session kind and the one `resume` shape its seats
+    /// rejoin by are not declared together (the controller's ruling R14).
+    #[error("{adapter} 'record_kinds' {unmet} (decision 0075 ruling 1)")]
+    RootShape {
+        adapter: String,
+        unmet: super::RootShapeUnmet,
+    },
 }
 fn invalid<T>(message: String) -> Result<T, LibraryError> {
     Err(LibraryError::Invalid(message))
@@ -739,7 +746,7 @@ fn adapter_from(
         hands_notice,
     } = adapter::hands(map, what)?;
     let resume = resume_assessment(map, what)?;
-    let record_kinds = adapter::record_kinds(map, what)?;
+    let record_kinds = adapter::record_kinds(map, what, &resume)?;
     let credentials = auth::credentials(map, what)?;
     let mcp = mcp.admit(&McpContext {
         what,

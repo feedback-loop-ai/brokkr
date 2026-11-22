@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::{Adapters, Library, LibraryError};
+use crate::agents::RootShapeUnmet;
 
 /// Each row's patch written over `loadable` as `file`, alone in a fresh
 /// canonical directory beside a charter that declares nothing, and
@@ -284,7 +285,8 @@ fn a_record_kinds_declaration_refuses_every_other_shape() {
         ),
         (
             json!({"record_kinds": {"transcript": "trellis-trail", "home": "/h"}}),
-            "{what} 'record_kinds' has unknown key 'home'; known keys: transcript, root_session"
+            "{what} 'record_kinds' has unknown key 'home'; known keys: transcript, root_session, \
+             resume_shape"
                 .to_string(),
         ),
         (
@@ -336,6 +338,65 @@ fn a_root_session_kind_without_a_resume_is_refused_by_its_own_variant() {
              'resume'; a rejoin is declared, never defaulted (decision 0075 ruling 1)"
         )
     );
+}
+
+/// A root session kind names the one shape of the adapter's `resume` its
+/// seats rejoin by (the controller's ruling R14): a `root_session` without
+/// a `resume_shape`, a `resume_shape` without a `root_session`, and a
+/// `resume_shape` naming no shape the adapter declares are each refused
+/// by their own cause, naming the adapter; a named declared shape loads.
+#[test]
+fn a_root_session_kind_names_the_one_declared_shape_it_rejoins_by() {
+    let shape = json!({"status": "unsupported", "identity": {"unknown": "fixture"},
+        "classes": ["work"], "boundaries": ["not applicable"], "hands": "none",
+        "reason": "fixture: cannot rejoin"});
+    let loaded = |kinds: Value| {
+        let dir = tempfile::tempdir().unwrap();
+        let mut adapter = loadable_adapter();
+        adapter["resume"] = json!({"headless": shape});
+        adapter["record_kinds"] = kinds;
+        let path = dir.path().join("claude.json");
+        std::fs::write(&path, adapter.to_string()).unwrap();
+        let named = format!("adapter 'claude' ({})", path.display());
+        (Adapters::load(dir.path()), named)
+    };
+    let (trail, thread) = ("trellis-trail", "trellis-thread");
+    for (kinds, unmet, text) in [
+        (
+            json!({"transcript": trail, "root_session": thread}),
+            RootShapeUnmet::Unnamed,
+            "declares a 'root_session' kind and no 'resume_shape' it rejoins by",
+        ),
+        (
+            json!({"transcript": trail, "resume_shape": "headless"}),
+            RootShapeUnmet::Rootless,
+            "names a 'resume_shape' and declares no 'root_session' kind to rejoin",
+        ),
+        (
+            json!({"transcript": trail, "root_session": thread, "resume_shape": "interactive"}),
+            RootShapeUnmet::Undeclared("interactive".into()),
+            "names 'resume_shape' 'interactive', which its 'resume' does not declare",
+        ),
+    ] {
+        let (refusal, named) = loaded(kinds);
+        let refusal = refusal.unwrap_err();
+        assert!(
+            matches!(&refusal, LibraryError::RootShape { adapter, unmet: found }
+                if *adapter == named && *found == unmet),
+            "{refusal:?}"
+        );
+        let text = format!("{named} 'record_kinds' {text} (decision 0075 ruling 1)");
+        assert_eq!(refusal.to_string(), text);
+    }
+    let kinds = json!({"transcript": trail, "root_session": thread, "resume_shape": "headless"});
+    let (adapters, _) = loaded(kinds);
+    let adapters = adapters.unwrap();
+    let declared = adapters.adapter("claude").unwrap().record_kinds.clone();
+    let root = crate::agents::kinds::RootKind {
+        kind: thread.into(),
+        resume_shape: "headless".into(),
+    };
+    assert_eq!(declared.unwrap().root_session, Some(root));
 }
 
 /// One read (the controller's ruling R9 of 2026-11-21): an adapter is

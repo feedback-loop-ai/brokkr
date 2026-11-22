@@ -1596,7 +1596,7 @@ impl Engine {
         let sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let report = sink.drive(
             |forward| {
-                process.run_attempt_resuming(
+                received(process.run_attempt_resuming(
                     ENGINE_VERSION,
                     effect_id,
                     attempt_id,
@@ -1604,7 +1604,7 @@ impl Engine {
                     input,
                     session_ref,
                     forward,
-                )
+                ))
             },
             |sink, mut checkpoint| {
                 let call = calls.consume(&mut checkpoint);
@@ -1666,6 +1666,17 @@ pub const OPERATOR_STOP_RULE: &str = "OPERATOR-STOP";
 enum DriverRun {
     SpawnFailed(String),
     Ran(AttemptReport),
+}
+
+/// A driver's report as the engine receives it from its process, the one
+/// point a single seat's and a panel member's report both pass: as it
+/// came. Under test alone, a report its fake driver marked is received
+/// with its cleanup unresolved (`kinds_tests::unresolved_where_marked`;
+/// the controller's ruling R17 of 2026-11-22).
+fn received(report: AttemptReport) -> AttemptReport {
+    #[cfg(test)]
+    let report = kinds_tests::unresolved_where_marked(report);
+    report
 }
 
 /// The invocation-site tag an agent-resolved site is journaled under:

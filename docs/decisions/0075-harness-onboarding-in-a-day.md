@@ -230,15 +230,23 @@ answers to no adapter, an inline raw command, an inline exec site or a
 site no plan covers, keeps v7's three kinds and `none`: no adapter
 exists to hold a declaration for it, and v8 neither opens nor narrows
 what it may write. A root of a kind no built-in driver writes is
-offered for a rejoin only where the seat's adapter declares it and a
-`supported` resume shape covers the site: class `work`, the site's
-boundary among its `boundaries`, and its `hands` the site's, the words
-the engine writes into the driver's input, so the engine offers no wider
-than the driver's resume gate rejoins (decision 0056 ruling 5: an
-unmeasured shape is `unsupported-resume` there too). A harness that
-declares its kinds is never offered decision 0030's flat session id.
-An adapter declaring a root session kind must declare `resume`. Every
-reader judges a record by the schema alone. v8 is minted under this decision, which is accepted,
+offered for a rejoin only where the seat's adapter declares it and the
+one shape its `record_kinds.resume_shape` names is `supported` and
+covers the site: class `work`, the site's boundary among its
+`boundaries`, and its `hands` the site's, the words the engine writes
+into the driver's input, so the engine offers no wider than the
+driver's resume gate, asked about that shape, rejoins (decision 0056
+ruling 5: an unmeasured shape is `unsupported-resume` there too). A
+harness that declares its kinds is never offered decision 0030's flat
+session id. An adapter declaring a root session kind must declare
+`resume` and name in `resume_shape` one of its shapes, and declares no
+`resume_shape` without a root session kind. Wherever a record names a
+kind, anything there but a declared kind is refused, on every road,
+whether or not a schema judges it after, an unresolved cleanup's
+evidence and a panel member's result included, and the refusal never
+echoes a value outside the grammar. A record refused for its kind is a
+failed attempt and is never bound as a word. Every reader judges a
+record by the schema alone. v8 is minted under this decision, which is accepted,
 through decision 0082's lifecycle, and stands at v7's engine line, so
 dispatch never chooses v7.
 

@@ -54,7 +54,7 @@ mod load;
 mod mcp;
 mod route;
 pub use brokkr_protocol::adapters::HandsNotice;
-pub use kinds::{DeclaredKinds, RecordKinds};
+pub use kinds::{DeclaredKinds, RecordKinds, RootShapeUnmet};
 pub use load::{resolve_route, valid_name, Adapters, Library, LibraryError, NAME_GRAMMAR};
 pub(crate) use mcp::Uncarried;
 pub use mcp::{McpAxis, McpError, McpHands, McpHost, McpInvocation, McpIsolation, McpMeasurement};

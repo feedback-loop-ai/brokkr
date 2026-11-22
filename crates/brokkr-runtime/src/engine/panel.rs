@@ -498,7 +498,7 @@ impl MemberRun {
             Ok(spawned) => spawned,
             Err(refused) => return DriverRun::SpawnFailed(refused),
         };
-        DriverRun::Ran(process.run_attempt_resuming(
+        DriverRun::Ran(super::received(process.run_attempt_resuming(
             ENGINE_VERSION,
             effect_id,
             attempt_id,
@@ -509,7 +509,7 @@ impl MemberRun {
             // the locator rides the member's private `resume_context`.
             self.offer.as_ref().map(|offer| offer.provider_id.clone()),
             on_checkpoint,
-        ))
+        )))
     }
 
     /// What this member's own harness declares (decision 0075 ruling 2).

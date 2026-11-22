@@ -1251,7 +1251,9 @@ does not declare — its adapter's or its built-in driver's, never
 another adapter's — naming the kind and the seat, and the attempt fails
 on that refusal. An adapter declares
 its kinds in the optional `record_kinds` member, a `transcript` kind and,
-where the harness confirms one, a `root_session` kind. The built-in
+where the harness confirms one, a `root_session` kind. Beside a
+`root_session` kind, and only there, `resume_shape` names the one shape
+of the adapter's `resume` its seats rejoin by. The built-in
 drivers declare the kinds they write, so no shipped adapter carries the
 member, and `none` needs no declaration. Readers — export, import
 verification, offline verification and every seat readout — judge a

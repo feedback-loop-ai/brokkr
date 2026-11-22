@@ -2,7 +2,9 @@
 //! a transcript kind and a root session kind are declared by the harness's
 //! adapter, not listed in a frozen contract. The schema admits the
 //! grammar; the engine's writer, here, refuses a kind the seat's own
-//! harness does not declare. Readers judge a record by the schema alone.
+//! harness does not declare, and anything at a kind place that is not a
+//! declared kind, on every road, whether or not a schema judges it after.
+//! Readers judge a record by the schema alone.
 //!
 //! A seat's harness is the built-in driver its own command runs and the
 //! adapter its site answers to (the selected candidate's provider, or the
@@ -67,17 +69,6 @@ impl Member {
             Member::RootSession | Member::ResultRootSession => false,
         }
     }
-
-    /// Whether the schema judges this place's kind by v8's grammar. The
-    /// nested result beside no `authored` is any object, so there the
-    /// writer is the only judge, and refuses a kind outside the grammar
-    /// too.
-    fn schema_judged(self) -> bool {
-        match self {
-            Member::Transcript | Member::RootSession => true,
-            Member::ResultTranscript | Member::ResultRootSession => false,
-        }
-    }
 }
 
 impl std::fmt::Display for Member {
@@ -96,7 +87,28 @@ impl std::fmt::Display for Member {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordKinds {
     pub(crate) transcript: String,
-    pub(crate) root_session: Option<String>,
+    pub(crate) root_session: Option<RootKind>,
+}
+
+/// A declared root session kind, and `resume_shape`, the one shape of
+/// the adapter's `resume` its seats rejoin by (the controller's ruling
+/// R14 of 2026-11-22).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RootKind {
+    pub(crate) kind: String,
+    pub(crate) resume_shape: String,
+}
+
+/// How an adapter's `record_kinds` fails to name the one shape its root
+/// session kind rejoins by (the controller's ruling R14 of 2026-11-22).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RootShapeUnmet {
+    #[error("declares a 'root_session' kind and no 'resume_shape' it rejoins by")]
+    Unnamed,
+    #[error("names a 'resume_shape' and declares no 'root_session' kind to rejoin")]
+    Rootless,
+    #[error("names 'resume_shape' '{0}', which its 'resume' does not declare")]
+    Undeclared(String),
 }
 
 /// What one seat's harness declares (the controller's rulings R1 to R3 of
@@ -113,22 +125,24 @@ pub(crate) struct SeatKinds {
 }
 
 /// What one adapter adds to a seat's harness: its `record_kinds`, and the
-/// shapes of its `resume` whose status is `supported`, the only status
-/// a driver's resume gate enables (decision 0056 ruling 5: any other is
-/// `unsupported-resume`). Never a driver.
+/// one shape of its `resume` its root session kind names as the shape its
+/// seats rejoin by, kept only where its status is `supported`, the only
+/// status a driver's resume gate enables (decision 0056 ruling 5: any
+/// other is `unsupported-resume`). No other shape buys an offer (the
+/// controller's ruling R14). Never a driver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AdapterKinds {
     declared: Option<RecordKinds>,
-    resumable: Vec<ResumeShape>,
+    rejoin: Option<ResumeShape>,
 }
 
 impl AdapterKinds {
     fn of(adapter: &Adapter) -> AdapterKinds {
-        let shapes = adapter.resume.0.values();
-        let resumable = shapes.filter(|shape| shape.status == ResumeStatus::Supported);
+        let root = (adapter.record_kinds.as_ref()).and_then(|kinds| kinds.root_session.as_ref());
+        let named = root.and_then(|root| adapter.resume.shape(&root.resume_shape));
         AdapterKinds {
             declared: adapter.record_kinds.clone(),
-            resumable: resumable.cloned().collect(),
+            rejoin: (named.filter(|shape| shape.status == ResumeStatus::Supported)).cloned(),
         }
     }
 }
@@ -162,7 +176,7 @@ impl SeatKinds {
         let declared = adapter.declared.as_ref();
         let named = declared.and_then(|declared| match member.is_transcript() {
             true => Some(declared.transcript.as_str()),
-            false => declared.root_session.as_deref(),
+            false => (declared.root_session.as_ref()).map(|root| root.kind.as_str()),
         });
         named == Some(kind) || self.driver.and_then(driver_kind) == Some(kind)
     }
@@ -178,9 +192,11 @@ impl SeatKinds {
     /// offered a root of `kind` (the controller's rulings R4 and R11 of
     /// 2026-11-21): one of the three kinds a built-in driver writes, as
     /// today; otherwise only the root session kind this harness's adapter
-    /// declares, where a `supported` shape of that adapter's resume covers
-    /// the site, so the engine offers no wider than the driver's resume
-    /// gate would rejoin. Unknown standing declines.
+    /// declares, where the one shape it names as the shape it rejoins by
+    /// (`resume_shape`) is `supported` and covers the site, so the engine
+    /// offers no wider than the driver's resume gate, asked about that
+    /// shape, would rejoin (the controller's ruling R14 of 2026-11-22).
+    /// Unknown standing declines.
     pub(crate) fn rejoins(&self, kind: &str, standing: Option<Standing>) -> bool {
         if driver_kinds().contains(&kind) {
             return true;
@@ -189,22 +205,28 @@ impl SeatKinds {
             return false;
         };
         let declared = adapter.declared.as_ref();
-        declared.and_then(|kinds| kinds.root_session.as_deref()) == Some(kind)
-            && (adapter.resumable.iter())
-                .any(|shape| shape.covers("work", standing.boundary, standing.hands))
+        let root = declared.and_then(|kinds| kinds.root_session.as_ref());
+        root.is_some_and(|root| root.kind == kind)
+            && (adapter.rejoin.as_ref())
+                .is_some_and(|shape| shape.covers("work", standing.boundary, standing.hands))
     }
 
-    /// `record`, which seat `seat` wrote, refused when one of its places
-    /// names a kind this harness does not declare. A kind outside the
-    /// grammar at a place the schema judges is left to the schema, which
-    /// refuses it without echoing it.
+    /// `record`, which seat `seat` wrote, refused unless each of its kind
+    /// places is absent or names a kind this harness declares (the
+    /// controller's ruling R13 of 2026-11-22). A place outside the
+    /// grammar — a string the grammar refuses, a value that is no string,
+    /// a place that is not the object the grammar gives — is refused here
+    /// on every road, whether or not a schema judges that road after, and
+    /// so is a record that is not an object, whose places cannot be read.
     pub(crate) fn admit(&self, record: &Value, seat: &str) -> Result<(), UndeclaredKind> {
-        let Ok(named) = Named::deserialize(record) else {
-            return Ok(());
+        let seat = || seat.to_string();
+        let read = record.is_object().then(|| Named::deserialize(record).ok());
+        let Some(named) = read.flatten() else {
+            return Err(UndeclaredKind::Unread { seat: seat() });
         };
         let nested = match named.result {
-            Some(Read::Read(nested)) => nested,
-            _ => Members::default(),
+            Nested::Members(nested) => nested,
+            Nested::Sequence(_) | Nested::Other(_) | Nested::Absent => Members::default(),
         };
         let places = [
             (Member::Transcript, named.transcript),
@@ -212,15 +234,14 @@ impl SeatKinds {
             (Member::ResultTranscript, nested.transcript),
             (Member::ResultRootSession, nested.root_session),
         ];
-        for (member, kinded) in places {
-            let Some(Read::Read(Kinded { kind })) = kinded else {
-                continue;
+        for (member, place) in places {
+            let kind = match place.recorded() {
+                None => continue,
+                Some(Recorded::Word(word)) if self.declares(member, &word) => continue,
+                Some(kind) => kind,
             };
-            let left = member.schema_judged() && !kind_word(&kind);
-            if !left && !self.declares(member, &kind) {
-                let seat = seat.to_string();
-                return Err(UndeclaredKind { seat, member, kind });
-            }
+            let seat = seat();
+            return Err(UndeclaredKind::Named { seat, member, kind });
         }
         Ok(())
     }
@@ -287,56 +308,116 @@ impl DeclaredKinds {
     }
 }
 
-/// The kind members of one record, read once as types. A member that does
-/// not read is the schema's to refuse, never this check's, and it never
-/// keeps its siblings from being read.
+/// The kind places of one record, read once as types. A place that does
+/// not read as a kind is read as what it is, refused by [`Place::recorded`],
+/// and never keeps its siblings from being read.
 #[derive(Deserialize)]
 struct Named {
-    transcript: Option<Read<Kinded>>,
-    root_session: Option<Read<Kinded>>,
-    result: Option<Read<Members>>,
+    #[serde(default)]
+    transcript: Place,
+    #[serde(default)]
+    root_session: Place,
+    #[serde(default)]
+    result: Nested,
+}
+
+/// A record's nested `result`: an object whose kind places are read, or
+/// anything else, which names no kind place. An array is held apart so it
+/// is never read as an object's members by position.
+#[derive(Default, Deserialize)]
+#[serde(untagged)]
+enum Nested {
+    Sequence(Sequence),
+    Members(Members),
+    Other(IgnoredAny),
+    #[default]
+    Absent,
+}
+
+/// Any array, read as nothing but that it is one.
+struct Sequence;
+
+impl<'de> Deserialize<'de> for Sequence {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Vec::<IgnoredAny>::deserialize(deserializer).map(|_| Sequence)
+    }
 }
 
 #[derive(Default, Deserialize)]
 struct Members {
-    transcript: Option<Read<Kinded>>,
-    root_session: Option<Read<Kinded>>,
+    #[serde(default)]
+    transcript: Place,
+    #[serde(default)]
+    root_session: Place,
 }
 
-/// A member as it read: its type, or anything else.
-#[derive(Deserialize)]
+/// One kind place as it read: absent, an object naming a string `kind`,
+/// or anything else (an array first, so it is never read as an object by
+/// position). `Absent` is only ever the default of a missing place:
+/// `Other` reads every present value the variants before it do not,
+/// `null` included.
+#[derive(Default, Deserialize)]
 #[serde(untagged)]
-enum Read<T> {
-    Read(T),
+enum Place {
+    Sequence(Sequence),
+    Kinded {
+        kind: String,
+    },
     Other(IgnoredAny),
+    #[default]
+    Absent,
 }
 
-#[derive(Deserialize)]
-struct Kinded {
-    kind: String,
-}
-
-/// A record whose kind the seat's harness does not declare, refused at
-/// append, naming the seat that wrote it.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error(
-    "seat '{seat}' recorded {member} kind {}, which the seat's harness does not declare \
-     (decision 0075 ruling 2)",
-    shown(.kind)
-)]
-pub(crate) struct UndeclaredKind {
-    pub(crate) seat: String,
-    pub(crate) member: Member,
-    pub(crate) kind: String,
-}
-
-/// A kind as a refusal may echo it: quoted where it is one word of v8's
-/// grammar, and never otherwise.
-fn shown(kind: &str) -> String {
-    match kind_word(kind) {
-        true => format!("'{kind}'"),
-        false => "outside seat-record v8's grammar".to_string(),
+impl Place {
+    /// What this place records: nothing where it is absent, its kind
+    /// where that is one word of v8's grammar, and otherwise a kind
+    /// outside the grammar, whatever it holds.
+    fn recorded(self) -> Option<Recorded> {
+        match self {
+            Place::Absent => None,
+            Place::Kinded { kind } if kind_word(&kind) => Some(Recorded::Word(kind)),
+            Place::Kinded { .. } | Place::Sequence(_) | Place::Other(_) => Some(Recorded::Outside),
+        }
     }
+}
+
+/// A kind a record names, as a refusal may echo it: one word of v8's
+/// grammar, quoted, or a place outside the grammar, which is never
+/// echoed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Recorded {
+    Word(String),
+    Outside,
+}
+
+impl std::fmt::Display for Recorded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Recorded::Word(word) => write!(f, "'{word}'"),
+            Recorded::Outside => f.write_str("outside seat-record v8's grammar"),
+        }
+    }
+}
+
+/// A record that names a kind the seat's harness does not declare, or
+/// whose kind places cannot be read, refused, naming the seat that wrote
+/// it (decision 0075 ruling 2; the controller's ruling R13 of 2026-11-22).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum UndeclaredKind {
+    #[error(
+        "seat '{seat}' recorded {member} kind {kind}, which the seat's harness does not \
+         declare (decision 0075 ruling 2)"
+    )]
+    Named {
+        seat: String,
+        member: Member,
+        kind: Recorded,
+    },
+    #[error(
+        "seat '{seat}' wrote a record that is not an object, so the kinds it names cannot be \
+         read (decision 0075 ruling 2)"
+    )]
+    Unread { seat: String },
 }
 
 #[cfg(test)]

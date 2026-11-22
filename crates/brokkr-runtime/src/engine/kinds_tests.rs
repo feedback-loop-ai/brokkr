@@ -13,7 +13,7 @@ use std::path::Path;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_protocol::process::Unsettled;
-use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup};
+use brokkr_protocol::{AttemptReport, Cleanup};
 use brokkr_store::{SeatRecordVersion, Store};
 use serde_json::{json, Value};
 
@@ -28,10 +28,14 @@ const TRAIL: &str = "trellis-trail";
 const THREAD: &str = "trellis-thread";
 
 /// One invocation of the fake trellis driver: the checkpoints it sends,
-/// then its successful result, or a failure where there is none.
+/// then its successful result, or a failure where there is none, and
+/// whether its report is received with its cleanup unresolved
+/// ([`unresolved_where_marked`]).
+#[derive(Default)]
 struct Visit {
     checkpoints: Vec<Value>,
     result: Option<Value>,
+    unresolved: bool,
 }
 
 /// The trellis checkpoint naming `transcript` and `root` as its kinds,
@@ -54,6 +58,7 @@ fn once(checkpoint: Value, result: Value) -> Vec<Visit> {
     vec![Visit {
         checkpoints: vec![checkpoint],
         result: Some(result),
+        unresolved: false,
     }]
 }
 
@@ -75,6 +80,8 @@ fn driver(dir: &Path, visits: &[Visit]) -> String {
             None => r#""status":"failed","error":"a first look""#.to_string(),
         };
         std::fs::write(dir.join(format!("{n}.end")), end).unwrap();
+        let mark = if visit.unresolved { UNRESOLVED } else { "" };
+        std::fs::write(dir.join(format!("{n}.err")), mark).unwrap();
     }
     let at = dir.display();
     format!(
@@ -89,6 +96,7 @@ aid=$(printf '%s' "$line" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
 head='{{"proto":"forge-driver/v1","msg_id":"m","effect_id":"'"$eid"'","attempt_id":"'"$aid"'"'
 printf '%s,"type":"accepted","session_ref":null}}\n' "$head"
 while read -r data; do printf '%s,"type":"checkpoint","data":%s}}\n' "$head" "$data"; done < '{at}/'"$n"'.rows'
+cat '{at}/'"$n"'.err' >&2
 printf '%s,"type":"result",%s}}\n' "$head" "$(cat '{at}/'"$n"'.end')"
 read -r done
 "#
@@ -107,9 +115,17 @@ fn write(path: &Path, value: &Value) {
     std::fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
 }
 
+/// The trellis adapter's `resume` declaration, and `by`, the shape its
+/// root session kind names as the one its seats rejoin by
+/// (`record_kinds.resume_shape`; the controller's ruling R14).
+struct Rejoin {
+    resume: Value,
+    by: &'static str,
+}
+
 /// A `resume` declaration of one work shape, `supported` or `unsupported`,
 /// measured where the trellis seat stands: no hands.
-fn resume_declared(supported: bool) -> Value {
+fn resume_declared(supported: bool) -> Rejoin {
     resume_shaped(supported, NO_HANDS)
 }
 
@@ -117,9 +133,19 @@ fn resume_declared(supported: bool) -> Value {
 /// driver's input: its boundary and its hands.
 const NO_HANDS: (&str, &str) = ("not applicable", "none");
 
-/// A `resume` declaration of one work shape, `supported` or `unsupported`,
-/// measured under `boundary` with `hands`.
-fn resume_shaped(supported: bool, (boundary, hands): (&str, &str)) -> Value {
+/// A `resume` declaration of one work shape, `headless`, which the root
+/// session kind rejoins by, `supported` or `unsupported`, measured under
+/// `boundary` with `hands`.
+fn resume_shaped(supported: bool, standing: (&str, &str)) -> Rejoin {
+    Rejoin {
+        resume: json!({"headless": shape_of(supported, standing)}),
+        by: "headless",
+    }
+}
+
+/// One work shape, `supported` or `unsupported`, measured under
+/// `boundary` with `hands`.
+fn shape_of(supported: bool, (boundary, hands): (&str, &str)) -> Value {
     let mut shape = json!({"classes": ["work"], "boundaries": [boundary], "hands": hands});
     let measured = json!({"status": "supported",
         "identity": {"version": "1.0.0", "applies_to": "1.0.0"},
@@ -132,21 +158,22 @@ fn resume_shaped(supported: bool, (boundary, hands): (&str, &str)) -> Value {
         .as_object_mut()
         .unwrap()
         .extend(status.as_object().unwrap().clone());
-    json!({"headless": shape})
+    shape
 }
 
 /// Two fixture adapters under `adapters`: `trellis`, invoking `script`
-/// and declaring [`TRAIL`] and [`THREAD`] with `resume`, and `arbor`,
+/// and declaring [`TRAIL`] and [`THREAD`] with `rejoin`, and `arbor`,
 /// which no seat hires and which declares kinds of its own.
-fn fixture_adapters(adapters: &Path, script: &str, resume: &Value) {
+fn fixture_adapters(adapters: &Path, script: &str, rejoin: &Rejoin) {
     std::fs::create_dir_all(adapters).unwrap();
     let adapter = |provider: &str, model: &str, transcript: &str, root: &str| {
         json!({"provider": provider, "trust_tier": "trusted", "egress": "contracted",
                "binary": "sh", "driver": ["sh", "-c", script],
                "models": {provider: model}, "model_flag": "--model",
                "efforts": ["high"], "effort_flag": "--effort",
-               "tool_permissions": "unsupported", "mcp": "unsupported", "resume": resume,
-               "record_kinds": {"transcript": transcript, "root_session": root}})
+               "tool_permissions": "unsupported", "mcp": "unsupported",
+               "resume": rejoin.resume, "record_kinds": {"transcript": transcript,
+               "root_session": root, "resume_shape": rejoin.by}})
     };
     write(
         &adapters.join("trellis.json"),
@@ -174,7 +201,7 @@ fn panel_seat() -> Value {
 
 /// A bundle whose `work` seat is `seat`, and whose trellis adapter
 /// invokes `script` and declares `resume`.
-fn trellis_bundle(dir: &Path, script: &str, resume: &Value, seat: &Value) -> Bundle {
+fn trellis_bundle(dir: &Path, script: &str, resume: &Rejoin, seat: &Value) -> Bundle {
     let (bundle, agents, adapters) = (dir.join("bundle"), dir.join("agents"), dir.join("adapters"));
     for made in [bundle.clone(), agents.join("charters")] {
         std::fs::create_dir_all(made).unwrap();
@@ -219,7 +246,7 @@ fn trellis_bundle(dir: &Path, script: &str, resume: &Value, seat: &Value) -> Bun
 fn seated_with(
     dir: &Path,
     visits: &[Visit],
-    resume: &Value,
+    resume: &Rejoin,
 ) -> (Store, String, Vec<EventEnvelope>) {
     seated_as(dir, visits, resume, &single_seat())
 }
@@ -229,7 +256,7 @@ fn seated_with(
 fn seated_as(
     dir: &Path,
     visits: &[Visit],
-    resume: &Value,
+    resume: &Rejoin,
     seat: &Value,
 ) -> (Store, String, Vec<EventEnvelope>) {
     let repo = dir.join("repo");
@@ -428,21 +455,22 @@ impl Retry {
 
 /// The retry of a seat whose first attempt confirmed a persistent root of
 /// its harness's declared kind, with `resume` declared for its adapter.
-fn retried(resume: &Value) -> Retry {
+fn retried(resume: &Rejoin) -> Retry {
     retried_after(checkpoint(TRAIL, THREAD, "t-1", "tr-1"), resume)
 }
 
 /// The retry of a seat whose first attempt sent `first` and failed.
-fn retried_after(first: Value, resume: &Value) -> Retry {
+fn retried_after(first: Value, resume: &Rejoin) -> Retry {
     let dir = tempfile::tempdir().unwrap();
     let visits = [
         Visit {
             checkpoints: vec![first],
-            result: None,
+            ..Visit::default()
         },
         Visit {
             checkpoints: vec![checkpoint(TRAIL, THREAD, "t-1", "tr-2")],
             result: Some(complete(TRAIL)),
+            unresolved: false,
         },
     ];
     let (_store, _run, events) = seated_with(dir.path(), &visits, resume);
@@ -587,10 +615,6 @@ fn undeclared_transcript(seat: &str, kind: &str) -> String {
 #[test]
 fn a_panel_members_undeclared_kind_is_refused_live_and_at_its_result() {
     let stray = "trellis-stray";
-    let pass = |kind: &str| {
-        json!({"result": "pass", "model": "trellis-1",
-               "transcript": {"kind": kind, "locator": "t-1", "home": "/h/.trellis"}})
-    };
     for (row, result) in [
         (checkpoint(stray, THREAD, "t-1", "tr-1"), pass(TRAIL)),
         (checkpoint(TRAIL, THREAD, "t-1", "tr-1"), pass(stray)),
@@ -599,14 +623,13 @@ fn a_panel_members_undeclared_kind_is_refused_live_and_at_its_result() {
         let judge = Visit {
             checkpoints: vec![row],
             result: Some(result),
+            unresolved: false,
         };
         let second = Visit {
-            checkpoints: Vec::new(),
             result: Some(pass(TRAIL)),
+            ..Visit::default()
         };
-        let visits = [judge, second];
-        let resume = resume_declared(false);
-        let (_store, _run, events) = seated_as(dir.path(), &visits, &resume, &panel_seat());
+        let events = paneled(dir.path(), judge, second);
         let error = format!(
             "panel members failed — judge: {}",
             undeclared_transcript("work:judge", stray)
@@ -649,154 +672,256 @@ fn a_record_decision_0109_refuses_is_refused_by_0109_whatever_kind_it_names() {
     }
 }
 
+/// What the fake driver writes to its stderr where its visit is
+/// [`Visit::unresolved`].
+const UNRESOLVED: &str = "kinds-tests: received unresolved";
+
 /// What an attempt whose process group outlived its kill carries as its
 /// cleanup.
 const HELD: &str = "its process group 7 still had members after the kill";
 
-/// A report whose driver sent `result`, its cleanup unresolved, with
-/// `refused` in place where something else already refused it.
-fn unresolved(result: Value, refused: Option<AttemptOutcome>) -> AttemptReport {
-    AttemptReport {
-        refused,
-        cleanup: Cleanup::Unresolved {
+/// The engine's test-only seam at the one point it receives a driver's
+/// report (`engine::received`; the controller's ruling R17): a report
+/// whose fake driver wrote [`UNRESOLVED`] to its stderr is received with
+/// its process group outliving its kill, as the process layer reports one
+/// (`process::tests`), and every other report as it came.
+pub(super) fn unresolved_where_marked(mut report: AttemptReport) -> AttemptReport {
+    if report.stderr.contains(UNRESOLVED) {
+        report.cleanup = Cleanup::Unresolved {
             reason: Unsettled::Group { group: 7 },
-        },
-        ..super::tests::report(AttemptOutcome::Succeeded { result }, "")
+        };
+    }
+    report
+}
+
+/// A successful panel member's result, carrying a transcript of `kind`.
+fn pass(kind: &str) -> Value {
+    json!({"result": "pass", "model": "trellis-1",
+           "transcript": {"kind": kind, "locator": "t-1", "home": "/h/.trellis"}})
+}
+
+/// A visit sending `checkpoints` and succeeding with `result`, its report
+/// received with its cleanup unresolved.
+fn unresolved(checkpoints: Vec<Value>, result: Value) -> Visit {
+    Visit {
+        checkpoints,
+        result: Some(result),
+        unresolved: true,
     }
 }
 
-/// `report`, as seat `seat` of the trellis site's harness wrote it, judged
-/// on the road a single seat's and a panel member's report take.
-fn judged(report: AttemptReport, seat: &str) -> AttemptReport {
-    let dir = tempfile::tempdir().unwrap();
-    let site = trellis_site(dir.path());
-    super::verdict::judged(report, Some(&site), seat).journaled()
+/// The `work` panel's run, its `judge` member playing `judge` and its
+/// `second` member `second`: its journal.
+fn paneled(dir: &Path, judge: Visit, second: Visit) -> Vec<EventEnvelope> {
+    let resume = resume_declared(false);
+    seated_as(dir, &[judge, second], &resume, &panel_seat()).2
 }
 
-/// The received outcome of a result whose transcript kind `kind` seat
-/// `seat`'s harness does not declare: the kind refusal, typed.
-fn received_refusal(seat: &str, kind: &str) -> Value {
-    json!({"status": "failed", "error": undeclared_transcript(seat, kind)})
+/// The run's one `effect/indeterminate` payload, and the whole journal as
+/// text, which holds no kind place naming any of `strays`.
+fn indeterminate<'e>(events: &'e [EventEnvelope], strays: &[Value]) -> &'e Value {
+    let parked = of(events, EventType::EffectIndeterminate);
+    assert_eq!(parked.len(), 1, "{events:?}");
+    let journaled = serde_json::to_string(events).unwrap();
+    for stray in strays {
+        assert!(
+            !journaled.contains(&format!(r#""kind":{stray}"#)),
+            "{journaled}"
+        );
+        assert!(
+            !journaled.contains(&format!(r#""root_session":{stray}"#)),
+            "{journaled}"
+        );
+    }
+    parked[0]
 }
 
-/// The work seat's `report`, judged and concluded: the journal it leaves,
-/// which ends in the attempt's `effect/indeterminate`.
-fn concluded(report: AttemptReport) -> Vec<EventEnvelope> {
-    let run = super::DriverRun::Ran(judged(report, "work"));
-    let (_dir, mut engine) = super::tests::engine(super::tests::single_body(vec!["d".into()]));
-    let selection = super::Selection::new();
-    let ended = engine.conclude_single("effect", "attempt", run, &selection, None);
-    ended.unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
-    let last = events.last().unwrap().event_type;
-    assert_eq!(last, EventType::EffectIndeterminate);
-    events
+/// The received outcome of a record seat `seat`'s harness refuses for
+/// its `member` kind `kind`: the kind refusal, typed.
+fn refusal_received(seat: &str, member: &str, kind: &str) -> Value {
+    let error = format!(
+        "seat '{seat}' recorded {member} kind {kind}, which the seat's harness does not declare \
+         (decision 0075 ruling 2)"
+    );
+    json!({"status": "failed", "error": error})
 }
 
-/// No event carries a kind the seat's harness does not declare, an
-/// unresolved cleanup's evidence included (the controller's ruling R10):
-/// a result naming one is received as the kind refusal in its place,
-/// whether nothing else refused the report, a live checkpoint's refusal
-/// did, or decision 0109's did, each refusal keeping its own words in the
-/// reason. A result naming declared kinds is received as it came, refused
-/// or not.
+/// The reason an unresolved attempt that reached `reached` parks on.
+fn parked_on(reached: &str) -> Value {
+    json!(format!(
+        "{reached}; the attempt is not proven over: {HELD}; stderr tail: {UNRESOLVED}"
+    ))
+}
+
+/// The results an unresolved cleanup's evidence must never carry
+/// (the controller's ruling R13): a transcript kind of no declaration, one
+/// outside the grammar, one that is a number, and a root session that is
+/// not an object; each with the kind refusal received in its place, whose
+/// words never echo a value outside the grammar; and the strays that
+/// must not reach the journal at a kind place.
+fn strays() -> [(Value, &'static str, &'static str, Value); 4] {
+    let mut number = complete(TRAIL);
+    number["transcript"]["kind"] = json!(7);
+    let mut rootless = complete(TRAIL);
+    rootless["root_session"] = json!("trellis--stray");
+    let outside = "outside seat-record v8's grammar";
+    [
+        (
+            complete("trellis-stray"),
+            "transcript",
+            "'trellis-stray'",
+            json!("trellis-stray"),
+        ),
+        (
+            complete("trellis--stray"),
+            "transcript",
+            outside,
+            json!("trellis--stray"),
+        ),
+        (number, "transcript", outside, json!(7)),
+        (rootless, "root session", outside, json!("trellis--stray")),
+    ]
+}
+
+/// No event carries anything at a kind place but a kind the seat's harness
+/// declares, an unresolved cleanup's evidence included, on the engine's
+/// own road for a single seat (`run_driver`; the controller's rulings R13
+/// and R17): each stray result is received as the kind refusal in its
+/// place, never echoing a value outside the grammar, whether nothing else
+/// refused the report, a live checkpoint's refusal did, or decision
+/// 0109's did, each refusal keeping its own words in the reason. A result
+/// naming declared kinds is received as it came, refused or not.
 #[test]
-fn an_unresolved_cleanup_receives_the_kind_refusal_in_place_of_an_undeclared_kind() {
-    let stray = "trellis-stray";
+fn a_single_seats_unresolved_cleanup_receives_the_kind_refusal_in_place_of_a_stray_kind() {
     let live = "a driver's checkpoint claims a record only the engine authors (decision 0109 \
                 ruling 1)";
-    let refused_live = Some(AttemptOutcome::Failed { error: live.into() });
-    let reporting = |kind: &str| {
-        let mut result = complete(kind);
+    let by_0109 = "the result was refused: the result carries 'findings' from a work site: only \
+                   a gate reports findings (decision 0109 ruling 1)";
+    let mut authored = checkpoint(TRAIL, THREAD, "t-1", "tr-1");
+    authored["authored"] = json!("engine");
+    let reporting = |mut result: Value| {
         result["findings"] = json!([]);
         result
     };
-    let by_0109 = "the result was refused: the result carries 'findings' from a work site: only \
-                   a gate reports findings (decision 0109 ruling 1)";
-    let (by_kind, refused) = (
-        undeclared_transcript("work", stray),
-        received_refusal("work", stray),
-    );
+    let parked = |rows: Vec<Value>, result: Value, strays: &[Value]| {
+        let dir = tempfile::tempdir().unwrap();
+        let events = seated(dir.path(), &[unresolved(rows, result)]).2;
+        let payload = indeterminate(&events, strays);
+        (payload["reason"].clone(), payload["received"].clone())
+    };
+    for (result, member, kind, stray) in strays() {
+        let received = refusal_received("work", member, kind);
+        assert!(!received.to_string().contains("--"), "{received}");
+        let by_kind = received["error"].as_str().unwrap().to_string();
+        for (rows, result, reason) in [
+            (vec![], result.clone(), by_kind.as_str()),
+            (vec![authored.clone()], result.clone(), live),
+            (vec![], reporting(result), by_0109),
+        ] {
+            let evidence = parked(rows, result, std::slice::from_ref(&stray));
+            assert_eq!(evidence, (parked_on(reason), received.clone()), "{reason}");
+        }
+    }
     let came = |result: Value| json!({"status": "succeeded", "result": result});
-    for (report, reason, received) in [
-        (unresolved(complete(stray), None), &by_kind[..], &refused),
-        (unresolved(complete(stray), refused_live), live, &refused),
-        (unresolved(reporting(stray), None), by_0109, &refused),
-        (
-            unresolved(complete(TRAIL), None),
-            "the driver reported success",
-            &came(complete(TRAIL)),
-        ),
-        (
-            unresolved(reporting(TRAIL), None),
-            by_0109,
-            &came(reporting(TRAIL)),
-        ),
+    for (result, reason) in [
+        (complete(TRAIL), "the driver reported success"),
+        (reporting(complete(TRAIL)), by_0109),
     ] {
-        let events = concluded(report);
-        let payload = &events.last().unwrap().payload;
-        let journaled = serde_json::to_string(&events).unwrap();
-        assert!(
-            !journaled.contains(&format!(r#""kind":"{stray}""#)),
-            "{payload}"
-        );
-        let reason = format!("{reason}; the attempt is not proven over: {HELD}; stderr tail: ");
-        let evidence = (&payload["reason"], &payload["received"]);
-        assert_eq!(evidence, (&json!(reason), received), "{payload}");
+        let evidence = parked(vec![], result.clone(), &[]);
+        assert_eq!(evidence, (parked_on(reason), came(result)));
     }
 }
 
-/// A panel member's unresolved cleanup is judged as a single seat's is
-/// (the controller's ruling R10): the member whose result names a kind
-/// its harness does not declare is received as the kind refusal, and its
-/// sibling, naming its declared kind, as it came.
+/// A panel member's unresolved cleanup is judged as a single seat's is,
+/// on the engine's own road for a member (`settle_members`; the
+/// controller's rulings R13 and R17): the member whose result holds a
+/// stray kind is received as the kind refusal, and its sibling, naming
+/// its declared kind, as it came.
 #[test]
 fn a_panel_members_unresolved_cleanup_receives_the_kind_refusal_in_its_results_place() {
-    let stray = "trellis-stray";
-    let pass = |kind: &str| {
-        json!({"result": "pass", "model": "trellis-1",
-               "transcript": {"kind": kind, "locator": "t-1", "home": "/h/.trellis"}})
-    };
-    let member = |name: &str, kind: &str| {
-        let report = unresolved(pass(kind), None);
-        (name.to_string(), judged(report, &format!("work:{name}")))
-    };
-    let reports = [member("judge", stray), member("second", TRAIL)];
     let cleanup = json!({"state": "unresolved", "reason": HELD});
-    assert_eq!(
-        json!(super::Unproven::panel(&reports)),
-        json!({"unresolved_members": {
-            "judge": {"received": received_refusal("work:judge", stray), "cleanup": cleanup},
-            "second": {"received": {"status": "succeeded", "result": pass(TRAIL)},
-                       "cleanup": cleanup},
-        }})
-    );
+    for (mut result, member, kind, stray) in strays() {
+        result["result"] = json!("pass");
+        let dir = tempfile::tempdir().unwrap();
+        let judge = unresolved(vec![], result);
+        let events = paneled(dir.path(), judge, unresolved(vec![], pass(TRAIL)));
+        let payload = indeterminate(&events, &[stray]);
+        let received = refusal_received("work:judge", member, kind);
+        assert_eq!(
+            payload["unresolved_members"],
+            json!({
+                "judge": {"received": received, "cleanup": cleanup},
+                "second": {"received": {"status": "succeeded", "result": pass(TRAIL)},
+                           "cleanup": cleanup},
+            }),
+            "{payload}"
+        );
+    }
+}
+
+/// A record refused for its kind is a failed attempt and is never bound
+/// as a word (the controller's rulings R13 and R16): a panel member whose
+/// word the join would refuse, and whose transcript kind is undeclared or
+/// outside the grammar, ends as a failed member on the kind refusal; no
+/// binding refusal is journaled for it, and no event holds its kind,
+/// under the aggregate's `notes.members` or anywhere else.
+#[test]
+fn a_member_refused_for_its_kind_fails_and_is_never_bound_as_a_word() {
+    for (stray, shown) in [
+        ("trellis-stray", "'trellis-stray'"),
+        ("trellis--stray", "outside seat-record v8's grammar"),
+    ] {
+        let mut poisoning = pass(stray);
+        poisoning["result"] = json!("maybe");
+        let dir = tempfile::tempdir().unwrap();
+        let judge = Visit {
+            result: Some(poisoning),
+            ..Visit::default()
+        };
+        let second = Visit {
+            result: Some(pass(TRAIL)),
+            ..Visit::default()
+        };
+        let events = paneled(dir.path(), judge, second);
+        let refusal = refusal_received("work:judge", "transcript", shown);
+        let error = format!(
+            "panel members failed — judge: {}",
+            refusal["error"].as_str().unwrap()
+        );
+        failed_with(&events, &error);
+        let journaled = serde_json::to_string(&events).unwrap();
+        let named = format!(r#""kind":"{stray}""#);
+        assert!(!journaled.contains(&named), "{journaled}");
+        assert!(!journaled.contains("is not among its declared results"));
+        assert!(!journaled.contains("maybe"), "{journaled}");
+    }
 }
 
 /// The trellis `headless` shape, `supported` where the site stands, with
 /// each of `patch`'s members written over it.
-fn shape_with(patch: &Value) -> Value {
-    let mut resume = resume_shaped(true, NO_HANDS);
+fn shape_with(patch: &Value) -> Rejoin {
+    let mut rejoin = resume_shaped(true, NO_HANDS);
     for (key, value) in patch.as_object().unwrap() {
-        resume["headless"][key] = value.clone();
+        rejoin.resume["headless"][key] = value.clone();
     }
-    resume
+    rejoin
 }
 
 /// The engine offers a root of a new kind no wider than the driver's own
-/// resume gate would rejoin (the controller's ruling R11): for each row,
-/// whether the retry was offered the root, beside whether the protocol's
-/// gate, given the very input the engine wrote for the retry, enables the
-/// shape. A matching `supported` shape is offered and enabled; another
-/// boundary, other hands or an unmeasured status buys neither. A shape
-/// whose classes do not name `work` buys no offer, and the gate, which
-/// reads no class, would enable it: the engine is narrower there, never
-/// wider.
+/// resume gate would rejoin (the controller's rulings R11 and R15): for
+/// each row, whether the retry was offered the root, beside whether the
+/// protocol's gate, asked about the shape the root session kind names
+/// (`resume_shape`) on the very input the engine wrote for the retry,
+/// enables it. A matching `supported` shape is offered and enabled;
+/// another boundary, other hands or an unmeasured status buys neither.
 #[test]
 fn the_engine_offers_a_new_root_kind_only_where_the_drivers_resume_gate_enables_it() {
-    let unmeasured = json!({"headless": {"status": "unmeasured",
-        "identity": {"unknown": "fixture"}, "reason": "fixture: not measured",
-        "classes": ["work"], "boundaries": [NO_HANDS.0], "hands": NO_HANDS.1}});
+    let unmeasured = Rejoin {
+        resume: json!({"headless": {"status": "unmeasured",
+            "identity": {"unknown": "fixture"}, "reason": "fixture: not measured",
+            "classes": ["work"], "boundaries": [NO_HANDS.0], "hands": NO_HANDS.1}}),
+        by: "headless",
+    };
     let rows = [
         ("matching", resume_shaped(true, NO_HANDS), (true, true)),
         (
@@ -809,6 +934,9 @@ fn the_engine_offers_a_new_root_kind_only_where_the_drivers_resume_gate_enables_
             resume_shaped(true, (NO_HANDS.0, "boxed")),
             (false, false),
         ),
+        // The class is the engine's check alone (the controller's ruling
+        // R15): the gate reads no class, and only the engine knows a
+        // site's, so here the engine declines what the gate would enable.
         (
             "class",
             shape_with(&json!({"classes": ["gate"]})),
@@ -816,11 +944,38 @@ fn the_engine_offers_a_new_root_kind_only_where_the_drivers_resume_gate_enables_
         ),
         ("status", unmeasured, (false, false)),
     ];
-    for (row, resume, expected) in rows {
-        let retry = retried(&resume);
-        let enabled = brokkr_protocol::adapters::resume_enabled(&retry.input, "headless");
-        let offered = retry.target.is_some();
-        assert_eq!((offered, enabled), expected, "{row}: {retry:?}");
-        assert_eq!(retry.resumes.len(), usize::from(offered), "{row}");
+    for (row, rejoin, expected) in rows {
+        assert_eq!(offered_and_enabled(&rejoin), expected, "{row}");
+    }
+}
+
+/// Whether the retry under `rejoin` was offered the root, beside whether
+/// the driver's resume gate, asked about the shape `rejoin` names on the
+/// very input the engine wrote for the retry, enables it.
+fn offered_and_enabled(rejoin: &Rejoin) -> (bool, bool) {
+    let retry = retried(rejoin);
+    let enabled = brokkr_protocol::adapters::resume_enabled(&retry.input, rejoin.by);
+    let offered = retry.target.is_some();
+    assert_eq!(retry.resumes.len(), usize::from(offered), "{retry:?}");
+    (offered, enabled)
+}
+
+/// A root session kind is offered only by the one shape it names as the
+/// shape its seats rejoin by (the controller's ruling R14): with
+/// `headless` unsupported and `interactive` supported and covering the
+/// site, an adapter naming `headless` is offered nothing, as the gate
+/// asked about `headless` refuses, and one naming `interactive` is
+/// offered, as the gate asked about `interactive` enables.
+#[test]
+fn a_new_root_kind_is_offered_only_by_the_shape_its_root_session_kind_names() {
+    let resume = json!({"headless": shape_of(false, NO_HANDS),
+                        "interactive": shape_of(true, NO_HANDS)});
+    for (by, expected) in [("headless", (false, false)), ("interactive", (true, true))] {
+        let resume = resume.clone();
+        assert_eq!(
+            offered_and_enabled(&Rejoin { resume, by }),
+            expected,
+            "{by}"
+        );
     }
 }

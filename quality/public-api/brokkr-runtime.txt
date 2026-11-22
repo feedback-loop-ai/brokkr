@@ -198,6 +198,9 @@ pub brokkr_runtime::agents::LibraryError::Charter(brokkr_runtime::agents::charte
 pub brokkr_runtime::agents::LibraryError::Invalid(alloc::string::String)
 pub brokkr_runtime::agents::LibraryError::Io(core::io::error::Error)
 pub brokkr_runtime::agents::LibraryError::Mcp(brokkr_runtime::agents::McpRefusal)
+pub brokkr_runtime::agents::LibraryError::RootShape
+pub brokkr_runtime::agents::LibraryError::RootShape::adapter: alloc::string::String
+pub brokkr_runtime::agents::LibraryError::RootShape::unmet: brokkr_runtime::agents::RootShapeUnmet
 pub brokkr_runtime::agents::LibraryError::RootWithoutResume
 pub brokkr_runtime::agents::LibraryError::RootWithoutResume::adapter: alloc::string::String
 pub enum brokkr_runtime::agents::Lowering
@@ -304,6 +307,10 @@ pub brokkr_runtime::agents::ResumeStatus::Unmeasured
 pub brokkr_runtime::agents::ResumeStatus::Unsupported
 impl brokkr_runtime::agents::ResumeStatus
 pub fn brokkr_runtime::agents::ResumeStatus::word(self) -> &'static str
+pub enum brokkr_runtime::agents::RootShapeUnmet
+pub brokkr_runtime::agents::RootShapeUnmet::Rootless
+pub brokkr_runtime::agents::RootShapeUnmet::Undeclared(alloc::string::String)
+pub brokkr_runtime::agents::RootShapeUnmet::Unnamed
 pub enum brokkr_runtime::agents::Sandbox
 pub brokkr_runtime::agents::Sandbox::DangerFullAccess
 pub brokkr_runtime::agents::Sandbox::ReadOnly
@@ -2261,6 +2268,9 @@ pub brokkr_runtime::LibraryError::Charter(brokkr_runtime::agents::charter_data::
 pub brokkr_runtime::LibraryError::Invalid(alloc::string::String)
 pub brokkr_runtime::LibraryError::Io(core::io::error::Error)
 pub brokkr_runtime::LibraryError::Mcp(brokkr_runtime::agents::McpRefusal)
+pub brokkr_runtime::LibraryError::RootShape
+pub brokkr_runtime::LibraryError::RootShape::adapter: alloc::string::String
+pub brokkr_runtime::LibraryError::RootShape::unmet: brokkr_runtime::agents::RootShapeUnmet
 pub brokkr_runtime::LibraryError::RootWithoutResume
 pub brokkr_runtime::LibraryError::RootWithoutResume::adapter: alloc::string::String
 pub enum brokkr_runtime::Live
