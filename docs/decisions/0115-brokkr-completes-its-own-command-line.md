@@ -41,13 +41,26 @@ are writing. So what it may read has to be ruled.
    only candidates and exits. Without `COMPLETE`, startup reads that
    one variable and nothing more.
 
-3. **Read-only, and nothing left behind.** The journal is opened by
-   `Store::open_read_only_untouched`. It is read-only, as
+3. **Read-only, and nothing left behind.** The journal is read
+   through `Store::read_untouched`. It is read-only, as
    `Store::open_read_only` is, and it also creates no file. A read-only
    SQLite open of a WAL journal still creates its `-wal` and `-shm`.
-   So where no `-wal` stands beside the journal, it is opened
-   `immutable`, and where one stands it is opened `readonly_shm`. No
-   journal, `.forge/` or `.brokkr/` directory, lock or side file is
+   The journal is first resolved as SQLite resolves it, every link
+   followed, since SQLite names the side files after the file it opens.
+   Then:
+   - where a `-journal` stands, a rollback-mode writer holds the
+     journal or left it hot, and nothing is read (ruling 7);
+   - where a `-wal` stands, it is opened `readonly_shm`;
+   - where neither stands and the header names a WAL journal, it is
+     opened `immutable`. Nothing guards that read against a writer
+     starting during it, so once the read is done the side files and
+     the main file's size, time and inode are looked at again, and a
+     read across any change answers nothing;
+   - any other journal, a rollback-mode one among them, is opened
+     read-only under SQLite's own locks, which create no file in that
+     mode, so a peer's lock refuses it within ruling 8's patience.
+
+   No journal, `.forge/` or `.brokkr/` directory, lock or side file is
    created. Nothing is migrated or backfilled, and no writer lease is
    taken.
 

@@ -180,7 +180,7 @@ type Listed = anyhow::Result<Vec<(String, Option<String>)>>;
 /// Every value of `values` the line's journal, libraries or map hold.
 fn listed(values: Values, line: &Line) -> Listed {
     match values {
-        Values::Runs => Ok(journal(line)?.recent_runs(PAGE)?),
+        Values::Runs => journal(line, |store| Ok(store.recent_runs(PAGE)?)),
         Values::Phases => named(line, |names| names.phase.clone()),
         Values::Seats => named(line, |names| {
             let seat = names.seat.as_deref()?;
@@ -193,7 +193,7 @@ fn listed(values: Values, line: &Line) -> Listed {
         Values::Agents => agents(line),
         Values::Realms => realms(line),
         Values::Entries => {
-            let waiting = journal(line)?.queue_waiting(PAGE)?;
+            let waiting = journal(line, |store| Ok(store.queue_waiting(PAGE)?))?;
             let listed = waiting
                 .into_iter()
                 .map(|(entry, word)| (entry.to_string(), Some(word)));
@@ -202,15 +202,13 @@ fn listed(values: Values, line: &Line) -> Listed {
     }
 }
 
-/// The journal the completed command opens, resolved as it resolves it,
-/// opened read-only and left as it was (rulings 3 and 6).
-fn journal(line: &Line) -> anyhow::Result<Store> {
+/// `read` on the journal the completed command opens, resolved as it
+/// resolves it, opened read-only and left as it was (rulings 3 and 6): a
+/// read the journal changed under answers nothing.
+fn journal<T>(line: &Line, read: impl FnOnce(&Store) -> anyhow::Result<T>) -> anyhow::Result<T> {
     let invocation =
         crate::Invocation::inspect(Path::new("."), line.realms.clone(), line.db.clone())?;
-    Ok(Store::open_read_only_untouched(
-        &invocation.journal,
-        PATIENCE,
-    )?)
+    Store::read_untouched(&invocation.journal, PATIENCE, read)
 }
 
 /// The names `of` reads from the first [`SEATS`] seat rows of the run
@@ -220,9 +218,10 @@ fn named(line: &Line, of: fn(&brokkr_store::SeatNames) -> Option<String>) -> Lis
     let Some(run) = &line.run else {
         return Ok(Vec::new());
     };
-    let store = journal(line)?;
-    let run = crate::selector::resolve_run(&store, run)?;
-    let rows = store.run_seats(&run, SEATS)?;
+    let rows = journal(line, |store| {
+        let run = crate::selector::resolve_run(store, run)?;
+        Ok(store.run_seats(&run, SEATS)?)
+    })?;
     let mut names: Vec<String> = rows.iter().filter_map(of).collect();
     names.sort();
     names.dedup();

@@ -445,10 +445,12 @@ impl Store {
     /// `SQLITE_OPEN_READ_ONLY`, so every write refuses at the database
     /// rather than at a reviewer's memory: a read surface that opens
     /// this way is *unable* to append, which is what decision 0020 asks
-    /// of Muninn. No file is created and no migration runs — a missing
-    /// database is an error, never an empty fleet. A file its bytes say
-    /// is damaged, a journal recording no schema among them, refuses as
-    /// [`StoreError::Damaged`].
+    /// of Muninn. No database is created and no migration runs — a
+    /// missing database is an error, never an empty fleet. Beside a WAL
+    /// journal SQLite still creates its `-wal` and `-shm`, which this
+    /// connection cannot remove; [`Store::read_untouched`] is the read
+    /// that leaves none. A file its bytes say is damaged, a journal
+    /// recording no schema among them, refuses as [`StoreError::Damaged`].
     pub fn open_read_only(path: &Path) -> Result<Store, StoreError> {
         Store::open_reading(path).map_err(|error| damage::classified(path, error))
     }
