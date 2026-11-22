@@ -325,8 +325,8 @@ fn a_kind_place_that_is_not_a_declared_kind_is_refused_whatever_it_holds() {
     }
     assert_eq!(
         trellis.admit(&json!(7), "work").unwrap_err().to_string(),
-        "seat 'work' wrote a record that is not an object, so the kinds it names cannot be \
-         read (decision 0075 ruling 2)"
+        "seat 'work' recorded its record's root outside seat-record v8's grammar, so the kinds \
+         it names cannot be read (decision 0075 ruling 2)"
     );
     assert_eq!(trellis.admit(&json!({"result": 7}), "work"), Ok(()));
 }

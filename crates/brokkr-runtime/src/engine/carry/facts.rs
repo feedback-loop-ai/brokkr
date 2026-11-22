@@ -8,8 +8,10 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::super::worktree::{read_tree, TreeReading};
+use super::super::{site_kinds, site_label};
 use super::record::{CarriedEntry, Head, PanelRecord, RetryArgs, Tag};
 use super::{CarryRefusal, Engine, ExecutableBody, Invocation, RecordId, Refusal, StepBody};
+use crate::agents::kinds::{SeatKinds, UndeclaredKind, UNDECLARED};
 
 #[derive(Debug)]
 pub(crate) enum PanelShape {
@@ -44,6 +46,36 @@ pub(crate) struct PanelAttempt {
     pub(crate) park_reason: Option<String>,
     pub(crate) input_holds: bool,
     ended_at: Option<u64>,
+    /// Who wrote each member's settled result here, by tag ([`Writer`]).
+    writers: BTreeMap<Tag, Writer>,
+}
+
+/// The seat that wrote a member's settled result, as the current bundle
+/// resolves it for the selection its attempt began under: the label its
+/// site ran under, and the harness it answers to (the controller's ruling
+/// R18 of 2026-11-22).
+struct Writer {
+    seat: String,
+    kinds: SeatKinds,
+}
+
+impl PanelAttempt {
+    /// Whether `result`, read back as this attempt's settled result for
+    /// `member`, passes the kind check of the seat that wrote it, whichever
+    /// engine wrote it and whether or not it carries the engine's mark
+    /// (the controller's ruling R18 of 2026-11-22). A member the body no
+    /// longer declares is judged by v7's vocabulary, as a site no plan
+    /// covers is. A result that is not an object holds no kind place to
+    /// append again, and carries as it did, for the join to poison.
+    pub(crate) fn admits(&self, member: &Tag, result: &Value) -> bool {
+        let writer = self.writers.get(member);
+        let seat = writer.map_or(member.0.as_str(), |writer| writer.seat.as_str());
+        let kinds = writer.map_or(&UNDECLARED, |writer| &writer.kinds);
+        match kinds.admit(result, seat) {
+            Ok(()) | Err(UndeclaredKind::Unread { .. }) => true,
+            Err(UndeclaredKind::Named { .. }) => false,
+        }
+    }
 }
 
 pub(crate) struct CarryFacts {
@@ -154,6 +186,7 @@ fn record_start(
         park_reason: None,
         input_holds: false,
         ended_at: None,
+        writers: BTreeMap::new(),
     });
     Ok(())
 }
@@ -275,7 +308,12 @@ impl Engine {
         mut attempts: Vec<PanelAttempt>,
     ) -> CarryFacts {
         let phase = state.phase.clone().unwrap_or_default();
+        let selected = (self.bundle.seats.get(&phase))
+            .and_then(|seat| seat.body.selected(state.strategy.as_deref()));
         for at in &mut attempts {
+            if let Some((body, case)) = selected {
+                at.writers = self.result_writers(events, at, body, (&phase, case));
+            }
             let digest = events
                 .iter()
                 .find(|event| {
@@ -290,12 +328,7 @@ impl Engine {
                     Some(brokkr_core::canonical::sha256_hex(&input).as_str()) == digest
                 });
         }
-        let body = self
-            .bundle
-            .seats
-            .get(&phase)
-            .and_then(|seat| seat.body.selected(state.strategy.as_deref()))
-            .map(|(body, _)| body);
+        let body = selected.map(|(body, _)| body);
         let shape = panel_shape(body, &phase);
         let steps = match body {
             Some(ExecutableBody::Sequence { steps }) => {
@@ -313,6 +346,30 @@ impl Engine {
             phase,
             steps,
         }
+    }
+
+    /// Who wrote each member's result in `at`, a panel attempt of the seat
+    /// `seat` running `body` (its case `case`): every member site's label
+    /// and harness, as this bundle resolves them for the candidates the
+    /// journal selected before `at` began, which is the selection it ran.
+    fn result_writers(
+        &self,
+        events: &[EventEnvelope],
+        at: &PanelAttempt,
+        body: ExecutableBody<'_>,
+        (seat, case): (&str, Option<&str>),
+    ) -> BTreeMap<Tag, Writer> {
+        let began = &events[..events.partition_point(|event| event.seq < at.seq)];
+        let (selection, _, _) = super::super::select_candidates(began, &at.effect, body);
+        let site_name = case.map_or_else(|| seat.to_owned(), |case| format!("{seat}:{case}"));
+        // The class a site is read as names no harness, so `gate` is moot.
+        let sites = super::super::resume::structural_sites(body, seat, case, false);
+        let writer = |entry: super::super::resume::StructuralSite| {
+            let kinds = site_kinds(&self.bundle, &selection, &entry.site, &entry.command);
+            let seat = site_label(&site_name, &entry.site);
+            Some((Tag(entry.site?), Writer { seat, kinds }))
+        };
+        sites.into_iter().filter_map(writer).collect()
     }
 }
 

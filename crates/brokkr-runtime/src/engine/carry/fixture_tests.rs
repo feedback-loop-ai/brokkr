@@ -114,12 +114,20 @@ pub(crate) fn parked_record(
         runtime.bundle.seats.get_mut("work").unwrap().secrets = vec!["TOKEN".into()];
         runtime.secrets_file = Some(dir.path().join("ops.env"));
     }
+    parked_at_source(&mut runtime, record);
+    (dir, runtime)
+}
+
+/// `runtime`'s first effect requested and parked on attempt `source`, a
+/// panel attempt a released engine ended indeterminate with member `a`
+/// settled, unmarked, its terminal as `record` edits it.
+pub(crate) fn parked_at_source(runtime: &mut Engine, record: impl FnOnce(&mut Value)) {
     // Runtime files are not changes to the reviewed subject.
     std::fs::write(runtime.repo.join(".gitignore"), ".forge/\n").unwrap();
     git_commit(&runtime.repo, "base");
     runtime.drive_once().unwrap();
     runtime.drive_once().unwrap();
-    let requested = events(&runtime).last().unwrap().payload.clone();
+    let requested = events(runtime).last().unwrap().payload.clone();
     assert!(requested.get("input_digest").is_some());
     let mut terminal =
         json!({"effect_id":requested["effect_id"],"attempt_id":"source", "reason":"b vanished"});
@@ -131,18 +139,17 @@ pub(crate) fn parked_record(
     }
     .stamp(&mut terminal);
     append(
-        &mut runtime,
+        runtime,
         EventType::EffectStarted,
         json!({"effect_id":requested["effect_id"],"attempt_id":"source","driver":"panel"}),
     );
     record(&mut terminal);
-    append(&mut runtime, EventType::EffectIndeterminate, terminal);
+    append(runtime, EventType::EffectIndeterminate, terminal);
     let end = runtime.drive().unwrap();
     assert_eq!(
         end.state.run.status(),
         brokkr_core::fold::Status::AwaitingOperator
     );
-    (dir, runtime)
 }
 
 pub(crate) fn retry(runtime: &mut Engine, names: &[&str]) -> MemberRetryOutcome {

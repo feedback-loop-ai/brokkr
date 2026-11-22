@@ -245,7 +245,10 @@ kind, anything there but a declared kind is refused, on every road,
 whether or not a schema judges it after, an unresolved cleanup's
 evidence and a panel member's result included, and the refusal never
 echoes a value outside the grammar. A record refused for its kind is a
-failed attempt and is never bound as a word. Every reader judges a
+failed attempt and is never bound as a word. A result read back from
+the journal and appended again, as a partial panel retry carries a
+member's, is judged again by the harness of the seat that wrote it,
+whichever engine wrote it, and one refused is no verdict to carry. Every reader judges a
 record by the schema alone. v8 is minted under this decision, which is accepted,
 through decision 0082's lifecycle, and stands at v7's engine line, so
 dispatch never chooses v7.

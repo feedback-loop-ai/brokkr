@@ -28,7 +28,7 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::agents::kinds::UNDECLARED;
+use crate::agents::kinds::{SeatKinds, UNDECLARED};
 use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::argv::Executable;
 use crate::bundle::{
@@ -1247,12 +1247,7 @@ impl Engine {
                 entry.class,
             )
             .of_harness(
-                self.bundle.declared_kinds.seat(
-                    selection
-                        .get(&entry.site)
-                        .map(|link| link.provider.as_str()),
-                    argv_for(selection, &entry.site, &entry.command),
-                ),
+                site_kinds(&self.bundle, selection, &entry.site, &entry.command),
                 self.marks().standing(&label),
             );
             let offer = offer_for_site(
@@ -1933,6 +1928,13 @@ fn offer_for_site(
                 .is_some_and(|opened| resume::legacy_instance_holds(&opened.payload, started))
         },
     )
+}
+
+/// The harness `bundle` resolves for `site` under `chosen` (decision 0075
+/// ruling 2): its candidate's provider and argv, or its `inline` command's.
+fn site_kinds(bundle: &Bundle, chosen: &Selection, site: &Site, inline: &[String]) -> SeatKinds {
+    let provider = chosen.get(site).map(|link| link.provider.as_str());
+    (bundle.declared_kinds).seat(provider, argv_for(chosen, site, inline))
 }
 
 /// The argv to spawn for one invocation site: the selected candidate's,

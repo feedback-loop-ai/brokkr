@@ -442,6 +442,10 @@ fn contributions<'a>(
                 .and_then(|record| record.settled_members.get(tag))
                 .map(|result| (source, result))
         });
+        // Read back from the journal, the result is judged again before it
+        // is appended again, and one its writer's kind check refuses is no
+        // settled verdict (the controller's ruling R18 of 2026-11-22).
+        let verdict = verdict.filter(|(source, result)| source.admits(tag, result));
         match verdict {
             Some((source, result)) => {
                 // The carried member's findings, read once, here, where

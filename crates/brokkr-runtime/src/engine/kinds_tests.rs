@@ -17,9 +17,11 @@ use brokkr_protocol::{AttemptReport, Cleanup};
 use brokkr_store::{SeatRecordVersion, Store};
 use serde_json::{json, Value};
 
+use super::carry::fixture_tests::{parked_at_source, retry};
+use super::carry::{CarryRefusal, Refusal};
 use super::resume::{self, SiteContext, SiteKey};
 use super::tests::git_commit;
-use super::{Engine, ENGINE_VERSION};
+use super::{Engine, FencedCommandOutcome, MemberRetryOutcome, ENGINE_VERSION};
 use crate::agents::kinds::Standing;
 use crate::agents::{Adapters, DeclaredKinds};
 use crate::bundle::{Bundle, SeatClass};
@@ -859,42 +861,145 @@ fn a_panel_members_unresolved_cleanup_receives_the_kind_refusal_in_its_results_p
     }
 }
 
+/// A `work` review panel of two members, `judge` and `second`, each
+/// hiring the trellis agent: the aggregate that binds a member's word and
+/// copies its payload into the notes of a join it refuses.
+fn review_seat() -> Value {
+    let member = json!({"agent": "trellis", "class": "work"});
+    json!({"results": ["clean", "residual", "security-hold"], "aggregate": "review-panel",
+           "panel": {"judge": member, "second": member}})
+}
+
+/// A trellis member's result of `word`, carrying a transcript of `kind`.
+fn worded(word: &str, kind: &str) -> Value {
+    let mut result = pass(kind);
+    result["result"] = json!(word);
+    result
+}
+
+/// A visit succeeding with `result`.
+fn succeeding(result: Value) -> Visit {
+    Visit {
+        result: Some(result),
+        ..Visit::default()
+    }
+}
+
+/// The binding refusal of a trellis member's word `maybe`, as the review
+/// panel's notes name it.
+const UNBOUND: &str = "member result 'maybe' is not among its declared results [clean, residual]";
+
+/// That no event of `events` holds `kind` at a kind place, and none holds
+/// a binding refusal.
+fn holds_neither(events: &[EventEnvelope], kind: &str) {
+    let journaled = serde_json::to_string(events).unwrap();
+    assert!(
+        !journaled.contains(&format!(r#""kind":"{kind}""#)),
+        "{journaled}"
+    );
+    assert!(!journaled.contains("is not among"), "{journaled}");
+}
+
 /// A record refused for its kind is a failed attempt and is never bound
-/// as a word (the controller's rulings R13 and R16): a panel member whose
-/// word the join would refuse, and whose transcript kind is undeclared or
-/// outside the grammar, ends as a failed member on the kind refusal; no
-/// binding refusal is journaled for it, and no event holds its kind,
-/// under the aggregate's `notes.members` or anywhere else.
+/// as a word, on the aggregate that binds and copies (the controller's
+/// rulings R13, R16 and R19): a review panel member naming its declared
+/// kind and a word the join refuses reaches the binding refusal, its
+/// payload under the aggregate's `notes.members`; the same member naming
+/// a kind undeclared or outside the grammar ends as a failed member on the
+/// kind refusal, no binding refusal is journaled for it, and no event
+/// holds its kind, under `notes.members` or anywhere else.
 #[test]
 fn a_member_refused_for_its_kind_fails_and_is_never_bound_as_a_word() {
+    let dir = tempfile::tempdir().unwrap();
+    let resume = resume_declared(false);
+    let (judge, second) = (worded("maybe", TRAIL), worded("clean", TRAIL));
+    let visits = [succeeding(judge.clone()), succeeding(second)];
+    let events = seated_as(dir.path(), &visits, &resume, &review_seat()).2;
+    let (ended, payload) = first_ending(&events);
+    assert_eq!(ended, EventType::EffectSucceeded, "{payload}");
+    let notes = &payload["result"]["notes"];
+    assert_eq!(notes["refused"], json!({"judge": UNBOUND}), "{payload}");
+    assert_eq!(notes["members"]["judge"], judge, "{payload}");
     for (stray, shown) in [
-        ("trellis-stray", "'trellis-stray'"),
         ("trellis--stray", "outside seat-record v8's grammar"),
+        ("trellis-stray", "'trellis-stray'"),
     ] {
-        let mut poisoning = pass(stray);
-        poisoning["result"] = json!("maybe");
         let dir = tempfile::tempdir().unwrap();
-        let judge = Visit {
-            result: Some(poisoning),
-            ..Visit::default()
-        };
-        let second = Visit {
-            result: Some(pass(TRAIL)),
-            ..Visit::default()
-        };
-        let events = paneled(dir.path(), judge, second);
+        let visits = [succeeding(worded("maybe", stray)), succeeding(pass(TRAIL))];
+        let events = seated_as(dir.path(), &visits, &resume, &review_seat()).2;
         let refusal = refusal_received("work:judge", "transcript", shown);
         let error = format!(
             "panel members failed — judge: {}",
             refusal["error"].as_str().unwrap()
         );
+        holds_neither(&events, stray);
         failed_with(&events, &error);
         let journaled = serde_json::to_string(&events).unwrap();
-        let named = format!(r#""kind":"{stray}""#);
-        assert!(!journaled.contains(&named), "{journaled}");
-        assert!(!journaled.contains("is not among its declared results"));
         assert!(!journaled.contains("maybe"), "{journaled}");
     }
+}
+
+/// The trellis review panel's run, its first effect parked on attempt
+/// `source`, which a released engine ended indeterminate with `judge`'s
+/// `settled` result in `settled_members`, unmarked; its driver plays
+/// `second` for the `second` member. The engine, and how many events the
+/// journal held once it parked.
+fn carry_parked(dir: &Path, settled: Value, second: Visit) -> (Engine, usize) {
+    let repo = dir.join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_commit(&repo, "init");
+    let store = Store::open(&dir.join("forge.db")).unwrap();
+    let script = driver(&dir.join("driver"), &[Visit::default(), second]);
+    let bundle = trellis_bundle(dir, &script, &resume_declared(false), &review_seat());
+    let mut engine = Engine::start(store, bundle, "trellis", Some(repo)).unwrap();
+    parked_at_source(&mut engine, |terminal| {
+        terminal["settled_members"] = json!({"judge": settled});
+    });
+    let parked = engine.store.load(&engine.run_id).unwrap().len();
+    (engine, parked)
+}
+
+/// What is read back from the journal is judged again before it is
+/// appended again (the controller's ruling R18): a released engine's
+/// unmarked settled result for `judge`, naming a transcript kind outside
+/// the grammar or undeclared beside a word the join would refuse, is no
+/// verdict to carry, so a retry of `second` alone is refused as it is for
+/// a member with no settled result, and no new event holds the kind,
+/// under `notes.members` or anywhere else. The same result naming the
+/// declared kind carries as before: its payload under `notes.members`
+/// beside the binding refusal.
+#[test]
+fn a_carried_members_result_is_judged_for_its_kinds_before_it_is_appended_again() {
+    for stray in ["trellis--stray", "trellis-stray"] {
+        let dir = tempfile::tempdir().unwrap();
+        let second = succeeding(worded("clean", TRAIL));
+        let (mut engine, parked) = carry_parked(dir.path(), worded("maybe", stray), second);
+        let outcome = retry(&mut engine, &["second"]);
+        engine.drive().unwrap();
+        let events = engine.store.load(&engine.run_id).unwrap();
+        holds_neither(&events[parked..], stray);
+        assert!(
+            matches!(&outcome, MemberRetryOutcome::CarryRefused(CarryRefusal(
+                Refusal::Unsettled { members })) if members == "judge"),
+            "{outcome:?}"
+        );
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let carried = worded("maybe", TRAIL);
+    let second = succeeding(worded("clean", TRAIL));
+    let (mut engine, parked) = carry_parked(dir.path(), carried.clone(), second);
+    let outcome = retry(&mut engine, &["second"]);
+    assert!(matches!(
+        outcome,
+        MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })
+    ));
+    engine.drive().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let (ended, payload) = first_ending(&events[parked..]);
+    assert_eq!(ended, EventType::EffectSucceeded, "{payload}");
+    let notes = &payload["result"]["notes"];
+    assert_eq!(notes["refused"], json!({"judge": UNBOUND}), "{payload}");
+    assert_eq!(notes["members"]["judge"], carried, "{payload}");
 }
 
 /// The trellis `headless` shape, `supported` where the site stands, with

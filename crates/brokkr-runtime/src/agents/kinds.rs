@@ -413,9 +413,13 @@ pub(crate) enum UndeclaredKind {
         member: Member,
         kind: Recorded,
     },
+    /// A record that is not an object: its root is the place, outside the
+    /// grammar, in [`Recorded::Outside`]'s words (the controller's ruling
+    /// R21 of 2026-11-22).
     #[error(
-        "seat '{seat}' wrote a record that is not an object, so the kinds it names cannot be \
-         read (decision 0075 ruling 2)"
+        "seat '{seat}' recorded its record's root {}, so the kinds it names cannot be read \
+         (decision 0075 ruling 2)",
+        Recorded::Outside
     )]
     Unread { seat: String },
 }
