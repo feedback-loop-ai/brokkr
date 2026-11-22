@@ -13,7 +13,7 @@ fn listed(command: &clap::Command) -> Vec<&str> {
 }
 
 #[test]
-fn the_help_lists_twelve_roots_and_each_family_its_verbs() {
+fn the_help_lists_thirteen_roots_and_each_family_its_verbs() {
     let tree = Cli::command();
     // Decision 0113's twelve, and decision 0115's `completions` beside
     // `doctor`.

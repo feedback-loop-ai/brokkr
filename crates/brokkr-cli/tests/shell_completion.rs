@@ -86,9 +86,18 @@ fn journal(db: &Path, runs: &[(&str, &str)]) {
     }
 }
 
+/// A scratch directory that is a repository's root of its own, so the
+/// walk from it stops there wherever the temporary directory stands: under
+/// a checkout's root, a fixture's `.brokkr` would be refused as nested.
+fn scratch() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".git")).unwrap();
+    dir
+}
+
 /// A workspace whose discovered folder's journal holds three runs.
 fn folder() -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let runs = [
         ("run-old", "2026-01-01T00:00:00Z"),
         ("run-new", "2026-01-01T00:00:02Z"),
@@ -121,7 +130,7 @@ fn tree(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
 
 #[test]
 fn the_registration_is_clap_completes_bash_protocol() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let registered = brokkr(dir.path()).env("COMPLETE", "bash").output().unwrap();
     assert_eq!(String::from_utf8_lossy(&registered.stderr), "");
     let script = String::from_utf8(registered.stdout).unwrap();
@@ -144,7 +153,7 @@ fn the_registration_is_clap_completes_bash_protocol() {
 /// never printed to a prompt.
 #[test]
 fn the_live_root_offers_no_hidden_verb_and_no_alias() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let roots = offered(dir.path(), &["brokkr", ""]);
     for root in ["init", "doctor", "completions", "runs", "queue", "system"] {
         assert!(roots.contains(&root.to_string()), "{root} in {roots:?}");
@@ -181,7 +190,7 @@ fn the_live_root_offers_no_hidden_verb_and_no_alias() {
 /// nothing is printed to the prompt.
 #[test]
 fn an_unknown_shell_is_refused_silently() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let answer = brokkr(dir.path())
         .env("COMPLETE", "nushell")
         .args(["--", "brokkr", ""])
@@ -266,12 +275,15 @@ fn the_journal_the_line_names_outranks_the_folders() {
         "",
     ];
     assert_eq!(offered(dir.path(), &words), ["brokkr"]);
+    // Without a map, no realm is offered.
+    let words = ["brokkr", "stats", "analytics", "--realm", ""];
+    assert_eq!(values(dir.path(), &words), Vec::<String>::new());
 }
 
 /// A page is fifty runs, the newest, however many the journal holds.
 #[test]
 fn run_ids_are_one_page_of_fifty() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let db = dir.path().join("forge.db");
     let names: Vec<(String, String)> = (0..60)
         .map(|n| (format!("run-{n:02}"), format!("2026-01-01T00:00:{n:02}Z")))
@@ -293,7 +305,7 @@ fn run_ids_are_one_page_of_fifty() {
 /// none are offered before a `--run` is on the line.
 #[test]
 fn phases_and_seats_are_the_named_runs() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let db = dir.path().join("journal.db");
     let from = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/journals")
@@ -351,7 +363,7 @@ fn phases_and_seats_are_the_named_runs() {
 /// still completes them, a member's seat by its label.
 #[test]
 fn phases_and_seats_read_the_seat_rows_and_no_event() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let db = dir.path().join("forge.db");
     journal(&db, &[("run-rows", "2026-01-01T00:00:00Z")]);
     let conn = rusqlite::Connection::open(&db).unwrap();
@@ -380,6 +392,29 @@ fn phases_and_seats_read_the_seat_rows_and_no_event() {
         offered(dir.path(), &[&line[..], &["--seat", ""]].concat()),
         ["implementer", "panel:correctness", "panel:security"]
     );
+    // A unique prefix and `latest` name the run; a prefix two runs share,
+    // and one no run has, name none and complete nothing.
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute(
+        "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+         VALUES ('run-other', 'feat', 'self', '{}', '2025-01-01T00:00:00Z')",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    for (run, phases) in [
+        ("run-r", vec!["implement", "review"]),
+        ("latest", vec!["implement", "review"]),
+        ("run-", vec![]),
+        ("nothing", vec![]),
+    ] {
+        let line = ["brokkr", "runs", "inspect", "--db", text(&db), "--run", run];
+        assert_eq!(
+            offered(dir.path(), &[&line[..], &["--phase", ""]].concat()),
+            phases,
+            "{run}"
+        );
+    }
 }
 
 /// Recipe names come from the folder's shelf and queue entries from its
@@ -435,7 +470,7 @@ fn recipes_and_waiting_entries_come_from_the_folder() {
 /// checkout's own, read and never written.
 #[test]
 fn agent_names_come_from_the_library_the_line_names() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let library = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../agents");
     let mut stems: Vec<String> = (std::fs::read_dir(&library).unwrap().flatten())
         .filter_map(|entry| {
@@ -461,12 +496,33 @@ fn agent_names_come_from_the_library_the_line_names() {
     assert_eq!(values(dir.path(), &bare), Vec::<String>::new());
 }
 
-/// A missing journal, one a peer holds exclusively, a file that is no
-/// journal and a folder of an old layout each complete nothing, print
-/// nothing on stderr and never wait out the writer's patience.
+/// [`journal`], turned to a rollback-mode journal, its writer closed.
+fn rollback_journal(db: &Path, runs: &[(&str, &str)]) {
+    journal(db, runs);
+    let conn = rusqlite::Connection::open(db).unwrap();
+    conn.query_row("PRAGMA journal_mode = DELETE", [], |_| Ok(()))
+        .unwrap();
+}
+
+/// The two requests each failing journal is asked, timed: run ids and
+/// waiting entries, each completing nothing and printing nothing.
+fn refused_twice(dir: &Path, db: &Path) -> Duration {
+    let started = Instant::now();
+    let line = ["brokkr", "runs", "inspect", "--db", text(db), "--run", ""];
+    assert_eq!(offered(dir, &line), Vec::<String>::new(), "{db:?}");
+    let line = ["brokkr", "queue", "drop", "--db", text(db), ""];
+    assert_eq!(values(dir, &line), Vec::<String>::new(), "{db:?}");
+    started.elapsed()
+}
+
+/// A missing journal, a WAL journal and a rollback-mode one a peer holds
+/// exclusively, one a rollback journal stands beside, and a file that is
+/// no journal each complete nothing and print nothing on stderr. A held
+/// journal costs its two requests at most their 50 ms patience each over
+/// what a missing one costs, never the writer's patience of seconds.
 #[test]
 fn every_failure_completes_nothing_and_prints_nothing() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let missing = dir.path().join("missing.db");
     let foreign = dir.path().join("foreign.db");
     std::fs::write(&foreign, "not a database, only text long enough to be read").unwrap();
@@ -477,15 +533,26 @@ fn every_failure_completes_nothing_and_prints_nothing() {
         .unwrap();
     peer.execute("INSERT INTO meta VALUES ('peer', 'holds')", [])
         .unwrap();
-    for db in [&missing, &foreign, &held] {
-        let started = Instant::now();
-        let line = ["brokkr", "runs", "inspect", "--db", text(db), "--run", ""];
-        assert_eq!(offered(dir.path(), &line), Vec::<String>::new(), "{db:?}");
-        let line = ["brokkr", "queue", "drop", "--db", text(db), ""];
-        assert_eq!(values(dir.path(), &line), Vec::<String>::new(), "{db:?}");
-        // Two requests, each waiting at most its 50 ms patience on the
-        // peer: far below the writer's patience of seconds.
-        assert!(started.elapsed() < Duration::from_secs(2), "{db:?} waited");
+    let locked = dir.path().join("locked.db");
+    rollback_journal(&locked, &[("run-locked", "2026-01-01T00:00:00Z")]);
+    let holder = rusqlite::Connection::open(&locked).unwrap();
+    holder
+        .execute_batch("PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE;")
+        .unwrap();
+    let hot = dir.path().join("hot.db");
+    rollback_journal(&hot, &[("run-hot", "2026-01-01T00:00:00Z")]);
+    std::fs::write(dir.path().join("hot.db-journal"), "a writer's pages").unwrap();
+
+    let unheld = refused_twice(dir.path(), &missing);
+    for db in [&foreign, &hot] {
+        refused_twice(dir.path(), db);
+    }
+    for db in [&held, &locked] {
+        let waited = refused_twice(dir.path(), db).saturating_sub(unheld);
+        assert!(
+            waited < Duration::from_millis(400),
+            "{db:?} waited {waited:?}"
+        );
     }
     assert!(!missing.exists(), "a missing journal is never created");
     let bare = ["brokkr", "runs", "inspect", "--run", ""];
@@ -533,7 +600,7 @@ fn a_completion_leaves_every_file_as_it_found_it() {
 /// runs without it.
 #[test]
 fn a_request_switched_off_runs_the_command_as_before() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let plain = brokkr(dir.path())
         .args(["completions", "bash"])
         .output()

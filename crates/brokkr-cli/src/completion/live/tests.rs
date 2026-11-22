@@ -1,9 +1,10 @@
 use std::ffi::OsString;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 
 use clap_complete::engine::ArgValueCompleter;
 
-use super::{completing, Line};
+use super::{candidates, completing, Line, Values};
 
 fn line(words: &[&str]) -> Line {
     Line::read(words.iter().map(OsString::from))
@@ -76,6 +77,26 @@ fn the_line_reads_its_flags_after_the_protocols_separator() {
             ..Line::default()
         }
     );
+}
+
+/// A word that is not text names nothing, and a flag the line ends on has
+/// no value yet; a current word that is not text completes nothing.
+#[test]
+fn words_that_are_not_text_name_nothing() {
+    let words = [
+        OsString::from("brokkr"),
+        OsString::from("--"),
+        OsString::from("brokkr"),
+        OsString::from_vec(b"--db=\xff".to_vec()),
+        OsString::from("--run"),
+        OsString::from_vec(b"run-\xff".to_vec()),
+        OsString::from("--realms"),
+    ];
+    assert_eq!(Line::read(words), Line::default());
+    let current = std::ffi::OsStr::from_bytes(b"run-\xff");
+    for values in [Values::Runs, Values::Phases, Values::Recipes] {
+        assert!(candidates(values, current).is_empty(), "{values:?}");
+    }
 }
 
 /// Each visible `verb-path argument` the completer gives values to, and
