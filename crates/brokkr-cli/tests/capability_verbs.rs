@@ -151,8 +151,7 @@ impl Workspace {
         )
     }
 
-    /// `run`, `runs rerun --run <id>` or `resume --run <id>` over `repo/`,
-    /// `verb` the verb's path as its words.
+    /// `run`, `runs rerun --run <id>` or `resume --run <id>` over `repo/`.
     fn verb(&self, verb: &str, run: Option<&str>) -> (Option<i32>, String) {
         let mut args: Vec<&str> = verb.split(' ').collect();
         args.extend(["--bundle", "bundle", "--db", "forge.db", "--repo", "repo"]);
