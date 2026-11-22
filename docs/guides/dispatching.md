@@ -1,6 +1,6 @@
 # Dispatching
 
-`brokkr dispatch` starts the queue's entries as admission admits them,
+`brokkr queue dispatch` starts the queue's entries as admission admits them,
 and hands each run to a driver of its own (decision 0110). This guide
 covers what it does on each tick, how to keep it running under a service
 manager, and what each way it can end leaves behind, with how to recover
@@ -11,7 +11,7 @@ journal is refused, and the refusal names the one that holds it.
 
 ## A tick
 
-`brokkr dispatch --db <journal>` stands until it is stopped. Every
+`brokkr queue dispatch --db <journal>` stands until it is stopped. Every
 `--every <seconds>` (60 by default, from 5 to 3600) it runs one pass:
 
 1. **Reconcile** what an earlier dispatcher left half-started. A claim
@@ -28,17 +28,17 @@ journal is refused, and the refusal names the one that holds it.
    next entry is claimed.
 
 The pass then prints what it did, one line per fact, the same lines
-`brokkr dispatch --once` prints. After those come one line for each
+`brokkr queue dispatch --once` prints. After those come one line for each
 driver that has exited since the last tick, with its run, its pid and its
 exit status. The next pass starts `--every` seconds after this one began.
 A pass that took longer than that is followed by the next at once.
 
-A driver is `brokkr dispatch drive`, run from the dispatcher's own binary
+A driver is `brokkr queue dispatch drive`, run from the dispatcher's own binary
 in a session of its own. Its output goes to `<journal>.runs/<run>.log`,
 beside the journal. The pass's `started:` line names the run, the
 driver's pid and this log. Brokkr never removes these logs.
 
-`brokkr dispatch --once` runs a single pass and returns without waiting
+`brokkr queue dispatch --once` runs a single pass and returns without waiting
 on the drivers it started. `--every` cannot be given with `--once`.
 
 What a pass meets is reported, and the next pass judges it again. That
@@ -165,7 +165,7 @@ on it as below.
 |---|---|---|
 | **A crash of the dispatcher** (killed, a second signal) | Possibly one entry `launching`, or linked to a run with no `spawn` row. Drivers already started run on. A crash after an entry's `spawn` row and before its driver started leaves that run reading `running` with no driver. | Start the dispatcher again. Its first pass reconciles: a claim with no run goes back to its place uncounted, and a linked run is handed to a driver. A run that already has its `spawn` row is never spawned twice, so a run left `running` with no driver needs resuming by hand, as for a spawn failure below. |
 | **The host went down** | All of the above, and every driver went down with it: each run the dispatcher had handed to a driver now reads `running` with no driver. No line names them. | Start the dispatcher again: its reconciliation settles the queue, but never spawns a run twice. Find the runs left behind with `brokkr runs --db <journal>`, the ones still running, and `brokkr queue list --json --db <journal>`, whose `run` names each started entry's run and whose `launch` holds what it was queued with. Resume each with `brokkr resume --run=<run> --db=<journal>`, from that launch's workspace and with the flags it names (see below). |
-| **Fenced out** (`generation N was fenced out`) | Nothing written after the fence. A newer dispatcher holds the journal. | Run `brokkr dispatch status --db <journal>` to see who holds it. Start a dispatcher only if it says the journal is not held. |
+| **Fenced out** (`generation N was fenced out`) | Nothing written after the fence. A newer dispatcher holds the journal. | Run `brokkr queue dispatch status --db <journal>` to see who holds it. Start a dispatcher only if it says the journal is not held. |
 | **A replaced binary** (`the brokkr at … is not the one this dispatcher started from`) | Nothing claimed after the check. An entry already linked waits. | Start the dispatcher again, from the new binary. Its reconciliation hands the waiting entry to a driver of the new version. |
 | **Any other start refusal**, or a store error | The entry in flight stays `launching`. The line names the refusal. | Fix what the line names (the journal or the host), then start the dispatcher again. Reconciliation returns the entry to its place uncounted. |
 | **Queue storage this binary does not write** | Nothing written. | Run a brokkr that writes the journal's queue storage version. |
@@ -175,11 +175,11 @@ with:
 
 - **A driver that died.** The tick's line reads `driver exited: run …,
   driver pid …, …; the run reads running with no driver; resume it with:
-  brokkr dispatch drive --entry=<entry> --claim=<claim> --db=<journal>`.
+  brokkr queue dispatch drive --entry=<entry> --claim=<claim> --db=<journal>`.
   The run is never spawned again, and the dispatcher does not adopt it.
   Read the run's log beside the journal, then paste the command.
 - **A spawn failure.** The line reads `spawn failed: run … reads running
-  with no driver (…); resume it with: brokkr dispatch drive
+  with no driver (…); resume it with: brokkr queue dispatch drive
   --entry=<entry> --claim=<claim> --db=<journal>`. The run's `spawn` row
   already stands, so reconciliation will not spawn it again. Paste the
   command once the cause (for example, no free descriptor) has cleared.
@@ -214,11 +214,11 @@ you.
 
 ## The bound and the readout
 
-- `brokkr dispatch set-bound <n> --reason <text> --db <journal>` sets how
+- `brokkr queue dispatch set-bound <n> --reason <text> --db <journal>` sets how
   many counted start refusals hold an entry. The value is a whole number of
   at least 1, and 3 unless set. It is journaled as your command, and the
   next pass reads it.
-- `brokkr dispatch status --db <journal>` opens the journal read-only and
+- `brokkr queue dispatch status --db <journal>` opens the journal read-only and
   writes nothing. It says one of these:
   - `held by generation N (pid P on this host since T)`;
   - `not held; last held by generation N …`;

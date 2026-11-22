@@ -116,7 +116,7 @@ would follow it, are both still pending.
 The `boundaries` line (decision
 [0046](../decisions/0046-the-boundary-is-named.md) ruling 2) names what
 this machine can put between a boxed seat's hands and itself. A boundary
-is **offered** when `run`, `resume` and `rerun` would start a bundle under
+is **offered** when `run`, `resume` and `runs rerun` would start a bundle under
 it here: `namespace` needs bubblewrap on `PATH` (0.11 or newer for an
 overlay bind), and `harness` and `open` are offered everywhere because
 they need nothing of Brokkr's. A boundary is **ready** only once the tree
@@ -250,7 +250,7 @@ walks past (ruling 2).
 
 Looper-bound runs start with `brokkr run --dispatch <forge-dispatch-v2.json>`.
 The immutable dispatch is sealed into the v2 run manifest and therefore travels
-with `brokkr export`. `brokkr bridge --run <id> --looper-url <url>` tails only the
+with `brokkr journal export`. `brokkr bridge --run <id> --looper-url <url>` tails only the
 verified public store API and synchronizes ordered evidence plus fenced commands;
 it reads its bearer credential from `LOOPER_API_KEY` (or `--token-env`), never
 from a command-line value or the journal.
@@ -1021,7 +1021,7 @@ stands and nothing here is claimed. The evidence is
 A shape's `measured_on.version` is not compared with the version of
 the harness installed: a measurement stays applied after the binary
 changes. After upgrading a harness, measure it again with `brokkr
-probe harness` and update its adapter's shapes before relying on them.
+system probe harness` and update its adapter's shapes before relying on them.
 
 The probe runs the CLI under a scratch HOME and binds credentials by
 name from the secrets store (`--credential`). A CLI that keeps its login

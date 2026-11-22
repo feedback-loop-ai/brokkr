@@ -58,14 +58,14 @@ flowchart LR
     init["3 · brokkr init .<br/>a recipe for your stack"] --> run["4 · brokkr run<br/>implement → verify → review → ship"]
   end
   doctor --> init
-  run --> inspect["5 · brokkr inspect<br/>the proof, from the journal"]
+  run --> inspect["5 · brokkr runs inspect<br/>the proof, from the journal"]
 ```
 
 ```console
 brokkr doctor                       # ok / warn / MISSING per tool and driver; executes no agent
 cd your-repo && brokkr init .       # writes one .brokkr/ folder: bundle.json, policy.json, realms.json, agents/, adapters/, scripts/, .gitignore (and dialects/ for a spec repo) — open it
 git add .brokkr/ && git commit -m "starter bundle"   # ship closes out on a clean tree; .brokkr/state/ stays ignored
-brokkr run --feature "add one visible improvement" && brokkr inspect --run latest
+brokkr run --feature "add one visible improvement" && brokkr runs inspect --run latest
 ```
 
 From a clone of this repository skip `init`: `brokkr run --recipe brokkr-fast --repo . --feature "…"` resolves the library's own Rust recipe under `./recipes`. `fast` and `node` are Brokkr's two portable recipes, which also install onto the shelf of any folder `brokkr init` made; the rest are Brokkr-only ([decision 0087](docs/decisions/0087-the-base-offices-are-the-ones-init-writes.md) ruling 5). Its [exit code](docs/reference/cli.md#exit-codes) says whether the run completed, parked for you or stopped; every verb and flag is in the [CLI reference](docs/reference/cli.md).
@@ -112,7 +112,7 @@ The [full quickstart](docs/guides/quickstart.md) covers `init` per stack, parks,
 
 The standing-overseer concept reached this product by way of the lieutenant in Robert C. Martin's [SwarmForge](https://github.com/unclebob/swarm-forge), as [decision 0019 ruling 7](docs/decisions/0019-brokkr.md#decision) records. The idea is credited here and nothing else is taken: SwarmForge carries no license, which means all rights reserved, so no code, scripts, prompts or prose from it has entered — or may enter — this tree.
 
-**Muninn** is an independent design with an inverted authority model, described in decision 0020 (amended for the crossings a map draws by decision 0059) and built as `brokkr muninn`: it reads the journal and the world's crossings, proposes to the operator, and rules nothing.
+**Muninn** is an independent design with an inverted authority model, described in decision 0020 (amended for the crossings a map draws by decision 0059) and built as `brokkr runs muninn`: it reads the journal and the world's crossings, proposes to the operator, and rules nothing.
 
 ## License
 

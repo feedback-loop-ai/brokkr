@@ -52,7 +52,7 @@ const RETIRED: [Retired; 8] = [
     },
     Retired {
         spellings: &["brokkr-api"],
-        why: "never built (#364): `brokkr ui` serves the console from brokkr-cli",
+        why: "never built (#364): `brokkr system ui` serves the console from brokkr-cli",
         cite: None,
     },
     Retired {
@@ -190,7 +190,7 @@ fn a_retired_term_is_refused_outside_its_citation_and_its_allowance() {
             "docs/guides/a.md:3: names `scoop`, retired: decision 0063: the hosts are Linux and macOS",
             "docs/guides/a.md:5: names `Cordis`, retired: never built (#364): the DeepSeek harness is the built-in dsh adapter",
             "docs/guides/a.md:5: names `Surface`, retired: never built (#364): the DeepSeek harness is the built-in dsh adapter",
-            "docs/guides/a.md:5: names `brokkr-api`, retired: never built (#364): `brokkr ui` serves the console from brokkr-cli",
+            "docs/guides/a.md:5: names `brokkr-api`, retired: never built (#364): `brokkr system ui` serves the console from brokkr-cli",
             "docs/guides/a.md:6: names `policy/schemas`, retired: removed: `policy/` holds the production table alone",
             "docs/guides/a.md:6: names `bundles/`, retired: decision 0078 moved Brokkr's own bundles into `recipes/` (#359)",
             "docs/guides/a.md:6: names `bundles/`, retired: decision 0078 moved Brokkr's own bundles into `recipes/` (#359)",

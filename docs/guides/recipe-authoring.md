@@ -29,7 +29,7 @@ each recipe's digest with `…`: a digest moves with every recipe, agent
 or adapter edit, and the witness tests are where digests are pinned.
 
 ```
-$ brokkr recipes list
+$ brokkr library recipes list
 brokkr-fast	…	6 phases	implement, review, ship, verify	medium	Brokkr's own fast: fast's table and scripts, with its two model seats hiring Brokkr's offices (decision 0087 ruling 4).	project	recipes/brokkr-fast
 fast	…	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	project	recipes/fast
 gpt-flash	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=gpt-flash-implementer;design=gpt-flash-implementer-sdd;engine=gpt-flash-implementer-engine;feature=gpt-flash-implementer}, review{chore=positions>chief;design=positions>chief;engine=positions>chief;feature=positions>chief}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	GPT Sol plans, DeepSeek Flash 4.1 implements, and Sol rules final review with Astra as its last fallback.	project	recipes/gpt-flash
@@ -89,8 +89,8 @@ walks a stranger from an unmodified repo to a first run.
 The `project` column is the recipe's origin. Your own recipes, kept out
 of every repository, stand on the personal shelf beside the machine's
 host configuration: `$XDG_CONFIG_HOME/brokkr/recipes/<name>/`, else
-`$HOME/.config/brokkr/recipes/<name>/`. `recipes add --personal`
-installs there. `recipes list` lists them after the project's, as
+`$HOME/.config/brokkr/recipes/<name>/`. `library recipes add --personal`
+installs there. `library recipes list` lists them after the project's, as
 `personal`. `--recipe <name>` reads the project's shelf first, then the
 personal one. A personal recipe compiles against the workspace's agents
 and adapters, as a tracked one does, and the install copies no agent or
@@ -101,7 +101,7 @@ on its own shelf; extending a project recipe is #432's next slice.
 Every shipped `verify` and `ship` seat is an inline gate-class `exec`
 site with workspace hands. No model reports evidence that a script can
 measure: the verifier writes `pass` only after every fixed command exits
-zero, and the shipper calls `brokkr ledger` and writes no commit. A
+zero, and the shipper calls `brokkr stats ledger` and writes no commit. A
 recipe with different gates, such as Node or preflight, keeps its own
 verifier script beside its roles under the same `pass`/`fail` contract.
 
@@ -133,8 +133,8 @@ run states what it was composed from.
 Swap a strategy and compare the outcomes:
 
 ```
-brokkr rerun --run <id> --recipe panel-review    # same feature, other strategy
-brokkr compare <a> <b>                           # trails, first divergence, per-seat costs
+brokkr runs rerun --run <id> --recipe panel-review    # same feature, other strategy
+brokkr runs compare <a> <b>                           # trails, first divergence, per-seat costs
 ```
 
 A rerun compiles the new recipe in the discovered realm exactly as `run`
@@ -186,7 +186,7 @@ Two worked shapes are in the tree:
 | Key | Required | Meaning |
 |---|---|---|
 | `name` | yes | The strategy's identity. For a composed recipe this is the leaf's name. |
-| `description` | shipped recipes | The one-line answer to "when should I use this?", rendered by `brokkr recipes list` and the contributing guide. |
+| `description` | shipped recipes | The one-line answer to "when should I use this?", rendered by `brokkr library recipes list` and the contributing guide. |
 | `cost` | shipped recipes | A relative cost band for choosing a strategy, never a provider quote. |
 | `forced_crew` | a recipe whose crew must not fall back | The decision that forces its crew, as a non-empty string — a wager's arm, a vendor hedge. Its forced seats hire agent overlays whose chain holds exactly the forced models (decision [0041](../decisions/0041-one-office-per-seat.md)'s addendum of 2026-10-07); the roster test refuses an inline model site in a shipped recipe that declares none. |
 | `policy` | in the layer that supplies a table | Path to this layer's phase-machine file, relative to this layer's directory. A layer that declares no `policy` contributes no table. |
@@ -427,7 +427,7 @@ seats remain first-class for work that is not dialect-owned.
 `brokkr doctor`, on the found `.brokkr/` folder or the bundle `--bundle`
 names, exercises that compile-time refusal in
 the discovered realm and reports its dialect, tool, and pinned
-tool version. Use `brokkr realms` to confirm realm selection; compilation
+tool version. Use `brokkr system realms` to confirm realm selection; compilation
 checks the dialect bindings, while the run executes the declared tool.
 
 **Select** — the engine chooses a complete single, panel, or sequence
@@ -600,7 +600,7 @@ The rules:
   with `/`, independent of the host.
 
 **Composition resolves at compile time into one flat bundle.** There is
-no inheritance at run time and no dynamic lookup. `brokkr compile`
+no inheritance at run time and no dynamic lookup. `brokkr library compile`
 prints the resolved result plus a `composed_from` chain naming each
 ancestor and its digest, and that chain rides in the run manifest under
 the reserved `@compose/` prefix — so a run states not only what it ran
@@ -633,7 +633,7 @@ change.
 
 **A seat's id belongs to the pinned bundle.** Every seat has a stable id
 that the journal, the driver protocol's `start` and the cost ledger's
-joins share (`brokkr costs`). A cost ledger such as LaneTally owns cost
+joins share (`brokkr stats costs`). A cost ledger such as LaneTally owns cost
 truth, never orchestration identity.
 
 ## Digest identity
@@ -649,7 +649,7 @@ absolute directory, and the manifest's body: a sha256 per bundle file, the resol
 every selected case, a few thousand lines in all.
 
 ```
-$ brokkr compile --bundle recipes/night-shift
+$ brokkr library compile --bundle recipes/night-shift
 {
   "bundle": "night-shift",
   "composed_from": [
@@ -720,9 +720,9 @@ $ brokkr compile --bundle recipes/night-shift
 }
 ```
 
-`brokkr recipes show <name>` prints the same object from the same
+`brokkr library recipes show <name>` prints the same object from the same
 compile, in the workspace's realm as a run's is, so the two surfaces
-cannot drift. `brokkr recipes list` and `brokkr recipes add` print
+cannot drift. `brokkr library recipes list` and `brokkr library recipes add` print
 twelve hex characters of a digest per recipe from that same compile, so
 where the workspace's map names a realm they print that realm's digest
 too (#696).
@@ -781,7 +781,7 @@ Three consequences worth internalising:
    instead, `a charter of <owner> moved since the compile (unrecorded:
    <key>)` (operator ruling of 2026-09-29, point 1). There is no digest-only
    fallback. Close such a run with
-   `brokkr conclude --run <id> --cause <cause> --reason "…"` and fire it
+   `brokkr runs conclude --run <id> --cause <cause> --reason "…"` and fire it
    again.
 
 ## The policy table
@@ -1022,7 +1022,7 @@ A rule-driven park carries the parked seat's non-empty notes as its
 reason, so the operator reads the blocker itself:
 `IMPL-BLOCKED-ENVIRONMENT for (implement, blocked): <the seat's notes>`.
 A seat with no notes parks with the rule's reason. Once the environment
-is fixed, `brokkr operator retry --run <id>` and then
+is fixed, `brokkr runs operator retry --run <id>` and then
 `brokkr resume --run <id>` run that one seat again. The earlier phases'
 results reach it in `context.results` as before, and no earlier phase
 runs again. `blocked` is not a failure word, so the park spends none of
@@ -1033,14 +1033,14 @@ every table that reads it.
 ## Compile it
 
 ```
-brokkr compile --bundle recipes/my-recipe      # validate, print manifest + digest
+brokkr library compile --bundle recipes/my-recipe      # validate, print manifest + digest
 brokkr doctor --bundle recipes/my-recipe       # plus: are the drivers actually here
-brokkr recipes list                            # the library, one digest per recipe
-brokkr recipes show my-recipe                  # resolved bundle + composition chain
+brokkr library recipes list                            # the library, one digest per recipe
+brokkr library recipes show my-recipe                  # resolved bundle + composition chain
 ```
 
-`brokkr compile` takes `--bundle <path>` only — there is no `--recipe`
-form; use `brokkr recipes show` for a library name. Compilation is where
+`brokkr library compile` takes `--bundle <path>` only — there is no `--recipe`
+form; use `brokkr library recipes show` for a library name. Compilation is where
 every structural law above is enforced, so a bundle that compiles is a
 bundle whose review gate is unavoidable, whose aggregates match their
 declared results, whose conditions are all in the vocabulary, and whose

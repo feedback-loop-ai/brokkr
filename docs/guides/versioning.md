@@ -316,7 +316,7 @@ current names.
   configure anything. `BROKKR_QODER_BIN` came after the rename and has no
   pre-rename spelling. A pre-rename spelling set where its current name
   is not is refused by both names: the seat fails to start, `brokkr doctor` reports the DSH
-  selection refused, and `brokkr ui` opens no browser. Nothing runs in
+  selection refused, and `brokkr system ui` opens no browser. Nothing runs in
   its place. The prefix is no longer denied as a secret name, since a
   name read only to refuse it cannot aim the harness anywhere.
 - **The bundle argv token.** Only `{brokkr}` expands to the engine's own

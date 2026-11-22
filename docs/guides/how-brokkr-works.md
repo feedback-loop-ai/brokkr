@@ -9,9 +9,9 @@ events. This guide is the tour.
 brokkr run --recipe brokkr-fast --repo . --feature "…"     # deliver
 brokkr watch --run <id>                                    # watch it live, in the terminal
 brokkr tui                                                 # explore the fleet with the keyboard
-brokkr ui                                                  # watch it live, in a browser
-brokkr rerun --run <id> --recipe panel-review              # swap the strategy
-brokkr compare <a> <b>                                     # journal-backed A/B
+brokkr system ui                                                  # watch it live, in a browser
+brokkr runs rerun --run <id> --recipe panel-review              # swap the strategy
+brokkr runs compare <a> <b>                                     # journal-backed A/B
 ```
 
 - **Live telemetry**: Claude and Codex seats stream bounded per-turn/item
@@ -23,7 +23,7 @@ brokkr compare <a> <b>                                     # journal-backed A/B
   side by side. The full session transcript stays one
   `claude --resume <session_id>` away.
 - **The strategy loop** (decisions 0010/0017): a library of recipes
-  (`brokkr recipes list|add|show`, installable from git), swap by name,
+  (`brokkr library recipes list|add|show`, installable from git), swap by name,
   re-run a past feature under another recipe, compare outcomes —
   decision trails with first divergence, per-seat costs, verdict
   deltas. A pure read over two journals; works on live runs.
@@ -77,7 +77,7 @@ brokkr compare <a> <b>                                     # journal-backed A/B
    events; approval is a journal entry, not a prose convention.
 
 **One driver per run.** A process that drives a run — `brokkr run`,
-`brokkr rerun`, `brokkr resume`, a Looper dispatch's start, or the
+`brokkr runs rerun`, `brokkr resume`, a Looper dispatch's start, or the
 dispatcher's start from a queue claim — holds
 `<journal>.runs/<run-id>.lock`, an exclusive `flock`, from before its first
 append until its drive returns. The `.runs` directory is this user's own,
@@ -86,11 +86,11 @@ another mode refuses by the directory's name, and a lock file that is a
 link, of more than one link, or not this user's alone refuses by its own.
 The file records the holder's pid, the start of the hold, the host
 fingerprint and the engine version, for the operator's eyes; liveness is
-the lock. A second driver, and `brokkr conclude` of that run, refuse before
+the lock. A second driver, and `brokkr runs conclude` of that run, refuse before
 writing and name the holder: "run '…' is driven by pid P on this host since
-T (engine V)". `conclude` adds "stop it with `brokkr operator stop`, or end
+T (engine V)". `runs conclude` adds "stop it with `brokkr runs operator stop`, or end
 that process, then conclude", and holds the free lock while it writes so no
-driver starts beneath it. `operator stop` and `operator retry` (with or
+driver starts beneath it. `runs operator stop` and `runs operator retry` (with or
 without `--member`) take no run lock and stay lawful for a live run, the
 cooperative path; a seat's retry command is journaled for the driver to
 honour. A driver that dies drops its lock with it, so the next `resume`

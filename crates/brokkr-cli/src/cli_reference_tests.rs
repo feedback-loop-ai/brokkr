@@ -32,6 +32,7 @@ use clap::{Arg, ArgAction, Command, CommandFactory, Parser};
 use crate::exit::Exit;
 use crate::Cli;
 
+mod flat;
 #[path = "../tests/support/records.rs"]
 mod records;
 #[path = "../tests/support/tracked.rs"]
@@ -1249,14 +1250,14 @@ fn every_fenced_brokkr_command_in_a_living_doc_parses() {
 
 #[test]
 fn the_fence_reader_joins_continuations_and_reads_only_prompted_lines_beside_a_prompt() {
-    let doc = "```sh\nbrokkr inspect \\\n  --run latest # the newest\n```\n\
+    let doc = "```sh\nbrokkr runs inspect \\\n  --run latest # the newest\n```\n\
                ```console\n$ brokkr runs\nRUN  STATUS  # output\n```\n";
     assert_eq!(
         fenced_commands(doc).unwrap(),
         [
             Fenced {
                 line: 2,
-                text: "brokkr inspect   --run latest # the newest".to_string(),
+                text: "brokkr runs inspect   --run latest # the newest".to_string(),
             },
             Fenced {
                 line: 6,
@@ -1373,10 +1374,10 @@ fn the_fence_reader_sees_brokkr_past_tabs_assignments_and_wrappers() {
         (3, UNPROMPTED.to_string())
     );
     assert_eq!(
-        refusal("brokkr inspect --run $RUN"),
+        refusal("brokkr runs inspect --run $RUN"),
         Some("an unquoted $ expansion".to_string())
     );
-    assert_eq!(refusal("brokkr inspect --run \"$RUN\""), None);
+    assert_eq!(refusal("brokkr runs inspect --run \"$RUN\""), None);
 }
 
 /// A path to `brokkr` as the program word runs it, and `cargo run -p
@@ -1416,7 +1417,7 @@ fn the_fence_reader_parses_a_path_to_brokkr_and_what_cargo_run_runs() {
 fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
     let wacth = "error: unrecognized subcommand 'wacth'";
     let doc = "```sh\nif brokkr wacth; then :; fi\nfor x in a; do brokkr wacth; done\n\
-               'brokkr' wacth\nRUN=$(brokkr costs --run latest)\nsudo \\\n  brokkr runs\n\
+               'brokkr' wacth\nRUN=$(brokkr stats costs --run latest)\nsudo \\\n  brokkr runs\n\
                cd repo && git commit -m \"brokkr starter\"\n```\n";
     assert_eq!(
         refusals_in("doc.md", doc),
@@ -1424,7 +1425,7 @@ fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
             format!("doc.md:2: `if brokkr wacth; then :; fi`: {wacth}"),
             format!("doc.md:3: `for x in a; do brokkr wacth; done`: {wacth}"),
             format!("doc.md:4: `'brokkr' wacth`: {wacth}"),
-            "doc.md:5: `RUN=$(brokkr costs --run latest)`: a $( substitution".to_string(),
+            "doc.md:5: `RUN=$(brokkr stats costs --run latest)`: a $( substitution".to_string(),
             format!("doc.md:6: `sudo   brokkr runs`: {}", unparsed("brokkr")),
             format!(
                 "doc.md:8: `cd repo && git commit -m \"brokkr starter\"`: {}",
@@ -1439,7 +1440,10 @@ fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
 /// a redirect's target.
 #[test]
 fn the_fence_reader_refuses_an_unsplittable_brokkr_line_and_a_process_substitution() {
-    for line in ["brokkr inspect --run $RUN", "brokkr inspect --run `cat id`"] {
+    for line in [
+        "brokkr runs inspect --run $RUN",
+        "brokkr runs inspect --run `cat id`",
+    ] {
         assert_eq!(
             fenced_commands(&format!("```console\n$ brokkr runs\n{line}\n```\n")).unwrap_err(),
             (3, UNPROMPTED.to_string()),
@@ -1699,15 +1703,18 @@ fn the_fence_reader_reads_cargo_run_only_beside_options_that_keep_its_binary() {
 fn the_word_splitter_reads_placeholders_quotes_and_the_end_of_a_command() {
     let split = |command: &str| words(command).unwrap();
     assert_eq!(
-        split("brokkr operator --run <run id> stop --reason 'a b' | jq ."),
+        split("brokkr runs operator --run <run id> stop --reason 'a b' | jq ."),
         [
-            vec!["brokkr", "operator", "--run", "<run id>", "stop", "--reason", "a b"],
+            vec!["brokkr", "runs", "operator", "--run", "<run id>", "stop", "--reason", "a b"],
             vec!["jq", "."]
         ]
     );
     assert_eq!(
-        split("brokkr runs --json > runs.json && brokkr seats --json 2>&1 # both"),
-        [["brokkr", "runs", "--json"], ["brokkr", "seats", "--json"]]
+        split("brokkr runs --json > runs.json && brokkr runs seats --json 2>&1 # both"),
+        [
+            vec!["brokkr", "runs", "--json"],
+            vec!["brokkr", "runs", "seats", "--json"]
+        ]
     );
     assert_eq!(
         split("brokkr runs 2>/dev/null; brokkr doctor || echo \"no\""),
@@ -1719,19 +1726,25 @@ fn the_word_splitter_reads_placeholders_quotes_and_the_end_of_a_command() {
     );
     assert_eq!(split("brokkr a\\ b"), [["brokkr", "a b"]]);
     for (command, problem) in [
-        ("brokkr inspect --run $(cat id)", "a $( substitution"),
-        ("brokkr inspect --run `cat id`", "a backtick substitution"),
+        ("brokkr runs inspect --run $(cat id)", "a $( substitution"),
         (
-            "brokkr inspect --run \"`cat id`\"",
+            "brokkr runs inspect --run `cat id`",
             "a backtick substitution",
         ),
         (
-            "brokkr inspect --run \"$(cat id\"",
+            "brokkr runs inspect --run \"`cat id`\"",
+            "a backtick substitution",
+        ),
+        (
+            "brokkr runs inspect --run \"$(cat id\"",
             "a $( substitution that never closes",
         ),
-        ("brokkr inspect --run 'open", "a ' quote that never closes"),
-        ("brokkr inspect < file", "a `<` that no `>` closes"),
-        ("brokkr inspect \\", "a trailing backslash"),
+        (
+            "brokkr runs inspect --run 'open",
+            "a ' quote that never closes",
+        ),
+        ("brokkr runs inspect < file", "a `<` that no `>` closes"),
+        ("brokkr runs inspect \\", "a trailing backslash"),
         ("brokkr runs >", "a redirect with no target"),
     ] {
         assert_eq!(words(command).unwrap_err(), problem, "{command}");
@@ -1744,11 +1757,11 @@ fn a_documented_command_that_clap_refuses_is_named() {
     assert_eq!(refusal("brokkr run --help"), None);
     assert_eq!(refusal("brokkr --version"), None);
     assert_eq!(
-        refusal("brokkr operator --action supersede --run r --reason why"),
+        refusal("brokkr runs operator --action supersede --run r --reason why"),
         Some("error: unexpected argument '--action' found".to_string())
     );
     assert_eq!(
-        refusal("brokkr inspect --run $(x)"),
+        refusal("brokkr runs inspect --run $(x)"),
         Some("a $( substitution".to_string())
     );
     assert_eq!(
@@ -1756,11 +1769,11 @@ fn a_documented_command_that_clap_refuses_is_named() {
         ["doc.md:2: `brokkr watch --json --run latest`: error: unexpected argument '--json' found"]
     );
     assert_eq!(
-        refusal("cd repo && brokkr runs && brokkr inspect --bogus"),
+        refusal("cd repo && brokkr runs && brokkr runs inspect --bogus"),
         Some("error: unexpected argument '--bogus' found".to_string())
     );
     assert_eq!(
-        refusals_in("doc.md", "```sh\ncd repo && brokkr inspect --bogus\n```\n"),
-        ["doc.md:2: `cd repo && brokkr inspect --bogus`: error: unexpected argument '--bogus' found"]
+        refusals_in("doc.md", "```sh\ncd repo && brokkr runs inspect --bogus\n```\n"),
+        ["doc.md:2: `cd repo && brokkr runs inspect --bogus`: error: unexpected argument '--bogus' found"]
     );
 }
