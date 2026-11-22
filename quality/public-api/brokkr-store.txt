@@ -605,12 +605,11 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::latest_run(&self) -> core::result::Result<core::option::Option<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::recent_runs(&self, u32) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, core::option::Option<alloc::string::String>)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::run_candidates(&self, &str) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::run_candidates_within(&self, &str, usize) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::run_seats(&self, &str, u32) -> core::result::Result<alloc::vec::Vec<brokkr_store::SeatNames>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::open_kept(&self, &str) -> core::result::Result<(brokkr_store::Opened, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>), brokkr_store::StoreError>
 pub fn brokkr_store::Store::open_run(&self, &str) -> core::result::Result<brokkr_store::Opened, brokkr_store::StoreError>
-impl brokkr_store::Store
-pub fn brokkr_store::Store::open_read_only_untouched(&std::path::Path, core::time::Duration) -> core::result::Result<brokkr_store::Store, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::open_seat_trees(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::SeatTree>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::record_tree_sweep(&mut self, brokkr_store::Swept, &std::path::Path, core::option::Option<i64>, i64) -> core::result::Result<brokkr_store::TreeSweepRecord, brokkr_store::StoreError>
@@ -628,6 +627,8 @@ pub fn brokkr_store::Store::queue_spawned(&self, brokkr_store::EntryId, i64) -> 
 pub fn brokkr_store::Store::queue_unspawned(&self) -> core::result::Result<alloc::vec::Vec<(brokkr_store::Claim, core::option::Option<alloc::string::String>)>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::read_snapshot<T, E: core::convert::From<brokkr_store::StoreError>>(&self, impl core::ops::function::FnOnce() -> core::result::Result<T, E>) -> core::result::Result<T, E>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::read_untouched<T, E: core::convert::From<brokkr_store::StoreError>>(&std::path::Path, core::time::Duration, impl core::ops::function::FnOnce(&brokkr_store::Store) -> core::result::Result<T, E>) -> core::result::Result<T, E>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::record_seat_tree(&mut self, &str, &str, &str, &std::path::Path) -> core::result::Result<brokkr_store::SeatTreeRecord, brokkr_store::StoreError>
 pub fn brokkr_store::Store::seat_trees(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::SeatTree>, brokkr_store::StoreError>
