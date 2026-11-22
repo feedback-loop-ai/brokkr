@@ -188,7 +188,15 @@ impl Engine {
         // it, its watchdog kills at it, and its hold's stored end, the crash
         // fallback, lies past it by the shutdown grace and the margin.
         let now = self.now();
-        let ends = ProbeDeadline::begun(began, now, deadline);
+        let ends = match ProbeDeadline::begun(began, now, deadline) {
+            Ok(ends) => ends,
+            Err(unbounded) => {
+                return Ok(Err(Probe::Parked(Park::ruled(format!(
+                    "the cool-down probe for {}/{} was not admitted: {unbounded}",
+                    wait.provider, wait.route
+                )))))
+            }
+        };
         if let Err(unheld) = self.hold_the_route(wait, now, ends.fallback) {
             return Ok(Err(Probe::Parked(Park::ruled(format!(
                 "the cool-down probe for {}/{} was not admitted: its route's hold was not \

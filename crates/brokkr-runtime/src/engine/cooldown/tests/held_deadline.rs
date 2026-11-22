@@ -122,3 +122,35 @@ fn a_probe_paused_after_its_sample_is_killed_at_its_deadline() {
     assert_eq!(unended_holds(engine.store.path()), 0);
     assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
 }
+
+/// Fix round 0106b1r10, H4: a seat's timeout of u64::MAX seconds, which
+/// the bundle accepts as any positive whole number, puts the probe's
+/// deadline past the host's monotonic clock. The probe is refused in its
+/// typed words before any hold, where the unchecked add panicked: no hold
+/// is written, nothing is spawned, and the run parks naming it.
+#[test]
+fn a_probe_whose_deadline_the_clock_cannot_represent_is_refused_before_any_hold() {
+    let (dir, mut engine, _now, probe_at, gates) = probing(Probed::Answer);
+    engine
+        .bundle
+        .seats
+        .get_mut("work")
+        .unwrap()
+        .limits
+        .timeout_seconds = u64::MAX;
+    engine.drive().unwrap();
+    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
+    assert_eq!(
+        parked_reason(&engine),
+        "the cool-down probe for claude/first was not admitted: its 18446744073709551615s \
+         timeout puts its deadline past what this host's clock can represent, so nothing was \
+         held or dispatched"
+    );
+    let holds: i64 = rusqlite::Connection::open(engine.store.path())
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM probe_holds", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(holds, 0);
+    assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
+}

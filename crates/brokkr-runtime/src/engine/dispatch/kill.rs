@@ -50,6 +50,18 @@ const MARGIN_BOUND: Duration = Duration::from_secs(
 
 const _: () = assert!(HOLD_MARGIN.as_secs() > MARGIN_BOUND.as_secs());
 
+/// A probe whose timeout puts its deadline past what the host's monotonic
+/// clock can represent (fix round 0106b1r10, H4): the seat accepts any
+/// positive whole number of seconds, so it is refused here, typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "its {seconds}s timeout puts its deadline past what this host's clock can represent, so \
+     nothing was held or dispatched"
+)]
+pub(in crate::engine) struct Unbounded {
+    seconds: u64,
+}
+
 /// A probe's one deadline, taken as it begins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::engine) struct ProbeDeadline {
@@ -67,15 +79,25 @@ impl ProbeDeadline {
     /// `length` after the probe began: `began` on the monotonic clock, read
     /// before `now` on the engine's, so a pause between the two readings
     /// moves the kill earlier, never later.
-    pub(in crate::engine) fn begun(began: Instant, now: OffsetDateTime, length: Duration) -> Self {
+    /// A length the monotonic clock cannot carry past `began` is refused
+    /// in its own words before anything is held or dispatched, never
+    /// added unchecked, which would panic (fix round 0106b1r10, H4).
+    pub(in crate::engine) fn begun(
+        began: Instant,
+        now: OffsetDateTime,
+        length: Duration,
+    ) -> Result<Self, Unbounded> {
+        let kill = began.checked_add(length).ok_or(Unbounded {
+            seconds: length.as_secs(),
+        })?;
         let seconds = i64::try_from(length.as_secs()).unwrap_or(i64::MAX);
         let ends = now.saturating_add(time::Duration::seconds(seconds));
         let past = (SHUTDOWN_GRACE + HOLD_MARGIN).as_secs() as i64;
-        ProbeDeadline {
+        Ok(ProbeDeadline {
             ends,
-            kill: began + length,
+            kill,
             fallback: ends.saturating_add(time::Duration::seconds(past)),
-        }
+        })
     }
 
     /// What remains of it at `now` on the engine's clock: `None` at or
