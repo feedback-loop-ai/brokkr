@@ -117,6 +117,14 @@ enum Cmd {
     Runs(RunsArgs),
     Realms(RealmsArgs),
     CrossRun(verbs::analytics::CrossRunCmd),
+<<<<<<< HEAD
+||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
+    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | exec).
+    /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
+=======
+    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | agy | exec).
+    /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
+>>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
     Driver(DriverArgs),
     Hands {
         command: HandsCommand,
