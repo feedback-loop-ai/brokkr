@@ -1,0 +1,2 @@
+Error: -p took "--input-format" as its prompt, so the intended prompt was left as an argument and ignored.
+Attach the prompt to the flag (-p='your prompt') and move --input-format elsewhere on the command line.

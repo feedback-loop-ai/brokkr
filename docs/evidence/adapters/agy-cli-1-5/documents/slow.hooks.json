@@ -1,0 +1,1 @@
+{"brokkr-gate": {"PreToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "/var/tmp/probe-agy/hooks/slow.sh", "timeout": 3}]}]}}

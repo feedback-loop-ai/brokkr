@@ -394,7 +394,7 @@ fn invoke_dsh_stream_json(
     let status = loop {
         match io_context(
             state.pass(&mut open, &reads, &mut child, &mut wait, emit, observer),
-            "agent CLI did not conclude",
+            super::stream_turn::UNCONCLUDED,
         )? {
             DshPass::Continue => {}
             DshPass::Answered => {
@@ -608,7 +608,10 @@ mod tests {
     /// a cold seat has no offer to confirm, a rejoin whose init event has
     /// not named the offer has nothing to settle, a settled watch is not
     /// revisited, and only a named, unsettled rejoin settles on the idle
-    /// tick (decision 0103 ruling 4(a); design D7).
+    /// tick (decision 0103 ruling 4(a); design D7). It holds with no `HOME`
+    /// and no `DSH_HOME` in the process, as while another test holds them
+    /// away, which a rerun of itself in a process without them proves
+    /// (#1224).
     #[test]
     fn the_between_lines_poll_settles_only_a_named_unsettled_offer() {
         fn poll_once(launch: &DshLaunch, watch: &mut DshRootWatch) -> (bool, usize) {
@@ -665,7 +668,32 @@ mod tests {
         settled.named_the_offer = true;
         settled.refuse();
         assert_eq!(poll_once(&launch, &mut settled), (false, 0));
+
+        // Run as itself, it reruns its binary, filtered to itself, with no
+        // `HOME` and no `DSH_HOME`, so this process's own stay with the
+        // tests that read them unguarded.
+        if std::env::var_os(HOMELESS).is_some() {
+            return;
+        }
+        let rerun = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([UNHOMED, "--exact", "--test-threads=1"])
+            .env(HOMELESS, "1")
+            .env_remove("HOME")
+            .env_remove("DSH_HOME")
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&rerun.stdout);
+        // A filter that matches nothing exits zero and asserts nothing.
+        assert!(said.contains("1 passed"), "{said}");
     }
+
+    /// What a homeless run of this binary reads: that it is one.
+    const HOMELESS: &str = "BROKKR_TEST_HOMELESS";
+
+    /// [`the_between_lines_poll_settles_only_a_named_unsettled_offer`] by
+    /// its full name, which a homeless run is filtered to.
+    const UNHOMED: &str =
+        "adapters::dsh_launch::tests::the_between_lines_poll_settles_only_a_named_unsettled_offer";
 
     /// The one harness spawn builder's refusals are typed, carry the
     /// injector's own error, and print exactly the words both existing text

@@ -16,6 +16,9 @@ extend-exclude = [
   # cargo-public-api's snapshots: generated signatures (`serde_core::ser`),
   # never prose (issue #338).
   "quality/public-api/",
+  # A harness's recorded stream, byte for byte: its text deltas cut words
+  # anywhere ("seeded-by-controll", "earch_web"), never prose (#1224).
+  "docs/evidence/adapters/*/*.ndjson",
 ]
 
 [default]
