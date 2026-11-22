@@ -81,7 +81,7 @@ pub(super) fn reach_base<'a>(
     }
     let base = base_of(file, extends).map_err(refused)?;
     // The library is the leaf directory's parent, what a recipe library already is and what
-    // `brokkr recipes add` installs into before it compile-verifies the copy, or a `.brokkr`
+    // `brokkr library recipes add` installs into before it compile-verifies the copy, or a `.brokkr`
     // folder's shelf (#696): `places::base_library`, the one judgement of a layer's library.
     // `dir` is already canonical, so the library is asked for directly, never through `..`.
     // A personal layer reads its own shelf or the project's (#697 ruling 3).
@@ -105,7 +105,7 @@ pub(super) fn reach_base<'a>(
 /// The base `base`, named by `file`, as the directory it resolved to in `library`, or refused:
 /// `None` (no directory stands there) is no recipe, and one resolving anywhere but directly in
 /// `library` stands outside it. A base must BE in the library, not merely be reachable from
-/// it: `brokkr recipes add` already refuses symlinks, and a composed base is bind-mounted
+/// it: `brokkr library recipes add` already refuses symlinks, and a composed base is bind-mounted
 /// read-only into every confined seat, so a link pointing outside would widen that mount.
 fn contained<'a>(
     (file, base): (&'a Path, &'a str),

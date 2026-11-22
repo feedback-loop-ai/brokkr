@@ -10,7 +10,7 @@
 //! empty list is the fact that none did) and the process group the engine
 //! recorded before the driver was told anything. The host answers the one
 //! question a record cannot: is that group gone? Where the records cannot
-//! prove an attempt, `brokkr operator settle` writes the journaled record
+//! prove an attempt, `brokkr runs operator settle` writes the journaled record
 //! this module reads back by type, and the exclusion honours it as the
 //! proof. Acknowledgement alone never releases.
 //!
@@ -114,7 +114,7 @@ pub enum UnprovenWhy {
     )]
     Unresolved,
     /// The exclusion's proof alone: the broker's own records, never the
-    /// host's word, which is the operator's to read with `brokkr operator
+    /// host's word, which is the operator's to read with `brokkr runs operator
     /// settle`.
     #[error(
         "only the host's word proves it: its process group is gone, and no driver record is \
@@ -307,7 +307,7 @@ pub(in crate::engine::broker) fn view_records(attempt: &Attempt, id: &str) -> Re
     })
 }
 
-/// Every attempt `reservation` names standing, proven as `brokkr operator
+/// Every attempt `reservation` names standing, proven as `brokkr runs operator
 /// settle` proves it now: the records, or the host's answer about every
 /// driver not sealed Settled.
 pub(in crate::engine) fn provenances(reservation: &Reservation) -> Result<Vec<Proven>, Live> {

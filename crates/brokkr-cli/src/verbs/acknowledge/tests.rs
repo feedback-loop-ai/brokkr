@@ -1,4 +1,4 @@
-//! `brokkr operator acknowledge` (#511): refused on a run that folds,
+//! `brokkr runs operator acknowledge` (#511): refused on a run that folds,
 //! answering either quarantine beside an untouched journal, and lapsing
 //! when the journal moves.
 

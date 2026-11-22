@@ -395,7 +395,7 @@ fn the_three_pin_states_render_distinctly_under_their_realm() {
     assert!(none["realms"][0].get("consumes").is_none(), "{none}");
 }
 
-/// The exact bytes `brokkr realms --json` prints (#346): a value
+/// The exact bytes `brokkr system realms --json` prints (#346): a value
 /// comparison ignores key order, so the document is pinned as a string.
 /// A realm writes `publishes` and `consumes` only where it has them.
 #[test]

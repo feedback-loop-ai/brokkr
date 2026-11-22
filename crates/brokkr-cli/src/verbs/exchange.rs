@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use crate::cli_args::{AnchorArgs, BridgeArgs, ExportArgs, ImportArgs, VerifyRunArgs};
 use crate::{journal_of, open_journal, render, selector, summarize, Access, Exit};
 
-/// `brokkr anchor`: plant the journal head in refs/forge/<run>, or verify
+/// `brokkr journal anchor`: plant the journal head in refs/forge/<run>, or verify
 /// the one planted with `--check`.
 pub(crate) fn anchor(
     workspace: &Path,
@@ -38,7 +38,7 @@ pub(crate) fn anchor(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr export`: the canonical NDJSON journal and its pinned manifest,
+/// `brokkr journal export`: the canonical NDJSON journal and its pinned manifest,
 /// and with `--redact` a marked, scrubbed copy of both.
 pub(crate) fn export(
     workspace: &Path,
@@ -119,7 +119,7 @@ fn export_redacted(out: &Path, run: &str, ndjson: &str, manifest: &Value) -> Res
     Ok(())
 }
 
-/// `brokkr import`: adopt an exported run byte-identically.
+/// `brokkr journal import`: adopt an exported run byte-identically.
 pub(crate) fn import(
     workspace: &Path,
     ImportArgs { from, realms, db }: ImportArgs,
@@ -156,7 +156,7 @@ pub(crate) fn import(
 // Every document below declares its fields in byte order, the order its
 // keys were printed in when it was a `json!` map (#346).
 
-/// `brokkr import`'s document: what the adoption did.
+/// `brokkr journal import`'s document: what the adoption did.
 #[derive(Serialize)]
 struct Adopted<'a> {
     adopted: &'static str,
@@ -180,7 +180,7 @@ fn adopted(adoption: &Adoption) -> Adopted<'_> {
     }
 }
 
-/// `brokkr verify-run`: an exported journal's chain, envelopes and fold.
+/// `brokkr journal verify`: an exported journal's chain, envelopes and fold.
 pub(crate) fn verify_run(VerifyRunArgs { file }: VerifyRunArgs) -> Result<ExitCode> {
     let ndjson = std::fs::read_to_string(&file).context(format!("reading {}", file.display()))?;
     let (events, state) = brokkr_store::verified_events(&ndjson)?;
@@ -191,7 +191,7 @@ pub(crate) fn verify_run(VerifyRunArgs { file }: VerifyRunArgs) -> Result<ExitCo
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr verify-run`'s document: the chain verified, and the state the
+/// `brokkr journal verify`'s document: the chain verified, and the state the
 /// verified journal folds to.
 #[derive(Serialize)]
 struct Verified {

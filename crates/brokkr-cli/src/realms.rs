@@ -1,4 +1,4 @@
-//! `brokkr realms` — the world, read out (decision 0023 ruling 6).
+//! `brokkr system realms` — the world, read out (decision 0023 ruling 6).
 //!
 //! A read surface like every other: it opens no journal, starts no run,
 //! writes nothing. It states the map it read, the journal that world
@@ -215,7 +215,7 @@ pub(crate) fn render(source: &str, journal: &str, rows: &[Row], hearths: bool) -
     out
 }
 
-/// `brokkr realms --json`'s world. Every struct of this document declares
+/// `brokkr system realms --json`'s world. Every struct of this document declares
 /// its fields in byte order, the order its keys were printed in when the
 /// document was a `json!` map (#346).
 #[derive(Serialize)]
@@ -326,7 +326,7 @@ fn pin_of(reports: &[CrossingReport], realm: &str, name: &str, publisher: &str) 
 /// the report, so a realm's declarations are shown whole even where one
 /// of them could not be checked.
 ///
-/// Shared with `brokkr muninn run`'s dossier (`crate::muninn`), so the
+/// Shared with `brokkr runs muninn run`'s dossier (`crate::muninn`), so the
 /// two read surfaces render one derivation of the crossings and cannot
 /// word a pin two ways. Computing a second answer here — hashing a file,
 /// re-running the comparison — would be exactly the disagreement slice

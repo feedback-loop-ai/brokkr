@@ -24,11 +24,11 @@ use super::{folded, EngineError, FencedCommandOutcome};
 /// reads back the command they typed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verb {
-    /// `brokkr operator stop`.
+    /// `brokkr runs operator stop`.
     Stop,
-    /// `brokkr conclude`.
+    /// `brokkr runs conclude`.
     Conclude,
-    /// `brokkr operator classify`.
+    /// `brokkr runs operator classify`.
     Classify,
 }
 
@@ -304,7 +304,7 @@ fn shape<'a>(verb: Verb, cause: &Cause<'a>) -> Result<Shaped<'a>, CauseRefusal> 
     Ok(Shaped { ending, by, by_ref })
 }
 
-/// `brokkr operator stop` (decision 0064 ruling 4): the stop, with the
+/// `brokkr runs operator stop` (decision 0064 ruling 4): the stop, with the
 /// cause the operator names riding in its `operator/commanded` `args`
 /// under `operator-ending.v1`. The cause is checked before anything is
 /// written, and a refused cause writes nothing; past that the stop is

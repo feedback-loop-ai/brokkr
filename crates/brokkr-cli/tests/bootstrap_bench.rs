@@ -223,7 +223,7 @@ fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
     let stderr = String::from_utf8_lossy(&run.stderr);
 
     let inspect = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(["inspect", "--run", "latest", "--json"])
+        .args(["runs", "inspect", "--run", "latest", "--json"])
         .current_dir(repo)
         .output()
         .unwrap();

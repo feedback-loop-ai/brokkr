@@ -185,7 +185,14 @@ impl Host {
         let name = bundle.file_name().unwrap().to_str().unwrap();
         let (db, out) = (self.journal(name), self.base.join(format!("{name}.export")));
         let exported = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-            .args(["export", "--run", run, "--out", out.to_str().unwrap()])
+            .args([
+                "journal",
+                "export",
+                "--run",
+                run,
+                "--out",
+                out.to_str().unwrap(),
+            ])
             .args(["--db", db.to_str().unwrap()])
             .current_dir(&self.base)
             .env("HOME", self.base.join("home"))

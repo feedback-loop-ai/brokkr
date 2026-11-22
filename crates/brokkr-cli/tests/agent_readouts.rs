@@ -2,8 +2,8 @@
 //!
 //! A run whose second attempt fell back to a different model must be
 //! legible as exactly that, everywhere. These tests drive a real
-//! fallback run and then read it back through `brokkr inspect`, the TUI's
-//! model, the console's `/api/view` payload and `brokkr compare` — and
+//! fallback run and then read it back through `brokkr runs inspect`, the TUI's
+//! model, the console's `/api/view` payload and `brokkr runs compare` — and
 //! assert that none of them composes the sentence itself, because a
 //! surface that formats provenance on its own is a surface that can stop
 //! mentioning a fallback without anyone noticing.
@@ -332,7 +332,7 @@ fn a_first_choice_run_carries_no_notice_at_all() {
     assert!(text.contains("worker · selected second via fake"), "{text}");
 }
 
-/// AC-18: `brokkr compare` reports a model difference as a FIRST-CLASS
+/// AC-18: `brokkr runs compare` reports a model difference as a FIRST-CLASS
 /// divergence — reported unconditionally, and reported even when the two
 /// runs pin the same recipe, because comparing pinned plans would hide
 /// precisely the fallback this exists to expose.
@@ -440,8 +440,8 @@ fn no_surface_composes_the_provenance_sentence_itself() {
     }
 }
 
-/// AC-10 through the binary: `brokkr agents list` and
-/// `brokkr agents show` resolve their library roots exactly as
+/// AC-10 through the binary: `brokkr library agents list` and
+/// `brokkr library agents show` resolve their library roots exactly as
 /// `--recipes-dir` does, and `show` prints a machine-readable object
 /// without a `--json` flag.
 #[test]
@@ -478,8 +478,8 @@ fn the_agents_verbs_run_against_the_default_roots() {
     assert!(stderr.contains("is not in the library"), "{stderr}");
 }
 
-/// Decision 0065, CQ2, through the binary: `brokkr agents list` and
-/// `brokkr agents show` are the library's semantic lint. Parsing
+/// Decision 0065, CQ2, through the binary: `brokkr library agents list` and
+/// `brokkr library agents show` are the library's semantic lint. Parsing
 /// `capabilities` is syntax; whether the OPERATOR defines each name is the
 /// question, answered from `capabilities/` in the operator's configuration
 /// directory — and an `--agents-dir` override moves the library, never that

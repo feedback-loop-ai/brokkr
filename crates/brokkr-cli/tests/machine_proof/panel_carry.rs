@@ -225,8 +225,14 @@ fn one_member_runs_and_the_aggregate_and_readouts_keep_the_settled_verdict() {
     );
     assert_eq!(carried.activity.text, "carried from review attempt 1");
     for verb in ["inspect", "seats"] {
-        let (code, stdout, stderr) =
-            ws.brokkr_raw(&[verb, "--run", &run, "--db", ws.db().to_str().unwrap()]);
+        let (code, stdout, stderr) = ws.brokkr_raw(&[
+            "runs",
+            verb,
+            "--run",
+            &run,
+            "--db",
+            ws.db().to_str().unwrap(),
+        ]);
         assert_eq!(code, Some(0), "{stderr}");
         assert!(stdout.contains("carried"), "{stdout}");
     }

@@ -300,7 +300,7 @@ impl FoldError {
     }
 }
 
-/// The commands an operator gives a live run, through `brokkr operator`
+/// The commands an operator gives a live run, through `brokkr runs operator`
 /// or the Looper bridge, and the word the journal records for each. A
 /// word outside the set can still reach the journal as an
 /// `operator/commanded` on a live run (the bridge journals the word it
@@ -323,7 +323,7 @@ pub enum OperatorCommand {
 }
 
 impl OperatorCommand {
-    /// Every command, in the order `brokkr operator` names them.
+    /// Every command, in the order `brokkr runs operator` names them.
     pub const ALL: [OperatorCommand; 3] = [
         OperatorCommand::Retry,
         OperatorCommand::Stop,

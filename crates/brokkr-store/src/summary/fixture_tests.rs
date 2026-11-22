@@ -84,7 +84,7 @@ fn read_as_columns(read: &Aggregate) -> Vec<(&'static str, Option<String>)> {
 
 /// Every fixture's row keeps, column for column, what the readouts read of
 /// its run read whole (`brokkr_core::summary::aggregate`, which
-/// `brokkr analytics` and the recipe's graph read): the parity of decision
+/// `brokkr stats analytics` and the recipe's graph read): the parity of decision
 /// 0089 slice 4. The broken chain is read by no writer, so its row keeps
 /// nothing.
 #[test]

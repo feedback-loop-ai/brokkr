@@ -1,4 +1,4 @@
-//! `brokkr probe harness` end to end: the verb resolves the shipped
+//! `brokkr system probe harness` end to end: the verb resolves the shipped
 //! adapter files and the secrets store, writes the report, and reports
 //! the drift since the report it replaces. The CLI it launches is a fake
 //! that speaks one Claude-shaped turn; no test reaches a provider.
@@ -62,7 +62,7 @@ impl Host {
         self.launch(Some(&self.cli), adapters, extra)
     }
 
-    /// `brokkr probe harness`, given `--cli` when `cli` names one.
+    /// `brokkr system probe harness`, given `--cli` when `cli` names one.
     fn launch(&self, cli: Option<&Path>, adapters: &Path, extra: &[&str]) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
         command.args(["system", "probe", "harness"]);
@@ -532,7 +532,7 @@ fn what_the_verb_cannot_probe_is_refused_by_name() {
     }
 }
 
-/// `brokkr probe harness` with `HOME` set to `home`, given `extra`.
+/// `brokkr system probe harness` with `HOME` set to `home`, given `extra`.
 fn probe_with_home(host: &Host, cli: &Path, home: &Path, extra: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_brokkr"))
         .args(["system", "probe", "harness", "--cli"])

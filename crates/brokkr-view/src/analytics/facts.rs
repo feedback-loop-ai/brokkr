@@ -99,7 +99,7 @@ pub struct RunFacts {
     pub finished: Option<Finished>,
     pub implement_visits: u64,
     pub reviews: Reviews,
-    /// Every reported cost the run's journal holds, as `brokkr costs`
+    /// Every reported cost the run's journal holds, as `brokkr stats costs`
     /// reads them; the figures keep those inside their window.
     pub costs: Vec<(i64, f64)>,
 }

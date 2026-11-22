@@ -1,5 +1,5 @@
 //! The participant transcript routes (#352): the body route that serves
-//! `brokkr transcript --json`'s document and the watch keyed like it, for
+//! `brokkr runs transcript --json`'s document and the watch keyed like it, for
 //! every kind. They share `tests.rs`'s journal fixtures and
 //! `limit_tests.rs`'s HTTP fixtures.
 
@@ -132,7 +132,7 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
 /// An unfoldable journal is fatal to its own verbs (`fleet.rs`), and the
 /// drill is one of them: for a run whose journal loads and does not fold,
 /// the body route, the watch and the presentation all answer the refusal
-/// `brokkr transcript` exits with, in the fold's words, and serve no prose.
+/// `brokkr runs transcript` exits with, in the fold's words, and serve no prose.
 #[test]
 fn an_unfoldable_journal_refuses_every_participant_route_as_the_command_does() {
     let mut env = EnvGuard::lock();

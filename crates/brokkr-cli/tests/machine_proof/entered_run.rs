@@ -173,6 +173,7 @@ fn a_finished_branch_enters_verify_and_ships_without_a_work_seat() {
 
     let db = ws.db();
     let (code, view, err) = ws.brokkr(&[
+        "runs",
         "inspect",
         "--run",
         &run,

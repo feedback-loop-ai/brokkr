@@ -89,7 +89,7 @@ pub const RUN_ID_MAX: usize = 128;
 /// excludes is what a *foreign* id could otherwise do here: `.` (and so
 /// `..`), the path separators, and every control and formatting
 /// character. Import is the first path by which a run id somebody else
-/// authored reaches the `runs` table, and from there `brokkr export`'s
+/// authored reaches the `runs` table, and from there `brokkr journal export`'s
 /// `<out>/<run_id>.ndjson` and the operator's terminal.
 fn adoptable(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '-' || character == '_'

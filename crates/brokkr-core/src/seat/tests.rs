@@ -238,7 +238,7 @@ fn a_seat_is_read_by_its_turns_settled_by_a_claude_session_or_by_its_session() {
 
 /// A stored checkpoint's rule, pinned once: the row's turn, session and
 /// tokens count as the whole-run reading counts them, so a window that
-/// reads a checkpoint's row reads what `brokkr analytics` reads whole
+/// reads a checkpoint's row reads what `brokkr stats analytics` reads whole
 /// (decision 0089 ruling 7).
 #[test]
 fn a_stored_checkpoint_counts_by_its_sites_rule() {

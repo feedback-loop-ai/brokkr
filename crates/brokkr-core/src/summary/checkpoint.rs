@@ -3,7 +3,7 @@
 //! tokens, whether it is the last finishing session record its participant
 //! wrote, and whether its turn repeats the usage its site's last metered
 //! turn carried. Read here once, from the run's events, so the writer keeps
-//! on the checkpoint's `event_index` row what `brokkr analytics` derives
+//! on the checkpoint's `event_index` row what `brokkr stats analytics` derives
 //! from the run read whole (decision 0071 ruling 5).
 //!
 //! Two keys are read here, as main reads them: a participant is an attempt

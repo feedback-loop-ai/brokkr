@@ -101,7 +101,7 @@ pub(super) fn pulse(tick: usize, live: bool, animate: bool) -> usize {
 /// the first pane here that places its own x positions, so it is the
 /// first that can be lied to. **Every width in the graph comes from
 /// here**, so there is no second measurement to disagree with the first;
-/// `brokkr graph`'s tables measure their cells here too (#1167).
+/// `brokkr stats graph`'s tables measure their cells here too (#1167).
 pub(crate) fn width_of(text: &str) -> usize {
     span(text, plain()).width()
 }

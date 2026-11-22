@@ -218,8 +218,8 @@
 // *_class field is an INDEX INTO an allowlist, not a class name.
 //
 // DERIVATION DISCIPLINE (decision 0013): this page PAINTS. Every value
-// it shows is a field of the models `brokkr ui` serves from `brokkr-view`
-// — the same models `brokkr inspect` and `brokkr watch` render as text,
+// it shows is a field of the models `brokkr system ui` serves from `brokkr-view`
+// — the same models `brokkr runs inspect` and `brokkr watch` render as text,
 // so the two surfaces cannot disagree. The page may branch on a model
 // field; it may NOT compute one. A formatter, a duration, a sum, a
 // truncation or a scoping predicate written here is a second
@@ -270,7 +270,7 @@ const BADGE_CLASS = { '': '', running: 'running', completed: 'completed',
 /* run-tone:start */
 // Decision 0064 ruling 6: a run is painted by what it waits on, never by
 // whether it was good. An ended run wears its ending's tone class, from the
-// table `brokkr ui` writes here out of brokkr-core's `Ending::tone` as it
+// table `brokkr system ui` writes here out of brokkr-core's `Ending::tone` as it
 // serves the page; a run with no ending wears what it wants, and a live run
 // is bold. The keys are the model's closed words; anything else is dim.
 const ENDING_TONE = /* ending-tone */{};
@@ -1364,7 +1364,7 @@ function renderDetail(id, view) {
   // Run-level notices (decision 0016): an optional capability gap
   // recorded at compile time, or a fallback that actually happened. The
   // text is the model's; this surface only places it, so a fallback
-  // cannot go unmentioned here while it shows in `brokkr inspect`.
+  // cannot go unmentioned here while it shows in `brokkr runs inspect`.
   for (const notice of view.notices ?? []) {
     const note = el('p', 'ruling');
     note.appendChild(badge(notice.kind, ''));

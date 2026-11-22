@@ -40,7 +40,7 @@ pub(super) fn accept(state: &mut RunState, event: &EventEnvelope) -> Result<(), 
             state.stop_accepted_seq = None;
             state.run = Run::Running(Cursor::RequestEffect);
         }
-        // `brokkr operator` is a live kill switch: it journals the
+        // `brokkr runs operator` is a live kill switch: it journals the
         // command AND its acceptance without reading the run's cursor
         // first, so a stop legitimately lands wherever the run stands.
         // It always reaches a conclusion; only WHEN differs. Mid-flight

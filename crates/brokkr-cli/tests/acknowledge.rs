@@ -1,4 +1,4 @@
-//! `brokkr operator acknowledge` from the command line (#511): what the
+//! `brokkr runs operator acknowledge` from the command line (#511): what the
 //! operator reads once the acknowledgement is recorded.
 
 use std::path::Path;

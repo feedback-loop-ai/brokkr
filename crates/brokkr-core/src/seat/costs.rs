@@ -1,4 +1,4 @@
-//! What `brokkr costs` and `brokkr compare` print of each seat: its
+//! What `brokkr stats costs` and `brokkr runs compare` print of each seat: its
 //! attempts, turns, cost and token usage, and the models, efforts and
 //! boundaries its records name (#351). Each effect's accounting is folded
 //! here once (decision 0071 ruling 5), from the journal for
@@ -295,7 +295,7 @@ fn reduce(mut values: BTreeSet<String>, none: &str) -> String {
     }
 }
 
-/// One seat's record, as `brokkr costs` and `brokkr compare` print it,
+/// One seat's record, as `brokkr stats costs` and `brokkr runs compare` print it,
 /// equal to another only where its cost is the other's by its bits.
 #[derive(Debug, PartialEq, Serialize)]
 pub struct SeatCost {
@@ -348,7 +348,7 @@ pub(crate) fn summed<'a>(
 }
 
 /// Per-seat attempts/turns/cost/token usage from the journal — the aggregation
-/// shared by `brokkr costs` and `brokkr compare`: attempts from
+/// shared by `brokkr stats costs` and `brokkr runs compare`: attempts from
 /// `effect/started` joined through `effect/requested.seat`, turns and
 /// cost from `effect/checkpointed` payloads. Returns the per-seat
 /// report map and the total cost.

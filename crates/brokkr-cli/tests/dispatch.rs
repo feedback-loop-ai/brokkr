@@ -1,5 +1,5 @@
 //! Decision 0110 rulings 3 and 4 through the built binary, on Linux and
-//! macOS: `brokkr dispatch --once` hands each run it starts to this binary
+//! macOS: `brokkr queue dispatch --once` hands each run it starts to this binary
 //! as `dispatch drive`, a process in a session of its own whose stdin is
 //! `/dev/null` and whose stdout and stderr are the run's own log; and a
 //! dispatcher whose binary was replaced claims nothing and ends in ruling
@@ -386,7 +386,7 @@ fn ended_on_its_replaced_binary(mode: &[&str]) -> String {
     stage(Path::new(env!("CARGO_BIN_EXE_brokkr")), &copy);
     let holder = rusqlite::Connection::open(&machine.journal).unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
-    let args = [&["dispatch"][..], mode, &["--db", machine.db()]].concat();
+    let args = [&["queue", "dispatch"][..], mode, &["--db", machine.db()]].concat();
     let dispatcher = Standing::spawned(&mut machine.command(&copy, &args));
     machine.dispatching();
     let other = machine.base.join("bin/other");
@@ -463,7 +463,7 @@ fn reading(
 }
 
 impl Standing {
-    /// `brokkr dispatch` given `args` on `machine`, its output piped.
+    /// `brokkr queue dispatch` given `args` on `machine`, its output piped.
     fn start(machine: &Machine, args: &[&str]) -> Standing {
         let brokkr = Path::new(env!("CARGO_BIN_EXE_brokkr"));
         Standing::spawned(&mut machine.command(brokkr, args))

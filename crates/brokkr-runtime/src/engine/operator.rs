@@ -448,7 +448,7 @@ pub(super) fn conclude_racing(
     }
 
     // A stop already in force is not re-commanded: the operator who
-    // typed `brokkr operator stop` is the one the journal already names,
+    // typed `brokkr runs operator stop` is the one the journal already names,
     // and a second command would put a second name on the conclusion.
     // Only a run with no stop pending gets one, naming the operator
     // invoking `conclude` and carrying the cause they named.

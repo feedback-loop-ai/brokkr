@@ -252,7 +252,7 @@ fn a_metacharacter_gate_and_its_mutable_matching_sibling_refuse_before_run() {
                 std::fs::read_to_string(selected.join("gate.sh")).unwrap(),
                 GATE
             );
-            let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", "bundle"]);
+            let (code, _, stderr) = ws.brokkr(&["library", "compile", "--bundle", "bundle"]);
             assert_ne!(code, Some(0), "{stderr}");
             for expected in [
                 "component \"scripts[1]\"",
@@ -422,7 +422,7 @@ fn a_plain_compile_has_no_boundary_map_and_resume_keeps_its_pinned_namespace() {
         seat["class"] = json!("work");
     }
     std::fs::write(path, config.to_string()).unwrap();
-    let (code, stdout, stderr) = ws.brokkr(&["compile", "--bundle", "bundle"]);
+    let (code, stdout, stderr) = ws.brokkr(&["library", "compile", "--bundle", "bundle"]);
     assert_eq!(code, Some(0), "{stderr}");
     let compiled: Value = serde_json::from_str(&stdout).unwrap();
     assert!(compiled["manifest"].get("hands").is_none());
@@ -527,7 +527,7 @@ fn run_resume_and_rerun_refuse_an_unbuilt_boundary_before_the_journal() {
     let config = std::fs::read(&config_path).unwrap();
     std::fs::write(&config_path, "{}").unwrap();
     let (code, _, stderr) = ws.brokkr(&[
-        "rerun", "--run", &first, "--bundle", bundle_arg, "--db", db_arg,
+        "runs", "rerun", "--run", &first, "--bundle", bundle_arg, "--db", db_arg,
     ]);
     assert_eq!(code, Some(1), "{stderr}");
     assert!(stderr.contains("bundle"), "{stderr}");
@@ -542,7 +542,7 @@ fn run_resume_and_rerun_refuse_an_unbuilt_boundary_before_the_journal() {
     std::fs::write(config_path, config).unwrap();
     ws.map("seatbelt");
     let (code, _, stderr) = ws.brokkr(&[
-        "rerun", "--run", &first, "--bundle", bundle_arg, "--db", db_arg,
+        "runs", "rerun", "--run", &first, "--bundle", bundle_arg, "--db", db_arg,
     ]);
     assert_eq!(code, Some(1), "{stderr}");
     assert!(
@@ -684,6 +684,7 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     let out = ws.path().join("export");
     let db = ws.db();
     let (code, _, stderr) = ws.brokkr(&[
+        "journal",
         "export",
         "--run",
         &id,
@@ -697,7 +698,7 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     let text = std::fs::read_to_string(&journal).unwrap();
     assert!(text.contains("\"boundary\":\"harness\""), "{text}");
     assert!(!text.contains("unboxed"), "the data carries the plain word");
-    let (code, stdout, stderr) = ws.brokkr(&["verify-run", journal.to_str().unwrap()]);
+    let (code, stdout, stderr) = ws.brokkr(&["journal", "verify", journal.to_str().unwrap()]);
     assert_eq!(code, Some(0), "{stderr}");
     let verified: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(verified["chain"], "verified");
@@ -707,6 +708,7 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     // run's manifest carries the realms pin and the boundary map.
     let bundle = ws.bundle_dir();
     let (code, _, stderr) = ws.brokkr(&[
+        "runs",
         "rerun",
         "--run",
         &id,
@@ -728,7 +730,8 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     // `compile` prints the manifest, whose `boundary` map sits under
     // `hands` with the same keys — and a bundle boxing nothing prints
     // neither key.
-    let (code, stdout, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, stdout, stderr) =
+        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(0), "{stderr}");
     let view: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(
@@ -753,7 +756,7 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     );
     let root = workspace_root();
     let out = Command::new(brokkr_bin())
-        .args(["compile", "--bundle", "recipes/self"])
+        .args(["library", "compile", "--bundle", "recipes/self"])
         .current_dir(&root)
         .output()
         .unwrap();

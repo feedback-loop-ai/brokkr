@@ -583,6 +583,7 @@ impl Workspace {
         let db = self.db();
         let out = self.path().join("export");
         self.brokkr(&[
+            "journal",
             "export",
             "--run",
             run_id,
@@ -993,12 +994,20 @@ fn full_delivery_completes_exports_and_replays() {
     let run_id = Workspace::run_id(&stderr);
 
     let db = ws.db();
-    let (code, replay, _) = ws.brokkr(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
+    let (code, replay, _) = ws.brokkr(&[
+        "runs",
+        "replay",
+        "--run",
+        &run_id,
+        "--db",
+        db.to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(0));
     assert_eq!(replay["replay"], "deterministic");
 
     let out = ws.path().join("export");
     let (code, _, _) = ws.brokkr(&[
+        "journal",
         "export",
         "--run",
         &run_id,
@@ -1009,7 +1018,7 @@ fn full_delivery_completes_exports_and_replays() {
     ]);
     assert_eq!(code, Some(0));
     let journal = out.join(format!("{run_id}.ndjson"));
-    let (code, verified, _) = ws.brokkr(&["verify-run", journal.to_str().unwrap()]);
+    let (code, verified, _) = ws.brokkr(&["journal", "verify", journal.to_str().unwrap()]);
     assert_eq!(code, Some(0));
     assert_eq!(verified["chain"], "verified");
     assert_eq!(verified["state"]["status"], "completed");
@@ -1419,6 +1428,7 @@ fn vanished_driver_parks_indeterminate_and_operator_retry_completes() {
 
     let db = ws.db();
     let (code, _, _) = ws.brokkr(&[
+        "runs",
         "operator",
         "retry",
         "--run",
@@ -1487,7 +1497,7 @@ fn runs_lists_completed_run_with_status_and_phase() {
 /// `runs` lists everything and quarantines the poisoned row with the
 /// fold's own words, while the verbs aimed at that run still fail.
 ///
-/// `brokkr operator` used to be a way to CREATE this fault — it wrote
+/// `brokkr runs operator` used to be a way to CREATE this fault — it wrote
 /// the acceptance without re-reading the run — and this test used to
 /// reach for it. It no longer can, which the first half now proves: the
 /// command judges the run first, it refuses, and it says why. The poisoned
@@ -1506,6 +1516,7 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
     let db = ws.db();
     let bundle = ws.bundle_dir();
     let (code, _, stderr) = ws.brokkr(&[
+        "runs",
         "rerun",
         "--run",
         &healthy,
@@ -1527,6 +1538,7 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
     // and nothing written — a real process against a real journal, which
     // is the between-effects write race proved where it is actually spent.
     let (code, _, stderr) = ws.brokkr_raw(&[
+        "runs",
         "operator",
         "--run",
         &poisoned,
@@ -1543,8 +1555,14 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
          given, which is a refusal, not a lost race: {stderr}"
     );
     // Refused, so the run is still perfectly readable.
-    let (code, _, stderr) =
-        ws.brokkr_raw(&["inspect", "--run", &poisoned, "--db", db.to_str().unwrap()]);
+    let (code, _, stderr) = ws.brokkr_raw(&[
+        "runs",
+        "inspect",
+        "--run",
+        &poisoned,
+        "--db",
+        db.to_str().unwrap(),
+    ]);
     assert_eq!(
         code,
         Some(0),
@@ -1607,8 +1625,8 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
 
     // Aimed at that run, the refusal is still fatal.
     for args in [
-        vec!["inspect", "--run", &poisoned, "--db"],
-        vec!["replay", "--run", &poisoned, "--db"],
+        vec!["runs", "inspect", "--run", &poisoned, "--db"],
+        vec!["runs", "replay", "--run", &poisoned, "--db"],
     ] {
         let mut args = args;
         let db = db.to_str().unwrap().to_string();
@@ -1756,6 +1774,7 @@ fn panel_unanimous_pass_completes_with_member_evidence() {
     let db = ws.db();
     let out = ws.path().join("export");
     ws.brokkr(&[
+        "journal",
         "export",
         "--run",
         &run_id,
@@ -1897,7 +1916,8 @@ fn a_confined_seat_is_refused_by_name_at_compile() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     config["seats"]["intake"]["driver"]["confine"] = json!({"image": "ubuntu:24.04"});
     std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-    let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) =
+        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
     assert!(
         stderr.contains("seat 'intake' declares driver.confine"),
@@ -1931,7 +1951,8 @@ fn compile_rejects_bad_panels() {
     let ws = Workspace::new(happy_script());
     ws.make_panel("verify", &["only"], "unanimous-pass");
     let bundle = ws.bundle_dir();
-    let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) =
+        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("at least two"), "stderr: {stderr}");
 
@@ -1939,7 +1960,8 @@ fn compile_rejects_bad_panels() {
     let ws = Workspace::new(happy_script());
     ws.make_panel("verify", &["a", "b"], "vibes");
     let bundle = ws.bundle_dir();
-    let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) =
+        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("unknown aggregate"), "stderr: {stderr}");
 }
@@ -2122,7 +2144,8 @@ fn compile_rejects_bad_sequences() {
     let ws = Workspace::new(happy_script());
     ws.make_sequence("implement", &[json!({"name": "only"})]);
     let bundle = ws.bundle_dir();
-    let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) =
+        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("at least two steps"), "stderr: {stderr}");
 
@@ -2133,7 +2156,8 @@ fn compile_rejects_bad_sequences() {
         &[json!({"name": "chief"}), json!({"name": "Chief"})],
     );
     let bundle = ws.bundle_dir();
-    let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) =
+        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("duplicate step name"), "stderr: {stderr}");
 }
@@ -2159,6 +2183,7 @@ fn undeclared_seat_inputs_never_reach_the_journal() {
     let db = ws.db();
     let out = ws.path().join("export");
     ws.brokkr(&[
+        "journal",
         "export",
         "--run",
         &run_id,
@@ -2205,7 +2230,8 @@ fn compile_rejects_provenance_violations() {
             // An office's seat declares no inputs; an inline exec review does.
             "driver": {"command": [brokkr_bin(), "driver", "exec", "--", "true"]}});
         std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-        let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+        let (code, _, stderr) =
+            ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
         assert_eq!(code, Some(1), "declaration {declaration} must be rejected");
         assert!(
             stderr.contains(expected),
@@ -2244,6 +2270,7 @@ fn rerun_completes_under_variant_bundle_and_lists_both_runs() {
 
     let db = ws.db();
     let (code, summary, stderr) = ws.brokkr(&[
+        "runs",
         "rerun",
         "--run",
         &source,
@@ -2329,6 +2356,7 @@ fn compare_aligns_two_runs_and_finds_the_review_divergence() {
 
     let db = ws.db();
     let (code, summary, stderr) = ws.brokkr(&[
+        "runs",
         "rerun",
         "--run",
         &run_a,
@@ -2349,8 +2377,14 @@ fn compare_aligns_two_runs_and_finds_the_review_divergence() {
         .expect("new run id in announcement")
         .to_string();
 
-    let (code, report, stderr) =
-        ws.brokkr(&["compare", &run_a, &run_b, "--db", db.to_str().unwrap()]);
+    let (code, report, stderr) = ws.brokkr(&[
+        "runs",
+        "compare",
+        &run_a,
+        &run_b,
+        "--db",
+        db.to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
 
     // Per-run sections: identity, fold summary, trail, numbers present.
@@ -2404,6 +2438,7 @@ fn compare_aligns_two_runs_and_finds_the_review_divergence() {
 
     // Either run missing is a clear exit-1 error naming the run.
     let (code, _, stderr) = ws.brokkr(&[
+        "runs",
         "compare",
         "no-such-run",
         &run_b,
@@ -2423,6 +2458,7 @@ fn rerun_of_nonexistent_run_errors() {
     let bundle = ws.bundle_dir();
     let db = ws.db();
     let (code, _, stderr) = ws.brokkr(&[
+        "runs",
         "rerun",
         "--run",
         "no-such-run",
@@ -2478,7 +2514,8 @@ fn compile_rejects_uncovered_results_and_review_bypass() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     config["seats"]["implement"]["results"] = json!(["complete", "broken", "weird"]);
     std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-    let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) =
+        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("no rule covers"), "stderr: {stderr}");
 
@@ -2493,7 +2530,8 @@ fn compile_rejects_uncovered_results_and_review_bypass() {
         "reason": "bypass review"
     }));
     std::fs::write(&policy_path, serde_json::to_string(&policy).unwrap()).unwrap();
-    let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) =
+        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
     assert!(
         stderr.contains("constitutionally rejected"),
@@ -2670,6 +2708,7 @@ fn gate_park_recovers_via_operator_retry_consuming_no_attempt_budget() {
     std::fs::write(ws.workdir().join("spec.md"), "# spec\n").unwrap();
     let db = ws.db();
     let (code, _, _) = ws.brokkr(&[
+        "runs",
         "operator",
         "retry",
         "--run",
@@ -2697,7 +2736,14 @@ fn gate_decisions_replay_with_the_workdir_deleted() {
     let run_id = Workspace::run_id(&stderr);
     std::fs::remove_dir_all(ws.workdir()).unwrap();
     let db = ws.db();
-    let (code, replay, _) = ws.brokkr(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
+    let (code, replay, _) = ws.brokkr(&[
+        "runs",
+        "replay",
+        "--run",
+        &run_id,
+        "--db",
+        db.to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(0));
     assert_eq!(replay["replay"], "deterministic");
 
@@ -2712,11 +2758,19 @@ fn gate_decisions_replay_with_the_workdir_deleted() {
     let run_id = Workspace::run_id(&stderr);
     std::fs::remove_dir_all(ws.workdir()).unwrap();
     let db = ws.db();
-    let (code, replay, _) = ws.brokkr(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
+    let (code, replay, _) = ws.brokkr(&[
+        "runs",
+        "replay",
+        "--run",
+        &run_id,
+        "--db",
+        db.to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(0));
     assert_eq!(replay["replay"], "deterministic");
     let out = ws.path().join("export");
     let (code, _, _) = ws.brokkr(&[
+        "journal",
         "export",
         "--run",
         &run_id,
@@ -2727,7 +2781,7 @@ fn gate_decisions_replay_with_the_workdir_deleted() {
     ]);
     assert_eq!(code, Some(0));
     let journal = out.join(format!("{run_id}.ndjson"));
-    let (code, verified, _) = ws.brokkr(&["verify-run", journal.to_str().unwrap()]);
+    let (code, verified, _) = ws.brokkr(&["journal", "verify", journal.to_str().unwrap()]);
     assert_eq!(code, Some(0));
     assert_eq!(verified["chain"], "verified");
     assert_eq!(verified["state"]["status"], "completed");
@@ -2757,6 +2811,7 @@ fn gate_park_resets_consecutive_failures() {
     std::fs::write(ws.workdir().join("spec.md"), "# spec\n").unwrap();
     let db = ws.db();
     let (code, _, _) = ws.brokkr(&[
+        "runs",
         "operator",
         "retry",
         "--run",
@@ -2803,7 +2858,7 @@ fn gate_park_resets_consecutive_failures() {
 // layer-6 journal invariant, and the single-call-site grep gate.
 // ------------------------------------------------------------------
 
-/// Run Brokkr with a stdin payload (`brokkr secrets set` reads the value
+/// Run Brokkr with a stdin payload (`brokkr system secrets set` reads the value
 /// from stdin, never argv).
 fn brokkr_stdin(cwd: &Path, args: &[&str], payload: &str) -> (Option<i32>, String, String) {
     use std::io::Write;
@@ -2834,17 +2889,14 @@ fn secrets_cli_round_trips_and_never_prints_values() {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("sub/secrets.env");
     let store_arg = store.to_str().unwrap();
-    let (code, _, stderr) = brokkr_stdin(
-        dir.path(),
-        &["secrets", "set", "GH_TOKEN", "--secrets-file", store_arg],
-        "tokenvalue-alpha\n",
-    );
+    // `brokkr system secrets <verb> <name>` against the store, `stdin` fed.
+    let secrets = |verb: &str, name: &str, stdin: &str| {
+        let args = ["system", "secrets", verb, name, "--secrets-file", store_arg];
+        brokkr_stdin(dir.path(), &args, stdin)
+    };
+    let (code, _, stderr) = secrets("set", "GH_TOKEN", "tokenvalue-alpha\n");
     assert_eq!(code, Some(0), "stderr: {stderr}");
-    let (code, _, _) = brokkr_stdin(
-        dir.path(),
-        &["secrets", "set", "API_KEY", "--secrets-file", store_arg],
-        "keyvalue-beta\n",
-    );
+    let (code, _, _) = secrets("set", "API_KEY", "keyvalue-beta\n");
     assert_eq!(code, Some(0));
     #[cfg(unix)]
     {
@@ -2854,7 +2906,7 @@ fn secrets_cli_round_trips_and_never_prints_values() {
     }
     let (code, stdout, stderr) = brokkr_stdin(
         dir.path(),
-        &["secrets", "list", "--secrets-file", store_arg],
+        &["system", "secrets", "list", "--secrets-file", store_arg],
         "",
     );
     assert_eq!(code, Some(0), "stderr: {stderr}");
@@ -2865,17 +2917,9 @@ fn secrets_cli_round_trips_and_never_prints_values() {
             "list printed a value"
         );
     }
-    let (code, _, _) = brokkr_stdin(
-        dir.path(),
-        &["secrets", "remove", "GH_TOKEN", "--secrets-file", store_arg],
-        "",
-    );
+    let (code, _, _) = secrets("remove", "GH_TOKEN", "");
     assert_eq!(code, Some(0));
-    let (code, _, stderr) = brokkr_stdin(
-        dir.path(),
-        &["secrets", "remove", "GH_TOKEN", "--secrets-file", store_arg],
-        "",
-    );
+    let (code, _, stderr) = secrets("remove", "GH_TOKEN", "");
     assert_eq!(code, Some(1), "removing an absent name is an error");
     assert!(stderr.contains("GH_TOKEN"), "stderr: {stderr}");
 
@@ -2889,19 +2933,11 @@ fn secrets_cli_round_trips_and_never_prints_values() {
         ("BROKKR_X", "longenough\n"),
         ("lower", "longenough\n"),
     ] {
-        let (code, _, stderr) = brokkr_stdin(
-            dir.path(),
-            &["secrets", "set", name, "--secrets-file", store_arg],
-            payload,
-        );
+        let (code, _, stderr) = secrets("set", name, payload);
         assert_eq!(code, Some(1), "set {name} must refuse: {stderr}");
     }
     // Short-but-legal warns and succeeds.
-    let (code, _, stderr) = brokkr_stdin(
-        dir.path(),
-        &["secrets", "set", "WARN1", "--secrets-file", store_arg],
-        "seven77\n",
-    );
+    let (code, _, stderr) = secrets("set", "WARN1", "seven77\n");
     assert_eq!(code, Some(0));
     assert!(stderr.contains("warning"), "stderr: {stderr}");
 }
@@ -3023,6 +3059,7 @@ mod journal_invariant {
         let db = ws.db();
         let out = ws.path().join("export");
         ws.brokkr(&[
+            "journal",
             "export",
             "--run",
             run_id,
@@ -3117,8 +3154,9 @@ fn inspect_and_watch_read_the_run_from_the_one_derivation() {
     let db = path.to_str().unwrap();
 
     // --json emits the view model verbatim, and `.summary` is today's
-    // `brokkr inspect` output: all nine keys, `cursor` included.
-    let (code, view, stderr) = ws.brokkr(&["inspect", "--run", &run_id, "--json", "--db", db]);
+    // `brokkr runs inspect` output: all nine keys, `cursor` included.
+    let (code, view, stderr) =
+        ws.brokkr(&["runs", "inspect", "--run", &run_id, "--json", "--db", db]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     // Decision 0016 moved the wire version to 2: participants gained
     // `provenance`, the run view gained `notices`. It moved to 3 when
@@ -3144,7 +3182,7 @@ fn inspect_and_watch_read_the_run_from_the_one_derivation() {
     assert_eq!(summary["run_id"], run_id.as_str());
 
     // The human readout: header, ruling, seats, trail, and the tree.
-    let (code, human, stderr) = ws.brokkr_raw(&["inspect", "--run", &run_id, "--db", db]);
+    let (code, human, stderr) = ws.brokkr_raw(&["runs", "inspect", "--run", &run_id, "--db", db]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(human.starts_with(&format!("run  {run_id}\n")), "{human}");
     for section in ["ruling  ", "seats", "trail", "graph", "→ "] {
@@ -3153,17 +3191,19 @@ fn inspect_and_watch_read_the_run_from_the_one_derivation() {
     assert!(!human.contains('\x1b'), "no ANSI down a pipe");
 
     // Scoping mirrors the console's clicks, and the two are exclusive.
-    let (code, scoped, stderr) =
-        ws.brokkr_raw(&["inspect", "--run", &run_id, "--phase", "intake", "--db", db]);
+    let (code, scoped, stderr) = ws.brokkr_raw(&[
+        "runs", "inspect", "--run", &run_id, "--phase", "intake", "--db", db,
+    ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(scoped.contains("  intake ×"), "{scoped}");
     assert!(!scoped.contains("  verify ×"), "scoped out: {scoped}");
-    let (code, seated, stderr) =
-        ws.brokkr_raw(&["inspect", "--run", &run_id, "--seat", "verify", "--db", db]);
+    let (code, seated, stderr) = ws.brokkr_raw(&[
+        "runs", "inspect", "--run", &run_id, "--seat", "verify", "--db", db,
+    ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(seated.contains("  verify ×"), "{seated}");
     let (code, _, stderr) = ws.brokkr_raw(&[
-        "inspect", "--run", &run_id, "--phase", "intake", "--seat", "intake", "--db", db,
+        "runs", "inspect", "--run", &run_id, "--phase", "intake", "--seat", "intake", "--db", db,
     ]);
     assert_ne!(code, Some(0), "the two scopes are mutually exclusive");
     assert!(stderr.contains("cannot be used with"), "{stderr}");
@@ -3171,18 +3211,21 @@ fn inspect_and_watch_read_the_run_from_the_one_derivation() {
     // A value matching nothing exits nonzero naming the valid ones: an
     // empty table would read as "this phase did nothing".
     let (code, _, stderr) = ws.brokkr_raw(&[
-        "inspect", "--run", &run_id, "--phase", "nowhere", "--db", db,
+        "runs", "inspect", "--run", &run_id, "--phase", "nowhere", "--db", db,
     ]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("visited phases:"), "{stderr}");
-    let (code, _, stderr) =
-        ws.brokkr_raw(&["inspect", "--run", &run_id, "--seat", "nobody", "--db", db]);
+    let (code, _, stderr) = ws.brokkr_raw(&[
+        "runs", "inspect", "--run", &run_id, "--seat", "nobody", "--db", db,
+    ]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("participants:"), "{stderr}");
 
     // watch --once: one frame, no trail, timestamped because stdout is
     // a pipe, and the journal is byte-identical afterwards.
-    let before = ws.brokkr_raw(&["export", "--run", &run_id, "--out", "before", "--db", db]);
+    let before = ws.brokkr_raw(&[
+        "journal", "export", "--run", &run_id, "--out", "before", "--db", db,
+    ]);
     assert_eq!(before.0, Some(0), "stderr: {}", before.2);
     let (code, frame, stderr) = ws.brokkr_raw(&["watch", "--run", &run_id, "--once", "--db", db]);
     assert_eq!(code, Some(0), "a completed run exits 0: {stderr}");
@@ -3193,7 +3236,9 @@ fn inspect_and_watch_read_the_run_from_the_one_derivation() {
         "{frame}"
     );
     assert!(!frame.contains("\ntrail\n"), "a frame carries no trail");
-    let after = ws.brokkr_raw(&["export", "--run", &run_id, "--out", "after", "--db", db]);
+    let after = ws.brokkr_raw(&[
+        "journal", "export", "--run", &run_id, "--out", "after", "--db", db,
+    ]);
     assert_eq!(after.0, Some(0), "stderr: {}", after.2);
     assert_eq!(
         std::fs::read_to_string(ws.path().join(format!("before/{run_id}.ndjson"))).unwrap(),
@@ -3253,23 +3298,26 @@ fn a_run_id_prefix_and_latest_read_the_same_run_as_the_full_id() {
 
     // The readout is the run's, not the selector's: a prefix and
     // `latest` print what the 41-character id prints, byte for byte.
-    let (code, full, stderr) = ws.brokkr_raw(&["inspect", "--run", &run_id, "--db", db]);
+    let (code, full, stderr) = ws.brokkr_raw(&["runs", "inspect", "--run", &run_id, "--db", db]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     for selector in [prefix, "latest"] {
-        let (code, readout, stderr) = ws.brokkr_raw(&["inspect", "--run", selector, "--db", db]);
+        let (code, readout, stderr) =
+            ws.brokkr_raw(&["runs", "inspect", "--run", selector, "--db", db]);
         assert_eq!(code, Some(0), "stderr: {stderr}");
         assert_eq!(readout, full, "--run {selector} is the same readout");
-        let (code, view, stderr) = ws.brokkr(&["inspect", "--run", selector, "--json", "--db", db]);
+        let (code, view, stderr) =
+            ws.brokkr(&["runs", "inspect", "--run", selector, "--json", "--db", db]);
         assert_eq!(code, Some(0), "stderr: {stderr}");
         assert_eq!(view["summary"]["run_id"], run_id.as_str());
     }
 
     // Every readout takes them, and none of them writes: replay,
     // export, watch and anchor all resolve through the one helper.
-    let (code, _, stderr) = ws.brokkr(&["replay", "--run", prefix, "--db", db]);
+    let (code, _, stderr) = ws.brokkr(&["runs", "replay", "--run", prefix, "--db", db]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
-    let (code, _, stderr) =
-        ws.brokkr_raw(&["export", "--run", "latest", "--out", "out", "--db", db]);
+    let (code, _, stderr) = ws.brokkr_raw(&[
+        "journal", "export", "--run", "latest", "--out", "out", "--db", db,
+    ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(
         ws.path().join(format!("out/{run_id}.ndjson")).exists(),
@@ -3285,6 +3333,7 @@ fn a_run_id_prefix_and_latest_read_the_same_run_as_the_full_id() {
     copy_dir(&ws.bundle_dir(), &variant);
     std::fs::write(variant.join("roles/role.md"), "# variant role\n").unwrap();
     let (code, _, stderr) = ws.brokkr(&[
+        "runs",
         "rerun",
         "--run",
         &run_id,
@@ -3305,29 +3354,36 @@ fn a_run_id_prefix_and_latest_read_the_same_run_as_the_full_id() {
     // The slug is everything before the id's trailing hash — the part
     // two runs of one feature share.
     let slug = run_id.rsplit_once('-').expect("slug-hash run id").0;
-    let (code, _, stderr) = ws.brokkr_raw(&["inspect", "--run", slug, "--db", db]);
+    let (code, _, stderr) = ws.brokkr_raw(&["runs", "inspect", "--run", slug, "--db", db]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("matches 2 runs"), "{stderr}");
     assert!(stderr.contains(&run_id), "{stderr}");
     assert!(stderr.contains(&rerun_id), "{stderr}");
 
     // `latest` follows the database, not the operator's memory.
-    let (code, view, stderr) = ws.brokkr(&["inspect", "--run", "latest", "--json", "--db", db]);
+    let (code, view, stderr) =
+        ws.brokkr(&["runs", "inspect", "--run", "latest", "--json", "--db", db]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert_eq!(view["summary"]["run_id"], rerun_id.as_str());
 
     // A selector matching nothing is an error, never a nearest guess.
-    let (code, _, stderr) = ws.brokkr_raw(&["inspect", "--run", "nobody", "--db", db]);
+    let (code, _, stderr) = ws.brokkr_raw(&["runs", "inspect", "--run", "nobody", "--db", db]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("no run matching 'nobody'"), "{stderr}");
 
     // The help says so on every command that takes a selector.
-    for command in ["watch", "inspect", "anchor", "export", "replay"] {
-        let (code, help, stderr) = ws.brokkr_raw(&[command, "--help"]);
+    for command in [
+        &["watch"][..],
+        &["runs", "inspect"],
+        &["journal", "anchor"],
+        &["journal", "export"],
+        &["runs", "replay"],
+    ] {
+        let (code, help, stderr) = ws.brokkr_raw(&[command, &["--help"]].concat());
         assert_eq!(code, Some(0), "stderr: {stderr}");
         assert!(
             help.contains("unique run-id prefix, or `latest`"),
-            "{command} --help: {help}"
+            "{command:?} --help: {help}"
         );
     }
 }

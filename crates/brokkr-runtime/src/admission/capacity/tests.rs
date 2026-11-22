@@ -1404,7 +1404,7 @@ pub(crate) fn claim(
     room.claim(store, Generation(1), "admitted", &mut || true)
 }
 
-/// An operator's `retry` of a run, as `brokkr operator` journals it.
+/// An operator's `retry` of a run, as `brokkr runs operator` journals it.
 fn retry() -> Value {
     json!({"command_id": "c1", "command": "retry", "args": {}, "operator": "vy"})
 }

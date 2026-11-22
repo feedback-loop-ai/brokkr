@@ -54,6 +54,7 @@ fn an_environment_block_parks_and_its_retry_re_runs_only_that_seat() {
 
     let db = ws.db();
     let retry = [
+        "runs",
         "operator",
         "retry",
         "--run",

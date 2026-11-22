@@ -419,7 +419,7 @@ pub struct Participant {
     pub turns_aggregated: bool,
     pub turns_cell: Cell,
     /// What the seat spent: every attempt's reported cost, summed (the
-    /// rule [`reported_cost`] states), the rule `brokkr costs` sums by.
+    /// rule [`reported_cost`] states), the rule `brokkr stats costs` sums by.
     pub cost: Option<f64>,
     /// The last attempt's finishing cost alone, beside the sum and never
     /// in its place.
@@ -865,7 +865,7 @@ pub struct ResidualFinding {
 /// derived, still listed and still cited — it carries the annotation as
 /// its `superseded` mark and leaves only Muninn's queue. **The
 /// annotation is verified when it is WRITTEN and never re-verified
-/// here**: `brokkr operator supersede` refuses a citation that does not
+/// here**: `brokkr runs operator supersede` refuses a citation that does not
 /// resolve, and the journal it cites is append-only, so what was true at
 /// write time stays true. A superseding run concluded, stopped or ruled
 /// again afterwards changes nothing about a mark already written

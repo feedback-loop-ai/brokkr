@@ -1,4 +1,4 @@
-//! Decision 0109 slice 0109a1's read-back: `brokkr inspect` prints what a
+//! Decision 0109 slice 0109a1's read-back: `brokkr runs inspect` prints what a
 //! gate verdict recorded beside its word — its covered head and each
 //! finding — and a run an older engine wrote prints none and invents
 //! none. Every journal is the test's own, in a temporary directory.
@@ -104,7 +104,11 @@ fn a_scoped_inspect_prints_only_its_own_scopes_verdicts() {
     );
     let db = db.to_str().unwrap();
     let read = |scope: &[&str]| {
-        let args = [&["inspect", "--run", "scoped", "--db", db][..], scope].concat();
+        let args = [
+            &["runs", "inspect", "--run", "scoped", "--db", db][..],
+            scope,
+        ]
+        .concat();
         let (inspect, err, ok) = brokkr(dir.path(), &args);
         assert!(ok, "{inspect}{err}");
         inspect
@@ -156,7 +160,10 @@ fn inspect_prints_the_findings_and_covered_of_a_v7_gate() {
     });
     plant(&db, "gated", "0.14.0", result);
     let db = db.to_str().unwrap();
-    let (inspect, err, ok) = brokkr(dir.path(), &["inspect", "--run", "gated", "--db", db]);
+    let (inspect, err, ok) = brokkr(
+        dir.path(),
+        &["runs", "inspect", "--run", "gated", "--db", db],
+    );
     assert!(ok, "{inspect}{err}");
     let block = format!(
         "\nverdicts\n  review · covered head {HEAD} · dirty\n  review · finding unchecked-len · \
@@ -180,7 +187,10 @@ fn inspect_prints_no_verdict_for_a_v6_gate_and_invents_none() {
                         "notes": "unchecked-len at crates/a/src/lib.rs:12"});
     plant(&db, "older", "0.13.0", result);
     let db = db.to_str().unwrap();
-    let (inspect, err, ok) = brokkr(dir.path(), &["inspect", "--run", "older", "--db", db]);
+    let (inspect, err, ok) = brokkr(
+        dir.path(),
+        &["runs", "inspect", "--run", "older", "--db", db],
+    );
     assert!(ok, "{inspect}{err}");
     assert!(!inspect.contains("verdicts"), "{inspect}");
     assert!(!inspect.contains("· finding "), "{inspect}");
@@ -214,12 +224,12 @@ fn a_repaired_runs_late_tail_records_no_verdict() {
     drop(connection);
     let db = db.to_str().unwrap();
     let repair = [
-        "operator", "repair", "--run", "late", "--reason", "evidence", "--db", db,
+        "runs", "operator", "repair", "--run", "late", "--reason", "evidence", "--db", db,
     ];
     let (said, err, ok) = brokkr(dir.path(), &repair);
     assert!(ok, "{said}{err}");
     for scope in [&[][..], &["--phase", "review"][..]] {
-        let args = [&["inspect", "--run", "late", "--db", db][..], scope].concat();
+        let args = [&["runs", "inspect", "--run", "late", "--db", db][..], scope].concat();
         let (inspect, err, ok) = brokkr(dir.path(), &args);
         assert!(ok, "{inspect}{err}");
         assert!(!inspect.contains("late-one"), "{scope:?}: {inspect}");

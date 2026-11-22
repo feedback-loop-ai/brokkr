@@ -225,7 +225,7 @@ fn installed(library: &Path) -> Vec<String> {
 
 /// A derived recipe resolves its bases from the library it is installed
 /// into, so `add` brings each base the library lacks beside it — the
-/// documented `brokkr recipes add <brokkr>/recipes/node` into a fresh
+/// documented `brokkr library recipes add <brokkr>/recipes/node` into a fresh
 /// library — and stops at the first base the library already holds.
 #[test]
 fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {

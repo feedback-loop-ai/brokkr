@@ -1,7 +1,7 @@
 //! U8e3 through the binary (MB5, CR2; operator ruling 2026-10-21, "A"): a
 //! run whose engine was killed while its driver ran keeps its worktree, and
-//! a conflicting run is refused by its lease. `brokkr operator release`
-//! refuses while the attempt has not ended; once `brokkr conclude` ended
+//! a conflicting run is refused by its lease. `brokkr runs operator release`
+//! refuses while the attempt has not ended; once `brokkr runs conclude` ended
 //! it, the release is journaled with its reason, the reservation is gone,
 //! and the conflicting run admits. A second release finds nothing to
 //! release. Its seats are unboxed, so no namespace is needed; the HOME is

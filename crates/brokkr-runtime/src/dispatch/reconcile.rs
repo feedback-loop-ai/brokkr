@@ -12,7 +12,7 @@
 //! `spawn` row, adopted now or before, started no driver, so it is to be
 //! spawned; one with a `spawn` row is settled and left alone, its run
 //! reading `Running` for the operator to resume should its driver have
-//! died. Spawning is the `brokkr dispatch` loop's, never this.
+//! died. Spawning is the `brokkr queue dispatch` loop's, never this.
 
 use std::num::NonZeroU32;
 

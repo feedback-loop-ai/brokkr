@@ -195,7 +195,7 @@ fn a_stop_already_in_force_is_carried_to_run_stopped_without_a_second_command() 
 
 /// The same journal one event earlier: an attempt in flight and nobody
 /// having commanded anything — the run whose driver died before its
-/// operator could type `brokkr operator stop`. Every other case reaches
+/// operator could type `brokkr runs operator stop`. Every other case reaches
 /// its conclusion in at most three appends; this is the only one that
 /// takes all four, and it is the composition the fixtures otherwise
 /// prove only piecewise. `conclude` commands the stop in its own name,

@@ -1196,7 +1196,7 @@ fn a_composed_bundles_manifest_is_pinned() {
 fn a_base_reached_through_a_symlink_out_of_the_library_is_refused() {
     // A composed base is read for composition AND bind-mounted
     // read-only into every confined seat, so a link pointing outside
-    // the library would widen that mount. `brokkr recipes add` already
+    // the library would widen that mount. `brokkr library recipes add` already
     // refuses symlinks; composition applies the same rule.
     let library = Library::new();
     library.recipe("base", &base_bundle(), Some(&base_policy()));
@@ -1227,7 +1227,7 @@ fn a_base_reached_through_a_symlink_out_of_the_library_is_refused() {
 #[test]
 fn a_bases_directory_name_and_declared_name_are_both_recorded() {
     // A directory may legitimately declare a different name than the
-    // one it is extended by — `brokkr recipes add --name` installs
+    // one it is extended by — `brokkr library recipes add --name` installs
     // exactly that. So it is RECORDED, not refused: the chain carries
     // both, and the manifest key names both, so a directory can never
     // answer to a name it does not declare.

@@ -1,4 +1,4 @@
-//! `brokkr sweep` (decision 0104 ruling 9, as R3 amends it): a dry run
+//! `brokkr queue sweep` (decision 0104 ruling 9, as R3 amends it): a dry run
 //! opens read-only, writes no row, holder or migration, and lists what a
 //! pass would remove; a pass takes the dispatch lock, removes the tree and
 //! paints the same lines through `Safe`; and a second sweeper is refused

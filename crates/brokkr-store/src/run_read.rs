@@ -124,7 +124,7 @@ impl Store {
 
     /// `run_id`'s seat rows read at `opened`, the head its opening
     /// verified, in one read transaction, with the run view's read's
-    /// checks (`brokkr costs`, decision 0089 ruling 7): [`SeatRows::Stale`]
+    /// checks (`brokkr stats costs`, decision 0089 ruling 7): [`SeatRows::Stale`]
     /// wherever that read is [`RunRead::Kept`] for its head, its seat rows
     /// or its summary row, so the reader reads the run the kept way.
     pub fn seat_rows_at(&self, run_id: &str, opened: &Opened) -> Result<SeatRows, StoreError> {

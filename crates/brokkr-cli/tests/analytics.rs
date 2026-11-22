@@ -102,7 +102,7 @@ impl Workspace {
 fn inspect_json_names_the_commands_and_the_disabled_actions() {
     let ws = Workspace::new();
     ws.fleet();
-    let (code, view, stderr) = ws.brokkr(&["inspect", "--run", "alpha-parked", "--json"]);
+    let (code, view, stderr) = ws.brokkr(&["runs", "inspect", "--run", "alpha-parked", "--json"]);
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(view["view_version"], brokkr_view::VIEW_VERSION);
     assert_eq!(
@@ -133,7 +133,7 @@ fn inspect_json_names_the_commands_and_the_disabled_actions() {
 fn analytics_json_reads_every_hearth_and_quarantines_the_one_that_will_not_load() {
     let ws = Workspace::new();
     ws.fleet();
-    let (code, view, stderr) = ws.brokkr(&["analytics", "--json", "--range", "24h"]);
+    let (code, view, stderr) = ws.brokkr(&["stats", "analytics", "--json", "--range", "24h"]);
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(view["view_version"], brokkr_view::VIEW_VERSION);
     assert_eq!(view["range"], "24h");
@@ -153,7 +153,7 @@ fn analytics_json_reads_every_hearth_and_quarantines_the_one_that_will_not_load(
         "a read created a journal"
     );
 
-    let (code, beta, stderr) = ws.brokkr(&["analytics", "--json", "--realm", "beta"]);
+    let (code, beta, stderr) = ws.brokkr(&["stats", "analytics", "--json", "--realm", "beta"]);
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(beta["realm"], "beta");
     assert_eq!(beta["headline"]["shipped"]["count"], 1);
@@ -164,7 +164,8 @@ fn analytics_json_reads_every_hearth_and_quarantines_the_one_that_will_not_load(
 fn analytics_json_over_one_hearth_reads_that_journal_alone() {
     let ws = Workspace::new();
     ws.fleet();
-    let (code, view, stderr) = ws.brokkr(&["analytics", "--json", "--db", "state/beta.db"]);
+    let (code, view, stderr) =
+        ws.brokkr(&["stats", "analytics", "--json", "--db", "state/beta.db"]);
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(view["range"], "7d", "the default range");
     assert_eq!(view["headline"]["shipped"]["count"], 1);
@@ -174,7 +175,7 @@ fn analytics_json_over_one_hearth_reads_that_journal_alone() {
 #[test]
 fn a_range_outside_the_three_is_refused_in_the_views_words() {
     let ws = Workspace::new();
-    let (code, _, stderr) = ws.brokkr(&["analytics", "--range", "2d"]);
+    let (code, _, stderr) = ws.brokkr(&["stats", "analytics", "--range", "2d"]);
     assert_eq!(code, Some(2), "a usage error: {stderr}");
     assert!(
         stderr.contains("unknown range '2d': one of 24h, 7d or 30d"),
@@ -187,7 +188,7 @@ fn analytics_without_json_paints_the_headline_and_the_quarantined_hearth() {
     let ws = Workspace::new();
     ws.fleet();
     let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(["analytics", "--range", "24h"])
+        .args(["stats", "analytics", "--range", "24h"])
         .current_dir(ws.path())
         .output()
         .unwrap();
@@ -252,7 +253,7 @@ const STATE_JSON: &str = r#"    {
       "seats": []
     }"#;
 
-/// `brokkr graph --json` for one live run of `gone` that stayed `<stay>`
+/// `brokkr stats graph --json` for one live run of `gone` that stayed `<stay>`
 /// milliseconds at the state `<long>` before `LONG-OK` moved it on to
 /// `<to>` at `<ruled>`, written out by hand in the view's field order,
 /// each state's figures as [`STATE_JSON`] reads, the command's clock read
@@ -407,7 +408,7 @@ fn graph_prints_its_view_as_json_or_as_tables_the_terminals_columns_fit() {
         brokkr.envs([("COLUMNS", "60"), ("NO_COLOR", "1")]);
         brokkr
             .current_dir(ws.path())
-            .args(["graph", "--recipe", "gone"]);
+            .args(["stats", "graph", "--recipe", "gone"]);
         let out = brokkr.args(json).output().unwrap();
         let (code, stderr) = (out.status.code(), out.stderr);
         assert_eq!(code, Some(0), "{}", String::from_utf8_lossy(&stderr));

@@ -1434,7 +1434,7 @@ fn an_unavailable_provider_is_skipped_and_recorded() {
 }
 
 /// The `report` half: an unmapped or blocked entry is reported rather
-/// than thrown, so `brokkr agents show` can print the whole chain.
+/// than thrown, so `brokkr library agents show` can print the whole chain.
 #[test]
 fn report_walks_the_whole_chain_without_refusing() {
     let tree = Tree::new();
@@ -2368,7 +2368,7 @@ fn a_provider_may_declare_every_capability_unsupported() {
     assert_eq!(adapters.files().len(), 1);
 }
 
-/// The library exposes what `brokkr agents list` prints, in name order.
+/// The library exposes what `brokkr library agents list` prints, in name order.
 #[test]
 fn the_library_lists_its_agents_in_name_order() {
     let tree = ready();

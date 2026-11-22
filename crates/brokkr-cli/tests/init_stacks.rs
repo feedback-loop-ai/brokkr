@@ -1327,7 +1327,7 @@ fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
         for provider in ["claude", "exec"] {
             crate::init_doctor::assert_shipped_mcp_facts(&bundle, provider);
         }
-        let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
+        let (code, stdout, stderr) = brokkr(&["library", "compile", "--bundle", "."], &bundle);
         assert_eq!(code, Some(0), "{fixture}: {stderr}");
         assert!(stdout.contains("\"starter\""), "{fixture}: {stdout}");
         assert_eq!(
@@ -1381,7 +1381,7 @@ fn a_stack_aware_scaffolds_gates_refuse_an_untrusted_driver() {
     )
     .unwrap();
 
-    let (code, _, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
+    let (code, _, stderr) = brokkr(&["library", "compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(1), "stderr: {stderr}");
     assert!(
         stderr.contains("gate class") && stderr.contains("claude"),
@@ -1410,7 +1410,7 @@ fn an_allowance_the_adapter_cannot_express_refuses_the_scaffolds_compile() {
     )
     .unwrap();
 
-    let (code, _, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
+    let (code, _, stderr) = brokkr(&["library", "compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(1), "stderr: {stderr}");
     assert!(
         stderr.contains("no tool permission named 'bun'"),

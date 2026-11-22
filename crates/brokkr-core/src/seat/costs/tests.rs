@@ -6,7 +6,7 @@ use serde_json::{json, Map};
 mod seat_journal;
 use seat_journal::{boxed_seat, event};
 
-/// The report as `brokkr costs` prints it: these tests pin the bytes.
+/// The report as `brokkr stats costs` prints it: these tests pin the bytes.
 fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
     let (report, total) = super::seat_costs(events);
     let report = serde_json::to_value(report).unwrap();
@@ -64,7 +64,7 @@ fn seat_costs_sum_capture_carrying_lanetally_checkpoints_unchanged() {
     // The lanetally driver's session-finished checkpoint carries an
     // extra constant `capture` field; the aggregation keys off
     // num_turns/total_cost_usd only, so the cost flows through with
-    // zero production changes here, in `brokkr costs`, or in the UI.
+    // zero production changes here, in `brokkr stats costs`, or in the UI.
     let events = vec![
         event(
             EventType::EffectRequested,

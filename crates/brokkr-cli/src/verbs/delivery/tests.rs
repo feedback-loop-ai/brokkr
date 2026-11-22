@@ -175,7 +175,7 @@ fn assert_missing_cause(refused: &anyhow::Error, verb: Verb) {
     ));
 }
 
-/// `brokkr operator classify` as a test types it, varying only the
+/// `brokkr runs operator classify` as a test types it, varying only the
 /// citation under test.
 fn classifying(
     db: &std::path::Path,
@@ -459,7 +459,7 @@ fn classify_and_supersede_refuse_each_others_flags() {
     }
 }
 
-/// `brokkr operator stop` and `brokkr conclude` as a test types them on
+/// `brokkr runs operator stop` and `brokkr runs conclude` as a test types them on
 /// `run`, with the cause and its `--by-run`, `--by-realm` and `--by-ref`.
 fn ending_args(
     db: &std::path::Path,

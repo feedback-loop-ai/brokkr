@@ -1391,7 +1391,7 @@ fn the_header_prints_the_word_alone_or_nothing_where_no_gate_was_unboxed() {
     assert_eq!(old.lines().nth(2), Some("     boundary not recorded"));
 }
 
-/// `brokkr seats` renders the seats block `inspect` renders, from the
+/// `brokkr runs seats` renders the seats block `inspect` renders, from the
 /// same view, unscoped (design DD11).
 #[test]
 fn the_seats_block_is_the_one_inspect_prints() {
@@ -1688,7 +1688,7 @@ fn inspect_paints_a_caps_provider_words_once() {
     assert_eq!(painted.matches(MARKER).count(), 1, "{painted}");
 }
 
-/// The view's summary, `brokkr runs`' row and `brokkr inspect` paint one
+/// The view's summary, `brokkr runs`' row and `brokkr runs inspect` paint one
 /// typed cause from one read (decision 0106 ruling 1).
 #[test]
 fn the_view_runs_and_inspect_paint_the_same_park_cause() {

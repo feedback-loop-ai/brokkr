@@ -1,4 +1,4 @@
-//! `brokkr graph`'s own part (#568, the Library): the realm it draws in,
+//! `brokkr stats graph`'s own part (#568, the Library): the realm it draws in,
 //! where a recipe's table resolves, the journal it hands over, the lines it
 //! paints, and its refusals. The journals are synthetic, written here.
 
@@ -567,7 +567,7 @@ fn clap_takes_the_recipe_and_refuses_a_range_outside_the_three() {
     assert!(refused.is_err(), "2d is no range");
     let unnamed = Cli::try_parse_from(["brokkr", "stats", "graph"]).unwrap();
     let Cmd::CrossRun(CrossRunCmd::Graph(args)) = unnamed.command else {
-        panic!("brokkr graph is the graph verb");
+        panic!("brokkr stats graph is the graph verb");
     };
     assert_eq!(args.recipe, None, "Brokkr picks the recipe");
 }

@@ -1,4 +1,4 @@
-//! `brokkr costs`' and `brokkr compare`'s heap budgets (decision 0089
+//! `brokkr stats costs`' and `brokkr runs compare`'s heap budgets (decision 0089
 //! ruling 9): each run opened, then its seat rows read at the head the
 //! opening verified, and compare's trails, so the verbs hold the same live
 //! heap however many events the journal holds beside the two runs they

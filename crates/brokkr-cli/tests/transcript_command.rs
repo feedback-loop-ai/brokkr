@@ -1,4 +1,4 @@
-//! `brokkr transcript`: the scriptable face of the shared local reader
+//! `brokkr runs transcript`: the scriptable face of the shared local reader
 //! (#222, proposed decision 0055). Each case builds a synthetic journal
 //! and synthetic test-owned homes; no real operator session is copied.
 
@@ -243,7 +243,15 @@ fn an_invalid_reference_writes_no_document() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!output.status.success());
     let document: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -272,7 +280,15 @@ fn a_readable_claude_source_serializes_its_turns() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(
         output.status.success(),
@@ -300,6 +316,7 @@ fn turn_selection_cannot_override_a_refusal() {
     let output = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -331,7 +348,10 @@ fn text_mode_sanitizes_what_json_preserves() {
         "abcd-1234",
         "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"\\u001b[2Jboom\"}}\n",
     );
-    let output = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let output = run(
+        &world,
+        &["runs", "transcript", "--run", "r222", "--seat", "eff1"],
+    );
     assert!(
         output.status.success(),
         "{}",
@@ -346,7 +366,15 @@ fn text_mode_sanitizes_what_json_preserves() {
 
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     let document: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(document["turns"][0]["blocks"][0]["text"], "\u{1b}[2Jboom");
@@ -361,7 +389,15 @@ fn a_unique_label_resolves_and_a_missing_seat_writes_nothing() {
     // The fixture has one participant: label `review`, key `eff1`.
     let by_label = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "review", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "review",
+            "--json",
+        ],
     );
     // The read is an explicit `none`, so the command exits one, but the
     // label resolved to the exact key and produced the document.
@@ -371,7 +407,15 @@ fn a_unique_label_resolves_and_a_missing_seat_writes_nothing() {
 
     let missing = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "nobody", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "nobody",
+            "--json",
+        ],
     );
     assert!(!missing.status.success());
     assert!(
@@ -388,6 +432,7 @@ fn turn_zero_is_a_usage_error() {
     let output = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -450,7 +495,15 @@ fn a_headerless_codex_rollout_is_readable() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(
         output.status.success(),
@@ -486,7 +539,15 @@ fn a_missing_codex_rollout_has_its_fixed_hint() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!output.status.success());
     let document: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -513,7 +574,15 @@ fn dsh_lookup_failures_have_their_fixed_words() {
     );
     let missing = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!missing.status.success());
     let document: Value = serde_json::from_slice(&missing.stdout).unwrap();
@@ -525,7 +594,10 @@ fn dsh_lookup_failures_have_their_fixed_words() {
         "sessions/one",
         "{\"type\":\"session\",\"delegationDepth\":\"zero\",\"version\":0}",
     );
-    let invalid = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let invalid = run(
+        &world,
+        &["runs", "transcript", "--run", "r222", "--seat", "eff1"],
+    );
     assert!(!invalid.status.success());
     assert!(invalid.stdout.is_empty());
     assert!(
@@ -552,7 +624,15 @@ fn a_foreign_dsh_version_refuses_with_its_document() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!output.status.success());
     let document: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -599,7 +679,15 @@ fn a_located_version_three_session_projects_through_the_cli() {
 
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(
         output.status.success(),
@@ -628,6 +716,7 @@ fn a_located_version_three_session_projects_through_the_cli() {
         let output = run(
             &world,
             &[
+                "runs",
                 "transcript",
                 "--run",
                 "r222",
@@ -650,7 +739,10 @@ fn a_located_version_three_session_projects_through_the_cli() {
         );
     }
 
-    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let text = run(
+        &world,
+        &["runs", "transcript", "--run", "r222", "--seat", "eff1"],
+    );
     assert!(
         text.status.success(),
         "{}",
@@ -689,7 +781,15 @@ fn a_version_three_interrupted_message_reaches_the_cli() {
 
     let whole = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(whole.status.success());
     let document = read_document(&whole);
@@ -702,6 +802,7 @@ fn a_version_three_interrupted_message_reaches_the_cli() {
     let one = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -717,7 +818,10 @@ fn a_version_three_interrupted_message_reaches_the_cli() {
         "prefix"
     );
 
-    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let text = run(
+        &world,
+        &["runs", "transcript", "--run", "r222", "--seat", "eff1"],
+    );
     assert!(text.status.success());
     assert!(
         String::from_utf8_lossy(&text.stdout).contains("prefix"),
@@ -745,6 +849,7 @@ fn latest_and_a_unique_label_resolve_the_shared_read() {
     let output = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "latest",
@@ -837,6 +942,7 @@ fn a_repeated_label_names_both_keys_and_an_exact_key_selects() {
     let ambiguous = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -857,7 +963,15 @@ fn a_repeated_label_names_both_keys_and_an_exact_key_selects() {
     );
     let exact = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff2", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff2",
+            "--json",
+        ],
     );
     let document = read_document(&exact);
     assert_eq!(document["seat"], "eff2");
@@ -884,7 +998,15 @@ fn a_panel_parent_has_no_reference_while_its_member_reads() {
     );
     let parent = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!parent.status.success());
     let document = read_document(&parent);
@@ -892,7 +1014,15 @@ fn a_panel_parent_has_no_reference_while_its_member_reads() {
     assert!(document["turns"].as_array().unwrap().is_empty());
     let member = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1:m1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1:m1",
+            "--json",
+        ],
     );
     assert!(
         member.status.success(),
@@ -930,7 +1060,15 @@ fn turn_selection_skips_metadata_and_selects_the_tool_result() {
     );
     let whole = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(
         whole.status.success(),
@@ -944,6 +1082,7 @@ fn turn_selection_skips_metadata_and_selects_the_tool_result() {
     let first = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -962,6 +1101,7 @@ fn turn_selection_skips_metadata_and_selects_the_tool_result() {
     let fourth = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1004,7 +1144,15 @@ fn selecting_a_retained_turn_keeps_the_whole_reads_notices() {
     );
     let whole = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(whole.status.success());
     let document = read_document(&whole);
@@ -1014,6 +1162,7 @@ fn selecting_a_retained_turn_keeps_the_whole_reads_notices() {
     let selected = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1041,6 +1190,7 @@ fn selecting_a_retained_turn_keeps_the_whole_reads_notices() {
     let past = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1081,6 +1231,7 @@ fn a_turn_past_a_complete_projection_is_not_retained() {
     let output = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1126,7 +1277,15 @@ fn packed_dsh_members_coalesce_into_selectable_chunks() {
     );
     let whole = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(whole.status.success());
     let document = read_document(&whole);
@@ -1140,6 +1299,7 @@ fn packed_dsh_members_coalesce_into_selectable_chunks() {
     let first = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1156,6 +1316,7 @@ fn packed_dsh_members_coalesce_into_selectable_chunks() {
     let second = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1175,6 +1336,7 @@ fn packed_dsh_members_coalesce_into_selectable_chunks() {
     let third = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1215,7 +1377,15 @@ fn packed_dsh_members_coalesce_into_selectable_chunks() {
     );
     let ordinary = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     let ordinary = read_document(&ordinary);
     let turns = ordinary["turns"].as_array().unwrap();
@@ -1231,6 +1401,7 @@ fn packed_dsh_members_coalesce_into_selectable_chunks() {
     let ordinary_second = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1248,6 +1419,7 @@ fn packed_dsh_members_coalesce_into_selectable_chunks() {
     let ordinary_fourth = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1290,7 +1462,15 @@ fn structural_charge_bounds_tiny_dsh_calls_whole_and_selected() {
     );
     let whole = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(whole.status.success());
     let whole = read_document(&whole);
@@ -1312,6 +1492,7 @@ fn structural_charge_bounds_tiny_dsh_calls_whole_and_selected() {
     let selected = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1330,6 +1511,7 @@ fn structural_charge_bounds_tiny_dsh_calls_whole_and_selected() {
     let past = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1365,6 +1547,7 @@ fn invalid_turn_arguments_are_usage_errors() {
         let output = run(
             &world,
             &[
+                "runs",
                 "transcript",
                 "--run",
                 "r222",
@@ -1414,7 +1597,15 @@ fn json_retains_every_rejected_common_reference() {
         );
         let output = run(
             &world,
-            &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+            &[
+                "runs",
+                "transcript",
+                "--run",
+                "r222",
+                "--seat",
+                "eff1",
+                "--json",
+            ],
         );
         assert!(!output.status.success(), "{reason}");
         let document = read_document(&output);
@@ -1458,7 +1649,10 @@ fn text_mode_reports_every_rejected_common_reference() {
             "att0",
             json!({"step": "session-finished", "transcript": reference}),
         );
-        let output = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+        let output = run(
+            &world,
+            &["runs", "transcript", "--run", "r222", "--seat", "eff1"],
+        );
         assert!(!output.status.success(), "{reason}");
         assert_eq!(
             output.status.code(),
@@ -1513,7 +1707,15 @@ fn json_distinguishes_an_empty_file_from_a_missing_one() {
     );
     let empty = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(empty.status.success());
     let document = read_document(&empty);
@@ -1533,7 +1735,15 @@ fn json_distinguishes_an_empty_file_from_a_missing_one() {
     );
     let missing = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!missing.status.success());
     let document = read_document(&missing);
@@ -1565,7 +1775,15 @@ fn five_ignorable_dsh_events_are_counted_once() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(output.status.success());
     let document = read_document(&output);
@@ -1579,7 +1797,10 @@ fn five_ignorable_dsh_events_are_counted_once() {
         json!(["unrecognized transcript records: 5"])
     );
 
-    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let text = run(
+        &world,
+        &["runs", "transcript", "--run", "r222", "--seat", "eff1"],
+    );
     assert!(text.status.success());
     let body = String::from_utf8_lossy(&text.stdout);
     assert!(body.contains("no readable turns"), "{body}");
@@ -1606,7 +1827,15 @@ fn the_shipped_claude_fixture_keeps_its_counts_under_selection() {
     );
     let whole = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(whole.status.success());
     let document = read_document(&whole);
@@ -1620,6 +1849,7 @@ fn the_shipped_claude_fixture_keeps_its_counts_under_selection() {
     let selected = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -1662,7 +1892,15 @@ fn claude_lookup_refusals_keep_the_hint() {
     );
     let ambiguous = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!ambiguous.status.success());
     let document = read_document(&ambiguous);
@@ -1692,7 +1930,15 @@ fn claude_lookup_refusals_keep_the_hint() {
     );
     let limited = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!limited.status.success());
     let document = read_document(&limited);
@@ -1729,7 +1975,15 @@ fn a_symlink_only_claude_candidate_is_unsafe_path() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!output.status.success());
     let document = read_document(&output);
@@ -1762,7 +2016,15 @@ fn a_legacy_codex_participant_is_unavailable_without_a_reference() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!output.status.success());
     let document = read_document(&output);
@@ -1795,7 +2057,15 @@ fn legacy_synthesis_is_visible() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(
         output.status.success(),
@@ -1832,7 +2102,15 @@ fn dsh_event_refusal_carries_all_three_notices() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!output.status.success());
     let document = read_document(&output);
@@ -1858,7 +2136,10 @@ fn dsh_event_refusal_carries_all_three_notices() {
     );
     assert!(document["turns"].as_array().unwrap().is_empty());
 
-    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let text = run(
+        &world,
+        &["runs", "transcript", "--run", "r222", "--seat", "eff1"],
+    );
     assert!(!text.status.success());
     assert!(text.stdout.is_empty(), "refusals write no stdout body");
     let stderr = String::from_utf8_lossy(&text.stderr);
@@ -1894,7 +2175,15 @@ fn a_rejected_dsh_header_version_has_fixed_documents() {
         }),
     );
     for turn in [None, Some("1"), Some("999")] {
-        let mut args = vec!["transcript", "--run", "r222", "--seat", "eff1", "--json"];
+        let mut args = vec![
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ];
         if let Some(turn) = turn {
             args.push("--turn");
             args.push(turn);
@@ -1948,7 +2237,15 @@ fn dsh_format_support_cannot_select_between_roots() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!output.status.success());
     let document = read_document(&output);
@@ -1958,7 +2255,10 @@ fn dsh_format_support_cannot_select_between_roots() {
     assert!(document["turns"].as_array().unwrap().is_empty());
     assert_eq!(document["truncated"], false);
     assert!(document["notices"].as_array().unwrap().is_empty());
-    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let text = run(
+        &world,
+        &["runs", "transcript", "--run", "r222", "--seat", "eff1"],
+    );
     assert!(!text.status.success());
     assert!(text.stdout.is_empty());
     assert!(
@@ -1993,7 +2293,15 @@ fn one_invalid_packed_row_counts_once() {
     );
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!output.status.success());
     let document = read_document(&output);
@@ -2018,7 +2326,15 @@ fn json_mode_still_writes_the_sanitized_stderr_explanation() {
     let world = world_effects(&[("eff1", "review", None)]);
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(!output.status.success());
     let document = read_document(&output);
@@ -2096,7 +2412,14 @@ fn an_ambiguous_label_sanitizes_every_candidate_key() {
     let world = World { dir, db, home };
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "same-label"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "same-label",
+        ],
     );
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2137,7 +2460,10 @@ fn a_future_transcript_kind_is_fenced_at_the_journal() {
     // The fenced row never lands, so the command sees no reference and
     // refuses: text mode leaves stdout empty, and no document can carry
     // the unknown kind.
-    let output = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let output = run(
+        &world,
+        &["runs", "transcript", "--run", "r222", "--seat", "eff1"],
+    );
     assert!(!output.status.success());
     assert!(
         output.stdout.is_empty(),
@@ -2146,7 +2472,15 @@ fn a_future_transcript_kind_is_fenced_at_the_journal() {
 
     let json = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     let document = read_document(&json);
     assert_eq!(document["unavailable"], "no-reference");
@@ -2183,10 +2517,17 @@ fn hostile_confirmed_paths_stay_portable_display_data() {
         brokkr_view::transcript::portable_display_literal(&home_text),
     );
 
-    let json_output = run(
-        &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
-    );
+    // The JSON read; its first six words are the text read.
+    let json_read = [
+        "runs",
+        "transcript",
+        "--run",
+        "r222",
+        "--seat",
+        "eff1",
+        "--json",
+    ];
+    let json_output = run(&world, &json_read);
     assert!(
         json_output.status.success(),
         "{}",
@@ -2206,7 +2547,7 @@ fn hostile_confirmed_paths_stay_portable_display_data() {
     assert!(raw_stdout.contains("\\\\u0020"), "{raw_stdout}");
     assert!(raw_stdout.contains("\\\\ud83d\\\\ude00"), "{raw_stdout}");
 
-    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let text = run(&world, &json_read[..6]);
     assert!(text.status.success());
     let text = String::from_utf8_lossy(&text.stdout);
     let hint_line = text
@@ -2235,14 +2576,11 @@ fn hostile_confirmed_paths_stay_portable_display_data() {
         "full session: path {}",
         brokkr_view::transcript::portable_display_literal(&dsh_path),
     );
-    let json_output = run(
-        &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
-    );
+    let json_output = run(&world, &json_read);
     assert!(json_output.status.success());
     let document = read_document(&json_output);
     assert_eq!(document["full_session"], expected_dsh);
-    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let text = run(&world, &json_read[..6]);
     assert!(text.status.success());
     assert!(
         String::from_utf8_lossy(&text.stdout).contains(&expected_dsh),
@@ -2262,7 +2600,15 @@ fn a_missing_journal_gains_no_file() {
     std::fs::create_dir_all(&home).unwrap();
 
     let output = Command::new(brokkr_bin())
-        .args(["transcript", "--run", "r222", "--seat", "eff1", "--json"])
+        .args([
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ])
         .arg("--db")
         .arg(&db)
         .env("HOME", &home)

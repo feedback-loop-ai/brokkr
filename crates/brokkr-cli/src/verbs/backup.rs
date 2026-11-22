@@ -15,7 +15,7 @@ use serde::Serialize;
 use crate::cli_args::JournalArgs;
 use crate::{journal_of, now_rfc3339, open_journal, Access, Exit};
 
-/// `brokkr backup`: one consistent snapshot of the journal and the
+/// `brokkr journal backup`: one consistent snapshot of the journal and the
 /// inventory that makes it a complete recovery unit.
 #[derive(clap::Args)]
 #[group(skip)]
@@ -28,7 +28,7 @@ pub(crate) struct BackupArgs {
     pub(crate) journal: JournalArgs,
 }
 
-/// `brokkr restore`: accept a backup into a journal path that must not
+/// `brokkr journal restore`: accept a backup into a journal path that must not
 /// exist yet.
 #[derive(clap::Args)]
 #[group(skip)]
@@ -42,7 +42,7 @@ pub(crate) struct RestoreArgs {
     pub(crate) to: std::path::PathBuf,
 }
 
-/// `brokkr backup --to <dir>`.
+/// `brokkr journal backup --to <dir>`.
 pub(crate) fn backup(workspace: &Path, BackupArgs { to, journal }: BackupArgs) -> Result<ExitCode> {
     let db = journal_of(workspace, journal.realms, journal.db)?;
     // The journal is read, never written: a backup must not migrate,
@@ -67,7 +67,7 @@ pub(crate) fn backup(workspace: &Path, BackupArgs { to, journal }: BackupArgs) -
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr restore --from <dir> --to <journal path>`.
+/// `brokkr journal restore --from <dir> --to <journal path>`.
 pub(crate) fn restore(RestoreArgs { from, to }: RestoreArgs) -> Result<ExitCode> {
     let report = place(&from, &to)?;
     println!("{}", serde_json::to_string_pretty(&restored(&report))?);
@@ -81,7 +81,7 @@ pub(crate) fn restore(RestoreArgs { from, to }: RestoreArgs) -> Result<ExitCode>
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr backup`'s document: the format written, where, and the
+/// `brokkr journal backup`'s document: the format written, where, and the
 /// boundary the inventory declares.
 #[derive(Serialize)]
 struct BackedUp {
@@ -118,7 +118,7 @@ fn backed_up(backup: &brokkr_store::backup::Backup) -> BackedUp {
     }
 }
 
-/// `brokkr restore`'s document: the journal written and what it holds.
+/// `brokkr journal restore`'s document: the journal written and what it holds.
 #[derive(Serialize)]
 struct Restored {
     restored: String,

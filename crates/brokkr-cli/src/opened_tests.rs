@@ -83,7 +83,7 @@ fn the_console_refuses_it(db: &Path) {
     }
 }
 
-/// The page `brokkr ui` serves, its ending-to-tone table written in.
+/// The page `brokkr system ui` serves, its ending-to-tone table written in.
 static PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(crate::ui::page);
 
 /// The served page's text between `/* <name>:start */` and its end.
@@ -96,7 +96,7 @@ fn page_block(name: &str) -> &'static str {
 
 /// The DOM, the fetch and the page globals the page's reads of one run
 /// meet in a browser, each recording what reaches it: `fetch` answers
-/// each route as `brokkr ui` served it (`__served`).
+/// each route as `brokkr system ui` served it (`__served`).
 const BROWSER: &str = r#"
 var __painted = [];
 var __transcript = [];
@@ -150,7 +150,7 @@ fn open(run: &str) -> String {
     format!("loadDetail('{run}').catch(function (error) {{ __painted.push('threw ' + error); }});")
 }
 
-/// What the page `brokkr ui` serves draws of run `run` over `db`, its own
+/// What the page `brokkr system ui` serves draws of run `run` over `db`, its own
 /// code run in Boa against each route as `handle` serves it: the run
 /// opened in the detail pane, and its participant `work` drilled.
 fn drawn_in_the_page(db: &Path, run: &str) -> serde_json::Value {

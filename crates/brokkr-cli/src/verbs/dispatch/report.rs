@@ -1,4 +1,4 @@
-//! The lines `brokkr dispatch` prints (decision 0110 rulings 3 and 6, the
+//! The lines `brokkr queue dispatch` prints (decision 0110 rulings 3 and 6, the
 //! controller's R3 and R5): one plain line per fact of a pass's report and
 //! of the holder's readout, each painted through the same control-character
 //! escaping every operator line uses (#468). The facts are brokkr-runtime's
@@ -315,7 +315,7 @@ fn subject_words(subject: Subject) -> String {
     }
 }
 
-/// `brokkr dispatch status`'s lines: whether the lock is `held`, by the
+/// `brokkr queue dispatch status`'s lines: whether the lock is `held`, by the
 /// latest `holder` the journal records, the `bound` in force, and each
 /// entry left launching or linked with no `spawn` row.
 pub(super) fn status(

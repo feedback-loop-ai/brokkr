@@ -263,6 +263,7 @@ fn a_non_adopting_run_journals_exactly_the_events_it_always_did() {
     let (run_id, _) = ws.run();
 
     ws.brokkr(&[
+        "journal",
         "export",
         "--run",
         &run_id,

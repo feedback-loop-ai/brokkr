@@ -159,7 +159,7 @@ pub(crate) fn resume(workspace: &Path, args: ResumeArgs, viewer: &Viewer) -> Res
     run_view::drive(&mut engine, &journal, args.no_view, viewer)
 }
 
-/// `brokkr rerun`: a past run's feature as a NEW run. It stands where
+/// `brokkr runs rerun`: a past run's feature as a NEW run. It stands where
 /// `run` stands (decision 0046 ruling 1; design DD6): the map is read
 /// before anything opens, and the journal it names is the one the rerun
 /// is written to (#374).
@@ -175,7 +175,7 @@ pub(crate) fn rerun(workspace: &Path, args: RerunArgs) -> Result<ExitCode> {
     drive_to_end(&mut engine, Engine::drive)
 }
 
-/// `brokkr conclude`: close a stopped or parked run from its journal alone,
+/// `brokkr runs conclude`: close a stopped or parked run from its journal alone,
 /// naming its cause (decision 0064 ruling 4).
 pub(crate) fn conclude(
     workspace: &Path,
@@ -242,7 +242,7 @@ fn closing(
     Ok((store, cited, run))
 }
 
-/// `brokkr operator`: record `retry`, `stop` or `supersede`, or
+/// `brokkr runs operator`: record `retry`, `stop` or `supersede`, or
 /// acknowledge a quarantined run (#511).
 pub(crate) fn operator(
     workspace: &Path,
@@ -428,7 +428,7 @@ pub(crate) fn annotated_run(
     Ok((store, cited, run))
 }
 
-/// `brokkr operator classify` (decision 0064 ruling 5): one annotation
+/// `brokkr runs operator classify` (decision 0064 ruling 5): one annotation
 /// on a run that has already finished, naming how it ended. Every citation
 /// is verified before anything is written and a refusal writes nothing,
 /// so this reports a refusal as an error rather than as a journaled
@@ -461,7 +461,7 @@ fn classify(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr operator stop` (decision 0064 ruling 4): the stop, its cause
+/// `brokkr runs operator stop` (decision 0064 ruling 4): the stop, its cause
 /// riding in the command's `args`. A refused cause writes nothing; past
 /// it the stop is fenced and disposed as every operator command is.
 fn stop(
@@ -523,7 +523,7 @@ pub(super) fn writable_run(
     Ok((store, run))
 }
 
-/// `brokkr operator repair` (decision 0108 ruling 4): one annotation on a
+/// `brokkr runs operator repair` (decision 0108 ruling 4): one annotation on a
 /// run an event after its terminal one already stopped folding, naming
 /// that late tail so the fold reads it as late — kept, shown, never
 /// applied. The run is read from its events, never from its fold, because
@@ -551,7 +551,7 @@ fn repair(
     )
 }
 
-/// `brokkr operator settle` (decision 0108 ruling 3): one annotation on a
+/// `brokkr runs operator settle` (decision 0108 ruling 3): one annotation on a
 /// run a broken journal left quarantined, naming the facts that prove its
 /// writers ended so its worktree is released. The verb re-checks the facts
 /// from the broker's records and the host, never from the run's fold, which

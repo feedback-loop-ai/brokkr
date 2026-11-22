@@ -151,11 +151,11 @@ impl Workspace {
         )
     }
 
-    /// `run`, `rerun --run <id>` or `resume --run <id>` over `repo/`.
+    /// `run`, `runs rerun --run <id>` or `resume --run <id>` over `repo/`,
+    /// `verb` the verb's path as its words.
     fn verb(&self, verb: &str, run: Option<&str>) -> (Option<i32>, String) {
-        let mut args = vec![
-            verb, "--bundle", "bundle", "--db", "forge.db", "--repo", "repo",
-        ];
+        let mut args: Vec<&str> = verb.split(' ').collect();
+        args.extend(["--bundle", "bundle", "--db", "forge.db", "--repo", "repo"]);
         match run {
             Some(run) => args.extend(["--run", run]),
             None => args.extend(["--feature", "capability proof"]),
@@ -232,7 +232,7 @@ fn run_and_rerun_read_todays_realm_and_resume_reads_the_runs_pin() {
 
     // A rerun is a NEW run and stands where `run` stands: under the grant.
     // An `exec` site still holds nothing, and claims no denial.
-    let (code, stderr) = ws.verb("rerun", Some(&first));
+    let (code, stderr) = ws.verb("runs rerun", Some(&first));
     assert_eq!(code, Some(0), "{stderr}");
     let second = run_id(&stderr);
     let regranted = ws.pinned(&second);

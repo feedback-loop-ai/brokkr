@@ -101,7 +101,7 @@ pub(crate) fn viewed(
     }
 }
 
-/// `run`'s participants as a seat reader reads them: `brokkr transcript`,
+/// `run`'s participants as a seat reader reads them: `brokkr runs transcript`,
 /// `/api/presentation/<run>/<key>`, `/api/transcript/<run>/<key>` and
 /// `/sse/transcript/<run>/<key>`, which each show one participant's row,
 /// its key, label, transcript reference, provenance, legacy id and whether

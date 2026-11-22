@@ -9007,7 +9007,7 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
     // 0.148.0): `thread.started` first, `turn.completed` last, no
     // `result` event at all. Before this the id lived in session_meta
     // only, which the journal sees once — inside the finishing
-    // checkpoint — so `brokkr inspect --seat` on a WORKING codex seat
+    // checkpoint — so `brokkr runs inspect --seat` on a WORKING codex seat
     // showed no session id and the drilldown had nothing to open.
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();

@@ -1,5 +1,5 @@
 //! The host's historical evidence roots and their retirement (decision
-//! 0105 ruling 1(a)): what `brokkr evidence list` prints, and the one
+//! 0105 ruling 1(a)): what `brokkr journal evidence list` prints, and the one
 //! operator act that retires a historical root once its evidence is
 //! archived or discarded.
 //!
@@ -44,7 +44,7 @@ pub use history::{retirements, RetirementHistory};
 /// takes a new string, as `brokkr.journal-backup.v1` does.
 pub const EVIDENCE_ARCHIVE_FORMAT: &str = "brokkr.evidence-archive.v1";
 
-/// One historical root as `brokkr evidence list` prints it.
+/// One historical root as `brokkr journal evidence list` prints it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EvidenceRoot {
     /// The artifact root the historical record names.
@@ -87,7 +87,7 @@ pub struct ArchiveArtifact {
     pub bytes: u64,
 }
 
-/// What `brokkr evidence retire` is asked to do.
+/// What `brokkr journal evidence retire` is asked to do.
 #[derive(Debug, Clone, Copy)]
 pub struct RetireOptions<'a> {
     /// The artifact root the historical record names.

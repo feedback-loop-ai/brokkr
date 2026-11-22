@@ -1,6 +1,6 @@
 //! The one table writer the terminal readouts share (decision 0071 ruling
 //! 5): columns sized to their widest cell, the header's included. The
-//! seats block sizes its columns here; `brokkr graph` draws its states and
+//! seats block sizes its columns here; `brokkr stats graph` draws its states and
 //! rules as whole tables here (#1167), each cell sized, cut and padded
 //! in the terminal's cells by [`fit_by`].
 

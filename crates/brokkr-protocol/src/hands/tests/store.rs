@@ -283,7 +283,7 @@ fn unlinked(at: &Path) {
 /// mount or in a folder the box shows twice, through the worktree and
 /// through a bind spelled by another name, refuses in every later box
 /// before the command runs, whatever mount holds it, and the store is
-/// unchanged. A store `brokkr secrets set` renames over adds no link, and
+/// unchanged. A store `brokkr system secrets set` renames over adds no link, and
 /// the next box hides it (ruling 5).
 #[test]
 fn a_link_on_the_sealed_store_path_refuses_wherever_it_lies() {
@@ -330,7 +330,7 @@ fn a_link_on_the_sealed_store_path_refuses_wherever_it_lies() {
 
 /// Operator ruling 17 of 2026-10-25: the reach seals the store's place
 /// beside the spelling the engine configured it at, here through a link a
-/// system folder holds. An update `brokkr secrets set` renames over at that
+/// system folder holds. An update `brokkr system secrets set` renames over at that
 /// unchanged spelling is hidden in the next box; once the link moves, the
 /// spelling leads where no box would hide the store, and every later box
 /// refuses before the command runs, the store at both places unchanged; so

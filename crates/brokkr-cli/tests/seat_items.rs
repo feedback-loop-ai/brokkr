@@ -1,6 +1,6 @@
 //! The codex seat's items at every seat rendering (#550): one journal
 //! planted the way the driver writes it, read back through `brokkr
-//! seats`, `brokkr inspect`, the console's `--json` and the TUI's own
+//! seats`, `brokkr runs inspect`, the console's `--json` and the TUI's own
 //! drawn frame. One derived cell everywhere — and a seat-turn journal
 //! (claude, dsh) reading exactly as it did before.
 
@@ -73,14 +73,14 @@ fn codex_checkpoints() -> Vec<Value> {
 
 /// The seats block alone, as the verb prints it.
 fn seats_text(dir: &Path, db: &str, run: &str) -> String {
-    let (out, _, ok) = brokkr(dir, &["seats", "--run", run, "--db", db]);
+    let (out, _, ok) = brokkr(dir, &["runs", "seats", "--run", run, "--db", db]);
     assert!(ok, "{out}");
     out
 }
 
 /// The seats verb's `--json` face: the same view, parsed.
 fn seats_json(dir: &Path, db: &str, run: &str) -> Value {
-    let (out, _, ok) = brokkr(dir, &["seats", "--run", run, "--db", db, "--json"]);
+    let (out, _, ok) = brokkr(dir, &["runs", "seats", "--run", run, "--db", db, "--json"]);
     assert!(ok, "{out}");
     serde_json::from_str(&out).unwrap()
 }
@@ -102,8 +102,11 @@ fn a_codex_seats_items_stand_beside_its_turn_in_every_seat_rendering() {
     let seats = seats_text(dir.path(), db, "codexed");
     assert!(seats.contains(" 1 · 3 items "), "{seats}");
 
-    // `brokkr inspect` prints the seats block `seats` prints.
-    let (inspect, _, ok) = brokkr(dir.path(), &["inspect", "--run", "codexed", "--db", db]);
+    // `brokkr runs inspect` prints the seats block `seats` prints.
+    let (inspect, _, ok) = brokkr(
+        dir.path(),
+        &["runs", "inspect", "--run", "codexed", "--db", db],
+    );
     assert!(ok, "{inspect}");
     assert!(inspect.contains(" 1 · 3 items "), "{inspect}");
 
@@ -156,7 +159,7 @@ fn the_json_faces_serve_every_scope_decided() {
     let served = json!({"phases": ["verify"], "participants": ["e1"], "rows": [2, 3, 4, 5]});
     let (out, _, ok) = brokkr(
         dir.path(),
-        &["inspect", "--run", "scoped", "--db", db, "--json"],
+        &["runs", "inspect", "--run", "scoped", "--db", db, "--json"],
     );
     assert!(ok, "{out}");
     let inspected: Value = serde_json::from_str(&out).unwrap();

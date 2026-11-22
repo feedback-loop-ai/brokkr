@@ -189,7 +189,7 @@ pub(crate) fn two_hearths(dir: &std::path::Path) {
     std::fs::write(dir.join("realms.json"), map.to_string()).unwrap();
 }
 
-/// `brokkr inspect r1` over the journal at `db`, as `json` asks.
+/// `brokkr runs inspect r1` over the journal at `db`, as `json` asks.
 fn inspect_r1(db: &std::path::Path, json: bool) -> Cmd {
     Cmd::Inspect(InspectArgs {
         run: "r1".into(),
@@ -386,7 +386,7 @@ fn run_in(workspace: &std::path::Path, cli: Cli) -> Result<ExitCode> {
     run_with(cli, workspace, ui::serve, None, None, run_tui)
 }
 
-/// `brokkr operator <command>` as it was before decision 0047: one run,
+/// `brokkr runs operator <command>` as it was before decision 0047: one run,
 /// one word, one reason and one journal. The supersede-only arguments
 /// are absent, which is what any `retry` or `stop` invocation carries.
 fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd {
@@ -2887,7 +2887,7 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
         "two polls: the second one sleeps first"
     );
 
-    // The migration, as a checkable equality: `brokkr inspect --json`
+    // The migration, as a checkable equality: `brokkr runs inspect --json`
     // nests today's output under `summary`, all nine keys verbatim and
     // in the same order, so `| jq .summary` reproduces it byte for byte.
     let events = Store::open(&db_path).unwrap().load("r1").unwrap();
@@ -3698,7 +3698,7 @@ fn conclude_fixture_store(db: &std::path::Path, name: &str) {
     }
 }
 
-/// `brokkr conclude` at the console: it takes no bundle, exits 3 on the
+/// `brokkr runs conclude` at the console: it takes no bundle, exits 3 on the
 /// run it stops (`finish`'s one mapping, so a script reads a conclusion
 /// the same way whichever verb reached it), and refuses a run that is
 /// already concluded or one that is not there at all.
@@ -3904,7 +3904,7 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     assert!(contention(&bare).is_some());
 
     // And out of an import, whose store variant is transparent too: a
-    // busy journal leaves `brokkr import` with the contended exit.
+    // busy journal leaves `brokkr journal import` with the contended exit.
     let import =
         anyhow::Error::from(brokkr_store::ImportError::Store(contended())).context("importing r1");
     assert_eq!(report(&import), ExitCode::from(Exit::Contended));
@@ -4076,7 +4076,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     )
     .is_err());
 }
-/// `brokkr seats` (decision 0046 ruling 3; design DD11): a thin verb
+/// `brokkr runs seats` (decision 0046 ruling 3; design DD11): a thin verb
 /// over `inspect`'s own view, opening the journal by the same route and
 /// resolving the run by the same selector, in both faces. The bytes it
 /// prints are proved against `inspect`'s in
@@ -4169,7 +4169,7 @@ fn held_and_shipped(db: &std::path::Path) {
         }
     }
 }
-/// `brokkr operator supersede` end to end (decision 0047 rulings 1 and
+/// `brokkr runs operator supersede` end to end (decision 0047 rulings 1 and
 /// 2): the verb writes one annotation, and every way of asking for it
 /// wrong is refused with nothing written.
 #[test]

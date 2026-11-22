@@ -514,7 +514,7 @@ impl World {
 
     /// `inspect --json` of `run`.
     fn inspected(&self, run: &str) -> Value {
-        let args = ["inspect", "--run", run, "--json"];
+        let args = ["runs", "inspect", "--run", run, "--json"];
         let out = self.brokkr(&args).output().unwrap();
         assert_eq!(
             out.status.code(),
@@ -555,7 +555,15 @@ impl World {
     fn opened(&self, run: &str) -> Value {
         let rows = self.call_rows(run);
         let call = rows[0]["call_id"].as_str().unwrap();
-        let args = ["inspect", "--run", run, "--capability-call", call, "--json"];
+        let args = [
+            "runs",
+            "inspect",
+            "--run",
+            run,
+            "--capability-call",
+            call,
+            "--json",
+        ];
         let out = self.brokkr(&args).output().unwrap();
         let said = String::from_utf8_lossy(&out.stderr);
         assert_eq!(out.status.code(), Some(0), "{said}");

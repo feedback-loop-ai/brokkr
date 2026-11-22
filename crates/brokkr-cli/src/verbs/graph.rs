@@ -1,6 +1,6 @@
-//! `brokkr graph`: one recipe's state machine with the journal's traffic
+//! `brokkr stats graph`: one recipe's state machine with the journal's traffic
 //! on its rules and states (#568, the Library). The table resolves as
-//! `brokkr recipes show` resolves a name — the realm's shelf — or else from
+//! `brokkr library recipes show` resolves a name — the realm's shelf — or else from
 //! a bundle directory in the realm whose `bundle.json` names it, as `self`
 //! is in an adopter. With no recipe named it draws the realm's busiest, so
 //! the console reads a realm's known recipes before any has run. Every
@@ -333,14 +333,14 @@ fn chosen(
     Ok(recipe.clone())
 }
 
-/// `brokkr graph`: the recipe's graph for the range ending now, in the
+/// `brokkr stats graph`: the recipe's graph for the range ending now, in the
 /// style the terminal asks for.
 pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
     print!("{}", graph_with(workspace, args, Style::detect_for)?);
     Ok(Exit::Completed.into())
 }
 
-/// The text `brokkr graph` prints, painted in the style `style` reads
+/// The text `brokkr stats graph` prints, painted in the style `style` reads
 /// for [`Width::Stdout`] (#1167): the one seam its colour and width come
 /// through, and the one readout sized by the stdout it writes to.
 fn graph_with(
