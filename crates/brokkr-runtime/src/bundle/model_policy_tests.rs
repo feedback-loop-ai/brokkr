@@ -3345,7 +3345,7 @@ fn a_gate_without_hands_is_untouched_and_an_inline_model_site_with_hands_is_refu
 ///
 /// D33: mapped hands chains face the boundary law before the resolver's
 /// workspace capability gap: namespace refuses the tier or the judges;
-/// harness refuses the absent gate fragment, naming the provider and link.
+/// harness refuses the absent gate fragment, naming provider and link.
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
@@ -3410,43 +3410,37 @@ fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
     );
     // The trusted dsh refuses `flash` by its judges, lanetally by its tier.
     let judges = "which driver 'dsh' does not declare in 'judges' (decision 0041 ruling 3";
-    let tier = "which does not hold the trusted tier; a gate seat IS the check, and nobody \
-                stands behind the judges (decision 0021 ruling 2";
-    let gate_refusal = |agent: &str, boundary| {
+    let tier = "seats driver 'lanetally', which does not hold the trusted tier; a gate seat IS \
+                the check, and nobody stands behind the judges (decision 0021 ruling 2";
+    let fragment = "which declares no `hands.harness.gate` fragment";
+    // Each refusal is the typed variant, naming the seat, the driver and the law.
+    let gate_refusal = |agent: &str, boundary, driver: &str, law: &str| {
         let compiled = fixture.compile_roots(
             boxed_seat(agent, "gate"),
             &fixture.agents(),
             &shipped_adapters(),
             boundary,
         );
-        compiled
-            .map(|_| ())
-            .expect_err("this gate is refused")
-            .to_string()
-    };
-    for (agent, provider, law) in [
-        ("flash-judge", "dsh", judges),
-        ("tallied-judge", "lanetally", tier),
-    ] {
-        for boundary in [Boundary::Namespace, Boundary::Harness] {
-            let refusal = gate_refusal(agent, boundary);
-            assert!(refusal.contains("seat 'work'"), "{refusal}");
-            assert!(
-                refusal.contains(&format!("provider '{provider}'"))
-                    || refusal.contains(&format!("driver '{provider}'")),
-                "{refusal}"
-            );
-            match boundary {
-                Boundary::Namespace => {
-                    assert!(refusal.contains(law), "{refusal}");
-                }
-                _ => {
-                    assert!(refusal.contains("gate link 1"), "{refusal}");
-                    assert!(refusal.contains("hands.harness.gate"), "{refusal}");
-                    assert!(refusal.contains("decision 0046 ruling 4"), "{refusal}");
-                }
-            }
+        let Err(CompileError::Invalid(refusal)) = compiled.map(|_| ()) else {
+            panic!("{agent} under {boundary}: expected CompileError::Invalid")
+        };
+        for named in ["seat 'work'", driver, law] {
+            assert!(refusal.contains(named), "{boundary}: {named}: {refusal}");
         }
+    };
+    for (agent, driver, law) in [
+        ("flash-judge", "driver 'dsh'", judges),
+        ("tallied-judge", "driver 'lanetally'", tier),
+    ] {
+        gate_refusal(agent, Boundary::Namespace, driver, law);
+        let provider = driver.replace("driver", "provider");
+        let link = "gate link 1 resolves to";
+        gate_refusal(
+            agent,
+            Boundary::Harness,
+            &provider,
+            &format!("{link} {provider}, {fragment}"),
+        );
         // An open worker needs no workspace fragment from either adapter.
         fixture
             .compile_roots(
@@ -3472,10 +3466,12 @@ fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
         Some(json!({"fable-tallied": "high"})),
         false,
     );
-    for (agent, law) in [("flash-bare", judges), ("tallied-bare", tier)] {
+    for (agent, driver, law) in [
+        ("flash-bare", "driver 'dsh'", judges),
+        ("tallied-bare", "driver 'lanetally'", tier),
+    ] {
         for boundary in [Boundary::Namespace, Boundary::Harness] {
-            let refusal = gate_refusal(agent, boundary);
-            assert!(refusal.contains(law), "{boundary}: {refusal}");
+            gate_refusal(agent, boundary, driver, law);
         }
     }
 }
