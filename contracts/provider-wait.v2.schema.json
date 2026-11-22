@@ -20,6 +20,10 @@
       "minItems": 1,
       "items": { "$ref": "#/definitions/probe" },
       "description": "Present on the retry's `effect/started` only after a dedicated probe answered, so the wait's end has a record: one entry per answering probe, and a single seat writes one. A probe that ended without an answer writes none."
+    },
+    "wait_unwritten": {
+      "const": true,
+      "description": "Present on an `effect/indeterminate` only, the engine's settlement of an attempt whose terminal the store refused because a held or cooling row it carried was not written (fix rounds 0106b1r6, D3, and 0106b1r10, H4). It carries no `waits`, and the run parks `ruled`, the engine's own refusal, with the event's `reason` as the cause's detail. It is written in the event that precedes the park, so a replay that finds the park missing, after a failed append or a stop between the two, parks with the same cause rather than `infrastructure`."
     }
   },
   "not": { "required": ["probe"] },

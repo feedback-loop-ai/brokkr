@@ -196,6 +196,49 @@ fn parked_unwritten(engine: &Engine) {
     assert_eq!(standing(engine), (Status::AwaitingOperator, 1));
 }
 
+/// Fix round 0106b1r10, H4 (E4): the adversarial position's case with the
+/// park's own append refused (a trigger on `run/parked`), so the engine
+/// stops between the two appends. Live, the drive ends in the journal's
+/// error with the attempt settled, marked `wait_unwritten`, and no park.
+/// A fresh engine over the same journal, the trigger gone, replays that
+/// close and parks with the live path's cause, ruled with the settlement's
+/// reason as its detail, never `infrastructure`.
+#[test]
+fn an_unwritten_wait_stopped_before_its_park_parks_ruled_on_replay() {
+    let (dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
+    let journal = rusqlite::Connection::open(engine.store.path()).unwrap();
+    journal
+        .execute_batch(
+            "CREATE TRIGGER ignored BEFORE INSERT ON provider_cooldowns
+             BEGIN SELECT RAISE(IGNORE); END;
+             CREATE TRIGGER unparked BEFORE INSERT ON events
+             WHEN json_extract(NEW.envelope, '$.type') = 'run/parked'
+             BEGIN SELECT RAISE(ABORT, 'forced park failure'); END;",
+        )
+        .unwrap();
+    assert!(engine.drive().is_err(), "the park's append was refused");
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let settled = (events.iter())
+        .find(|event| event.event_type == EventType::EffectIndeterminate)
+        .expect("the attempt was settled before the park");
+    assert_eq!(settled.payload["wait_unwritten"], json!(true));
+    assert_eq!(standing(&engine), (Status::Running, 0));
+    journal.execute_batch("DROP TRIGGER unparked;").unwrap();
+    let (compiled, run_id) = (engine.bundle.clone(), engine.run_id.clone());
+    drop(engine);
+    let mut engine = resume_engine(dir.path(), compiled, &run_id);
+    engine.drive().unwrap();
+    let detail = settled.payload["reason"].as_str().unwrap().to_string();
+    assert_eq!(
+        park_cause_of(&engine),
+        ParkCause::Ruled {
+            rule_id: None,
+            detail
+        }
+    );
+    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
+}
+
 /// Fix round 0106b1r9, E3: the first refusal's held wait, on a queue that
 /// a newer binary took over while the attempt ran (its storage version
 /// moved past this binary's at the attempt's start), has no table to hold

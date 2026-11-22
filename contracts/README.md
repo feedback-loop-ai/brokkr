@@ -209,7 +209,10 @@ open, its length is not counted in the episode the maximum bounds, and the
 event carries no `refused`, which keeps v1's meaning. A held entry with no
 maximum, a maximum with no `held`, and a held wait beside `refused` each
 refuse by name. v2 reads a v1 entry as not held; a v1 reader refuses a held
-entry by its closed key list. v1's bytes do not move.
+entry by its closed key list. v1's bytes do not move. An `effect/indeterminate`
+may also carry `wait_unwritten: true`: the engine's settlement of an attempt
+whose terminal the store refused for a wait row it did not write, so a replay
+that finds no park after it parks `ruled`, as the live path does.
 
 ## Event vocabulary (v1)
 

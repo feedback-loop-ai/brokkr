@@ -25,8 +25,10 @@
 //! further, instead of leaving an event after `run/stopped`.
 
 use brokkr_core::envelope::EventType;
+use brokkr_core::park::ParkCause;
 use brokkr_core::EventEnvelope;
 use brokkr_store::{CooldownAppend, QueueRefusal, StoreError};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::{checkpoints, cooldown, Engine, EngineError};
@@ -49,6 +51,31 @@ impl Settled {
             EngineError::Invariant("append", format!("a terminal names no effect: {error}"))
         })
     }
+}
+
+/// The settlement of an attempt whose terminal the store refused for a wait
+/// row it did not write (fix round 0106b1r6, D3): `effect/indeterminate`,
+/// naming the refusal, carrying no wait, and marked `wait_unwritten`
+/// (`provider-wait/v2`), so a replay that finds no park after it, the
+/// park's append refused or the engine stopped between the two, parks with
+/// the cause the live path gives (fix round 0106b1r10, H4). One type writes
+/// it and reads it back.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct UnwrittenWait {
+    effect_id: String,
+    attempt_id: Option<String>,
+    reason: String,
+    wait_unwritten: bool,
+}
+
+/// The cause a replay parks with where `event` settles an unwritten wait:
+/// the engine's own refusal, its detail the event's reason, as
+/// [`cooldown::park_of`] gives it live. `None` for any other settlement.
+pub(super) fn unwritten_cause(event: &EventEnvelope) -> Option<ParkCause> {
+    let settled = UnwrittenWait::deserialize(&event.payload).ok()?;
+    settled
+        .wait_unwritten
+        .then(|| ParkCause::ruled(None, settled.reason))
 }
 
 /// What a fold that read `events` lets the engine append on: the cause
@@ -171,12 +198,14 @@ impl Engine {
         refusal: QueueRefusal,
     ) -> Result<EventEnvelope, EngineError> {
         let error = cooldown::CooldownError::WaitUnwritten(Box::new(refusal));
-        let settled = json!({
-            "effect_id": effect_id,
-            "attempt_id": attempt_id,
-            "reason": error.to_string(),
-        });
-        let envelope = self.append_raw(EventType::EffectIndeterminate, settled, attempt_id)?;
+        let settled = UnwrittenWait {
+            effect_id: effect_id.to_string(),
+            attempt_id: attempt_id.clone(),
+            reason: error.to_string(),
+            wait_unwritten: true,
+        };
+        let envelope =
+            self.append_raw(EventType::EffectIndeterminate, json!(settled), attempt_id)?;
         self.park(&cooldown::park_of(&error))?;
         Ok(envelope)
     }

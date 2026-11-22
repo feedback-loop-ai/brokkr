@@ -225,10 +225,12 @@ const FROZEN: [(&str, &str); 39] = [
         "7f3b018dd5e50abea8735ecd8c7c8c96684f519e370d9a291c74a77975986dfc",
     ),
     // Decision 0106 ruling 2 mints `provider-wait/v2` beside v1, whose
-    // bytes did not move: v2 is v1 plus a held entry's two fields.
+    // bytes did not move: v2 is v1 plus a held entry's two fields. Fix
+    // round 0106b1r10 adds `effect/indeterminate.wait_unwritten`, so the
+    // unreleased file is re-pinned in place.
     (
         "contracts/provider-wait.v2.schema.json",
-        "92658ea5058d556b624f5c8494f2b15454a009d117b5d1c9b78aa778a5ff405c",
+        "083fadf8836c72abbf301eac3d4abaa5ac2a4dd5191b90a0e5fffb4231aa0f50",
     ),
     // Decision 0106 ruling 1 mints `park-cause/v1` as an additive
     // extension at event_schema 1; its bytes are pinned from birth.

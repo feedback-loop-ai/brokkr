@@ -9,6 +9,7 @@ use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderRefusal, ProviderWait};
 use serde_json::{json, Value};
 
 use super::cooldown::{CooldownError, Waited};
+use super::fence::unwritten_cause;
 use super::non_execution::{self, LastAttempt};
 use super::{gate_head_evidence, operator_stop_reason, Engine, EngineError};
 
@@ -373,10 +374,15 @@ impl Engine {
             // rule matched: `state.last_decision` is the ruling that routed
             // INTO the gate, not this park's.
             ParkReason::GateMovedHead => ParkCause::ruled(None, reason.as_str()),
-            ParkReason::Stated(_) if closed_indeterminate(events) => {
-                ParkCause::infrastructure(false, reason.as_str())
-            }
-            ParkReason::Stated(_) => ParkCause::ruled(rule_id(state), reason.as_str()),
+            // An unwritten wait's settlement carries its own typed cause,
+            // the live path's, so a park its append never wrote is replayed
+            // with it (fix round 0106b1r10, H4); any other close is
+            // `infrastructure`.
+            ParkReason::Stated(_) => match closed_indeterminate(events) {
+                Some(close) => unwritten_cause(close)
+                    .unwrap_or_else(|| ParkCause::infrastructure(false, reason.as_str())),
+                None => ParkCause::ruled(rule_id(state), reason.as_str()),
+            },
         };
         self.park_with_evidence(&Park::new(reason.as_str(), cause), evidence)
     }
@@ -401,11 +407,11 @@ fn rule_id(state: &RunState) -> Option<String> {
         .map(|rule| rule.to_string())
 }
 
-/// Whether the park was opened by an indeterminate close: the fold's
+/// The indeterminate close that opened the park, if one did: the fold's
 /// `Cursor::Park` follows the `effect/indeterminate` that reached it. An
 /// operator command or its receipt may land between the close and the park
 /// and moves nothing, so the close is the newest event that is neither.
-fn closed_indeterminate(events: &[EventEnvelope]) -> bool {
+fn closed_indeterminate(events: &[EventEnvelope]) -> Option<&EventEnvelope> {
     events
         .iter()
         .rev()
@@ -417,7 +423,7 @@ fn closed_indeterminate(events: &[EventEnvelope]) -> bool {
                     | EventType::OperatorRejected
             )
         })
-        .is_some_and(|event| event.event_type == EventType::EffectIndeterminate)
+        .filter(|event| event.event_type == EventType::EffectIndeterminate)
 }
 
 /// The recorded end a `past-maximum` refusal's wait carries, where the

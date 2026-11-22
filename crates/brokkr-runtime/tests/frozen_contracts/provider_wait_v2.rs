@@ -158,3 +158,13 @@ fn the_v2_reader_and_its_schema_agree_on_a_held_entry() {
         }
     );
 }
+
+/// Fix round 0106b1r10, H4: an unwritten wait's settlement marks itself
+/// `wait_unwritten: true`, the one value v2 admits for the key.
+#[test]
+fn an_unwritten_waits_settlement_is_marked_true_and_only_true() {
+    let v2 = contract("contracts/provider-wait.v2.schema.json");
+    assert!(v2.is_valid(&serde_json::json!({"wait_unwritten": true})));
+    let words = refusals(&v2, &serde_json::json!({"wait_unwritten": false}));
+    assert!(words.contains("true was expected"), "{words}");
+}
