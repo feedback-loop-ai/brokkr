@@ -80,7 +80,7 @@ Description=Brokkr dispatcher for ~/work's journal
 [Service]
 WorkingDirectory=%h/work
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.local/bin/brokkr dispatch --every 60 --db %h/work/.forge/forge.db
+ExecStart=%h/.local/bin/brokkr queue dispatch --every 60 --db %h/work/.forge/forge.db
 KillMode=process
 
 [Install]
@@ -119,7 +119,7 @@ On macOS, a launch agent does the same job:
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/brokkr</string>
-    <string>dispatch</string>
+    <string>queue</string><string>dispatch</string>
     <string>--every</string><string>60</string>
     <string>--db</string><string>/Users/you/work/.forge/forge.db</string>
   </array>

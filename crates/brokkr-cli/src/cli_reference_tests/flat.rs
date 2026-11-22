@@ -27,34 +27,63 @@ fn held_pages(root: &Path) -> Vec<String> {
         .collect()
 }
 
-/// The first two words after `brokkr` at `after`, across any line break,
-/// each cut to the letters, digits and hyphens a verb is spelled in.
+/// `word` cut to the letters, digits and hyphens a verb is spelled in.
+fn verb(word: &str) -> String {
+    word.chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect()
+}
+
+/// The first two words after `brokkr` at `after`, across any line break.
 fn next_words(after: &str) -> [String; 2] {
-    let mut words = after.split_whitespace().map(|word| {
-        word.chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
-            .collect::<String>()
-    });
+    let mut words = after.split_whitespace().map(verb);
     [
         words.next().unwrap_or_default(),
         words.next().unwrap_or_default(),
     ]
 }
 
+/// The first two arguments after a launchd plist's `<string>…brokkr</string>`,
+/// each its own `<string>` element, across any line break. `None` when
+/// `after` does not close the program's element.
+fn plist_words(after: &str) -> Option<[String; 2]> {
+    let mut rest = after.strip_prefix("</string>")?;
+    let mut words = [String::new(), String::new()];
+    for word in &mut words {
+        let Some(open) = rest.trim_start().strip_prefix("<string>") else {
+            break;
+        };
+        let Some((text, tail)) = open.split_once("</string>") else {
+            break;
+        };
+        *word = verb(text);
+        rest = tail;
+    }
+    Some(words)
+}
+
 /// Each `brokkr <root>` in `doc` that the binary respells, as
-/// `file:line: <the alias's own note>`. `brokkr` counts only as a word
-/// of its own followed by a space or a line break, so `brokkr-cli`,
-/// `.brokkr/agents` and `~/src/brokkr/recipes` are never read as one.
+/// `file:line: <the alias's own note>`. `brokkr` counts as the program
+/// word bare or at the end of a path (`./brokkr`, `target/release/brokkr`,
+/// `%h/.local/bin/brokkr`), followed by a space or a line break, or as a
+/// plist's `<string>…brokkr</string>` with its arguments in the elements
+/// after it. So `brokkr-cli`, `.brokkr agents` and `~/src/brokkr/recipes`
+/// are never read as one.
 fn flat_spellings(file: &str, doc: &str) -> Vec<String> {
     let mut found = Vec::new();
     for (at, word) in doc.match_indices("brokkr") {
         let before = doc[..at].chars().next_back();
         let after = &doc[at + word.len()..];
-        let glued = before.is_some_and(|c| c.is_alphanumeric() || "_-./".contains(c));
-        if glued || !after.starts_with(char::is_whitespace) {
+        if before.is_some_and(|c| c.is_alphanumeric() || "_-.".contains(c)) {
             continue;
         }
-        let [first, second] = next_words(after);
+        let [first, second] = if after.starts_with(char::is_whitespace) {
+            next_words(after)
+        } else if let Some(words) = plist_words(after) {
+            words
+        } else {
+            continue;
+        };
         let Some(moved) = crate::cli_args::respelled(["brokkr", first.as_str(), second.as_str()]).1
         else {
             continue;
@@ -94,7 +123,11 @@ fn a_flat_spelling_is_named_wherever_brokkr_types_it_and_nowhere_else() {
                 run `brokkr\nexport` then brokkr help seats\n\
                 brokkr runs inspect, brokkr-cli compile, ~/src/brokkr/recipes, \
                 .brokkr agents, brokkr resume\n\
-                Every old flat name, such as `brokkr verify-run`, parses\n";
+                Every old flat name, such as `brokkr verify-run`, parses\n\
+                ./brokkr inspect, target/release/brokkr queue dispatch --once\n\
+                ExecStart=%h/.local/bin/brokkr dispatch --every 60\n\
+                <string>/usr/local/bin/brokkr</string>\n  <string>compile</string>\n\
+                <string>brokkr</string><string>queue</string><string>dispatch</string>\n";
     assert_eq!(
         flat_spellings("docs/guides/a.md", page),
         [
@@ -106,6 +139,12 @@ fn a_flat_spelling_is_named_wherever_brokkr_types_it_and_nowhere_else() {
              the old spelling goes in 0.17",
             "docs/guides/a.md:5: brokkr: 'verify-run' is now 'brokkr journal verify'; \
              the old spelling goes in 0.17",
+            "docs/guides/a.md:6: brokkr: 'inspect' is now 'brokkr runs inspect'; \
+             the old spelling goes in 0.17",
+            "docs/guides/a.md:7: brokkr: 'dispatch' is now 'brokkr queue dispatch'; \
+             the old spelling goes in 0.17",
+            "docs/guides/a.md:8: brokkr: 'compile' is now 'brokkr library compile'; \
+             the old spelling goes in 0.17",
         ]
     );
     assert_eq!(
@@ -116,6 +155,12 @@ fn a_flat_spelling_is_named_wherever_brokkr_types_it_and_nowhere_else() {
             "docs/reference/cli.md:2: brokkr: 'export' is now 'brokkr journal export'; \
              the old spelling goes in 0.17",
             "docs/reference/cli.md:3: brokkr: 'seats' is now 'brokkr runs seats'; \
+             the old spelling goes in 0.17",
+            "docs/reference/cli.md:6: brokkr: 'inspect' is now 'brokkr runs inspect'; \
+             the old spelling goes in 0.17",
+            "docs/reference/cli.md:7: brokkr: 'dispatch' is now 'brokkr queue dispatch'; \
+             the old spelling goes in 0.17",
+            "docs/reference/cli.md:8: brokkr: 'compile' is now 'brokkr library compile'; \
              the old spelling goes in 0.17",
         ]
     );
