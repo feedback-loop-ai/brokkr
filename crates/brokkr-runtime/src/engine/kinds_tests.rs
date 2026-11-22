@@ -906,29 +906,78 @@ fn history_holding(attempt: &str, call: &str) -> resume::RootHistory {
 /// the offered root's history. The `mixed` attempt's rooted rows are a
 /// `trellis-thread` root carrying a native call and then the offered
 /// `claude-session` root, both of id `same-1`: it contributes neither
-/// itself nor that call, while the `clean` attempt, whose one rooted row
-/// holds the offered root, contributes itself and its call. Every row is
-/// written by the sink but the `trellis-thread` one, which is appended
-/// directly, its call fields as a sink stamps them, because the writer's
-/// kind check refuses `trellis-thread` at this site.
+/// itself nor that call, while the `clean` attempt, whose two rooted rows
+/// both hold the offered root, contributes itself and its call. Every row
+/// is written by the sink but the `trellis-thread` one, which is appended
+/// directly, its call stamped as the sink stamps one, because the
+/// writer's kind check refuses `trellis-thread` at this site.
 #[test]
 fn an_attempt_holding_another_root_is_not_the_offered_roots_history() {
     let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
     let claude = || root_row("claude-session", "same-1");
     let mut other = root_row(THREAD, "same-1");
-    let call = json!({"turn": 1, "tool": "WebSearch", "capability": "web-search",
-        "dialect": "native", "call_id": "n-mixed", "call_state": "observed"});
-    other
-        .as_object_mut()
-        .unwrap()
-        .extend(call.as_object().unwrap().clone());
+    other["turn"] = json!(1);
+    super::capability_calls::Stamp::native_search("n-mixed").apply(&mut other);
     let mut journal = Journal::new();
     (journal.attempt("clean"))
         .wrote(&context, claude(), None)
-        .wrote(&context, call_row(), Some("n-clean"));
+        .wrote(&context, call_row(), Some("n-clean"))
+        .wrote(&context, claude(), None);
     (journal.attempt("mixed"))
         .appended(&context, other)
         .wrote(&context, claude(), None);
+    let history = history_of(&journal, context);
+    assert_eq!(history, history_holding("clean", "n-clean"));
+}
+
+/// The review of 880e4792 (the controller's ruling R33): the attempt
+/// holding a later root of the offered kind under another id is excluded,
+/// so admission reads every rooted row, not the first. The `mixed`
+/// attempt's rows are the offered `claude-session` root `same-1`, a call,
+/// and then a `claude-session` root `other-1`; the journal's offer stays
+/// on `same-1` because the newest attempt holds it. Every row is written
+/// by the sink.
+#[test]
+fn an_attempt_holding_a_later_root_of_another_id_is_not_the_offered_roots_history() {
+    let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let claude = |id: &str| root_row("claude-session", id);
+    let mut journal = Journal::new();
+    (journal.attempt("mixed"))
+        .wrote(&context, claude("same-1"), None)
+        .wrote(&context, call_row(), Some("n-mixed"))
+        .wrote(&context, claude("other-1"), None);
+    (journal.attempt("clean"))
+        .wrote(&context, claude("same-1"), None)
+        .wrote(&context, call_row(), Some("n-clean"));
+    let history = history_of(&journal, context);
+    assert_eq!(history, history_holding("clean", "n-clean"));
+}
+
+/// The review of 880e4792 (the controller's ruling R33): at an inline
+/// work site, a rooted row naming no model is admitted and left unstamped
+/// by the stamper, so it names no site; an attempt that writes such a row
+/// holding the `codex-thread` root `old-1` and then a stamped row holding
+/// the offered `claude-session` root is not that root's history, and its
+/// call is not either. Every row is written by the sink.
+#[test]
+fn an_attempt_whose_unstamped_row_holds_another_root_is_not_the_offered_roots_history() {
+    let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let mut unstamped = root_row("codex-thread", "old-1");
+    unstamped.as_object_mut().unwrap().remove("model");
+    let mut journal = Journal::new();
+    (journal.attempt("clean"))
+        .wrote(&context, root_row("claude-session", "same-1"), None)
+        .wrote(&context, call_row(), Some("n-clean"));
+    (journal.attempt("mixed"))
+        .wrote(&context, unstamped, None)
+        .wrote(&context, root_row("claude-session", "same-1"), None)
+        .wrote(&context, call_row(), Some("n-mixed"));
+    let events = journal.events();
+    let unstamped = events.iter().find_map(|event| {
+        let checkpoint = event.payload.get("checkpoint")?;
+        (checkpoint.pointer("/root_session/id")? == "old-1").then_some(checkpoint)
+    });
+    assert_eq!(unstamped.unwrap().get("site_ref"), None);
     let history = history_of(&journal, context);
     assert_eq!(history, history_holding("clean", "n-clean"));
 }

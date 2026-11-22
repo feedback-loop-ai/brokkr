@@ -252,8 +252,12 @@ which wrote it did not declare. It is enforced from both sides:
 
 1. What a driver hands the engine is judged before any of it is
    appended: a checkpoint, a result, a panel member's result, an
-   unresolved cleanup's received outcome. The kind check runs first, and
-   what it refuses is appended nowhere, in no field.
+   unresolved cleanup's received outcome. What it refuses is appended
+   nowhere, in no field. Decision 0109's refusals keep their precedence:
+   a checkpoint that claims a record only the engine authors, or a work
+   site's result that reports findings, is refused by 0109 in 0109's
+   words before its kinds are judged, and the kind check runs before
+   anything else is appended.
 2. What the engine reads back from its own journal is already journaled.
    Copying it into a later event (decide's `raw_result`, a poisoned
    aggregate's `notes.members`, a refused carry's evidence) adds no

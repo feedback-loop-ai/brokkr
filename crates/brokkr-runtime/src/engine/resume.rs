@@ -279,8 +279,8 @@ impl SiteContext {
 
     /// This context carrying the history of `offer`'s root at this site,
     /// read from this run's journal alone: an attempt counts where every
-    /// rooted row of it at this site holds the offered root's kind and id
-    /// both, and an attempt with a row holding any other root contributes
+    /// rooted row of it at this site, an unstamped one included, holds the
+    /// offered root's kind and id both, and an attempt with a row holding any other root contributes
     /// neither itself nor a call, so its calls keep their own attribution
     /// (the controller's rulings R28 and R33). A site offered nothing, or a
     /// root with no stamped row here (decision 0030's legacy evidence),
@@ -289,36 +289,45 @@ impl SiteContext {
         let Some(offer) = offer else {
             return self;
         };
+        // Each checkpoint row of an attempt, with the site its stamp names;
+        // `None` where the stamper left it unstamped (a row naming no model).
         let rows = || {
             events
                 .iter()
                 .filter(|event| event.event_type == EventType::EffectCheckpointed)
                 .filter_map(|event| {
                     let checkpoint = event.payload.get("checkpoint")?;
-                    let site = checkpoint.get("site_ref").and_then(Value::as_str)?;
-                    let attempt = event.attempt_id.as_deref()?;
-                    (site == self.site_ref).then_some((attempt, checkpoint))
+                    let site = checkpoint.get("site_ref").and_then(Value::as_str);
+                    Some((event.attempt_id.as_deref()?, site, checkpoint))
                 })
         };
+        let here = |site: Option<&str>| site == Some(self.site_ref.as_str());
         let root = |row: &Value, field: &str| {
             let place = row.get("root_session").and_then(|root| root.get(field));
             place.and_then(Value::as_str).map(str::to_string)
         };
-        // Each attempt with a rooted row here, and whether all of its
-        // rooted rows hold the offered root.
-        let mut held: BTreeMap<&str, bool> = BTreeMap::new();
-        for (attempt, row) in rows().filter(|(_, row)| row.get("root_session").is_some()) {
+        // Each attempt's rooted rows here or unstamped, which no stamp
+        // places at another site: whether one of them is stamped here, and
+        // whether all of them hold the offered root. An unstamped row
+        // holding another root excludes its attempt, the direction that
+        // loses nothing (the review of 880e4792).
+        let mut held: BTreeMap<&str, (bool, bool)> = BTreeMap::new();
+        let rooted = rows().filter(|(_, site, row)| {
+            row.get("root_session").is_some() && (site.is_none() || here(*site))
+        });
+        for (attempt, site, row) in rooted {
             let holds = root(row, "id").as_ref() == Some(&offer.provider_id)
                 && root(row, "kind") == offer.root_kind;
-            *held.entry(attempt).or_insert(true) &= holds;
+            let (stamped, all) = held.entry(attempt).or_insert((false, true));
+            (*stamped, *all) = (*stamped || here(site), *all && holds);
         }
         let attempts: BTreeSet<String> = (held.into_iter())
-            .filter(|(_, holds)| *holds)
+            .filter(|(_, (stamped, all))| *stamped && *all)
             .map(|(attempt, _)| attempt.to_string())
             .collect();
         let calls = rows()
-            .filter(|(attempt, _)| attempts.contains(*attempt))
-            .filter_map(|(_, row)| row.get("call_id").and_then(Value::as_str))
+            .filter(|(attempt, site, _)| here(*site) && attempts.contains(*attempt))
+            .filter_map(|(_, _, row)| row.get("call_id").and_then(Value::as_str))
             .map(str::to_string)
             .collect();
         let history = RootHistory { attempts, calls };
