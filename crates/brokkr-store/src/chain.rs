@@ -224,7 +224,7 @@ pub(crate) fn append_once(
     (conn, carried): (&mut Connection, Option<&summary::Carried>),
     event: &CooldownAppend<'_>,
     cooldowns: &[Cooling],
-) -> Result<(EventEnvelope, summary::Settled), StoreError> {
+) -> Result<(crate::Landed, summary::Settled), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let (last_seq, previous_hash) = head_of(&tx, event.run_id)?;
     if let Some((expected_seq, expected_hash)) = event.fenced {
@@ -250,9 +250,13 @@ pub(crate) fn append_once(
         event.causation_id.clone(),
         event.attempt_id.clone(),
     )?;
-    insert_cooldowns(&tx, &envelope, cooldowns)?;
+    let held_rows = insert_cooldowns(&tx, &envelope, cooldowns)?;
     let found = (last_seq, previous_hash.as_str());
     let settled = summary::judge(&tx, carried, found, std::slice::from_ref(&envelope))?;
     tx.commit()?;
-    Ok((envelope, settled))
+    let landed = crate::Landed {
+        envelope,
+        held_rows,
+    };
+    Ok((landed, settled))
 }

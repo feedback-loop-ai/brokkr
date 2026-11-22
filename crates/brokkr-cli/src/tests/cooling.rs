@@ -93,7 +93,7 @@ pub(crate) fn cooling_attempt(db: &std::path::Path) -> u64 {
             }],
         )
         .unwrap();
-    event.seq
+    event.envelope.seq
 }
 
 /// Append the probe's later round to the attempt at `event_seq`.

@@ -122,18 +122,20 @@ pub enum RoundAppend {
 /// table this binary may write, leaves the table untouched and the event
 /// alone lands. A row's kind is the one its writer derived with it from the
 /// event's own `waits` entry for its site (decision 0106 ruling 2), so the
-/// payload is parsed once, by that writer.
+/// payload is parsed once, by that writer. What it returns is the store's
+/// own evidence: the held rows it wrote, counting none it skipped (fix
+/// round 0106b1r10, H4).
 pub(crate) fn insert(
     tx: &Connection,
     event: &EventEnvelope,
     rows: &[Cooling],
-) -> Result<(), StoreError> {
+) -> Result<usize, StoreError> {
     // Every append that carries no cool-downs — every non-terminal event,
     // and `append_next`/`append_next_if_head` — leaves the table alone, so
     // a journal whose table is gone or whose queue a newer binary stores
     // still takes its event.
     if rows.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
     let recorded = OffsetDateTime::parse(&event.recorded_at, &Rfc3339)
         .expect("the journal's own recorded_at is RFC 3339")
@@ -156,17 +158,21 @@ pub(crate) fn insert(
     // 2(a)). A live held row is the only thing that holds its route, so
     // such a queue refuses its event as the table refuses an unwritten
     // row, and nothing is recorded as held that the store did not write
-    // (fix round 0106b1r9, E3).
+    // (fix round 0106b1r9, E3). An ordinary row it does not write is not
+    // counted written either (fix round 0106b1r10, H4).
     if !cool_downs_writable(tx)? {
         let live_held =
             |row: &&Cooling| row.held.is_some() && until_second(row.until_at) > recorded;
         return rows
             .iter()
             .find(live_held)
-            .map_or(Ok(()), |row| Err(unwritten(row).into()));
+            .map_or(Ok(0), |row| Err(unwritten(row).into()));
     }
+    let mut held = 0;
     for row in rows {
         let until = until_second(row.until_at);
+        // A row whose end passed before the event's stamp is history, and
+        // is neither written nor counted.
         if until <= recorded {
             continue;
         }
@@ -188,8 +194,11 @@ pub(crate) fn insert(
             },
             unwritten,
         )?;
+        // `insert_row` refused any row the table did not write, so this
+        // one landed.
+        held += usize::from(row.held.is_some());
     }
-    Ok(())
+    Ok(held)
 }
 
 /// One `provider_cooldowns` row as the table's one writer spells it:

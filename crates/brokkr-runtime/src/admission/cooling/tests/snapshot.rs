@@ -34,6 +34,7 @@ fn waited(fixture: &mut Fixture, run: &str, until: OffsetDateTime) -> EventEnvel
             &[row("beta", "cloud", until, "slow down")],
         )
         .unwrap()
+        .envelope
 }
 
 /// With beta/cloud's old row expired and a probe's hold standing, the

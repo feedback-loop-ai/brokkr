@@ -94,6 +94,11 @@ fn append(
     run: &str,
     rows: &[Cooling],
 ) -> Result<brokkr_core::EventEnvelope, StoreError> {
+    landed(store, run, rows).map(|landed| landed.envelope)
+}
+
+/// [`append`], with the store's evidence of the rows that landed.
+fn landed(store: &mut Store, run: &str, rows: &[Cooling]) -> Result<crate::Landed, StoreError> {
     store.append_with_cooldowns(
         crate::CooldownAppend {
             run_id: run,
@@ -1037,6 +1042,7 @@ fn append_waited(
             &[named("a", "first", until, "rate_limit: slow down", 1)],
         )
         .unwrap()
+        .envelope
 }
 
 /// A journal with one waited terminal event for run-a, ready for a probe

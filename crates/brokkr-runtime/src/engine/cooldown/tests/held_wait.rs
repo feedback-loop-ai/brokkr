@@ -372,3 +372,31 @@ fn an_ordinary_resume_at_the_cap_parks() {
         }
     ));
 }
+
+/// Fix round 0106b1r10, H4 (E3): a held row whose end passes before the
+/// store stamps its terminal is history, and the store writes none. The
+/// engine's clock an hour behind the journal's puts the five-second held
+/// end before the stamp, so the terminal lands with its held `waits` and
+/// no row. The fence marks the drive's held wait written only from the
+/// store's own evidence, so it does not: the next turn meets the held wait
+/// as a resume before its end and refuses naming the lift, rather than
+/// ending the drive as though the store held the route.
+#[test]
+fn a_held_row_that_expires_before_its_terminals_stamp_is_not_marked_written() {
+    let (_dir, mut engine, now) = held_seat(&["refuse", "succeed"], 2);
+    *now.lock().unwrap() -= time::Duration::hours(1);
+    let refused = engine.drive().unwrap_err();
+    assert!(
+        matches!(refused, crate::engine::EngineError::HeldWait(_)),
+        "{refused:?}"
+    );
+    assert_eq!(failed(&engine)[0].payload["waits"][0]["held"], json!(true));
+    let rows: i64 = rusqlite::Connection::open(engine.store.path())
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM provider_cooldowns", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(rows, 0);
+    assert_eq!(standing(&engine), (Status::Running, 0));
+}

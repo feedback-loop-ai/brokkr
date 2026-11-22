@@ -296,6 +296,7 @@ pub(crate) fn refused_rows(store: &mut Store, run: &str, rows: &[Row]) -> EventE
             rows,
         )
         .unwrap()
+        .envelope
 }
 
 /// Write one beta/cloud cool-down row through the store's own writer, in

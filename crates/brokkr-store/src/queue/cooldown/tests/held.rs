@@ -215,8 +215,34 @@ fn a_held_row_on_a_queue_this_binary_does_not_write_refuses_its_event() {
     };
     assert_eq!((unwritten.site.as_str(), unwritten.rounds), ("a", 1));
     assert_eq!(store.load("run-a").unwrap().len(), before);
-    append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
+    let ordinary = landed(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
     assert_eq!(store.load("run-a").unwrap().len(), before + 1);
+    // Its row is not written, and the store's evidence says so (fix round
+    // 0106b1r10, H4).
+    assert_eq!(ordinary.held_rows, 0);
+}
+
+/// Fix round 0106b1r10, H4 (E3): a terminal's append returns the store's
+/// own evidence of the held rows it wrote, never the rows it was asked
+/// for. A live held row is written and counted; one whose end passed
+/// before the event's stamp is history, neither written nor counted; an
+/// ordinary row is written and counts as no held one.
+#[test]
+fn a_terminal_reports_only_the_held_rows_the_store_wrote() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let held = |until| {
+        let mut held = row("a", "claude", "first", until);
+        held.held = Some(brokkr_core::Held { max_seconds: 30 });
+        held.retry_after_seconds = Some(90);
+        held
+    };
+    let mut landed_held = |rows: &[Cooling]| landed(&mut store, "run-a", rows).unwrap().held_rows;
+    assert_eq!(landed_held(&[held(at(60))]), 1);
+    // `at(0)` is an hour after the stamp; this end is an hour before it.
+    assert_eq!(landed_held(&[held(at(-7200))]), 0);
+    assert_eq!(landed_held(&[row("a", "claude", "first", at(60))]), 0);
+    assert_eq!(kinds(&store.conn), vec![(Some(1), Some(30)), (None, None)]);
 }
 
 /// A held wait's row carries `held` and `max_seconds` as its writer derived

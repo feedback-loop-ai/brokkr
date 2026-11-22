@@ -463,6 +463,9 @@ impl core::str::traits::FromStr for brokkr_store::EntryId
 pub type brokkr_store::EntryId::Err = core::num::error::ParseIntError
 pub fn brokkr_store::EntryId::from_str(&str) -> core::result::Result<Self, Self::Err>
 pub struct brokkr_store::Generation(pub i64)
+pub struct brokkr_store::Landed
+pub brokkr_store::Landed::envelope: brokkr_core::envelope::EventEnvelope
+pub brokkr_store::Landed::held_rows: usize
 pub struct brokkr_store::Latch
 pub brokkr_store::Latch::finding: alloc::string::String
 pub struct brokkr_store::NewEntry<'a>
@@ -539,7 +542,7 @@ pub fn brokkr_store::Store::cooldowns_newest(&self, time::offset_date_time::Offs
 impl brokkr_store::Store
 pub fn brokkr_store::Store::append_next(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_next_if_head(&mut self, &str, u64, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
-pub fn brokkr_store::Store::append_with_cooldowns(&mut self, brokkr_store::CooldownAppend<'_>, &[brokkr_store::Cooling]) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
+pub fn brokkr_store::Store::append_with_cooldowns(&mut self, brokkr_store::CooldownAppend<'_>, &[brokkr_store::Cooling]) -> core::result::Result<brokkr_store::Landed, brokkr_store::StoreError>
 pub fn brokkr_store::Store::create_run(&mut self, &str, &str, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::export_ndjson(&self, &str) -> core::result::Result<alloc::string::String, brokkr_store::StoreError>
 pub fn brokkr_store::Store::head_hash(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::StoreError>

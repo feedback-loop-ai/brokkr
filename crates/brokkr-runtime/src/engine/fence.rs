@@ -106,8 +106,8 @@ impl Engine {
             };
             self.store.append_with_cooldowns(event, &cooling)
         });
-        let envelope = match appended {
-            Ok(envelope) => envelope,
+        let landed = match appended {
+            Ok(landed) => landed,
             Err(contended) if terminal && contended.is_contention() => {
                 self.held_outcome = Some(checkpoints::HeldOutcome {
                     event_type,
@@ -144,9 +144,11 @@ impl Engine {
         };
         // A held wait this drive journaled ends the drive at its next turn
         // (decision 0106 ruling 2): a later drive meeting it before its end
-        // is a resume, and refuses. The rows carry the held fact the one
-        // parse above derived, so the payload is not read again.
-        if terminal && cooling.iter().any(|row| row.held.is_some()) {
+        // is a resume, and refuses. Only a held row the store says it wrote
+        // marks it, never the rows asked for: one whose end passed before
+        // the event's stamp is not written (fix round 0106b1r10, H4).
+        let envelope = landed.envelope;
+        if terminal && landed.held_rows > 0 {
             self.cooldown.held = cooldown::HeldDrive::Written;
         }
         self.current_cause = Some(envelope.event_id.clone());
