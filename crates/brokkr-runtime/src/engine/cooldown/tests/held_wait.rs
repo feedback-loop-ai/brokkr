@@ -176,17 +176,18 @@ fn a_held_wait_the_table_does_not_write_is_not_journaled_and_parks() {
         settled.payload
     );
     let reason = park_reason(&engine);
-    assert!(reason.contains(&words), "{reason}");
-    // The journal, not the provider, refused: the house's park for an
-    // attempt whose outcome the journal could not take.
+    assert_eq!(
+        reason,
+        format!("the journal refused the attempt's outcome: {words}")
+    );
+    // Fix round 0106b1r9, E4: the park H3's unwritten round takes, through
+    // the one `park_of`: ruled, the engine's own refusal, no rule.
     let cause = park_cause_of(&engine);
     assert!(
-        matches!(
-            &cause,
-            ParkCause::Infrastructure { retryable: false, detail } if reason.starts_with(detail)
-        ),
+        matches!(&cause, ParkCause::Ruled { rule_id: None, detail } if reason.starts_with(detail)),
         "{cause:?}"
     );
+    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
 }
 
 /// Fix round 0106b1r9, E3: the first refusal's held wait, on a queue that

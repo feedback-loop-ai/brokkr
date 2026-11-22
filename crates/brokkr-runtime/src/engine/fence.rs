@@ -120,7 +120,7 @@ impl Engine {
             // journaled that the store does not hold. Only a terminal carries
             // rows, so only a terminal meets this.
             Err(StoreError::Queue(refusal @ QueueRefusal::CooldownRowUnwritten(_))) => {
-                return self.unwritten_wait(&payload, attempt_id, &refusal)
+                return self.unwritten_wait(&payload, attempt_id, refusal)
             }
             Err(error) => return Err(error.into()),
         };
@@ -140,21 +140,24 @@ impl Engine {
 
     /// Settle the attempt whose terminal the store refused for a wait row
     /// it did not write: `effect/indeterminate`, naming the refusal and
-    /// carrying no wait, so the drive parks on it as it parks a probe round
-    /// the table did not write, and never runs on as if the wait were held
-    /// (fix round 0106b1r6, D3).
+    /// carrying no wait, so it never runs on as if the wait were held (fix
+    /// round 0106b1r6, D3). The run then parks through the one
+    /// [`cooldown::park_of`], as a probe round the table did not write
+    /// parks: ruled, the engine's own refusal (fix round 0106b1r9, E4).
     fn unwritten_wait(
         &mut self,
         terminal: &Value,
         attempt_id: Option<String>,
-        refusal: &QueueRefusal,
+        refusal: QueueRefusal,
     ) -> Result<EventEnvelope, EngineError> {
-        let reason = format!("the journal refused the attempt's outcome: {refusal}");
+        let error = cooldown::CooldownError::WaitUnwritten(Box::new(refusal));
         let settled = json!({
             "effect_id": terminal["effect_id"],
             "attempt_id": attempt_id,
-            "reason": reason,
+            "reason": error.to_string(),
         });
-        self.append_raw(EventType::EffectIndeterminate, settled, attempt_id)
+        let envelope = self.append_raw(EventType::EffectIndeterminate, settled, attempt_id)?;
+        self.park(&cooldown::park_of(&error))?;
+        Ok(envelope)
     }
 }
