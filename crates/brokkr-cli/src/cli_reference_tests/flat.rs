@@ -106,14 +106,13 @@ fn no_guide_front_page_or_reference_page_types_a_flat_spelling() {
     assert!(pages.iter().any(|page| page == ALIASES_NAMED.0));
     let mut found = Vec::new();
     for page in &pages {
-        let text = std::fs::read_to_string(root.join(page))
-            .unwrap_or_else(|error| panic!("{page}: {error}"));
+        let text = std::fs::read_to_string(root.join(page)).expect("a tracked page reads");
         found.extend(flat_spellings(page, &text));
     }
-    assert!(
-        found.is_empty(),
-        "flat spellings of moved roots (decision 0113):\n{}",
-        found.join("\n")
+    assert_eq!(
+        found.join("\n"),
+        "",
+        "flat spellings of moved roots (decision 0113)"
     );
 }
 
@@ -162,6 +161,20 @@ fn a_flat_spelling_is_named_wherever_brokkr_types_it_and_nowhere_else() {
              the old spelling goes in 0.17",
             "docs/reference/cli.md:8: brokkr: 'compile' is now 'brokkr library compile'; \
              the old spelling goes in 0.17",
+        ]
+    );
+    // `brokkr` opening the page is read; one glued by a letter or `_` is
+    // not; a plist element with no argument after it, or one left open,
+    // names nothing.
+    let edges = "brokkr export --run r\n\
+                 xbrokkr inspect, my_brokkr inspect\n\
+                 <string>brokkr</string>\n</array>\n\
+                 <string>brokkr</string><string>compile";
+    assert_eq!(
+        flat_spellings("docs/guides/b.md", edges),
+        [
+            "docs/guides/b.md:1: brokkr: 'export' is now 'brokkr journal export'; \
+             the old spelling goes in 0.17"
         ]
     );
 }
