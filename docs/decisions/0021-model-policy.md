@@ -134,6 +134,14 @@ Model Studio route the adapter's other `dashscope/` aliases use. This is
 ruling 3's road, taken in the order the operator ruled it, and it is
 enacted as data in `adapters/dsh.json` for 0.16.0.
 
+**The trust is granted for the tool-less shape only.** A dsh gate seat
+runs with every native tool row of its measured release disabled through
+the `--patch` overlay, dsh's own sandbox `read-only`, and no MCP server,
+and it declares no hands. So the judge can neither read the secrets store
+nor write the worktree it judges. The gate class decides this, not
+`DSH_PERMISSION_MODE`, and the compiler refuses any other shape (see
+"The tool-less gate" below).
+
 The rulings:
 
 - **2026-11-19/20:** a trust wager for Qwen 4.0 Max as review chief ("ok,
@@ -143,6 +151,10 @@ The rulings:
   0.16.0.
 - **2026-11-21:** "the qwen4-max trust PR - let's wait for 22nd": the
   escalation replay first, then this change, reviewed with an Astra chief.
+- **2026-11-22, after that review held the first round:** "go with all
+  recommended". A dsh gate seat is admitted only in a measured
+  configuration that keeps the secrets store out of reach and the
+  worktree unwritten: the tool-less shape above.
 
 The evidence line:
 
@@ -192,24 +204,25 @@ the grant does and does not reach:
   `spark-glm` ruled `local` as before. A seat that binds a secret is still
   refused on dsh's cloud routes (ruling 4, decision 0036 ruling 4). Trust
   to judge is not clearance to receive.
-- **Hands, unchanged in law, but now reachable at a gate.** The tier
-  grants no hands, and the boundary law does not read it. With the tier,
-  though, a qwen4-max gate seat reaches that law:
-  - Under `namespace`, a gate whose office declares boxed hands compiles.
-    Its overlay disables dsh's native tool rows, sets dsh's own sandbox
-    from the office's declared access (`read-only` for an office that
-    writes no worktree file) and serves Brokkr's workspace tool.
-  - Under `harness`, the same gate is refused: dsh declares no
-    `hands.harness.gate`.
-  - Under `open`, a gate with hands is refused, as for every model.
-  - A gate that declares no hands compiles under every boundary. The
-    driver then serves dsh's own native tool surface under the mode
-    `DSH_PERMISSION_MODE` names, which the seat's class does not narrow.
-    The adapter's own records say what that surface holds. Its cold
-    shape without hands records dsh's native shell reading a 0600 store
-    canary (`store_read: unsupported`). Its native web tools are
-    unmeasured, with no OFF control. "No hands" therefore means no
-    Brokkr hands, not no tools.
+- **The tool-less gate.** The tier grants no hands, and a dsh gate is
+  served none of dsh's own tools either:
+  - The engine marks every gate-class site (`gate_seat`), and for a seat
+    so marked `brokkr driver dsh` ignores `DSH_PERMISSION_MODE` and
+    stages no runner. Its overlay is the shape #896 round 2 measured on
+    dsh 0.2.1-rc.2 and rc.3: each effectful row disabled, each reading
+    `disabled: true` in `--dump-config`, the remaining bookkeeping tools
+    reaching only an MCP server in scope. The gate has no server in
+    scope, so they reach nothing. Its sandbox is `read-only`.
+  - Before the session the driver composes the seat's tree and refuses
+    any row outside the release's measured set, any pinned row left
+    enabled, and any `dsh-mcp-client` row at all.
+  - The compiler refuses a dsh gate that declares hands, under every
+    boundary: under `namespace` by this addendum's words, under
+    `harness` and `open` by the hands law, which speaks first.
+  - The record this shape answers is the adapter's own: dsh's cold shape
+    without hands records its native shell reading a 0600 store canary
+    (`store_read: unsupported`), and its native web tools are unmeasured.
+    The tool-less gate holds neither the shell nor the web row.
 - **Identity.** The adapter's digest is pinned by every bundle that
   consults it, so the manifests of six recipes moved with this edit.
 - **Other drivers' shells, unchanged.** No gate-class agent gains
@@ -221,9 +234,15 @@ the grant does and does not reach:
 
 **The limits, stated plainly.**
 
+- **The evidence measured a different seat.** The wager and the lane
+  trial seated a Qwen chief that had dsh's native shell: in the trial's
+  third review it re-ran cargo itself. The tool-less judge's quality is
+  not yet measured. The controller replays the wager's items in the
+  tool-less shape before this change lands.
 - dsh seats are not boxed on the hosts that ran this evidence (#1158).
-  The Qwen chief ran with no hands, as a read-and-judge seat, under the
-  native surface described above.
+  The boxed judge with a read-only worktree bind is owed to decision 0098
+  ruling 3 and #1158; until it is built, the tool-less shape is the only
+  one a dsh gate runs in.
 - The provider's token plan is capped, and a quota refusal parks the run.
   A gate seat on qwen4-max never steps down to another model (ruling 5).
 - The trial measured the chief's judgment, not its discovery: it raised

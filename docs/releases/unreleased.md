@@ -25,12 +25,19 @@ Changes merged since v0.15.2 that the next release's notes carry.
   `adapters/dsh.json` holds the `trusted` tier, lists `qwen4-max` as its
   one judge, and maps it to `dashscope/qwen4-max`. A gate seat on dsh
   compiles on that pin. On any other dsh model it is refused, naming the
-  model dsh does not declare in `judges`. Egress is unchanged: a dsh seat
-  that binds a secret is still refused on dsh's cloud routes. The
-  `brokkr init` scaffold's dsh stays untrusted. The manifests of six
+  model dsh does not declare in `judges`. A dsh gate runs tool-less:
+  `brokkr driver dsh` disables every native tool row through the
+  measured `--patch` overlay, sets dsh's sandbox read-only and serves no
+  MCP server, whatever `DSH_PERMISSION_MODE` names, so the judge can
+  neither read the secrets store nor write the worktree it judges. A dsh
+  gate that declares hands is refused at compile. Egress is unchanged: a
+  dsh seat that binds a secret is still refused on dsh's cloud routes.
+  The `brokkr init` scaffold's dsh stays untrusted. The manifests of six
   recipes that consult the adapter move. Decision 0021's 2026-11-22
   addendum records the wager, the lane trial and the escalation replay,
-  and lists what the tier reaches ([provider
+  says that they measured a chief that had dsh's native shell and that
+  the tool-less judge is replayed before this lands, and lists what the
+  tier reaches ([provider
   adapters](../guides/provider-adapters.md#the-alias-catalogue)).
 - **`brokkr graph` prints its states and rules as two aligned tables**
   ([#1167](https://github.com/feedback-loop-ai/brokkr/issues/1167)),
