@@ -127,8 +127,7 @@ fn a_seat_that_binds_an_owned_name_is_refused_and_its_child_keeps_the_engines() 
         let invoked = invoke(&prepared, &input, "prompt", &bindings, &mut |_| {});
         assert!(invoked.is_ok(), "{:?}", invoked.map(drop));
         assert_eq!(world.recorded("home"), prepared.home.path());
-        let resolved = world.seat().canonicalize().unwrap();
-        assert_eq!(Path::new(&world.recorded("pwd")), resolved);
+        assert_eq!(Path::new(&world.recorded("pwd")), world.seat());
         assert_eq!(world.recorded("update"), "true");
     }
 }

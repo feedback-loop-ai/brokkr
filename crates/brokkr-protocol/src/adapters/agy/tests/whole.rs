@@ -370,7 +370,7 @@ fn each_workspace_configuration_at_the_workdir_or_above_never_starts_agy() {
     for relative in CONFIGURATION {
         for at_root in [false, true] {
             let mut world = World::new();
-            let repo = world.seat().canonicalize().unwrap();
+            let repo = world.seat();
             let workdir = sub(&repo);
             let bin = fake_agy(&world.seat(), TOOL_LESS, "", true, 0);
             let planted = plant(if at_root { &repo } else { &workdir }, relative);

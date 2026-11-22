@@ -40,7 +40,7 @@ fn refused_for(prepared: &Prepared, input: &Value) -> std::path::PathBuf {
 fn a_workspace_path_planted_while_the_home_is_made_is_refused_and_agy_never_starts() {
     let mut world = World::new();
     let input = world.input(None);
-    let seat = world.seat().canonicalize().unwrap();
+    let seat = world.seat();
     let mut planted = None;
     let plant_while_made = |homes: Homes<'_>, written: Written<'_>| {
         let home = home::made(homes, written);
@@ -60,12 +60,7 @@ fn a_workspace_path_planted_while_the_home_is_made_is_refused_and_agy_never_star
 fn a_workspace_path_present_from_the_start_is_refused_and_leaves_no_home() {
     let mut world = World::new();
     let bin = fake_agy(&world.seat(), TOOL_LESS, "", true, 0);
-    // The driver names the path it checked, the resolved one, so a
-    // temporary directory reached through a link is planted at its end.
-    let planted = plant(
-        &world.seat().canonicalize().unwrap(),
-        ".agents/mcp_config.json",
-    );
+    let planted = plant(&world.seat(), ".agents/mcp_config.json");
     let messages = world.run(&bin, &["--model", FLASH], world.input(None), None);
     let error = ended(&messages).and_then(|(_, error, _)| error);
     assert_eq!(error, Some(LaunchError::Configured(planted).to_string()));
@@ -81,7 +76,7 @@ fn a_workspace_path_present_from_the_start_is_refused_and_leaves_no_home() {
 fn a_workspace_path_present_from_the_start_is_checked_only_after_the_home_is_made() {
     let mut world = World::new();
     let input = world.input(None);
-    let planted = plant(&world.seat().canonicalize().unwrap(), ".agents/plugins");
+    let planted = plant(&world.seat(), ".agents/plugins");
     let mut calls = 0;
     let counted = |homes: Homes<'_>, written: Written<'_>| {
         calls += 1;

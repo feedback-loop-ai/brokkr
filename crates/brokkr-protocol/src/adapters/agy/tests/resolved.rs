@@ -30,7 +30,7 @@ fn seen(status: &str) -> Seen {
 #[test]
 fn a_working_directory_given_through_a_link_is_the_resolved_pwd_of_agy() {
     let mut world = World::new();
-    let resolved = sub(&world.seat().canonicalize().unwrap().join("real"));
+    let resolved = sub(&world.seat().join("real"));
     let links = world.path("links");
     std::fs::create_dir(&links).unwrap();
     let link = links.join("link");

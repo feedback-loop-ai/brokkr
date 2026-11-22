@@ -1110,9 +1110,13 @@ fn fake_agy(
 
 /// One run's world: the seat's directory and an operator HOME of its own,
 /// with the process environment held for the world's life, and how many
-/// engine HOME sessions this thread had made before it.
+/// engine HOME sessions this thread had made before it. Every path of the
+/// world is under `dir`, its root resolved, so each is the path the driver
+/// resolves and names: a temporary directory reached through a link, as on
+/// macOS, ends where the driver's words do.
 struct World {
-    root: tempfile::TempDir,
+    _root: tempfile::TempDir,
+    dir: std::path::PathBuf,
     env: crate::env_guard::EnvGuard,
     before: usize,
 }
@@ -1126,14 +1130,20 @@ impl World {
     fn new() -> World {
         let env = crate::env_guard::EnvGuard::lock();
         let root = tempfile::tempdir().unwrap();
-        std::fs::create_dir(root.path().join("seat")).unwrap();
-        operator_home(root.path());
+        let dir = root.path().canonicalize().unwrap();
+        std::fs::create_dir(dir.join("seat")).unwrap();
+        operator_home(&dir);
         let before = made_here().len();
-        World { root, env, before }
+        World {
+            _root: root,
+            dir,
+            env,
+            before,
+        }
     }
 
     fn path(&self, name: &str) -> std::path::PathBuf {
-        self.root.path().join(name)
+        self.dir.join(name)
     }
 
     fn seat(&self) -> std::path::PathBuf {
