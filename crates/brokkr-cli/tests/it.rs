@@ -31,6 +31,7 @@ mod acknowledge;
 mod after_terminal;
 mod agent_fallback;
 mod agent_readouts;
+mod agy_driver;
 mod analytics;
 mod binary_names;
 mod bootstrap_bench;

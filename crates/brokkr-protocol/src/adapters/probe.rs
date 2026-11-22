@@ -80,7 +80,7 @@ pub(super) fn is_answer(kind: AdapterKind, event: &Value) -> bool {
                     == Some("agent_message")
         }
         AdapterKind::Dsh => event.get("type").and_then(Value::as_str) == Some("assistant/message"),
-        AdapterKind::Qoder | AdapterKind::Exec => false,
+        AdapterKind::Qoder | AdapterKind::Agy | AdapterKind::Exec => false,
     }
 }
 
@@ -150,7 +150,9 @@ impl super::AdapterKind {
             Self::Codex => Some("-m"),
             // Qoder's `-m` pin is read by its own launch (#1178); the shared
             // reader's one table is #1248's.
-            Self::Claude | Self::Lanetally | Self::Dsh | Self::Qoder | Self::Exec => None,
+            Self::Claude | Self::Lanetally | Self::Dsh | Self::Qoder | Self::Agy | Self::Exec => {
+                None
+            }
         }
     }
 }

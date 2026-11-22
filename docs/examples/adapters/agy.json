@@ -1,0 +1,233 @@
+{
+  "provider": "agy",
+  "trust_tier": "untrusted",
+  "egress": "contracted",
+  "harness_auth": {
+    "names": [
+      "GEMINI_API_KEY",
+      "GOOGLE_API_KEY",
+      "GOOGLE_APPLICATION_CREDENTIALS",
+      "GOOGLE_CLOUD_PROJECT",
+      "GOOGLE_GEMINI_BASE_URL",
+      "GOOGLE_GENAI_USE_VERTEXAI"
+    ],
+    "measured": "Antigravity CLI 1.5.13 (Linux, 2026-11-20): strings of the installed binary name these six; none was exercised, and the measured login is one file under HOME, ~/.gemini/antigravity-cli/antigravity-oauth-token (docs/evidence/adapters/agy-cli-1-5.md, Host and versions, Facts and Not measured)"
+  },
+  "binary": "agy",
+  "driver": [
+    "{brokkr}",
+    "driver",
+    "agy",
+    "--"
+  ],
+  "models": {
+    "agy-argon": {
+      "id": "gemini-4-argon",
+      "tier": "provisional"
+    },
+    "agy-carbon": {
+      "id": "gemini-4-carbon",
+      "tier": "provisional"
+    },
+    "agy-hydrogen": {
+      "id": "gemini-4-hydrogen",
+      "tier": "provisional"
+    },
+    "agy-neon": {
+      "id": "gemini-4-neon",
+      "tier": "provisional"
+    }
+  },
+  "judges": [],
+  "model_flag": "--model",
+  "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+  ],
+  "effort_flag": "--effort",
+  "tool_permissions": {
+    "flag": "--allow",
+    "separator": ",",
+    "names": {
+      "cargo": "command(cargo)",
+      "codex": "command(codex)",
+      "dsh": "command(dsh)",
+      "gh-pr-view": "command(gh pr view)",
+      "gh-run-view": "command(gh run view)",
+      "git": "command(git)",
+      "ls": "command(ls)",
+      "mkdir": "command(mkdir)",
+      "node": "command(node)",
+      "npm": "command(npm)",
+      "npx": "command(npx)",
+      "rg": "command(rg)",
+      "specify": "command(specify)"
+    }
+  },
+  "mcp": {
+    "carriage": {
+      "measured": "iso-07-engine-carriage-cold-v14 (cold) and iso-09-engine-carriage-resume-v14 (a resume of it), Antigravity CLI 1.5.14, Linux, 2026-11-21: a server in a scratch HOME's .gemini/config/mcp_config.json started, and its tool answered through call_mcp_tool under an mcp(<server>/*) allow rule carried by --settings (docs/evidence/adapters/agy-cli-1-5.md, Sixth measurement)"
+    },
+    "shapes": [
+      {
+        "invocation": "cold",
+        "hands": "none",
+        "measured_on": {
+          "harness": "agy",
+          "binary": "agy",
+          "version": "1.5.13",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "iso-01, the positive control: all six sentinels started; iso-02, iso-05 and iso-06: a scratch HOME started none of the user's, and none at all beside no .agents configuration up to the git root; iso-02's workspace servers started, so the driver refuses .agents configuration up to where agy's walk ends (git-root-linked-worktree) (docs/evidence/adapters/agy-cli-1-5.md, MCP isolation (SI2))"
+        },
+        "native_write": {
+          "unmeasured": "native writes under the terminal sandbox are not measured: the record's host has none, and on 1.5.13 --sandbox restricted nothing in sandbox-skip-permissions (docs/evidence/adapters/agy-cli-1-5.md, Facts and Not measured)"
+        },
+        "store_read": {
+          "unmeasured": "store reads under the terminal sandbox are not measured: the record's host has none, and on 1.5.13 --sandbox restricted nothing in sandbox-skip-permissions (docs/evidence/adapters/agy-cli-1-5.md, Facts and Not measured)"
+        },
+        "process_read": {
+          "unmeasured": "process reads under the terminal sandbox are not measured: the record's host has none, and on 1.5.13 ps -e saw the host's processes under --sandbox in sandbox-skip-permissions (docs/evidence/adapters/agy-cli-1-5.md, Facts and Not measured)"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "none",
+        "measured_on": {
+          "harness": "agy",
+          "binary": "agy",
+          "version": "1.5.13",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "iso-01, the positive control: all six sentinels started; a replacement is a cold launch again under a fresh engine HOME, and iso-05 and iso-06 started no sentinel beside no .agents configuration up to the git root; iso-02's workspace servers started, so the driver refuses one up to where agy's walk ends (git-root-linked-worktree) (docs/evidence/adapters/agy-cli-1-5.md, MCP isolation (SI2))"
+        },
+        "native_write": {
+          "unmeasured": "native writes under the terminal sandbox are not measured: the record's host has none, and on 1.5.13 --sandbox restricted nothing in sandbox-skip-permissions (docs/evidence/adapters/agy-cli-1-5.md, Facts and Not measured)"
+        },
+        "store_read": {
+          "unmeasured": "store reads under the terminal sandbox are not measured: the record's host has none, and on 1.5.13 --sandbox restricted nothing in sandbox-skip-permissions (docs/evidence/adapters/agy-cli-1-5.md, Facts and Not measured)"
+        },
+        "process_read": {
+          "unmeasured": "process reads under the terminal sandbox are not measured: the record's host has none, and on 1.5.13 ps -e saw the host's processes under --sandbox in sandbox-skip-permissions (docs/evidence/adapters/agy-cli-1-5.md, Facts and Not measured)"
+        }
+      },
+      {
+        "invocation": "cold",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "agy",
+          "binary": "agy",
+          "version": "1.5.14",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "iso-01-positive-control-v14: all six sentinels started; iso-02-engine-home-workspace-cwd-v14, iso-05-above-git-root-v14, iso-06-parent-without-git-v14: a scratch HOME shut out the user's; iso-07-engine-carriage-cold-v14, box-engine-workspace-tool-v14: the engine's own server started and answered; the driver refuses .agents configuration (docs/evidence/adapters/agy-cli-1-5.md, Sixth measurement)"
+        },
+        "native_write": {
+          "measured": "box-engine-workspace-tool-v14 and box-other-natives-v14: under the driver's gate, listing call_mcp_tool alone, write_file, edit_file and run_command were refused by name, and the hands tool wrote in the worktree; the denial is the gate's, by name, in agy's own process, not an operating-system boundary (docs/evidence/adapters/agy-cli-1-5.md, Sixth measurement)"
+        },
+        "store_read": {
+          "measured": "the box's reach: a store sealed at its production path was denied to the hands tool (box-store-drive), which read it unsealed (box-store-drive-control); the driver's gate: the native read_file and run_command were refused by name before either reached the path (box-store), which shows the gate, not the seal (docs/evidence/adapters/agy-cli-1-5.md, Fifth measurement)"
+        },
+        "process_read": {
+          "measured": "box-reach-v14: the hands tool's command saw 4 entries in /proc with bubblewrap as pid 1; box-engine-workspace-tool-v14: the native shell, run_command, was refused by name by the driver's gate (docs/evidence/adapters/agy-cli-1-5.md, Sixth measurement)"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "agy",
+          "binary": "agy",
+          "version": "1.5.14",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "a replacement is a cold launch again; iso-01-positive-control-v14: all six sentinels started; iso-02-engine-home-workspace-cwd-v14, iso-05-above-git-root-v14, iso-06-parent-without-git-v14: a scratch HOME shut out the user's; iso-07-engine-carriage-cold-v14, box-engine-workspace-tool-v14: the engine's server answered; the driver refuses .agents configuration (agy-cli-1-5.md, Sixth measurement)"
+        },
+        "native_write": {
+          "measured": "a replacement is a cold launch again under a fresh engine HOME; box-engine-workspace-tool-v14 and box-other-natives-v14: under the driver's gate, listing call_mcp_tool alone, write_file, edit_file and run_command were refused by name, and the hands tool wrote in the worktree; the denial is the gate's, in agy's own process, not an operating-system boundary (agy-cli-1-5.md, Sixth measurement)"
+        },
+        "store_read": {
+          "measured": "a replacement is a cold launch again; the box's reach: a store sealed at its production path was denied to the hands tool (box-store-drive), which read it unsealed (box-store-drive-control); the driver's gate: the native read_file and run_command were refused by name before either reached the path (box-store), which shows the gate, not the seal (agy-cli-1-5.md, Fifth measurement)"
+        },
+        "process_read": {
+          "measured": "a replacement is a cold launch again under a fresh engine HOME; box-reach-v14: the hands tool's command saw 4 entries in /proc with bubblewrap as pid 1; box-engine-workspace-tool-v14: the native shell, run_command, was refused by name by the driver's gate (docs/evidence/adapters/agy-cli-1-5.md, Sixth measurement)"
+        }
+      }
+    ]
+  },
+  "native_capabilities": {
+    "known": {
+      "web-fetch": {
+        "capability": "web-fetch",
+        "tools": [
+          "read_url_content"
+        ],
+        "on": {
+          "unsupported": "level 1 never offers a web tool (#1200, decision 0075): the engine's gate hook denies by name every tool outside read_file, write_file, edit_file, run_command and manage_task, and read_url_content is none of them"
+        },
+        "off": {
+          "default": "brokkr driver agy writes one PreToolUse hook with matcher \"\" into the engine's HOME, which denies by name every tool outside its list: hook-allowlist-others measured such a hook deny invoke_subagent, and gate-prior-grant the gate deny search_web while the turn went on (docs/evidence/adapters/agy-cli-1-5.md, Native tools and hooks)"
+        },
+        "restrictions": {
+          "unsupported": "no native transport for a restriction on Antigravity CLI's read_url_content has been established: web-search-deny-rules shows a deny rule did not stop the native web tools"
+        },
+        "evidence": {
+          "source": "docs/evidence/adapters/agy-cli-1-5.md, Native tools and hooks: Antigravity CLI 1.5.13, Linux, 2026-11-20",
+          "scope": "a hook on every tool denying tools outside its list by name (hook-allowlist-others, gate-prior-grant); read_url_content itself was never seen running",
+          "limitations": [
+            "read_url_content was never called in read-url-default, read-url-deny-rule or hook-allowlist-others, so its denial is the gate's rule by name, not a refused live call",
+            "whether a PreToolUse hook also sees a subagent's tool calls is not measured (docs/evidence/adapters/agy-cli-1-5.md, Not measured)"
+          ]
+        }
+      },
+      "web-search": {
+        "capability": "web-search",
+        "tools": [
+          "search_web"
+        ],
+        "on": {
+          "unsupported": "level 1 never offers a web tool (#1200, decision 0075): the engine's gate hook denies by name every tool outside read_file, write_file, edit_file, run_command and manage_task, and search_web is none of them"
+        },
+        "off": {
+          "default": "brokkr driver agy writes one PreToolUse hook with matcher \"\" into the engine's HOME; web-search-default measured that search_web runs with no rule, web-search-deny-rules that no deny rule stops it, and gate-prior-grant that the gate denied it by name while the turn went on to a full answer (docs/evidence/adapters/agy-cli-1-5.md, Native tools and hooks)"
+        },
+        "restrictions": {
+          "unsupported": "no native transport for a restriction on Antigravity CLI's search_web has been established: web-search-deny-rules shows a deny rule did not stop it"
+        },
+        "evidence": {
+          "source": "docs/evidence/adapters/agy-cli-1-5.md, Native tools and hooks: Antigravity CLI 1.5.13, Linux, 2026-11-20",
+          "scope": "live search_web calls with no rule (web-search-default), under deny rules (web-search-deny-rules) and under the gate's hook (gate-prior-grant)",
+          "limitations": [
+            "the gate's hook was measured as gate.py, not as brokkr driver agy's gate mode, which answers the same decisions",
+            "whether a PreToolUse hook also sees a subagent's tool calls is not measured (docs/evidence/adapters/agy-cli-1-5.md, Not measured)"
+          ]
+        }
+      }
+    }
+  },
+  "hands": {
+    "workspace": []
+  },
+  "resume": {
+    "stream-work-site": {
+      "status": "unsupported",
+      "identity": {
+        "unknown": "no rejoin under the engine's HOME was measured; resume-cold, resume-warm and resume-other-cwd rejoined a conversation under the operator's own HOME, and resume-unknown-id started a new one with exit 0"
+      },
+      "classes": [
+        "work"
+      ],
+      "boundaries": [
+        "not applicable"
+      ],
+      "hands": "none",
+      "reason": "agy keeps each conversation under HOME (docs/evidence/adapters/agy-cli-1-5.md, Facts), and brokkr driver agy removes the engine's HOME when the turn ends, so there is no conversation to rejoin"
+    }
+  }
+}
