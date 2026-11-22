@@ -46,7 +46,7 @@ use crate::transcript::{Kind as TranscriptKind, Transcript};
 use crate::{PreSessionRefusal, RefusalClass};
 
 mod hands;
-use hands::{Breach, Hands};
+use hands::{Breach, Hands, Shown};
 
 /// What every qoder seat runs before its permission mode, its own pin,
 /// effort and grants: a print-mode stream turn that keeps no session.
@@ -341,8 +341,9 @@ struct QoderFold {
     /// nothing and leaves it unset (Y1).
     confirmed: bool,
     /// The launch's hands, which decide whether each row is read as a
-    /// boxed turn's ([`Hands::check`]).
+    /// boxed turn's ([`Hands::check`]), and what a boxed stream has shown.
     hands: Hands,
+    shown: Shown,
     claude: ClaudeFold,
 }
 
@@ -365,6 +366,7 @@ impl QoderFold {
             initialised: false,
             confirmed: false,
             hands: hands.clone(),
+            shown: Shown::default(),
             claude: ClaudeFold::default(),
         }
     }
@@ -392,7 +394,7 @@ impl QoderFold {
         let Ok(mut row) = serde_json::from_slice::<Map<String, Value>>(line) else {
             return Err(Stop::Refused(unmeasured_line()));
         };
-        self.confirm(&row)?;
+        self.confirm(&row, line)?;
         let assistant = row.get("type").and_then(Value::as_str) == Some("assistant");
         // Nothing persists the session, so its id locates nothing.
         row.remove("session_id");
@@ -414,10 +416,11 @@ impl QoderFold {
     /// row names the pin, or nothing; a second one, or a turn before init
     /// named the pin, stops the stream (Y1). Then, for a boxed seat, for
     /// what its hands must show: a row that shows the box does not hold
-    /// stops the stream before any of it counts (C5).
-    fn confirm(&mut self, row: &Map<String, Value>) -> Result<(), Stop> {
+    /// stops the stream before any of it counts (C5), read once from the
+    /// row's `line` into its typed row.
+    fn confirm(&mut self, row: &Map<String, Value>, line: &[u8]) -> Result<(), Stop> {
         self.identify(row)?;
-        self.hands.check(row).map_err(Stop::Breached)
+        (self.hands.check(line, &mut self.shown)).map_err(Stop::Breached)
     }
 
     /// [`QoderFold::confirm`]'s reading of the model, level 1's.
@@ -443,8 +446,9 @@ impl QoderFold {
     /// The refusal the turn ends with, decided once (H5): where Qoder's
     /// fallback line is on the stderr `observed` by then, every stop and
     /// every end refuses as substituted, in the reported-on-stderr words;
-    /// otherwise a stop keeps its own words, and a clean exit no init row
-    /// confirmed is unconfirmed (Y1, Y3).
+    /// otherwise a stop keeps its own words, a clean exit no init row
+    /// confirmed is unconfirmed (Y1, Y3), and a boxed one with no result
+    /// row is unfinished (D1; decision 0115).
     ///
     /// `observed` is Qoder's stderr NOT masked, so no binding can erase a
     /// marker it overlaps (U2). It is only matched here: no byte of it
@@ -462,7 +466,9 @@ impl QoderFold {
             Some(Stop::Refused(refused)) => Some(refused),
             Some(Stop::Unconfirmed) => Some(unconfirmed(&self.pin)),
             Some(Stop::Breached(breach)) => Some(breach.refusal()),
-            None => (exit_code == 0 && !self.confirmed).then(|| unconfirmed(&self.pin)),
+            None if exit_code != 0 => None,
+            None if !self.confirmed => Some(unconfirmed(&self.pin)),
+            None => (self.hands.unfinished(&self.shown)).map(|breach| breach.refusal()),
         }
     }
 

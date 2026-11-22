@@ -26,8 +26,9 @@ fn folded(stdout: &str, pinned: &str) -> Folded {
     fold_under(&boxed(), stdout.as_bytes(), pinned, "", &[])
 }
 
-/// The breach `stdout` stops at under the box's hands on `Fast`, if any:
-/// the typed failure, before it is rendered.
+/// The breach `stdout` stops at under the box's hands on `Fast`, or the
+/// one its end is where Qoder exits 0 (D1), if any: the typed failure,
+/// before it is rendered.
 fn breach_of(stdout: &str) -> Option<Breach> {
     let mut fold = QoderFold::new(&pin("Fast"), &boxed());
     let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
@@ -45,19 +46,28 @@ fn breach_of(stdout: &str) -> Option<Breach> {
             Err(_) => panic!("a stop that is no breach"),
         }
     }
-    None
+    fold.hands.unfinished(&fold.shown)
+}
+
+/// `stdout` with each row of `kind` rewritten by `change`, and dropped
+/// where it returns `false`.
+fn with_rows(stdout: &str, kind: &str, change: impl Fn(&mut Value) -> bool) -> String {
+    let rows = stdout.lines().filter_map(|line| {
+        let mut row: Value = serde_json::from_str(line).unwrap();
+        let kept = row["type"] != kind || change(&mut row);
+        kept.then(|| row.to_string())
+    });
+    rows.collect::<Vec<_>>().join("\n")
 }
 
 /// `stdout` with its init row rewritten by `change`.
 fn with_init(stdout: &str, change: impl Fn(&mut Value)) -> String {
-    let rows = stdout.lines().map(|line| {
-        let mut row: Value = serde_json::from_str(line).unwrap();
+    with_rows(stdout, "system", |row| {
         if row["subtype"] == "init" {
-            change(&mut row);
+            change(row);
         }
-        row.to_string()
-    });
-    rows.collect::<Vec<_>>().join("\n")
+        true
+    })
 }
 
 /// A boxed launch is level 1's head, `dont_ask`, the seat's own controls,
@@ -288,14 +298,24 @@ fn a_boxed_turn_whose_server_died_fails_at_qoders_words() {
 
 /// Driven through `run_seat`, a boxed turn that fails behind its folded
 /// turns ends lost with no result sent, though Qoder exited 0 with its
-/// result written, as every late stop does.
+/// result written, as every late stop does: a stream that ended before
+/// its result row among them, so the result file is never taken on it
+/// (D1).
 #[cfg(unix)]
 #[test]
 fn a_driven_boxed_turn_that_fails_late_sends_no_result() {
-    for file in ["box-server-dies.ndjson", "box-other-natives.ndjson"] {
+    let truncated = natives_ending(|_| false);
+    for (file, stdout) in [
+        ("box-server-dies.ndjson", record("box-server-dies.ndjson")),
+        (
+            "box-other-natives.ndjson",
+            record("box-other-natives.ndjson"),
+        ),
+        ("box-other-natives without its result row", truncated),
+    ] {
         let dir = tempfile::tempdir().unwrap();
         let result = dir.path().join("result.json");
-        let bin = fake_qoder(dir.path(), record(file), "", Some(&result), 0);
+        let bin = fake_qoder(dir.path(), stdout, "", Some(&result), 0);
         let messages = run_sealed(dir.path(), &bin, &["-m", "Fast"], Some(boxed_serving()));
         assert!(result.exists(), "{file}");
         assert_eq!(result_of(&messages), None, "{file}: {messages:?}");
@@ -330,21 +350,31 @@ fn a_boxed_init_beside_a_native_tool_or_another_server_stops() {
     let beside =
         |servers: Value| with_init(&recorded, |init| init["mcp_servers"] = servers.clone());
     let planted = json!([{"name": "brokkr", "status": "connected"},
-                         {"name": "sentinel-user", "status": "connected"}]);
-    let sentinel = Seen::Plain("sentinel-user".into());
+                         {"name": "sentinel-user", "status": "pending"}]);
     assert_eq!(
         breach_of(&beside(planted)),
-        Some(Breach::Beside { server: sentinel })
+        Some(Breach::Beside {
+            server: Seen::Plain("sentinel-user".into()),
+            status: Seen::Plain("pending".into()),
+        })
     );
     let twice = json!([{"name": "brokkr", "status": "connected"},
-                       {"name": "brokkr", "status": "connected"}]);
-    let engine = Seen::Plain("brokkr".into());
+                       {"name": "brokkr", "status": "failed"}]);
     assert_eq!(
         breach_of(&beside(twice)),
-        Some(Breach::Beside { server: engine })
+        Some(Breach::Beside {
+            server: Seen::Plain("brokkr".into()),
+            status: Seen::Plain("failed".into()),
+        })
     );
     assert_eq!(breach_of(&beside(json!([]))), Some(Breach::Unlisted));
-    assert_eq!(breach_of(&beside(json!({}))), Some(Breach::Unread));
+    assert_eq!(breach_of(&beside(json!({}))), Some(Breach::ServersUnread));
+    let serverless = with_init(&recorded, |init| {
+        init.as_object_mut().unwrap().remove("mcp_servers");
+    });
+    assert_eq!(breach_of(&serverless), Some(Breach::ServersUnread));
+    let toolless = with_init(&recorded, |init| init["tools"] = json!("mcp_call"));
+    assert_eq!(breach_of(&toolless), Some(Breach::Unread));
     let words = |breach: Breach| breach.refusal().words().to_string();
     assert_eq!(
         words(Breach::Native {
@@ -355,10 +385,12 @@ fn a_boxed_init_beside_a_native_tool_or_another_server_stops() {
     );
     assert_eq!(
         words(Breach::Beside {
-            server: Seen::Unplain
+            server: Seen::Unplain,
+            status: Seen::Plain("connected".into()),
         }),
         "box_unserved: Qoder's init lists an MCP server beside the engine's server 'brokkr': a \
-         value that is not a plain id; a boxed turn is served the engine's server alone"
+         value that is not a plain id, with the status 'connected'; a boxed turn is served the \
+         engine's server alone"
     );
     assert_eq!(
         words(Breach::Unlisted),
@@ -366,8 +398,84 @@ fn a_boxed_init_beside_a_native_tool_or_another_server_stops() {
          runs only with it connected (box-server-does-not-start)"
     );
     assert_eq!(
-        words(Breach::Unread),
-        "box_unserved: Qoder's init does not list its tools and MCP servers as every measured \
-         Qoder stream does, so nothing shows the seat's hands are the box's"
+        words(Breach::ServersUnread),
+        "box_unserved: Qoder's init does not list its MCP servers as every measured Qoder stream \
+         does, so nothing shows the engine's server 'brokkr' is connected"
     );
+    assert_eq!(
+        words(Breach::Unread),
+        "box_unserved: Qoder's init does not list its tools as every measured Qoder stream does, \
+         so nothing shows the seat holds no tool of Qoder's own"
+    );
+}
+
+/// `box-other-natives` with its result row rewritten by `change`, or
+/// dropped where it returns `false`.
+fn natives_ending(change: impl Fn(&mut Value) -> bool) -> String {
+    with_rows(&record("box-other-natives.ndjson"), "result", change)
+}
+
+/// A boxed turn succeeds only on its own terminal evidence (D1): a stream
+/// that ends before its result row, a result row without
+/// `permission_denials`, and one whose member is no list each end as the
+/// failure that says which, though Qoder exited 0. The recorded turn that
+/// reached the hands tool still ends as an answer.
+#[test]
+fn a_boxed_turn_without_its_terminal_evidence_fails_saying_which() {
+    let truncated = natives_ending(|_| false);
+    assert_eq!(breach_of(&truncated), Some(Breach::Unfinished));
+    let fold = folded(&truncated, "Fast").fold;
+    assert_eq!(
+        fold.ended(None, &seen(""), 0).unwrap().words(),
+        "box_unfinished: Qoder's stream ended before its result row, so nothing shows the boxed \
+         turn drew no permission denial"
+    );
+    let undeclared = natives_ending(|row| {
+        row.as_object_mut().unwrap().remove("permission_denials");
+        true
+    });
+    assert_eq!(breach_of(&undeclared), Some(Breach::Undeclared));
+    let unlisted = natives_ending(|row| {
+        row["permission_denials"] = json!("none");
+        true
+    });
+    assert_eq!(breach_of(&unlisted), Some(Breach::DenialsUnread));
+    let words = |breach: Breach| breach.refusal().words().to_string();
+    assert_eq!(
+        words(Breach::Undeclared),
+        "box_undeclared: Qoder's result row carries no permission_denials, so nothing shows the \
+         boxed turn drew no permission denial"
+    );
+    assert_eq!(
+        words(Breach::DenialsUnread),
+        "box_undeclared: Qoder's result row carries permission_denials that is not a list, so \
+         nothing shows the boxed turn drew no permission denial"
+    );
+    assert_eq!(breach_of(&record("box-engine-workspace-tool.ndjson")), None);
+    // Level 1's seat ends a stream with no result row as it always has.
+    let native = fold_under(&Hands::Native, truncated.as_bytes(), "Fast", "", &[]).fold;
+    assert_eq!(native.ended(None, &seen(""), 0), None);
+}
+
+/// The lost-server words answer to their call (D3): in `box-server-dies`
+/// the errored result answers an `mcp_call` of the engine's tool, and the
+/// turn fails there; the same result answering the stream's `mcp_get` of
+/// that tool, or an id no call has, is no such sign, and the turn ends as
+/// its own answer, its result row's denials being an empty list.
+#[test]
+fn the_lost_server_words_count_only_on_a_result_of_an_engine_call() {
+    let recorded = record("box-server-dies.ndjson");
+    assert_eq!(breach_of(&recorded), Some(Breach::Lost));
+    for other in ["call_6b8b03eaa07540c69b08595c", "call_no_engine_call"] {
+        let answered = with_rows(&recorded, "user", |row| {
+            let block = &mut row["message"]["content"][0];
+            if block["is_error"] == true {
+                block["tool_use_id"] = json!(other);
+            }
+            true
+        });
+        assert_ne!(answered, recorded);
+        assert_eq!(breach_of(&answered), None, "{other}");
+        assert_eq!(folded(&answered, "Fast").outcome, Ok(None), "{other}");
+    }
 }

@@ -45,6 +45,8 @@ use crate::capabilities::{
     SiteCapabilities, Strength, OPAQUE_HARNESS,
 };
 
+mod closed;
+
 /// The host this build serves on (decision 0063): a shape measured on the
 /// other qualifies nothing here.
 #[cfg(target_os = "macos")]
@@ -759,9 +761,9 @@ fn unbrokered(set: McpIntent, harness: &str) -> Option<StrictCause> {
 /// `asks` resolved by `resolve` against each serving in order, each outcome
 /// then given its own MCP contribution by its `sites` entry, refused past
 /// the fence where its brokered set rides a harness carrying no broker
-/// ([`unbrokered`]), and judged by that serving's SI2 verdict in `strict`,
-/// or the first refusal; the records are kept beside the outcomes, which
-/// way the fence stands.
+/// ([`unbrokered`]), and judged by that serving's SI2 verdict in `strict`
+/// ([`closed::admitted`]), or the first refusal; the records are kept
+/// beside the outcomes, which way the fence stands.
 fn sealed(
     authority: &Authority,
     (asks, resolve): (SiteAsks, Resolve<'_>),
@@ -780,7 +782,8 @@ fn sealed(
         let brokers = set.and_then(|set| unbrokered(set, serving.harness));
         (authority.fence.admit(brokers)).map_err(|cause| refused(&cause))?;
         outcomes.push(outcome);
-        (authority.fence.admit(verdict.clone())).map_err(|cause| refused(&cause))?;
+        let held = (site.intent, serving.harness);
+        (closed::admitted(authority.fence, held, verdict.clone())).map_err(|c| refused(&c))?;
         records.push(site.strict);
     }
     Ok(SiteCapabilities {

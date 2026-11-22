@@ -1108,6 +1108,50 @@ fn a_boxed_qoder_seat_outside_the_listed_offices_or_at_a_gate_is_refused() {
     );
 }
 
+/// `workspace`'s copy of Qoder's example with every shape measured on
+/// `host`.
+fn qoder_hosted<'a>(workspace: &'a Workspace, host: &str) -> &'a Workspace {
+    let file = workspace.path("adapters/qoder.json");
+    let mut adapter: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    for shape in adapter["mcp"]["shapes"].as_array_mut().unwrap() {
+        shape["measured_on"]["host"] = json!(host);
+    }
+    std::fs::write(file, adapter.to_string()).unwrap();
+    workspace
+}
+
+/// Under the standing fence, macOS's production fence, which keeps every
+/// other harness's SI2 verdict on its record (#1235, D2; decision 0115): a
+/// boxed qoder seat on a host its adapter declares no shape for is refused
+/// when the bundle compiles, in the words a missing measured shape draws
+/// past the lifted fence, and on the host its shapes are measured on it
+/// compiles. The same seat without hands still waits on the fence.
+#[test]
+fn the_standing_fence_refuses_a_boxed_qoder_seat_on_a_host_with_no_measured_shape() {
+    let (here, other) = match cfg!(target_os = "macos") {
+        true => ("macos", "linux"),
+        false => ("linux", "macos"),
+    };
+    let compiled = |host: &str, boxed: bool| {
+        let workspace = qoder_workspace();
+        qoder_hosted(&workspace, host);
+        if boxed {
+            boxed_office(&workspace);
+        }
+        workspace.compile(seat("researcher", "work"), &["researcher"])
+    };
+    match compiled(other, true) {
+        Err(refused @ CompileError::Capability(_)) => assert_eq!(
+            refused.to_string(),
+            "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider 'qoder' \
+             has no measured strict MCP configuration for 'cold'"
+        ),
+        other => panic!("not a capability refusal: {:?}", other.map(drop)),
+    }
+    assert_eq!(qoder_argv(compiled(here, true))[..2], ["driver", "qoder"]);
+    assert_eq!(qoder_argv(compiled(other, false))[..2], ["driver", "qoder"]);
+}
+
 /// SI2 past the lifted fence on macOS (#1178; decision 0063): the record
 /// measured Linux only, so the same seat's cold shape is absent there, as
 /// a Linux shape removed is above, and it is a capability refusal.
