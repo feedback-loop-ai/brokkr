@@ -28,6 +28,7 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::agents::kinds::{SeatKinds, UNDECLARED};
 use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::argv::Executable;
 use crate::bundle::{
@@ -1255,6 +1256,10 @@ impl Engine {
                 )
                 .digest(),
                 entry.class,
+            )
+            .of_harness(
+                site_kinds(&self.bundle, selection, &entry.site, &entry.command),
+                self.marks().standing(&label),
             );
             let offer = offer_for_site(
                 events,
@@ -1302,7 +1307,7 @@ impl Engine {
             plans.insert(
                 entry.site,
                 SitePlan {
-                    context: context.offered(events, offer.as_ref()),
+                    context: context.offered(events, &entry.key, offer.as_ref()),
                     offer,
                     assessment,
                     originating,
@@ -1584,11 +1589,18 @@ impl Engine {
             attempt_id,
         };
         let facts = self.bundle.sites.get(driver_seat);
+        // The seat's own harness judges its kinds; a site no plan covers
+        // spawns no driver of a harness, and keeps v7's vocabulary.
+        let kinds = (stamp.as_ref()).map_or(&UNDECLARED, |context| &context.kinds);
+        let declared = checkpoints::Declared {
+            kinds,
+            seat: driver_seat,
+        };
         let mut calls = Calls::of(facts, spawn, attempt_id, stamp.as_ref());
         let sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let report = sink.drive(
             |forward| {
-                process.run_attempt_resuming(
+                received(process.run_attempt_resuming(
                     ENGINE_VERSION,
                     effect_id,
                     attempt_id,
@@ -1596,7 +1608,7 @@ impl Engine {
                     input,
                     session_ref,
                     forward,
-                )
+                ))
             },
             |sink, mut checkpoint| {
                 let call = calls.consume(&mut checkpoint);
@@ -1615,13 +1627,12 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                sink.offer_live("", checkpoint, call, stamp.as_ref());
+                sink.offer_live("", checkpoint, call, stamp.as_ref(), declared);
             },
         )?;
         let report = self.folded([effect_id, attempt_id, driver_seat], spawn, begun, report)?;
-        Ok(DriverRun::Ran(
-            verdict::admitted(report, stamp.as_ref()).journaled(),
-        ))
+        let judged = verdict::judged(report, stamp.as_ref(), driver_seat);
+        Ok(DriverRun::Ran(judged.journaled()))
     }
 
     /// Append the attempt's successful result — or, when the journal
@@ -1659,6 +1670,17 @@ pub const OPERATOR_STOP_RULE: &str = "OPERATOR-STOP";
 enum DriverRun {
     SpawnFailed(String),
     Ran(AttemptReport),
+}
+
+/// A driver's report as the engine receives it from its process, the one
+/// point a single seat's and a panel member's report both pass: as it
+/// came. Under test alone, a report its fake driver marked is received
+/// with its cleanup unresolved (`kinds_tests::unresolved_where_marked`;
+/// the controller's ruling R17 of 2026-11-22).
+fn received(report: AttemptReport) -> AttemptReport {
+    #[cfg(test)]
+    let report = kinds_tests::unresolved_where_marked(report);
+    report
 }
 
 /// The invocation-site tag an agent-resolved site is journaled under:
@@ -1915,6 +1937,13 @@ fn offer_for_site(
                 .is_some_and(|opened| resume::legacy_instance_holds(&opened.payload, started))
         },
     )
+}
+
+/// The harness `bundle` resolves for `site` under `chosen` (decision 0075
+/// ruling 2): its candidate's provider and argv, or its `inline` command's.
+fn site_kinds(bundle: &Bundle, chosen: &Selection, site: &Site, inline: &[String]) -> SeatKinds {
+    let provider = chosen.get(site).map(|link| link.provider.as_str());
+    (bundle.declared_kinds).seat(provider, argv_for(chosen, site, inline))
 }
 
 /// The argv to spawn for one invocation site: the selected candidate's,
@@ -3263,6 +3292,8 @@ mod conclude_tests;
 mod contention_tests;
 #[cfg(test)]
 mod gate_head_tests;
+#[cfg(test)]
+mod kinds_tests;
 #[cfg(test)]
 mod notice_tests;
 #[cfg(test)]

@@ -21,7 +21,7 @@ use crate::bundle::{
 };
 use crate::engine::broker::{observed, settlement};
 use crate::engine::carry::record::Tag;
-use crate::engine::dispatch::Dispatch;
+use crate::engine::dispatch::{site_name, Dispatch};
 use crate::engine::sequence::{
     step_allowed_results, step_driver_input, StepComposition, StepInputKind,
 };
@@ -31,7 +31,7 @@ mod end;
 mod sequence;
 pub(in crate::engine) use end::cleanup_failure;
 pub(super) use sequence::step_context;
-use sequence::{probe_member_invocation, refused_index, site_name, step_site};
+use sequence::{probe_member_invocation, refused_index, step_site};
 
 /// The seat a probe composes under, selected once: the body's form, the
 /// case and site label, and the gate class. One selection serves both the

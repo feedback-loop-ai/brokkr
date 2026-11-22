@@ -18,7 +18,99 @@ use super::{
     string_array, trust_tier, EgressClass, HarnessHands, LibraryError, McpSupport, ToolPermissions,
     TrustTier, ROUTE_GRAMMAR,
 };
+use crate::agents::kinds::{kind_word, RecordKinds, RootKind, RootShapeUnmet};
 use crate::agents::mcp::McpDecoded;
+use crate::agents::ResumeAssessment;
+
+/// Every top-level key an adapter file may write; any other is refused.
+pub(super) const ADAPTER_KEYS: [&str; 21] = [
+    "provider",
+    "trust_tier",
+    "egress",
+    "routes",
+    "credentials",
+    "harness_auth",
+    "binary",
+    "hint",
+    "driver",
+    "models",
+    "judges",
+    "model_flag",
+    "efforts",
+    "effort_flag",
+    "effortless_routes",
+    "tool_permissions",
+    "mcp",
+    "hands",
+    "resume",
+    "record_kinds",
+    "native_capabilities",
+];
+
+/// Decision 0075 ruling 2: the kinds this harness's seat records name, a
+/// `transcript` kind and, where the harness confirms one, a
+/// `root_session` kind, each one seat-record v8 kind. Absent declares
+/// nothing, which every shipped adapter is: the built-in drivers declare
+/// their own kinds by writing them. `none` needs no declaration, so it is
+/// refused here as a declaration of nothing. A `root_session` kind names
+/// in `resume_shape` the one shape of `resume` its seats rejoin by, and a
+/// `resume_shape` stands only beside one (the controller's ruling R14).
+pub(super) fn record_kinds(
+    map: &Map<String, Value>,
+    what: &str,
+    resume: &ResumeAssessment,
+) -> Result<Option<RecordKinds>, LibraryError> {
+    let Some(declared) = map.get("record_kinds") else {
+        return Ok(None);
+    };
+    let adapter = what;
+    let what = format!("{what} 'record_kinds'");
+    let raw = object(declared, &what)?;
+    only_keys(raw, &["transcript", "root_session", "resume_shape"], &what)?;
+    let kind = |key: &str| -> Result<String, LibraryError> {
+        let kind = string(raw, key, &what)?;
+        match kind_word(&kind) && kind != "none" {
+            true => Ok(kind),
+            false => invalid(format!(
+                "{what} '{key}' must be one kind of at most 40 bytes matching \
+                 ^[a-z][a-z0-9]*(-[a-z0-9]+)*$, and not 'none'"
+            )),
+        }
+    };
+    let transcript = kind("transcript")?;
+    let root_session = match raw.contains_key("root_session") {
+        true => Some(kind("root_session")?),
+        false => None,
+    };
+    // A root session kind is what a rejoin would be offered on, and
+    // whether one exists is a capability: declared, never defaulted
+    // (decision 0075 ruling 1).
+    if root_session.is_some() && !map.contains_key("resume") {
+        let adapter = adapter.to_string();
+        return Err(LibraryError::RootWithoutResume { adapter });
+    }
+    let shape = match raw.contains_key("resume_shape") {
+        true => Some(string(raw, "resume_shape", &what)?),
+        false => None,
+    };
+    let refused = |unmet| {
+        let adapter = adapter.to_string();
+        Err(LibraryError::RootShape { adapter, unmet })
+    };
+    let root_session = match (root_session, shape) {
+        (None, None) => None,
+        (Some(_), None) => return refused(RootShapeUnmet::Unnamed),
+        (None, Some(_)) => return refused(RootShapeUnmet::Rootless),
+        (Some(_), Some(shape)) if resume.shape(&shape).is_none() => {
+            return refused(RootShapeUnmet::Undeclared(shape))
+        }
+        (Some(kind), Some(resume_shape)) => Some(RootKind { kind, resume_shape }),
+    };
+    Ok(Some(RecordKinds {
+        transcript,
+        root_session,
+    }))
+}
 
 /// Who the provider is and how it is invoked, with the native inventory
 /// its driver's harness judges.
@@ -32,16 +124,18 @@ pub(super) struct Invocation {
 pub(super) fn invocation(
     name: &str,
     map: &Map<String, Value>,
-    path: &Path,
+    strict_problem: Option<String>,
     what: &str,
 ) -> Result<Invocation, LibraryError> {
     // Every adapter is authority data: its native capabilities (decision
-    // 0065 ruling 4) and its models' tiers (decision 0075 ruling
-    // 5) alike, so a key written twice anywhere in the file is a refusal
-    // rather than whichever copy came second.
-    let text = std::fs::read_to_string(path)?;
-    brokkr_core::canonical::parse_strict(&text)
-        .map_err(|problem| LibraryError::Invalid(format!("{what}: {problem}")))?;
+    // 0065 ruling 4) and its models' tiers (decision 0075 ruling 5)
+    // alike, so a key written twice anywhere in the file is a refusal
+    // rather than whichever copy came second. `strict_problem` is what
+    // the one strict parse of the adapter's bytes refused (`json_of`),
+    // and `map` is then the lenient parse it is refused beside.
+    if let Some(problem) = strict_problem {
+        return invalid(format!("{what}: {problem}"));
+    }
     let native = crate::capabilities::NativeInventory::parse(what, map.get("native_capabilities"))
         .map_err(LibraryError::Invalid)?;
     let provider = string(map, "provider", what)?;
@@ -300,7 +394,7 @@ pub(super) struct Settled {
 pub(super) fn settled(
     map: &Map<String, Value>,
     credentials: &BTreeMap<String, String>,
-    path: &Path,
+    (path, bytes): (&Path, &[u8]),
     what: &str,
     driver: &[String],
 ) -> Result<Settled, LibraryError> {
@@ -314,6 +408,6 @@ pub(super) fn settled(
         route_overlays: overlays,
         harness_auth: auth::harness_auth(map, credentials, what)?,
         effort_flag: pin_flag(map, "effort_flag", what)?,
-        digest: sha256_bytes(&std::fs::read(path)?),
+        digest: sha256_bytes(bytes),
     })
 }

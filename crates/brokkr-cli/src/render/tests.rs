@@ -1742,3 +1742,65 @@ fn the_view_runs_and_inspect_paint_the_same_park_cause() {
         "inspect painted no cause: {painted}"
     );
 }
+
+/// `inspect`'s transcript line for one seat whose attempt checkpointed
+/// `checkpoint` and succeeded with `result`.
+fn transcript_line(checkpoint: Value, result: Value) -> String {
+    let events = [
+        ev(1, EventType::RunStarted, json!({"feature": "f"}), T0),
+        ev(2, EventType::PhaseEntered, json!({"phase": "work"}), T0),
+        ev(
+            3,
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "work", "phase": "work"}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a"}),
+            T0,
+        ),
+        ev(
+            5,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": "a", "checkpoint": checkpoint}),
+            T1,
+        ),
+        ev(
+            6,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "e", "attempt_id": "a", "result": result}),
+            T2,
+        ),
+    ];
+    let view = brokkr_view::run_view(&events, Some(&state(Status::Running, None, None)));
+    let out = inspect(&view, None, false, NOW, &Style::plain(120));
+    let line = out
+        .lines()
+        .find(|line| line.starts_with("    transcript  "));
+    line.expect("inspect paints a transcript line").to_string()
+}
+
+/// Decision 0075 ruling 2, the controller's ruling Q4: `inspect` paints a
+/// transcript a checkpoint reports at its own coordinates, and one only
+/// the successful result reports as none recorded — today's reading, for
+/// a built-in driver's kind and a declared one alike.
+#[test]
+fn a_result_only_transcript_reads_as_none_recorded_for_every_kind() {
+    let transcript =
+        |kind: &str, locator: &str| json!({"kind": kind, "locator": locator, "home": "/h/.trail"});
+    let reported = json!({"step": "transcript", "model": "m",
+                          "transcript": transcript("trellis-trail", "t-1")});
+    let complete = json!({"result": "complete"});
+    assert_eq!(
+        transcript_line(reported, complete),
+        "    transcript  trellis-trail · t-1 · home /h/.trail"
+    );
+    for kind in ["claude-session", "trellis-trail"] {
+        let mut result = json!({"result": "complete"});
+        result["transcript"] = transcript(kind, "t-2");
+        let line = transcript_line(json!({"step": "seat-turn", "model": "m"}), result);
+        assert_eq!(line, "    transcript  —", "{kind}");
+    }
+}
