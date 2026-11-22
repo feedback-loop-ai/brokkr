@@ -27,7 +27,7 @@ Decision 0111's first slice (#1093): real payloads from this repository's own CI
 |---|---|---|
 | `cancelled-twin/` | 669303526 (#1222, closed) | two `pull_request` runs of ci one second apart. The older, 3560, was cancelled by the newer's concurrency group, and 3561 is green. |
 | `failed-jobs-rerun-with-cancelled-twin/` | f26bccaea (#1216, closed) | ci 3515 cancelled, and ci 3516 failed, then had its failed jobs re-run as attempt 2. |
-| `two-runs-both-rerun/` | d66801d2d (#1229, closed) | ci 3542 and 3543, both cancelled, then each re-run as attempt 2. The older run's attempt started first. |
+| `two-runs-both-rerun/` | d66801d2d (#1229, closed) | ci 3542 and 3543, both cancelled, then each re-run as attempt 2. The older run's attempt started first. 3543's attempt 2 carries 3 jobs, the RustSec audit among them. |
 | `dispatch-beside-pr-in-progress/` | 4f343ba26 (#1237, open) | the pull-request run 3568 and the dispatch run 3569, both in progress. |
 | `dispatch-in-progress-beside-pr-green/` | 4f343ba26 | 3568 green, and 3569 still in progress. |
 | `dispatch-and-pr-both-green/` | 4f343ba26 | both green. |
@@ -42,7 +42,7 @@ Each line names the payloads that show it.
   - Its `id` is its job's `id`, and `details_url` names `/actions/runs/<run>/job/<job>`.
   - Only the job carries `run_id` and `run_attempt`.
   - So a check's attempt is read through its job (every case).
-- **`filter` on check runs defaults to `latest`.** On f26bccaea, `total_count` is 70 with no filter, 70 under `latest` and 103 under `all`.
+- **`filter` on check runs defaults to `latest`.** On f26bccaea, `total_count` is 70 under `latest` and 103 under `all`. The controller also read it once with no filter, 70, but that call is not in this corpus.
   - `latest` drops an earlier attempt's check runs within the same run (check suite).
   - It keeps every other run's, so a cancelled twin's checks stay visible under `latest` (`cancelled-twin`: 74 and 74).
 - **A failed-jobs-only re-run lists every job in the new attempt.** f26bccaea's attempt 2 lists all 33 jobs:
@@ -67,7 +67,7 @@ Each line names the payloads that show it.
 - **No job key:** a job carries its display `name` (`test (ubuntu-latest) on linux/1`), but neither its workflow key nor a matrix key.
 - **The app:** every check run is `github-actions`, id 15368.
 - **The required set** is branch protection's 12 checks, each with `app_id` 15368, and `strict: false`. The main ruleset holds only the merge queue (`rules.main.json`, `protection.required_status_checks.json`).
-- **Pages:** three heads' check runs under `filter=all` took two pages (103, 103 and 136 runs), and the last page held fewer than 100. `total_count` on the first page gives the whole count. The largest page any list returned is 309,267 bytes, under 0111's 8 MiB response bound.
+- **Pages:** three heads' check runs under `filter=all` took two pages (103, 103 and 136 runs), and the last page held fewer than 100. `total_count` on the first page gives the whole count. The largest page any list returned is 356,478 bytes (`older-run-full-rerun-complete/check-runs.all.page1.json`), under 0111's 8 MiB response bound. The capture commit's message says 309,267, which is the largest in `failed-jobs-rerun-with-cancelled-twin/`; the indexes win.
 - **The status and conclusion words seen:**
   - `completed` with `success`, `failure`, `cancelled` or `skipped`;
   - `in_progress` with no conclusion.
