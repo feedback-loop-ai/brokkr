@@ -120,9 +120,17 @@ pub(super) fn deadline_of(probe_at: OffsetDateTime) -> OffsetDateTime {
 }
 
 /// The probe's hold's end as the store keeps it: the first whole second
-/// strictly after its deadline (fix round 0106b1r6, D1).
-fn hold_end_of(probe_at: OffsetDateTime) -> OffsetDateTime {
-    deadline_of(probe_at) + time::Duration::seconds(1)
+/// strictly after its crash fallback (fix round 0106b1r6, D1), the
+/// deadline plus the shutdown grace and the margin (fix round 0106b1r10,
+/// H2).
+pub(super) fn hold_end_of(probe_at: OffsetDateTime) -> OffsetDateTime {
+    stored_end(deadline_of(probe_at))
+}
+
+/// The stored end of a hold whose probe's deadline is `deadline`.
+pub(super) fn stored_end(deadline: OffsetDateTime) -> OffsetDateTime {
+    let past = brokkr_protocol::process::SHUTDOWN_GRACE + crate::engine::dispatch::HOLD_MARGIN;
+    deadline + past + time::Duration::seconds(1)
 }
 
 /// While the barrier probe is in flight, the gates' legs at `at` and
@@ -199,7 +207,7 @@ fn a_probe_holds_its_route_from_dispatch_until_its_refusals_row_commits() {
         let until = if *rounds == 1 { held } else { end };
         assert!(held_to(legs, until), "{seen:?}");
     }
-    for at in [probe_at, held, end - time::Duration::seconds(1)] {
+    for at in [probe_at, end - time::Duration::seconds(1)] {
         assert!(held_to(&legs(&gates, at), end), "at {at}");
     }
     assert_eq!(legs(&gates, end), [Ok(()), Ok(())]);
@@ -274,16 +282,18 @@ fn a_probe_round_the_table_does_not_write_ends_no_hold() {
 
 /// The probe left no row on the route and its hold standing: the gates read
 /// the route cooling down from the probe's instant through `deadline`, the
-/// instant its driver is killed by, to the first whole second after it,
-/// and open at that second (fix round 0106b1r6, D1).
+/// instant its driver is killed by, and the shutdown grace past it, to the
+/// hold's stored end, and open at that end (fix rounds 0106b1r6, D1, and
+/// 0106b1r10, H2).
 pub(super) fn held_to_its_deadline(engine: &Engine, gates: &Shared, deadline: OffsetDateTime) {
     let probe_at = deadline - time::Duration::seconds(2);
-    let end = deadline + time::Duration::seconds(1);
+    let end = stored_end(deadline);
     assert_eq!(
         engine.store.cooldown("claude", "first", probe_at).unwrap(),
         None
     );
-    for at in [probe_at, deadline] {
+    let graced = deadline + brokkr_protocol::process::SHUTDOWN_GRACE;
+    for at in [probe_at, deadline, graced, end - time::Duration::seconds(1)] {
         assert!(held_to(&legs(gates, at), end), "at {at}");
     }
     assert_eq!(unended_holds(engine.store.path()), 1);
@@ -351,7 +361,7 @@ fn a_hold_the_table_does_not_write_parks_before_any_probe_and_ends_no_other() {
         site: "",
         provider: "codex",
         route: "second",
-        deadline: probe_at + time::Duration::hours(1),
+        fallback: probe_at + time::Duration::hours(1),
     };
     engine.store.hold_probe(&other, probe_at).unwrap();
     driven_raising(&mut engine, "probe_holds", "IGNORE");

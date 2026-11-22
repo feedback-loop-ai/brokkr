@@ -157,11 +157,22 @@ pub(super) struct Bounds {
 
 impl Bounds {
     pub(super) const DEFAULT: Bounds = Bounds {
-        grace: Duration::from_secs(5),
+        grace: SHUTDOWN_GRACE,
         settle: Duration::from_secs(5),
         drain: Duration::from_secs(5),
     };
 }
+
+/// How long ending an attempt waits for its driver to take `shutdown` and
+/// exit on its own before its tree is killed: the grace a cool-down
+/// probe's stored hold outlasts its deadline by (decision 0106 slice
+/// 0106b1, fix round 0106b1r10, H2).
+pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
+/// The longest ending an attempt waits once its grace is spent: the killed
+/// tree's settle and its pipes' drain, in turn.
+pub const SHUTDOWN_SETTLE: Duration =
+    Duration::from_secs(Bounds::DEFAULT.settle.as_secs() + Bounds::DEFAULT.drain.as_secs());
 
 /// The host calls ending an attempt makes, held as data so a test can
 /// stand in a kill the kernel refuses, a table that never reads settled,

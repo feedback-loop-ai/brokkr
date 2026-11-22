@@ -2,10 +2,12 @@
 //! ruling of 2026-11-18, amending decision 0103 ruling 2): one version 7
 //! `probe_holds` row, written before the probe is reserved, that the pass
 //! and the claim read as a cool-down through the one in-force read
-//! ([`super::in_force`]) while it is unended and before its deadline. A
+//! ([`super::in_force`]) while it is unended and before its stored end. A
 //! refusal's renewed round ends it in the transaction that writes the
-//! round; an answer ends it at once; any other end leaves it standing
-//! until its deadline, after which it holds nothing.
+//! round; a live engine ends it once its settlement proves the probe's
+//! tree ended (fix round 0106b1r10, H1). Its stored end is only the crash
+//! fallback, the probe's deadline plus the shutdown grace and a margin
+//! (H2): past it, a hold no engine ended holds nothing.
 
 use rusqlite::{params, Connection, OptionalExtension};
 use time::OffsetDateTime;
@@ -25,10 +27,12 @@ pub struct ProbeHold<'a> {
     pub site: &'a str,
     pub provider: &'a str,
     pub route: &'a str,
-    /// The instant the probe's driver is killed by. The hold stops
-    /// counting at the first whole second after it, whatever became of the
-    /// probe.
-    pub deadline: OffsetDateTime,
+    /// The hold's crash fallback: the probe's deadline, the instant its
+    /// driver is killed by, plus the shutdown grace and the engine's
+    /// margin (fix round 0106b1r10, H2). A live engine ends the hold on
+    /// evidence long before it; the hold stops counting at the first whole
+    /// second after it only where nothing ended it, as after a crash.
+    pub fallback: OffsetDateTime,
 }
 
 /// A written hold, by its row: what the probe's answer, or its renewed
@@ -36,14 +40,12 @@ pub struct ProbeHold<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProbeHoldId(i64);
 
-/// The first whole second strictly after `deadline`: a hold stored here
-/// ends later than the probe's driver is killed, even on a deadline that
-/// falls on a whole second, where a round-up would end both at once (fix
+/// The first whole second strictly after `fallback`, never before it (fix
 /// round 0106b1r6, D1). `None` where that second is past [`LAST_SECOND`]:
-/// it is never clamped there, which would end the hold at or before the
-/// deadline, while the driver could still run (fix round 0106b1r9, E2).
-fn after_second(deadline: OffsetDateTime) -> Option<i64> {
-    let end = deadline.unix_timestamp() + 1;
+/// it is never clamped there, which would end the hold before its
+/// fallback (fix round 0106b1r9, E2).
+fn after_second(fallback: OffsetDateTime) -> Option<i64> {
+    let end = fallback.unix_timestamp() + 1;
     (end <= LAST_SECOND).then_some(end)
 }
 
@@ -125,7 +127,7 @@ impl Store {
             provider: hold.provider.to_string(),
             route: hold.route.to_string(),
         };
-        let Some(ends) = after_second(hold.deadline) else {
+        let Some(ends) = after_second(hold.fallback) else {
             return Err(QueueRefusal::ProbeHoldUnending(Box::new(unwritten())).into());
         };
         patiently("hold_probe", self.patience, || {

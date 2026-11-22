@@ -137,13 +137,14 @@ struct AdmittedProbe {
 }
 
 /// A probe whose deadline passed before its driver could be spawned (fix
-/// round 0106b1r5, H2): it is not spawned, and its route's hold stands
-/// until the first whole second after that deadline, where the store ends
-/// it (fix round 0106b1r9, E5). Its words are the park's reason.
+/// round 0106b1r5, H2): it is not spawned, and its route's hold stands to
+/// its stored end, past the deadline by the shutdown grace and the hold's
+/// margin (fix round 0106b1r10, H2). Its words are the park's reason.
 #[derive(Debug, thiserror::Error)]
 #[error(
     "the cool-down probe for {provider}/{route} was not spawned: its deadline {} passed before \
-     its driver could start, and its route's hold stands until the first whole second after it",
+     its driver could start, and its route's hold stands to its stored end, past the deadline \
+     by the shutdown grace and the hold's margin",
     spelled(*ends)
 )]
 struct Late {
@@ -183,11 +184,12 @@ impl Engine {
         let began = Instant::now();
         let deadline = Duration::from_secs(picked.seat.limits.timeout_seconds);
         // The probe's one deadline, taken once as it begins, on the
-        // monotonic clock read above and then the engine's: its hold ends
-        // after it, the fork reads it, and its watchdog kills at it.
+        // monotonic clock read above and then the engine's: the fork reads
+        // it, its watchdog kills at it, and its hold's stored end, the crash
+        // fallback, lies past it by the shutdown grace and the margin.
         let now = self.now();
         let ends = ProbeDeadline::begun(began, now, deadline);
-        if let Err(unheld) = self.hold_the_route(wait, now, ends.ends) {
+        if let Err(unheld) = self.hold_the_route(wait, now, ends.fallback) {
             return Ok(Err(Probe::Parked(Park::ruled(format!(
                 "the cool-down probe for {}/{} was not admitted: its route's hold was not \
                  written: {unheld}",
@@ -217,14 +219,14 @@ impl Engine {
     /// Hold the probe's route before it is reserved and dispatched (fix
     /// round 0106b1r4, F1; the operator's ruling of 2026-11-18, amending
     /// decision 0103 ruling 2): one hold row, written at `now`, carrying the
-    /// provider, the route and the instant `ends` the probe's driver is
-    /// killed by (fix round 0106b1r5, H2), which the store ends at the
-    /// first whole second strictly after it (fix round 0106b1r6, D1), that
-    /// the pass and the claim read as cooling down until it ends or that
-    /// second comes.
+    /// provider, the route and its crash fallback `fallback` (fix round
+    /// 0106b1r10, H2), which the store keeps to the first whole second
+    /// strictly after it (fix round 0106b1r6, D1). The pass and the claim
+    /// read it as cooling down until the engine ends it on evidence (H1),
+    /// or, where nothing ended it, that second comes.
     /// A hold the store refuses parks the probe unadmitted, so no probe
     /// runs on a route it could not hold: one the table did not write, one
-    /// whose end cannot be stored after its deadline, and one on a queue
+    /// whose end cannot be stored after its fallback, and one on a queue
     /// this binary does not write, older than version 7 or a newer
     /// binary's, which takes no hold (fix round 0106b1r9, E3). An engine's
     /// own open moves a version 4 to 6 queue to version 7 before any probe.
@@ -232,14 +234,14 @@ impl Engine {
         &mut self,
         wait: &ProviderWait,
         now: OffsetDateTime,
-        ends: OffsetDateTime,
+        fallback: OffsetDateTime,
     ) -> Result<(), brokkr_store::StoreError> {
         let hold = ProbeHold {
             run_id: &self.run_id,
             site: wait.site.as_deref().unwrap_or(""),
             provider: &wait.provider,
             route: &wait.route,
-            deadline: ends,
+            fallback,
         };
         // Only a hold this insert returned is ever ended: one the store
         // refuses, or did not write, leaves none (fix round 0106b1r6, D2).

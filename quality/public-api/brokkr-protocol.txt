@@ -1094,6 +1094,8 @@ pub fn brokkr_protocol::process::DriverProcess::run_attempt_resuming(self, &str,
 pub fn brokkr_protocol::process::DriverProcess::spawn(&[alloc::string::String], &std::path::Path, core::option::Option<core::time::Duration>, &brokkr_protocol::process::SpawnEnv) -> core::result::Result<Self, brokkr_protocol::process::SpawnError>
 impl brokkr_protocol::process::DriverProcess
 pub fn brokkr_protocol::process::DriverProcess::spawn_by(&[alloc::string::String], &std::path::Path, brokkr_protocol::process::By<'_>, &brokkr_protocol::process::SpawnEnv) -> core::result::Result<Self, brokkr_protocol::process::SpawnError>
+pub const brokkr_protocol::process::SHUTDOWN_GRACE: core::time::Duration
+pub const brokkr_protocol::process::SHUTDOWN_SETTLE: core::time::Duration
 pub mod brokkr_protocol::secret
 pub struct brokkr_protocol::secret::BoundSecret
 impl brokkr_protocol::secret::BoundSecret

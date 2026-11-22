@@ -242,7 +242,7 @@ fn a_probe_from_a_held_end_at_year_9999_is_refused_before_dispatch() {
         format!(
             "the cool-down probe for claude/first was not admitted: its route's hold was not \
              written: the journal's probe holds cannot end run '{run_id}''s hold on \
-             claude/first after its deadline: the first whole second after it is past \
+             claude/first after its crash fallback: the first whole second after it is past \
              9999-12-31T23:59:59Z, the last the journal can spell, so no probe runs on it and \
              nothing was written"
         )

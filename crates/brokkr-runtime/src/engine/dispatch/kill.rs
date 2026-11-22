@@ -13,17 +13,54 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use brokkr_protocol::process::{By, DriverProcess, SpawnEnv, SpawnError};
+use brokkr_protocol::process::{
+    By, DriverProcess, SpawnEnv, SpawnError, SHUTDOWN_GRACE, SHUTDOWN_SETTLE,
+};
 use time::OffsetDateTime;
+
+/// How far a probe's stored hold outlasts its deadline and the shutdown
+/// grace together (fix round 0106b1r10, H2). The stored end is only a
+/// crash fallback: a live engine ends the hold on evidence, once its
+/// settlement proves the probe's tree ended or its answer or renewed round
+/// commits, and the stored end bounds how long a crashed holder blocks the
+/// route. The margin is named once, here.
+pub(in crate::engine) const HOLD_MARGIN: Duration = Duration::from_secs(60);
+
+/// The longest a live engine's own work past the deadline may take before
+/// its settlement can end the hold, allowed for the margin: the fork's
+/// registration and the pipe readers' start before the watchdog arms, the
+/// watchdog's wake, and the journal write that ends the hold.
+const ARM_WORK: Duration = Duration::from_secs(10);
+
+/// The forward step of the engine's wall clock, against the monotonic one
+/// its watchdog waits on, that the margin absorbs while a probe is in
+/// flight. A larger step, like a host suspend longer than the margin, can
+/// end the fallback while a frozen driver lives: the named residual.
+const CLOCK_STEP: Duration = Duration::from_secs(30);
+
+/// What the margin must exceed: the shutdown grace, the killed tree's
+/// settle and drain after it, the engine's own work past the deadline, and
+/// the clock step it absorbs.
+const MARGIN_BOUND: Duration = Duration::from_secs(
+    SHUTDOWN_GRACE.as_secs()
+        + SHUTDOWN_SETTLE.as_secs()
+        + ARM_WORK.as_secs()
+        + CLOCK_STEP.as_secs(),
+);
+
+const _: () = assert!(HOLD_MARGIN.as_secs() > MARGIN_BOUND.as_secs());
 
 /// A probe's one deadline, taken as it begins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::engine) struct ProbeDeadline {
-    /// On the engine's clock: what the probe's hold ends after, and what
-    /// the fork reads.
+    /// On the engine's clock: what the fork reads.
     pub(in crate::engine) ends: OffsetDateTime,
     /// On the monotonic clock: where the probe's watchdog kills.
     pub(in crate::engine) kill: Instant,
+    /// On the engine's clock: the hold's crash fallback, the deadline plus
+    /// the shutdown grace plus [`HOLD_MARGIN`], which the store keeps as the
+    /// hold's end (fix round 0106b1r10, H2).
+    pub(in crate::engine) fallback: OffsetDateTime,
 }
 
 impl ProbeDeadline {
@@ -32,9 +69,12 @@ impl ProbeDeadline {
     /// moves the kill earlier, never later.
     pub(in crate::engine) fn begun(began: Instant, now: OffsetDateTime, length: Duration) -> Self {
         let seconds = i64::try_from(length.as_secs()).unwrap_or(i64::MAX);
+        let ends = now.saturating_add(time::Duration::seconds(seconds));
+        let past = (SHUTDOWN_GRACE + HOLD_MARGIN).as_secs() as i64;
         ProbeDeadline {
-            ends: now.saturating_add(time::Duration::seconds(seconds)),
+            ends,
             kill: began + length,
+            fallback: ends.saturating_add(time::Duration::seconds(past)),
         }
     }
 
