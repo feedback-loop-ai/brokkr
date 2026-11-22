@@ -746,7 +746,7 @@ const EFFECTS: [(&str, &str, &[&str]); 8] = [
         ],
     ),
     ("unicode-width", "0.2.2", &[]),
-    ("url", "2.5.8", &["url::Url::socket_addrs"]),
+    ("url", "2.5.9", &["url::Url::socket_addrs"]),
 ];
 
 /// The table row whose effectful item is named `name`, as `crate version`.
@@ -821,7 +821,7 @@ fn the_dependency_surface_table_matches_the_lockfile() {
             id: package.id.clone(),
             name: package.name.clone(),
             version: if package.name == "url" && package.source.is_some() {
-                "2.5.9".to_string()
+                "2.5.10".to_string()
             } else {
                 package.version.clone()
             },
@@ -834,7 +834,7 @@ fn the_dependency_surface_table_matches_the_lockfile() {
         .collect();
     assert_eq!(
         surface_refusals(&drifted, &metadata.workspace_members),
-        ["url: the table reads 2.5.8, the lockfile pins [\"2.5.9\"]"]
+        ["url: the table reads 2.5.9, the lockfile pins [\"2.5.10\"]"]
     );
     let config = read("crates/brokkr-core/clippy.toml");
     let unlisted: Vec<&str> = EFFECTS
