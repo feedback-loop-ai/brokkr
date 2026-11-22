@@ -52,6 +52,13 @@ fn planted(db: &Path, count: u32) -> Store {
     store
 }
 
+/// [`planted`] twice in `dir`: a journal of ten runs and one of ten
+/// thousand, so a read's cost is measured against the journal's size.
+fn small_and_large(dir: &Path) -> (Store, Store) {
+    let small = planted(&dir.join("small.db"), 10);
+    (small, planted(&dir.join("large.db"), 10_000))
+}
+
 /// `latest` takes the LAST of equal maxima in `list_runs`' order, which
 /// is the row inserted last on a `created_at` tie.
 #[test]
@@ -201,8 +208,7 @@ fn a_read_only_open_without_the_index_resolves_and_leaves_it_absent() {
 #[test]
 fn latest_exact_and_a_unique_prefix_cost_a_page_and_an_ambiguous_one_its_matches() {
     let dir = tempfile::tempdir().unwrap();
-    let small = planted(&dir.path().join("small.db"), 10);
-    let large = planted(&dir.path().join("large.db"), 10_000);
+    let (small, large) = small_and_large(dir.path());
 
     let (_, small_latest) = steps(&small, || small.latest_run().unwrap());
     let (_, large_latest) = steps(&large, || large.latest_run().unwrap());
@@ -241,8 +247,7 @@ fn latest_exact_and_a_unique_prefix_cost_a_page_and_an_ambiguous_one_its_matches
 #[test]
 fn a_bounded_prefix_read_costs_its_bound_whatever_the_prefix_names() {
     let dir = tempfile::tempdir().unwrap();
-    let small = planted(&dir.path().join("small.db"), 10);
-    let large = planted(&dir.path().join("large.db"), 10_000);
+    let (small, large) = small_and_large(dir.path());
 
     let (small_two, small_steps) =
         steps(&small, || small.run_candidates_within("run-", 2).unwrap());

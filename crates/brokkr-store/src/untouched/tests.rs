@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::test_support::plant_run;
@@ -167,44 +167,56 @@ fn a_hot_rollback_journal_completes_nothing_and_is_left_as_it_stands() {
     assert_eq!(std::fs::read(&hot).unwrap(), hot_bytes);
 }
 
+/// A scratch directory holding [`journal`]'s journal, and its path.
+fn planted() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    journal(&db);
+    (dir, db)
+}
+
+/// A lock-free read of [`planted`]'s journal during which a writer opens
+/// it and plants a run: the read's answer, and the writer where `kept`
+/// keeps it open past the read.
+fn read_beside_a_writer(
+    kept: bool,
+) -> (
+    tempfile::TempDir,
+    Result<Vec<String>, StoreError>,
+    Option<Store>,
+) {
+    let (dir, db) = planted();
+    let mut held = None;
+    let read = Store::read_untouched(&db, PATIENCE, |store| {
+        let page = ids(store)?;
+        let writer = Store::open(&db)?;
+        plant_run(&writer.conn, "run-b", "{}")?;
+        held = kept.then_some(writer);
+        Ok::<_, StoreError>(page)
+    });
+    (dir, read, held)
+}
+
 /// A writer that opens the journal during a lock-free read, and is still
 /// writing when it ends, voids the read: its answer is refused.
 #[test]
 fn a_writer_starting_during_a_lock_free_read_voids_its_answer() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("forge.db");
-    journal(&db);
-    let mut held = None;
-    let refused = Store::read_untouched(&db, PATIENCE, |store| {
-        let page = ids(store)?;
-        let writer = Store::open(&db)?;
-        plant_run(&writer.conn, "run-b", "{}")?;
-        held = Some(writer);
-        Ok::<_, StoreError>(page)
-    });
+    let (_dir, refused, held) = read_beside_a_writer(true);
+    assert!(held.is_some(), "the writer outlived the read");
     assert!(busy(&refused), "{refused:?}");
     let error = refused.unwrap_err();
     assert!(
         error.to_string().contains("changed while it was read"),
         "{error}"
     );
-    drop(held);
 }
 
 /// A writer that opens, writes and closes within a lock-free read leaves
 /// no side file behind it, but it moved the main file: the read is voided.
 #[test]
 fn a_writer_come_and_gone_during_a_lock_free_read_voids_its_answer() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("forge.db");
-    journal(&db);
-    let refused = Store::read_untouched(&db, PATIENCE, |store| {
-        let page = ids(store)?;
-        let writer = Store::open(&db)?;
-        plant_run(&writer.conn, "run-b", "{}")?;
-        drop(writer);
-        Ok::<_, StoreError>(page)
-    });
+    let (dir, refused, held) = read_beside_a_writer(false);
+    assert!(held.is_none());
     assert_eq!(names(dir.path()), ["forge.db"], "the writer closed clean");
     assert!(busy(&refused), "{refused:?}");
 }
@@ -213,9 +225,7 @@ fn a_writer_come_and_gone_during_a_lock_free_read_voids_its_answer() {
 /// left beside the journal.
 #[test]
 fn a_refusal_inside_the_read_is_the_callers() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("forge.db");
-    journal(&db);
+    let (dir, db) = planted();
     let refused = Store::read_untouched(&db, PATIENCE, |store| {
         store.run_seats("run-a", 1)?;
         Err::<(), _>(StoreError::RunNotFound("run-z".into()))
