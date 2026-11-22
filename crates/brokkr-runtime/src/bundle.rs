@@ -701,6 +701,8 @@ pub struct Bundle {
     /// phase whose office receives it. Review is supplied only to the
     /// spec-compliance member by the engine.
     pub dialect_prompts: BTreeMap<String, String>,
+    /// The kinds this compile's adapters let a seat write (decision 0075 ruling 2); never digested.
+    pub declared_kinds: crate::agents::DeclaredKinds,
 }
 
 /// The default library roots, resolved against the current working
@@ -1068,6 +1070,7 @@ impl Bundle {
             ..
         } = table;
 
+        let declared_kinds = crate::agents::DeclaredKinds::of(agents.loaded());
         let capability_record = assemble::capability_record(&authority, &agents, &sites);
         let select_records = assemble::select_records(&seats);
         let projections = assemble::projections(&sites);
@@ -1089,6 +1092,7 @@ impl Bundle {
         resolved.check_leaf(manifest["files"].as_object().expect("manifest files"))?;
         let charters = assemble::charter_pins(&sites);
         Ok(Bundle {
+            declared_kinds,
             hands: projections.hands,
             inline_resume: projections.inline_resume,
             sites,

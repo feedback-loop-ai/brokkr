@@ -1278,6 +1278,24 @@ fn run_boundary(events: &[EventEnvelope]) -> RunBoundary {
 
 // -------------------------------------------------------------- activity
 
+/// A participant's compatibility id: a Claude transcript's locator, or
+/// else the flat id it was told. A transcript of a kind the view does not
+/// know is no fallback to the flat id (the controller's rulings R29 and
+/// R36).
+fn session_id(transcript: Option<&Transcript>, told: Option<&String>) -> Option<String> {
+    use crate::transcript::TranscriptKind as Kind;
+    let Some(read) = transcript else {
+        return told.cloned();
+    };
+    match Kind::parse(&read.kind) {
+        None => None,
+        Some(Kind::ClaudeSession) if !read.locator.is_empty() => Some(read.locator.clone()),
+        Some(Kind::ClaudeSession | Kind::CodexThread | Kind::DshSession | Kind::None) => {
+            told.cloned()
+        }
+    }
+}
+
 fn transcript_cell(transcript: Option<&Transcript>) -> Cell {
     match transcript {
         Some(transcript) if transcript.kind == "none" => cell_of(Some("none".to_string()), None),
@@ -1630,12 +1648,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
         };
         let provenance = part.provenance.as_ref().map(provenance_of);
         let transcript = part.transcript.clone();
-        let session_id = transcript
-            .as_ref()
-            .filter(|transcript| transcript.kind == "claude-session")
-            .map(|transcript| transcript.locator.clone())
-            .filter(|locator| !locator.is_empty())
-            .or_else(|| part.told.session_id.clone());
+        let session_id = session_id(transcript.as_ref(), part.told.session_id.as_ref());
         let (usage_cell, tokens) = usage_cells(usage.as_ref(), usage_prefix);
         let carried_from = started::carried_from(events, scan, part);
         let activity = started::activity(events, scan, part, members.len(), carried_from.as_ref());
@@ -2347,6 +2360,8 @@ fn viewed(
     }
 }
 
+#[cfg(test)]
+mod kinds_tests;
 #[cfg(test)]
 mod late_tests;
 #[cfg(test)]

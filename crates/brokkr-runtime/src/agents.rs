@@ -49,10 +49,12 @@ use crate::bundle::Limits;
 
 pub(crate) mod charter_data;
 mod compose;
+pub(crate) mod kinds;
 mod load;
 mod mcp;
 mod route;
 pub use brokkr_protocol::adapters::HandsNotice;
+pub use kinds::{DeclaredKinds, RecordKinds, RootShapeUnmet};
 pub use load::{resolve_route, valid_name, Adapters, Library, LibraryError, NAME_GRAMMAR};
 pub(crate) use mcp::Uncarried;
 pub use mcp::{McpAxis, McpError, McpHands, McpHost, McpInvocation, McpIsolation, McpMeasurement};
@@ -492,6 +494,10 @@ pub struct Adapter {
     /// `hands` already uses, and the reading every adapter written
     /// before this ruling gets.
     pub resume: ResumeAssessment,
+    /// Decision 0075 ruling 2: the transcript and root session kinds this
+    /// harness's seat records name. `None` declares nothing, which every
+    /// shipped adapter is: a built-in driver declares the kinds it writes.
+    pub record_kinds: Option<RecordKinds>,
     /// Decision 0065 ruling 4: the powers this harness already has — a
     /// server-side search, a built-in fetch — each with how it is switched
     /// on and off, or `unsupported` with the measured reason, or
@@ -648,6 +654,17 @@ impl ResumeShape {
             "limitations": self.limitations,
             "reason": self.reason,
         })
+    }
+
+    /// Whether this shape was measured for a site of `class` standing
+    /// under `boundary` with `hands`: the class among its `classes`, the
+    /// boundary among its `boundaries`, and its `hands` the site's. The
+    /// same three facts, in the same words, that the engine writes into
+    /// the driver's input and the driver's resume gate matches (proposed
+    /// decision 0056 ruling 5; the controller's ruling R4 of 2026-11-21).
+    pub(crate) fn covers(&self, class: &str, boundary: &str, hands: &str) -> bool {
+        let names = |words: &[String], word: &str| words.iter().any(|named| named == word);
+        names(&self.classes, class) && names(&self.boundaries, boundary) && self.hands == hands
     }
 }
 

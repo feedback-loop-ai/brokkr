@@ -442,6 +442,11 @@ fn contributions<'a>(
                 .and_then(|record| record.settled_members.get(tag))
                 .map(|result| (source, result))
         });
+        // A carried member is no copy but a contribution to a new verdict
+        // (item 2 of decision 0075's addendum of 2026-11-21), so one its
+        // writer's kind check refuses is no settled verdict and is not
+        // carried (the controller's rulings R18 and R23 of 2026-11-22).
+        let verdict = verdict.filter(|(source, result)| source.admits(tag, result));
         match verdict {
             Some((source, result)) => {
                 // The carried member's findings, read once, here, where

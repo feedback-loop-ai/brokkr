@@ -121,6 +121,7 @@ pub fn brokkr_protocol::adapters::dsh_composite_prepared(&brokkr_protocol::adapt
 pub fn brokkr_protocol::adapters::harness_auth(&serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, brokkr_protocol::adapters::HarnessAuthError>
 pub fn brokkr_protocol::adapters::lanetally_command(&str, &[alloc::string::String], core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::adapters::render_prompt(&serde_json::value::Value, brokkr_protocol::adapters::AdapterKind) -> core::result::Result<alloc::string::String, brokkr_protocol::adapters::StartRefusal>
+pub fn brokkr_protocol::adapters::resume_enabled(&serde_json::value::Value, &str) -> bool
 pub fn brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind, alloc::vec::Vec<alloc::string::String>, fn() -> core::io::error::Result<()>) -> core::io::error::Result<()>
 pub fn brokkr_protocol::adapters::split_route(&str) -> (core::option::Option<&str>, &str)
 pub mod brokkr_protocol::broker
@@ -1282,5 +1283,7 @@ impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::Probe
 pub fn brokkr_protocol::Probe::deserialize<D>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
 pub const brokkr_protocol::DRIVER_REFUSAL_SCHEMA: &str
 pub const brokkr_protocol::PROTO: &str
+pub fn brokkr_protocol::driver_kind(brokkr_protocol::adapters::AdapterKind) -> core::option::Option<&'static str>
+pub fn brokkr_protocol::driver_kinds() -> [&'static str; 3]
 pub fn brokkr_protocol::dsh_served(core::option::Option<&brokkr_protocol::native_controls::SealedIsolation>, bool, core::option::Option<&str>, bool) -> core::result::Result<brokkr_protocol::DshServed, brokkr_protocol::DshRefusal>
 pub fn brokkr_protocol::holds_dotenv(&std::path::Path) -> bool

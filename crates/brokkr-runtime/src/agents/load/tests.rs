@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::{Adapters, Library, LibraryError};
+use crate::agents::RootShapeUnmet;
 
 /// Each row's patch written over `loadable` as `file`, alone in a fresh
 /// canonical directory beside a charter that declares nothing, and
@@ -44,13 +45,18 @@ fn refusals<T: std::fmt::Debug>(
 }
 
 /// Each row's refusal from `Adapters::load`, over an adapter that loads.
-fn adapter_refusals(rows: &[(Value, &str)]) -> (Vec<String>, Vec<String>) {
-    let loadable = json!({
+/// The smallest claude adapter that loads.
+fn loadable_adapter() -> Value {
+    json!({
         "effort_flag": "--effort", "efforts": ["high"], "model_flag": "--model",
         "models": {"opus": "claude-opus-5"}, "mcp": "unsupported", "provider": "claude",
         "tool_permissions": "unsupported", "binary": "claude",
         "driver": ["{brokkr}", "driver", "claude", "--"],
-    });
+    })
+}
+
+fn adapter_refusals(rows: &[(Value, &str)]) -> (Vec<String>, Vec<String>) {
+    let loadable = loadable_adapter();
     refusals(rows, ("claude.json", &loadable), Adapters::load, |path| {
         format!("adapter 'claude' ({})", path.display())
     })
@@ -229,27 +235,25 @@ fn an_adapter_step_failing_two_adjacent_reads_reports_the_earlier() {
     assert_eq!(observed, expected);
 }
 
-/// The two reads a definition alone cannot fail beside a field: the
-/// file's strict parse, ahead of the native inventory, and the file's
-/// digest, behind the effort flag. Each step is called with a map and a
-/// file that disagree.
+/// The strict parse of the bytes read, which a definition alone cannot
+/// fail beside a field, is refused ahead of the native inventory; and the
+/// digest, of those same bytes, is no read of its own, so an absent file
+/// leaves the effort flag's refusal standing (the controller's rulings R9
+/// and R37). Each step is called with a map and bytes that disagree.
 #[test]
 fn an_adapter_step_failing_a_field_and_its_file_reports_the_earlier() {
     let dir = tempfile::tempdir().unwrap();
-    let twice = dir.path().join("claude.json");
-    std::fs::write(
-        &twice,
-        r#"{"native_capabilities": 7, "native_capabilities": 7}"#,
-    )
-    .unwrap();
+    let twice = br#"{"native_capabilities": 7, "native_capabilities": 7}"#;
+    let (_, problem) = super::json_of(twice, &dir.path().join("claude.json")).unwrap();
     let native = json!({"native_capabilities": 7});
-    let invocation = super::adapter::invocation("claude", native.as_object().unwrap(), &twice, "w");
+    let invocation =
+        super::adapter::invocation("claude", native.as_object().unwrap(), problem, "w");
     let effort = json!({"effort_flag": 7});
     let absent = dir.path().join("absent.json");
     let settled = super::adapter::settled(
         effort.as_object().unwrap(),
         &BTreeMap::new(),
-        &absent,
+        (&absent, b""),
         "w",
         &[],
     );
@@ -267,6 +271,160 @@ fn an_adapter_step_failing_a_field_and_its_file_reports_the_earlier() {
             ),
         ]
     );
+}
+
+/// Decision 0075 ruling 2: `record_kinds` is an object of a `transcript`
+/// kind and an optional `root_session` kind, each one seat-record v8 kind
+/// and never `none`; anything else refuses by the rule it broke.
+#[test]
+fn a_record_kinds_declaration_refuses_every_other_shape() {
+    let kind_rule = "must be one kind of at most 40 bytes matching \
+                     ^[a-z][a-z0-9]*(-[a-z0-9]+)*$, and not 'none'";
+    let rows = [
+        (
+            json!({"record_kinds": "trellis-trail"}),
+            "{what} 'record_kinds' must be a JSON object".to_string(),
+        ),
+        (
+            json!({"record_kinds": {"transcript": "trellis-trail", "home": "/h"}}),
+            "{what} 'record_kinds' has unknown key 'home'; known keys: transcript, root_session, \
+             resume_shape"
+                .to_string(),
+        ),
+        (
+            json!({"record_kinds": {"root_session": "trellis-thread"}}),
+            "{what} 'record_kinds' needs a non-empty string 'transcript'".to_string(),
+        ),
+        (
+            json!({"record_kinds": {"transcript": "Trellis"}}),
+            format!("{{what}} 'record_kinds' 'transcript' {kind_rule}"),
+        ),
+        (
+            json!({"record_kinds": {"transcript": "none"}}),
+            format!("{{what}} 'record_kinds' 'transcript' {kind_rule}"),
+        ),
+        (
+            json!({"record_kinds": {"transcript": "trellis-trail", "root_session": "none"}}),
+            format!("{{what}} 'record_kinds' 'root_session' {kind_rule}"),
+        ),
+    ];
+    let rows: Vec<(Value, &str)> = (rows.iter())
+        .map(|(patch, text)| (patch.clone(), text.as_str()))
+        .collect();
+    let (observed, expected) = adapter_refusals(&rows);
+    assert_eq!(observed, expected);
+}
+
+/// A root session kind with no `resume` member at all is refused by its
+/// own variant, naming the adapter: a rejoin is declared, never defaulted
+/// (decision 0075 ruling 1; the controller's ruling R6). Its text is
+/// pinned once, here.
+#[test]
+fn a_root_session_kind_without_a_resume_is_refused_by_its_own_variant() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut adapter = loadable_adapter();
+    adapter["record_kinds"] =
+        json!({"transcript": "trellis-trail", "root_session": "trellis-thread"});
+    let path = dir.path().join("claude.json");
+    std::fs::write(&path, adapter.to_string()).unwrap();
+    let refusal = Adapters::load(dir.path()).unwrap_err();
+    let named = format!("adapter 'claude' ({})", path.display());
+    assert!(
+        matches!(&refusal, LibraryError::RootWithoutResume { adapter } if *adapter == named),
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "{named} 'record_kinds' declares a 'root_session' kind and the adapter declares no \
+             'resume'; a rejoin is declared, never defaulted (decision 0075 ruling 1)"
+        )
+    );
+}
+
+/// A root session kind names the one shape of the adapter's `resume` its
+/// seats rejoin by (the controller's ruling R14): a `root_session` without
+/// a `resume_shape`, a `resume_shape` without a `root_session`, and a
+/// `resume_shape` naming no shape the adapter declares are each refused
+/// by their own cause, naming the adapter; a named declared shape loads.
+#[test]
+fn a_root_session_kind_names_the_one_declared_shape_it_rejoins_by() {
+    let shape = json!({"status": "unsupported", "identity": {"unknown": "fixture"},
+        "classes": ["work"], "boundaries": ["not applicable"], "hands": "none",
+        "reason": "fixture: cannot rejoin"});
+    let loaded = |kinds: Value| {
+        let dir = tempfile::tempdir().unwrap();
+        let mut adapter = loadable_adapter();
+        adapter["resume"] = json!({"headless": shape});
+        adapter["record_kinds"] = kinds;
+        let path = dir.path().join("claude.json");
+        std::fs::write(&path, adapter.to_string()).unwrap();
+        let named = format!("adapter 'claude' ({})", path.display());
+        (Adapters::load(dir.path()), named)
+    };
+    let (trail, thread) = ("trellis-trail", "trellis-thread");
+    for (kinds, unmet, text) in [
+        (
+            json!({"transcript": trail, "root_session": thread}),
+            RootShapeUnmet::Unnamed,
+            "declares a 'root_session' kind and no 'resume_shape' it rejoins by",
+        ),
+        (
+            json!({"transcript": trail, "resume_shape": "headless"}),
+            RootShapeUnmet::Rootless,
+            "names a 'resume_shape' and declares no 'root_session' kind to rejoin",
+        ),
+        (
+            json!({"transcript": trail, "root_session": thread, "resume_shape": "interactive"}),
+            RootShapeUnmet::Undeclared("interactive".into()),
+            "names 'resume_shape' 'interactive', which its 'resume' does not declare",
+        ),
+    ] {
+        let (refusal, named) = loaded(kinds);
+        let refusal = refusal.unwrap_err();
+        assert!(
+            matches!(&refusal, LibraryError::RootShape { adapter, unmet: found }
+                if *adapter == named && *found == unmet),
+            "{refusal:?}"
+        );
+        let text = format!("{named} 'record_kinds' {text} (decision 0075 ruling 1)");
+        assert_eq!(refusal.to_string(), text);
+    }
+    let kinds = json!({"transcript": trail, "root_session": thread, "resume_shape": "headless"});
+    let (adapters, _) = loaded(kinds);
+    let adapters = adapters.unwrap();
+    let declared = adapters.adapter("claude").unwrap().record_kinds.clone();
+    let root = crate::agents::kinds::RootKind {
+        kind: thread.into(),
+        resume_shape: "headless".into(),
+    };
+    assert_eq!(declared.unwrap().root_session, Some(root));
+}
+
+/// One read (the controller's ruling R9 of 2026-11-21): an adapter is
+/// what the bytes it was read from declare, strictly parsed, and its
+/// digest, the witness its site pins, is of those bytes, whatever the
+/// file at its path holds by then — here a key written twice and another
+/// transcript kind.
+#[test]
+fn an_adapter_declares_and_digests_the_one_read_of_its_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("claude.json");
+    let mut read = loadable_adapter();
+    read["record_kinds"] = json!({"transcript": "trellis-trail"});
+    let mut later = loadable_adapter();
+    later["record_kinds"] = json!({"transcript": "other-trail"});
+    let later = format!("{{\"provider\": \"claude\", {}", &later.to_string()[1..]);
+    std::fs::write(&path, later).unwrap();
+    let bytes = read.to_string().into_bytes();
+    let what = super::models::described("claude", &path);
+    let (adapter, _) = super::adapter_from("claude", &path, &what, &bytes).unwrap();
+    assert_eq!(adapter.digest, brokkr_core::canonical::sha256_bytes(&bytes));
+    let declared = crate::agents::kinds::RecordKinds {
+        transcript: "trellis-trail".to_string(),
+        root_session: None,
+    };
+    assert_eq!(adapter.record_kinds, Some(declared));
 }
 
 #[test]
