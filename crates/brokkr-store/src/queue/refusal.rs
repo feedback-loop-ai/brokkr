@@ -184,6 +184,16 @@ pub enum QueueRefusal {
         .0.run_id, .0.provider, .0.route
     )]
     ProbeHoldUnending(Box<UnwrittenHold>),
+    /// A probe's hold on a queue whose storage holds no table this binary
+    /// may write, an older version's or a newer binary's (fix round
+    /// 0106b1r9, E3): no hold can be written, so the probe is not
+    /// dispatched, and nothing was.
+    #[error(
+        "the journal's queue storage is not one this binary writes, so it takes no probe hold \
+         for run '{}' on {}/{}, no probe runs on it, and nothing was written",
+        .0.run_id, .0.provider, .0.route
+    )]
+    ProbeHoldUnstorable(Box<UnwrittenHold>),
     /// A command on an entry the dispatcher has claimed and not yet
     /// linked, returned or held (decision 0095 ruling 1).
     #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]

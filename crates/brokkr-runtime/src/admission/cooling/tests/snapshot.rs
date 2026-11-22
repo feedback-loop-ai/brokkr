@@ -52,7 +52,7 @@ fn a_refusal_committed_between_the_pass_reads_leaves_its_route_cooling_down() {
         route: "cloud",
         deadline: at(30),
     };
-    let hold = (fixture.store.hold_probe(&hold, at(-1)).unwrap()).expect("a version 7 hold");
+    let hold = fixture.store.hold_probe(&hold, at(-1)).unwrap();
     let (journal, renewed) = (fixture.store.path().to_path_buf(), at(300));
     let refusal = move || {
         let round = CooldownRound {

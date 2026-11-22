@@ -105,19 +105,21 @@ pub(super) fn ended(conn: &Connection, id: Option<ProbeHoldId>, at: i64) -> Resu
 
 impl Store {
     /// Write `hold` at `now`, before its probe is reserved, in its own
-    /// `Immediate` transaction: `None` where the queue holds no table this
-    /// binary may write, which the engine parks on rather than probing an
-    /// unheld route. An insert the table took without writing its row, as
-    /// a trigger that ignores it leaves it, refuses by name
+    /// `Immediate` transaction: the id is the evidence of the write, and
+    /// every other end refuses by name, so the engine parks rather than
+    /// probing an unheld route. A queue that holds no table this binary
+    /// may write refuses ([`QueueRefusal::ProbeHoldUnstorable`]; fix round
+    /// 0106b1r9, E3). An insert the table took without writing its row, as
+    /// a trigger that ignores it leaves it, refuses
     /// ([`QueueRefusal::ProbeHoldUnwritten`]), so no probe runs on a hold
     /// believed written (fix round 0106b1r6, D2). A hold whose end cannot
-    /// be stored strictly after its deadline refuses by name before any
-    /// write ([`QueueRefusal::ProbeHoldUnending`]; fix round 0106b1r9, E2).
+    /// be stored strictly after its deadline refuses before any write
+    /// ([`QueueRefusal::ProbeHoldUnending`]; fix round 0106b1r9, E2).
     pub fn hold_probe(
         &mut self,
         hold: &ProbeHold<'_>,
         now: OffsetDateTime,
-    ) -> Result<Option<ProbeHoldId>, StoreError> {
+    ) -> Result<ProbeHoldId, StoreError> {
         let unwritten = || UnwrittenHold {
             run_id: hold.run_id.to_string(),
             provider: hold.provider.to_string(),
@@ -131,7 +133,7 @@ impl Store {
                 .conn
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             if !cool_downs_writable(&tx)? {
-                return Ok(None);
+                return Err(QueueRefusal::ProbeHoldUnstorable(Box::new(unwritten())).into());
             }
             // The hold's id is the row this INSERT returns, never the
             // connection's last rowid, which an ignored insert leaves at an
@@ -157,7 +159,7 @@ impl Store {
                 return Err(QueueRefusal::ProbeHoldUnwritten(Box::new(unwritten())).into());
             };
             tx.commit()?;
-            Ok(Some(ProbeHoldId(seq)))
+            Ok(ProbeHoldId(seq))
         })
     }
 

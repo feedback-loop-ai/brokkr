@@ -135,32 +135,42 @@ pub(crate) fn insert(
     if rows.is_empty() {
         return Ok(());
     }
-    // A row belongs to version 4's table. A version 1, 2 or 3 queue holds
-    // no table, and a version this binary does not know is a newer
-    // binary's, left as found: either way the event alone lands and its
-    // `waits` stay the attempt's record (decision 0103 ruling 2(a)).
-    if !cool_downs_writable(tx)? {
-        return Ok(());
-    }
     let recorded = OffsetDateTime::parse(&event.recorded_at, &Rfc3339)
         .expect("the journal's own recorded_at is RFC 3339")
         .unix_timestamp();
+    // A row the table did not write rolls the event back with it: a
+    // terminal never stands over a held or cooling row the store does not
+    // hold (fix round 0106b1r6, D3).
+    let unwritten = |row: &Cooling| {
+        QueueRefusal::CooldownRowUnwritten(Box::new(super::UnwrittenRow {
+            run_id: event.run_id.clone(),
+            event_seq: event.seq,
+            site: row.site.clone(),
+            rounds: row.rounds,
+        }))
+    };
+    // A row belongs to version 4's table. A version 1, 2 or 3 queue holds
+    // no table, and a version this binary does not know is a newer
+    // binary's, left as found: either way an ordinary wait's event alone
+    // lands and its `waits` stay the attempt's record (decision 0103 ruling
+    // 2(a)). A live held row is the only thing that holds its route, so
+    // such a queue refuses its event as the table refuses an unwritten
+    // row, and nothing is recorded as held that the store did not write
+    // (fix round 0106b1r9, E3).
+    if !cool_downs_writable(tx)? {
+        let live_held =
+            |row: &&Cooling| row.held.is_some() && until_second(row.until_at) > recorded;
+        return rows
+            .iter()
+            .find(live_held)
+            .map_or(Ok(()), |row| Err(unwritten(row).into()));
+    }
     for row in rows {
         let until = until_second(row.until_at);
         if until <= recorded {
             continue;
         }
-        // A row the table did not write rolls the event back with it: a
-        // terminal never stands over a held or cooling row the store does
-        // not hold (fix round 0106b1r6, D3).
-        let unwritten = || {
-            QueueRefusal::CooldownRowUnwritten(Box::new(super::UnwrittenRow {
-                run_id: event.run_id.clone(),
-                event_seq: event.seq,
-                site: row.site.clone(),
-                rounds: row.rounds,
-            }))
-        };
+        let unwritten = || unwritten(row);
         insert_row(
             tx,
             &StoredRow {

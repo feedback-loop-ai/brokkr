@@ -82,10 +82,9 @@ fn a_version_6_queue_migrates_to_version_7_and_keeps_its_cool_downs_ordinary() {
         vec![(None, None), (Some(1), Some(7200))]
     );
     // And version 7's probe holds' table, empty.
-    let hold = store
+    store
         .hold_probe(&probe_hold("run-b", at(30)), at(0))
         .unwrap();
-    assert!(hold.is_some());
 }
 
 /// A probe hold on claude/first for `run` until `deadline`.
@@ -112,8 +111,7 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
     let mut store = journal(dir.path());
     let first = store
         .hold_probe(&probe_hold("run-a", at(30)), at(0))
-        .unwrap()
-        .expect("a version 7 queue takes the hold");
+        .unwrap();
     let read = store.cooldowns_in_force(at(10)).unwrap();
     assert_eq!(
         read,
@@ -134,7 +132,6 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
     assert_eq!(store.cooldown("claude", "first", at(10)).unwrap(), None);
     let second = store
         .hold_probe(&probe_hold("run-a", at(60)), at(0))
-        .unwrap()
         .unwrap();
     store.end_probe_hold(Some(second), at(5)).unwrap();
     store.end_probe_hold(Some(second), at(6)).unwrap();
@@ -154,7 +151,6 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
     // A hold left standing is joined by no older queue's in-force read.
     store
         .hold_probe(&probe_hold("run-a", at(60)), at(0))
-        .unwrap()
         .unwrap();
     assert_eq!(store.cooldowns_in_force(at(10)).unwrap().len(), 1);
     store
@@ -162,12 +158,64 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
         .execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
         .unwrap();
     assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), []);
-    assert_eq!(
+}
+
+/// Fix round 0106b1r9, E3: a hold is only ever the evidence of its write.
+/// A queue this binary does not write, an older version's or a newer
+/// binary's, takes no hold, and refuses by name rather than reporting a
+/// probe free to run with none; nothing is written.
+#[test]
+fn a_hold_on_a_queue_this_binary_does_not_write_refuses_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    for version in ["6", "8"] {
         store
+            .conn
+            .execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'queue_schema'",
+                [version],
+            )
+            .unwrap();
+        let refused = store
             .hold_probe(&probe_hold("run-a", at(90)), at(0))
-            .unwrap(),
-        None
-    );
+            .unwrap_err();
+        let StoreError::Queue(QueueRefusal::ProbeHoldUnstorable(unstored)) = &refused else {
+            panic!("an unstorable hold was not refused by name: {refused:?}");
+        };
+        assert_eq!(unstored.run_id, "run-a", "{version}");
+        assert_eq!(
+            refused.to_string(),
+            "the journal's queue storage is not one this binary writes, so it takes no probe \
+             hold for run 'run-a' on claude/first, no probe runs on it, and nothing was written"
+        );
+    }
+    assert_eq!(unended_holds(&store.conn), Vec::<String>::new());
+}
+
+/// Fix round 0106b1r9, E3: a queue this binary does not write takes no
+/// row. A terminal carrying a live held row refuses by name and writes no
+/// event, so nothing is recorded as held that the store did not write; an
+/// ordinary wait's event alone lands there, its `waits` the attempt's
+/// record (decision 0103 ruling 2(a)).
+#[test]
+fn a_held_row_on_a_queue_this_binary_does_not_write_refuses_its_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    store
+        .conn
+        .execute("UPDATE meta SET value = '8' WHERE key = 'queue_schema'", [])
+        .unwrap();
+    let before = store.load("run-a").unwrap().len();
+    let mut held = row("a", "claude", "first", at(60));
+    held.held = Some(brokkr_core::Held { max_seconds: 30 });
+    let refused = append(&mut store, "run-a", &[held]).unwrap_err();
+    let StoreError::Queue(QueueRefusal::CooldownRowUnwritten(unwritten)) = &refused else {
+        panic!("a held row with no table was not refused by name: {refused:?}");
+    };
+    assert_eq!((unwritten.site.as_str(), unwritten.rounds), ("a", 1));
+    assert_eq!(store.load("run-a").unwrap().len(), before);
+    append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
+    assert_eq!(store.load("run-a").unwrap().len(), before + 1);
 }
 
 /// A held wait's row carries `held` and `max_seconds` as its writer derived
@@ -319,7 +367,7 @@ fn a_round_the_table_does_not_write_refuses_and_leaves_its_hold_standing() {
         )
         .unwrap();
     let mut round = next_round("run-a", event.seq, "a", at(120), 2);
-    round.ends = hold;
+    round.ends = Some(hold);
     let refused = store.append_cooldown_round(round).unwrap_err();
     let StoreError::Queue(QueueRefusal::CooldownRoundUnwritten(unwritten)) = &refused else {
         panic!("an unwritten round was not refused by name: {refused:?}");
@@ -367,8 +415,7 @@ fn a_hold_whose_end_cannot_be_stored_after_its_deadline_refuses_and_writes_none(
     let before = last - time::Duration::milliseconds(500);
     store
         .hold_probe(&probe_hold("run-a", before), at(0))
-        .unwrap()
-        .expect("a version 7 queue takes the hold");
+        .unwrap();
     assert_eq!(store.cooldowns_in_force(before).unwrap()[0].until_at, last);
     let refused = store
         .hold_probe(&probe_hold("run-b", last), at(0))
@@ -408,8 +455,7 @@ fn a_hold_the_table_does_not_write_refuses_and_ends_no_other() {
     let mut store = journal(dir.path());
     store
         .hold_probe(&probe_hold("run-a", at(90)), at(0))
-        .unwrap()
-        .expect("a version 7 queue takes the hold");
+        .unwrap();
     store
         .conn
         .execute_batch(

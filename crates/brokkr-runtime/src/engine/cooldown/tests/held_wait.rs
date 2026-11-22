@@ -189,6 +189,44 @@ fn a_held_wait_the_table_does_not_write_is_not_journaled_and_parks() {
     );
 }
 
+/// Fix round 0106b1r9, E3: the first refusal's held wait, on a queue that
+/// a newer binary took over while the attempt ran (its storage version
+/// moved past this binary's at the attempt's start), has no table to hold
+/// it. The terminal is refused as the table's unwritten row refuses it, so
+/// no held wait is journaled, nothing marks it written, and the run parks
+/// rather than ending its drive Running as if the wait were held.
+#[test]
+fn a_held_wait_on_a_queue_this_binary_does_not_write_is_not_journaled_and_parks() {
+    let (dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
+    rusqlite::Connection::open(engine.store.path())
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER newer AFTER INSERT ON events
+             WHEN json_extract(NEW.envelope, '$.type') = 'effect/started'
+             BEGIN UPDATE meta SET value = '8' WHERE key = 'queue_schema'; END;",
+        )
+        .unwrap();
+    engine.drive().unwrap();
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
+    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert!(
+        events
+            .iter()
+            .all(|event| event.payload.get("waits").is_none()),
+        "a wait was journaled"
+    );
+    let reason = park_reason(&engine);
+    assert!(
+        reason.contains(&format!(
+            "the journal's provider cool-downs wrote no row for run '{}' event 5 site '' round \
+             1, so the event that records its wait was not written either",
+            engine.run_id
+        )),
+        "{reason}"
+    );
+}
+
 /// The cap is untouched: a held wait at 0006's cap parks `attempt-cap`,
 /// with the provider's limit as its failure class.
 #[test]

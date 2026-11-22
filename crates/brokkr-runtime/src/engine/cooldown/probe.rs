@@ -221,12 +221,11 @@ impl Engine {
     /// the pass and the claim read as cooling down until it ends or that
     /// second comes.
     /// A hold the store refuses parks the probe unadmitted, so no probe
-    /// runs on a route it could not hold. A queue older than version 7, or
-    /// one a newer binary stores, takes no hold and the probe runs as it
-    /// always has: the pass and the claim read no hold from such a queue
-    /// either (a version 1 to 3 or unknown one no cool-down at all), and an
-    /// engine's own open moves a version 4 to 6 queue to version 7 before
-    /// any probe.
+    /// runs on a route it could not hold: one the table did not write, one
+    /// whose end cannot be stored after its deadline, and one on a queue
+    /// this binary does not write, older than version 7 or a newer
+    /// binary's, which takes no hold (fix round 0106b1r9, E3). An engine's
+    /// own open moves a version 4 to 6 queue to version 7 before any probe.
     fn hold_the_route(
         &mut self,
         wait: &ProviderWait,
@@ -243,7 +242,7 @@ impl Engine {
         // Only a hold this insert returned is ever ended: one the store
         // refuses, or did not write, leaves none (fix round 0106b1r6, D2).
         self.cooldown.hold = None;
-        self.cooldown.hold = self.store.hold_probe(&hold, now)?;
+        self.cooldown.hold = Some(self.store.hold_probe(&hold, now)?);
         Ok(())
     }
 

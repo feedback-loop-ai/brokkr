@@ -353,7 +353,7 @@ fn a_hold_the_table_does_not_write_parks_before_any_probe_and_ends_no_other() {
         route: "second",
         deadline: probe_at + time::Duration::hours(1),
     };
-    engine.store.hold_probe(&other, probe_at).unwrap().unwrap();
+    engine.store.hold_probe(&other, probe_at).unwrap();
     driven_raising(&mut engine, "probe_holds", "IGNORE");
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
     let events = engine.store.load(&engine.run_id).unwrap();
@@ -379,4 +379,32 @@ fn a_hold_the_table_does_not_write_parks_before_any_probe_and_ends_no_other() {
         .unwrap();
     assert_eq!(unended, ["second"]);
     assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
+}
+
+/// Fix round 0106b1r9, E3: a probe on a queue this binary does not write
+/// (its storage stamped an older version beneath the open engine, which
+/// reads that version's waits) has no hold, and runs on none: the store
+/// refuses the hold in its typed words, no driver starts, and the run
+/// parks with them.
+#[test]
+fn a_hold_on_a_queue_this_binary_does_not_write_parks_before_any_probe() {
+    let (dir, mut engine, _now, _probe_at, _gates) = probing(Probed::BarrierRefuse);
+    rusqlite::Connection::open(engine.store.path())
+        .unwrap()
+        .execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
+        .unwrap();
+    engine.drive().unwrap();
+    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
+    assert_eq!(
+        park_reason(&engine),
+        format!(
+            "the cool-down probe for claude/first was not admitted: its route's hold was not \
+             written: the journal's queue storage is not one this binary writes, so it takes no \
+             probe hold for run '{}' on claude/first, no probe runs on it, and nothing was \
+             written",
+            engine.run_id
+        )
+    );
+    assert_eq!(unended_holds(engine.store.path()), 0);
 }

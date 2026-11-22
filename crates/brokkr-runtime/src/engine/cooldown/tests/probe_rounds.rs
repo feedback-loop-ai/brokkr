@@ -451,22 +451,22 @@ fn a_stop_during_the_extended_wait_ends_the_run_without_a_probe_or_retry() {
     assert_eq!(rounds(&engine, event.seq, ""), [1, 2]);
 }
 
-/// A version 1, 2 or 3 journal has no table for a probe's next round: the
-/// refusal parks as 4c does and writes no row.
+/// A version 1, 2 or 3 journal has no table for a probe's hold or its next
+/// round: the probe is refused before dispatch, unheld, and parks naming
+/// the store's words (fix round 0106b1r9, E3), and no row is written.
 #[test]
-fn a_version_three_journal_parks_a_probe_refusal_as_4c_and_writes_no_row() {
+fn a_version_three_journal_parks_its_probe_unheld_and_writes_no_row() {
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Refuse, None, 2);
     let db = dir.path().join("forge.db");
     rusqlite::Connection::open(&db)
         .unwrap()
         .execute("UPDATE meta SET value = '3' WHERE key = 'queue_schema'", [])
         .unwrap();
-    let reason = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
+    let reason = drove_one(dir.path(), &mut engine, &["attempt:refuse"]);
     assert!(
-        reason.contains("was refused again by the provider"),
+        reason.contains("the journal's queue storage is not one this binary writes"),
         "{reason}"
     );
-    assert!(reason.contains("rate_limit: slow down"), "{reason}");
     let count: i64 = rusqlite::Connection::open(&db)
         .unwrap()
         .query_row("SELECT COUNT(*) FROM provider_cooldowns", [], |row| {
