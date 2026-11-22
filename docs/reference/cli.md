@@ -58,7 +58,6 @@ The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect`
 - [`brokkr queue release`](#brokkr-queue-release): Let a held entry be started again
 - [`brokkr queue repin`](#brokkr-queue-repin): Re-pin a waiting entry to the realms map that would govern it now: how the operator releases an entry `judge` latched a realm-drift hold on, accepting the differences it found. Refused when the map on disk is not the one the latch found; judge the queue again
 - [`brokkr queue drop`](#brokkr-queue-drop): Take an entry out of the queue. One that started a run cannot be
-<<<<<<< HEAD
 - [`brokkr queue dispatch`](#brokkr-queue-dispatch): Start what admission admits from the journal's queue, each run handed to a driver of its own: one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
 - [`brokkr queue dispatch set-bound`](#brokkr-queue-dispatch-set-bound): Set the journal's bound on the refusals counted against one entry before the dispatcher holds it, a whole number of at least 1, journaled as the operator's command
 - [`brokkr queue dispatch status`](#brokkr-queue-dispatch-status): Say whether a dispatcher holds the journal, the bound in force, and each entry left launching or linked with no `spawn` row. Opens the journal read-only and writes nothing
@@ -77,57 +76,6 @@ The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect`
 - [`brokkr system probe`](#brokkr-system-probe): Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
 - [`brokkr system probe harness`](#brokkr-system-probe-harness): Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
 - [`brokkr system ui`](#brokkr-system-ui): Serve the embedded read-only surface on loopback
-||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
-- [`brokkr inspect`](#brokkr-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
-- [`brokkr transcript`](#brokkr-transcript): Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
-- [`brokkr seats`](#brokkr-seats): The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it (decision 0046 ruling 3) — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
-- [`brokkr watch`](#brokkr-watch): Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
-- [`brokkr replay`](#brokkr-replay): Rebuild state from the journal twice and verify determinism
-- [`brokkr export`](#brokkr-export): Write the canonical NDJSON journal and pinned manifest
-- [`brokkr evidence`](#brokkr-evidence): List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays (decision 0105)
-- [`brokkr evidence list`](#brokkr-evidence-list): List every historical evidence root: its path, whether it exists, its digest count and bytes, its retirement and its superseded history. A root whose own counts cannot be read still prints, with its problem, and makes the verb exit non-zero after every row
-- [`brokkr evidence retire`](#brokkr-evidence-retire): Retire one historical root, under the admission lock, after archiving its evidence or discarding it
-- [`brokkr backup`](#brokkr-backup): Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
-- [`brokkr restore`](#brokkr-restore): Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
-- [`brokkr import`](#brokkr-import): Adopt an exported run into this journal, byte-identically — the verb paired with `export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
-- [`brokkr verify-run`](#brokkr-verify-run): Verify an exported journal offline: chain, envelopes, fold
-- [`brokkr bridge`](#brokkr-bridge): Synchronize a Looper-bound run over the authenticated producer API. The API key is read from an environment variable and is never stored
-- [`brokkr runs`](#brokkr-runs): List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
-- [`brokkr realms`](#brokkr-realms): List the world (decision 0023): each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
-- [`brokkr analytics`](#brokkr-analytics): What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
-- [`brokkr graph`](#brokkr-graph): One recipe's state machine and its traffic over a range. `--json` emits the view model
-- [`brokkr driver`](#brokkr-driver): Run a built-in forge-driver/v1 adapter (claude \| lanetally \| codex \| dsh \| qoder \| exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
-- [`brokkr hands`](#brokkr-hands): The model's hands are one tool, and the tool runs in an empty root (decision 0043): serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
-- [`brokkr hands serve`](#brokkr-hands-serve): Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
-- [`brokkr hands exec`](#brokkr-hands-exec): Run one command whole inside the box with stdio passed through — how a deterministic `exec` seat holds a gate. Exits with the command's own code
-- [`brokkr probe`](#brokkr-probe): Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
-- [`brokkr probe harness`](#brokkr-probe-harness): Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
-=======
-- [`brokkr inspect`](#brokkr-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
-- [`brokkr transcript`](#brokkr-transcript): Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
-- [`brokkr seats`](#brokkr-seats): The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it (decision 0046 ruling 3) — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
-- [`brokkr watch`](#brokkr-watch): Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
-- [`brokkr replay`](#brokkr-replay): Rebuild state from the journal twice and verify determinism
-- [`brokkr export`](#brokkr-export): Write the canonical NDJSON journal and pinned manifest
-- [`brokkr evidence`](#brokkr-evidence): List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays (decision 0105)
-- [`brokkr evidence list`](#brokkr-evidence-list): List every historical evidence root: its path, whether it exists, its digest count and bytes, its retirement and its superseded history. A root whose own counts cannot be read still prints, with its problem, and makes the verb exit non-zero after every row
-- [`brokkr evidence retire`](#brokkr-evidence-retire): Retire one historical root, under the admission lock, after archiving its evidence or discarding it
-- [`brokkr backup`](#brokkr-backup): Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
-- [`brokkr restore`](#brokkr-restore): Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
-- [`brokkr import`](#brokkr-import): Adopt an exported run into this journal, byte-identically — the verb paired with `export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
-- [`brokkr verify-run`](#brokkr-verify-run): Verify an exported journal offline: chain, envelopes, fold
-- [`brokkr bridge`](#brokkr-bridge): Synchronize a Looper-bound run over the authenticated producer API. The API key is read from an environment variable and is never stored
-- [`brokkr runs`](#brokkr-runs): List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
-- [`brokkr realms`](#brokkr-realms): List the world (decision 0023): each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
-- [`brokkr analytics`](#brokkr-analytics): What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
-- [`brokkr graph`](#brokkr-graph): One recipe's state machine and its traffic over a range. `--json` emits the view model
-- [`brokkr driver`](#brokkr-driver): Run a built-in forge-driver/v1 adapter (claude \| lanetally \| codex \| dsh \| qoder \| agy \| exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
-- [`brokkr hands`](#brokkr-hands): The model's hands are one tool, and the tool runs in an empty root (decision 0043): serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
-- [`brokkr hands serve`](#brokkr-hands-serve): Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
-- [`brokkr hands exec`](#brokkr-hands-exec): Run one command whole inside the box with stdio passed through — how a deterministic `exec` seat holds a gate. Exits with the command's own code
-- [`brokkr probe`](#brokkr-probe): Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
-- [`brokkr probe harness`](#brokkr-probe-harness): Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
->>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
 - [Exit codes](#exit-codes)
 
 ## brokkr init
@@ -992,13 +940,7 @@ Usage: brokkr stats graph [OPTIONS]
 
 ## brokkr stats costs
 
-<<<<<<< HEAD
 Per-seat cost and session accounting from journal checkpoints — the LaneTally join surface (stable seat ids, journal-derived)
-||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
-Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
-=======
-Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | agy | exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
->>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
 
 ```text
 Usage: brokkr stats costs [OPTIONS] --run <RUN>
@@ -1006,17 +948,9 @@ Usage: brokkr stats costs [OPTIONS] --run <RUN>
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-<<<<<<< HEAD
 | `--run <RUN>` |  | yes | The run whose seats are accounted: a full run id, a unique run-id prefix, or `latest` |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
-| `<KIND>` |  |  | The adapter to run: claude, lanetally, codex, dsh, qoder or exec |
-| `<ARGS>...` |  |  | Arguments after -- pass to the agent CLI (claude/lanetally/codex/dsh/qoder) or form the command template (exec) |
-=======
-| `<KIND>` |  |  | The adapter to run: claude, lanetally, codex, dsh, qoder, agy or exec |
-| `<ARGS>...` |  |  | Arguments after -- pass to the agent CLI (claude/lanetally/codex/dsh/qoder/agy) or form the command template (exec) |
->>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
 
 ## brokkr stats ledger
 

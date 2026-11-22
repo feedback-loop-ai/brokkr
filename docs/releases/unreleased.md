@@ -18,27 +18,6 @@ Changes merged since v0.15.2 that the next release's notes carry.
   ""`, the MCP isolation measured on Linux for the cold and replacement
   shapes without hands, so a qoder seat compiles there ([provider
   adapters](../guides/provider-adapters.md#qoder-cli-a-provisional-harness)).
-<<<<<<< HEAD
-
-## Changed
-
-- **`brokkr graph` prints its states and rules as two aligned tables**
-  ([#1167](https://github.com/feedback-loop-ai/brokkr/issues/1167)),
-  where it printed one `·`-separated line each.
-  - **Width.** The tables fit a whole-number `COLUMNS`, else the window
-    of the stdout they are written to, else 80 cells. A `COLUMNS` that is
-    empty, 0 or not a number is ignored. The controlling terminal is never
-    read, so a table piped to a narrower stdout fits that stdout.
-  - **Fitting.** Every text column gives way before a row overflows. A
-    cell is cut by its graphemes' terminal widths and marked `…`, and a
-    cell that fits is never cut. The padding reads the width of the text
-    printed, so the next column never shifts, combining marks and joined
-    scripts included.
-  - **Unchanged:** `--json`, `NO_COLOR` (no escapes; the header is bold
-    only where colour is on), an empty table's header, and `brokkr
-    seats`'s width (`COLUMNS`, else 80).
-||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
-=======
 - **Antigravity CLI is a provisional harness** (#1200). `brokkr driver
   agy` runs Antigravity CLI 1.5 as one stream-json turn read from stdin,
   under a HOME the engine makes for that turn alone and removes after it,
@@ -76,4 +55,21 @@ Changes merged since v0.15.2 that the next release's notes carry.
   is unchanged ([provider
   adapters](../guides/provider-adapters.md#a-boxed-agy-seat)).
 - **An agy seat never starts agy's self-updater** (#1224): every agy child carries `AGY_CLI_DISABLE_AUTO_UPDATE=true`, and a seat that binds that name is refused.
->>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
+
+## Changed
+
+- **`brokkr graph` prints its states and rules as two aligned tables**
+  ([#1167](https://github.com/feedback-loop-ai/brokkr/issues/1167)),
+  where it printed one `·`-separated line each.
+  - **Width.** The tables fit a whole-number `COLUMNS`, else the window
+    of the stdout they are written to, else 80 cells. A `COLUMNS` that is
+    empty, 0 or not a number is ignored. The controlling terminal is never
+    read, so a table piped to a narrower stdout fits that stdout.
+  - **Fitting.** Every text column gives way before a row overflows. A
+    cell is cut by its graphemes' terminal widths and marked `…`, and a
+    cell that fits is never cut. The padding reads the width of the text
+    printed, so the next column never shifts, combining marks and joined
+    scripts included.
+  - **Unchanged:** `--json`, `NO_COLOR` (no escapes; the header is bold
+    only where colour is on), an empty table's header, and `brokkr
+    seats`'s width (`COLUMNS`, else 80).

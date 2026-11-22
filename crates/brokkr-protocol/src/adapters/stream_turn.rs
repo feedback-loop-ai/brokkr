@@ -1,13 +1,12 @@
 //! One stream turn read to its end: the lines a fed harness prints, each
 //! handed to its driver, the harness stopped at the first line the driver
-//! refuses, and its exit and stderr taken. The one home Qoder's (#1178) and
-//! Antigravity's (#1200) drivers read a turn through: Qoder's reading of
-//! JSON rows ([`streamed`]) is built on the one byte seam
-//! ([`streamed_lines`]) Antigravity's driver reads its lines through.
+//! refuses, and its exit and stderr taken. The one home Antigravity's
+//! driver (#1200) reads a turn through ([`streamed_lines`]); Qoder's driver
+//! (#1178) reads its rows as its own and stops on this module's
+//! [`STOPPED_AT_REFUSAL`] and [`UNCONCLUDED`].
 
 use std::io::BufRead;
 
-use serde_json::Value;
 use thiserror::Error;
 
 use super::spawn::Spawned;
@@ -22,12 +21,16 @@ use crate::PreSessionRefusal;
 /// a code of the command's own, which it is not, so it is named here.
 pub(super) const STOPPED_AT_REFUSAL: i32 = 1;
 
-/// How a stream turn ended: its exit, the refusal the driver stopped it
-/// at, whether its stdout failed to read before its end, and its stderr,
-/// as captured and not yet read.
+/// How a stream turn ended: its exit, whether the harness exited 0 on its
+/// own, read from its real status and never from the stop's reported code,
+/// whether its stdout failed to read before its end, and its stderr, as
+/// captured and not yet read.
 pub(super) struct Turn {
     pub(super) exit_code: i32,
-    pub(super) stopped: Option<PreSessionRefusal>,
+    /// A harness stopped at a refusing line after it had exited 0 on its
+    /// own, its work done, exited clean, whatever [`STOPPED_AT_REFUSAL`]
+    /// reports (#1178 H3).
+    pub(super) clean: bool,
     pub(super) unread: bool,
     pub(super) captured: CapturedStderr,
 }
@@ -63,8 +66,6 @@ impl From<Unconcluded> for String {
 pub(super) enum Line {
     /// Read on.
     Read,
-    /// Read no further, and wait for the harness to end.
-    Ended,
     /// Stop the harness here, refused.
     Stopped(PreSessionRefusal),
 }
@@ -105,14 +106,14 @@ pub(super) fn turn_read(
     };
     Ok(Turn {
         exit_code,
-        stopped,
+        clean: status.success(),
         unread,
         captured,
     })
 }
 
 /// Each line of `reader` handed to `line`, as [`streamed_lines`] reads a
-/// stdout: to its end, a line `line` ends or stops at, or a read that
+/// stdout: to its end, a line `line` stops at, or a read that
 /// fails, which ends the reading and is reported (L3).
 pub(super) fn read_lines(mut reader: impl BufRead, mut line: impl FnMut(&[u8]) -> Line) -> Read {
     let mut bytes = Vec::new();
@@ -129,7 +130,6 @@ pub(super) fn read_lines(mut reader: impl BufRead, mut line: impl FnMut(&[u8]) -
         }
         match line(ended(&bytes)) {
             Line::Read => bytes.clear(),
-            Line::Ended => break,
             Line::Stopped(refused) => {
                 return Read {
                     stopped: Some(refused),
@@ -149,34 +149,4 @@ pub(super) fn read_lines(mut reader: impl BufRead, mut line: impl FnMut(&[u8]) -
 fn ended(bytes: &[u8]) -> &[u8] {
     let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
     bytes.strip_suffix(b"\r").unwrap_or(bytes)
-}
-
-/// The turn of the harness `fed`, each JSON row of its stdout handed whole
-/// to `row`, a line that is not JSON passed over, and the reading ended at
-/// a line that is not UTF-8. A row `row` refuses stops the harness there,
-/// and the turn reads [`STOPPED_AT_REFUSAL`].
-pub(super) fn streamed(
-    fed: (Spawned, StderrCapture),
-    row: impl FnMut(Value) -> Result<(), PreSessionRefusal>,
-) -> Result<Turn, String> {
-    streamed_lines(fed, json_rows(row))
-}
-
-/// [`streamed`]'s reading of one line: a JSON row handed to `row`, a line
-/// that is not JSON passed over, and one that is not UTF-8 ending it.
-pub(super) fn json_rows(
-    mut row: impl FnMut(Value) -> Result<(), PreSessionRefusal>,
-) -> impl FnMut(&[u8]) -> Line {
-    move |bytes| {
-        let Ok(text) = std::str::from_utf8(bytes) else {
-            return Line::Ended;
-        };
-        let Ok(event) = serde_json::from_str::<Value>(text) else {
-            return Line::Read;
-        };
-        match row(event) {
-            Ok(()) => Line::Read,
-            Err(refused) => Line::Stopped(refused),
-        }
-    }
 }

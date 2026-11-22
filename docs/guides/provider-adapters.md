@@ -643,7 +643,7 @@ before the CLI starts, as one that binds `HOME` is. That is all it does:
 each seat launches the executable afresh, so the binary can still change
 between two seats of one run by other hands, such as the operator's own
 use of `agy`, and nothing checks the version a seat launches (#1240;
-decision [0111](../decisions/0111-an-agy-seat-never-starts-agy-s-self-updater.md)).
+decision [0114](../decisions/0114-an-agy-seat-never-starts-agy-s-self-updater.md)).
 `brokkr doctor` shows the version it observes.
 
 A path the check cannot read refuses, naming it. A working directory that

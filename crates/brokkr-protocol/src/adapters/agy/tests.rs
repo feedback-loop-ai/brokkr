@@ -21,7 +21,7 @@ macro_rules! recorded {
     };
 }
 
-const TOOL_LESS: &str = recorded!("tool-less-turn.ndjson");
+pub(in crate::adapters) const TOOL_LESS: &str = recorded!("tool-less-turn.ndjson");
 const STDIN_TURN: &str = recorded!("stdin-stream-json.ndjson");
 const NEON: &str = recorded!("named-model-neon-base.ndjson");
 const CARBON: &str = recorded!("named-model-carbon-base.ndjson");
@@ -39,7 +39,7 @@ const PRINT_TIMEOUT_STDERR: &str = recorded!("print-timeout.stderr");
 const BAD_FLAG_STDERR: &str = recorded!("bad-flag.stderr");
 
 /// The slug every recorded turn but the named-model ones pinned.
-const FLASH: &str = "gemini-3.8-flash-low";
+pub(in crate::adapters) const FLASH: &str = "gemini-3.8-flash-low";
 
 /// The launch refusals the four model and effort turns end with: each an
 /// `ERROR` result before any turn, exit 1.
@@ -522,6 +522,25 @@ fn a_seat_writes_only_its_three_controls_once_each_with_a_value_a_pin_and_rules(
     assert!(matches!(untargeted, Err(LaunchError::Untargeted)));
 }
 
+/// A pin that is not a plain model id is refused before any launch, so no
+/// refusal's `{pin:?}` escapes a bound value past the mask; a plain one
+/// launches (#1178 Z1, checked for agy).
+#[test]
+fn a_pin_that_is_not_a_plain_model_id_is_refused() {
+    for pin in [
+        "sec\"ret-model",
+        "gemini 4",
+        "gemini\\4",
+        "_gemini",
+        "gémini",
+    ] {
+        let refused = launch("agy", &argv(&["--model", pin]), Hands::Native);
+        assert!(matches!(refused, Err(LaunchError::Unplain)), "{pin}");
+    }
+    let plain = launch("agy", &argv(&["--model", "gemini-4.0_neon"]), Hands::Native);
+    assert_eq!(plain.unwrap().pin, "gemini-4.0_neon");
+}
+
 /// Each launch refusal's words, pinned once.
 #[test]
 fn each_launch_refusal_states_what_was_written_and_never_a_value() {
@@ -539,6 +558,7 @@ fn each_launch_refusal_states_what_was_written_and_never_a_value() {
         (LaunchError::Doubled("--model"), "the seat's arguments carry '--model' more than once"),
         (LaunchError::Valueless("--allow"), "the seat's arguments carry '--allow' with no value"),
         (LaunchError::Unpinned, "the seat pins no model with --model; a provisional seat pins its id (#1200)"),
+        (LaunchError::Unplain, "the agy model pin is not a plain model id (an ASCII letter or digit, then ASCII letters, digits, '.', '_' and '-')"),
         (LaunchError::Unruled, "the seat's --allow carries a rule that is neither command(…) nor mcp(…), which agy would ignore without a word (#1200)"),
         (LaunchError::Unnamed, "the engine's HOME or executable for the agy seat has a path that is not UTF-8, so nothing names it exactly (#1200)"),
         (LaunchError::Unrooted("w/sub".into(), io()), "the agy seat's working directory w/sub cannot be resolved: entity not found"),
@@ -668,7 +688,7 @@ fn an_agy_driver_declares_no_resume_and_no_probe() {
 /// An operator's HOME under `root`, signed in, with agy's and the user's
 /// agent configuration, a tool's home, a file, and a name that is not
 /// UTF-8.
-fn operator_home(root: &Path) -> std::path::PathBuf {
+pub(in crate::adapters) fn operator_home(root: &Path) -> std::path::PathBuf {
     use std::os::unix::ffi::OsStrExt;
     let home = root.join("operator");
     for dir in [

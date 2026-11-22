@@ -150,7 +150,9 @@ impl super::AdapterKind {
             Self::Codex => Some("-m"),
             // Qoder's `-m` pin is read by its own launch (#1178); the shared
             // reader's one table is #1248's.
-            Self::Claude | Self::Lanetally | Self::Dsh | Self::Qoder | Self::Exec => None,
+            Self::Claude | Self::Lanetally | Self::Dsh | Self::Qoder | Self::Agy | Self::Exec => {
+                None
+            }
         }
     }
 }

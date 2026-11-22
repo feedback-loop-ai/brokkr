@@ -2,13 +2,11 @@
 //! (#1224): each MCP shape names the version its recordings are from, and
 //! the guide says what the adapter declares.
 //!
-//! The citation test binds each MCP sentence to the recordings
-//! [`AGY_CITATIONS`] lists for it, each a file of the evidence folder of the
-//! sentence's version, named in whole tokens at one place beside its excerpt,
-//! where a citation is a token ending in a recording's extension, which must
-//! be a file of that folder, or a hyphenated token that is a recording's name
-//! in that folder or, naming none, begins one up to a hyphen. Every other
-//! token is prose, and the test does not judge prose.
+//! The citation test binds each row of [`AGY_CITATIONS`]: its file is in
+//! agy's evidence folder, its token stands whole in its sentence, and its
+//! version is the one the sentence's shape was measured on, 1.5.14 for a
+//! file whose name ends `-v14`. It does not detect a citation the table
+//! does not list, and it does not judge prose.
 
 use super::*;
 
@@ -22,318 +20,252 @@ fn agy_example() -> (tempfile::TempDir, Adapters) {
     (dir, adapters)
 }
 
-/// The endings that make a token a citation, whether or not the file exists.
-const CITATION_ENDINGS: [&str; 5] = [".ndjson", ".txt", ".hooklog", ".starts", ".stderr"];
+/// One citation of a sentence: the token exactly as the sentence writes
+/// it, the evidence file it stands for, and the agy version that file was
+/// recorded on.
+type Row = (&'static str, &'static str, &'static str);
 
-/// `c` may stand within a token.
-fn within(c: char) -> bool {
-    c.is_alphanumeric() || matches!(c, '.' | '_' | '-')
-}
-
-/// `token` ends in a recording's extension.
-fn file_name(token: &str) -> bool {
-    (CITATION_ENDINGS.iter()).any(|ending| token.ends_with(ending))
-}
-
-/// The tokens of `text`: each a longest run of letters, digits, `.`, `_`
-/// and `-`, with a trailing `.` dropped.
-fn tokens(text: &str) -> impl Iterator<Item = &str> {
-    (text.split(|c: char| !within(c)))
-        .map(|token| token.strip_suffix('.').unwrap_or(token))
-        .filter(|token| !token.is_empty())
-}
-
-/// `token` is `recording`, or a beginning of it that ends where a hyphen
-/// follows: `iso-05` for `iso-05-above-git-root`.
-fn names(token: &str, recording: &str) -> bool {
-    (recording.strip_prefix(token)).is_some_and(|rest| rest.is_empty() || rest.starts_with('-'))
-}
-
-/// An excerpt of a sentence and the recordings it cites beside the claim
-/// they show.
-type Cited = (&'static str, &'static [&'static str]);
-
-/// The one excerpt of each unboxed sentence that says the terminal sandbox
-/// restricted nothing.
-const SANDBOX_NOTHING: &[Cited] = &[(
-    "on 1.5.13 --sandbox restricted nothing in sandbox-skip-permissions",
-    &["sandbox-skip-permissions"],
+/// The rows of the unboxed sentences that say the terminal sandbox
+/// restricted nothing, or hid no process.
+const SANDBOX: &[Row] = &[(
+    "sandbox-skip-permissions",
+    "sandbox-skip-permissions.ndjson",
+    "1.5.13",
 )];
 
 /// What each sentence of agy's example cites, keyed by its hands and axis
 /// (or `carriage`). Both invocations of a hands kind share the entry.
-const AGY_CITATIONS: [(&str, &[Cited]); 9] = [
+const AGY_CITATIONS: [(&str, &[Row]); 9] = [
     (
         "carriage",
         &[
             (
-                "iso-07-engine-carriage-cold-v14 (cold)",
-                &["iso-07-engine-carriage-cold-v14"],
+                "iso-07-engine-carriage-cold-v14",
+                "iso-07-engine-carriage-cold-v14.ndjson",
+                "1.5.14",
             ),
             (
-                "iso-09-engine-carriage-resume-v14 (a resume of it)",
-                &["iso-09-engine-carriage-resume-v14"],
+                "iso-09-engine-carriage-resume-v14",
+                "iso-09-engine-carriage-resume-v14.ndjson",
+                "1.5.14",
             ),
         ],
     ),
     (
         "none ambient",
         &[
+            ("iso-01", "iso-01-positive-control.ndjson", "1.5.13"),
             (
-                "iso-01, the positive control: all six sentinels started",
-                &["iso-01-positive-control"],
+                "iso-02",
+                "iso-02-engine-home-workspace-cwd.ndjson",
+                "1.5.13",
             ),
+            ("iso-05", "iso-05-above-git-root.ndjson", "1.5.13"),
+            ("iso-06", "iso-06-parent-without-git.ndjson", "1.5.13"),
             (
-                "iso-05 and iso-06",
-                &["iso-05-above-git-root", "iso-06-parent-without-git"],
-            ),
-            (
-                "iso-02's workspace servers started",
-                &["iso-02-engine-home-workspace-cwd"],
-            ),
-            (
-                "up to where agy's walk ends (git-root-linked-worktree)",
-                &["git-root-linked-worktree"],
+                "git-root-linked-worktree",
+                "git-root-linked-worktree.ndjson",
+                "1.5.13",
             ),
         ],
     ),
-    ("none native_write", SANDBOX_NOTHING),
-    ("none store_read", SANDBOX_NOTHING),
-    (
-        "none process_read",
-        &[(
-            "on 1.5.13 ps -e saw the host's processes under --sandbox in sandbox-skip-permissions",
-            &["sandbox-skip-permissions"],
-        )],
-    ),
+    ("none native_write", SANDBOX),
+    ("none store_read", SANDBOX),
+    ("none process_read", SANDBOX),
     (
         "boxed ambient",
         &[
             (
-                "iso-01-positive-control-v14: all six sentinels started",
-                &["iso-01-positive-control-v14"],
+                "iso-01-positive-control-v14",
+                "iso-01-positive-control-v14.ndjson",
+                "1.5.14",
             ),
             (
-                "iso-02-engine-home-workspace-cwd-v14, iso-05-above-git-root-v14, \
-                 iso-06-parent-without-git-v14: a scratch HOME shut out the user's",
-                &[
-                    "iso-02-engine-home-workspace-cwd-v14",
-                    "iso-05-above-git-root-v14",
-                    "iso-06-parent-without-git-v14",
-                ],
+                "iso-02-engine-home-workspace-cwd-v14",
+                "iso-02-engine-home-workspace-cwd-v14.ndjson",
+                "1.5.14",
             ),
             (
-                "iso-07-engine-carriage-cold-v14, box-engine-workspace-tool-v14: the engine's",
-                &[
-                    "iso-07-engine-carriage-cold-v14",
-                    "box-engine-workspace-tool-v14",
-                ],
+                "iso-05-above-git-root-v14",
+                "iso-05-above-git-root-v14.ndjson",
+                "1.5.14",
+            ),
+            (
+                "iso-06-parent-without-git-v14",
+                "iso-06-parent-without-git-v14.ndjson",
+                "1.5.14",
+            ),
+            (
+                "iso-07-engine-carriage-cold-v14",
+                "iso-07-engine-carriage-cold-v14.ndjson",
+                "1.5.14",
+            ),
+            (
+                "box-engine-workspace-tool-v14",
+                "box-engine-workspace-tool-v14.ndjson",
+                "1.5.14",
             ),
         ],
     ),
     (
         "boxed native_write",
-        &[(
-            "box-engine-workspace-tool-v14 and box-other-natives-v14: under the driver's gate, \
-             listing call_mcp_tool alone, write_file, edit_file and run_command were refused by \
-             name, and the hands tool wrote in the worktree",
-            &["box-engine-workspace-tool-v14", "box-other-natives-v14"],
-        )],
+        &[
+            (
+                "box-engine-workspace-tool-v14",
+                "box-engine-workspace-tool-v14.ndjson",
+                "1.5.14",
+            ),
+            (
+                "box-other-natives-v14",
+                "box-other-natives-v14.ndjson",
+                "1.5.14",
+            ),
+        ],
     ),
     (
         "boxed store_read",
         &[
+            ("box-store-drive", "box-store-drive.txt", "1.5.14"),
             (
-                "denied to the hands tool (box-store-drive)",
-                &["box-store-drive"],
+                "box-store-drive-control",
+                "box-store-drive-control.txt",
+                "1.5.14",
             ),
-            (
-                "which read it unsealed (box-store-drive-control)",
-                &["box-store-drive-control"],
-            ),
-            (
-                "refused by name before either reached the path (box-store)",
-                &["box-store"],
-            ),
+            ("box-store", "box-store.ndjson", "1.5.14"),
         ],
     ),
     (
         "boxed process_read",
         &[
+            ("box-reach-v14", "box-reach-v14.ndjson", "1.5.14"),
             (
-                "box-reach-v14: the hands tool's command saw 4 entries in /proc with bubblewrap \
-                 as pid 1",
-                &["box-reach-v14"],
-            ),
-            (
-                "box-engine-workspace-tool-v14: the native shell, run_command, was refused by name",
-                &["box-engine-workspace-tool-v14"],
+                "box-engine-workspace-tool-v14",
+                "box-engine-workspace-tool-v14.ndjson",
+                "1.5.14",
             ),
         ],
     ),
 ];
 
-/// The entry of [`AGY_CITATIONS`] for `key`.
-fn citations(key: &str) -> &'static [Cited] {
+/// The rows of [`AGY_CITATIONS`] for `key`.
+fn rows(key: &str) -> &'static [Row] {
     let entry = AGY_CITATIONS.iter().find(|(named, _)| *named == key);
     entry.unwrap_or_else(|| panic!("no citations for {key}")).1
 }
 
-/// How a sentence fails its entry of [`AGY_CITATIONS`].
-#[derive(Debug, PartialEq)]
-enum Miscited<'s> {
-    /// The sentence does not hold this excerpt.
-    Excerpt(&'static str),
-    /// The sentence holds this citation, which names no recording of the
-    /// entry.
-    Unlisted(&'s str),
+/// The name of every file in agy's evidence folder.
+fn evidence_files() -> BTreeSet<String> {
+    let folder =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/evidence/adapters/agy-cli-1-5");
+    (std::fs::read_dir(folder).unwrap())
+        .map(Result::unwrap)
+        .filter(|entry| entry.file_type().unwrap().is_file())
+        .map(|entry| entry.file_name().into_string().unwrap())
+        .collect()
 }
 
-/// `sentence` holds `excerpt` at a place where its tokens are whole: the
-/// excerpt neither begins inside a token nor ends inside one.
-fn holds(sentence: &str, excerpt: &str) -> bool {
-    let run: Vec<&str> = tokens(excerpt).collect();
-    sentence.match_indices(excerpt).any(|(at, _)| {
-        let inside =
-            excerpt.starts_with(within) && sentence[..at].chars().next_back().is_some_and(within);
-        !inside
-            && tokens(&sentence[at..])
-                .take(run.len())
-                .eq(run.iter().copied())
+/// One sentence of agy's example: its key in [`AGY_CITATIONS`], the shape
+/// and axis it is of (or `carriage`), the version its shape was measured
+/// on, its text, and whether it says the axis is measured.
+struct Sentence<'a> {
+    key: String,
+    name: String,
+    version: &'a str,
+    text: &'a str,
+    measured: bool,
+}
+
+/// The carriage's sentence, on the version it names, and every axis
+/// sentence of every shape, on its shape's `measured_on.version`.
+fn sentences(mcp: &McpSupport) -> Vec<Sentence<'_>> {
+    let McpSupport::Declared { carriage, shapes } = mcp else {
+        panic!("agy declares its MCP facts: {mcp:?}");
+    };
+    let McpAxis::Measured { evidence } = carriage else {
+        panic!("{carriage:?}");
+    };
+    assert!(evidence.contains("Antigravity CLI 1.5.14"), "{evidence}");
+    let mut all = vec![Sentence {
+        key: "carriage".into(),
+        name: "carriage".into(),
+        version: "1.5.14",
+        text: evidence,
+        measured: true,
+    }];
+    for (shape, measurement) in shapes {
+        let isolation = &measurement.isolation;
+        let hands = match shape.hands == McpHands::Boxed {
+            true => "boxed",
+            false => "none",
+        };
+        for (axis, value) in [
+            ("ambient", &isolation.ambient),
+            ("native_write", &isolation.native_write),
+            ("store_read", &isolation.store_read),
+            ("process_read", &isolation.process_read),
+        ] {
+            let (text, measured) = match value {
+                McpAxis::Measured { evidence } => (evidence.as_str(), true),
+                McpAxis::Unmeasured(McpUnmeasured::Declared(why)) => (why.as_str(), false),
+                other => panic!("{shape}: {other:?}"),
+            };
+            all.push(Sentence {
+                key: format!("{hands} {axis}"),
+                name: format!("{shape} {axis}"),
+                version: &measurement.version,
+                text,
+                measured,
+            });
+        }
+    }
+    all
+}
+
+/// `token` stands in `sentence` as a whole token: bounded by anything that
+/// is not a letter, a digit, `.`, `_` or `-`, where a `.` that ends the
+/// sentence or a clause is no part of it.
+fn whole(sentence: &str, token: &str) -> bool {
+    let within = |c: char| c.is_alphanumeric() || matches!(c, '.' | '_' | '-');
+    sentence.match_indices(token).any(|(at, _)| {
+        let before = sentence[..at].chars().next_back();
+        let mut after = sentence[at + token.len()..].chars();
+        let ends = match after.next() {
+            Some('.') => !after.next().is_some_and(within),
+            Some(c) => !within(c),
+            None => true,
+        };
+        !before.is_some_and(within) && ends
     })
 }
 
-/// Agy's evidence record as the adapter's sentences cite it: the name of
-/// every file in its folder, whole and before its first dot, and for each
-/// 1.5.14 measurement, the fifth and the sixth, the recordings its section
-/// is the first to name.
-struct AgyRecord {
-    files: BTreeSet<String>,
-    recordings: BTreeSet<String>,
-    fifth: BTreeSet<String>,
-    sixth: BTreeSet<String>,
+/// How a row fails its sentence.
+#[derive(Debug, PartialEq)]
+enum Uncited {
+    /// (a) The row's file is not in the evidence folder.
+    Unrecorded(&'static str),
+    /// (b) The row's token does not stand whole in the sentence.
+    Unwritten(&'static str),
+    /// (c) The row's version is not the sentence's, or a `-v14` file's row
+    /// is not 1.5.14.
+    Misversioned(&'static str),
 }
 
-impl AgyRecord {
-    fn read() -> AgyRecord {
-        let evidence = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/evidence/adapters");
-        let files: BTreeSet<String> = std::fs::read_dir(evidence.join("agy-cli-1-5"))
-            .unwrap()
-            .map(Result::unwrap)
-            .filter(|entry| entry.file_type().unwrap().is_file())
-            .map(|entry| entry.file_name().into_string().unwrap())
-            .collect();
-        let recordings: BTreeSet<String> = (files.iter())
-            .map(|name| name.split('.').next().unwrap().to_string())
-            .collect();
-        let named = |text: &str| -> BTreeSet<String> {
-            (tokens(text).filter_map(|token| token.split('.').next()))
-                .filter(|stem| recordings.contains(*stem))
-                .map(str::to_string)
-                .collect()
-        };
-        let record = std::fs::read_to_string(evidence.join("agy-cli-1-5.md")).unwrap();
-        let (earlier, fifth) = record
-            .split_once("\n## Fifth measurement, on 1.5.14")
-            .unwrap();
-        let (fifth, sixth) = fifth
-            .split_once("\n## Sixth measurement, on 1.5.14")
-            .unwrap();
-        let (sixth, _) = sixth.split_once("\n## Not measured").unwrap();
-        let earlier = named(earlier);
-        let fifth = &named(fifth) - &earlier;
-        let sixth = &(&named(sixth) - &fifth) - &earlier;
-        AgyRecord {
-            files,
-            recordings,
-            fifth,
-            sixth,
+/// The first of `rows` that fails `sentence`, by (a), (b) and (c) in turn.
+fn uncited(rows: &[Row], sentence: &Sentence<'_>, files: &BTreeSet<String>) -> Result<(), Uncited> {
+    for &(token, file, version) in rows {
+        if !files.contains(file) {
+            return Err(Uncited::Unrecorded(file));
+        }
+        if !whole(sentence.text, token) {
+            return Err(Uncited::Unwritten(token));
+        }
+        let stem = Path::new(file).file_stem().and_then(|stem| stem.to_str());
+        let v14 = stem.is_some_and(|stem| stem.ends_with("-v14"));
+        if version != sentence.version || (v14 && version != "1.5.14") {
+            return Err(Uncited::Misversioned(file));
         }
     }
-
-    /// `token` is a citation: it ends in a recording's extension, or it is
-    /// hyphenated and names a file of the folder.
-    fn cites(&self, token: &str) -> bool {
-        file_name(token)
-            || token.contains('-') && (self.recordings.iter()).any(|name| names(token, name))
-    }
-
-    /// The citation `token` names `recording`: a file name is a file of the
-    /// folder whose name before the first dot is that recording, and any
-    /// other citation is that recording or, when it is no file's name,
-    /// begins it.
-    fn resolves(&self, token: &str, recording: &str) -> bool {
-        if file_name(token) {
-            self.files.contains(token) && token.split('.').next() == Some(recording)
-        } else if self.recordings.contains(token) {
-            token == recording
-        } else {
-            names(token, recording)
-        }
-    }
-
-    /// `sentence` holds every excerpt of `key`'s entry, whole tokens at one
-    /// place, each of which must name its recordings, and every citation it
-    /// holds names a recording of the entry.
-    fn miscited<'s>(&self, key: &str, sentence: &'s str) -> Result<(), Miscited<'s>> {
-        let cited = citations(key);
-        for &(excerpt, recordings) in cited {
-            if !holds(sentence, excerpt) {
-                return Err(Miscited::Excerpt(excerpt));
-            }
-            let run: Vec<&str> = tokens(excerpt).collect();
-            let named = |name: &&str| run.iter().any(|t| self.cites(t) && self.resolves(t, name));
-            assert!(
-                recordings.iter().all(named),
-                "{key}: {excerpt:?} names {recordings:?}"
-            );
-        }
-        let listed = cited.iter().flat_map(|(_, recordings)| recordings.iter());
-        match tokens(sentence)
-            .filter(|token| self.cites(token))
-            .find(|token| !listed.clone().any(|name| self.resolves(token, name)))
-        {
-            Some(token) => Err(Miscited::Unlisted(token)),
-            None => Ok(()),
-        }
-    }
-
-    /// The first of `recordings` that is no file of the folder, or not of
-    /// `version`: a 1.5.14 recording is one the measurement `sentence` names
-    /// is the first to name, and a 1.5.13 recording one neither 1.5.14
-    /// measurement is.
-    fn unrecorded(
-        &self,
-        version: &str,
-        sentence: &str,
-        recordings: &[&'static str],
-    ) -> Option<&'static str> {
-        let measurement = if sentence.contains("Fifth measurement") {
-            Some(&self.fifth)
-        } else if sentence.contains("Sixth measurement") {
-            Some(&self.sixth)
-        } else {
-            None
-        };
-        let of_version = |name: &str| match version {
-            "1.5.14" => measurement.is_some_and(|named| named.contains(name)),
-            "1.5.13" => !self.fifth.contains(name) && !self.sixth.contains(name),
-            other => panic!("agy's record holds no version {other}"),
-        };
-        (recordings.iter().copied())
-            .find(|name| !self.recordings.contains(*name) || !of_version(name))
-    }
-
-    /// `sentence`, of a shape measured on `version`, cites what `key`'s
-    /// entry lists, and the entry lists recordings of that version.
-    fn assert_cited(&self, key: &str, version: &str, sentence: &str) {
-        assert_eq!(self.miscited(key, sentence), Ok(()), "{key}: {sentence}");
-        let listed: Vec<&str> = (citations(key).iter())
-            .flat_map(|(_, recordings)| recordings.iter().copied())
-            .collect();
-        let unrecorded = self.unrecorded(version, sentence, &listed);
-        assert_eq!(unrecorded, None, "{key} on {version}: {sentence}");
-    }
+    Ok(())
 }
 
 /// The cells of the guide's table row that begins with `start`.
@@ -411,62 +343,64 @@ fn assert_the_guide_agrees(boxed: (&str, bool), without_hands: &str) {
     );
 }
 
-/// E1 and E2 of #1224's fourth round, bound by its fifth: every sentence of
-/// Agy's example, the carriage's and each axis of each shape, cites what
-/// [`AGY_CITATIONS`] lists for it, each recording a file of the version the
-/// shape declares and, on 1.5.14, of the measurement the sentence names; the
-/// boxed shapes measured on 1.5.14, each of their four axes measured; the
-/// shapes without hands still on 1.5.13, their ambient axis alone measured;
-/// and the guide says what the adapter does.
+/// E1 and E2 of #1224's fourth round, cut down to what binds (#1224): every
+/// sentence of agy's example, the carriage's and each axis of each shape,
+/// holds each row [`AGY_CITATIONS`] lists for it by (a), (b) and (c); a
+/// misspelt token, a file that does not exist and a changed shape version
+/// each fail; the boxed shapes are measured on 1.5.14, each of their four
+/// axes measured; the shapes without hands are still on 1.5.13, their
+/// ambient axis alone measured; and the guide says what the adapter does.
 #[test]
 fn each_agy_shape_names_the_version_its_recordings_are_from() {
-    let record = AgyRecord::read();
+    let files = evidence_files();
     let (_dir, adapters) = agy_example();
     let agy = adapters.adapter("agy").unwrap();
-    let McpSupport::Declared { carriage, shapes } = &agy.mcp else {
-        panic!("agy declares its MCP facts: {:?}", agy.mcp);
-    };
-    let McpAxis::Measured { evidence } = carriage else {
-        panic!("{carriage:?}");
-    };
-    assert!(evidence.contains("Antigravity CLI 1.5.14"), "{evidence}");
-    record.assert_cited("carriage", "1.5.14", evidence);
-    let mut judged = vec!["carriage".to_string()];
-    let mut versions = Vec::new();
-    let mut measured = Vec::new();
-    for (shape, measurement) in shapes {
-        let isolation = &measurement.isolation;
-        let axes = [
-            ("ambient", &isolation.ambient),
-            ("native_write", &isolation.native_write),
-            ("store_read", &isolation.store_read),
-            ("process_read", &isolation.process_read),
-        ];
-        let hands = if shape.hands == McpHands::Boxed {
-            "boxed"
-        } else {
-            "none"
-        };
-        for (name, axis) in axes {
-            let sentence = match axis {
-                McpAxis::Measured { evidence } => {
-                    measured.push(format!("{shape} {name}"));
-                    evidence
-                }
-                McpAxis::Unmeasured(McpUnmeasured::Declared(why)) => why,
-                other => panic!("{shape}: {other:?}"),
-            };
-            let key = format!("{hands} {name}");
-            record.assert_cited(&key, &measurement.version, sentence);
-            judged.push(key);
-        }
-        let store_measured = matches!(isolation.store_read, McpAxis::Measured { .. });
-        versions.push((
-            shape.to_string(),
-            measurement.version.as_str(),
-            store_measured,
-        ));
+    let all = sentences(&agy.mcp);
+    for sentence in &all {
+        let cited = uncited(rows(&sentence.key), sentence, &files);
+        assert_eq!(cited, Ok(()), "{}: {}", sentence.name, sentence.text);
     }
+    // The three negatives, one for each of (b), (a) and (c).
+    let process = (all.iter())
+        .find(|sentence| sentence.key == "boxed process_read")
+        .unwrap();
+    let misspelt = Sentence {
+        text: &process.text.replace("box-reach-v14", "box-reach-v41"),
+        key: process.key.clone(),
+        name: process.name.clone(),
+        ..*process
+    };
+    let missing: &[Row] = &[("box-reach-v14", "box-reach-v14.stderr", "1.5.14")];
+    assert_eq!(
+        [
+            uncited(rows(&process.key), &misspelt, &files),
+            uncited(missing, process, &files),
+        ],
+        [
+            Err(Uncited::Unwritten("box-reach-v14")),
+            Err(Uncited::Unrecorded("box-reach-v14.stderr")),
+        ]
+    );
+    let mut changed = agy.clone();
+    if let McpSupport::Declared { shapes, .. } = &mut changed.mcp {
+        for measurement in shapes.values_mut() {
+            measurement.version = "1.5.13".into();
+        }
+    }
+    let refused = (sentences(&changed.mcp).iter())
+        .find(|sentence| sentence.key == "boxed process_read")
+        .map(|sentence| uncited(rows(&sentence.key), sentence, &files));
+    let misversioned = Err(Uncited::Misversioned("box-reach-v14.ndjson"));
+    assert_eq!(refused, Some(misversioned));
+    let McpSupport::Declared { shapes, .. } = &agy.mcp else {
+        unreachable!("sentences read the declared facts");
+    };
+    let versions: Vec<(String, &str, bool)> = (shapes.iter())
+        .map(|(shape, measurement)| {
+            let store = matches!(measurement.isolation.store_read, McpAxis::Measured { .. });
+            (shape.to_string(), measurement.version.as_str(), store)
+        })
+        .collect();
     let shape = |invocation, hands, version, store| {
         let host = McpHost::Linux;
         let shape = McpShape {
@@ -495,108 +429,18 @@ fn each_agy_shape_names_the_version_its_recordings_are_from() {
         .zip([&boxed[..], &boxed[..1], &boxed[..], &boxed[..1]])
         .flat_map(|((shape, _, _), axes)| axes.iter().map(move |axis| format!("{shape} {axis}")))
         .collect();
+    let measured: Vec<&str> = (all.iter().skip(1))
+        .filter(|sentence| sentence.measured)
+        .map(|sentence| sentence.name.as_str())
+        .collect();
     assert_eq!(measured, expected_measured);
     // The carriage and the four axes of each of the four shapes, and every
     // entry of the table judged.
-    assert_eq!(judged.len(), 17);
-    let judged: BTreeSet<&str> = judged.iter().map(String::as_str).collect();
+    assert_eq!(all.len(), 17);
+    let judged: BTreeSet<&str> = all.iter().map(|sentence| sentence.key.as_str()).collect();
     let listed: BTreeSet<&str> = AGY_CITATIONS.iter().map(|(key, _)| *key).collect();
     assert_eq!(judged, listed);
     assert_the_guide_agrees((versions[0].1, versions[0].2), versions[1].1);
-}
-
-/// F1 of #1224's fifth round: on copies of shipped sentences, a file name
-/// the entry does not list fails wherever it is appended, a recording
-/// swapped for another of the same measurement, misspelt or prefixed fails,
-/// even beside a second copy of its excerpt, a recording's exact name is not
-/// read as a short form of a listed one, a listed recording's file name
-/// passes and one of no file fails, a short form passes bare and fails as a
-/// file name, a hyphenated word of prose passes, and a recording of no file,
-/// of the other version or of the other measurement is refused.
-#[test]
-fn an_agy_citation_is_a_recording_s_file_name_and_prose_is_not_judged() {
-    let record = AgyRecord::read();
-    let (_dir, adapters) = agy_example();
-    let boxed = adapters.adapter("agy").unwrap().mcp.isolation(&McpShape {
-        invocation: McpInvocation::Cold,
-        hands: McpHands::Boxed,
-        host: McpHost::Linux,
-    });
-    let unboxed = adapters.adapter("agy").unwrap().mcp.isolation(&McpShape {
-        invocation: McpInvocation::Cold,
-        hands: McpHands::NoHands,
-        host: McpHost::Linux,
-    });
-    let (
-        McpAxis::Measured { evidence: process },
-        McpAxis::Measured { evidence: store },
-        McpAxis::Measured { evidence: ambient },
-    ) = (&boxed.process_read, &boxed.store_read, &unboxed.ambient)
-    else {
-        panic!("{boxed:?} {unboxed:?}");
-    };
-    let key = "boxed process_read";
-    let [reach, _] = citations(key) else {
-        panic!("{key} has two excerpts");
-    };
-    let appended = |tail: &str| format!("{process} {tail}");
-    assert_eq!(
-        [
-            record.miscited(key, process),
-            record.miscited(key, &appended("version.txt (1.5.13)")),
-            record.miscited(key, &appended("box_reach_v14.ndjson (missing)")),
-            record.miscited(
-                key,
-                &process.replace("box-reach-v14", "box-other-natives-v14")
-            ),
-            record.miscited(key, &process.replace("box-reach-v14", "box-reach-v41")),
-            record.miscited(key, &process.replace("box-reach-v14", "fake-box-reach-v14")),
-            record.miscited(key, &appended("and box-reach")),
-            record.miscited(key, &appended("(box-reach-v14.ndjson)")),
-            record.miscited(key, &appended("before the pre-tool hook")),
-            record.miscited(key, &appended("(box-reach-v14.stderr)")),
-            record.miscited(
-                key,
-                &format!(
-                    "{} box-reach-v14. the hands tool's command saw 4 entries in /proc with \
-                     bubblewrap as pid 1",
-                    process.replace("box-reach-v14:", "fake-box-reach-v14:")
-                )
-            ),
-            record.miscited("none ambient", ambient),
-            record.miscited("none ambient", &format!("{ambient} (iso-05.ndjson)")),
-        ],
-        [
-            Ok(()),
-            Err(Miscited::Unlisted("version.txt")),
-            Err(Miscited::Unlisted("box_reach_v14.ndjson")),
-            Err(Miscited::Excerpt(reach.0)),
-            Err(Miscited::Excerpt(reach.0)),
-            Err(Miscited::Excerpt(reach.0)),
-            Err(Miscited::Unlisted("box-reach")),
-            Ok(()),
-            Ok(()),
-            Err(Miscited::Unlisted("box-reach-v14.stderr")),
-            Err(Miscited::Excerpt(reach.0)),
-            Ok(()),
-            Err(Miscited::Unlisted("iso-05.ndjson")),
-        ]
-    );
-    let elsewhere = store.replace("Fifth measurement", "Sixth measurement");
-    assert_eq!(
-        [
-            record.unrecorded("1.5.14", store, &["box-store", "box-reach-v41"]),
-            record.unrecorded("1.5.14", store, &["box-store", "git-root-linked-worktree"]),
-            record.unrecorded("1.5.13", store, &["git-root-linked-worktree", "box-store"]),
-            record.unrecorded("1.5.14", &elsewhere, &["box-store"]),
-        ],
-        [
-            Some("box-reach-v41"),
-            Some("git-root-linked-worktree"),
-            Some("box-store"),
-            Some("box-store"),
-        ]
-    );
 }
 
 /// E2 of #1224's fourth round: Agy's boxed shapes declare store read

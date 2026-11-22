@@ -10,6 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::realms::Boundary;
+use brokkr_protocol::process::DriverStderr;
 use brokkr_runtime::bundle::RealmLaw;
 use brokkr_runtime::{Bundle, Engine};
 use brokkr_store::Store;
@@ -256,8 +257,9 @@ fn an_engine_run_of_an_agy_seat_served_another_model_journals_no_turn() {
 }
 
 /// A signed-out agy, end to end: the driver process's own output, which
-/// the engine journals as the attempt's stderr, holds the driver's words
-/// in place of agy's sign-in block, and no piece of its URL (#1200 K8).
+/// the engine journals as the attempt's stderr by evidence (#1199), is the
+/// driver's words in place of agy's sign-in block, and the journal holds no
+/// piece of its URL (#1200 K8).
 #[test]
 fn an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url() {
     let test = "agy_driver::an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url";
@@ -289,9 +291,14 @@ fn an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url() {
         code: 1,
     };
     let journal = serde_json::to_string(&engine_run_ending(&root, &ending)).unwrap();
+    // The journal names the driver's printed stderr by its evidence alone
+    // (#1199): these are the evidence of the driver's own words.
+    let printed = "agy wrote its sign-in request on stderr, which brokkr does not keep: it holds \
+                   a link made for one attempt (#1200)\n";
+    let named = DriverStderr::of(printed).to_string();
     assert!(
-        journal.contains("agy wrote its sign-in request on stderr, which brokkr does not keep"),
-        "the driver's printed stderr is journaled: {journal}"
+        journal.contains(&named),
+        "the driver's printed stderr is journaled as {named}: {journal}"
     );
     assert!(
         journal.contains(
@@ -308,7 +315,7 @@ fn an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url() {
 
 /// A print timeout behind work, end to end: the attempt ends with no
 /// result, and what the driver prints for it is the print-timeout refusal's
-/// words, which the engine journals (#1200 K9).
+/// words, which the engine journals by evidence (#1200 K9, #1199).
 #[test]
 fn an_engine_run_of_an_agy_print_timeout_journals_its_words() {
     let test = "agy_driver::an_engine_run_of_an_agy_print_timeout_journals_its_words";
@@ -326,7 +333,11 @@ fn an_engine_run_of_an_agy_print_timeout_journals_its_words() {
     let journal = serde_json::to_string(&events).unwrap();
     let words = "print_timeout: agy's result had status ERROR; agy exited 3 at its own print \
                  timeout, which this launch never asks for";
-    assert!(journal.contains(words), "{journal}");
+    // The journal names what the driver printed by its evidence alone
+    // (#1199): these are the evidence of the refusal's words.
+    let printed = format!("{words}; the command was spawned, so no result is sent\n");
+    let named = DriverStderr::of(&printed).to_string();
+    assert!(journal.contains(&named), "{named}: {journal}");
     let succeeded = (events.iter()).any(|event| event["type"] == "effect/succeeded");
     assert!(!succeeded, "{journal}");
 }

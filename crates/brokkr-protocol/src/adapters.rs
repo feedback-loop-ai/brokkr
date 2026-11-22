@@ -122,51 +122,14 @@ probe::adapter_kinds! {
     Dsh => "dsh",
     /// Qoder CLI, a provisional harness at level 1 (#1178; decision 0075):
     /// unboxed, never a gate, and never resumed.
-<<<<<<< HEAD
     Qoder => "qoder",
-    Exec => "exec",
-||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
-    Qoder,
-    Exec,
-=======
-    Qoder,
     /// Antigravity CLI, a provisional harness at level 1 (#1200; decision
     /// 0075): unboxed, never a gate, never resumed, under the engine's HOME.
-    Agy,
-    Exec,
->>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
+    Agy => "agy",
+    Exec => "exec",
 }
 
 impl AdapterKind {
-<<<<<<< HEAD
-||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
-    pub fn parse(name: &str) -> Option<AdapterKind> {
-        match name {
-            "claude" => Some(AdapterKind::Claude),
-            "lanetally" => Some(AdapterKind::Lanetally),
-            "codex" => Some(AdapterKind::Codex),
-            "dsh" => Some(AdapterKind::Dsh),
-            "qoder" => Some(AdapterKind::Qoder),
-            "exec" => Some(AdapterKind::Exec),
-            _ => None,
-        }
-    }
-
-=======
-    pub fn parse(name: &str) -> Option<AdapterKind> {
-        match name {
-            "claude" => Some(AdapterKind::Claude),
-            "lanetally" => Some(AdapterKind::Lanetally),
-            "codex" => Some(AdapterKind::Codex),
-            "dsh" => Some(AdapterKind::Dsh),
-            "qoder" => Some(AdapterKind::Qoder),
-            "agy" => Some(AdapterKind::Agy),
-            "exec" => Some(AdapterKind::Exec),
-            _ => None,
-        }
-    }
-
->>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
     /// What this adapter honours of the protocol's OPTIONAL vocabulary.
     ///
     /// `resume` is **offer receipt** and nothing more (proposed decision
@@ -186,16 +149,8 @@ impl AdapterKind {
     /// driver that does not declare receipt is never handed a handle.
     fn supports(&self) -> Vec<String> {
         match self {
-<<<<<<< HEAD
-            Self::Exec | Self::Qoder => Vec::new(),
+            Self::Exec | Self::Qoder | Self::Agy => Vec::new(),
             Self::Claude | Self::Lanetally | Self::Codex | Self::Dsh => vec!["resume".into()],
-||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
-            AdapterKind::Exec | AdapterKind::Qoder => Vec::new(),
-            _ => vec!["resume".to_string()],
-=======
-            AdapterKind::Exec | AdapterKind::Qoder | AdapterKind::Agy => Vec::new(),
-            _ => vec!["resume".to_string()],
->>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
         }
     }
 
@@ -853,7 +808,7 @@ fn stop_harness(child: &mut Spawned) -> std::io::Result<std::process::ExitStatus
 
 /// [`stop_harness`] at a text boundary: a stopped route converts its typed
 /// wait failure with the one prefix, [`stream_turn::UNCONCLUDED`], here or,
-/// for a route that stops through `stream_turn` (agy and Qoder), in its
+/// for a route that stops through `stream_turn` (agy), in its
 /// `streamed_lines`, so the operator's words have one home (#430 L3;
 /// decision 0071 rulings 5 and 8).
 fn conclude_harness(child: &mut Spawned) -> Result<std::process::ExitStatus, String> {

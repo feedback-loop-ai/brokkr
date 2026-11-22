@@ -29,6 +29,7 @@
 //! `hook_diagnostics`, are rows the fold passes over as it passes over any
 //! row it does not read.
 
+use std::io::BufRead;
 use std::path::Path;
 
 use serde_json::{Map, Value};
@@ -37,16 +38,8 @@ use thiserror::Error;
 use super::claude_fold::ClaudeFold;
 use super::escapes::{plain_evidence, without_ansi};
 use super::mcp::{self, McpRefusal};
-<<<<<<< HEAD
+use super::stream_turn::{STOPPED_AT_REFUSAL, UNCONCLUDED};
 use super::{fold_stream_event, io_context, lost, secret, spawn_fed, Invocation, LaunchTerminal};
-||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
-use super::refusal::refusal_reason;
-use super::{fold_stream_event, io_context, lost, secret, spawn_fed, Invocation, LaunchTerminal};
-=======
-use super::refusal::refusal_reason;
-use super::stream_turn::{streamed, Turn};
-use super::{fold_stream_event, secret, spawn_fed, Invocation, LaunchTerminal};
->>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
 use crate::native_controls::mcp::qoder::isolation;
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 use crate::{PreSessionRefusal, RefusalClass};
@@ -161,7 +154,7 @@ const PLAIN_ID_LIMIT: usize = 80;
 /// character is one JSON or Rust escapes, and none is one of the mask's
 /// replacement text (`[secret:NAME]`), so a plain id has no escaped form
 /// and no mask turns another value into one.
-fn plain(text: &str) -> bool {
+pub(super) fn plain(text: &str) -> bool {
     let character = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-');
     let first = text
         .bytes()
@@ -558,13 +551,13 @@ fn provider_refused(classified: PreSessionRefusal) -> PreSessionRefusal {
 /// is said (V3): a false refusal costs a refused seat, a missed one accepts
 /// a model nobody pinned. Both stay here and are only matched (U2): neither
 /// is returned, emitted, logged or put in any error, so it has no `Debug`.
-struct Observed {
+pub(super) struct Observed {
     raw: String,
     stripped: String,
 }
 
 impl Observed {
-    fn of(bytes: &[u8]) -> Observed {
+    pub(super) fn of(bytes: &[u8]) -> Observed {
         let raw = String::from_utf8_lossy(bytes).into_owned();
         let stripped = without_ansi(&raw);
         Observed { raw, stripped }
@@ -596,10 +589,10 @@ fn invoke(
     let (workdir, result_path) = (path("workdir"), path("result_path"));
     let mut transcript = Transcript::resolve(TranscriptKind::None)?;
     let mut fold = QoderFold::new(&launch.pin);
-    let fed = spawn_fed(&launch.command, prompt, workdir, bindings)?;
+    let (mut child, stderr_thread) = spawn_fed(&launch.command, prompt, workdir, bindings)?;
+    let stdout = child.stdout.take().expect("piped");
     let mut session_meta = Map::new();
     let mut refusal = None;
-<<<<<<< HEAD
     let mut stopped = None;
     for line in std::io::BufReader::new(stdout).split(b'\n') {
         // Every line is read, as bytes: one that cannot be read is no JSON
@@ -615,44 +608,15 @@ fn invoke(
     }
     let status = match stopped {
         Some(_) => super::conclude_harness(&mut child)?,
-        None => io_context(child.wait(), "agent CLI did not conclude")?,
+        None => io_context(child.wait(), UNCONCLUDED)?,
     };
     // The session record holds only what masked rows wrote (H1).
-||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
-    let mut stopped = None;
-    for line in std::io::BufReader::new(stdout).lines() {
-        let Ok(line) = line else { break };
-        let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        secret::mask_json(&mut event, bindings);
-        match fold.read(event, &mut session_meta, &mut transcript, emit) {
-            Ok(classified) => refusal = refusal.or(classified),
-            Err(refused) => {
-                stopped = Some(refused);
-                break;
-            }
-        }
-    }
-    let status = match stopped {
-        Some(_) => super::conclude_harness(&mut child)?,
-        None => io_context(child.wait(), "agent CLI did not conclude")?,
-    };
-=======
-    let turn = streamed(fed, |mut event| {
-        secret::mask_json(&mut event, bindings);
-        let classified = fold.read(event, &mut session_meta, &mut transcript, emit)?;
-        refusal = refusal.take().or(classified);
-        Ok(())
-    })?;
->>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
     transcript.finish(&mut session_meta, emit);
-    let Turn {
-        exit_code,
-        stopped,
-        captured,
-        ..
-    } = turn;
+    let captured = stderr_thread.take(stopped.is_some());
+    let exit_code = match stopped {
+        Some(_) => STOPPED_AT_REFUSAL,
+        None => lost::exit_code(status),
+    };
     // Read unmasked so no binding erases a marker (U2), and only matched:
     // no refusal, error or late message below carries a byte of it.
     let observed = Observed::of(captured.bytes());
@@ -677,25 +641,9 @@ fn invoke(
         notes: String::new(),
         // Stripped first, so a value an escape split is whole when the mask
         // reads it (U3). It is evidence, no word of the driver's: the shared
-<<<<<<< HEAD
         // driver tells it on its own stderr as it tells every adapter's, and
         // the journal names it by evidence alone (#1199).
-        stderr: captured.evidence(|raw| {
-            let stripped = without_ansi(&String::from_utf8_lossy(raw));
-            secret::mask_text(stripped.as_bytes(), bindings)
-        }),
-||||||| parent of cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
-        // driver's stderr tail carries it into the journal as it carries
-        // every adapter's, and #1199 closes that path for all of them (V1).
-        stderr: captured.evidence(|raw| {
-            let stripped = without_ansi(&String::from_utf8_lossy(raw));
-            secret::mask_text(stripped.as_bytes(), bindings)
-        }),
-=======
-        // driver's stderr tail carries it into the journal as it carries
-        // every adapter's, and #1199 closes that path for all of them (V1).
         stderr: captured.evidence(|raw| plain_evidence(raw, bindings)),
->>>>>>> cbfc119a (agy stack squashed for restack: levels 1 and 3 (f10cbc20..4395dd80))
         state: None,
         refusal,
         answer: None,

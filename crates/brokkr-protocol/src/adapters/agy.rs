@@ -36,7 +36,7 @@ mod fold;
 mod gate;
 mod home;
 
-use super::qoder::Observed;
+use super::qoder::{plain, Observed};
 use super::stream_turn::Line;
 use crate::native_controls::SealedBoundary;
 use crate::PreSessionRefusal;
@@ -112,7 +112,7 @@ const RULE_FORMS: [&str; 2] = ["command(", "mcp("];
 /// which no seat binds: its HOME (J1), its `PWD`, the resolved working
 /// directory agy walks up from (L2), and the switch that keeps a turn from
 /// starting agy's self-updater (`updater-default`, `updater-disabled-true`;
-/// decision 0111).
+/// decision 0114).
 const HOME: &str = "HOME";
 const PWD: &str = "PWD";
 const AUTO_UPDATE: &str = "AGY_CLI_DISABLE_AUTO_UPDATE";
@@ -164,6 +164,13 @@ pub(super) enum LaunchError {
          seat pins its id (#1200)"
     )]
     Unpinned,
+    /// The pin is not a plain model id ([`plain`]), so the words that name
+    /// it could escape it past the mask. They name no byte of it (#1178 Z1).
+    #[error(
+        "refusing to invoke the agent CLI: the agy model pin is not a plain model id (an ASCII \
+         letter or digit, then ASCII letters, digits, '.', '_' and '-')"
+    )]
+    Unplain,
     #[error(
         "refusing to invoke the agent CLI: the seat's --allow carries a rule that is neither \
          command(…) nor mcp(…), which agy would ignore without a word (#1200)"
@@ -341,6 +348,9 @@ fn admitted(extra: &[String]) -> Result<[Option<&String>; 3], LaunchError> {
 fn launch(bin: &str, extra: &[String], hands: Hands<'_>) -> Result<Launch, LaunchError> {
     let [pin, effort, allow] = admitted(extra)?;
     let pin = pin.ok_or(LaunchError::Unpinned)?;
+    if !plain(pin) {
+        return Err(LaunchError::Unplain);
+    }
     let allowed: Vec<&str> = match (hands, allow) {
         (Hands::Boxed(_), Some(_)) => return Err(LaunchError::BoxedGrant),
         (Hands::Boxed(rules), None) => rules.iter().map(String::as_str).collect(),
@@ -557,7 +567,7 @@ fn invoke(
         workdir,
     } = prepared;
     let mut fold = AgyFold::new(&launch.pin, bindings);
-    let mut transcript = Transcript::resolve(TranscriptKind::None)?;
+    let mut transcript = Transcript::resolve(TranscriptKind::None).map_err(String::from)?;
     // The engine's HOME, PWD and update switch, set on the child last, after
     // the bindings and over the engine's own environment (J1, L2); the child
     // runs in the directory its PWD names.
@@ -595,15 +605,17 @@ fn concluded(
 ) -> Result<Invocation, Ended> {
     let Turn {
         exit_code,
+        clean,
         captured,
         unread,
-        ..
     } = ended;
     fold.unreadable(unread);
     // Read unmasked so no binding erases the marker, and only matched (J4).
     let signed_out = fold.signed_out() || Observed::of(captured.bytes()).said(fold::SIGNED_OUT);
     let verdict = fold.verdict(exit_code, signed_out);
-    let delivered = exit_code == 0 && super::delivered_result(input);
+    // Delivery is read from agy's real status, never the stop's reported
+    // code: it exited 0 on its own and its result file exists (#1178 H3).
+    let delivered = clean && super::delivered_result(input);
     let (refusal, answer) = judged(verdict, fold.worked() || delivered, bindings)?;
     // Evidence: agy's stderr, stripped and then masked, which the shared
     // driver's tail journals as it does every adapter's until #1199; a
@@ -615,7 +627,7 @@ fn concluded(
     Ok(Invocation {
         exit_code,
         session_meta,
-        stdout: String::new(),
+        notes: String::new(),
         stderr,
         state: None,
         refusal,
@@ -647,4 +659,4 @@ fn judged(
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

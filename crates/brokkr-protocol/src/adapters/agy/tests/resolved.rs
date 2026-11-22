@@ -5,9 +5,7 @@
 
 use super::judged::{driven, driven_with, stream};
 use super::*;
-use crate::adapters::stream_turn::{
-    json_rows, read_lines, streamed_lines, turn_read, Line, Read as Reading,
-};
+use crate::adapters::stream_turn::{streamed_lines, turn_read, Line};
 use fold::Seen;
 
 /// The recorded tool-less turn's init, its finished response step, and its
@@ -89,11 +87,21 @@ fn exits(
 /// ([`turn_read`]), concluded with the seat's result file delivered:
 /// whether the turn was unread, and its answer.
 fn concluded_on(reader: impl std::io::BufRead) -> (bool, Result<Option<Value>, Ended>) {
+    concluded_after(reader, |_| {})
+}
+
+/// [`concluded_on`], `before` handed the spawned child before its stdout is
+/// read.
+fn concluded_after(
+    reader: impl std::io::BufRead,
+    before: impl FnOnce(&crate::process::spawned::Spawned),
+) -> (bool, Result<Option<Value>, Ended>) {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path();
     let result = dir.join("result.json");
     std::fs::write(&result, "{\"result\":\"complete\"}").unwrap();
     let fed = exits(dir);
+    before(&fed.0);
     let (mut fold, mut record) = (AgyFold::new(FLASH, &[]), Map::new());
     let turn = turn_read(fed, reader, |line| {
         match fold.read(line, &mut record, &mut |_| {}) {
@@ -106,6 +114,30 @@ fn concluded_on(reader: impl std::io::BufRead) -> (bool, Result<Option<Value>, E
     let input = json!({ "result_path": result });
     let concluded = concluded(fold, turn, record, &input, &[]);
     (unread, concluded.map(|invocation| invocation.answer))
+}
+
+/// A turn stopped at a substituted init after agy had exited 0 on its own,
+/// its result delivered, is no refusal to start: the stop's reported code
+/// is not agy's exit, so the turn ends late, in the refusal's words, with
+/// no result (#1178 H3, checked for agy).
+#[test]
+fn a_stop_after_agy_exited_clean_with_its_result_delivered_ends_late() {
+    use rustix::process::{waitid, Pid, WaitId, WaitIdOptions};
+    let neon = r#"{"event":"init","init":{"model":"gemini-4-neon"}}"#;
+    let reader = std::io::Cursor::new(format!("{neon}\n"));
+    let (_, ended) = concluded_after(reader, |child| {
+        // Until the child has exited, observed and left unreaped, so the
+        // stop meets an exit of its own.
+        let pid = Pid::from_raw(i32::try_from(child.id()).unwrap()).unwrap();
+        let exited = WaitIdOptions::EXITED | WaitIdOptions::NOWAIT;
+        assert!(waitid(WaitId::Pid(pid), exited).unwrap().is_some());
+    });
+    let words =
+        format!("model_substituted: the seat pinned \"{FLASH}\" and agy served \"gemini-4-neon\"");
+    match ended {
+        Err(Ended::Late(late)) => assert_eq!(late.words(), words),
+        other => panic!("{other:?}"),
+    }
 }
 
 /// A turn whose harness cannot be waited on, because it was reaped behind
@@ -131,14 +163,9 @@ fn a_turn_that_does_not_conclude_ends_in_the_shared_drivers_words() {
 /// A pinned `SUCCESS` and then a read that fails: the production turn is
 /// marked unread, agy's verdict is the fault, and a turn so marked sends no
 /// result behind a delivered result file; read to its end, the same turn
-/// answers. Qoder reads the same rows over the same reader and ends there
-/// (L3, M5).
+/// answers (L3, M5).
 #[test]
-fn a_stdout_that_fails_before_its_end_fails_the_turn_and_qoder_ends_its_reading() {
-    let unread = Reading {
-        stopped: None,
-        unread: true,
-    };
+fn a_stdout_that_fails_before_its_end_fails_the_turn() {
     let failure = Failed {
         failure: Failure::Unreadable,
         seen: seen("SUCCESS"),
@@ -169,21 +196,6 @@ fn a_stdout_that_fails_before_its_end_fails_the_turn_and_qoder_ends_its_reading(
             seen: Seen::default(),
         })
     );
-    let mut rows = Vec::new();
-    let qoder = read_lines(
-        failing(),
-        json_rows(|row| {
-            rows.push(row);
-            Ok(())
-        }),
-    );
-    assert_eq!(qoder, unread);
-    let (init, step, result) = turn_rows();
-    let expected: Vec<Value> = [init, step, result]
-        .iter()
-        .map(|row| serde_json::from_str(row).unwrap())
-        .collect();
-    assert_eq!(rows, expected);
 }
 
 /// A substituted init behind which agy exits 3 is the substitution
