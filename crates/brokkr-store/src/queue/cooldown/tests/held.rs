@@ -354,6 +354,38 @@ fn a_round_the_table_does_not_write_refuses_and_leaves_its_hold_standing() {
     assert_eq!(unended, 1);
 }
 
+/// A hold's end is stored strictly after its deadline, or not at all (fix
+/// round 0106b1r9, E2): a deadline in the journal's last spellable second
+/// is held to that second's end, and one whose next whole second is past
+/// it refuses by name, writing no hold, never clamped to an end at or
+/// before the deadline.
+#[test]
+fn a_hold_whose_end_cannot_be_stored_after_its_deadline_refuses_and_writes_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let last = OffsetDateTime::from_unix_timestamp(super::super::LAST_SECOND).unwrap();
+    let before = last - time::Duration::milliseconds(500);
+    store
+        .hold_probe(&probe_hold("run-a", before), at(0))
+        .unwrap()
+        .expect("a version 7 queue takes the hold");
+    assert_eq!(store.cooldowns_in_force(before).unwrap()[0].until_at, last);
+    let refused = store
+        .hold_probe(&probe_hold("run-b", last), at(0))
+        .unwrap_err();
+    let StoreError::Queue(QueueRefusal::ProbeHoldUnending(unending)) = &refused else {
+        panic!("an unending hold was not refused by name: {refused:?}");
+    };
+    assert_eq!(unending.run_id, "run-b");
+    assert_eq!(
+        refused.to_string(),
+        "the journal's probe holds cannot end run 'run-b''s hold on claude/first after its \
+         deadline: the first whole second after it is past 9999-12-31T23:59:59Z, the last the \
+         journal can spell, so no probe runs on it and nothing was written"
+    );
+    assert_eq!(unended_holds(&store.conn), ["run-a"]);
+}
+
 /// The probe holds standing unended, by run, in seq order.
 fn unended_holds(conn: &Connection) -> Vec<String> {
     conn.prepare("SELECT run_id FROM probe_holds WHERE ended_at IS NULL ORDER BY seq")

@@ -5,7 +5,7 @@
 //! is planted through the real refusal: the fake driver's probe reports a
 //! typed rate limit and the engine's own probe path decides.
 
-use brokkr_core::ProviderLimitRefusal;
+use brokkr_core::{ParkCause, ProviderLimitRefusal};
 use time::Duration as TimeDuration;
 
 use super::held_wait::{
@@ -208,13 +208,15 @@ fn a_probes_held_round_spends_no_attempt_and_the_cap_parks_attempt_cap() {
     parked_at_the_cap(&engine);
 }
 
-/// Fix round 0106b1r3, R3: a held wait ending at the last second the
-/// journal can spell, resumed at that end, whose probe states an ordinary
-/// 2s within the 3s maximum. The round adds no held interval and passes no
-/// bound, yet its end is past year 9999: it parks `no-end` with the
-/// site's own maximum, typed, where HEAD's `expect` panicked.
+/// Fix rounds 0106b1r3, R3, and 0106b1r9, E2: a held wait ending at the
+/// last second the journal can spell, resumed at that end. Its probe's
+/// deadline is past that second, so its hold could end only at or before
+/// the deadline, while its driver could still run: the probe is refused
+/// before dispatch, in the store's typed words, no driver starts, no hold
+/// is written, and the run parks ruled, where HEAD's `expect` panicked
+/// and r6's clamp dispatched it under a hold already out of force.
 #[test]
-fn an_ordinary_probe_round_from_a_held_end_at_year_9999_parks_no_end() {
+fn a_probe_from_a_held_end_at_year_9999_is_refused_before_dispatch() {
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, compiled) = engine_probing(dir.path(), 2, Probed::Refuse, Some(2));
     let last = "9999-12-31T23:59:59Z";
@@ -232,15 +234,29 @@ fn an_ordinary_probe_round_from_a_held_end_at_year_9999_parks_no_end() {
     engine.cooldown.host = Some(host(dir.path(), 1, 3));
     engine.cooldown.clock = Clock::advancing(OffsetDateTime::parse(last, &Rfc3339).unwrap()).0;
     engine.drive().unwrap();
-    assert_eq!(logs(dir.path(), "work"), ["probe"]);
-    let reason = parked_no_end(&engine, 2, 3);
-    assert!(
-        reason.contains(
-            "the cool-down probe for claude/first was refused again with a wait of 2s, within \
-             the declared 3s maximum, whose end the journal cannot spell"
-        ),
-        "{reason}"
+    assert!(logs(dir.path(), "work").is_empty());
+    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
+    let reason = park_reason(&engine);
+    assert_eq!(
+        reason,
+        format!(
+            "the cool-down probe for claude/first was not admitted: its route's hold was not \
+             written: the journal's probe holds cannot end run '{run_id}''s hold on \
+             claude/first after its deadline: the first whole second after it is past \
+             9999-12-31T23:59:59Z, the last the journal can spell, so no probe runs on it and \
+             nothing was written"
+        )
     );
+    let cause = park_cause_of(&engine);
+    assert!(
+        matches!(&cause, ParkCause::Ruled { rule_id: None, detail } if reason.starts_with(detail)),
+        "{cause:?}"
+    );
+    let holds: i64 = rusqlite::Connection::open(engine.store.path())
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM probe_holds", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(holds, 0);
 }
 
 /// A probe's stated reset the journal can spell from the terminal's time

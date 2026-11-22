@@ -232,6 +232,7 @@ pub brokkr_store::QueueRefusal::PastTheEnds::last: u32
 pub brokkr_store::QueueRefusal::PastTheEnds::to: u32
 pub brokkr_store::QueueRefusal::PinMoved
 pub brokkr_store::QueueRefusal::PinMoved::entry: brokkr_store::EntryId
+pub brokkr_store::QueueRefusal::ProbeHoldUnending(alloc::boxed::Box<brokkr_store::UnwrittenHold>)
 pub brokkr_store::QueueRefusal::ProbeHoldUnwritten(alloc::boxed::Box<brokkr_store::UnwrittenHold>)
 pub brokkr_store::QueueRefusal::RunTaken
 pub brokkr_store::QueueRefusal::RunTaken::entry: brokkr_store::EntryId

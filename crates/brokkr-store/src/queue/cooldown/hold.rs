@@ -36,12 +36,15 @@ pub struct ProbeHold<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProbeHoldId(i64);
 
-/// The first whole second strictly after `deadline`, never past
-/// [`LAST_SECOND`]: a hold stored here ends later than the probe's driver
-/// is killed, even on a deadline that falls on a whole second, where a
-/// round-up would end both at once (fix round 0106b1r6, D1).
-fn after_second(deadline: OffsetDateTime) -> i64 {
-    deadline.unix_timestamp().saturating_add(1).min(LAST_SECOND)
+/// The first whole second strictly after `deadline`: a hold stored here
+/// ends later than the probe's driver is killed, even on a deadline that
+/// falls on a whole second, where a round-up would end both at once (fix
+/// round 0106b1r6, D1). `None` where that second is past [`LAST_SECOND`]:
+/// it is never clamped there, which would end the hold at or before the
+/// deadline, while the driver could still run (fix round 0106b1r9, E2).
+fn after_second(deadline: OffsetDateTime) -> Option<i64> {
+    let end = deadline.unix_timestamp() + 1;
+    (end <= LAST_SECOND).then_some(end)
 }
 
 /// The words a hold is read with, naming the run whose probe is in flight.
@@ -107,12 +110,22 @@ impl Store {
     /// unheld route. An insert the table took without writing its row, as
     /// a trigger that ignores it leaves it, refuses by name
     /// ([`QueueRefusal::ProbeHoldUnwritten`]), so no probe runs on a hold
-    /// believed written (fix round 0106b1r6, D2).
+    /// believed written (fix round 0106b1r6, D2). A hold whose end cannot
+    /// be stored strictly after its deadline refuses by name before any
+    /// write ([`QueueRefusal::ProbeHoldUnending`]; fix round 0106b1r9, E2).
     pub fn hold_probe(
         &mut self,
         hold: &ProbeHold<'_>,
         now: OffsetDateTime,
     ) -> Result<Option<ProbeHoldId>, StoreError> {
+        let unwritten = || UnwrittenHold {
+            run_id: hold.run_id.to_string(),
+            provider: hold.provider.to_string(),
+            route: hold.route.to_string(),
+        };
+        let Some(ends) = after_second(hold.deadline) else {
+            return Err(QueueRefusal::ProbeHoldUnending(Box::new(unwritten())).into());
+        };
         patiently("hold_probe", self.patience, || {
             let tx = self
                 .conn
@@ -135,18 +148,13 @@ impl Store {
                         hold.provider,
                         hold.route,
                         now.unix_timestamp(),
-                        after_second(hold.deadline),
+                        ends,
                     ],
                     |row| row.get(0),
                 )
                 .optional()?;
             let Some(seq) = written else {
-                let unwritten = UnwrittenHold {
-                    run_id: hold.run_id.to_string(),
-                    provider: hold.provider.to_string(),
-                    route: hold.route.to_string(),
-                };
-                return Err(QueueRefusal::ProbeHoldUnwritten(Box::new(unwritten)).into());
+                return Err(QueueRefusal::ProbeHoldUnwritten(Box::new(unwritten())).into());
             };
             tx.commit()?;
             Ok(Some(ProbeHoldId(seq)))
