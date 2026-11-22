@@ -217,14 +217,35 @@ fn a_probe_holds_its_route_from_dispatch_until_its_refusals_row_commits() {
 
 /// How many probe holds the journal at `path` holds unended.
 pub(super) fn unended_holds(path: &Path) -> i64 {
+    holds_where(path, "WHERE ended_at IS NULL")
+}
+
+/// How many probe holds the journal at `path` was ever written, ended or
+/// not.
+pub(super) fn holds_written(path: &Path) -> i64 {
+    holds_where(path, "")
+}
+
+/// How many probe holds the journal at `path` holds that `filter` keeps.
+fn holds_where(path: &Path, filter: &str) -> i64 {
     rusqlite::Connection::open(path)
         .unwrap()
         .query_row(
-            "SELECT COUNT(*) FROM probe_holds WHERE ended_at IS NULL",
+            &format!("SELECT COUNT(*) FROM probe_holds {filter}"),
             [],
             |row| row.get(0),
         )
         .unwrap()
+}
+
+/// Drive `engine` to a park taken before any probe ran: the run awaits the
+/// operator with one park, only the refused attempt ran, and the park's
+/// reason is returned.
+pub(super) fn parked_before_any_probe(dir: &Path, engine: &mut Engine) -> String {
+    engine.drive().unwrap();
+    assert_eq!(standing(engine), (Status::AwaitingOperator, 1));
+    assert_eq!(logs(dir, "work"), ["attempt:refuse"]);
+    park_reason(engine)
 }
 
 /// Force every insert into `table` to fail, drive `engine`, and see it
@@ -403,11 +424,8 @@ fn a_hold_on_a_queue_this_binary_does_not_write_parks_before_any_probe() {
         .unwrap()
         .execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
         .unwrap();
-    engine.drive().unwrap();
-    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
-    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
     assert_eq!(
-        park_reason(&engine),
+        parked_before_any_probe(dir.path(), &mut engine),
         format!(
             "the cool-down probe for claude/first was not admitted: its route's hold was not \
              written: the journal's queue storage is not one this binary writes, so it takes no \

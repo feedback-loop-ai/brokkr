@@ -252,11 +252,7 @@ fn a_probe_from_a_held_end_at_year_9999_is_refused_before_dispatch() {
         matches!(&cause, ParkCause::Ruled { rule_id: None, detail } if reason.starts_with(detail)),
         "{cause:?}"
     );
-    let holds: i64 = rusqlite::Connection::open(engine.store.path())
-        .unwrap()
-        .query_row("SELECT COUNT(*) FROM probe_holds", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(holds, 0);
+    assert_eq!(super::held_route::holds_written(engine.store.path()), 0);
 }
 
 /// A probe's stated reset the journal can spell from the terminal's time

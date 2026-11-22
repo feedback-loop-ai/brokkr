@@ -16,7 +16,10 @@
 
 use std::path::PathBuf;
 
-use super::held_route::{deadline_of, held_to_its_deadline, legs, probing, slicing, unended_holds};
+use super::held_route::{
+    deadline_of, held_to_its_deadline, holds_written, legs, parked_before_any_probe, probing,
+    slicing, unended_holds,
+};
 use super::held_wait::standing;
 use super::*;
 
@@ -138,19 +141,12 @@ fn a_probe_whose_deadline_the_clock_cannot_represent_is_refused_before_any_hold(
         .unwrap()
         .limits
         .timeout_seconds = u64::MAX;
-    engine.drive().unwrap();
-    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
-    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
     assert_eq!(
-        parked_reason(&engine),
+        parked_before_any_probe(dir.path(), &mut engine),
         "the cool-down probe for claude/first was not admitted: its 18446744073709551615s \
          timeout puts its deadline past what this host's clock can represent, so nothing was \
          held or dispatched"
     );
-    let holds: i64 = rusqlite::Connection::open(engine.store.path())
-        .unwrap()
-        .query_row("SELECT COUNT(*) FROM probe_holds", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(holds, 0);
+    assert_eq!(holds_written(engine.store.path()), 0);
     assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
 }

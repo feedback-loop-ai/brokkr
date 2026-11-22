@@ -203,6 +203,19 @@ impl Store {
 #[cfg(test)]
 mod tests;
 
+/// What [`Store::append_with_cooldowns`] wrote: the event, and the store's
+/// own evidence of the rows that landed with it, so a caller derives
+/// nothing from the rows it asked for (decision 0106 slice 0106b1, fix
+/// round 0106b1r10, H4): a held row whose end passed before the event's
+/// stamp, or an ordinary one on a queue this binary does not write, is not
+/// written, and is not counted.
+#[derive(Debug, Clone)]
+pub struct Landed {
+    pub envelope: EventEnvelope,
+    /// The held rows the transaction wrote.
+    pub held_rows: usize,
+}
+
 /// [`Store::append_next`]'s one transaction, as a body [`patiently`] may
 /// run again.
 ///

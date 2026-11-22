@@ -96,7 +96,7 @@ mod terminal;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 pub use acknowledgement::Acknowledgement;
-pub use chain::{Chain, Rows};
+pub use chain::{Chain, Landed, Rows};
 pub use event_index::IndexFault;
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
 pub use opening::Opened;
@@ -356,19 +356,6 @@ pub struct CooldownAppend<'a> {
     pub attempt_id: Option<String>,
 }
 
-/// What [`Store::append_with_cooldowns`] wrote: the event, and the store's
-/// own evidence of the rows that landed with it, so a caller derives
-/// nothing from the rows it asked for (decision 0106 slice 0106b1, fix
-/// round 0106b1r10, H4): a held row whose end passed before the event's
-/// stamp, or an ordinary one on a queue this binary does not write, is not
-/// written, and is not counted.
-#[derive(Debug, Clone)]
-pub struct Landed {
-    pub envelope: EventEnvelope,
-    /// The held rows the transaction wrote.
-    pub held_rows: usize,
-}
-
 impl Store {
     /// Open (creating if absent) a journal for writing.
     ///
@@ -607,18 +594,14 @@ impl Store {
         causation_id: Option<String>,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, StoreError> {
-        self.append(
-            CooldownAppend {
-                run_id,
-                fenced: None,
-                event_type,
-                payload,
-                causation_id,
-                attempt_id,
-            },
-            &[],
-        )
-        .map(|landed| landed.envelope)
+        self.append(CooldownAppend {
+            run_id,
+            fenced: None,
+            event_type,
+            payload,
+            causation_id,
+            attempt_id,
+        })
     }
 
     /// Append, but only onto the head the caller decided against —
@@ -654,18 +637,14 @@ impl Store {
         causation_id: Option<String>,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, StoreError> {
-        self.append(
-            CooldownAppend {
-                run_id,
-                fenced: Some((expected_seq, expected_hash)),
-                event_type,
-                payload,
-                causation_id,
-                attempt_id,
-            },
-            &[],
-        )
-        .map(|landed| landed.envelope)
+        self.append(CooldownAppend {
+            run_id,
+            fenced: Some((expected_seq, expected_hash)),
+            event_type,
+            payload,
+            causation_id,
+            attempt_id,
+        })
     }
 
     /// Append `event` and `cooldowns` as one: the event and every row of
@@ -680,20 +659,18 @@ impl Store {
         event: CooldownAppend<'_>,
         cooldowns: &[Cooling],
     ) -> Result<Landed, StoreError> {
-        self.append(event, cooldowns)
-    }
-
-    fn append(
-        &mut self,
-        event: CooldownAppend<'_>,
-        cooldowns: &[Cooling],
-    ) -> Result<Landed, StoreError> {
         let (conn, carried) = (&mut self.conn, self.carried.as_ref());
         let (landed, settled) = patiently("append", self.patience, || {
             chain::append_once((conn, carried), &event, cooldowns)
         })?;
         self.settle((event.run_id, 1), settled);
         Ok(landed)
+    }
+
+    /// An event alone, with no cool-down rows.
+    fn append(&mut self, event: CooldownAppend<'_>) -> Result<EventEnvelope, StoreError> {
+        self.append_with_cooldowns(event, &[])
+            .map(|landed| landed.envelope)
     }
 
     /// Load and verify the full journal of a run. A journal that fails
