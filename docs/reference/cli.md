@@ -50,10 +50,10 @@ The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect`
 - [`brokkr library agents show`](#brokkr-library-agents-show): The definition as written, plus the per-chain-entry resolution the compiler would compute. An unknown name errors naming the known set
 - [`brokkr library compile`](#brokkr-library-compile): Validate a bundle and print its pinned manifest and digest
 - [`brokkr queue`](#brokkr-queue): The dispatcher's queue: runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason. `dispatch` starts what admission admits, and `sweep` frees what the finished runs left behind
-- [`brokkr queue add`](#brokkr-queue-add): Queue a new run, taking `brokkr run`'s arguments, at the end of the queue. Nothing starts: the entry waits for the dispatcher
-- [`brokkr queue list`](#brokkr-queue-list): The queue in order: each waiting entry's place, state, priority, waits, launch and admission (admissible, or why it waits or is held), then the entries that started a run, with it. `--json` emits the view model for scripts
+- [`brokkr queue add`](#brokkr-queue-add): Queue a new run, taking `brokkr run`'s arguments, last among the entries of its priority. Nothing starts: the entry waits for the dispatcher
+- [`brokkr queue list`](#brokkr-queue-list): The queue in order (priority, higher first, then place): each waiting entry's place, state, priority, waits, launch and admission (admissible, or why it waits or is held), then the entries that started a run, with it. `--json` emits the view model for scripts
 - [`brokkr queue judge`](#brokkr-queue-judge): Judge the queue as `list` shows it, and first latch on each waiting entry the realm drift found: from then on it is held until the operator re-pins, re-queues or drops it, whatever the map comes to. Each latch is journaled with the reason
-- [`brokkr queue move`](#brokkr-queue-move): Put an entry at another place in the queue
+- [`brokkr queue move`](#brokkr-queue-move): Put an entry at another place in the queue, among the entries of its own priority: priority always wins, so a place above a higher priority or below a lower one leaves it first or last among its own. Says the place it holds after
 - [`brokkr queue hold`](#brokkr-queue-hold): Keep an entry in its place, not to be started until released
 - [`brokkr queue release`](#brokkr-queue-release): Let a held entry be started again
 - [`brokkr queue repin`](#brokkr-queue-repin): Re-pin a waiting entry to the realms map that would govern it now: how the operator releases an entry `judge` latched a realm-drift hold on, accepting the differences it found. Refused when the map on disk is not the one the latch found; judge the queue again
@@ -713,7 +713,7 @@ Usage: brokkr queue <COMMAND>
 
 ## brokkr queue add
 
-Queue a new run, taking `brokkr run`'s arguments, at the end of the queue. Nothing starts: the entry waits for the dispatcher
+Queue a new run, taking `brokkr run`'s arguments, last among the entries of its priority. Nothing starts: the entry waits for the dispatcher
 
 ```text
 Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON>
@@ -730,13 +730,13 @@ Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON>
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--repo <REPO>` |  |  | The repository the run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
 | `--dispatch <DISPATCH>` |  |  | Canonical forge-dispatch/v2 JSON. When present the run id, Looper/grant correlation, recipe, repository, budget, and producer bounds are pinned into an immutable run-manifest/v2 |
-| `--priority <PRIORITY>` | `0` |  | The entry's priority: operator data, weighed at admission |
+| `--priority <PRIORITY>` | `0` |  | The entry's priority, which orders the queue first: a higher priority is judged and started first, and `move` orders an entry only among those of its own priority |
 | `--after <ENTRY:CONDITION>...` |  |  | An earlier entry this one waits for, and on what: `3:completed` (its run completed) or `3:ended` (its run ended at all). Repeatable |
 | `--reason <REASON>` |  |  | Why, journaled with the command |
 
 ## brokkr queue list
 
-The queue in order: each waiting entry's place, state, priority, waits, launch and admission (admissible, or why it waits or is held), then the entries that started a run, with it. `--json` emits the view model for scripts
+The queue in order (priority, higher first, then place): each waiting entry's place, state, priority, waits, launch and admission (admissible, or why it waits or is held), then the entries that started a run, with it. `--json` emits the view model for scripts
 
 ```text
 Usage: brokkr queue list [OPTIONS]
@@ -765,7 +765,7 @@ Usage: brokkr queue judge [OPTIONS] --reason <REASON>
 
 ## brokkr queue move
 
-Put an entry at another place in the queue
+Put an entry at another place in the queue, among the entries of its own priority: priority always wins, so a place above a higher priority or below a lower one leaves it first or last among its own. Says the place it holds after
 
 ```text
 Usage: brokkr queue move [OPTIONS] --reason <REASON> --to <TO> <ENTRY>
@@ -777,7 +777,7 @@ Usage: brokkr queue move [OPTIONS] --reason <REASON> --to <TO> <ENTRY>
 | `--reason <REASON>` |  |  | Why, journaled with the command |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--to <TO>` |  |  | The place to put it at, from 1 |
+| `--to <TO>` |  |  | The place to put it at, from 1, as `brokkr queue list` shows it |
 
 ## brokkr queue hold
 

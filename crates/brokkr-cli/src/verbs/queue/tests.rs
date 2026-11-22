@@ -55,15 +55,19 @@ fn queue_in(workspace: &Path, db: &Path, words: &[&str]) -> Result<ExitCode> {
     queue(workspace, parsed(db, words))
 }
 
-/// What `brokkr queue list`, `judge` or `repin`, run in `workspace`
-/// against `db`, prints on stderr.
+/// What `brokkr queue list`, `judge`, `repin` or `move`, run in
+/// `workspace` against `db`, prints on stderr.
 fn stderr_of(workspace: &Path, db: &Path, words: &[&str]) -> String {
     let mut stderr = Vec::new();
     let exit = match parsed(db, words) {
         QueueCmd::List(args) => list(workspace, args, &mut stderr),
         QueueCmd::Judge(args) => judge(workspace, args, &mut stderr),
         QueueCmd::Repin(args) => repin(workspace, args, &mut stderr),
-        _ => unreachable!("only list, judge and repin paint the journal's strings on stderr"),
+        QueueCmd::Move(args) => {
+            let command = QueueCommand::Move { to: args.to };
+            change(workspace, args.entry, command, &mut stderr)
+        }
+        _ => unreachable!("only list, judge, repin and move are read on stderr here"),
     };
     assert_eq!(exit.unwrap(), completed());
     String::from_utf8(stderr).unwrap()
@@ -369,6 +373,75 @@ fn the_cli_dispatches_brokkr_queue_to_its_handler() {
     let argv = ["brokkr", "queue", "list", "--db", db.to_str().unwrap()];
     let cli = Cli::try_parse_from(argv).unwrap();
     assert_eq!(crate::run(cli).unwrap(), completed());
+}
+
+/// The queue lists priority first (#1191): an entry queued later at a
+/// higher priority lists first with its place, in the table and in
+/// `--json`, and a move above it leaves the earlier entry at its place.
+#[test]
+fn a_higher_priority_entry_lists_first_with_its_place() {
+    let _host = own_host();
+    let dir = tempfile::tempdir().unwrap();
+    let urgent = ["--priority", "10"];
+    let (ws, db) = library(&dir);
+    let add = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
+    let lists_b_first = || {
+        let entries = listed(&db);
+        let painted = table(&rows(&entries));
+        let columns: Vec<Vec<&str>> = (painted.lines())
+            .map(|line| line.split_whitespace().take(4).collect())
+            .collect();
+        assert_eq!(
+            columns,
+            [
+                ["PLACE", "ENTRY", "STATE", "PRIORITY"],
+                ["1", "2", "queued", "10"],
+                ["2", "1", "queued", "0"],
+            ]
+        );
+        let shown = serde_json::to_value(rows(&entries)).unwrap();
+        let placed: Vec<_> = (shown.as_array().unwrap().iter())
+            .map(|row| {
+                (
+                    row["place"].clone(),
+                    row["entry"].clone(),
+                    row["priority"].clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            placed,
+            [
+                (json!(1), json!(2), json!(10)),
+                (json!(2), json!(1), json!(0))
+            ]
+        );
+    };
+    for words in [&add[..], &[&add[..], &urgent].concat()] {
+        assert_eq!(queue_in(ws, &db, words).unwrap(), completed(), "{words:?}");
+    }
+    lists_b_first();
+    let above = ["move", "1", "--to", "1", "--reason", "first?"];
+    let held = "moved queue entry 1 to place 2\n";
+    assert_eq!(stderr_of(ws, &db, &above), held);
+    lists_b_first();
+}
+
+/// `queue move` prints the place its own command journaled (#1191): an
+/// entry moved down past its priority's edge says the last place among
+/// its priority, not the place asked.
+#[test]
+fn a_move_down_past_its_priority_says_the_place_held() {
+    let (_host, dir) = (own_host(), tempfile::tempdir().unwrap());
+    let (ws, db) = library(&dir);
+    for priority in ["10", "10", "0"] {
+        let words = ["add", "--bundle", "b", "--feature", "f"];
+        let words = [&words[..], &["--priority", priority, "--reason", "r"]].concat();
+        assert_eq!(queue_in(ws, &db, &words).unwrap(), completed());
+    }
+    let below = ["move", "1", "--to", "3", "--reason", "last?"];
+    let held = "moved queue entry 1 to place 2\n";
+    assert_eq!(stderr_of(ws, &db, &below), held);
 }
 
 #[test]

@@ -28,16 +28,25 @@ pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
         QueueCmd::Add(args) => add(workspace, args),
         QueueCmd::List(args) => list(workspace, args, &mut std::io::stderr()),
         QueueCmd::Judge(args) => judge(workspace, args, &mut std::io::stderr()),
-        QueueCmd::Move(args) => change(workspace, args.entry, QueueCommand::Move { to: args.to }),
-        QueueCmd::Hold(args) => change(workspace, args, QueueCommand::Hold),
-        QueueCmd::Release(args) => change(workspace, args, QueueCommand::Release),
+        QueueCmd::Move(args) => {
+            let command = QueueCommand::Move { to: args.to };
+            change(workspace, args.entry, command, &mut std::io::stderr())
+        }
+        QueueCmd::Hold(args) => change(workspace, args, QueueCommand::Hold, &mut std::io::stderr()),
+        QueueCmd::Release(args) => change(
+            workspace,
+            args,
+            QueueCommand::Release,
+            &mut std::io::stderr(),
+        ),
         QueueCmd::Repin(args) => repin(workspace, args, &mut std::io::stderr()),
-        QueueCmd::Drop(args) => change(workspace, args, QueueCommand::Drop),
+        QueueCmd::Drop(args) => change(workspace, args, QueueCommand::Drop, &mut std::io::stderr()),
     }
 }
 
-/// `brokkr queue add`: the launch, encoded, at the end of the queue in the
-/// journal the launch would write. The entry is launched from wherever the
+/// `brokkr queue add`: the launch, encoded, last among the entries of its
+/// own priority in the journal the launch would write. The entry is
+/// launched from wherever the
 /// dispatcher stands, so it names its workspace absolutely, and every path
 /// it holds is anchored to that workspace ([`QueuedLaunch::of`]).
 fn add(
@@ -81,15 +90,24 @@ fn change(
         journal,
     }: QueueEntryArgs,
     command: QueueCommand,
+    stderr: &mut impl Write,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    attributed(&reason, |by| store.queue_command(entry, command, by))?;
-    match command {
-        QueueCommand::Move { to } => eprintln!("moved queue entry {entry} to place {to}"),
-        QueueCommand::Hold => eprintln!("held queue entry {entry}"),
-        QueueCommand::Release => eprintln!("released queue entry {entry}"),
-        QueueCommand::Drop => eprintln!("dropped queue entry {entry}"),
-    }
+    let place = attributed(&reason, |by| store.queue_command(entry, command, by))?;
+    let said = match command {
+        // Priority orders first, so the place held can be other than the
+        // place asked for: say the one the command journaled.
+        // `Store::queue_command` returns the place its command journaled,
+        // and a move always journals one.
+        QueueCommand::Move { .. } => {
+            let place = place.expect("a move journals the place it holds");
+            format!("moved queue entry {entry} to place {place}")
+        }
+        QueueCommand::Hold => format!("held queue entry {entry}"),
+        QueueCommand::Release => format!("released queue entry {entry}"),
+        QueueCommand::Drop => format!("dropped queue entry {entry}"),
+    };
+    writeln!(stderr, "{said}")?;
     Ok(Exit::Completed.into())
 }
 
