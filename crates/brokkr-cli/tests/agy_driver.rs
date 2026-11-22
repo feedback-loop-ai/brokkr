@@ -33,20 +33,25 @@ const PRINT_TIMEOUT: &str =
 const PRINT_TIMEOUT_STDERR: &str =
     include_str!("../../../docs/evidence/adapters/agy-cli-1-5/print-timeout.stderr");
 
-/// How the fake `agy` ends a turn: its stdout, its stderr and its exit.
+/// How the fake `agy` ends a turn: its stdout, its stderr, its exit, and
+/// whether it `delivers` the seat's result.
 struct Ending<'a> {
     stdout: &'a str,
     stderr: &'a str,
     code: i32,
+    delivers: bool,
 }
 
 /// A fake `agy` that logs its argv, its HOME and the engine's two
 /// configuration files there, writes the seat's result where the prompt's
-/// one stdin line names it, prints `ending`'s stdout and stderr, and exits
-/// its code.
+/// one stdin line names it if `ending` delivers, prints its stdout and
+/// stderr, and exits its code. A seat stopped after its CLI delivered and
+/// exited on its own ends late, not refused (#1178 H3), so a stream the
+/// driver stops delivers nothing.
 fn fake_agy(root: &Path, ending: &Ending<'_>) -> PathBuf {
     write(&root.join("turn.ndjson"), ending.stdout.as_bytes());
     write(&root.join("turn.stderr"), ending.stderr.as_bytes());
+    let undelivered = if ending.delivers { "" } else { "target=\n" };
     let script = format!(
         r#"#!/bin/sh
 printf '%s\n' "$@" > '{root}/argv.log'
@@ -55,7 +60,7 @@ cat "$HOME/.gemini/config/mcp_config.json" > '{root}/mcp.log'
 cat "$HOME/.gemini/config/hooks.json" > '{root}/hooks.log'
 line=$(cat)
 target=$(printf '%s' "$line" | sed -n 's/.*\\n    \(\/[^\\"]*\.json\)\\n.*/\1/p' | head -1)
-[ -n "$target" ] && printf '{{"result":"complete"}}' > "$target"
+{undelivered}[ -n "$target" ] && printf '{{"result":"complete"}}' > "$target"
 cat '{root}/turn.stderr' >&2
 cat '{root}/turn.ndjson'
 exit {code}
@@ -118,12 +123,14 @@ fn world(root: &Path) -> PathBuf {
 }
 
 /// The recipe compiled where the world lists `scout`, run once over a fake
-/// `agy` that prints `stdout` and exits 0: the journal's events.
-fn engine_run(root: &Path, stdout: &str) -> Vec<Value> {
+/// `agy` that prints `stdout`, delivers where it `delivers`, and exits 0:
+/// the journal's events.
+fn engine_run(root: &Path, stdout: &str, delivers: bool) -> Vec<Value> {
     let ending = Ending {
         stdout,
         stderr: "",
         code: 0,
+        delivers,
     };
     engine_run_ending(root, &ending)
 }
@@ -165,7 +172,7 @@ fn an_engine_run_of_an_agy_seat_answers_on_its_pin_under_an_engine_home() {
         return;
     }
     let (_home, root) = root();
-    let events = engine_run(&root, NEON);
+    let events = engine_run(&root, NEON, true);
     let settings = r#"{"permissions":{"allow":["command(git)"]}}"#;
     assert_eq!(
         logged(&root, "argv.log").lines().collect::<Vec<_>>(),
@@ -241,7 +248,8 @@ fn an_engine_run_of_an_agy_seat_served_another_model_journals_no_turn() {
         return;
     }
     let (_home, root) = root();
-    let events = engine_run(&root, TOOL_LESS);
+    // The driver stops the stream at its init, so the fake delivers nothing.
+    let events = engine_run(&root, TOOL_LESS, false);
     assert_eq!(checkpoints(&events), Vec::<&Value>::new());
     let failures: Vec<&Value> = (events.iter())
         .filter(|event| event["type"] == "effect/failed")
@@ -289,6 +297,7 @@ fn an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url() {
         stdout: SIGNED_OUT,
         stderr: &stderr,
         code: 1,
+        delivers: true,
     };
     let journal = serde_json::to_string(&engine_run_ending(&root, &ending)).unwrap();
     // The journal names the driver's printed stderr by its evidence alone
@@ -328,6 +337,7 @@ fn an_engine_run_of_an_agy_print_timeout_journals_its_words() {
         stdout: &stdout,
         stderr: PRINT_TIMEOUT_STDERR,
         code: 3,
+        delivers: true,
     };
     let events = engine_run_ending(&root, &ending);
     let journal = serde_json::to_string(&events).unwrap();

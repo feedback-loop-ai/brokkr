@@ -1081,21 +1081,15 @@ fn fake_agy(
     super::super::tests::executable(dir, "agy", &body)
 }
 
-/// One run's world: the seat's directory and an operator HOME, with the
-/// process environment held for the world's life, so no other seat makes
-/// an engine HOME while it looks, and each engine HOME standing before it.
+/// One run's world: the seat's directory and an operator HOME of its own,
+/// with the process environment held for the world's life.
 struct World {
     root: tempfile::TempDir,
     env: crate::env_guard::EnvGuard,
-    before: Vec<std::ffi::OsString>,
 }
 
-/// Each engine HOME standing under the temporary root's agy parent.
-fn engine_homes() -> Vec<std::ffi::OsString> {
-    let entries = std::fs::read_dir(home::parent(&std::env::temp_dir()));
-    let names = entries.into_iter().flatten().flatten();
-    names.map(|entry| entry.file_name()).collect()
-}
+/// The login below an operator or engine HOME.
+const LOGIN: &str = ".gemini/antigravity-cli/antigravity-oauth-token";
 
 impl World {
     fn new() -> World {
@@ -1103,8 +1097,7 @@ impl World {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir(root.path().join("seat")).unwrap();
         operator_home(root.path());
-        let before = engine_homes();
-        World { root, env, before }
+        World { root, env }
     }
 
     fn path(&self, name: &str) -> std::path::PathBuf {
@@ -1160,14 +1153,48 @@ impl World {
         messages
     }
 
+    /// One seat pinned to [`FLASH`] run over a fake printing the recorded
+    /// tool-less turn and delivering, which succeeds.
+    fn answers(&mut self) {
+        let bin = fake_agy(&self.seat(), TOOL_LESS, "", true, 0);
+        let input = self.input(None);
+        let messages = self.run(&bin, &["--model", FLASH], input, None);
+        assert_eq!(
+            ended(&messages),
+            Some((crate::ResultStatus::Succeeded, None, None))
+        );
+    }
+
     /// Whether the fake recorded its start.
     fn started(&self) -> bool {
         self.seat().join("argv").exists()
     }
 
-    /// Whether every engine HOME the world's seats made is gone.
+    /// The names of the sessions standing in the shared agy parent whose
+    /// HOME links this world's own operator login: each engine HOME this
+    /// world's launches made, and no other seat's, whichever another test
+    /// makes or reaps beside them.
+    fn own_homes(&self) -> Vec<std::ffi::OsString> {
+        let login = self.path("operator").join(LOGIN);
+        let entries = std::fs::read_dir(home::parent(&std::env::temp_dir()));
+        let sessions = entries.into_iter().flatten().flatten();
+        let linked = |session: &std::fs::DirEntry| {
+            let link = std::fs::read_link(session.path().join("home").join(LOGIN));
+            link.is_ok_and(|to| to == login)
+        };
+        sessions
+            .filter(linked)
+            .map(|session| session.file_name())
+            .collect()
+    }
+
+    /// Whether every engine HOME the world's seats made is gone: no session
+    /// of the world's own stands, and the HOME the fake ran under, where
+    /// it started, is gone by its own session's path.
     fn homes_gone(&self) -> bool {
-        engine_homes() == self.before
+        let ran = std::fs::read_to_string(self.seat().join("home")).ok();
+        let session = ran.as_deref().and_then(|home| Path::new(home).parent());
+        self.own_homes().is_empty() && !session.is_some_and(Path::exists)
     }
 
     fn recorded(&self, name: &str) -> String {
@@ -1421,6 +1448,24 @@ fn served_refusal(serving: Value) -> (World, Option<String>) {
     let messages = world.run(&bin, &["--model", FLASH], world.input(Some(serving)), None);
     let error = ended(&messages).and_then(|(_, error, _)| error);
     (world, error)
+}
+
+/// Another engine HOME standing in the shared parent beside a launch, made
+/// from another operator's HOME, is no HOME of the launch's: the world's
+/// cleanup check holds while it stands, the launch's own gone (Z3).
+#[test]
+fn the_cleanup_check_holds_beside_another_engine_home_in_the_shared_parent() {
+    let mut world = World::new();
+    let other = tempfile::tempdir().unwrap();
+    let (operator, temp) = (operator_home(other.path()), std::env::temp_dir());
+    let homes = Homes {
+        temp: &temp,
+        operator: Some(&operator),
+    };
+    let beside = home::made(homes, written(&empty_set())).unwrap();
+    world.answers();
+    assert!(Path::new(beside.path()).exists());
+    assert!(world.homes_gone());
 }
 
 /// A short secret bound to the seat, and agy's stderr and `error` text

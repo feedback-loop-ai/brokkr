@@ -358,12 +358,7 @@ fn an_operator_home_holding_an_owner_lock_is_linked_and_the_launch_runs() {
     drop(home);
     let mut world = World::new();
     std::fs::write(world.path("operator/.owner.lock"), "").unwrap();
-    let bin = fake_agy(&world.seat(), TOOL_LESS, "", true, 0);
-    let messages = world.run(&bin, &["--model", FLASH], world.input(None), None);
-    assert_eq!(
-        ended(&messages),
-        Some((crate::ResultStatus::Succeeded, None, None))
-    );
+    world.answers();
     assert!(world.homes_gone());
 }
 

@@ -447,7 +447,8 @@ impl<'a> AgyFold<'a> {
             }
             Row::Init(init) => return self.initialized(init, session_meta),
             Row::Step(_) if !self.pinned() => {
-                return Err(self.stopped(unconfirmed(&self.pin, &Seen::default())))
+                let refused = unconfirmed(&self.pin, self.bindings, &Seen::default());
+                return Err(self.stopped(refused));
             }
             Row::Step(step) => self.step(&step, emit),
             Row::Result(result) => self.ended(result, session_meta),
@@ -474,7 +475,10 @@ impl<'a> AgyFold<'a> {
                 self.served = Served::Pinned;
                 session_meta.insert("model".into(), Value::String(model));
             }
-            Some(model) => return Err(self.stopped(substituted(&self.pin, &self.named(&model)))),
+            Some(model) => {
+                let refused = substituted(&self.pin, &self.named(&model), self.bindings);
+                return Err(self.stopped(refused));
+            }
             None => {}
         }
         Ok(())
@@ -545,7 +549,9 @@ impl<'a> AgyFold<'a> {
         };
         match &ending.status {
             Status::Other(_) => failed(Failure::Unsuccessful, seen),
-            Status::Success if !self.pinned() => Verdict::Refused(unconfirmed(&self.pin, &seen)),
+            Status::Success if !self.pinned() => {
+                Verdict::Refused(unconfirmed(&self.pin, self.bindings, &seen))
+            }
             Status::Success if ending.response.trim().is_empty() => failed(Failure::Empty, seen),
             Status::Success => Verdict::Answer(ending.response.clone()),
         }
@@ -572,7 +578,7 @@ impl<'a> AgyFold<'a> {
     /// The verdict of a turn that exited 0 with no result.
     fn unended(&self) -> Verdict {
         match self.pinned() {
-            false => Verdict::Refused(unconfirmed(&self.pin, &Seen::default())),
+            false => Verdict::Refused(unconfirmed(&self.pin, self.bindings, &Seen::default())),
             true => failed(Failure::Unended, Seen::default()),
         }
     }
@@ -601,19 +607,28 @@ fn settled(result: &Ending, session_meta: &mut Map<String, Value>) {
     }
 }
 
-/// `text`, a word of agy's, as the driver's words name it (K3): masked whole
-/// through `bindings`, as agy wrote it, then escaped, and only then cut to
-/// its first [`NAMED`] characters. The one home of such a word: every
-/// status, denied action and served model the driver names is built here.
-pub(super) fn named(text: &str, bindings: &[secret::BoundSecret]) -> String {
+/// `text` masked whole through `bindings`, as written, and then escaped:
+/// the order every value the driver's words hold is built in, before any
+/// bound reads them, so no cut falls inside a value the mask has not
+/// replaced (#1200 Z1).
+fn masked(text: &str, bindings: &[secret::BoundSecret]) -> String {
     let masked = secret::mask_text(text.as_bytes(), bindings);
-    masked.escape_debug().take(NAMED).collect()
+    masked.escape_debug().collect()
 }
 
-/// The refusal of a seat agy served another model than its pin, the
-/// served model [`named`].
-fn substituted(pin: &str, served: &str) -> PreSessionRefusal {
-    let words = format!("the seat pinned {pin:?} and agy served \"{served}\"");
+/// `text`, a word of agy's, as the driver's words name it (K3): [`masked`],
+/// and only then cut to its first [`NAMED`] characters. The one home of
+/// such a word: every status, denied action and served model the driver
+/// names is built here.
+pub(super) fn named(text: &str, bindings: &[secret::BoundSecret]) -> String {
+    masked(text, bindings).chars().take(NAMED).collect()
+}
+
+/// The refusal of a seat agy served another model than its `pin`, the pin
+/// [`masked`] through `bindings` and the served model [`named`].
+fn substituted(pin: &str, served: &str, bindings: &[secret::BoundSecret]) -> PreSessionRefusal {
+    let pin = masked(pin, bindings);
+    let words = format!("the seat pinned \"{pin}\" and agy served \"{served}\"");
     refusal_reason("model_substituted", None, Some(&words))
 }
 
@@ -625,9 +640,15 @@ fn refused(token: &str, words: &str, seen: &Seen) -> PreSessionRefusal {
 
 /// The refusal of a seat no init row confirmed the model of. This and the
 /// three builders below are each a refusal built on what the result showed,
-/// and the driver's tests call each with a long status (M5).
-pub(super) fn unconfirmed(pin: &str, seen: &Seen) -> PreSessionRefusal {
-    let words = format!("the seat pinned {pin:?} and no init row named the model agy served");
+/// and the driver's tests call each with a long status (M5). The `pin` is
+/// [`masked`] through `bindings` before the bound reads it (#1200 Z1).
+pub(super) fn unconfirmed(
+    pin: &str,
+    bindings: &[secret::BoundSecret],
+    seen: &Seen,
+) -> PreSessionRefusal {
+    let pin = masked(pin, bindings);
+    let words = format!("the seat pinned \"{pin}\" and no init row named the model agy served");
     refused("model_unconfirmed", &words, seen)
 }
 

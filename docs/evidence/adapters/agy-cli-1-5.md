@@ -24,7 +24,7 @@ No implementing seat can re-run these figures, because none has a signed-in
 | Item | Value |
 | --- | --- |
 | Host | Linux x86-64, Ubuntu, `kernel.apparmor_restrict_unprivileged_userns = 1`. macOS: pending |
-| Antigravity CLI | 1.5.13 (`version.txt`) for everything but the fifth measurement, which ran on 1.5.14; one native binary of 270,103,240 bytes that Google's installer (`https://antigravity.google/cli/install.sh`, SHA-512 checked against its manifest) put at `~/.local/bin/agy` |
+| Antigravity CLI | 1.5.13 (`version.txt`) for everything but the fifth and sixth measurements, which ran on 1.5.14; one native binary of 270,103,240 bytes that Google's installer (`https://antigravity.google/cli/install.sh`, SHA-512 checked against its manifest) put at `~/.local/bin/agy` |
 | Account | a personal Google account on the Google AI Ultra plan, signed in through the browser; the login is one file, `~/.gemini/antigravity-cli/antigravity-oauth-token`, mode 0600 |
 | Working directory | a scratch directory under `/var/tmp/probe-agy/` for each turn |
 | Model | `--model gemini-3.8-flash-low` for every turn, except the named-model and model-refusal turns |
@@ -555,7 +555,8 @@ for the seat's two-hour limit each time.
 - Whether a `PreToolUse` hook also sees the tool calls of a subagent.
 - A self-update landing in the middle of a running turn, `agy update`, and
   the settings member `AutoUpdate`. The fifth measurement has the rest.
-- Any declared shape's axes on 1.5.14, beyond the fifth measurement.
+- The launch grammar, the stream's shape and the refusals of the first
+  measurement, on 1.5.14.
 - The `claude-*`, `gpt-oss-*` and orchestrator slugs.
 - `agy acp`, the Agent Client Protocol server.
 - The format of `transcript.jsonl` beyond its first rows.

@@ -300,7 +300,7 @@ fn every_refusal_that_names_a_status_names_it_whole_before_its_words() {
     // reaches with a status other than SUCCESS (M5).
     let long = seen(&status);
     let built = [
-        fold::unconfirmed(&pin, &long),
+        fold::unconfirmed(&pin, &[], &long),
         fold::signed_out(&long),
         fold::launch_refused(&pin, &long),
         fold::print_timeout(&long),
@@ -314,5 +314,41 @@ fn every_refusal_that_names_a_status_names_it_whole_before_its_words() {
     for (refused, token) in built.iter().zip(tokens) {
         let lead = format!("{token}: agy's result had status {status}; ");
         assert!(refused.words().starts_with(&lead), "{}", refused.words());
+    }
+}
+
+/// A bound value of 4 bytes at the tail of a pin of 78, the shortest plain
+/// pin whose end the bound on a refusal's words reaches behind a status of
+/// 40: the bound falls one character inside the value. The pin is masked
+/// before the bound reads it, so the words and the shared mask after them
+/// hold no byte of it; the substituted refusal names it masked too (Z1).
+#[test]
+fn a_bound_value_at_the_tail_of_a_long_pin_reaches_no_refusal_in_any_form() {
+    let (filler, value) = ("p".repeat(74), "Zq7W");
+    let pin = format!("{filler}{value}");
+    let bindings = [crate::adapters::tests::binding("AT", value)];
+    let shown =
+        |refused: &PreSessionRefusal| secret::mask_text(refused.words().as_bytes(), &bindings);
+    let status = "S".repeat(40);
+    let unconfirmed = fold::unconfirmed(&pin, &bindings, &seen(&status));
+    assert_eq!(
+        shown(&unconfirmed),
+        format!(
+            "model_unconfirmed: agy's result had status {status}; the seat pinned \"{filler}[se"
+        )
+    );
+    let (init, _, _) = turn_rows();
+    let init = init.replace("gemini-3.8-flash-low", "gemini-x");
+    let mut fold = AgyFold::new(&pin, &bindings);
+    let substituted = fold.read(init.as_bytes(), &mut Map::new(), &mut |_| {});
+    let substituted = substituted.unwrap_err();
+    // No bound reaches this pin, which ends by character 97: the fold's own
+    // words, before the shared mask, already name it masked.
+    assert_eq!(
+        substituted.words(),
+        format!("model_substituted: the seat pinned \"{filler}[secret:AT]\" and agy served \"gemini-x\"")
+    );
+    for refused in [&unconfirmed, &substituted] {
+        assert!(!shown(refused).contains(&value[..3]), "{}", shown(refused));
     }
 }
