@@ -857,17 +857,9 @@ fn qoder_workspace() -> Workspace {
 #[test]
 fn a_qoder_seat_in_a_listed_office_launches_its_pin_effort_and_grants() {
     let workspace = qoder_workspace();
-    let bundle = workspace
-        .compile(seat("researcher", "work"), &["researcher"])
-        .unwrap();
-    assert_eq!(chain(&bundle), ["qoder-fast"]);
-    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = &bundle.seats["work"].body
-    else {
-        panic!("a single seat");
-    };
-    let argv = &candidates[0].argv;
+    let compiled = workspace.compile(seat("researcher", "work"), &["researcher"]);
     assert_eq!(
-        argv[1..],
+        qoder_argv(compiled),
         [
             "driver",
             "qoder",
@@ -935,18 +927,85 @@ fn the_qoder_example_declares_five_provisional_models_and_no_judge() {
         qoder.models.keys().collect::<Vec<_>>()
     );
     assert_eq!(qoder.judges, Vec::<String>::new());
-    assert_eq!(qoder.hands, None);
+    // Its hands ride the engine's MCP file, which the driver writes, so the
+    // fragment is empty, and it declares no notice and no harness (#1235).
+    assert_eq!(qoder.hands, Some(Vec::new()));
+    assert_eq!(qoder.hands_notice, None);
+    assert_eq!(qoder.harness, Default::default());
+}
+
+/// Qoder's example declares exactly its four measured shapes on Linux,
+/// each on Qoder CLI 1.1.95 (#1235, C3): cold and replacement without
+/// hands, ambient alone measured, and cold and replacement boxed, every
+/// axis measured.
+#[test]
+fn the_qoder_example_declares_its_boxed_shapes_as_measured_on_1_1_95() {
+    use crate::agents::{McpAxis, McpHands, McpHost, McpInvocation, McpSupport};
+    let workspace = qoder_workspace();
+    let adapters = Adapters::load(&workspace.path("adapters")).unwrap();
+    let McpSupport::Declared { shapes, .. } = &adapters.adapter("qoder").unwrap().mcp else {
+        panic!("declared MCP facts");
+    };
+    let measured = |axis: &McpAxis| matches!(axis, McpAxis::Measured { .. });
+    let declared: Vec<_> = (shapes.iter())
+        .map(|(shape, measurement)| {
+            let axes = &measurement.isolation;
+            let read = [
+                &axes.ambient,
+                &axes.native_write,
+                &axes.store_read,
+                &axes.process_read,
+            ];
+            let shape = (shape.invocation.clone(), shape.hands, shape.host);
+            (shape, measurement.version.as_str(), read.map(measured))
+        })
+        .collect();
+    let (cold, replacement) = (McpInvocation::Cold, McpInvocation::Replacement);
+    let linux = McpHost::Linux;
+    assert_eq!(
+        declared,
+        [
+            ((cold.clone(), McpHands::Boxed, linux), "1.1.95", [true; 4]),
+            (
+                (cold, McpHands::NoHands, linux),
+                "1.1.95",
+                [true, false, false, false]
+            ),
+            (
+                (replacement.clone(), McpHands::Boxed, linux),
+                "1.1.95",
+                [true; 4]
+            ),
+            (
+                (replacement, McpHands::NoHands, linux),
+                "1.1.95",
+                [true, false, false, false]
+            ),
+        ]
+    );
 }
 
 /// `workspace`'s copy of Qoder's example with its `mcp` shapes kept where
-/// `keep` holds of a shape's invocation.
+/// `keep` holds of a shape's invocation and hands.
 #[cfg(target_os = "linux")]
-fn qoder_shapes(workspace: &Workspace, keep: impl Fn(&str) -> bool) -> &Workspace {
+fn qoder_shapes(workspace: &Workspace, keep: impl Fn(&str, &str) -> bool) -> &Workspace {
     let file = workspace.path("adapters/qoder.json");
     let mut adapter: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
     let shapes = adapter["mcp"]["shapes"].as_array_mut().unwrap();
-    shapes.retain(|shape| keep(shape["invocation"].as_str().unwrap()));
+    shapes.retain(|shape| {
+        let word = |key: &str| shape[key].as_str().unwrap().to_string();
+        keep(&word("invocation"), &word("hands"))
+    });
     std::fs::write(file, adapter.to_string()).unwrap();
+    workspace
+}
+
+/// `workspace` with its `researcher` office boxing its hands.
+fn boxed_office(workspace: &Workspace) -> &Workspace {
+    let office = workspace.path("agents/researcher.json");
+    let mut body: Value = serde_json::from_slice(&std::fs::read(&office).unwrap()).unwrap();
+    body["hands"] = json!("workspace");
+    std::fs::write(office, body.to_string()).unwrap();
     workspace
 }
 
@@ -969,43 +1028,128 @@ fn si2_refusal(workspace: &Workspace) -> String {
     }
 }
 
-/// SI2 past the lifted fence on Linux (#1178), the one host the record
-/// measured: the example's measured cold and replacement shapes without
-/// hands admit a work seat, and each is needed; the same office boxing its
-/// hands is refused.
+/// The one `qoder-fast` candidate's argv of `compiled`'s work seat, behind
+/// the engine's executable.
+fn qoder_argv(compiled: Result<Bundle, CompileError>) -> Vec<String> {
+    let bundle = compiled.unwrap();
+    assert_eq!(chain(&bundle), ["qoder-fast"]);
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = &bundle.seats["work"].body
+    else {
+        panic!("a single seat");
+    };
+    candidates[0].argv[1..].to_vec()
+}
+
+/// [`si2`]'s one candidate's argv ([`qoder_argv`]).
+#[cfg(target_os = "linux")]
+fn si2_argv(workspace: &Workspace) -> Vec<String> {
+    qoder_argv(si2(workspace))
+}
+
+/// SI2 past the lifted fence on Linux (#1178, #1235), the one host the
+/// record measured: the example's measured cold and replacement shapes
+/// admit a work seat without hands and the same office boxing its hands,
+/// each by its own hands' shapes, and every one of the four is needed.
 #[cfg(target_os = "linux")]
 #[test]
-fn si2_admits_a_qoder_seat_without_hands_and_refuses_it_boxed() {
-    assert_eq!(chain(&si2(&qoder_workspace()).unwrap()), ["qoder-fast"]);
-    for missing in ["cold", "replacement"] {
-        let workspace = qoder_workspace();
-        assert_eq!(
-            si2_refusal(qoder_shapes(&workspace, |shape| shape != missing)),
-            format!(
-                "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider \
-                 'qoder' has no measured strict MCP configuration for '{missing}'"
-            )
-        );
-    }
-    let boxed = qoder_workspace();
-    let office = boxed.path("agents/researcher.json");
-    let mut body: Value = serde_json::from_slice(&std::fs::read(&office).unwrap()).unwrap();
-    body["hands"] = json!("workspace");
-    std::fs::write(office, body.to_string()).unwrap();
-    let Err(refused @ CompileError::Invalid(_)) = si2(&boxed) else {
-        panic!("a boxed qoder seat compiled or was refused otherwise");
-    };
+fn si2_admits_a_qoder_seat_without_hands_or_boxed_by_its_own_shapes() {
+    let unboxed = si2_argv(&qoder_workspace());
+    // The boxed seat's tools are dormant beside its hands: it carries no
+    // grant of its own, so the driver's refusal of one never meets it.
+    let boxed = si2_argv(boxed_office(&qoder_workspace()));
+    assert_eq!(boxed, unboxed[..unboxed.len() - 2]);
     assert_eq!(
-        refused.to_string(),
-        "bundle: seat 'work': agent 'researcher' cannot be served by provider 'qoder' on \
-         model 'qoder-fast': the provider declares hands unsupported (level 1 is unboxed \
-         (#1178, decision 0075): a boxed Qoder turn, its egress and its process reach are \
-         not measured (docs/evidence/adapters/qoder-cli-1-1.md, Not measured), so a site \
-         that boxes its hands refuses this seat), so the agent's hands cannot be put in the \
-         box and the agent would run with the harness's own tools. A capability the \
-         provider cannot express fails compilation here rather than degrading silently at \
-         run time"
+        boxed,
+        [
+            "driver",
+            "qoder",
+            "--",
+            "-m",
+            "Fast",
+            "--reasoning-effort",
+            "high"
+        ]
     );
+    for office in ["unboxed", "boxed"] {
+        let hands = if office == "boxed" { "boxed" } else { "none" };
+        for missing in ["cold", "replacement"] {
+            let workspace = qoder_workspace();
+            if office == "boxed" {
+                boxed_office(&workspace);
+            }
+            let kept = |invocation: &str, kind: &str| (invocation, kind) != (missing, hands);
+            assert_eq!(
+                si2_refusal(qoder_shapes(&workspace, kept)),
+                format!(
+                    "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider \
+                     'qoder' has no measured strict MCP configuration for '{missing}'"
+                ),
+                "{office}"
+            );
+        }
+    }
+}
+
+/// A boxed qoder seat is held to decision 0075 ruling 5 as an unboxed one
+/// is (#1235, C8): refused at a gate, and outside the listed offices.
+#[test]
+fn a_boxed_qoder_seat_outside_the_listed_offices_or_at_a_gate_is_refused() {
+    let workspace = qoder_workspace();
+    boxed_office(&workspace);
+    let unlisted = workspace.refusal(seat("researcher", "work"), &["reviewer"]);
+    assert!(
+        matches!(&unlisted, ProvisionalRefusal::Unlisted { model, .. } if model == "qoder-fast"),
+        "{unlisted:?}"
+    );
+    let gate = workspace.refusal(seat("researcher", "gate"), &["researcher"]);
+    assert!(
+        matches!(&gate, ProvisionalRefusal::Gate { model, .. } if model == "qoder-fast"),
+        "{gate:?}"
+    );
+}
+
+/// `workspace`'s copy of Qoder's example with every shape measured on
+/// `host`.
+fn qoder_hosted<'a>(workspace: &'a Workspace, host: &str) -> &'a Workspace {
+    let file = workspace.path("adapters/qoder.json");
+    let mut adapter: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    for shape in adapter["mcp"]["shapes"].as_array_mut().unwrap() {
+        shape["measured_on"]["host"] = json!(host);
+    }
+    std::fs::write(file, adapter.to_string()).unwrap();
+    workspace
+}
+
+/// Under the standing fence, macOS's production fence, which keeps every
+/// other harness's SI2 verdict on its record (#1235, D2; decision 0115): a
+/// boxed qoder seat on a host its adapter declares no shape for is refused
+/// when the bundle compiles, in the words a missing measured shape draws
+/// past the lifted fence, and on the host its shapes are measured on it
+/// compiles. The same seat without hands still waits on the fence.
+#[test]
+fn the_standing_fence_refuses_a_boxed_qoder_seat_on_a_host_with_no_measured_shape() {
+    let (here, other) = match cfg!(target_os = "macos") {
+        true => ("macos", "linux"),
+        false => ("linux", "macos"),
+    };
+    let compiled = |host: &str, boxed: bool| {
+        let workspace = qoder_workspace();
+        qoder_hosted(&workspace, host);
+        if boxed {
+            boxed_office(&workspace);
+        }
+        workspace.compile(seat("researcher", "work"), &["researcher"])
+    };
+    match compiled(other, true) {
+        Err(refused @ CompileError::Capability(_)) => assert_eq!(
+            refused.to_string(),
+            "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider 'qoder' \
+             has no measured strict MCP configuration for 'cold'"
+        ),
+        other => panic!("not a capability refusal: {:?}", other.map(drop)),
+    }
+    assert_eq!(qoder_argv(compiled(here, true))[..2], ["driver", "qoder"]);
+    assert_eq!(qoder_argv(compiled(other, false))[..2], ["driver", "qoder"]);
 }
 
 /// SI2 past the lifted fence on macOS (#1178; decision 0063): the record

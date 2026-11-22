@@ -394,13 +394,14 @@ check.
 Qoder CLI is the first provisional harness (#1178), onboarded under
 decision [0075](../decisions/0075-harness-onboarding-in-a-day.md) at
 level 1, the controller's ruling of 2026-11-20. Level 1 is an adapter
-and a driver, `brokkr driver qoder`, and nothing else. The
-seat is unboxed: the adapter declares no hands, so a site that boxes its
-hands refuses it. It is never a judge or a gate, and it is never
+and a driver, `brokkr driver qoder`, and nothing else. Level 3 (#1235)
+adds boxed hands: the seat is unboxed where its site does not box hands,
+and boxed where it does ([boxed hands](#qoder-boxed-hands) below). It is
+never a judge or a gate, and it is never
 resumed, because it runs `--no-session-persistence`. Every model it
 serves is provisional, so it holds only the offices `realms.json` lists
 under `provisional_offices`. Every figure behind it was measured by hand
-on Qoder CLI 1.1.92 ([the record](../evidence/adapters/qoder-cli-1-1.md)),
+on Qoder CLI 1.1.92 and 1.1.95 ([the record](../evidence/adapters/qoder-cli-1-1.md)),
 because `brokkr probe harness` does not know Qoder.
 
 The adapter ships as an example, `docs/examples/adapters/qoder.json`.
@@ -423,16 +424,16 @@ because the CLI does not say which model stands behind them. The model
 flag is `-m`. The efforts are `low`, `medium`, `high`, `xhigh` and `max`,
 on `--reasoning-effort`.
 
-**The launch.** The driver runs `qodercli -p --output-format stream-json
+**The launch.** Unboxed, the driver runs `qodercli -p --output-format stream-json
 --no-session-persistence --permission-mode accept_edits`, then the
 seat's pin, effort and tool grants, then `--strict-mcp-config
 --mcp-config <file> --setting-sources ""`, then `--tools Read Edit Write
 Glob Grep Bash --disallowed-tools mcp_call,mcp_get,mcp_list`. The prompt
 goes on stdin. The file is the engine's MCP document, written for the
-turn alone and removed after it; it names no server, so the MCP
-meta-tools are denied. A launch served an engine server would keep them
-and grant each tool as `mcp__<server>__<tool>` in the one
-`--allowed-tools` value. Without `--tools`, Qoder keeps its 34-tool default, which
+turn alone and removed after it; unboxed it names no server, so the MCP
+meta-tools are denied. A boxed launch differs in exactly its permission
+mode, its grant and its tool list ([below](#qoder-boxed-hands)).
+Without `--tools`, Qoder keeps its 34-tool default, which
 includes `Agent`, `Workflow`, the cron tools and the web tools. Web
 tools are never offered at level 1. Tool grants are one `--allowed-tools`
 value of comma-separated `Bash(<command>:*)` patterns. Any other
@@ -506,17 +507,88 @@ is still recorded as evidence, stripped and then masked.
 empty directory. The record names five token variables and exercised
 none of them, so a token-authenticated turn is unmeasured.
 
-**A denied tool call** is folded as every call is: as a `tool_use` row
+**A denied tool call** of an unboxed seat is folded as every call is: as a `tool_use` row
 under its tool's name. The turn still ends `success`. The seat record
-has no field for the denial itself.
+has no field for the denial itself. A boxed seat fails its turn on any
+denial instead ([below](#qoder-boxed-hands)).
 
 **MCP isolation.** The compile demands measured ambient MCP isolation
 for every shape a seat is served as (SI2, [below](#measured-mcp-isolation)).
-Qoder's cold and replacement shapes without hands are measured on Linux,
-so a qoder seat compiles there. `--strict-mcp-config` alone still
+Qoder's cold and replacement shapes, without hands and boxed, are
+measured on Linux, so a qoder seat compiles there. `--strict-mcp-config` alone still
 started the user-scope server, and `--setting-sources ""` alone still
-started the project-scope server, so the driver always passes both. A
-site that boxes its hands still refuses the seat.
+started the project-scope server, so the driver always passes both. On
+macOS nothing is measured.
+
+#### Qoder boxed hands
+
+Where a site boxes its hands (decisions 0043 and 0046),
+the seat's hands are boxed as a trusted harness's are (decision 0075 ruling 4):
+its commands run in Brokkr's box through the engine's `workspace` tool,
+served by `brokkr hands serve`. The adapter declares the empty fragment,
+`"hands": {"workspace": []}`, because the driver composes the whole
+launch, and it declares no `notice`: the engine's own hands paragraph
+names the tool `mcp__brokkr__workspace`, which is the `toolName` Qoder's
+model passes to `mcp_call`. The boxed launch is the unboxed one with
+three things changed, and nothing else:
+
+- `--permission-mode dont_ask` in place of `accept_edits`, so nothing is
+  approved that a grant does not name;
+- one grant, `--allowed-tools mcp__brokkr__workspace`, the engine's,
+  behind the seat's pin and effort;
+- `--tools ""` in place of the six tools and the meta-tools' denial: the
+  model keeps only `mcp_call`, `mcp_get` and `mcp_list`, through which it
+  reaches the engine's server, the only one the engine's file names.
+
+A boxed seat takes no `--allowed-tools` of its own. A grant of Qoder's
+own would name a tool the launch does not have, so the seat is refused
+before Qoder starts, naming the control and never its value. Its office's
+`tools` stay dormant beside its hands, so a compiled seat carries none.
+
+What the box is, and is not. Qoder's own process runs on the host and
+talks to its provider from there; the box is around the hands tool's
+commands alone. Its native tools are absent because Qoder's own
+`--tools ""` leaves them out of its tool list, inside Qoder's own
+process, not because a boundary of the operating system stops them. So
+the driver checks what Qoder says in init before any of the turn counts:
+its `mcp_servers` must be exactly the engine's server, `connected`, and
+its `tools` nothing but the three meta-tools. A later Qoder that keeps a
+native tool under `--tools ""` lists it there, and the turn fails
+instead of running unboxed. Nothing checks the installed version (#1240).
+
+Qoder does not fail closed; the driver does. A server that does not
+start is listed `disconnected` in init and Qoder still runs the turn to
+`success`, exit 0; the driver stops it at init and refuses the seat,
+naming the server and the status it saw. A server that dies mid-turn
+gives the model a tool error and Qoder still runs to `success`; the
+driver fails the turn at that tool result. That second check rests on
+Qoder's own words: a tool result marked as an error whose text is
+exactly `Error: MCP server 'brokkr' is not connected`, as the record has
+it (`box-server-dies`), and only on the result of an `mcp_call` of the
+engine's tool earlier in the same stream: the same words answering any
+other call are not this sign. Qoder gives no other sign, so a later Qoder
+that words it differently is not caught by this check. The recording also
+marks that result `isHardFailure`; one recording does not measure it, so
+the driver does not read it.
+
+A model that calls a tool it does not have, one of Qoder's own or an
+engine tool it holds no grant for, is recorded by Qoder as a permission
+denial, and the turn still ends `success`. A boxed seat fails its turn on
+any denial, so a model that probes for a tool it does not have fails its
+turn. A boxed turn succeeds only on its own terminal evidence: the
+stream's result row, holding `permission_denials` as an empty list. A
+stream that ends before its result row, a result row without that member,
+and a member that is not a list each fail the turn, saying which, and the
+seat's result file is not taken. A failure before the first turn is a
+refusal to start; after it, the seat ends lost, as every stop does.
+Decision [0115](../decisions/0115-a-boxed-seat-of-a-harness-that-does-not-fail-closed-is-held-closed-by-its-driver.md)
+(proposed) records these rules.
+
+Seats compiled boxed are never served unboxed. A boxed qoder seat on a
+host or shape the adapter declares no measurement for, macOS today, is
+refused when its bundle compiles, whichever way the MCP fence stands,
+with the words a missing measured shape draws. The driver refuses the
+same seat at launch too, rather than launch it with Qoder's own tools.
 
 ## Hands
 
@@ -541,6 +613,12 @@ is never". The first two astra-judged gates died on exactly that
 against `brokkr hands serve`. `{"unsupported": "<measured reason>"}` declares that the
 harness cannot be handed that tool, and a site with hands then refuses
 to compile against it, exactly as an unexpressible tool list does.
+qoder's is the empty fragment, `{"workspace": []}`: its driver composes
+the whole launch and writes the engine's MCP file itself, so the adapter
+adds nothing to argv. Its boxed launch removes Qoder's own tools
+(`--tools ""`), grants the `workspace` tool alone under `dont_ask`, and
+checks Qoder's init for the engine's server alone and no native tool
+([Qoder boxed hands](#qoder-boxed-hands)).
 
 The `workspace` fragment is what a site with hands runs under the
 `namespace` boundary, where Brokkr builds the box. Which boundary stands
@@ -972,7 +1050,7 @@ and what such a driver then does is its own.
 | `dsh` | `unmeasured` | `tool_permissions` being unsupported shows that Brokkr cannot narrow dsh's tools, and its `mcp` facts measure the engine's server channel and MCP isolation only ([measured MCP isolation](#measured-mcp-isolation)). Neither shows dsh has no native egress — `recipes/research-dsh/README.md` records that its headless profile ships web fetch ON — and no OFF control has been declared or measured. Nothing is granted through dsh and no denial is claimed. |
 | `lanetally` | `unmeasured` | The wrapper forwards argv to claude, and forwarding is not confinement. Claude's declarations and evidence are not inherited. |
 | `exec` | `unmeasured` | The engine cannot certify what an arbitrary child program reaches. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged. |
-| `qoder` (example, not shipped in `adapters/`) | `web-fetch` → `WebFetch`, `web-search` → `WebSearch`; ON is `unsupported`, OFF is the driver's default | The driver always passes `--tools Read Edit Write Glob Grep Bash`, and the record shows that `--tools` with names restricts the built-ins to those names. That the list leaves both web tools out is init's tool list, not a refused live call. Ambient MCP isolation is measured for the cold and replacement shapes without hands ([below](#measured-mcp-isolation)); a boxed shape is not. |
+| `qoder` (example, not shipped in `adapters/`) | `web-fetch` → `WebFetch`, `web-search` → `WebSearch`; ON is `unsupported`, OFF is the driver's default | The driver passes an unboxed seat `--tools Read Edit Write Glob Grep Bash` and a boxed one `--tools ""`, and the record shows that `--tools` with names restricts the built-ins to those names and that `--tools ""` leaves only the MCP meta-tools. That either list leaves both web tools out is init's tool list, not a refused live call; a boxed seat's init is checked for it. Ambient MCP isolation is measured for the cold and replacement shapes, without hands and boxed ([below](#measured-mcp-isolation)). |
 
 Every "unmeasured" above is the controller's to measure, and
 `brokkr doctor` prints each beside the realm it matters to.
@@ -1016,7 +1094,7 @@ stands and nothing here is claimed. The evidence is
 | `dsh` | Cold without hands: 0.1.5-rc.1 (U0, U0c). Replacement without hands: 0.2.1-rc.2 (U0b D06, and pass 8 on the keyed routes). Cold and replacement with boxed hands: 0.2.1-rc.2 (#896). | The replacements' native-write, store and process axes, and the cold no-hands shape's native write (its store read is `unsupported`). A shape carries no route scope: its record names the routes it was measured on, and `spark` was never qualified (U0c). |
 | `lanetally` | Cold and replacement without hands, through the wrapper itself: launcher sha256 `b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb` running LaneTally's session-wrapper.sh at 4614bb7, sha256 `ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7`, over Claude Code 2.1.287 (cold) and 2.1.308 (replacement). | Process reads; store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. A different wrapper is a different measurement. |
 | `exec` | `inapplicable`: no model MCP surface. | — |
-| `qoder` (example) | Cold and replacement without hands: Qoder CLI 1.1.92, against planted user, local, project and plugin sentinels (Q07, Q10, Q11, Q14, Q15 in [`qoder-cli-1-1.md`](../evidence/adapters/qoder-cli-1-1.md#mcp-isolation-si2)). Every launch carries `--strict-mcp-config --mcp-config <the engine's file> --setting-sources ""`: either flag alone still started a planted server. | Native write, store read and process read: Qoder's permission check refused the attempts, and that check is not an isolation mechanism. No boxed shape, so a site that boxes its hands refuses the seat. A managed or enterprise MCP configuration. |
+| `qoder` (example) | All four shapes on Qoder CLI 1.1.95, against planted user, local, project and plugin sentinels ([second measurement](../evidence/adapters/qoder-cli-1-1.md#second-measurement-on-1195-the-short-security-set-again-and-a-boxed-turn-2026-11-22)). Cold and replacement without hands, ambient: `q95-01-positive-control`, `q95-07-cold`, `q95-11-replacement`, `q95-15-carriage-replacement`, as Q01, Q07, Q10, Q11 and Q15 were on 1.1.92; carriage: `q95-14` and `q95-15`. Cold and replacement boxed, every axis: ambient `box-engine-workspace-tool` and its replacement; native write `box-other-natives` (no tool of Qoder's own exists, by Qoder's `--tools ""`) and the hands tool's write; store read `box-store-drive` against its control (the box's seal) and `box-store` (no native tool, Qoder's own); process read `box-reach` (4 `/proc` entries, bubblewrap as process 1). Every launch carries `--strict-mcp-config --mcp-config <the engine's file> --setting-sources ""`: either flag alone still started a planted server. No shape stays on 1.1.92. | Native write, store read and process read without hands: Qoder's permission check refused the attempts (Q12, 1.1.92 only), and that check is not an isolation mechanism. The native-tool absence of a boxed shape is Qoder's own tool list, not an operating-system boundary. A managed or enterprise MCP configuration. A boxed turn on a model other than Fast and Qwen4-Max. |
 
 A shape's `measured_on.version` is not compared with the version of
 the harness installed: a measurement stays applied after the binary

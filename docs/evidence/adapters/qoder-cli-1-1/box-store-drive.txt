@@ -1,0 +1,8 @@
+{"id": 1, "jsonrpc": "2.0", "result": {"capabilities": {"tools": {}}, "protocolVersion": "2024-11-05", "serverInfo": {"name": "brokkr-hands", "version": "0.14.0"}}}
+tools: ['workspace']
+$ cat .forge/secrets.env
+{"content": [{"text": "[stderr]\ncat: .forge/secrets.env: Permission denied\n\n[exit code: 1]", "type": "text"}], "isError": true}
+$ ls -la .forge/
+{"content": [{"text": "total 8\ndrwxrwxr-x 2 runner runner 4096 Nov 22 07:57 .\ndrwxrwxr-x 3 runner runner 4096 Nov 22 07:57 ..\ncrw-rw-rw- 1 65534  65534  1, 3 Oct 24 14:39 secrets.env\n\n[exit code: 0]", "type": "text"}], "isError": false}
+$ cat seed.txt
+{"content": [{"text": "seed line for the sealed box\n\n[exit code: 0]", "type": "text"}], "isError": false}
