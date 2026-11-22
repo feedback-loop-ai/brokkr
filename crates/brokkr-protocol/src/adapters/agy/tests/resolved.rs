@@ -333,15 +333,17 @@ fn refused_after(pin: &str, bindings: &[secret::BoundSecret], rows: &[&str]) -> 
     }
 }
 
-/// A bound value of 4 bytes at the tail of a plain pin, the pin as short as
-/// lets the bound of 160 characters on a refusal's words fall one
-/// character inside the value, on each live path that refuses it
-/// unconfirmed: 111 behind a `SUCCESS` result no init confirmed (50
-/// characters lead the pin there), and 144 at a step before any init or at
-/// an exit of 0 with no row at all (17 lead it). The pin is masked before
-/// the bound reads it, so neither the words nor the shared mask after them
-/// hold a byte of the value; the substituted refusal names it masked too
-/// (Z1).
+/// A bound value of 4 bytes at the tail of a pin, the pin as short as lets
+/// the bound of 160 characters on a refusal's words fall one character
+/// inside the value, on each live path that refuses the pin: 111 behind a
+/// `SUCCESS` result no init confirmed (50 characters lead the pin there),
+/// and 144 at a step before any init, at an exit of 0 with no row at all,
+/// or at an init naming another model (17 lead it). No plain pin, at most
+/// 80 characters, reaches the bound behind a lead of 50 or less, so each
+/// pin here is one the launch refuses as not plain: the fold's order is
+/// proved apart from that rule. The pin is masked before the bound reads
+/// it, so neither the words nor the shared mask after them hold a byte of
+/// the value (Z1).
 #[test]
 fn a_bound_value_at_the_tail_of_a_long_pin_reaches_no_refusal_in_any_form() {
     let value = "Zq7W";
@@ -349,26 +351,20 @@ fn a_bound_value_at_the_tail_of_a_long_pin_reaches_no_refusal_in_any_form() {
     let shown =
         |refused: &PreSessionRefusal| secret::mask_text(refused.words().as_bytes(), &bindings);
     let (init, step, result) = turn_rows();
-    let cases: [(usize, &[&str], &str); 3] = [
-        (107, &[result], "agy's result had status SUCCESS; "),
-        (140, &[step], ""),
-        (140, &[], ""),
+    let init = init.replace("gemini-3.8-flash-low", "gemini-x");
+    let (unconfirmed, lead) = ("model_unconfirmed", "agy's result had status SUCCESS; ");
+    let cases: [(usize, &[&str], &str, &str); 4] = [
+        (107, &[result], unconfirmed, lead),
+        (140, &[step], unconfirmed, ""),
+        (140, &[], unconfirmed, ""),
+        (140, &[&init], "model_substituted", ""),
     ];
-    for (length, rows, status) in cases {
-        let filler = "p".repeat(length);
-        let refused = refused_after(&format!("{filler}{value}"), &bindings, rows);
-        let words = format!("model_unconfirmed: {status}the seat pinned \"{filler}[se");
+    for (length, rows, token, status) in cases {
+        let (filler, pin) = ("p".repeat(length), format!("{}{value}", "p".repeat(length)));
+        assert!(!crate::adapters::stream_turn::plain(&pin));
+        let refused = refused_after(&pin, &bindings, rows);
+        let words = format!("{token}: {status}the seat pinned \"{filler}[se");
         assert_eq!(shown(&refused), words, "{rows:?}");
         assert!(!shown(&refused).contains(&value[..3]), "{rows:?}");
     }
-    let filler = "p".repeat(74);
-    let init = init.replace("gemini-3.8-flash-low", "gemini-x");
-    let substituted = refused_after(&format!("{filler}{value}"), &bindings, &[&init]);
-    // No bound reaches this pin, which ends by character 97: the fold's own
-    // words, before the shared mask, already name it masked.
-    assert_eq!(
-        substituted.words(),
-        format!("model_substituted: the seat pinned \"{filler}[secret:AT]\" and agy served \"gemini-x\"")
-    );
-    assert!(!shown(&substituted).contains(&value[..3]));
 }
