@@ -696,13 +696,15 @@ impl Engine {
         settlement::ended(&mut self.held, at.site_name, &report.cleanup);
         // The hold ends on evidence, never on a clock (fix round 0106b1r10,
         // H1): right after the settlement above proved the driver's whole
-        // tree ended, for a probe that reported no refusal. A refusal's hold
-        // ends with its renewed round's commit, or stands to its stored end
-        // where that round is not written; a tree not proven ended, like a
-        // probe never spawned, leaves it standing to that end too.
-        let proven = matches!(report.cleanup, Cleanup::Settled) && report.refusal.is_none();
+        // tree ended, for every probe that hands no renewed round on. A
+        // rate limit's renewal ends it with the round's commit, in one
+        // transaction, or leaves it standing where that round is not
+        // written; a refusal that parks with no renewal ends it here (fix
+        // round 0106b1r11, L4). A tree not proven ended, like a probe never
+        // spawned, leaves it standing to its stored end.
+        let proven = matches!(report.cleanup, Cleanup::Settled);
         let probe = self.probe_end(at.effect_id, wait, report);
-        match proven {
+        match proven && !renews(&probe) {
             true => self.end_the_hold(wait, probe),
             false => probe,
         }
@@ -721,6 +723,16 @@ impl Engine {
                 wait.provider, wait.route
             ))),
         }
+    }
+}
+
+/// Whether `probe` hands its hold on to a renewed round, whose commit ends
+/// it in the same transaction (fix round 0106b1r5, H3): only a rate limit's
+/// next round does. An answer and a park end it at settlement.
+fn renews(probe: &Probe) -> bool {
+    match probe {
+        Probe::Extended(_) => true,
+        Probe::Answered(_) | Probe::Parked(_) => false,
     }
 }
 

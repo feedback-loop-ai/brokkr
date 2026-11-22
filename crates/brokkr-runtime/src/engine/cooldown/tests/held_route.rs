@@ -359,6 +359,24 @@ fn a_hold_past_its_stored_end_stands_until_its_runs_driver_is_proven_ended() {
     assert_eq!(legs(&gates, end), [Ok(()), Ok(())]);
 }
 
+/// Fix round 0106b1r11, L4: a probe whose tree settled and whose refusal
+/// parks with no renewed round, of another class than a rate limit, ends
+/// its hold at settlement: the run parks, the one hold it wrote is ended,
+/// and both production gates admit on the route at the probe's own
+/// instant, long before the hold's stored end.
+#[test]
+fn a_settled_refusal_that_parks_without_a_renewal_ends_its_hold() {
+    let (dir, mut engine, _now, probe_at, gates) = probing(Probed::OtherRefusal);
+    engine.drive().unwrap();
+    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
+    let reason = park_reason(&engine);
+    assert!(reason.contains("was refused: auth failed"), "{reason}");
+    let journal = engine.store.path();
+    assert_eq!((holds_written(journal), unended_holds(journal)), (1, 0));
+    assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
+}
+
 /// An answered probe ends its own hold: the route reads cooling down while
 /// the probe is in flight, and a second connection's pass and claim admit
 /// on it at once after the answer, well before the probe's deadline.
