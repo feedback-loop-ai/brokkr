@@ -58,9 +58,10 @@ fn qoder_is_a_serving_shape_whose_measured_assessment_is_admitted() {
     );
 }
 
-/// A driver run by hand, an empty intent, hands the boundary does not box,
-/// and hands the standing fence serves unmeasured are all served the empty
-/// document with no grant: never ambient MCP, never hands.
+/// A driver run by hand, an empty intent and hands the boundary does not
+/// box are all served the empty document with no grant: never ambient MCP,
+/// never hands. Boxed hands the standing fence serves unmeasured refuse
+/// (#1235): no launch with Qoder's own tools takes the box's place.
 #[test]
 fn a_qoder_launch_the_admission_serves_no_hands_is_served_the_empty_set() {
     assert_eq!(set_of(&json!({"workdir": "/w"})), Ok(empty()));
@@ -71,7 +72,10 @@ fn a_qoder_launch_the_admission_serves_no_hands_is_served_the_empty_set() {
         Ok(empty())
     );
     // Dispatch's own inputs: the hands set, measured on no shape, standing.
-    assert_eq!(set_of(&hands_input(SealedBoundary::Namespace)), Ok(empty()));
+    assert_eq!(
+        set_of(&hands_input(SealedBoundary::Namespace)),
+        Err(McpRefusal::Unboxed { provider: "qoder" })
+    );
 }
 
 /// The box's hands are served, with the grant of their one tool, only
