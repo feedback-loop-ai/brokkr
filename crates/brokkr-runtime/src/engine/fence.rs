@@ -34,6 +34,23 @@ use super::{checkpoints, cooldown, Engine, EngineError};
 #[cfg(test)]
 pub(super) mod tests;
 
+/// The one field a settlement reads of the terminal it replaces, parsed
+/// once into its type rather than read by key (fix round 0106b1r9, E5).
+#[derive(Debug, serde::Deserialize)]
+struct Settled {
+    effect_id: String,
+}
+
+impl Settled {
+    /// The effect `terminal` closes; one that names none is the engine's
+    /// own broken invariant, for every terminal it builds names its effect.
+    fn of(terminal: &Value) -> Result<Settled, EngineError> {
+        serde::Deserialize::deserialize(terminal).map_err(|error| {
+            EngineError::Invariant("append", format!("a terminal names no effect: {error}"))
+        })
+    }
+}
+
 /// What a fold that read `events` lets the engine append on: the cause
 /// its next event names, and the head that event must still find.
 pub(super) fn tip_of(events: &[EventEnvelope]) -> (Option<String>, Option<(u64, String)>) {
@@ -120,7 +137,8 @@ impl Engine {
             // journaled that the store does not hold. Only a terminal carries
             // rows, so only a terminal meets this.
             Err(StoreError::Queue(refusal @ QueueRefusal::CooldownRowUnwritten(_))) => {
-                return self.unwritten_wait(&payload, attempt_id, refusal)
+                let effect = Settled::of(&payload)?;
+                return self.unwritten_wait(&effect.effect_id, attempt_id, refusal);
             }
             Err(error) => return Err(error.into()),
         };
@@ -146,13 +164,13 @@ impl Engine {
     /// parks: ruled, the engine's own refusal (fix round 0106b1r9, E4).
     fn unwritten_wait(
         &mut self,
-        terminal: &Value,
+        effect_id: &str,
         attempt_id: Option<String>,
         refusal: QueueRefusal,
     ) -> Result<EventEnvelope, EngineError> {
         let error = cooldown::CooldownError::WaitUnwritten(Box::new(refusal));
         let settled = json!({
-            "effect_id": terminal["effect_id"],
+            "effect_id": effect_id,
             "attempt_id": attempt_id,
             "reason": error.to_string(),
         });

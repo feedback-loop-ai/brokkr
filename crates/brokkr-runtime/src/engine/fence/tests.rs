@@ -311,3 +311,18 @@ fn a_store_error_other_than_the_terminal_refusal_stays_a_store_error() {
         EngineError::Store(StoreError::HeadMoved { .. })
     ));
 }
+
+/// Fix round 0106b1r9, E5: the settlement of an unwritten wait reads its
+/// terminal's effect once, typed; a terminal naming none is the engine's
+/// broken invariant, by name, never a null effect id settled.
+#[test]
+fn a_settlement_reads_its_terminals_effect_typed() {
+    let settled = super::Settled::of(&json!({"effect_id": "effect", "error": "x"})).unwrap();
+    assert_eq!(settled.effect_id, "effect");
+    let refused = super::Settled::of(&json!({"error": "x"})).unwrap_err();
+    assert!(
+        matches!(&refused, EngineError::Invariant("append", detail)
+            if detail == "a terminal names no effect: missing field `effect_id`"),
+        "{refused:?}"
+    );
+}

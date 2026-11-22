@@ -137,11 +137,12 @@ struct AdmittedProbe {
 
 /// A probe whose deadline passed before its driver could be spawned (fix
 /// round 0106b1r5, H2): it is not spawned, and its route's hold stands
-/// until that deadline. Its words are the park's reason.
+/// until the first whole second after that deadline, where the store ends
+/// it (fix round 0106b1r9, E5). Its words are the park's reason.
 #[derive(Debug, thiserror::Error)]
 #[error(
     "the cool-down probe for {provider}/{route} was not spawned: its deadline {} passed before \
-     its driver could start, and its route's hold stands until then",
+     its driver could start, and its route's hold stands until the first whole second after it",
     spelled(*ends)
 )]
 struct Late {

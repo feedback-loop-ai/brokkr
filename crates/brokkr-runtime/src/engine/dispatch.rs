@@ -485,29 +485,30 @@ pub(super) fn spawn_site_by(
     deadline: SpawnDeadline<'_>,
     door: Option<Door<'_>>,
 ) -> Result<(DriverProcess, Value), Unspawned> {
-    let input = checked_input(bundle, spawn, input, door).map_err(Unspawned::Refused)?;
+    let input = checked_input(bundle, spawn, input, door)?;
     spawned(spawn, workdir, deadline, door).map(|process| (process, input))
 }
 
 /// Every check [`spawn_site`] takes before its driver is spawned, and the
 /// input it is told: the door's recheck, the launch record, the charter
-/// and the layer's re-walk.
+/// and the layer's re-walk. A check that refuses is
+/// [`Unspawned::Refused`] in its own words (fix round 0106b1r9, E5).
 fn checked_input(
     bundle: &Bundle,
     spawn: &SiteSpawn,
     input: &Value,
     door: Option<Door<'_>>,
-) -> Result<Value, String> {
+) -> Result<Value, Unspawned> {
     if let Some(reason) = &spawn.refusal {
-        return Err(reason.clone());
+        return Err(Unspawned::Refused(reason.clone()));
     }
     if let Some(door) = door {
-        admission::recheck(door.held).map_err(|refusal| refusal.to_string())?;
+        admission::recheck(door.held).map_err(|refusal| Unspawned::Refused(refusal.to_string()))?;
     }
     // The input arrives here after its last merge: the launch record in it
     // must be the one sealed for this spawn, and reassemble the argv about
     // to be launched (design D5.7).
-    verify_record(spawn, input)?;
+    verify_record(spawn, input).map_err(Unspawned::Refused)?;
     // Decision 0066 ruling 5: the driver renders the prompt from the role
     // file it is handed, so the file is judged here, against the pin the
     // compile took, immediately before the driver that will read it.
@@ -529,30 +530,30 @@ fn checked_input(
         .get(brokkr_protocol::native_controls::ROLE_TEXT)
         .is_some()
     {
-        return Err(format!(
+        return Err(Unspawned::Refused(format!(
             "dispatch refused: the input arrived carrying charter text ('{}') before the \
              dispatch door read one; what a seat is told is read only here, from the charter \
              the compile bound to its site (decision 0066 ruling 5)",
             brokkr_protocol::native_controls::ROLE_TEXT
-        ));
+        )));
     }
     let mut input = input.clone();
     let role = input["role_path"].as_str().unwrap_or_default().to_string();
     if !role.is_empty() || spawn.charter.is_some() {
         match site_charter_text(bundle, spawn.charter.as_ref(), Path::new(&role)) {
             Err((owner, key)) => {
-                return Err(format!(
+                return Err(Unspawned::Refused(format!(
                     "dispatch refused: a charter of {owner} moved since the compile ({key}); \
                      what a seat is told must be the bytes the bundle's identity names \
                      (decision 0066 ruling 5)"
-                ))
+                )))
             }
             Ok(text) => input[brokkr_protocol::native_controls::ROLE_TEXT] = Value::String(text),
         }
     }
     if let Some(layer) = &spawn.rewalk {
         if let Some(moved) = layer_drift(bundle, layer) {
-            return Err(rewalk_refusal(bundle, spawn, moved));
+            return Err(Unspawned::Refused(rewalk_refusal(bundle, spawn, moved)));
         }
     }
     Ok(input)

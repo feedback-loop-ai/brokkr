@@ -76,7 +76,8 @@ fn a_probe_paused_past_its_deadline_at(read: usize) {
         parked_reason(&engine),
         format!(
             "the cool-down probe for claude/first was not spawned: its deadline {} passed \
-             before its driver could start, and its route's hold stands until then",
+             before its driver could start, and its route's hold stands until the first whole \
+             second after it",
             crate::admission::spelled(deadline)
         )
     );
