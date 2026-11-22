@@ -1,0 +1,193 @@
+{
+  "provider": "qoder",
+  "trust_tier": "untrusted",
+  "egress": "uncontracted",
+  "harness_auth": {
+    "names": [
+      "QODER_AUTH_STDIN",
+      "QODER_DEVICE_TOKEN",
+      "QODER_PAT",
+      "QODER_PERSONAL_ACCESS_TOKEN",
+      "QODER_SDK_ACCESS_TOKEN"
+    ],
+    "measured": "Qoder CLI 1.1.92 (Linux, 2026-11-20): strings of the installed binary names QODER_PERSONAL_ACCESS_TOKEN, QODER_PAT, QODER_SDK_ACCESS_TOKEN, QODER_DEVICE_TOKEN and QODER_AUTH_STDIN; none was exercised, and a token-authenticated turn is not measured (docs/evidence/adapters/qoder-cli-1-1.md, Auth and Not measured)"
+  },
+  "binary": "qodercli",
+  "driver": [
+    "{brokkr}",
+    "driver",
+    "qoder",
+    "--"
+  ],
+  "models": {
+    "qoder-deepseek4-pro": {
+      "id": "DeepSeek-V4-Pro",
+      "tier": "provisional"
+    },
+    "qoder-fast": {
+      "id": "Fast",
+      "tier": "provisional"
+    },
+    "qoder-glm53": {
+      "id": "GLM-5.3",
+      "tier": "provisional"
+    },
+    "qoder-kimi31-pro": {
+      "id": "Kimi-K3.1-Pro",
+      "tier": "provisional"
+    },
+    "qoder-qwen4-max": {
+      "id": "Qwen4-Max",
+      "tier": "provisional"
+    }
+  },
+  "judges": [],
+  "model_flag": "-m",
+  "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ],
+  "effort_flag": "--reasoning-effort",
+  "tool_permissions": {
+    "flag": "--allowed-tools",
+    "separator": ",",
+    "names": {
+      "cargo": "Bash(cargo:*)",
+      "codex": "Bash(codex:*)",
+      "dsh": "Bash(dsh:*)",
+      "gh-pr-view": "Bash(gh pr view:*)",
+      "gh-run-view": "Bash(gh run view:*)",
+      "git": "Bash(git:*)",
+      "ls": "Bash(ls:*)",
+      "mkdir": "Bash(mkdir:*)",
+      "node": "Bash(node:*)",
+      "npm": "Bash(npm:*)",
+      "npx": "Bash(npx:*)",
+      "rg": "Bash(rg:*)",
+      "specify": "Bash(specify:*)"
+    }
+  },
+  "mcp": {
+    "carriage": {
+      "measured": "Q14 (cold) and Q15 (replacement, Q14's argv again), Qoder CLI 1.1.92, Linux, 2026-11-20: under --strict-mcp-config --mcp-config <engine file> --setting-sources \"\" the engine sentinel started, init listed it connected, and it answered tools/call under an --allowed-tools grant naming it mcp__<server>__<tool> (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2))"
+    },
+    "shapes": [
+      {
+        "invocation": "cold",
+        "hands": "none",
+        "measured_on": {
+          "harness": "qoder",
+          "binary": "qodercli",
+          "version": "1.1.92",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "Q01 and Q02, the positive control: with no MCP flags the user, local, project and plugin sentinels all started; Q07 and Q10 (cold): under --strict-mcp-config --mcp-config <empty file> --setting-sources \"\" no planted sentinel started and init mcp_servers was [] (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2))"
+        },
+        "native_write": {
+          "unmeasured": "native writes outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's Write and Edit attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        },
+        "store_read": {
+          "unmeasured": "store reads outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's reads outside the workdir, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        },
+        "process_read": {
+          "unmeasured": "process reads outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "none",
+        "measured_on": {
+          "harness": "qoder",
+          "binary": "qodercli",
+          "version": "1.1.92",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "Q01 and Q02, the positive control: with no MCP flags the user, local, project and plugin sentinels all started; Q11 (Q10's argv again) and Q15 (Q14's argv again, with the engine file), in the same HOME and workdir: no planted sentinel started (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2))"
+        },
+        "native_write": {
+          "unmeasured": "native writes outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's Write and Edit attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        },
+        "store_read": {
+          "unmeasured": "store reads outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's reads outside the workdir, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        },
+        "process_read": {
+          "unmeasured": "process reads outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        }
+      }
+    ]
+  },
+  "native_capabilities": {
+    "known": {
+      "web-fetch": {
+        "capability": "web-fetch",
+        "tools": [
+          "WebFetch"
+        ],
+        "on": {
+          "unsupported": "level 1 never offers a web tool (#1178, decision 0075): brokkr driver qoder always passes --tools Read Edit Write Glob Grep Bash, and no argv of the driver lists WebFetch"
+        },
+        "off": {
+          "default": "brokkr driver qoder always passes --tools Read Edit Write Glob Grep Bash, and the record measured that --tools with names restricts the built-ins to those names; with no --tools, init lists 34 tools under accept_edits, WebFetch and WebSearch among them (docs/evidence/adapters/qoder-cli-1-1.md, Tools)"
+        },
+        "restrictions": {
+          "unsupported": "no native transport for a restriction on Qoder CLI's WebFetch has been established"
+        },
+        "evidence": {
+          "source": "docs/evidence/adapters/qoder-cli-1-1.md, Tools: Qoder CLI 1.1.92, Linux, 2026-11-20",
+          "scope": "the tools init lists under the driver's fixed --tools list; no live call of WebFetch, with or without the list, was tried",
+          "limitations": [
+            "that the fixed --tools list leaves WebFetch out is init's list, not a refused live call",
+            "ambient MCP isolation is measured without hands on Linux only (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2)); a managed or enterprise MCP configuration was not measured, so a server it loads may still reach the web"
+          ]
+        }
+      },
+      "web-search": {
+        "capability": "web-search",
+        "tools": [
+          "WebSearch"
+        ],
+        "on": {
+          "unsupported": "level 1 never offers a web tool (#1178, decision 0075): brokkr driver qoder always passes --tools Read Edit Write Glob Grep Bash, and no argv of the driver lists WebSearch"
+        },
+        "off": {
+          "default": "brokkr driver qoder always passes --tools Read Edit Write Glob Grep Bash, and the record measured that --tools with names restricts the built-ins to those names; with no --tools, init lists 34 tools under accept_edits, WebFetch and WebSearch among them (docs/evidence/adapters/qoder-cli-1-1.md, Tools)"
+        },
+        "restrictions": {
+          "unsupported": "no native transport for a restriction on Qoder CLI's WebSearch has been established"
+        },
+        "evidence": {
+          "source": "docs/evidence/adapters/qoder-cli-1-1.md, Tools: Qoder CLI 1.1.92, Linux, 2026-11-20",
+          "scope": "the tools init lists under the driver's fixed --tools list; no live call of WebSearch, with or without the list, was tried",
+          "limitations": [
+            "that the fixed --tools list leaves WebSearch out is init's list, not a refused live call",
+            "ambient MCP isolation is measured without hands on Linux only (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2)); a managed or enterprise MCP configuration was not measured, so a server it loads may still reach the web"
+          ]
+        }
+      }
+    }
+  },
+  "hands": {
+    "unsupported": "level 1 is unboxed (#1178, decision 0075): a boxed Qoder turn, its egress and its process reach are not measured (docs/evidence/adapters/qoder-cli-1-1.md, Not measured), so a site that boxes its hands refuses this seat"
+  },
+  "resume": {
+    "print-work-site": {
+      "status": "unsupported",
+      "identity": {
+        "unknown": "no rejoin of Qoder CLI was measured; the record's turns were taken on 1.1.92 and none was resumed"
+      },
+      "classes": [
+        "work"
+      ],
+      "boundaries": [
+        "not applicable"
+      ],
+      "hands": "none",
+      "reason": "the seat runs --no-session-persistence, which keeps no session on disk in print mode (docs/evidence/adapters/qoder-cli-1-1.md, Persistence), so there is no session to rejoin"
+    }
+  }
+}

@@ -39,7 +39,8 @@ impl SealedIsolation {
     /// Whether `provider` may be served as `invocation`: its assessment
     /// must be measured, and the engine must build a qualified mechanism
     /// for its harness: Claude's strict configuration, dsh's engine-only
-    /// home, or Codex's isolation options and store-denying profile (U9c2).
+    /// home, Codex's isolation options and store-denying profile (U9c2), or
+    /// Qoder's three-flag fragment (#1178).
     /// A measured claim for a harness with none is missing evidence, never a
     /// fallback. dsh's route is judged separately ([`crate::dsh_served`]),
     /// once its model pin is read.
@@ -73,7 +74,12 @@ impl SealedIsolation {
             SealedAssessment::Measured => {}
         }
         match ServingShape::of(provider) {
-            Some(ServingShape::Claude | ServingShape::Codex | ServingShape::Dsh) => Ok(()),
+            Some(
+                ServingShape::Claude
+                | ServingShape::Codex
+                | ServingShape::Dsh
+                | ServingShape::Qoder,
+            ) => Ok(()),
             None => Err(unmeasured()),
         }
     }

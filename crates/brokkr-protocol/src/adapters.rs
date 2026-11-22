@@ -32,6 +32,7 @@ mod exec;
 mod lost;
 mod mcp;
 mod probe;
+mod qoder;
 mod refusal;
 #[cfg(test)]
 mod round430_tests;
@@ -114,6 +115,9 @@ probe::adapter_kinds! {
     Lanetally => "lanetally",
     Codex => "codex",
     Dsh => "dsh",
+    /// Qoder CLI, a provisional harness at level 1 (#1178; decision 0075):
+    /// unboxed, never a gate, and never resumed.
+    Qoder => "qoder",
     Exec => "exec",
 }
 
@@ -130,12 +134,14 @@ impl AdapterKind {
     /// All four model adapters declare receipt so that a claude or dsh
     /// retry can be told about its own session and answer honestly,
     /// which is issue #226's complaint. Exec declares none: it has no
-    /// model turn and no provider to hold a session. A driver that does
-    /// not declare receipt is never handed a handle, by any channel.
+    /// model turn and no provider to hold a session. Qoder declares none
+    /// either: its seat runs `--no-session-persistence`, so there is no
+    /// session to be told about (#1178). A driver that does not declare
+    /// receipt is never handed a handle, by any channel.
     fn supports(&self) -> Vec<String> {
         match self {
-            AdapterKind::Exec => Vec::new(),
-            _ => vec!["resume".to_string()],
+            Self::Exec | Self::Qoder => Vec::new(),
+            Self::Claude | Self::Lanetally | Self::Codex | Self::Dsh => vec!["resume".into()],
         }
     }
 
@@ -148,6 +154,7 @@ impl AdapterKind {
             AdapterKind::Lanetally => "claude-lanetally".to_string(),
             AdapterKind::Codex => "codex".to_string(),
             AdapterKind::Dsh => "deepseek-harness".to_string(),
+            AdapterKind::Qoder => "qoder-cli".to_string(),
             // A name the reader refuses labels the driver `exec`, and
             // `run_seat` refuses every start on it by that name.
             AdapterKind::Exec => crate::overrides::read(Override::ExecName)
@@ -3216,18 +3223,20 @@ pub(crate) fn serving_command(
             command.push(prompt.to_string());
             Ok(command)
         }
+        ServingShape::Qoder => Err("a qoder command, which no modelled grammar reads back"),
     }
 }
 
 /// The serving command shapes the built-in drivers spawn, one per builder
-/// [`serving_command`] calls. LaneTally wraps Claude's harness and is served
-/// Claude's shape. `exec` and an opaque driver have none, as they have no
-/// modelled grammar ([`crate::native_controls::grammar::grammar`]).
+/// [`serving_command`] calls and Qoder's, composed whole in its fragment's one
+/// home (#1178). LaneTally is served Claude's. `exec` and an opaque driver have
+/// none ([`crate::native_controls::grammar::grammar`] models no grammar of theirs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ServingShape {
     Claude,
     Codex,
     Dsh,
+    Qoder,
 }
 
 impl ServingShape {
@@ -3236,6 +3245,7 @@ impl ServingShape {
             "claude" | "lanetally" => Some(ServingShape::Claude),
             "codex" => Some(ServingShape::Codex),
             "dsh" => Some(ServingShape::Dsh),
+            "qoder" => Some(ServingShape::Qoder),
             _ => None,
         }
     }
@@ -5535,6 +5545,9 @@ fn invoke_with_stager(
             }
         }
         AdapterKind::Dsh => invoke_dsh(pinned, prompt, input, session, bindings, &mut probe, emit),
+        AdapterKind::Qoder => {
+            qoder::drive(bin, extra, session.is_some(), prompt, input, bindings, emit)
+        }
         AdapterKind::Exec => {
             exec::invoke_exec(extra, prompt, &workdir, input, bindings, emit, stage)
         }

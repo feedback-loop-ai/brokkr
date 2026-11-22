@@ -79,6 +79,7 @@ mod packaging;
 mod portable_recipes;
 mod private_hosts;
 mod provenance;
+mod qoder_driver;
 mod ratchets;
 mod readable_profiles;
 mod realms;

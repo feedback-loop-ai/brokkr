@@ -45,6 +45,21 @@ fn every_override_pairs_its_name_with_the_one_it_retired() {
         read_with(runner, environment(&[])),
         Ok("brokkr".to_string())
     );
+    // The Qoder CLI was born after decision 0019, so it too retired no
+    // spelling, and its absence reads as the CLI's own name.
+    let qoder = Override::QoderBin;
+    assert_eq!(qoder.name(), "BROKKR_QODER_BIN");
+    assert_eq!(qoder.retired(), None);
+    let unborn = format!("{}QODER_BIN", concat!("FOR", "GE_"));
+    assert_eq!(
+        read_set_with(qoder, environment(&[(&unborn, "/old/qodercli")])),
+        Ok(None)
+    );
+    assert_eq!(
+        read_with(qoder, environment(&[])),
+        Ok("qodercli".to_string())
+    );
+    assert_eq!(Override::of_driver(AdapterKind::Qoder), qoder);
     let drivers = [
         AdapterKind::Claude,
         AdapterKind::Lanetally,
