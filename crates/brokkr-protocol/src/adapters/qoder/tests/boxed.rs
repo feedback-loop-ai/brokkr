@@ -491,3 +491,50 @@ fn the_lost_server_words_count_only_on_a_result_of_an_engine_call() {
     assert_ne!(ungranted, recorded);
     assert_eq!(breach_of(&ungranted), None);
 }
+
+/// A row level 1's reading lets through, a user row once init confirmed
+/// the pin, whose content is no list of blocks, is not of a measured shape:
+/// the boxed turn ends there as `box_unread`, in its words.
+#[test]
+fn a_boxed_turn_with_a_row_the_box_cannot_read_ends_unread() {
+    let unshaped = with_rows(&record("box-engine-workspace-tool.ndjson"), "user", |row| {
+        row["message"]["content"] = json!("a text that is no list of blocks");
+        true
+    });
+    assert_eq!(breach_of(&unshaped), Some(Breach::Unshaped));
+    assert_eq!(
+        folded(&unshaped, "Fast").outcome.unwrap_err().words(),
+        "box_unread: Qoder wrote a row that is not of the shape every measured Qoder stream \
+         writes, so nothing shows the seat's hands are the box's"
+    );
+}
+
+/// A user row's blocks that are no text tool result, a result whose content
+/// is a list or absent, a call, and a block of another type, show no lost
+/// server: the recorded turn that reached the hands tool still ends as an
+/// answer, and `box-server-dies` carrying them still fails at Qoder's words
+/// (D3).
+#[test]
+fn a_boxed_users_blocks_other_than_a_text_result_show_no_lost_server() {
+    let others = |stdout: &str| {
+        with_rows(stdout, "user", |row| {
+            let blocks = row["message"]["content"].as_array_mut().unwrap();
+            blocks.extend([
+                json!({"type": "tool_result", "tool_use_id": "call_6b8b03eaa07540c69b08595c",
+                       "is_error": true, "content": [{"type": "text", "text": "listed"}]}),
+                json!({"type": "tool_result", "tool_use_id": "call_6b8b03eaa07540c69b08595c",
+                       "is_error": true}),
+                json!({"type": "tool_use", "id": "call_in_a_user_row", "name": "mcp_call",
+                       "input": {"toolName": GRANT}}),
+                json!({"type": "image"}),
+            ]);
+            true
+        })
+    };
+    let answered = others(&record("box-engine-workspace-tool.ndjson"));
+    assert_eq!(breach_of(&answered), None);
+    assert_eq!(folded(&answered, "Fast").outcome, Ok(None));
+    let lost = others(&record("box-server-dies.ndjson"));
+    assert_ne!(lost, record("box-server-dies.ndjson"));
+    assert_eq!(breach_of(&lost), Some(Breach::Lost));
+}
