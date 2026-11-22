@@ -29,7 +29,7 @@ Brokkr already abstracts the first side. A harness is an adapter and a driver, a
 ## Rulings (proposed)
 
 1. **A work order is one typed document: what is being built.** It holds:
-   - a realm-unique id and a title;
+   - **Brokkr's own id,** unique in its realm, and a title. A tracker's item is never the id: it is cited, with its link (ruling 7);
    - the **intent**, the distilled statement of what is being built and why;
    - the **acceptance**, as statements a review can check;
    - the **rulings** the operator made about it, each with its words, its date and a citation;
@@ -42,6 +42,8 @@ Brokkr already abstracts the first side. A harness is an adapter and a driver, a
    One contract, `contracts/work-order.v1.schema.json`, defines it. The document is the same whether it is read from a file or a row.
 
 2. **Storage is not the definition.** A work order may be authored as a file in the realm, reviewed like any other change, or held as a row in the journal. Both are read through one parser against the one schema. Every change to a work order is journaled as an event: proposed, ruled, edited, queued, closed. What was decided therefore stays replayable, whatever holds the document. A later Postgres store keeps the document as a native `jsonb` object under the same schema. The operator, 2026-11-22: "yes, could be files, or could be entries in the db, going forward (and assuming we will move to pg with jsonb as native objects eventually)".
+
+   **A work order authored as a file is Markdown:** a typed header validated against the schema, with the intent and acceptance as its body. It lives in the realm's work-order directory, which is named after the verbs' root (ask 1). The operator, 2026-11-23: "Markdown".
 
 3. **Edges belong to work orders, and the queue's waits are derived from them.**
    - A work order waits on another with a condition: `completed`, `ended`, a named ending of decision 0064 (#1192), or `merged`, recorded by the journaled operator command #1192 builds.
@@ -68,6 +70,7 @@ Brokkr already abstracts the first side. A harness is an adapter and a driver, a
 
 7. **A tracker is cited, never read at admission.**
    - A reference names a tracker and an item in it: a GitHub issue or pull request, a GitLab issue or merge request, an Azure DevOps work item, a Linear issue, a Jira issue, a ZenHub item.
+   - **Each reference carries the item's link,** so a reader can follow it without an adapter. The work order keeps Brokkr's own id (ruling 1). The operator, 2026-11-23: "Brokkr's own id with tracker's items cited with a link".
    - The trackers' vocabulary is closed and grows by adapter data, the way harnesses do (#347), never by an edit to the engine.
    - Admission, the dispatch pass and the fold never read a tracker.
    - Moving data in or out is a tool. An **import** reads a tracker and writes journaled work-order commands. An **export** posts a work order's state back.
@@ -98,6 +101,6 @@ Each slice is its own unit, with its own API cap ruled before it is commissioned
 
 ## Asks (operator)
 
-1. **The verbs' root.** Decision 0113 holds the CLI at twelve roots. Should work orders live under `brokkr queue` (for example `brokkr queue work add`), under `brokkr library`, or under a thirteenth root, `brokkr work`?
-2. **The id.** The default is Brokkr's own realm-unique id, with a tracker's item only ever cited. Should a tracker's key ever be the id?
-3. **The file form.** The default is a Markdown file under the realm's `.brokkr/work/`: a typed header validated against the schema, with the intent and acceptance as its body. Is plain JSON preferred?
+1. **The verbs' root.** Decision 0113 holds the CLI at twelve roots. Where do work orders' verbs live, and what is the work-order directory called?
+
+The id and the file form were asked here and ruled on 2026-11-23. They are now part of rulings 1, 2 and 7.
