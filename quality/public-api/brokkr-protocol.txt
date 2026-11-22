@@ -110,6 +110,7 @@ pub const brokkr_protocol::adapters::ACCESS: &str
 pub const brokkr_protocol::adapters::DEFAULT_WORKSPACE_TOOL: &str
 pub const brokkr_protocol::adapters::EFFORT_NOT_APPLICABLE: &str
 pub const brokkr_protocol::adapters::EFFORT_NOT_REPORTED: &str
+pub const brokkr_protocol::adapters::GATE_SEAT: &str
 pub const brokkr_protocol::adapters::MODEL_NOT_APPLICABLE: &str
 pub const brokkr_protocol::adapters::MODEL_NOT_REPORTED: &str
 pub const brokkr_protocol::adapters::TOOL_IDENTIFIER_LIMIT: usize
