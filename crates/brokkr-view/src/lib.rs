@@ -2348,6 +2348,8 @@ fn viewed(
 }
 
 #[cfg(test)]
+mod kinds_tests;
+#[cfg(test)]
 mod late_tests;
 #[cfg(test)]
 mod tests;

@@ -60,13 +60,13 @@ struct Writer {
 }
 
 impl PanelAttempt {
-    /// Whether `result`, read back as this attempt's settled result for
-    /// `member`, passes the kind check of the seat that wrote it, whichever
-    /// engine wrote it and whether or not it carries the engine's mark
-    /// (the controller's ruling R18 of 2026-11-22). A member the body no
-    /// longer declares is judged by v7's vocabulary, as a site no plan
-    /// covers is. A result that is not an object holds no kind place to
-    /// append again, and carries as it did, for the join to poison.
+    /// Whether `result`, `member`'s settled result, may carry: a carried
+    /// result contributes to a new verdict, so one whose kind place names
+    /// an undeclared or out-of-grammar kind of the seat that wrote it (v7's
+    /// vocabulary for a member the body no longer declares) is not carried,
+    /// while one that is not an object has no kind place by the grammar and
+    /// carries as on main for the join to poison (the controller's ruling
+    /// R23 of 2026-11-22).
     pub(crate) fn admits(&self, member: &Tag, result: &Value) -> bool {
         let writer = self.writers.get(member);
         let seat = writer.map_or(member.0.as_str(), |writer| writer.seat.as_str());
@@ -361,7 +361,7 @@ impl Engine {
     ) -> BTreeMap<Tag, Writer> {
         let began = &events[..events.partition_point(|event| event.seq < at.seq)];
         let (selection, _, _) = super::super::select_candidates(began, &at.effect, body);
-        let site_name = case.map_or_else(|| seat.to_owned(), |case| format!("{seat}:{case}"));
+        let site_name = super::super::dispatch::site_name(seat, case);
         // The class a site is read as names no harness, so `gate` is moot.
         let sites = super::super::resume::structural_sites(body, seat, case, false);
         let writer = |entry: super::super::resume::StructuralSite| {

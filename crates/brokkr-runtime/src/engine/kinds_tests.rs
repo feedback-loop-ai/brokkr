@@ -558,34 +558,139 @@ fn a_flat_session_id_is_never_an_offer_for_a_harness_that_declares_its_kinds() {
 fn a_root_of_a_kind_the_seats_harness_does_not_declare_is_never_offered() {
     let dir = tempfile::tempdir().unwrap();
     let context = trellis_site(dir.path());
-    let (site, instance) = (context.site_ref.clone(), context.instance_ref.clone());
-    let event = |kind: EventType, payload: Value| {
-        crate::envelope_builder::EnvelopeBuilder::new(kind, payload)
-            .attempt(Some("attempt-1"))
-            .at("2026-11-21T00:00:00Z")
-            .hash("c".repeat(64))
-            .build()
-    };
-    let offered = |root: &str| {
-        let row = json!({"effect_id": "fx", "checkpoint": {"step": "s", "site_ref": site,
-            "instance_ref": instance, "root_session": {"kind": root, "id": "tr-1",
-            "harness_version": "1.0.0", "persistent": true}}});
-        let events = [
-            event(
-                EventType::EffectRequested,
-                json!({"seat": "work", "effect_id": "fx"}),
-            ),
-            event(EventType::EffectStarted, json!({"effect_id": "fx"})),
-            event(EventType::EffectCheckpointed, row),
-        ];
-        let key = SiteKey::single("work", None);
-        resume::eligible_offer(&events, &key, &context, "work", true, true, |_| false)
-            .map(|offer| offer.provider_id)
-    };
+    let offered = |root: &str| offered_over(&context, vec![rooted(&context, root, "tr-1")]);
     assert_eq!(offered("arbor-root"), None);
     assert_eq!(offered(TRAIL), None);
     assert_eq!(offered(THREAD), Some("tr-1".to_string()));
     assert_eq!(offered("claude-session"), Some("tr-1".to_string()));
+}
+
+/// One event of attempt `attempt-1`, as the journal holds it.
+fn journaled((kind, payload): (EventType, Value)) -> EventEnvelope {
+    crate::envelope_builder::EnvelopeBuilder::new(kind, payload)
+        .attempt(Some("attempt-1"))
+        .at("2026-11-21T00:00:00Z")
+        .hash("c".repeat(64))
+        .build()
+}
+
+/// A checkpoint at `context`'s site confirming the persistent root `id`
+/// of kind `kind`.
+fn rooted(context: &SiteContext, kind: &str, id: &str) -> (EventType, Value) {
+    let row = json!({"effect_id": "fx", "checkpoint": {"step": "s",
+        "site_ref": context.site_ref, "instance_ref": context.instance_ref,
+        "root_session": {"kind": kind, "id": id, "harness_version": "1.0.0",
+                         "persistent": true}}});
+    (EventType::EffectCheckpointed, row)
+}
+
+/// The root the `work` seat's site `context` is offered over `rows`,
+/// journaled after the seat's request and start.
+fn offered_over(context: &SiteContext, rows: Vec<(EventType, Value)>) -> Option<String> {
+    let mut events = vec![
+        journaled((
+            EventType::EffectRequested,
+            json!({"seat": "work", "effect_id": "fx"}),
+        )),
+        journaled((EventType::EffectStarted, json!({"effect_id": "fx"}))),
+    ];
+    events.extend(rows.into_iter().map(journaled));
+    let key = SiteKey::single("work", None);
+    resume::eligible_offer(&events, &key, context, "work", true, true, |_| false)
+        .map(|offer| offer.provider_id)
+}
+
+/// The controller's rulings R22 item 3 and R24, the resume offer: a site
+/// whose harness declares no kinds, an inline one, meeting a root of a
+/// kind in the grammar it does not know (`trellis-thread`) on its newest
+/// rooted row is offered nothing: it does not guess, no older root of a
+/// built-in kind behind that row stands in, and the row's other facts
+/// still read.
+#[test]
+fn a_root_kind_the_site_does_not_know_is_no_offer_and_no_older_root_stands_in() {
+    let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let older = rooted(&context, "claude-session", "c-1");
+    let only_older = offered_over(&context, vec![older.clone()]);
+    assert_eq!(only_older, Some("c-1".to_string()));
+    let mut newer = rooted(&context, THREAD, "tr-1");
+    newer.1["checkpoint"]["root_session"]["harness_version"] = json!("2.0.0");
+    let rows = vec![older, newer];
+    assert_eq!(offered_over(&context, rows.clone()), None);
+    let events: Vec<EventEnvelope> = rows.into_iter().map(journaled).collect();
+    let read = resume::originating_root(&events, &context.site_ref).unwrap();
+    assert_eq!(read.harness_version.as_deref(), Some("2.0.0"));
+}
+
+/// The controller's rulings R22 items 2 and 3, the resume offer: a root of
+/// a kind the site knows that stands only inside evidence — a result's
+/// `notes.members`, decide's `inputs.raw_result`, an unresolved cleanup's
+/// `received` — is offered nothing; the same root at a checkpoint's
+/// seat-record place is.
+#[test]
+fn a_root_standing_only_inside_evidence_is_never_offered() {
+    let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let placed = rooted(&context, "claude-session", "c-1");
+    let record = placed.1["checkpoint"].clone();
+    let mut rows = vec![
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "fx", "result": {"result": "pass",
+                   "notes": {"members": {"judge": record}}}}),
+        ),
+        (
+            EventType::TransitionDecided,
+            json!({"from": "work", "inputs": {"raw_result": record}}),
+        ),
+        (
+            EventType::EffectIndeterminate,
+            json!({"effect_id": "fx", "received": {"status": "succeeded", "result": record}}),
+        ),
+    ];
+    assert_eq!(offered_over(&context, rows.clone()), None);
+    rows.push(placed);
+    assert_eq!(offered_over(&context, rows), Some("c-1".to_string()));
+}
+
+/// The controller's ruling R22 item 2: a run resumed at decide over a
+/// journaled result that fails its schema appends it whole as
+/// `inputs.raw_result`, byte for byte as main does, a kind no harness
+/// declares under `notes.members` included: the copy is evidence, and
+/// adds no record and no kind place.
+#[test]
+fn a_run_resumed_at_decide_appends_a_schema_invalid_result_whole_as_its_raw_result() {
+    let (dir, mut engine) = super::tests::engine(super::tests::single_body(vec!["driver".into()]));
+    let stray = json!({"kind": "trellis-stray", "locator": "t-1", "home": "/h"});
+    let result = json!({"result": "undeclared",
+                        "notes": {"members": {"judge": {"result": "pass", "transcript": stray}}}});
+    let requested = json!({"effect_id": "effect", "seat": "work"});
+    let started = json!({"effect_id": "effect", "attempt_id": "attempt"});
+    let mut succeeded = started.clone();
+    succeeded["result"] = result.clone();
+    let phase = json!({"phase": "work"});
+    let kinds = [EventType::PhaseEntered, EventType::EffectRequested];
+    let written = kinds.into_iter().zip([phase, requested]).chain([
+        (EventType::EffectStarted, started),
+        (EventType::EffectSucceeded, succeeded),
+    ]);
+    for (kind, payload) in written {
+        engine.append(kind, payload, None).unwrap();
+    }
+    let (bundle, run) = (engine.bundle.clone(), engine.run_id.clone());
+    let journal = engine.store.path().to_path_buf();
+    drop(engine);
+    let (store, work) = (
+        Store::open(&journal).unwrap(),
+        Some(dir.path().join("work")),
+    );
+    let mut engine = Engine::resume(store, bundle, &run, work).unwrap();
+    engine.drive().unwrap();
+    let events = engine.store.load(&run).unwrap();
+    let decided = (events.iter())
+        .find(|event| event.event_type == EventType::TransitionDecided)
+        .unwrap();
+    assert_eq!(decided.payload["result"], "__schema-invalid__");
+    let raw = decided.payload["inputs"]["raw_result"].to_string();
+    assert_eq!(raw, result.to_string());
 }
 
 /// A work site of the trellis seat's harness, standing without hands, its

@@ -245,11 +245,37 @@ kind, anything there but a declared kind is refused, on every road,
 whether or not a schema judges it after, an unresolved cleanup's
 evidence and a panel member's result included, and the refusal never
 echoes a value outside the grammar. A record refused for its kind is a
-failed attempt and is never bound as a word. A result read back from
-the journal and appended again, as a partial panel retry carries a
-member's, is judged again by the harness of the seat that wrote it,
-whichever engine wrote it, and one refused is no verdict to carry. Every reader judges a
-record by the schema alone. v8 is minted under this decision, which is accepted,
+failed attempt and is never bound as a word.
+
+The rule this protects is one: nothing acts on a kind that the harness
+which wrote it did not declare. It is enforced from both sides:
+
+1. What a driver hands the engine is judged before any of it is
+   appended: a checkpoint, a result, a panel member's result, an
+   unresolved cleanup's received outcome. The kind check runs first, and
+   what it refuses is appended nowhere, in no field.
+2. What the engine reads back from its own journal is already journaled.
+   Copying it into a later event (decide's `raw_result`, a poisoned
+   aggregate's `notes.members`, a refused carry's evidence) adds no
+   record and no kind place: the value stands in the journal either way,
+   and refusing the copy would remove nothing. Such a copy is evidence,
+   and no reader acts on a kind inside evidence. A partial panel retry's
+   carried member is more than a copy, since the carry makes it a
+   contribution to a new verdict: a carried result whose kind place
+   names an undeclared or out-of-grammar kind of the seat that wrote it
+   is not carried, and one that is not an object has no kind place and
+   carries for the join to poison.
+3. A reader acts on a kind only at a seat-record place, the four v8
+   defines (a checkpoint's `transcript` and `root_session`, a result's
+   `transcript` and `root_session`), and only on a kind that was judged.
+   A reader that takes a kind from an earlier event to act on it, where
+   an earlier engine may have written that event, judges the kind itself
+   before acting, as the resume offer does. A reader meeting a kind it
+   does not know reads the record as holding no transcript or no root of
+   a kind it can use: it never guesses, never falls back to another
+   kind, and never fails the read of the rest.
+
+v8 is minted under this decision, which is accepted,
 through decision 0082's lifecycle, and stands at v7's engine line, so
 dispatch never chooses v7.
 
