@@ -53,13 +53,17 @@ fn pinned_block(release: Release, mode: Mode) -> String {
 
 /// Judge a dump as the composed-tree gate would, through its closure seam.
 pub(super) fn gate(dump: String, release: Release, mode: Mode) -> Result<(), Composition> {
-    composed_with(Command::new("dsh"), release, mode, move |_| {
-        Ok(Output {
-            status: std::process::ExitStatus::from_raw(0),
-            stdout: dump.into_bytes(),
-            stderr: Vec::new(),
-        })
-    })
+    composed_with(
+        Command::new("dsh"),
+        super::boxed(release, mode),
+        move |_| {
+            Ok(Output {
+                status: std::process::ExitStatus::from_raw(0),
+                stdout: dump.into_bytes(),
+                stderr: Vec::new(),
+            })
+        },
+    )
 }
 
 /// Plant `to` in place of `from` and require the span to refuse it as
@@ -142,6 +146,7 @@ fn a_hands_seat_qualifies_a_resume_from_its_one_read() {
         mode: Mode::ReadOnly,
         release: Release::V0_2_1,
         observed: "0.2.1-rc.3".into(),
+        shape: super::super::Shape::Boxed,
     };
     assert_eq!(
         selection.resume_version("/nonexistent/dsh"),

@@ -1,7 +1,7 @@
 //! The hands-access mark a boxed site carries (#896 round 2).
 
 use brokkr_core::realms::{Boundary, BOUNDARIES};
-use brokkr_protocol::adapters::ACCESS;
+use brokkr_protocol::adapters::{ACCESS, GATE_SEAT};
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::Access;
 use serde_json::{json, Value};
@@ -69,4 +69,18 @@ fn only_a_boxed_site_with_hands_carries_its_access() {
     let mut input = json!({"context": {}});
     engine.marks().site("work", true, None, &mut input);
     assert_eq!(input[ACCESS], json!("writes"));
+}
+
+/// A gate-class site is marked gate class, which the dsh driver serves
+/// tool-less (decision 0021 addendum 2026-11-22); a work-class site carries
+/// no class, and a stale carrier is gone.
+#[test]
+fn only_a_gate_class_site_carries_the_gate_mark() {
+    let (_dir, engine) = engine(single_body(vec!["d".into()]));
+    let marked = |gate: bool| {
+        let mut input = json!({GATE_SEAT: "stale", "context": {}});
+        engine.marks().site("work", gate, None, &mut input);
+        input.get(GATE_SEAT).cloned()
+    };
+    assert_eq!([marked(true), marked(false)], [Some(json!(true)), None]);
 }

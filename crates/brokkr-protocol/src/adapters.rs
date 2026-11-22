@@ -49,7 +49,7 @@ pub use composite::{
     dsh_composite, dsh_composite_prepared, CompositeError, DshComposite, DshInvocation, DshNode,
     DshPrepared, DshSeams, DshSelection, DshUnprepared, DshUnselected,
 };
-pub use dsh_hands::ACCESS;
+pub use dsh_hands::{ACCESS, GATE_SEAT};
 pub use mcp::{harness_auth, HarnessAuthError, StrictCause};
 pub(crate) use served_route::route_form;
 pub use served_route::split_route;

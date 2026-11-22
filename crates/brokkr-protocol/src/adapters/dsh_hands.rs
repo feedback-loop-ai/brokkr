@@ -35,6 +35,11 @@
 //! activate fails the seat closed ([`report`]), and every launch first
 //! composes the seat's own tree with `--dump-config` and refuses any row
 //! outside the observed release's measured set ([`composition`]).
+//!
+//! A gate-class seat is served the same disabled rows with no server at
+//! all, whatever `DSH_PERMISSION_MODE` names: the tool-less gate of
+//! decision 0021's 2026-11-22 addendum ([`gate_rows`]), which can neither
+//! read the secrets store nor write the worktree it judges.
 
 use serde_json::Value;
 use thiserror::Error;
@@ -58,6 +63,13 @@ pub(crate) use report::{Enforcement, ReportRefusal};
 /// the site, written by the engine alone from the office's declaration
 /// (#896 round 2).
 pub const ACCESS: &str = "seat_access";
+
+/// The driver-input key the engine marks a gate-class site under, `true`
+/// (decision 0021 addendum 2026-11-22): a spawn-time fact of the site,
+/// written by the engine alone from the phase's class. Its presence alone
+/// selects the tool-less gate, so no value it carries can widen a gate
+/// back to the native tools.
+pub const GATE_SEAT: &str = "gate_seat";
 
 /// The exact version strings the measured release families cover, each in
 /// one home: [`MEASURED_VERSIONS`], [`Release::versions`] and
@@ -276,6 +288,17 @@ impl Mode {
     }
 }
 
+/// What a seat served the pinned rows is given beside them: Brokkr's
+/// workspace server, or nothing at all. The composed-tree judge reads it,
+/// so a tool-less gate's tree may carry no MCP client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Shape {
+    /// Brokkr's workspace server as the seat's one effectful tool (#896).
+    Boxed,
+    /// No server: a gate seat (decision 0021 addendum 2026-11-22).
+    ToolLess,
+}
+
 /// Why a dsh seat whose office declares hands is not launched. Each text is
 /// the seat's launch refusal.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -297,6 +320,12 @@ pub(super) enum Refusal {
          line, so it cannot be written as one overlay scalar"
     )]
     Multiline,
+    #[error(
+        "refusing to invoke the dsh driver: a dsh gate is served tool-less, with every native \
+         tool row disabled and no MCP server, so a gate whose office declares boxed hands is not \
+         launched (decision 0021 addendum 2026-11-22)"
+    )]
+    GateHands,
     #[error(transparent)]
     Rows(#[from] Refused),
     #[error("{}", .0.at_launch())]
@@ -322,6 +351,7 @@ impl From<Refusal> for String {
 pub(super) struct Hands {
     pub(super) release: Release,
     pub(super) mode: Mode,
+    pub(super) shape: Shape,
 }
 
 /// The sandbox rows one dsh seat runs under, and the runner it stages. A
@@ -338,6 +368,7 @@ pub(super) enum Selection {
         /// The exact version string the one `--version` read answered, so
         /// a resume offer is qualified from that read and no second probe.
         observed: String,
+        shape: Shape,
     },
     Runner(Option<Box<Staged>>),
 }
@@ -371,7 +402,19 @@ impl Selection {
     /// seat carries; the two are never both present.
     pub(super) fn into_launch_parts(self) -> (Option<Staged>, Option<Hands>) {
         match self {
-            Selection::Hands { mode, release, .. } => (None, Some(Hands { release, mode })),
+            Selection::Hands {
+                mode,
+                release,
+                shape,
+                ..
+            } => (
+                None,
+                Some(Hands {
+                    release,
+                    mode,
+                    shape,
+                }),
+            ),
             Selection::Runner(staged) => (staged.map(|staged| *staged), None),
         }
     }
@@ -382,14 +425,20 @@ impl Selection {
 /// no runner and its rows are the hands rows ([`hands_rows`]), once the
 /// installed release is one they were measured on. Any other seat's rows
 /// are the scoped runner's a linked worktree needs, under the mode
-/// `DSH_PERMISSION_MODE` names, exactly as before (decision 0054).
+/// `DSH_PERMISSION_MODE` names, exactly as before (decision 0054). A seat
+/// the engine marks gate class ([`GATE_SEAT`]) is neither: the class
+/// decides, and it is served the tool-less gate ([`gate`]).
 pub(super) fn sandbox(
     bin: &str,
     workdir: &str,
     facts: &GitFacts,
     input: &Value,
 ) -> Result<Selection, Refusal> {
-    let Some((command, args)) = mcp::dsh_hands(input, workdir).map_err(Refusal::Unbound)? else {
+    let hands = mcp::dsh_hands(input, workdir).map_err(Refusal::Unbound)?;
+    if input.get(GATE_SEAT).is_some() {
+        return gate(bin, hands.is_some());
+    }
+    let Some((command, args)) = hands else {
         let mode = std::env::var("DSH_PERMISSION_MODE").unwrap_or_default();
         let staged = dsh_sandbox_row_for(workdir, facts, &mode).map_err(Refusal::Runner)?;
         return Ok(Selection::Runner(staged.map(Box::new)));
@@ -402,6 +451,27 @@ pub(super) fn sandbox(
         mode,
         release,
         observed: observed.unwrap_or_default(),
+        shape: Shape::Boxed,
+    })
+}
+
+/// The tool-less gate (decision 0021 addendum 2026-11-22): a gate-class
+/// seat on a measured release is served [`gate_rows`] under dsh's
+/// read-only sandbox, stages no runner and never reads
+/// `DSH_PERMISSION_MODE`. A gate whose office declares boxed hands is
+/// refused, as the compiler refuses it, rather than served a box.
+fn gate(bin: &str, hands: bool) -> Result<Selection, Refusal> {
+    if hands {
+        return Err(Refusal::GateHands);
+    }
+    let observed = observed_version(&[bin.to_string(), "--version".to_string()]);
+    let release = measured(observed.clone())?;
+    Ok(Selection::Hands {
+        rows: gate_rows(release)?,
+        mode: Mode::ReadOnly,
+        release,
+        observed: observed.unwrap_or_default(),
+        shape: Shape::ToolLess,
     })
 }
 
@@ -433,23 +503,13 @@ fn hands_rows(
     command: &str,
     args: &[String],
 ) -> Result<String, Refusal> {
-    let mut rows = String::from(
+    let mut rows = pinned(
+        release,
+        mode,
         "# Written by `brokkr driver dsh` for one seat whose office declares hands:\n\
          # every effectful tool row disabled, dsh's own sandbox under the box,\n\
          # and Brokkr's workspace server as the seat's only effectful tool.\n",
-    );
-    let pinned = release.pinned_rows();
-    for row in pinned.before {
-        rows.push_str(&format!("- id: {row}\n  disabled: true\n"));
-    }
-    rows.push_str(&format!(
-        "- id: {SANDBOX_POLICY}\n  config:\n    mode: {}\n",
-        mode.word()
-    ));
-    for row in pinned.after {
-        rows.push_str(&format!("- id: {row}\n  disabled: true\n"));
-    }
-    route_overlay::hands(rows.as_bytes(), release)?;
+    )?;
     rows.push_str(&format!(
         "- insert:\n\
          \x20   - id: {HANDS_ID}\n\
@@ -468,6 +528,41 @@ fn hands_rows(
     Ok(rows)
 }
 
+/// The gate's overlay (decision 0021 addendum 2026-11-22): the measured
+/// #896 round 2 shape with no server. Every row `release` pins disabled
+/// and dsh's sandbox read-only, and nothing beside them, so the gate keeps
+/// only the bookkeeping tools, with no MCP server for them to reach.
+pub(super) fn gate_rows(release: Release) -> Result<String, Refusal> {
+    pinned(
+        release,
+        Mode::ReadOnly,
+        "# Written by `brokkr driver dsh` for one gate seat, served tool-less:\n\
+         # every effectful tool row disabled, dsh's own sandbox read-only,\n\
+         # and no MCP server at all.\n",
+    )
+}
+
+/// `header`, then every row `release`'s own [`Release::pinned_rows`] table
+/// names, in its order, with the sandbox row under `mode`, checked by the
+/// bounded reader against the one shape they may take
+/// ([`route_overlay::hands`]): the one block both overlays begin with.
+fn pinned(release: Release, mode: Mode, header: &str) -> Result<String, Refusal> {
+    let mut rows = String::from(header);
+    let pinned = release.pinned_rows();
+    for row in pinned.before {
+        rows.push_str(&format!("- id: {row}\n  disabled: true\n"));
+    }
+    rows.push_str(&format!(
+        "- id: {SANDBOX_POLICY}\n  config:\n    mode: {}\n",
+        mode.word()
+    ));
+    for row in pinned.after {
+        rows.push_str(&format!("- id: {row}\n  disabled: true\n"));
+    }
+    route_overlay::hands(rows.as_bytes(), release)?;
+    Ok(rows)
+}
+
 /// One single-quoted YAML scalar's body, as every row this driver writes
 /// quotes a path ([`dsh_sandbox::yaml_scalar`]).
 fn scalar(value: &str) -> Result<String, Refusal> {
@@ -480,16 +575,16 @@ mod tests;
 /// The composed-tree check as the launch states it, before any child
 /// spawns (#896 round 2, D1). The command is the one
 /// [`harness_command`](super::harness_command) built from the launch's own
-/// argv, workdir, environment, bindings and removals. `release` and `mode`
-/// are the facts the launch's one `--version` read and its office's access
-/// already established: the gate judges the tree against that release and
-/// refuses any composed `sandbox-policy` mode but that seat's own.
+/// argv, workdir, environment, bindings and removals. `hands` holds the
+/// facts the launch's one `--version` read, its office's access and its
+/// class already established: the gate judges the tree against that
+/// release and shape, and refuses any composed `sandbox-policy` mode but
+/// that seat's own.
 pub(crate) fn composition_gate(
     command: std::process::Command,
-    release: Release,
-    mode: Mode,
+    hands: Hands,
 ) -> Result<(), Composition> {
-    composition::composed_with(command, release, mode, crate::process::spawned::output)
+    composition::composed_with(command, hands, crate::process::spawned::output)
 }
 
 /// dsh's startup outcome, classified once from the RAW captured stderr

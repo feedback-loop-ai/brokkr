@@ -6,7 +6,7 @@
 //! ruling 5).
 
 use brokkr_core::realms::Boundary;
-use brokkr_protocol::adapters::{HandsNotice, ACCESS};
+use brokkr_protocol::adapters::{HandsNotice, ACCESS, GATE_SEAT};
 use brokkr_protocol::native_controls::Access;
 use serde_json::{json, Value};
 
@@ -38,11 +38,12 @@ pub struct SiteMarks<'a> {
 }
 
 impl<'a> SiteMarks<'a> {
-    /// Every spawn-time mark of one model site, in the engine's order:
-    /// hands and the access they serve, then the result door, then the
+    /// Every spawn-time mark of one model site, in the engine's order: its
+    /// gate class, hands and the access they serve, then the result door, then the
     /// discovery notice, then what the serving candidate holds (decision
     /// 0065), then the MCP servers it is given.
     pub fn site(&self, label: &str, gate: bool, link: Option<&Candidate>, input: &mut Value) {
+        gate_class(gate, input);
         self.hands(label, input);
         self.access(label, gate, input);
         self.door(label, gate, link, input);
@@ -270,6 +271,19 @@ impl<'a> SiteMarks<'a> {
         } else if !seat_input["spec_dialect"].is_null() {
             input["spec_dialect"] = seat_input["spec_dialect"].clone();
         }
+    }
+}
+
+/// The gate class a site is spawned under (decision 0021 addendum
+/// 2026-11-22): `true` under [`GATE_SEAT`] for a gate-class site, which the
+/// dsh driver serves tool-less, and no carrier for any other. Cleared first,
+/// as `access` clears its carrier, so a reused input never keeps a class it
+/// does not own; a spawn-time fact, outside the requested digest.
+pub(super) fn gate_class(gate: bool, input: &mut Value) {
+    // Every driver input the engine composes is an object.
+    let _ = input.as_object_mut().map(|object| object.remove(GATE_SEAT));
+    if gate {
+        input[GATE_SEAT] = Value::Bool(true);
     }
 }
 

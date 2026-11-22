@@ -18,6 +18,7 @@ mod composed;
 mod composed_carriers;
 mod composed_controls;
 mod composed_rows;
+mod gate;
 mod launch_order;
 mod releases;
 
@@ -72,6 +73,16 @@ fn server_row(command: &str, args: &[String]) -> String {
         row.push_str(&format!("          - '{}'\n", quoted(arg)));
     }
     row
+}
+
+/// The facts a boxed hands launch carries on `release` under `mode`.
+fn boxed(release: Release, mode: Mode) -> Hands {
+    let shape = Shape::Boxed;
+    Hands {
+        release,
+        mode,
+        shape,
+    }
 }
 
 fn s(parts: &[&str]) -> Vec<String> {
@@ -1060,7 +1071,7 @@ fn the_composition_gate_keys_on_the_release_it_is_given() {
     let gate = |release| {
         let mut command = std::process::Command::new(&shim);
         command.arg("--dump-config");
-        composition_gate(command, release, Mode::ReadOnly)
+        composition_gate(command, boxed(release, Mode::ReadOnly))
     };
     assert_eq!(gate(Release::V0_2_2), Ok(()));
     assert_eq!(
@@ -1600,13 +1611,17 @@ fn the_composed_tree_check_refuses_a_failed_or_oversized_dump() {
     use std::process::{Command, ExitStatus, Output};
 
     let run = |status: ExitStatus, stdout: Vec<u8>| {
-        composed_with(Command::new("dsh"), Release::V0_2_1, Mode::ReadOnly, |_| {
-            Ok(Output {
-                status,
-                stdout,
-                stderr: Vec::new(),
-            })
-        })
+        composed_with(
+            Command::new("dsh"),
+            boxed(Release::V0_2_1, Mode::ReadOnly),
+            |_| {
+                Ok(Output {
+                    status,
+                    stdout,
+                    stderr: Vec::new(),
+                })
+            },
+        )
     };
     let exit = run(ExitStatus::from_raw(2 << 8), Vec::new()).unwrap_err();
     assert_eq!(

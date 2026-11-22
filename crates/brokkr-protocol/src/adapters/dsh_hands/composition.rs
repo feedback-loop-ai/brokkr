@@ -34,7 +34,7 @@ use std::process::Command;
 
 use thiserror::Error;
 
-use super::{Mode, Release, HANDS_ID, MCP_CLIENT, SANDBOX_POLICY, TEAM_TOOL_ROW};
+use super::{Hands, Mode, Release, Shape, HANDS_ID, MCP_CLIENT, SANDBOX_POLICY, TEAM_TOOL_ROW};
 
 mod rows;
 
@@ -77,6 +77,12 @@ pub(crate) enum Composition {
          beside Brokkr's (#896 D1)"
     )]
     SecondClient { id: String },
+    #[error(
+        "refusing to invoke the dsh driver: the composed dsh tree carries dsh-mcp-client row \
+         '{id}', and a dsh gate is served tool-less, with no MCP server at all (decision 0021 \
+         addendum 2026-11-22)"
+    )]
+    GateClient { id: String },
     #[error(
         "refusing to invoke the dsh driver: the composed dsh tree carries row '{id}' enabled, \
          which the hands rows disable, so the seat would keep an effectful tool beside the box \
@@ -147,8 +153,7 @@ pub(crate) struct Row {
 /// removals; `run` sets its streams, as `spawned::output` does.
 pub(super) fn composed_with(
     mut command: Command,
-    release: Release,
-    mode: Mode,
+    hands: Hands,
     run: impl FnOnce(&mut Command) -> std::io::Result<std::process::Output>,
 ) -> Result<(), Composition> {
     let output = run(&mut command).map_err(|_| Composition::Unreadable)?;
@@ -164,12 +169,22 @@ pub(super) fn composed_with(
         return Err(Composition::Unreadable);
     }
     let rows = rows(&output.stdout)?;
-    judge(release, &rows)?;
-    judge_mode(&rows, mode)
+    judge_shaped(hands.release, hands.shape, &rows)?;
+    judge_mode(&rows, hands.mode)
 }
 
-/// Judge the rows against `release`'s measured composition.
+/// Judge the rows against `release`'s measured composition with Brokkr's
+/// workspace server: the boxed shape the row tests read, so each keeps the
+/// one signature its exact-text assertions were written against.
+#[cfg(test)]
 pub(crate) fn judge(release: Release, rows: &[Row]) -> Result<(), Composition> {
+    judge_shaped(release, Shape::Boxed, rows)
+}
+
+/// Judge the rows against `release`'s measured composition in `shape`: a
+/// boxed seat's one MCP client is `brokkr-hands`, enabled; a tool-less
+/// gate's tree carries none, and so owes no hands row.
+fn judge_shaped(release: Release, shape: Shape, rows: &[Row]) -> Result<(), Composition> {
     let mut seen: Vec<&str> = Vec::new();
     for row in rows {
         if seen.contains(&row.id.as_str()) {
@@ -177,6 +192,9 @@ pub(crate) fn judge(release: Release, rows: &[Row]) -> Result<(), Composition> {
         }
         seen.push(&row.id);
         if row.name == MCP_CLIENT {
+            if shape == Shape::ToolLess {
+                return Err(Composition::GateClient { id: row.id.clone() });
+            }
             if row.id != HANDS_ID {
                 return Err(Composition::SecondClient { id: row.id.clone() });
             }
@@ -194,7 +212,7 @@ pub(crate) fn judge(release: Release, rows: &[Row]) -> Result<(), Composition> {
             return Err(Composition::Enabled { id: row.id.clone() });
         }
     }
-    match seen.contains(&HANDS_ID) {
+    match shape == Shape::ToolLess || seen.contains(&HANDS_ID) {
         true => Ok(()),
         false => Err(Composition::NoHands),
     }

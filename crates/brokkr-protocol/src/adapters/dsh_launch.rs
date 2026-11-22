@@ -444,11 +444,7 @@ fn refused_before_spawn(
     let declared = bindings.iter().map(secret::BoundSecret::name);
     launch.home.serve(&dsh_child_env(launch), declared)?;
     if let Some(hands) = launch.hands {
-        dsh_hands::composition_gate(
-            probe_command(launch, workdir, bindings)?,
-            hands.release,
-            hands.mode,
-        )?;
+        dsh_hands::composition_gate(probe_command(launch, workdir, bindings)?, hands)?;
     }
     Ok(())
 }
@@ -499,6 +495,7 @@ mod tests {
             hands: Some(dsh_hands::Hands {
                 release: dsh_hands::Release::V0_2_1,
                 mode: dsh_hands::Mode::ReadOnly,
+                shape: dsh_hands::Shape::Boxed,
             }),
         }
     }
