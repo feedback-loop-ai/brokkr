@@ -18,8 +18,9 @@ improve its products, at roughly a twelfth of the standard id's price
 (decision 0036: the route is the prefix of the id, and here the id is
 the terms). The material this arm sends is this public repository and
 `fast`'s own charter. Egress class is `uncontracted`, the floor, and
-dsh's adapter clearance is `untrusted`, so the arm holds a work seat
-and no gate — the same standing as the deepseek arm.
+dsh judges only on `qwen4-max` (decision 0021, addendum of 2026-11-22),
+so the arm holds a work seat and no gate — the same standing as the
+deepseek arm.
 
 ## Parity, judged and recorded (2026-09-05)
 

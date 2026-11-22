@@ -295,8 +295,9 @@ default `namespace` boundary, so each model seat runs codex read-only
 beside Brokkr's workspace tool, whose commands, `git commit` among them,
 run in Brokkr's box. On macOS codex's own sandbox holds each model seat's
 hands instead — read-only for the review gate, workspace-write for
-intake and implement. dsh cannot hold the
-review gate, because its adapter is untrusted and names no judges. A dsh
+intake and implement. The dsh adapter `init` writes cannot hold the
+review gate, because it is untrusted and names no judges; the shipped
+`adapters/dsh.json` judges with `qwen4-max` alone. A dsh
 scaffold therefore hires intake and implement from dsh and keeps the
 reviewer on claude, and says so. On macOS `.brokkr/realms.json` declares
 `harness` whatever the CLI, because the default `namespace` boundary

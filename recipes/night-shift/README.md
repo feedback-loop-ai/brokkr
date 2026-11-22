@@ -48,10 +48,10 @@ route is effortless: dsh 0.1.5-rc.1 refuses a reasoning effort on it
 (measured 2026-09-16), so the seat pins no `--effort`, and its record
 reads effort `not applicable`, as the adapter's `effortless_routes`
 entry for `spark-glm` says. It is lawful under decision 0021 as it
-stands — `dsh` is `trust_tier: "untrusted"`, and ruling 7 admits an
-untrusted driver to a **work** seat freely; `implement` is `class:
-"work"` and carries no `secrets` key, so neither compile-time
-prohibition (untrusted judge, ungranted secret binding) applies.
+stands — a **work** seat takes any driver, and `dsh` is trusted to
+judge only with `qwen4-max` (addendum of 2026-11-22); `implement` is
+`class: "work"` and carries no `secrets` key, so neither compile-time
+prohibition (unadmitted judge, ungranted secret binding) applies.
 
 What the seat gives up, and the comparison must say: `adapters/dsh.json`
 declares `tool_permissions: "unsupported"`, because the headless dsh

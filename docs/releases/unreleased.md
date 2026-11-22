@@ -21,6 +21,17 @@ Changes merged since v0.15.2 that the next release's notes carry.
 
 ## Changed
 
+- **dsh is trusted to judge, with Qwen 4.0 Max alone.** The shipped
+  `adapters/dsh.json` holds the `trusted` tier, lists `qwen4-max` as its
+  one judge, and maps it to `dashscope/qwen4-max`. A gate seat on dsh
+  compiles on that pin. On any other dsh model it is refused, naming the
+  model dsh does not declare in `judges`. Egress is unchanged: a dsh seat
+  that binds a secret is still refused on dsh's cloud routes. The
+  `brokkr init` scaffold's dsh stays untrusted. The manifests of six
+  recipes that consult the adapter move. Decision 0021's 2026-11-22
+  addendum records the wager, the lane trial and the escalation replay,
+  and lists what the tier reaches ([provider
+  adapters](../guides/provider-adapters.md#the-alias-catalogue)).
 - **`brokkr graph` prints its states and rules as two aligned tables**
   ([#1167](https://github.com/feedback-loop-ai/brokkr/issues/1167)),
   where it printed one `·`-separated line each.

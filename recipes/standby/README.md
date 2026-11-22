@@ -76,6 +76,7 @@ delivers it.
   sandbox class, not inside Brokkr's box, exactly as `fast`'s claude
   smith runs under claude's permission mode. The exec gates are `fast`'s:
   boxed under `namespace`, unboxed under `harness`.
-- **No dsh arm.** dsh holds no judge (`adapters/dsh.json` declares an
-  empty `judges` list), so it cannot hold this recipe's review gate. A
-  dsh hedge would need a different shape and its own ruling.
+- **No dsh arm.** dsh's one judge is `qwen4-max` (`adapters/dsh.json`;
+  decision 0021, addendum of 2026-11-22), which this recipe's review
+  gate does not hire. A dsh hedge would need a different shape and its
+  own ruling.

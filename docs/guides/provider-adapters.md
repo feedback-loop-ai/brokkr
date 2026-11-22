@@ -186,6 +186,18 @@ table is measured (see the `qwen-max` note above). All three new lanes —
 these two and `glm-flash` — sealed a result through `brokkr driver dsh`
 on 2026-09-21 with no effort pinned.
 
+The `qwen4-max` alias pins `dashscope/qwen4-max` on the same Model Studio
+route, and it is the one dsh model that may judge. The adapter is
+`trusted` and lists only `qwen4-max` in `judges`, so a gate seat on dsh
+compiles on this pin and is refused on every other one (decision
+[0021](../decisions/0021-model-policy.md), addendum of 2026-11-22). The
+wager, the lane trial and the escalation replay seated it at `high`. Its
+level table lives where the route's others do, on the entry in the
+headless profile's patch layer; the adapter declares none of its own. A
+dsh gate without declared hands keeps dsh's native tools under the mode
+`DSH_PERMISSION_MODE` names, because the seat's class does not narrow
+them; the addendum lists what the tier reaches.
+
 The `flash` alias pins `deepseek-flash` on DeepSeek's own API: the name
 DeepSeek's [pricing page](https://api-docs.deepseek.com/quick_start/pricing/)
 gives DeepSeek-V4.1-Flash, and dsh's own default model. The earlier
@@ -685,8 +697,11 @@ gate reaching either refuses naming the link, the provider and
 `hands.harness.gate` — exactly as a boxed gate on them refuses today.
 Of claude, codex and dsh, then, a `harness` gate stands on codex today
 and on claude once measured. A dsh work seat with hands may run under
-`open` at its harness's default; its gate refuses under `namespace`
-for the untrusted tier and under `harness` for the missing gate fragment.
+`open` at its harness's default. A dsh gate with hands is refused under
+`harness` for the missing gate fragment. Under `namespace` it compiles
+on `qwen4-max`, dsh's one judge, and is refused on any other dsh model
+by its `judges` list (decision [0021](../decisions/0021-model-policy.md),
+addendum of 2026-11-22).
 
 ### A work seat on a provider with no per-tool flags
 

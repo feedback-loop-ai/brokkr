@@ -778,7 +778,9 @@ an instruction:
   fields, never prose or commands.
 - **A gate is a trusted model or a pinned script.** Only a `trusted`
   adapter's declared judges may sit at a gate, and an untrusted harness
-  such as dsh can never judge. An `exec` gate runs a pinned script.
+  can never judge. dsh is trusted with one judge, `qwen4-max`, so any
+  other dsh model at a gate is refused (decision 0021, addendum of
+  2026-11-22). An `exec` gate runs a pinned script.
 - **The journal is hash-chained, not signed.** The chain is unkeyed
   SHA-256, so a verified chain detects an edit that did not recompute
   the hashes, not one that did: whoever can write the journal can
