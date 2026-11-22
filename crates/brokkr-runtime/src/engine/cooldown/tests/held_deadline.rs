@@ -22,8 +22,8 @@ use super::*;
 
 /// The probe's sample as its spawn begins, and the fork's check after the
 /// door, record, charter and settlement work, under the registry's lock.
-const SAMPLE: usize = 1;
-const FORK: usize = 2;
+pub(super) const SAMPLE: usize = 1;
+pub(super) const FORK: usize = 2;
 
 /// A clock over `now` whose `read`th read once the journal at `journal`
 /// holds a standing probe hold moves `now` on by `pause` first; its slices

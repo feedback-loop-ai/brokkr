@@ -149,6 +149,12 @@ enum Probed {
     /// The probe waits for its release marker, then refuses with a rate
     /// limit: a stop can land while it runs (this round's stop case).
     BarrierRefuse,
+    /// The probe answers, marks it, then lingers past its shutdown, so its
+    /// tree is killed only once the grace is spent (fix round 0106b1r10).
+    AnswerThenLinger,
+    /// As `AnswerThenLinger`, having first left a descendant outside its
+    /// group by `setsid`, whose pid it records (fix round 0106b1r10).
+    DescendantThenLinger,
 }
 
 /// A `forge-driver/v1` participant in `sh`: its attempts read a verdict
@@ -249,6 +255,14 @@ read -r bye
         ("@PIDLOG@", pidlog.display().to_string()),
         ("@DONE@", done.display().to_string()),
         ("@PROBECOUNT@", probecount.display().to_string()),
+        (
+            "@ANSWERED@",
+            dir.join(format!("{tag}.answered")).display().to_string(),
+        ),
+        (
+            "@DESCPID@",
+            dir.join(format!("{tag}.descendant")).display().to_string(),
+        ),
         ("@GLOG@", dir.join("all.log").display().to_string()),
         ("@TAG@", tag.to_string()),
     ] {
@@ -1331,6 +1345,7 @@ mod held_lease;
 mod held_panel;
 mod held_probe;
 mod held_route;
+mod held_settlement;
 mod held_wait;
 mod lease;
 mod probe_driver;
