@@ -8,6 +8,7 @@
 use std::io::Write;
 use std::process::ExitCode;
 
+use clap::builder::Resettable;
 use clap::{Command, CommandFactory};
 
 use crate::exit::Exit;
@@ -41,26 +42,23 @@ pub(crate) fn script(CompletionsArgs { shell }: CompletionsArgs, out: &mut dyn W
 /// that prints one script and exits.
 fn offered(command: &Command) -> Command {
     let visible = command.get_subcommands().filter(|sub| !sub.is_hide_set());
-    let mut offered = Command::new(leaked(command.get_name()))
+    Command::new(leaked(command.get_name()))
+        .about(kept(command.get_about().cloned()))
+        .long_about(kept(command.get_long_about().cloned()))
+        .version(command.get_version().map(leaked))
+        .bin_name(kept(command.get_bin_name().map(str::to_string)))
         .args(command.get_arguments().cloned())
         .groups(command.get_groups().cloned())
         .visible_aliases(command.get_visible_aliases().map(leaked))
         .args_conflicts_with_subcommands(command.is_args_conflicts_with_subcommands_set())
         .subcommand_required(command.is_subcommand_required_set())
-        .subcommands(visible.map(offered));
-    if let Some(about) = command.get_about() {
-        offered = offered.about(about.clone());
-    }
-    if let Some(about) = command.get_long_about() {
-        offered = offered.long_about(about.clone());
-    }
-    if let Some(version) = command.get_version() {
-        offered = offered.version(leaked(version));
-    }
-    if let Some(bin) = command.get_bin_name() {
-        offered = offered.bin_name(bin.to_string());
-    }
-    offered
+        .subcommands(visible.map(offered))
+}
+
+/// A setting the parsed command holds, or none: what the rebuilt one is
+/// given, so an unset one stays unset.
+fn kept<T>(value: Option<T>) -> Resettable<T> {
+    value.map_or(Resettable::Reset, Resettable::Value)
 }
 
 fn leaked(text: &str) -> &'static str {

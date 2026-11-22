@@ -1555,4 +1555,9 @@ fn the_waiting_page_lists_queued_and_held_entries_newest_first_within_its_limit(
         ],
         "the page holds the newest two and no more"
     );
+    // A journal from before the queue has none waiting.
+    let path = dir.path().join("before.db");
+    journal_at_mains_schema(&path);
+    let before_the_queue = Store::open_read_only(&path).unwrap();
+    assert_eq!(before_the_queue.queue_waiting(50).unwrap(), Vec::new());
 }
