@@ -925,7 +925,7 @@ fn role_secret_command_and_confinement_boundaries_are_explicit() {
         json!({"driver":{"confine":{}}}),
         json!({"driver":{"confine":{"image":"img", "network":true, "mounts":["/x"]}}}),
     ] {
-        let refusal = error(refuse_confine("work", &raw));
+        let refusal = refuse_confine("work", &raw).unwrap_err().to_string();
         assert!(
             refusal.contains("seat 'work' declares driver.confine"),
             "{refusal}"
