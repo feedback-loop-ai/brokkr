@@ -99,6 +99,7 @@ impl Engine {
                     event_type,
                     payload,
                     attempt_id,
+                    stderr: self.stderr.active.take(),
                 });
                 return Err(contended.into());
             }
@@ -120,6 +121,10 @@ impl Engine {
             }
             Err(error) => return Err(error.into()),
         };
+        if terminal {
+            self.stderr
+                .landed(event_type, envelope.attempt_id.as_deref());
+        }
         self.current_cause = Some(envelope.event_id.clone());
         self.fence = fence
             .filter(|_| event_type != EventType::EffectStarted)

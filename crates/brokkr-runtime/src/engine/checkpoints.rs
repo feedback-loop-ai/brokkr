@@ -168,6 +168,7 @@ pub(super) struct HeldOutcome {
     pub(super) event_type: EventType,
     pub(super) payload: Value,
     pub(super) attempt_id: Option<String>,
+    pub(super) stderr: Option<String>,
 }
 
 /// Why a site's checkpoints stop being journaled: the seat-record fence

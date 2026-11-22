@@ -133,17 +133,7 @@ fn a_start_that_sent_no_result_ends_the_driver() {
     let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let start = exec_start(dir.path(), "feature", None);
-    let line = |body: Body| serde_json::to_string(&Message::new(body)).unwrap();
-    let hello = line(Body::Hello {
-        engine_version: "test".into(),
-    });
-    let start = line(Body::Start {
-        probe: None,
-        effect_id: "effect".into(),
-        attempt_id: "attempt".into(),
-        seat: "work".into(),
-        input: start["input"].clone(),
-    });
+    let (hello, start) = start::hello_and_start(start["input"].clone());
     let served = |script: &str| {
         let extra = ["sh".to_string(), "-c".into(), script.into()];
         let input = format!("{hello}\n{start}\n{hello}\n");

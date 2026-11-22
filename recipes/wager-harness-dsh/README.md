@@ -44,8 +44,9 @@ results, class, the phase table, and every gate are `fast`'s, inherited.
 
 **Host requirement: the `spark-glm` route.** This arm runs only where
 the host's dsh profile serves that route; no CI runner does. Anywhere
-else the implement attempt fails at launch, and its journaled failure
-names the route: the dsh driver ends a failed seat's stderr tail with
+else the implement attempt fails at launch, and the engine's log names
+the route: the dsh driver ends a failed seat's stderr tail, which the
+engine prints under the attempt id and never journals, with
 `dsh driver: dsh exited <code> with the pinned model
 spark-glm/GLM-5.3-Flash-EXL3 on route spark-glm`. How dsh's own refusal
 is worded there has not been measured.

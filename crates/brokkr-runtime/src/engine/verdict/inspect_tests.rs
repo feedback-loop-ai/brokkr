@@ -425,6 +425,7 @@ fn held_back(dir: &std::path::Path, engine: Engine) -> Engine {
         event_type: EventType::EffectFailed,
         payload,
         attempt_id: failed.attempt_id.clone(),
+        stderr: None,
     });
     let contended = brokkr_store::StoreError::Contended {
         operation: "append",

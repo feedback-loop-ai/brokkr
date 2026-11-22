@@ -147,7 +147,7 @@ fn foreign_clean_review_result_parks_and_replays_without_ship_authority() {
         format!(
             "result for foreign attempt: its \u{60}attempt_id\u{60} field held 34 bytes \
              (first byte: letter; sha256: 1da73c5b10ca1dff), want '{}'; no result was \
-             read after start, and what the attempt did is unknown; stderr tail: ",
+             read after start, and what the attempt did is unknown; driver stderr: empty",
             review_attempt.as_str().unwrap()
         )
     );

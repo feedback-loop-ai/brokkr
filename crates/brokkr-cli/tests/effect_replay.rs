@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+use brokkr_protocol::process::DriverStderr;
 use serde_json::{json, Value};
 
 /// Implement, then the review the house requires, which a run that parks
@@ -79,7 +80,7 @@ fn count(events: &[Value], kind: &str) -> usize {
 }
 
 /// The run parked on one attempt, ended indeterminate for `reason`, with
-/// the driver's stderr `tail` the engine journals beside it. A failure
+/// the driver's stderr `tail` named beside it by evidence alone (#1199). A failure
 /// prints each event with its payload, so an attempt that failed says why.
 fn parked_after_one_attempt(events: &[Value], reason: &str, tail: &str) {
     let journaled: Vec<String> = (events.iter())
@@ -93,7 +94,7 @@ fn parked_after_one_attempt(events: &[Value], reason: &str, tail: &str) {
         .iter()
         .find(|event| event["type"] == "effect/indeterminate")
         .unwrap_or_else(|| panic!("an indeterminate end: {journaled}"));
-    let journaled = format!("{reason}; stderr tail: {tail}");
+    let journaled = format!("{reason}; {}", DriverStderr::of(tail));
     assert_eq!(ended["payload"]["reason"], journaled, "{ended}");
 }
 

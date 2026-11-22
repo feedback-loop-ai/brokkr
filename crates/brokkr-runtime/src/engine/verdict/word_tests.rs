@@ -440,7 +440,8 @@ fn a_non_final_gate_steps_refused_word_fails_the_attempt_and_no_later_step_runs(
         assert_eq!(
             payload["error"],
             "sequence step 'judge': reported a word that was refused: the passing word 'clean' \
-             stands over a declared max_residual_severity of 'high' (decision 0109 ruling 2)",
+             stands over a declared max_residual_severity of 'high' (decision 0109 ruling 2); \
+             driver stderr: empty",
             "{payload}"
         );
     }

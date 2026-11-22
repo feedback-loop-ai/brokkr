@@ -740,7 +740,10 @@ Bundles and journals carry secret **names** only (decision 0012).
   they read it, against every value in the store beside the journal.
 - **What masking does not cover.** A value the seat was not bound to
   is not masked in the journal, even when the harness inherited it from
-  the environment. The harness's own session file on
+  the environment. A driver's stderr is the exception: the journal holds
+  none of it, naming it on a failed or indeterminate attempt by length,
+  first-byte class and a SHA-256 prefix alone, and its masked tail goes
+  to the engine's own stderr (decision 0012's addendum of 2026-11-20). The harness's own session file on
   disk holds what the model echoed, in plaintext. A digits-only value
   carried as a bare JSON number is not rewritten (the broker instead
   refuses such a value in a server's response). An encoding of an

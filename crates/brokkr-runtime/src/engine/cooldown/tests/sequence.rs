@@ -404,7 +404,13 @@ fn refusing_panel_sequence(dir: &Path) -> SeatBody {
 /// retry-after, past the test host's ten-second maximum, followed by
 /// `publish`: the park rows' shared body.
 fn past_maximum_body(dir: &Path) -> SeatBody {
-    let draft = driver(
+    past_maximum_saying(dir, "")
+}
+
+/// [`past_maximum_body`], its draft driver printing `said` on its stderr
+/// first.
+fn past_maximum_saying(dir: &Path, said: &str) -> SeatBody {
+    let mut draft = driver(
         dir,
         "draft",
         &["refuse"],
@@ -413,6 +419,7 @@ fn past_maximum_body(dir: &Path) -> SeatBody {
         "claude",
         "first",
     );
+    draft[2] = format!("printf '%s' '{said}' >&2; {}", draft[2]);
     draft_body(dir, draft, &["complete"])
 }
 
@@ -679,6 +686,35 @@ fn the_failed_steps_park_lands_in_the_attempts_own_turn() {
     );
     let reason = park_reason(&engine);
     assert!(reason.contains("past the declared 10s maximum"), "{reason}");
+}
+
+/// The failed step's tail is told only once its park is journaled too
+/// (#1199): a stalled stderr cannot hold the run between the two.
+#[test]
+fn the_failed_steps_tail_is_told_after_its_park() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = past_maximum_saying(dir.path(), "drafting\n");
+    let mut engine = sequence_engine(dir.path(), body, 2);
+    let watch = crate::engine::tests::driver_stderr::Watch::on(dir.path(), &mut engine);
+    request_effect(&mut engine);
+    engine.drive_once().unwrap();
+    let (told, held) = watch.told_and_held();
+    let attempt = attempt_of(&engine);
+    assert_eq!(told, format!("{attempt}: driver stderr: drafting\n"));
+    assert_eq!(
+        &held[held.len() - 2..],
+        [EventType::EffectFailed, EventType::RunParked]
+    );
+}
+
+/// The attempt id of the run's one failed attempt.
+fn attempt_of(engine: &Engine) -> String {
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let failed = events
+        .iter()
+        .find(|e| e.event_type == EventType::EffectFailed)
+        .unwrap();
+    failed.payload["attempt_id"].as_str().unwrap().to_string()
 }
 
 /// The sequence engine `body` whose first wait slice admits a competing

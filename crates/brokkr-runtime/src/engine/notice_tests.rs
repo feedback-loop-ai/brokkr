@@ -1306,7 +1306,7 @@ fn a_wrapped_inline_codex_verify_is_told_at_its_checks_step() {
     assert_eq!(
         failed,
         vec![json!(
-            "sequence step 'checks': reported 'halt', outside its declared results [\"pass\", \"fail\"]"
+            "sequence step 'checks': reported 'halt', outside its declared results [\"pass\", \"fail\"]; driver stderr: empty"
         )]
     );
     // It was told from the notice relocated with the step, read from the

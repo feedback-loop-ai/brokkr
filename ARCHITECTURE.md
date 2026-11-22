@@ -295,7 +295,8 @@ sequenceDiagram
 
 Drivers speak `forge-driver/v1`
 ([contracts/driver-protocol.v1.schema.json](contracts/driver-protocol.v1.schema.json)):
-NDJSON over stdio, stdout protocol-only, stderr captured as an artifact.
+NDJSON over stdio, stdout protocol-only, stderr captured and never
+journaled: the journal names it by content-free evidence alone.
 The adapters for Claude Code, Codex, dsh, LaneTally's Claude Code wrapper
 and any prompt-in/result-file-out harness (`exec`) are built in as
 `{brokkr} driver <kind>` (decision 0009), while the protocol stays

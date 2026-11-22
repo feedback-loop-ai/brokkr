@@ -204,7 +204,7 @@ fn a_successful_harness_fails_with_its_brokers_observed_stage_cause() {
     ];
     for failure in stages {
         let mut site = Site::new(false, argv.clone());
-        let cause = format!("{failure}; stderr tail: ");
+        let cause = format!("{failure}; driver stderr: empty");
         site.serve(|mut ledger| {
             ledger.fail(failure);
             ledger.close().unwrap();
@@ -220,7 +220,7 @@ fn a_successful_harness_fails_with_its_brokers_observed_stage_cause() {
     let mut site = Site::new(false, argv);
     site.laid(&Fault::Unclosed.ledger(&site));
     let last = concluded(&mut site, Duration::from_secs(10)).unwrap();
-    let cause = json!(format!("{}; stderr tail: ", Invalid::Lifecycle));
+    let cause = json!(format!("{}; driver stderr: empty", Invalid::Lifecycle));
     assert_eq!(
         (last.event_type, &last.payload["error"]),
         (EventType::EffectFailed, &cause)
@@ -249,7 +249,7 @@ fn a_driver_killed_at_its_deadline_settles_its_interrupted_call() {
     });
     let mut last = concluded(&mut site, Duration::from_secs(1)).unwrap();
     let reason = "attempt exceeded its 1s deadline and was killed; its process tree is gone, and \
-                  what it did is unknown; stderr tail: ";
+                  what it did is unknown; driver stderr: empty";
     let killed = json!({"effect_id": EFFECT, "attempt_id": ATTEMPT, "reason": reason});
     // What the tracker measured of the real tree (decision 0112) is the
     // ending's, beside what the kill left, and is set aside here.

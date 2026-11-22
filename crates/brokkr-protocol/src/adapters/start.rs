@@ -121,6 +121,24 @@ pub(super) fn serve_io(
     super::serve_with(kind, extra, input, output, super::tests::unconfined)
 }
 
+/// The `hello` and the `start` of `effect`/`attempt` on seat `work` that
+/// the suites' wires open with, `input` the start's.
+#[cfg(test)]
+pub(super) fn hello_and_start(input: Value) -> (String, String) {
+    let line = |body| serde_json::to_string(&crate::Message::new(body)).unwrap();
+    let hello = line(crate::Body::Hello {
+        engine_version: "test".into(),
+    });
+    let start = line(crate::Body::Start {
+        probe: None,
+        effect_id: "effect".into(),
+        attempt_id: "attempt".into(),
+        seat: "work".into(),
+        input,
+    });
+    (hello, start)
+}
+
 /// The session a start rejoins: the offer made for its own effect and
 /// attempt, none when nothing was offered, and a refusal for a poisoned
 /// exchange or an offer that named another start (decision 0030).
