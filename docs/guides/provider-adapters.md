@@ -401,7 +401,7 @@ resumed, because it runs `--no-session-persistence`. Every model it
 serves is provisional, so it holds only the offices `realms.json` lists
 under `provisional_offices`. Every figure behind it was measured by hand
 on Qoder CLI 1.1.92 ([the record](../evidence/adapters/qoder-cli-1-1.md)),
-because `brokkr probe harness` does not know Qoder.
+because `brokkr system probe harness` does not know Qoder.
 
 The adapter ships as an example, `docs/examples/adapters/qoder.json`.
 `brokkr init` does not write it. To use it, copy it into your world's

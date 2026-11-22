@@ -62,7 +62,7 @@ NDJSON over stdio, one JSON object per line.
   content-free evidence alone: its length, the class of its first byte
   and a SHA-256 prefix (decision 0012's addendum of 2026-11-20). Its
   tail goes to the engine's own stderr, each line under the attempt id:
-  the terminal under `brokkr run`, the driver log under `brokkr
+  the terminal under `brokkr run`, the driver log under `brokkr queue
   dispatch`. A built-in driver masks declared secret values in it on raw
   bytes before any string exists, so an echoed token is not printed there.
 
