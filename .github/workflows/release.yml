@@ -54,8 +54,8 @@ jobs:
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
       - name: producer and frozen-contract release verification
         run: |
-          cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
-          cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
+          cargo run --locked -p brokkr-cli -- library compile --bundle recipes/self
+          cargo run --locked -p brokkr-cli -- library compile --bundle recipes/verify
           cargo test --locked -p brokkr-bridge
           cargo test --locked -p brokkr-cli --test driver_conformance
       # The same digest-pinned cargo-audit and the same audit CI runs: its

@@ -65,13 +65,13 @@ jobs:
           set +e
           target/release/brokkr run --recipe research-dsh --repo . --feature "$(cat recipes/research/commissions/weekly-sweep.md)"
           echo "exit=$?" >> "$GITHUB_OUTPUT"
-          target/release/brokkr inspect --run latest > .forge/research-inspect.txt 2>&1 || true
+          target/release/brokkr runs inspect --run latest > .forge/research-inspect.txt 2>&1 || true
           # The journal is the evidence and the runner is gone in an hour:
           # export the run beside the journal, and pull the seat's own
           # notes out of it, because a park's question lives there and
           # nowhere the readout prints.
           mkdir -p .forge/export
-          target/release/brokkr export --run latest --out .forge/export >/dev/null 2>&1 || true
+          target/release/brokkr journal export --run latest --out .forge/export >/dev/null 2>&1 || true
           python3 - > .forge/research-notes.txt <<'PY' || true
           import glob, json
           for path in glob.glob('.forge/export/*.ndjson'):

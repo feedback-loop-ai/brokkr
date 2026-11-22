@@ -2,7 +2,7 @@
 
 The default delivery recipe: implement, verify, review and ship. Its
 verify and ship are deterministic exec gates, the folder's own (below).
-Its shipper renders the journal with `brokkr ledger`. Brokkr boxes both,
+Its shipper renders the journal with `brokkr stats ledger`. Brokkr boxes both,
 with no network, where the realm's boundary is `namespace`; under
 `harness`, which `brokkr init` writes on macOS, each runs unboxed in a
 rebuilt environment and no network denial is reported. Brokkr's own
@@ -22,13 +22,13 @@ Brokkr picks through [`brokkr-fast`](../brokkr-fast/README.md), which
 A `blocked` implementer says what blocked it in `inputs.blocked_by`
 (decision 0092). `IMPL-BLOCKED-ENVIRONMENT` parks an `environment` block
 (a signing key, a tool, a refused capability) with the seat's notes as the
-reason, so the operator fixes it and `brokkr operator retry` re-runs that
+reason, so the operator fixes it and `brokkr runs operator retry` re-runs that
 seat with the earlier results intact. A `work` block, and a block that
 names neither, stop hard at `IMPL-BLOCKED` as before. Every recipe that
 extends `fast` inherits both rules.
 
 **Verify and ship are the folder's own** (decision 0091). `fast`
-installs onto any folder's shelf (`brokkr recipes add
+installs onto any folder's shelf (`brokkr library recipes add
 <checkout>/recipes/fast --name fast`), and there its verify and ship
 seats say `"from": "folder"`: each runs the seat the folder declares in
 `.brokkr/bundle.json`, the script and box `brokkr init` wrote for the

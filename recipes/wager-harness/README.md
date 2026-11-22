@@ -10,7 +10,7 @@ It is two things at once, and both matter:
 1. **A worked example.** `bundle.json` here is a real, listable,
    digest-pinned recipe: `brokkr-fast` (Brokkr's own `fast`, decision
    0087) with the implement seat's driver swapped to `codex`. Compile it,
-   run it, `brokkr compare` it against a `brokkr-fast` run of the same
+   run it, `brokkr runs compare` it against a `brokkr-fast` run of the same
    feature. It reproduces exactly what the deleted
    `recipes/fast-codex` was during the wager
    ([the-wager.md](../../docs/essays/the-wager.md),
@@ -116,7 +116,7 @@ That confession is encoded here as procedure. **Run through this list
 before you trust a comparison, not after.**
 
 1. **Same repository base.** Both arms start from the same commit. Use
-   `brokkr rerun --run <id> --recipe <challenger>` rather than launching
+   `brokkr runs rerun --run <id> --recipe <challenger>` rather than launching
    a fresh run by hand: it carries the base forward for you, and the
    journal records that it did.
 2. **Same sandbox.** The challenger's typed `tools` must not grant
@@ -169,8 +169,8 @@ before you trust a comparison, not after.**
 7. **One seat overridden.** `override: { "seats": ["implement"] }` names
    exactly one. If the list has two entries, the experiment has two
    variables.
-8. **Both digests recorded before either runs.** `brokkr recipes show
-   fast` and `brokkr recipes show wager-harness`. Composition resolves
+8. **Both digests recorded before either runs.** `brokkr library recipes show
+   fast` and `brokkr library recipes show wager-harness`. Composition resolves
    at compile time and the chain rides in each run manifest, so a
    comparison can state what it compared. A recipe edited between the
    two arms is a third variable that leaves no trace unless you pinned
@@ -185,8 +185,8 @@ before you trust a comparison, not after.**
 
 ```
 brokkr run    --recipe brokkr-fast --repo . --feature "<the commission>"   # incumbent
-brokkr rerun  --run <id> --recipe wager-harness                     # challenger
-brokkr compare <run-a> <run-b>                                      # trails, divergence, per-seat costs
+brokkr runs rerun  --run <id> --recipe wager-harness                     # challenger
+brokkr runs compare <run-a> <run-b>                                      # trails, divergence, per-seat costs
 ```
 
 Then judge the **artifacts** — the code, the tests, the residual
@@ -220,8 +220,8 @@ the only one.
 
 At `recipes/wager-harness/bundle.json` — this directory's own bundle,
 rather than a sub-path the README points at. The choice was open; this
-one was taken so the example is a real library member: `brokkr recipes
-list` shows it, `brokkr rerun --recipe wager-harness` runs it, the
+one was taken so the example is a real library member: `brokkr library recipes
+list` shows it, `brokkr runs rerun --recipe wager-harness` runs it, the
 tree-wide compile test covers it, and its digest is pinned like any
 other recipe's. An example nobody can run is a snippet, and snippets
 rot.

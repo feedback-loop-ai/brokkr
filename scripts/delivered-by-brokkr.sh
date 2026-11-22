@@ -74,7 +74,7 @@ fetch_evidence() {
 # its head; the anchor's version is one this gate reads.
 verify_evidence() {
   local run="$1" verified journal_head journal_seq
-  verified="$("$VERIFIER" verify-run "$work/${run}.ndjson")"
+  verified="$("$VERIFIER" journal verify "$work/${run}.ndjson")"
   printf '%s\n' "$verified" | jq -e --arg run "$run" \
     '.chain == "verified" and .state.run_id == $run and .state.status == "completed"' >/dev/null \
     || fail "run ${run}: the journal does not verify as this run, completed"

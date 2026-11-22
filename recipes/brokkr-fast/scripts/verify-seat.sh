@@ -89,9 +89,9 @@ if ! cargo test --workspace > "$output" 2>&1 </dev/null; then
     failure_notes "cargo test --workspace"
 fi
 test_summaries="$(grep -c '^test result: ok' "$output" || true)"
-if ! cargo run -p brokkr-cli -- compile --bundle recipes/self > "$output" 2>&1 </dev/null; then
-    failure_notes "cargo run -p brokkr-cli -- compile --bundle recipes/self"
+if ! cargo run -p brokkr-cli -- library compile --bundle recipes/self > "$output" 2>&1 </dev/null; then
+    failure_notes "cargo run -p brokkr-cli -- library compile --bundle recipes/self"
 fi
 printf 'cargo fmt --all -- --check: clean; cargo clippy --workspace --all-targets --all-features --locked -- -D warnings: clean\n%s\n' "$lint_notes" > "$notes_file"
-printf 'cargo test --workspace: %s successful test-suite summaries, 0 failed; cargo run -p brokkr-cli -- compile --bundle recipes/self: 1 bundle compiled, 0 failed (offline from the bound Cargo registry cache)' "$test_summaries" >> "$notes_file"
+printf 'cargo test --workspace: %s successful test-suite summaries, 0 failed; cargo run -p brokkr-cli -- library compile --bundle recipes/self: 1 bundle compiled, 0 failed (offline from the bound Cargo registry cache)' "$test_summaries" >> "$notes_file"
 write_result pass

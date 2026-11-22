@@ -119,7 +119,7 @@ to report `blocked` by the work rather than guess, so an underspecified
 feature spends a full deadline and delivers a stop. Frame it properly
 first, or run it attended. A seat its environment blocked (a signing key,
 a tool, a refused capability) parks instead, with its notes as the
-reason, so the morning's fix is `brokkr operator retry` and
+reason, so the morning's fix is `brokkr runs operator retry` and
 `brokkr resume`, and that one seat runs again (decision 0092).
 
 ## The one-line swap property

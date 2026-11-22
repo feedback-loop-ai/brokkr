@@ -44,5 +44,5 @@ Select with `--recipe gpt-flash` when starting a run from this library. Compilin
 the recipe validates configuration without making a provider request:
 
 ```sh
-brokkr compile --bundle recipes/gpt-flash
+brokkr library compile --bundle recipes/gpt-flash
 ```

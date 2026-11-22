@@ -251,7 +251,7 @@ fi
 # the run closed out by the table's own ruling. (These are the
 # assertions `crates/brokkr-cli/tests/bootstrap_bench.rs` makes, so the
 # mechanism is under the workspace suite and not only under this script.)
-( cd "$trial/src" && "$install_dir/brokkr" inspect --run latest --json ) \
+( cd "$trial/src" && "$install_dir/brokkr" runs inspect --run latest --json ) \
   >"$workdir/inspect.json" 2>&1 || true
 for expected in 'effect/succeeded' 'VERIFY-PASS' 'REVIEW-CLEAN-NO-FIXES' 'SHIP-COMPLETE'; do
   if ! grep -q "$expected" "$workdir/inspect.json"; then
