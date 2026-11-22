@@ -225,9 +225,6 @@ pub(super) enum CooldownError {
         route: String,
         source: Box<brokkr_store::StoreError>,
     },
-    /// A terminal's wait row the store did not write, which rolled the
-    /// terminal back with it (fix rounds 0106b1r6, D3, and 0106b1r9, E4):
-    /// parked as [`CooldownError::RoundUnwritable`] parks, the engine's own.
     #[error("the journal refused the attempt's outcome: {0}")]
     WaitUnwritten(Box<brokkr_store::QueueRefusal>),
 }

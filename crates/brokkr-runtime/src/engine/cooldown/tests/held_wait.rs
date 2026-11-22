@@ -155,6 +155,14 @@ fn a_held_wait_the_table_does_not_write_is_not_journaled_and_parks() {
     super::held_route::driven_raising(&mut engine, "provider_cooldowns", "IGNORE");
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
     assert_eq!(failed(&engine).len(), 0);
+    parked_unwritten(&engine);
+}
+
+/// The run journaled no wait, settled its attempt indeterminate naming the
+/// store's refusal of the first terminal's row, and parked once with it,
+/// ruled through the one `park_of`, as H3's unwritten round parks (fix
+/// round 0106b1r9, E4).
+fn parked_unwritten(engine: &Engine) {
     let events = engine.store.load(&engine.run_id).unwrap();
     assert!(
         events
@@ -175,19 +183,17 @@ fn a_held_wait_the_table_does_not_write_is_not_journaled_and_parks() {
         "{}",
         settled.payload
     );
-    let reason = park_reason(&engine);
+    let reason = park_reason(engine);
     assert_eq!(
         reason,
         format!("the journal refused the attempt's outcome: {words}")
     );
-    // Fix round 0106b1r9, E4: the park H3's unwritten round takes, through
-    // the one `park_of`: ruled, the engine's own refusal, no rule.
-    let cause = park_cause_of(&engine);
+    let cause = park_cause_of(engine);
     assert!(
         matches!(&cause, ParkCause::Ruled { rule_id: None, detail } if reason.starts_with(detail)),
         "{cause:?}"
     );
-    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
+    assert_eq!(standing(engine), (Status::AwaitingOperator, 1));
 }
 
 /// Fix round 0106b1r9, E3: the first refusal's held wait, on a queue that
@@ -209,23 +215,7 @@ fn a_held_wait_on_a_queue_this_binary_does_not_write_is_not_journaled_and_parks(
         .unwrap();
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
-    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
-    let events = engine.store.load(&engine.run_id).unwrap();
-    assert!(
-        events
-            .iter()
-            .all(|event| event.payload.get("waits").is_none()),
-        "a wait was journaled"
-    );
-    let reason = park_reason(&engine);
-    assert!(
-        reason.contains(&format!(
-            "the journal's provider cool-downs wrote no row for run '{}' event 5 site '' round \
-             1, so the event that records its wait was not written either",
-            engine.run_id
-        )),
-        "{reason}"
-    );
+    parked_unwritten(&engine);
 }
 
 /// The cap is untouched: a held wait at 0006's cap parks `attempt-cap`,
