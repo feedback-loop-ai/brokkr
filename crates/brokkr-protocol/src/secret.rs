@@ -14,6 +14,7 @@
 
 use std::fmt;
 use std::io::Write;
+use std::iter::Peekable;
 use std::path::Path;
 
 /// Names a seat may never bind: grammar-legal names that would turn the
@@ -541,9 +542,11 @@ fn enc_pct_lower(bytes: &[u8]) -> Vec<u8> {
 /// Mask every needle of every bound secret in `bytes`, replacing each
 /// match with `[secret:NAME]`. Operates on RAW captured bytes — callers
 /// mask first and lossy-convert to string second, never the reverse
-/// (UTF-8 replacement characters must not split needles). Replacement
-/// is longest-needle-first so overlapping needles from multiple secrets
-/// resolve deterministically.
+/// (UTF-8 replacement characters must not split needles). Every byte
+/// any occurrence of any needle covers is masked, and occurrences that
+/// overlap or touch read one marker, named for the binding whose
+/// occurrence starts first (the longest needle's where several start at
+/// one byte), so overlapping needles resolve deterministically.
 ///
 /// BUFFERED-ONLY INVARIANT: every masked surface today is a complete
 /// captured buffer (`wait_with_output`), so whole-buffer masking is
@@ -603,19 +606,140 @@ fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Enco
     }
     let needles = needles(bindings, encodings);
     let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    'scan: while i < bytes.len() {
-        for (needle, name) in &needles {
-            if bytes[i..].starts_with(needle) {
-                out.extend_from_slice(format!("[secret:{name}]").as_bytes());
-                i += needle.len();
-                continue 'scan;
+    let mut clear = 0;
+    for (start, end, name) in covered(bytes, &needles) {
+        out.extend_from_slice(&bytes[clear..start]);
+        out.extend_from_slice(format!("[secret:{name}]").as_bytes());
+        clear = end;
+    }
+    out.extend_from_slice(&bytes[clear..]);
+    out
+}
+
+/// Every run of `bytes` that occurrences of `needles` cover, in order, as
+/// where it begins and ends and the name the run's marker reads (#1213,
+/// decision 0012's addendum of 2026-11-21): the union of every occurrence
+/// of every needle, so a needle starting inside another's match is masked
+/// whole. Occurrences that overlap or touch are one run, named for the
+/// binding whose occurrence starts first; of those starting at one byte,
+/// the longest needle's, as it always was. Each needle is found in one
+/// pass of [`occurrences`], so the cost is linear in the text times the
+/// needles. The runs are read as the mask writes them, each given out
+/// once the next disjoint start, or the text's end, closes it, so a text
+/// of many runs never holds a slot per run.
+fn covered<'a, 'n>(bytes: &'a [u8], needles: &'a [(Vec<u8>, &'n str)]) -> Runs<'a, 'n> {
+    // Each needle's next unread occurrence, found as the merge reaches it,
+    // so the scratch is the needles', never a slot per byte of the text.
+    let heads = needles
+        .iter()
+        .map(|(needle, _)| Occurrences::new(bytes, needle).peekable())
+        .collect();
+    Runs {
+        needles,
+        heads,
+        open: None,
+    }
+}
+
+/// The runs [`covered`] reads, in order.
+struct Runs<'a, 'n> {
+    needles: &'a [(Vec<u8>, &'n str)],
+    heads: Vec<Peekable<Occurrences<'a>>>,
+    /// The run the occurrences read so far end in, not yet closed.
+    open: Option<(usize, usize, &'n str)>,
+}
+
+impl<'n> Iterator for Runs<'_, 'n> {
+    type Item = (usize, usize, &'n str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // The earliest unread occurrence; of those starting at one byte,
+        // the first needle's, so the longest. Each turn reads one start,
+        // so the turns are at most the text's bytes, each costing the
+        // needles.
+        while let Some((start, index)) = earliest(&mut self.heads) {
+            for head in &mut self.heads {
+                head.next_if_eq(&start);
+            }
+            let (needle, name) = &self.needles[index];
+            let end = start + needle.len();
+            match &mut self.open {
+                Some(run) if start <= run.1 => run.1 = run.1.max(end),
+                open => {
+                    if let Some(closed) = open.replace((start, end, name)) {
+                        return Some(closed);
+                    }
+                }
             }
         }
-        out.push(bytes[i]);
-        i += 1;
+        self.open.take()
     }
-    out
+}
+
+/// The least next start among `heads`, and the index of the first head
+/// it is next in.
+fn earliest(heads: &mut [Peekable<Occurrences<'_>>]) -> Option<(usize, usize)> {
+    let next =
+        |(index, head): (usize, &mut Peekable<Occurrences<'_>>)| Some((*head.peek()?, index));
+    heads.iter_mut().enumerate().filter_map(next).min()
+}
+
+/// Where every occurrence of `needle`, which is not empty, starts in
+/// `bytes`, overlapping ones included, in order: one Knuth–Morris–Pratt
+/// pass, linear in the text and the needle, read as it is consumed.
+struct Occurrences<'a> {
+    bytes: &'a [u8],
+    needle: &'a [u8],
+    /// `border[i]`: the longest proper prefix of `needle[..=i]` that is
+    /// also its suffix.
+    border: Vec<usize>,
+    /// How many bytes of `bytes` are read.
+    read: usize,
+    /// How much of `needle` the bytes read end with.
+    matched: usize,
+}
+
+impl<'a> Occurrences<'a> {
+    fn new(bytes: &'a [u8], needle: &'a [u8]) -> Occurrences<'a> {
+        let mut border = vec![0; needle.len()];
+        let mut matched = 0;
+        for i in 1..needle.len() {
+            matched = advance(needle, &border, matched, needle[i]);
+            border[i] = matched;
+        }
+        Occurrences {
+            bytes,
+            needle,
+            border,
+            read: 0,
+            matched: 0,
+        }
+    }
+}
+
+impl Iterator for Occurrences<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        while let Some(&byte) = self.bytes.get(self.read) {
+            self.read += 1;
+            self.matched = advance(self.needle, &self.border, self.matched, byte);
+            if self.matched == self.needle.len() {
+                self.matched = self.border[self.matched - 1];
+                return Some(self.read - self.needle.len());
+            }
+        }
+        None
+    }
+}
+
+/// How much of `needle` is matched after `byte`, when `matched` bytes of
+/// it, fewer than all, were matched before it.
+fn advance(needle: &[u8], border: &[usize], mut matched: usize, byte: u8) -> usize {
+    while matched > 0 && byte != needle[matched] {
+        matched = border[matched - 1];
+    }
+    matched + usize::from(byte == needle[matched])
 }
 
 /// [`mask_bytes`] over every string inside a JSON value — object keys
