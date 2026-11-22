@@ -212,14 +212,14 @@ fn journal<T>(line: &Line, read: impl FnOnce(&Store) -> anyhow::Result<T>) -> an
 }
 
 /// The names `of` reads from the first [`SEATS`] seat rows of the run
-/// `--run` names, never its events (ruling 4); none without a `--run` on
-/// the line.
+/// `--run` names, never its events, the run resolved from at most two of
+/// a prefix's matches (ruling 4); none without a `--run` on the line.
 fn named(line: &Line, of: fn(&brokkr_store::SeatNames) -> Option<String>) -> Listed {
     let Some(run) = &line.run else {
         return Ok(Vec::new());
     };
     let rows = journal(line, |store| {
-        let run = crate::selector::resolve_run(store, run)?;
+        let run = crate::selector::resolve_run_within(store, run)?;
         Ok(store.run_seats(&run, SEATS)?)
     })?;
     let mut names: Vec<String> = rows.iter().filter_map(of).collect();

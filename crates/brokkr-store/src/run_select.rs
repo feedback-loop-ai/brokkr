@@ -130,18 +130,36 @@ impl Store {
     /// candidate is considered.
     pub fn run_candidates(&self, requested: &str) -> Result<Vec<(String, String)>, StoreError> {
         patiently("run_candidates", self.patience, &self.path, || {
-            self.candidates_once(requested)
+            self.candidates_once(requested, usize::MAX)
         })
     }
 
-    fn candidates_once(&self, requested: &str) -> Result<Vec<(String, String)>, StoreError> {
+    /// [`Store::run_candidates`], reading at most `most` of a prefix's
+    /// matches: what tells one run from several costs one page, however
+    /// many runs the prefix names (decision 0115 ruling 4). A completer's
+    /// read, which never shows how many matched.
+    pub fn run_candidates_within(
+        &self,
+        requested: &str,
+        most: usize,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        patiently("run_candidates", self.patience, &self.path, || {
+            self.candidates_once(requested, most)
+        })
+    }
+
+    fn candidates_once(
+        &self,
+        requested: &str,
+        most: usize,
+    ) -> Result<Vec<(String, String)>, StoreError> {
         if requested.is_empty() {
             return Ok(Vec::new());
         }
         if let Some(exact) = self.exact_run(requested)? {
             return Ok(vec![exact]);
         }
-        self.prefixed_runs(requested)
+        self.prefixed_runs(requested, most)
     }
 
     fn exact_run(&self, requested: &str) -> Result<Option<(String, String)>, StoreError> {
@@ -155,12 +173,19 @@ impl Store {
         Ok(found)
     }
 
-    fn prefixed_runs(&self, prefix: &str) -> Result<Vec<(String, String)>, StoreError> {
+    fn prefixed_runs(
+        &self,
+        prefix: &str,
+        most: usize,
+    ) -> Result<Vec<(String, String)>, StoreError> {
         let mut statement = self.conn.prepare(PREFIX_SQL)?;
         let mut found: Vec<(String, String, i64)> = Vec::new();
         {
             let mut rows = statement.query(params![prefix])?;
-            while let Some(row) = rows.next()? {
+            while found.len() < most {
+                let Some(row) = rows.next()? else {
+                    break;
+                };
                 let run_id: String = row.get(0)?;
                 if !run_id.starts_with(prefix) {
                     break;

@@ -74,7 +74,9 @@ are writing. So what it may read has to be ruled.
    (`Store::run_seats`), the first 500 in the order they opened, one
    range of the `seat_summary (run_id, opened)` key: the phases its
    seats sat in, and each participant by the label `runs inspect`
-   scopes by. No event is read and no chain is verified, so the cost
+   scopes by. A `--run` prefix is resolved from at most two of its
+   matches (`Store::run_candidates_within`), enough to tell one run
+   from several. No event is read and no chain is verified, so the cost
    does not grow with the run. A row a lagging fold has not yet
    written is not offered, and a phase no seat sat in is not offered.
    These are candidates, not a readout. No candidate read loads a

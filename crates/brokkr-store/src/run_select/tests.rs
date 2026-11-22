@@ -235,6 +235,48 @@ fn latest_exact_and_a_unique_prefix_cost_a_page_and_an_ambiguous_one_its_matches
     );
 }
 
+/// A completer's prefix read takes at most the matches it asks for, so an
+/// ambiguous prefix costs the same two rows in a journal of ten runs and in
+/// one of ten thousand; an exact id and a unique prefix answer as before.
+#[test]
+fn a_bounded_prefix_read_costs_its_bound_whatever_the_prefix_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let small = planted(&dir.path().join("small.db"), 10);
+    let large = planted(&dir.path().join("large.db"), 10_000);
+
+    let (small_two, small_steps) =
+        steps(&small, || small.run_candidates_within("run-", 2).unwrap());
+    let (large_two, large_steps) =
+        steps(&large, || large.run_candidates_within("run-", 2).unwrap());
+    assert_eq!(
+        (small_two.len(), large_two.len()),
+        (2, 2),
+        "the bound is the page"
+    );
+    assert_eq!(
+        large_steps, small_steps,
+        "two matches cost the same in either journal"
+    );
+    let (_, large_all) = steps(&large, || large.run_candidates("run-").unwrap());
+    assert!(
+        large_all > large_steps * 100,
+        "{large_all} against {large_steps}"
+    );
+
+    assert_eq!(
+        large.run_candidates_within("run-000005", 2).unwrap(),
+        large.run_candidates("run-000005").unwrap(),
+        "an exact id wins"
+    );
+    assert_eq!(
+        large.run_candidates_within("special-", 2).unwrap(),
+        large.run_candidates("special-").unwrap(),
+        "a unique prefix names its one run"
+    );
+    assert_eq!(large.run_candidates_within("", 2).unwrap(), Vec::new());
+    assert_eq!(large.run_candidates_within("zzz", 2).unwrap(), Vec::new());
+}
+
 /// The completer's page (decision 0115 ruling 4): the newest runs in
 /// `latest`'s order, ties to the row inserted last, each with the feature
 /// line its summary folded, and no more than the limit.
