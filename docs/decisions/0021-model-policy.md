@@ -143,13 +143,13 @@ models (`agy-neon`, `agy-carbon`, `agy-hydrogen`, `agy-argon`) are
   models leave provisional".
 
 The evidence line is two wagers, which the controller ran and wrote up
-on #1200. Each arm differs from the incumbent's run in the implementer
-alone.
+on #1200.
 
 Wager one is round six of #1200, the proof that an agy seat's check
 binds, rerun from the lane's own run
 `finish-issue-1200-the-proof-that-0fd42b65`. Its incumbent implementer,
-Opus 5.5, shipped flagged with two lows.
+Opus 5.5, shipped flagged with two lows. Each of its arms differs from
+the incumbent only in the implementer.
 
 - Unboxed, on an engine built from `ffcba90b` and agy 1.5.13: Neon
   `finish-issue-1200-the-proof-that-acc0addd`, Carbon
@@ -170,7 +170,9 @@ Opus 5.5, shipped flagged with two lows.
 Wager two is round five of #1200, production code that moves the
 workspace check to directly before the spawn, rerun from
 `finish-issue-1200-an-agy-seat-s--35ff49bc`. Its incumbent, Opus 5.5,
-took three implement rounds and parked on a medium.
+took three implement rounds and parked on a medium. Its unboxed arms
+differ from the incumbent in the implementer; its boxed arms differ in
+the box as well.
 
 - Unboxed, on agy 1.5.14: Neon `finish-issue-1200-an-agy-seat-s--d9aa31f5`
   and Carbon `finish-issue-1200-an-agy-seat-s--f592bebe` each took three
@@ -220,4 +222,14 @@ Not granted here: Hydrogen and Argon are promoted and are **not
 judges**. A gate seat on either is still refused, now because it is not
 in `judges` (decision 0041 ruling 3), no longer because of its tier.
 The **binding grant** is not granted, as for codex.
+
+**Accepted exposure: an agy judge in an unboxed seat can edit the
+tree.** An agy judge may sit in a boxed seat or an unboxed one. In an
+unboxed seat agy's own write tools are on, as a claude gate's are under
+`acceptEdits`. The engine's check on a gate compares the repository
+head (decision 0041 ruling 4), so an edit a judge leaves uncommitted is
+not caught. The operator accepted this for agy on 2026-11-22 as the
+state the house already has for claude, choosing to accept it as it
+stands for claude, with the exposure stated plainly: "the decision -
+1." Closing it for every harness is #1260.
 

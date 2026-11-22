@@ -528,9 +528,14 @@ controller's ruling of 2026-11-20. Level 1 is an adapter and a driver,
 its site boxes its hands: there it is boxed at level 3 (#1224), as
 [below](#a-boxed-agy-seat). It is never resumed, because the HOME it runs
 under is the engine's for one turn. Its trust tier is `trusted` and every
-model it serves is promoted, so it holds any office, and `agy-neon` and
-`agy-carbon` are its judges: a gate seats either of them and refuses
-`agy-hydrogen` and `agy-argon`, which are not in `judges`. The operator
+model it serves is promoted, so no agy model is held to
+`provisional_offices` any longer; which offices a seat holds is still
+ruled by its gates, realms and capabilities. `agy-neon` and
+`agy-carbon` are its judges: a gate refuses `agy-hydrogen` and
+`agy-argon`, which are not in `judges`. A judge's seat may be boxed or
+unboxed, and unboxed, agy's write tools are on and an edit it leaves
+uncommitted is not caught, as for a claude gate under `acceptEdits`
+(#1260). The operator
 ruled all three on 2026-11-22, recorded in decision 0021's
 [addendum](../decisions/0021-model-policy.md#addendum--2026-11-22-operator-ruled-agy-is-trusted-its-four-models-are-promoted-and-neon-and-carbon-are-its-judges)
 (#1252). Its route is class `contracted`, the operator's
