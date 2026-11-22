@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap_complete::engine::ArgValueCompleter;
 
-use super::{candidates, completing, Line, Values};
+use super::{candidates, completing, silent, Line, Values};
 
 fn line(words: &[&str]) -> Line {
     Line::read(words.iter().map(OsString::from))
@@ -155,4 +155,19 @@ fn every_run_argument_and_each_named_value_is_completed() {
             "{unnamed} is completed"
         );
     }
+}
+
+/// The hook a completion request installs takes a panic's report, and the
+/// panic still unwinds to its caller. The hook is process-global, so this
+/// takes the lock every test that touches it takes, and puts back the hook
+/// it found.
+#[test]
+fn a_completion_requests_panic_hook_takes_the_panic_and_lets_it_unwind() {
+    let _serialized = (crate::tui::TERMINAL.lock()).unwrap_or_else(|error| error.into_inner());
+    let saved = std::panic::take_hook();
+    std::panic::set_hook(Box::new(silent));
+    let unwound = std::panic::catch_unwind(|| panic!("a completer broke"));
+    std::panic::set_hook(saved);
+    let payload = unwound.expect_err("the panic unwound");
+    assert_eq!(payload.downcast_ref::<&str>(), Some(&"a completer broke"));
 }

@@ -36,8 +36,7 @@ pub(crate) fn answer_if_asked() {
     if std::env::var_os(VAR).is_none() {
         return;
     }
-    // A panic's message would land on the operator's prompt (ruling 7).
-    std::panic::set_hook(Box::new(|_| {}));
+    std::panic::set_hook(Box::new(silent));
     let here = std::env::current_dir().ok();
     let answered =
         CompleteEnv::with_factory(completing).try_complete(std::env::args_os(), here.as_deref());
@@ -50,6 +49,10 @@ pub(crate) fn answer_if_asked() {
     let _ = std::io::stdout().flush();
     std::process::exit(code)
 }
+
+/// A completion request's panic hook: a panic's report would land on the
+/// operator's prompt (ruling 7), so the hook takes it and prints nothing.
+fn silent(_: &std::panic::PanicHookInfo<'_>) {}
 
 /// The values an argument is completed with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
