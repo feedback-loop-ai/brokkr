@@ -89,7 +89,7 @@ fingerprint and the engine version, for the operator's eyes; liveness is
 the lock. A second driver, and `brokkr runs conclude` of that run, refuse before
 writing and name the holder: "run '…' is driven by pid P on this host since
 T (engine V)". `runs conclude` adds "stop it with `brokkr runs operator stop`, or end
-that process, then conclude", and holds the free lock while it writes so no
+that process, then `brokkr runs conclude`", and holds the free lock while it writes so no
 driver starts beneath it. `runs operator stop` and `runs operator retry` (with or
 without `--member`) take no run lock and stay lawful for a live run, the
 cooperative path; a seat's retry command is journaled for the driver to
