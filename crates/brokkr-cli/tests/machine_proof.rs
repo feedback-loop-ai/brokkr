@@ -578,11 +578,30 @@ impl Workspace {
         ])
     }
 
-    /// Export the run's journal and parse it into events.
-    fn exported_events(&self, run_id: &str) -> Vec<Value> {
+    /// `brokkr library compile` of a bundle.
+    fn compile(&self, bundle: &Path) -> (Option<i32>, Value, String) {
+        self.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()])
+    }
+
+    /// `brokkr runs replay` of the run, against this workspace's journal.
+    fn replay(&self, run_id: &str) -> (Option<i32>, Value, String) {
+        let db = self.db();
+        self.brokkr(&[
+            "runs",
+            "replay",
+            "--run",
+            run_id,
+            "--db",
+            db.to_str().unwrap(),
+        ])
+    }
+
+    /// `brokkr journal export` of the run into `export/`, and the file it
+    /// wrote.
+    fn export(&self, run_id: &str) -> PathBuf {
         let db = self.db();
         let out = self.path().join("export");
-        self.brokkr(&[
+        let (code, _, stderr) = self.brokkr(&[
             "journal",
             "export",
             "--run",
@@ -592,7 +611,13 @@ impl Workspace {
             "--db",
             db.to_str().unwrap(),
         ]);
-        std::fs::read_to_string(out.join(format!("{run_id}.ndjson")))
+        assert_eq!(code, Some(0), "stderr: {stderr}");
+        out.join(format!("{run_id}.ndjson"))
+    }
+
+    /// Export the run's journal and parse it into events.
+    fn exported_events(&self, run_id: &str) -> Vec<Value> {
+        std::fs::read_to_string(self.export(run_id))
             .unwrap()
             .lines()
             .map(|l| serde_json::from_str::<Value>(l).unwrap())
@@ -993,31 +1018,11 @@ fn full_delivery_completes_exports_and_replays() {
     assert_eq!(summary["phase"], "done");
     let run_id = Workspace::run_id(&stderr);
 
-    let db = ws.db();
-    let (code, replay, _) = ws.brokkr(&[
-        "runs",
-        "replay",
-        "--run",
-        &run_id,
-        "--db",
-        db.to_str().unwrap(),
-    ]);
+    let (code, replay, _) = ws.replay(&run_id);
     assert_eq!(code, Some(0));
     assert_eq!(replay["replay"], "deterministic");
 
-    let out = ws.path().join("export");
-    let (code, _, _) = ws.brokkr(&[
-        "journal",
-        "export",
-        "--run",
-        &run_id,
-        "--out",
-        out.to_str().unwrap(),
-        "--db",
-        db.to_str().unwrap(),
-    ]);
-    assert_eq!(code, Some(0));
-    let journal = out.join(format!("{run_id}.ndjson"));
+    let journal = ws.export(&run_id);
     let (code, verified, _) = ws.brokkr(&["journal", "verify", journal.to_str().unwrap()]);
     assert_eq!(code, Some(0));
     assert_eq!(verified["chain"], "verified");
@@ -1771,23 +1776,7 @@ fn panel_unanimous_pass_completes_with_member_evidence() {
     // Member outcomes are journaled as checkpoint evidence, in declared
     // order, under the ONE effect the outer machine saw.
     let run_id = Workspace::run_id(&stderr);
-    let db = ws.db();
-    let out = ws.path().join("export");
-    ws.brokkr(&[
-        "journal",
-        "export",
-        "--run",
-        &run_id,
-        "--out",
-        out.to_str().unwrap(),
-        "--db",
-        db.to_str().unwrap(),
-    ]);
-    let journal = std::fs::read_to_string(out.join(format!("{run_id}.ndjson"))).unwrap();
-    let events: Vec<Value> = journal
-        .lines()
-        .map(|l| serde_json::from_str::<Value>(l).unwrap())
-        .collect();
+    let events = ws.exported_events(&run_id);
 
     // Each member's live checkpoint (the fake driver's 'working' step)
     // streams into the journal member-tagged, BEFORE the attempt's
@@ -1916,8 +1905,7 @@ fn a_confined_seat_is_refused_by_name_at_compile() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     config["seats"]["intake"]["driver"]["confine"] = json!({"image": "ubuntu:24.04"});
     std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-    let (code, _, stderr) =
-        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) = ws.compile(&bundle);
     assert_eq!(code, Some(1));
     assert!(
         stderr.contains("seat 'intake' declares driver.confine"),
@@ -1951,8 +1939,7 @@ fn compile_rejects_bad_panels() {
     let ws = Workspace::new(happy_script());
     ws.make_panel("verify", &["only"], "unanimous-pass");
     let bundle = ws.bundle_dir();
-    let (code, _, stderr) =
-        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) = ws.compile(&bundle);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("at least two"), "stderr: {stderr}");
 
@@ -1960,8 +1947,7 @@ fn compile_rejects_bad_panels() {
     let ws = Workspace::new(happy_script());
     ws.make_panel("verify", &["a", "b"], "vibes");
     let bundle = ws.bundle_dir();
-    let (code, _, stderr) =
-        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) = ws.compile(&bundle);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("unknown aggregate"), "stderr: {stderr}");
 }
@@ -2144,8 +2130,7 @@ fn compile_rejects_bad_sequences() {
     let ws = Workspace::new(happy_script());
     ws.make_sequence("implement", &[json!({"name": "only"})]);
     let bundle = ws.bundle_dir();
-    let (code, _, stderr) =
-        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) = ws.compile(&bundle);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("at least two steps"), "stderr: {stderr}");
 
@@ -2156,8 +2141,7 @@ fn compile_rejects_bad_sequences() {
         &[json!({"name": "chief"}), json!({"name": "Chief"})],
     );
     let bundle = ws.bundle_dir();
-    let (code, _, stderr) =
-        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) = ws.compile(&bundle);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("duplicate step name"), "stderr: {stderr}");
 }
@@ -2180,22 +2164,9 @@ fn undeclared_seat_inputs_never_reach_the_journal() {
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let run_id = Workspace::run_id(&stderr);
 
-    let db = ws.db();
-    let out = ws.path().join("export");
-    ws.brokkr(&[
-        "journal",
-        "export",
-        "--run",
-        &run_id,
-        "--out",
-        out.to_str().unwrap(),
-        "--db",
-        db.to_str().unwrap(),
-    ]);
-    let journal = std::fs::read_to_string(out.join(format!("{run_id}.ndjson"))).unwrap();
-    let review_decision = journal
-        .lines()
-        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+    let review_decision = ws
+        .exported_events(&run_id)
+        .into_iter()
         .find(|e| e["type"] == "transition/decided" && e["payload"]["from"] == "review")
         .expect("review decision in journal");
     let inputs = &review_decision["payload"]["inputs"];
@@ -2230,8 +2201,7 @@ fn compile_rejects_provenance_violations() {
             // An office's seat declares no inputs; an inline exec review does.
             "driver": {"command": [brokkr_bin(), "driver", "exec", "--", "true"]}});
         std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-        let (code, _, stderr) =
-            ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
+        let (code, _, stderr) = ws.compile(&bundle);
         assert_eq!(code, Some(1), "declaration {declaration} must be rejected");
         assert!(
             stderr.contains(expected),
@@ -2514,8 +2484,7 @@ fn compile_rejects_uncovered_results_and_review_bypass() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     config["seats"]["implement"]["results"] = json!(["complete", "broken", "weird"]);
     std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-    let (code, _, stderr) =
-        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) = ws.compile(&bundle);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("no rule covers"), "stderr: {stderr}");
 
@@ -2530,8 +2499,7 @@ fn compile_rejects_uncovered_results_and_review_bypass() {
         "reason": "bypass review"
     }));
     std::fs::write(&policy_path, serde_json::to_string(&policy).unwrap()).unwrap();
-    let (code, _, stderr) =
-        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, _, stderr) = ws.compile(&bundle);
     assert_eq!(code, Some(1));
     assert!(
         stderr.contains("constitutionally rejected"),
@@ -2735,15 +2703,7 @@ fn gate_decisions_replay_with_the_workdir_deleted() {
     assert_eq!(code, Some(2));
     let run_id = Workspace::run_id(&stderr);
     std::fs::remove_dir_all(ws.workdir()).unwrap();
-    let db = ws.db();
-    let (code, replay, _) = ws.brokkr(&[
-        "runs",
-        "replay",
-        "--run",
-        &run_id,
-        "--db",
-        db.to_str().unwrap(),
-    ]);
+    let (code, replay, _) = ws.replay(&run_id);
     assert_eq!(code, Some(0));
     assert_eq!(replay["replay"], "deterministic");
 
@@ -2757,30 +2717,10 @@ fn gate_decisions_replay_with_the_workdir_deleted() {
     assert_eq!(summary["status"], "completed");
     let run_id = Workspace::run_id(&stderr);
     std::fs::remove_dir_all(ws.workdir()).unwrap();
-    let db = ws.db();
-    let (code, replay, _) = ws.brokkr(&[
-        "runs",
-        "replay",
-        "--run",
-        &run_id,
-        "--db",
-        db.to_str().unwrap(),
-    ]);
+    let (code, replay, _) = ws.replay(&run_id);
     assert_eq!(code, Some(0));
     assert_eq!(replay["replay"], "deterministic");
-    let out = ws.path().join("export");
-    let (code, _, _) = ws.brokkr(&[
-        "journal",
-        "export",
-        "--run",
-        &run_id,
-        "--out",
-        out.to_str().unwrap(),
-        "--db",
-        db.to_str().unwrap(),
-    ]);
-    assert_eq!(code, Some(0));
-    let journal = out.join(format!("{run_id}.ndjson"));
+    let journal = ws.export(&run_id);
     let (code, verified, _) = ws.brokkr(&["journal", "verify", journal.to_str().unwrap()]);
     assert_eq!(code, Some(0));
     assert_eq!(verified["chain"], "verified");
@@ -3056,19 +2996,7 @@ mod journal_invariant {
     /// Byte-scan the exported journal for the value in every listed
     /// encoding, iterating the shared needle constant. Zero hits or fail.
     fn assert_journal_sealed(ws: &Workspace, run_id: &str) -> Vec<u8> {
-        let db = ws.db();
-        let out = ws.path().join("export");
-        ws.brokkr(&[
-            "journal",
-            "export",
-            "--run",
-            run_id,
-            "--out",
-            out.to_str().unwrap(),
-            "--db",
-            db.to_str().unwrap(),
-        ]);
-        let journal = std::fs::read(out.join(format!("{run_id}.ndjson"))).unwrap();
+        let journal = std::fs::read(ws.export(run_id)).unwrap();
         for (label, encode) in brokkr_protocol::secret::NEEDLE_ENCODINGS {
             let needle = encode(SECRET_VALUE.as_bytes());
             assert!(
