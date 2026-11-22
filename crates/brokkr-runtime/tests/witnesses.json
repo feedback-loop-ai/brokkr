@@ -2,9 +2,9 @@
   "bundles": {
     "recipes/brokkr-fast": "49f0a1a025ae1474befd946a1f76dd3760d77530437a06100e43b9989fab08af",
     "recipes/fast": "74e5788727c25d7406ce79d0e7b7d1b7be3b01f7ded565d2c1cbe54d7cfb831d",
-    "recipes/gpt-flash": "602328803a8fd84a4719a77a3af69263e0bf9353a9b35b9e6b8c29f8f3b13fc8",
+    "recipes/gpt-flash": "884bcfb8594583418edd0ec81e0e5f3772fd097fbcb702718cf5a632e5b84a9d",
     "recipes/landing": "1a03338f485c7a4e2590eede1e76cbf711d008690c61826b47a77404a146e515",
-    "recipes/night-shift": "59a55b1a19b04acf264066092b0a7a67bc517454482747d73ca215c2aa0e547a",
+    "recipes/night-shift": "3c5660a75ff45340da5c545801128ce769c3fdff5a53b7c28ca5a7e277468480",
     "recipes/node": "ac28f884a259229e44d29da6716837a049c213ca938f7cc5716fc8bb759f21f2",
     "recipes/panel-review": "7695ff67b2f7cc2a39fd2b14e55eab59047491717ba94c197782ad83ece992ae",
     "recipes/preflight": "580c810b70cc3b576e8002b0441c82fedddc171e0fce82783752243a7e83a9d6",

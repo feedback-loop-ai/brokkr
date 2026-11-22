@@ -194,9 +194,12 @@ compiles on this pin and is refused on every other one (decision
 wager, the lane trial and the escalation replay seated it at `high`. Its
 level table lives where the route's others do, on the entry in the
 headless profile's patch layer; the adapter declares none of its own. A
-dsh gate without declared hands keeps dsh's native tools under the mode
-`DSH_PERMISSION_MODE` names, because the seat's class does not narrow
-them; the addendum lists what the tier reaches.
+dsh gate runs tool-less: whatever `DSH_PERMISSION_MODE` names, the
+driver disables every native tool row through the measured `--patch`
+overlay, sets dsh's sandbox read-only and serves no MCP server, so the
+judge can neither read the secrets store nor write the worktree it
+judges. A dsh gate that declares hands is refused; the addendum lists
+what the tier reaches.
 
 The `flash` alias pins `deepseek-flash` on DeepSeek's own API: the name
 DeepSeek's [pricing page](https://api-docs.deepseek.com/quick_start/pricing/)
@@ -694,14 +697,15 @@ seat claude keep refusing under `harness` by name.
 
 **dsh** and **lanetally** declare no `hands.harness`, and a `harness`
 gate reaching either refuses naming the link, the provider and
-`hands.harness.gate` — exactly as a boxed gate on them refuses today.
-Of claude, codex and dsh, then, a `harness` gate stands on codex today
-and on claude once measured. A dsh work seat with hands may run under
-`open` at its harness's default. A dsh gate with hands is refused under
-`harness` for the missing gate fragment. Under `namespace` it compiles
-on `qwen4-max`, dsh's one judge, and is refused on any other dsh model
-by its `judges` list (decision [0021](../decisions/0021-model-policy.md),
-addendum of 2026-11-22).
+`hands.harness.gate`. Under `namespace` a boxed gate on lanetally is
+refused by its untrusted tier, and one on dsh because a dsh gate runs
+tool-less and declares no hands (decision
+[0021](../decisions/0021-model-policy.md), addendum of 2026-11-22).
+Of claude, codex and dsh, then, a `harness` gate with hands stands on
+codex today and on claude once measured. A dsh work seat with hands may
+run under `open` at its harness's default. A dsh gate without hands
+compiles under every boundary on `qwen4-max`, dsh's one judge, and is
+refused on any other dsh model by its `judges` list.
 
 ### A work seat on a provider with no per-tool flags
 

@@ -77,7 +77,7 @@ tier, so no agent chain written for one provider lands on the other.
 Nothing in this repository's journal records a night-shift run. What is
 structural fact:
 
-- Its intended saving is the implement seat on a local untrusted
+- Its intended saving is the implement seat on a local dsh
   lane, served by the operator's own hardware, which it now sits on. Whether the saving is real is what the
   first night-shift runs will show; nothing here has measured it.
 - `max_attempts: 1` caps the worst case at one session per seat entry

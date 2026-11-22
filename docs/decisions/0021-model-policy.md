@@ -201,9 +201,12 @@ the grant does and does not reach:
 - **Gate eligibility.** A gate seat, or any link of a gate's chain, may
   name dsh, but only on `qwen4-max`.
 - **Egress, unchanged.** dsh stays `uncontracted`, with `spark` and
-  `spark-glm` ruled `local` as before. A seat that binds a secret is still
-  refused on dsh's cloud routes (ruling 4, decision 0036 ruling 4). Trust
-  to judge is not clearance to receive.
+  `spark-glm` ruled `local` as before. A seat that binds a secret is
+  refused on dsh's cloud routes wherever the bundle's `egress_minimum` is
+  above `uncontracted`; a bundle whose operator rules the minimum
+  `uncontracted` admits that binding, as it does on every uncontracted
+  route (ruling 4 as enacted by decision 0036 ruling 4, where the minimum
+  is the operator's). Trust to judge is not clearance to receive.
 - **The tool-less gate.** The tier grants no hands, and a dsh gate is
   served none of dsh's own tools either:
   - The engine marks every gate-class site (`gate_seat`), and for a seat

@@ -30,7 +30,9 @@ Sol at `high` and then Astra at `max` (decision 0045's addendum of
 2026-09-30). Both are Codex models. `gpt-flash-task-planner` has no base office
 and is a definition of its own.
 
-DSH is an untrusted work provider: it cannot judge gates. Its adapter does not
+DSH is a work provider here: its adapter is trusted to judge only with
+`qwen4-max`, tool-less (decision 0021, addendum of 2026-11-22), and no gate
+in this recipe hires it. Its adapter does not
 support workspace hands or named tool filtering, so each Flash overlay names
 the base office's allow-list or workspace box it drops under `replaces`, with
 that reason, rather than losing it silently. Seven of the nine GPT agents declare workspace hands, which

@@ -31,7 +31,8 @@ Changes merged since v0.15.2 that the next release's notes carry.
   MCP server, whatever `DSH_PERMISSION_MODE` names, so the judge can
   neither read the secrets store nor write the worktree it judges. A dsh
   gate that declares hands is refused at compile. Egress is unchanged: a
-  dsh seat that binds a secret is still refused on dsh's cloud routes.
+  dsh seat that binds a secret is still refused on dsh's cloud routes,
+  unless the bundle's `egress_minimum` is ruled `uncontracted`.
   The `brokkr init` scaffold's dsh stays untrusted. The manifests of six
   recipes that consult the adapter move. Decision 0021's 2026-11-22
   addendum records the wager, the lane trial and the escalation replay,
