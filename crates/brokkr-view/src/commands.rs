@@ -18,19 +18,19 @@ use crate::ResidualFinding;
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum Command {
-    /// `brokkr operator retry`: re-runs the phase the run parked in, or
-    /// would, had it entered one.
+    /// `brokkr runs operator retry`: re-runs the phase the run parked in,
+    /// or would, had it entered one.
     Retry { phase: Option<String> },
-    /// `brokkr operator stop`.
+    /// `brokkr runs operator stop`.
     Stop,
     /// `brokkr resume`: drives the run again under its pinned bundle.
     Resume,
-    /// `brokkr conclude`: closes the run from its journal alone.
+    /// `brokkr runs conclude`: closes the run from its journal alone.
     Conclude,
 }
 
 impl Command {
-    /// The operator command this is, for the two `brokkr operator` takes.
+    /// The operator command this is, for the two `brokkr runs operator` takes.
     fn operator(&self) -> Option<OperatorCommand> {
         match self {
             Command::Retry { .. } => Some(OperatorCommand::Retry),
@@ -110,7 +110,7 @@ impl Serialize for CommandRefusal {
     }
 }
 
-/// What `brokkr operator` prints when the journal refuses `command` with
+/// What `brokkr runs operator` prints when the journal refuses `command` with
 /// the word `reason`, on run `run_id`. The verb prints this and the view
 /// offers it, so the two never say it two ways where the refusal was
 /// journaled. A concluded run's `stop` and `retry` are judged before their
@@ -118,14 +118,14 @@ impl Serialize for CommandRefusal {
 /// nothing is journaled (#440).
 pub fn operator_refusal(command: &str, reason: &str, run_id: &str) -> String {
     format!(
-        "refused operator {command} ({reason}): the run is not in a state this command can \
-         apply to; the refusal is journaled. Read it with: brokkr runs inspect --run {run_id}"
+        "refused runs operator {command} ({reason}): the run is not in a state this command \
+         can apply to; the refusal is journaled. Read it with: brokkr runs inspect --run {run_id}"
     )
 }
 
 /// A member retry refused before a command was journaled.
 pub fn member_retry_refusal(word: &str) -> String {
-    format!("refused operator retry --member ({word}): the run is not in a state a retry can apply to; nothing was journaled")
+    format!("refused runs operator retry --member ({word}): the run is not in a state a retry can apply to; nothing was journaled")
 }
 
 /// Whether Brokkr would take a command now.

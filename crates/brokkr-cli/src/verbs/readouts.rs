@@ -23,7 +23,7 @@ use crate::{compare, fleet, ledger, realms, render, run_view, selector, tui};
 use crate::{hearths_of, journal_of, now_rfc3339, open_journal, resolve_in_hearths};
 use crate::{summarize, ui_journal, watch_loop, Access, Exit, Invocation};
 
-/// `brokkr costs`: per-seat cost and session accounting.
+/// `brokkr stats costs`: per-seat cost and session accounting.
 pub(crate) fn costs(workspace: &Path, CostsArgs { run, journal }: CostsArgs) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
     let report = compare::costs(&store, &run)?;
@@ -31,7 +31,7 @@ pub(crate) fn costs(workspace: &Path, CostsArgs { run, journal }: CostsArgs) -> 
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr ledger`: the shipper's delivery ledger.
+/// `brokkr stats ledger`: the shipper's delivery ledger.
 pub(crate) fn ledger(
     workspace: &Path,
     LedgerArgs { run, journal, repo }: LedgerArgs,
@@ -52,7 +52,7 @@ pub(crate) fn ledger(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr ui`: serve the read-only surface through `serve_ui`.
+/// `brokkr system ui`: serve the read-only surface through `serve_ui`.
 pub(crate) fn ui(
     workspace: &Path,
     UiArgs {
@@ -136,7 +136,7 @@ fn print_served(view: brokkr_view::RunView, out: &mut dyn Write) -> Result<ExitC
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr inspect`: explain a run, whole or scoped to a phase or a seat,
+/// `brokkr runs inspect`: explain a run, whole or scoped to a phase or a seat,
 /// on `out`.
 pub(crate) fn inspect(
     workspace: &Path,
@@ -234,9 +234,9 @@ impl VerdictRows {
         }
         let read = head - self.unread;
         let line = format!(
-            "  … inspect read the newest {read} of the run's {head} journal rows for verdicts; \
-             the first {} were not read, and `inspect --phase <phase>` or `--seat <seat>` \
-             reads the run whole\n",
+            "  … runs inspect read the newest {read} of the run's {head} journal rows for \
+             verdicts; the first {} were not read, and `runs inspect --phase <phase>` or \
+             `--seat <seat>` reads the run whole\n",
             self.unread
         );
         match block.is_empty() {
@@ -444,7 +444,7 @@ fn print_retired(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr seats`: the seats block of `inspect`'s readout, on `out`.
+/// `brokkr runs seats`: the seats block of `inspect`'s readout, on `out`.
 pub(crate) fn seats(workspace: &Path, args: SeatsArgs, out: &mut dyn Write) -> Result<ExitCode> {
     seats_with(
         workspace,
@@ -537,7 +537,7 @@ pub(crate) fn watch(
     )
 }
 
-/// `brokkr replay`: rebuild state from the journal twice and compare.
+/// `brokkr runs replay`: rebuild state from the journal twice and compare.
 pub(crate) fn replay(
     workspace: &Path,
     ReplayArgs { run, journal }: ReplayArgs,
@@ -693,7 +693,7 @@ fn runs_fleet(hearths: &[Hearth], asked: (bool, fleet::Filter)) -> Result<ExitCo
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr realms`: the world, each realm with its path, branch and HEAD.
+/// `brokkr system realms`: the world, each realm with its path, branch and HEAD.
 pub(crate) fn realms(
     workspace: &Path,
     RealmsArgs { realms, db, json }: RealmsArgs,
@@ -728,7 +728,7 @@ pub(crate) fn realms(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr compare`: two runs' aligned outcomes.
+/// `brokkr runs compare`: two runs' aligned outcomes.
 pub(crate) fn compare(
     workspace: &Path,
     CompareArgs {

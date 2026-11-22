@@ -841,7 +841,7 @@ fn each_need_says_what_the_operator_can_do() {
     assert_eq!(Need::Parked.prompt(), None);
     assert_eq!(
         unfolded.prompt().as_deref(),
-        Some("quarantined: export and inspect")
+        Some("quarantined: journal export and runs inspect")
     );
     assert_eq!(
         unloaded.prompt().as_deref(),
@@ -849,7 +849,7 @@ fn each_need_says_what_the_operator_can_do() {
     );
     assert_eq!(
         stale.prompt().as_deref(),
-        Some("stale: no event since 116h00m; resume or conclude")
+        Some("stale: no event since 116h00m; resume or runs conclude")
     );
     assert_eq!(Need::Parked.way_out("r1"), Vec::<String>::new());
     assert_eq!(Need::Parked.commands("r1"), Vec::<String>::new());

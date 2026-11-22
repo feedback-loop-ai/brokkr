@@ -49,9 +49,9 @@ pub(crate) enum Shape {
 
 #[derive(Debug, Error)]
 pub(crate) enum Refusal {
-    #[error("phase '{phase}' runs no panel; use plain operator retry")]
+    #[error("phase '{phase}' runs no panel; use plain runs operator retry")]
     NoPanel { phase: String },
-    #[error("panel step '{step}' follows first step '{first}'; use plain operator retry")]
+    #[error("panel step '{step}' follows first step '{first}'; use plain runs operator retry")]
     PanelStepFollows { step: String, first: String },
     #[error("'{name}' is no panel member; the panel's tags are {tags}")]
     UnknownMember { name: String, tags: String },
@@ -63,19 +63,19 @@ pub(crate) enum Refusal {
         field: String,
         error: String,
     },
-    #[error("{why}; use plain operator retry")]
+    #[error("{why}; use plain runs operator retry")]
     Shape { why: Shape },
     #[error(
-        "members {members} have no settled verdict to carry; name them or use plain operator retry"
+        "members {members} have no settled verdict to carry; name them or use plain runs operator retry"
     )]
     Unsettled { members: String },
-    #[error("repository '{}' has no readable reviewed head; use plain operator retry", .repo.display())]
+    #[error("repository '{}' has no readable reviewed head; use plain runs operator retry", .repo.display())]
     NoHead { repo: std::path::PathBuf },
-    #[error("reviewed head moved: {observations}; use plain operator retry")]
+    #[error("reviewed head moved: {observations}; use plain runs operator retry")]
     HeadMoved { observations: String },
-    #[error("working tree is not clean: {observations}; use plain operator retry")]
+    #[error("working tree is not clean: {observations}; use plain runs operator retry")]
     TreeNotClean { observations: String },
-    #[error("inputs moved for effects {effects}; use plain operator retry")]
+    #[error("inputs moved for effects {effects}; use plain runs operator retry")]
     InputMoved { effects: String },
     #[error("carrying attempt '{attempt}' changed its reviewed subject: {observations}")]
     SubjectMoved {

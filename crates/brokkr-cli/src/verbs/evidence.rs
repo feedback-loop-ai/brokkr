@@ -1,4 +1,4 @@
-//! `brokkr evidence` (decision 0105 ruling 1(a)): list the host's
+//! `brokkr journal evidence` (decision 0105 ruling 1(a)): list the host's
 //! historical artifact roots with whether each still stands and its
 //! retirement, or retire one under the admission lock once its evidence is
 //! archived or discarded. The retirement is a sealed record beside the
@@ -21,7 +21,7 @@ use crate::{now_rfc3339, Exit};
 /// while another admission holds the lock.
 const DEADLINE: Duration = Duration::from_secs(3600);
 
-/// `brokkr evidence list` and `brokkr evidence retire`.
+/// `brokkr journal evidence list` and `brokkr journal evidence retire`.
 #[derive(clap::Subcommand)]
 pub(crate) enum EvidenceCmd {
     /// List every historical evidence root: its path, whether it exists,
@@ -34,7 +34,7 @@ pub(crate) enum EvidenceCmd {
     Retire(RetireArgs),
 }
 
-/// `brokkr evidence list`.
+/// `brokkr journal evidence list`.
 #[derive(clap::Args)]
 #[group(skip)]
 pub(crate) struct ListArgs {
@@ -43,13 +43,13 @@ pub(crate) struct ListArgs {
     pub(crate) json: bool,
 }
 
-/// `brokkr evidence retire`.
+/// `brokkr journal evidence retire`.
 #[derive(clap::Args)]
 #[group(skip)]
 #[command(group(ArgGroup::new("cause").required(true)))]
 pub(crate) struct RetireArgs {
-    /// The artifact root the historical record names, as `evidence list`
-    /// prints it.
+    /// The artifact root the historical record names, as `journal evidence
+    /// list` prints it.
     #[arg(long)]
     pub(crate) root: PathBuf,
     /// Archive every artifact into this absent or empty directory, write
@@ -72,7 +72,7 @@ pub(crate) struct RetireArgs {
     pub(crate) json: bool,
 }
 
-/// `brokkr evidence <command>`.
+/// `brokkr journal evidence <command>`.
 pub(crate) fn run(command: EvidenceCmd) -> Result<std::process::ExitCode> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -97,7 +97,7 @@ pub(crate) fn run_in(
     }
 }
 
-/// `brokkr evidence list`: every historical root, as text or one JSON
+/// `brokkr journal evidence list`: every historical root, as text or one JSON
 /// array. Every row is printed before a root's own problem makes the verb
 /// exit non-zero (decision 0105, M4).
 fn list(home: &Path, json: bool, out: &mut dyn Write) -> Result<std::process::ExitCode> {
@@ -143,7 +143,7 @@ fn painted(root: &EvidenceRoot) -> String {
     )
 }
 
-/// `brokkr evidence retire`: archive or discard, then seal the retirement
+/// `brokkr journal evidence retire`: archive or discard, then seal the retirement
 /// and print it.
 fn retire(
     home: &Path,

@@ -343,9 +343,9 @@ fn add_refuses_a_differing_agent_and_removes_a_refused_compiles_agents() {
     let before = repo.files();
     let ran = repo.brokkr("", &add);
     let differs = format!(
-        "error: recipes add replaces no agent definition, charter or capability definition, and \
-         the source's differ from what stands at {} (#696): reconcile or remove each; nothing \
-         was written\n",
+        "error: library recipes add replaces no agent definition, charter or capability \
+         definition, and the source's differ from what stands at {} (#696): reconcile or remove \
+         each; nothing was written\n",
         planted.display()
     );
     assert_eq!((ran.code, ran.stderr), (Some(1), differs));
@@ -586,9 +586,9 @@ fn add_refuses_a_definition_it_would_replace_or_cannot_read() {
     };
     let planted = repo.write(".brokkr/capabilities/web-fetch.json", "{}\n");
     refused(format!(
-        "error: recipes add replaces no agent definition, charter or capability definition, and \
-         the source's differ from what stands at {} (#696): reconcile or remove each; nothing \
-         was written\n",
+        "error: library recipes add replaces no agent definition, charter or capability \
+         definition, and the source's differ from what stands at {} (#696): reconcile or remove \
+         each; nothing was written\n",
         planted.display()
     ));
     let source = library.join("capabilities/web-fetch.json");
@@ -665,9 +665,9 @@ fn add_refuses_a_destination_that_is_no_plain_file() {
 /// file, when `at` is a link or not a plain file (#703).
 fn occupied(at: &Path) -> String {
     format!(
-        "error: the workspace's {} is a link, or not a plain file, where recipes add would copy \
-         one; recipes add neither reads through nor replaces it (#703): remove it; nothing was \
-         written\n",
+        "error: the workspace's {} is a link, or not a plain file, where library recipes add \
+         would copy one; library recipes add neither reads through nor replaces it (#703): \
+         remove it; nothing was written\n",
         at.display()
     )
 }
@@ -762,8 +762,9 @@ fn add_refuses_a_destination_beneath_a_plain_file() {
         ],
     );
     let blocked = format!(
-        "error: the workspace's {} is not a directory, where recipes add would copy a file \
-         beneath it; recipes add does not replace it (#779): remove it; nothing was written\n",
+        "error: the workspace's {} is not a directory, where library recipes add would copy a \
+         file beneath it; library recipes add does not replace it (#779): remove it; nothing \
+         was written\n",
         repo.path(".brokkr/capabilities").display()
     );
     assert_eq!((ran.code, ran.stderr), (Some(1), blocked));
@@ -795,9 +796,9 @@ fn add_refuses_a_destination_beneath_a_linked_directory() {
         let before = repo.files();
         let ran = repo.brokkr("", &add);
         let linked = format!(
-            "error: the workspace's {} is a link, where recipes add would copy a file beneath \
-             it; recipes add neither reads through nor replaces it (#735): remove it; nothing \
-             was written\n",
+            "error: the workspace's {} is a link, where library recipes add would copy a file \
+             beneath it; library recipes add neither reads through nor replaces it (#735): \
+             remove it; nothing was written\n",
             at.display()
         );
         assert_eq!((ran.code, ran.stderr), (Some(1), linked));
@@ -908,8 +909,8 @@ fn a_library_named_like_the_folder_gives_its_own_definitions() {
     let ran = repo.brokkr("", &add);
     let (at, root) = (checkout.display(), outer.display());
     let refusal = format!(
-        "error: recipes add cannot read {at}: {at}/.brokkr is not at this repository's root \
-         {root} (decision 0083); Brokkr reads only {root}/.brokkr: move or remove it (#696); \
+        "error: library recipes add cannot read {at}: {at}/.brokkr is not at this repository's \
+         root {root} (decision 0083); Brokkr reads only {root}/.brokkr: move or remove it (#696); \
          nothing was written\n"
     );
     assert_eq!((ran.code, ran.stderr), (Some(1), refusal));

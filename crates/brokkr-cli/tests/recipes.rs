@@ -501,8 +501,8 @@ fn add_with_path_refuses_what_it_cannot_reach_and_writes_nothing() {
 
     let unplain = |path: &str| {
         format!(
-            "error: --path '{path}' is not a relative path of plain names, so recipes add cannot \
-             judge where in the clone it leads (#695); nothing was cloned or written\n"
+            "error: --path '{path}' is not a relative path of plain names, so library recipes add \
+             cannot judge where in the clone it leads (#695); nothing was cloned or written\n"
         )
     };
     let mut refusals: Vec<(&str, &str, String)> = ["../x", "/abs", "recipes/./x", "recipes/x/", ""]
@@ -617,8 +617,8 @@ fn add_refuses_symlinks_and_removes_the_partial_copy() {
 /// its one pin.
 pub(crate) fn in_folder(root: &Path, place: &Path) -> String {
     format!(
-        "error: recipes add would install into {place}, inside the folder repository {root} but \
-         not its shelf {root}/.brokkr/recipes/ (decision 0083; #675, #696): a folder repository \
+        "error: library recipes add would install into {place}, inside the folder repository \
+         {root} but not its shelf {root}/.brokkr/recipes/ (decision 0083; #675, #696): a folder repository \
          keeps its named recipes on its shelf, so nothing was written\n",
         root = root.display(),
         place = place.display()

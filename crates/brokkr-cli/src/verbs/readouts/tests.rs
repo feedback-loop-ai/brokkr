@@ -149,7 +149,7 @@ fn every_run_reader_reads_through_the_pages() {
     }
 }
 
-/// `brokkr inspect --run <run>`, `--json` as `json` asks, over `db`, and
+/// `brokkr runs inspect --run <run>`, `--json` as `json` asks, over `db`, and
 /// `--capability-call` where `call` names one.
 fn inspect_args(db: &Path, run: &str, json: bool, call: Option<&str>) -> InspectArgs {
     let (realms, db, capability_call) = (None, Some(db.to_path_buf()), call.map(String::from));
@@ -166,7 +166,7 @@ fn inspect_args(db: &Path, run: &str, json: bool, call: Option<&str>) -> Inspect
     }
 }
 
-/// `brokkr seats --run <run>`, `--json` as `json` asks, over `db`.
+/// `brokkr runs seats --run <run>`, `--json` as `json` asks, over `db`.
 fn seats_args(db: &Path, run: &str, json: bool) -> SeatsArgs {
     let (run, realms, db) = (run.to_string(), None, Some(db.to_path_buf()));
     SeatsArgs {
@@ -258,7 +258,7 @@ fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
     }
 }
 
-/// `brokkr seats` keeps the width it had before the graph's tables
+/// `brokkr runs seats` keeps the width it had before the graph's tables
 /// (#1167): `COLUMNS` where it is set, else 80, and never the width the
 /// terminal measures, here 60 cells, which would cut its activity where
 /// main 5c0386f13 printed it whole.
@@ -386,7 +386,7 @@ fn runs_paints_a_cooling_run_with_the_aggregate_s_later_end() {
     assert!(!printed.contains("needs you"), "{printed}");
 }
 
-/// `brokkr inspect` shows the same wait from the same derivation: its
+/// `brokkr runs inspect` shows the same wait from the same derivation: its
 /// aggregate end and the provider's words, and not the event's first end.
 #[test]
 fn inspect_shows_a_cooling_run_s_wait_with_the_aggregate_s_later_end() {
@@ -478,9 +478,9 @@ fn turns(
 /// `unread` of the `head` rows unread.
 fn unread_line(unread: u64, head: u64) -> String {
     format!(
-        "  … inspect read the newest {} of the run's {head} journal rows for verdicts; \
-         the first {unread} were not read, and `inspect --phase <phase>` or `--seat <seat>` \
-         reads the run whole\n",
+        "  … runs inspect read the newest {} of the run's {head} journal rows for \
+         verdicts; the first {unread} were not read, and `runs inspect --phase <phase>` or \
+         `--seat <seat>` reads the run whole\n",
         head - unread
     )
 }
