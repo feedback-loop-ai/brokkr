@@ -1353,3 +1353,82 @@ fn a_descendant_the_table_reads_gone_settles_the_attempt() {
     PLANTED_KILL.with(|planted| *planted.borrow_mut() = None);
     assert_eq!(report.cleanup, crate::Cleanup::Settled);
 }
+
+thread_local! {
+    /// Whether this thread's table was read: the read before a spawn.
+    static TABLE_READ: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The real table, marking this thread's read of it.
+fn marked() -> Result<Vec<Entry>, TableError> {
+    TABLE_READ.with(|read| read.set(true));
+    (Host::REAL.table)()
+}
+
+/// `sh -c script`, as a driver's command.
+fn shell(script: &str) -> [String; 3] {
+    ["sh".into(), "-c".into(), script.into()]
+}
+
+/// Fix round 0106b1r9, E1: an absolute deadline is read at the fork
+/// itself, after the table read that admits the driver and under the
+/// registry's lock, as the last step before the spawn; one found past
+/// there spawns nothing, and the spawn refuses as late.
+#[test]
+fn a_deadline_found_past_at_the_fork_spawns_nothing() {
+    use crate::process::deadline::Arm;
+    use crate::process::{By, DriverProcess, Limits, SpawnEnv, SpawnError};
+    let dir = tempfile::tempdir().unwrap();
+    let ran = dir.path().join("ran");
+    let seen = std::cell::Cell::new(None);
+    let left = || {
+        let locked = LIVE.try_lock().is_err();
+        seen.set(Some((TABLE_READ.with(std::cell::Cell::get), locked)));
+        None
+    };
+    let by = By {
+        kill: Instant::now() + Duration::from_secs(30),
+        left: &left,
+    };
+    let command = shell(&format!("touch '{}'", ran.display()));
+    let host = Host {
+        table: marked,
+        ..Host::REAL
+    };
+    let (deadline, env) = (Some(Arm::By(by)), &SpawnEnv::Inherit);
+    let refused =
+        DriverProcess::spawn_limited(&command, dir.path(), deadline, env, host, Limits::DEFAULT);
+    let named = command.join(" ");
+    assert!(
+        matches!(&refused, Err(SpawnError::Late { command }) if *command == named),
+        "{:?}",
+        refused.err()
+    );
+    assert_eq!(seen.get(), Some((true, true)));
+    assert!(!ran.exists());
+}
+
+/// Fix round 0106b1r9, E1: the watchdog signals its driver's group at the
+/// deadline itself, waiting on no lock: while another holds the registry,
+/// as a second attempt's spawn or kill does, the driver is still killed,
+/// and its stdout closes, long before its own sixty seconds.
+#[test]
+fn the_watchdog_kills_at_its_deadline_while_the_registry_is_held() {
+    use crate::process::{By, DriverProcess, SpawnEnv, Stdout};
+    let left = || Some(Duration::from_secs(1));
+    let began = Instant::now();
+    let by = By {
+        kill: began + Duration::from_millis(200),
+        left: &left,
+    };
+    let here = std::path::Path::new(".");
+    let spawned = DriverProcess::spawn_by(&shell("exec sleep 60"), here, by, &SpawnEnv::Inherit);
+    let process = spawned.unwrap();
+    let held = live();
+    let closed = process.stdout.recv_timeout(Duration::from_secs(30));
+    drop(held);
+    assert!(matches!(closed, Ok(Stdout::Eof)), "{:?}", began.elapsed());
+    let input = serde_json::json!({});
+    let report = process.run_attempt("test", "effect", "attempt", "seat", input, |_| {});
+    assert!(report.deadline_killed);
+}

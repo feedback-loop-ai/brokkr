@@ -24,7 +24,7 @@ use crate::bundle::{
 };
 use crate::engine::broker::{observed, settlement};
 use crate::engine::carry::record::Tag;
-use crate::engine::dispatch::{spawn_site_by, Dispatch, SpawnDeadline, Unspawned};
+use crate::engine::dispatch::{spawn_site_by, Dispatch, ProbeDeadline, SpawnDeadline, Unspawned};
 use crate::engine::sequence::{
     step_allowed_results, step_driver_input, StepComposition, StepInputKind,
 };
@@ -127,12 +127,12 @@ fn probe_body<'a>(picked: &'a ProbeSeat, strategy: Option<&str>) -> ExecutableBo
 }
 
 /// What an admitted probe holds before its driver composes: the attempt
-/// name, the input it runs with, and the one instant its hold and its
-/// driver both end by (fix round 0106b1r5, H2).
+/// name, the input it runs with, and the one deadline its hold and its
+/// driver both end by (fix rounds 0106b1r5, H2, and 0106b1r9, E1).
 struct AdmittedProbe {
     attempt: String,
     input: Value,
-    ends: OffsetDateTime,
+    deadline: ProbeDeadline,
 }
 
 /// A probe whose deadline passed before its driver could be spawned (fix
@@ -180,13 +180,12 @@ impl Engine {
         let observed = observed();
         let began = Instant::now();
         let deadline = Duration::from_secs(picked.seat.limits.timeout_seconds);
-        // The probe's one deadline, taken once as it begins: its hold ends
-        // there and its driver is armed with what remains of it at spawn.
+        // The probe's one deadline, taken once as it begins, on the
+        // monotonic clock read above and then the engine's: its hold ends
+        // after it, the fork reads it, and its watchdog kills at it.
         let now = self.now();
-        let ends = now.saturating_add(time::Duration::seconds(
-            i64::try_from(deadline.as_secs()).unwrap_or(i64::MAX),
-        ));
-        if let Err(unheld) = self.hold_the_route(wait, now, ends) {
+        let ends = ProbeDeadline::begun(began, now, deadline);
+        if let Err(unheld) = self.hold_the_route(wait, now, ends.ends) {
             return Ok(Err(Probe::Parked(Park::ruled(format!(
                 "the cool-down probe for {}/{} was not admitted: its route's hold was not \
                  written: {unheld}",
@@ -209,7 +208,7 @@ impl Engine {
         Ok(Ok(AdmittedProbe {
             attempt,
             input,
-            ends,
+            deadline: ends,
         }))
     }
 
@@ -324,7 +323,7 @@ impl Engine {
             admitted.input,
             hands.as_ref(),
             &selection,
-            admitted.ends,
+            admitted.deadline,
             wait,
         );
         Ok(probe)
@@ -394,7 +393,7 @@ impl Engine {
                     body,
                 );
                 let probe =
-                    self.spawn_probe(&at, &run.spawn, run.input.clone(), prepared.ends, wait);
+                    self.spawn_probe(&at, &run.spawn, run.input.clone(), prepared.deadline, wait);
                 Ok(probe)
             }
             ProbeForm::Sequence(steps) => {
@@ -540,7 +539,7 @@ impl Engine {
             at.picked,
             body,
         );
-        let probe = self.spawn_probe(&dispatch, &spawn, input, prepared.ends, at.wait);
+        let probe = self.spawn_probe(&dispatch, &spawn, input, prepared.deadline, at.wait);
         Ok(probe)
     }
 
@@ -608,7 +607,7 @@ impl Engine {
             &dispatch,
             &run.spawn,
             run.input.clone(),
-            prepared.ends,
+            prepared.deadline,
             at.wait,
         );
         Ok(probe)
@@ -625,30 +624,32 @@ impl Engine {
         mut input: Value,
         hands: Option<&HandsSpec>,
         selection: &Selection,
-        ends: OffsetDateTime,
+        deadline: ProbeDeadline,
         wait: &ProviderWait,
     ) -> Probe {
         let composed = self.composed_single(at, selection, &mut input, hands, &[]);
         let spawn = composed.expect("a single seat composed its command");
-        self.spawn_probe(at, &spawn, input, ends, wait)
+        self.spawn_probe(at, &spawn, input, deadline, wait)
     }
 
     /// Spawn one admitted probe's already-composed site and run it to its
     /// end: the single seat's composed spawn and the panel member's own.
-    /// `ends`, the probe's one deadline, travels to the fork as an instant
-    /// on the engine's clock: a probe already past it composes no spawn,
-    /// the fork checks it again after every other check, and the watchdog
-    /// kills at it, never at a length sampled earlier. A probe not spawned
-    /// leaves its hold standing past `ends` (fix rounds 0106b1r5, H2, and
-    /// 0106b1r6, D1).
+    /// `deadline`, the probe's one deadline, travels to the fork as it was
+    /// taken: a probe already past it composes no spawn, the fork reads it
+    /// again on the engine's clock under the registry's lock as the last
+    /// step before the spawn, and the watchdog kills at its own instant,
+    /// never at a length sampled earlier. A probe not spawned leaves its
+    /// hold standing past it (fix rounds 0106b1r5, H2, 0106b1r6, D1, and
+    /// 0106b1r9, E1).
     fn spawn_probe(
         &mut self,
         at: &Dispatch<'_>,
         spawn: &SiteSpawn,
         input: Value,
-        ends: OffsetDateTime,
+        deadline: ProbeDeadline,
         wait: &ProviderWait,
     ) -> Probe {
+        let ends = deadline.ends;
         if ends <= self.now() {
             return Late::park(wait, ends);
         }
@@ -658,7 +659,7 @@ impl Engine {
             .map(|held| Door::of(held, at.site_name, None));
         let workdir = self.workdir();
         let now = &*self.cooldown.clock.now;
-        let by = SpawnDeadline::By { ends, now };
+        let by = SpawnDeadline::By { deadline, now };
         let (process, input) = match spawn_site_by(&self.bundle, spawn, &input, &workdir, by, door)
         {
             Ok(started) => started,

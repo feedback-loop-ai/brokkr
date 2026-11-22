@@ -82,7 +82,7 @@ fn launch(script: &str, limits: Limits, deadline: Option<Duration>) -> DriverPro
     let mut process = DriverProcess::spawn_limited(
         &command(script),
         Path::new("."),
-        deadline.map(crate::process::Deadline::After),
+        deadline.map(crate::process::Arm::After),
         &SpawnEnv::Inherit,
         Host::REAL,
         limits,

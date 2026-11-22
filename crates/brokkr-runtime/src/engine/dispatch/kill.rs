@@ -1,24 +1,69 @@
-//! When a spawned driver is killed (fix round 0106b1r6, D1): every
-//! attempt's length, counted from its watchdog's arming, or a cool-down
-//! probe's one absolute deadline on the engine's clock. The probe's is
-//! read again immediately before the fork, after the door, record,
-//! charter and settlement work, and the watchdog is armed at that same
-//! instant, so nothing that passes between the probe's start and its kill
-//! moves the kill past the hold its route stands under.
+//! When a spawned driver is killed (fix rounds 0106b1r6, D1, and
+//! 0106b1r9, E1): every attempt's length, counted from its watchdog's
+//! arming, or a cool-down probe's one absolute deadline. The probe takes
+//! that deadline once, as it begins, on both clocks at once: the engine's,
+//! which its hold ends after and the fork reads, and the monotonic one,
+//! which its watchdog kills at. The fork reads it once more, under the
+//! registry's lock as the last step before the spawn, after the door,
+//! record, charter and settlement work, and the watchdog's kill is that
+//! same instant carried as it was taken, never "now plus what was left",
+//! so nothing that passes between the probe's start and its kill moves the
+//! kill past the hold its route stands under.
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
-use brokkr_protocol::process::Deadline;
+use brokkr_protocol::process::{By, DriverProcess, SpawnEnv, SpawnError};
 use time::OffsetDateTime;
+
+/// A probe's one deadline, taken as it begins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::engine) struct ProbeDeadline {
+    /// On the engine's clock: what the probe's hold ends after, and what
+    /// the fork reads.
+    pub(in crate::engine) ends: OffsetDateTime,
+    /// On the monotonic clock: where the probe's watchdog kills.
+    pub(in crate::engine) kill: Instant,
+}
+
+impl ProbeDeadline {
+    /// `length` after the probe began: `began` on the monotonic clock, read
+    /// before `now` on the engine's, so a pause between the two readings
+    /// moves the kill earlier, never later.
+    pub(in crate::engine) fn begun(began: Instant, now: OffsetDateTime, length: Duration) -> Self {
+        let seconds = i64::try_from(length.as_secs()).unwrap_or(i64::MAX);
+        ProbeDeadline {
+            ends: now.saturating_add(time::Duration::seconds(seconds)),
+            kill: began + length,
+        }
+    }
+
+    /// What remains of it at `now` on the engine's clock: `None` at or
+    /// past it.
+    fn left(self, now: OffsetDateTime) -> Option<Duration> {
+        let left = self.ends - now;
+        (left > time::Duration::ZERO).then(|| left.unsigned_abs())
+    }
+
+    /// The deadline the spawn takes: the fork reads `left`, and the
+    /// watchdog kills at this deadline's own instant, carried as it was
+    /// taken.
+    fn watched<'a>(self, left: &'a dyn Fn() -> Option<Duration>) -> By<'a> {
+        By {
+            kill: self.kill,
+            left,
+        }
+    }
+}
 
 /// A spawn's deadline, as the dispatch door carries it to the fork.
 #[derive(Clone, Copy)]
 pub(in crate::engine) enum SpawnDeadline<'a> {
     /// This long after the watchdog arms: every attempt's.
     After(Duration),
-    /// A probe's: killed at `ends` on the engine's clock `now`.
+    /// A probe's, read at the fork on the engine's clock `now`.
     By {
-        ends: OffsetDateTime,
+        deadline: ProbeDeadline,
         now: &'a (dyn Fn() -> OffsetDateTime + Send + Sync),
     },
 }
@@ -34,24 +79,36 @@ pub(in crate::engine) enum Unspawned {
     Late,
 }
 
-impl SpawnDeadline<'_> {
-    /// The watchdog's deadline, taken immediately before the fork: a
-    /// probe's instant is read on the engine's clock once more, and one at
-    /// or past it is not spawned.
-    pub(super) fn armed(self) -> Result<Deadline, Unspawned> {
-        match self {
-            SpawnDeadline::After(length) => Ok(Deadline::After(length)),
-            SpawnDeadline::By { ends, now } => {
-                let left = ends - now();
-                if left <= time::Duration::ZERO {
-                    return Err(Unspawned::Late);
-                }
-                let armed = left.unsigned_abs();
-                Ok(Deadline::At {
-                    kill: Instant::now() + armed,
-                    armed,
-                })
+impl From<SpawnError> for Unspawned {
+    fn from(error: SpawnError) -> Self {
+        match error {
+            SpawnError::Late { .. } => Unspawned::Late,
+            SpawnError::EmptyCommand | SpawnError::Spawn { .. } | SpawnError::Unwatched { .. } => {
+                Unspawned::Refused(error.to_string())
             }
         }
     }
 }
+
+impl SpawnDeadline<'_> {
+    /// Spawn `argv` under this deadline: a probe's is read on the engine's
+    /// clock at the fork itself, and one at or past it is not spawned.
+    pub(super) fn spawn(
+        self,
+        argv: &[String],
+        workdir: &Path,
+        env: &SpawnEnv,
+    ) -> Result<DriverProcess, Unspawned> {
+        let spawned = match self {
+            SpawnDeadline::After(length) => DriverProcess::spawn(argv, workdir, Some(length), env),
+            SpawnDeadline::By { deadline, now } => {
+                let left = || deadline.left(now());
+                DriverProcess::spawn_by(argv, workdir, deadline.watched(&left), env)
+            }
+        };
+        spawned.map_err(Unspawned::from)
+    }
+}
+
+#[cfg(test)]
+mod tests;

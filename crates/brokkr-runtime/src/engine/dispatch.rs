@@ -30,7 +30,7 @@ use crate::bundle::{layer_drift, site_charter_text, Bundle, ExecutableBody, Invo
 
 pub(super) mod deadline;
 mod kill;
-pub(super) use kill::{SpawnDeadline, Unspawned};
+pub(super) use kill::{ProbeDeadline, SpawnDeadline, Unspawned};
 
 /// One attempt of a requested effect, as [`Engine::execute`] names it
 /// before anything spawns: the effect, the attempt, the seat and the case
@@ -564,7 +564,7 @@ fn checked_input(
 /// a later release asks the host about every driver that is not settled and
 /// never about a sibling's group (decision 0108 ruling 3). A seal that fails
 /// leaves this driver without a group: the release refuses for it and never
-/// guesses. The deadline is armed last, immediately before the fork.
+/// guesses. A probe's deadline is read last, at the fork itself.
 fn spawned(
     spawn: &SiteSpawn,
     workdir: &Path,
@@ -575,9 +575,7 @@ fn spawned(
         settlement::spawning(held, site, begun)
             .map_err(|refusal| Unspawned::Refused(refusal.to_string()))?;
     }
-    let deadline = deadline.armed()?;
-    let process = DriverProcess::spawn_by(&spawn.argv, workdir, deadline, &spawn.env)
-        .map_err(|error| Unspawned::Refused(error.to_string()))?;
+    let process = deadline.spawn(&spawn.argv, workdir, &spawn.env)?;
     if let Some(Door { held, site, .. }) = door {
         settlement::release::spawned(held, site, process.group());
     }

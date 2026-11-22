@@ -115,6 +115,9 @@ pub(super) enum Unspawned {
     /// tell the attempt's orphans from what ran before it.
     Table(Unsettled),
     Spawn(std::io::Error),
+    /// The fork's own check, the last step before it, found its deadline
+    /// passed (fix round 0106b1r9, E1).
+    Late,
 }
 
 impl Attempt {
@@ -123,12 +126,24 @@ impl Attempt {
     /// handler never misses a driver that is already running. The first
     /// attempt's `host` serves the tracker and the stop handler.
     pub(super) fn spawn(builder: &mut Command, host: Host) -> Result<(Child, Attempt), Unspawned> {
+        let (child, attempt, ()) = Attempt::spawn_at(builder, host, || Some(()))?;
+        Ok((child, attempt))
+    }
+
+    /// [`Attempt::spawn`], reading `at_fork` under that lock as the last
+    /// step before the spawn: `None` spawns nothing, and what it gives is
+    /// the attempt's to keep (fix round 0106b1r9, E1).
+    pub(super) fn spawn_at<T>(
+        builder: &mut Command,
+        host: Host,
+        at_fork: impl FnOnce() -> Option<T>,
+    ) -> Result<(Child, Attempt, T), Unspawned> {
         START.call_once(|| start(host));
         // SAFETY: `detach` runs between fork and exec, and makes system
         // calls and allocates nothing.
         unsafe { std::os::unix::process::CommandExt::pre_exec(builder, detach) };
-        let (child, key) = live().admit(host, builder)?;
-        Ok((child, Attempt { key }))
+        let (child, key, forked) = live().admit_at(host, builder, at_fork)?;
+        Ok((child, Attempt { key }, forked))
     }
 
     /// The deadline's kill, for the watchdog: read the table, then kill
@@ -192,7 +207,21 @@ impl Registry {
     /// `before`, and were the driver to exit before the next read, it
     /// would be attributed to this attempt and killed with it. What
     /// remains is one born between this read and the fork itself.
+    #[cfg(test)]
     fn admit(&mut self, host: Host, builder: &mut Command) -> Result<(Child, u64), Unspawned> {
+        let (child, key, ()) = self.admit_at(host, builder, || Some(()))?;
+        Ok((child, key))
+    }
+
+    /// [`Registry::admit`], where after the read `at_fork` is the last
+    /// step before the fork: a deadline it finds passed spawns nothing
+    /// (fix round 0106b1r9, E1).
+    fn admit_at<T>(
+        &mut self,
+        host: Host,
+        builder: &mut Command,
+        at_fork: impl FnOnce() -> Option<T>,
+    ) -> Result<(Child, u64, T), Unspawned> {
         // The first tick after the registry was empty has no previous walk
         // to compare, so it reads the table even when every row is known.
         #[cfg(target_os = "linux")]
@@ -200,6 +229,7 @@ impl Registry {
             self.walk = None;
         }
         let before = self.read(host.table).map_err(Unspawned::Table)?;
+        let forked = at_fork().ok_or(Unspawned::Late)?;
         let child = builder.spawn().map_err(Unspawned::Spawn)?;
         let key = NEXT.fetch_add(1, Ordering::Relaxed);
         let attempt = Live {
@@ -211,7 +241,7 @@ impl Registry {
             ended: None,
         };
         self.attempts.insert(key, attempt);
-        Ok((child, key))
+        Ok((child, key, forked))
     }
 
     /// Read the table, and observe what it shows.
