@@ -275,9 +275,10 @@ common head:
 - **A call to a tool that does not exist is recorded as a denial.** Each of
   those attempts is an entry in `result.permission_denials`, with
   `tool_denial_kind` `permission-rule` and `decision_reason_type` `other`:
-  13 entries in that turn. The turn ends `success`. Level 1's driver fails a
-  turn on any denial, so a boxed model that probes for a tool it does not
-  have fails its turn.
+  13 entries in that turn. The turn ends `success`. Level 1's driver folds
+  a denied call, and the turn still ends as its result says; a boxed seat's
+  driver fails the turn on any denial (#1235), so a boxed model that probes
+  for a tool it does not have fails its turn.
 - **What the box can see** (`box-reach`), each through the hands tool:
   - 4 entries in `/proc`, and process 1 is `/usr/bin/bwrap`;
   - `HOME` is `/runtime/home` and is empty; `/home` is empty;

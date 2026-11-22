@@ -28,10 +28,13 @@ Changes merged since v0.15.2 that the next release's notes carry.
   its own is refused before Qoder starts. Qoder does not fail closed, so
   the driver does: a boxed turn whose init does not show the engine's
   server `connected`, or shows any other server or tool, is refused, and
-  one that records a permission denial or a tool error saying the
-  engine's server is not connected fails. A seat compiled boxed that the
-  standing MCP fence serves no measured shape is refused, never launched
-  with Qoder's own tools. The unboxed seat is unchanged ([Qoder boxed
+  one that records a permission denial, or a tool error saying the
+  engine's server is not connected on a call of the engine's tool, fails;
+  it succeeds only on a result row whose `permission_denials` is an empty
+  list. A boxed seat on a host with no measured boxed shape is refused when
+  its bundle compiles, and again at launch, never launched with Qoder's own
+  tools. The unboxed seat is unchanged; decision 0115 (proposed) records
+  the rules ([Qoder boxed
   hands](../guides/provider-adapters.md#qoder-boxed-hands)).
 
 ## Changed

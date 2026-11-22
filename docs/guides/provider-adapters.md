@@ -564,19 +564,31 @@ gives the model a tool error and Qoder still runs to `success`; the
 driver fails the turn at that tool result. That second check rests on
 Qoder's own words: a tool result marked as an error whose text is
 exactly `Error: MCP server 'brokkr' is not connected`, as the record has
-it (`box-server-dies`). Qoder gives no other sign, so a later Qoder that
-words it differently is not caught by this check.
+it (`box-server-dies`), and only on the result of an `mcp_call` of the
+engine's tool earlier in the same stream: the same words answering any
+other call are not this sign. Qoder gives no other sign, so a later Qoder
+that words it differently is not caught by this check. The recording also
+marks that result `isHardFailure`; one recording does not measure it, so
+the driver does not read it.
 
 A model that calls a tool it does not have, one of Qoder's own or an
 engine tool it holds no grant for, is recorded by Qoder as a permission
 denial, and the turn still ends `success`. A boxed seat fails its turn on
 any denial, so a model that probes for a tool it does not have fails its
-turn. A failure before the first turn is a refusal to start; after it,
-the seat ends lost, as every stop does.
+turn. A boxed turn succeeds only on its own terminal evidence: the
+stream's result row, holding `permission_denials` as an empty list. A
+stream that ends before its result row, a result row without that member,
+and a member that is not a list each fail the turn, saying which, and the
+seat's result file is not taken. A failure before the first turn is a
+refusal to start; after it, the seat ends lost, as every stop does.
+Decision [0115](../decisions/0115-a-boxed-seat-of-a-harness-that-does-not-fail-closed-is-held-closed-by-its-driver.md)
+(proposed) records these rules.
 
-Seats compiled boxed are never served unboxed: where the standing MCP
-fence (macOS) serves a boxed seat no measured shape, the driver refuses
-it rather than launch it with Qoder's own tools.
+Seats compiled boxed are never served unboxed. A boxed qoder seat on a
+host or shape the adapter declares no measurement for, macOS today, is
+refused when its bundle compiles, whichever way the MCP fence stands,
+with the words a missing measured shape draws. The driver refuses the
+same seat at launch too, rather than launch it with Qoder's own tools.
 
 ## Hands
 
