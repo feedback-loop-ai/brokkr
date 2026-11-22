@@ -57,10 +57,8 @@ fn each_row<T: PartialEq + std::fmt::Debug>(rows: Vec<Row<T>>) {
 #[test]
 fn an_agent_driver_object_may_not_amend_even_one_field() {
     assert!(refuse_amendments("work", &json!({"driver": {}})).is_ok());
-    let refusal = error(refuse_amendments(
-        "work",
-        &json!({"driver": {"command": []}}),
-    ));
+    let raw = json!({"driver": {"command": []}});
+    let refusal = refuse_amendments("work", &raw).unwrap_err().to_string();
     assert!(refusal.contains("driver.command"), "{refusal}");
 }
 
