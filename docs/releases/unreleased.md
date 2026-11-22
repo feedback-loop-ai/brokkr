@@ -38,7 +38,7 @@ Changes merged since v0.15.2 that the next release's notes carry.
   before spawn. `BROKKR_AGY_BIN` overrides the binary. The cold and replacement
   shapes without hands are measured on Linux, so an agy seat compiles
   there ([provider
-  adapters](../guides/provider-adapters.md#antigravity-cli-a-provisional-harness)).
+  adapters](../guides/provider-adapters.md#antigravity-cli-a-trusted-harness)).
 - **An Antigravity CLI seat holds boxed hands** (#1224). Agy's example
   adapter declares hands that ride no argument, and its cold and
   replacement shapes boxed, measured on Antigravity CLI 1.5.13 on Linux,

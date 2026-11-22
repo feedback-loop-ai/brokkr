@@ -518,22 +518,24 @@ started the user-scope server, and `--setting-sources ""` alone still
 started the project-scope server, so the driver always passes both. A
 site that boxes its hands still refuses the seat.
 
-### Antigravity CLI, a provisional harness
+### Antigravity CLI, a trusted harness
 
-Antigravity CLI (`agy`) is the second provisional harness (#1200),
+Antigravity CLI (`agy`) was the second provisional harness (#1200),
 onboarded under decision
 [0075](../decisions/0075-harness-onboarding-in-a-day.md) at level 1, the
 controller's ruling of 2026-11-20. Level 1 is an adapter and a driver,
 `brokkr driver agy`, and nothing else. The seat is unboxed, except where
 its site boxes its hands: there it is boxed at level 3 (#1224), as
-[below](#a-boxed-agy-seat). It is never
-a judge or a gate, and it is never resumed, because the HOME it runs
-under is the engine's for one turn. Every model it serves is
-provisional, so it holds only the offices `realms.json` lists under
-`provisional_offices`. Its route is class `contracted`, the operator's
+[below](#a-boxed-agy-seat). It is never resumed, because the HOME it runs
+under is the engine's for one turn. Its trust tier is `trusted` and every
+model it serves is promoted, so it holds any office, and `agy-neon` and
+`agy-carbon` are its judges: a gate seats either of them and refuses
+`agy-hydrogen` and `agy-argon`, which are not in `judges`. The operator
+ruled all three on 2026-11-22, recorded in decision 0021's
+[addendum](../decisions/0021-model-policy.md#addendum--2026-11-22-operator-ruled-agy-is-trusted-its-four-models-are-promoted-and-neon-and-carbon-are-its-judges)
+(#1252). Its route is class `contracted`, the operator's
 ruling recorded in decision
-[0036](../decisions/0036-egress-is-a-property-of-the-route.md); its trust
-tier is `untrusted`. Every figure behind it was measured by hand on Linux
+[0036](../decisions/0036-egress-is-a-property-of-the-route.md). Every figure behind it was measured by hand on Linux
 ([the record](../evidence/adapters/agy-cli-1-5.md)): the first four
 measurements on Antigravity CLI 1.5.13, then on 1.5.14 the fifth, which
 first measured the boxed store and the self-update, and the sixth, which
@@ -725,8 +727,10 @@ is switched off, so a grant would do nothing: a seat whose arguments carry
 value, and leaves no HOME. The compile gives a boxed seat none of its
 office's grants.
 
-The boxed seat is still provisional and untrusted: a work seat in an office
-`provisional_offices` lists, never a gate or a judge, and never resumed.
+The boxed seat stands as the unboxed one does since decision 0021's
+[addendum](../decisions/0021-model-policy.md#addendum--2026-11-22-operator-ruled-agy-is-trusted-its-four-models-are-promoted-and-neon-and-carbon-are-its-judges):
+trusted, its models promoted, a gate open to Neon and Carbon alone, and
+never resumed.
 Store reads are measured boxed, on 1.5.14, the version of every boxed
 axis, as two facts kept apart. The box's reach: with the store sealed at
 its production path, the hands tool was denied it (`box-store-drive`),

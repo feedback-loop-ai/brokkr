@@ -126,3 +126,98 @@ run whatever their harness permits, `claude` included. A comparison
 across drivers must say so rather than claim a symmetry the data cannot
 express.
 
+## Addendum — 2026-11-22, operator ruled: agy is trusted, its four models are promoted, and Neon and Carbon are its judges
+
+Antigravity CLI (`agy`) is granted the **`trusted` tier**, its four
+models (`agy-neon`, `agy-carbon`, `agy-hydrogen`, `agy-argon`) are
+**promoted**, and **`agy-neon` and `agy-carbon` are its judges**
+(#1252). The operator ruled it in three steps:
+
+- 2026-11-20, commissioning the agy work: "ultra terms justify trusted
+  and contracted, but run an eval, Neon, Carbon, Hydrogen, Argon". The
+  terms are the Google AI Ultra subscription's, which the adapter's
+  `egress: contracted` already rests on (#1200).
+- 2026-11-22, asked which agy models may judge and on what evidence:
+  "neon and carbon are the judges".
+- 2026-11-22, asked which of the four models leave `provisional`: "all
+  models leave provisional".
+
+The evidence line is two wagers, which the controller ran and wrote up
+on #1200. Each arm differs from the incumbent's run in the implementer
+alone.
+
+Wager one is round six of #1200, the proof that an agy seat's check
+binds, rerun from the lane's own run
+`finish-issue-1200-the-proof-that-0fd42b65`. Its incumbent implementer,
+Opus 5.5, shipped flagged with two lows.
+
+- Unboxed, on an engine built from `ffcba90b` and agy 1.5.13: Neon
+  `finish-issue-1200-the-proof-that-acc0addd`, Carbon
+  `finish-issue-1200-the-proof-that-c79707a6`, Hydrogen
+  `finish-issue-1200-the-proof-that-40a78ba2` and Argon
+  `finish-issue-1200-the-proof-that-94f43065`. All four shipped
+  flagged, each with the one low the story inherits. Carbon was sent
+  back once on a flaky test and diagnosed it.
+- Boxed, holding the engine's hands tool and no native tool, on an
+  engine built from `1acdeeaa` and agy 1.5.14: Carbon
+  `finish-issue-1200-the-proof-that-98da3360`, Hydrogen
+  `finish-issue-1200-the-proof-that-791ff00c` and Argon
+  `finish-issue-1200-the-proof-that-85fbb096` each shipped flagged with
+  one low. Neon `finish-issue-1200-the-proof-that-403a9ca2` completed its
+  change, and its run stopped on two verify failures that were the
+  host's (#1239).
+
+Wager two is round five of #1200, production code that moves the
+workspace check to directly before the spawn, rerun from
+`finish-issue-1200-an-agy-seat-s--35ff49bc`. Its incumbent, Opus 5.5,
+took three implement rounds and parked on a medium.
+
+- Unboxed, on agy 1.5.14: Neon `finish-issue-1200-an-agy-seat-s--d9aa31f5`
+  and Carbon `finish-issue-1200-an-agy-seat-s--f592bebe` each took three
+  rounds and parked on a medium, as the incumbent did. Argon
+  `finish-issue-1200-an-agy-seat-s--e1b5c47c` failed verify three times
+  on the host's open-file limit (#1239) and was never reviewed. The
+  controller stopped Hydrogen `finish-issue-1200-an-agy-seat-s--b3ef774d`:
+  agy gives an unboxed command a terminal, and its test run waited on a
+  test that reads stdin (#1245). These two arms are not counted.
+- Boxed, on agy 1.5.14: Hydrogen
+  `finish-issue-1200-an-agy-seat-s--e646f969` shipped flagged with two
+  lows after three rounds. Argon `finish-issue-1200-an-agy-seat-s--501e9e9d`
+  took three rounds and parked on a medium, as the incumbent did.
+
+| Model | Wager one, unboxed | Wager one, boxed | Wager two, unboxed | Wager two, boxed |
+|---|---|---|---|---|
+| Opus 5.5 (incumbent) | shipped flagged, two lows | — | three rounds, parked on a medium | — |
+| Neon | shipped flagged, one low | change complete, stopped on the host (#1239) | three rounds, parked on a medium | — |
+| Carbon | shipped flagged, one low | shipped flagged, one low | three rounds, parked on a medium | — |
+| Hydrogen | shipped flagged, one low | shipped flagged, one low | stopped by the controller (#1245), not counted | shipped flagged, two lows, three rounds |
+| Argon | shipped flagged, one low | shipped flagged, one low | failed verify on the host (#1239), not counted | three rounds, parked on a medium |
+
+A dash marks an arm the evidence does not include.
+
+What the evidence shows: on two real stories, each of the four models
+delivered work that the same panel judged as it judged the incumbent's,
+or better, and no review of any arm drew a security finding.
+
+What it does not show. No agy model sat as a judge in any run, so when
+the operator named the judges, no agy model had a judging record: that
+ruling rests on the implementer wagers and the operator's judgment, not
+on a record of judging. Agy reports no price, so cost per accepted
+change is not measured. Only tokens are, and on wager two they ran
+between 1.4 and 6 times the incumbent's, mostly cache reads. Each arm is
+one run. The boxed and unboxed arms of wager two are not like for like.
+
+This is the road rulings 3, 4 and 7 order: evidence first, then the
+operator's recorded ruling, on the trust axis and the egress axis
+apart. The egress class stays `contracted`, as ruled for #1200. The
+promotion of the four models is the one decision 0075 ruling 6 leaves
+to the operator, recorded here with the wagers' run ids. It is enacted
+as data in `docs/examples/adapters/agy.json`: `trust_tier` is
+`trusted`, every model is a bare id, and `judges` lists `agy-carbon` and
+`agy-neon`.
+
+Not granted here: Hydrogen and Argon are promoted and are **not
+judges**. A gate seat on either is still refused, now because it is not
+in `judges` (decision 0041 ruling 3), no longer because of its tier.
+The **binding grant** is not granted, as for codex.
+
