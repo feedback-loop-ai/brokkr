@@ -319,10 +319,11 @@ fn assert_the_guide_agrees(boxed: (&str, bool), without_hands: &str) {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/guides/provider-adapters.md");
     let guide = std::fs::read_to_string(guide).unwrap();
     let joined = guide.replace('\n', " ");
-    // Each version is found by the one boundary rule, [`whole`].
-    let summary = format!("without hands on {without_hands} and boxed on {}", boxed.0);
+    // Each version is found by the one boundary rule, [`whole`], with the
+    // comma that follows it in the guide.
+    let summary = format!("without hands on {without_hands} and boxed on {},", boxed.0);
     assert!(whole(&joined, &summary), "{summary}");
-    let store = format!("Store reads are measured boxed, on {}", boxed.0);
+    let store = format!("Store reads are measured boxed, on {},", boxed.0);
     assert_eq!(whole(&joined, &store), boxed.1, "{store}");
     let holds_all = |text: &str, claims: &[&str]| claims.iter().all(|claim| text.contains(claim));
     assert_eq!(holds_all(&joined, &GUIDE_STORE_PARAGRAPH), boxed.1);
@@ -343,8 +344,8 @@ fn assert_the_guide_agrees(boxed: (&str, bool), without_hands: &str) {
     };
     let (_, unmeasured_boxed) = unmeasured.split_once("Boxed:").unwrap();
     for version in [
-        format!("Cold and replacement without hands: Antigravity CLI {without_hands}"),
-        format!("Cold and replacement, boxed: Antigravity CLI {}", boxed.0),
+        format!("Cold and replacement without hands: Antigravity CLI {without_hands},"),
+        format!("Cold and replacement, boxed: Antigravity CLI {},", boxed.0),
     ] {
         assert!(whole(measured, &version), "{version}");
     }
@@ -360,8 +361,8 @@ fn assert_the_guide_agrees(boxed: (&str, bool), without_hands: &str) {
 /// E1 and E2 of #1224's fourth round, cut down to what binds (#1224): every
 /// sentence of agy's example, the carriage's and each axis of each shape,
 /// holds each row [`AGY_CITATIONS`] lists for it by (a), (b) and (c); a
-/// misspelt token, a file that does not exist and a changed shape version
-/// each fail, as do a token continued past a `.` and a token led by another
+/// misspelt token, a file that does not exist, a changed shape version and
+/// a carriage row whose `-v14` file is not on 1.5.14 each fail, as do a token continued past a `.` and a token led by another
 /// word, which a substring check passes; the boxed shapes are measured on 1.5.14, each of their four
 /// axes measured; the shapes without hands are still on 1.5.13, their
 /// ambient axis alone measured; and the guide says what the adapter does.
@@ -411,6 +412,15 @@ fn each_agy_shape_names_the_version_its_recordings_are_from() {
         .map(|sentence| uncited(rows(&sentence.key), sentence, &files));
     let misversioned = Err(Uncited::Misversioned("box-reach-v14.ndjson"));
     assert_eq!(refused, Some(misversioned));
+    // The carriage is of no shape, so only its file's `-v14` name judges
+    // the version of its row.
+    let carried: &[Row] = &[(
+        "iso-07-engine-carriage-cold-v14",
+        "iso-07-engine-carriage-cold-v14.ndjson",
+        "1.5.13",
+    )];
+    let misversioned = Uncited::Misversioned("iso-07-engine-carriage-cold-v14.ndjson");
+    assert_eq!(uncited(carried, &all[0], &files), Err(misversioned));
     let McpSupport::Declared { shapes, .. } = &agy.mcp else {
         unreachable!("sentences read the declared facts");
     };
