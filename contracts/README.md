@@ -1255,11 +1255,14 @@ where the harness confirms one, a `root_session` kind. Beside a
 `root_session` kind, and only there, `resume_shape` names the one shape
 of the adapter's `resume` its seats rejoin by. The built-in
 drivers declare the kinds they write, so no shipped adapter carries the
-member, and `none` needs no declaration. Readers — export, import
-verification, offline verification and every seat readout — judge a
-record by this schema alone, so an exported journal verifies without the
-adapters that wrote it, and a kind no reader knows renders as its kind,
-locator and home.
+member, and `none` needs no declaration. Verifiers — export, import
+verification and offline verification — judge a record by this schema
+alone, so an exported journal verifies without the adapters that wrote
+it. A reader acts on a kind only at one of the three places v8 defines (a
+checkpoint's `transcript` and `root_session`, and a result's
+`transcript`) and only where the kind was judged, as item 3 of decision
+0075's 2026-11-21 addendum states: a seat readout renders a kind it does
+not know as its kind, locator and home, and acts on nothing of it.
 
 v8 stands at v7's own engine line: the store dispatches the 0.14 line
 and later to v8, and the 0.12 and 0.13 lines to v6. As with v2, no engine

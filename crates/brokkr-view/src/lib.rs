@@ -1630,12 +1630,15 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
         };
         let provenance = part.provenance.as_ref().map(provenance_of);
         let transcript = part.transcript.clone();
-        let session_id = transcript
-            .as_ref()
-            .filter(|transcript| transcript.kind == "claude-session")
-            .map(|transcript| transcript.locator.clone())
-            .filter(|locator| !locator.is_empty())
-            .or_else(|| part.told.session_id.clone());
+        // A transcript of a kind the view does not know is no fallback to
+        // the flat id (the controller's ruling R29).
+        let session_id = match transcript.as_ref() {
+            Some(read) if crate::transcript::TranscriptKind::parse(&read.kind).is_none() => None,
+            Some(read) if read.kind == "claude-session" && !read.locator.is_empty() => {
+                Some(read.locator.clone())
+            }
+            _ => part.told.session_id.clone(),
+        };
         let (usage_cell, tokens) = usage_cells(usage.as_ref(), usage_prefix);
         let carried_from = started::carried_from(events, scan, part);
         let activity = started::activity(events, scan, part, members.len(), carried_from.as_ref());

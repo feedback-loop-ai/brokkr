@@ -4,7 +4,9 @@
 //! grammar; the engine's writer, here, refuses a kind the seat's own
 //! harness does not declare, and anything at a kind place that is not a
 //! declared kind, on every road, whether or not a schema judges it after.
-//! Readers judge a record by the schema alone.
+//! A verifier judges a record by the schema alone; a reader acts on a kind
+//! only at a seat-record place and only where it was judged, as item 3 of
+//! decision 0075's addendum of 2026-11-21 states once.
 //!
 //! A seat's harness is the built-in driver its own command runs and the
 //! adapter its site answers to (the selected candidate's provider, or the
@@ -42,15 +44,20 @@ pub(crate) fn kind_word(text: &str) -> bool {
         && (text.split('-')).all(|part| !part.is_empty() && part.bytes().all(lower))
 }
 
-/// Which place of a seat record names a kind. These are every place
-/// seat-record v8 admits a `transcript` or a `root_session`:
-///
-/// - a checkpoint's `transcript` and `root_session` (`$defs/checkpoint`),
-///   and a successful result's `transcript` (`$defs/result`), the top
-///   level of the record either way;
-/// - a checkpoint's nested `result`: `$defs/result` beside `authored`,
-///   which admits a `transcript`, and otherwise any object, which admits
-///   both.
+/// Whether `kind` is one of v7's closed vocabulary: a kind a built-in
+/// driver writes, or `none`. A reader acts on these as it did before v8.
+pub(crate) fn v7_kind(kind: &str) -> bool {
+    kind == NONE || driver_kinds().contains(&kind)
+}
+
+/// Which place of a seat record names a kind. Seat-record v8 defines
+/// three: a checkpoint's `transcript` and `root_session`
+/// (`$defs/checkpoint`), and a result's `transcript` (`$defs/result`),
+/// whether the result stands alone or is nested in a checkpoint beside
+/// `authored`. A checkpoint's nested `result` is otherwise any object,
+/// which the schema judges for nothing, so the writer judges both of its
+/// places there too; a nested `root_session` is refused by the closed
+/// `$defs/result` wherever the schema judges one.
 ///
 /// `$defs/record_fields` names a `transcript` too, and no definition
 /// refers to it.
@@ -181,6 +188,13 @@ impl SeatKinds {
         named == Some(kind) || self.driver.and_then(driver_kind) == Some(kind)
     }
 
+    /// Whether a reader at this harness's site may act on a transcript of
+    /// `kind`: one of v7's, as before v8, or one this harness declares, the
+    /// check a write takes (the controller's ruling R26).
+    pub(crate) fn reads_transcript(&self, kind: &str) -> bool {
+        v7_kind(kind) || self.declares(Member::Transcript, kind)
+    }
+
     /// Whether this harness's adapter declares its kinds (`record_kinds`),
     /// so its only road to an offer is its declared root session kind and
     /// never decision 0030's flat session id (the controller's ruling R5).
@@ -228,6 +242,10 @@ impl SeatKinds {
             Nested::Members(nested) => nested,
             Nested::Sequence(_) | Nested::Other(_) | Nested::Absent => Members::default(),
         };
+        // A nested result's root session is no place seat-record v8
+        // defines: the closed result of an authored row refuses it, and
+        // the open object of any other row is judged for nothing. The
+        // check stays, and fails closed (the controller's ruling R30).
         let places = [
             (Member::Transcript, named.transcript),
             (Member::RootSession, named.root_session),

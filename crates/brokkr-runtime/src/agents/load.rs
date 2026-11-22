@@ -116,10 +116,16 @@ fn refuse_secret_stores(root: &Path, kind: &str) -> Result<(), LibraryError> {
     Ok(())
 }
 
-/// The JSON `bytes`, the file at `path` as it was read, parse as.
+/// The JSON `bytes`, the file at `path` as it was read, parse as, read
+/// once and STRICTLY: an adapter is authority data (decision 0065 ruling
+/// 4; decision 0075 ruling 5), so a key written twice anywhere in it is a
+/// refusal rather than whichever copy came second, and the value the
+/// strict parse returns is the one every declaration is read from (the
+/// controller's ruling R31).
 fn json_of(bytes: &[u8], path: &Path) -> Result<Value, LibraryError> {
-    serde_json::from_slice(bytes)
-        .map_err(|e| LibraryError::Invalid(format!("{}: {e}", path.display())))
+    let refused = |problem: String| LibraryError::Invalid(format!("{}: {problem}", path.display()));
+    let text = std::str::from_utf8(bytes).map_err(|e| refused(e.to_string()))?;
+    brokkr_core::canonical::parse_strict(text).map_err(refused)
 }
 
 /// An agent's source, read STRICTLY from its bytes (decision 0065, design
@@ -725,7 +731,7 @@ fn adapter_from(
         provider,
         binary,
         driver,
-    } = adapter::invocation(name, map, bytes, what)?;
+    } = adapter::invocation(name, map, what)?;
     let adapter::Served {
         models,
         provisional,

@@ -265,9 +265,13 @@ which wrote it did not declare. It is enforced from both sides:
    names an undeclared or out-of-grammar kind of the seat that wrote it
    is not carried, and one that is not an object has no kind place and
    carries for the join to poison.
-3. A reader acts on a kind only at a seat-record place, the four v8
-   defines (a checkpoint's `transcript` and `root_session`, a result's
-   `transcript` and `root_session`), and only on a kind that was judged.
+3. A reader acts on a kind only at a seat-record place, the three v8
+   defines (a checkpoint's `transcript` and `root_session`, and a
+   result's `transcript`, standing alone or nested in an engine-authored
+   checkpoint), and only on a kind that was judged. A verifier judges a
+   record by the schema alone, so an exported journal verifies without
+   the adapters that wrote it; acting on a kind is a reader's, not a
+   verifier's.
    A reader that takes a kind from an earlier event to act on it, where
    an earlier engine may have written that event, judges the kind itself
    before acting, as the resume offer does. A reader meeting a kind it

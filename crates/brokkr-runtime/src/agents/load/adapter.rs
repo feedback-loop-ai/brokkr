@@ -124,16 +124,10 @@ pub(super) struct Invocation {
 pub(super) fn invocation(
     name: &str,
     map: &Map<String, Value>,
-    bytes: &[u8],
     what: &str,
 ) -> Result<Invocation, LibraryError> {
-    // Every adapter is authority data: its native capabilities (decision
-    // 0065 ruling 4) and its models' tiers (decision 0075 ruling
-    // 5) alike, so a key written twice anywhere in the file is a refusal
-    // rather than whichever copy came second. `map` parsed from these
-    // same bytes, so they are UTF-8 and the lossy read is exact.
-    brokkr_core::canonical::parse_strict(&String::from_utf8_lossy(bytes))
-        .map_err(|problem| LibraryError::Invalid(format!("{what}: {problem}")))?;
+    // `map` is the strict parse of the adapter's bytes (`json_of`), so no
+    // key in it was written twice.
     let native = crate::capabilities::NativeInventory::parse(what, map.get("native_capabilities"))
         .map_err(LibraryError::Invalid)?;
     let provider = string(map, "provider", what)?;

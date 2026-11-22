@@ -817,11 +817,11 @@ fn a_model_written_twice_is_refused_rather_than_promoted_by_its_second_copy() {
     assert_ne!(twice, text);
     std::fs::write(&path, &twice).unwrap();
     // The parser reports the one-based column of the quote that closed
-    // the repeated value.
+    // the repeated value, beside the file its one strict read refused.
     let column = twice.find(bare).unwrap() + bare.len();
     let refusal = format!(
         "{}: key 'fresh' is written twice at line 1 column {column}",
-        adapter_file(&workspace)
+        path.canonicalize().unwrap().display()
     );
     assert_eq!(invalid(&workspace), refusal);
     match workspace.compile(seat("researcher", "gate"), &["researcher"]) {

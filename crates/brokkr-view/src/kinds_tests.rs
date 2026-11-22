@@ -63,6 +63,33 @@ fn a_transcript_kind_the_view_does_not_know_is_unsupported_and_the_rest_reads() 
     assert!(!selection.legacy);
 }
 
+/// The controller's ruling R29: a participant whose transcript names a
+/// kind the view does not know (`trellis-trail`) beside a flat
+/// `session_id` has no compatibility id, and the rest of its row reads; a
+/// `codex-thread` transcript beside the same flat id reads it, as before.
+#[test]
+fn a_transcript_kind_the_view_does_not_know_is_no_fallback_to_the_flat_session_id() {
+    let flat = |kind: &str| {
+        let mut events = seat_journal();
+        let checkpoint = &mut events[5].payload["checkpoint"];
+        checkpoint["transcript"] = reference(kind, "loc-1");
+        checkpoint["session_id"] = json!("flat-1");
+        participants(&events).remove(0)
+    };
+    let known = participants(&seat_journal()).remove(0);
+    let unknown = flat("trellis-trail");
+    assert_eq!(unknown.session_id, None);
+    assert_eq!(
+        unknown.transcript.map(|read| read.kind).as_deref(),
+        Some("trellis-trail")
+    );
+    assert_eq!(
+        (unknown.cost, unknown.turns, &unknown.status),
+        (known.cost, known.turns, &known.status)
+    );
+    assert_eq!(flat("codex-thread").session_id.as_deref(), Some("flat-1"));
+}
+
 /// A kind of a reader's own vocabulary standing only inside evidence — a
 /// result's `notes.members`, decide's `inputs.raw_result`, an unresolved
 /// cleanup's `received` — moves no reader: the view shows no transcript

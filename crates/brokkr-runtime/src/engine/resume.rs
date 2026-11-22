@@ -23,9 +23,13 @@ use brokkr_core::findings::Reporter;
 use brokkr_core::realms::Boundary;
 
 use crate::agents::kinds::{SeatKinds, Standing};
+
+mod legacy;
 use crate::agents::Candidate;
 pub(super) use crate::bundle::SiteKey;
 use crate::bundle::{ExecutableBody, Invocation, SeatClass, StepBody};
+pub(super) use legacy::legacy_instance_holds;
+use legacy::legacy_offer;
 
 /// The domain separator. Two digests over two different structures must
 /// never collide into each other — the site's own is `SiteKey`'s — and a
@@ -137,6 +141,10 @@ pub(super) struct ResumeTarget {
     /// this recorded home against the current admitted home before reading
     /// anything (design D6, Pass B completion).
     pub(super) persistence_home: Option<String>,
+    /// The offered root's kind, whose history alone the offer carries (the
+    /// controller's ruling R28); `None` for decision 0030's legacy offer,
+    /// whose evidence names no root.
+    pub(super) root_kind: Option<String>,
 }
 
 /// The harness facts the offered root was opened under, read off the same
@@ -270,7 +278,8 @@ impl SiteContext {
     }
 
     /// This context carrying the history of `offer`'s root at this site,
-    /// read from this run's journal alone. A site offered nothing, or a
+    /// read from this run's journal alone: a row counts where its root has
+    /// the offered root's kind and id both. A site offered nothing, or a
     /// root with no stamped row here (decision 0030's legacy evidence),
     /// has none: its every call is new.
     pub(super) fn offered(self, events: &[EventEnvelope], offer: Option<&ResumeTarget>) -> Self {
@@ -288,11 +297,13 @@ impl SiteContext {
                     (site == self.site_ref).then_some((attempt, checkpoint))
                 })
         };
+        let root = |row: &Value, field: &str| {
+            let place = row.get("root_session").and_then(|root| root.get(field));
+            place.and_then(Value::as_str).map(str::to_string)
+        };
         let attempts: BTreeSet<String> = rows()
-            .filter(|(_, row)| {
-                row.pointer("/root_session/id").and_then(Value::as_str)
-                    == Some(offer.provider_id.as_str())
-            })
+            .filter(|(_, row)| root(row, "id").as_ref() == Some(&offer.provider_id))
+            .filter(|(_, row)| root(row, "kind") == offer.root_kind)
             .map(|(attempt, _)| attempt.to_string())
             .collect();
         let calls = rows()
@@ -432,19 +443,25 @@ pub(super) fn eligible_offer(
         // provider that needs both coordinates (DSH) may only rejoin the
         // directory in which this exact ID was opened. A codex/claude row
         // that confirms from its own locator needs none, and a row that
-        // carries none still offers its provider ID.
+        // carries none still offers its provider ID. A transcript of a kind
+        // this harness does not declare is no transcript (the controller's
+        // ruling R26): its coordinates are not this offer's.
+        let transcript = checkpoint.get("transcript").filter(|transcript| {
+            let kind = transcript.get("kind").and_then(Value::as_str);
+            kind.is_some_and(|kind| context.kinds.reads_transcript(kind))
+        });
+        let coordinate = |field: &str| {
+            let place = transcript.and_then(|transcript| transcript.get(field));
+            let text = place
+                .and_then(Value::as_str)
+                .filter(|text| !text.is_empty());
+            text.map(str::to_string)
+        };
         return Some(ResumeTarget {
             provider_id: root.id,
-            persistence_locator: checkpoint
-                .pointer("/transcript/locator")
-                .and_then(Value::as_str)
-                .filter(|locator| !locator.is_empty())
-                .map(str::to_string),
-            persistence_home: checkpoint
-                .pointer("/transcript/home")
-                .and_then(Value::as_str)
-                .filter(|home| !home.is_empty())
-                .map(str::to_string),
+            persistence_locator: coordinate("locator"),
+            persistence_home: coordinate("home"),
+            root_kind: Some(root.kind),
         });
     }
     // Decision 0030's evidence, kept readable (design D8). Only an
@@ -465,6 +482,7 @@ pub(super) fn eligible_offer(
         persistence_locator: Some(provider_id.clone()),
         provider_id,
         persistence_home: None,
+        root_kind: None,
     })
 }
 
@@ -499,64 +517,6 @@ fn started_attempt<'a>(events: &'a [EventEnvelope], attempt: &str) -> Option<&'a
         .filter(|event| event.event_type == EventType::EffectStarted)
         .find(|event| event.attempt_id.as_deref() == Some(attempt))
         .map(|event| &event.payload)
-}
-
-/// The narrow compatibility path: the last checkpoint of this seat that
-/// carries an old-shaped session locator AND no site stamp, offered only
-/// when the caller's predicate accepts the attempt that wrote it. The
-/// predicate is decision 0030's instance comparison — the `driver` label
-/// and the `provenance` of the opening attempt against this one's
-/// (`legacy_instance_holds`); it holds no kind or version test, because
-/// the evidence this path reads predates both. The two shapes it reads
-/// are decision 0032's `codex-thread` locator and the flat `session_id`
-/// a run opened before that ruling wrote — the flat id names no kind,
-/// exactly as it did not when the shipped engine offered it. A row that
-/// carries a site stamp is NEW evidence and was already judged above; it
-/// may not fall back to legacy fields to evade the confirmation it
-/// failed.
-fn legacy_offer(
-    events: &[EventEnvelope],
-    seat_effects: &[String],
-    legacy: &impl Fn(&EventEnvelope) -> bool,
-) -> Option<String> {
-    let (attempt, session) = events
-        .iter()
-        .rev()
-        .filter(|event| event.event_type == EventType::EffectCheckpointed)
-        .filter(|event| in_effects(event, seat_effects))
-        .find_map(|event| {
-            let checkpoint = event.payload.get("checkpoint")?;
-            if checkpoint.get("site_ref").is_some() {
-                return None;
-            }
-            // Decision 0032's common shape first, then the old flat id a
-            // run opened before that ruling still carries.
-            let session = checkpoint
-                .pointer("/transcript/locator")
-                .and_then(Value::as_str)
-                .filter(|locator| !locator.is_empty())
-                .filter(|_| {
-                    checkpoint
-                        .pointer("/transcript/kind")
-                        .and_then(Value::as_str)
-                        == Some("codex-thread")
-                })
-                .or_else(|| checkpoint.get("session_id").and_then(Value::as_str))?;
-            let attempt = event.attempt_id.clone()?;
-            legacy(event).then(|| (attempt, session.to_string()))
-        })?;
-    started_attempt(events, &attempt).map(|_| session)
-}
-
-/// The shipped instance comparison decision 0030 wrote, kept for the
-/// legacy path alone: the `driver` label and the `provenance` this
-/// attempt is about to journal against the ones the attempt that opened
-/// the session did. New evidence uses `instance_ref`, which does not
-/// move when a SIBLING member's chain moves.
-pub(super) fn legacy_instance_holds(opened_by: &Value, started: &Value) -> bool {
-    ["driver", "provenance"]
-        .iter()
-        .all(|field| opened_by.get(field) == started.get(field))
 }
 
 /// One invocation site of one selected body, with both its addresses:

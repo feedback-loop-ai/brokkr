@@ -587,6 +587,17 @@ fn rooted(context: &SiteContext, kind: &str, id: &str) -> (EventType, Value) {
 /// The root the `work` seat's site `context` is offered over `rows`,
 /// journaled after the seat's request and start.
 fn offered_over(context: &SiteContext, rows: Vec<(EventType, Value)>) -> Option<String> {
+    target_over(context, rows, false).map(|offer| offer.provider_id)
+}
+
+/// The target the `work` seat's single site `context` is offered over
+/// `rows`, journaled after the seat's request and start, its legacy
+/// instance holding where `legacy` says so.
+fn target_over(
+    context: &SiteContext,
+    rows: Vec<(EventType, Value)>,
+    legacy: bool,
+) -> Option<resume::ResumeTarget> {
     let mut events = vec![
         journaled((
             EventType::EffectRequested,
@@ -596,8 +607,135 @@ fn offered_over(context: &SiteContext, rows: Vec<(EventType, Value)>) -> Option<
     ];
     events.extend(rows.into_iter().map(journaled));
     let key = SiteKey::single("work", None);
-    resume::eligible_offer(&events, &key, context, "work", true, true, |_| false)
-        .map(|offer| offer.provider_id)
+    resume::eligible_offer(&events, &key, context, "work", true, true, |_| legacy)
+}
+
+/// A row of attempt `attempt-1` at `context`'s site, its persistent
+/// `dsh-session` root `ds-1` beside a transcript of `kind`.
+fn dsh_rooted(context: &SiteContext, kind: &str) -> (EventType, Value) {
+    let mut row = rooted(context, "dsh-session", "ds-1");
+    row.1["checkpoint"]["transcript"] =
+        json!({"kind": kind, "locator": "sessions/s-1", "home": "/h/.dsh"});
+    row
+}
+
+/// The controller's ruling R26: a stamped row whose persistent
+/// `dsh-session` root stands beside a transcript of a kind the seat's
+/// harness does not declare (`trellis-trail`, at a site that declares
+/// none) is read as holding no transcript: its root is offered with no
+/// locator and no home, as a row without a transcript is. The same row
+/// beside a declared kind forwards both, a built-in one at that site, or
+/// `trellis-trail` at the trellis seat's. Each row is appended directly,
+/// as the writer's kind check refuses the first.
+#[test]
+fn a_transcript_of_a_kind_the_seat_does_not_declare_forwards_no_coordinates() {
+    let dir = tempfile::tempdir().unwrap();
+    let plain = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let trellis = trellis_site(dir.path());
+    let coordinates = |context: &SiteContext, kind: &str| {
+        let offer = target_over(context, vec![dsh_rooted(context, kind)], false).unwrap();
+        assert_eq!(offer.provider_id, "ds-1");
+        (offer.persistence_locator, offer.persistence_home)
+    };
+    let forwarded = (
+        Some("sessions/s-1".to_string()),
+        Some("/h/.dsh".to_string()),
+    );
+    let mut bare = rooted(&plain, "dsh-session", "ds-1");
+    let no_transcript = target_over(&plain, vec![bare.clone()], false).unwrap();
+    assert_eq!(coordinates(&plain, TRAIL), (None, None));
+    let none = (
+        no_transcript.persistence_locator,
+        no_transcript.persistence_home,
+    );
+    assert_eq!(none, (None, None));
+    assert_eq!(coordinates(&plain, "dsh-session"), forwarded);
+    assert_eq!(coordinates(&trellis, TRAIL), forwarded);
+    bare.1["checkpoint"]["transcript"] = json!({"locator": "sessions/s-1", "home": "/h"});
+    let kindless = target_over(&plain, vec![bare], false).unwrap();
+    assert_eq!(kindless.persistence_locator, None);
+}
+
+/// An unstamped row of attempt `attempt-1`, decision 0030's evidence,
+/// whose checkpoint carries `fields`.
+fn unstamped_row(fields: Value) -> (EventType, Value) {
+    let mut checkpoint = json!({"step": "s"});
+    checkpoint
+        .as_object_mut()
+        .unwrap()
+        .extend(fields.as_object().unwrap().clone());
+    let row = json!({"effect_id": "fx", "checkpoint": checkpoint});
+    (EventType::EffectCheckpointed, row)
+}
+
+/// The controller's ruling R27: at an eligible single seat whose harness
+/// declares no kinds, a newer unstamped row whose transcript names a kind
+/// outside v7's vocabulary (`trellis-trail`) beside a flat `session_id`
+/// yields no handle — not its flat id — and ends the scan, so the older
+/// `codex-thread` row's handle is not offered either. The older row alone
+/// offers its handle, and a newer `claude-session` row offers its flat
+/// id, as before. The `trellis-trail` row is appended directly, as the
+/// writer's kind check refuses it.
+#[test]
+fn a_legacy_row_of_a_kind_outside_v7_is_no_handle_and_no_older_row_stands_in() {
+    let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let transcript = |kind: &str, locator: &str| {
+        json!({"transcript": {"kind": kind, "locator": locator, "home": "/h"},
+               "session_id": "flat-1"})
+    };
+    let older = unstamped_row(json!({"transcript":
+        {"kind": "codex-thread", "locator": "th-old", "home": "/h/.codex"}}));
+    let offered = |rows: Vec<(EventType, Value)>| {
+        target_over(&context, rows, true).map(|offer| offer.provider_id)
+    };
+    assert_eq!(offered(vec![older.clone()]).as_deref(), Some("th-old"));
+    let newer = unstamped_row(transcript(TRAIL, "tl-1"));
+    assert_eq!(offered(vec![older.clone(), newer]), None);
+    let claude = unstamped_row(transcript("claude-session", "c-1"));
+    assert_eq!(offered(vec![older, claude]).as_deref(), Some("flat-1"));
+}
+
+/// The controller's ruling R28: the offered `claude-session` root's
+/// history at its site holds its own attempt and calls only, never an
+/// older `trellis-thread` root's of the same id there. Each call row is
+/// as a native call's is journaled; the older root's row is appended
+/// directly, as the writer's kind check refuses it at this site.
+#[test]
+fn an_offers_history_is_its_roots_kind_and_id_both() {
+    use std::collections::BTreeSet;
+    let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let at = |attempt: &str, (kind, payload): (EventType, Value)| {
+        crate::envelope_builder::EnvelopeBuilder::new(kind, payload)
+            .attempt(Some(attempt))
+            .at("2026-11-22T00:00:00Z")
+            .hash("c".repeat(64))
+            .build()
+    };
+    let call = |id: &str| {
+        let mut row = rooted(&context, "claude-session", "x");
+        let checkpoint = row.1["checkpoint"].as_object_mut().unwrap();
+        checkpoint.remove("root_session");
+        let observed = json!({"model": "m", "turn": 1, "tool": "WebSearch",
+            "capability": "web-search", "dialect": "native", "call_id": id,
+            "call_state": "observed"});
+        checkpoint.extend(observed.as_object().unwrap().clone());
+        row
+    };
+    let events = [
+        at("older", rooted(&context, THREAD, "same-1")),
+        at("older", call("n-older")),
+        at("newer", rooted(&context, "claude-session", "same-1")),
+        at("newer", call("n-newer")),
+    ];
+    let offer = resume::ResumeTarget {
+        provider_id: "same-1".into(),
+        persistence_locator: None,
+        persistence_home: None,
+        root_kind: Some("claude-session".into()),
+    };
+    let history = context.offered(&events, Some(&offer)).history;
+    assert_eq!(history.attempts, BTreeSet::from(["newer".to_string()]));
+    assert_eq!(history.calls, BTreeSet::from(["n-newer".to_string()]));
 }
 
 /// The controller's rulings R22 item 3 and R24, the resume offer: a site
@@ -1064,8 +1202,9 @@ fn carry_parked(dir: &Path, settled: Value, second: Visit) -> (Engine, usize) {
     (engine, parked)
 }
 
-/// What is read back from the journal is judged again before it is
-/// appended again (the controller's ruling R18): a released engine's
+/// A carried member contributes to a new verdict, so it is judged for its
+/// kinds before it is carried (item 2 of decision 0075's addendum; the
+/// controller's rulings R18 and R23): a released engine's
 /// unmarked settled result for `judge`, naming a transcript kind outside
 /// the grammar or undeclared beside a word the join would refuse, is no
 /// verdict to carry, so a retry of `second` alone is refused as it is for
@@ -1074,7 +1213,7 @@ fn carry_parked(dir: &Path, settled: Value, second: Visit) -> (Engine, usize) {
 /// declared kind carries as before: its payload under `notes.members`
 /// beside the binding refusal.
 #[test]
-fn a_carried_members_result_is_judged_for_its_kinds_before_it_is_appended_again() {
+fn a_carried_members_result_is_judged_for_its_kinds_before_it_is_carried() {
     for stray in ["trellis--stray", "trellis-stray"] {
         let dir = tempfile::tempdir().unwrap();
         let second = succeeding(worded("clean", TRAIL));

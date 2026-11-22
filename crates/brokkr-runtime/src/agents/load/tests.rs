@@ -235,17 +235,12 @@ fn an_adapter_step_failing_two_adjacent_reads_reports_the_earlier() {
     assert_eq!(observed, expected);
 }
 
-/// The strict parse of the bytes read, which a definition alone cannot
-/// fail beside a field, runs ahead of the native inventory; and the
-/// digest, of those same bytes, is no read of its own, so an absent file
-/// leaves the effort flag's refusal standing (the controller's ruling
-/// R9). Each step is called with a map and bytes that disagree.
+/// The digest, of the bytes read, is no read of its own, so an absent
+/// file leaves the effort flag's refusal standing (the controller's ruling
+/// R9). The step is called with a map and bytes that disagree.
 #[test]
 fn an_adapter_step_failing_a_field_and_its_file_reports_the_earlier() {
     let dir = tempfile::tempdir().unwrap();
-    let twice = br#"{"native_capabilities": 7, "native_capabilities": 7}"#;
-    let native = json!({"native_capabilities": 7});
-    let invocation = super::adapter::invocation("claude", native.as_object().unwrap(), twice, "w");
     let effort = json!({"effort_flag": 7});
     let absent = dir.path().join("absent.json");
     let settled = super::adapter::settled(
@@ -256,18 +251,11 @@ fn an_adapter_step_failing_a_field_and_its_file_reports_the_earlier() {
         &[],
     );
     assert_eq!(
-        [
-            invocation.err().map(|e| e.to_string()),
-            settled.err().map(|e| e.to_string())
-        ],
-        [
-            Some("w: key 'native_capabilities' is written twice at line 1 column 52".to_string()),
-            Some(
-                "w needs 'effort_flag': the flag this provider takes, or the explicit string \
-                 \"unsupported\""
-                    .to_string()
-            ),
-        ]
+        settled.err().map(|e| e.to_string()).as_deref(),
+        Some(
+            "w needs 'effort_flag': the flag this provider takes, or the explicit string \
+             \"unsupported\""
+        )
     );
 }
 
