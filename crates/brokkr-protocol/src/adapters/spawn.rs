@@ -4,8 +4,10 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+use thiserror::Error;
+
 use super::stderr::{drain_stderr, StderrCapture};
-use super::{harness_command, io_context, lost};
+use super::{harness_command, lost, HarnessCommandRefusal};
 pub(super) use crate::process::spawned::Spawned;
 use crate::secret;
 
@@ -22,14 +24,34 @@ pub(super) fn spawn_harness(
     bindings: &[secret::BoundSecret],
 ) -> Result<Spawned, String> {
     let builder = harness_command(command, workdir, env, bindings)?;
-    spawned(builder, stdin, stdout)
+    Ok(spawned(builder, stdin, stdout)?)
+}
+
+/// Why a harness did not start: its command could not be built, it could
+/// not be spawned, or its prompt could not be written, each cause carried
+/// and printed in the words the shared driver always printed (decision
+/// 0071 ruling 8).
+#[derive(Debug, Error)]
+pub(super) enum Unstarted {
+    #[error(transparent)]
+    Command(#[from] HarnessCommandRefusal),
+    #[error("could not invoke the agent CLI: {0}")]
+    Spawn(std::io::Error),
+    #[error("could not write the prompt: {0}")]
+    Prompt(std::io::Error),
+}
+
+/// [`Unstarted`] at the text boundary every driver but agy's reads.
+impl From<Unstarted> for String {
+    fn from(unstarted: Unstarted) -> String {
+        unstarted.to_string()
+    }
 }
 
 /// `builder` given its stdio and spawned: [`spawn_harness`]'s own end.
-fn spawned(mut builder: Command, stdin: Stdio, stdout: Stdio) -> Result<Spawned, String> {
+fn spawned(mut builder: Command, stdin: Stdio, stdout: Stdio) -> Result<Spawned, Unstarted> {
     builder.stdin(stdin).stdout(stdout).stderr(Stdio::piped());
-    let child = crate::process::spawned::spawn(&mut builder);
-    let child = io_context(child, "could not invoke the agent CLI")?;
+    let child = crate::process::spawned::spawn(&mut builder).map_err(Unstarted::Spawn)?;
     lost::spawned();
     Ok(child)
 }
@@ -43,7 +65,7 @@ pub(super) fn spawn_fed(
     workdir: &str,
     bindings: &[secret::BoundSecret],
 ) -> Result<(Spawned, StderrCapture), String> {
-    spawn_fed_in(command, prompt, (workdir, &[]), bindings)
+    Ok(spawn_fed_in(command, prompt, (workdir, &[]), bindings)?)
 }
 
 /// [`spawn_fed`] with `env` set for the child alone, beside its `workdir`:
@@ -55,16 +77,15 @@ pub(super) fn spawn_fed_in(
     prompt: &str,
     (workdir, env): (&str, &[(&str, &str)]),
     bindings: &[secret::BoundSecret],
-) -> Result<(Spawned, StderrCapture), String> {
+) -> Result<(Spawned, StderrCapture), Unstarted> {
     let mut builder = harness_command(command, workdir, &[], bindings)?;
     builder.envs(env.iter().copied());
     let piped = Stdio::piped;
     let mut child = spawned(builder, piped(), piped())?;
     let mut stdin = child.stdin.take().expect("piped");
-    io_context(
-        stdin.write_all(prompt.as_bytes()),
-        "could not write the prompt",
-    )?;
+    stdin
+        .write_all(prompt.as_bytes())
+        .map_err(Unstarted::Prompt)?;
     drop(stdin);
     let stderr = drain_stderr(&mut child);
     Ok((child, stderr))

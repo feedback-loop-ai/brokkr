@@ -156,8 +156,8 @@ fn a_stop_after_agy_exited_clean_with_its_result_delivered_ends_late() {
 }
 
 /// A turn whose harness cannot be waited on, because it was reaped behind
-/// the driver's back, ends at the production text boundary
-/// ([`streamed_lines`]) in the shared driver's words.
+/// the driver's back, ends in the production read ([`streamed_lines`])
+/// with the wait's own cause, and prints in the shared driver's words.
 #[test]
 fn a_turn_that_does_not_conclude_ends_in_the_shared_drivers_words() {
     let root = tempfile::tempdir().unwrap();
@@ -166,13 +166,12 @@ fn a_turn_that_does_not_conclude_ends_in_the_shared_drivers_words() {
     let mut status = 0;
     // SAFETY: `pid` is this test's own child, and `status` outlives the call.
     assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
-    let Err(words) = streamed_lines(fed, |_| Line::Read) else {
+    let Err(unconcluded) = streamed_lines(fed, |_| Line::Read) else {
         panic!("a reaped harness was waited on")
     };
-    assert_eq!(
-        words,
-        "agent CLI did not conclude: No child processes (os error 10)"
-    );
+    assert_eq!(unconcluded.0.raw_os_error(), Some(libc::ECHILD));
+    let words = format!("agent CLI did not conclude: {}", unconcluded.0);
+    assert_eq!(Ended::from(unconcluded).to_string(), words);
 }
 
 /// A pinned `SUCCESS` and then a read that fails: the production turn is

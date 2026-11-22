@@ -27,8 +27,8 @@ use thiserror::Error;
 
 use super::escapes::plain_evidence;
 use super::mcp::{self, McpRefusal};
-use super::spawn::spawn_fed_in;
-use super::stream_turn::{streamed_lines, Turn};
+use super::spawn::{spawn_fed_in, Unstarted};
+use super::stream_turn::{streamed_lines, Turn, Unconcluded};
 use super::{secret, Invocation, LaunchTerminal};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 
@@ -291,13 +291,18 @@ pub(super) enum LaunchError {
 }
 
 /// How a seat ended with no invocation, typed until [`drive`] renders it
-/// once (#1178 T4): its launch refused, its turn failed, a refusal behind
-/// work already done, or a shared helper's own error, which arrives
-/// rendered at its own boundary and is the one end that does (K10).
+/// once (#1178 T4): its launch refused, agy not started or not waited on,
+/// its turn failed, a refusal behind work already done, or a shared
+/// helper's own error, which arrives rendered at its own boundary and is
+/// the one end that does (K10).
 #[derive(Debug, Error)]
 enum Ended {
     #[error(transparent)]
     Launch(#[from] LaunchError),
+    #[error(transparent)]
+    Unstarted(#[from] Unstarted),
+    #[error(transparent)]
+    Unconcluded(#[from] Unconcluded),
     #[error(transparent)]
     Failed(#[from] Failed),
     #[error("{}", .0.words())]

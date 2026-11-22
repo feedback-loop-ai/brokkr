@@ -50,19 +50,12 @@ pub(super) struct Read {
 /// ruling 5).
 pub(super) const UNCONCLUDED: &str = "agent CLI did not conclude";
 
-/// Why a turn did not conclude: the wait on its harness failed. Rendered
-/// once, at [`streamed_lines`]'s text boundary, in the shared driver's
-/// words (decision 0071 ruling 8).
+/// Why a turn did not conclude: the wait on its harness failed, its cause
+/// carried. It prints in the shared driver's words, rendered once where
+/// the seat's driver renders its end (decision 0071 ruling 8).
 #[derive(Debug, Error)]
 #[error("{UNCONCLUDED}: {0}")]
-pub(super) struct Unconcluded(#[from] std::io::Error);
-
-/// [`Unconcluded`] at the one text boundary its callers read.
-impl From<Unconcluded> for String {
-    fn from(unconcluded: Unconcluded) -> String {
-        unconcluded.to_string()
-    }
-}
+pub(super) struct Unconcluded(#[from] pub(super) std::io::Error);
 
 /// What a driver makes of one line of its harness's stdout.
 pub(super) enum Line {
@@ -80,10 +73,10 @@ pub(super) enum Line {
 pub(super) fn streamed_lines(
     fed: (Spawned, StderrCapture),
     line: impl FnMut(&[u8]) -> Line,
-) -> Result<Turn, String> {
+) -> Result<Turn, Unconcluded> {
     let (mut child, stderr) = fed;
     let stdout = child.stdout.take().expect("piped");
-    turn_read((child, stderr), std::io::BufReader::new(stdout), line).map_err(String::from)
+    turn_read((child, stderr), std::io::BufReader::new(stdout), line)
 }
 
 /// The turn of the harness `fed`, its stdout read from `reader` by

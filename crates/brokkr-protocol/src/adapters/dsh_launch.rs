@@ -638,6 +638,11 @@ mod tests {
             (answered, observed)
         }
 
+        // A homeless rerun is homeless: neither name reached it.
+        if std::env::var_os(HOMELESS).is_some() {
+            assert_eq!(std::env::var_os("HOME"), None);
+            assert_eq!(std::env::var_os("DSH_HOME"), None);
+        }
         let dir = tempfile::tempdir().unwrap();
         crate::adapters::tests::plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
         let root = dir.path().join("seat");
@@ -671,13 +676,16 @@ mod tests {
 
         // Run as itself, it reruns its binary, filtered to itself, with no
         // `HOME` and no `DSH_HOME`, so this process's own stay with the
-        // tests that read them unguarded.
+        // tests that read them unguarded. Each is set first, so a removal
+        // left out reaches the rerun whatever this process holds.
         if std::env::var_os(HOMELESS).is_some() {
             return;
         }
         let rerun = std::process::Command::new(std::env::current_exe().unwrap())
             .args([UNHOMED, "--exact", "--test-threads=1"])
             .env(HOMELESS, "1")
+            .env("HOME", dir.path())
+            .env("DSH_HOME", dir.path())
             .env_remove("HOME")
             .env_remove("DSH_HOME")
             .output()
