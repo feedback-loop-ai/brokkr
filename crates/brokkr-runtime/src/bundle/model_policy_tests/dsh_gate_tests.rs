@@ -58,6 +58,50 @@ fn a_gate_on_the_shipped_dsh_adapter_pinned_to_any_other_model_is_refused() {
     }
 }
 
+/// The refusal a dsh gate that declares hands meets at link `link`.
+fn declares_hands(link: usize) -> String {
+    format!(
+        "seat 'work' gate link {link} seats provider 'dsh' on the dsh harness and declares \
+         hands; a dsh gate is served tool-less, with every native tool row disabled and no MCP \
+         server, so it can neither read the secrets store nor write the worktree it judges, and \
+         declares no hands (decision 0021 addendum 2026-11-22)"
+    )
+}
+
+/// The tool-less shape is the only one a dsh gate compiles in: a
+/// `qwen4-max` judge agent without hands compiles under every boundary,
+/// and the same agent with hands is refused under `namespace` by this
+/// ruling, where the hands law has nothing to say, as an inline gate whose
+/// own command declares hands is.
+#[test]
+fn a_qwen4_max_gate_compiles_tool_less_and_is_refused_with_hands() {
+    let fixture = Fixture::new();
+    let efforts = Some(json!({"qwen4-max": "high"}));
+    fixture.write_agent_file("qwen-bare", &["qwen4-max"], efforts.clone(), false);
+    fixture.write_agent_file("qwen-hands", &["qwen4-max"], efforts, true);
+    let compiled = |agent: &str, boundary| {
+        fixture.compile_roots(
+            boxed_seat(agent, "gate"),
+            &fixture.agents(),
+            &shipped_adapters(),
+            boundary,
+        )
+    };
+    for boundary in [Boundary::Namespace, Boundary::Harness, Boundary::Open] {
+        compiled("qwen-bare", boundary).unwrap_or_else(|e| panic!("{boundary}: {e}"));
+    }
+    assert_eq!(
+        invalid(compiled("qwen-hands", Boundary::Namespace)),
+        declares_hands(1)
+    );
+    let mut inline = dsh_gate("dashscope/qwen4-max");
+    inline["hands"] = json!("workspace");
+    assert_eq!(
+        invalid(fixture.compile_against(inline, &shipped_adapters())),
+        declares_hands(1)
+    );
+}
+
 /// The removal controls: the first test's gate, against the shipped dsh
 /// with `judges` emptied, and with the tier set back to untrusted, is
 /// refused, so neither half of the grant is idle.

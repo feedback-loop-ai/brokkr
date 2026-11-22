@@ -6,8 +6,61 @@
 
 use serde_json::Value;
 
+use super::opened::Opened;
+use super::{command_parts, dispatch_driver, SiteLaw};
 use super::{destination, unreadable_destination, CompileError, ModelPin, SeatClass};
-use crate::agents::{resolve_route, Adapter, EgressClass, TrustTier};
+use crate::agents::{resolve_route, Adapter, Candidate, EgressClass, TrustTier};
+use crate::capabilities::harness_of;
+
+/// Whether a site declares hands: its agent's, or its own inline `hands`.
+/// The one reading the hands law and the dsh gate's shape both take.
+pub(super) fn declares_hands(raw: &Value, law: SiteLaw<'_>) -> bool {
+    law.agent_hands.is_some() || raw.get("hands").is_some()
+}
+
+/// Decision 0021 addendum 2026-11-22: the dsh driver serves a gate
+/// tool-less, every native tool row disabled and no MCP server, so the
+/// judge can neither read the secrets store nor write the worktree it
+/// judges. A gate site that declares hands asks for what that shape never
+/// serves, and is refused at the first link the dsh harness serves: an
+/// inline site whose command dispatches `dsh`, or a chain link whose
+/// adapter's driver does. It also opens the adapters a gate's tier and
+/// judges are read from.
+pub(super) fn refuse_dsh_gate_hands(
+    what: &str,
+    raw: &Value,
+    candidates: &[Candidate],
+    law: SiteLaw<'_>,
+    agents: &mut Opened<'_>,
+) -> Result<(), CompileError> {
+    const DSH: &str = "dsh";
+    let adapters = agents.adapters()?;
+    if !declares_hands(raw, law) {
+        return Ok(());
+    }
+    let chained = |candidate: &Candidate| {
+        let adapter = adapters.adapter(&candidate.provider);
+        let dsh = adapter.is_some_and(|adapter| harness_of(&adapter.driver) == DSH);
+        (candidate.provider.clone(), dsh)
+    };
+    let links: Vec<(String, bool)> = match candidates.is_empty() {
+        true => (dispatch_driver(&command_parts(raw)).into_iter())
+            .map(|kind| (kind.clone(), kind == DSH))
+            .collect(),
+        false => candidates.iter().map(chained).collect(),
+    };
+    match links.iter().position(|(_, dsh)| *dsh) {
+        Some(index) => Err(CompileError::Invalid(format!(
+            "seat '{what}' gate link {} seats provider '{}' on the dsh harness and declares \
+             hands; a dsh gate is served tool-less, with every native tool row disabled and no \
+             MCP server, so it can neither read the secrets store nor write the worktree it \
+             judges, and declares no hands (decision 0021 addendum 2026-11-22)",
+            index + 1,
+            links[index].0,
+        ))),
+        None => Ok(()),
+    }
+}
 
 /// One link of a site's route as the prohibitions read it: the site, the
 /// link's index, its driver and the adapter that answers for it, the

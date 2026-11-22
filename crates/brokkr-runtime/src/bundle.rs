@@ -2462,9 +2462,9 @@ fn enforce_model_policy(
     // work-class exec seat compiles with no `adapters/` in sight.
     enforce_hands_boundary(what, raw, candidates, law, agents)?;
     let class = parse_class(what, raw)?;
-    // A gate's tier and judges are read out of the adapters.
+    // A gate's tier and judges are read out of the adapters, and so is a dsh gate's shape.
     if class == SeatClass::Gate {
-        agents.adapters()?;
+        route_policy::refuse_dsh_gate_hands(what, raw, candidates, law, agents)?;
     }
     // The route is read off the model pin, so a site the pin walk refuses by
     // this `model_unpinned` over this argv has no route to judge here.
@@ -2630,7 +2630,7 @@ fn enforce_hands_boundary(
     law: SiteLaw<'_>,
     agents: &mut Opened<'_>,
 ) -> Result<(), CompileError> {
-    let has_hands = law.agent_hands.is_some() || raw.get("hands").is_some();
+    let has_hands = route_policy::declares_hands(raw, law);
     if !has_hands || law.boundary.is_boxed() {
         return Ok(());
     }

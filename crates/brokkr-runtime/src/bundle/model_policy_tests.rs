@@ -3344,8 +3344,8 @@ fn a_gate_without_hands_is_untouched_and_an_inline_model_site_with_hands_is_refu
 /// adapter's digest.
 ///
 /// D33: mapped hands chains face the boundary law before the resolver's
-/// workspace capability gap: namespace refuses the tier or the judges;
-/// harness refuses the absent gate fragment, naming provider and link.
+/// workspace capability gap: namespace refuses the tier or the dsh gate's
+/// hands; harness refuses the absent gate fragment, naming provider and link.
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
@@ -3408,10 +3408,13 @@ fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
         Some(json!({"fable-tallied": "high"})),
         true,
     );
-    // The trusted dsh refuses `flash` by its judges, lanetally by its tier.
+    // The trusted dsh refuses a gate with hands by its tool-less shape and
+    // `flash` by its judges; lanetally is refused by its tier.
     let judges = "which driver 'dsh' does not declare in 'judges' (decision 0041 ruling 3";
     let tier = "seats driver 'lanetally', which does not hold the trusted tier; a gate seat IS \
                 the check, and nobody stands behind the judges (decision 0021 ruling 2";
+    let tool_less = "seats provider 'dsh' on the dsh harness and declares hands; a dsh gate is \
+                     served tool-less";
     let fragment = "which declares no `hands.harness.gate` fragment";
     // Each refusal is the typed variant, naming the seat, the driver and the law.
     let gate_refusal = |agent: &str, boundary, driver: &str, law: &str| {
@@ -3429,7 +3432,7 @@ fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
         }
     };
     for (agent, driver, law) in [
-        ("flash-judge", "driver 'dsh'", judges),
+        ("flash-judge", "provider 'dsh'", tool_less),
         ("tallied-judge", "driver 'lanetally'", tier),
     ] {
         gate_refusal(agent, Boundary::Namespace, driver, law);
