@@ -37,7 +37,7 @@ use serde_json::Value;
 
 use super::LaunchError;
 use crate::adapters::mcp;
-use crate::hands::Session;
+use crate::hands::{Session, SessionError};
 
 /// The operator's login, below a HOME: the one file a signed-in agy reads
 /// (the record's Host and versions). Its content is never read here.
@@ -130,7 +130,7 @@ pub(super) fn made(homes: Homes<'_>, written: Written<'_>) -> Result<Home, Launc
     // Only removed where its owner is dead and holds no lock; what this
     // reaping kept or removed is no fact of this launch's.
     crate::hands::reap_dead_sessions_under(&parent);
-    let session = Session::create_under(&parent, LABEL).map_err(LaunchError::Unsessioned)?;
+    let session = Session::create_under(&parent, LABEL).map_err(unsessioned)?;
     let home = session.path().join(HOME_DIR);
     let path = home.to_str().ok_or(LaunchError::Unnamed)?.to_string();
     furnished(&home, operator, &login, written).map_err(LaunchError::Unhomed)?;
@@ -157,7 +157,17 @@ fn owned_parent(temp: &Path) -> Result<PathBuf, LaunchError> {
     let shape = read.map(|meta| (meta.uid(), meta.mode() & PRIVATE_DIR.0));
     match shape == Some((uid, PRIVATE_DIR.1)) {
         true => Ok(parent),
-        false => Err(LaunchError::Unowned(parent)),
+        false => Err(LaunchError::Unowned),
+    }
+}
+
+/// A session's error as the launch's refusal, its lock's path withheld: the
+/// session is made under the temporary directory, whose path may not be
+/// UTF-8 (#1200 V1).
+pub(super) fn unsessioned(error: SessionError) -> LaunchError {
+    match error {
+        SessionError::Io(cause) => LaunchError::Unsessioned(cause),
+        SessionError::Lock { cause, .. } => LaunchError::Unlocked(cause),
     }
 }
 

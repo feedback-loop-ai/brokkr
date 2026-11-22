@@ -4,9 +4,10 @@
 //!
 //! The citation test binds each row of [`AGY_CITATIONS`]: its file is in
 //! agy's evidence folder, its token stands whole in its sentence, and its
-//! version is the one the sentence's shape was measured on, 1.5.14 for a
-//! file whose name ends `-v14`. It does not detect a citation the table
-//! does not list, and it does not judge prose.
+//! version is the `measured_on.version` of the sentence's shape, where the
+//! sentence is of a shape, and 1.5.14 for a file whose name ends `-v14`. It
+//! does not detect a citation the table does not list, and it does not
+//! judge prose. A version written in a sentence's prose is not judged.
 
 use super::*;
 
@@ -166,17 +167,18 @@ fn evidence_files() -> BTreeSet<String> {
 
 /// One sentence of agy's example: its key in [`AGY_CITATIONS`], the shape
 /// and axis it is of (or `carriage`), the version its shape was measured
-/// on, its text, and whether it says the axis is measured.
+/// on (none for the carriage, which is of no shape), its text, and whether
+/// it says the axis is measured.
 struct Sentence<'a> {
     key: String,
     name: String,
-    version: &'a str,
+    version: Option<&'a str>,
     text: &'a str,
     measured: bool,
 }
 
-/// The carriage's sentence, on the version it names, and every axis
-/// sentence of every shape, on its shape's `measured_on.version`.
+/// The carriage's sentence, of no shape, and every axis sentence of every
+/// shape, on its shape's `measured_on.version`.
 fn sentences(mcp: &McpSupport) -> Vec<Sentence<'_>> {
     let McpSupport::Declared { carriage, shapes } = mcp else {
         panic!("agy declares its MCP facts: {mcp:?}");
@@ -184,11 +186,10 @@ fn sentences(mcp: &McpSupport) -> Vec<Sentence<'_>> {
     let McpAxis::Measured { evidence } = carriage else {
         panic!("{carriage:?}");
     };
-    assert!(carried_on(evidence, "1.5.14"), "{evidence}");
     let mut all = vec![Sentence {
         key: "carriage".into(),
         name: "carriage".into(),
-        version: "1.5.14",
+        version: None,
         text: evidence,
         measured: true,
     }];
@@ -212,7 +213,7 @@ fn sentences(mcp: &McpSupport) -> Vec<Sentence<'_>> {
             all.push(Sentence {
                 key: format!("{hands} {axis}"),
                 name: format!("{shape} {axis}"),
-                version: &measurement.version,
+                version: Some(&measurement.version),
                 text,
                 measured,
             });
@@ -239,12 +240,6 @@ fn whole(sentence: &str, token: &str) -> bool {
     })
 }
 
-/// Whether the carriage's sentence names Antigravity CLI `version` whole
-/// ([`whole`]), so no longer version stands for it.
-fn carried_on(sentence: &str, version: &str) -> bool {
-    whole(sentence, &format!("Antigravity CLI {version}"))
-}
-
 /// `sentence` with `text` in its place.
 fn reworded<'a>(sentence: &Sentence<'a>, text: &'a str) -> Sentence<'a> {
     Sentence {
@@ -262,8 +257,8 @@ enum Uncited {
     Unrecorded(&'static str),
     /// (b) The row's token does not stand whole in the sentence.
     Unwritten(&'static str),
-    /// (c) The row's version is not the sentence's, or a `-v14` file's row
-    /// is not 1.5.14.
+    /// (c) The row's version is not its sentence's shape's, or a `-v14`
+    /// file's row is not 1.5.14.
     Misversioned(&'static str),
 }
 
@@ -278,7 +273,8 @@ fn uncited(rows: &[Row], sentence: &Sentence<'_>, files: &BTreeSet<String>) -> R
         }
         let stem = Path::new(file).file_stem().and_then(|stem| stem.to_str());
         let v14 = stem.is_some_and(|stem| stem.ends_with("-v14"));
-        if version != sentence.version || (v14 && version != "1.5.14") {
+        let unshaped = sentence.version.is_some_and(|shaped| shaped != version);
+        if unshaped || (v14 && version != "1.5.14") {
             return Err(Uncited::Misversioned(file));
         }
     }
@@ -323,10 +319,11 @@ fn assert_the_guide_agrees(boxed: (&str, bool), without_hands: &str) {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/guides/provider-adapters.md");
     let guide = std::fs::read_to_string(guide).unwrap();
     let joined = guide.replace('\n', " ");
-    let summary = format!("without hands on {without_hands} and boxed on {},", boxed.0);
-    assert!(joined.contains(&summary), "{summary}");
-    let store = format!("Store reads are measured boxed, on {},", boxed.0);
-    assert_eq!(joined.contains(&store), boxed.1, "{store}");
+    // Each version is found by the one boundary rule, [`whole`].
+    let summary = format!("without hands on {without_hands} and boxed on {}", boxed.0);
+    assert!(whole(&joined, &summary), "{summary}");
+    let store = format!("Store reads are measured boxed, on {}", boxed.0);
+    assert_eq!(whole(&joined, &store), boxed.1, "{store}");
     let holds_all = |text: &str, claims: &[&str]| claims.iter().all(|claim| text.contains(claim));
     assert_eq!(holds_all(&joined, &GUIDE_STORE_PARAGRAPH), boxed.1);
     assert!(guide.contains("\n#### A boxed agy seat\n"));
@@ -346,10 +343,10 @@ fn assert_the_guide_agrees(boxed: (&str, bool), without_hands: &str) {
     };
     let (_, unmeasured_boxed) = unmeasured.split_once("Boxed:").unwrap();
     for version in [
-        format!("Cold and replacement without hands: Antigravity CLI {without_hands},"),
-        format!("Cold and replacement, boxed: Antigravity CLI {},", boxed.0),
+        format!("Cold and replacement without hands: Antigravity CLI {without_hands}"),
+        format!("Cold and replacement, boxed: Antigravity CLI {}", boxed.0),
     ] {
-        assert!(measured.contains(&version), "{version}");
+        assert!(whole(measured, &version), "{version}");
     }
     assert_eq!(
         (
@@ -364,9 +361,8 @@ fn assert_the_guide_agrees(boxed: (&str, bool), without_hands: &str) {
 /// sentence of agy's example, the carriage's and each axis of each shape,
 /// holds each row [`AGY_CITATIONS`] lists for it by (a), (b) and (c); a
 /// misspelt token, a file that does not exist and a changed shape version
-/// each fail, as do a token continued past a `.`, a token led by another
-/// word and a longer carriage version, which a substring check passes; the
-/// boxed shapes are measured on 1.5.14, each of their four
+/// each fail, as do a token continued past a `.` and a token led by another
+/// word, which a substring check passes; the boxed shapes are measured on 1.5.14, each of their four
 /// axes measured; the shapes without hands are still on 1.5.13, their
 /// ambient axis alone measured; and the guide says what the adapter does.
 #[test]
@@ -396,7 +392,7 @@ fn each_agy_shape_names_the_version_its_recordings_are_from() {
             Err(Uncited::Unrecorded("box-reach-v14.stderr")),
         ]
     );
-    // The three boundary negatives: each passes a plain substring check, so
+    // The two boundary negatives: each passes a plain substring check, so
     // only the boundary of [`whole`] fails it.
     for token in ["box-reach-v14./extra", "fake-box-reach-v14"] {
         let text = process.text.replace("box-reach-v14", token);
@@ -404,9 +400,6 @@ fn each_agy_shape_names_the_version_its_recordings_are_from() {
         let cited = uncited(rows(&process.key), &reworded(process, &text), &files);
         assert_eq!(cited, Err(Uncited::Unwritten("box-reach-v14")), "{token}");
     }
-    let longer = all[0].text.replace("1.5.14", "1.5.140");
-    assert!(longer.contains("Antigravity CLI 1.5.14"), "{longer}");
-    assert!(!carried_on(&longer, "1.5.14"), "{longer}");
     let mut changed = agy.clone();
     if let McpSupport::Declared { shapes, .. } = &mut changed.mcp {
         for measurement in shapes.values_mut() {

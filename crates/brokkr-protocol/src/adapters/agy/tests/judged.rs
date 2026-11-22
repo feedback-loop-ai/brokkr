@@ -12,9 +12,14 @@ use fold::Event;
 /// written by hand, so a value `brokkr secrets set` would refuse as short
 /// is bound too.
 pub(super) fn bound(name: &str, value: &str) -> secret::BoundSecret {
+    bound_bytes(name, value.as_bytes())
+}
+
+/// [`bound`] for a value of any bytes, UTF-8 or not.
+fn bound_bytes(name: &str, value: &[u8]) -> secret::BoundSecret {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("secrets.env");
-    std::fs::write(&store, format!("{name}={value}\n")).unwrap();
+    std::fs::write(&store, [name.as_bytes(), b"=", value, b"\n"].concat()).unwrap();
     std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o600)).unwrap();
     let mut bindings = secret::resolve_bindings(&store, &[name.to_string()]).unwrap();
     bindings.pop().unwrap()
@@ -533,4 +538,60 @@ fn a_working_directory_that_is_not_utf8_is_refused_naming_nothing_of_it() {
         assert_eq!(words, LaunchError::Untexted.to_string());
         assert!(!world.started() && world.homes_gone());
     }
+}
+
+/// A bound value holding a byte that is not UTF-8, its bytes on either side
+/// of it, and the assertion that the seat's words hold no run of three of
+/// them and no path.
+const LOSSY_VALUE: &[u8] = b"qxjk\xfewvzp";
+
+fn holds_none_of_the_value(words: &str) {
+    let (before, after) = LOSSY_VALUE.split_at(4);
+    for side in [before, &after[1..]] {
+        for run in side.windows(3) {
+            let found = words.as_bytes().windows(3).any(|at| at == run);
+            assert!(!found, "{} in {words}", run.escape_ascii());
+        }
+    }
+    assert!(!words.contains('/'), "{words}");
+}
+
+/// A temporary root whose path holds a bound value with a byte that is not
+/// UTF-8 inside it, its agy parent open to others, is refused as
+/// [`LaunchError::Unowned`] in words that name nothing of the path: a path
+/// rendered lossily replaces that byte, so the value no longer matches the
+/// mask, and its bytes around it would leave. The root is handed in as the
+/// `TMPDIR` the turn reads, which a test may not move for the process. A
+/// session's lock cannot be refused here without a race, so its refusal is
+/// bound at the type: the lock's path is dropped (#1200 V1).
+#[test]
+fn a_refusal_under_a_temporary_root_that_is_not_utf8_names_nothing_of_it() {
+    use std::os::unix::ffi::OsStrExt;
+    let world = World::new();
+    let bindings = [bound_bytes("AT", LOSSY_VALUE)];
+    let temp = world
+        .path("t")
+        .join(std::ffi::OsStr::from_bytes(LOSSY_VALUE));
+    let parent = home::parent(&temp);
+    std::fs::create_dir_all(&parent).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o750)).unwrap();
+    let operator = world.path("operator");
+    let homes = Homes {
+        temp: &temp,
+        operator: Some(&operator),
+    };
+    let input = world.input(None);
+    let extra = argv(&["--model", FLASH]);
+    let brokkr = Path::new("/usr/bin/brokkr");
+    let refused = prepared("agy", &extra, &input, homes, brokkr).map(drop);
+    let refused = refused.unwrap_err();
+    assert!(matches!(refused, LaunchError::Unowned), "{refused:?}");
+    holds_none_of_the_value(&rendered(&Ended::Launch(refused), &bindings));
+    let lock = crate::hands::SessionError::Lock {
+        path: parent.join(".owner.lock"),
+        cause: std::io::Error::from(std::io::ErrorKind::WouldBlock),
+    };
+    let unlocked = home::unsessioned(lock);
+    assert!(matches!(unlocked, LaunchError::Unlocked(_)), "{unlocked:?}");
+    holds_none_of_the_value(&rendered(&Ended::Launch(unlocked), &bindings));
 }

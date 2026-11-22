@@ -551,8 +551,9 @@ fn each_launch_refusal_states_what_was_written_and_never_a_value() {
         (LaunchError::Owned("PWD"), "the seat binds a secret named PWD, which the engine owns for an agy seat (#1200)"),
         (LaunchError::Untargeted, "the seat's --allow carries a rule whose target is blank, has a blank at an end, or holds a control character or a parenthesis (#1200)"),
         (LaunchError::Unread("/w/.agents/plugins".into(), io()), "the agy seat's workspace path /w/.agents/plugins cannot be read, so whether it carries agy's configuration is unknown: entity not found (#1200)"),
-        (LaunchError::Unsessioned(crate::hands::SessionError::Io(io())), "the engine's HOME for the agy seat was not made: hands session: entity not found"),
-        (LaunchError::Unowned("/t/brokkr-agy-homes-7".into()), "/t/brokkr-agy-homes-7 is not a directory of this user's that nobody else may enter, so it holds no engine HOME for the agy seat (#1200)"),
+        (LaunchError::Unsessioned(io()), "the engine's HOME for the agy seat was not made: hands session: entity not found"),
+        (LaunchError::Unlocked(io()), "the engine's HOME for the agy seat was not made: its session's lock could not be taken: entity not found"),
+        (LaunchError::Unowned, "the parent of the engine's HOME directories under the temporary directory is not a directory of this user's that nobody else may enter, so it holds no engine HOME for the agy seat (#1200)"),
         (LaunchError::Unadmitted("--sandbox".into()), "the seat's arguments carry '--sandbox', which brokkr driver agy does not admit; an agy seat's arguments are --model, --effort and --allow, each once (#1200)"),
         (LaunchError::Positional, "the seat's arguments carry a value with no option before it, which brokkr driver agy does not admit (#1200)"),
         (LaunchError::Doubled("--model"), "the seat's arguments carry '--model' more than once"),
@@ -870,16 +871,13 @@ fn a_launch_with_no_login_or_no_room_for_its_home_refuses_and_leaves_nothing() {
     // user's alone.
     std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o750)).unwrap();
     let shared = home::made(homes(&temp), written(&set)).map(drop);
-    assert!(
-        matches!(&shared, Err(LaunchError::Unowned(at)) if *at == parent),
-        "{shared:?}"
-    );
+    assert!(matches!(&shared, Err(LaunchError::Unowned)), "{shared:?}");
     let linked = root.path().join("linked");
     std::fs::create_dir(&linked).unwrap();
     std::os::unix::fs::symlink(&parent, home::parent(&linked)).unwrap();
     let followed = home::made(homes(&linked), written(&set)).map(drop);
     assert!(
-        matches!(followed, Err(LaunchError::Unowned(_))),
+        matches!(followed, Err(LaunchError::Unowned)),
         "{followed:?}"
     );
 }

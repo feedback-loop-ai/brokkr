@@ -231,17 +231,28 @@ pub(super) enum LaunchError {
     Unhomed(#[source] std::io::Error),
     /// The engine HOME's session, which records its owner, was not made.
     #[error(
-        "refusing to invoke the agent CLI: the engine's HOME for the agy seat was not made: {0}"
+        "refusing to invoke the agent CLI: the engine's HOME for the agy seat was not made: \
+         hands session: {0}"
     )]
-    Unsessioned(#[source] crate::hands::SessionError),
-    /// The one parent of the engine's HOME directories is not this user's
-    /// alone (J5).
+    Unsessioned(#[source] std::io::Error),
+    /// The engine HOME's session could not take its lock. Like every
+    /// refusal below the temporary directory, it carries no path: one that
+    /// is not UTF-8 renders lossily, and a bound value standing in it would
+    /// no longer match the mask (#1200 V1).
     #[error(
-        "refusing to invoke the agent CLI: {} is not a directory of this user's that nobody else \
-         may enter, so it holds no engine HOME for the agy seat (#1200)",
-        .0.display()
+        "refusing to invoke the agent CLI: the engine's HOME for the agy seat was not made: its \
+         session's lock could not be taken: {0}"
     )]
-    Unowned(PathBuf),
+    Unlocked(#[source] std::io::Error),
+    /// The one parent of the engine's HOME directories, under the
+    /// temporary directory, is not this user's alone (J5). It names no path
+    /// (#1200 V1).
+    #[error(
+        "refusing to invoke the agent CLI: the parent of the engine's HOME directories under the \
+         temporary directory is not a directory of this user's that nobody else may enter, so it \
+         holds no engine HOME for the agy seat (#1200)"
+    )]
+    Unowned,
     /// A boxed seat granted a native tool: every native tool is switched
     /// off beside boxed hands, so the grant would do nothing, and it is
     /// refused rather than dropped (#1224). Its value is never named.
@@ -452,7 +463,13 @@ pub(super) fn drive(
         true => Err(Ended::Launch(LaunchError::Resumed)),
         false => turn(pinned, prompt, input, bindings, emit),
     };
-    ended.map_err(|error| secret::mask_text(error.to_string().as_bytes(), bindings))
+    ended.map_err(|ended| rendered(&ended, bindings))
+}
+
+/// How a seat `ended`, in its words, masked once through `bindings`: the
+/// one render [`drive`] gives every end.
+fn rendered(ended: &Ended, bindings: &[secret::BoundSecret]) -> String {
+    secret::mask_text(ended.to_string().as_bytes(), bindings)
 }
 
 /// The seat's composed arguments, the launch [`prepared`] from them under
