@@ -461,7 +461,8 @@ fn a_boxed_turn_without_its_terminal_evidence_fails_saying_which() {
 /// the errored result answers an `mcp_call` of the engine's tool, and the
 /// turn fails there; the same result answering the stream's `mcp_get` of
 /// that tool, or an id no call has, is no such sign, and the turn ends as
-/// its own answer, its result row's denials being an empty list.
+/// its own answer, its result row's denials being an empty list; nor is it
+/// on an `mcp_call` of a tool the engine did not grant.
 #[test]
 fn the_lost_server_words_count_only_on_a_result_of_an_engine_call() {
     let recorded = record("box-server-dies.ndjson");
@@ -478,4 +479,15 @@ fn the_lost_server_words_count_only_on_a_result_of_an_engine_call() {
         assert_eq!(breach_of(&answered), None, "{other}");
         assert_eq!(folded(&answered, "Fast").outcome, Ok(None), "{other}");
     }
+    // The same `mcp_call`s naming a tool the engine did not grant.
+    let ungranted = with_rows(&recorded, "assistant", |row| {
+        for block in row["message"]["content"].as_array_mut().unwrap() {
+            if block["name"] == "mcp_call" {
+                block["input"]["toolName"] = json!("mcp__brokkr__other");
+            }
+        }
+        true
+    });
+    assert_ne!(ungranted, recorded);
+    assert_eq!(breach_of(&ungranted), None);
 }
