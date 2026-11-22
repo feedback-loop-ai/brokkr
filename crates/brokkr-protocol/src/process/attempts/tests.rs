@@ -1373,13 +1373,16 @@ fn shell(script: &str) -> [String; 3] {
 /// Fix round 0106b1r9, E1: an absolute deadline is read at the fork
 /// itself, after the table read that admits the driver and under the
 /// registry's lock, as the last step before the spawn; one found past
-/// there spawns nothing, and the spawn refuses as late.
+/// there spawns nothing, and the spawn refuses as late. The order is
+/// pinned through the seam, not raced against a child (fix round
+/// 0106b1r10, H5): the command names a program that does not exist, so a
+/// spawn tried before the check refuses as a spawn error, and only a
+/// check that came first refuses as late.
 #[test]
 fn a_deadline_found_past_at_the_fork_spawns_nothing() {
     use crate::process::deadline::Arm;
     use crate::process::{By, DriverProcess, Limits, SpawnEnv, SpawnError};
     let dir = tempfile::tempdir().unwrap();
-    let ran = dir.path().join("ran");
     let seen = std::cell::Cell::new(None);
     let left = || {
         let locked = LIVE.try_lock().is_err();
@@ -1390,7 +1393,7 @@ fn a_deadline_found_past_at_the_fork_spawns_nothing() {
         kill: Instant::now() + Duration::from_secs(30),
         left: &left,
     };
-    let command = shell(&format!("touch '{}'", ran.display()));
+    let command = [dir.path().join("unspawnable").display().to_string()];
     let host = Host {
         table: marked,
         ..Host::REAL
@@ -1405,29 +1408,74 @@ fn a_deadline_found_past_at_the_fork_spawns_nothing() {
         refused.err()
     );
     assert_eq!(seen.get(), Some((true, true)));
-    assert!(!ran.exists());
+}
+
+/// When the watchdog signalled its driver's group: the first signal only.
+static WATCHDOG_SIGNALLED: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
+/// The real group kill, recording when it was first sent.
+fn signalled_group(group: Pid) -> rustix::io::Result<()> {
+    let mut first = WATCHDOG_SIGNALLED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    first.get_or_insert_with(Instant::now);
+    drop(first);
+    (Host::REAL.kill_group)(group)
 }
 
 /// Fix round 0106b1r9, E1: the watchdog signals its driver's group at the
 /// deadline itself, waiting on no lock: while another holds the registry,
 /// as a second attempt's spawn or kill does, the driver is still killed,
-/// and its stdout closes, long before its own sixty seconds.
+/// and its stdout closes, long before its own sixty seconds. Pinned through
+/// the host's group kill (fix round 0106b1r10, H5): the registry is taken
+/// before the deadline and held until the driver's stdout closes, and the
+/// signal lands at the deadline's instant, inside that hold.
 #[test]
 fn the_watchdog_kills_at_its_deadline_while_the_registry_is_held() {
-    use crate::process::{By, DriverProcess, SpawnEnv, Stdout};
-    let left = || Some(Duration::from_secs(1));
-    let began = Instant::now();
-    let by = By {
-        kill: began + Duration::from_millis(200),
-        left: &left,
+    use crate::process::deadline::Arm;
+    use crate::process::{By, DriverProcess, Limits, SpawnEnv, Stdout};
+    let left = || Some(Duration::from_secs(2));
+    let kill = Instant::now() + Duration::from_millis(1_500);
+    let by = By { kill, left: &left };
+    let host = Host {
+        kill_group: signalled_group,
+        ..Host::REAL
     };
-    let here = std::path::Path::new(".");
-    let spawned = DriverProcess::spawn_by(&shell("exec sleep 60"), here, by, &SpawnEnv::Inherit);
+    let (here, env) = (std::path::Path::new("."), &SpawnEnv::Inherit);
+    let command = shell("exec sleep 60");
+    let spawned = DriverProcess::spawn_limited(
+        &command,
+        here,
+        Some(Arm::By(by)),
+        env,
+        host,
+        Limits::DEFAULT,
+    );
     let process = spawned.unwrap();
     let held = live();
+    let locked = Instant::now();
+    assert!(
+        locked < kill,
+        "the registry was taken only after the deadline"
+    );
     let closed = process.stdout.recv_timeout(Duration::from_secs(30));
+    let released = Instant::now();
     drop(held);
-    assert!(matches!(closed, Ok(Stdout::Eof)), "{:?}", began.elapsed());
+    assert!(matches!(closed, Ok(Stdout::Eof)), "{:?}", released - locked);
+    let signalled = WATCHDOG_SIGNALLED
+        .lock()
+        .unwrap()
+        .expect("the watchdog signalled the group");
+    assert!(signalled >= kill, "signalled before the deadline");
+    assert!(
+        signalled < released,
+        "signalled only once the registry was free"
+    );
+    assert!(
+        signalled - kill < Duration::from_millis(500),
+        "signalled {:?} after the deadline",
+        signalled - kill
+    );
     let input = serde_json::json!({});
     let report = process.run_attempt("test", "effect", "attempt", "seat", input, |_| {});
     assert!(report.deadline_killed);
