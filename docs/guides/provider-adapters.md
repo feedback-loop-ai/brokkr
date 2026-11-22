@@ -523,7 +523,7 @@ macOS nothing is measured.
 #### Qoder boxed hands
 
 Where a site boxes its hands (decisions 0043 and 0046),
-the seat is boxed as claude's and codex's are (decision 0075 ruling 4):
+the seat's hands are boxed as a trusted harness's are (decision 0075 ruling 4):
 its commands run in Brokkr's box through the engine's `workspace` tool,
 served by `brokkr hands serve`. The adapter declares the empty fragment,
 `"hands": {"workspace": []}`, because the driver composes the whole
