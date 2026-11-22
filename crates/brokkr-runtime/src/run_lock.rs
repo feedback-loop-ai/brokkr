@@ -138,6 +138,26 @@ pub(crate) fn held_at(journal: &Path, run_id: &str) -> Result<RunLock, RunLockEr
     Ok(RunLock { _held: held })
 }
 
+/// What the run lock proves of `run_id`'s driver in the journal at
+/// `journal`, as writer admission proves a standing run's writer before it
+/// releases its worktree ([`held_at`]): a lock another process holds is a
+/// live driver, a lock taken here at once is none (it is let go as this
+/// returns), and a lock that cannot be read proves nothing. The pass and
+/// the claim read a probe hold past its stored end through this, so only a
+/// holder proven ended lets it go (fix round 0106b1r11, L1). Taking the
+/// free lock for that instant is the proof; a driver of the run starting
+/// in it is refused as driven, as it is beneath admission's own take.
+pub(crate) fn liveness(journal: &Path, run_id: &str) -> brokkr_store::HolderLiveness {
+    use brokkr_store::HolderLiveness;
+    match held_at(journal, run_id) {
+        Ok(_free) => HolderLiveness::Ended,
+        Err(RunLockError::Driven { .. }) => HolderLiveness::Live,
+        Err(RunLockError::UnsafeId(_) | RunLockError::Directory(_) | RunLockError::File(_)) => {
+            HolderLiveness::Unread
+        }
+    }
+}
+
 /// What the lock records of its holder.
 struct Facts {
     host: Option<String>,

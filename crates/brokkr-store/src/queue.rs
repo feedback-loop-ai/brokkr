@@ -39,7 +39,8 @@ use beside::{beside_once, Beside};
 pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Generation, StartRefusal};
 pub(crate) use cooldown::insert as insert_cooldowns;
 pub use cooldown::{
-    Cooldown, CooldownAggregate, CooldownRound, Cooling, ProbeHold, ProbeHoldId, RoundAppend,
+    Cooldown, CooldownAggregate, CooldownRound, Cooling, HolderLiveness, Holders, ProbeHold,
+    ProbeHoldId, RoundAppend,
 };
 #[cfg(test)]
 use entry::UnknownWord;

@@ -236,7 +236,8 @@ impl<'h> Measure<'h> {
     /// Read the host, the cool-downs and the journal's runs.
     fn take(store: &Store, host: &'h Host<'h>, now: Stamp) -> Result<Measure<'h>, AdmissionError> {
         let hosting = host::read(host.file)?;
-        let cooling = cooling::Cooling::of(&store.cooldowns_in_force(now)?);
+        let holders = cooling::holders(store.path());
+        let cooling = cooling::Cooling::of(&store.cooldowns_in_force(now, &holders)?);
         let journal = Journal::of(store)?;
         let high_water = store.high_water()?;
         let counted = matches!(hosting, Hosting::Declared(_));
@@ -387,6 +388,8 @@ impl Room {
         reason: &str,
         now: Stamp,
     ) -> Result<Result<Claim, Reason>, AdmissionError> {
+        let journal = store.path().to_path_buf();
+        let holders = cooling::holders(&journal);
         let over = Claiming {
             entry: &self.entry,
             high_water: self.high_water,
@@ -394,7 +397,7 @@ impl Room {
             generation,
             now,
         };
-        let claimed = store.queue_claim_with(&over, reason, self.judge(store.path()));
+        let claimed = store.queue_claim_holding(&over, &holders, reason, self.judge(&journal));
         match claimed? {
             Ok(claim) => Ok(Ok(claim)),
             Err(Recheck::Refused(reason)) => Ok(Err(reason)),

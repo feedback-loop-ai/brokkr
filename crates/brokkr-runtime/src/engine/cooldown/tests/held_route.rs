@@ -3,8 +3,9 @@
 //! A hold is written before the probe is reserved, and the pass and the
 //! claim read it as cooling down through the one in-force read. A refusal's
 //! renewed round ends it in the round's own transaction; an answer ends it
-//! at once; a round the store does not take leaves it standing until the
-//! probe's deadline, and then it holds nothing.
+//! at once; a round the store does not take leaves it standing until its
+//! stored end, and then it holds nothing once its run's lock proves the
+//! driver ended (fix round 0106b1r11, L1).
 //!
 //! No other row is planted on the route: the old held row has expired when
 //! the probe dispatches, so whatever a second connection's pass and claim
@@ -319,6 +320,43 @@ pub(super) fn held_to_its_deadline(engine: &Engine, gates: &Shared, deadline: Of
     }
     assert_eq!(unended_holds(engine.store.path()), 1);
     assert_eq!(legs(gates, end), [Ok(()), Ok(())]);
+}
+
+/// Fix round 0106b1r11, L1: past its stored end, a hold no evidence ended
+/// is read through its run's lock, at one instant on both production
+/// gates. While another process holds the run's lock, its driver is live
+/// and the hold stands, an hour past its end as at it; while the lock
+/// cannot be read (its directory open to others) it stands too; once the
+/// lock is free, the holder is proven ended and both gates admit.
+#[test]
+fn a_hold_past_its_stored_end_stands_until_its_runs_driver_is_proven_ended() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
+    std::fs::write(dir.path().join("work.release"), "").unwrap();
+    driven_failing(&mut engine, "provider_cooldowns");
+    let (end, later) = (
+        hold_end_of(probe_at),
+        hold_end_of(probe_at) + time::Duration::hours(1),
+    );
+    let driving = crate::run_lock::take(&engine.store, &engine.run_id).unwrap();
+    for at in [end, later] {
+        let read = legs(&gates, at);
+        assert!(held_to(&read, end), "live, at {at}: {read:?}");
+        assert!(
+            matches!(&read[0], Err(Capacity::CoolingDown { words, .. })
+                if words.contains("past its stored end, for its run's driver is not proven ended")),
+            "{read:?}"
+        );
+    }
+    drop(driving);
+    let locks = crate::run_lock::directory_path(engine.store.path());
+    let mode = |bits| std::fs::set_permissions(&locks, std::fs::Permissions::from_mode(bits));
+    mode(0o755).unwrap();
+    let unread = legs(&gates, end);
+    mode(0o700).unwrap();
+    assert!(held_to(&unread, end), "unread: {unread:?}");
+    assert_eq!(unended_holds(engine.store.path()), 1);
+    assert_eq!(legs(&gates, end), [Ok(()), Ok(())]);
 }
 
 /// An answered probe ends its own hold: the route reads cooling down while

@@ -334,7 +334,10 @@ fn an_expired_row_never_holds() {
     assert_eq!(admitted_at(&fixture, &file, base()), vec![]);
     // The pass writes nothing: the expired row is history still.
     assert_eq!(
-        fixture.store.cooldowns_in_force(at(-120)).unwrap().len(),
+        (fixture.store)
+            .cooldowns_in_force(at(-120), &brokkr_store::test_support::holders_ended)
+            .unwrap()
+            .len(),
         1,
         "the pass cleared an expired row"
     );

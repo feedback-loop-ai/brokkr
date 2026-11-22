@@ -15,6 +15,7 @@ use time::{Duration, OffsetDateTime};
 use super::*;
 use crate::queue::tests::queue;
 use crate::queue::{Claiming, CooldownDuplicate, QueueRefusal};
+use crate::test_support::holders_ended as crashed;
 use crate::StoreError;
 
 /// A fixed instant after the event's own recorded time, so a row's end is
@@ -224,7 +225,7 @@ fn a_terminal_event_and_its_rows_land_together() {
     let event = append(&mut store, "run-a", &rows).unwrap();
     assert_eq!(event.seq, 1);
 
-    let recorded = store.cooldowns_in_force(at(0)).unwrap();
+    let recorded = store.cooldowns_in_force(at(0), &crashed).unwrap();
     assert_eq!(recorded.len(), 2);
     // The rows read back are the rows written, at the event's recording
     // instant (to the second) and no other.
@@ -383,7 +384,7 @@ fn a_lost_cool_down_table_refuses_only_what_reads_or_writes_rows() {
     );
     assert_eq!(store.load("run-a").unwrap().len(), 2, "the event landed");
 
-    let error = store.cooldowns_in_force(at(0)).unwrap_err();
+    let error = store.cooldowns_in_force(at(0), &crashed).unwrap_err();
     assert!(matches!(error, StoreError::Sqlite(_)), "{error:?}");
     assert_eq!(
         error.to_string(),
@@ -733,7 +734,7 @@ fn two_lanes() -> (tempfile::TempDir, Store) {
 fn an_expired_row_is_not_in_force() {
     let (_dir, store) = two_lanes();
     let in_force = |store: &Store, now| -> Vec<String> {
-        (store.cooldowns_in_force(now).unwrap())
+        (store.cooldowns_in_force(now, &crashed).unwrap())
             .into_iter()
             .map(|row| row.route)
             .collect()
@@ -764,7 +765,7 @@ fn the_readout_keeps_the_newest_end_after_it_passes() {
     );
     assert_eq!(newest(&store, at(40)), ["first", "second"]);
     assert_eq!(
-        store.cooldowns_in_force(at(15)).unwrap().len(),
+        store.cooldowns_in_force(at(15), &crashed).unwrap().len(),
         1,
         "admission still reads only the unexpired row"
     );
@@ -822,9 +823,9 @@ fn a_wait_is_not_shortened_by_its_rounding() {
             reason: "rate_limit: slow down".into(),
         })
     );
-    assert_eq!(store.cooldowns_in_force(now).unwrap().len(), 1);
+    assert_eq!(store.cooldowns_in_force(now, &crashed).unwrap().len(), 1);
     // The rounding lengthens the wait by under a second, never past it.
-    assert_eq!(store.cooldowns_in_force(at(11)).unwrap(), vec![]);
+    assert_eq!(store.cooldowns_in_force(at(11), &crashed).unwrap(), vec![]);
 }
 
 /// A wait ending inside its recording second writes its row: the stored
@@ -864,7 +865,7 @@ fn a_wait_in_the_last_second_is_stored_at_the_last_second() {
     let last = OffsetDateTime::from_unix_timestamp(LAST_SECOND).unwrap();
     let until = last + Duration::milliseconds(500);
     append(&mut store, "run-a", &[row("a", "claude", "first", until)]).unwrap();
-    let rows = store.cooldowns_in_force(at(0)).unwrap();
+    let rows = store.cooldowns_in_force(at(0), &crashed).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].until_at, last);
     assert_eq!(
@@ -897,7 +898,7 @@ fn a_time_the_reader_cannot_spell_is_refused_by_name() {
         "the journal's provider cool-down 1 records a time it cannot read"
     );
     assert!(matches!(
-        store.cooldowns_in_force(at(0)),
+        store.cooldowns_in_force(at(0), &crashed),
         Err(StoreError::Queue(QueueRefusal::CooldownTime { seq: 1 }))
     ));
 }
@@ -917,7 +918,7 @@ fn a_cool_down_reader_refuses_an_unknown_queue_version() {
     let now = at(0);
     for error in [
         store.cooldown("claude", "first", now).unwrap_err(),
-        store.cooldowns_in_force(now).unwrap_err(),
+        store.cooldowns_in_force(now, &crashed).unwrap_err(),
     ] {
         assert_eq!(
             error.to_string(),
@@ -955,7 +956,7 @@ fn a_cool_down_reader_answers_none_before_a_version_4_journal() {
             "version {version}"
         );
         assert_eq!(
-            store.cooldowns_in_force(now).unwrap(),
+            store.cooldowns_in_force(now, &crashed).unwrap(),
             vec![],
             "version {version}"
         );
@@ -974,7 +975,7 @@ fn the_claim_reads_the_rows_in_force_inside_its_transaction() {
     planted(&store, "run-b");
     let read = store.queue_entry(entry).unwrap();
     // The pass reads no row in force, at its own instant.
-    assert_eq!(store.cooldowns_in_force(at(0)).unwrap(), vec![]);
+    assert_eq!(store.cooldowns_in_force(at(0), &crashed).unwrap(), vec![]);
     // A row is recorded after the pass read the entry, before its claim.
     append(
         &mut store,
@@ -1013,6 +1014,20 @@ fn the_claim_reads_the_rows_in_force_inside_its_transaction() {
     assert_eq!(refused.unwrap(), Err("the route is cooling"));
     assert_eq!(seen, ["first"]);
     assert_eq!((store.queue_list().unwrap(), raw(&store.conn)), before);
+    // A probe hold past its stored end, its holder unread by a claim that
+    // reads no run lock, still stands (fix round 0106b1r11, L1).
+    let hold = ProbeHold {
+        run_id: "run-b",
+        site: "",
+        provider: "claude",
+        route: "first",
+        fallback: at(30),
+    };
+    let held = store.hold_probe(&hold, at(0)).unwrap();
+    let (refused, seen) = judged(&mut store, at(60));
+    assert_eq!(refused.unwrap(), Err("the route is cooling"));
+    assert_eq!(seen, ["first"]);
+    store.end_probe_hold(Some(held), at(60)).unwrap();
     // Past the row's end, the claim reads nothing in force and lands.
     let (refused, seen) = judged(&mut store, at(60));
     assert!(matches!(refused, Ok(Ok(_))), "{refused:?}");

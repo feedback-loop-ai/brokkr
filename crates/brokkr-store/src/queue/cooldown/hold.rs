@@ -2,12 +2,13 @@
 //! ruling of 2026-11-18, amending decision 0103 ruling 2): one version 7
 //! `probe_holds` row, written before the probe is reserved, that the pass
 //! and the claim read as a cool-down through the one in-force read
-//! ([`super::in_force`]) while it is unended and before its stored end. A
-//! refusal's renewed round ends it in the transaction that writes the
-//! round; a live engine ends it once its settlement proves the probe's
-//! tree ended (fix round 0106b1r10, H1). Its stored end is only the crash
-//! fallback, the probe's deadline plus the shutdown grace and a margin
-//! (H2): past it, a hold no engine ended holds nothing.
+//! ([`super::in_force`]) while it is unended. A refusal's renewed round
+//! ends it in the transaction that writes the round; a live engine ends it
+//! once its settlement proves the probe's tree ended (fix round 0106b1r10,
+//! H1). Its stored end, the probe's deadline plus the shutdown grace and a
+//! margin (H2), is read only once its holder is proven ended (fix round
+//! 0106b1r11, L1): past it, a hold whose run's driver is proven gone holds
+//! nothing, and one whose driver lives, or cannot be read, still holds.
 
 use rusqlite::{params, Connection, OptionalExtension};
 use time::OffsetDateTime;
@@ -31,7 +32,8 @@ pub struct ProbeHold<'a> {
     /// driver is killed by, plus the shutdown grace and the engine's
     /// margin (fix round 0106b1r10, H2). A live engine ends the hold on
     /// evidence long before it; the hold stops counting at the first whole
-    /// second after it only where nothing ended it, as after a crash.
+    /// second after it only where nothing ended it and its run's driver is
+    /// proven ended, as after a crash (fix round 0106b1r11, L1).
     pub fallback: OffsetDateTime,
 }
 
@@ -49,23 +51,69 @@ fn after_second(fallback: OffsetDateTime) -> Option<i64> {
     (end <= LAST_SECOND).then_some(end)
 }
 
-/// The words a hold is read with, naming the run whose probe is in flight.
-fn words(run_id: &str) -> String {
-    format!("a cool-down probe of run {run_id} holds the route while it is in flight")
+/// What the run lock (decision 0108 ruling 1) proves of a hold's holder,
+/// the driver of the run the hold names: the proof writer admission takes
+/// of a standing run's writer before it releases its worktree. The store
+/// takes no run lock, which lives beside the journal and is the engine's,
+/// so the pass and the claim hand the in-force read their reading of it
+/// (fix round 0106b1r11, L1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HolderLiveness {
+    /// Another process holds the run's lock: its driver is live.
+    Live,
+    /// The run's lock was free, so no driver of it is live: it crashed or
+    /// stopped driving.
+    Ended,
+    /// The lock could not be read: its directory or file is not one a run
+    /// lock is taken in, or the run id names no lock file.
+    Unread,
 }
 
-/// Every hold standing at `now`, unended and before its deadline, as the
-/// rows the in-force read joins: its deadline is its end and its words name
-/// the probing run. A queue that holds no version 7 table holds no hold.
-pub(super) fn standing(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
+/// A reading of each hold's holder, by the run id the hold names, as the
+/// pass and the claim take it from the run lock.
+pub type Holders<'a> = &'a dyn Fn(&str) -> HolderLiveness;
+
+/// Whether a hold past its stored end still stands: only a holder proven
+/// ended lets it go, and one live or unread keeps it (fail closed).
+fn outlives_its_end(liveness: HolderLiveness) -> bool {
+    match liveness {
+        HolderLiveness::Live | HolderLiveness::Unread => true,
+        HolderLiveness::Ended => false,
+    }
+}
+
+/// The words a hold is read with, naming the run whose probe is in flight,
+/// and, past its stored end, that its run's driver is not proven ended.
+fn words(run_id: &str, lapsed: bool) -> String {
+    match lapsed {
+        false => {
+            format!("a cool-down probe of run {run_id} holds the route while it is in flight")
+        }
+        true => format!(
+            "a cool-down probe of run {run_id} holds the route past its stored end, for its \
+             run's driver is not proven ended"
+        ),
+    }
+}
+
+/// Every hold standing at `now`, as the rows the in-force read joins: each
+/// unended hold before its stored end, and each past it whose holder
+/// `holders` does not prove ended (fix round 0106b1r11, L1). Its stored
+/// end is its end and its words name the probing run. A queue that holds
+/// no version 7 table holds no hold.
+pub(super) fn standing(
+    conn: &Connection,
+    now: i64,
+    holders: Holders<'_>,
+) -> Result<Vec<Cooldown>, StoreError> {
     if !cool_downs_writable(conn)? {
         return Ok(Vec::new());
     }
     let mut statement = conn.prepare(
         "SELECT seq, run_id, site, provider, route, deadline_at, recorded_at FROM probe_holds
-         WHERE ended_at IS NULL AND deadline_at > ?1 ORDER BY seq",
+         WHERE ended_at IS NULL ORDER BY seq",
     )?;
-    let raw = statement.query_map([now], |row| {
+    let raw = statement.query_map([], |row| {
         Ok((
             row.get::<_, i64>(0)?,
             row.get::<_, String>(1)?,
@@ -78,13 +126,16 @@ pub(super) fn standing(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, Sto
     })?;
     let rows = raw.collect::<Result<Vec<_>, _>>()?;
     rows.into_iter()
+        .filter(|(_, run_id, _, _, _, deadline, _)| {
+            *deadline > now || outlives_its_end(holders(run_id))
+        })
         .map(|(seq, run_id, site, provider, route, deadline, recorded)| {
             Ok(Cooldown {
                 site,
                 provider,
                 route,
                 until_at: time_of(deadline, seq)?,
-                reason: words(&run_id),
+                reason: words(&run_id, deadline <= now),
                 retry_after_seconds: None,
                 // A hold is no round of any episode.
                 rounds: 0,

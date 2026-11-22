@@ -231,7 +231,9 @@ impl Engine {
     /// 0106b1r10, H2), which the store keeps to the first whole second
     /// strictly after it (fix round 0106b1r6, D1). The pass and the claim
     /// read it as cooling down until the engine ends it on evidence (H1),
-    /// or, where nothing ended it, that second comes.
+    /// or, where nothing ended it, that second comes and the run's lock,
+    /// which this engine holds while it drives, proves its driver ended
+    /// (fix round 0106b1r11, L1).
     /// A hold the store refuses parks the probe unadmitted, so no probe
     /// runs on a route it could not hold: one the table did not write, one
     /// whose end cannot be stored after its fallback, and one on a queue

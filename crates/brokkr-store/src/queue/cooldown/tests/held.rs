@@ -50,7 +50,7 @@ fn a_version_6_queue_migrates_to_version_7_and_keeps_its_cool_downs_ordinary() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = journal(dir.path());
     append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
-    let held = store.cooldowns_in_force(at(0)).unwrap();
+    let held = store.cooldowns_in_force(at(0), &crashed).unwrap();
     // Version 6's table: `held` first, because its CHECK names
     // `max_seconds`.
     store
@@ -71,7 +71,7 @@ fn a_version_6_queue_migrates_to_version_7_and_keeps_its_cool_downs_ordinary() {
 
     let mut store = crate::queue::tests::opened_whole(&dir.path().join("forge.db"));
     assert_eq!(crate::queue::queue_schema(&store.conn).unwrap(), Some(7));
-    assert_eq!(store.cooldowns_in_force(at(0)).unwrap(), held);
+    assert_eq!(store.cooldowns_in_force(at(0), &crashed).unwrap(), held);
     assert_eq!(kinds(&store.conn), vec![(None, None)]);
     // And the migrated table takes a held row.
     planted(&store, "run-b");
@@ -104,8 +104,9 @@ fn probe_hold(run: &str, fallback: OffsetDateTime) -> crate::ProbeHold<'_> {
 /// 0106b1r4, F1): the first whole second strictly after its deadline, so
 /// a deadline on a whole second is still held at that instant, the kill's
 /// (fix round 0106b1r6, D1), with words naming the probing run. At its
-/// end, or once ended, it holds nothing; it ends once, and a version 6
-/// queue takes none.
+/// end it holds nothing once its holder is proven ended, and stands while
+/// that holder is live or unread (fix round 0106b1r11, L1); once ended it
+/// holds nothing; it ends once, and a version 6 queue takes none.
 #[test]
 fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
     let dir = tempfile::tempdir().unwrap();
@@ -113,7 +114,7 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
     let first = store
         .hold_probe(&probe_hold("run-a", at(30)), at(0))
         .unwrap();
-    let read = store.cooldowns_in_force(at(10)).unwrap();
+    let read = store.cooldowns_in_force(at(10), &crashed).unwrap();
     assert_eq!(
         read,
         [Cooldown {
@@ -127,8 +128,24 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
             recorded_at: at(0),
         }]
     );
-    assert_eq!(store.cooldowns_in_force(at(30)).unwrap(), read);
-    assert_eq!(store.cooldowns_in_force(at(31)).unwrap(), []);
+    assert_eq!(store.cooldowns_in_force(at(30), &crashed).unwrap(), read);
+    assert_eq!(store.cooldowns_in_force(at(31), &crashed).unwrap(), []);
+    // Past its stored end, a holder not proven ended keeps it (fix round
+    // 0106b1r11, L1), and the words say so.
+    let lapsed = Cooldown {
+        reason: "a cool-down probe of run run-a holds the route past its stored end, for its \
+                 run's driver is not proven ended"
+            .into(),
+        ..read[0].clone()
+    };
+    for reading in [HolderLiveness::Live, HolderLiveness::Unread] {
+        let holders = move |run: &str| {
+            assert_eq!(run, "run-a");
+            reading
+        };
+        let past = store.cooldowns_in_force(at(31), &holders).unwrap();
+        assert_eq!(past, std::slice::from_ref(&lapsed), "{reading:?}");
+    }
     // The aggregate a wait sleeps to is the table's rows only.
     assert_eq!(store.cooldown("claude", "first", at(10)).unwrap(), None);
     let second = store
@@ -137,9 +154,9 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
     store.end_probe_hold(Some(second), at(5)).unwrap();
     store.end_probe_hold(Some(second), at(6)).unwrap();
     store.end_probe_hold(None, at(6)).unwrap();
-    assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), read);
+    assert_eq!(store.cooldowns_in_force(at(10), &crashed).unwrap(), read);
     store.end_probe_hold(Some(first), at(7)).unwrap();
-    assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), []);
+    assert_eq!(store.cooldowns_in_force(at(10), &crashed).unwrap(), []);
     let ended: Vec<i64> = store
         .conn
         .prepare("SELECT ended_at FROM probe_holds ORDER BY seq")
@@ -153,12 +170,12 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
     store
         .hold_probe(&probe_hold("run-a", at(60)), at(0))
         .unwrap();
-    assert_eq!(store.cooldowns_in_force(at(10)).unwrap().len(), 1);
+    assert_eq!(store.cooldowns_in_force(at(10), &crashed).unwrap().len(), 1);
     store
         .conn
         .execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
         .unwrap();
-    assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), []);
+    assert_eq!(store.cooldowns_in_force(at(10), &crashed).unwrap(), []);
 }
 
 /// Fix round 0106b1r9, E3: a hold is only ever the evidence of its write.
@@ -443,7 +460,10 @@ fn a_hold_whose_end_cannot_be_stored_after_its_deadline_refuses_and_writes_none(
     store
         .hold_probe(&probe_hold("run-a", before), at(0))
         .unwrap();
-    assert_eq!(store.cooldowns_in_force(before).unwrap()[0].until_at, last);
+    assert_eq!(
+        store.cooldowns_in_force(before, &crashed).unwrap()[0].until_at,
+        last
+    );
     let refused = store
         .hold_probe(&probe_hold("run-b", last), at(0))
         .unwrap_err();

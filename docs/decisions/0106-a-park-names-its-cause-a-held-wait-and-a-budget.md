@@ -1168,9 +1168,15 @@ every entry reads the default budget of 3; a direct run always has none.
    (0103 ruling 2 as the operator amended it on 2026-11-18, #1035) ends on evidence: its
    driver's tree proven ended by the engine's settlement, its answer, or its renewed round's
    commit. Its stored end, the probe's deadline plus the shutdown grace plus a 60-second margin,
-   is only the crash fallback. Named residual (fix round 0106b1r10): a host suspend, or a
-   forward wall-clock step, longer than that margin can end the fallback while a frozen driver
-   lives.
+   is only the crash fallback, read only once the coordination root proves the holder ended
+   (fix round 0106b1r11): the pass and the claim read the hold's run's lock (decision 0108
+   ruling 1), the proof writer admission takes of a standing run's writer, and a hold past its
+   stored end stands while that lock is held or cannot be read. A live engine's hold therefore
+   never lapses by a clock: a host suspend or a wall-clock step freezes or moves its engine
+   with the lock still held. Named residual (fix rounds 0106b1r10 and 0106b1r11): after an
+   engine crash, its lock is free, so the hold lapses at the stored end, and a driver the
+   crash orphaned, its watchdog gone, or one frozen by a host suspend longer than the margin
+   in which the engine then died, can outlive it.
 3. **0106c — the operator lift, its consumption and its clearing rule.** Depends on 0106b. Files:
    `crates/brokkr-core/src/fold.rs`, `crates/brokkr-core/src/fold/operator.rs`,
    `crates/brokkr-runtime/src/engine/operator.rs`,

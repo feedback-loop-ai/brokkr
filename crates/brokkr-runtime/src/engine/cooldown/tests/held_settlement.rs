@@ -246,6 +246,19 @@ fn a_forward_wall_clock_step_while_the_probe_runs_finds_the_route_still_held() {
     a_probe_whose_clock_moves_in_flight_by(time::Duration::seconds(30));
 }
 
+/// Fix round 0106b1r11, L1: a forward step of the engine's wall clock
+/// past the hold's stored end itself, beyond the margin, while the probe
+/// runs. The run's driver still holds its run lock, so the stored end is
+/// not read, and both gates read the route cooling down while the driver
+/// lives; the settlement then ends the hold.
+#[test]
+fn a_wall_clock_step_past_the_stored_end_while_the_probe_runs_finds_the_route_still_held() {
+    let epoch = OffsetDateTime::UNIX_EPOCH;
+    a_probe_whose_clock_moves_in_flight_by(
+        hold_end_of(epoch) - epoch + time::Duration::seconds(10),
+    );
+}
+
 /// A descendant outside the driver's group (`setsid`), as the registry and
 /// the process table find it: the probe answers and lingers, and with the
 /// clock inside the grace both gates read the route cooling down while the

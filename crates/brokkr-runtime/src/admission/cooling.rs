@@ -4,8 +4,9 @@
 //!
 //! The rows are the store's own read of every unexpired
 //! `provider_cooldowns` row and every standing probe hold, a probe in
-//! flight holding its route until it ends or its deadline passes (fix round
-//! 0106b1r4) ([`brokkr_store::Store::cooldowns_in_force`]),
+//! flight holding its route until it ends on evidence, or, past its stored
+//! end, its run's driver is proven ended by the run lock (fix rounds
+//! 0106b1r4 and 0106b1r11) ([`brokkr_store::Store::cooldowns_in_force`]),
 //! aggregated per provider and route to the latest `until_at`, with the
 //! words of the latest row at that maximum (ruling 2's aggregate). A pass
 //! that cannot read a row refuses; it never reads one as no cool-down.
@@ -14,8 +15,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::path::Path;
 
-use brokkr_store::Cooldown;
+use brokkr_store::{Cooldown, HolderLiveness};
 use time::OffsetDateTime;
 
 use super::capacity::{Capacity, Lane};
@@ -80,6 +82,14 @@ impl Cooling {
         }
         Ok(())
     }
+}
+
+/// The run lock's reading of each probe hold's holder in the journal at
+/// `journal`, the one both gates hand the in-force read: a hold past its
+/// stored end stands until its run's driver is proven ended, so a live
+/// holder's hold never lapses by the clock (fix round 0106b1r11, L1).
+pub(super) fn holders(journal: &Path) -> impl Fn(&str) -> HolderLiveness + '_ {
+    move |run_id| crate::run_lock::liveness(journal, run_id)
 }
 
 /// The cool-down rows a pass or a claim judges: the pass's one aggregate,
