@@ -8,6 +8,7 @@ use super::*;
 use crate::adapters::AdapterKind;
 use crate::RefusalClass;
 
+mod boxed;
 #[cfg(unix)]
 mod live;
 
@@ -62,7 +63,18 @@ fn fold_bound(
     stderr: &str,
     bindings: &[secret::BoundSecret],
 ) -> Folded {
-    let mut fold = QoderFold::new(&pin(pinned));
+    fold_under(&Hands::Native, stdout, pinned, stderr, bindings)
+}
+
+/// [`fold_bound`] for a launch whose hands are `hands`.
+fn fold_under(
+    hands: &Hands,
+    stdout: &[u8],
+    pinned: &str,
+    stderr: &str,
+    bindings: &[secret::BoundSecret],
+) -> Folded {
+    let mut fold = QoderFold::new(&pin(pinned), hands);
     let mut rows = Vec::new();
     let mut session_meta = Map::new();
     let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
@@ -493,7 +505,7 @@ fn argv(parts: &[&str]) -> Vec<String> {
 /// The engine's empty set, its file at `/tmp/e/mcp.json`.
 const EMPTY: Engine<'static> = Engine {
     file: "/tmp/e/mcp.json",
-    grants: &[],
+    hands: &Hands::Native,
 };
 
 /// The launch of `extra` served `engine`, its command alone.
@@ -546,42 +558,8 @@ fn a_qoder_launch_is_the_print_head_the_seat_controls_the_isolation_and_the_fixe
         Launch {
             command: argv(&[&LEAD[..], &extra, &ISOLATED, &denied].concat()),
             pin: pin("Qwen4-Max"),
+            hands: Hands::Native,
         }
-    );
-}
-
-/// With one engine server: the meta-tools are kept, and its tool is granted
-/// in the seat's one `--allowed-tools` value beside its Bash pattern, or as
-/// that control where the seat grants nothing of its own (Q12 to Q15).
-#[test]
-fn an_engine_server_keeps_the_meta_tools_and_is_granted_in_the_one_allow_list() {
-    let grants = ["mcp__brokkr__workspace".to_string()];
-    let served = Engine {
-        file: "/tmp/e/mcp.json",
-        grants: &grants,
-    };
-    let golden = |seat: &[&str]| argv(&[&LEAD[..], seat, &ISOLATED].concat());
-    assert_eq!(
-        command(&["-m", "Fast", "--allowed-tools", "Bash(git:*)"], served),
-        golden(&[
-            "-m",
-            "Fast",
-            "--allowed-tools",
-            "Bash(git:*),mcp__brokkr__workspace"
-        ])
-    );
-    assert_eq!(
-        command(&["--allowed-tools", "Bash(ls:*)", "-m", "Fast"], served),
-        golden(&[
-            "--allowed-tools",
-            "Bash(ls:*),mcp__brokkr__workspace",
-            "-m",
-            "Fast"
-        ])
-    );
-    assert_eq!(
-        command(&["-m", "Fast"], served),
-        golden(&["-m", "Fast", "--allowed-tools", "mcp__brokkr__workspace"])
     );
 }
 
@@ -591,17 +569,17 @@ fn an_engine_server_keeps_the_meta_tools_and_is_granted_in_the_one_allow_list() 
 /// may write none of its flags.
 #[test]
 fn no_launch_carries_the_strict_flag_without_the_empty_setting_sources() {
-    let grants = ["mcp__brokkr__workspace".to_string()];
+    let boxed = Hands::Boxed(vec!["mcp__brokkr__workspace".to_string()]);
     let served = Engine {
         file: "/tmp/e/mcp.json",
-        grants: &grants,
+        hands: &boxed,
     };
-    let seats: [&[&str]; 2] = [
+    let native: [&[&str]; 2] = [
         &["-m", "Fast"],
         &["-m", "Fast", "--allowed-tools", "Bash(ls:*)"],
     ];
-    for engine in [EMPTY, served] {
-        for seat in seats {
+    for (engine, seats) in [(EMPTY, &native[..]), (served, &native[..1])] {
+        for &seat in seats {
             let command = command(seat, engine);
             let strict = command
                 .iter()
@@ -1120,26 +1098,21 @@ fn a_launch_the_admission_refuses_never_starts_its_harness() {
     }
 }
 
-/// A hands set the standing fence serves unmeasured is served the empty
-/// set: the engine's file is the empty document and the meta-tools are
-/// denied, so no hands and no ambient server start.
+/// A hands set the standing fence serves unmeasured is refused before the
+/// harness starts (#1235): the seat was sealed boxed, and the driver never
+/// launches it with Qoder's own tools in the box's place.
 #[cfg(unix)]
 #[test]
-fn an_unadmitted_hands_set_under_the_standing_fence_is_served_the_empty_set() {
+fn an_unadmitted_hands_set_under_the_standing_fence_never_starts_its_harness() {
     use crate::native_controls::SealedBoundary::Namespace;
-    let dir = tempfile::tempdir().unwrap();
-    let bin = fake_qoder(dir.path(), TOOL_LESS, "", None, 0);
     let serving = sealed(Namespace, "hands", json!("unmeasured"), "standing");
-    run_sealed(dir.path(), &bin, &["-m", "Fast"], Some(serving));
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("mcp")).unwrap(),
-        r#"{"mcpServers":{}}"#
-    );
-    let argv = std::fs::read_to_string(dir.path().join("argv")).unwrap();
-    let argv: Vec<&str> = argv.lines().collect();
-    assert_eq!(
-        argv[argv.len() - 2..],
-        ["--disallowed-tools", "mcp_call,mcp_get,mcp_list"]
+        refused_before_spawn(serving).as_deref(),
+        Some(
+            "refusing to invoke the agent CLI: provider 'qoder' cannot be served the box's hands \
+             its sealed inputs declare: no measured strict MCP configuration admitted them, and \
+             no launch with the harness's own tools is served in their place"
+        )
     );
 }
 

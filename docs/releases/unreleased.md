@@ -8,8 +8,8 @@ Changes merged since v0.15.2 that the next release's notes carry.
   runs Qoder CLI 1.1 in print mode with a fixed tool list, the prompt on
   stdin and no session kept. The adapter ships as an example,
   `docs/examples/adapters/qoder.json`, which a world copies into its
-  adapters directory. It maps five provisional models, holds no gate,
-  declares no hands and is never resumed. A seat whose served model is
+  adapters directory. It maps five provisional models, holds no gate
+  and is never resumed. A seat whose served model is
   not exactly its pin is refused, and so is a signed-out CLI. The pin
   must be a plain model id, and a stdout line that is not a JSON object
   refuses the seat (decision 0075's 2026-11-21 addendum).
@@ -18,6 +18,21 @@ Changes merged since v0.15.2 that the next release's notes carry.
   ""`, the MCP isolation measured on Linux for the cold and replacement
   shapes without hands, so a qoder seat compiles there ([provider
   adapters](../guides/provider-adapters.md#qoder-cli-a-provisional-harness)).
+- **A Qoder CLI seat holds boxed hands** (#1235). The example adapter
+  declares `"hands": {"workspace": []}` and its cold and replacement
+  shapes boxed, measured on Qoder CLI 1.1.95 on Linux; its shapes without
+  hands and its carriage now cite 1.1.95 too. Where a site boxes its
+  hands, `brokkr driver qoder` launches `--permission-mode dont_ask`,
+  `--tools ""` and one grant, the engine's `workspace` tool, beside the
+  engine's server alone; a boxed seat that passes `--allowed-tools` of
+  its own is refused before Qoder starts. Qoder does not fail closed, so
+  the driver does: a boxed turn whose init does not show the engine's
+  server `connected`, or shows any other server or tool, is refused, and
+  one that records a permission denial or a tool error saying the
+  engine's server is not connected fails. A seat compiled boxed that the
+  standing MCP fence serves no measured shape is refused, never launched
+  with Qoder's own tools. The unboxed seat is unchanged ([Qoder boxed
+  hands](../guides/provider-adapters.md#qoder-boxed-hands)).
 
 ## Changed
 

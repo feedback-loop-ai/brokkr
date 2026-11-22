@@ -72,7 +72,7 @@
   },
   "mcp": {
     "carriage": {
-      "measured": "Q14 (cold) and Q15 (replacement, Q14's argv again), Qoder CLI 1.1.92, Linux, 2026-11-20: under --strict-mcp-config --mcp-config <engine file> --setting-sources \"\" the engine sentinel started, init listed it connected, and it answered tools/call under an --allowed-tools grant naming it mcp__<server>__<tool> (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2))"
+      "measured": "q95-14-carriage-cold and q95-15-carriage-replacement (its argv again), Qoder CLI 1.1.95, Linux, 2026-11-22: under --strict-mcp-config --mcp-config <engine file> --setting-sources \"\" the engine sentinel alone started, init listed it connected, and it answered through mcp_call under an --allowed-tools grant naming it mcp__<server>__<tool> (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
     },
     "shapes": [
       {
@@ -81,11 +81,11 @@
         "measured_on": {
           "harness": "qoder",
           "binary": "qodercli",
-          "version": "1.1.92",
+          "version": "1.1.95",
           "host": "linux"
         },
         "ambient": {
-          "measured": "Q01 and Q02, the positive control: with no MCP flags the user, local, project and plugin sentinels all started; Q07 and Q10 (cold): under --strict-mcp-config --mcp-config <empty file> --setting-sources \"\" no planted sentinel started and init mcp_servers was [] (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2))"
+          "measured": "q95-01-positive-control: with no MCP flags the user, local, project and plugin sentinels all started; q95-07-cold: under --strict-mcp-config --mcp-config <empty file> --setting-sources \"\" no planted sentinel started and init mcp_servers was [], as Q07 and Q10 on 1.1.92 (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
         },
         "native_write": {
           "unmeasured": "native writes outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's Write and Edit attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
@@ -103,11 +103,11 @@
         "measured_on": {
           "harness": "qoder",
           "binary": "qodercli",
-          "version": "1.1.92",
+          "version": "1.1.95",
           "host": "linux"
         },
         "ambient": {
-          "measured": "Q01 and Q02, the positive control: with no MCP flags the user, local, project and plugin sentinels all started; Q11 (Q10's argv again) and Q15 (Q14's argv again, with the engine file), in the same HOME and workdir: no planted sentinel started (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2))"
+          "measured": "q95-01-positive-control: with no MCP flags all four planted sentinels started; q95-11-replacement (q95-07's argv again) and q95-15-carriage-replacement (q95-14's argv again, with the engine file), in the same HOME and workdir: no planted sentinel started, as Q11 and Q15 on 1.1.92 (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
         },
         "native_write": {
           "unmeasured": "native writes outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's Write and Edit attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
@@ -117,6 +117,50 @@
         },
         "process_read": {
           "unmeasured": "process reads outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        }
+      },
+      {
+        "invocation": "cold",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "qoder",
+          "binary": "qodercli",
+          "version": "1.1.95",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "q95-01-positive-control: with no MCP flags all four planted sentinels started; box-engine-workspace-tool, the boxed argv with the engine's file: no planted sentinel started, two of the four planted in the box's own worktree, and init listed the engine's server brokkr alone, connected (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
+        },
+        "native_write": {
+          "measured": "box-other-natives: under --tools \"\" no tool of Qoder's own exists, twelve names tried and none found; that absence is Qoder's own tool list in Qoder's own process, not a boundary of the operating system; box-engine-workspace-tool: the hands tool wrote inside the worktree (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
+        },
+        "store_read": {
+          "measured": "box-store-drive against box-store-drive-control: the box's seal denied the hands tool the store its control read; box-store: Qoder's launch holds no native tool of its own, and a model's 22 attempts through the hands tool read nothing of the store (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
+        },
+        "process_read": {
+          "measured": "box-reach: the hands tool's command saw 4 entries in /proc with bubblewrap as process 1; box-other-natives: Qoder has no shell of its own in the launch (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "qoder",
+          "binary": "qodercli",
+          "version": "1.1.95",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "q95-01-positive-control: with no MCP flags all four planted sentinels started; box-engine-workspace-tool-replacement, the boxed cold argv again in the same HOME and worktree: no planted sentinel started, two of the four in the box's own worktree, and init listed the engine's server brokkr alone (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
+        },
+        "native_write": {
+          "measured": "a replacement is the boxed cold argv again; box-other-natives: under --tools \"\" no tool of Qoder's own exists, an absence in Qoder's own tool list in its own process, not a boundary of the operating system; box-engine-workspace-tool: the hands tool wrote inside the worktree (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
+        },
+        "store_read": {
+          "measured": "a replacement is the boxed cold argv again; box-store-drive against box-store-drive-control: the box's seal denied the hands tool the store; box-store: Qoder's launch holds no native tool of its own, and 22 attempts through the hands tool read nothing of the store (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
+        },
+        "process_read": {
+          "measured": "a replacement is the boxed cold argv again; box-reach: the hands tool's command saw 4 entries in /proc with bubblewrap as process 1; box-other-natives: Qoder has no shell of its own in the launch (docs/evidence/adapters/qoder-cli-1-1.md, Second measurement)"
         }
       }
     ]
@@ -129,10 +173,10 @@
           "WebFetch"
         ],
         "on": {
-          "unsupported": "level 1 never offers a web tool (#1178, decision 0075): brokkr driver qoder always passes --tools Read Edit Write Glob Grep Bash, and no argv of the driver lists WebFetch"
+          "unsupported": "level 1 never offers a web tool (#1178, decision 0075): brokkr driver qoder passes an unboxed seat --tools Read Edit Write Glob Grep Bash and a boxed one --tools \"\", and no argv of the driver lists WebFetch"
         },
         "off": {
-          "default": "brokkr driver qoder always passes --tools Read Edit Write Glob Grep Bash, and the record measured that --tools with names restricts the built-ins to those names; with no --tools, init lists 34 tools under accept_edits, WebFetch and WebSearch among them (docs/evidence/adapters/qoder-cli-1-1.md, Tools)"
+          "default": "brokkr driver qoder passes an unboxed seat --tools Read Edit Write Glob Grep Bash, and a boxed one --tools \"\", and the record measured that --tools with names restricts the built-ins to those names and that --tools \"\" leaves only the MCP meta-tools; with no --tools, init lists 34 tools under accept_edits, WebFetch and WebSearch among them (docs/evidence/adapters/qoder-cli-1-1.md, Tools)"
         },
         "restrictions": {
           "unsupported": "no native transport for a restriction on Qoder CLI's WebFetch has been established"
@@ -142,7 +186,7 @@
           "scope": "the tools init lists under the driver's fixed --tools list; no live call of WebFetch, with or without the list, was tried",
           "limitations": [
             "that the fixed --tools list leaves WebFetch out is init's list, not a refused live call",
-            "ambient MCP isolation is measured without hands on Linux only (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2)); a managed or enterprise MCP configuration was not measured, so a server it loads may still reach the web"
+            "ambient MCP isolation is measured without hands and boxed on Linux only (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2) and Second measurement); a managed or enterprise MCP configuration was not measured, so a server it loads may still reach the web"
           ]
         }
       },
@@ -152,10 +196,10 @@
           "WebSearch"
         ],
         "on": {
-          "unsupported": "level 1 never offers a web tool (#1178, decision 0075): brokkr driver qoder always passes --tools Read Edit Write Glob Grep Bash, and no argv of the driver lists WebSearch"
+          "unsupported": "level 1 never offers a web tool (#1178, decision 0075): brokkr driver qoder passes an unboxed seat --tools Read Edit Write Glob Grep Bash and a boxed one --tools \"\", and no argv of the driver lists WebSearch"
         },
         "off": {
-          "default": "brokkr driver qoder always passes --tools Read Edit Write Glob Grep Bash, and the record measured that --tools with names restricts the built-ins to those names; with no --tools, init lists 34 tools under accept_edits, WebFetch and WebSearch among them (docs/evidence/adapters/qoder-cli-1-1.md, Tools)"
+          "default": "brokkr driver qoder passes an unboxed seat --tools Read Edit Write Glob Grep Bash, and a boxed one --tools \"\", and the record measured that --tools with names restricts the built-ins to those names and that --tools \"\" leaves only the MCP meta-tools; with no --tools, init lists 34 tools under accept_edits, WebFetch and WebSearch among them (docs/evidence/adapters/qoder-cli-1-1.md, Tools)"
         },
         "restrictions": {
           "unsupported": "no native transport for a restriction on Qoder CLI's WebSearch has been established"
@@ -165,14 +209,14 @@
           "scope": "the tools init lists under the driver's fixed --tools list; no live call of WebSearch, with or without the list, was tried",
           "limitations": [
             "that the fixed --tools list leaves WebSearch out is init's list, not a refused live call",
-            "ambient MCP isolation is measured without hands on Linux only (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2)); a managed or enterprise MCP configuration was not measured, so a server it loads may still reach the web"
+            "ambient MCP isolation is measured without hands and boxed on Linux only (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2) and Second measurement); a managed or enterprise MCP configuration was not measured, so a server it loads may still reach the web"
           ]
         }
       }
     }
   },
   "hands": {
-    "unsupported": "level 1 is unboxed (#1178, decision 0075): a boxed Qoder turn, its egress and its process reach are not measured (docs/evidence/adapters/qoder-cli-1-1.md, Not measured), so a site that boxes its hands refuses this seat"
+    "workspace": []
   },
   "resume": {
     "print-work-site": {
