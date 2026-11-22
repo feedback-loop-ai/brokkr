@@ -282,10 +282,12 @@ impl SiteContext {
     /// rooted row of it at this site, `key`, holds the offered root's kind
     /// and id both, and an attempt with a row holding any other root
     /// contributes neither itself nor a call, so its calls keep their own
-    /// attribution (the controller's rulings R28 and R33). An unstamped
-    /// rooted row is this site's unless the engine's member tag names
-    /// another site of the attempt; one with no tag has no known owner and
-    /// is judged at every site. A site offered nothing, or a root with no
+    /// attribution (the controller's rulings R28 and R33). Where `key`
+    /// carries a tag, an unstamped rooted row is judged at its own tag's
+    /// site alone, an untagged one at every site; where it carries none (a
+    /// single seat), at this site whatever `member` it holds, since only a
+    /// panel's rows carry a tag the engine wrote (R38). A site
+    /// offered nothing, or a root with no
     /// stamped row here (decision 0030's legacy evidence), has none: its
     /// every call is new.
     pub(super) fn offered(
@@ -316,11 +318,12 @@ impl SiteContext {
         };
         // An unstamped row is this site's unless the member tag the engine
         // writes on a panel's or a sequence's row names another site (the
-        // review of b76fc1e2).
+        // review of b76fc1e2); a single seat's `member` is its driver's.
         let tag = key.tag();
         let owned = |row: &Value| {
             let member = row.get("member").and_then(Value::as_str);
-            member.is_none_or(|member| Some(member) == tag.as_deref())
+            tag.as_deref()
+                .is_none_or(|tag| member.is_none_or(|member| member == tag))
         };
         // Each attempt's rooted rows this site owns: whether one of them is
         // stamped here, and whether all of them hold the offered root. An

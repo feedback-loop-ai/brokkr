@@ -1045,6 +1045,42 @@ fn a_panel_members_unstamped_row_is_judged_at_its_own_member_alone() {
     assert_eq!(history, resume::RootHistory::default());
 }
 
+/// The review of f3e6fc12 (the controller's ruling R38): a single seat's
+/// key carries no tag, so a `member` on its row is the driver's own. An
+/// attempt whose unstamped row, naming no model and carrying the driver's
+/// `member` `beta`, holds the `codex-thread` root `old-1`, then whose
+/// stamped row holds the offered root `current-1` with a call, is not
+/// that root's history; without the first row it is. Every row is written
+/// by the sink.
+#[test]
+fn a_single_seats_unstamped_row_counts_whatever_member_its_driver_wrote() {
+    let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let mut unstamped = root_row("codex-thread", "old-1");
+    unstamped.as_object_mut().unwrap().remove("model");
+    unstamped["member"] = json!("beta");
+    let journal = |first: Option<Value>| {
+        let mut journal = Journal::new();
+        let attempt = journal.attempt("mixed");
+        let attempt = match first {
+            Some(row) => attempt.wrote(&context, row, None),
+            None => attempt,
+        };
+        (attempt.wrote(&context, root_row("claude-session", "current-1"), None)).wrote(
+            &context,
+            call_row(),
+            Some("n-mixed"),
+        );
+        journal
+    };
+    let mixed = journal(Some(unstamped));
+    let offer = mixed.offer(&context, false).unwrap();
+    assert_eq!(offer.provider_id, "current-1");
+    let history = history_of(&mixed, context.clone());
+    assert_eq!(history, resume::RootHistory::default());
+    let history = history_of(&journal(None), context);
+    assert_eq!(history, history_holding("mixed", "n-mixed"));
+}
+
 /// The controller's rulings R22 item 3 and R24, the resume offer: a site
 /// whose harness declares no kinds, an inline one, meeting a root of a
 /// kind in the grammar it does not know (`trellis-thread`) on its newest
