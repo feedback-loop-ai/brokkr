@@ -22,7 +22,7 @@ use serde_json::{json, Map, Value};
 use brokkr_core::findings::Reporter;
 use brokkr_core::realms::Boundary;
 
-use crate::agents::kinds::{SeatKinds, Standing};
+use crate::agents::kinds::{Member, SeatKinds, Standing};
 
 mod legacy;
 use crate::agents::Candidate;
@@ -278,8 +278,11 @@ impl SiteContext {
     }
 
     /// This context carrying the history of `offer`'s root at this site,
-    /// read from this run's journal alone: a row counts where its root has
-    /// the offered root's kind and id both. A site offered nothing, or a
+    /// read from this run's journal alone: an attempt counts where every
+    /// rooted row of it at this site holds the offered root's kind and id
+    /// both, and an attempt with a row holding any other root contributes
+    /// neither itself nor a call, so its calls keep their own attribution
+    /// (the controller's rulings R28 and R33). A site offered nothing, or a
     /// root with no stamped row here (decision 0030's legacy evidence),
     /// has none: its every call is new.
     pub(super) fn offered(self, events: &[EventEnvelope], offer: Option<&ResumeTarget>) -> Self {
@@ -301,9 +304,16 @@ impl SiteContext {
             let place = row.get("root_session").and_then(|root| root.get(field));
             place.and_then(Value::as_str).map(str::to_string)
         };
-        let attempts: BTreeSet<String> = rows()
-            .filter(|(_, row)| root(row, "id").as_ref() == Some(&offer.provider_id))
-            .filter(|(_, row)| root(row, "kind") == offer.root_kind)
+        // Each attempt with a rooted row here, and whether all of its
+        // rooted rows hold the offered root.
+        let mut held: BTreeMap<&str, bool> = BTreeMap::new();
+        for (attempt, row) in rows().filter(|(_, row)| row.get("root_session").is_some()) {
+            let holds = root(row, "id").as_ref() == Some(&offer.provider_id)
+                && root(row, "kind") == offer.root_kind;
+            *held.entry(attempt).or_insert(true) &= holds;
+        }
+        let attempts: BTreeSet<String> = (held.into_iter())
+            .filter(|(_, holds)| *holds)
             .map(|(attempt, _)| attempt.to_string())
             .collect();
         let calls = rows()
@@ -444,11 +454,12 @@ pub(super) fn eligible_offer(
         // directory in which this exact ID was opened. A codex/claude row
         // that confirms from its own locator needs none, and a row that
         // carries none still offers its provider ID. A transcript of a kind
-        // this harness does not declare is no transcript (the controller's
-        // ruling R26): its coordinates are not this offer's.
+        // a write of this row at this seat would be refused is no
+        // transcript, a built-in kind included (the controller's rulings
+        // R26 and R32): its coordinates are not this offer's.
         let transcript = checkpoint.get("transcript").filter(|transcript| {
             let kind = transcript.get("kind").and_then(Value::as_str);
-            kind.is_some_and(|kind| context.kinds.reads_transcript(kind))
+            kind.is_some_and(|kind| context.kinds.declares(Member::Transcript, kind))
         });
         let coordinate = |field: &str| {
             let place = transcript.and_then(|transcript| transcript.get(field));

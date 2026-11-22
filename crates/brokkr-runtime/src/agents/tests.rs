@@ -625,15 +625,16 @@ fn a_native_declaration_with_a_repeated_key_or_an_uncomposable_selection_is_refu
     );
     assert_ne!(repeated, sound, "the fixture repeats a key");
     tree.raw("adapters/claude.json", &repeated);
-    let file = tree.adapters_root().join("claude.json");
-    let file = file.display();
-    let what = format!("adapter 'claude' ({file})");
-    // The parser stands just past the second copy's value, in the file.
+    let what = format!(
+        "adapter 'claude' ({})",
+        tree.adapters_root().join("claude.json").display()
+    );
+    // The parser stands just past the second copy's value.
     let second = r#""scope":"measured live""#;
     let column = repeated.rfind(second).unwrap() + second.len();
     assert_eq!(
         tree.adapters_error(),
-        format!("{file}: key 'scope' is written twice at line 1 column {column}")
+        format!("{what}: key 'scope' is written twice at line 1 column {column}")
     );
     // A list flag with no separator cannot be composed into one argument.
     let mut no_separator = flags.clone();

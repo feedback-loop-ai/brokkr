@@ -28,39 +28,61 @@ pub(super) fn legacy_offer(
     seat_effects: &[String],
     legacy: &impl Fn(&EventEnvelope) -> bool,
 ) -> Option<String> {
-    let (attempt, session) = events
+    let rows = events
         .iter()
         .rev()
         .filter(|event| event.event_type == EventType::EffectCheckpointed)
-        .filter(|event| in_effects(event, seat_effects))
-        .find_map(|event| {
-            let checkpoint = event.payload.get("checkpoint")?;
-            if checkpoint.get("site_ref").is_some() {
-                return None;
+        .filter(|event| in_effects(event, seat_effects));
+    for event in rows {
+        match scanned(event, legacy) {
+            Scanned::Stop => return None,
+            Scanned::Older => continue,
+            Scanned::Offer { attempt, session } => {
+                return started_attempt(events, &attempt).map(|_| session)
             }
-            let transcript = checkpoint.get("transcript");
-            let kind = transcript.map(|transcript| transcript.get("kind").and_then(Value::as_str));
-            if kind.is_some_and(|kind| !kind.is_some_and(v7_kind)) {
-                return Some(None);
-            }
-            // Decision 0032's common shape first, then the old flat id a
-            // run opened before that ruling still carries.
-            let session = checkpoint
-                .pointer("/transcript/locator")
-                .and_then(Value::as_str)
-                .filter(|locator| !locator.is_empty())
-                .filter(|_| {
-                    checkpoint
-                        .pointer("/transcript/kind")
-                        .and_then(Value::as_str)
-                        == Some("codex-thread")
-                })
-                .or_else(|| checkpoint.get("session_id").and_then(Value::as_str))?;
-            let attempt = event.attempt_id.clone()?;
-            legacy(event).then(|| Some((attempt, session.to_string())))
-        })
-        .flatten()?;
-    started_attempt(events, &attempt).map(|_| session)
+        }
+    }
+    None
+}
+
+/// What one checkpoint of the seat tells the legacy scan, newest first.
+enum Scanned {
+    /// A row whose transcript names a kind outside v7's vocabulary: the
+    /// scan ends with no handle (the controller's ruling R27).
+    Stop,
+    /// A row that offers nothing: the scan passes on to an older row.
+    Older,
+    /// A row that offers `session`, written by `attempt`.
+    Offer { attempt: String, session: String },
+}
+
+fn scanned(event: &EventEnvelope, legacy: &impl Fn(&EventEnvelope) -> bool) -> Scanned {
+    let Some(checkpoint) = event.payload.get("checkpoint") else {
+        return Scanned::Older;
+    };
+    if checkpoint.get("site_ref").is_some() {
+        return Scanned::Older;
+    }
+    let transcript = checkpoint.get("transcript");
+    let kind = (transcript.and_then(|transcript| transcript.get("kind"))).and_then(Value::as_str);
+    if transcript.is_some() && !kind.is_some_and(v7_kind) {
+        return Scanned::Stop;
+    }
+    // Decision 0032's common shape first, then the old flat id a run
+    // opened before that ruling still carries.
+    let session = checkpoint
+        .pointer("/transcript/locator")
+        .and_then(Value::as_str)
+        .filter(|locator| !locator.is_empty())
+        .filter(|_| kind == Some("codex-thread"))
+        .or_else(|| checkpoint.get("session_id").and_then(Value::as_str));
+    match (session, event.attempt_id.clone()) {
+        (Some(session), Some(attempt)) if legacy(event) => Scanned::Offer {
+            attempt,
+            session: session.to_string(),
+        },
+        _ => Scanned::Older,
+    }
 }
 
 /// The shipped instance comparison decision 0030 wrote, kept for the

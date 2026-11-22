@@ -610,13 +610,156 @@ fn target_over(
     resume::eligible_offer(&events, &key, context, "work", true, true, |_| legacy)
 }
 
-/// A row of attempt `attempt-1` at `context`'s site, its persistent
-/// `dsh-session` root `ds-1` beside a transcript of `kind`.
-fn dsh_rooted(context: &SiteContext, kind: &str) -> (EventType, Value) {
-    let mut row = rooted(context, "dsh-session", "ds-1");
-    row.1["checkpoint"]["transcript"] =
-        json!({"kind": kind, "locator": "sessions/s-1", "home": "/h/.dsh"});
+/// A journal in a temporary store of its own, whose `work` seat's effect
+/// was requested: a row a seat's writer would write lands by the engine's
+/// own sink, stamped by its site's stamper and judged by its harness's
+/// kinds, and every read is of what the store holds (the controller's
+/// ruling R35).
+struct Journal {
+    _dir: tempfile::TempDir,
+    store: Store,
+    cause: Option<String>,
+    open: Option<String>,
+}
+
+impl Journal {
+    fn new() -> Journal {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+        store
+            .create_run(
+                "run",
+                "feature",
+                "test",
+                &json!({"files": {}, "engine": ENGINE_VERSION}),
+            )
+            .unwrap();
+        for (kind, payload) in [
+            (
+                EventType::RunStarted,
+                json!({"feature": "feature", "manifest": {}}),
+            ),
+            (EventType::PhaseEntered, json!({"phase": "work"})),
+            (
+                EventType::EffectRequested,
+                json!({"effect_id": "effect", "seat": "work"}),
+            ),
+        ] {
+            store.append_next("run", kind, payload, None, None).unwrap();
+        }
+        let (cause, open) = (None, None);
+        Journal {
+            _dir: dir,
+            store,
+            cause,
+            open,
+        }
+    }
+
+    /// Start attempt `attempt`, failing the one open before it.
+    fn attempt(&mut self, attempt: &str) -> &mut Self {
+        if let Some(open) = self.open.take() {
+            let failed = json!({"effect_id": "effect", "attempt_id": open, "error": "again"});
+            self.append(EventType::EffectFailed, failed, &open);
+        }
+        let started = json!({"effect_id": "effect", "attempt_id": attempt});
+        self.append(EventType::EffectStarted, started, attempt);
+        self.open = Some(attempt.to_string());
+        self
+    }
+
+    /// The open attempt's `row` at `context`'s site, carrying the native
+    /// call `call` where one is named, written by the engine's sink.
+    fn wrote(&mut self, context: &SiteContext, row: Value, call: Option<&str>) -> &mut Self {
+        let attempt = self.open.clone().unwrap();
+        let held = self.events().len();
+        let at = super::checkpoints::Attempt {
+            run_id: "run",
+            effect_id: "effect",
+            attempt_id: &attempt,
+        };
+        let mut sink = super::checkpoints::Checkpoints::new(&mut self.store, &mut self.cause, at);
+        let (kinds, seat) = (&context.kinds, "work");
+        let declared = super::checkpoints::Declared { kinds, seat };
+        let call = Ok(call.map(super::capability_calls::Stamp::native_search));
+        sink.offer_live("", context.stamp(row), call, Some(context), declared);
+        sink.settle().unwrap();
+        assert_eq!(self.events().len(), held + 1, "the sink journaled the row");
+        self
+    }
+
+    /// The open attempt's `row` at `context`'s site, stamped by its
+    /// stamper and appended to the store directly: only for a row the
+    /// seat's write check refuses, which the sink would never journal.
+    fn appended(&mut self, context: &SiteContext, row: Value) -> &mut Self {
+        let attempt = self.open.clone().unwrap();
+        let checkpoint = context.stamp(row);
+        let payload =
+            json!({"effect_id": "effect", "attempt_id": attempt, "checkpoint": checkpoint});
+        self.append(EventType::EffectCheckpointed, payload, &attempt);
+        self
+    }
+
+    fn append(&mut self, kind: EventType, payload: Value, attempt: &str) {
+        let (cause, attempt) = (self.cause.take(), Some(attempt.to_string()));
+        let appended = self.store.append_next("run", kind, payload, cause, attempt);
+        self.cause = Some(appended.unwrap().event_id);
+    }
+
+    fn events(&self) -> Vec<EventEnvelope> {
+        self.store.load("run").unwrap()
+    }
+
+    /// The target the `work` seat's single site `context` is offered over
+    /// what the store holds, its legacy instance holding where `legacy`
+    /// says so.
+    fn offer(&self, context: &SiteContext, legacy: bool) -> Option<resume::ResumeTarget> {
+        let key = SiteKey::single("work", None);
+        resume::eligible_offer(&self.events(), &key, context, "work", true, true, |_| {
+            legacy
+        })
+    }
+}
+
+/// A row the seat's model wrote, its persistent root of kind `root` and
+/// id `id`.
+fn root_row(root: &str, id: &str) -> Value {
+    json!({"step": "s", "model": "m",
+           "root_session": {"kind": root, "id": id, "harness_version": "1.0.0",
+                            "persistent": true}})
+}
+
+/// A row the seat's model wrote, its persistent root `ds-1` of kind `root`
+/// beside a transcript of `kind`.
+fn dsh_row(root: &str, kind: &str) -> Value {
+    let mut row = root_row(root, "ds-1");
+    row["transcript"] = json!({"kind": kind, "locator": "sessions/s-1", "home": "/h/.dsh"});
     row
+}
+
+/// The locator and home the offer over one attempt's `row` at `context`
+/// forwards, its root `ds-1`: written by the sink where `written`, and
+/// otherwise appended directly, as the seat's write check refuses it.
+fn coordinates_of(context: &SiteContext, row: Value, written: bool) -> Coordinates {
+    let mut journal = Journal::new();
+    journal.attempt("attempt-1");
+    match written {
+        true => journal.wrote(context, row, None),
+        false => journal.appended(context, row),
+    };
+    let offer = journal.offer(context, false).unwrap();
+    assert_eq!(offer.provider_id, "ds-1");
+    (offer.persistence_locator, offer.persistence_home)
+}
+
+type Coordinates = (Option<String>, Option<String>);
+
+/// The coordinates [`dsh_row`] forwards.
+fn forwarded() -> Coordinates {
+    (
+        Some("sessions/s-1".to_string()),
+        Some("/h/.dsh".to_string()),
+    )
 }
 
 /// The controller's ruling R26: a stamped row whose persistent
@@ -625,47 +768,59 @@ fn dsh_rooted(context: &SiteContext, kind: &str) -> (EventType, Value) {
 /// none) is read as holding no transcript: its root is offered with no
 /// locator and no home, as a row without a transcript is. The same row
 /// beside a declared kind forwards both, a built-in one at that site, or
-/// `trellis-trail` at the trellis seat's. Each row is appended directly,
-/// as the writer's kind check refuses the first.
+/// `trellis-trail` beside the trellis seat's own root. Every row is
+/// written by the sink but the first, which is appended directly because
+/// the writer's kind check refuses `trellis-trail` at that site.
 #[test]
 fn a_transcript_of_a_kind_the_seat_does_not_declare_forwards_no_coordinates() {
     let dir = tempfile::tempdir().unwrap();
     let plain = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
     let trellis = trellis_site(dir.path());
-    let coordinates = |context: &SiteContext, kind: &str| {
-        let offer = target_over(context, vec![dsh_rooted(context, kind)], false).unwrap();
-        assert_eq!(offer.provider_id, "ds-1");
-        (offer.persistence_locator, offer.persistence_home)
-    };
-    let forwarded = (
-        Some("sessions/s-1".to_string()),
-        Some("/h/.dsh".to_string()),
+    let dsh = "dsh-session";
+    assert_eq!(
+        coordinates_of(&plain, dsh_row(dsh, TRAIL), false),
+        (None, None)
     );
-    let mut bare = rooted(&plain, "dsh-session", "ds-1");
-    let no_transcript = target_over(&plain, vec![bare.clone()], false).unwrap();
-    assert_eq!(coordinates(&plain, TRAIL), (None, None));
-    let none = (
-        no_transcript.persistence_locator,
-        no_transcript.persistence_home,
+    let bare = root_row(dsh, "ds-1");
+    assert_eq!(coordinates_of(&plain, bare.clone(), true), (None, None));
+    assert_eq!(coordinates_of(&plain, dsh_row(dsh, dsh), true), forwarded());
+    assert_eq!(
+        coordinates_of(&trellis, dsh_row(THREAD, TRAIL), true),
+        forwarded()
     );
-    assert_eq!(none, (None, None));
-    assert_eq!(coordinates(&plain, "dsh-session"), forwarded);
-    assert_eq!(coordinates(&trellis, TRAIL), forwarded);
-    bare.1["checkpoint"]["transcript"] = json!({"locator": "sessions/s-1", "home": "/h"});
-    let kindless = target_over(&plain, vec![bare], false).unwrap();
+    // A transcript naming no kind is one no store holds (seat-record v8
+    // requires its kind), so this read alone is of a journal built by hand.
+    let mut kindless = rooted(&plain, dsh, "ds-1");
+    kindless.1["checkpoint"]["transcript"] = json!({"locator": "sessions/s-1", "home": "/h"});
+    let kindless = target_over(&plain, vec![kindless], false).unwrap();
     assert_eq!(kindless.persistence_locator, None);
 }
 
-/// An unstamped row of attempt `attempt-1`, decision 0030's evidence,
-/// whose checkpoint carries `fields`.
-fn unstamped_row(fields: Value) -> (EventType, Value) {
-    let mut checkpoint = json!({"step": "s"});
-    checkpoint
-        .as_object_mut()
-        .unwrap()
-        .extend(fields.as_object().unwrap().clone());
-    let row = json!({"effect_id": "fx", "checkpoint": checkpoint});
-    (EventType::EffectCheckpointed, row)
+/// A site of the built-in DSH driver's harness, answering to the shipped
+/// `dsh` adapter, which declares no kinds of its own: its write check
+/// admits `dsh-session` and `none` alone.
+fn dsh_site() -> SiteContext {
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let adapters = Adapters::load(&workspace.canonicalize().unwrap().join("adapters")).unwrap();
+    let argv = ["{brokkr}", "driver", "dsh", "--"].map(String::from);
+    let kinds = DeclaredKinds::of(Some(&adapters)).seat(Some("dsh"), &argv);
+    SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work).of_harness(kinds, None)
+}
+
+/// The controller's ruling R32: the offer's transcript check is the write
+/// check, a built-in kind included. At a DSH seat, a persistent
+/// `dsh-session` root beside a `codex-thread` transcript is offered with
+/// no locator and no home, since a write of that row there is refused;
+/// that row is appended directly for that reason. The same root beside
+/// the seat's own `dsh-session` transcript, written by the sink, forwards
+/// both.
+#[test]
+fn a_built_in_transcript_kind_the_seats_harness_does_not_declare_forwards_no_coordinates() {
+    let dsh = dsh_site();
+    let foreign = dsh_row("dsh-session", "codex-thread");
+    assert_eq!(coordinates_of(&dsh, foreign, false), (None, None));
+    let own = dsh_row("dsh-session", "dsh-session");
+    assert_eq!(coordinates_of(&dsh, own, true), forwarded());
 }
 
 /// The controller's ruling R27: at an eligible single seat whose harness
@@ -674,68 +829,108 @@ fn unstamped_row(fields: Value) -> (EventType, Value) {
 /// yields no handle — not its flat id — and ends the scan, so the older
 /// `codex-thread` row's handle is not offered either. The older row alone
 /// offers its handle, and a newer `claude-session` row offers its flat
-/// id, as before. The `trellis-trail` row is appended directly, as the
-/// writer's kind check refuses it.
+/// id, as before. Each row names no model, so the stamper leaves it
+/// unstamped; each is written by the sink but the `trellis-trail` row,
+/// which is appended directly because the writer's kind check refuses it.
 #[test]
 fn a_legacy_row_of_a_kind_outside_v7_is_no_handle_and_no_older_row_stands_in() {
     let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
     let transcript = |kind: &str, locator: &str| {
-        json!({"transcript": {"kind": kind, "locator": locator, "home": "/h"},
-               "session_id": "flat-1"})
+        json!({"step": "s", "session_id": "flat-1",
+               "transcript": {"kind": kind, "locator": locator, "home": "/h"}})
     };
-    let older = unstamped_row(json!({"transcript":
-        {"kind": "codex-thread", "locator": "th-old", "home": "/h/.codex"}}));
-    let offered = |rows: Vec<(EventType, Value)>| {
-        target_over(&context, rows, true).map(|offer| offer.provider_id)
+    let older = json!({"step": "s", "transcript":
+        {"kind": "codex-thread", "locator": "th-old", "home": "/h/.codex"}});
+    let offered = |newer: Option<(Value, bool)>| {
+        let mut journal = Journal::new();
+        journal
+            .attempt("attempt-1")
+            .wrote(&context, older.clone(), None);
+        match newer {
+            Some((row, true)) => journal.wrote(&context, row, None),
+            Some((row, false)) => journal.appended(&context, row),
+            None => &mut journal,
+        };
+        journal.offer(&context, true).map(|offer| offer.provider_id)
     };
-    assert_eq!(offered(vec![older.clone()]).as_deref(), Some("th-old"));
-    let newer = unstamped_row(transcript(TRAIL, "tl-1"));
-    assert_eq!(offered(vec![older.clone(), newer]), None);
-    let claude = unstamped_row(transcript("claude-session", "c-1"));
-    assert_eq!(offered(vec![older, claude]).as_deref(), Some("flat-1"));
+    assert_eq!(offered(None).as_deref(), Some("th-old"));
+    assert_eq!(offered(Some((transcript(TRAIL, "tl-1"), false))), None);
+    let claude = transcript("claude-session", "c-1");
+    assert_eq!(offered(Some((claude, true))).as_deref(), Some("flat-1"));
 }
 
 /// The controller's ruling R28: the offered `claude-session` root's
 /// history at its site holds its own attempt and calls only, never an
-/// older `trellis-thread` root's of the same id there. Each call row is
-/// as a native call's is journaled; the older root's row is appended
-/// directly, as the writer's kind check refuses it at this site.
+/// older `trellis-thread` root's of the same id there. The offer is the
+/// one `eligible_offer` takes from the journal (the controller's ruling
+/// R34). Each row is written by the sink, each call stamped as the
+/// engine stamps a native call, but the older root's row, which is
+/// appended directly because the writer's kind check refuses
+/// `trellis-thread` at this site.
 #[test]
 fn an_offers_history_is_its_roots_kind_and_id_both() {
-    use std::collections::BTreeSet;
     let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
-    let at = |attempt: &str, (kind, payload): (EventType, Value)| {
-        crate::envelope_builder::EnvelopeBuilder::new(kind, payload)
-            .attempt(Some(attempt))
-            .at("2026-11-22T00:00:00Z")
-            .hash("c".repeat(64))
-            .build()
-    };
-    let call = |id: &str| {
-        let mut row = rooted(&context, "claude-session", "x");
-        let checkpoint = row.1["checkpoint"].as_object_mut().unwrap();
-        checkpoint.remove("root_session");
-        let observed = json!({"model": "m", "turn": 1, "tool": "WebSearch",
-            "capability": "web-search", "dialect": "native", "call_id": id,
-            "call_state": "observed"});
-        checkpoint.extend(observed.as_object().unwrap().clone());
-        row
-    };
-    let events = [
-        at("older", rooted(&context, THREAD, "same-1")),
-        at("older", call("n-older")),
-        at("newer", rooted(&context, "claude-session", "same-1")),
-        at("newer", call("n-newer")),
-    ];
-    let offer = resume::ResumeTarget {
-        provider_id: "same-1".into(),
-        persistence_locator: None,
-        persistence_home: None,
-        root_kind: Some("claude-session".into()),
-    };
-    let history = context.offered(&events, Some(&offer)).history;
-    assert_eq!(history.attempts, BTreeSet::from(["newer".to_string()]));
-    assert_eq!(history.calls, BTreeSet::from(["n-newer".to_string()]));
+    let mut journal = Journal::new();
+    (journal.attempt("older"))
+        .appended(&context, root_row(THREAD, "same-1"))
+        .wrote(&context, call_row(), Some("n-older"));
+    (journal.attempt("newer"))
+        .wrote(&context, root_row("claude-session", "same-1"), None)
+        .wrote(&context, call_row(), Some("n-newer"));
+    let history = history_of(&journal, context);
+    assert_eq!(history, history_holding("newer", "n-newer"));
+}
+
+/// A row the seat's model wrote observing one turn, its call stamped by
+/// the sink.
+fn call_row() -> Value {
+    json!({"step": "s", "model": "m", "turn": 1})
+}
+
+/// The history of the root `context` is offered over what `journal`'s
+/// store holds, the offer taken from it by `eligible_offer`.
+fn history_of(journal: &Journal, context: SiteContext) -> resume::RootHistory {
+    let offer = journal.offer(&context, false).unwrap();
+    context.offered(&journal.events(), Some(&offer)).history
+}
+
+/// A history of the one attempt `attempt` and its one call `call`.
+fn history_holding(attempt: &str, call: &str) -> resume::RootHistory {
+    resume::RootHistory {
+        attempts: [attempt.to_string()].into(),
+        calls: [call.to_string()].into(),
+    }
+}
+
+/// The controller's ruling R33: an attempt holding another root is not
+/// the offered root's history. The `mixed` attempt's rooted rows are a
+/// `trellis-thread` root carrying a native call and then the offered
+/// `claude-session` root, both of id `same-1`: it contributes neither
+/// itself nor that call, while the `clean` attempt, whose one rooted row
+/// holds the offered root, contributes itself and its call. Every row is
+/// written by the sink but the `trellis-thread` one, which is appended
+/// directly, its call fields as a sink stamps them, because the writer's
+/// kind check refuses `trellis-thread` at this site.
+#[test]
+fn an_attempt_holding_another_root_is_not_the_offered_roots_history() {
+    let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let claude = || root_row("claude-session", "same-1");
+    let mut other = root_row(THREAD, "same-1");
+    let call = json!({"turn": 1, "tool": "WebSearch", "capability": "web-search",
+        "dialect": "native", "call_id": "n-mixed", "call_state": "observed"});
+    other
+        .as_object_mut()
+        .unwrap()
+        .extend(call.as_object().unwrap().clone());
+    let mut journal = Journal::new();
+    (journal.attempt("clean"))
+        .wrote(&context, claude(), None)
+        .wrote(&context, call_row(), Some("n-clean"));
+    (journal.attempt("mixed"))
+        .appended(&context, other)
+        .wrote(&context, claude(), None);
+    let history = history_of(&journal, context);
+    assert_eq!(history, history_holding("clean", "n-clean"));
 }
 
 /// The controller's rulings R22 item 3 and R24, the resume offer: a site

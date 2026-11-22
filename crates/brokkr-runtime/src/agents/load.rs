@@ -116,16 +116,19 @@ fn refuse_secret_stores(root: &Path, kind: &str) -> Result<(), LibraryError> {
     Ok(())
 }
 
-/// The JSON `bytes`, the file at `path` as it was read, parse as, read
-/// once and STRICTLY: an adapter is authority data (decision 0065 ruling
-/// 4; decision 0075 ruling 5), so a key written twice anywhere in it is a
-/// refusal rather than whichever copy came second, and the value the
-/// strict parse returns is the one every declaration is read from (the
-/// controller's ruling R31).
-fn json_of(bytes: &[u8], path: &Path) -> Result<Value, LibraryError> {
-    let refused = |problem: String| LibraryError::Invalid(format!("{}: {problem}", path.display()));
-    let text = std::str::from_utf8(bytes).map_err(|e| refused(e.to_string()))?;
-    brokkr_core::canonical::parse_strict(text).map_err(refused)
+/// The adapter `bytes` at `path` read once STRICTLY, the value every
+/// declaration is read from (ruling R31). Only when that fails is a lenient
+/// parse taken to word the refusal as before (R37): no JSON or no UTF-8 is
+/// refused naming the file, else the strict problem returns beside the
+/// lenient value, for `adapter::invocation` to refuse in its own words.
+fn json_of(bytes: &[u8], path: &Path) -> Result<(Value, Option<String>), LibraryError> {
+    let text = std::str::from_utf8(bytes).map_err(|e| e.to_string());
+    match text.and_then(brokkr_core::canonical::parse_strict) {
+        Ok(source) => Ok((source, None)),
+        Err(problem) => serde_json::from_slice(bytes)
+            .map(|lenient| (lenient, Some(problem)))
+            .map_err(|e| LibraryError::Invalid(format!("{}: {e}", path.display()))),
+    }
 }
 
 /// An agent's source, read STRICTLY from its bytes (decision 0065, design
@@ -723,7 +726,7 @@ fn adapter_from(
     what: &str,
     bytes: &[u8],
 ) -> Result<(Adapter, BTreeMap<String, DeclaredRouteOverlay>), LibraryError> {
-    let source = json_of(bytes, path)?;
+    let (source, strict_problem) = json_of(bytes, path)?;
     let map = object(&source, what)?;
     only_keys(map, &adapter::ADAPTER_KEYS, what)?;
     let adapter::Invocation {
@@ -731,7 +734,7 @@ fn adapter_from(
         provider,
         binary,
         driver,
-    } = adapter::invocation(name, map, what)?;
+    } = adapter::invocation(name, map, strict_problem, what)?;
     let adapter::Served {
         models,
         provisional,

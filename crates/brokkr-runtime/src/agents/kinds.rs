@@ -173,7 +173,10 @@ pub(crate) struct Standing {
 }
 
 impl SeatKinds {
-    fn declares(&self, member: Member, kind: &str) -> bool {
+    /// Whether this harness may write `kind` at `member`: the check every
+    /// write takes, and the one a stamped offer's transcript takes too
+    /// (the controller's ruling R32).
+    pub(crate) fn declares(&self, member: Member, kind: &str) -> bool {
         if member.is_transcript() && kind == NONE {
             return true;
         }
@@ -186,13 +189,6 @@ impl SeatKinds {
             false => (declared.root_session.as_ref()).map(|root| root.kind.as_str()),
         });
         named == Some(kind) || self.driver.and_then(driver_kind) == Some(kind)
-    }
-
-    /// Whether a reader at this harness's site may act on a transcript of
-    /// `kind`: one of v7's, as before v8, or one this harness declares, the
-    /// check a write takes (the controller's ruling R26).
-    pub(crate) fn reads_transcript(&self, kind: &str) -> bool {
-        v7_kind(kind) || self.declares(Member::Transcript, kind)
     }
 
     /// Whether this harness's adapter declares its kinds (`record_kinds`),

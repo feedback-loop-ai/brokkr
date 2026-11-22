@@ -124,10 +124,18 @@ pub(super) struct Invocation {
 pub(super) fn invocation(
     name: &str,
     map: &Map<String, Value>,
+    strict_problem: Option<String>,
     what: &str,
 ) -> Result<Invocation, LibraryError> {
-    // `map` is the strict parse of the adapter's bytes (`json_of`), so no
-    // key in it was written twice.
+    // Every adapter is authority data: its native capabilities (decision
+    // 0065 ruling 4) and its models' tiers (decision 0075 ruling 5)
+    // alike, so a key written twice anywhere in the file is a refusal
+    // rather than whichever copy came second. `strict_problem` is what
+    // the one strict parse of the adapter's bytes refused (`json_of`),
+    // and `map` is then the lenient parse it is refused beside.
+    if let Some(problem) = strict_problem {
+        return invalid(format!("{what}: {problem}"));
+    }
     let native = crate::capabilities::NativeInventory::parse(what, map.get("native_capabilities"))
         .map_err(LibraryError::Invalid)?;
     let provider = string(map, "provider", what)?;

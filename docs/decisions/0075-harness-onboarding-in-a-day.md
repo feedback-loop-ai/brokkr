@@ -274,7 +274,12 @@ which wrote it did not declare. It is enforced from both sides:
    verifier's.
    A reader that takes a kind from an earlier event to act on it, where
    an earlier engine may have written that event, judges the kind itself
-   before acting, as the resume offer does. A reader meeting a kind it
+   before acting, as the resume offer does. The resume offer forwards a
+   transcript's locator and home only where a write of that row at that
+   seat would pass the writer's kind check, a built-in kind included,
+   which changes no offer a real journal can produce, since no built-in
+   driver writes another driver's transcript kind and a site with no
+   adapter admits all three. A reader meeting a kind it
    does not know reads the record as holding no transcript or no root of
    a kind it can use: it never guesses, never falls back to another
    kind, and never fails the read of the rest.
