@@ -198,6 +198,14 @@ impl SeatKinds {
         (self.adapter.as_ref()).is_some_and(|adapter| adapter.declared.is_some())
     }
 
+    /// Whether this harness may be offered decision 0030's flat session
+    /// id: never where its adapter declares its kinds (the controller's
+    /// ruling R5), nor where its driver keeps v7's roads to a rejoin closed
+    /// ([`keeps_v7_rejoin`]).
+    pub(crate) fn rejoins_by_legacy(&self) -> bool {
+        !self.declares_its_kinds() && keeps_v7_rejoin(self.driver)
+    }
+
     /// Whether a work site of this harness standing at `standing` may be
     /// offered a root of `kind` (the controller's rulings R4 and R11 of
     /// 2026-11-21): one of the three kinds a built-in driver writes, as
@@ -206,9 +214,10 @@ impl SeatKinds {
     /// (`resume_shape`) is `supported` and covers the site, so the engine
     /// offers no wider than the driver's resume gate, asked about that
     /// shape, would rejoin (the controller's ruling R14 of 2026-11-22).
-    /// Unknown standing declines.
+    /// Unknown standing declines. A seat whose driver keeps v7's roads
+    /// closed ([`keeps_v7_rejoin`]) takes only the adapter's road.
     pub(crate) fn rejoins(&self, kind: &str, standing: Option<Standing>) -> bool {
-        if driver_kinds().contains(&kind) {
+        if driver_kinds().contains(&kind) && keeps_v7_rejoin(self.driver) {
             return true;
         }
         let (Some(adapter), Some(standing)) = (&self.adapter, standing) else {
@@ -278,6 +287,25 @@ impl SeatKinds {
             }
         }
         report
+    }
+}
+
+/// Whether a seat whose own command runs `driver` keeps v7's two roads to
+/// a rejoin: a root of a kind a built-in driver writes, and decision
+/// 0030's flat session id. Qoder's level 1 runs `--no-session-persistence`
+/// and its driver refuses a start offered a resume (#1178), so neither is
+/// its road (the controller's ruling Y1 of 2026-11-22).
+fn keeps_v7_rejoin(driver: Option<AdapterKind>) -> bool {
+    match driver {
+        Some(AdapterKind::Qoder) => false,
+        None
+        | Some(
+            AdapterKind::Claude
+            | AdapterKind::Lanetally
+            | AdapterKind::Codex
+            | AdapterKind::Dsh
+            | AdapterKind::Exec,
+        ) => true,
     }
 }
 

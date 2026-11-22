@@ -374,6 +374,30 @@ fn an_adapter_that_declares_no_kinds_grants_none() {
     assert!(!plain.declares_its_kinds());
 }
 
+/// A Qoder seat writes no kind (the controller's ruling Y1 of 2026-11-22):
+/// its level 1 runs `--no-session-persistence` and its shipped adapter
+/// declares no `record_kinds`, so a seat answering to it records `none`
+/// and is refused each of the three built-in kinds and a fourth, as a
+/// transcript kind and as a root session kind.
+#[test]
+fn a_qoder_seat_records_none_and_no_kind_of_its_own() {
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let shipped = workspace.join("docs/examples/adapters/qoder.json");
+    let shipped = serde_json::from_str(&std::fs::read_to_string(shipped).unwrap()).unwrap();
+    let driver = argv(&["{brokkr}", "driver", "qoder", "--"]);
+    let qoder = loaded_from(&[shipped]).seat(Some("qoder"), &driver);
+    let none = json!({"step": "s", "transcript": {"kind": "none"}});
+    assert_eq!(qoder.admit(&none, "work"), Ok(()));
+    for kind in BUILT_IN.into_iter().chain(["qoder-session"]) {
+        let transcript = json!({"step": "s", "transcript": {"kind": kind}});
+        let judged = qoder.admit(&transcript, "work");
+        assert_eq!(judged, refused(Member::Transcript, kind));
+        let root = json!({"step": "s", "root_session": {"kind": kind}});
+        let judged = qoder.admit(&root, "work");
+        assert_eq!(judged, refused(Member::RootSession, kind));
+    }
+}
+
 /// Which adapter a site answers to (the controller's ruling R3): an inline
 /// exec site consults none, so a loaded `exec` adapter's declaration buys
 /// it nothing; an inline raw command answers to none and keeps v7's three
