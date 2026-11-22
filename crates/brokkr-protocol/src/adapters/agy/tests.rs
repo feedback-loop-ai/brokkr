@@ -686,6 +686,10 @@ fn an_agy_driver_declares_no_resume_and_no_probe() {
     );
 }
 
+/// agy's login under a HOME: the file [`operator_home`] signs in with,
+/// and the one each test that reads or removes a login names.
+const LOGIN: &str = ".gemini/antigravity-cli/antigravity-oauth-token";
+
 /// An operator's HOME under `root`, signed in, with agy's and the user's
 /// agent configuration, a tool's home, a file, and a name that is not
 /// UTF-8.
@@ -700,11 +704,7 @@ pub(in crate::adapters) fn operator_home(root: &Path) -> std::path::PathBuf {
     ] {
         std::fs::create_dir_all(home.join(dir)).unwrap();
     }
-    std::fs::write(
-        home.join(".gemini/antigravity-cli/antigravity-oauth-token"),
-        "LOGIN",
-    )
-    .unwrap();
+    std::fs::write(home.join(LOGIN), "LOGIN").unwrap();
     std::fs::write(
         home.join(".gemini/config/mcp_config.json"),
         "{\"mcpServers\":{\"own\":{}}}",
@@ -773,10 +773,9 @@ fn the_engine_home_links_the_login_and_the_operators_entries_but_not_its_agent_s
         let mode = std::fs::metadata(dir).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700, "{dir:?}");
     }
-    let login = ".gemini/antigravity-cli/antigravity-oauth-token";
     assert_eq!(
-        std::fs::read_link(path.join(login)).unwrap(),
-        operator.join(login)
+        std::fs::read_link(path.join(LOGIN)).unwrap(),
+        operator.join(LOGIN)
     );
     let config = |name: &str| std::fs::read_to_string(path.join(".gemini/config").join(name));
     assert_eq!(config("mcp_config.json").unwrap(), set.to_string());
@@ -797,7 +796,7 @@ fn the_engine_home_links_the_login_and_the_operators_entries_but_not_its_agent_s
     drop(home);
     assert!(!made.exists());
     assert_eq!(
-        std::fs::read_to_string(operator.join(login)).unwrap(),
+        std::fs::read_to_string(operator.join(LOGIN)).unwrap(),
         "LOGIN"
     );
     assert!(operator.join(".cargo/bin").is_dir());
@@ -1284,7 +1283,7 @@ fn an_agy_seat_runs_the_overridden_binary_under_the_engine_home_and_answers_on_i
         Some(home::parent(&std::env::temp_dir()).as_path())
     );
     assert!(!Path::new(&home).exists(), "{home}");
-    let login = world.path("operator/.gemini/antigravity-cli/antigravity-oauth-token");
+    let login = world.path("operator").join(LOGIN);
     assert_eq!(world.recorded("login").trim_end(), login.to_str().unwrap());
     assert!(world.homes_gone());
 }
@@ -1361,8 +1360,7 @@ fn what_refuses_before_spawn_never_starts_agy() {
         Some(LaunchError::Configured(planted.clone()).to_string())
     );
     std::fs::remove_file(planted).unwrap();
-    std::fs::remove_file(world.path("operator/.gemini/antigravity-cli/antigravity-oauth-token"))
-        .unwrap();
+    std::fs::remove_file(world.path("operator").join(LOGIN)).unwrap();
     let signed_out = world.run(&bin, &pin, world.input(None), None);
     assert_eq!(
         refused(&signed_out),
@@ -1476,8 +1474,7 @@ fn the_cleanup_check_holds_beside_another_engine_home_in_the_shared_parent() {
 fn the_cleanup_check_knows_a_standing_home_by_its_session_not_by_what_it_holds() {
     let world = World::new();
     let held = made_from(&world.path("operator"));
-    let login = ".gemini/antigravity-cli/antigravity-oauth-token";
-    std::fs::remove_file(Path::new(held.path()).join(login)).unwrap();
+    std::fs::remove_file(Path::new(held.path()).join(LOGIN)).unwrap();
     assert!(!world.started());
     assert!(!world.homes_gone());
     drop(held);

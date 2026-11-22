@@ -341,9 +341,9 @@ fn refused_after(pin: &str, bindings: &[secret::BoundSecret], rows: &[&str]) -> 
 /// or at an init naming another model (17 lead it). No plain pin, at most
 /// 80 characters, reaches the bound behind a lead of 50 or less, so each
 /// pin here is one the launch refuses as not plain: the fold's order is
-/// proved apart from that rule. The pin is masked before the bound reads
-/// it, so neither the words nor the shared mask after them hold a byte of
-/// the value (Z1).
+/// proved apart from that rule, and the row below proves it on a pin the
+/// launch admits. The pin is masked before the bound reads it, so neither
+/// the words nor the shared mask after them hold a byte of the value (Z1).
 #[test]
 fn a_bound_value_at_the_tail_of_a_long_pin_reaches_no_refusal_in_any_form() {
     let value = "Zq7W";
@@ -367,4 +367,31 @@ fn a_bound_value_at_the_tail_of_a_long_pin_reaches_no_refusal_in_any_form() {
         assert_eq!(shown(&refused), words, "{rows:?}");
         assert!(!shown(&refused).contains(&value[..3]), "{rows:?}");
     }
+}
+
+/// The same value at the tail of a plain pin of 78 characters, which the
+/// launch admits: behind a `SUCCESS` result no init confirmed, a binding
+/// under a name of 31 characters masks the status to the 40 a named word
+/// keeps, so 83 characters lead the pin and the bound of 160 falls one
+/// character inside the value. Neither the words nor the shared mask after
+/// them hold a byte of it (Z1).
+#[test]
+fn a_bound_value_at_the_tail_of_a_plain_pin_reaches_no_refusal_in_any_form() {
+    let (value, name) = ("Zq7W", "S".repeat(31));
+    let bindings = [
+        crate::adapters::tests::binding(&name, "SUCCESS"),
+        crate::adapters::tests::binding("AT", value),
+    ];
+    let filler = "p".repeat(74);
+    let pin = format!("{filler}{value}");
+    assert!(crate::adapters::stream_turn::plain(&pin));
+    let refused = refused_after(&pin, &bindings, &[turn_rows().2]);
+    let shown = secret::mask_text(refused.words().as_bytes(), &bindings);
+    let status = format!("[secret:{name}]");
+    assert_eq!(status.len(), 40);
+    let words = format!(
+        "model_unconfirmed: agy's result had status {status}; the seat pinned \"{filler}[se"
+    );
+    assert_eq!(shown, words);
+    assert!(!shown.contains(&value[..3]), "{shown}");
 }
