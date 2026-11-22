@@ -149,3 +149,30 @@ against the pin in the seat's own validated passthrough. The driver uses
 while it appends the terminal event and any park due on that ending, then
 tells it after those appends. A terminal event held for journal contention
 keeps its tail until the event lands and its turn's appends finish.
+
+## Addendum — 2026-11-21, accepted under the operator's standing ruling of 2026-11-04: the union of every occurrence is masked (#1213)
+
+Layer 5 replaced each match as a left-to-right scan found it, longest
+needle first, and skipped the bytes it replaced, so a needle that started
+inside an earlier match was never tried at its own start and the rest of
+it was written in clear: `prefix!Z` bound beside a value starting `Z`
+masked the first and left the second's other bytes readable.
+
+1. **The union is masked.** Every byte any occurrence of any needle
+   covers is masked: each bound value raw and in every listed encoding,
+   and, where a projected transcript is masked, each value's JSON string
+   escaping too, all in one union. Occurrences that overlap or touch are
+   one run. Each needle is found in one linear pass, so the cost stays
+   linear in the text times the needles, with no new dependency.
+2. **One marker per run.** A run reads one `[secret:NAME]`, its form
+   unchanged, naming the binding whose occurrence starts first; of those
+   starting at one byte, the longest needle's, as before. A run that
+   holds one occurrence reads exactly as it did. A union can make two
+   keys of one JSON object one text, as `abcd` and `abcdefg` do with
+   `abcd` and `defg` bound. `mask_json` keeps one member for them, as it
+   did before. Where that matters, the caller detects it: the broker's
+   output edge refuses it as the server's protocol fault. What an
+   adapter's stream rows read as structure is #1242's.
+3. **The guard sees what the masker would.** The final guard refuses
+   bytes holding a bound value whose start an earlier match covers, as it
+   refuses any other occurrence.
