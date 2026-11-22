@@ -325,9 +325,10 @@ fn a_root_session_kind_without_a_resume_is_refused_by_its_own_variant() {
     let mut adapter = loadable_adapter();
     adapter["record_kinds"] =
         json!({"transcript": "trellis-trail", "root_session": "trellis-thread"});
-    let path = dir.path().join("claude.json");
+    let root = dir.path().canonicalize().unwrap();
+    let path = root.join("claude.json");
     std::fs::write(&path, adapter.to_string()).unwrap();
-    let refusal = Adapters::load(dir.path()).unwrap_err();
+    let refusal = Adapters::load(&root).unwrap_err();
     let named = format!("adapter 'claude' ({})", path.display());
     assert!(
         matches!(&refusal, LibraryError::RootWithoutResume { adapter } if *adapter == named),
@@ -357,10 +358,11 @@ fn a_root_session_kind_names_the_one_declared_shape_it_rejoins_by() {
         let mut adapter = loadable_adapter();
         adapter["resume"] = json!({"headless": shape});
         adapter["record_kinds"] = kinds;
-        let path = dir.path().join("claude.json");
+        let root = dir.path().canonicalize().unwrap();
+        let path = root.join("claude.json");
         std::fs::write(&path, adapter.to_string()).unwrap();
         let named = format!("adapter 'claude' ({})", path.display());
-        (Adapters::load(dir.path()), named)
+        (Adapters::load(&root), named)
     };
     let (trail, thread) = ("trellis-trail", "trellis-thread");
     for (kinds, unmet, text) in [
@@ -425,6 +427,30 @@ fn an_adapter_declares_and_digests_the_one_read_of_its_bytes() {
         root_session: None,
     };
     assert_eq!(adapter.record_kinds, Some(declared));
+}
+
+/// An adapter file whose bytes are not UTF-8 is refused naming the file,
+/// in the JSON parser's words (the controller's ruling R37): no lenient
+/// read stands in for the strict one its bytes cannot take. Its text is
+/// pinned once, here.
+#[test]
+fn an_adapter_whose_bytes_are_not_utf8_is_refused_naming_its_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let path = root.join("claude.json");
+    let text = loadable_adapter().to_string();
+    let (model, rest) = text.split_at(text.find("claude-opus-5").unwrap() + 13);
+    std::fs::write(&path, [model.as_bytes(), b"\xff", rest.as_bytes()].concat()).unwrap();
+    let refusal = Adapters::load(&root).unwrap_err();
+    let column = model.len() + 2;
+    let text = format!(
+        "{}: invalid unicode code point at line 1 column {column}",
+        path.display()
+    );
+    assert!(
+        matches!(&refusal, LibraryError::Invalid(found) if *found == text),
+        "{refusal:?}"
+    );
 }
 
 #[test]

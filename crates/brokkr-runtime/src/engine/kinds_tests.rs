@@ -926,6 +926,44 @@ fn a_legacy_row_of_a_kind_outside_v7_is_no_handle_and_no_older_row_stands_in() {
     assert_eq!(offered(Some((claude, true))).as_deref(), Some("flat-1"));
 }
 
+/// What the legacy scan offers the `work` seat when attempt `attempt-1`
+/// wrote the unstamped `codex-thread` row `th-old` and then `newer` added
+/// its own row to the journal.
+fn legacy_offered(newer: impl FnOnce(&mut Journal, &SiteContext)) -> Option<String> {
+    let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let older = json!({"step": "s", "transcript":
+        {"kind": "codex-thread", "locator": "th-old", "home": "/h/.codex"}});
+    let mut journal = Journal::new();
+    journal.attempt("attempt-1").wrote(&context, older, None);
+    newer(&mut journal, &context);
+    journal.offer(&context, true).map(|offer| offer.provider_id)
+}
+
+/// The controller's ruling R27: `none` is of v7's vocabulary, so a newer
+/// unstamped row whose transcript is `none` still offers its flat id,
+/// written by the sink.
+#[test]
+fn a_legacy_row_whose_transcript_is_none_still_offers_its_flat_id() {
+    let none = json!({"kind": "none", "locator": "", "home": ""});
+    let row = json!({"step": "s", "session_id": "flat-1", "transcript": none});
+    let offered = legacy_offered(|journal, context| {
+        journal.wrote(context, row, None);
+    });
+    assert_eq!(offered.as_deref(), Some("flat-1"));
+}
+
+/// A newer checkpoint of the seat carrying no `checkpoint` member offers
+/// nothing and ends nothing: the legacy scan passes on to the older row.
+/// It is appended directly, as no sink writes one.
+#[test]
+fn a_legacy_scan_passes_over_a_checkpoint_with_no_record() {
+    let offered = legacy_offered(|journal, _| {
+        let payload = json!({"effect_id": "effect", "attempt_id": "attempt-1"});
+        journal.append(EventType::EffectCheckpointed, payload, "attempt-1");
+    });
+    assert_eq!(offered.as_deref(), Some("th-old"));
+}
+
 /// The controller's ruling R28: the offered `claude-session` root's
 /// history at its site holds its own attempt and calls only, never an
 /// older `trellis-thread` root's of the same id there. The offer is the
@@ -1127,6 +1165,27 @@ fn a_single_seats_unstamped_row_counts_whatever_member_its_driver_wrote() {
     assert_eq!(history, resume::RootHistory::default());
     let history = history_of(&journal(None), context);
     assert_eq!(history, history_holding("mixed", "n-mixed"));
+}
+
+/// An attempt whose one rooted row is unstamped, naming no model, is not
+/// the offered root's history even where that row holds the offered root:
+/// a root with no stamped row here is decision 0030's legacy evidence, and
+/// neither the attempt nor its stamped call is admitted. Every row is
+/// written by the sink.
+#[test]
+fn an_attempt_with_no_stamped_rooted_row_is_not_the_offered_roots_history() {
+    let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let mut unstamped = root_row("claude-session", "same-1");
+    unstamped.as_object_mut().unwrap().remove("model");
+    let mut journal = Journal::new();
+    (journal.attempt("unstamped"))
+        .wrote(&context, unstamped, None)
+        .wrote(&context, call_row(), Some("n-unstamped"));
+    (journal.attempt("clean"))
+        .wrote(&context, root_row("claude-session", "same-1"), None)
+        .wrote(&context, call_row(), Some("n-clean"));
+    let history = history_of(&journal, context);
+    assert_eq!(history, history_holding("clean", "n-clean"));
 }
 
 /// The controller's rulings R22 item 3 and R24, the resume offer: a site
