@@ -4,6 +4,7 @@ Status: proposed — the operator's direction in chat, 2026-11-22: "we should ha
 Date: 2026-11-22
 
 Built: unbuilt (#1272)
+Amends: 0113
 
 ## Context
 
@@ -29,7 +30,7 @@ Brokkr already abstracts the first side. A harness is an adapter and a driver, a
 ## Rulings (proposed)
 
 1. **A work order is one typed document: what is being built.** It holds:
-   - **Brokkr's own id,** unique in its realm, and a title. A tracker's item is never the id: it is cited, with its link (ruling 7);
+   - **Brokkr's own id,** unique in its realm and written `WO-<n>`, and a title. A tracker's item is never the id: it is cited, with its link (ruling 7);
    - the **intent**, the distilled statement of what is being built and why;
    - the **acceptance**, as statements a review can check;
    - the **rulings** the operator made about it, each with its words, its date and a citation;
@@ -43,7 +44,7 @@ Brokkr already abstracts the first side. A harness is an adapter and a driver, a
 
 2. **Storage is not the definition.** A work order may be authored as a file in the realm, reviewed like any other change, or held as a row in the journal. Both are read through one parser against the one schema. Every change to a work order is journaled as an event: proposed, ruled, edited, queued, closed. What was decided therefore stays replayable, whatever holds the document. A later Postgres store keeps the document as a native `jsonb` object under the same schema. The operator, 2026-11-22: "yes, could be files, or could be entries in the db, going forward (and assuming we will move to pg with jsonb as native objects eventually)".
 
-   **A work order authored as a file is Markdown:** a typed header validated against the schema, with the intent and acceptance as its body. It lives in the realm's work-order directory, which is named after the verbs' root (ask 1). The operator, 2026-11-23: "Markdown".
+   **A work order authored as a file is Markdown:** a typed header validated against the schema, with the intent and acceptance as its body. It lives at `.brokkr/orders/WO-<n>.md` in its realm. The operator, 2026-11-23: "Markdown".
 
 3. **Edges belong to work orders, and the queue's waits are derived from them.**
    - A work order waits on another with a condition: `completed`, `ended`, a named ending of decision 0064 (#1192), or `merged`, recorded by the journaled operator command #1192 builds.
@@ -82,9 +83,16 @@ Brokkr already abstracts the first side. A harness is an adapter and a driver, a
    - #1264's view draws work orders. A queued one is drawn solid, with its entry's state. A future one is drawn dotted, in the column it would start in.
    - The operator, 2026-11-22: "yes to both".
 
+9. **The verbs are a thirteenth root, `brokkr orders`.** This amends decision 0113 ruling 1, which holds the CLI at twelve roots.
+   - Decision 0113 groups verbs into families by the object they act on. A work order is a new object, so it gets a family of its own.
+   - A bare `brokkr orders` lists work orders, as a bare `brokkr runs` lists runs (decision 0113 ruling 3).
+   - `brokkr orders queue WO-<n>` renders the commission and adds the queue entry (ruling 4). Everything else to do with dispatch stays under `brokkr queue`.
+   - #1264's drawing is `brokkr orders graph`, since it draws work orders (ruling 8).
+   - The operator chose this on 2026-11-23, out of four candidates: "A". The others were `brokkr queue orders`, `brokkr library orders` and `brokkr work`. `work` was set aside because it already names a seat class, a recipe phase and a harness fragment.
+
 ## Slices
 
-1. **The document and its store:** the contract, the parser for files and for rows, the journal's events, and verbs to add, show, list and edit a work order.
+1. **The document and its store:** the contract, the parser for files and for rows, the journal's events, and `brokkr orders` to add, show, list and edit a work order.
 2. **The graph:** edges with their conditions, cycle refusal, queuing a work order with its waits derived, and the rendered commission journaled with the entry.
 3. **The analysis and the drawing:** #1196 produces work orders, and #1264 draws them.
 4. **The trackers:** an import adapter, GitHub's first, then the export.
@@ -101,6 +109,7 @@ Each slice is its own unit, with its own API cap ruled before it is commissioned
 
 ## Asks (operator)
 
-1. **The verbs' root.** Decision 0113 holds the CLI at twelve roots. Where do work orders' verbs live, and what is the work-order directory called?
-
-The id and the file form were asked here and ruled on 2026-11-23. They are now part of rulings 1, 2 and 7.
+None is open. The record asked three questions, and the operator ruled all three on 2026-11-23:
+- the id, in rulings 1 and 7;
+- the file form, in ruling 2;
+- the verbs' root, in ruling 9.

@@ -4,6 +4,7 @@ Status: accepted — operator ruled on #1169, 2026-11-19: "also I believe we hav
 Date: 2026-11-21
 
 Built: partial (#1169) — the tree, its aliases, the binary's own spellings and the CLI reference are built; the guides' spellings are 1169b's, and the aliases' removal is 0.17's
+Amended by: 0116
 
 ## Context
 
