@@ -184,7 +184,7 @@ fn sentences(mcp: &McpSupport) -> Vec<Sentence<'_>> {
     let McpAxis::Measured { evidence } = carriage else {
         panic!("{carriage:?}");
     };
-    assert!(evidence.contains("Antigravity CLI 1.5.14"), "{evidence}");
+    assert!(carried_on(evidence, "1.5.14"), "{evidence}");
     let mut all = vec![Sentence {
         key: "carriage".into(),
         name: "carriage".into(),
@@ -222,20 +222,37 @@ fn sentences(mcp: &McpSupport) -> Vec<Sentence<'_>> {
 }
 
 /// `token` stands in `sentence` as a whole token: bounded by anything that
-/// is not a letter, a digit, `.`, `_` or `-`, where a `.` that ends the
-/// sentence or a clause is no part of it.
+/// is not a letter, a digit, `.`, `_` or `-`, where a `.` followed by
+/// whitespace or the sentence's end ends the sentence or a clause and is no
+/// part of it. A `.` followed by anything else continues the token.
 fn whole(sentence: &str, token: &str) -> bool {
     let within = |c: char| c.is_alphanumeric() || matches!(c, '.' | '_' | '-');
     sentence.match_indices(token).any(|(at, _)| {
         let before = sentence[..at].chars().next_back();
         let mut after = sentence[at + token.len()..].chars();
         let ends = match after.next() {
-            Some('.') => !after.next().is_some_and(within),
+            Some('.') => after.next().is_none_or(char::is_whitespace),
             Some(c) => !within(c),
             None => true,
         };
         !before.is_some_and(within) && ends
     })
+}
+
+/// Whether the carriage's sentence names Antigravity CLI `version` whole
+/// ([`whole`]), so no longer version stands for it.
+fn carried_on(sentence: &str, version: &str) -> bool {
+    whole(sentence, &format!("Antigravity CLI {version}"))
+}
+
+/// `sentence` with `text` in its place.
+fn reworded<'a>(sentence: &Sentence<'a>, text: &'a str) -> Sentence<'a> {
+    Sentence {
+        text,
+        key: sentence.key.clone(),
+        name: sentence.name.clone(),
+        ..*sentence
+    }
 }
 
 /// How a row fails its sentence.
@@ -347,7 +364,9 @@ fn assert_the_guide_agrees(boxed: (&str, bool), without_hands: &str) {
 /// sentence of agy's example, the carriage's and each axis of each shape,
 /// holds each row [`AGY_CITATIONS`] lists for it by (a), (b) and (c); a
 /// misspelt token, a file that does not exist and a changed shape version
-/// each fail; the boxed shapes are measured on 1.5.14, each of their four
+/// each fail, as do a token continued past a `.`, a token led by another
+/// word and a longer carriage version, which a substring check passes; the
+/// boxed shapes are measured on 1.5.14, each of their four
 /// axes measured; the shapes without hands are still on 1.5.13, their
 /// ambient axis alone measured; and the guide says what the adapter does.
 #[test]
@@ -364,12 +383,8 @@ fn each_agy_shape_names_the_version_its_recordings_are_from() {
     let process = (all.iter())
         .find(|sentence| sentence.key == "boxed process_read")
         .unwrap();
-    let misspelt = Sentence {
-        text: &process.text.replace("box-reach-v14", "box-reach-v41"),
-        key: process.key.clone(),
-        name: process.name.clone(),
-        ..*process
-    };
+    let misspelt = process.text.replace("box-reach-v14", "box-reach-v41");
+    let misspelt = reworded(process, &misspelt);
     let missing: &[Row] = &[("box-reach-v14", "box-reach-v14.stderr", "1.5.14")];
     assert_eq!(
         [
@@ -381,6 +396,17 @@ fn each_agy_shape_names_the_version_its_recordings_are_from() {
             Err(Uncited::Unrecorded("box-reach-v14.stderr")),
         ]
     );
+    // The three boundary negatives: each passes a plain substring check, so
+    // only the boundary of [`whole`] fails it.
+    for token in ["box-reach-v14./extra", "fake-box-reach-v14"] {
+        let text = process.text.replace("box-reach-v14", token);
+        assert!(text.contains("box-reach-v14"), "{text}");
+        let cited = uncited(rows(&process.key), &reworded(process, &text), &files);
+        assert_eq!(cited, Err(Uncited::Unwritten("box-reach-v14")), "{token}");
+    }
+    let longer = all[0].text.replace("1.5.14", "1.5.140");
+    assert!(longer.contains("Antigravity CLI 1.5.14"), "{longer}");
+    assert!(!carried_on(&longer, "1.5.14"), "{longer}");
     let mut changed = agy.clone();
     if let McpSupport::Declared { shapes, .. } = &mut changed.mcp {
         for measurement in shapes.values_mut() {

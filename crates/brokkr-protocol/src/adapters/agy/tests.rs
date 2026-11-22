@@ -558,11 +558,11 @@ fn each_launch_refusal_states_what_was_written_and_never_a_value() {
         (LaunchError::Doubled("--model"), "the seat's arguments carry '--model' more than once"),
         (LaunchError::Valueless("--allow"), "the seat's arguments carry '--allow' with no value"),
         (LaunchError::Unpinned, "the seat pins no model with --model; a provisional seat pins its id (#1200)"),
-        (LaunchError::Unplain, "the agy model pin is not a plain model id (an ASCII letter or digit, then ASCII letters, digits, '.', '_' and '-')"),
+        (LaunchError::Unplain, "the agy model pin is not a plain model id (1 to 80 characters: an ASCII letter or digit, then ASCII letters, digits, '.', '_' and '-')"),
         (LaunchError::Unruled, "the seat's --allow carries a rule that is neither command(…) nor mcp(…), which agy would ignore without a word (#1200)"),
         (LaunchError::Unnamed, "the engine's HOME or executable for the agy seat has a path that is not UTF-8, so nothing names it exactly (#1200)"),
         (LaunchError::Unrooted("w/sub".into(), io()), "the agy seat's working directory w/sub cannot be resolved: entity not found"),
-        (LaunchError::Untexted("/w/\\xff".into()), "the agy seat's working directory resolves to /w/\\xff, which is not UTF-8, so the child's PWD cannot name it (#1200)"),
+        (LaunchError::Untexted, "the agy seat's working directory resolves to a path that is not UTF-8, so the child's PWD cannot name it (#1200)"),
         (LaunchError::Configured("/w/.agents/plugins".into()), "/w/.agents/plugins stands in the agy seat's working directory or a directory above it, and brokkr driver agy refuses a seat there; remove it, or run the seat elsewhere (#1200)"),
         (LaunchError::SignedOut, "Antigravity CLI is signed out: run `agy` once and sign in; the login is ~/.gemini/antigravity-cli/antigravity-oauth-token (#1200)"),
         (LaunchError::Unhomed(io()), "the engine's HOME for the agy seat was not made: entity not found"),
@@ -1005,7 +1005,7 @@ fn a_workspace_carrying_agys_configuration_anywhere_above_is_refused_with_no_git
 
 /// What the walk cannot read refuses, naming it: an unreadable path, a
 /// working directory that is not there, and one whose resolved path is not
-/// UTF-8, named escaped. An `.agents` that is a file holds none of the
+/// UTF-8, which names nothing of it (U1). An `.agents` that is a file holds none of the
 /// three paths.
 #[test]
 fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
@@ -1031,10 +1031,9 @@ fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
     // Given as text, through a link, it resolves to a path that is none.
     let link = lone.join("link");
     std::os::unix::fs::symlink(&lossy, &link).unwrap();
-    let untexted = home::resolved(link.to_str().unwrap()).unwrap_err();
-    let escaped = format!("{}/t\\xfe", lone.display());
+    let untexted = home::resolved(link.to_str().unwrap());
     assert!(
-        matches!(&untexted, LaunchError::Untexted(named) if *named == escaped),
+        matches!(&untexted, Err(LaunchError::Untexted)),
         "{untexted:?}"
     );
     // Named as the seat gave it (K4).

@@ -494,3 +494,43 @@ fn a_rule_is_checked_whole_and_may_hold_several_words() {
         r#"{"permissions":{"allow":["command(git status)"]}}"#
     );
 }
+
+/// A working directory reached through a UTF-8 link to a directory whose
+/// name holds a bound value beside a byte that is not UTF-8 is refused in
+/// words that hold that value in no form, raw or escaped, and name no path:
+/// escaping doubles a backslash and escapes a quote, so an escaped path
+/// would carry the value past the mask (#1200 U1).
+#[test]
+fn a_working_directory_that_is_not_utf8_is_refused_naming_nothing_of_it() {
+    use std::os::unix::ffi::OsStrExt;
+    for value in [r"k\9z", r#"k"9z"#] {
+        let mut world = World::new();
+        let bin = fake_agy(&world.seat(), TOOL_LESS, "", false, 0);
+        world.set(&bin);
+        let name = [b"t".as_slice(), value.as_bytes(), b"\xfe"].concat();
+        let lossy = world.seat().join(std::ffi::OsStr::from_bytes(&name));
+        std::fs::create_dir(&lossy).unwrap();
+        let link = world.path("link");
+        std::os::unix::fs::symlink(&lossy, &link).unwrap();
+        let mut input = world.input(None);
+        input["workdir"] = json!(link);
+        let bindings = [bound("AT", value)];
+        let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", FLASH]));
+        let pinned = super::super::super::Pinned {
+            binary: &binary,
+            extra: &extra,
+        };
+        let turn = drive(pinned, false, "prompt", &input, &bindings, &mut |_| {});
+        let words = turn.map(drop).unwrap_err();
+        let escaped = [
+            value.escape_debug().to_string(),
+            value.as_bytes().escape_ascii().to_string(),
+        ];
+        for form in std::iter::once(value.to_string()).chain(escaped) {
+            assert!(!words.contains(&form), "{form} in {words}");
+        }
+        assert!(!words.contains('/'), "{words}");
+        assert_eq!(words, LaunchError::Untexted.to_string());
+        assert!(!world.started() && world.homes_gone());
+    }
+}

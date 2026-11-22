@@ -36,9 +36,9 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::claude_fold::ClaudeFold;
-use super::escapes::{plain_evidence, without_ansi};
+use super::escapes::plain_evidence;
 use super::mcp::{self, McpRefusal};
-use super::stream_turn::{STOPPED_AT_REFUSAL, UNCONCLUDED};
+use super::stream_turn::{plain, Observed, STOPPED_AT_REFUSAL, UNCONCLUDED};
 use super::{fold_stream_event, io_context, lost, secret, spawn_fed, Invocation, LaunchTerminal};
 use crate::native_controls::mcp::qoder::isolation;
 use crate::transcript::{Kind as TranscriptKind, Transcript};
@@ -143,24 +143,6 @@ pub(super) enum LaunchError {
     /// driver states it with ([`McpRefusal::at_launch`]).
     #[error("{}", .0.at_launch())]
     Mcp(#[from] McpRefusal),
-}
-
-/// The most characters a plain model id holds.
-const PLAIN_ID_LIMIT: usize = 80;
-
-/// Whether `text` is a plain model id: 1 to [`PLAIN_ID_LIMIT`] characters,
-/// the first an ASCII letter or a digit, so no plain id reads as a flag
-/// (H6), and each other an ASCII letter, a digit, `.`, `_` or `-`. No such
-/// character is one JSON or Rust escapes, and none is one of the mask's
-/// replacement text (`[secret:NAME]`), so a plain id has no escaped form
-/// and no mask turns another value into one.
-pub(super) fn plain(text: &str) -> bool {
-    let character = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-');
-    let first = text
-        .bytes()
-        .next()
-        .is_some_and(|byte| byte.is_ascii_alphanumeric());
-    first && text.len() <= PLAIN_ID_LIMIT && text.bytes().all(character)
 }
 
 /// A qoder seat's `-m` value, built once at launch and only from a
@@ -546,27 +528,7 @@ fn provider_refused(classified: PreSessionRefusal) -> PreSessionRefusal {
     PreSessionRefusal::from_parts(classified.class(), words.to_string(), status, retry_after)
 }
 
-/// Qoder's stderr as its checks read it: the raw text, lossy UTF-8, and
-/// the same text [`without_ansi`], neither masked. A marker found in either
-/// is said (V3): a false refusal costs a refused seat, a missed one accepts
-/// a model nobody pinned. Both stay here and are only matched (U2): neither
-/// is returned, emitted, logged or put in any error, so it has no `Debug`.
-pub(super) struct Observed {
-    raw: String,
-    stripped: String,
-}
-
 impl Observed {
-    pub(super) fn of(bytes: &[u8]) -> Observed {
-        let raw = String::from_utf8_lossy(bytes).into_owned();
-        let stripped = without_ansi(&raw);
-        Observed { raw, stripped }
-    }
-
-    pub(super) fn said(&self, marker: &str) -> bool {
-        self.raw.contains(marker) || self.stripped.contains(marker)
-    }
-
     /// Whether Qoder reported it fell back to another model: the one scan
     /// of the fallback marker, whose answer every identity check reads (Z7).
     fn fell_back(&self) -> bool {

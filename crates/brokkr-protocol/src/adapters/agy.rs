@@ -36,8 +36,7 @@ mod fold;
 mod gate;
 mod home;
 
-use super::qoder::{plain, Observed};
-use super::stream_turn::Line;
+use super::stream_turn::{plain, Line, Observed, PLAIN_ID_LIMIT};
 use crate::native_controls::SealedBoundary;
 use crate::PreSessionRefusal;
 use fold::{AgyFold, Failed, Verdict};
@@ -167,8 +166,9 @@ pub(super) enum LaunchError {
     /// The pin is not a plain model id ([`plain`]), so the words that name
     /// it could escape it past the mask. They name no byte of it (#1178 Z1).
     #[error(
-        "refusing to invoke the agent CLI: the agy model pin is not a plain model id (an ASCII \
-         letter or digit, then ASCII letters, digits, '.', '_' and '-')"
+        "refusing to invoke the agent CLI: the agy model pin is not a plain model id (1 to {} \
+         characters: an ASCII letter or digit, then ASCII letters, digits, '.', '_' and '-')",
+        PLAIN_ID_LIMIT
     )]
     Unplain,
     #[error(
@@ -194,13 +194,14 @@ pub(super) enum LaunchError {
          resolved: {1}"
     )]
     Unrooted(String, #[source] std::io::Error),
-    /// A resolved working directory the child's `PWD` cannot name, named
-    /// escaped (L2).
+    /// A resolved working directory the child's `PWD` cannot name (L2).
+    /// Nothing of the path is named: escaped, a bound value standing in it
+    /// would no longer match the mask (#1200 U1).
     #[error(
-        "refusing to invoke the agent CLI: the agy seat's working directory resolves to {0}, \
-         which is not UTF-8, so the child's PWD cannot name it (#1200)"
+        "refusing to invoke the agent CLI: the agy seat's working directory resolves to a path \
+         that is not UTF-8, so the child's PWD cannot name it (#1200)"
     )]
-    Untexted(String),
+    Untexted,
     /// A workspace that carries agy's own configuration (G6), in the
     /// working directory or a directory above it (L1, M6).
     #[error(
@@ -618,8 +619,8 @@ fn concluded(
     let delivered = clean && super::delivered_result(input);
     let (refusal, answer) = judged(verdict, fold.worked() || delivered, bindings)?;
     // Evidence: agy's stderr, stripped and then masked, which the shared
-    // driver's tail journals as it does every adapter's until #1199; a
-    // signed-out agy's is its sign-in block, which is not evidence (J4).
+    // driver journals by evidence alone, as it does every driver's (#1199);
+    // a signed-out agy's is its sign-in block, which is not evidence (J4).
     let stderr = match signed_out {
         true => SIGN_IN_WITHHELD.to_string(),
         false => captured.evidence(|raw| plain_evidence(raw, bindings)),

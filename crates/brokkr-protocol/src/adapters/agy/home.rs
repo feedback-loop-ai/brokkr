@@ -30,8 +30,6 @@
 //! lock, and one directory, `home`, that is the child's HOME: nothing of the
 //! operator's shares a directory with them (K7).
 
-use std::ffi::OsString;
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -218,10 +216,11 @@ pub(super) fn unconfigured(resolved: &str) -> Result<(), LaunchError> {
 }
 
 /// `resolved` as the text the shared spawn and the child's `PWD` take, or
-/// refused naming it escaped where it is not UTF-8.
+/// refused where it is not UTF-8, naming nothing of it: a path rendered in
+/// any form but its own bytes would carry a bound value standing in it past
+/// the mask (#1200 U1).
 fn texted(resolved: PathBuf) -> Result<String, LaunchError> {
-    let escaped = |raw: OsString| raw.as_bytes().escape_ascii().to_string();
-    (resolved.into_os_string().into_string()).map_err(|raw| LaunchError::Untexted(escaped(raw)))
+    (resolved.into_os_string().into_string()).map_err(|_| LaunchError::Untexted)
 }
 
 /// The first of [`WORKSPACE_CONFIGURATION`] present in `dir`, whatever it

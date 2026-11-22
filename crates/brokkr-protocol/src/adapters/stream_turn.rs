@@ -3,12 +3,14 @@
 //! refuses, and its exit and stderr taken. The one home Antigravity's
 //! driver (#1200) reads a turn through ([`streamed_lines`]); Qoder's driver
 //! (#1178) reads its rows as its own and stops on this module's
-//! [`STOPPED_AT_REFUSAL`] and [`UNCONCLUDED`].
+//! [`STOPPED_AT_REFUSAL`] and [`UNCONCLUDED`]. Both read a pin by
+//! [`plain`] and a turn's stderr through [`Observed`].
 
 use std::io::BufRead;
 
 use thiserror::Error;
 
+use super::escapes::without_ansi;
 use super::spawn::Spawned;
 use super::stderr::{CapturedStderr, StderrCapture};
 use super::{lost, stop_harness};
@@ -149,4 +151,46 @@ pub(super) fn read_lines(mut reader: impl BufRead, mut line: impl FnMut(&[u8]) -
 fn ended(bytes: &[u8]) -> &[u8] {
     let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
     bytes.strip_suffix(b"\r").unwrap_or(bytes)
+}
+
+/// The most characters a plain model id holds.
+pub(super) const PLAIN_ID_LIMIT: usize = 80;
+
+/// Whether `text` is a plain model id: 1 to [`PLAIN_ID_LIMIT`] characters,
+/// the first an ASCII letter or a digit, so no plain id reads as a flag
+/// (H6), and each other an ASCII letter, a digit, `.`, `_` or `-`. No such
+/// character is one JSON or Rust escapes, and none is one of the mask's
+/// replacement text (`[secret:NAME]`), so a plain id has no escaped form
+/// and no mask turns another value into one. Qoder's and Antigravity's
+/// drivers each refuse a pin that is not one.
+pub(super) fn plain(text: &str) -> bool {
+    let character = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-');
+    let first = text
+        .bytes()
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphanumeric());
+    first && text.len() <= PLAIN_ID_LIMIT && text.bytes().all(character)
+}
+
+/// A harness's stderr as its driver's checks read it: the raw text, lossy
+/// UTF-8, and the same text [`without_ansi`], neither masked. A marker
+/// found in either is said (V3): a false refusal costs a refused seat, a
+/// missed one accepts a model nobody pinned. Both stay here and are only
+/// matched (U2): neither is returned, emitted, logged or put in any error,
+/// so it has no `Debug`.
+pub(super) struct Observed {
+    raw: String,
+    stripped: String,
+}
+
+impl Observed {
+    pub(super) fn of(bytes: &[u8]) -> Observed {
+        let raw = String::from_utf8_lossy(bytes).into_owned();
+        let stripped = without_ansi(&raw);
+        Observed { raw, stripped }
+    }
+
+    pub(super) fn said(&self, marker: &str) -> bool {
+        self.raw.contains(marker) || self.stripped.contains(marker)
+    }
 }
