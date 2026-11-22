@@ -62,6 +62,9 @@ time = { workspace = true }
 
 [dev-dependencies]
 brokkr-store = { workspace = true, features = ["test-support"] }
+# A watchdog's pause between sampling its wait and waiting it, by which the
+# late-kill probe tests make a kill land after its deadline (0106b1r11, L3).
+brokkr-protocol = { workspace = true, features = ["test-support"] }
 # The engine admits nothing by a display-crate function (decision 0071
 # ruling 7; #351): its tests read the view to prove what a surface shows.
 brokkr-view = { workspace = true }

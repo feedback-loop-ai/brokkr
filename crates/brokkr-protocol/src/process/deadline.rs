@@ -125,8 +125,13 @@ impl Deadline {
         let (tx, rx) = mpsc::channel::<()>();
         let timed_out = Arc::clone(timed_out);
         let group = Pid::from_child(child);
+        let pause = armed_pause();
         let thread = std::thread::spawn(move || {
-            if let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(self.left()) {
+            let wait = self.left();
+            // Between the sample and the wait, as a descheduled watchdog
+            // thread takes it: nothing outside `test-support` pauses.
+            std::thread::sleep(pause);
+            if let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(wait) {
                 timed_out.store(true, Ordering::SeqCst);
                 let _ = (host.kill_group)(group);
                 // A refusal here is met again, and carried, by
@@ -137,6 +142,33 @@ impl Deadline {
         });
         (tx, thread)
     }
+}
+
+#[cfg(feature = "test-support")]
+thread_local! {
+    /// What the watchdogs armed on this thread pause between sampling their
+    /// wait and waiting it.
+    static PAUSE: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::ZERO) };
+}
+
+/// Make every watchdog armed on this thread from here pause `pause`
+/// between sampling what remains to its deadline and waiting it, as a
+/// descheduled watchdog thread does, so its kill lands that long after the
+/// deadline; `Duration::ZERO` lifts it. For the engine's tests of a late
+/// kill (fix round 0106b1r11, L3): another thread's watchdogs are unmoved.
+#[cfg(feature = "test-support")]
+pub fn pause_watchdogs_armed_here(pause: Duration) {
+    PAUSE.with(|armed| armed.set(pause));
+}
+
+/// The pause a watchdog armed on this thread takes: none outside
+/// `test-support`.
+fn armed_pause() -> Duration {
+    #[cfg(feature = "test-support")]
+    let pause = PAUSE.with(std::cell::Cell::get);
+    #[cfg(not(feature = "test-support"))]
+    let pause = Duration::ZERO;
+    pause
 }
 
 #[cfg(test)]

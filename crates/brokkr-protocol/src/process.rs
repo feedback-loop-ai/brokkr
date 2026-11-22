@@ -52,6 +52,8 @@ mod table;
 mod tree;
 
 use attempts::{Attempt, Unspawned};
+#[cfg(feature = "test-support")]
+pub use deadline::pause_watchdogs_armed_here;
 pub use deadline::By;
 use deadline::{Arm, Deadline};
 pub(crate) use launched::Launched;

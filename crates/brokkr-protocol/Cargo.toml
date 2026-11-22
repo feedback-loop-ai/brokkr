@@ -70,3 +70,9 @@ ruzstd = { version = "0.9.0", default-features = false, features = ["std", "hash
 rustix = { version = "1.1.4", default-features = false, features = ["fs", "process", "std"] }
 signal-hook = "0.3.18"
 libc = "0.2.189"
+
+[features]
+# A watchdog's pause between sampling its wait and waiting it, set per
+# arming thread, for the engine's tests of a late kill (fix round
+# 0106b1r11, L3). Only dev-dependencies enable it.
+test-support = []

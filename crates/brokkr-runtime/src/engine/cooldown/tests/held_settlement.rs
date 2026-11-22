@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use super::held_deadline::{FORK, SAMPLE};
+use super::held_deadline::SAMPLE;
 use super::held_route::{
     deadline_of, held_to, hold_end_of, legs, probing, slicing, unended_holds, Legs, Shared,
 };
@@ -59,33 +59,41 @@ fn running(pid: i32) -> bool {
 struct Watched {
     seen: Vec<Legs>,
     admitted: bool,
+    /// How many of `seen` were begun late enough that the probe's monotonic
+    /// deadline had passed (fix round 0106b1r11, L3).
+    late: usize,
 }
 
 /// Once `marker` exists, move the engine's clock to `at`, then read both
 /// gates at `at` for as long as the process whose pid `pid_file` holds
 /// `lives`: only a read the process outlived is kept, so each one kept was
-/// taken while it could still run. The first read that admits ends the
-/// look, for its claim took the entry.
+/// taken while it could still run, and each kept read begun `past` or
+/// more after the pid was read is counted late. The first read that
+/// admits ends the look, for its claim took the entry.
 fn read_while(
     (marker, pid_file): (PathBuf, PathBuf),
     lives: fn(i32) -> bool,
     now: &Arc<Mutex<OffsetDateTime>>,
-    (at, gates): (OffsetDateTime, &Shared),
+    (at, gates, past): (OffsetDateTime, &Shared, Duration),
 ) -> JoinHandle<Watched> {
     let (now, gates) = (Arc::clone(now), Arc::clone(gates));
     std::thread::spawn(move || {
         written(&marker);
         let pid = pid_in(&pid_file);
+        let read_at = Instant::now();
         *now.lock().unwrap() = at;
         let mut watched = Watched {
             seen: Vec::new(),
             admitted: false,
+            late: 0,
         };
         while lives(pid) && !watched.admitted {
+            let late = read_at.elapsed() >= past;
             let read = legs(&gates, at);
             watched.admitted = read.iter().any(Result::is_ok);
             if lives(pid) {
                 watched.seen.push(read);
+                watched.late += usize::from(late);
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -100,7 +108,7 @@ fn read_while_alive(
     at: OffsetDateTime,
     gates: &Shared,
 ) -> JoinHandle<Watched> {
-    read_while(files, alive, now, (at, gates))
+    read_while(files, alive, now, (at, gates, Duration::ZERO))
 }
 
 /// The pid the driver wrote at `path`, once it has written it whole.
@@ -172,43 +180,59 @@ fn a_probe_that_answers_and_lingers_through_its_grace_holds_its_route_until_it_i
     );
 }
 
+/// Whether process `pid` runs, the witness of a late kill (fix round
+/// 0106b1r11, L3): on Linux, on the process table and not a zombie; on
+/// macOS, which has no such read here, unreaped.
+#[cfg(target_os = "linux")]
+const RUNS: fn(i32) -> bool = running;
+#[cfg(not(target_os = "linux"))]
+const RUNS: fn(i32) -> bool = alive;
+
+/// The watchdogs this thread arms pause `pause` between sampling their
+/// wait and waiting it while `body` runs, as a descheduled watchdog thread
+/// does, and no longer.
+fn with_watchdogs_paused<T>(pause: Duration, body: impl FnOnce() -> T) -> T {
+    brokkr_protocol::process::pause_watchdogs_armed_here(pause);
+    let done = body();
+    brokkr_protocol::process::pause_watchdogs_armed_here(Duration::ZERO);
+    done
+}
+
 /// The arm gap: a pause of 2.2 real seconds at the probe's own sample, the
 /// engine's clock unmoved (not at the fork's read, which runs under the
 /// process-wide registry lock every other attempt needs), so the fork
 /// finds the deadline ahead on the engine's clock while the watchdog's kill
 /// target, two monotonic seconds after the probe began, has already
-/// passed: the driver is spawned and killed at once. Every engine read of
-/// the clock after the fork's, until the hold ends,
-/// finds both gates holding the route two seconds past the deadline, and
-/// the settlement then ends it.
+/// passed: the driver is spawned, and its watchdog, sampling nothing left,
+/// kills it after the second its arming thread pauses it (fix round
+/// 0106b1r11, L3), the window in which the witness reads. Every read of
+/// both gates the driver outlived running, two seconds past the deadline,
+/// holds the route, and the settlement then ends it.
 #[test]
 fn a_probe_whose_kill_target_passed_before_the_fork_holds_its_route_until_settlement() {
-    let (_dir, mut engine, now, probe_at, gates) = probing(Probed::Hang);
+    let (dir, mut engine, now, probe_at, gates) = probing(Probed::Hang);
     let late = deadline_of(probe_at) + time::Duration::seconds(2);
-    let seen: Arc<Mutex<Vec<Legs>>> = Arc::default();
     let (journal, reads) = (engine.store.path().to_path_buf(), AtomicUsize::new(0));
-    let (shared, watched, watching) = (Arc::clone(&now), Arc::clone(&seen), Arc::clone(&gates));
+    let shared = Arc::clone(&now);
     engine.cooldown.clock = Clock {
         now: Box::new(move || {
-            if unended_holds(&journal) == 1 {
-                match reads.fetch_add(1, Ordering::SeqCst) + 1 {
-                    read if read == SAMPLE => std::thread::sleep(Duration::from_millis(2_200)),
-                    read if read > FORK => watched.lock().unwrap().push(legs(&watching, late)),
-                    _ => {}
-                }
+            let held = unended_holds(&journal) == 1;
+            if held && reads.fetch_add(1, Ordering::SeqCst) + 1 == SAMPLE {
+                std::thread::sleep(Duration::from_millis(2_200));
             }
             *shared.lock().unwrap()
         }),
         sleep: slicing(&now),
     };
-    engine.drive().unwrap();
+    let files = (dir.path().join("work.pid"), dir.path().join("work.pid"));
+    let watch = read_while(files, RUNS, &now, (late, &gates, Duration::ZERO));
+    with_watchdogs_paused(Duration::from_secs(1), || engine.drive().unwrap());
     let reason = park_reason(&engine);
     assert!(
         reason.contains("attempt exceeded its 2s deadline and was killed"),
         "{reason}"
     );
-    held_while_it_lived(&seen.lock().unwrap(), probe_at);
-    ended_by_settlement(&engine, &gates, late, false);
+    held_then_ended(&engine, (&gates, late), watch.join().unwrap(), probe_at);
 }
 
 /// A hanging probe whose engine clock moves `step` past the instant it was
@@ -229,13 +253,33 @@ fn a_probe_whose_clock_moves_in_flight_by(step: time::Duration) {
     );
 }
 
-/// A pause between the watchdog's sampling of its wait and the wait, or
-/// its wake's latency, lands the kill after the deadline on the hold's
-/// clock: here a second and a half past it, beyond where round nine's hold
-/// had already ended.
+/// A pause of a second and a half between the watchdog's sampling of its
+/// wait and the wait itself, as a descheduled watchdog thread takes it
+/// (fix round 0106b1r11, L3), lands the kill that long after the deadline
+/// on the monotonic clock, beyond where round nine's hold had already
+/// ended. Reads of both gates begun two seconds or more after the driver
+/// wrote its pid, so past its deadline, with the engine's clock a second
+/// past it, are taken while the driver still runs, and each holds the
+/// route; the settlement then ends the hold.
 #[test]
 fn a_kill_that_lands_after_the_deadline_finds_the_route_still_held() {
-    a_probe_whose_clock_moves_in_flight_by(time::Duration::milliseconds(3_500));
+    let (dir, mut engine, now, probe_at, gates) = probing(Probed::Hang);
+    let at = deadline_of(probe_at) + time::Duration::seconds(1);
+    let files = (dir.path().join("work.pid"), dir.path().join("work.pid"));
+    let watch = read_while(files, RUNS, &now, (at, &gates, Duration::from_secs(2)));
+    with_watchdogs_paused(Duration::from_millis(1_500), || engine.drive().unwrap());
+    let watched = watch.join().unwrap();
+    assert!(
+        watched.late > 0,
+        "no read past the deadline was taken while the driver ran, of {} it outlived",
+        watched.seen.len()
+    );
+    held_then_ended(&engine, (&gates, at), watched, probe_at);
+    let reason = park_reason(&engine);
+    assert!(
+        reason.contains("attempt exceeded its 2s deadline and was killed"),
+        "{reason}"
+    );
 }
 
 /// A forward step of the engine's wall clock while the probe runs, the
@@ -271,7 +315,7 @@ fn a_descendant_outside_the_group_keeps_the_route_held_until_settlement_ends_it(
     let graced = deadline_of(probe_at) + time::Duration::seconds(3);
     let descendant = dir.path().join("work.descendant");
     let files = (dir.path().join("work.answered"), descendant.clone());
-    let watch = read_while(files, running, &now, (graced, &gates));
+    let watch = read_while(files, running, &now, (graced, &gates, Duration::ZERO));
     engine.drive().unwrap();
     held_then_ended(&engine, (&gates, graced), watch.join().unwrap(), probe_at);
     let pid = pid_in(&descendant);
