@@ -1164,7 +1164,13 @@ every entry reads the default budget of 3; a direct run always has none.
    slice's `WaitRows` reads the latest unexpired row for admission and the latest row of any age
    for the readout, so an expired-but-unanswered wait still keeps the run `waiting` for the stale
    bound; the answered probe's snapshot, and the test that a cleared row leaves the readout, are
-   0106c's, so 0106b needs no lift table to pass its own list.
+   0106c's, so 0106b needs no lift table to pass its own list. A probe's hold on its route
+   (0103 ruling 2 as the operator amended it on 2026-11-18, #1035) ends on evidence: its
+   driver's tree proven ended by the engine's settlement, its answer, or its renewed round's
+   commit. Its stored end, the probe's deadline plus the shutdown grace plus a 60-second margin,
+   is only the crash fallback. Named residual (fix round 0106b1r10): a host suspend, or a
+   forward wall-clock step, longer than that margin can end the fallback while a frozen driver
+   lives.
 3. **0106c — the operator lift, its consumption and its clearing rule.** Depends on 0106b. Files:
    `crates/brokkr-core/src/fold.rs`, `crates/brokkr-core/src/fold/operator.rs`,
    `crates/brokkr-runtime/src/engine/operator.rs`,
