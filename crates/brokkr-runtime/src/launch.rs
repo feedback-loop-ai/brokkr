@@ -561,7 +561,7 @@ fn read_dispatch(
     Ok(envelope)
 }
 
-/// The one compile a run, `compile` and `recipes show` stand on: the
+/// The one compile a run, `library compile` and `library recipes show` stand on: the
 /// bundle at `dir`, in the realm `world` names for `repo` — its dialect
 /// and its boundary, or `namespace` for a repository no map names
 /// (decision 0046 ruling 1).
@@ -576,7 +576,7 @@ pub fn compile_for(
 
 /// [`compile_for`] of the bundle at `leaf`'s directory, composed across
 /// `leaf`'s project shelf, the one the operator selected, else the
-/// workspace's own (#697 ruling 3): what a run and `recipes show` compile,
+/// workspace's own (#697 ruling 3): what a run and `library recipes show` compile,
 /// so each composes across the shelf its `--recipe` was read from.
 pub fn compile_on(
     workspace: &Path,

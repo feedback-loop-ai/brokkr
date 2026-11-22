@@ -303,7 +303,7 @@ impl Store {
             .unwrap_or(origin.as_os_str())
             .to_string_lossy()
             .to_string();
-        // Gate 1, twice — the two marks `export --redact` writes. The
+        // Gate 1, twice — the two marks `journal export --redact` writes. The
         // filename catches the pair as published; the manifest flag
         // catches a copy somebody renamed back.
         if named.contains(".redacted.") {
@@ -314,7 +314,7 @@ impl Store {
         }
 
         // Gates 2 and 3: parse, chain, fold — the same three checks
-        // `verify-run` makes offline, on the same bytes, before this
+        // `journal verify` makes offline, on the same bytes, before this
         // journal is touched.
         let (events, state) = verified_events(ndjson)?;
         let row = RunsRow::of(&events, state)?;

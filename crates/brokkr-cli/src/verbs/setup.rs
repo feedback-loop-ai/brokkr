@@ -1,6 +1,6 @@
 //! The verbs that prepare the workspace, its libraries and its drivers:
-//! `init`, `doctor`, `compile`, `recipes`, `agents`, `muninn`, `secrets`,
-//! `driver` and the hidden `fake-driver`.
+//! `init`, `doctor`, `library compile`, `library recipes`, `library agents`,
+//! `runs muninn`, `system secrets`, `driver` and the hidden `fake-driver`.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -103,7 +103,7 @@ pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> 
     print_compiled(workspace, (&bundle, None))
 }
 
-/// What `compile` and `recipes show` both print: the bundle at `leaf`'s
+/// What `library compile` and `library recipes show` both print: the bundle at `leaf`'s
 /// directory compiled on the one path a run starts on, in the workspace's
 /// realm and across `leaf`'s project shelf, the one `--dir` selected, if
 /// any ([`launch::compile_on`]), so the two cannot drift apart (#350,
@@ -217,7 +217,7 @@ pub(crate) fn muninn(workspace: &Path, command: MuninnCmd) -> Result<ExitCode> {
         } => {
             // `world_and_hearths`, not `hearths_of`: the raven reports
             // a moved crossing as a finding, so it reads the world
-            // with `inspect` and keeps the resolved map beside the
+            // with `runs inspect` and keeps the resolved map beside the
             // journals it names (decision 0057).
             let escape = db.is_some();
             let (world, hearths) = world_and_hearths(workspace, realms, db)?;

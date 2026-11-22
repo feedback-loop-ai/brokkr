@@ -1,5 +1,6 @@
 //! The verbs that move a run's evidence across this machine's edge:
-//! `anchor`, `export`, `import`, `verify-run` and the Looper `bridge`.
+//! `journal anchor`, `journal export`, `journal import`, `journal verify`
+//! and the Looper `bridge`.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -69,7 +70,7 @@ pub(crate) fn export(
     Ok(Exit::Completed.into())
 }
 
-/// The `--redact` half of `export`, written beside the verbatim pair.
+/// The `--redact` half of `journal export`, written beside the verbatim pair.
 fn export_redacted(out: &Path, run: &str, ndjson: &str, manifest: &Value) -> Result<()> {
     // A sanitized copy that could pass as verbatim evidence
     // would be a forgery, so the copy is marked twice: in

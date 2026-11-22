@@ -52,7 +52,9 @@
 #
 # With no --binary, a release build is made first. Building is NOT
 # timed: the budgets are an operator's install experience, and an
-# operator installs a built artifact.
+# operator installs a built artifact. The script types 0.16's spellings
+# (`runs inspect`), so a --binary must be 0.16 or later: a released 0.15
+# binary does not parse them.
 
 set -euo pipefail
 

@@ -171,7 +171,7 @@ fn bundles(dir: &Path, depth: usize) -> Vec<(String, PathBuf)> {
 }
 
 /// Every recipe the realm's `folder` resolves by name, in the order a name
-/// is looked up: its shelf as `recipes show` reads it, then the folder's
+/// is looked up: its shelf as `library recipes show` reads it, then the folder's
 /// implicit bundle (`.brokkr` itself, in an adopter), then its visible
 /// bundle directories.
 fn shelf(folder: &Path) -> Result<Vec<(String, PathBuf)>> {
@@ -226,7 +226,7 @@ fn within(dir: &Path, folder: &Path) -> String {
 }
 
 /// Each recipe on the shelf compiled where it resolves, on the one path
-/// `recipes show` compiles it on, the first directory of a name being the
+/// `library recipes show` compiles it on, the first directory of a name being the
 /// one it resolves to. A recipe that does not compile is named, never the
 /// graph's failure; any other failure to compile is.
 fn compiled(
