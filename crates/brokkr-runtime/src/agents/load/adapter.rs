@@ -63,53 +63,92 @@ pub(super) fn record_kinds(
     let Some(declared) = map.get("record_kinds") else {
         return Ok(None);
     };
-    let adapter = what;
-    let what = format!("{what} 'record_kinds'");
+    let (transcript, root) = declared_kinds(declared, what)?;
+    root_needs_resume(map, what, root.kind.is_some())?;
+    Ok(Some(RecordKinds {
+        transcript,
+        root_session: root_kind(root, what, resume)?,
+    }))
+}
+
+/// The root half of a `record_kinds` object as written: its root kind,
+/// already judged, and the object kept for the `resume_shape` read after
+/// the `resume` check.
+struct DeclaredRoot<'a> {
+    raw: &'a Map<String, Value>,
+    what: String,
+    kind: Option<String>,
+}
+
+/// The `record_kinds` object's kinds, each judged, the transcript's before
+/// the root's.
+fn declared_kinds<'a>(
+    declared: &'a Value,
+    adapter: &str,
+) -> Result<(String, DeclaredRoot<'a>), LibraryError> {
+    let what = format!("{adapter} 'record_kinds'");
     let raw = object(declared, &what)?;
     only_keys(raw, &["transcript", "root_session", "resume_shape"], &what)?;
-    let kind = |key: &str| -> Result<String, LibraryError> {
-        let kind = string(raw, key, &what)?;
-        match kind_word(&kind) && kind != "none" {
-            true => Ok(kind),
-            false => invalid(format!(
-                "{what} '{key}' must be one kind of at most 40 bytes matching \
-                 ^[a-z][a-z0-9]*(-[a-z0-9]+)*$, and not 'none'"
-            )),
-        }
-    };
-    let transcript = kind("transcript")?;
-    let root_session = match raw.contains_key("root_session") {
-        true => Some(kind("root_session")?),
+    let transcript = one_kind(raw, "transcript", &what)?;
+    let kind = match raw.contains_key("root_session") {
+        true => Some(one_kind(raw, "root_session", &what)?),
         false => None,
     };
-    // A root session kind is what a rejoin would be offered on, and
-    // whether one exists is a capability: declared, never defaulted
-    // (decision 0075 ruling 1).
-    if root_session.is_some() && !map.contains_key("resume") {
-        let adapter = adapter.to_string();
-        return Err(LibraryError::RootWithoutResume { adapter });
+    Ok((transcript, DeclaredRoot { raw, what, kind }))
+}
+
+/// The kind `raw` writes at `key`: one kind word, never `none`.
+fn one_kind(raw: &Map<String, Value>, key: &str, what: &str) -> Result<String, LibraryError> {
+    let kind = string(raw, key, what)?;
+    match kind_word(&kind) && kind != "none" {
+        true => Ok(kind),
+        false => invalid(format!(
+            "{what} '{key}' must be one kind of at most 40 bytes matching \
+             ^[a-z][a-z0-9]*(-[a-z0-9]+)*$, and not 'none'"
+        )),
     }
-    let shape = match raw.contains_key("resume_shape") {
-        true => Some(string(raw, "resume_shape", &what)?),
+}
+
+/// A root session kind is what a rejoin would be offered on, and whether
+/// one exists is a capability: declared, never defaulted (decision 0075
+/// ruling 1).
+fn root_needs_resume(
+    map: &Map<String, Value>,
+    adapter: &str,
+    rooted: bool,
+) -> Result<(), LibraryError> {
+    match rooted && !map.contains_key("resume") {
+        true => Err(LibraryError::RootWithoutResume {
+            adapter: adapter.to_string(),
+        }),
+        false => Ok(()),
+    }
+}
+
+/// The root kind paired with the one `resume` shape its seats rejoin by,
+/// each named only beside the other (the controller's ruling R14).
+fn root_kind(
+    root: DeclaredRoot<'_>,
+    adapter: &str,
+    resume: &ResumeAssessment,
+) -> Result<Option<RootKind>, LibraryError> {
+    let shape = match root.raw.contains_key("resume_shape") {
+        true => Some(string(root.raw, "resume_shape", &root.what)?),
         false => None,
     };
     let refused = |unmet| {
         let adapter = adapter.to_string();
         Err(LibraryError::RootShape { adapter, unmet })
     };
-    let root_session = match (root_session, shape) {
-        (None, None) => None,
-        (Some(_), None) => return refused(RootShapeUnmet::Unnamed),
-        (None, Some(_)) => return refused(RootShapeUnmet::Rootless),
+    match (root.kind, shape) {
+        (None, None) => Ok(None),
+        (Some(_), None) => refused(RootShapeUnmet::Unnamed),
+        (None, Some(_)) => refused(RootShapeUnmet::Rootless),
         (Some(_), Some(shape)) if resume.shape(&shape).is_none() => {
-            return refused(RootShapeUnmet::Undeclared(shape))
+            refused(RootShapeUnmet::Undeclared(shape))
         }
-        (Some(kind), Some(resume_shape)) => Some(RootKind { kind, resume_shape }),
-    };
-    Ok(Some(RecordKinds {
-        transcript,
-        root_session,
-    }))
+        (Some(kind), Some(resume_shape)) => Ok(Some(RootKind { kind, resume_shape })),
+    }
 }
 
 /// Who the provider is and how it is invoked, with the native inventory
