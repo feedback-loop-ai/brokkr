@@ -215,9 +215,14 @@ impl SeatKinds {
     /// offers no wider than the driver's resume gate, asked about that
     /// shape, would rejoin (the controller's ruling R14 of 2026-11-22).
     /// Unknown standing declines. A seat whose driver keeps v7's roads
-    /// closed ([`keeps_v7_rejoin`]) takes only the adapter's road.
+    /// closed ([`keeps_v7_rejoin`]) is offered nothing, whatever its
+    /// adapter declares, since that driver rejoins no root (the
+    /// controller's ruling Y1 of 2026-11-22).
     pub(crate) fn rejoins(&self, kind: &str, standing: Option<Standing>) -> bool {
-        if driver_kinds().contains(&kind) && keeps_v7_rejoin(self.driver) {
+        if !keeps_v7_rejoin(self.driver) {
+            return false;
+        }
+        if driver_kinds().contains(&kind) {
             return true;
         }
         let (Some(adapter), Some(standing)) = (&self.adapter, standing) else {
@@ -294,7 +299,8 @@ impl SeatKinds {
 /// a rejoin: a root of a kind a built-in driver writes, and decision
 /// 0030's flat session id. Qoder's level 1 runs `--no-session-persistence`
 /// and its driver refuses a start offered a resume (#1178), so neither is
-/// its road (the controller's ruling Y1 of 2026-11-22).
+/// its road, nor is its adapter's (the controller's ruling Y1 of
+/// 2026-11-22).
 fn keeps_v7_rejoin(driver: Option<AdapterKind>) -> bool {
     match driver {
         Some(AdapterKind::Qoder) => false,

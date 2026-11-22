@@ -831,7 +831,8 @@ fn dsh_site() -> SiteContext {
 /// flat session id on an unstamped row, each offered at a site of no
 /// harness, are offered nothing at a Qoder site. The rows are built by
 /// hand, as the writer refuses each root at a Qoder seat and no Qoder
-/// driver writes a flat id.
+/// driver writes a flat id. Nor is a stamped persistent root of the kind
+/// a Qoder seat's adapter declares, under a supported shape covering it.
 #[test]
 fn a_qoder_seats_retry_is_offered_nothing() {
     let dir = tempfile::tempdir().unwrap();
@@ -853,6 +854,24 @@ fn a_qoder_seats_retry_is_offered_nothing() {
         assert_eq!(offered(&plain, rows(&plain)).unwrap().provider_id, "q-1");
         assert_eq!(offered(&qoder, rows(&qoder)), None, "{kind}");
     }
+    // An adapter declaring a root and a supported shape that covers the
+    // site opens no road for a seat whose command runs the Qoder driver:
+    // the trellis root is offered at the trellis site, not at this one.
+    let adapters = dir.path().join("trellis");
+    let trellis = trellis_site(&adapters);
+    let adapters = Adapters::load(&adapters).unwrap();
+    let kinds = DeclaredKinds::of(Some(&adapters)).seat(Some("trellis"), &argv);
+    let standing = Standing {
+        boundary: NO_HANDS.0,
+        hands: NO_HANDS.1,
+    };
+    let declared = plain.of_harness(kinds, Some(standing));
+    let rows = |context| vec![rooted(context, THREAD, "t-1")];
+    assert_eq!(
+        offered(&trellis, rows(&trellis)).unwrap().provider_id,
+        "t-1"
+    );
+    assert_eq!(offered(&declared, rows(&declared)), None);
 }
 
 /// The controller's ruling R32: the offer's transcript check is the write
