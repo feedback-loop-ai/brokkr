@@ -130,3 +130,59 @@ fn a_shell_clap_does_not_know_is_refused_by_its_value_check() {
         .unwrap_err();
     assert_eq!(refused.kind(), clap::error::ErrorKind::InvalidValue);
 }
+
+/// What a generator reads of each visible command, at every depth, one
+/// line each: its path, texts, version, arguments, groups and their
+/// members, visible aliases, the two settings that say whether its flags
+/// and its subcommands go together, and its visible subcommands.
+fn shape(command: &clap::Command, path: &str, lines: &mut Vec<String>) {
+    let path = format!("{path} {}", command.get_name());
+    let args: Vec<&str> = command
+        .get_arguments()
+        .map(|arg| arg.get_id().as_str())
+        .collect();
+    let groups: Vec<String> = (command.get_groups())
+        .map(|group| {
+            let members: Vec<&str> = group.get_args().map(clap::Id::as_str).collect();
+            format!("{}={members:?}", group.get_id())
+        })
+        .collect();
+    let aliases: Vec<&str> = command.get_visible_aliases().collect();
+    let visible: Vec<&clap::Command> = (command.get_subcommands())
+        .filter(|sub| !sub.is_hide_set())
+        .collect();
+    let subs: Vec<&str> = visible.iter().map(|sub| sub.get_name()).collect();
+    lines.push(format!(
+        "{path}: about={:?} long={:?} version={:?} args={args:?} groups={groups:?} \
+         aliases={aliases:?} conflicts={} required={} subs={subs:?}",
+        command.get_about().map(ToString::to_string),
+        command.get_long_about().map(ToString::to_string),
+        command.get_version(),
+        command.is_args_conflicts_with_subcommands_set(),
+        command.is_subcommand_required_set(),
+    ));
+    for sub in visible {
+        shape(sub, &path, lines);
+    }
+}
+
+/// The tree a script is written from keeps every visible command as the
+/// parsed tree has it, its groups and its exclusivity settings among
+/// them, so zsh's and fish's exclusivity hints are the tree's own: the
+/// rebuild drops hidden verbs and nothing else a generator reads.
+#[test]
+fn the_offered_tree_keeps_what_a_generator_reads_of_every_visible_command() {
+    let tree = Cli::command();
+    let (mut kept, mut parsed) = (Vec::new(), Vec::new());
+    shape(&super::offered(&tree), "", &mut kept);
+    shape(&tree, "", &mut parsed);
+    assert_eq!(kept, parsed);
+    assert!(
+        parsed.iter().any(|line| line.contains("conflicts=true")),
+        "a verb whose flags and subcommands exclude each other is in the tree"
+    );
+    assert!(
+        parsed.iter().any(|line| !line.contains("groups=[]")),
+        "a group is in the tree"
+    );
+}

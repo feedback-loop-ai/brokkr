@@ -34,13 +34,19 @@ pub(crate) fn script(CompletionsArgs { shell }: CompletionsArgs, out: &mut dyn W
 /// every depth. clap_complete 4.6.9's generators write a hidden
 /// subcommand into the script, and clap cannot remove one from a command,
 /// so each level is built again from what a script reads of it: its name,
-/// texts, version, arguments and visible subcommands. clap is built
-/// without its `string` feature, so a name it takes is `'static`: each is
-/// leaked once, in a process that prints one script and exits.
+/// texts, version, arguments, groups, visible aliases, the two settings
+/// that say whether a verb's flags and its subcommands go together, and
+/// its visible subcommands. clap is built without its `string` feature,
+/// so a name it takes is `'static`: each is leaked once, in a process
+/// that prints one script and exits.
 fn offered(command: &Command) -> Command {
     let visible = command.get_subcommands().filter(|sub| !sub.is_hide_set());
     let mut offered = Command::new(leaked(command.get_name()))
         .args(command.get_arguments().cloned())
+        .groups(command.get_groups().cloned())
+        .visible_aliases(command.get_visible_aliases().map(leaked))
+        .args_conflicts_with_subcommands(command.is_args_conflicts_with_subcommands_set())
+        .subcommand_required(command.is_subcommand_required_set())
         .subcommands(visible.map(offered));
     if let Some(about) = command.get_about() {
         offered = offered.about(about.clone());
