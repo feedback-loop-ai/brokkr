@@ -691,10 +691,10 @@ fn an_agy_driver_declares_no_resume_and_no_probe() {
 const LOGIN: &str = ".gemini/antigravity-cli/antigravity-oauth-token";
 
 /// An operator's HOME under `root`, signed in, with agy's and the user's
-/// agent configuration, a tool's home, a file, and a name that is not
-/// UTF-8.
+/// agent configuration, a tool's home, a file, and, on Linux, a name that
+/// is not UTF-8: macOS's filesystem refuses such a name, so it is made only
+/// where the host takes one, and a Linux host that refuses it fails here.
 pub(in crate::adapters) fn operator_home(root: &Path) -> std::path::PathBuf {
-    use std::os::unix::ffi::OsStrExt;
     let home = root.join("operator");
     for dir in [
         ".gemini/antigravity-cli",
@@ -711,7 +711,11 @@ pub(in crate::adapters) fn operator_home(root: &Path) -> std::path::PathBuf {
     )
     .unwrap();
     std::fs::write(home.join(".gitconfig"), "[user]\n").unwrap();
-    std::fs::write(home.join(std::ffi::OsStr::from_bytes(b"odd\xff")), "").unwrap();
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        std::fs::write(home.join(std::ffi::OsStr::from_bytes(b"odd\xff")), "").unwrap();
+    }
     home
 }
 
@@ -751,6 +755,8 @@ fn listed(dir: &Path) -> Vec<String> {
 /// The engine's HOME: mode 0700, a link to the login, the engine's own
 /// configuration, and every other operator entry with a UTF-8 name linked,
 /// `.gemini` and `.agents` not; gone with the value, the operator's intact.
+/// The operator's name that is not UTF-8, left unlinked, stands on Linux
+/// alone (see [`operator_home`]).
 #[test]
 fn the_engine_home_links_the_login_and_the_operators_entries_but_not_its_agent_state() {
     use std::os::unix::fs::PermissionsExt;
@@ -802,13 +808,34 @@ fn the_engine_home_links_the_login_and_the_operators_entries_but_not_its_agent_s
     assert!(operator.join(".cargo/bin").is_dir());
 }
 
+/// A temporary root whose path is not UTF-8 refuses the HOME unnamed and
+/// leaves nothing in its parent. Linux only: macOS's filesystem refuses
+/// to make a directory whose name is not UTF-8.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_temporary_root_whose_path_is_not_utf8_refuses_and_leaves_nothing() {
+    use std::os::unix::ffi::OsStrExt;
+    let root = tempfile::tempdir().unwrap();
+    let operator = operator_home(root.path());
+    let lossy = root.path().join(std::ffi::OsStr::from_bytes(b"t\xfe"));
+    std::fs::create_dir(&lossy).unwrap();
+    let homes = Homes {
+        temp: &lossy,
+        operator: Some(&operator),
+    };
+    assert!(matches!(
+        home::made(homes, written(&empty_set())),
+        Err(LaunchError::Unnamed)
+    ));
+    let left = std::fs::read_dir(home::parent(&lossy)).unwrap().count();
+    assert_eq!(left, 0);
+}
+
 /// No login, no HOME of the operator's, or an empty one: refused before
-/// anything is made. A root the HOME cannot be made under, one whose path
-/// is not UTF-8, and an operator HOME that cannot be listed refuse too,
-/// and leave nothing behind.
+/// anything is made. A root the HOME cannot be made under and an operator
+/// HOME that cannot be listed refuse too, and leave nothing behind.
 #[test]
 fn a_launch_with_no_login_or_no_room_for_its_home_refuses_and_leaves_nothing() {
-    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir().unwrap();
     let temp = root.path().join("temp");
@@ -839,12 +866,6 @@ fn a_launch_with_no_login_or_no_room_for_its_home_refuses_and_leaves_nothing() {
     assert!(
         matches!(&unmade, LaunchError::Unhomed(cause) if cause.kind() == std::io::ErrorKind::NotFound)
     );
-    let lossy = root.path().join(std::ffi::OsStr::from_bytes(b"t\xfe"));
-    std::fs::create_dir(&lossy).unwrap();
-    assert!(matches!(
-        home::made(homes(&lossy), written(&set)),
-        Err(LaunchError::Unnamed)
-    ));
     // Listable by nobody, yet its login still reachable.
     std::fs::set_permissions(&operator, std::fs::Permissions::from_mode(0o100)).unwrap();
     let unlisted = home::made(homes(&temp), written(&set)).map(drop);
@@ -862,10 +883,8 @@ fn a_launch_with_no_login_or_no_room_for_its_home_refuses_and_leaves_nothing() {
         matches!(unsessioned, Err(LaunchError::Unsessioned(_))),
         "{unsessioned:?}"
     );
-    for made in [&temp, &lossy] {
-        let left = std::fs::read_dir(home::parent(made)).unwrap().count();
-        assert_eq!(left, 0, "{made:?}");
-    }
+    let left = std::fs::read_dir(home::parent(&temp)).unwrap().count();
+    assert_eq!(left, 0);
     // A parent others may enter, or one that is no directory, is not this
     // user's alone.
     std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o750)).unwrap();
@@ -1000,10 +1019,30 @@ fn a_workspace_carrying_agys_configuration_anywhere_above_is_refused_with_no_git
     assert_eq!(checked(&repo), Some(dangling));
 }
 
-/// What the walk cannot read refuses, naming it: an unreadable path, a
-/// working directory that is not there, and one whose resolved path is not
-/// UTF-8, which names nothing of it (U1). An `.agents` that is a file holds none of the
-/// three paths.
+/// A working directory given as text, through a link, to a directory whose
+/// name is not UTF-8 resolves to a path that is none, refused naming
+/// nothing of it (U1). Linux only: macOS's filesystem refuses to make a
+/// directory whose name is not UTF-8.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_workspace_path_that_resolves_to_no_text_refuses_naming_nothing() {
+    use std::os::unix::ffi::OsStrExt;
+    let root = tempfile::tempdir().unwrap();
+    let lone = sub(&root.path().canonicalize().unwrap());
+    let lossy = lone.join(std::ffi::OsStr::from_bytes(b"t\xfe"));
+    std::fs::create_dir(&lossy).unwrap();
+    let link = lone.join("link");
+    std::os::unix::fs::symlink(&lossy, &link).unwrap();
+    let untexted = home::resolved(link.to_str().unwrap());
+    assert!(
+        matches!(&untexted, Err(LaunchError::Untexted)),
+        "{untexted:?}"
+    );
+}
+
+/// What the walk cannot read refuses, naming it: an unreadable path and a
+/// working directory that is not there. An `.agents` that is a file holds
+/// none of the three paths.
 #[test]
 fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
     use std::os::unix::fs::PermissionsExt;
@@ -1021,17 +1060,6 @@ fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
     assert!(
         matches!(&unread, Err(LaunchError::Unread(path, _)) if *path == named),
         "{unread:?}"
-    );
-    use std::os::unix::ffi::OsStrExt;
-    let lossy = lone.join(std::ffi::OsStr::from_bytes(b"t\xfe"));
-    std::fs::create_dir(&lossy).unwrap();
-    // Given as text, through a link, it resolves to a path that is none.
-    let link = lone.join("link");
-    std::os::unix::fs::symlink(&lossy, &link).unwrap();
-    let untexted = home::resolved(link.to_str().unwrap());
-    assert!(
-        matches!(&untexted, Err(LaunchError::Untexted)),
-        "{untexted:?}"
     );
     // Named as the seat gave it (K4).
     let given = "/nonexistent-brokkr-agy-workdir/sub";

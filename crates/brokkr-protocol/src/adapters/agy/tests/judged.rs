@@ -504,7 +504,9 @@ fn a_rule_is_checked_whole_and_may_hold_several_words() {
 /// name holds a bound value beside a byte that is not UTF-8 is refused in
 /// words that hold that value in no form, raw or escaped, and name no path:
 /// escaping doubles a backslash and escapes a quote, so an escaped path
-/// would carry the value past the mask (#1200 U1).
+/// would carry the value past the mask (#1200 U1). Linux only: macOS's
+/// filesystem refuses to make a directory whose name is not UTF-8.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_working_directory_that_is_not_utf8_is_refused_naming_nothing_of_it() {
     use std::os::unix::ffi::OsStrExt;
@@ -543,8 +545,10 @@ fn a_working_directory_that_is_not_utf8_is_refused_naming_nothing_of_it() {
 /// A bound value holding a byte that is not UTF-8, its bytes on either side
 /// of it, and the assertion that the seat's words hold no run of three of
 /// them and no path.
+#[cfg(target_os = "linux")]
 const LOSSY_VALUE: &[u8] = b"qxjk\xfewvzp";
 
+#[cfg(target_os = "linux")]
 fn holds_none_of_the_value(words: &str) {
     let (before, after) = LOSSY_VALUE.split_at(4);
     for side in [before, &after[1..]] {
@@ -563,7 +567,9 @@ fn holds_none_of_the_value(words: &str) {
 /// mask, and its bytes around it would leave. The root is handed in as the
 /// `TMPDIR` the turn reads, which a test may not move for the process. A
 /// session's lock cannot be refused here without a race, so its refusal is
-/// bound at the type: the lock's path is dropped (#1200 V1).
+/// bound at the type: the lock's path is dropped (#1200 V1). Linux only:
+/// macOS's filesystem refuses to make a directory whose name is not UTF-8.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_refusal_under_a_temporary_root_that_is_not_utf8_names_nothing_of_it() {
     use std::os::unix::ffi::OsStrExt;

@@ -36,11 +36,26 @@ fn a_working_directory_given_through_a_link_is_the_resolved_pwd_of_agy() {
     let link = links.join("link");
     std::os::unix::fs::symlink(&resolved, &link).unwrap();
     plant(&links, ".agents/mcp_config.json");
-    let bin = fake_agy(&world.seat(), TOOL_LESS, "", true, 0);
-    let mut input = world.input(None);
-    input["workdir"] = json!(link);
     // As a shell that entered the link would leave it.
     world.env.set("PWD", &link);
+    runs_in(&mut world, json!(link), &resolved);
+}
+
+/// A seat that gives an empty working directory runs agy in the driver's
+/// own, resolved, and its `PWD` names that path.
+#[test]
+fn an_empty_working_directory_is_the_drivers_own_resolved() {
+    let mut world = World::new();
+    let own = std::env::current_dir().unwrap().canonicalize().unwrap();
+    runs_in(&mut world, json!(""), &own);
+}
+
+/// A tool-less turn given `workdir` succeeds, and the child ran in
+/// `resolved` with its `PWD` naming it.
+fn runs_in(world: &mut World, workdir: Value, resolved: &Path) {
+    let bin = fake_agy(&world.seat(), TOOL_LESS, "", true, 0);
+    let mut input = world.input(None);
+    input["workdir"] = workdir;
     let messages = world.run(&bin, &["--model", FLASH], input, None);
     assert_eq!(
         ended(&messages),
