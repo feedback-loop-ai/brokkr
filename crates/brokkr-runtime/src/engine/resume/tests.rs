@@ -112,10 +112,11 @@ fn an_offered_roots_history_is_its_own_attempts_calls_at_its_own_site() {
         attempts: BTreeSet::from(["first".into(), "second".into()]),
         calls: BTreeSet::from(["n-first".into(), "n-second".into()]),
     };
-    let offered = context.clone().offered(&events, Some(&offer));
+    let key = SiteKey::single("work", None);
+    let offered = context.clone().offered(&events, &key, Some(&offer));
     assert_eq!(offered.history, history);
     assert_eq!(
-        context.offered(&events, None).history,
+        context.offered(&events, &key, None).history,
         RootHistory::default()
     );
 }

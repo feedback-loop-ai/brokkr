@@ -671,6 +671,22 @@ impl Journal {
     /// The open attempt's `row` at `context`'s site, carrying the native
     /// call `call` where one is named, written by the engine's sink.
     fn wrote(&mut self, context: &SiteContext, row: Value, call: Option<&str>) -> &mut Self {
+        self.wrote_by(context, None, row, call)
+    }
+
+    /// As [`Journal::wrote`], the row tagged first with `member` where one
+    /// is named, as the engine tags a panel member's row before its stamp.
+    fn wrote_by(
+        &mut self,
+        context: &SiteContext,
+        member: Option<&str>,
+        row: Value,
+        call: Option<&str>,
+    ) -> &mut Self {
+        let row = match member {
+            Some(member) => super::tag_member(row, member),
+            None => row,
+        };
         let attempt = self.open.clone().unwrap();
         let held = self.events().len();
         let at = super::checkpoints::Attempt {
@@ -682,7 +698,8 @@ impl Journal {
         let (kinds, seat) = (&context.kinds, "work");
         let declared = super::checkpoints::Declared { kinds, seat };
         let call = Ok(call.map(super::capability_calls::Stamp::native_search));
-        sink.offer_live("", context.stamp(row), call, Some(context), declared);
+        let owner = member.unwrap_or("");
+        sink.offer_live(owner, context.stamp(row), call, Some(context), declared);
         sink.settle().unwrap();
         assert_eq!(self.events().len(), held + 1, "the sink journaled the row");
         self
@@ -890,8 +907,14 @@ fn call_row() -> Value {
 /// The history of the root `context` is offered over what `journal`'s
 /// store holds, the offer taken from it by `eligible_offer`.
 fn history_of(journal: &Journal, context: SiteContext) -> resume::RootHistory {
-    let offer = journal.offer(&context, false).unwrap();
-    context.offered(&journal.events(), Some(&offer)).history
+    history_at(journal, context, &SiteKey::single("work", None))
+}
+
+/// As [`history_of`], at the `work` seat's site `key`.
+fn history_at(journal: &Journal, context: SiteContext, key: &SiteKey) -> resume::RootHistory {
+    let events = journal.events();
+    let offer = resume::eligible_offer(&events, key, &context, "work", true, true, |_| false);
+    context.offered(&events, key, Some(&offer.unwrap())).history
 }
 
 /// A history of the one attempt `attempt` and its one call `call`.
@@ -980,6 +1003,46 @@ fn an_attempt_whose_unstamped_row_holds_another_root_is_not_the_offered_roots_hi
     assert_eq!(unstamped.unwrap().get("site_ref"), None);
     let history = history_of(&journal, context);
     assert_eq!(history, history_holding("clean", "n-clean"));
+}
+
+/// The review of b76fc1e2 (the controller's ruling R33): in one panel
+/// attempt, an unstamped row is judged by the member the engine tags it
+/// with. Member `beta` writes a row naming no model, so unstamped but
+/// tagged `beta`, holding the `codex-thread` root `old-1`, then its own
+/// `claude-session` root `b-1` and a call; member `alpha` writes its
+/// `claude-session` root `same-1` and a call. Alpha's history holds the
+/// attempt and its call, since beta's row is not alpha's; beta's holds
+/// neither, since its own row holds another root. Every row is written by
+/// the sink, tagged as the engine tags a member's row.
+#[test]
+fn a_panel_members_unstamped_row_is_judged_at_its_own_member_alone() {
+    let site = |site_ref: char| {
+        SiteContext::new(
+            site_ref.to_string().repeat(64),
+            "b".repeat(64),
+            SeatClass::Work,
+        )
+    };
+    let (alpha, beta) = (site('a'), site('c'));
+    let mut unstamped = root_row("codex-thread", "old-1");
+    unstamped.as_object_mut().unwrap().remove("model");
+    let mut journal = Journal::new();
+    (journal.attempt("shared"))
+        .wrote_by(
+            &alpha,
+            Some("alpha"),
+            root_row("claude-session", "same-1"),
+            None,
+        )
+        .wrote_by(&alpha, Some("alpha"), call_row(), Some("n-alpha"))
+        .wrote_by(&beta, Some("beta"), unstamped, None)
+        .wrote_by(&beta, Some("beta"), root_row("claude-session", "b-1"), None)
+        .wrote_by(&beta, Some("beta"), call_row(), Some("n-beta"));
+    let key = |member: &str, index| SiteKey::panel_member("work", None, member, index);
+    let history = history_at(&journal, alpha, &key("alpha", 0));
+    assert_eq!(history, history_holding("shared", "n-alpha"));
+    let history = history_at(&journal, beta, &key("beta", 1));
+    assert_eq!(history, resume::RootHistory::default());
 }
 
 /// The controller's rulings R22 item 3 and R24, the resume offer: a site

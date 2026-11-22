@@ -1296,7 +1296,7 @@ impl Engine {
             plans.insert(
                 entry.site,
                 SitePlan {
-                    context: context.offered(events, offer.as_ref()),
+                    context: context.offered(events, &entry.key, offer.as_ref()),
                     offer,
                     assessment,
                     originating,

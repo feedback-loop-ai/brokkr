@@ -279,13 +279,21 @@ impl SiteContext {
 
     /// This context carrying the history of `offer`'s root at this site,
     /// read from this run's journal alone: an attempt counts where every
-    /// rooted row of it at this site, an unstamped one included, holds the
-    /// offered root's kind and id both, and an attempt with a row holding any other root contributes
-    /// neither itself nor a call, so its calls keep their own attribution
-    /// (the controller's rulings R28 and R33). A site offered nothing, or a
-    /// root with no stamped row here (decision 0030's legacy evidence),
-    /// has none: its every call is new.
-    pub(super) fn offered(self, events: &[EventEnvelope], offer: Option<&ResumeTarget>) -> Self {
+    /// rooted row of it at this site, `key`, holds the offered root's kind
+    /// and id both, and an attempt with a row holding any other root
+    /// contributes neither itself nor a call, so its calls keep their own
+    /// attribution (the controller's rulings R28 and R33). An unstamped
+    /// rooted row is this site's unless the engine's member tag names
+    /// another site of the attempt; one with no tag has no known owner and
+    /// is judged at every site. A site offered nothing, or a root with no
+    /// stamped row here (decision 0030's legacy evidence), has none: its
+    /// every call is new.
+    pub(super) fn offered(
+        self,
+        events: &[EventEnvelope],
+        key: &SiteKey,
+        offer: Option<&ResumeTarget>,
+    ) -> Self {
         let Some(offer) = offer else {
             return self;
         };
@@ -306,14 +314,21 @@ impl SiteContext {
             let place = row.get("root_session").and_then(|root| root.get(field));
             place.and_then(Value::as_str).map(str::to_string)
         };
-        // Each attempt's rooted rows here or unstamped, which no stamp
-        // places at another site: whether one of them is stamped here, and
-        // whether all of them hold the offered root. An unstamped row
-        // holding another root excludes its attempt, the direction that
-        // loses nothing (the review of 880e4792).
+        // An unstamped row is this site's unless the member tag the engine
+        // writes on a panel's or a sequence's row names another site (the
+        // review of b76fc1e2).
+        let tag = key.tag();
+        let owned = |row: &Value| {
+            let member = row.get("member").and_then(Value::as_str);
+            member.is_none_or(|member| Some(member) == tag.as_deref())
+        };
+        // Each attempt's rooted rows this site owns: whether one of them is
+        // stamped here, and whether all of them hold the offered root. An
+        // unstamped row holding another root excludes its attempt, the
+        // direction that loses nothing (the review of 880e4792).
         let mut held: BTreeMap<&str, (bool, bool)> = BTreeMap::new();
         let rooted = rows().filter(|(_, site, row)| {
-            row.get("root_session").is_some() && (site.is_none() || here(*site))
+            row.get("root_session").is_some() && (here(*site) || site.is_none() && owned(row))
         });
         for (attempt, site, row) in rooted {
             let holds = root(row, "id").as_ref() == Some(&offer.provider_id)
