@@ -276,6 +276,13 @@ non-green CI result for a person; defer the automatic classification and the imp
 to a later decision. That amends (a) below by deferring "classify". No forge write stays, and a
 person still re-runs. Accepting the rest of this decision is still the operator's.
 
+**The re-run moves to decision 0116 (operator, 2026-11-22, on #1093).** The operator replaced
+(a)'s "a person re-runs": Brokkr may request one re-run of a pull request's failed CI jobs, for
+three closed classes, once per run, under an engine-held App credential. That rule is decision
+0116's, proposed on top of this decision's observer. This decision still sends the forge
+nothing. A re-run's result is judged afresh by this decision's park table, as item 4 of the
+operator's rule says.
+
 - **(a) Ruled by the operator: observe, classify and park; narrowed to observe and park.** The
   engine and the recipes observe CI, and the gate parks on every true row of the
   [park table](#the-park-table), with no diagnosis seat attempt. They send no re-run request and hold no write credential. A
@@ -731,12 +738,24 @@ forge's default is `latest`, which drops an earlier attempt's check runs within 
   `started_at` and `completed_at`;
 - every open pull request on the head, read as 0111a read it,
   `pulls?state=open&head=<owner>:<branch>` (`dispatch-in-progress-beside-pr-green/index.json`),
-  each with its number, state and `head.sha`, so a head two pull requests share is seen;
+  each with its number, state and `head.sha`. The forge filters it by the bound branch, so it
+  holds that branch's open pull requests, not every open one at the head: a second pull request
+  from another branch at the same commit is not on it (carried to 0111b, below).
   `commits/<sha>/pulls` is not that list, since it still names a closed one
   (`cancelled-twin/commit.pulls.json`: #1222, `closed`);
 - a commit status carries its context, its state and its creator's login and numeric id
   (<https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference>),
   so it can be named; it is never admitted as required evidence (below).
+
+**The reads run in one fixed order, as 0111a read them:** the check runs first, then the
+commit statuses, then each workflow key's runs, then each listed run's jobs, then the open pull
+requests and the forge's required set. So every check run on the sealed list existed before
+the run list was read, and every listed run before its job list was. A check run's job is
+therefore on its run's job list, and one that joins none is a disagreement inside the snapshot
+(`attempt-unnamed`), never a check read before its run began. A run re-run between its listing
+and its job list shows on the job list as an attempt above the listed one
+(`snapshot-inconsistent`). Bound by 0111b:
+`the_observer_reads_the_check_runs_then_the_statuses_then_the_runs_then_each_runs_jobs`.
 
 **The reads are bounded, and an overflow is a witness, never a truncation.** Each list is paged
 by the forge, and the observation carries, for each, whether it was read to its last page. Each
@@ -966,10 +985,11 @@ predicates are `green`'s own conditions, stated once here and nowhere else:
   (above).
 - **P7, a readable observation from a trusted launch.** The launch passed ruling 2's rules, and
   the observation parsed under its contract, inside its bound.
-- **P8, one consistent snapshot.** For each entry, read through the join, every item names the
-  current execution's attempt or its history, each check run agrees with its job, no match is
-  carried, the current run is completed, every other run of the workflow on the head is
-  completed `success`, and the head holds no commit status (the currentness rule, below).
+- **P8, one consistent snapshot.** For each entry, read through the join, every item of every
+  run of its workflow on the head names that run's latest listed attempt or its history, each
+  check run agrees with its job, no match is carried, the current run is completed, every other
+  run of the workflow on the head is completed `success`, and the head holds no commit status
+  (the currentness rule, below).
 
 Each pass predicate is the negation of the rows that name it in the `Negates` column, so no
 predicate holds while one of its rows is true, and each predicate is named by at least one row.
@@ -1006,10 +1026,10 @@ default, and each paged list carries whether it was read to its last page.
 | `ambiguous-required` | each entry's matches over the check and job lists | P3 | an entry matches more than one check, or more than one job of its current run attempt; or it is seen exactly once over a list whose `-incomplete` row is true, where a second may sit on the unread page; it names every match | `two_matches_for_one_required_check_park_as_ambiguous_required` |
 | `execution-ambiguous` | each key's complete run list, each run's `run_started_at` | P3 | an entry's current execution cannot be told: two runs share the latest `run_started_at`, or one's does not read (the currentness rule) | `two_runs_of_one_key_started_at_one_time_or_unreadable_park_as_execution_ambiguous` |
 | `execution-unsettled` | the current execution's run status | P8 | it is any word but `completed` | `a_current_run_still_in_progress_beside_green_required_checks_parks_as_execution_unsettled` |
-| `other-run-not-success` | every other run of the entry's workflow path on the head, of any event, its latest attempt and its check runs | P8 | its latest attempt is not completed `success`, or a check run of it under a name the declared list holds, after-ship entries included, is not completed `success`; `skipped` is not `success`; it names the run | `a_dispatch_run_whose_delivered_by_brokkr_skipped_beside_a_green_run_parks_as_other_run_not_success` and `a_cancelled_twin_beside_a_green_run_parks_as_other_run_not_success` |
-| `snapshot-inconsistent` | each item bearing on the entry, by the join, and the attempt it names; the run list's latest attempt for its run | P8 | an item names an attempt above the run list's latest, in any status; or an earlier attempt's item started after the current attempt's `run_started_at`; it names the list, the item and both attempts | `a_complete_green_attempt_beside_a_queued_newer_attempt_on_the_check_list_parks_live_and_on_replay` |
+| `other-run-not-success` | every other run of the entry's workflow path on the head, of any event, its latest attempt and that attempt's items by the join | P8 | its latest attempt is not completed `success`, or an item of that attempt under a name the declared list holds, after-ship entries included, is not completed `success`; `skipped` is not `success`; an earlier attempt's item is that run's history, read only by `snapshot-inconsistent`; it names the run | `a_dispatch_run_whose_delivered_by_brokkr_skipped_beside_a_green_run_parks_as_other_run_not_success` and `a_cancelled_twin_beside_a_green_run_parks_as_other_run_not_success` |
+| `snapshot-inconsistent` | every job and check run of every run of the entry's workflow path on the head, of any event, by the join, and the attempt it names; the run list's latest attempt for that run and its `run_started_at` | P8 | an item names an attempt above its run's latest on the run list, in any status, in the current execution's run or another; or an item of an earlier attempt started after its run's latest attempt's `run_started_at`; it names the list, the run, the item and both attempts | `a_complete_green_attempt_beside_a_queued_newer_attempt_on_the_check_list_parks_live_and_on_replay` and `a_re_run_of_another_run_between_the_run_list_and_its_job_list_parks_live_and_on_replay` |
 | `carried-job` | each match's job: its `started_at` and its attempt's `run_started_at` | P8 | the job started before its attempt did, or either time does not read: a failed-jobs-only re-run carried it | `a_failed_jobs_only_rerun_carrying_a_passed_entry_parks_as_carried_job_live_and_on_replay` |
-| `attempt-unnamed` | each check run bearing on the entry | P8 | it joins no job read, or its job's `run_attempt` is `unread` | `a_check_run_that_joins_no_job_parks_as_attempt_unnamed_live_and_on_replay` |
+| `attempt-unnamed` | each check run on the head from the entry's app under the entry's name, joined or not | P8 | it joins no job read, or its job's `run_attempt` is `unread` | `a_check_run_that_joins_no_job_parks_as_attempt_unnamed_live_and_on_replay` |
 | `check-job-disagrees` | each check run bearing on the entry and its joined job | P8 | their status or conclusion differ; it names both | `a_check_run_and_its_job_disagreeing_on_state_park_as_check_job_disagrees_live_and_on_replay` |
 | `not-settled` | each match's status | P4 | a match's status is any word but `completed`, `in_progress` (measured) and `queued`, `waiting`, `pending` and `requested` (unmeasured, kept in the closed list) among them, when the observer's polling bound ends | `a_required_check_not_completed_with_a_null_conclusion_parks_as_not_settled_alone` |
 | `not-success` | each match's conclusion | P4 | a `completed` match concluded anything but `success`; it names the check and the word. It reads only a completed match, so a null conclusion beside another status is `not-settled` alone | `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success` |
@@ -1019,7 +1039,7 @@ default, and each paged list carries whether it was read to its last page.
 | `revision-disagrees` | each current execution's tested-commit record and its mode's separate comparisons | P6 | one comparison fails; it names the two values | `a_head_entry_whose_tested_commit_differs_from_the_gated_head_parks_as_revision_disagrees` and `an_association_and_a_merge_commit_that_disagree_park_as_revision_disagrees` |
 | `producer-mismatch` | every check under an entry-set entry's name from outside the entry's workflow on the head | | a check under that name from another app or workflow path is anything but completed `success`, in progress among them | `a_sole_red_from_another_producer_names_missing_required_for_its_entry_then_producer_mismatch` |
 | `status-required` | the forge's required set, where read | | it names a commit status context | `a_status_context_in_the_forges_required_set_parks_as_status_required` |
-| `required-set-disagrees` | the forge's required set, where read; the declared list | | the forge requires a context the declared list lacks | `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees` |
+| `required-set-disagrees` | the forge's required set, where read, each requirement's context and `app_id`; the declared list | | the forge requires a check whose identity the declared list lacks: a context it lacks, or a declared context whose required `app_id` is not that entry's app id. An `app_id` absent, null or `-1` (any app) is not the entry's, so it is true too: 0111a read 15368 on all 12, and the other forms are unmeasured. It names the context and both ids | `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees` and `a_forge_required_check_under_a_declared_name_from_another_app_parks_as_required_set_disagrees` |
 | `word-unbound` | the decision's word and `ci_green`, read only by the composed table's `CI-PASS-UNBOUND`, never by the judge | | the word is `pass` while `ci_green` is false; decide raises the word only on `green` (ruling 2's outcomes), so it is reached only if that were lifted | 0111d: `a_pass_without_green_through_the_real_policy_and_park_writer_parks_at_ci_pass_unbound` |
 
 **Every true row parks, and the park records every one, in the table's order.** There is no
@@ -1052,9 +1072,10 @@ subject is not evaluated, so it is never read as false in place of a park:
 - **No match for an entry.** `missing-required` is true for that entry, and the rows that read a
   match (`carried-job`, `not-settled`, `not-success`, `association-unproven`,
   `association-ambiguous`, `revision-unproven`, `revision-disagrees`) have nothing to read for
-  it and are false for it. `snapshot-inconsistent`, `attempt-unnamed` and `check-job-disagrees`
-  read the items bearing on the entry, and `other-run-not-success` the other runs, not its
-  match, so they are evaluated whether or not it has one.
+  it and are false for it. `snapshot-inconsistent` reads every run's items, `attempt-unnamed`
+  the check runs under the entry's app and name, `check-job-disagrees` the items bearing on the
+  entry, and `other-run-not-success` the other runs, none of them its match, so they are
+  evaluated whether or not it has one.
 - **No current execution for an entry.** `execution-ambiguous` is true, and the entry has no
   eligible current match, so `missing-required` is true for it as well, before it in the
   table's order. `execution-unsettled`, `other-run-not-success` and `snapshot-inconsistent`
@@ -1125,30 +1146,50 @@ of its payload under `crates/brokkr-core/src/ci/evidence/`:
 - **The current execution, by start.** An entry's **current execution** is the run attempt with
   the latest `run_started_at` among every run the forge lists for its workflow path, its event
   and the head, whatever its `run_number`. `created_at` and `run_number` order runs by creation
-  only, and an older run's re-run is newest by `run_started_at` (`older-run-full-rerun-complete/runs.page1.json`:
-  run 3568's attempt 2 at 17:32:56Z, after run 3569's 16:50:47Z). A tie at the latest, or a
+  only, and an older run's re-run is newest by `run_started_at`. That is measured across two
+  keys (`older-run-full-rerun-complete/runs.page1.json`: run 3568, `pull_request`, attempt 2 at
+  17:32:56Z, after run 3569, `workflow_dispatch`, at 16:50:47Z). Within one key it is
+  unmeasured: in the one same-key pair, `two-runs-both-rerun/`, the older run's re-run started
+  first. The rule reads start in both. A tie at the latest, or a
   `run_started_at` that does not read, makes `execution-ambiguous` true; a current run that is
   not `completed` makes `execution-unsettled` true. An item **bears on** an entry when it is a
-  check run or job of that run under the entry's name.
-- **Run versus attempt.** An earlier attempt of the current execution's run is history, visible
-  only through `filter=all`'s view: its check runs and jobs are read and joined, never count as
-  a match, and none may be newer than the current attempt. An earlier *run* is never history: it
-  is one of the workflow's runs, ruled by the next item.
+  check run or job of that run under the entry's name. A check run that joins no job has no run
+  to read, so it bears on every entry whose app and name it carries.
+- **Run versus attempt.** An earlier attempt of any run is that run's history, visible only
+  through `filter=all`'s view: its check runs and jobs are read and joined, never count as a
+  match, and none may be newer than its run's latest attempt. An earlier *run* is never history:
+  it is one of the workflow's runs, ruled by the next item.
 - **Every other run of the workflow on the head.** Any other run of the entry's workflow path on
   the head, of any event, whose latest attempt is queued, in progress or waiting, or completed
-  with anything but `success`, or which holds a check run under a name of the declared list that
-  is not completed `success`, makes `other-run-not-success` true. `skipped` is not `success`. A
+  with anything but `success`, or whose latest attempt holds an item, by the join, under a name
+  of the declared list that is not completed `success`, makes `other-run-not-success` true.
+  Its earlier attempts are its history, as the current run's are
+  (`two-runs-both-rerun/check-runs.all.page*.json`: run 44891909198's cancelled audit of attempt 1
+  beside its attempt 2's success). `skipped` is not `success`. A
   `workflow_dispatch` run writes check runs under the same names (`dispatch-in-progress-beside-pr-green/`),
   and its `delivered by brokkr` concludes `skipped`, since that job runs only for a pull request
   (`dispatch-and-pr-both-green/check-runs.all.page1.json`); HEAD's workflow notes that "a skipped
   job reports success to a required check" (`.github/workflows/ci.yml:311-312`). So the
-  after-ship exclusion (ruling 6) is the current execution's alone, a head with a dispatch run of
-  the workflow parks, and a cancelled twin (`cancelled-twin/`, run 3560) parks until a person
-  re-runs it.
-- **One attempt.** By the join, an item of the current execution's run that names an attempt
-  above the run list's latest for that run, queued, in progress or concluded, whether it
-  succeeded or failed, or an earlier attempt's item that started after the current attempt's
-  `run_started_at`, makes `snapshot-inconsistent` true for the entry.
+  after-ship exclusion (ruling 6) is the current execution's alone.
+- **What recovers `other-run-not-success`, stated as it is.**
+  - A dispatch run's `delivered by brokkr` is `skipped` (`dispatch-and-pr-both-green/`). That
+    job runs only for a pull request, so a re-run of a dispatch skips it again, and the row
+    stays true on that head.
+  - Before ship, every run's `delivered by brokkr` fails without the `by-hand` label (ruling 6).
+    So a cancelled twin (`cancelled-twin/`, run 3560), or a twin a `labeled` event started,
+    keeps the row true on that head whichever run is re-run: re-running the twin makes it the
+    current execution, and its sibling becomes the other run.
+  - Under this decision those are lifted only by a new head or a person's by-hand landing. A
+    re-run Brokkr requests is decision 0116's, on top of this rule, and this rule reads its
+    result as it reads a person's.
+- **One attempt, in every run.** By the join, an item of any run of the entry's workflow path on
+  the head, of any event, that names an attempt above the run list's latest for that run makes
+  `snapshot-inconsistent` true for the entry. So does an item of an earlier attempt of that run
+  that started after its latest attempt's `run_started_at`. Both hold whether the item is
+  queued, in progress or concluded, succeeded or failed, and in the current execution's run or
+  another. Every job list is read after the run list (the order of the reads, ruling 3). So
+  another run re-run between the two shows here, on its job list, even when the run list still
+  names its earlier attempt and its check runs were read before the re-run.
 - **Carried jobs.** A failed-jobs-only re-run lists every job in the new attempt, each with
   `run_attempt` 2 and a new id, and the jobs it did not re-run keep attempt 1's `started_at`,
   `completed_at` and conclusion (`failed-jobs-rerun-with-cancelled-twin/run.44837139463.attempt2.jobs.page1.json`:
@@ -1165,7 +1206,8 @@ of its payload under `crates/brokkr-core/src/ci/evidence/`:
   never a CI verdict, so no stale or newer attempt can hide in it, and a pull request opened
   after its read is outside the snapshot, as below.
 - **No winner is picked.** The rule says only when the snapshot is consistent; it never chooses
-  between two attempts. An attempt that starts after the last read is outside the snapshot: its
+  between two attempts. An attempt no sealed list names is outside the snapshot, because it
+  started after the list that would show it was read. Its
   reach is a wrong `green`, landing as it is today, and the forge's checks at merge
   ([The gate grants nothing](#the-gate-grants-nothing)).
 
@@ -1174,11 +1216,17 @@ current, which is history and which is carried is re-derived from the journal al
 
 **The person's re-run is of every job.** A failed-jobs-only re-run carries the jobs it did not
 re-run into the new attempt, as above, so the recovery `inspect` names is re-running all of the
-run's jobs, which re-creates every one. **Proved by 0111c:**
+run's jobs, which re-creates every one and clears `carried-job`. Live, that is not yet `green`:
+the re-run's tested commit is unread as every run's is, so `revision-unproven` stays true
+([the tested commit, as measured](#3-the-observation-the-judgment-and-where-the-journal-keeps-them)). A pass is judged only over a
+builder observation that carries a tested-commit record (0111c's control,
+`a_consistent_single_attempt_snapshot_is_green`). **Proved by 0111c:**
 `a_failed_jobs_only_rerun_carrying_a_passed_entry_parks_as_carried_job_live_and_on_replay`
 (R/1: A success, B failure; R/2 re-runs B to success and lists A carried, attempt 2, a new id,
 R/1's times: `carried-job` for A); **by 0111d:**
-`an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes` (`CI-PASS`).
+`an_operator_retry_after_a_person_re_runs_all_jobs_clears_carried_job_and_parks_on_revision_unproven`
+(the observation sealed as a live observer seals it: `CI-PARK` with `revision-unproven` and no
+`carried-job`).
 
 The judgment is engine-written: an `Owner::Engine` flag, as `reviewed_heads` is an engine-owned
 input (`crates/brokkr-core/src/policy/inputs.rs:116`), so a seat may neither declare nor
@@ -1419,8 +1467,9 @@ undeclared costs a person's look on row `not-success`, never a pass. Refused alt
 
 **The entry set is derived once, and every reader but the inventory reads it.** One function
 over the pinned list gives the entry set: the entries with no `"after"`. Every condition of
-ruling 3's `green` rule reads that set and nothing wider. The full declared list is read only to
-reconcile the inventory, as the after-ship invariant above states once. A red
+ruling 3's `green` rule reads that set and nothing wider, but one. The full declared list is
+read to reconcile the inventory, as the after-ship invariant above states once, and by
+`other-run-not-success` over the other runs, whose after-ship checks it reads. A red
 `delivered by brokkr` beside every eligible entry green is therefore `green`.
 
 **The entry set is never empty.** A declared list whose every entry carries `"after": "ship"`
@@ -1666,7 +1715,8 @@ saved, so the later decision is ruled on measured cases.
 
 ## What stays out
 
-- Any forge write, and an automated re-run: ruling 1, and the follow-up its (c) names.
+- Any forge write, and an automated re-run: ruling 1. The one re-run the operator has since
+  allowed is decision 0116's (2026-11-22).
 - No model decides: the gate is an exec seat, and the judgment is a core function.
 - No required check is skipped, marked passed or written.
 - No refusal is weakened: the gate parks on every true row of the
@@ -1737,7 +1787,7 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
    `a_bundle_declaring_a_ci_seat_refuses_to_compile_until_the_first_live_producer_lands`, a
    custom exec recipe's declaration included. About 450 production, 150 script and 700 test
    lines; it may split at triage into the contracts and the launch. Contracts, minted here and
-   only after 0111a: `ci-observation/v1` and `ci-checks/v1`. `Acceptance rows:` 4
+   only after 0111a: `ci-observation/v1` and `ci-checks/v1`. `Acceptance rows:` 5
    ([Proved by the slices](#proved-by-the-slices)). Tests, the launch driven through a
    test-only bundle the live compile does not admit:
    - the contracts, each over 0111a's payloads by path, never a hand-written shape:
@@ -1762,6 +1812,9 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
      `the_observer_reads_check_runs_and_jobs_with_filter_all` (a stub `gh` by absolute path
      records each call's query, and fails the test on any check-run or job call without
      `filter=all`);
+     `the_observer_reads_the_check_runs_then_the_statuses_then_the_runs_then_each_runs_jobs`
+     (the same stub records the calls' order: every check-run page before the first status
+     page, every run-list page before any job page, and each run's jobs after every run list);
      `a_response_of_exactly_the_byte_bound_is_parsed_and_one_byte_more_is_a_response_witness`;
      `the_selected_transport_takes_in_no_more_than_the_bound_plus_one_byte_of_a_streamed_page`;
      `no_job_log_is_read_or_sealed`;
@@ -1844,7 +1897,7 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
    predicate. **The tested commit in the lists below:** a builder fixture carries a tested-commit
    record, which no live observer writes (ruling 3); a case run live through 0111b's observer
    seals it `unread`, so its exact list also holds `revision-unproven` for every entry with a
-   match, in the table's place, and so does its replay. `Acceptance rows:` 35
+   match, in the table's place, and so does its replay. `Acceptance rows:` 38
    ([Proved by the slices](#proved-by-the-slices)). Tests:
    - 0111a's cases: `every_0111a_evidence_case_parks_with_its_recorded_rows` (each of the eight
      directories under `crates/brokkr-core/src/ci/evidence/`, its pages served by a stub `gh`, the
@@ -1903,6 +1956,10 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
      `a_sole_red_from_another_producer_names_missing_required_for_its_entry_then_producer_mismatch`;
      `a_status_context_in_the_forges_required_set_parks_as_status_required`;
      `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees`;
+     `a_forge_required_check_under_a_declared_name_from_another_app_parks_as_required_set_disagrees`
+     (the declared audit pinned to app 15368; the forge's set requires the audit with another
+     `app_id`, every other predicate holding over a builder observation: `required-set-disagrees`
+     alone, naming both ids; and the same with `app_id` null and `-1`);
    - the inventories, one test per list the observer reads, each with two cases, the last page
      unread and the list sealed as its overflow witness, over two entries A and B of one key,
      each seen once on what was read as a settled, consistent success, every other list
@@ -1954,6 +2011,15 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
      (the adversarial F1 case: run 10/1 cancelled, run 11/1 green, then 10/2 started after 11/1
      with B `failure`: 10/2 is current by `run_started_at`, so `not-success` for B, and no row
      for 11/1, which is completed `success`);
+     `a_re_run_of_another_run_between_the_run_list_and_its_job_list_parks_live_and_on_replay`
+     (the twelfth hold's F1 case: runs 10/1 and 11/1 both green on the check and run lists; 10's
+     job list, read after a re-run, holds 10/1's jobs and 10/2's, with B `failure` on 10/2 and no
+     check run for 10/2: 11/1 is current by the run list, and `snapshot-inconsistent` names run
+     10 and both attempts for A and B);
+     `another_runs_cancelled_first_attempt_beside_its_successful_re_run_is_its_history`
+     (`two-runs-both-rerun/`'s shape over a builder observation: the other run's attempt 1
+     cancelled and attempt 2 green, the current run green, no after-ship check in either run,
+     and a tested-commit record: `CI-PASS`);
      `a_status_on_the_head_parks_as_status_present_live_and_on_replay` (one status under A's
      name: `status-present` alone);
      `a_check_run_that_joins_no_job_parks_as_attempt_unnamed_live_and_on_replay` (A's check id on
@@ -2097,7 +2163,7 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
    - the roads: `a_green_observation_passes_to_classify`;
      `a_red_observation_parks_for_a_person_and_never_reaches_implement`;
      `a_pushed_head_after_a_head_unpublished_park_observes_again_on_retry`;
-     `an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes`;
+     `an_operator_retry_after_a_person_re_runs_all_jobs_clears_carried_job_and_parks_on_revision_unproven`;
      `a_head_the_run_made_is_never_gated_by_ci`;
      `the_environment_park_survives_the_ci_overlay`;
    - the table: `the_composed_landing_ci_table_validates_whole_against_phase_machine_v3`;
@@ -2117,7 +2183,8 @@ The operator ruled on 2026-11-21 that each build-proof finding of the tenth hold
 `landing-over-an-existing-branch--7833a069`) is an acceptance test of the slice that builds its
 piece, which that slice's own review proves; one spanning two slices is owned by the slice that
 builds the reader it binds. The eleventh hold's findings are held the same way (round
-1093r12). Each rule is stated where it lives, and each test is named in its slice's plan, whose
+1093r12). So are the twelfth hold's rule holes, which the controller fixed by hand on the
+operator's ruling of 2026-11-22 ("go with b", #1093), with no further round. Each rule is stated where it lives, and each test is named in its slice's plan, whose
 `Acceptance rows:` line counts them, as `every_test_proved_by_the_slices_is_named_in_its_slices_plan` holds.
 
 | Slice | Test | Answers | Expects |
@@ -2126,6 +2193,10 @@ builds the reader it binds. The eleventh hold's findings are held the same way (
 | 0111b | `a_response_of_exactly_the_byte_bound_is_parsed_and_one_byte_more_is_a_response_witness` | the transport's byte bound | parsed; a response witness |
 | 0111b | `the_selected_transport_takes_in_no_more_than_the_bound_plus_one_byte_of_a_streamed_page` | the transport's byte bound | bounded intake before any parse |
 | 0111b | `the_observer_reads_check_runs_and_jobs_with_filter_all` | the default filter (r11 F4) | every check-run and job call carries `filter=all` |
+| 0111b | `the_observer_reads_the_check_runs_then_the_statuses_then_the_runs_then_each_runs_jobs` | the order of the reads (r12 F2) | the calls in that order |
+| 0111c | `a_re_run_of_another_run_between_the_run_list_and_its_job_list_parks_live_and_on_replay` | another run's newer attempt, seen only on its jobs (r12 F1, HIGH) | `CI-PARK`: `snapshot-inconsistent` |
+| 0111c | `another_runs_cancelled_first_attempt_beside_its_successful_re_run_is_its_history` | another run's history (r12 MEDIUM) | `CI-PASS` |
+| 0111c | `a_forge_required_check_under_a_declared_name_from_another_app_parks_as_required_set_disagrees` | the required set by name and app id (r12 HIGH) | `CI-PARK`: `required-set-disagrees` |
 | 0111c | `a_complete_green_attempt_beside_a_queued_newer_attempt_on_the_check_list_parks_live_and_on_replay` | mixed attempts (the HIGH) | `CI-PARK`: `snapshot-inconsistent` |
 | 0111c | `a_newer_attempt_in_progress_on_the_run_list_only_parks_live_and_on_replay` | mixed attempts | `CI-PARK`: `missing-required`, `execution-unsettled` |
 | 0111c | `two_lists_naming_different_attempts_park_live_and_on_replay` | mixed attempts | `CI-PARK`: `snapshot-inconsistent` |
@@ -2163,7 +2234,24 @@ builds the reader it binds. The eleventh hold's findings are held the same way (
 | 0111c | `the_0111_index_row_names_the_last_round_the_decision_records` | the index row's history (INFO) | the row names round 1093r12 |
 | 0111d | `a_pass_without_green_through_the_real_policy_and_park_writer_parks_at_ci_pass_unbound` | one owner for `word-unbound` (text corrected) | a `ruled` park at `CI-PASS-UNBOUND` |
 | 0111d | `classify_after_ci_pass_receives_last_decision_naming_ci_pass_and_pass_and_nothing_else_of_ci` | `classify`'s input assertions | `CI-PASS` and `pass`, nothing else of `ci` |
-| 0111d | `an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes` | the person's re-run (LOW) | `CI-PASS` |
+| 0111d | `an_operator_retry_after_a_person_re_runs_all_jobs_clears_carried_job_and_parks_on_revision_unproven` | the person's re-run (LOW; r12: live cannot pass) | `CI-PARK`: `revision-unproven`, no `carried-job` |
+
+**Carried from the twelfth hold to the slices that build each reader.** The controller's
+by-hand pass fixed the twelfth hold's two HIGHs, the read order, the recovery text, another
+run's history, the ordering citation and the entry set's one exception. Three findings stay
+with the slices, each an acceptance obligation of that slice's review:
+
+- **0111b, the open set at the commit** (correctness MEDIUM, adversarial F4). It states how the
+  open pull requests at the gated commit are proven, beyond the bound branch's list. For
+  example, `commits/<sha>/pulls` filtered to `open` beside it. Or it refuses an inventory whose
+  scope cannot prove the set. A fixture with two branches at one commit binds it.
+- **0111c, the proof list by identity** (correctness MEDIUM, adversarial F6).
+  `every_test_proved_by_the_slices_is_named_in_its_slices_plan` compares the two sets of names
+  both ways, not a count, and adds a replacement control beside its two deletion controls.
+- **0111c, a matrix name the list does not expect** (correctness MEDIUM). It states the
+  expected names of a bound matrix group, and what makes an observed name a member. Where
+  membership cannot be proved, the judgment is the conservative one, bound to a row of the
+  [park table](#the-park-table) that the slice names.
 
 ## Evidence
 
@@ -2199,3 +2287,14 @@ tests make both a gate.
 
 The entry check's verdicts over the narrowed order (ruling 6) are read from HEAD's code, not run:
 **unmeasured** until 0111d's entry tests.
+
+**The controller's by-hand pass after the twelfth hold** (operator, 2026-11-22, "go with b"). It
+read both positions of `revision-round-1093r12-for-issue-b1a1275c`, and over 0111a's payloads:
+- each case's `index.json` (the read order and the largest page, 356,478 bytes in
+  `older-run-full-rerun-complete/check-runs.all.page1.json`);
+- `two-runs-both-rerun/runs.page1.json` (the one same-key pair);
+- `older-run-full-rerun-complete/runs.page1.json` (the two keys of the measured inversion).
+
+It held each name the proof list adds to its slice's plan by hand: 38 in 0111c, 5 in 0111b and
+3 in 0111d. The decision stands at 2,285 lines. The two HIGHs are fixed by widening two rows'
+reads and adding three 0111c tests and one 0111b test; the rest corrects text already there.
