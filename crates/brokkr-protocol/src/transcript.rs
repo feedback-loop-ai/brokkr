@@ -43,14 +43,15 @@ pub fn driver_kinds() -> [&'static str; 3] {
 
 /// The one kind `driver` writes, as its transcript's and its confirmed
 /// root session's (decision 0075 ruling 2): LaneTally wraps claude, so it
-/// writes claude's, and `exec` writes none.
+/// writes claude's, and `exec` and `qoder` write none: Qoder's level 1
+/// runs `--no-session-persistence`, so it confirms no session to rejoin.
 pub fn driver_kind(driver: crate::adapters::AdapterKind) -> Option<&'static str> {
     use crate::adapters::AdapterKind;
     match driver {
         AdapterKind::Claude | AdapterKind::Lanetally => Some(Kind::ClaudeSession.label()),
         AdapterKind::Codex => Some(Kind::CodexThread.label()),
         AdapterKind::Dsh => Some(Kind::DshSession.label()),
-        AdapterKind::Exec => None,
+        AdapterKind::Exec | AdapterKind::Qoder => None,
     }
 }
 

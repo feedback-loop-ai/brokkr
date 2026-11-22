@@ -381,7 +381,7 @@ fn a_kind_the_seats_harness_does_not_declare_is_refused_wherever_it_is_named() {
     let refusal = |member: &str, kind: &str| {
         format!(
             "seat 'work' recorded {member} kind '{kind}', which the seat's harness does not \
-             declare (decision 0075 ruling 2); stderr tail: "
+             declare (decision 0075 ruling 2); driver stderr: empty"
         )
     };
     let declared = || checkpoint(TRAIL, THREAD, "t-1", "tr-1");
@@ -824,6 +824,37 @@ fn dsh_site() -> SiteContext {
     SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work).of_harness(kinds, None)
 }
 
+/// The controller's ruling Y1 of 2026-11-22: a Qoder seat's retry is
+/// offered nothing. Its level 1 keeps no session and its driver refuses a
+/// start offered a resume (#1178), so neither of v7's roads is its: a
+/// stamped persistent root of each built-in kind, and decision 0030's
+/// flat session id on an unstamped row, each offered at a site of no
+/// harness, are offered nothing at a Qoder site. The rows are built by
+/// hand, as the writer refuses each root at a Qoder seat and no Qoder
+/// driver writes a flat id.
+#[test]
+fn a_qoder_seats_retry_is_offered_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let shipped = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/examples/adapters/qoder.json");
+    std::fs::copy(shipped, dir.path().join("qoder.json")).unwrap();
+    let adapters = Adapters::load(dir.path()).unwrap();
+    let argv = ["{brokkr}", "driver", "qoder", "--"].map(String::from);
+    let kinds = DeclaredKinds::of(Some(&adapters)).seat(Some("qoder"), &argv);
+    let plain = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
+    let qoder = plain.clone().of_harness(kinds, None);
+    let flat = json!({"effect_id": "fx", "checkpoint": {"step": "s", "session_id": "flat-1"}});
+    let flat = vec![(EventType::EffectCheckpointed, flat)];
+    let offered = |context: &SiteContext, rows| target_over(context, rows, true);
+    assert_eq!(offered(&plain, flat.clone()).unwrap().provider_id, "flat-1");
+    assert_eq!(offered(&qoder, flat), None);
+    for kind in ["claude-session", "codex-thread", "dsh-session"] {
+        let rows = |context| vec![rooted(context, kind, "q-1")];
+        assert_eq!(offered(&plain, rows(&plain)).unwrap().provider_id, "q-1");
+        assert_eq!(offered(&qoder, rows(&qoder)), None, "{kind}");
+    }
+}
+
 /// The controller's ruling R32: the offer's transcript check is the write
 /// check, a built-in kind included. At a DSH seat, a persistent
 /// `dsh-session` root beside a `codex-thread` transcript is offered with
@@ -1049,15 +1080,17 @@ fn a_panel_members_unstamped_row_is_judged_at_its_own_member_alone() {
 /// key carries no tag, so a `member` on its row is the driver's own. An
 /// attempt whose unstamped row, naming no model and carrying the driver's
 /// `member` `beta`, holds the `codex-thread` root `old-1`, then whose
-/// stamped row holds the offered root `current-1` with a call, is not
-/// that root's history; without the first row it is. Every row is written
-/// by the sink.
+/// stamped row holds the offered root `current-1` and its native call on
+/// one checkpoint, is not that root's history; without the first row it
+/// is. Every row is written by the sink.
 #[test]
 fn a_single_seats_unstamped_row_counts_whatever_member_its_driver_wrote() {
     let context = SiteContext::new("a".repeat(64), "b".repeat(64), SeatClass::Work);
     let mut unstamped = root_row("codex-thread", "old-1");
     unstamped.as_object_mut().unwrap().remove("model");
     unstamped["member"] = json!("beta");
+    let mut rooted_call = root_row("claude-session", "current-1");
+    rooted_call["turn"] = json!(1);
     let journal = |first: Option<Value>| {
         let mut journal = Journal::new();
         let attempt = journal.attempt("mixed");
@@ -1065,11 +1098,7 @@ fn a_single_seats_unstamped_row_counts_whatever_member_its_driver_wrote() {
             Some(row) => attempt.wrote(&context, row, None),
             None => attempt,
         };
-        (attempt.wrote(&context, root_row("claude-session", "current-1"), None)).wrote(
-            &context,
-            call_row(),
-            Some("n-mixed"),
-        );
+        attempt.wrote(&context, rooted_call.clone(), Some("n-mixed"));
         journal
     };
     let mixed = journal(Some(unstamped));
@@ -1245,13 +1274,13 @@ fn a_record_decision_0109_refuses_is_refused_by_0109_whatever_kind_it_names() {
             authored,
             complete(TRAIL),
             "a driver's checkpoint claims a record only the engine authors \
-             (decision 0109 ruling 1); stderr tail: ",
+             (decision 0109 ruling 1); driver stderr: empty",
         ),
         (
             checkpoint(TRAIL, THREAD, "t-1", "tr-1"),
             findings,
             "the result was refused: the result carries 'findings' from a work site: only a \
-             gate reports findings (decision 0109 ruling 1); stderr tail: ",
+             gate reports findings (decision 0109 ruling 1); driver stderr: empty",
         ),
     ] {
         let dir = tempfile::tempdir().unwrap();
@@ -1334,11 +1363,13 @@ fn refusal_received(seat: &str, member: &str, kind: &str) -> Value {
     json!({"status": "failed", "error": error})
 }
 
-/// The reason an unresolved attempt that reached `reached` parks on.
+/// The reason an unresolved attempt that reached `reached` parks on, its
+/// driver's stderr, [`UNRESOLVED`], named by evidence (#1199).
 fn parked_on(reached: &str) -> Value {
-    json!(format!(
-        "{reached}; the attempt is not proven over: {HELD}; stderr tail: {UNRESOLVED}"
-    ))
+    let stderr = brokkr_protocol::process::DriverStderr::of(UNRESOLVED);
+    json!(stderr.named(&format!(
+        "{reached}; the attempt is not proven over: {HELD}"
+    )))
 }
 
 /// The results an unresolved cleanup's evidence must never carry

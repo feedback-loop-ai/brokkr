@@ -507,8 +507,9 @@ pub(super) fn eligible_offer(
     // ancestry was never journaled, so no colon tag is split to guess
     // it, and a dsh transcript directory is not a provider handle.
     // A harness that declares its kinds is never offered the flat session
-    // id: its road to an offer is its declared root (the controller's R5).
-    if !key.is_single() || context.kinds.declares_its_kinds() {
+    // id: its road to an offer is its declared root (the controller's R5),
+    // and a Qoder seat has no road but that one (the controller's Y1).
+    if !key.is_single() || !context.kinds.rejoins_by_legacy() {
         return None;
     }
     legacy_offer(events, &seat_effects, &legacy).map(|provider_id| ResumeTarget {
