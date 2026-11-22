@@ -19,33 +19,29 @@ use brokkr_protocol::process::{
 use time::OffsetDateTime;
 
 /// How far a probe's stored hold outlasts its deadline and the shutdown
-/// grace together (fix round 0106b1r10, H2). The stored end is only a
-/// crash fallback: a live engine ends the hold on evidence, once its
-/// settlement proves the probe's tree ended or its answer or renewed round
-/// commits, and the stored end bounds how long a crashed holder blocks the
-/// route. The margin is named once, here.
+/// grace together (fix round 0106b1r10, H2): a crash bound only. A live
+/// engine ends the hold on evidence, once its settlement proves the probe's
+/// tree ended or its answer or renewed round commits, and while its run's
+/// lock is held the stored end is never read (fix round 0106b1r11, L1).
+/// The stored end bounds only how long a holder the run lock proves ended,
+/// a crashed one, blocks the route. The margin is named once, here.
 pub(in crate::engine) const HOLD_MARGIN: Duration = Duration::from_secs(60);
 
-/// The longest a live engine's own work past the deadline may take before
-/// its settlement can end the hold, allowed for the margin: the fork's
-/// registration and the pipe readers' start before the watchdog arms, the
-/// watchdog's wake, and the journal write that ends the hold.
-const ARM_WORK: Duration = Duration::from_secs(10);
-
-/// The forward step of the engine's wall clock, against the monotonic one
-/// its watchdog waits on, that the margin absorbs while a probe is in
-/// flight. A larger step, like a host suspend longer than the margin, can
-/// end the fallback while a frozen driver lives: the named residual.
+/// The forward step of the wall clock, against the monotonic one a probe's
+/// watchdog waits on, that the margin absorbs for a crashed holder: its
+/// stored end was taken on the wall clock, and a step brings it sooner.
+/// No engine work past the deadline is counted: a live engine's hold is
+/// never read by its stored end, so nothing it does there needs a bound
+/// here (fix round 0106b1r11, L2). A larger step, like a host suspend
+/// longer than the margin in which the engine then died, is the named
+/// residual.
 const CLOCK_STEP: Duration = Duration::from_secs(30);
 
-/// What the margin must exceed: the shutdown grace, the killed tree's
-/// settle and drain after it, the engine's own work past the deadline, and
-/// the clock step it absorbs.
+/// What the margin must exceed, as a crash bound: the shutdown grace and
+/// the killed tree's settle and drain after it, which a holder that
+/// crashed during its kill leaves running, and the clock step it absorbs.
 const MARGIN_BOUND: Duration = Duration::from_secs(
-    SHUTDOWN_GRACE.as_secs()
-        + SHUTDOWN_SETTLE.as_secs()
-        + ARM_WORK.as_secs()
-        + CLOCK_STEP.as_secs(),
+    SHUTDOWN_GRACE.as_secs() + SHUTDOWN_SETTLE.as_secs() + CLOCK_STEP.as_secs(),
 );
 
 const _: () = assert!(HOLD_MARGIN.as_secs() > MARGIN_BOUND.as_secs());

@@ -5,21 +5,18 @@ use std::time::{Duration, Instant};
 
 use time::OffsetDateTime;
 
-use super::{ProbeDeadline, Unbounded, ARM_WORK, CLOCK_STEP, HOLD_MARGIN, MARGIN_BOUND};
+use super::{ProbeDeadline, Unbounded, CLOCK_STEP, HOLD_MARGIN, MARGIN_BOUND};
 
-/// Fix round 0106b1r10, H2: the margin exceeds the bound it is stated
-/// against, the shutdown grace and settle, the engine's own work past the
-/// deadline and the clock step it absorbs; and the stored end is the
-/// deadline plus the grace plus the margin.
+/// Fix round 0106b1r10, H2, as fix round 0106b1r11, L2 states it: the
+/// margin is a crash bound, and exceeds what a crashed holder can leave
+/// past its deadline, the shutdown grace, settle and drain, and the clock
+/// step it absorbs, counting no unenforced allowance for a live engine's
+/// work; and the stored end is the deadline plus the grace plus the margin.
 #[test]
-fn the_hold_margin_exceeds_the_shutdown_the_arm_work_and_the_clock_step() {
+fn the_hold_margin_exceeds_the_crash_bound_of_the_shutdown_and_the_clock_step() {
     assert_eq!(
-        (ARM_WORK, CLOCK_STEP, MARGIN_BOUND),
-        (
-            Duration::from_secs(10),
-            Duration::from_secs(30),
-            Duration::from_secs(55)
-        )
+        (CLOCK_STEP, MARGIN_BOUND),
+        (Duration::from_secs(30), Duration::from_secs(45))
     );
     assert_eq!(HOLD_MARGIN, Duration::from_secs(60));
     assert!(HOLD_MARGIN > MARGIN_BOUND);

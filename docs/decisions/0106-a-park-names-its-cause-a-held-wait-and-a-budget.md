@@ -1173,7 +1173,9 @@ every entry reads the default budget of 3; a direct run always has none.
    ruling 1), the proof writer admission takes of a standing run's writer, and a hold past its
    stored end stands while that lock is held or cannot be read. A live engine's hold therefore
    never lapses by a clock: a host suspend or a wall-clock step freezes or moves its engine
-   with the lock still held. Named residual (fix rounds 0106b1r10 and 0106b1r11): after an
+   with the lock still held. The margin is therefore a crash bound only, stated against the
+   shutdown grace, the killed tree's settle and drain, and a 30-second clock step; no allowance
+   for a live engine's own work is counted, for nothing enforces one. Named residual (fix rounds 0106b1r10 and 0106b1r11): after an
    engine crash, its lock is free, so the hold lapses at the stored end, and a driver the
    crash orphaned, its watchdog gone, or one frozen by a host suspend longer than the margin
    in which the engine then died, can outlive it.
