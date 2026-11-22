@@ -210,7 +210,7 @@ Linux machine from the first measurement's.
 | Account | signed in through the browser by the operator, the default config root |
 | Model | `-m Fast --reasoning-effort low` for every turn, except the one named for Qwen4-Max |
 | The engine's server | `brokkr hands serve` of Brokkr 0.14.0, named `brokkr` in the engine's MCP file, with a reach that names the worktree and no network |
-| How each turn ran | [`turn-1-1-95.sh`](qoder-cli-1-1/turn-1-1-95.sh), driven by [`boxed-set-1-1-95.sh`](qoder-cli-1-1/boxed-set-1-1-95.sh); the argv and prompt of each turn are in [`turns-1-1-95.log`](qoder-cli-1-1/turns-1-1-95.log) |
+| How each turn ran | [`turn-1-1-95.sh`](qoder-cli-1-1/turn-1-1-95.sh), driven by [`boxed-set-1-1-95.sh`](qoder-cli-1-1/boxed-set-1-1-95.sh); the argv and prompt of each turn are in [`turns-1-1-95.log`](qoder-cli-1-1/turns-1-1-95.log). The driver's quoting was tidied for the shellcheck lint gate after the measurement; the commands it runs are unchanged |
 
 **The sentinels.** The four of the first measurement were planted again
 (user, local, project and plugin scope) with
