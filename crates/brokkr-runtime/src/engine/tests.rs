@@ -2024,7 +2024,8 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
         "residual",
         json!({"result":"residual","inputs":{"max_residual_severity":"invented"}}),
     )]));
-    assert_eq!(unknown_severity["inputs"]["max_residual_severity"], "none");
+    // Decision 0120 ruling 1: a residual's unreadable severity is unknown.
+    assert!(unknown_severity["inputs"]["max_residual_severity"].is_null());
 
     assert_eq!(
         tag_member(json!({"step":"x"}), "member")["member"],
