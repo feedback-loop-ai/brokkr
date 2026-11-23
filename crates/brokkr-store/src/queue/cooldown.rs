@@ -73,13 +73,17 @@ pub struct Cooldown {
 }
 
 /// The aggregate one provider and route stands at, at an instant: the
-/// latest `until_at` across every unexpired row — a monotonic MAX, so a
-/// later, shorter refusal never shortens a wait — and the words of the row
-/// that ends last.
+/// latest `until_at` across every unexpired row and standing probe hold — a
+/// monotonic MAX, so a later, shorter refusal never shortens a wait — and
+/// the words of the row that ends last.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CooldownAggregate {
     pub until: OffsetDateTime,
     pub reason: String,
+    /// Whether a probe's hold stands on the route (fix round 0106b1r13,
+    /// H1): no time ends it, so `until` is then no end the route opens at,
+    /// and the route stays held until a read finds the hold ended.
+    pub probe: bool,
 }
 
 /// One probe round appended to a terminal event's episode (decision 0103
@@ -388,30 +392,33 @@ impl Raw {
 }
 
 /// The aggregate `provider` and `route` stand at, at `now`, or `None` when
-/// no row is in force: every unexpired row holds the lane, and the lane
-/// ends at the latest `until_at`.
+/// nothing holds them: every unexpired row and every standing probe hold
+/// holds the lane, and the lane ends at the latest `until_at`, the later
+/// row's words where two end together. It is [`in_force`]'s reading, the
+/// pass's and the claim's own, so an admitted run's wait, retry and probe
+/// admission judge a route exactly as the gates do, a standing hold
+/// included, whatever its stored end (fix round 0106b1r13, H1).
 fn aggregate(
     conn: &Connection,
     provider: &str,
     route: &str,
     now: i64,
 ) -> Result<Option<CooldownAggregate>, StoreError> {
-    let found: Option<(i64, i64, String)> = conn
-        .query_row(
-            "SELECT until_at, seq, reason FROM provider_cooldowns
-             WHERE provider = ?1 AND route = ?2 AND until_at > ?3
-             ORDER BY until_at DESC, seq DESC LIMIT 1",
-            params![provider, route, now],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()?;
-    let Some((until, seq, reason)) = found else {
-        return Ok(None);
-    };
-    Ok(Some(CooldownAggregate {
-        until: time_of(until, seq)?,
-        reason,
-    }))
+    let held = in_force(conn, now)?
+        .into_iter()
+        .filter(|row| row.provider == provider && row.route == route)
+        .fold(None, |held: Option<CooldownAggregate>, row| {
+            let probe = row.probe || held.as_ref().is_some_and(|held| held.probe);
+            Some(match held {
+                Some(held) if held.until > row.until_at => CooldownAggregate { probe, ..held },
+                _ => CooldownAggregate {
+                    until: row.until_at,
+                    reason: row.reason,
+                    probe,
+                },
+            })
+        });
+    Ok(held)
 }
 
 /// A stored instant this reader can name, or the row's refusal: a whole
@@ -497,12 +504,16 @@ fn event_at(
 
 impl Store {
     /// The aggregate `provider` and `route` stand at, at `now`: every
-    /// unexpired row is in force and the wait ends at the latest
-    /// `until_at` across them (decision 0103 ruling 2(a)). An expired row
-    /// is history and is never deleted; `None` is a route no row holds.
-    /// The queue's version is judged first: a version 1, 2 or 3 journal
-    /// holds no cool-down and answers `None`, and a version this binary
-    /// does not know refuses.
+    /// unexpired row and every standing probe hold is in force and the wait
+    /// ends at the latest `until_at` across them (decision 0103 ruling
+    /// 2(a)), or, while a hold stands, when a read finds it ended. An
+    /// expired row is history and is never deleted; `None` is a route
+    /// nothing holds. It reads [`Store::cooldowns_in_force`]'s rows, in one
+    /// snapshot that joins a caller's own, so the engine's wait, retry and
+    /// probe admission and the gates read one state (fix round 0106b1r13,
+    /// H1). The queue's version is judged first: a version 1, 2 or 3
+    /// journal holds no cool-down and answers `None`, and a version this
+    /// binary does not know refuses.
     pub fn cooldown(
         &self,
         provider: &str,
@@ -510,11 +521,13 @@ impl Store {
         now: OffsetDateTime,
     ) -> Result<Option<CooldownAggregate>, StoreError> {
         patiently("cooldown", self.patience, || {
-            if cool_downs_held(&self.conn)? {
-                aggregate(&self.conn, provider, route, now.unix_timestamp())
-            } else {
-                Ok(None)
-            }
+            self.read_snapshot(|| {
+                if cool_downs_held(&self.conn)? {
+                    aggregate(&self.conn, provider, route, now.unix_timestamp())
+                } else {
+                    Ok(None)
+                }
+            })
         })
     }
 

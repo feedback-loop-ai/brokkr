@@ -147,7 +147,8 @@ fn in_flight(
         }
         let seen = legs(&gates, at);
         let store = brokkr_store::Store::open(&journal).unwrap();
-        let row = store.cooldown("claude", "first", at).unwrap().is_some();
+        let rows = store.cooldowns_in_force(at).unwrap();
+        let row = rows.iter().any(|row| !row.probe);
         std::fs::write(release, "").unwrap();
         (seen, row)
     })
@@ -300,16 +301,16 @@ fn a_probe_round_the_table_does_not_write_ends_no_hold() {
 /// The probe left no row on the route and its hold standing: the gates read
 /// the route cooling down from the probe's instant through its deadline,
 /// its stored end and a day past it, for no clock ends a hold (fix round
-/// 0106b1r12, S1).
+/// 0106b1r12, S1), and the aggregate an admitted run's wait reads is the
+/// hold alone through all of it (fix round 0106b1r13, H1).
 pub(super) fn held_until_settled(engine: &Engine, gates: &Shared, probe_at: OffsetDateTime) {
     let end = hold_end_of(probe_at);
-    assert_eq!(
-        engine.store.cooldown("claude", "first", probe_at).unwrap(),
-        None
-    );
     let day = time::Duration::days(1);
     for at in [probe_at, deadline_of(probe_at), end, end + day] {
         assert!(held_to(&legs(gates, at), end), "at {at}");
+        let waited = engine.store.cooldown("claude", "first", at).unwrap();
+        let waited = waited.expect("the hold holds the wait's aggregate");
+        assert_eq!((waited.until, waited.probe), (end, true), "at {at}");
     }
     assert_eq!(unended_holds(engine.store.path()), 1);
 }

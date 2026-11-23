@@ -1,9 +1,9 @@
 //! Fix round 0106b1r12, S3: a probe's hold names the driver instance that
 //! holds it, its probe's own attempt, not only its run. An engine that
 //! crashes after its probe's cleanup and before it ends the hold leaves
-//! the hold standing; a later drive of the same run probes under its own
-//! attempt, writes and ends its own hold, and never ends, revives or adopts
-//! the crashed instance's, which stands, named by its attempt, until a
+//! the hold standing; a later drive of the same run never ends, revives or
+//! adopts the crashed instance's, which stands, named by its attempt, and
+//! holds that drive's own wait too (fix round 0106b1r13, H1), until a
 //! settlement ends it.
 
 use super::crash::{crashing_clock, Crashed};
@@ -25,10 +25,12 @@ fn unended_attempts(path: &std::path::Path) -> Vec<String> {
 /// The first engine's probe answers and its clock panics at the next read,
 /// the answer's: a crash between the probe's cleanup and its hold's end.
 /// No coordination root can be protected, so no record proves its tree
-/// settled. The resumed drive's own probe answers, the retry succeeds, and
-/// of the two holds written only the resumed instance's is ended: the
-/// crashed instance's stands, and both production gates read the route
-/// cooling down a day past its stored end, naming its attempt.
+/// settled. The crashed instance's hold binds its own run's resume as it
+/// binds every reader (fix round 0106b1r13, H1): the resumed wait reads the
+/// route held, probes nothing and writes no hold, and parks once its waits
+/// pass the maximum. The crashed instance's hold stands, never ended or
+/// adopted, and both production gates read the route cooling down a day
+/// past its stored end, naming its attempt.
 #[test]
 fn a_resume_never_ends_or_adopts_a_crashed_instances_hold() {
     let (dir, mut crashed, now, probe_at, gates) = probing(Probed::Answer);
@@ -46,11 +48,13 @@ fn a_resume_never_ends_or_adopts_a_crashed_instances_hold() {
     let mut resumed = super::panel::resume_run(dir.path(), compiled, &run, host(dir.path(), 1, 2));
     resumed.cooldown.clock = Clock::advancing(probe_at).0;
     resumed.drive().unwrap();
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
     assert_eq!(
-        logs(dir.path(), "work"),
-        ["attempt:refuse", "probe", "probe", "attempt:succeed"]
+        park_reason(&resumed),
+        "cool-down for claude/first would wait 3s in round 1 (episode 3s), past the declared 2s \
+         maximum: rate_limit: slow down"
     );
-    assert_eq!((holds_written(&journal), unended_holds(&journal)), (2, 1));
+    assert_eq!((holds_written(&journal), unended_holds(&journal)), (1, 1));
     assert_eq!(unended_attempts(&journal), first);
     let later = hold_end_of(probe_at) + time::Duration::days(1);
     for leg in legs(&gates, later) {

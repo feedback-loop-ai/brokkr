@@ -25,7 +25,13 @@ fn base() -> OffsetDateTime {
 
 /// A seat with the limits this test needs.
 fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
-    std::fs::create_dir_all(dir.join("work")).unwrap();
+    started_in(dir, "work", body, limits)
+}
+
+/// A seat with the limits this test needs, whose worktree is `tree` under
+/// `dir`, over `dir`'s one journal: two runs in two worktrees share it.
+fn started_in(dir: &Path, tree: &str, body: SeatBody, limits: Limits) -> Engine {
+    std::fs::create_dir_all(dir.join(tree)).unwrap();
     let store = brokkr_store::Store::open(&dir.join("forge.db")).unwrap();
     let mut compiled = bundle(dir, body);
     compiled.seats.get_mut("work").unwrap().limits = limits;
@@ -34,7 +40,7 @@ fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
     // the production pass and claim can judge its journal (fix round
     // 0106b1r5, M1).
     compiled.manifest["capabilities"] = json!({"sites": {}});
-    Engine::start(store, compiled, "Feature", Some(dir.join("work"))).unwrap()
+    Engine::start(store, compiled, "Feature", Some(dir.join(tree))).unwrap()
 }
 
 /// A single-seat engine over the unused command, with `attempts` allowed:
@@ -1339,6 +1345,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
 }
 
 // A protected root's lease is Linux only, as `lease.rs` says.
+mod held_contention;
 mod held_deadline;
 #[cfg(target_os = "linux")]
 mod held_instance;

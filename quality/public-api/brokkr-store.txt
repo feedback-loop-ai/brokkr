@@ -417,6 +417,7 @@ pub brokkr_store::Cooldown::route: alloc::string::String
 pub brokkr_store::Cooldown::site: alloc::string::String
 pub brokkr_store::Cooldown::until_at: time::offset_date_time::OffsetDateTime
 pub struct brokkr_store::CooldownAggregate
+pub brokkr_store::CooldownAggregate::probe: bool
 pub brokkr_store::CooldownAggregate::reason: alloc::string::String
 pub brokkr_store::CooldownAggregate::until: time::offset_date_time::OffsetDateTime
 pub struct brokkr_store::CooldownAppend<'a>

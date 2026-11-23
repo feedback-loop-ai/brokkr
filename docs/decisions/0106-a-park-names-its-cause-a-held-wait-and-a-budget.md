@@ -1169,7 +1169,11 @@ every entry reads the default budget of 3; a direct run always has none.
    driver's tree proven ended by the engine's settlement, its answer, or its renewed round's
    commit, and by nothing else (fix round 0106b1r12): no stored end, margin, clock or lock state
    ends it, so a hold stands through any journal name and a run lock missing, free or replaced,
-   and both gates read it by one predicate, the hold's ended stamp. A probe that was never
+   and both gates read it by one predicate, the hold's ended stamp. An admitted run's wait, its
+   retry and its probe read the route through that same in-force read, so a standing hold holds
+   them as it holds the gates, an earlier drive's hold of the same run included, and a waiting run
+   reads it again each slice, counting the slices as waited (fix round 0106b1r13).
+   A probe that was never
    forked, refused or late before the fork, has an empty tree, settled as it is refused, and its
    hold ends then. The stored end, the first whole second after the probe's deadline, is a
    readout only, and no margin is kept; no gate reads it, so no host suspend, clock step or

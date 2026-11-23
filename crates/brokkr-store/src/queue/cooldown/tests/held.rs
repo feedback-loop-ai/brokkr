@@ -135,8 +135,21 @@ fn a_probe_hold_is_in_force_until_it_ends_whatever_the_time() {
     for now in [at(30), at(31), at(31 + year)] {
         assert_eq!(store.cooldowns_in_force(now).unwrap(), read, "at {now}");
     }
-    // The aggregate a wait sleeps to is the table's rows only.
-    assert_eq!(store.cooldown("claude", "first", at(10)).unwrap(), None);
+    // The aggregate an admitted run's wait, retry and probe admission read
+    // is the same reading: the hold, whatever the time (fix round
+    // 0106b1r13, H1).
+    for now in [at(10), at(31 + year)] {
+        assert_eq!(
+            store.cooldown("claude", "first", now).unwrap(),
+            Some(CooldownAggregate {
+                until: at(31),
+                reason: read[0].reason.clone(),
+                probe: true,
+            }),
+            "at {now}"
+        );
+    }
+    assert_eq!(store.cooldown("codex", "first", at(10)).unwrap(), None);
     let second = store
         .hold_probe(&probe_hold("run-a", at(60)), at(0))
         .unwrap();
@@ -165,6 +178,39 @@ fn a_probe_hold_is_in_force_until_it_ends_whatever_the_time() {
         .execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
         .unwrap();
     assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), []);
+}
+
+/// Fix round 0106b1r13, H1: the aggregate a wait reads joins a cool-down
+/// row and a standing hold on its route as the gates do. The row's later
+/// end is the aggregate's while it stands, the hold marking the route held
+/// past it; once the row expires the hold alone holds it, at its readout
+/// and a day past it; once the hold ends, nothing does.
+#[test]
+fn the_aggregate_joins_a_row_and_a_standing_hold_as_the_gates_do() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
+    planted(&store, "run-b");
+    let hold = store
+        .hold_probe(&probe_hold("run-b", at(30)), at(0))
+        .unwrap();
+    let held = |now| store.cooldown("claude", "first", now).unwrap();
+    let row = held(at(10)).unwrap();
+    assert_eq!((row.until, row.probe), (at(60), true));
+    assert_eq!(row.reason, "rate_limit: slow down");
+    let words = store.cooldowns_in_force(at(60)).unwrap()[0].reason.clone();
+    for now in [at(60), at(60 + 24 * 3600)] {
+        let hold_only = CooldownAggregate {
+            until: at(31),
+            reason: words.clone(),
+            probe: true,
+        };
+        assert_eq!(held(now), Some(hold_only), "at {now}");
+    }
+    store.end_probe_hold(Some(hold), at(61)).unwrap();
+    assert_eq!(store.cooldown("claude", "first", at(61)).unwrap(), None);
+    let ordinary = store.cooldown("claude", "first", at(10)).unwrap().unwrap();
+    assert_eq!((ordinary.until, ordinary.probe), (at(60), false));
 }
 
 /// Fix round 0106b1r12, S2: a settlement ends every hold of the run that

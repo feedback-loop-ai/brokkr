@@ -227,7 +227,7 @@ impl Engine {
         if self.moved_from_the_effect()? {
             return Ok(WaitRound::Stopped);
         }
-        let mut end = match self.cool_down_end(waits) {
+        let mut end = match self.cool_down_end(waits, self.now()) {
             Ok(end) => end,
             Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
         };
@@ -254,22 +254,23 @@ impl Engine {
             // Re-read the aggregate at the wait's own end, before any
             // probe: a row recorded during the slices can hold every
             // cooled site past the end sampled before them.
-            end = match self.cool_down_end(waits) {
+            let now = self.now();
+            end = match self.cool_down_end(waits, now) {
                 Ok(end) => end,
                 Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
             };
-            if end <= self.now() {
+            if end <= now {
                 break;
             }
         }
         Ok(WaitRound::Waited)
     }
 
-    /// Does any cooled site still stand in an aggregate at `now`: the
-    /// re-read after the probes and before the retry, and a store refusal
-    /// parks by its own words.
+    /// Does any cooled site still stand in an aggregate at `now`, a row or
+    /// a standing probe hold: the re-read after the probes and before the
+    /// retry, and a store refusal parks by its own words.
     fn aggregate_in_force(&self, waits: &[ProviderWait]) -> Result<bool, CooldownError> {
-        Ok(!self.cool_down_aggregates(waits)?.is_empty())
+        Ok(!self.cool_down_aggregates(waits, self.now())?.is_empty())
     }
 
     /// One round's probes in declared order: every answer, the first
@@ -292,8 +293,9 @@ impl Engine {
             if self.moved_from_the_effect()? {
                 return Ok(ProbeRound::Stopped);
             }
-            match self.cool_down_end(waits) {
-                Ok(end) if end <= self.now() => {}
+            let now = self.now();
+            match self.cool_down_end(waits, now) {
+                Ok(end) if end <= now => {}
                 Ok(_) => return Ok(ProbeRound::Held),
                 Err(error) => return Ok(ProbeRound::Parked(park_of(&error))),
             }
@@ -460,35 +462,49 @@ impl Engine {
         }
     }
 
-    /// The wait's end: the latest of every recorded wait's own `until` and
-    /// the store's aggregate for its provider and route. A store refusal
-    /// parks by its own words, never as an absent aggregate (decision 0103
-    /// ruling 2(a)); a version 1, 2 or 3 journal answers none, so the
-    /// event's own `until` stands.
+    /// The wait's end at `now`: the latest of every recorded wait's own
+    /// `until` and the store's aggregate for its provider and route. A
+    /// standing probe hold has no end a clock reaches, and its stored end is
+    /// a readout, so its route is held one slice past `now` and read again
+    /// then, each slice waited counted as the episode's: it never reads open
+    /// at `now`, whatever its stored end (fix round 0106b1r13, H1). A store
+    /// refusal parks by its own words, never as an absent aggregate
+    /// (decision 0103 ruling 2(a)); a version 1, 2 or 3 journal answers
+    /// none, so the event's own `until` stands.
     pub(super) fn cool_down_end(
         &self,
         waits: &[ProviderWait],
+        now: OffsetDateTime,
     ) -> Result<OffsetDateTime, CooldownError> {
         let mut end = waits
             .iter()
             .map(|wait| wait.until)
             .max()
             .expect("a wait to take");
-        for aggregate in self.cool_down_aggregates(waits)? {
-            end = end.max(aggregate.until);
+        for aggregate in self.cool_down_aggregates(waits, now)? {
+            let held = match aggregate.probe {
+                true => now + SLICE,
+                false => aggregate.until,
+            };
+            end = end.max(held);
         }
         Ok(end)
     }
 
-    /// Every unexpired aggregate the cooled sites stand at, at `now`, or
-    /// the park reason a store refusal gives.
+    /// Every aggregate the cooled sites stand at, at `now`, through the
+    /// gates' own in-force read: every unexpired row and every standing
+    /// probe hold, another run's or an earlier drive's of this run alike.
+    /// This drive's own probe never stands while its wait reads: its answer
+    /// or settled end ends its hold, its renewed round's commit ends it, and
+    /// any other end parks. A store refusal gives the park reason.
     fn cool_down_aggregates(
         &self,
         waits: &[ProviderWait],
+        now: OffsetDateTime,
     ) -> Result<Vec<CooldownAggregate>, CooldownError> {
         let mut aggregates = Vec::new();
         for wait in waits {
-            match self.store.cooldown(&wait.provider, &wait.route, self.now()) {
+            match self.store.cooldown(&wait.provider, &wait.route, now) {
                 Ok(Some(aggregate)) => aggregates.push(aggregate),
                 Ok(None) => {}
                 Err(source) => {
