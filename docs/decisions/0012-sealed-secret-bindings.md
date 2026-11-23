@@ -150,6 +150,8 @@ while it appends the terminal event and any park due on that ending, then
 tells it after those appends. A terminal event held for journal contention
 keeps its tail until the event lands and its turn's appends finish.
 
+**2026-11-21, pointer (#1242; accepted 2026-11-23).** How a built-in fold reads a stream row that layer 5 masks, its structure raw and its text masked, is decided in [0114](0114-a-fold-reads-a-rows-structure-as-written-and-its-text-masked.md).
+
 ## Addendum — 2026-11-21, accepted under the operator's standing ruling of 2026-11-04: the union of every occurrence is masked (#1213)
 
 Layer 5 replaced each match as a left-to-right scan found it, longest
