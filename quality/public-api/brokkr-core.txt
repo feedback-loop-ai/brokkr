@@ -1013,6 +1013,7 @@ pub fn brokkr_core::policy::Rule::reads_visits(&self) -> alloc::vec::Vec<&str>
 impl brokkr_core::policy::Rule
 pub fn brokkr_core::policy::Rule::when_words(&self) -> alloc::vec::Vec<alloc::string::String>
 pub const brokkr_core::policy::BOOLEAN_INPUTS: [&str; 8]
+pub const brokkr_core::policy::CHANGE: &str
 pub const brokkr_core::policy::CONSECUTIVE_FAILURES: &str
 pub const brokkr_core::policy::COUNTER_INPUTS: [&str; 1]
 pub const brokkr_core::policy::DRIFT_PHASES: [&str; 3]

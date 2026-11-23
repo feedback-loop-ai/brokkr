@@ -10,7 +10,7 @@ use std::path::Path;
 use brokkr_core::envelope::EventType;
 use brokkr_core::findings::{bind_journaled, CheckedHead, ResidualPair};
 use brokkr_core::fold::{computed_inputs, RunState};
-use brokkr_core::policy::{Outcome, CONSECUTIVE_FAILURES, VISIT_PREFIX};
+use brokkr_core::policy::{Outcome, CHANGE, CONSECUTIVE_FAILURES, VISIT_PREFIX};
 use brokkr_core::realms::LEGACY_REALM_KEY;
 use serde_json::{json, Map, Value};
 
@@ -274,8 +274,8 @@ fn schema_problem(seat: &Seat, raw_result: &Value) -> Option<String> {
             Some(_) => object
                 .get("inputs")
                 .and_then(Value::as_object)
-                .and_then(|inputs| inputs.get("change"))
-                .filter(|_| seat.inputs.iter().any(|input| input == "change"))
+                .and_then(|inputs| inputs.get(CHANGE))
+                .filter(|_| seat.inputs.iter().any(|input| input == CHANGE))
                 .and_then(|value| match value.as_str() {
                     Some(change) if brokkr_core::policy::is_identifier(change) => None,
                     _ => Some(format!(
