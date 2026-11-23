@@ -33,9 +33,9 @@ Changes merged since v0.15.2 that the next release's notes carry.
   is one turn, and a denial once seen stands. Grants ride one
   `--settings` value, and one `PreToolUse` hook, `brokkr driver agy --
   --gate`, denies every tool outside the level-1 list, web search
-  included. A workspace carrying agy's own `.agents` configuration up to
-  where agy's walk ends, a `.git` file or the root git names, is refused
-  before spawn. `BROKKR_AGY_BIN` overrides the binary. The cold and replacement
+  included. A workspace carrying agy's own `.agents` configuration in the
+  working directory or any directory above it, through the filesystem
+  root, past where agy's walk ends, is refused before spawn. `BROKKR_AGY_BIN` overrides the binary. The cold and replacement
   shapes without hands are measured on Linux, so an agy seat compiles
   there ([provider
   adapters](../guides/provider-adapters.md#antigravity-cli-a-provisional-harness)).

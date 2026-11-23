@@ -64,6 +64,10 @@ fn an_empty_working_directory_is_the_drivers_own_resolved() {
         return;
     }
     let cwd = tempfile::tempdir().unwrap();
+    // The rerun inherits this process's environment, so it is read under
+    // the guard: no concurrent test's `PATH`, which the fake agy needs to
+    // find `cat`, reaches it.
+    let _env = crate::env_guard::EnvGuard::lock();
     let rerun = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", EMPTY_WORKDIR, "--test-threads=1"])
         .current_dir(cwd.path())

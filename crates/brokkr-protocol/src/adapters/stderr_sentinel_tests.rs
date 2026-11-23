@@ -128,6 +128,10 @@ fn driver(kind: AdapterKind) -> Command {
 
 fn served(mut child: Command, extra: &[String], input: Value) -> Output {
     let (hello, start) = start::hello_and_start(input);
+    // The driver inherits this process's environment, so it is read under
+    // the guard: no concurrent test's `PATH`, which the staged harnesses
+    // need to find `cat`, reaches it.
+    let _env = crate::env_guard::EnvGuard::lock();
     let mut child = child
         .env(ARGS, serde_json::to_string(extra).unwrap())
         .spawn()
