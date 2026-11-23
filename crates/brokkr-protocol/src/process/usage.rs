@@ -18,6 +18,9 @@ use std::time::Duration;
 use super::table::Entry;
 use crate::AttemptUsage;
 
+mod now;
+pub use now::{trees_now, TreeNow};
+
 /// The span a peak load is read over: the most cores the tree kept busy
 /// across any second of its ticks.
 const WINDOW: Duration = Duration::from_secs(1);

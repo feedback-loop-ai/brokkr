@@ -63,10 +63,14 @@ use crate::realms::WorldError;
 mod awaited;
 pub(crate) mod capacity;
 mod cooling;
+mod demand;
 mod governing;
 mod host;
 
 use awaited::{awaiting, came_to, observe, otherwise, unmerged, unstarted};
+pub use demand::{
+    measurable, measure_now, Available, Driven, Measurement, Unmeasured, Use, WINDOW,
+};
 
 pub(crate) use capacity::Unclaimed;
 pub use capacity::{Capacity, Host, Measured, Room, Shared, Unmeasurable};
