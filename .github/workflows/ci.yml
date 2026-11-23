@@ -327,10 +327,13 @@ jobs:
   # every instrumented shard one after another, 46 to 66 minutes on a
   # hosted runner, past 75 on a slow one. Each machine measures the shards
   # scripts/test-shards.sh lays on it, one after another, and hands the
-  # report its merged profile; the machines run at once.
+  # report its merged profile; the machines run at once. They run on the
+  # push to main too, unlike the test machines: their instrumented build is
+  # made only by scripts/coverage-exact.sh as it measures, so measuring on
+  # main is what saves the caches a merge group's and a pull request's
+  # coverage jobs restore (#1295).
   coverage-machines:
     name: exact coverage on ${{ matrix.machine }}
-    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -417,12 +420,11 @@ jobs:
   # The exact gate itself: every machine's profile, merged over the same
   # instrumented build, and judged whole. It runs whatever the machines
   # ended with, `always()`, because a skipped job reports success to a
-  # required check, and refuses unless every machine passed. On `push` the
-  # machines skip by design, so the gate skips with them (#1295).
+  # required check, and refuses unless every machine passed.
   coverage:
     name: exact coverage gate
     needs: coverage-machines
-    if: always() && github.event_name != 'push'
+    if: always()
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     # 30, not the usual 20: it rebuilds the instrumented binaries, about 5
     # minutes on a hosted runner, then runs the ratchets.
@@ -842,10 +844,13 @@ jobs:
   # architecture and a hash of the toolchain and its CARGO and RUST
   # variables, so `shared-key: engine-machines` here saves the very key
   # engine-machines restores. `format, clippy, contracts` and the release
-  # binary run on `push` themselves and save their own. An exact hit means
-  # main already holds this key, so the build is skipped. Not warmed: the
-  # coverage jobs' instrumented build, which only scripts/coverage-exact.sh
-  # makes, under a key it computes itself.
+  # binary run on `push` themselves and save their own, and so do the
+  # coverage machines and gate: their rust-cache keys, the
+  # `brokkr-coverage-<system>-<hash>` cache of the instrumented build and
+  # bubblewrap's build cache. An exact hit means main already holds this
+  # key, so the build is skipped. Not saved on `push` any more: the
+  # baseline ratchets' jscpd install, now pr-gates.yml's, which a pull
+  # request's own run saves for itself.
   pr-caches:
     name: pull-request cache (${{ matrix.key }}, ${{ matrix.os }})
     if: github.event_name == 'push'

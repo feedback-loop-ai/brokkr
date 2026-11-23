@@ -1439,11 +1439,15 @@ fn every_job_behaves_deliberately_in_a_merge_group() {
 
 /// The jobs of ci.yml that run on the push of a commit to `main` (#1295),
 /// in file order: the fast gates, so the README's badge reads a verdict
-/// on main, and the builds that save the caches a pull request's run
-/// restores. Everything else that commit already passed in the queue.
-const JOBS_ON_PUSH: [&str; 7] = [
+/// on main, and the builds that save the caches a merge group's and a
+/// pull request's run restore. The coverage machines and gate are among
+/// them because only their measurement makes the instrumented build their
+/// caches hold. Everything else that commit already passed in the queue.
+const JOBS_ON_PUSH: [&str; 9] = [
     "msrv",
     "quality",
+    "coverage-machines",
+    "coverage",
     "license-compliance",
     "lint-non-rust",
     "dependency-audit",
@@ -1451,19 +1455,23 @@ const JOBS_ON_PUSH: [&str; 7] = [
     "pr-caches",
 ];
 
-/// What no step on the push to `main` may run: the suite, its coverage,
-/// the CPU and bootstrap benches, or a test that is not `--no-run`.
-const NOT_ON_PUSH_RUNS: [&str; 4] = [
+/// What no step on the push to `main` may run: the suite, the CPU and
+/// bootstrap benches, or a test that is not `--no-run`.
+const NOT_ON_PUSH_RUNS: [&str; 3] = [
     "scripts/test-shards.sh",
-    "scripts/coverage-exact.sh",
     "cargo bench",
     "scripts/bootstrap-bench.sh",
 ];
 
+/// The jobs whose steps may run the coverage measurement on the push to
+/// `main`: the coverage machines and gate, which save its caches.
+const COVERAGE_ON_PUSH: [&str; 2] = ["coverage-machines", "coverage"];
+
 /// The push to `main` after each merge runs only what it uniquely feeds
 /// (#1295): `JOBS_ON_PUSH`, none of whose steps on `push` runs a test,
-/// coverage, Callgrind or bootstrap measure. And every required check's
-/// job still runs on a pull request, and runs or reports in a merge group.
+/// Callgrind or bootstrap measure, and only the coverage jobs the coverage
+/// measurement. And every required check's job still runs on a pull
+/// request, and runs or reports in a merge group.
 #[test]
 fn the_push_to_main_runs_only_what_it_uniquely_feeds() {
     let root = workspace();
@@ -1488,7 +1496,9 @@ fn the_push_to_main_runs_only_what_it_uniquely_feeds() {
             for line in step {
                 assert!(
                     !NOT_ON_PUSH_RUNS.iter().any(|run| line.contains(run))
-                        && (!line.contains("cargo test") || line.contains("--no-run")),
+                        && (!line.contains("cargo test") || line.contains("--no-run"))
+                        && (!line.contains("scripts/coverage-exact.sh")
+                            || COVERAGE_ON_PUSH.contains(&id.as_str())),
                     "{id} runs `{}` on the push to main",
                     line.trim()
                 );
@@ -1509,6 +1519,125 @@ fn the_push_to_main_runs_only_what_it_uniquely_feeds() {
             ),
             "{check} neither runs nor reports in a merge group"
         );
+    }
+}
+
+/// Where `pr-caches` fails to warm the very cache a job restores, one
+/// problem a line (#1295). Its matrix keys and its `case` arms are the same
+/// set; its rust-cache step is keyed by the entry's key; and each key names
+/// a ci.yml job on the entry's system, on the same toolchain, keyed by its
+/// own id (no other `shared-key`), whose build, `--no-run` aside, is the
+/// arm's: in its own steps, or in scripts/test-shards.sh, which the test
+/// machines run.
+fn pr_caches_unbound(ci: &str, shards: &str) -> Vec<String> {
+    let jobs = workflow::jobs(ci);
+    let body = |id: &str| {
+        jobs.iter()
+            .find(|(seen, _)| seen == id)
+            .map(|(_, body)| body.as_str())
+    };
+    let Some(warm) = body("pr-caches") else {
+        return vec!["ci.yml has no pr-caches job".to_string()];
+    };
+    let lines: Vec<&str> = warm.lines().map(str::trim).collect();
+    let entries: Vec<(&str, &str)> = lines
+        .windows(2)
+        .filter_map(|pair| {
+            Some((
+                pair[0].strip_prefix("- key: ")?,
+                pair[1].strip_prefix("os: ")?,
+            ))
+        })
+        .collect();
+    let arms: BTreeMap<&str, &str> = lines
+        .iter()
+        .filter_map(|line| {
+            let (key, command) = line.strip_suffix(" ;;")?.split_once(") ")?;
+            (key != "*").then_some((key, command))
+        })
+        .collect();
+    let toolchain = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter_map(|line| line.trim().strip_prefix("toolchain: "))
+            .map(String::from)
+            .collect()
+    };
+    let mut problems = Vec::new();
+    if !lines.contains(&"shared-key: ${{ matrix.key }}") {
+        problems.push("pr-caches' rust-cache is not keyed by its entry's key".to_string());
+    }
+    let keys: std::collections::BTreeSet<&str> = entries.iter().map(|(key, _)| *key).collect();
+    if keys != arms.keys().copied().collect() {
+        problems.push(format!(
+            "pr-caches warms {keys:?} and builds {:?}",
+            arms.keys()
+        ));
+    }
+    for (key, os) in entries {
+        let Some(job) = body(key) else {
+            problems.push(format!("pr-caches warms {key}, and ci.yml has no such job"));
+            continue;
+        };
+        if !job.contains("Swatinem/rust-cache@") {
+            problems.push(format!("{key} restores no rust-cache"));
+        }
+        let mut shared = job
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("shared-key: "));
+        if let Some(other) = shared.find(|shared| *shared != key) {
+            problems.push(format!(
+                "{key}'s rust-cache is keyed {other}, not by its id"
+            ));
+        }
+        if !job.contains(os) {
+            problems.push(format!(
+                "pr-caches warms {key} on {os}, and {key} does not run there"
+            ));
+        }
+        if toolchain(job) != toolchain(warm) {
+            problems.push(format!("{key}'s toolchain is not pr-caches' toolchain"));
+        }
+        let build = arms
+            .get(key)
+            .map(|command| command.replace(" --no-run", ""));
+        let source = if job.contains("scripts/test-shards.sh") {
+            format!("{job}{shards}")
+        } else {
+            job.to_string()
+        };
+        if !build.is_some_and(|build| source.contains(&build)) {
+            problems.push(format!(
+                "pr-caches' build for {key} is not what {key} builds"
+            ));
+        }
+    }
+    problems
+}
+
+/// `pr-caches` warms the very key and build each job it names restores
+/// (#1295), so a renamed job, another `shared-key` or a changed build
+/// cannot leave a cache unwarmed unseen. Two altered copies are the
+/// control: an entry naming no job, and a build that is not the job's.
+#[test]
+fn pr_caches_warms_each_jobs_own_cache() {
+    let root = workspace();
+    let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
+    let shards = std::fs::read_to_string(root.join("scripts/test-shards.sh")).unwrap();
+    assert_eq!(pr_caches_unbound(&ci, &shards), Vec::<String>::new());
+    let altered = [
+        (
+            "          - key: packaging\n",
+            "          - key: packages\n",
+        ),
+        (
+            "bootstrap-budgets-macos) cargo build --release --locked -p brokkr-cli ;;",
+            "bootstrap-budgets-macos) cargo build --release --locked -p brokkr-core ;;",
+        ),
+    ];
+    for (from, to) in altered {
+        assert_eq!(ci.matches(from).count(), 1, "{from}");
+        let problems = pr_caches_unbound(&ci.replace(from, to), &shards);
+        assert!(!problems.is_empty(), "{to} passes");
     }
 }
 
