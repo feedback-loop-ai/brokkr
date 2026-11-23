@@ -967,7 +967,7 @@ fn chief_capacity_integral_notation_reads_the_same_capacity() {
             "/boxed_builds/ceiling",
             json!(1.0),
             1,
-            |host| u64::from(host.boxed_builds.ceiling.get()),
+            |host| u64::from(host.boxed_builds.unwrap().ceiling.get()),
         ),
         (
             "floor bytes",
@@ -1105,7 +1105,7 @@ fn schema_valid_fractional_mantissa_with_exponent_reads_exactly() {
             "{schema} route ceiling"
         );
         assert_eq!(
-            u64::from(loaded.boxed_builds.ceiling.get()),
+            u64::from(loaded.boxed_builds.unwrap().ceiling.get()),
             5,
             "{schema} boxed ceiling"
         );

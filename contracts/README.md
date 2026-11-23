@@ -1058,6 +1058,28 @@ reads, and every entry the capacity checks would judge waits as
 `runs_undeclared` until the operator declares one, which `brokkr doctor`
 names. This amends decision 0068 ruling 3.
 
+Decision 0125 ruling 7 (#1193, proposed) adds `forge.host/v5` beside the
+frozen v4, whose bytes did not move. It is v4 with `runs` and
+`boxed_builds` each OPTIONAL, and one OPTIONAL object, `demand`:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The machine's host configuration sized by demand | `host.v5.schema.json` | brokkr-runtime (`admission/host.rs`, the loader, and `admission/host/demand.rs`; held to this file by test), `brokkr queue list` and `judge`, `brokkr queue dispatch`, `brokkr doctor` |
+
+`demand` is closed, and every key in it is optional: `window_runs`, from 1
+to 1000 (20 when absent), how many of a recipe's latest runs that carry
+`effect-usage/v1` its demand averages; `margin_percent`, from 0 to 1000
+(25 when absent), the margin added over that average; and `recipes`, a
+recipe name to its declared `peak_memory_bytes` and
+`peak_load_millicores`, each at least 1, read only while the recipe has
+no measured run. An absent `boxed_builds` declares no boxed-build
+ceiling. Where the machine's availability is measured (Linux), an absent
+`runs` holds nothing; where it is not, every entry the capacity checks
+would judge waits as `runs_undeclared`, as under v1 to v3. The loader
+refuses a v1 to v4 file that writes `demand` or leaves out
+`boxed_builds`, each naming its version, and a window or margin out of
+range; every v1 to v4 file reads with the defaults.
+
 The same slice adds one more file and changes none of the bytes above —
 `run-manifest.v12`'s included, which is now pinned by digest beside the
 frozen files:

@@ -225,6 +225,13 @@ const FROZEN: [(&str, &str); 41] = [
         "contracts/host.v4.schema.json",
         "87db9ec8fd5833a07c3e70a79fa60726c50f9060390618e480e072ff915d76d6",
     ),
+    // Decision 0125 ruling 7 mints `forge.host/v5` beside v4, whose bytes
+    // did not move: v5 makes the run and boxed-build ceilings optional and
+    // adds the optional demand block, pinned from birth.
+    (
+        "contracts/host.v5.schema.json",
+        "06933cc4d393bcffbd1e15b300a3c3c086527ea96145a0ea61db27b92707bb13",
+    ),
     // Decision 0103 ruling 2(a) mints the provider-wait extension beside
     // the frozen event vocabulary; its bytes are pinned from birth. Fix
     // round 430s4c3 adds `effect/failed.refused`, so the unreleased file

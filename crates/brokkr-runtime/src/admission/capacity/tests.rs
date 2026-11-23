@@ -532,7 +532,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         with("/floors", json!([floor(1), floor(2)]))
     };
     let cases = [
-        (unknown, "unknown field `pause`, expected one of `schema`, `providers`, `floors`, `boxed_builds`, `runs`, `cooldowns`, `containment` at line 1 column 92"),
+        (unknown, "unknown field `pause`, expected one of `schema`, `providers`, `floors`, `boxed_builds`, `runs`, `demand`, `cooldowns`, `containment` at line 1 column 92"),
         (keyed, "unknown field `burst`, expected `ceiling` or `routes` at line 1 column 114"),
         (with("/providers/alpha/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 119"),
         (with("/providers/alpha/ceiling", json!(-1)), "invalid value: integer `-1`, expected a nonzero u32 at line 1 column 120"),
@@ -549,7 +549,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         (with("/floors/0", json!({"floor_bytes": 1, "place": "temp", "size": 1})), "unknown field `size`, expected one of `floor_bytes`, `path`, `place` at line 1 column 78"),
         (twice(json!({"place": "temp"})), "the floor at place 'temp' is written twice at line 1 column 106"),
         (twice(json!({"path": "/var/tmp"})), "the floor at path '/var/tmp' is written twice at line 1 column 112"),
-        (with("/schema", json!("forge.host/v5")), "unknown variant `forge.host/v5`, expected one of `forge.host/v1`, `forge.host/v2`, `forge.host/v3`, `forge.host/v4` at line 1 column 199"),
+        (with("/schema", json!("forge.host/v6")), "unknown variant `forge.host/v6`, expected one of `forge.host/v1`, `forge.host/v2`, `forge.host/v3`, `forge.host/v4`, `forge.host/v5` at line 1 column 199"),
         (with("/providers/beta/routes", json!({"spark-glm": route(1, "local")})), "unknown variant `local`, expected `cloud` or `shared-local` at line 1 column 190"),
     ];
     let said: Vec<String> = cases

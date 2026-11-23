@@ -1,5 +1,5 @@
 //! The machine's capacity as its operator declares it (decision 0068
-//! ruling 3, and ruling 5's data): `forge.host/v1` to `forge.host/v4`,
+//! ruling 3, and ruling 5's data): `forge.host/v1` to `forge.host/v5`,
 //! one file per machine and never a realm's (the
 //! operator's ruling of 2026-10-10, option B). A machine has one scratch
 //! disk, one set of provider accounts and its own local hardware, whichever
@@ -26,7 +26,8 @@
 //! `forge.host/v3` adds one optional shared-local deadline floor, whose
 //! reading and refusals are [`floor`]'s (decision 0104 ruling 1(a)), and
 //! `forge.host/v4` a required run ceiling, [`runs`]'s (decision 0110
-//! ruling 7).
+//! ruling 7), which `forge.host/v5` makes optional with its demand block,
+//! [`demand`]'s (decision 0125 ruling 7).
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -40,11 +41,14 @@ use thiserror::Error;
 
 use crate::capabilities::manifest::present;
 
+pub(crate) mod demand;
 mod floor;
+mod free;
 mod runs;
 mod shape;
 
 pub use floor::{declared_routes, HostRoutes, RouteDecl};
+pub use free::free_bytes;
 pub use runs::runs_undeclared;
 use shape::Integral;
 
@@ -58,9 +62,11 @@ pub(crate) struct HostConfig {
     schema: Schema,
     pub(crate) providers: BTreeMap<String, Provider>,
     pub(crate) floors: Floors,
-    pub(crate) boxed_builds: Ceiling,
+    /// `None` where a v5 file declares none (decision 0125 ruling 7).
+    pub(crate) boxed_builds: Option<Ceiling>,
     /// `None` where the file declares no run ceiling: a v1, v2 or v3 file.
     pub(crate) runs: Option<NonZeroU32>,
+    pub(crate) demand: demand::Demand,
     /// `None` where the file declares no cool-downs (a v1 file, or a v2
     /// file without the block), so a rate-limit refusal parks.
     cooldowns: Option<Cooldowns>,
@@ -77,6 +83,8 @@ enum Schema {
     V3,
     #[serde(rename = "forge.host/v4")]
     V4,
+    #[serde(rename = "forge.host/v5")]
+    V5,
 }
 
 /// A host configuration as either version writes it, before the
@@ -89,10 +97,12 @@ struct WrittenHost {
     #[serde(deserialize_with = "shape::strict_map")]
     providers: BTreeMap<String, shape::WrittenProvider>,
     floors: Floors,
-    #[serde(deserialize_with = "shape::object")]
-    boxed_builds: Ceiling,
+    #[serde(default, deserialize_with = "shape::present_object")]
+    boxed_builds: Option<Ceiling>,
     #[serde(default, deserialize_with = "shape::present_object")]
     runs: Option<Ceiling>,
+    #[serde(default, deserialize_with = "shape::present_object")]
+    demand: Option<demand::WrittenDemand>,
     #[serde(default, deserialize_with = "shape::present_object")]
     cooldowns: Option<WrittenCooldowns>,
     #[serde(default, deserialize_with = "shape::present_word")]
@@ -386,7 +396,7 @@ impl TryFrom<WrittenHost> for HostConfig {
                     return Err(problem);
                 }
             }
-            Schema::V3 | Schema::V4 => {
+            Schema::V3 | Schema::V4 | Schema::V5 => {
                 if written.containment == Some(Containment::Required) {
                     return Err(Problem::ContainmentRequired);
                 }
@@ -399,8 +409,9 @@ impl TryFrom<WrittenHost> for HostConfig {
             schema: written.schema,
             providers,
             floors: written.floors,
-            boxed_builds: written.boxed_builds,
+            boxed_builds: demand::boxed(written.schema, written.boxed_builds)?,
             runs,
+            demand: demand::read(written.schema, written.demand)?,
             cooldowns,
         };
         if let Some(cooldowns) = &config.cooldowns {
@@ -637,6 +648,10 @@ pub enum Problem {
     /// A run ceiling missing or early, in the runs module's own words.
     #[error(transparent)]
     Runs(#[from] runs::Problem),
+    /// A demand block or a boxed-build ceiling, in the demand module's own
+    /// words (decision 0125 ruling 7).
+    #[error(transparent)]
+    Demand(#[from] demand::Problem),
     /// Decision 0080's `required`, which is not built yet (#472).
     #[error("containment required is decision 0080's, not built yet (#472)")]
     ContainmentRequired,
@@ -684,6 +699,7 @@ impl Problem {
             | Problem::RouteUndeclared { .. } => "forge.host/v2",
             Problem::Floor(_) => "forge.host/v3",
             Problem::Runs(problem) => problem.contract(),
+            Problem::Demand(problem) => problem.contract(),
         }
     }
 }
@@ -772,22 +788,6 @@ fn unreached(file: &Path) -> Option<ErrorKind> {
     there
         .and_then(|dir| std::fs::metadata(dir).err())
         .map(|error| error.kind())
-}
-
-/// The bytes free to an unprivileged writer on the filesystem holding
-/// `path`, or that would hold it once made: that of its deepest component
-/// that is there, since a seat's scratch tree is made when its attempt
-/// starts. Only a component with nothing at it is passed over: one that
-/// is a link that dangles or loops is there, and cannot be measured,
-/// never measured on its parent's filesystem. The free-space probe
-/// production admission measures with.
-pub fn free_bytes(path: &Path) -> io::Result<u64> {
-    let there = (path.ancestors()).find_map(|at| match std::fs::symlink_metadata(at) {
-        Err(absent) if absent.kind() == ErrorKind::NotFound => None,
-        reached => Some(reached.map(|_| at)),
-    });
-    let stat = rustix::fs::statvfs(there.unwrap_or(Ok(path))?)?;
-    Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
 }
 
 #[cfg(test)]

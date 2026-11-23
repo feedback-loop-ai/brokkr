@@ -315,10 +315,13 @@ fn ceilings<'a>(
 }
 
 /// For an entry that builds in a box, the boxed builds running below
-/// their ceiling.
+/// their ceiling, where the host file declares one.
 fn boxed(config: &HostConfig, running: &Running, boxed: bool) -> Result<(), Capacity> {
-    match (boxed, config.boxed_builds.ceiling.get()) {
-        (true, ceiling) if running.boxed >= ceiling as usize => Err(Capacity::BoxedFull {
+    match (
+        boxed,
+        config.boxed_builds.map(|ceiling| ceiling.ceiling.get()),
+    ) {
+        (true, Some(ceiling)) if running.boxed >= ceiling as usize => Err(Capacity::BoxedFull {
             running: running.boxed,
             ceiling,
         }),
