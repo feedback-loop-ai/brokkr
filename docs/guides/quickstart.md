@@ -534,7 +534,7 @@ graph
 
 That is Step 3's run, read back, with its seats and the middles of its
 trail and graph and its verdicts elided, and the `boundary` line, which is your host's:
-[the read surfaces](read-surfaces.md#brokkr-inspect--one-run-explained)
+[the read surfaces](read-surfaces.md#brokkr-runs-inspect--one-run-explained)
 show the whole readout.
 
 Six blocks, and each one answers a different question:
