@@ -451,7 +451,7 @@ pub fn brokkr_protocol::dsh_sandbox::sandbox_row(&str, &std::path::Path, &brokkr
 pub fn brokkr_protocol::dsh_sandbox::scope_refusal(&brokkr_protocol::dsh_sandbox::GitScope) -> core::option::Option<brokkr_protocol::dsh_sandbox::ScopeRefusal>
 pub fn brokkr_protocol::dsh_sandbox::stage_seat_store(&brokkr_protocol::dsh_sandbox::GitScope) -> core::result::Result<brokkr_protocol::dsh_sandbox::SeatGitStore, brokkr_protocol::dsh_sandbox::StoreError>
 pub mod brokkr_protocol::fake
-pub fn brokkr_protocol::fake::run_fake_driver(&std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&str>) -> core::io::error::Result<()>
+pub fn brokkr_protocol::fake::run_fake_driver(&std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&str>, &mut dyn alloc::io::buf_read::BufRead) -> core::io::error::Result<()>
 pub mod brokkr_protocol::hands
 pub enum brokkr_protocol::hands::BindMode
 pub brokkr_protocol::hands::BindMode::Overlay

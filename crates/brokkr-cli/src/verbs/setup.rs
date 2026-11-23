@@ -327,7 +327,14 @@ pub(crate) fn fake_driver(
         model,
         effort,
     }: FakeDriverArgs,
+    input: &mut dyn std::io::BufRead,
 ) -> Result<ExitCode> {
-    brokkr_protocol::fake::run_fake_driver(&script, &state, model.as_deref(), effort.as_deref())?;
+    brokkr_protocol::fake::run_fake_driver(
+        &script,
+        &state,
+        model.as_deref(),
+        effort.as_deref(),
+        input,
+    )?;
     Ok(Exit::Completed.into())
 }
