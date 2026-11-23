@@ -198,7 +198,7 @@ fn an_engine_run_of_an_agy_seat_answers_on_its_pin_under_an_engine_home() {
     let gate = format!(
         "'{}' 'driver' 'agy' '--' '--gate' 'read_file' 'write_file' 'edit_file' 'run_command' \
          'manage_task'",
-        env!("CARGO_BIN_EXE_brokkr")
+        crate::built::BIN
     );
     assert_eq!(hook["command"], gate);
     let home = logged(&root, "home.log");
@@ -357,12 +357,12 @@ fn an_engine_run_of_an_agy_print_timeout_journals_its_words() {
 #[test]
 fn the_gate_mode_answers_one_hook_call_by_the_tools_own_name() {
     let answer = |name: &str| {
-        let mut gate = std::process::Command::new(env!("CARGO_BIN_EXE_brokkr"))
-            .args(["driver", "agy", "--", "--gate", "read_file", "run_command"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
+        let mut gate =
+            crate::built::brokkr(["driver", "agy", "--", "--gate", "read_file", "run_command"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
         let call = json!({"hookEventName": "PreToolUse", "toolCall": {"name": name}});
         let mut stdin = gate.stdin.take().unwrap();
         stdin.write_all(call.to_string().as_bytes()).unwrap();
