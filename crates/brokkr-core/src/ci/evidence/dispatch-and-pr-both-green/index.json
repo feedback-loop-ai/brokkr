@@ -1,0 +1,152 @@
+{
+ "branch": "story-1221a-compile-refusals",
+ "files": [
+  {
+   "bytes": 249596,
+   "file": "check-runs.latest.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/commits/4f343ba2672ab423ae1e2205426d2a244e1348bd/check-runs?filter=latest&per_page=100&page=1",
+   "taken": "2026-11-21T17:32:39Z"
+  },
+  {
+   "bytes": 249596,
+   "file": "check-runs.all.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/commits/4f343ba2672ab423ae1e2205426d2a244e1348bd/check-runs?filter=all&per_page=100&page=1",
+   "taken": "2026-11-21T17:32:40Z"
+  },
+  {
+   "bytes": 2,
+   "file": "statuses.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/commits/4f343ba2672ab423ae1e2205426d2a244e1348bd/statuses?per_page=100&page=1",
+   "taken": "2026-11-21T17:32:40Z"
+  },
+  {
+   "bytes": 4893,
+   "file": "status.combined.json",
+   "path": "repos/feedback-loop-ai/brokkr/commits/4f343ba2672ab423ae1e2205426d2a244e1348bd/status",
+   "taken": "2026-11-21T17:32:41Z"
+  },
+  {
+   "bytes": 45201,
+   "file": "runs.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs?head_sha=4f343ba2672ab423ae1e2205426d2a244e1348bd&per_page=100&page=1",
+   "taken": "2026-11-21T17:32:41Z"
+  },
+  {
+   "bytes": 14947,
+   "file": "run.44926784147.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44926784147",
+   "taken": "2026-11-21T17:32:41Z"
+  },
+  {
+   "bytes": 14969,
+   "file": "run.44926784147.attempt1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44926784147/attempts/1",
+   "taken": "2026-11-21T17:32:42Z"
+  },
+  {
+   "bytes": 97469,
+   "file": "run.44926784147.attempt1.jobs.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44926784147/attempts/1/jobs?per_page=100&page=1",
+   "taken": "2026-11-21T17:32:42Z"
+  },
+  {
+   "bytes": 97469,
+   "file": "run.44926784147.jobs.latest.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44926784147/jobs?filter=latest&per_page=100&page=1",
+   "taken": "2026-11-21T17:32:44Z"
+  },
+  {
+   "bytes": 97469,
+   "file": "run.44926784147.jobs.all.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44926784147/jobs?filter=all&per_page=100&page=1",
+   "taken": "2026-11-21T17:32:45Z"
+  },
+  {
+   "bytes": 15113,
+   "file": "run.44924886791.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44924886791",
+   "taken": "2026-11-21T17:32:46Z"
+  },
+  {
+   "bytes": 15135,
+   "file": "run.44924886791.attempt1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44924886791/attempts/1",
+   "taken": "2026-11-21T17:32:46Z"
+  },
+  {
+   "bytes": 8031,
+   "file": "run.44924886791.attempt1.jobs.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44924886791/attempts/1/jobs?per_page=100&page=1",
+   "taken": "2026-11-21T17:32:47Z"
+  },
+  {
+   "bytes": 8031,
+   "file": "run.44924886791.jobs.latest.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44924886791/jobs?filter=latest&per_page=100&page=1",
+   "taken": "2026-11-21T17:32:47Z"
+  },
+  {
+   "bytes": 8031,
+   "file": "run.44924886791.jobs.all.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44924886791/jobs?filter=all&per_page=100&page=1",
+   "taken": "2026-11-21T17:32:48Z"
+  },
+  {
+   "bytes": 15103,
+   "file": "run.44924886779.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44924886779",
+   "taken": "2026-11-21T17:32:48Z"
+  },
+  {
+   "bytes": 15125,
+   "file": "run.44924886779.attempt1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44924886779/attempts/1",
+   "taken": "2026-11-21T17:32:49Z"
+  },
+  {
+   "bytes": 101535,
+   "file": "run.44924886779.attempt1.jobs.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44924886779/attempts/1/jobs?per_page=100&page=1",
+   "taken": "2026-11-21T17:32:49Z"
+  },
+  {
+   "bytes": 101535,
+   "file": "run.44924886779.jobs.latest.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44924886779/jobs?filter=latest&per_page=100&page=1",
+   "taken": "2026-11-21T17:32:51Z"
+  },
+  {
+   "bytes": 101535,
+   "file": "run.44924886779.jobs.all.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44924886779/jobs?filter=all&per_page=100&page=1",
+   "taken": "2026-11-21T17:32:52Z"
+  },
+  {
+   "bytes": 24789,
+   "file": "commit.pulls.json",
+   "path": "repos/feedback-loop-ai/brokkr/commits/4f343ba2672ab423ae1e2205426d2a244e1348bd/pulls",
+   "taken": "2026-11-21T17:32:53Z"
+  },
+  {
+   "bytes": 24789,
+   "file": "pulls.open.on-head.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/pulls?state=open&head=feedback-loop-ai:story-1221a-compile-refusals&per_page=100&page=1",
+   "taken": "2026-11-21T17:32:54Z"
+  },
+  {
+   "bytes": 344,
+   "file": "rules.main.json",
+   "path": "repos/feedback-loop-ai/brokkr/rules/branches/main",
+   "taken": "2026-11-21T17:32:54Z"
+  },
+  {
+   "bytes": 1182,
+   "file": "protection.required_status_checks.json",
+   "path": "repos/feedback-loop-ai/brokkr/branches/main/protection/required_status_checks",
+   "taken": "2026-11-21T17:32:54Z"
+  }
+ ],
+ "label": "dispatch-and-pr-both-green",
+ "method": "GET only, gh api",
+ "sha": "4f343ba2672ab423ae1e2205426d2a244e1348bd"
+}

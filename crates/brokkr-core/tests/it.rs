@@ -3,6 +3,7 @@
 //! `<file>::<name>`, and brokkr-cli's `test_targets` refuses a file that
 //! is not.
 
+mod ci_evidence;
 mod committed_journals;
 mod differential;
 mod fold_test;

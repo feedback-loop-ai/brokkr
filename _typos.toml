@@ -16,6 +16,9 @@ extend-exclude = [
   # cargo-public-api's snapshots: generated signatures (`serde_core::ser`),
   # never prose (issue #338).
   "quality/public-api/",
+  # 0117a's captured forge payloads (#1093): GitHub's words, pinned by
+  # digest, never prose.
+  "crates/brokkr-core/src/ci/evidence/",
 ]
 
 [default]
