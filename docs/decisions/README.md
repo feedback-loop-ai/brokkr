@@ -216,8 +216,7 @@ cell; the row keeps the decision's own status and `Built` state.
 |---|---|
 | 0024 | Reserved on 2026-09-01 for an OSS-core scope decision that was never written. Decision 0029 was renumbered off it, as its erratum records, and 0025 ruling 7 cites that unwritten ruling. |
 | 0097 | Claimed by the open PR #899 for "What ships is what verification passed and review judged", which has not landed on this branch. This story's decision was renumbered to 0098; this row goes when #899 lands. |
-| 0114 | Claimed on #1242 for "a fold reads a stream row's structure as the harness wrote it" (#1271), whose story has not landed on this branch. This row goes when it lands. |
-| 0115 | Claimed on #1235 for "a boxed seat of a harness that does not fail closed is held closed by its driver" (#1262), which has not landed on this branch. #1230's shell completion moved off it to 0119. This row goes when it lands. |
+| 0115 | Claimed on #1235 for "a boxed seat of a harness that does not fail closed is held closed by its driver" (#1281), which has not landed on this branch. #1230's shell completion moved off it to 0119. This row goes when it lands. |
 | 0116 | Claimed by #1273 for "a work order says what is being built", which has not landed on this branch. This row goes when it lands. |
 
 ## How a decision is made
