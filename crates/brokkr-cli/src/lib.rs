@@ -90,7 +90,6 @@ enum Cmd {
     Ui(UiArgs),
     Tui(TuiArgs),
     Doctor(DoctorArgs),
-    Completions(completion::CompletionsArgs),
     Compile(CompileArgs),
     Run(RunArgs),
     Resume(ResumeArgs),
@@ -1328,7 +1327,6 @@ fn run_with(
         Cmd::Ui(args) => readouts::ui(workspace, args, serve_ui),
         Cmd::Tui(args) => readouts::tui(workspace, args, run_tui),
         Cmd::Doctor(args) => setup::doctor(args),
-        Cmd::Completions(args) => Ok(completion::script(args, &mut std::io::stdout().lock())),
         Cmd::Compile(args) => setup::compile(workspace, args),
         Cmd::Run(args) => delivery::run(workspace, args, &run_view::PRODUCTION),
         Cmd::Resume(args) => delivery::resume(workspace, args, &run_view::PRODUCTION),
@@ -1383,6 +1381,9 @@ fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode>
         GroupedCmd::Secrets { command } => setup::secrets(workspace, command),
         GroupedCmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
         GroupedCmd::Dispatch(args) => dispatch::dispatch(workspace, args, &mut std::io::stdout()),
+        GroupedCmd::Completions(args) => {
+            Ok(completion::script(args, &mut std::io::stdout().lock()))
+        }
     }
 }
 

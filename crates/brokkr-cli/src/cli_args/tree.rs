@@ -326,7 +326,7 @@ impl From<Root> for Cmd {
             Root::Watch(args) => Cmd::Watch(args),
             Root::Tui(args) => Cmd::Tui(args),
             Root::Doctor(args) => Cmd::Doctor(args),
-            Root::Completions(args) => Cmd::Completions(args),
+            Root::Completions(args) => Cmd::Grouped(GroupedCmd::Completions(args)),
             Root::Runs(family) => {
                 let RunsFamily { list, command } = *family;
                 command.map_or(Cmd::Runs(list), Cmd::from)

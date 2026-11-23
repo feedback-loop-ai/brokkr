@@ -674,6 +674,7 @@ pub(super) enum GroupedCmd {
     Secrets { command: SecretsCmd },
     Sweep(SweepArgs),
     Dispatch(DispatchArgs),
+    Completions(crate::completion::CompletionsArgs),
 }
 
 /// The MCP capability broker's one verb (decision 0077), and its private
