@@ -81,9 +81,10 @@ fn a_version_6_queue_migrates_to_version_7_and_keeps_its_cool_downs_ordinary() {
         kinds(&store.conn),
         vec![(None, None), (Some(1), Some(7200))]
     );
-    // And version 7's probe holds' table, empty.
+    // And version 7's probe holds' table, empty, taking a hold once the
+    // migrated row has ended.
     store
-        .hold_probe(&probe_hold("run-b", at(30)), at(0))
+        .hold_probe(&probe_hold("run-b", at(90)), at(60))
         .unwrap();
 }
 
@@ -150,9 +151,11 @@ fn a_probe_hold_is_in_force_until_it_ends_whatever_the_time() {
         );
     }
     assert_eq!(store.cooldown("codex", "first", at(10)).unwrap(), None);
-    let second = store
-        .hold_probe(&probe_hold("run-a", at(60)), at(0))
-        .unwrap();
+    // A second hold, on another route, for no hold is written beside a
+    // standing one (fix round 0106b1r13, H2).
+    let mut other = probe_hold("run-a", at(60));
+    other.route = "second";
+    let second = store.hold_probe(&other, at(0)).unwrap();
     store.end_probe_hold(Some(second), at(5)).unwrap();
     store.end_probe_hold(Some(second), at(6)).unwrap();
     store.end_probe_hold(None, at(6)).unwrap();
@@ -189,11 +192,13 @@ fn a_probe_hold_is_in_force_until_it_ends_whatever_the_time() {
 fn the_aggregate_joins_a_row_and_a_standing_hold_as_the_gates_do() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = journal(dir.path());
-    append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
     planted(&store, "run-b");
+    // The hold first: none is written over a row in force (H2). A terminal
+    // still lands its row over a standing hold.
     let hold = store
         .hold_probe(&probe_hold("run-b", at(30)), at(0))
         .unwrap();
+    append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
     let held = |now| store.cooldown("claude", "first", now).unwrap();
     let row = held(at(10)).unwrap();
     assert_eq!((row.until, row.probe), (at(60), true));
@@ -213,6 +218,62 @@ fn the_aggregate_joins_a_row_and_a_standing_hold_as_the_gates_do() {
     assert_eq!((ordinary.until, ordinary.probe), (at(60), false));
 }
 
+/// Fix round 0106b1r13, H2: no second hold is written while one stands, or
+/// while a cool-down is in force, on its route. Another run's hold, and an
+/// earlier attempt's of the same run, refuse a hold by name and write
+/// nothing; a hold on another route is written beside it; once the
+/// standing hold ends, or the row expires, the route takes one.
+#[test]
+fn no_second_hold_is_written_while_a_hold_or_a_row_holds_the_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    planted(&store, "run-b");
+    let first = store
+        .hold_probe(&probe_hold("run-a", at(30)), at(0))
+        .unwrap();
+    let mut later = probe_hold("run-a", at(30));
+    later.attempt_id = "a-2";
+    for hold in [probe_hold("run-b", at(30)), later] {
+        let refused = store.hold_probe(&hold, at(10)).unwrap_err();
+        let StoreError::Queue(QueueRefusal::ProbeHoldContended(contended)) = &refused else {
+            panic!("a contended hold was not refused by name: {refused:?}");
+        };
+        assert_eq!(contended.run_id, hold.run_id);
+        assert_eq!(
+            refused.to_string(),
+            format!(
+                "the journal's probe holds took no hold for run '{}' on claude/first: another \
+                 probe's hold or a cool-down already holds the route, so no probe runs on it \
+                 and nothing was written",
+                hold.run_id
+            )
+        );
+    }
+    assert_eq!(unended_holds(&store.conn), ["run-a"]);
+    let mut beside = probe_hold("run-b", at(30));
+    beside.route = "second";
+    store.hold_probe(&beside, at(10)).unwrap();
+    store.end_probe_hold(Some(first), at(11)).unwrap();
+    store
+        .hold_probe(&probe_hold("run-b", at(30)), at(12))
+        .unwrap();
+    assert_eq!(unended_holds(&store.conn), ["run-b", "run-b"]);
+    // A row in force holds the route as a hold does, until it expires.
+    append(&mut store, "run-a", &[row("a", "codex", "first", at(60))]).unwrap();
+    let mut cooled = probe_hold("run-a", at(90));
+    cooled.provider = "codex";
+    let refused = store.hold_probe(&cooled, at(59)).unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            StoreError::Queue(QueueRefusal::ProbeHoldContended(_))
+        ),
+        "{refused:?}"
+    );
+    store.hold_probe(&cooled, at(60)).unwrap();
+    assert_eq!(unended_holds(&store.conn), ["run-b", "run-b", "run-a"]);
+}
+
 /// Fix round 0106b1r12, S2: a settlement ends every hold of the run that
 /// names an attempt it proved, and no other: not another attempt's, nor
 /// the same attempt's of another run. A queue this binary does not write
@@ -222,9 +283,15 @@ fn a_settlement_ends_the_holds_of_the_attempts_it_proves_and_no_other() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = journal(dir.path());
     planted(&store, "run-b");
-    for (run, attempt) in [("run-a", "a-1"), ("run-a", "a-2"), ("run-b", "a-1")] {
+    // Each on its own route, for no hold is written beside a standing one.
+    let holds = [
+        ("run-a", "a-1", "first"),
+        ("run-a", "a-2", "second"),
+        ("run-b", "a-1", "third"),
+    ];
+    for (run, attempt, route) in holds {
         let mut hold = probe_hold(run, at(30));
-        hold.attempt_id = attempt;
+        (hold.attempt_id, hold.route) = (attempt, route);
         store.hold_probe(&hold, at(0)).unwrap();
     }
     store
@@ -258,9 +325,9 @@ fn a_settlement_ends_the_holds_of_the_attempts_it_proves_and_no_other() {
 fn a_settlement_the_table_does_not_write_refuses_and_ends_none() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = journal(dir.path());
-    for attempt in ["a-1", "a-2"] {
+    for (attempt, route) in [("a-1", "first"), ("a-2", "second")] {
         let mut hold = probe_hold("run-a", at(30));
-        hold.attempt_id = attempt;
+        (hold.attempt_id, hold.route) = (attempt, route);
         store.hold_probe(&hold, at(0)).unwrap();
     }
     store
@@ -516,7 +583,8 @@ fn the_kind_checks_refuse_a_kind_without_its_maximum() {
 fn a_round_the_table_does_not_write_refuses_and_leaves_its_hold_standing() {
     let dir = tempfile::tempdir().unwrap();
     let (mut store, event) = waited_journal(dir.path());
-    let hold = (store.hold_probe(&probe_hold("run-a", at(90)), at(0))).unwrap();
+    // The probe holds once the attempt's row has ended (H2).
+    let hold = (store.hold_probe(&probe_hold("run-a", at(90)), at(60))).unwrap();
     store
         .conn
         .execute_batch(
@@ -611,9 +679,9 @@ fn unended_holds(conn: &Connection) -> Vec<String> {
 fn a_hold_the_table_does_not_write_refuses_and_ends_no_other() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = journal(dir.path());
-    store
-        .hold_probe(&probe_hold("run-a", at(90)), at(0))
-        .unwrap();
+    let mut other = probe_hold("run-a", at(90));
+    other.route = "second";
+    store.hold_probe(&other, at(0)).unwrap();
     store
         .conn
         .execute_batch(

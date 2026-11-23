@@ -277,6 +277,7 @@ fn the_probe_names_a_cased_site_as_the_attempt_does() {
             panic!("the probe parked: {reason}")
         }
         super::super::probe::Probe::Extended(_) => panic!("the probe extended the wait"),
+        super::super::probe::Probe::Held => panic!("the probe was held from its route"),
     }
     assert_eq!(probe_seat(dir.path(), "work"), "work:chore");
 }

@@ -1002,6 +1002,9 @@ fn a_member_wait_resolves_the_declared_step_and_member_pair() {
         crate::engine::cooldown::probe::Probe::Extended(_) => {
             panic!("a:b:c extended a wait instead of answering")
         }
+        crate::engine::cooldown::probe::Probe::Held => {
+            panic!("a:b:c was held from its route instead of answering")
+        }
     }
     assert_eq!(logs(dir.path(), "c"), ["probe"]);
 }
@@ -1091,6 +1094,9 @@ fn a_sequence_wait_at_a_form_it_does_not_name_parks_by_name() {
             }
             crate::engine::cooldown::probe::Probe::Extended(_) => {
                 panic!("{site} extended a wait")
+            }
+            crate::engine::cooldown::probe::Probe::Held => {
+                panic!("{site} was held from its route")
             }
         }
     }

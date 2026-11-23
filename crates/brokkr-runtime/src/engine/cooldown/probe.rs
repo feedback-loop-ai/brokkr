@@ -11,7 +11,6 @@ use brokkr_core::park::Park;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::Cleanup;
-use brokkr_store::ProbeHold;
 use serde_json::Value;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -32,9 +31,12 @@ use crate::engine::sequence::{
 use crate::engine::{phase_of, Door, Selection, SiteSpawn};
 
 mod end;
+mod hold;
 mod reap;
 mod sequence;
 pub(in crate::engine) use end::cleanup_failure;
+#[cfg(test)]
+pub(super) use hold::before_hold_here;
 pub(super) use sequence::step_context;
 use sequence::{probe_member_invocation, refused_index, site_name, step_site};
 
@@ -219,55 +221,13 @@ impl Engine {
             )))));
         }
         if let Err(unheld) = self.hold_the_route((wait, &attempt), now, ends.ends) {
-            return Ok(Err(Probe::Parked(Park::ruled(format!(
-                "the cool-down probe for {}/{} was not dispatched: its route's hold was not \
-                 written: {unheld}",
-                wait.provider, wait.route
-            )))));
+            return Ok(Err(hold::unheld(wait, &unheld)));
         }
         Ok(Ok(AdmittedProbe {
             attempt,
             input,
             deadline: ends,
         }))
-    }
-
-    /// Hold the probe's route once it is reserved and before it is
-    /// dispatched (fix round 0106b1r4, F1, and the return of fix round
-    /// 0106b1r12; the operator's ruling of 2026-11-18, amending
-    /// decision 0103 ruling 2): one hold row, written at `now`, carrying the
-    /// provider, the route and the probe's `deadline`, a readout the store
-    /// keeps to the first whole second strictly after it (fix round
-    /// 0106b1r6, D1). The pass and the claim read it as cooling down until
-    /// its answer or its renewed round commits, or its probe's process tree
-    /// is settled; no clock or lock state ends it (fix round 0106b1r12, S1).
-    /// A hold the store refuses parks the probe unadmitted, so no probe
-    /// runs on a route it could not hold: one the table did not write, one
-    /// whose readout cannot be stored after its deadline, and one on a queue
-    /// this binary does not write, older than version 7 or a newer
-    /// binary's, which takes no hold (fix round 0106b1r9, E3). An engine's
-    /// own open moves a version 4 to 6 queue to version 7 before any probe.
-    /// The hold names `attempt`, the probe's own, so no later drive of the
-    /// run ends or adopts it as its own (fix round 0106b1r12, S3).
-    fn hold_the_route(
-        &mut self,
-        (wait, attempt): (&ProviderWait, &str),
-        now: OffsetDateTime,
-        deadline: OffsetDateTime,
-    ) -> Result<(), brokkr_store::StoreError> {
-        let hold = ProbeHold {
-            run_id: &self.run_id,
-            attempt_id: attempt,
-            site: wait.site.as_deref().unwrap_or(""),
-            provider: &wait.provider,
-            route: &wait.route,
-            deadline,
-        };
-        // Only a hold this insert returned is ever ended: one the store
-        // refuses, or did not write, leaves none (fix round 0106b1r6, D2).
-        self.cooldown.hold = None;
-        self.cooldown.hold = Some(self.store.hold_probe(&hold, now)?);
-        Ok(())
     }
 
     /// The dispatch one admitted probe composes under, at `site_name`: the
@@ -743,11 +703,12 @@ impl Engine {
 
 /// Whether `probe` hands its hold on to a renewed round, whose commit ends
 /// it in the same transaction (fix round 0106b1r5, H3): only a rate limit's
-/// next round does. An answer and a park end it at settlement.
+/// next round does. An answer and a park end it at settlement, and a probe
+/// another hold kept from its route wrote none.
 fn renews(probe: &Probe) -> bool {
     match probe {
         Probe::Extended(_) => true,
-        Probe::Answered(_) | Probe::Parked(_) => false,
+        Probe::Answered(_) | Probe::Parked(_) | Probe::Held => false,
     }
 }
 
@@ -775,10 +736,13 @@ pub(super) struct NextRound {
 }
 
 /// What a probe leaves: an answer, a rate-limit refusal's next round the
-/// caller judges and writes before waiting and probing again, or the
-/// park's reason.
+/// caller judges and writes before waiting and probing again, the park's
+/// reason, or no probe at all, another probe's hold or a cool-down having
+/// held its route when its own hold was to be written: the run waits on the
+/// route again (fix round 0106b1r13, H2).
 pub(super) enum Probe {
     Answered(ProbeAnswer),
     Extended(NextRound),
     Parked(Park),
+    Held,
 }

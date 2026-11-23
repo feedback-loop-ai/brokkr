@@ -309,6 +309,11 @@ impl Engine {
                 Probe::Answered(answer) => answers.push(self.settle_probe(answer)?),
                 Probe::Extended(round) => return Ok(ProbeRound::Extended(round)),
                 Probe::Parked(reason) => return Ok(ProbeRound::Parked(self.settle_probe(reason)?)),
+                // Another hold or a cool-down took the route between this
+                // read and the probe's own hold: no probe ran, its unused
+                // lease is settled, and the round waits again (fix round
+                // 0106b1r13, H2).
+                Probe::Held => return self.settle_probe(ProbeRound::Held),
             }
         }
         Ok(ProbeRound::Answered(answers))

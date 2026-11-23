@@ -1699,6 +1699,7 @@ fn probe_reason(engine: &mut Engine, report: brokkr_protocol::AttemptReport) -> 
         super::Probe::Parked(park) => park.reason().to_string(),
         super::Probe::Answered(_) => panic!("a probe that never answered is not an answer"),
         super::Probe::Extended(_) => panic!("a probe with no rate limit extended the wait"),
+        super::Probe::Held => panic!("a probe that ran was held from its route"),
     }
 }
 

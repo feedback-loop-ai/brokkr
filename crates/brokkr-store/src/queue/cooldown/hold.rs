@@ -14,7 +14,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use time::OffsetDateTime;
 
-use super::{time_of, Cooldown, LAST_SECOND};
+use super::{aggregate, time_of, Cooldown, LAST_SECOND};
 use crate::queue::storage::cool_downs_writable;
 use crate::queue::{QueueRefusal, UnsettledHold, UnwrittenHold};
 use crate::{patiently, Store, StoreError};
@@ -183,7 +183,10 @@ impl Store {
     /// ([`QueueRefusal::ProbeHoldUnwritten`]), so no probe runs on a hold
     /// believed written (fix round 0106b1r6, D2). A hold whose end cannot
     /// be stored strictly after its deadline refuses before any write
-    /// ([`QueueRefusal::ProbeHoldUnending`]; fix round 0106b1r9, E2).
+    /// ([`QueueRefusal::ProbeHoldUnending`]; fix round 0106b1r9, E2). A
+    /// route another standing hold or an unexpired cool-down holds at `now`,
+    /// as [`Store::cooldown`] reads it, refuses in the same transaction
+    /// ([`QueueRefusal::ProbeHoldContended`]; fix round 0106b1r13, H2).
     pub fn hold_probe(
         &mut self,
         hold: &ProbeHold<'_>,
@@ -203,6 +206,14 @@ impl Store {
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             if !cool_downs_writable(&tx)? {
                 return Err(QueueRefusal::ProbeHoldUnstorable(Box::new(unwritten())).into());
+            }
+            // The route as every reader judges it, read in this write's own
+            // transaction: another standing hold or an unexpired row holds
+            // it, so no second hold is written, and no reader can admit
+            // between the read and the insert (fix round 0106b1r13, H2).
+            let at = now.unix_timestamp();
+            if aggregate(&tx, hold.provider, hold.route, at)?.is_some() {
+                return Err(QueueRefusal::ProbeHoldContended(Box::new(unwritten())).into());
             }
             // The hold's id is the row this INSERT returns, never the
             // connection's last rowid, which an ignored insert leaves at an

@@ -203,6 +203,17 @@ pub enum QueueRefusal {
         .0.run_id, .0.provider, .0.route
     )]
     ProbeHoldUnstorable(Box<UnwrittenHold>),
+    /// A probe's hold on a route another probe's standing hold, or an
+    /// unexpired cool-down, already holds, read in the transaction that
+    /// would have written it (fix round 0106b1r13, H2): no second hold is
+    /// written while one stands, so the probe is not dispatched, and its
+    /// run waits on the route again.
+    #[error(
+        "the journal's probe holds took no hold for run '{}' on {}/{}: another probe's hold or a \
+         cool-down already holds the route, so no probe runs on it and nothing was written",
+        .0.run_id, .0.provider, .0.route
+    )]
+    ProbeHoldContended(Box<UnwrittenHold>),
     /// A settlement's end of a probe's hold the table took without writing
     /// it, as a trigger that ignores the update leaves it (the return of fix
     /// round 0106b1r12): the hold still stands, so the settlement is not

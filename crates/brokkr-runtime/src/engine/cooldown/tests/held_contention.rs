@@ -3,9 +3,10 @@
 //! each resumed at the end of its own held wait on the same route, now
 //! expired. Run `a`'s probe is held at its driver's barrier once its hold
 //! has committed and while its tree runs; run `b` is driven meanwhile.
-//! Whether `a`'s hold lands before `b`'s wait or before `b`'s retry,
-//! nothing of `b` dispatches until `a`'s answer commits, never a second
-//! hold stands, and then `b` proceeds.
+//! Whether `a`'s hold lands before `b`'s wait, between `b`'s last read of
+//! the route and its own hold's write, or before `b`'s retry, nothing of
+//! `b` dispatches until `a`'s answer commits, never a second hold stands,
+//! and then `b` proceeds.
 
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
@@ -14,14 +15,17 @@ use super::held_route::{holds_written, slicing, unended_holds};
 use super::held_wait::{retried_without_a_park, standing};
 use super::*;
 
-/// Where run `a`'s hold lands in run `b`'s drive.
+/// What of run `b`'s drive run `a`'s hold lands before.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Lands {
-    /// Before `b`'s drive begins: `b`'s wait reads it.
-    BeforeWait,
-    /// Once `b`'s own probe has answered and ended its hold, before its
-    /// retry's re-read: the retry reads it.
-    BeforeRetry,
+enum Before {
+    /// `b`'s drive and so its wait, which reads it.
+    Wait,
+    /// The write of `b`'s probe's hold, after `b`'s wait last read the
+    /// route open: the hold's own transaction reads it.
+    Hold,
+    /// `b`'s retry's re-read, once `b`'s own probe has answered and ended
+    /// its hold: the retry reads it.
+    Retry,
 }
 
 /// Run `a`'s flight, as `b`'s clock drives it: `a` before it flies, its
@@ -119,7 +123,7 @@ fn at_the_held_ends(clocks: [&Arc<Mutex<OffsetDateTime>>; 2], store: &brokkr_sto
 fn b_clock(
     now: &Arc<Mutex<OffsetDateTime>>,
     flight: &Arc<Mutex<Flight>>,
-    lands: Lands,
+    lands: Before,
     run_b: String,
 ) -> Clock {
     let (read, watched) = (Arc::clone(now), Arc::clone(flight));
@@ -141,7 +145,7 @@ fn b_clock(
             let mut flight = watched.lock().unwrap();
             let standing = unended_holds(&flight.root.join("forge.db"));
             flight.most_standing = flight.most_standing.max(standing);
-            if lands == Lands::BeforeRetry && flight.landed.is_none() && ended() > 0 {
+            if lands == Before::Retry && flight.landed.is_none() && ended() > 0 {
                 flight.fly();
             }
             *read.lock().unwrap()
@@ -156,7 +160,7 @@ fn b_clock(
 /// Drive the two runs with `a`'s hold landing where `lands` says, and pin
 /// that `b` dispatched nothing while it stood, that no second hold ever
 /// stood, and that both then proceeded: `b`'s log is `b_ran`.
-fn contended(lands: Lands, b_ran: &[&str]) {
+fn contended(lands: Before, b_ran: &[&str]) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (a, a_now) = held_run(root, "a", Probed::Barrier);
@@ -170,11 +174,22 @@ fn contended(lands: Lands, b_ran: &[&str]) {
         released: None,
         most_standing: 0,
     }));
-    if lands == Lands::BeforeWait {
-        flight.lock().unwrap().fly();
+    match lands {
+        Before::Wait => flight.lock().unwrap().fly(),
+        Before::Hold => {
+            let landing = Arc::clone(&flight);
+            super::super::probe::before_hold_here(Some(Box::new(move || {
+                let mut flight = landing.lock().unwrap();
+                if flight.landed.is_none() {
+                    flight.fly();
+                }
+            })));
+        }
+        Before::Retry => {}
     }
     b.cooldown.clock = b_clock(&b_now, &flight, lands, b.run_id.clone());
     b.drive().unwrap();
+    super::super::probe::before_hold_here(None);
     // A `b` that never slept never released `a`: release it before any
     // assertion, so a failing case ends rather than hangs.
     let mut flight = flight.lock().unwrap();
@@ -184,11 +199,11 @@ fn contended(lands: Lands, b_ran: &[&str]) {
         flight.landed.is_some(),
         "{lands:?}: run a's hold never landed"
     );
+    assert_eq!(flight.most_standing, 1, "{lands:?}: a second hold stood");
     assert_eq!(
         flight.released, flight.landed,
         "{lands:?}: run b dispatched while run a's hold stood, or never waited on it"
     );
-    assert_eq!(flight.most_standing, 1, "{lands:?}: a second hold stood");
     assert_eq!(
         logs(root, "a"),
         ["attempt:refuse", "probe", "attempt:succeed"]
@@ -207,18 +222,25 @@ fn contended(lands: Lands, b_ran: &[&str]) {
     );
 }
 
-/// Fix round 0106b1r13, H1: run `a`'s standing hold holds run `b`'s wait
-/// and run `b`'s retry, as it holds the pass and the claim. Removal
-/// control: read `Store::cooldown`'s aggregate from `provider_cooldowns`
-/// alone again, and `b` probes and retries under `a`'s hold.
+/// Fix round 0106b1r13, H1 and H2: run `a`'s standing hold holds run
+/// `b`'s wait, `b`'s probe admission and `b`'s retry, as it holds the pass
+/// and the claim, and `b`'s hold is never written beside it. Removal
+/// controls: read `Store::cooldown`'s aggregate from `provider_cooldowns`
+/// alone again, and `b` probes and retries under `a`'s hold; write a hold
+/// without reading the route in its transaction, and two holds stand.
 #[test]
 fn no_admitted_run_dispatches_on_a_route_another_runs_probe_holds() {
     contended(
-        Lands::BeforeWait,
+        Before::Wait,
+        &["attempt:refuse", "probe", "attempt:succeed"],
+    );
+    // `b`'s first hold is refused unwritten, so only its later probe ran.
+    contended(
+        Before::Hold,
         &["attempt:refuse", "probe", "attempt:succeed"],
     );
     contended(
-        Lands::BeforeRetry,
+        Before::Retry,
         &["attempt:refuse", "probe", "probe", "attempt:succeed"],
     );
 }

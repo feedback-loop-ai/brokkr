@@ -560,6 +560,7 @@ fn a_probes_cleanup_refusal_parks_first_and_writes_no_row() {
         }
         super::super::Probe::Extended(round) => Some(round),
         super::super::Probe::Answered(_) => panic!("a cleanup refusal answered"),
+        super::super::Probe::Held => panic!("a probe that ran was held from its route"),
     };
     // Only the broken cleanup-first check reaches here; the write is the
     // row-writing path the row assertion is the removal control for.

@@ -412,6 +412,7 @@ fn queue_refusal(refusal: QueueRefusal) -> Queue {
         | QueueRefusal::ProbeHoldUnwritten(_)
         | QueueRefusal::ProbeHoldUnending(_)
         | QueueRefusal::ProbeHoldUnstorable(_)
+        | QueueRefusal::ProbeHoldContended(_)
         | QueueRefusal::ProbeHoldUnsettled(_)
         | QueueRefusal::Launching(_)
         | QueueRefusal::InFlight(_)
