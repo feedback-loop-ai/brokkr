@@ -9,12 +9,13 @@
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
-use brokkr_runtime::admission::{self, Host, Judged, Reason, Verdict};
+use brokkr_runtime::admission::{self, Host, Judged, Machine, Reason, Verdict};
 use brokkr_runtime::launch::{BundleSource, QueuedLaunch};
+use brokkr_runtime::realms::World;
 use brokkr_store::{Attribution, NewEntry, QueueCommand, Wait};
 use serde::Serialize;
 
@@ -155,7 +156,8 @@ fn list(
     stderr: &mut impl Write,
 ) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
-    let (entries, unstarted) = on_this_host(|host| Ok(admission::pass_within(&store, host)?))?;
+    let (entries, unstarted) =
+        on_this_host(workspace, |host| Ok(admission::pass_within(&store, host)?))?;
     show(&entries, &unstarted, json, stderr)
 }
 
@@ -171,7 +173,7 @@ fn judge(
     stderr: &mut impl Write,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let (entries, unstarted) = on_this_host(|host| {
+    let (entries, unstarted) = on_this_host(workspace, |host| {
         attributed(&reason, |by| {
             admission::judge_within(&mut store, host, by).map_err(anyhow::Error::from)
         })
@@ -180,25 +182,46 @@ fn judge(
 }
 
 /// Do `act` on this machine as admission measures it (decision 0068
-/// ruling 3): its host configuration where XDG puts it, its temp directory
-/// where the standard library finds it, and the free space statvfs
-/// reports.
-pub(super) fn on_this_host<T>(act: impl FnOnce(&Host<'_>) -> Result<T>) -> Result<T> {
+/// ruling 3, decision 0125): its host configuration where XDG puts it, its
+/// temp directory where the standard library finds it, the free space
+/// statvfs reports, and, to size entries by demand, every journal of the
+/// realms map `workspace` reads and what this machine has now.
+pub(super) fn on_this_host<T>(
+    workspace: &Path,
+    act: impl FnOnce(&Host<'_>) -> Result<T>,
+) -> Result<T> {
+    let journals = registry(workspace);
+    let machine = Machine {
+        journals: &journals,
+        measure: &admission::measure_now,
+    };
     on_the_host_at(
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
         &std::env::temp_dir(),
+        Some(&machine),
         act,
     )
 }
 
+/// Every journal the realms map `workspace` reads lists (decision 0125,
+/// ruling G of #1193), as `brokkr system realms` reads that map; none
+/// where it reads none, or none that reads.
+fn registry(workspace: &Path) -> Vec<PathBuf> {
+    let world = World::inspect(workspace, None).ok().flatten();
+    (world.iter())
+        .flat_map(|world| world.hearths().into_iter().map(|hearth| hearth.journal))
+        .collect()
+}
+
 /// [`on_this_host`], with the two directories that place the host
-/// configuration, and its temp directory, given rather than read from the
-/// environment.
+/// configuration, its temp directory and the machine it sizes entries on
+/// given rather than read from the environment.
 fn on_the_host_at<T>(
     xdg: Option<OsString>,
     home: Option<OsString>,
     temp: &Path,
+    machine: Option<&Machine<'_>>,
     act: impl FnOnce(&Host<'_>) -> Result<T>,
 ) -> Result<T> {
     let file = admission::host_file(xdg, home)?;
@@ -206,7 +229,7 @@ fn on_the_host_at<T>(
         file: &file,
         temp,
         free: &admission::free_bytes,
-        machine: None,
+        machine,
     })
 }
 

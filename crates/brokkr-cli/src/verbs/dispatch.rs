@@ -75,8 +75,9 @@ fn once(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Result<Ex
         spawn: |spawn: &Spawn| driver(&binary, &journal, spawn).map(|child| spawned(&child)),
         claims: || true,
     };
-    let passed =
-        on_this_host(|host| Ok(dispatch::pass(&mut store, &held, host, host_path(), seams)))?;
+    let passed = on_this_host(workspace, |host| {
+        Ok(dispatch::pass(&mut store, &held, host, host_path(), seams))
+    })?;
     let (lines, exit) = match passed {
         Ok(passed) => (report::passed(&passed, &journal), Exit::Completed),
         Err(ended) => (report::ended(&ended, &journal), Exit::Failed),
@@ -143,7 +144,9 @@ fn standing(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Resul
         report: &mut report,
     };
     let path = host_path();
-    let stood = on_this_host(|host| Ok(dispatch::stand(&mut store, &held, host, &path, stand)))?;
+    let stood = on_this_host(workspace, |host| {
+        Ok(dispatch::stand(&mut store, &held, host, &path, stand))
+    })?;
     let mut lines = report::running(&drivers.into_inner());
     let exit = match stood {
         Ok(dispatch::Stopped) => {

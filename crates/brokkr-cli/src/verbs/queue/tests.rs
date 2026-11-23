@@ -199,7 +199,8 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
     // run-3 holds no event, so the pass names it beside the queue, and
     // `list` says it on stderr.
     let store = Store::open(&db).unwrap();
-    let (_, unstarted) = on_this_host(|host| Ok(admission::pass_within(&store, host)?)).unwrap();
+    let (_, unstarted) =
+        on_this_host(ws, |host| Ok(admission::pass_within(&store, host)?)).unwrap();
     assert_eq!(
         named(&unstarted),
         "unstarted_run: run 'run-3' was never started, a row an older brokkr left with no \
@@ -582,10 +583,31 @@ fn each_refusal_leaves_with_its_own_words() {
 #[test]
 fn a_host_configuration_no_directory_places_refuses_the_pass() {
     let home = Some("relative/home".into());
-    let error = on_the_host_at(None, home, Path::new("/t"), |_| Ok(())).unwrap_err();
+    let error = on_the_host_at(None, home, Path::new("/t"), None, |_| Ok(())).unwrap_err();
     assert_eq!(
         error.to_string(),
         "no host configuration can be found: neither XDG_CONFIG_HOME nor HOME names an absolute \
          directory"
+    );
+}
+
+/// Decision 0125, ruling G of #1193: the registry a measured pass reads is
+/// every journal the workspace's realms map lists, the world's and a
+/// realm's own, each once; a workspace with no map lists none.
+#[test]
+fn the_registry_is_every_journal_the_realms_map_lists() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path().canonicalize().unwrap();
+    std::fs::create_dir_all(ws.join("other")).unwrap();
+    assert_eq!(registry(&ws), Vec::<PathBuf>::new());
+    let realm = |name: &str, path: &str| json!({"name": name, "path": path, "default_branch": "main", "boundary": "open"});
+    let mut there = realm("there", "other");
+    there["journal"] = json!("there.db");
+    let map = json!({"schema": "forge.realms/v4", "journal": "forge.db",
+                     "realms": [realm("here", "."), there, realm("also", "other")]});
+    std::fs::write(ws.join("realms.json"), map.to_string()).unwrap();
+    assert_eq!(
+        registry(&ws),
+        vec![ws.join("forge.db"), ws.join("there.db")]
     );
 }

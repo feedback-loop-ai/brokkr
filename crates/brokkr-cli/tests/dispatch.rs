@@ -69,11 +69,16 @@ impl Machine {
         machine
     }
 
-    /// A `forge.host/v4` file admitting the `exec` provider.
+    /// A `forge.host/v5` file admitting the `exec` provider, and declaring
+    /// the bundle's demand a byte and a thousandth of a core, so a machine
+    /// sized by demand (decision 0125) admits a second run beside a first
+    /// whose recipe has no measured run yet.
     fn host(&self) {
-        let host = json!({"schema": "forge.host/v4", "providers": {"exec": {"ceiling": 4}},
+        let declared = json!({"peak_memory_bytes": 1, "peak_load_millicores": 1});
+        let host = json!({"schema": "forge.host/v5", "providers": {"exec": {"ceiling": 4}},
                           "floors": [{"place": "temp", "floor_bytes": 1}],
-                          "boxed_builds": {"ceiling": 1}, "runs": {"ceiling": 3}});
+                          "boxed_builds": {"ceiling": 1}, "runs": {"ceiling": 3},
+                          "demand": {"recipes": {"dispatched": declared}}});
         let at = self.base.join("config/brokkr");
         std::fs::create_dir_all(&at).unwrap();
         std::fs::write(at.join("host.json"), host.to_string()).unwrap();
