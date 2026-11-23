@@ -3,8 +3,11 @@
 //! ceiling, when Codex's declared verdicts came to be read as every other
 //! adapter's are (decision 0065 slice two, U9c2).
 
-use super::{Invocation, ServingShape, StrictCause};
-use crate::native_controls::{SealedAssessment, SealedIsolation, SealedServers};
+use std::path::Path;
+
+use super::{hands_transport, Edge, Invocation, Isolated, ServingShape, StrictCause};
+use crate::hands::Sealed;
+use crate::native_controls::{SealedAssessment, SealedIsolation, SealedServers, Transport};
 
 impl SealedIsolation {
     /// Whether `provider` may be served its launch's shape: cold, or where
@@ -39,8 +42,9 @@ impl SealedIsolation {
     /// Whether `provider` may be served as `invocation`: its assessment
     /// must be measured, and the engine must build a qualified mechanism
     /// for its harness: Claude's strict configuration, dsh's engine-only
-    /// home, Codex's isolation options and store-denying profile (U9c2), or
-    /// Qoder's three-flag fragment (#1178).
+    /// home, Codex's isolation options and store-denying profile (U9c2),
+    /// Qoder's three-flag fragment (#1178), or Agy's engine HOME beside a
+    /// workspace that carries none of Agy's configuration (#1200).
     /// A measured claim for a harness with none is missing evidence, never a
     /// fallback. dsh's route is judged separately ([`crate::dsh_served`]),
     /// once its model pin is read.
@@ -78,9 +82,33 @@ impl SealedIsolation {
                 ServingShape::Claude
                 | ServingShape::Codex
                 | ServingShape::Dsh
-                | ServingShape::Qoder,
+                | ServingShape::Qoder
+                | ServingShape::Agy,
             ) => Ok(()),
             None => Err(unmeasured()),
+        }
+    }
+}
+
+impl Isolated {
+    /// The box's hands a launch is served from `edge`'s sealed inputs, bound
+    /// to `brokkr`, `workdir` and the sealed `reach`: only where this
+    /// admission passed with the hands set, which it proved to be the set
+    /// those inputs declare, and none otherwise: a driver run by hand, an
+    /// empty intent, or a shape the standing fence serves as before. The one
+    /// home Qoder's set and Agy's read it from (#1178, #1200).
+    pub(super) fn admitted_hands<'a>(
+        &self,
+        edge: &'a Edge<'_>,
+        (brokkr, workdir): (&'a Path, &'a str),
+        reach: &'a Sealed,
+    ) -> Option<Transport<'a>> {
+        let admitted = self.isolation.as_ref().map(|isolation| &isolation.servers);
+        match (edge.sealed(), admitted) {
+            (Some(Ok(sealed)), Some(SealedServers::Hands)) => {
+                hands_transport(sealed, (brokkr, workdir), edge.input, reach)
+            }
+            _ => None,
         }
     }
 }
