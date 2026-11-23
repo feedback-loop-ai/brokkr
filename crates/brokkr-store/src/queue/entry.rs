@@ -3,6 +3,7 @@
 //! operator commands that move it. Its words are read from the queue tables
 //! into these types, and a word this binary does not know refuses the read.
 
+use brokkr_core::ending::Ending;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
 use thiserror::Error;
 
@@ -37,23 +38,47 @@ pub(super) fn read_word<T: Copy>(
         })
 }
 
-/// What an entry waits on in the entry it names (decision 0068 ruling 2).
-/// A named ending (decision 0064) joins when #317 builds it.
+/// What an entry waits on in the entry it names (decision 0068 ruling 2):
+/// its run completed, ended, or ended a named ending of decision 0064,
+/// built by #317 and waited on since #1192.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WaitOn {
     /// The awaited entry's run completed.
     Completed,
     /// The awaited entry's run reached any terminal status.
     Ended,
+    /// The awaited entry's run is over and ended this ending, read afresh
+    /// on every judgement, as a later `classify` moves it. `unclassified`
+    /// is the journal not saying, not an ending a run comes to, so it is
+    /// never one: [`WaitOn::ALL`] leaves it out.
+    Named(Ending),
 }
 
 impl WaitOn {
-    pub const ALL: [WaitOn; 2] = [WaitOn::Completed, WaitOn::Ended];
+    /// Every condition, `completed` and `ended` first, then each ending in
+    /// decision 0064 ruling 2's order but `unclassified`: the one list the
+    /// parser, the column's reader and the refusal read.
+    pub const ALL: [WaitOn; 13] = [
+        WaitOn::Completed,
+        WaitOn::Ended,
+        WaitOn::Named(Ending::Shipped),
+        WaitOn::Named(Ending::ShippedFlagged),
+        WaitOn::Named(Ending::Refused),
+        WaitOn::Named(Ending::Failed),
+        WaitOn::Named(Ending::Blocked),
+        WaitOn::Named(Ending::Exhausted),
+        WaitOn::Named(Ending::Superseded),
+        WaitOn::Named(Ending::Infrastructure),
+        WaitOn::Named(Ending::DeliveredElsewhere),
+        WaitOn::Named(Ending::Withdrawn),
+        WaitOn::Named(Ending::OperatorStopped),
+    ];
 
     pub fn word(self) -> &'static str {
         match self {
             WaitOn::Completed => "completed",
             WaitOn::Ended => "ended",
+            WaitOn::Named(ending) => ending.word(),
         }
     }
 }

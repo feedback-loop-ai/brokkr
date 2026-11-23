@@ -1098,8 +1098,7 @@ fn a_wait_reads_back_as_written_and_nothing_else_reads_as_one() {
     }
     for text in ["3", "x:completed", "3:named", "3:"] {
         let refused = text.parse::<Wait>().unwrap_err();
-        let said =
-            format!("'{text}' is not ENTRY:CONDITION, with CONDITION one of completed, ended");
+        let said = format!("'{text}' is not ENTRY:CONDITION, with CONDITION one of {CONDITIONS}");
         assert_eq!(
             (refused.to_string(), refused),
             (said, NotAWait(text.to_string()))
@@ -1116,6 +1115,54 @@ fn a_wait_reads_back_as_written_and_nothing_else_reads_as_one() {
     for (state, word, run) in states {
         assert_eq!((state.word(), state.run()), (word, run));
     }
+}
+
+/// Every condition a wait may name, as `NotAWait` lists them (#1192).
+const CONDITIONS: &str = "completed, ended, shipped, shipped-flagged, refused, failed, blocked, \
+                          exhausted, superseded, infrastructure, delivered-elsewhere, withdrawn, \
+                          operator-stopped";
+
+/// Each named ending of decision 0064 but `unclassified` is a condition
+/// (#1192): it reads back from its text and from the stored column as
+/// written, and `unclassified`, which no run comes to, is refused.
+#[test]
+fn a_named_ending_is_a_wait_and_unclassified_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    for text in ["3:unclassified", "3:merged"] {
+        let refused = text
+            .parse::<Wait>()
+            .map_err(|refused| (refused.to_string(), refused));
+        let said = format!("'{text}' is not ENTRY:CONDITION, with CONDITION one of {CONDITIONS}");
+        assert_eq!(refused, Err((said, NotAWait(text.to_string()))));
+    }
+    let awaited = queue(&mut store, 1)[0];
+    let named = &WaitOn::ALL[2..];
+    let mut written = Vec::new();
+    for (on, ending) in named.iter().zip(brokkr_core::ending::Ending::ALL) {
+        let text = format!("3:{}", ending.word());
+        let wait = Wait {
+            entry: EntryId(3),
+            on: WaitOn::Named(ending),
+        };
+        assert_eq!(
+            (*on, wait.to_string(), text.parse()),
+            (wait.on, text, Ok(wait))
+        );
+        let wait = Wait {
+            entry: awaited,
+            on: *on,
+        };
+        let new = NewEntry {
+            payload: "waits",
+            priority: 0,
+            waits: &[wait],
+        };
+        store.queue_add(new, BY).unwrap();
+        written.push(vec![wait]);
+    }
+    let read: Vec<Vec<Wait>> = rows(&store).into_iter().skip(1).map(|row| row.4).collect();
+    assert_eq!((named.len(), read), (11, written));
 }
 
 /// The guards the migration installs refuse every rewrite of what is

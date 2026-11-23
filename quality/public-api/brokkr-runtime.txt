@@ -106,6 +106,10 @@ pub enum brokkr_runtime::admission::Reason
 pub brokkr_runtime::admission::Reason::Capacity(brokkr_runtime::admission::Capacity)
 pub brokkr_runtime::admission::Reason::DispatchEnvelope
 pub brokkr_runtime::admission::Reason::Dropped(brokkr_store::queue::Wait)
+pub brokkr_runtime::admission::Reason::EndedOtherwise
+pub brokkr_runtime::admission::Reason::EndedOtherwise::ending: brokkr_core::ending::Ending
+pub brokkr_runtime::admission::Reason::EndedOtherwise::run: alloc::string::String
+pub brokkr_runtime::admission::Reason::EndedOtherwise::wait: brokkr_store::queue::Wait
 pub brokkr_runtime::admission::Reason::MapUnreadable(alloc::string::String)
 pub brokkr_runtime::admission::Reason::NotStarted(brokkr_store::queue::Wait)
 pub brokkr_runtime::admission::Reason::OperatorHold

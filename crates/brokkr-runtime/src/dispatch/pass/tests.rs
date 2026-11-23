@@ -1528,3 +1528,80 @@ fn a_contended_disposal_is_retried_until_it_lands_with_no_other_claim() {
         ]
     );
 }
+
+/// What admission finds of `entry` now, `None` once it is no longer
+/// judged.
+fn reasons_of(fixture: &Fixture, file: &Path, entry: EntryId) -> Option<Vec<Reason>> {
+    let judged = admission::pass_within(&fixture.store, &host(file))
+        .unwrap()
+        .0;
+    let judged = judged.into_iter().find(|judged| judged.entry.id == entry);
+    judged
+        .and_then(|judged| judged.verdict)
+        .map(|verdict| verdict.reasons)
+}
+
+/// #1192's acceptance, through the pass: B waits on `A:shipped`. It waits
+/// while A's run runs, starts once A ships clean, and is held, saying the
+/// ending A came to, once A ships with its review's residuals flagged.
+#[test]
+fn an_entry_waiting_on_shipped_starts_when_it_ships_and_is_held_when_it_ships_flagged() {
+    use brokkr_core::ending::Ending as Came;
+    use brokkr_core::EventType;
+    for (severity, ships) in [("normal", true), ("flagged", false)] {
+        let (mut fixture, file, dispatcher, entries) = setup(1);
+        let a = entries[0];
+        let run = one_pass(&mut fixture.store, &dispatcher, &file).0.started[0]
+            .run
+            .clone();
+        let wait = brokkr_store::Wait {
+            entry: a,
+            on: brokkr_store::WaitOn::Named(Came::Shipped),
+        };
+        let payload = fixture.launch_in("bundle").encode().unwrap();
+        let b = brokkr_store::NewEntry {
+            payload: &payload,
+            priority: 0,
+            waits: &[wait],
+        };
+        let by = crate::admission::capacity::tests::BY;
+        let b = fixture.store.queue_add(b, by).unwrap();
+        let unended = Reason::Unended {
+            wait,
+            run: run.clone(),
+        };
+        let waiting = one_pass(&mut fixture.store, &dispatcher, &file).0;
+        let reasons = reasons_of(&fixture, &file, b);
+        assert_eq!((waiting.started.len(), reasons), (0, Some(vec![unended])));
+
+        let ruled = json!({"from": "review", "result": "residual", "next": "done",
+                           "rule_id": "R", "severity": severity});
+        let effect = json!({"effect_id": "e", "phase": "review", "seat": "review"});
+        let attempt = json!({"effect_id": "e", "attempt_id": "a"});
+        let succeeded = json!({"effect_id": "e", "attempt_id": "a",
+                               "result": {"result": "residual"}});
+        let ends = [
+            (EventType::PhaseEntered, json!({"phase": "review"})),
+            (EventType::EffectRequested, effect),
+            (EventType::EffectStarted, attempt),
+            (EventType::EffectSucceeded, succeeded),
+            (EventType::TransitionDecided, ruled),
+            (EventType::RunCompleted, json!({})),
+        ];
+        for (event, payload) in ends {
+            (fixture.store.append_next(&run, event, payload, None, None)).unwrap();
+        }
+        let passed = one_pass(&mut fixture.store, &dispatcher, &file).0;
+        let started: Vec<EntryId> = passed.started.iter().map(|s| s.entry).collect();
+        let otherwise = Reason::EndedOtherwise {
+            wait,
+            run,
+            ending: Came::ShippedFlagged,
+        };
+        let expected = match ships {
+            true => (vec![b], None),
+            false => (vec![], Some(vec![otherwise])),
+        };
+        assert_eq!((started, reasons_of(&fixture, &file, b)), expected);
+    }
+}

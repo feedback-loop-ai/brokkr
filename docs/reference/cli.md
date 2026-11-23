@@ -731,7 +731,7 @@ Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON>
 | `--repo <REPO>` |  |  | The repository the run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
 | `--dispatch <DISPATCH>` |  |  | Canonical forge-dispatch/v2 JSON. When present the run id, Looper/grant correlation, recipe, repository, budget, and producer bounds are pinned into an immutable run-manifest/v2 |
 | `--priority <PRIORITY>` | `0` |  | The entry's priority, which orders the queue first: a higher priority is judged and started first, and `move` orders an entry only among those of its own priority |
-| `--after <ENTRY:CONDITION>...` |  |  | An earlier entry this one waits for, and on what: `3:completed` (its run completed) or `3:ended` (its run ended at all). Repeatable |
+| `--after <ENTRY:CONDITION>...` |  |  | An earlier entry this one waits for, and on what: `3:completed` (its run completed), `3:ended` (its run ended at all), or a named ending, as `3:shipped` (its run is over and ended so; one that ended otherwise holds this entry). The named endings are shipped, shipped-flagged, refused, failed, blocked, exhausted, superseded, infrastructure, delivered-elsewhere, withdrawn and operator-stopped. Repeatable |
 | `--reason <REASON>` |  |  | Why, journaled with the command |
 
 ## brokkr queue list

@@ -7,6 +7,7 @@ use std::error::Error as _;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use brokkr_core::ending::Ending;
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventType;
 use brokkr_store::test_support::linked;
@@ -1168,7 +1169,7 @@ fn a_wait_clears_when_its_condition_holds_and_holds_the_entry_when_it_never_can(
     }
     let mut dependents = Vec::new();
     for entry in &awaited {
-        for on in WaitOn::ALL {
+        for on in [WaitOn::Completed, WaitOn::Ended] {
             let wait = Wait { entry: *entry, on };
             dependents.push((add(&mut store, &unmapped, &[wait]), wait));
         }
@@ -1213,6 +1214,87 @@ fn a_wait_clears_when_its_condition_holds_and_holds_the_entry_when_it_never_can(
     );
 }
 
+/// Plant run `r0` as an older brokkr left one, a row with no event, by
+/// SQL, and link `entry` to it.
+fn planted(store: &mut Store, path: &Path, entry: EntryId) {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let manifest = json!({"schema": "run-manifest/v1"}).to_string();
+    brokkr_store::test_support::plant_run(&conn, "r0", &manifest).unwrap();
+    linked(store, entry, "r0");
+}
+
+/// A wait on a named ending (#1192) is judged as `completed`'s is until
+/// its run is over, then on the ending the run's journal says now: a run
+/// stopped `failed` holds the entry waiting on `delivered-elsewhere`, and a
+/// later `classify` naming that ending lets it start.
+#[test]
+fn a_named_wait_reads_the_ending_afresh_so_a_classify_releases_it() {
+    let ws = workspace();
+    let unmapped = launch(ws.path(), false);
+    let path = ws.path().join("forge.db");
+    let mut store = Store::open(&path).unwrap();
+    // Entries 1 to 4: unstarted, dropped, never started and stopped.
+    let awaited: Vec<EntryId> = (0..4).map(|_| add(&mut store, &unmapped, &[])).collect();
+    store
+        .queue_command(awaited[1], QueueCommand::Drop, BY)
+        .unwrap();
+    planted(&mut store, &path, awaited[2]);
+    // The policy table stops it on verification's `fail`: `failed`.
+    let effect = json!({"effect_id": "e", "phase": "verify", "seat": "verify"});
+    let succeeded = json!({"effect_id": "e", "attempt_id": "a", "result": {"result": "fail"}});
+    let ruled = json!({"from": "verify", "result": "fail", "next": "stop", "rule_id": "R"});
+    let stopped = [
+        (EventType::PhaseEntered, json!({"phase": "verify"})),
+        (EventType::EffectRequested, effect),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a"}),
+        ),
+        (EventType::EffectSucceeded, succeeded),
+        (EventType::TransitionDecided, ruled),
+        (EventType::PhaseEntered, json!({"phase": "stop"})),
+        (
+            EventType::RunStopped,
+            json!({"reason": "verification failed"}),
+        ),
+    ];
+    run(&mut store, "r4", &stopped);
+    linked(&mut store, awaited[3], "r4");
+    let on = WaitOn::Named(Ending::DeliveredElsewhere);
+    let waits: Vec<Wait> = awaited.iter().map(|&entry| Wait { entry, on }).collect();
+    for wait in &waits {
+        add(&mut store, &unmapped, &[*wait]);
+    }
+    let otherwise = Reason::EndedOtherwise {
+        wait: waits[3],
+        run: "r4".into(),
+        ending: Ending::Failed,
+    };
+    let unstarted = Reason::UnstartedRun {
+        wait: Some(waits[2]),
+        run: "r0".into(),
+    };
+    let judged = |store: &Store| verdicts(store).split_off(1);
+    assert_eq!(
+        judged(&store),
+        vec![
+            (5, Standing::Waiting, vec![Reason::NotStarted(waits[0])]),
+            (6, Standing::Held, vec![Reason::Dropped(waits[1])]),
+            (7, Standing::Held, vec![unstarted]),
+            (8, Standing::Held, vec![otherwise.clone()]),
+        ]
+    );
+    let said = "waits on 4:delivered-elsewhere, which can never hold: its run 'r4' ended failed";
+    assert_eq!(
+        (otherwise.to_string(), otherwise.kind(), otherwise.holds()),
+        (said.to_string(), "ended_otherwise", true)
+    );
+    let classify = json!({"command_id": "c", "command": "classify", "operator": "operator",
+                          "args": {"cause": "delivered-elsewhere", "ref": "abc123"}});
+    (store.append_next("r4", EventType::OperatorCommanded, classify, None, None)).unwrap();
+    assert_eq!(judged(&store)[3], (8, Standing::Admissible, vec![]));
+}
+
 /// A run an older brokkr left with a row and no `run/started`, planted by
 /// SQL, is an unstarted run (decision 0095 ruling 4): the pass completes,
 /// holds the entry that waits on it, naming it, and judges every other.
@@ -1223,10 +1305,7 @@ fn an_entry_waiting_on_an_unstarted_run_is_held_and_the_pass_judges_every_other(
     let mut store = Store::open(&path).unwrap();
     let unmapped = launch(ws.path(), false);
     let awaited = add(&mut store, &unmapped, &[]);
-    let conn = rusqlite::Connection::open(&path).unwrap();
-    let manifest = json!({"schema": "run-manifest/v1"}).to_string();
-    brokkr_store::test_support::plant_run(&conn, "r0", &manifest).unwrap();
-    linked(&mut store, awaited, "r0");
+    planted(&mut store, &path, awaited);
     let wait = Wait {
         entry: awaited,
         on: WaitOn::Completed,

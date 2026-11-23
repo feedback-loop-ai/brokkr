@@ -529,7 +529,9 @@ fn each_refusal_leaves_with_its_own_words() {
     assert_eq!(
         unknown.err().unwrap().to_string(),
         "error: invalid value '1:named' for '--after <ENTRY:CONDITION>': '1:named' is not \
-         ENTRY:CONDITION, with CONDITION one of completed, ended\n\n\
+         ENTRY:CONDITION, with CONDITION one of completed, ended, shipped, shipped-flagged, \
+         refused, failed, blocked, exhausted, superseded, infrastructure, delivered-elsewhere, \
+         withdrawn, operator-stopped\n\n\
          For more information, try '--help'.\n"
     );
 

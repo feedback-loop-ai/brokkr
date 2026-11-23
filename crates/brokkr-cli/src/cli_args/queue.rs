@@ -51,8 +51,12 @@ pub(crate) struct QueueAddArgs {
     #[arg(long, default_value_t = 0, allow_negative_numbers = true)]
     pub(crate) priority: i64,
     /// An earlier entry this one waits for, and on what: `3:completed`
-    /// (its run completed) or `3:ended` (its run ended at all).
-    /// Repeatable.
+    /// (its run completed), `3:ended` (its run ended at all), or a named
+    /// ending, as `3:shipped` (its run is over and ended so; one that
+    /// ended otherwise holds this entry). The named endings are shipped,
+    /// shipped-flagged, refused, failed, blocked, exhausted, superseded,
+    /// infrastructure, delivered-elsewhere, withdrawn and
+    /// operator-stopped. Repeatable.
     #[arg(long, value_name = "ENTRY:CONDITION")]
     pub(crate) after: Vec<brokkr_store::Wait>,
     /// Why, journaled with the command.

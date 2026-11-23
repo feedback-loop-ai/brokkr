@@ -66,7 +66,7 @@ mod cooling;
 mod governing;
 mod host;
 
-use awaited::{awaiting, came_to, observe};
+use awaited::{awaiting, came_to, observe, otherwise};
 
 pub(crate) use capacity::Unclaimed;
 pub use capacity::{Capacity, Host, Measured, Room, Shared, Unmeasurable};
@@ -92,6 +92,12 @@ pub enum Reason {
     Dropped(Wait),
     /// It waits for a run to complete, and that run stopped.
     Stopped { wait: Wait, run: String },
+    /// It waits for a named ending, and its run is over and ended another.
+    EndedOtherwise {
+        wait: Wait,
+        run: String,
+        ending: brokkr_core::ending::Ending,
+    },
     /// The governing facts of its realm in the map it was queued with
     /// differ from the map on disk, and no latch records it yet.
     RealmChanged {
@@ -127,6 +133,7 @@ impl Reason {
             Reason::OperatorHold
             | Reason::Dropped(_)
             | Reason::Stopped { .. }
+            | Reason::EndedOtherwise { .. }
             | Reason::RealmChanged { .. }
             | Reason::RealmLatched { .. }
             | Reason::MapUnreadable(_)
@@ -143,6 +150,7 @@ impl Reason {
             Reason::Unended { .. } => "unended",
             Reason::Dropped(_) => "dropped",
             Reason::Stopped { .. } => "stopped",
+            Reason::EndedOtherwise { .. } => "ended_otherwise",
             Reason::RealmChanged { .. } => "realm_changed",
             Reason::RealmLatched { .. } => "realm_latched",
             Reason::MapUnreadable(_) => "map_unreadable",
@@ -178,6 +186,7 @@ impl fmt::Display for Reason {
             Reason::Stopped { wait, run } => {
                 write!(f, "waits on {wait}, {never}: its run '{run}' stopped")
             }
+            Reason::EndedOtherwise { wait, run, ending } => otherwise(f, never, wait, run, ending),
             Reason::RealmChanged { realm, differences } => {
                 write!(
                     f,

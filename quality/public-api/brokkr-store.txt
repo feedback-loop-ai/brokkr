@@ -380,8 +380,9 @@ pub brokkr_store::VerifyError::SeatRecord(brokkr_store::SeatRecordError)
 pub enum brokkr_store::WaitOn
 pub brokkr_store::WaitOn::Completed
 pub brokkr_store::WaitOn::Ended
+pub brokkr_store::WaitOn::Named(brokkr_core::ending::Ending)
 impl brokkr_store::WaitOn
-pub const brokkr_store::WaitOn::ALL: [brokkr_store::WaitOn; 2]
+pub const brokkr_store::WaitOn::ALL: [brokkr_store::WaitOn; 13]
 pub fn brokkr_store::WaitOn::word(self) -> &'static str
 impl rusqlite::types::from_sql::FromSql for brokkr_store::WaitOn
 pub fn brokkr_store::WaitOn::column_result(rusqlite::types::value_ref::ValueRef<'_>) -> rusqlite::types::from_sql::FromSqlResult<Self>

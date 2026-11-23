@@ -46,6 +46,16 @@ covers an unreadable host file, an entry that does not read, a contended
 write and a refused claim: nothing latches. The dispatcher never resumes,
 adopts, stops or concludes a run.
 
+An entry queued with `--after ENTRY:CONDITION` starts only once its wait
+holds. `completed` waits for the awaited run to complete, and `ended` for
+it to end at all. A named ending of decision 0064, such as `3:shipped`
+or `3:delivered-elsewhere`, waits for the run to be over and to have
+ended exactly so; `unclassified` is not one. While the run is live or
+parked the entry waits. Once it is over and ended otherwise, the entry
+is held as `ended_otherwise`, and the reason names the ending it found.
+Each pass reads the ending afresh, so a `classify` that names the awaited
+ending lets the entry start; otherwise drop it or queue it again.
+
 ## Stopping it
 
 The first SIGINT or SIGTERM:
