@@ -22,8 +22,7 @@ use brokkr_core::{
 };
 use serde_json::Value;
 use thiserror::Error;
-use time::Duration as TimeDuration;
-use time::OffsetDateTime;
+use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::{Engine, EngineError};
 use crate::admission::{read_host, Bounds, HostError, Hosting};
@@ -39,13 +38,11 @@ mod terminal;
 #[cfg(test)]
 use probe::Probe;
 use terminal::{record_refusal, refusal_record, refusal_text, representable_end, waiter};
-mod wait;
-
 mod sites;
+mod wait;
 pub(in crate::engine) use sites::{cooldown_rows, refused_members, RefusedMember};
 
-/// One slice of an in-process wait: the wait re-reads the run's journal
-/// after each, so an operator `stop` is honoured within a second.
+/// One in-process wait slice: the journal is re-read after each, so a `stop` lands in a second.
 const SLICE: Duration = Duration::from_secs(1);
 
 /// Time as the engine's argument (decision 0071 ruling 1). Production's
@@ -76,8 +73,7 @@ pub(crate) struct Seam {
     pub(crate) held: HeldDrive,
     /// The hold the probe in flight took on its route (fix round 0106b1r4).
     pub(crate) hold: Option<brokkr_store::ProbeHoldId>,
-    /// Whether this engine's reaper has run at its first turn (the return
-    /// of fix round 0106b1r12).
+    /// Whether the first turn's reaper ran (the return of fix round 0106b1r12).
     pub(crate) reaped: bool,
 }
 

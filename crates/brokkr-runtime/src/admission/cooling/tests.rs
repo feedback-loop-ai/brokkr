@@ -96,11 +96,21 @@ fn judged_in(store: &Store, file: &Path, now: OffsetDateTime) -> Vec<Judged> {
 
 /// The capacity reason a lane stands at.
 fn cooling(provider: &str, route: &str, until: OffsetDateTime, words: &str) -> Reason {
+    cooling_by(false, (provider, route), until, words)
+}
+
+/// The capacity reason a lane stands at, a probe's hold where `probe`.
+fn cooling_by(
+    probe: bool,
+    (provider, route): (&str, &str),
+    until: OffsetDateTime,
+    words: &str,
+) -> Reason {
     Reason::Capacity(Capacity::CoolingDown {
         provider: provider.into(),
         route: route.into(),
         until,
-        probe: false,
+        probe,
         words: words.into(),
     })
 }
@@ -189,13 +199,7 @@ fn a_probe_holds_refusal_names_its_deadline_and_no_time_that_ends_it() {
     let words = "a cool-down probe of run run-probe (attempt a-1) holds the route until it \
                  answers, its renewed cool-down commits, or its process tree is settled";
     let reasons = reasons_at(&fixture, &file, at(86_400));
-    let probing = Reason::Capacity(Capacity::CoolingDown {
-        provider: "beta".into(),
-        route: "cloud".into(),
-        until: at(31),
-        probe: true,
-        words: words.into(),
-    });
+    let probing = cooling_by(true, ("beta", "cloud"), at(31), words);
     assert_eq!(reasons, vec![vec![probing]]);
     assert_eq!(
         reasons[0][0].to_string(),
