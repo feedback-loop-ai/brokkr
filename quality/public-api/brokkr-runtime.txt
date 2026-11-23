@@ -126,6 +126,9 @@ pub brokkr_runtime::admission::Reason::Stopped::wait: brokkr_store::queue::Wait
 pub brokkr_runtime::admission::Reason::Unended
 pub brokkr_runtime::admission::Reason::Unended::run: alloc::string::String
 pub brokkr_runtime::admission::Reason::Unended::wait: brokkr_store::queue::Wait
+pub brokkr_runtime::admission::Reason::Unmerged
+pub brokkr_runtime::admission::Reason::Unmerged::run: alloc::string::String
+pub brokkr_runtime::admission::Reason::Unmerged::wait: brokkr_store::queue::Wait
 pub brokkr_runtime::admission::Reason::UnstartedRun
 pub brokkr_runtime::admission::Reason::UnstartedRun::run: alloc::string::String
 pub brokkr_runtime::admission::Reason::UnstartedRun::wait: core::option::Option<brokkr_store::queue::Wait>

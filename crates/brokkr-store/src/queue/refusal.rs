@@ -54,6 +54,10 @@ pub enum QueueRefusal {
     Claimed { entry: EntryId, run: String },
     #[error("queue entry {0} was dropped")]
     Dropped(EntryId),
+    /// A `merged` record of an entry still queued or held: no run of it
+    /// exists whose work could have merged (#1192).
+    #[error("queue entry {0} has started no run, so no merge of its work can be recorded")]
+    Unstarted(EntryId),
     #[error("run '{run}' already started queue entry {entry}")]
     RunTaken { run: String, entry: EntryId },
     #[error("queue storage {found} unsupported (want {QUEUE_SCHEMA})")]

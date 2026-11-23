@@ -40,7 +40,8 @@ pub(super) fn read_word<T: Copy>(
 
 /// What an entry waits on in the entry it names (decision 0068 ruling 2):
 /// its run completed, ended, or ended a named ending of decision 0064,
-/// built by #317 and waited on since #1192.
+/// built by #317 and waited on since #1192, or its work merged, as the
+/// operator recorded it (#1192).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WaitOn {
     /// The awaited entry's run completed.
@@ -52,13 +53,17 @@ pub enum WaitOn {
     /// is the journal not saying, not an ending a run comes to, so it is
     /// never one: [`WaitOn::ALL`] leaves it out.
     Named(Ending),
+    /// The awaited entry started a run, and the operator recorded its
+    /// work merged with `brokkr queue merged`: the record is the fact,
+    /// whatever its run came to, and nothing reads the forge.
+    Merged,
 }
 
 impl WaitOn {
     /// Every condition, `completed` and `ended` first, then each ending in
-    /// decision 0064 ruling 2's order but `unclassified`: the one list the
-    /// parser, the column's reader and the refusal read.
-    pub const ALL: [WaitOn; 13] = [
+    /// decision 0064 ruling 2's order but `unclassified`, then `merged`:
+    /// the one list the parser, the column's reader and the refusal read.
+    pub const ALL: [WaitOn; 14] = [
         WaitOn::Completed,
         WaitOn::Ended,
         WaitOn::Named(Ending::Shipped),
@@ -72,6 +77,7 @@ impl WaitOn {
         WaitOn::Named(Ending::DeliveredElsewhere),
         WaitOn::Named(Ending::Withdrawn),
         WaitOn::Named(Ending::OperatorStopped),
+        WaitOn::Merged,
     ];
 
     pub fn word(self) -> &'static str {
@@ -79,6 +85,7 @@ impl WaitOn {
             WaitOn::Completed => "completed",
             WaitOn::Ended => "ended",
             WaitOn::Named(ending) => ending.word(),
+            WaitOn::Merged => QueueCommand::Merged.word(),
         }
     }
 }
@@ -142,8 +149,9 @@ pub enum EntryState {
     /// (decision 0095 ruling 1): linked to the run it starts, or returned
     /// to the queue or held, before any other entry is claimed.
     Launching,
-    /// Started: the run it produced, recorded once.
-    Claimed { run: String },
+    /// Started: the run it produced, recorded once, and whether a `merged`
+    /// record of its work stands, read with its standing.
+    Claimed { run: String, merged: bool },
     /// Taken out of the queue by the operator.
     Dropped,
 }
@@ -163,19 +171,19 @@ impl EntryState {
     /// The run a claimed entry started.
     pub fn run(&self) -> Option<&str> {
         match self {
-            EntryState::Claimed { run } => Some(run),
+            EntryState::Claimed { run, .. } => Some(run),
             EntryState::Queued | EntryState::Held | EntryState::Launching | EntryState::Dropped => {
                 None
             }
         }
     }
 
-    pub(super) fn of(standing: Standing, run: Option<String>) -> EntryState {
+    pub(super) fn of(standing: Standing, run: Option<String>, merged: bool) -> EntryState {
         match (run, standing) {
             (
                 Some(run),
                 Standing::Queued | Standing::Held | Standing::Dropped | Standing::Launching,
-            ) => EntryState::Claimed { run },
+            ) => EntryState::Claimed { run, merged },
             (None, Standing::Queued) => EntryState::Queued,
             (None, Standing::Held) => EntryState::Held,
             (None, Standing::Launching) => EntryState::Launching,
@@ -211,6 +219,9 @@ pub enum QueueCommand {
     Hold,
     Release,
     Drop,
+    /// Record that the work of an entry that started a run merged; its
+    /// place and standing do not move.
+    Merged,
 }
 
 impl QueueCommand {
@@ -220,6 +231,7 @@ impl QueueCommand {
             QueueCommand::Hold => "hold",
             QueueCommand::Release => "release",
             QueueCommand::Drop => "drop",
+            QueueCommand::Merged => "merged",
         }
     }
 }

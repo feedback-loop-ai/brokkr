@@ -20,14 +20,20 @@ pub(super) enum Awaited {
     /// Queued, held or launching: no run linked yet.
     Unstarted,
     Dropped,
-    /// It started this run, whose row holds no event.
-    UnstartedRun(String),
+    /// It started this run, whose row holds no event; `merged` whether the
+    /// operator recorded its work merged.
+    UnstartedRun {
+        run: String,
+        merged: bool,
+    },
     /// It started this run, which stands so, and has ended so once it is
-    /// over (decision 0064's `closing`, read afresh on every reading).
+    /// over (decision 0064's `closing`, read afresh on every reading);
+    /// `merged` whether the operator recorded its work merged.
     Run {
         run: String,
         status: Status,
         ending: Option<Ending>,
+        merged: bool,
     },
 }
 
@@ -56,8 +62,10 @@ pub(super) fn came_to(
     Ok(match state {
         EntryState::Queued | EntryState::Held | EntryState::Launching => Awaited::Unstarted,
         EntryState::Dropped => Awaited::Dropped,
-        EntryState::Claimed { run } if never_started(events) => Awaited::UnstartedRun(run),
-        EntryState::Claimed { run } => {
+        EntryState::Claimed { run, merged } if never_started(events) => {
+            Awaited::UnstartedRun { run, merged }
+        }
+        EntryState::Claimed { run, merged } => {
             let state = match fold(events) {
                 Ok(state) => state,
                 Err(source) => return Err(AdmissionError::Fold { run, source }),
@@ -67,6 +75,7 @@ pub(super) fn came_to(
                 run,
                 status: state.run.status(),
                 ending,
+                merged,
             }
         }
     })
@@ -75,14 +84,22 @@ pub(super) fn came_to(
 /// Why `wait` does not hold of what its entry came to, or `None` when it
 /// holds.
 pub(super) fn awaiting(wait: Wait, awaited: Awaited) -> Option<Reason> {
-    use WaitOn::{Completed, Ended, Named};
+    use WaitOn::{Completed, Ended, Merged, Named};
     match (awaited, wait.on) {
-        (Awaited::Unstarted, Completed | Ended | Named(_)) => Some(Reason::NotStarted(wait)),
-        (Awaited::Dropped, Completed | Ended | Named(_)) => Some(Reason::Dropped(wait)),
-        (Awaited::UnstartedRun(run), Completed | Ended | Named(_)) => Some(Reason::UnstartedRun {
-            wait: Some(wait),
-            run,
-        }),
+        (Awaited::Unstarted, Completed | Ended | Named(_) | Merged) => {
+            Some(Reason::NotStarted(wait))
+        }
+        (Awaited::Dropped, Completed | Ended | Named(_) | Merged) => Some(Reason::Dropped(wait)),
+        (
+            Awaited::UnstartedRun { merged: true, .. } | Awaited::Run { merged: true, .. },
+            Merged,
+        ) => None,
+        (Awaited::UnstartedRun { run, .. }, Completed | Ended | Named(_) | Merged) => {
+            Some(Reason::UnstartedRun {
+                wait: Some(wait),
+                run,
+            })
+        }
         (
             Awaited::Run {
                 status: Status::Completed,
@@ -111,9 +128,18 @@ pub(super) fn awaiting(wait: Wait, awaited: Awaited) -> Option<Reason> {
                 status: Status::Running | Status::AwaitingOperator,
                 ..
             },
-            Completed | Ended,
+            Completed | Ended | Merged,
         ) => Some(Reason::Unended { wait, run }),
         (Awaited::Run { run, ending, .. }, Named(named)) => named_ending(wait, run, ending, named),
+        (
+            Awaited::Run {
+                run,
+                status: Status::Completed | Status::Stopped,
+                merged: false,
+                ..
+            },
+            Merged,
+        ) => Some(Reason::Unmerged { wait, run }),
     }
 }
 
@@ -142,5 +168,16 @@ pub(super) fn otherwise(
     write!(
         f,
         "waits on {wait}, {never}: its run '{run}' ended {ending}"
+    )
+}
+
+/// [`Reason::Unmerged`]'s text, beside the judgement that finds it: only
+/// the operator's `merged` record clears it, so it names the command.
+pub(super) fn unmerged(f: &mut fmt::Formatter<'_>, wait: &Wait, run: &str) -> fmt::Result {
+    write!(
+        f,
+        "waits on {wait}: its run '{run}' is over and no merge of its work is recorded; \
+         `brokkr queue merged {}` records one",
+        wait.entry
     )
 }

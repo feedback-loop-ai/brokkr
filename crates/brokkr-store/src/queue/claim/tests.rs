@@ -61,6 +61,7 @@ fn a_version_2_queue_migrates_with_its_order_holds_pins_latches_and_links_kept()
     assert_eq!(store.queue_list().unwrap(), at_version_2);
     let linked = EntryState::Claimed {
         run: "old-run".into(),
+        merged: false,
     };
     assert_eq!(
         rows(&store),
@@ -189,6 +190,7 @@ fn each_step_is_journaled_by_the_dispatcher_and_the_claim_records_its_generation
     let store = Store::open(&path).unwrap();
     let run_a = EntryState::Claimed {
         run: "run-a".into(),
+        merged: false,
     };
     assert_eq!(
         places(&store),
@@ -541,6 +543,8 @@ fn the_claim_hands_its_judge_each_wait_with_what_its_entry_came_to() {
     let payload = json!({"feature": "f", "reason": "lost"});
     (store.append_next("run-a", EventType::RunStarted, payload, None, None)).unwrap();
     crate::test_support::linked(&mut store, ids[0], "run-a");
+    // A merge recorded on the linked entry is read with its standing (#1192).
+    (store.queue_command(ids[0], QueueCommand::Merged, BY)).unwrap();
 
     let read = store.queue_entry(waiting).unwrap();
     let mut handed = Vec::new();
@@ -553,6 +557,7 @@ fn the_claim_hands_its_judge_each_wait_with_what_its_entry_came_to() {
     assert_eq!(refused.unwrap(), Err("unmet"));
     let linked = EntryState::Claimed {
         run: "run-a".into(),
+        merged: true,
     };
     assert_eq!(
         handed,
@@ -755,7 +760,7 @@ fn a_start_under_its_standing_claim_writes_the_run_its_entry_links_to() {
     let run = "run-q".to_string();
     assert_eq!(
         store.queue_entry(entry).unwrap().state,
-        EntryState::Claimed { run }
+        EntryState::Claimed { run, merged: false }
     );
 }
 

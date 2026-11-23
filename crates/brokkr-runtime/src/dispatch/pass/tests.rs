@@ -554,7 +554,7 @@ fn a_stand_that_ends_before_a_spawn_row_leaves_the_entry_for_reconciliation() {
     let refused = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap_err();
     assert!(matches!(refused.ending, Ending::Stood));
     let read = fixture.store.queue_entry(entry).unwrap();
-    let EntryState::Claimed { run } = read.state else {
+    let EntryState::Claimed { run, .. } = read.state else {
         panic!("{:?}", read.state);
     };
     // The ending's report names the run and its claim (6a F2).
@@ -1409,7 +1409,7 @@ fn a_refused_spawn_row_ends_the_pass_naming_the_run_it_linked() {
     );
     let ended = run_pass(&mut fixture.store, &dispatcher, &file, quiet()).unwrap_err();
     assert!(matches!(ended.ending, Ending::Store(StoreError::Sqlite(_))));
-    let EntryState::Claimed { run } = state(&fixture.store, entries[0]) else {
+    let EntryState::Claimed { run, .. } = state(&fixture.store, entries[0]) else {
         panic!("linked");
     };
     assert_left(&fixture.store, &ended.passed.left, &run);
@@ -1547,7 +1547,6 @@ fn reasons_of(fixture: &Fixture, file: &Path, entry: EntryId) -> Option<Vec<Reas
 #[test]
 fn an_entry_waiting_on_shipped_starts_when_it_ships_and_is_held_when_it_ships_flagged() {
     use brokkr_core::ending::Ending as Came;
-    use brokkr_core::EventType;
     for (severity, ships) in [("normal", true), ("flagged", false)] {
         let (mut fixture, file, dispatcher, entries) = setup(1);
         let a = entries[0];
@@ -1574,23 +1573,7 @@ fn an_entry_waiting_on_shipped_starts_when_it_ships_and_is_held_when_it_ships_fl
         let reasons = reasons_of(&fixture, &file, b);
         assert_eq!((waiting.started.len(), reasons), (0, Some(vec![unended])));
 
-        let ruled = json!({"from": "review", "result": "residual", "next": "done",
-                           "rule_id": "R", "severity": severity});
-        let effect = json!({"effect_id": "e", "phase": "review", "seat": "review"});
-        let attempt = json!({"effect_id": "e", "attempt_id": "a"});
-        let succeeded = json!({"effect_id": "e", "attempt_id": "a",
-                               "result": {"result": "residual"}});
-        let ends = [
-            (EventType::PhaseEntered, json!({"phase": "review"})),
-            (EventType::EffectRequested, effect),
-            (EventType::EffectStarted, attempt),
-            (EventType::EffectSucceeded, succeeded),
-            (EventType::TransitionDecided, ruled),
-            (EventType::RunCompleted, json!({})),
-        ];
-        for (event, payload) in ends {
-            (fixture.store.append_next(&run, event, payload, None, None)).unwrap();
-        }
+        reviewed(&mut fixture.store, &run, severity);
         let passed = one_pass(&mut fixture.store, &dispatcher, &file).0;
         let started: Vec<EntryId> = passed.started.iter().map(|s| s.entry).collect();
         let otherwise = Reason::EndedOtherwise {
@@ -1604,4 +1587,153 @@ fn an_entry_waiting_on_shipped_starts_when_it_ships_and_is_held_when_it_ships_fl
         };
         assert_eq!((started, reasons_of(&fixture, &file, b)), expected);
     }
+}
+
+/// End `run` through one effect of `phase` that came to `result`, the
+/// policy table's ruling `ruled`, then `tail`.
+fn ruled_end(
+    store: &mut Store,
+    run: &str,
+    (phase, result): (&str, &str),
+    ruled: serde_json::Value,
+    tail: &[(brokkr_core::EventType, serde_json::Value)],
+) {
+    use brokkr_core::EventType;
+    let effect = json!({"effect_id": "e", "phase": phase, "seat": phase});
+    let attempt = json!({"effect_id": "e", "attempt_id": "a"});
+    let succeeded = json!({"effect_id": "e", "attempt_id": "a", "result": {"result": result}});
+    let ends = [
+        (EventType::PhaseEntered, json!({ "phase": phase })),
+        (EventType::EffectRequested, effect),
+        (EventType::EffectStarted, attempt),
+        (EventType::EffectSucceeded, succeeded),
+        (EventType::TransitionDecided, ruled),
+    ];
+    for (event, payload) in ends.into_iter().chain(tail.iter().cloned()) {
+        (store.append_next(run, event, payload, None, None)).unwrap();
+    }
+}
+
+/// Complete `run` after review's `residual`, ruled with `severity`: it
+/// ships clean when `normal`, flagged when `flagged`.
+fn reviewed(store: &mut Store, run: &str, severity: &str) {
+    let ruled = json!({"from": "review", "result": "residual", "next": "done",
+                       "rule_id": "R", "severity": severity});
+    let completed = (brokkr_core::EventType::RunCompleted, json!({}));
+    ruled_end(store, run, ("review", "residual"), ruled, &[completed]);
+}
+
+/// Queue an entry of the fixture's bundle that waits on `waits`.
+fn waiting_on(fixture: &mut Fixture, waits: &[brokkr_store::Wait]) -> EntryId {
+    let payload = fixture.launch_in("bundle").encode().unwrap();
+    let new = brokkr_store::NewEntry {
+        payload: &payload,
+        priority: 0,
+        waits,
+    };
+    let by = crate::admission::capacity::tests::BY;
+    fixture.store.queue_add(new, by).unwrap()
+}
+
+/// Record entry `a`'s work merged, as `brokkr queue merged` does.
+fn merged(store: &mut Store, a: EntryId) {
+    let by = crate::admission::capacity::tests::BY;
+    let merged = brokkr_store::QueueCommand::Merged;
+    assert_eq!(store.queue_command(a, merged, by).unwrap(), None);
+}
+
+/// The run the pass starts for the fixture's one entry.
+fn first_run(fixture: &mut Fixture, dispatcher: &Dispatcher, file: &Path) -> String {
+    let passed = one_pass(&mut fixture.store, dispatcher, file).0;
+    passed.started[0].run.clone()
+}
+
+/// The entries a pass starts.
+fn started_by(fixture: &mut Fixture, dispatcher: &Dispatcher, file: &Path) -> Vec<EntryId> {
+    let passed = one_pass(&mut fixture.store, dispatcher, file).0;
+    passed.started.iter().map(|s| s.entry).collect()
+}
+
+/// #1192's merge, through the pass and its claim: B waits on `A:merged`.
+/// It waits while A's run runs, is held once A ships with no merge
+/// recorded, and starts once the operator records A's merge, the claim's
+/// recheck reading that record afresh in its own transaction.
+#[test]
+fn an_entry_waiting_on_merged_is_held_once_its_run_ships_and_starts_once_a_merge_is_recorded() {
+    let (mut fixture, file, dispatcher, entries) = setup(1);
+    let a = entries[0];
+    let run = first_run(&mut fixture, &dispatcher, &file);
+    let wait = brokkr_store::Wait {
+        entry: a,
+        on: brokkr_store::WaitOn::Merged,
+    };
+    let b = waiting_on(&mut fixture, &[wait]);
+    let unended = Reason::Unended {
+        wait,
+        run: run.clone(),
+    };
+    let started = started_by(&mut fixture, &dispatcher, &file);
+    let reasons = reasons_of(&fixture, &file, b);
+    assert_eq!((started, reasons), (vec![], Some(vec![unended])));
+
+    reviewed(&mut fixture.store, &run, "normal");
+    let started = started_by(&mut fixture, &dispatcher, &file);
+    let unmerged = Reason::Unmerged { wait, run };
+    let reasons = reasons_of(&fixture, &file, b);
+    assert_eq!((started, reasons), (vec![], Some(vec![unmerged])));
+
+    merged(&mut fixture.store, a);
+    let started = started_by(&mut fixture, &dispatcher, &file);
+    assert_eq!((started, reasons_of(&fixture, &file, b)), (vec![b], None));
+}
+
+/// The merge record is the fact a `merged` wait reads, and only it reads
+/// it (#1192): a merge recorded on A whose run stopped `failed` starts B,
+/// waiting on `A:merged`; one recorded on A that shipped flagged leaves an
+/// entry waiting on `A:shipped` held as before, and one waiting on
+/// `A:completed` starts as before.
+#[test]
+fn a_merge_record_meets_a_merged_wait_whatever_the_run_ended_and_moves_no_other_wait() {
+    use brokkr_core::ending::Ending as Came;
+    use brokkr_core::EventType;
+    use brokkr_store::WaitOn;
+    let on = |entry, on| brokkr_store::Wait { entry, on };
+    let (mut fixture, file, dispatcher, entries) = setup(1);
+    let a = entries[0];
+    let run = first_run(&mut fixture, &dispatcher, &file);
+    let ruled = json!({"from": "verify", "result": "fail", "next": "stop", "rule_id": "R"});
+    let stopped = [
+        (EventType::PhaseEntered, json!({"phase": "stop"})),
+        (
+            EventType::RunStopped,
+            json!({"reason": "verification failed"}),
+        ),
+    ];
+    ruled_end(
+        &mut fixture.store,
+        &run,
+        ("verify", "fail"),
+        ruled,
+        &stopped,
+    );
+    merged(&mut fixture.store, a);
+    let b = waiting_on(&mut fixture, &[on(a, WaitOn::Merged)]);
+    assert_eq!(started_by(&mut fixture, &dispatcher, &file), vec![b]);
+
+    let (mut fixture, file, dispatcher, entries) = setup(1);
+    let a = entries[0];
+    let run = first_run(&mut fixture, &dispatcher, &file);
+    reviewed(&mut fixture.store, &run, "flagged");
+    merged(&mut fixture.store, a);
+    let shipped = on(a, WaitOn::Named(Came::Shipped));
+    let b = waiting_on(&mut fixture, &[shipped]);
+    let c = waiting_on(&mut fixture, &[on(a, WaitOn::Completed)]);
+    let started = started_by(&mut fixture, &dispatcher, &file);
+    let otherwise = Reason::EndedOtherwise {
+        wait: shipped,
+        run,
+        ending: Came::ShippedFlagged,
+    };
+    let held = reasons_of(&fixture, &file, b);
+    assert_eq!((started, held), (vec![c], Some(vec![otherwise])));
 }

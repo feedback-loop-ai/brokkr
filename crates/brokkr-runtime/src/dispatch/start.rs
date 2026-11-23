@@ -446,6 +446,7 @@ fn queue_refusal(refusal: QueueRefusal) -> Queue {
         | QueueRefusal::Held(_)
         | QueueRefusal::Claimed { .. }
         | QueueRefusal::Dropped(_)
+        | QueueRefusal::Unstarted(_)
         | QueueRefusal::RunTaken { .. }
         | QueueRefusal::LatchMoved { .. }
         | QueueRefusal::PinMoved { .. }

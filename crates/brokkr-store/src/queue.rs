@@ -142,17 +142,22 @@ pub struct Attribution<'a> {
     pub reason: &'a str,
 }
 
+/// Whether a `merged` record of a `queue_entries` row stands, read in the
+/// statement that reads its standing, the command's word bound as `?2`.
+const MERGED: &str = "EXISTS (SELECT 1 FROM queue_commands
+    WHERE queue_commands.entry_id = queue_entries.entry_id AND command = ?2)";
+
 /// The standing of one entry, read inside the transaction that acts on it.
 fn standing(tx: &Transaction<'_>, entry: EntryId) -> Result<EntryState, StoreError> {
-    let row: Option<(Standing, Option<String>)> = tx
+    let row: Option<(Standing, Option<String>, bool)> = tx
         .query_row(
-            "SELECT state, run_id FROM queue_entries WHERE entry_id = ?1",
-            params![entry.0],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            &format!("SELECT state, run_id, {MERGED} FROM queue_entries WHERE entry_id = ?1"),
+            params![entry.0, QueueCommand::Merged.word()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?;
-    let (standing, run) = row.ok_or(QueueRefusal::UnknownEntry(entry))?;
-    Ok(EntryState::of(standing, run))
+    let (standing, run, merged) = row.ok_or(QueueRefusal::UnknownEntry(entry))?;
+    Ok(EntryState::of(standing, run, merged))
 }
 
 /// Does the table hold a row with this key?
@@ -258,13 +263,17 @@ fn record(
     Ok(tx.last_insert_rowid())
 }
 
-/// Refuse a command the entry's standing cannot take.
+/// Refuse a command the entry's standing cannot take: a `merged` record
+/// only of an entry that started a run, every other command only of one
+/// that waits.
 fn admit(entry: EntryId, state: EntryState, command: QueueCommand) -> Result<(), QueueRefusal> {
-    use QueueCommand::{Drop, Hold, Move, Release};
+    use QueueCommand::{Drop, Hold, Merged, Move, Release};
     match (state, command) {
         (EntryState::Dropped, _) => Err(QueueRefusal::Dropped(entry)),
-        (EntryState::Claimed { run }, _) => Err(QueueRefusal::Claimed { entry, run }),
+        (EntryState::Claimed { .. }, Merged) => Ok(()),
+        (EntryState::Claimed { run, .. }, _) => Err(QueueRefusal::Claimed { entry, run }),
         (EntryState::Launching, _) => Err(QueueRefusal::Launching(entry)),
+        (EntryState::Queued | EntryState::Held, Merged) => Err(QueueRefusal::Unstarted(entry)),
         (EntryState::Held, Hold) => Err(QueueRefusal::AlreadyHeld(entry)),
         (EntryState::Queued, Release) => Err(QueueRefusal::NotHeld(entry)),
         (EntryState::Queued, Move { .. } | Hold | Drop)
@@ -361,6 +370,7 @@ fn apply(
             leave_order(tx, entry)?;
             Ok(None)
         }
+        QueueCommand::Merged => Ok(None),
     }
 }
 
@@ -406,16 +416,16 @@ fn entries(
         Stored::V1 => ("payload", "NULL", false),
     };
     let mut entries = conn.prepare(&format!(
-        "SELECT entry_id, position, state, run_id, priority, {payload}, added_at, {pin}
+        "SELECT entry_id, position, state, run_id, priority, {payload}, added_at, {pin}, {MERGED}
          FROM queue_entries WHERE {filter}
          ORDER BY position IS NULL, {ORDER}"
     ))?;
     let mut listed = entries
-        .query_map([key], |row| {
+        .query_map(params![key, QueueCommand::Merged.word()], |row| {
             Ok(QueueEntry {
                 id: EntryId(row.get(0)?),
                 position: row.get(1)?,
-                state: EntryState::of(row.get(2)?, row.get(3)?),
+                state: EntryState::of(row.get(2)?, row.get(3)?, row.get(8)?),
                 priority: row.get(4)?,
                 payload: row.get(5)?,
                 added_at: row.get(6)?,
@@ -489,7 +499,8 @@ impl Store {
     ///
     /// Returns the place the command journaled: `Some` with the place a
     /// move left the entry holding, which priority can make other than
-    /// the place asked, and `None` for a hold, a release or a drop. It is
+    /// the place asked, and `None` for a hold, a release, a drop or a
+    /// `merged` record, which moves no standing and no place. It is
     /// the same transaction's, so a caller never reads it back after a
     /// peer's command may have moved it.
     pub fn queue_command(

@@ -1223,6 +1223,52 @@ fn planted(store: &mut Store, path: &Path, entry: EntryId) {
     linked(store, entry, "r0");
 }
 
+/// A journal in `ws` holding `count` entries of an unmapped launch for
+/// waits to name: the first left unstarted, the second dropped, the third
+/// linked to `r0`, a run that never started ([`planted`]), and the rest
+/// for the caller to start. Says the launch, the store and the entries.
+fn awaited_entries(ws: &Path, count: usize) -> (String, Store, Vec<EntryId>) {
+    let unmapped = launch(ws, false);
+    let path = ws.join("forge.db");
+    let mut store = Store::open(&path).unwrap();
+    let awaited: Vec<EntryId> = (0..count)
+        .map(|_| add(&mut store, &unmapped, &[]))
+        .collect();
+    (store.queue_command(awaited[1], QueueCommand::Drop, BY)).unwrap();
+    planted(&mut store, &path, awaited[2]);
+    (unmapped, store, awaited)
+}
+
+/// Queue an entry of `unmapped` waiting on each of `awaited`, on `on`,
+/// and say each wait.
+fn waiting_on_each(
+    store: &mut Store,
+    unmapped: &str,
+    awaited: &[EntryId],
+    on: WaitOn,
+) -> Vec<Wait> {
+    let waits: Vec<Wait> = awaited.iter().map(|&entry| Wait { entry, on }).collect();
+    for wait in &waits {
+        add(store, unmapped, &[*wait]);
+    }
+    waits
+}
+
+/// What the pass finds of the entries from `first` that wait, as `waits`
+/// say, on the first three of [`awaited_entries`]: one not started, one
+/// dropped and one whose run never started.
+fn the_first_three(first: i64, waits: &[Wait]) -> Vec<(i64, Standing, Vec<Reason>)> {
+    let unstarted = Reason::UnstartedRun {
+        wait: Some(waits[2]),
+        run: "r0".into(),
+    };
+    vec![
+        (first, Standing::Waiting, vec![Reason::NotStarted(waits[0])]),
+        (first + 1, Standing::Held, vec![Reason::Dropped(waits[1])]),
+        (first + 2, Standing::Held, vec![unstarted]),
+    ]
+}
+
 /// A wait on a named ending (#1192) is judged as `completed`'s is until
 /// its run is over, then on the ending the run's journal says now: a run
 /// stopped `failed` holds the entry waiting on `delivered-elsewhere`, and a
@@ -1230,15 +1276,8 @@ fn planted(store: &mut Store, path: &Path, entry: EntryId) {
 #[test]
 fn a_named_wait_reads_the_ending_afresh_so_a_classify_releases_it() {
     let ws = workspace();
-    let unmapped = launch(ws.path(), false);
-    let path = ws.path().join("forge.db");
-    let mut store = Store::open(&path).unwrap();
     // Entries 1 to 4: unstarted, dropped, never started and stopped.
-    let awaited: Vec<EntryId> = (0..4).map(|_| add(&mut store, &unmapped, &[])).collect();
-    store
-        .queue_command(awaited[1], QueueCommand::Drop, BY)
-        .unwrap();
-    planted(&mut store, &path, awaited[2]);
+    let (unmapped, mut store, awaited) = awaited_entries(ws.path(), 4);
     // The policy table stops it on verification's `fail`: `failed`.
     let effect = json!({"effect_id": "e", "phase": "verify", "seat": "verify"});
     let succeeded = json!({"effect_id": "e", "attempt_id": "a", "result": {"result": "fail"}});
@@ -1261,29 +1300,16 @@ fn a_named_wait_reads_the_ending_afresh_so_a_classify_releases_it() {
     run(&mut store, "r4", &stopped);
     linked(&mut store, awaited[3], "r4");
     let on = WaitOn::Named(Ending::DeliveredElsewhere);
-    let waits: Vec<Wait> = awaited.iter().map(|&entry| Wait { entry, on }).collect();
-    for wait in &waits {
-        add(&mut store, &unmapped, &[*wait]);
-    }
+    let waits = waiting_on_each(&mut store, &unmapped, &awaited, on);
     let otherwise = Reason::EndedOtherwise {
         wait: waits[3],
         run: "r4".into(),
         ending: Ending::Failed,
     };
-    let unstarted = Reason::UnstartedRun {
-        wait: Some(waits[2]),
-        run: "r0".into(),
-    };
     let judged = |store: &Store| verdicts(store).split_off(1);
-    assert_eq!(
-        judged(&store),
-        vec![
-            (5, Standing::Waiting, vec![Reason::NotStarted(waits[0])]),
-            (6, Standing::Held, vec![Reason::Dropped(waits[1])]),
-            (7, Standing::Held, vec![unstarted]),
-            (8, Standing::Held, vec![otherwise.clone()]),
-        ]
-    );
+    let mut expected = the_first_three(5, &waits);
+    expected.push((8, Standing::Held, vec![otherwise.clone()]));
+    assert_eq!(judged(&store), expected);
     let said = "waits on 4:delivered-elsewhere, which can never hold: its run 'r4' ended failed";
     assert_eq!(
         (otherwise.to_string(), otherwise.kind(), otherwise.holds()),
@@ -1293,6 +1319,67 @@ fn a_named_wait_reads_the_ending_afresh_so_a_classify_releases_it() {
                           "args": {"cause": "delivered-elsewhere", "ref": "abc123"}});
     (store.append_next("r4", EventType::OperatorCommanded, classify, None, None)).unwrap();
     assert_eq!(judged(&store)[3], (8, Standing::Admissible, vec![]));
+}
+
+/// A wait on a merge (#1192) is met by the operator's `merged` record
+/// whatever the run came to, never started and running included. With
+/// none, it is judged as `completed`'s is until the run is over, and a run
+/// over, stopped or completed, holds the entry until the record is made.
+#[test]
+fn a_merged_wait_is_met_by_the_record_whatever_the_run_came_to() {
+    let ws = workspace();
+    // Entries 1 to 9: unstarted, dropped, never started twice, running
+    // twice, parked, stopped and completed.
+    let (unmapped, mut store, awaited) = awaited_entries(ws.path(), 9);
+    let conn = rusqlite::Connection::open(ws.path().join("forge.db")).unwrap();
+    brokkr_store::test_support::plant_run(&conn, "r1", "{}").unwrap();
+    linked(&mut store, awaited[3], "r1");
+    let parked = (EventType::RunParked, json!({"reason": "lost"}));
+    let ends = [
+        ("r5", vec![]),
+        ("r6", vec![]),
+        ("r7", vec![parked]),
+        ("r8", vec![(EventType::RunStopped, json!({}))]),
+        ("r9", vec![(EventType::RunCompleted, json!({}))]),
+    ];
+    for ((name, events), entry) in ends.into_iter().zip(&awaited[4..]) {
+        run(&mut store, name, &events);
+        linked(&mut store, *entry, name);
+    }
+    for entry in [awaited[3], awaited[5]] {
+        (store.queue_command(entry, QueueCommand::Merged, BY)).unwrap();
+    }
+    let waits = waiting_on_each(&mut store, &unmapped, &awaited, WaitOn::Merged);
+    let unmerged = |n: usize, run: &str| Reason::Unmerged {
+        wait: waits[n],
+        run: run.into(),
+    };
+    let unended = |n: usize, run: &str| Reason::Unended {
+        wait: waits[n],
+        run: run.into(),
+    };
+    let rest = [
+        (13, Standing::Admissible, vec![]),
+        (14, Standing::Waiting, vec![unended(4, "r5")]),
+        (15, Standing::Admissible, vec![]),
+        (16, Standing::Waiting, vec![unended(6, "r7")]),
+        (17, Standing::Held, vec![unmerged(7, "r8")]),
+        (18, Standing::Held, vec![unmerged(8, "r9")]),
+    ];
+    let judged = |store: &Store| verdicts(store).split_off(1);
+    assert_eq!(
+        judged(&store),
+        [the_first_three(10, &waits), rest.into()].concat()
+    );
+    let said = "waits on 8:merged: its run 'r8' is over and no merge of its work is recorded; \
+                `brokkr queue merged 8` records one";
+    let reason = unmerged(7, "r8");
+    assert_eq!(
+        (reason.to_string(), reason.kind(), reason.holds()),
+        (said.to_string(), "unmerged", true)
+    );
+    (store.queue_command(awaited[7], QueueCommand::Merged, BY)).unwrap();
+    assert_eq!(judged(&store)[7], (17, Standing::Admissible, vec![]));
 }
 
 /// A run an older brokkr left with a row and no `run/started`, planted by
