@@ -508,15 +508,12 @@ pub(super) fn stamp_endings(
 ///
 /// A declared hard word there is a stop, which decide takes; a sequence
 /// with no gate step decides on its terminal.
-fn refuse_pre_gate_ending(
+pub(crate) fn refuse_pre_gate_ending(
     seat: &str,
     seat_results: &[String],
     steps: &[SequenceStep],
 ) -> Result<(), CompileError> {
-    let Some(first_gate) = steps.iter().position(|step| step.class == SeatClass::Gate) else {
-        return Ok(());
-    };
-    for step in &steps[..first_gate] {
+    for step in before_every_gate(steps).unwrap_or_default() {
         for word in &step.ends_on {
             let hard = step.hard_results.contains(word);
             if hard && seat_results.contains(word) {
@@ -530,6 +527,17 @@ fn refuse_pre_gate_ending(
         }
     }
     Ok(())
+}
+
+/// The steps of `steps` before its first gate step, or none when no step
+/// is a gate. A work step there, ended on a compiled hard word, is a stop:
+/// compile refuses any other ending there and decide takes that stop, so
+/// both read this one geometry (#1221, LOW 2).
+pub(crate) fn before_every_gate(steps: &[SequenceStep]) -> Option<&[SequenceStep]> {
+    let first_gate = steps
+        .iter()
+        .position(|step| step.class == SeatClass::Gate)?;
+    Some(&steps[..first_gate])
 }
 
 /// A sequence's compiled endings: each non-final step's ending words, and

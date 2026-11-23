@@ -9,8 +9,13 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 
 use super::tests::{driven_with, driver};
-use crate::bundle::{Bundle, Invocation, Limits, SeatBody, SeatClass, SequenceStep, StepBody};
-use crate::engine::tests::single_body;
+use super::Producer;
+use crate::bundle::sequence::{before_every_gate, refuse_pre_gate_ending};
+use crate::bundle::{
+    BodyRefusal, Bundle, CompileError, Invocation, Limits, SeatBody, SeatClass, SequenceStep,
+    StepBody,
+};
+use crate::engine::tests::{single_body, step_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 
 /// The shipped recipe `name`, compiled against the shipped library.
@@ -168,4 +173,110 @@ fn clean_gpt_flash_positions_reach_the_chief_and_decide_on_its_record() {
         .expect("the chief ran");
     let head = chief["result"]["checked_head"].as_str().expect("a head");
     assert_eq!(review["inputs"]["reviewed_heads"], json!({"repo": head}));
+}
+
+/// One row of #1221 LOW 2's geometry table: a sequence of `shape` whose
+/// step `name`, at `ended`, may end on the compiled hard `held`, which the
+/// seat does not declare; `before` names the steps before every gate step,
+/// and `stops` is whether that ending is a stop.
+struct Geometry {
+    shape: String,
+    steps: Vec<SequenceStep>,
+    ended: usize,
+    name: String,
+    before: Option<&'static [&'static str]>,
+    stops: bool,
+}
+
+/// Every step of: no gate; a gate first; work, gate, work; work, work,
+/// gate; gate, work, gate.
+fn geometry_table() -> Vec<Geometry> {
+    let (work, gate) = (SeatClass::Work, SeatClass::Gate);
+    let table: [(&[SeatClass], Option<&'static [&'static str]>); 5] = [
+        (&[work, work], None),
+        (&[gate, work], Some(&[])),
+        (&[work, gate, work], Some(&["s0"])),
+        (&[work, work, gate], Some(&["s0", "s1"])),
+        (&[gate, work, gate], Some(&[])),
+    ];
+    let rows = table.into_iter().flat_map(|(classes, before)| {
+        (0..classes.len()).map(move |ended| {
+            let name = format!("s{ended}");
+            Geometry {
+                shape: format!("{classes:?}"),
+                steps: ending_at(classes, ended),
+                ended,
+                stops: before.is_some_and(|before| before.contains(&name.as_str())),
+                name,
+                before,
+            }
+        })
+    });
+    rows.collect()
+}
+
+/// Whether decide takes `row`'s ending as a stop at its step.
+fn decide_stops(row: &Geometry) -> bool {
+    let decided = Producer::step(&row.steps, &row.name, Some("held"));
+    matches!(decided, Ok(Producer::Stop { at, .. }) if at == row.ended)
+}
+
+/// #1221, LOW 2: decide takes a compiled hard ending as a stop on a work
+/// step before every gate step, and on no other step of any shape.
+#[test]
+fn decide_takes_a_hard_ending_as_a_stop_only_before_every_gate() {
+    for row in geometry_table() {
+        let (shape, name) = (&row.shape, &row.name);
+        assert_eq!(decide_stops(&row), row.stops, "{shape} ended at {name}");
+    }
+}
+
+/// #1221, LOW 2: compile refuses the undeclared hard ending exactly where
+/// decide takes it as a stop, so the two agree on every row, and both read
+/// the one geometry.
+#[test]
+fn compile_refuses_a_pre_gate_ending_exactly_where_decide_stops() {
+    for row in geometry_table() {
+        let (shape, name) = (&row.shape, &row.name);
+        let compiled = match refuse_pre_gate_ending("review", &[], &row.steps) {
+            Ok(()) => None,
+            Err(CompileError::Body(refusal)) => Some(refusal),
+            Err(other) => panic!("expected a body refusal, got {other:?}"),
+        };
+        let refused = BodyRefusal::PreGateUndeclared {
+            seat: "review".into(),
+            step: name.clone(),
+            word: "held".into(),
+        };
+        let want = row.stops.then_some(refused);
+        assert_eq!(compiled, want, "{shape} ended at {name}");
+        assert_eq!(compiled.is_some(), decide_stops(&row), "{shape} at {name}");
+        let names = before_every_gate(&row.steps).map(|before| {
+            before
+                .iter()
+                .map(|step| step.name.as_str())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(names.as_deref(), row.before, "{shape}");
+    }
+}
+
+/// A sequence of `classes`, steps `s0`, `s1`, …, whose step `ended`, when
+/// not the last, may end the sequence on the compiled hard `held`.
+fn ending_at(classes: &[SeatClass], ended: usize) -> Vec<SequenceStep> {
+    let ends = |at: usize| match at == ended && at + 1 != classes.len() {
+        true => vec!["held".to_string()],
+        false => Vec::new(),
+    };
+    let step = |(at, &class): (usize, &SeatClass)| SequenceStep {
+        ends_on: ends(at),
+        hard_results: ends(at),
+        ..uncompiled_sequence_step! {
+            name: format!("s{at}"),
+            class,
+            results: vec!["clean".into()],
+            body: step_body(driver(&clean())),
+        }
+    };
+    classes.iter().enumerate().map(step).collect()
 }
