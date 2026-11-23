@@ -4991,7 +4991,7 @@ fn git(repo: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String {
+pub(super) fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String {
     let file = repo.join(path);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(file, contents).unwrap();
@@ -5000,9 +5000,9 @@ fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String
     git_head(repo).unwrap()
 }
 
-const CLASSES: &str = ".github/delivery-classes.json";
+pub(super) const CLASSES: &str = ".github/delivery-classes.json";
 
-const DOCS_CLASS: &str = r#"{"schema":"forge.delivery-classes/v1","classes":{"docs":{"paths":["(^|/)[^/]+\\.md$","^docs/","^assets/"]}}}"#;
+pub(super) const DOCS_CLASS: &str = r#"{"schema":"forge.delivery-classes/v1","classes":{"docs":{"paths":["(^|/)[^/]+\\.md$","^docs/","^assets/"]}}}"#;
 
 /// A class whose one pattern matches every path — what a phase would
 /// commit if it could choose the class its own fixes are judged by.
