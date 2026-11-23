@@ -1,7 +1,7 @@
-//! The derivations `brokkr compare` prints beside its seats' accounting:
+//! The derivations `brokkr runs compare` prints beside its seats' accounting:
 //! where two runs diverged. Derived here once, so no surface aligns two
 //! trails its own way (decision 0013; #351). The seats' accounting both
-//! `brokkr costs` and `brokkr compare` print is brokkr-core's
+//! `brokkr stats costs` and `brokkr runs compare` print is brokkr-core's
 //! `seat_costs`, folded there once for the journal and for the writer's
 //! seat rows alike (#753), and exported from here.
 

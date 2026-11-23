@@ -247,7 +247,7 @@ fn planted(db: &Path, events: &[(EventType, serde_json::Value)]) {
     brokkr_store::test_support::plant_chained(&connection, "late", &head, events).unwrap();
 }
 
-/// `brokkr operator repair` on run `late`, as the operator types it, with
+/// `brokkr runs operator repair` on run `late`, as the operator types it, with
 /// `USER` pinned so the annotation's author is the test's.
 fn repair_as(dir: &Path, db: &str, user: &str, reason: &str) -> Output {
     Command::new(env!("CARGO_BIN_EXE_brokkr"))
@@ -269,7 +269,7 @@ fn repaired_at(dir: &Path, db: &str, user: &str, reason: &str, seq: u64) {
     assert!(stderr.contains(&said), "{stderr}");
 }
 
-/// `brokkr inspect --run late` printed every `needle`.
+/// `brokkr runs inspect --run late` printed every `needle`.
 fn inspect_shows(dir: &Path, db: &str, needles: &[&str]) {
     let inspect = brokkr(dir, &["runs", "inspect", "--run", "late", "--db", db]);
     assert_eq!(inspect.status.code(), Some(0), "{inspect:?}");
@@ -348,7 +348,7 @@ fn runs_shows_settlement_tail(dir: &Path, db: &str) {
     );
 }
 
-/// `brokkr operator repair` over shape (A), through the shipped binary:
+/// `brokkr runs operator repair` over shape (A), through the shipped binary:
 /// the settlement is named, the run folds as stopped, and `inspect` and
 /// `runs` show the late tail it kept.
 #[test]
@@ -674,7 +674,7 @@ fn a_repair_names_only_the_annotation_that_folded_before_the_break() {
     );
 }
 
-/// `brokkr operator settle` on a run no acknowledgement stands on refuses,
+/// `brokkr runs operator settle` on a run no acknowledgement stands on refuses,
 /// writes nothing, and names the command that answers it (decision 0108
 /// ruling 3): the proof never runs against a journal the operator has not
 /// looked at.

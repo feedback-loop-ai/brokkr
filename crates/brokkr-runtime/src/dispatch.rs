@@ -11,7 +11,7 @@
 //! driver's log and the driver's own checks; and the standing loop that
 //! repeats the pass while it stands, reaping the drivers it spawned
 //! (0110 ruling 5), over seams for its clock, its stop and its drivers.
-//! `brokkr dispatch`, its `drive`, `set-bound` and `status` are built in
+//! `brokkr queue dispatch`, its `drive`, `set-bound` and `status` are built in
 //! brokkr-cli, which starts the driver's process and holds the signals.
 //! Nothing here prints.
 

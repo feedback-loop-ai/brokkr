@@ -1,4 +1,4 @@
-//! `brokkr analytics`' own part (#568): the hearths it hands over, the
+//! `brokkr stats analytics`' own part (#568): the hearths it hands over, the
 //! headline it paints, and clap's refusal of a range in the view's words.
 
 use clap::Parser;

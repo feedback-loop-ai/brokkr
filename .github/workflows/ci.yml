@@ -156,8 +156,8 @@ jobs:
           scripts/run-it-tests.sh cargo test --locked -p brokkr-cli --test it -- --ignored --exact suppressions::an_added_suppression_of_a_ratcheted_lint_names_a_ruling
       - name: frozen and additive contracts compile
         run: |
-          cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
-          cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
+          cargo run --locked -p brokkr-cli -- library compile --bundle recipes/self
+          cargo run --locked -p brokkr-cli -- library compile --bundle recipes/verify
 
   # The DSH operator console plugin's own tests (decision 0085 ruling 5,
   # #568 slice two): Node's test runner in extensions/dsh/brokkr-console/,
@@ -304,8 +304,8 @@ jobs:
           if-no-files-found: warn
       - name: self and verify bundles compile under the constitutional lint
         run: |
-          cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
-          cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
+          cargo run --locked -p brokkr-cli -- library compile --bundle recipes/self
+          cargo run --locked -p brokkr-cli -- library compile --bundle recipes/verify
 
   # The checks main requires for the suite: each system's verdict over the
   # machines above. It runs whatever they ended with, `always()`, because a

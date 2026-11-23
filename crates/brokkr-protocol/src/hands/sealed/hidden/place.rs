@@ -39,7 +39,7 @@ impl Store {
 
     /// Refuse the store where its configured spelling, resolved again now,
     /// no longer leads to its sealed place: a route on the spelling changed
-    /// since it was sealed, so the store the engine and `brokkr secrets`
+    /// since it was sealed, so the store the engine and `brokkr system secrets`
     /// use now lies where no box would hide it (ruling 17); or where the
     /// spelling no longer resolves at all, by the error it is (ruling 18).
     pub(in crate::hands) fn led(&self) -> Result<(), Unhidden> {

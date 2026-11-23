@@ -40,7 +40,7 @@ The full transcript, annotated:
 The scaffold from step 2 is the right starting point; there is no
 maintained `recipes/rust`. This repository's own
 [`recipes/self`](../../../recipes/self/) is the closest worked example
-of a Rust delivery strategy, and `brokkr recipes list` shows it in the
+of a Rust delivery strategy, and `brokkr library recipes list` shows it in the
 library. It is Brokkr-only
 ([decision 0087](../../decisions/0087-the-base-offices-are-the-ones-init-writes.md)
 ruling 5): an example to read, not one to install onto your folder's

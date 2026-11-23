@@ -62,7 +62,7 @@ pub enum SettleRefusal {
     NoRoot,
 }
 
-/// What `brokkr operator settle` says, as the operator typed it: why the
+/// What `brokkr runs operator settle` says, as the operator typed it: why the
 /// release is recorded, and who recorded it.
 pub struct Settle<'a> {
     pub reason: &'a str,

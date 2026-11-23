@@ -106,7 +106,7 @@ For completeness, the invariant `bundle.json`:
 ```
 
 The three model offices name agents; their charter, model chain, limits and
-tool grant live under `.brokkr/agents/`, where `brokkr agents show <name>` reads
+tool grant live under `.brokkr/agents/`, where `brokkr library agents show <name>` reads
 them back. Verify and ship are deterministic scripts with their limits and
 hands declared at the site, which Brokkr boxes under the `namespace`
 boundary only. Class remains the seat's authority.

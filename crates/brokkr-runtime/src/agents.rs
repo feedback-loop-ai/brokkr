@@ -139,7 +139,7 @@ pub struct Agent {
     pub results: Option<Vec<String>>,
     /// sha256 over the canonical definition JSON.
     pub digest: String,
-    /// The definition as written, for `brokkr agents show`.
+    /// The definition as written, for `brokkr library agents show`.
     pub source: Value,
 }
 
@@ -882,7 +882,7 @@ pub enum ResolveError {
 
 /// One chain entry as the resolver sees it: the shared derivation behind
 /// `resolve` (which the compiler calls) and `report` (which
-/// `brokkr agents show` and `brokkr doctor` call). They are the same walk
+/// `brokkr library agents show` and `brokkr doctor` call). They are the same walk
 /// — `resolve` is `report` plus the refusals.
 #[derive(Debug, Clone)]
 pub struct ChainEntry {
@@ -1264,7 +1264,7 @@ fn native_alias(adapter: &Adapter, tool: &str, name: &str) -> Result<(), String>
 }
 
 /// Walk an agent's whole chain without refusing anything but an unknown
-/// name: the derivation `brokkr agents show` and `brokkr doctor` print.
+/// name: the derivation `brokkr library agents show` and `brokkr doctor` print.
 pub fn report(
     library: &Library,
     adapters: &Adapters,

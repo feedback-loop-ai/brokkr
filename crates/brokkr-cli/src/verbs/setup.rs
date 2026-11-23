@@ -1,6 +1,6 @@
 //! The verbs that prepare the workspace, its libraries and its drivers:
-//! `init`, `doctor`, `compile`, `recipes`, `agents`, `muninn`, `secrets`,
-//! `driver` and the hidden `fake-driver`.
+//! `init`, `doctor`, `library compile`, `library recipes`, `library agents`,
+//! `runs muninn`, `system secrets`, `driver` and the hidden `fake-driver`.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -97,13 +97,13 @@ pub(crate) fn doctor(
     })
 }
 
-/// `brokkr compile`: validate a bundle and print its pinned manifest,
+/// `brokkr library compile`: validate a bundle and print its pinned manifest,
 /// and decision 0050's sweep of its table on stderr.
 pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> Result<ExitCode> {
     print_compiled(workspace, (&bundle, None))
 }
 
-/// What `compile` and `recipes show` both print: the bundle at `leaf`'s
+/// What `library compile` and `library recipes show` both print: the bundle at `leaf`'s
 /// directory compiled on the one path a run starts on, in the workspace's
 /// realm and across `leaf`'s project shelf, the one `--dir` selected, if
 /// any ([`launch::compile_on`]), so the two cannot drift apart (#350,
@@ -130,7 +130,7 @@ fn print_compiled(workspace: &Path, leaf: (&Path, Option<&Path>)) -> Result<Exit
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr recipes`: list, add or show a recipe.
+/// `brokkr library recipes`: list, add or show a recipe.
 pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode> {
     let layout = Layout::discover(workspace)?;
     layout.refuse_old()?;
@@ -163,7 +163,7 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr recipes add`: install `source` as `name`, from `path` inside a
+/// `brokkr library recipes add`: install `source` as `name`, from `path` inside a
 /// clone, onto the repository's shelf, or onto the personal one.
 fn add_recipe(
     layout: &Layout,
@@ -180,7 +180,7 @@ fn add_recipe(
     }
 }
 
-/// `brokkr agents`: list the agent library or show one definition.
+/// `brokkr library agents`: list the agent library or show one definition.
 pub(crate) fn agents(workspace: &Path, command: AgentsCmd) -> Result<ExitCode> {
     // Semantic lint reads the OPERATOR's capability definitions
     // (decision 0065; design D2): beside the active map, else in
@@ -205,7 +205,7 @@ pub(crate) fn agents(workspace: &Path, command: AgentsCmd) -> Result<ExitCode> {
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr muninn`: read the fleet and record proposals, or list them.
+/// `brokkr runs muninn`: read the fleet and record proposals, or list them.
 pub(crate) fn muninn(workspace: &Path, command: MuninnCmd) -> Result<ExitCode> {
     match command {
         MuninnCmd::Run {
@@ -217,7 +217,7 @@ pub(crate) fn muninn(workspace: &Path, command: MuninnCmd) -> Result<ExitCode> {
         } => {
             // `world_and_hearths`, not `hearths_of`: the raven reports
             // a moved crossing as a finding, so it reads the world
-            // with `inspect` and keeps the resolved map beside the
+            // with `runs inspect` and keeps the resolved map beside the
             // journals it names (decision 0057).
             let escape = db.is_some();
             let (world, hearths) = world_and_hearths(workspace, realms, db)?;
@@ -246,7 +246,7 @@ fn record_of(layout: &Layout, escape: bool, flag: Option<PathBuf>) -> Result<Pat
     Ok(flag.map_or_else(place, Ok)?)
 }
 
-/// `brokkr secrets`: set, list or remove a name in the secrets store,
+/// `brokkr system secrets`: set, list or remove a name in the secrets store,
 /// the flag's, else the run-local state's (decision 0083).
 pub(crate) fn secrets(workspace: &Path, command: SecretsCmd) -> Result<ExitCode> {
     use brokkr_protocol::secret;

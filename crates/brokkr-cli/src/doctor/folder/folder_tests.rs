@@ -171,7 +171,7 @@ fn each_form_of_the_folder_line_is_exact_and_first() {
 }
 
 /// A folder whose compile refuses: the clause carries the error's whole
-/// chain, each line rendered safe, as `brokkr compile` prints it.
+/// chain, each line rendered safe, as `brokkr library compile` prints it.
 #[test]
 fn a_folder_whose_compile_refuses_says_so() {
     let (_dir, root) = root_with(|root| std::fs::create_dir(root.join(".brokkr")).unwrap());

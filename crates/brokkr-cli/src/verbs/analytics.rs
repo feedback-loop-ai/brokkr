@@ -1,4 +1,4 @@
-//! `brokkr analytics`: the cross-run readout over every hearth the world
+//! `brokkr stats analytics`: the cross-run readout over every hearth the world
 //! names (#568). The figures are derived once, in
 //! [`brokkr_view::analytics`]; this verb reads the hearths, hands them over
 //! with the clock, and prints what comes back. It writes nothing
@@ -74,7 +74,7 @@ pub(crate) fn cross_run(workspace: &Path, command: CrossRunCmd) -> Result<ExitCo
     }
 }
 
-/// `brokkr analytics`: the readout for the range ending now.
+/// `brokkr stats analytics`: the readout for the range ending now.
 pub(crate) fn analytics(workspace: &Path, args: AnalyticsArgs) -> Result<ExitCode> {
     let hearths = hearths_of(workspace, args.realms, args.db)?;
     let view = derive(&hearths, args.range, args.realm.as_deref(), &now_rfc3339())?;

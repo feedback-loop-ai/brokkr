@@ -1,6 +1,6 @@
 //! The cross-run analytics readout (#568, `operator-console-analytics`):
 //! one pure aggregation over every hearth's runs, for a range and an
-//! optional realm, with `now` passed in. `brokkr analytics --json` emits
+//! optional realm, with `now` passed in. `brokkr stats analytics --json` emits
 //! it and the console paints it, so one figure is shown one way (decision
 //! 0013). What no journal records is listed in [`NOT_RECORDED`], never
 //! invented.

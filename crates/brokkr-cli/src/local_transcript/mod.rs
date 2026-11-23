@@ -1,5 +1,5 @@
 //! The one local transcript reader (proposed decision 0055, D2) that
-//! `brokkr transcript`, the terminal and the browser all consume: select
+//! `brokkr runs transcript`, the terminal and the browser all consume: select
 //! and validate a participant's reference, discover its one safe source,
 //! bound-read it and project it, then mask its prose on the way out.
 //!

@@ -1,4 +1,4 @@
-//! `brokkr transcript`: the scriptable face of the shared local reader
+//! `brokkr runs transcript`: the scriptable face of the shared local reader
 //! (#222, proposed decision 0055). Each case builds a synthetic journal
 //! and synthetic test-owned homes; no real operator session is copied.
 
@@ -89,7 +89,7 @@ fn record(world: &World, transcript: Value) {
 
 fn run(world: &World, args: &[&str]) -> std::process::Output {
     Command::new(brokkr_bin())
-        .args(args)
+        .args(["runs"].iter().chain(args))
         .arg("--db")
         .arg(&world.db)
         .env("HOME", &world.home)
@@ -2260,15 +2260,15 @@ fn a_missing_journal_gains_no_file() {
     let db = dir.path().join("missing").join("forge.db");
     let home = dir.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
-
-    let output = Command::new(brokkr_bin())
-        .args(["transcript", "--run", "r222", "--seat", "eff1", "--json"])
-        .arg("--db")
-        .arg(&db)
-        .env("HOME", &home)
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    let world = World {
+        dir,
+        db: db.clone(),
+        home,
+    };
+    let output = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
     assert!(
         !output.status.success(),
         "a missing journal is a refusal, not an initialized store"

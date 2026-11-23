@@ -1,4 +1,4 @@
-//! `brokkr operator settle`: the record that proves a quarantined run's
+//! `brokkr runs operator settle`: the record that proves a quarantined run's
 //! writers ended where the broker's own proof cannot be read (decision 0108
 //! ruling 3). Every refusal writes nothing, and the record is read by type,
 //! never by folding the run.

@@ -571,7 +571,7 @@ fn the_grouped_library_verbs_still_dispatch() {
     let store = root.write("secrets.env", "DOCS_TOKEN=value\n");
     let private = std::os::unix::fs::PermissionsExt::from_mode(0o600);
     std::fs::set_permissions(&store, private).unwrap();
-    let ran = root.brokkr(&["secrets", "list", "--secrets-file", "secrets.env"]);
+    let ran = root.brokkr(&["system", "secrets", "list", "--secrets-file", "secrets.env"]);
     assert_eq!((ran.code, ran.stdout.as_str()), (Some(0), "DOCS_TOKEN\n"));
 }
 

@@ -13,7 +13,7 @@ const MAX_WIDTH: usize = 1000;
 #[derive(Clone, Copy)]
 pub(crate) enum Width {
     /// `COLUMNS` where it is set, else the default: how every readout but
-    /// `brokkr graph` has always been sized, so none of them moves.
+    /// `brokkr stats graph` has always been sized, so none of them moves.
     Columns,
     /// A `COLUMNS` that is a whole, nonzero number of cells, else the
     /// columns of the stdout the readout writes to where that is a

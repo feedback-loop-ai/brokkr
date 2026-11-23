@@ -1,4 +1,4 @@
-//! `brokkr ui` — the embedded read-only surface (decision 0003): a static
+//! `brokkr system ui` — the embedded read-only surface (decision 0003): a static
 //! page compiled into the binary, served on loopback, reading
 //! projections only. No commands, no writes, no Node, no external
 //! assets; removing this module changes nothing about execution
@@ -203,7 +203,7 @@ pub fn handle(db: &Path, path: &str) -> Response {
 }
 
 /// The lowest drill level (#352): one participant's transcript, read by
-/// the one local read path `brokkr transcript` uses and masked against the
+/// the one local read path `brokkr runs transcript` uses and masked against the
 /// same secrets store beside the journal, served as that command's
 /// `--json` document byte for byte, for every kind. This is a
 /// loopback-only, operator-local surface — the same trust as the command
@@ -332,7 +332,7 @@ enum RouteRefusal {
     Unread(StoreError),
     /// The run's journal loads and does not fold. That is fatal to the
     /// run's own verbs (`fleet.rs`), so every participant route refuses it
-    /// in the fold's words, as `brokkr transcript` does, and reads nothing.
+    /// in the fold's words, as `brokkr runs transcript` does, and reads nothing.
     Unfoldable(brokkr_core::fold::FoldError),
 }
 

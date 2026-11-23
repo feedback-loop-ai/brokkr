@@ -67,17 +67,29 @@ fn every_open_is_literal(dir: &Path, db: &str, into: &str) {
         "error: queue entry 1: reading a queued launch: missing field `encoding` at line 1 \
          column 2\n"
     );
-    let bound = ["dispatch", "set-bound", "3", "--reason", "probe"];
+    let bound = ["queue", "dispatch", "set-bound", "3", "--reason", "probe"];
     ran(dir, &[&bound[..], &["--db", db]].concat());
     assert_eq!(
-        ran(dir, &["dispatch", "status", "--db", db]),
+        ran(dir, &["queue", "dispatch", "status", "--db", db]),
         "not held; no dispatcher has taken this journal\nbound: 3 counted refusals hold an entry\n"
     );
     ran(
         dir,
-        &["export", "--run", "good", "--out", "out", "--db", db],
+        &[
+            "journal", "export", "--run", "good", "--out", "out", "--db", db,
+        ],
     );
-    ran(dir, &["import", "--from", "out/good.ndjson", "--db", into]);
+    ran(
+        dir,
+        &[
+            "journal",
+            "import",
+            "--from",
+            "out/good.ndjson",
+            "--db",
+            into,
+        ],
+    );
     let listed = ran(dir, &["runs", "--db", into]);
     assert!(listed.contains("\n  good running work seq 2 "), "{listed}");
 }

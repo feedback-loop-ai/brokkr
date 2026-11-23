@@ -143,7 +143,7 @@ pub fn fleet_listing_for_budget(
     crate::fleet::list_hearth(&store, journal, true, |lister| lister.every_json(out))
 }
 
-/// `brokkr costs --run <run>` of `run` in `store` after its opening, which
+/// `brokkr stats costs --run <run>` of `run` in `store` after its opening, which
 /// verified it to `opened`: what decision 0089 ruling 9 bounds after the
 /// opening, to the bytes it prints.
 pub fn costs_for_budget(store: &Store, run: &str, opened: &Opened) -> anyhow::Result<String> {
@@ -151,7 +151,7 @@ pub fn costs_for_budget(store: &Store, run: &str, opened: &Opened) -> anyhow::Re
     Ok(serde_json::to_string_pretty(&costs)?)
 }
 
-/// `brokkr compare` of the two runs `runs` names in `store` after their
+/// `brokkr runs compare` of the two runs `runs` names in `store` after their
 /// openings, which verified each to the head beside it: what decision
 /// 0089 ruling 9 bounds after the openings, to the bytes it prints.
 pub fn compare_for_budget(store: &Store, runs: [(&str, &Opened); 2]) -> anyhow::Result<String> {

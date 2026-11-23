@@ -1,4 +1,4 @@
-//! U8e3 (MB5, CR2; operator ruling 2026-10-21, "A"): `brokkr operator
+//! U8e3 (MB5, CR2; operator ruling 2026-10-21, "A"): `brokkr runs operator
 //! release`, settlement's one exception to positive proof. A run whose
 //! engine was killed while its driver ran keeps its reservation, refusing
 //! a conflicting run, once its attempt ended indeterminate; the operator's
@@ -131,7 +131,7 @@ impl Killed {
         released_racing(store, &run, ["operator", REASON], between)
     }
 
-    /// The operator's release, as `brokkr operator` asks it.
+    /// The operator's release, as `brokkr runs operator` asks it.
     fn released(&mut self) -> Result<FencedCommandOutcome, EngineError> {
         let _stood = Coordinated::at(&self.home());
         let run = self.run();

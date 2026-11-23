@@ -1,4 +1,4 @@
-//! `brokkr probe harness`: measure one agent CLI and write the facts its
+//! `brokkr system probe harness`: measure one agent CLI and write the facts its
 //! adapter must declare (decision 0075 ruling 3, #484). The
 //! measuring is `brokkr_protocol::probe`'s; this handler resolves the
 //! adapter and the credentials, and writes the report.
@@ -28,7 +28,7 @@ use crate::now_rfc3339;
 /// inside it; a CLI waiting on a prompt nobody answers is killed at it.
 const LAUNCH_DEADLINE: Duration = Duration::from_secs(300);
 
-/// `brokkr probe`.
+/// `brokkr system probe`.
 pub(crate) fn probe(workspace: &Path, command: ProbeCmd) -> Result<ExitCode> {
     match command {
         ProbeCmd::Harness(args) => harness(workspace, args),
@@ -126,7 +126,7 @@ fn read_places(
     Ok((layout.adapters(adapters_dir), secrets_file))
 }
 
-/// `brokkr probe harness`: one report, to `--out` or stdout, with the
+/// `brokkr system probe harness`: one report, to `--out` or stdout, with the
 /// drift since the report `--out` already held.
 fn harness(workspace: &Path, args: ProbeHarnessArgs) -> Result<ExitCode> {
     let (adapters_dir, secrets_file) =

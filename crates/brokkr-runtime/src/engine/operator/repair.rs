@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use super::{fenced_append, read_back, EngineError, Head};
 
-/// What `brokkr operator repair` says, as the operator typed it: why the
+/// What `brokkr runs operator repair` says, as the operator typed it: why the
 /// late tail is kept, and who repaired it.
 pub struct Repair<'a> {
     pub reason: &'a str,

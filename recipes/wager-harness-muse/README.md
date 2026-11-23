@@ -52,7 +52,7 @@ and no gate — the same standing as the deepseek arm.
   shape on the same dsh route.
 - **Metering.** dsh reports token usage in its session record on this
   route (verified 2026-09-05), which the driver reads into the
-  checkpoint, so tokens reach `brokkr costs`. LaneTally carries both
+  checkpoint, so tokens reach `brokkr stats costs`. LaneTally carries both
   ids' list rates under the `openrouter` provider key
   (feedback-loop-ai/lanetally#96), so the arm's tokens price the way
   the incumbent's do; the spend is also visible in OpenRouter's
@@ -67,8 +67,8 @@ and no gate — the same standing as the deepseek arm.
   were the ones billed.
 
 Run as the harness README says: `brokkr run --recipe brokkr-fast` for the
-incumbent, `brokkr rerun --run <id> --recipe wager-harness-muse` for
-this arm, `brokkr compare` for the trails, then judge the artifacts.
+incumbent, `brokkr runs rerun --run <id> --recipe wager-harness-muse` for
+this arm, `brokkr runs compare` for the trails, then judge the artifacts.
 
 By construction this arm runs `fast`'s verifier and shipper, which
 Brokkr boxes only under a `namespace` boundary.

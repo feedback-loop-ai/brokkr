@@ -1,4 +1,4 @@
-//! `brokkr dispatch` (decision 0110 rulings 3 to 6): the standing loop,
+//! `brokkr queue dispatch` (decision 0110 rulings 3 to 6): the standing loop,
 //! or one pass with `--once`, under the journal's dispatch lock, each run
 //! it starts handed to this binary as `queue dispatch drive`, a process in a
 //! session of its own; the driver itself; the bound's command; and the
@@ -44,7 +44,7 @@ mod report;
 /// The signals that stop the standing loop (decision 0110 ruling 5).
 const STOPPING: [i32; 2] = [SIGINT, SIGTERM];
 
-/// Run one `brokkr dispatch` command.
+/// Run one `brokkr queue dispatch` command.
 pub(crate) fn dispatch(
     workspace: &Path,
     args: DispatchArgs,
@@ -65,7 +65,7 @@ fn host_path() -> OsString {
     std::env::var_os("PATH").unwrap_or_default()
 }
 
-/// `brokkr dispatch --once`: take the journal's lock, run one pass whose
+/// `brokkr queue dispatch --once`: take the journal's lock, run one pass whose
 /// seams are this binary's identity and its driver's spawn, and paint the
 /// pass's report. An ending exits non-zero.
 fn once(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Result<ExitCode> {
@@ -102,7 +102,7 @@ fn taken(workspace: &Path, journal: JournalArgs) -> Result<(PathBuf, Binary, Sto
 /// run, claim and handle, by its pid.
 type Drivers = BTreeMap<u32, (String, Claim, Child)>;
 
-/// `brokkr dispatch`: the standing loop (decision 0110 ruling 5), a pass
+/// `brokkr queue dispatch`: the standing loop (decision 0110 ruling 5), a pass
 /// every `--every` seconds, each tick's report painted as `--once` paints
 /// it, then a line per driver reaped. The first SIGINT or SIGTERM stops it
 /// once the entry in flight has its driver, and it exits zero; a second
@@ -332,7 +332,7 @@ fn lead() -> std::io::Result<()> {
     Ok(())
 }
 
-/// `brokkr dispatch drive`: resume the run `entry` is linked to under
+/// `brokkr queue dispatch drive`: resume the run `entry` is linked to under
 /// `claim`, once its `spawn` row has landed, rebuilt from the entry's
 /// payload as the start rebuilt it, and drive it as `brokkr resume
 /// --no-view` does. Refused, writing nothing, otherwise.
@@ -350,7 +350,7 @@ fn drive(
     drive_to_end(&mut engine, Engine::drive)
 }
 
-/// `brokkr dispatch set-bound`: the journal's bound on counted refusals,
+/// `brokkr queue dispatch set-bound`: the journal's bound on counted refusals,
 /// set as the operator's journaled command.
 fn set_bound(
     workspace: &Path,
@@ -372,7 +372,7 @@ fn set_bound(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr dispatch status`: the journal opened read-only, its latest
+/// `brokkr queue dispatch status`: the journal opened read-only, its latest
 /// holder, whether its lock is held now, its bound and what a dispatcher
 /// left unsettled. Writes and migrates nothing.
 fn status(

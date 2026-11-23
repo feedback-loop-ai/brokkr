@@ -1152,7 +1152,7 @@ fn missing(refusal: &str) -> String {
 /// Doctor checks a hand move (decision 0083 ruling 5): with `init`'s new
 /// output and a root `bundle.json` left beside it, the folder line names
 /// the entry left; with that gone and a charter left behind at the root,
-/// it carries the error `brokkr compile --bundle .brokkr` prints for the
+/// it carries the error `brokkr library compile --bundle .brokkr` prints for the
 /// folder, and so with the charter back and a folder map that will not
 /// read. Each leaves the report unhealthy.
 #[test]
@@ -1326,7 +1326,7 @@ fn demoting_the_scaffolded_tier_refuses_the_scaffolded_gates() {
     )
     .unwrap();
 
-    let (code, _, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
+    let (code, _, stderr) = brokkr(&["library", "compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(1), "stderr: {stderr}");
     assert!(
         stderr.contains("gate class") && stderr.contains("claude"),
@@ -1401,8 +1401,8 @@ fn the_recipe_verbs_read_the_provisional_offices_the_map_lists() {
     let starter = ["add", bundle.to_str().unwrap(), "--name", "starter"];
     let (code, _, stderr) = verb(&starter);
     let within = format!(
-        "error: recipes add would copy {} into {}/recipes, which lies inside it (#696): install \
-         a bundle directory that does not hold the shelf; nothing was written\n",
+        "error: library recipes add would copy {} into {}/recipes, which lies inside it (#696): \
+         install a bundle directory that does not hold the shelf; nothing was written\n",
         bundle.display(),
         bundle.display()
     );

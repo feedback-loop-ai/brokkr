@@ -1,4 +1,4 @@
-//! Decision 0108 ruling 4: `brokkr operator repair` names the late tail of
+//! Decision 0108 ruling 4: `brokkr runs operator repair` names the late tail of
 //! a run that no longer folds, and the fold reads it as late — kept,
 //! shown, never applied.
 

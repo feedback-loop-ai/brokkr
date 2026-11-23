@@ -213,7 +213,10 @@ fn a_head_moved_after_acceptance_parks_at_the_drive_and_the_acceptance_stands() 
         reason.starts_with("reviewed head moved: source: "),
         "{reason}"
     );
-    assert!(reason.ends_with("; use plain operator retry"), "{reason}");
+    assert!(
+        reason.ends_with("; use plain runs operator retry"),
+        "{reason}"
+    );
     assert_eq!(accepted_count(&runtime), 1);
 }
 
@@ -227,7 +230,7 @@ fn an_old_journal_refuses_at_the_drive_and_empty_args_run_every_member() {
     accept(&mut runtime, json!({"members":["b"]}));
     assert_eq!(
         refused_at_drive(&mut runtime),
-        "phase 'work' visit 1 holds no attempt its panel ended; use plain operator retry"
+        "phase 'work' visit 1 holds no attempt its panel ended; use plain runs operator retry"
     );
     accept(&mut runtime, json!({}));
     drives_a_fresh_panel(&mut runtime);
@@ -256,13 +259,13 @@ fn an_unreadable_record_and_a_missing_panel_park_at_the_drive_with_no_member_spa
     accept(&mut runtime, json!({"members":["a"]}));
     assert_eq!(
         refused_at_drive(&mut runtime),
-        "phase 'work' runs no panel; use plain operator retry"
+        "phase 'work' runs no panel; use plain runs operator retry"
     );
     let (_dir, mut runtime) = parked(panel_after_chief(), false);
     accept(&mut runtime, json!({"members":["positions:b"]}));
     assert_eq!(
         refused_at_drive(&mut runtime),
-        "panel step 'positions' follows first step 'chief'; use plain operator retry"
+        "panel step 'positions' follows first step 'chief'; use plain runs operator retry"
     );
 }
 

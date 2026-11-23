@@ -354,7 +354,7 @@ fn exactly_one<'a>(what: &'a str, noun: &'a str, shapes: &[Shape]) -> SiteRefusa
 /// about what ran — inlining with extra steps, and drift with a name on
 /// it. `results`, `secrets` and `class` stay legal beside it, because
 /// they are bindings the SEAT provides rather than statements about what
-/// the agent is, and `brokkr agents show` never claims to show them.
+/// the agent is, and `brokkr library agents show` never claims to show them.
 /// `limits` is likewise a strategy bound on the invocation, not part of
 /// the office. `class` in particular is the seat's authority, never the
 /// agent's: one charter may sit in a work seat here and a gate seat

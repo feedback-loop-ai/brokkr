@@ -1063,7 +1063,7 @@ fn one_redaction_scrubs_a_journal_and_the_manifest_beside_it_alike() {
 
 // ── import: the verb paired with export (decision 0027) ──────────────
 
-/// A native run in its own journal, exported the way `brokkr export`
+/// A native run in its own journal, exported the way `brokkr journal export`
 /// exports it: the canonical NDJSON and the pinned manifest beside it.
 fn exported_run(run_id: &str, phase: &str) -> (tempfile::TempDir, Store, String, Value) {
     let (dir, mut store) = store();
@@ -1897,7 +1897,7 @@ fn import_refuses_an_export_whose_chain_cannot_answer_for_the_runs_row() {
 /// A verified chain proves its bytes were not altered. It does not
 /// prove whoever sealed them was entitled to the name they sealed them
 /// under — the hashes are unkeyed, so a stranger's export can carry any
-/// run id at all. The id does not stay in the database: `brokkr export`
+/// run id at all. The id does not stay in the database: `brokkr journal export`
 /// composes `<out>/<run_id>.ndjson` from it and every readout prints it,
 /// so an adoption refuses a name it would never have minted itself.
 #[test]

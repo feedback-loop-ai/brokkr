@@ -248,7 +248,7 @@ pub struct UncheckedPin {
 }
 
 /// Why the pin was never compared, worded ONCE for every surface that
-/// reports one — `brokkr doctor`'s warn line and `brokkr realms`' pin
+/// reports one — `brokkr doctor`'s warn line and `brokkr system realms`' pin
 /// state — exactly as a moved pin is worded once by
 /// [`CrossingFailure::error`]. Each surface frames it in its own words
 /// ("pin not checked: …", "unchecked · …"); neither owns the reason.
@@ -412,8 +412,8 @@ impl World {
         World::found(dir, named, World::load)
     }
 
-    /// The world the READ surfaces read — `brokkr doctor`, `brokkr realms`
-    /// and `brokkr muninn run` — and the world the journal-only verbs read
+    /// The world the READ surfaces read — `brokkr doctor`, `brokkr system realms`
+    /// and `brokkr runs muninn run` — and the world the journal-only verbs read
     /// for its journal alone (#374; `conclude`, `operator retry`/`stop`,
     /// `costs` and the rest pin no world): a crossing that has moved is a
     /// LINE, not the end of the readout.

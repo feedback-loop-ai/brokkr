@@ -525,7 +525,7 @@ fn inspect_opens_a_call_in_the_repository_repo_names() {
     assert_eq!((out.as_str(), first, ok), ("", required.to_vec(), false));
 }
 
-/// Decision 0105: a historical evidence root retired by `brokkr evidence`,
+/// Decision 0105: a historical evidence root retired by `brokkr journal evidence`,
 /// and the readouts after it. Each host gives itself its own HOME, so no
 /// test reads or writes the host's coordination root.
 struct EvidenceHost {
@@ -669,7 +669,7 @@ impl EvidenceHost {
         self.artifacts.to_str().unwrap()
     }
 
-    /// `brokkr evidence list`, as its JSON array.
+    /// `brokkr journal evidence list`, as its JSON array.
     fn listed(&self) -> Vec<Value> {
         let (out, err, ok) = self.run(&["journal", "evidence", "list", "--json"]);
         assert!(ok, "{err}");

@@ -1096,7 +1096,7 @@ fn a_library_with_a_root_bundle_is_not_refused() {
     assert!(!repo.path(".brokkr/state").exists());
 }
 
-/// `brokkr ledger --repo .` in `repo`, of a run a library beside it
+/// `brokkr stats ledger --repo .` in `repo`, of a run a library beside it
 /// journaled, named by `--db`: a flag that supplies the journal alone.
 fn ledger_of_a_library_run(repo: &Repo) -> Ran {
     let library = Repo::new();
@@ -1276,7 +1276,7 @@ fn role_under_state(repo: &Repo, relative: &str) {
     std::fs::write(&path, bundle.to_string()).unwrap();
 }
 
-/// The digest `brokkr compile --bundle <relative>` prints.
+/// The digest `brokkr library compile --bundle <relative>` prints.
 pub(crate) fn digest(repo: &Repo, relative: &str) -> String {
     let ran = repo.brokkr("", &["library", "compile", "--bundle", relative]);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);

@@ -19,7 +19,7 @@ use std::path::Path;
 
 /// Names a seat may never bind: grammar-legal names that would turn the
 /// env injector into a code-loading or harness-spoofing primitive.
-/// Enforced at bundle compile AND at `brokkr secrets set`.
+/// Enforced at bundle compile AND at `brokkr system secrets set`.
 pub const DENYLIST: [&str; 4] = ["PATH", "IFS", "LD_PRELOAD", "LD_LIBRARY_PATH"];
 
 /// The harness-owned prefix: `BROKKR_*` names configure the harness
@@ -151,7 +151,7 @@ pub fn denylisted(name: &str) -> bool {
 }
 
 /// Validate a name for binding: grammar plus denylist. One shared
-/// refusal for bundle compile and `brokkr secrets set`.
+/// refusal for bundle compile and `brokkr system secrets set`.
 pub fn validate_name(name: &str) -> Result<(), String> {
     checked_name(name).map_err(|refusal| refusal.to_string())
 }
@@ -371,7 +371,7 @@ fn write_store(path: &Path, entries: &[(String, Secret)]) -> Result<(), String> 
     .map_err(|error| error.to_string())
 }
 
-/// `brokkr secrets set`: validate, then read-modify-write atomically.
+/// `brokkr system secrets set`: validate, then read-modify-write atomically.
 /// Returns an optional warning (short value) on success.
 pub fn store_set(path: &Path, name: &str, value: &str) -> Result<Option<String>, String> {
     validate_name(name)?;
@@ -392,7 +392,7 @@ pub fn store_set(path: &Path, name: &str, value: &str) -> Result<Option<String>,
     Ok(warning)
 }
 
-/// `brokkr secrets list`: names, never values. There is no value-printing
+/// `brokkr system secrets list`: names, never values. There is no value-printing
 /// verb anywhere — that is the one thing decision 0012 exists to prevent.
 pub fn store_names(path: &Path) -> Result<Vec<String>, String> {
     if !path.exists() {
@@ -404,7 +404,7 @@ pub fn store_names(path: &Path) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// `brokkr secrets remove`: Ok(true) when the name existed.
+/// `brokkr system secrets remove`: Ok(true) when the name existed.
 pub fn store_remove(path: &Path, name: &str) -> Result<bool, String> {
     if !path.exists() {
         return Ok(false);

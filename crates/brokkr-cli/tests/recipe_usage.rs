@@ -1,4 +1,4 @@
-//! `brokkr recipes usage` through the shipped binary (decision 0112 ruling
+//! `brokkr library recipes usage` through the shipped binary (decision 0112 ruling
 //! 4): over a journal planted under the test's own temporary directory,
 //! `--json` emits exactly the rows brokkr-view derives from the same
 //! journal, and the table paints them, an attempt without usage counted
@@ -49,13 +49,13 @@ fn plant(db: &Path, run_id: &str, recipe: &str, phase: &str, usages: &[Option<Va
     }
 }
 
-/// What `brokkr recipes usage <args> --db <db>` printed, run in `dir`,
+/// What `brokkr library recipes usage <args> --db <db>` printed, run in `dir`,
 /// once it exited 0.
 fn usage(dir: &Path, db: &Path, args: &[&str]) -> String {
     let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
     command
         .current_dir(dir)
-        .args(["recipes", "usage"])
+        .args(["library", "recipes", "usage"])
         .args(args);
     let ran = command.arg("--db").arg(db).output().unwrap();
     let said = String::from_utf8(ran.stderr).unwrap();

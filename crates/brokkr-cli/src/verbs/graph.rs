@@ -1,6 +1,6 @@
-//! `brokkr graph`: one recipe's state machine with the journal's traffic
+//! `brokkr stats graph`: one recipe's state machine with the journal's traffic
 //! on its rules and states (#568, the Library). The table resolves as
-//! `brokkr recipes show` resolves a name — the realm's shelf — or else from
+//! `brokkr library recipes show` resolves a name — the realm's shelf — or else from
 //! a bundle directory in the realm whose `bundle.json` names it, as `self`
 //! is in an adopter. With no recipe named it draws the realm's busiest, so
 //! the console reads a realm's known recipes before any has run. Every
@@ -171,7 +171,7 @@ fn bundles(dir: &Path, depth: usize) -> Vec<(String, PathBuf)> {
 }
 
 /// Every recipe the realm's `folder` resolves by name, in the order a name
-/// is looked up: its shelf as `recipes show` reads it, then the folder's
+/// is looked up: its shelf as `library recipes show` reads it, then the folder's
 /// implicit bundle (`.brokkr` itself, in an adopter), then its visible
 /// bundle directories.
 fn shelf(folder: &Path) -> Result<Vec<(String, PathBuf)>> {
@@ -226,7 +226,7 @@ fn within(dir: &Path, folder: &Path) -> String {
 }
 
 /// Each recipe on the shelf compiled where it resolves, on the one path
-/// `recipes show` compiles it on, the first directory of a name being the
+/// `library recipes show` compiles it on, the first directory of a name being the
 /// one it resolves to. A recipe that does not compile is named, never the
 /// graph's failure; any other failure to compile is.
 fn compiled(
@@ -333,14 +333,14 @@ fn chosen(
     Ok(recipe.clone())
 }
 
-/// `brokkr graph`: the recipe's graph for the range ending now, in the
+/// `brokkr stats graph`: the recipe's graph for the range ending now, in the
 /// style the terminal asks for.
 pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
     print!("{}", graph_with(workspace, args, Style::detect_for)?);
     Ok(Exit::Completed.into())
 }
 
-/// The text `brokkr graph` prints, painted in the style `style` reads
+/// The text `brokkr stats graph` prints, painted in the style `style` reads
 /// for [`Width::Stdout`] (#1167): the one seam its colour and width come
 /// through, and the one readout sized by the stdout it writes to.
 fn graph_with(

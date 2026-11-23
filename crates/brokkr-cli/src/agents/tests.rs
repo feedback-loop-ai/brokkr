@@ -25,7 +25,7 @@ fn value(block: impl Serialize) -> Value {
 }
 
 /// AC-10: `list` lists every shipped agent, and a broken definition
-/// prints a warning line without aborting — the contract `brokkr recipes
+/// prints a warning line without aborting — the contract `brokkr library recipes
 /// list` set, and the reason the library is one file per agent.
 #[test]
 fn list_lists_every_agent_and_warns_without_aborting() {

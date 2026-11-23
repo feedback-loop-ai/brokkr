@@ -138,7 +138,7 @@ pub fn transcript_of(value: &Value) -> Option<Transcript> {
 /// figure summed over every record of every attempt — a retry's
 /// finishing checkpoint beside the concluded attempt's, never the last
 /// alone. Every view surface reads the sum as `Participant::cost`, and
-/// `brokkr costs` sums through this same function, so the ledger and
+/// `brokkr stats costs` sums through this same function, so the ledger and
 /// the views report one number for one run.
 pub fn reported_cost(record: &Value) -> Option<f64> {
     record.get("total_cost_usd").and_then(Value::as_f64)

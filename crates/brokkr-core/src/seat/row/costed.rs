@@ -1,4 +1,4 @@
-//! What `brokkr costs` reads of a run's seat rows (#753; decision 0089
+//! What `brokkr stats costs` reads of a run's seat rows (#753; decision 0089
 //! slice 3, the operator's 2026-10-25 ruling): each effect's accounting,
 //! folded as [`seat_costs`](crate::seat::seat_costs) folds it, kept on its
 //! latest request's own row. An effect is seated from its first request

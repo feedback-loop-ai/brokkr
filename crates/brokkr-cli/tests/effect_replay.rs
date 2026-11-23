@@ -65,7 +65,9 @@ fn journal(dir: &Path, driver: &[String], feature: &str) -> Vec<Value> {
     let db = dir.join("forge.db").to_string_lossy().into_owned();
     let (run, _) = crate::engine::run_in(dir, feature, Path::new(&db));
     let out = dir.join("journal").to_string_lossy().into_owned();
-    let export = ["export", "--run", &run, "--out", &out, "--db", &db];
+    let export = [
+        "journal", "export", "--run", &run, "--out", &out, "--db", &db,
+    ];
     crate::engine::printed_in(dir, &export);
     let ndjson = std::fs::read_to_string(Path::new(&out).join(format!("{run}.ndjson"))).unwrap();
     ndjson

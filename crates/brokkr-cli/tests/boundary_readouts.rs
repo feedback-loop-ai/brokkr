@@ -260,7 +260,7 @@ fn plant(db: &Path, run_id: &str, word: Option<&str>) {
     );
 }
 
-/// `brokkr seats` renders the seats block `inspect` renders, and its
+/// `brokkr runs seats` renders the seats block `inspect` renders, and its
 /// `--json` is `inspect --json`'s bytes; `inspect`'s header and trail
 /// carry the boundary from the one derivation.
 #[test]
@@ -270,7 +270,10 @@ fn brokkr_seats_prints_inspects_seats_block_and_inspects_json_bytes() {
     plant(&db, "harnessed", Some("harness"));
     let db = db.to_str().unwrap();
 
-    let (inspect, _, ok) = brokkr(dir.path(), &["inspect", "--run", "harnessed", "--db", db]);
+    let (inspect, _, ok) = brokkr(
+        dir.path(),
+        &["runs", "inspect", "--run", "harnessed", "--db", db],
+    );
     assert!(ok, "{inspect}");
     assert!(
         inspect.contains("     boundary harness · unboxed\n"),
@@ -282,7 +285,10 @@ fn brokkr_seats_prints_inspects_seats_block_and_inspects_json_bytes() {
         "{inspect}"
     );
 
-    let (seats, _, ok) = brokkr(dir.path(), &["seats", "--run", "harnessed", "--db", db]);
+    let (seats, _, ok) = brokkr(
+        dir.path(),
+        &["runs", "seats", "--run", "harnessed", "--db", db],
+    );
     assert!(ok, "{seats}");
     assert!(seats.starts_with("seats\n"), "{seats}");
     assert!(
@@ -297,12 +303,20 @@ fn brokkr_seats_prints_inspects_seats_block_and_inspects_json_bytes() {
 
     let (seats_json, _, ok) = brokkr(
         dir.path(),
-        &["seats", "--run", "harnessed", "--db", db, "--json"],
+        &["runs", "seats", "--run", "harnessed", "--db", db, "--json"],
     );
     assert!(ok, "{seats_json}");
     let (inspect_json, _, _) = brokkr(
         dir.path(),
-        &["inspect", "--run", "harnessed", "--db", db, "--json"],
+        &[
+            "runs",
+            "inspect",
+            "--run",
+            "harnessed",
+            "--db",
+            db,
+            "--json",
+        ],
     );
     assert_eq!(seats_json, inspect_json, "byte-identical");
     let view: Value = serde_json::from_str(&seats_json).unwrap();
@@ -326,17 +340,26 @@ fn costs_and_compare_name_the_boundary_and_diverge_on_it() {
     plant(&db, "older", None);
     let db = db.to_str().unwrap();
 
-    let (costs, _, ok) = brokkr(dir.path(), &["costs", "--run", "harnessed", "--db", db]);
+    let (costs, _, ok) = brokkr(
+        dir.path(),
+        &["stats", "costs", "--run", "harnessed", "--db", db],
+    );
     assert!(ok, "{costs}");
     let costs: Value = serde_json::from_str(&costs).unwrap();
     assert_eq!(costs["seats"]["verify"]["model"], "claude-fable-5-1");
     assert_eq!(costs["seats"]["verify"]["boundary"], "harness");
-    let (older, _, _) = brokkr(dir.path(), &["costs", "--run", "older", "--db", db]);
+    let (older, _, _) = brokkr(
+        dir.path(),
+        &["stats", "costs", "--run", "older", "--db", db],
+    );
     let older: Value = serde_json::from_str(&older).unwrap();
     assert_eq!(older["seats"]["verify"]["model"], "claude-fable-5-1");
     assert_eq!(older["seats"]["verify"]["boundary"], "not recorded");
 
-    let (report, _, ok) = brokkr(dir.path(), &["compare", "harnessed", "boxed", "--db", db]);
+    let (report, _, ok) = brokkr(
+        dir.path(),
+        &["runs", "compare", "harnessed", "boxed", "--db", db],
+    );
     assert!(ok, "{report}");
     let report: Value = serde_json::from_str(&report).unwrap();
     assert_eq!(
@@ -360,7 +383,10 @@ fn costs_and_compare_name_the_boundary_and_diverge_on_it() {
         "data, not adjective"
     );
 
-    let (same, _, _) = brokkr(dir.path(), &["compare", "boxed", "boxed", "--db", db]);
+    let (same, _, _) = brokkr(
+        dir.path(),
+        &["runs", "compare", "boxed", "boxed", "--db", db],
+    );
     let same: Value = serde_json::from_str(&same).unwrap();
     assert_eq!(same["comparison"]["resolution_divergence"], json!({}));
 }
@@ -377,6 +403,7 @@ fn export_carries_the_word_as_data_and_verify_run_accepts_it() {
     let (_, stderr, ok) = brokkr(
         dir.path(),
         &[
+            "journal",
             "export",
             "--run",
             "harnessed",
@@ -411,6 +438,6 @@ fn export_carries_the_word_as_data_and_verify_run_accepts_it() {
     assert_eq!(succeeded["payload"]["result"]["boundary"], "harness");
     assert!(!ndjson.contains("unboxed"), "{ndjson}");
 
-    let (_, stderr, ok) = brokkr(dir.path(), &["verify-run", file.to_str().unwrap()]);
+    let (_, stderr, ok) = brokkr(dir.path(), &["journal", "verify", file.to_str().unwrap()]);
     assert!(ok, "{stderr}");
 }

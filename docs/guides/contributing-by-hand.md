@@ -320,8 +320,8 @@ floor silently.
 ### The bundles compile
 
 ```
-cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
-cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
+cargo run --locked -p brokkr-cli -- library compile --bundle recipes/self
+cargo run --locked -p brokkr-cli -- library compile --bundle recipes/verify
 ```
 
 Each prints the resolved manifest and its content digest, and exits 0.
@@ -336,7 +336,7 @@ If you touched a recipe, a bundle, a role charter or an adapter, compile
 that one too:
 
 ```
-cargo run --locked -p brokkr-cli -- compile --bundle recipes/<name>
+cargo run --locked -p brokkr-cli -- library compile --bundle recipes/<name>
 ```
 
 and expect a witness digest to move — see
@@ -599,8 +599,8 @@ against `.github/delivery-classes.json`; prose goes straight to the
 review seat, code goes through the verifier first — `cargo fmt --all
 -- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy
 --workspace --all-targets --all-features --locked -- -D warnings`,
-`cargo test --workspace` and `cargo run -p brokkr-cli -- compile
---bundle recipes/self`, in that order
+`cargo test --workspace` and `cargo run -p brokkr-cli -- library
+compile --bundle recipes/self`, in that order
 (`recipes/brokkr-fast/scripts/verify-seat.sh`, #427), in the box with no
 network because this repository's realm declares no boundary and so
 reads `namespace`; under `harness` the same script would run unboxed.
@@ -986,7 +986,7 @@ identity, and so it faces the same required checks.
 This is the honest contribution surface for a first change, and it
 should not need a Rust edit. What a data change faces:
 
-1. **`brokkr compile`.** Every recipe and bundle in the tree is compiled
+1. **`brokkr library compile`.** Every recipe and bundle in the tree is compiled
    by `every_bundle_in_the_tree_compiles` in
    [`crates/brokkr-runtime/tests/witness_digests.rs`](../../crates/brokkr-runtime/tests/witness_digests.rs),
    automatically, as soon as the directory exists under `recipes/`.

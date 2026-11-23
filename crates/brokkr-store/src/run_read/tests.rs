@@ -420,7 +420,7 @@ fn a_run_its_summary_or_its_causes_do_not_stand_for_is_read_the_kept_way() {
     ));
 }
 
-/// `brokkr costs`'s read: a run's seat rows at the head its opening
+/// `brokkr stats costs`'s read: a run's seat rows at the head its opening
 /// verified, with the run view's read's checks, so a run that moved past
 /// its opening or whose summary row is behind its head is said stale.
 #[test]

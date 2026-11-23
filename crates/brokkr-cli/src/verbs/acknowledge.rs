@@ -1,4 +1,4 @@
-//! `brokkr operator acknowledge` (#511; decision 0076 item 11): the
+//! `brokkr runs operator acknowledge` (#511; decision 0076 item 11): the
 //! operator's word that a quarantined run, one whose journal does not
 //! load or loads and does not fold, has been looked at.
 //!

@@ -1448,7 +1448,7 @@ fn a_matching_terminal_closes_the_live_block() {
 fn phase_names_are_unique_within_a_run_view() {
     // `visits` is a fold keyed by name, so a revisited phase is ONE
     // segment of the rail. Every surface selects a phase BY NAME —
-    // `brokkr inspect --phase`, the console's `selectedPhase`, and now
+    // `brokkr runs inspect --phase`, the console's `selectedPhase`, and now
     // `brokkr tui`'s graph cursor — so two segments sharing a name would
     // scope the wrong one, invisibly. The coupling is named here rather
     // than left silent; it is an invariant of the derivation, and no
@@ -2745,7 +2745,7 @@ fn a_working_seat_carries_its_transcript_from_the_shared_checkpoint() {
 
 /// The two-attempt fixture of #376: attempt one finished at $0.25 and
 /// was retried, and attempt two finished at $0.50. The seat spent both,
-/// and the view says so — the figure `brokkr costs` reports — with the
+/// and the view says so — the figure `brokkr stats costs` reports — with the
 /// last attempt's own cost beside it rather than in its place.
 fn two_attempt_journal() -> Vec<EventEnvelope> {
     let mut events = seat_journal();

@@ -1,5 +1,5 @@
 //! The run summary's aggregate columns (decision 0089 ruling 7): what
-//! `brokkr analytics` and Muninn's dossier read of a run, brokkr-core's
+//! `brokkr stats analytics` and Muninn's dossier read of a run, brokkr-core's
 //! [`Aggregate`], written by the writer with the folded columns in the
 //! same statement, after every column a page selects, so no page reads
 //! them. A name is a group key, cut where it is stored to its bound at a

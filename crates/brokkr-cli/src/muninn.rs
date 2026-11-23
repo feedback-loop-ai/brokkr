@@ -1,4 +1,4 @@
-//! `brokkr muninn` — the standing overseer (decision 0020, whose
+//! `brokkr runs muninn` — the standing overseer (decision 0020, whose
 //! evidence-source and citation rulings are amended for the world's
 //! crossings by decision 0059).
 //!
@@ -165,7 +165,7 @@ impl Dossier {
 /// world that never drew one hands the seat the exact dossier it always
 /// handed it.
 ///
-/// The entries ARE the shared readout entries `brokkr realms` prints —
+/// The entries ARE the shared readout entries `brokkr system realms` prints —
 /// the same [`crate::realms::crossings_of`] derivation over the one
 /// `World::crossings_report` — so the two surfaces cannot state a
 /// crossing two ways. A publication keeps its declared
@@ -193,7 +193,7 @@ pub(crate) struct RealmCrossings {
 type CitedCrossing = (String, String);
 
 /// Every realm of this world that draws a crossing, read off the same
-/// report `brokkr realms` and `brokkr doctor` read, through the same
+/// report `brokkr system realms` and `brokkr doctor` read, through the same
 /// derivation (`crate::realms::crossings_of`). Nothing is resolved,
 /// hashed or compared here: a second computation is a second answer
 /// waiting to disagree with the one the loader already gave.
@@ -432,7 +432,7 @@ fn seats_of(view: &brokkr_view::RunView) -> (Vec<SeatRow>, Option<f64>) {
 /// stated in the per-realm entries and is not a finding; an unchecked pin
 /// is stated beside it and is nobody's fault here (the publisher's line
 /// carries it, `ca0c765`). The entries are the shared readout entries
-/// `brokkr realms` prints, through the one [`ConsumedView::of`], so the
+/// `brokkr system realms` prints, through the one [`ConsumedView::of`], so the
 /// dossier and that readout render one derivation.
 fn crossing_section<'a>(
     crossings: &'a [RealmCrossings],
@@ -880,7 +880,7 @@ fn render(entry: &Value) -> String {
 
 // -------------------------------------------------------- commands
 
-/// `brokkr muninn run`. A refused invocation and an unusable report both
+/// `brokkr runs muninn run`. A refused invocation and an unusable report both
 /// record nothing, print one plain line, and exit nonzero: the record is
 /// evidence, and evidence nobody can check is not evidence.
 pub(crate) fn run(
@@ -999,7 +999,7 @@ pub(crate) fn run(
     Ok(crate::Exit::Completed.into())
 }
 
-/// `brokkr muninn list`. Reads the record back, citations included.
+/// `brokkr runs muninn list`. Reads the record back, citations included.
 pub(crate) fn list(record_path: &Path, json: bool) -> Result<()> {
     let entries = record::read(record_path)?;
     if json {

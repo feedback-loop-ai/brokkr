@@ -380,7 +380,7 @@ pub struct Library {
 
 impl Library {
     /// Load every definition, collecting per-file problems instead of aborting —
-    /// `brokkr agents list` warns and keeps listing, mirroring `brokkr recipes list`.
+    /// `brokkr library agents list` warns and keeps listing, mirroring `brokkr library recipes list`.
     pub fn scan(root: &Path) -> Result<(Library, Vec<String>), LibraryError> {
         let (library, problems) = Library::checked(root)?;
         Ok((library, problems.iter().map(ToString::to_string).collect()))

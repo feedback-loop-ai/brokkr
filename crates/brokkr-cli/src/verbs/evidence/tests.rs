@@ -1,4 +1,4 @@
-//! What `brokkr evidence` prints, and the one argument combination the
+//! What `brokkr journal evidence` prints, and the one argument combination the
 //! group refuses when it is driven directly: the retirement's words for an
 //! archived root with and without its inventory, and a discarded one.
 

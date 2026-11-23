@@ -2,7 +2,7 @@
 //! one rule by the operator on 2026-10-10 (#351). A phase scope keeps that
 //! phase, its participants and its journal rows. A seat scope keeps the
 //! seat's phases, matches participants by key, and keeps only those
-//! phases' journal rows. The TUI and `brokkr inspect` ask [`lens_for`] and
+//! phases' journal rows. The TUI and `brokkr runs inspect` ask [`lens_for`] and
 //! the `keeps_*` predicates; the browser cannot call Rust, so the run view
 //! serves every scope's [`Membership`] already decided, and the page only
 //! paints it (decision 0013). Only a serving surface decides it, by

@@ -1,4 +1,4 @@
-//! What a dispatcher's driver and `brokkr dispatch status` read of the
+//! What a dispatcher's driver and `brokkr queue dispatch status` read of the
 //! queue (decision 0110 rulings 3 and 6), each a plain read on this
 //! store's connection that takes no holder and writes nothing, so it runs
 //! on a journal opened read-only.
@@ -18,7 +18,7 @@ use crate::{patiently, Store, StoreError};
 
 impl Store {
     /// The run `entry` is linked to under its claim `seq`, once the entry's
-    /// `spawn` row has landed: the one `brokkr dispatch drive` resumes.
+    /// `spawn` row has landed: the one `brokkr queue dispatch drive` resumes.
     /// `None` where the entry is not linked under that claim, or has no
     /// `spawn` row.
     pub fn queue_spawned(&self, entry: EntryId, seq: i64) -> Result<Option<String>, StoreError> {

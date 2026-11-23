@@ -1,4 +1,4 @@
-//! #1167's tests of `brokkr graph`'s width detection, its cell fitting and
+//! #1167's tests of `brokkr stats graph`'s width detection, its cell fitting and
 //! its controlling-terminal proof, split from render/tests.rs mechanically
 //! so that file stays under the 2000-line test ceiling once #1174's tests
 //! sit beside them on main. No test changed.
@@ -18,7 +18,7 @@ fn detected_width(width: Width, tty: bool, columns: Option<&str>, stdout: Option
     Style::detect_in(tty, env, width, || stdout).width
 }
 
-/// `brokkr graph`'s width (#1167): a whole, nonzero `COLUMNS`, else the
+/// `brokkr stats graph`'s width (#1167): a whole, nonzero `COLUMNS`, else the
 /// columns of the stdout it writes to, else 80. An 80-cell controlling
 /// terminal never reaches the seam: a 60-cell stdout sizes to 60.
 #[test]
@@ -310,7 +310,7 @@ fn pty(columns: u16) -> (std::os::fd::OwnedFd, std::os::fd::OwnedFd) {
     (controller, terminal)
 }
 
-/// `brokkr graph`'s production detector reads the stdout it writes to,
+/// `brokkr stats graph`'s production detector reads the stdout it writes to,
 /// never the controlling terminal (#1167): this test re-runs itself in a
 /// session of its own whose controlling terminal is 80 cells and whose
 /// stdout is a 60-cell terminal, with no `COLUMNS`, and the child sizes

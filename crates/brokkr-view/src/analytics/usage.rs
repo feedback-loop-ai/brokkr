@@ -5,7 +5,7 @@
 //! member, a sequence's each measured step driver. An ending without `usage`, every attempt journaled before the
 //! extension among them, is counted apart as unmeasured, never as zero. A
 //! `usage` that does not read is counted the same way: no figure is
-//! guessed from it. `brokkr recipes usage --json` emits these rows, and
+//! guessed from it. `brokkr library recipes usage --json` emits these rows, and
 //! its table only paints them (decision 0071 ruling 7).
 
 use std::collections::BTreeMap;

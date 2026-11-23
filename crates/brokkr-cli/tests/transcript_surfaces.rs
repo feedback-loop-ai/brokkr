@@ -178,7 +178,7 @@ fn command(world: &World, extra: &[&str]) -> std::process::Output {
 
 /// The command run with `home` as its `HOME`.
 fn command_under(world: &World, home: &Path, extra: &[&str]) -> std::process::Output {
-    let mut args = vec!["transcript", "--run", "r222", "--seat", "eff1"];
+    let mut args = vec!["runs", "transcript", "--run", "r222", "--seat", "eff1"];
     args.extend_from_slice(extra);
     Command::new(brokkr_bin())
         .args(args)
@@ -199,7 +199,7 @@ fn parse(output: &std::process::Output) -> Value {
     })
 }
 
-/// The browser's transcript route serves `brokkr transcript --json`'s
+/// The browser's transcript route serves `brokkr runs transcript --json`'s
 /// document byte for byte, for every kind (#352): the command prints the
 /// same bytes and a newline. A refused read keeps its document under a 404.
 fn same_bytes_in_the_browser(world: &World, command: &std::process::Output, status: &str) {
@@ -213,7 +213,7 @@ fn same_bytes_in_the_browser(world: &World, command: &std::process::Output, stat
     );
 }
 
-/// A `brokkr ui` child serving `world`'s journal on an ephemeral port. It is
+/// A `brokkr system ui` child serving `world`'s journal on an ephemeral port. It is
 /// killed when dropped, so a failed assertion leaves no server behind; its
 /// stderr stays open for the child's lifetime.
 struct Server {
@@ -275,7 +275,7 @@ impl Server {
 }
 
 /// Decision 0073 ruling 1 on the wire: `/api/transcript/<run>/<key>`,
-/// served by `brokkr ui` over TCP, carries exactly the document `brokkr
+/// served by `brokkr system ui` over TCP, carries exactly the document `brokkr
 /// transcript --json` prints, which ends in the one newline the command
 /// adds, readable (Claude, 200) or refused (non-UTF-8 Codex, 404).
 #[test]
@@ -729,7 +729,7 @@ fn a_legacy_id_under_a_missing_projects_home_reads_the_same_bytes_in_the_browser
     same_bytes_in_the_browser(&world, &whole, "404 Not Found");
 }
 
-/// `brokkr transcript` reads its participant through the pages (decision
+/// `brokkr runs transcript` reads its participant through the pages (decision
 /// 0089 slice 3), and the browser serves the same bytes: a seat a Codex
 /// plan started, recording the legacy Claude session `abcd-1234`, selects
 /// no reference while the run read whole and its pages agree; once the
@@ -1096,7 +1096,7 @@ fn r25_portable_hint_is_identical_across_every_surface() {
 }
 
 /// #380: a value the model echoed into its Codex rollout reaches
-/// `brokkr transcript` as `[secret:NAME]`, masked against the store beside
+/// `brokkr runs transcript` as `[secret:NAME]`, masked against the store beside
 /// the journal. A value rotated away since the run is no longer in the
 /// store and stays as written, and the command says that masking covers
 /// only the store's current values rather than passing it silently.
@@ -1135,7 +1135,7 @@ fn the_command_masks_a_bound_value_and_states_what_a_rotation_leaves() {
 
 /// #380: a projector renders a Codex shell action and a DSH tool call's
 /// arguments as serialised JSON, so a bound value holding a quote and a
-/// backslash reaches the text re-escaped. `brokkr transcript` masks that
+/// backslash reaches the text re-escaped. `brokkr runs transcript` masks that
 /// escaped form too, never printing the value in either spelling.
 #[test]
 fn the_command_masks_a_bound_value_a_structured_call_reserialised() {

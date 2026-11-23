@@ -173,6 +173,7 @@ impl Workspace {
         crate::engine::printed_in(
             self.path(),
             &[
+                "journal",
                 "export",
                 "--run",
                 run_id,

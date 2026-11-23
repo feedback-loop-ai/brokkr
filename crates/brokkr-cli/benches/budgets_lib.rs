@@ -42,7 +42,7 @@ fn folded() -> (Vec<EventEnvelope>, RunState) {
     (events, state)
 }
 
-/// `recipes/self` in the self realm, as `brokkr compile` reads it.
+/// `recipes/self` in the self realm, as `brokkr library compile` reads it.
 fn self_bundle() -> (PathBuf, Dialect) {
     let dialect = Dialect::load(&root().join("dialects/openspec.json"))
         .expect("the openspec dialect loads")

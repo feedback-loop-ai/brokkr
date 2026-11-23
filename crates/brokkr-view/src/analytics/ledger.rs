@@ -3,7 +3,7 @@
 //! work, and only they reach a success rate. The six in which the work
 //! was never judged to its end are excluded and counted by ending, and an
 //! `unclassified` run is excluded and counted apart. The one reading every
-//! comparison takes: analytics, the recipe's graph, `brokkr compare` and
+//! comparison takes: analytics, the recipe's graph, `brokkr runs compare` and
 //! Muninn's dossier (decision 0071 ruling 7).
 
 use std::collections::BTreeMap;

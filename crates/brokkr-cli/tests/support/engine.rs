@@ -157,7 +157,7 @@ pub(crate) fn brokkr_in(dir: &Path) -> Command {
 
 /// `dir/home`, owner-only, made where it is missing: the HOME a test gives
 /// every `brokkr` it launches on a path that can dispatch (`run`,
-/// `resume`, `rerun`), unless it gives it another, so its dispatches admit
+/// `resume`, `runs rerun`), unless it gives it another, so its dispatches admit
 /// their attempts in a coordination root of the test's own, never under
 /// the operator's HOME (decision 0065 slice two, U8a2a). `dir` is the
 /// test's own, but may be the tree a run operates: [`brokkr_in`] stands in

@@ -1000,7 +1000,7 @@ fn the_dsh_implement_lanes_pin_glm_flash_with_no_effort() {
 
 /// The agents a library holds for a consumer outside every shipped
 /// bundle, each with the seat that hires it. `muninn` is composed
-/// outside a bundle by `brokkr muninn` (decision 0020). `implementer`,
+/// outside a bundle by `brokkr runs muninn` (decision 0020). `implementer`,
 /// `intake` and `reviewer` are the portable base: `brokkr init` writes them
 /// into every folder, whose `bundle.json` seats them, and every recipe
 /// here hires an overlay of them (decision 0087 rulings 1 and 4).

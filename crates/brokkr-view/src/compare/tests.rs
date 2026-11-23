@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 #[path = "../../../../tests/support/seat_journal.rs"]
 pub(crate) mod seat_journal;
 
-/// The divergence as `brokkr compare` prints it.
+/// The divergence as `brokkr runs compare` prints it.
 fn first_divergence(a: &[String], b: &[String]) -> Value {
     serde_json::to_value(super::first_divergence(a, b)).unwrap()
 }

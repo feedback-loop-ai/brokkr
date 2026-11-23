@@ -3,7 +3,7 @@
 //!
 //! Every guarantee here is a claim about what Muninn CANNOT do, so each
 //! test is written as an observation of the real binary rather than as a
-//! reading of the code: a fleet is staged, `brokkr muninn run` is spawned
+//! reading of the code: a fleet is staged, `brokkr runs muninn run` is spawned
 //! against a driver this test scripts, and what the driver saw — plus
 //! what the journals look like afterwards — is the evidence.
 
@@ -282,6 +282,7 @@ impl Workspace {
 
     fn muninn(&self) -> Output {
         self.brokkr(&[
+            "runs",
             "muninn",
             "run",
             "--db",
@@ -299,6 +300,7 @@ impl Workspace {
     /// hearths are read (decision 0026 ruling 3).
     fn muninn_over_world(&self) -> Output {
         self.brokkr(&[
+            "runs",
             "muninn",
             "run",
             "--agents-dir",
@@ -420,7 +422,7 @@ fn a_proposal_is_recorded_with_its_citations_and_read_back_by_list() {
     assert_eq!(records.len(), 2);
     assert_eq!(records[0], *entry, "the first entry is byte-identical");
 
-    let listed = ws.brokkr(&["muninn", "list", "--record", ".forge/muninn.ndjson"]);
+    let listed = ws.brokkr(&["runs", "muninn", "list", "--record", ".forge/muninn.ndjson"]);
     let text = String::from_utf8_lossy(&listed.stdout);
     assert!(listed.status.success());
     assert_eq!(
@@ -438,6 +440,7 @@ fn a_proposal_is_recorded_with_its_citations_and_read_back_by_list() {
     );
 
     let json = ws.brokkr(&[
+        "runs",
         "muninn",
         "list",
         "--record",
@@ -943,6 +946,7 @@ fn a_realm_with_no_journal_yet_does_not_withhold_the_worlds_dossier() {
     // The one-hearth world's refusal is unchanged: no dossier, nothing
     // recorded, nonzero.
     let output = ws.brokkr(&[
+        "runs",
         "muninn",
         "run",
         "--db",

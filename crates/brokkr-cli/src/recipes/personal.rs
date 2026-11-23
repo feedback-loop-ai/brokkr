@@ -4,7 +4,7 @@
 //! --personal` installs there, compiled against the workspace's agents and
 //! adapters as every install is; `--recipe` reads the project's shelf, then
 //! this one, and a name on both refuses ([`Unshelved::Shadowed`]);
-//! `recipes list` and doctor show both, each recipe with its origin.
+//! `library recipes list` and doctor show both, each recipe with its origin.
 
 use std::fmt;
 use std::io::ErrorKind;
@@ -123,7 +123,7 @@ impl fmt::Display for Origin {
     }
 }
 
-/// Why `--recipe <name>` reads no shelf, or `recipes add --personal`
+/// Why `--recipe <name>` reads no shelf, or `library recipes add --personal`
 /// installs onto none. A caller matches the variant, never the text
 /// (decision 0071 ruling 8).
 #[derive(Debug)]
@@ -209,8 +209,8 @@ impl std::error::Error for Unshelved {}
 /// project's, `project`, else the personal one this machine places. No
 /// recipe named reads `project`, as before. A name that is not one plain
 /// recipe name, judged by its spelling, refuses before either shelf is
-/// read ([`Unshelved::Unplain`]): `run`, `resume`, `rerun`, `queue add`
-/// and `recipes show` all ask here.
+/// read ([`Unshelved::Unplain`]): `run`, `resume`, `runs rerun`, `queue add`
+/// and `library recipes show` all ask here.
 pub(crate) fn holding(recipe: Option<&str>, project: ShelfPath) -> Result<PathBuf, Unshelved> {
     match recipe {
         Some(name) if !super::plain(Path::new(name)) => Err(Unshelved::Unplain {
@@ -265,11 +265,11 @@ fn stands(shelf: &Path, name: &str) -> Result<(bool, PathBuf), Unshelved> {
     }
 }
 
-/// `recipes list`: the project's shelf `dir`, then the personal one where
+/// `library recipes list`: the project's shelf `dir`, then the personal one where
 /// this machine places it, each recipe with its origin (#697 ruling 6). A
 /// personal shelf with nothing standing at it lists nothing. Every recipe
 /// listed composes across `on`, the project shelf `--dir` selected, if
-/// any, as `recipes show --dir` composes it (ruling 3).
+/// any, as `library recipes show --dir` composes it (ruling 3).
 pub(crate) fn list(
     workspace: &Path,
     (dir, on): (&ShelfPath, Option<&Path>),
@@ -282,7 +282,7 @@ pub(crate) fn list(
     }
 }
 
-/// `recipes add --personal` (#697 ruling 6): install onto the personal
+/// `library recipes add --personal` (#697 ruling 6): install onto the personal
 /// shelf, compiled against the agents and adapters of the repository at
 /// `root` (ruling 4), as every install is, and refused as `host.json`'s
 /// lookup is where this machine places no shelf. Nothing is copied into

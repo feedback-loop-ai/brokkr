@@ -1,4 +1,4 @@
-//! The standing loop (decision 0110 ruling 5): `brokkr dispatch` repeats
+//! The standing loop (decision 0110 ruling 5): `brokkr queue dispatch` repeats
 //! its pass every interval while it stands. Each tick runs one pass, which
 //! reconciles first (decision 0095 ruling 3), hands the pass's report to a
 //! seam, reaps each driver that has exited and reports it with what its run

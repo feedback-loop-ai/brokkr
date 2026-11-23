@@ -2,7 +2,7 @@
 //! the realm and recipe it started under, when it started, when and how it
 //! ended, how often it entered implement, and where its reviews sent it.
 //! Read here once, from its events and its fold, so the writer keeps on
-//! the run's summary row what `brokkr analytics` and the recipe's graph
+//! the run's summary row what `brokkr stats analytics` and the recipe's graph
 //! derive from the run read whole (decision 0071 ruling 5).
 //!
 //! The writer's [`Account`](super::Account) carries a [`Reading`] over

@@ -713,7 +713,7 @@ fn a_dead_running_run_needs_you_as_stale_and_never_reads_as_live() {
     let (column, at) = cell_at(&lines, row, "! stale");
     let worn = terminal.backend().buffer()[(column, at)].modifier;
     assert_eq!(worn, Modifier::DIM, "quiet, never the running bold");
-    let prompt = "stale: no event since 116h07m; resume or conclude";
+    let prompt = "stale: no event since 116h07m; resume or runs conclude";
     assert!(lines[row + 1].contains(prompt), "{}", lines[row + 1]);
     assert!(row < row_of(&lines, "│running"), "{}", lines.join("\n"));
     let detail = dashboard_of(&views, &views.runs.runs[0]);
@@ -911,7 +911,7 @@ fn a_quarantined_run_says_export_and_inspect_and_how() {
     let views = fleet_to_act_on();
     let lines = lines_of(drawn(&Tui::new(None), &views, 160, 48).backend().buffer());
     let row = row_of(&lines, "journ…7f8e9d0c");
-    let prompt = "quarantined: export and inspect";
+    let prompt = "quarantined: journal export and runs inspect";
     assert!(lines[row + 1].contains(prompt), "{}", lines[row + 1]);
     let broken = views.runs.runs.iter().find(|row| row.detail.is_some());
     let detail = dashboard_of(&views, broken.unwrap());

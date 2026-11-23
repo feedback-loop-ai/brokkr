@@ -76,7 +76,7 @@ pub(crate) enum RecipesCmd {
     },
 }
 
-/// `brokkr recipes usage`: the rows for `name`, or every recipe, over
+/// `brokkr library recipes usage`: the rows for `name`, or every recipe, over
 /// every run of the journal `journal` names, opened for reading.
 pub(crate) fn usage(
     workspace: &Path,

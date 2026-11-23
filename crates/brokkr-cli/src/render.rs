@@ -19,12 +19,12 @@
 //! is the terminal twin of the console's fixed class allowlists, and it
 //! serves all three surfaces (decision 0014's TUI included).
 //!
-//! **Width.** `COLUMNS` with a sane default (`brokkr graph` alone also
+//! **Width.** `COLUMNS` with a sane default (`brokkr stats graph` alone also
 //! measures the stdout it writes to), all column arithmetic
 //! saturating, all truncation on `char` boundaries. The readouts that
 //! measure in `char`s ([`Safe::width`], the seats block) take no
 //! Unicode-width dependency of their own, so their CJK and emoji columns
-//! will misalign; that is stated, not pretended away. `brokkr graph`'s
+//! will misalign; that is stated, not pretended away. `brokkr stats graph`'s
 //! tables alone measure the terminal's cells, by the TUI's ratatui
 //! widths (#1167).
 
@@ -367,7 +367,7 @@ pub(crate) fn realm_head(
     out
 }
 
-// -------------------------------------------------------- brokkr inspect
+// -------------------------------------------------------- brokkr runs inspect
 
 /// A scope that matched nothing, as the operator's tty receives it. The
 /// view names the scope and what the run offers in the journal's own
@@ -380,7 +380,7 @@ pub(crate) fn scope_refusal(error: &ScopeError) -> String {
         .to_string()
 }
 
-/// The seats block alone, as `brokkr seats` prints it (decision 0046
+/// The seats block alone, as `brokkr runs seats` prints it (decision 0046
 /// ruling 3; design DD11): the same block `inspect` renders, from the
 /// same view, unscoped.
 pub(crate) fn seats(view: &RunView, style: &Style) -> String {

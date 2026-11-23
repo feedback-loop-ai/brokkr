@@ -1,4 +1,4 @@
-//! `brokkr costs` and `brokkr compare` read the seat rows (#753; decision
+//! `brokkr stats costs` and `brokkr runs compare` read the seat rows (#753; decision
 //! 0089 slice 3's acceptance): every fixture journal imported fresh, and
 //! every committed journal and hand-built seat journal planted as an
 //! older writer leaves it and caught up by a writable open; each run's
@@ -32,15 +32,15 @@ fn unmigrated(db: &Path) -> PathBuf {
     kept
 }
 
-/// What `brokkr costs` prints of each of `runs` from the journal at `db`,
-/// and `brokkr compare` of each beside the next, each by its arguments.
+/// What `brokkr stats costs` prints of each of `runs` from the journal at `db`,
+/// and `brokkr runs compare` of each beside the next, each by its arguments.
 fn printed(db: &Path, runs: &[String]) -> Vec<(String, (String, String, bool))> {
     let (dir, at) = (db.parent().unwrap(), db.to_str().unwrap());
     let mut printed = Vec::new();
     for (place, run) in runs.iter().enumerate() {
         let next = &runs[(place + 1) % runs.len()];
-        let costs = ["costs", "--run", run, "--db", at];
-        let compare = ["compare", run, next, "--db", at];
+        let costs = ["stats", "costs", "--run", run, "--db", at];
+        let compare = ["runs", "compare", run, next, "--db", at];
         for args in [&costs[..], &compare[..]] {
             printed.push((args[..3].join(" "), brokkr(dir, args)));
         }

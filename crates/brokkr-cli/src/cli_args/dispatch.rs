@@ -1,4 +1,4 @@
-//! `brokkr dispatch`'s arguments (decision 0110 rulings 3, 5 and 6): the
+//! `brokkr queue dispatch`'s arguments (decision 0110 rulings 3, 5 and 6): the
 //! standing loop's interval, one pass with `--once`, the hidden `drive`
 //! the pass spawns for each run it starts, and the bound's command and the
 //! holder's readout.

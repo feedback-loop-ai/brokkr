@@ -79,7 +79,7 @@ fn the_sixty_second_table_is_the_recipe_library() {
     // A config home of its own, so no host's personal shelf (#697) adds rows.
     let config = tempfile::tempdir().unwrap();
     let mut list = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    list.args(["recipes", "list"]).current_dir(&root);
+    list.args(["library", "recipes", "list"]).current_dir(&root);
     hermetic(&mut list, config.path());
     let output = list.output().unwrap();
     assert!(
@@ -130,7 +130,7 @@ fn the_sixty_second_table_is_the_recipe_library() {
         );
         let (listed_description, seats, listed_cost) = listed
             .get(name)
-            .unwrap_or_else(|| panic!("brokkr recipes list omitted {name}"));
+            .unwrap_or_else(|| panic!("brokkr library recipes list omitted {name}"));
         assert_eq!(listed_description, description, "{name} description");
         assert_eq!(listed_cost, cost, "{name} cost");
         library.push((
@@ -167,7 +167,7 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
     let gate = std::fs::read_to_string(root.join("scripts/delivered-by-brokkr.sh")).unwrap();
     for binding in [
         "refs/heads/brokkr-runs/${run}",
-        "verify-run \"$work/${run}.ndjson\"",
+        "journal verify \"$work/${run}.ndjson\"",
         ".payload.from == \"ship\" and .payload.result == \"shipped\"",
         ".seq == $seq and .journal_head_hash == $journal",
         "patch-id --verbatim",
@@ -785,7 +785,7 @@ fn code_lines(section: &str) -> Vec<&str> {
 const LOCAL_ONLY: [&str; 3] = [
     // "If you touched a recipe … compile that one too": CI compiles the
     // two shipped bundles; a contributor compiles the one they changed.
-    "cargo run --locked -p brokkr-cli -- compile --bundle recipes/<name>",
+    "cargo run --locked -p brokkr-cli -- library compile --bundle recipes/<name>",
     // The directory the coverage script keeps its warm build in: a path
     // the section names, not a command.
     "${BROKKR_COVERAGE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}}/brokkr-coverage-cache",

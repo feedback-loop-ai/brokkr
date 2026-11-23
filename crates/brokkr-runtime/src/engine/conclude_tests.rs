@@ -195,7 +195,7 @@ fn a_stop_already_in_force_is_carried_to_run_stopped_without_a_second_command() 
 
 /// The same journal one event earlier: an attempt in flight and nobody
 /// having commanded anything — the run whose driver died before its
-/// operator could type `brokkr operator stop`. Every other case reaches
+/// operator could type `brokkr runs operator stop`. Every other case reaches
 /// its conclusion in at most three appends; this is the only one that
 /// takes all four, and it is the composition the fixtures otherwise
 /// prove only piecewise. `conclude` commands the stop in its own name,
@@ -578,12 +578,14 @@ fn every_conclusion_refusal_reads_as_it_always_has() {
                 }),
             },
             "run 'r' is driven by pid 42 on this host since 2026-11-13T00:00:00Z (engine \
-             0.13.1); stop it with `brokkr runs operator stop`, or end that process, then conclude",
+             0.13.1); stop it with `brokkr runs operator stop`, or end that process, then \
+             `brokkr runs conclude`",
         ),
         (
             ConcludeRefusal::Driven { holder: None },
             "run 'r' is driven by another process on this host, which has not recorded its \
-             facts yet; stop it with `brokkr runs operator stop`, or end that process, then conclude",
+             facts yet; stop it with `brokkr runs operator stop`, or end that process, then \
+             `brokkr runs conclude`",
         ),
     ];
     for (why, text) in pins {
@@ -927,7 +929,7 @@ fn a_held_run_refuses_conclude_and_writes_nothing() {
         refused.to_string(),
         format!(
             "run '{PARKED}' is driven by pid {} on this host since {} (engine {}); stop it with \
-             `brokkr runs operator stop`, or end that process, then conclude",
+             `brokkr runs operator stop`, or end that process, then `brokkr runs conclude`",
             child.id(),
             recorded.since,
             ENGINE_VERSION

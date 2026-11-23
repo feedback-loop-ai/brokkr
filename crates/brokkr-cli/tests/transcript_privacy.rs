@@ -264,7 +264,15 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
 
     let output = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(output.status.success());
     assert_eq!(digest(&journal), before_journal, "no journal write");
@@ -293,6 +301,7 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
     let refused = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -327,15 +336,23 @@ fn sentinel_prose_never_enters_a_journal_derived_surface() {
 
     let transcript = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(String::from_utf8_lossy(&transcript.stdout).contains(SENTINEL));
 
     for args in [
-        vec!["inspect", "--run", "r222", "--json"],
-        vec!["seats", "--run", "r222", "--json"],
+        vec!["runs", "inspect", "--run", "r222", "--json"],
+        vec!["runs", "seats", "--run", "r222", "--json"],
         vec!["runs", "--json"],
-        vec!["replay", "--run", "r222"],
+        vec!["runs", "replay", "--run", "r222"],
         vec!["watch", "--run", "r222", "--once"],
     ] {
         let output = run(&world, &args);
@@ -355,7 +372,14 @@ fn sentinel_prose_never_enters_a_journal_derived_surface() {
     std::fs::create_dir_all(&out).unwrap();
     let export = run(
         &world,
-        &["export", "--run", "r222", "--out", out.to_str().unwrap()],
+        &[
+            "journal",
+            "export",
+            "--run",
+            "r222",
+            "--out",
+            out.to_str().unwrap(),
+        ],
     );
     assert!(
         export.status.success(),
@@ -390,7 +414,15 @@ fn the_reader_starts_no_provider_process() {
         std::env::var("PATH").unwrap_or_default()
     );
     let output = Command::new(brokkr_bin())
-        .args(["transcript", "--run", "r222", "--seat", "eff1", "--json"])
+        .args([
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ])
         .arg("--db")
         .arg(&world.db)
         .env("HOME", &world.home)
@@ -450,7 +482,15 @@ fn hostile_paths_are_portable_and_retained_inert() {
     let before_file = digest(&file);
     let before_tree = snapshot_tree(&home);
     let output = Command::new(brokkr_bin())
-        .args(["transcript", "--run", "r222", "--seat", "eff1", "--json"])
+        .args([
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ])
         .arg("--db")
         .arg(&db)
         .env("HOME", &home)
@@ -534,7 +574,15 @@ fn every_hearth_and_wal_sidecar_stay_inert() {
     let before_tree = snapshot_tree(&world.home);
 
     let output = Command::new(brokkr_bin())
-        .args(["transcript", "--run", "r222", "--seat", "eff1", "--json"])
+        .args([
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ])
         .arg("--realms")
         .arg(&map)
         .env("HOME", &world.home)
@@ -582,7 +630,15 @@ fn dossier_and_result_telemetry_keep_their_boundary() {
 
     let transcript = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(transcript.status.success());
     assert!(
@@ -593,8 +649,8 @@ fn dossier_and_result_telemetry_keep_their_boundary() {
     // Parsed, not substring-scanned: every nested result/telemetry string
     // in the journal-derived readouts is prose-free.
     for args in [
-        vec!["inspect", "--run", "r222", "--json"],
-        vec!["seats", "--run", "r222", "--json"],
+        vec!["runs", "inspect", "--run", "r222", "--json"],
+        vec!["runs", "seats", "--run", "r222", "--json"],
         vec!["runs", "--json"],
     ] {
         let output = run(&world, &args);
@@ -622,6 +678,7 @@ fn dossier_and_result_telemetry_keep_their_boundary() {
     let derived = run(
         &world,
         &[
+            "runs",
             "muninn",
             "run",
             "--record",
@@ -651,6 +708,7 @@ fn dossier_and_result_telemetry_keep_their_boundary() {
     let listed = run(
         &world,
         &[
+            "runs",
             "muninn",
             "list",
             "--record",
@@ -700,7 +758,15 @@ fn growth_reads_keep_the_tree_config_and_journal_inert() {
         let before_wal = wal_digest(&world.db);
         let output = run(
             &world,
-            &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+            &[
+                "runs",
+                "transcript",
+                "--run",
+                "r222",
+                "--seat",
+                "eff1",
+                "--json",
+            ],
         );
         assert!(
             output.status.success(),
@@ -742,7 +808,10 @@ fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
     .unwrap();
     let before_journal = journal_and_wal(&world.db);
 
-    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    let text = run(
+        &world,
+        &["runs", "transcript", "--run", "r222", "--seat", "eff1"],
+    );
     assert!(
         text.status.success(),
         "{}",
@@ -760,7 +829,15 @@ fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
 
     let json = run(
         &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        &[
+            "runs",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+        ],
     );
     assert!(json.status.success());
     let document: Value = serde_json::from_slice(&json.stdout).unwrap();
@@ -784,6 +861,7 @@ fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
     let refused = run(
         &world,
         &[
+            "runs",
             "transcript",
             "--run",
             "r222",
@@ -886,7 +964,15 @@ fn a_read_leaves_an_existing_frame_bearing_wal_as_it_found() {
     };
 
     // A successful read resolves the reference only by reading the frames.
-    let success = read(&["transcript", "--run", "r222", "--seat", "eff1", "--json"]);
+    let success = read(&[
+        "runs",
+        "transcript",
+        "--run",
+        "r222",
+        "--seat",
+        "eff1",
+        "--json",
+    ]);
     assert!(
         success.status.success(),
         "{}",
@@ -910,6 +996,7 @@ fn a_read_leaves_an_existing_frame_bearing_wal_as_it_found() {
 
     // A refusal over the same frame-bearing journal is equally inert.
     let refusal = read(&[
+        "runs",
         "transcript",
         "--run",
         "r222",
@@ -932,7 +1019,15 @@ fn a_read_leaves_an_existing_frame_bearing_wal_as_it_found() {
         "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":\"{SENTINEL}-wal-growth\"}}}}\n"
     ));
     std::fs::write(&file, &body).unwrap();
-    let growth = read(&["transcript", "--run", "r222", "--seat", "eff1", "--json"]);
+    let growth = read(&[
+        "runs",
+        "transcript",
+        "--run",
+        "r222",
+        "--seat",
+        "eff1",
+        "--json",
+    ]);
     assert!(
         growth.status.success(),
         "{}",

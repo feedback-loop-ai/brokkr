@@ -1,4 +1,4 @@
-//! `brokkr dispatch` (decision 0110 rulings 3 to 6) in the process: the
+//! `brokkr queue dispatch` (decision 0110 rulings 3 to 6) in the process: the
 //! standing loop's interval, its sleep and its reaping, the bound's
 //! command, the holder's readout that writes nothing, a pass that holds
 //! the journal's lock, a driver's spawn refused by its log, its entry or
@@ -26,7 +26,7 @@ fn parsed(argv: &[&str]) -> DispatchArgs {
     args
 }
 
-/// Run `brokkr dispatch` given `argv` in `dir`: its exit and its lines.
+/// Run `brokkr queue dispatch` given `argv` in `dir`: its exit and its lines.
 fn ran(dir: &Path, argv: &[&str]) -> (ExitCode, String) {
     let mut out = Vec::new();
     let exit = dispatch(dir, parsed(argv), &mut out).unwrap();
@@ -411,7 +411,7 @@ fn digest(db: &Path) -> String {
     brokkr_core::canonical::sha256_bytes(&std::fs::read(db).unwrap())
 }
 
-/// `brokkr dispatch status` of `db`, run in `dir`, which leaves the
+/// `brokkr queue dispatch status` of `db`, run in `dir`, which leaves the
 /// journal's bytes as they were.
 fn status_of(dir: &Path, db: &Path) -> String {
     let before = digest(db);

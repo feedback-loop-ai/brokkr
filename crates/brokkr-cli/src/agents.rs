@@ -1,4 +1,4 @@
-//! `brokkr agents` — the agent library, mirroring `brokkr recipes`.
+//! `brokkr library agents` — the agent library, mirroring `brokkr library recipes`.
 //!
 //! `list` warns on a broken entry and keeps listing: one bad file is
 //! information, not a fatal error for the whole library, which is the

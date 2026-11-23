@@ -1889,7 +1889,7 @@ fn fold_codex_event(
             // Verified against codex-cli 0.148.0: a real `codex exec
             // --json` run ends at `turn.completed` and emits no `result`
             // event at all, so a codex seat's num_turns never reached
-            // `brokkr costs` — the aggregator saw per-turn token keys it
+            // `brokkr stats costs` — the aggregator saw per-turn token keys it
             // does not sum and nothing else. Cost in USD is reported
             // nowhere in that stream (`usage` is token counts only), so
             // total_cost_usd stays absent rather than invented.

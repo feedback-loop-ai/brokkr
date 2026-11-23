@@ -52,7 +52,9 @@
 #
 # With no --binary, a release build is made first. Building is NOT
 # timed: the budgets are an operator's install experience, and an
-# operator installs a built artifact.
+# operator installs a built artifact. The script types 0.16's spellings
+# (`runs inspect`), so a --binary must be 0.16 or later: a released 0.15
+# binary does not parse them.
 
 set -euo pipefail
 
@@ -251,7 +253,7 @@ fi
 # the run closed out by the table's own ruling. (These are the
 # assertions `crates/brokkr-cli/tests/bootstrap_bench.rs` makes, so the
 # mechanism is under the workspace suite and not only under this script.)
-( cd "$trial/src" && "$install_dir/brokkr" inspect --run latest --json ) \
+( cd "$trial/src" && "$install_dir/brokkr" runs inspect --run latest --json ) \
   >"$workdir/inspect.json" 2>&1 || true
 for expected in 'effect/succeeded' 'VERIFY-PASS' 'REVIEW-CLEAN-NO-FIXES' 'SHIP-COMPLETE'; do
   if ! grep -q "$expected" "$workdir/inspect.json"; then

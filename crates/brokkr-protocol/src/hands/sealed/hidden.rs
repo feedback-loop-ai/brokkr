@@ -13,7 +13,7 @@
 //! that is not absolute and plain, or one on which a symbolic link now
 //! lies anywhere, the final entry's included ([`unlinked`]), so no call can
 //! retarget a link between boxes and leave a decoy for a later box to hide;
-//! a store `brokkr secrets set` renames over adds no link. It refuses a
+//! a store `brokkr system secrets set` renames over adds no link. It refuses a
 //! configured spelling that no longer leads to the sealed place
 //! ([`Store::led`]), where an update would land unhidden. There the store
 //! is one regular file of one link its user owns that grants its group and
@@ -48,7 +48,7 @@
 //! U8k): what the box pins is what was observed, never a path resolved again.
 //!
 //! What this cannot close (operator rulings 3 and 14): a store renamed over
-//! by `brokkr secrets set` or `rm` while one box runs detaches that box's
+//! by `brokkr system secrets set` or `rm` while one box runs detaches that box's
 //! mount, so that one call or exec command can read the new store, as it
 //! can the sibling files `secrets set` stages beside it during the update;
 //! every later box hides it. A hidden store is still one the hands could

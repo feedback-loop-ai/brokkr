@@ -4,7 +4,7 @@
 //! here against the tables as they stand — every bundle and every recipe,
 //! composed ones included — through the real composer and the core's
 //! `Machine::audit_with`, which sweeps with the real `Machine::evaluate`
-//! and which `brokkr compile` reports (#429):
+//! and which `brokkr library compile` reports (#429):
 //!
 //! 1. **order** — no rule is dead: every rule rules some swept valuation,
 //!    so none sits behind earlier rules that match wherever it does (the

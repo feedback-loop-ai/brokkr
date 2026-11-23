@@ -3,7 +3,7 @@
 //! member, with the run's phase and the entry's time when the attempt
 //! started, the last model any of its records names, how its tokens are
 //! metered, and its metered checkpoints. Read here once, from the run's
-//! events, so the seat rows and `brokkr analytics` derive the facts one
+//! events, so the seat rows and `brokkr stats analytics` derive the facts one
 //! way (decision 0071 rulings 5 and 7).
 //!
 //! A checkpoint's meter is the site's turns each message once: a turn
@@ -125,7 +125,7 @@ pub(crate) struct Siting {
 
 impl Siting {
     /// A reading that keeps each site's checkpoints, for the whole-run
-    /// projection `brokkr analytics` reads.
+    /// projection `brokkr stats analytics` reads.
     fn keeping() -> Siting {
         Siting {
             keeping: true,

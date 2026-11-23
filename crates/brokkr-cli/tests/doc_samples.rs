@@ -185,7 +185,8 @@ const HOME: &str = "/home/you/my-app";
 const CHECKOUT: &str = "~/src/brokkr";
 
 /// The install the Node guides show, from a checkout at [`CHECKOUT`].
-const ADD_NODE: [&str; 5] = [
+const ADD_NODE: [&str; 6] = [
+    "library",
     "recipes",
     "add",
     "~/src/brokkr/recipes/node",
@@ -198,7 +199,7 @@ const ADD_NODE: [&str; 5] = [
 const ADAPTER: &str = "adapters/claude.json";
 
 /// The `export` both chained file samples read.
-const EXPORT: [&str; 5] = ["export", "--run", "latest", "--out", "./out"];
+const EXPORT: [&str; 6] = ["journal", "export", "--run", "latest", "--out", "./out"];
 
 /// The fake value the secrets guide's `set` reads from stdin: never a
 /// real secret, and newline-terminated as a shell heredoc would give it.
@@ -207,7 +208,7 @@ const SECRET: &str = "example-not-a-secret\n";
 /// The `secrets set` the guide's `list` and `remove` read, the fake value
 /// arriving on stdin, never argv.
 const SET: Step = Step {
-    argv: &["secrets", "set", "GITHUB_TOKEN"],
+    argv: &["system", "secrets", "set", "GITHUB_TOKEN"],
     stdin: Some(SECRET),
 };
 
@@ -235,7 +236,7 @@ const fn journal(
 const fn added(place: Place, exit: Exit) -> Sample {
     Sample {
         doc: "docs/guides/adopting-a-node-repo.md",
-        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+        prompt: "$ brokkr library recipes add ~/src/brokkr/recipes/node --name node",
         argv: &ADD_NODE,
         place,
         stream: Stream::Stderr,
@@ -247,8 +248,8 @@ const fn added(place: Place, exit: Exit) -> Sample {
 const SAMPLED: [Sample; 33] = [
     Sample {
         doc: "docs/guides/agent-library.md",
-        prompt: "$ brokkr agents list",
-        argv: &["agents", "list"],
+        prompt: "$ brokkr library agents list",
+        argv: &["library", "agents", "list"],
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Success,
@@ -256,8 +257,8 @@ const SAMPLED: [Sample; 33] = [
     },
     Sample {
         doc: "docs/guides/recipe-authoring.md",
-        prompt: "$ brokkr recipes list",
-        argv: &["recipes", "list"],
+        prompt: "$ brokkr library recipes list",
+        argv: &["library", "recipes", "list"],
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Success,
@@ -265,8 +266,8 @@ const SAMPLED: [Sample; 33] = [
     },
     Sample {
         doc: "docs/guides/recipe-authoring.md",
-        prompt: "$ brokkr compile --bundle recipes/night-shift",
-        argv: &["compile", "--bundle", "recipes/night-shift"],
+        prompt: "$ brokkr library compile --bundle recipes/night-shift",
+        argv: &["library", "compile", "--bundle", "recipes/night-shift"],
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Success,
@@ -324,8 +325,8 @@ const SAMPLED: [Sample; 33] = [
     },
     Sample {
         doc: "docs/guides/quickstart.md",
-        prompt: "$ brokkr inspect --run latest",
-        argv: &["inspect", "--run", "latest"],
+        prompt: "$ brokkr runs inspect --run latest",
+        argv: &["runs", "inspect", "--run", "latest"],
         place: Place::Driven,
         stream: Stream::Stdout,
         exit: Exit::Success,
@@ -333,8 +334,8 @@ const SAMPLED: [Sample; 33] = [
     },
     Sample {
         doc: "docs/guides/quickstart.md",
-        prompt: "$ brokkr costs --run latest",
-        argv: &["costs", "--run", "latest"],
+        prompt: "$ brokkr stats costs --run latest",
+        argv: &["stats", "costs", "--run", "latest"],
         place: Place::Driven,
         stream: Stream::Stdout,
         exit: Exit::Success,
@@ -342,8 +343,8 @@ const SAMPLED: [Sample; 33] = [
     },
     Sample {
         doc: "docs/guides/read-surfaces.md",
-        prompt: "$ brokkr realms",
-        argv: &["realms"],
+        prompt: "$ brokkr system realms",
+        argv: &["system", "realms"],
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Success,
@@ -360,8 +361,8 @@ const SAMPLED: [Sample; 33] = [
     },
     Sample {
         doc: "docs/guides/read-surfaces.md",
-        prompt: "$ brokkr inspect --run latest",
-        argv: &["inspect", "--run", "latest"],
+        prompt: "$ brokkr runs inspect --run latest",
+        argv: &["runs", "inspect", "--run", "latest"],
         place: Place::Driven,
         stream: Stream::Stdout,
         exit: Exit::Success,
@@ -369,8 +370,8 @@ const SAMPLED: [Sample; 33] = [
     },
     Sample {
         doc: "docs/guides/read-surfaces.md",
-        prompt: "$ brokkr seats --run latest",
-        argv: &["seats", "--run", "latest"],
+        prompt: "$ brokkr runs seats --run latest",
+        argv: &["runs", "seats", "--run", "latest"],
         place: Place::Driven,
         stream: Stream::Stdout,
         exit: Exit::Success,
@@ -380,8 +381,9 @@ const SAMPLED: [Sample; 33] = [
     // install onto a fresh folder's shelf.
     Sample {
         doc: "docs/guides/quickstart.md",
-        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/fast --name fast",
+        prompt: "$ brokkr library recipes add ~/src/brokkr/recipes/fast --name fast",
         argv: &[
+            "library",
             "recipes",
             "add",
             "~/src/brokkr/recipes/fast",
@@ -395,7 +397,7 @@ const SAMPLED: [Sample; 33] = [
     },
     Sample {
         doc: "docs/guides/cards/node.md",
-        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+        prompt: "$ brokkr library recipes add ~/src/brokkr/recipes/node --name node",
         argv: &ADD_NODE,
         place: Place::Folder("node-npm"),
         stream: Stream::Stderr,
@@ -419,44 +421,47 @@ const SAMPLED: [Sample; 33] = [
     // in a fresh uuid suffix every drive, so a prompt that names its file
     // writes `<run>`, which the sampler fills in.
     journal(
-        "$ brokkr anchor --run latest",
-        &["anchor", "--run", "latest"],
+        "$ brokkr journal anchor --run latest",
+        &["journal", "anchor", "--run", "latest"],
         Place::Driven,
         Stream::Stderr,
     ),
     journal(
-        "$ brokkr anchor --run latest --check",
-        &["anchor", "--run", "latest", "--check"],
-        Place::DrivenAfter(&[step(&["anchor", "--run", "latest"])]),
+        "$ brokkr journal anchor --run latest --check",
+        &["journal", "anchor", "--run", "latest", "--check"],
+        Place::DrivenAfter(&[step(&["journal", "anchor", "--run", "latest"])]),
         Stream::Stdout,
     ),
     journal(
-        "$ brokkr export --run latest --out ./out --redact",
-        &["export", "--run", "latest", "--out", "./out", "--redact"],
+        "$ brokkr journal export --run latest --out ./out --redact",
+        &[
+            "journal", "export", "--run", "latest", "--out", "./out", "--redact",
+        ],
         Place::Driven,
         Stream::Stderr,
     ),
     journal(
-        "$ brokkr export --run latest --out ./out",
-        &["export", "--run", "latest", "--out", "./out"],
+        "$ brokkr journal export --run latest --out ./out",
+        &["journal", "export", "--run", "latest", "--out", "./out"],
         Place::Driven,
         Stream::Stderr,
     ),
     journal(
-        "$ brokkr verify-run ./out/<run>.ndjson",
-        &["verify-run", "./out/<run>.ndjson"],
+        "$ brokkr journal verify ./out/<run>.ndjson",
+        &["journal", "verify", "./out/<run>.ndjson"],
         Place::DrivenAfter(&[step(&EXPORT)]),
         Stream::Stdout,
     ),
     journal(
-        "$ brokkr replay --run latest",
-        &["replay", "--run", "latest"],
+        "$ brokkr runs replay --run latest",
+        &["runs", "replay", "--run", "latest"],
         Place::Driven,
         Stream::Stdout,
     ),
     journal(
-        "$ brokkr import --from ./out/<run>.ndjson --db ./canonical/forge.db",
+        "$ brokkr journal import --from ./out/<run>.ndjson --db ./canonical/forge.db",
         &[
+            "journal",
             "import",
             "--from",
             "./out/<run>.ndjson",
@@ -467,21 +472,21 @@ const SAMPLED: [Sample; 33] = [
         Stream::Stdout,
     ),
     journal(
-        "$ brokkr keep-refs list",
-        &["keep-refs", "list"],
+        "$ brokkr journal keep-refs list",
+        &["journal", "keep-refs", "list"],
         Place::Driven,
         Stream::Stdout,
     ),
     journal(
-        "$ brokkr keep-refs plant --run latest",
-        &["keep-refs", "plant", "--run", "latest"],
+        "$ brokkr journal keep-refs plant --run latest",
+        &["journal", "keep-refs", "plant", "--run", "latest"],
         Place::Driven,
         Stream::Stderr,
     ),
     journal(
-        "$ brokkr keep-refs delete --run latest",
-        &["keep-refs", "delete", "--run", "latest"],
-        Place::DrivenAfter(&[step(&["keep-refs", "plant", "--run", "latest"])]),
+        "$ brokkr journal keep-refs delete --run latest",
+        &["journal", "keep-refs", "delete", "--run", "latest"],
+        Place::DrivenAfter(&[step(&["journal", "keep-refs", "plant", "--run", "latest"])]),
         Stream::Stderr,
     ),
     // #365 slice 6: the secrets guide, in a fresh folder. `set` reads its
@@ -489,7 +494,7 @@ const SAMPLED: [Sample; 33] = [
     // after the `set` whose store entry they read.
     Sample {
         doc: "docs/guides/secrets.md",
-        prompt: "$ brokkr secrets set GITHUB_TOKEN",
+        prompt: "$ brokkr system secrets set GITHUB_TOKEN",
         argv: SET.argv,
         place: Place::Folder("rust"),
         stream: Stream::Stderr,
@@ -498,8 +503,8 @@ const SAMPLED: [Sample; 33] = [
     },
     Sample {
         doc: "docs/guides/secrets.md",
-        prompt: "$ brokkr secrets list",
-        argv: &["secrets", "list"],
+        prompt: "$ brokkr system secrets list",
+        argv: &["system", "secrets", "list"],
         place: Place::FolderAfter("rust", &[SET]),
         stream: Stream::Stdout,
         exit: Exit::Success,
@@ -507,8 +512,8 @@ const SAMPLED: [Sample; 33] = [
     },
     Sample {
         doc: "docs/guides/secrets.md",
-        prompt: "$ brokkr secrets remove GITHUB_TOKEN",
-        argv: &["secrets", "remove", "GITHUB_TOKEN"],
+        prompt: "$ brokkr system secrets remove GITHUB_TOKEN",
+        argv: &["system", "secrets", "remove", "GITHUB_TOKEN"],
         place: Place::FolderAfter("rust", &[SET]),
         stream: Stream::Stderr,
         exit: Exit::Success,
@@ -669,7 +674,7 @@ struct RunSummary {
 /// The id of the run [`drive`] left at `latest` in `scaffold`.
 fn driven_run_id(scaffold: &Scaffold, configure: &dyn Fn(&mut Command)) -> String {
     let (code, stdout, stderr) = brokkr_with(
-        &["inspect", "--run", "latest", "--json"],
+        &["runs", "inspect", "--run", "latest", "--json"],
         &scaffold.root,
         configure,
     );
@@ -773,24 +778,8 @@ fn ran(
     Printed {
         code,
         stdout,
-        stderr: unnoted(stderr),
+        stderr,
         roots,
-    }
-}
-
-/// `stderr` without the one line an old flat spelling says first: the
-/// guides still type the spellings 1169b moves (decision 0113 ruling 4),
-/// and that note is no part of what a sample shows. Any other first line
-/// is kept as printed.
-fn unnoted(stderr: String) -> String {
-    match stderr.split_once('\n') {
-        Some((first, rest))
-            if first.starts_with("brokkr: '")
-                && first.ends_with("; the old spelling goes in 0.17") =>
-        {
-            rest.to_string()
-        }
-        _ => stderr,
     }
 }
 
@@ -1162,7 +1151,10 @@ fn a_non_zero_exit_is_refused_unless_the_sample_takes_any() {
 fn a_refusal_sample_takes_only_a_non_zero_exit() {
     let refused = Sample {
         exit: Exit::Refused,
-        ..sample("$ brokkr recipes list", &["recipes", "list"])
+        ..sample(
+            "$ brokkr library recipes list",
+            &["library", "recipes", "list"],
+        )
     };
     let printed = |code| exited(code, "error: refused", "the stderr");
     assert_eq!(
@@ -1241,8 +1233,11 @@ fn a_prompt_neither_sampled_nor_allowed_is_refused() {
                 (14, "$ brokkr runs --json"),
             ],
         ),
-        fenced("docs/b.md", &[(2, "  $ brokkr doctor\n$ brokkr realms")]),
-        fenced("docs/d.md", &[(7, "out\n  $ brokkr realms")]),
+        fenced(
+            "docs/b.md",
+            &[(2, "  $ brokkr doctor\n$ brokkr system realms")],
+        ),
+        fenced("docs/d.md", &[(7, "out\n  $ brokkr system realms")]),
         fenced("docs/c.md", &[(5, "brokkr runs\n$ cargo test")]),
     ];
     let allowed = [("docs/b.md", "the host"), ("docs/c.md", "stale")];
@@ -1251,7 +1246,7 @@ fn a_prompt_neither_sampled_nor_allowed_is_refused() {
         [
             "docs/a.md:10: `$ brokkr runs` is neither sampled nor in an allowed doc",
             "docs/a.md:14: `$ brokkr runs --json` is neither sampled nor in an allowed doc",
-            "docs/d.md:8: `$ brokkr realms` is neither sampled nor in an allowed doc",
+            "docs/d.md:8: `$ brokkr system realms` is neither sampled nor in an allowed doc",
             "docs/c.md: allowed, but covers nothing: no `$ brokkr` prompt is left",
         ]
     );
@@ -1284,40 +1279,40 @@ fn a_sample_is_one_command_and_its_output() {
         "docs/a.md",
         &[
             (3, "$ brokkr runs\nrun-1\n…\nrun-9"),
-            (9, "$ brokkr realms\n…\n\n…"),
-            (15, "$ brokkr seats\nanalyst\n$ brokkr doctor\nok"),
-            (21, "$ brokkr costs\n…"),
-            (26, "$ brokkr costs\ntotal"),
-            (30, "$ brokkr ledger\ntotal"),
-            (34, "$ brokkr inspect\none\ntwo"),
+            (9, "$ brokkr system realms\n…\n\n…"),
+            (15, "$ brokkr runs seats\nanalyst\n$ brokkr doctor\nok"),
+            (21, "$ brokkr stats costs\n…"),
+            (26, "$ brokkr stats costs\ntotal"),
+            (30, "$ brokkr stats ledger\ntotal"),
+            (34, "$ brokkr runs inspect\none\ntwo"),
         ],
     )];
     let sampled = [
         sample("$ brokkr runs", &["runs"]),
-        sample("$ brokkr realms", &["realms"]),
-        sample("$ brokkr seats", &["seats"]),
-        sample("$ brokkr costs", &["costs"]),
+        sample("$ brokkr system realms", &["system", "realms"]),
+        sample("$ brokkr runs seats", &["runs", "seats"]),
+        sample("$ brokkr stats costs", &["stats", "costs"]),
         sample("$ brokkr doctor", &["doctor"]),
         sample("$ brokkr  runs", &["runs"]),
-        sample("$ brokkr ledger", &["ledger"]),
-        sample("$ brokkr inspect", &["inspect"]),
+        sample("$ brokkr stats ledger", &["stats", "ledger"]),
+        sample("$ brokkr runs inspect", &["runs", "inspect"]),
     ];
     let run = |sample: &Sample| match sample.argv {
         ["runs"] => exited(Some(0), "run-1\nrun-2\nrun-8\n", ""),
-        ["ledger"] => exited(Some(1), "", "no journal"),
+        ["stats", "ledger"] => exited(Some(1), "", "no journal"),
         _ => exited(Some(0), "one\ntwo\nthree\n", ""),
     };
     assert_eq!(
         sample_failures(&docs, &sampled, run),
         [
             "docs/a.md:6: `run-9` is not what `$ brokkr runs` printed:\nrun-1\nrun-2\nrun-8\n",
-            "docs/a.md:9: `$ brokkr realms` shows no output but `…`",
+            "docs/a.md:9: `$ brokkr system realms` shows no output but `…`",
             "docs/a.md:17: `$ brokkr doctor` is a second `$ ` line; a sample runs one command",
-            "docs/a.md: 2 fenced blocks open with `$ brokkr costs`; a sample is exactly one",
+            "docs/a.md: 2 fenced blocks open with `$ brokkr stats costs`; a sample is exactly one",
             "docs/a.md: 0 fenced blocks open with `$ brokkr doctor`; a sample is exactly one",
             "docs/a.md: the sample `$ brokkr  runs` runs `$ brokkr runs`",
-            "docs/a.md:30: `$ brokkr ledger` exited 1: no journal",
-            "docs/a.md:36: the sample ends before what `$ brokkr inspect` printed:\none\ntwo\nthree\n",
+            "docs/a.md:30: `$ brokkr stats ledger` exited 1: no journal",
+            "docs/a.md:36: the sample ends before what `$ brokkr runs inspect` printed:\none\ntwo\nthree\n",
         ]
     );
 }
@@ -1329,7 +1324,7 @@ fn rows_naming_one_prompt_are_its_blocks_in_order() {
         &[
             (3, "$ brokkr runs\nfirst"),
             (8, "$ brokkr runs\nsecond"),
-            (13, "$ brokkr seats\none"),
+            (13, "$ brokkr runs seats\none"),
         ],
     )];
     let first = sample("$ brokkr runs", &["runs"]);
@@ -1352,10 +1347,10 @@ fn rows_naming_one_prompt_are_its_blocks_in_order() {
             "docs/a.md:9: `second` is not what `$ brokkr runs` printed:\nfirst\n",
         ]
     );
-    let seats = sample("$ brokkr seats", &["seats"]);
+    let seats = sample("$ brokkr runs seats", &["runs", "seats"]);
     assert_eq!(
         sample_failures(&docs, &[seats, seats], run),
-        ["docs/a.md: 1 fenced blocks open with `$ brokkr seats`; a sample is exactly one"; 2]
+        ["docs/a.md: 1 fenced blocks open with `$ brokkr runs seats`; a sample is exactly one"; 2]
     );
 }
 
@@ -1366,8 +1361,8 @@ fn a_prompt_quotes_an_argument_that_holds_a_space() {
         "$ brokkr run --feature \"prefix selectors for the read surfaces\""
     );
     assert_eq!(
-        spelled(&["inspect", "--run", "latest"]),
-        "$ brokkr inspect --run latest"
+        spelled(&["runs", "inspect", "--run", "latest"]),
+        "$ brokkr runs inspect --run latest"
     );
 }
 
@@ -1382,23 +1377,23 @@ fn the_scaffolds_samples_wait_for_a_box() {
     assert_eq!(
         prompts(runnable(false)),
         [
-            "$ brokkr agents list",
-            "$ brokkr recipes list",
-            "$ brokkr compile --bundle recipes/night-shift",
+            "$ brokkr library agents list",
+            "$ brokkr library recipes list",
+            "$ brokkr library compile --bundle recipes/night-shift",
             "$ brokkr --version",
             "$ brokkr doctor",
             "$ brokkr init .",
             "$ brokkr doctor",
-            "$ brokkr realms",
-            "$ brokkr recipes add ~/src/brokkr/recipes/fast --name fast",
-            "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
-            "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
-            "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
-            "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
-            "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
-            "$ brokkr secrets set GITHUB_TOKEN",
-            "$ brokkr secrets list",
-            "$ brokkr secrets remove GITHUB_TOKEN",
+            "$ brokkr system realms",
+            "$ brokkr library recipes add ~/src/brokkr/recipes/fast --name fast",
+            "$ brokkr library recipes add ~/src/brokkr/recipes/node --name node",
+            "$ brokkr library recipes add ~/src/brokkr/recipes/node --name node",
+            "$ brokkr library recipes add ~/src/brokkr/recipes/node --name node",
+            "$ brokkr library recipes add ~/src/brokkr/recipes/node --name node",
+            "$ brokkr library recipes add ~/src/brokkr/recipes/node --name node",
+            "$ brokkr system secrets set GITHUB_TOKEN",
+            "$ brokkr system secrets list",
+            "$ brokkr system secrets remove GITHUB_TOKEN",
         ]
     );
 }

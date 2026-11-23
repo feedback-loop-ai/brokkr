@@ -294,8 +294,8 @@ fn crossings_view(world: &World) -> Option<Value> {
     (!realms.is_empty()).then_some(Value::Object(realms))
 }
 
-/// What a compiled bundle looks like to an operator. `brokkr compile` and
-/// `brokkr recipes show` print this and nothing else, from here, so the
+/// What a compiled bundle looks like to an operator. `brokkr library compile` and
+/// `brokkr library recipes show` print this and nothing else, from here, so the
 /// two surfaces can never drift. `composed_from` is omitted entirely
 /// when nothing was composed, so a plain bundle's output is unchanged —
 /// and so is `crossings`, which belongs to the world a verb discovered
@@ -908,7 +908,7 @@ fn select_transcript_turn(read: TranscriptRead, turn: Option<u64>) -> Transcript
 
 /// The complete `brokkr.transcript/v1` document, every member present
 /// even when null or empty, serialized from the shared result alone: the
-/// bytes `brokkr transcript --json` prints and the browser's transcript
+/// bytes `brokkr runs transcript --json` prints and the browser's transcript
 /// route serves (#352).
 fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Option<u64>) -> String {
     let document = json!({
@@ -930,7 +930,7 @@ fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Optio
     serde_json::to_string_pretty(&document).expect("a JSON value serializes")
 }
 
-/// `brokkr transcript`: resolve the run read-only, select exactly one
+/// `brokkr runs transcript`: resolve the run read-only, select exactly one
 /// participant, run the shared local derivation and render it. Nothing
 /// is launched, written or resumed.
 fn transcript_command(
@@ -1054,8 +1054,8 @@ impl Invocation {
     }
 
     /// The world as a READ surface reads it: a crossing that has moved is
-    /// a line in the readout rather than the end of it. `brokkr realms`
-    /// and `brokkr muninn run` read this way for the same reason `brokkr
+    /// a line in the readout rather than the end of it. `brokkr system realms`
+    /// and `brokkr runs muninn run` read this way for the same reason `brokkr
     /// doctor` does — a surface that only looks refuses nothing, and
     /// refusing here would blank the readout in exactly the world an
     /// operator opened it to see (decision 0046's Addendum; decision 0023
@@ -1135,7 +1135,7 @@ impl Invocation {
     }
 }
 
-/// `brokkr operator supersede` (decision 0047 ruling 1): one annotation
+/// `brokkr runs operator supersede` (decision 0047 ruling 1): one annotation
 /// on a run that has already finished, saying which of its residual
 /// findings another run closed. Every citation is verified before
 /// anything is written and a refusal writes nothing (ruling 2), so this
@@ -1220,7 +1220,7 @@ impl JournalArgs {
     }
 }
 
-/// The one journal `brokkr ui` serves: the fleet `brokkr tui` opens, read
+/// The one journal `brokkr system ui` serves: the fleet `brokkr tui` opens, read
 /// the way `tui` reads it ([`hearths_of`]), so the two surfaces never show
 /// different fleets (#374). The web view serves a single journal, so a
 /// world whose realms name several hearths is refused, naming them, rather
@@ -1261,7 +1261,7 @@ fn hearths_of(
 
 /// The same fleet, with the WORLD it was read from kept — what a surface
 /// needs when it states facts about the map itself and not only about the
-/// journals the map names, which is `brokkr muninn run` and its crossings
+/// journals the map names, which is `brokkr runs muninn run` and its crossings
 /// (decision 0057; decision 0026 ruling 3).
 ///
 /// Opened with [`Invocation::inspect`]: the raven reports a moved
