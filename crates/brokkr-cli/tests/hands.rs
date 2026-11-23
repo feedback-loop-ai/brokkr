@@ -12,10 +12,6 @@ use serde_json::Value;
 
 use crate::engine::{brokkr_in, dead_pid};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -80,22 +76,21 @@ fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
     let artifacts = artifact_root(&work.join(".forge"));
     std::fs::write(work.join("hello.txt"), "from the worktree\n").unwrap();
     let (work_arg, root_arg) = (work.to_str().unwrap(), artifacts.to_str().unwrap());
-    let mut child = Command::new(brokkr_bin())
-        .args([
-            "hands",
-            "serve",
-            "--workdir",
-            work_arg,
-            "--artifacts",
-            root_arg,
-            "--reach",
-            &reach(&work),
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child = crate::built::brokkr([
+        "hands",
+        "serve",
+        "--workdir",
+        work_arg,
+        "--artifacts",
+        root_arg,
+        "--reach",
+        &reach(&work),
+    ])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .unwrap();
     {
         let stdin = child.stdin.as_mut().unwrap();
         writeln!(stdin, r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2025-06-18"}}}}"#).unwrap();
@@ -134,22 +129,21 @@ fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
 fn serving(tmp: &Path) -> (std::process::Child, PathBuf) {
     let artifacts = artifact_root(&tmp.join("state"));
     let (work_arg, root_arg) = (tmp.to_str().unwrap(), artifacts.to_str().unwrap());
-    let mut server = Command::new(brokkr_bin())
-        .args([
-            "hands",
-            "serve",
-            "--workdir",
-            work_arg,
-            "--artifacts",
-            root_arg,
-            "--reach",
-            &reach(tmp),
-        ])
-        .env("TMPDIR", tmp)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut server = crate::built::brokkr([
+        "hands",
+        "serve",
+        "--workdir",
+        work_arg,
+        "--artifacts",
+        root_arg,
+        "--reach",
+        &reach(tmp),
+    ])
+    .env("TMPDIR", tmp)
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .spawn()
+    .unwrap();
     let ping = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
     writeln!(server.stdin.as_mut().unwrap(), "{ping}").unwrap();
     let mut reply = String::new();
@@ -205,14 +199,9 @@ pub(crate) fn reap_bundle(tmp: &Path) -> PathBuf {
 /// A start whose temporary directory is `tmp`, so it reaps and holds
 /// `tmp`'s trees; its stderr names the run and says the reaping.
 fn start_run(tmp: &Path, bundle: &Path) -> std::process::Output {
-    brokkr_in(tmp)
-        .args([
-            "run",
-            "--bundle",
-            bundle.to_str().unwrap(),
-            "--feature",
-            "reap",
-        ])
+    let run = ["run", "--bundle", bundle.to_str().unwrap()];
+    brokkr_in(tmp, &run)
+        .args(["--feature", "reap"])
         .args(["--db", tmp.join("j.db").to_str().unwrap()])
         .args(["--repo", tmp.to_str().unwrap()])
         .output()
@@ -356,16 +345,10 @@ fn an_unremovable_dead_tree_is_said_at_the_start() {
     mode(&sealed, 0o500);
 
     let bundle = reap_bundle(tmp.path());
-    let mut command = brokkr_in(tmp.path());
+    let mut command = brokkr_in(tmp.path(), &["run", "--bundle", bundle.to_str().unwrap()]);
     command
         .env("TMPDIR", &reap)
-        .args([
-            "run",
-            "--bundle",
-            bundle.to_str().unwrap(),
-            "--feature",
-            "reap",
-        ])
+        .args(["--feature", "reap"])
         .args(["--db", tmp.path().join("j.db").to_str().unwrap()])
         .args(["--repo", tmp.path().to_str().unwrap()]);
     mode(&reap, 0o500);
@@ -406,8 +389,8 @@ fn hands_exec_runs_the_command_whole_and_returns_its_code() {
     let sealed = reach(&work);
     let exec = |rest: &[&str]| {
         let (work, artifacts) = (work.to_str().unwrap(), artifacts.to_str().unwrap());
-        let mut command = Command::new(brokkr_bin());
-        command.args(["hands", "exec", "--workdir", work, "--artifacts", artifacts]);
+        let mut command =
+            crate::built::brokkr(["hands", "exec", "--workdir", work, "--artifacts", artifacts]);
         command.args(["--reach", &sealed]).args(rest);
         command
     };
@@ -433,7 +416,9 @@ fn hands_exec_runs_the_command_whole_and_returns_its_code() {
     assert!(!bad.status.success());
     assert!(String::from_utf8_lossy(&bad.stderr).contains("--spec"));
     // And the boxed binary can call itself: the exec driver dispatch shape.
-    let selfcall = exec(&["--", brokkr_bin(), "--version"]).output().unwrap();
+    let selfcall = exec(&["--", crate::built::BIN, "--version"])
+        .output()
+        .unwrap();
     assert!(
         selfcall.status.success(),
         "{}",
@@ -489,7 +474,7 @@ fn the_box_private_tmp_and_home_are_owner_only_under_umask_002() {
             "-c",
             "umask 002; exec \"$0\" hands exec --workdir \"$1\" --artifacts \"$2\" \
              --reach \"$3\" -- stat -c '%a %n' /tmp /runtime/home",
-            brokkr_bin(),
+            crate::built::BIN,
             work.to_str().unwrap(),
             artifact_root(dir.path()).to_str().unwrap(),
             &reach(&work),
@@ -594,25 +579,24 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
         if failing {
             std::fs::write(work.path().join("FAIL"), "fail this named test\n").unwrap();
         }
-        let output = Command::new(brokkr_bin())
-            .args([
-                "hands",
-                "exec",
-                "--workdir",
-                work.path().to_str().unwrap(),
-                "--artifacts",
-                artifacts.to_str().unwrap(),
-                "--reach",
-                &sealed,
-                "--spec",
-                &spec,
-                "--",
-                "bash",
-                "scripts/verify-seat.sh",
-                "prompt.md",
-            ])
-            .output()
-            .unwrap();
+        let output = crate::built::brokkr([
+            "hands",
+            "exec",
+            "--workdir",
+            work.path().to_str().unwrap(),
+            "--artifacts",
+            artifacts.to_str().unwrap(),
+            "--reach",
+            &sealed,
+            "--spec",
+            &spec,
+            "--",
+            "bash",
+            "scripts/verify-seat.sh",
+            "prompt.md",
+        ])
+        .output()
+        .unwrap();
         assert!(
             output.status.success(),
             "{}",
@@ -662,23 +646,22 @@ fn shipped_exec_site(tmp: &Path) -> std::process::Output {
     std::fs::write(work.path().join("FAIL"), "select the named failing test\n").unwrap();
     let journal = tempfile::tempdir().unwrap();
     let root = workspace().canonicalize().unwrap();
-    Command::new(brokkr_bin())
-        .args([
-            "run",
-            "--bundle",
-            root.join("recipes/verify").to_str().unwrap(),
-            "--feature",
-            "prove the shipped bundle script mount",
-            "--db",
-            journal.path().join("canonical.db").to_str().unwrap(),
-            "--repo",
-            work.path().to_str().unwrap(),
-        ])
-        .current_dir(&root)
-        .env("TMPDIR", tmp)
-        .env("HOME", crate::engine::toolchain_home_in(journal.path()))
-        .output()
-        .unwrap()
+    crate::built::brokkr([
+        "run",
+        "--bundle",
+        root.join("recipes/verify").to_str().unwrap(),
+        "--feature",
+        "prove the shipped bundle script mount",
+        "--db",
+        journal.path().join("canonical.db").to_str().unwrap(),
+        "--repo",
+        work.path().to_str().unwrap(),
+    ])
+    .current_dir(&root)
+    .env("TMPDIR", tmp)
+    .env("HOME", crate::engine::toolchain_home_in(journal.path()))
+    .output()
+    .unwrap()
 }
 
 /// A scratch repository holding the shipped shipper, `fast`'s, which
@@ -952,23 +935,22 @@ fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
             .unwrap()
             .success());
     }
-    let output = Command::new(brokkr_bin())
-        .args([
-            "run",
-            "--bundle",
-            bundle.to_str().unwrap(),
-            "--feature",
-            "script proof",
-            "--db",
-            journal_db.to_str().unwrap(),
-            "--repo",
-            work.path().to_str().unwrap(),
-        ])
-        .current_dir(work.path())
-        .env("TMPDIR", tmp)
-        .env("HOME", home.to_string())
-        .output()
-        .unwrap();
+    let output = crate::built::brokkr([
+        "run",
+        "--bundle",
+        bundle.to_str().unwrap(),
+        "--feature",
+        "script proof",
+        "--db",
+        journal_db.to_str().unwrap(),
+        "--repo",
+        work.path().to_str().unwrap(),
+    ])
+    .current_dir(work.path())
+    .env("TMPDIR", tmp)
+    .env("HOME", home.to_string())
+    .output()
+    .unwrap();
     (work, output)
 }
 

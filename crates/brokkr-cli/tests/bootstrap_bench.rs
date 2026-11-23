@@ -165,10 +165,8 @@ pub(crate) fn scaffold_with(configure: impl Fn(&mut Command)) -> Scaffold {
     .unwrap();
 
     // Step 2 of the spine, into the repository root itself.
-    let mut init = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    init.args(["init", "."])
-        .env("PATH", &path)
-        .current_dir(repo);
+    let mut init = crate::built::brokkr(["init", "."]);
+    init.env("PATH", &path).current_dir(repo);
     configure(&mut init);
     let init = init.output().unwrap();
     assert_eq!(
@@ -209,21 +207,19 @@ fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
     // (decision 0083). An empty directory, which git does not track.
     let src = repo.join("src");
     std::fs::create_dir(&src).unwrap();
-    let run = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args([
-            "run",
-            "--feature",
-            "bootstrap benchmark: reach one completed effect",
-        ])
-        .env("HOME", &scaffold.home)
-        .env("BROKKR_CLAUDE_BIN", stub)
-        .current_dir(&src)
-        .output()
-        .unwrap();
+    let run = crate::built::brokkr([
+        "run",
+        "--feature",
+        "bootstrap benchmark: reach one completed effect",
+    ])
+    .env("HOME", &scaffold.home)
+    .env("BROKKR_CLAUDE_BIN", stub)
+    .current_dir(&src)
+    .output()
+    .unwrap();
     let stderr = String::from_utf8_lossy(&run.stderr);
 
-    let inspect = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(["runs", "inspect", "--run", "latest", "--json"])
+    let inspect = crate::built::brokkr(["runs", "inspect", "--run", "latest", "--json"])
         .current_dir(repo)
         .output()
         .unwrap();

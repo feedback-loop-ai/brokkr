@@ -3,28 +3,23 @@
 //! and synthetic test-owned homes; no real operator session is copied.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use brokkr_core::envelope::EventType;
 use brokkr_store::Store;
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
-struct World {
-    dir: tempfile::TempDir,
-    db: PathBuf,
-    home: PathBuf,
+pub(crate) struct World {
+    pub(crate) dir: tempfile::TempDir,
+    pub(crate) db: PathBuf,
+    pub(crate) home: PathBuf,
 }
 
 impl World {
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         self.dir.path()
     }
 
-    fn projects(&self) -> PathBuf {
+    pub(crate) fn projects(&self) -> PathBuf {
         self.home.join(".claude").join("projects")
     }
 
@@ -87,15 +82,27 @@ fn record(world: &World, transcript: Value) {
         .unwrap();
 }
 
+/// `brokkr runs <args> --db <db>` in `world`: every read here is the runs family's.
 fn run(world: &World, args: &[&str]) -> std::process::Output {
-    Command::new(brokkr_bin())
-        .args(["runs"].iter().chain(args))
+    let argv = [&["runs"][..], args].concat();
+    in_world(&argv, &world.db, &world.home, world.path())
+}
+
+/// `brokkr <args> --db <db>` under `home`, from `cwd`.
+pub(crate) fn in_world(args: &[&str], db: &Path, home: &Path, cwd: &Path) -> std::process::Output {
+    crate::built::brokkr(args)
         .arg("--db")
-        .arg(&world.db)
-        .env("HOME", &world.home)
-        .current_dir(world.path())
+        .arg(db)
+        .env("HOME", home)
+        .current_dir(cwd)
         .output()
         .unwrap()
+}
+
+/// The one seat's transcript as JSON from `db`, under `home`, from `cwd`.
+pub(crate) fn seat_json(db: &Path, home: &Path, cwd: &Path) -> std::process::Output {
+    let seat = ["transcript", "--run", "r222", "--seat", "eff1", "--json"];
+    in_world(&[&["runs"][..], &seat].concat(), db, home, cwd)
 }
 
 /// A run whose effects are the given `(effect_id, seat, provider)`
@@ -2260,15 +2267,8 @@ fn a_missing_journal_gains_no_file() {
     let db = dir.path().join("missing").join("forge.db");
     let home = dir.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let world = World {
-        dir,
-        db: db.clone(),
-        home,
-    };
-    let output = run(
-        &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
-    );
+
+    let output = seat_json(&db, &home, dir.path());
     assert!(
         !output.status.success(),
         "a missing journal is a refusal, not an initialized store"

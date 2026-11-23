@@ -142,6 +142,7 @@ const JOB_LINES: [(&str, &str); 13] = [
           BROKKR_TEST_MACHINE: ${{ matrix.machine }}
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
+          BROKKR_REQUIRE_PIDNS: ${{ runner.os == 'Linux' && '1' || '' }}
       - name: R3 native startup gate
         if: runner.os == 'macOS' && matrix.machine == 'macos/1'
         run:
@@ -204,6 +205,7 @@ const JOB_LINES: [(&str, &str); 13] = [
           BROKKR_COVERAGE_PROFILES: target/coverage-machine
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+          BROKKR_REQUIRE_PIDNS: '1'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-machine-${{ strategy.job-index }}

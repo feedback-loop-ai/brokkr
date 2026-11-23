@@ -4,7 +4,6 @@
 //! the map names, a hearth that will not load surviving as quarantined.
 
 use std::path::Path;
-use std::process::Command;
 
 use brokkr_core::EventType;
 use serde_json::{json, Value};
@@ -45,8 +44,7 @@ impl Workspace {
     /// `brokkr <args>` run from the workspace: its exit code, its stdout
     /// read as JSON (null when it is not), and its stderr.
     fn brokkr(&self, args: &[&str]) -> (Option<i32>, Value, String) {
-        let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-            .args(args)
+        let out = crate::built::brokkr(args)
             .current_dir(self.path())
             .output()
             .unwrap();
@@ -187,8 +185,7 @@ fn a_range_outside_the_three_is_refused_in_the_views_words() {
 fn analytics_without_json_paints_the_headline_and_the_quarantined_hearth() {
     let ws = Workspace::new();
     ws.fleet();
-    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(["stats", "analytics", "--range", "24h"])
+    let out = crate::built::brokkr(["stats", "analytics", "--range", "24h"])
         .current_dir(ws.path())
         .output()
         .unwrap();
@@ -404,11 +401,9 @@ fn graph_prints_its_view_as_json_or_as_tables_the_terminals_columns_fit() {
     let to = format!("{long}-too");
     let (ruled_at, stay) = journal_a_long_run(&ws, long, &to);
     let graph = |json: &[&str]| {
-        let mut brokkr = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+        let mut brokkr = crate::built::brokkr(["stats", "graph", "--recipe", "gone"]);
         brokkr.envs([("COLUMNS", "60"), ("NO_COLOR", "1")]);
-        brokkr
-            .current_dir(ws.path())
-            .args(["stats", "graph", "--recipe", "gone"]);
+        brokkr.current_dir(ws.path());
         let out = brokkr.args(json).output().unwrap();
         let (code, stderr) = (out.status.code(), out.stderr);
         assert_eq!(code, Some(0), "{}", String::from_utf8_lossy(&stderr));

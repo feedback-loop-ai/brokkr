@@ -32,6 +32,12 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use crate::isolated::{alone, Isolated};
+
+#[cfg(target_os = "linux")]
+#[path = "doctor_dsh_selection/bounded.rs"]
+mod bounded;
+
 /// What the cwd decoy prints, and must never reach doctor's output.
 const SENTINEL: &str = "SECURITY_CWD_SENTINEL_9f3";
 
@@ -173,11 +179,14 @@ fn spawn(command: &mut Command) -> std::io::Result<Output> {
     panic!("the executable stayed busy");
 }
 
-/// The built doctor from `cwd`, with both DSH overrides removed and its own HOME and XDG state.
-fn doctor(cwd: &Path) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+/// The built doctor from `cwd`, with both DSH overrides removed and its
+/// own HOME and XDG state, alone in a PID namespace of its own (#1137i):
+/// its probe delivers real kills. A test calls it only once [`alone`]
+/// has found the namespace, and has not skipped for want of it.
+fn doctor(cwd: &Path) -> Isolated {
+    let alone = alone().expect("a test that runs doctor has not skipped for want of its namespace");
+    let mut command = alone.brokkr(["doctor"]);
     command
-        .arg("doctor")
         .current_dir(cwd)
         .env("HOME", cwd.join("home"))
         .env("XDG_STATE_HOME", cwd.join("state"))
@@ -231,6 +240,7 @@ fn native_dsh(cwd: &Path, path: Option<&str>) -> std::io::Result<Output> {
 /// no-sentinel assertion (recorded in the delivery account).
 #[test]
 fn absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     version_script(cwd, "dsh", SENTINEL);
@@ -273,21 +283,20 @@ fn absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel() {
         "the spelling that was looked for, and no selected file: {line}"
     );
 
-    // Control: an explicit `/usr/bin:/bin` holding no dsh. The sentinel
-    // stays unexecuted and the lookup says what it searched.
-    for candidate in ["/usr/bin/dsh", "/bin/dsh"] {
-        assert!(
-            !Path::new(candidate).exists(),
-            "this control needs no dsh at {candidate}"
-        );
-    }
-    let stdout = stdout_of(doctor(cwd).env("PATH", "/usr/bin:/bin"));
+    // Control: an explicit PATH holding a tool, `sh`, and no dsh: the one
+    // directory this test plants, so doctor probes no tool of the host's
+    // (#1137). The sentinel stays unexecuted and the lookup says what it
+    // searched.
+    let planted = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink("/bin/sh", planted.path().join("sh")).unwrap();
+    let searched = planted.path().to_str().unwrap();
+    let stdout = stdout_of(doctor(cwd).env("PATH", searched));
     assert!(!stdout.contains(SENTINEL), "{stdout}");
     assert!(
         dsh_line(&stdout).contains("'dsh' is not on PATH"),
         "{stdout}"
     );
-    let native = native_dsh(cwd, Some("/usr/bin:/bin")).unwrap_err();
+    let native = native_dsh(cwd, Some(searched)).unwrap_err();
     assert_eq!(native.kind(), std::io::ErrorKind::NotFound);
 
     // Control: a present PATH naming one empty directory, which is
@@ -323,6 +332,7 @@ fn absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel() {
 /// no-execution assertion (recorded in the delivery account).
 #[test]
 fn unix_backslash_names_follow_native_lookup_before_doctor_probe() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     version_script(cwd, BACKSLASH_NAME, BACKSLASH_SENTINEL);
@@ -441,6 +451,7 @@ fn unix_backslash_names_follow_native_lookup_before_doctor_probe() {
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn absent_path_default_search_matches_native_dsh_and_node() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     version_script(cwd, "sh", "SECURITY_CWD_DECOY_SH_9f3");
@@ -682,6 +693,7 @@ fn an_obstructed_path_search_takes_the_explicit_safe_refusal() {
     let a = cwd.join("a");
     let b = cwd.join("b");
     const B_VERSION: &str = "DSH_B_SENTINEL_0.0.0-b";
+    let Some(_) = alone() else { return };
     version_script(&b, "dsh", B_VERSION);
     let path = format!("{}:{}", a.display(), b.display());
 
@@ -786,7 +798,7 @@ fn an_obstructed_path_search_takes_the_explicit_safe_refusal() {
     }
     assert!(!Path::new(MISSING_LOADER).exists());
     let broken = patch_elf_interpreter(
-        Path::new(env!("CARGO_BIN_EXE_brokkr")),
+        Path::new(crate::built::BIN),
         &cwd.join("native").join("broken"),
         MISSING_LOADER,
     );
@@ -863,6 +875,7 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     let b = cwd.join("b");
     let path = format!("{}:{}", a.display(), b.display());
     let missing = cwd.join("no-such-interpreter");
+    let Some(_) = alone() else { return };
     stage_executable(&a, "dsh", "#!/usr/bin/env reviewed extra\n");
     stage_executable(&a, "reviewed extra", &format!("#!{}\n", missing.display()));
     version_script(&a, "reviewed", "DSH_A_REVIEWED_DECOY_0.0.1");
@@ -1224,6 +1237,7 @@ fn terminal_path_lengths_refuse_before_doctor_probe() {
         inherited_oracle_child(name.to_str().unwrap());
         return;
     }
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let b = cwd.join("b");
@@ -1720,6 +1734,7 @@ fn inherited_oracle(cwd: &Path, name: &str, path: Option<&str>, marks: &Path) ->
 #[cfg(target_os = "macos")]
 #[test]
 fn apple_default_search_excludes_confstr_only_directories() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     const NAME: &str = "sysctl";
@@ -1764,6 +1779,7 @@ fn apple_default_search_excludes_confstr_only_directories() {
 /// a report does, and probes nothing.
 #[test]
 fn a_truncated_macho_on_path_is_refused_by_name_without_a_panic() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let on_path = cwd.join("on-path");
@@ -1843,6 +1859,7 @@ fn the_composite_probes_the_node_the_selection_retained() {
     let cwd = workspace.path();
     let (bin, home) = install_dsh(&cwd.join("install"));
     let a = cwd.join("a");
+    let Some(_) = alone() else { return };
     let b = cwd.join("b");
     let doctor_marks = marks(cwd, "doctor");
     let oracle_marks = marks(cwd, "oracle");
@@ -1916,6 +1933,7 @@ fn the_composite_probes_the_node_the_selection_retained() {
 /// a PATH decoy; an absolute override needs no `PATH` at all.
 #[test]
 fn explicit_overrides_keep_their_precedence_and_never_fall_back() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let primary = version_script(&cwd.join("primary"), "dsh", "DSH_PRIMARY_0.0.1");
@@ -1970,11 +1988,12 @@ fn explicit_overrides_keep_their_precedence_and_never_fall_back() {
 /// the script half is `an_obstructed_path_search_takes_the_explicit_safe_refusal`.
 #[test]
 fn a_native_image_on_path_is_selected_as_the_child_selects_it() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let native = cwd.join("native");
     std::fs::create_dir_all(&native).unwrap();
-    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_brokkr"), native.join("dsh")).unwrap();
+    std::os::unix::fs::symlink(crate::built::BIN, native.join("dsh")).unwrap();
     let child = native_dsh(cwd, native.to_str()).unwrap();
     assert!(child.status.success(), "the native child ran the image");
     let banner = String::from_utf8_lossy(&child.stdout);
@@ -1993,6 +2012,7 @@ fn a_native_image_on_path_is_selected_as_the_child_selects_it() {
 /// appears in the report.
 #[test]
 fn a_nonexistent_override_cannot_inject_terminal_control_bytes_through_doctor() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let injected = format!("{}/x\n\u{1b}[2Jdsh", cwd.display());
@@ -2101,6 +2121,7 @@ fn removing_only_the_plugin_manifest_names_the_drifted_file() {
     // The child's whole PATH: a scripted `node`, so the producer's
     // version probe never depends on this machine's runtime.
     let shims = cwd.join("shims");
+    let Some(_) = alone() else { return };
     stage_executable(&shims, "node", "#!/bin/sh\necho v22.23.2\n");
     let run = || {
         dsh_line(&stdout_of(
@@ -2148,6 +2169,7 @@ fn removing_only_the_plugin_manifest_names_the_drifted_file() {
 /// removal control recorded in the delivery account.
 #[test]
 fn the_composite_reuses_the_launcher_head_doctor_selected() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let shims = cwd.join("shims");
@@ -2246,6 +2268,7 @@ const HEADING_KEY_REFUSAL: &str =
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let shims = cwd.join("shims");
@@ -2696,53 +2719,6 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
     );
 }
 
-/// Run `command` in its own process group under a deadline, its stdout
-/// in a file so a full pipe cannot be what stops it. `None` is the
-/// deadline: the whole group is killed and the leader reaped before this
-/// returns, so a looping child outlives neither the call nor the suite.
-fn bounded(
-    command: &mut Command,
-    cwd: &Path,
-    tag: &str,
-    limit: std::time::Duration,
-) -> Option<(std::process::ExitStatus, String)> {
-    use std::os::unix::process::CommandExt;
-
-    let captured = cwd.join(format!("{tag}.stdout"));
-    command
-        .process_group(0)
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    let mut child = (0..50)
-        .find_map(|_| {
-            command.stdout(std::fs::File::create(&captured).unwrap());
-            match command.spawn() {
-                Err(error) if error.raw_os_error() == Some(26) => {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                    None
-                }
-                spawned => Some(spawned.expect("the bounded child spawns")),
-            }
-        })
-        .expect("the executable stayed busy");
-    let deadline = std::time::Instant::now() + limit;
-    loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            return Some((status, std::fs::read_to_string(&captured).unwrap()));
-        }
-        if std::time::Instant::now() >= deadline {
-            let _ = Command::new("/bin/sh")
-                .arg("-c")
-                .arg(format!("kill -s KILL -- -{}", child.id()))
-                .status();
-            let _ = child.kill();
-            child.wait().unwrap();
-            return None;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-}
-
 /// R2 (review of run `124cca78`). `dsh -> /usr/bin/env`, as a searched
 /// name and as an absolute alias, is the platform's env utility run under
 /// the name `dsh`. Natively this host's uutils exits 1 on the name
@@ -2762,6 +2738,7 @@ fn bounded(
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_dsh_alias_of_env_is_refused_and_an_admitted_alias_runs_as_selected() {
+    let Some(_) = alone() else { return };
     const ENV: &str = "/usr/bin/env";
     let workspace = shipped_workspace();
     let cwd = workspace.path();
@@ -2892,14 +2869,19 @@ fn a_dsh_alias_of_env_is_refused_and_an_admitted_alias_runs_as_selected() {
 /// it re-executes itself without end, and the doctor that admitted it
 /// never returned.
 ///
-/// The native runs are EVIDENCE, bounded by an external process-group
-/// deadline and reaped, and a deadline there is never a refusal. Doctor's
-/// run is bounded too, and a deadline THERE fails: doctor returns the
-/// named refusal — launcher, env interpreter, missing program — without
-/// starting the loop, leaving no DSH or Node marker. `#!/usr/bin/env sh`
-/// is the control that terminates and is probed.
+/// The native runs are EVIDENCE, bounded by a deadline kept inside a PID
+/// namespace of their own and reaped, and a deadline there is never a
+/// refusal. Doctor's run is bounded too, and a deadline THERE fails:
+/// doctor returns the named refusal — launcher, env interpreter, missing
+/// program — without starting the loop, leaving no DSH or Node marker.
+/// `#!/usr/bin/env sh` is the control that terminates and is probed.
+/// Every run delivers real kills, the deadline's and doctor's probe's, so
+/// each is alone in its namespace (#1137h, I4), and the test is Linux only.
+#[cfg(target_os = "linux")]
 #[test]
 fn an_env_launcher_without_a_program_is_refused_before_any_probe() {
+    let Some(alone) = alone() else { return };
+    let bounded = bounded::bounded;
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let (_, home) = install_dsh(&cwd.join("install"));
@@ -2917,35 +2899,28 @@ fn an_env_launcher_without_a_program_is_refused_before_any_probe() {
         let launcher = stage_executable(&dir, "dsh", &format!("{shebang}{body}"));
         let search = format!("{}:{}", dir.display(), shims.display());
         let oracle = marks(cwd, &format!("oracle-{tag}"));
-        let native = bounded(
-            Command::new(&launcher)
-                .arg("--version")
-                .current_dir(cwd)
-                .env("PATH", &search)
-                .env("BROKKR_MARKS", &oracle),
-            cwd,
-            &format!("native-{tag}"),
-            native_limit,
-        );
+        let mut native = alone.running(launcher.as_os_str(), ["--version"]);
+        native
+            .current_dir(cwd)
+            .env("PATH", &search)
+            .env("BROKKR_MARKS", &oracle);
+        let native = bounded(&mut native, cwd, &format!("native-{tag}"), native_limit);
         eprintln!(
             "R4 native {tag}: {}",
             match &native {
-                None => format!("no exit within {native_limit:?}; the process group was killed"),
+                None => format!("no exit within {native_limit:?}; its namespace was ended"),
                 Some((status, stdout)) => format!("status {status:?}, stdout {stdout:?}"),
             }
         );
 
         let marks = marks(cwd, &format!("doctor-{tag}"));
-        let (status, stdout) = bounded(
-            doctor(cwd)
-                .env("PATH", &search)
-                .env("DSH_HOME", &home)
-                .env("BROKKR_MARKS", &marks),
-            cwd,
-            &format!("doctor-{tag}"),
-            doctor_limit,
-        )
-        .unwrap_or_else(|| panic!("{tag}: doctor did not return: it started the loop"));
+        let mut doctor = doctor(cwd);
+        doctor
+            .env("PATH", &search)
+            .env("DSH_HOME", &home)
+            .env("BROKKR_MARKS", &marks);
+        let (status, stdout) = bounded(&mut doctor, cwd, &format!("doctor-{tag}"), doctor_limit)
+            .unwrap_or_else(|| panic!("{tag}: doctor did not return: it started the loop"));
         assert_eq!(executed(&marks), Vec::<String>::new(), "{tag}: {stdout}");
         let line = dsh_line(&stdout);
         assert!(
@@ -2963,29 +2938,20 @@ fn an_env_launcher_without_a_program_is_refused_before_any_probe() {
     let dir = cwd.join("with-sh");
     stage_executable(&dir, "dsh", &format!("#!/usr/bin/env sh\n{body}"));
     let search = format!("{}:{}", dir.display(), shims.display());
-    let native = bounded(
-        Command::new("dsh")
-            .arg("--version")
-            .current_dir(cwd)
-            .env("PATH", &search),
-        cwd,
-        "native-with-sh",
-        doctor_limit,
-    )
-    .expect("the env sh control terminates natively");
+    let mut native = alone.running("dsh".as_ref(), ["--version"]);
+    native.current_dir(cwd).env("PATH", &search);
+    let native = bounded(&mut native, cwd, "native-with-sh", doctor_limit)
+        .expect("the env sh control terminates natively");
     assert!(native.0.success(), "{native:?}");
     assert_eq!(native.1, "v9.9.9-sh\n");
     let marks = marks(cwd, "doctor-with-sh");
-    let (_, stdout) = bounded(
-        doctor(cwd)
-            .env("PATH", &search)
-            .env("DSH_HOME", &home)
-            .env("BROKKR_MARKS", &marks),
-        cwd,
-        "doctor-with-sh",
-        doctor_limit,
-    )
-    .expect("doctor returns for the env sh control");
+    let mut doctor = doctor(cwd);
+    doctor
+        .env("PATH", &search)
+        .env("DSH_HOME", &home)
+        .env("BROKKR_MARKS", &marks);
+    let (_, stdout) = bounded(&mut doctor, cwd, "doctor-with-sh", doctor_limit)
+        .expect("doctor returns for the env sh control");
     let line = dsh_line(&stdout);
     assert_eq!(executed(&marks), vec!["dsh".to_string()], "{line}");
     assert!(
@@ -2998,6 +2964,7 @@ fn an_env_launcher_without_a_program_is_refused_before_any_probe() {
 /// and neither the pin nor the `dsh` on `PATH` is probed.
 #[test]
 fn a_retired_dsh_override_is_refused_before_any_probe() {
+    let Some(_) = alone() else { return };
     let workspace = shipped_workspace();
     let (cwd, retired) = (workspace.path(), concat!("FOR", "GE_DSH_BIN"));
     let doctor_marks = marks(cwd, "doctor");

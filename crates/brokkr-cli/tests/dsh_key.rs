@@ -17,7 +17,10 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use std::process::Command;
+
 use crate::brokkr_folder::{Ran, Repo};
+use crate::isolated::Alone;
 
 /// What every planted key holds: output carrying it is a leak.
 const PLANTED: &str = "planted-value-717";
@@ -33,16 +36,21 @@ const UNSET: &str = "dsh key deepseek-official: dsh reaches no DEEPSEEK_API_KEY:
                      export DEEPSEEK_API_KEY where brokkr runs";
 
 /// A repository, a PATH holding only an executable dsh stand-in, and an
-/// empty dsh home, every one the test's own.
+/// empty dsh home, every one the test's own; and the PID namespace its
+/// doctor runs alone in (#1137i).
 struct DshHost {
     repo: Repo,
     bins: PathBuf,
     home: PathBuf,
     _home: tempfile::TempDir,
+    alone: Alone,
 }
 
 impl DshHost {
-    fn new() -> DshHost {
+    /// The host, or `None` once a host that cannot give doctor its PID
+    /// namespace has skipped the test.
+    fn new() -> Option<DshHost> {
+        let alone = crate::isolated::alone()?;
         let repo = Repo::new();
         let bins = repo.root.with_file_name("bins");
         std::fs::create_dir(&bins).unwrap();
@@ -55,21 +63,23 @@ impl DshHost {
         std::fs::rename(&staged, bins.join("dsh")).unwrap();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("profiles/headless")).unwrap();
-        DshHost {
+        Some(DshHost {
             repo,
             bins,
             home: dir.path().canonicalize().unwrap(),
             _home: dir,
-        }
+            alone,
+        })
     }
 
     /// `brokkr <args>` at the root, `key` the launching environment's key.
     fn brokkr(&self, args: &[&str], key: Option<&str>) -> Ran {
-        let mut command = self.repo.command("");
-        command
-            .args(args)
-            .env("PATH", &self.bins)
-            .env("DSH_HOME", &self.home);
+        self.hosted(&mut self.repo.command("", args), key)
+    }
+
+    /// `command` run as [`DshHost::brokkr`] runs it.
+    fn hosted(&self, command: &mut Command, key: Option<&str>) -> Ran {
+        command.env("PATH", &self.bins).env("DSH_HOME", &self.home);
         command
             .env_remove("BROKKR_DSH_BIN")
             .env_remove("DEEPSEEK_API_KEY")
@@ -131,7 +141,8 @@ impl DshHost {
 
     /// `brokkr doctor`'s dsh key check lines, and its exit code.
     fn doctor(&self, key: Option<&str>) -> (Vec<String>, Option<i32>) {
-        let doctor = self.brokkr(&["doctor"], key);
+        let mut doctor = self.repo.doctor(&self.alone, "", &["doctor"]);
+        let doctor = self.hosted(&mut doctor, key);
         let lines = doctor.stdout.lines().filter(|line| {
             ["dsh key ", "dsh home ", "dsh home:", "dsh workdir:"]
                 .iter()
@@ -198,7 +209,9 @@ fn refused(seats: &str, in_repo: &Path) -> String {
 /// no key there, and fails the report.
 #[test]
 fn an_engine_only_seat_reads_its_key_from_the_launching_environment_alone() {
-    let host = DshHost::new();
+    let Some(host) = DshHost::new() else {
+        return;
+    };
     let served = engine("deepseek-official", "implement, intake");
     assert_eq!(host.init(None), host.initialised(None));
     let missing = (
@@ -225,7 +238,9 @@ fn an_engine_only_seat_reads_its_key_from_the_launching_environment_alone() {
 /// engine-only launch, whatever the environment gives, and is never read.
 #[test]
 fn a_workdir_dotenv_refuses_every_engine_only_launch_and_is_never_read() {
-    let host = DshHost::new();
+    let Some(host) = DshHost::new() else {
+        return;
+    };
     let initialised = host.initialised(Some(PLANTED));
     assert_eq!(host.init(Some(PLANTED)), initialised);
     let in_repo = host.repo.path(".env");
@@ -240,7 +255,9 @@ fn a_workdir_dotenv_refuses_every_engine_only_launch_and_is_never_read() {
 /// the report, and a repository `.env` still refuses that seat's launch.
 #[test]
 fn an_inline_dsh_seat_leaves_the_agent_seats_home_standing() {
-    let host = DshHost::new();
+    let Some(host) = DshHost::new() else {
+        return;
+    };
     host.init(Some(PLANTED));
     let bundle = host.repo.path(".brokkr/bundle.json");
     let seats = std::fs::read_to_string(&bundle).unwrap();
@@ -276,7 +293,9 @@ fn an_inline_dsh_seat_leaves_the_agent_seats_home_standing() {
 /// engine-only home serves; past it (Linux) the route refuses its seats.
 #[test]
 fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
-    let host = DshHost::new();
+    let Some(host) = DshHost::new() else {
+        return;
+    };
     host.init(Some(PLANTED));
     let adapter = host.repo.path(".brokkr/adapters/dsh.json");
     let scaffold = std::fs::read_to_string(&adapter).unwrap();

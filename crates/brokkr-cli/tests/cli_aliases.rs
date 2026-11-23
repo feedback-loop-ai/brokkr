@@ -5,7 +5,7 @@
 //! scratch journal, so no folder or journal of this checkout is opened.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 /// Each moved root, by its old name, and its new spelling (the
 /// decision's table).
@@ -52,9 +52,8 @@ fn fixture() -> PathBuf {
 }
 
 fn brokkr(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_brokkr"))
+    crate::built::brokkr(args)
         .current_dir(dir)
-        .args(args)
         .output()
         .expect("brokkr starts")
 }
