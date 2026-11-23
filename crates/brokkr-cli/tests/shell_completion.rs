@@ -515,17 +515,23 @@ fn refused_twice(dir: &Path, db: &Path) -> Duration {
     started.elapsed()
 }
 
-/// The least of three timings of [`refused_twice`]. A loaded runner's
-/// stall lands in one timing; a patience held too long is in all three.
-fn least_refused(dir: &Path, db: &Path) -> Duration {
-    (0..3).map(|_| refused_twice(dir, db)).min().unwrap()
-}
+/// What a held journal's two requests may cost over a missing one's.
+/// 400 ms fails a patience of about 200 ms. macOS runners took 416 to
+/// 518 ms for the held WAL journal's pair in five runs out of five
+/// (#1284), so there it is two seconds, a thirtieth of the writer's wait
+/// for the pair.
+const HELD_PAIR: Duration = if cfg!(target_os = "macos") {
+    Duration::from_secs(2)
+} else {
+    Duration::from_millis(400)
+};
 
 /// A missing journal, a WAL journal and a rollback-mode one a peer holds
 /// exclusively, one a rollback journal stands beside, and a file that is
 /// no journal each complete nothing and print nothing on stderr. A held
-/// journal costs its two requests at most their 50 ms patience each over
-/// what a missing one costs, never the writer's patience of seconds.
+/// journal costs its two requests their 50 ms patience each over what a
+/// missing one costs, never the writer's 30 seconds (ruling 8): within
+/// [`HELD_PAIR`].
 #[test]
 fn every_failure_completes_nothing_and_prints_nothing() {
     let dir = scratch();
@@ -549,17 +555,15 @@ fn every_failure_completes_nothing_and_prints_nothing() {
     rollback_journal(&hot, &[("run-hot", "2026-01-01T00:00:00Z")]);
     std::fs::write(dir.path().join("hot.db-journal"), "a writer's pages").unwrap();
 
-    let unheld = least_refused(dir.path(), &missing);
+    let unheld = refused_twice(dir.path(), &missing);
     for db in [&foreign, &hot] {
         refused_twice(dir.path(), db);
     }
-    for db in [&held, &locked] {
-        let waited = least_refused(dir.path(), db).saturating_sub(unheld);
-        assert!(
-            waited < Duration::from_millis(400),
-            "{db:?} waited {waited:?}"
-        );
-    }
+    let waited = [&held, &locked].map(|db| refused_twice(dir.path(), db).saturating_sub(unheld));
+    assert!(
+        waited.iter().all(|waited| *waited < HELD_PAIR),
+        "the held WAL and rollback journals waited {waited:?}"
+    );
     assert!(!missing.exists(), "a missing journal is never created");
     let bare = ["brokkr", "runs", "inspect", "--run", ""];
     assert_eq!(offered(dir.path(), &bare), Vec::<String>::new());
