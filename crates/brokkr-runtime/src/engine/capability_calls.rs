@@ -243,11 +243,24 @@ impl Calls {
     /// Take the observation off `checkpoint`, whatever it says, and judge
     /// the call it describes. A held call is attributed once: replayed
     /// history and a call this attempt already attributed stay ordinary.
+    ///
+    /// A checkpoint whose own keys hold a secret marker fails closed before
+    /// the observation is looked for: the mask may have renamed the
+    /// observation's key, and a call found under no key would pass as no
+    /// call at all (decision 0114, invariant 3's capability floor; #1261).
+    /// This is conservative: a binding equal to or inside any key's text
+    /// refuses the call. The engine's own keys are not exempted from the
+    /// mask, because exempting them would write a bound value equal to one
+    /// in clear into the journal (0114, What stays out).
     pub(super) fn consume(&mut self, checkpoint: &mut Value) -> Result<Option<Stamp>, Refusal> {
-        let Some(observed) = checkpoint
-            .as_object_mut()
-            .and_then(|object| object.remove(OBSERVATION_KEY))
-        else {
+        let Some(object) = checkpoint.as_object_mut() else {
+            return Ok(None);
+        };
+        if object.keys().any(|key| masked(key)) {
+            object.remove(OBSERVATION_KEY);
+            return Err(Refusal::Unattributable);
+        }
+        let Some(observed) = object.remove(OBSERVATION_KEY) else {
             return Ok(None);
         };
         let observation: Observation =
@@ -259,6 +272,11 @@ impl Calls {
             // nothing.
             Tool::Mcp { .. } | Tool::McpUnidentified { .. } | Tool::Missing => return Ok(None),
         };
+        // CC1 fails closed: a name the seat's bindings rewrote is no
+        // longer the tool's own, so neither lookup may judge it (#1261).
+        if masked(&tool) {
+            return Err(Refusal::Unattributable);
+        }
         let Some(holder) = self.held.get(&tool) else {
             return match self.known.contains(&tool) {
                 true => Err(Refusal::Unheld { tool }),
@@ -280,6 +298,18 @@ impl Calls {
             call_id,
         }))
     }
+}
+
+/// Whether `name` holds a secret marker, `[secret:NAME]` with `NAME` in
+/// the binding grammar (decision 0012's #1213 addendum, K2): the form the
+/// mask writes over a bound value, and nothing a name merely shares with
+/// it. Until #1242 reads the tool from the raw row, a masked name is
+/// unattributable.
+fn masked(name: &str) -> bool {
+    (name.split("[secret:").skip(1)).any(|rest| {
+        rest.split_once(']')
+            .is_some_and(|(binding, _)| brokkr_protocol::secret::valid_name(binding))
+    })
 }
 
 /// The step every settled broker checkpoint names: the engine's own row,
