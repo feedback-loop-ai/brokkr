@@ -1,4 +1,4 @@
-//! Decision 0111's slice 0111a: GitHub's evidence, before any contract.
+//! Decision 0117's slice 0117a: GitHub's evidence, before any contract.
 //! The payloads under `src/ci/evidence/` were captured by hand from this
 //! repository's own CI, with GET calls only and outside any run, and
 //! redacted (see the directory's README.md). No later slice regenerates

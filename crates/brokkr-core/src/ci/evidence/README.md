@@ -1,11 +1,11 @@
-# 0111a: the forge's evidence
+# 0117a: the forge's evidence
 
-Decision 0111's first slice (#1093): real payloads from this repository's own CI, captured before any contract is written. The operator ruled "measure first" on 2026-11-21, after 0111's eleventh hold.
+Decision 0117's first slice (#1093): real payloads from this repository's own CI, captured before any contract is written. The operator ruled "measure first" on 2026-11-21, after 0117's eleventh hold.
 
 ## How it was taken
 
 - **When, by whom:** 2026-11-21, 16:50Z to 18:15Z, by the controller on the operator's behalf, by hand and outside any run.
-- **How:** every call is `gh api --method GET`. 0111a asks for a read-only token, and the token used was not one, so the capture kept to GET calls.
+- **How:** every call is `gh api --method GET`. 0117a asks for a read-only token, and the token used was not one, so the capture kept to GET calls.
 - **What was read for each head:**
   - its check runs under `filter=latest` and `filter=all`;
   - its commit statuses, and the combined status;
@@ -67,7 +67,7 @@ Each line names the payloads that show it.
 - **No job key:** a job carries its display `name` (`test (ubuntu-latest) on linux/1`), but neither its workflow key nor a matrix key.
 - **The app:** every check run is `github-actions`, id 15368.
 - **The required set** is branch protection's 12 checks, each with `app_id` 15368, and `strict: false`. The main ruleset holds only the merge queue (`rules.main.json`, `protection.required_status_checks.json`).
-- **Pages:** three heads' check runs under `filter=all` took two pages (103, 103 and 136 runs), and the last page held fewer than 100. `total_count` on the first page gives the whole count. The largest page any list returned is 356,478 bytes (`older-run-full-rerun-complete/check-runs.all.page1.json`), under 0111's 8 MiB response bound. The capture commit's message says 309,267, which is the largest in `failed-jobs-rerun-with-cancelled-twin/`; the indexes win.
+- **Pages:** three heads' check runs under `filter=all` took two pages (103, 103 and 136 runs), and the last page held fewer than 100. `total_count` on the first page gives the whole count. The largest page any list returned is 356,478 bytes (`older-run-full-rerun-complete/check-runs.all.page1.json`), under 0117's 8 MiB response bound. The capture commit's message says 309,267, which is the largest in `failed-jobs-rerun-with-cancelled-twin/`; the indexes win.
 - **The status and conclusion words seen:**
   - `completed` with `success`, `failure`, `cancelled` or `skipped`;
   - `in_progress` with no conclusion.
