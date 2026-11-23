@@ -135,18 +135,37 @@ pub(super) fn standing(conn: &Connection) -> Result<Vec<Cooldown>, StoreError> {
     rows.into_iter().map(HoldRow::cooldown).collect()
 }
 
-/// End the hold `id` at `at`, if it still stands: a hold ends once, and
-/// one already ended is left as it was. `None` names no hold: a NULL seq
-/// matches no row, so no branch decides it.
+/// End the hold `id` at `at`, if it still stands, inside the caller's
+/// transaction: a hold ends once, and one already ended, or absent, is left
+/// as it was. `None` names no hold: a NULL seq matches no row, so no branch
+/// decides it. Whatever the update reports, the hold is read again in the
+/// same transaction, and one still standing refuses
+/// ([`QueueRefusal::ProbeHoldUnended`]), so an end the table did not write
+/// is never reported as written, and the caller's transaction, a renewed
+/// round's included, rolls back whole (fix round 0106b1r13, M2).
 pub(super) fn ended(conn: &Connection, id: Option<ProbeHoldId>, at: i64) -> Result<(), StoreError> {
+    let seq = id.map(|id| id.0);
     conn.execute(
         concat!(
             "UPDATE probe_holds SET ended_at = ?2 WHERE seq = ?1 AND ",
             standing_hold!()
         ),
-        params![id.map(|id| id.0), at],
+        params![seq, at],
     )?;
-    Ok(())
+    let standing: Option<(String, String)> = conn
+        .query_row(
+            concat!(
+                "SELECT run_id, attempt_id FROM probe_holds WHERE seq = ?1 AND ",
+                standing_hold!()
+            ),
+            [seq],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    standing.map_or(Ok(()), |(run_id, attempt_id)| {
+        let unended = UnsettledHold { run_id, attempt_id };
+        Err(QueueRefusal::ProbeHoldUnended(Box::new(unended)).into())
+    })
 }
 
 /// Refused where a hold of the run `run_id` naming one of `attempts` still
@@ -284,14 +303,22 @@ impl Store {
 
     /// End the hold `id` at `now`: the probe answered, so its route opens
     /// at once. Only the hold the probe wrote is touched, and `None`, a
-    /// probe on a queue that took no hold, touches none.
+    /// probe on a queue that took no hold, touches none. The end and its
+    /// check are one `Immediate` transaction: a hold the update left
+    /// standing refuses ([`QueueRefusal::ProbeHoldUnended`]) and stands
+    /// (fix round 0106b1r13, M2).
     pub fn end_probe_hold(
         &mut self,
         id: Option<ProbeHoldId>,
         now: OffsetDateTime,
     ) -> Result<(), StoreError> {
         patiently("end_probe_hold", self.patience, || {
-            ended(&self.conn, id, now.unix_timestamp())
+            let tx = self
+                .conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            ended(&tx, id, now.unix_timestamp())?;
+            tx.commit()?;
+            Ok(())
         })
     }
 }

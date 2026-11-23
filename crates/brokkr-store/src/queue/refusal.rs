@@ -224,6 +224,17 @@ pub enum QueueRefusal {
         .0.run_id, .0.attempt_id
     )]
     ProbeHoldUnsettled(Box<UnsettledHold>),
+    /// The end of one probe's hold, by its answer or inside its renewed
+    /// round's transaction, that the table took without writing it, as a
+    /// trigger that ignores the update leaves it (fix round 0106b1r13, M2):
+    /// the hold still stands, so the end is not reported as written, and
+    /// nothing of its transaction was.
+    #[error(
+        "the journal's probe holds kept run '{}''s hold for attempt '{}' standing through its \
+         end, so its route stays held and nothing of that end was written",
+        .0.run_id, .0.attempt_id
+    )]
+    ProbeHoldUnended(Box<UnsettledHold>),
     /// A command on an entry the dispatcher has claimed and not yet
     /// linked, returned or held (decision 0095 ruling 1).
     #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]

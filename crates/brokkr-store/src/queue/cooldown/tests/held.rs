@@ -274,6 +274,84 @@ fn no_second_hold_is_written_while_a_hold_or_a_row_holds_the_route() {
     assert_eq!(unended_holds(&store.conn), ["run-b", "run-b", "run-a"]);
 }
 
+/// Ignore, by trigger, every end of a probe hold the journal of `store`
+/// would write.
+fn ends_ignored(store: &Store) {
+    store
+        .conn
+        .execute_batch(
+            "CREATE TRIGGER ignored BEFORE UPDATE OF ended_at ON probe_holds
+             BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+}
+
+/// Fix round 0106b1r13, M2: the end of a named hold the table takes
+/// without writing it (a trigger that ignores the update) refuses by name
+/// and the hold stands. Ending an absent hold, or one already ended, stays
+/// a success: the end is idempotent.
+#[test]
+fn an_end_the_table_does_not_write_refuses_and_the_hold_stands() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let ended = store
+        .hold_probe(&probe_hold("run-a", at(30)), at(0))
+        .unwrap();
+    store.end_probe_hold(Some(ended), at(1)).unwrap();
+    let mut other = probe_hold("run-a", at(30));
+    other.attempt_id = "a-2";
+    let standing = store.hold_probe(&other, at(2)).unwrap();
+    ends_ignored(&store);
+    store.end_probe_hold(Some(ended), at(3)).unwrap();
+    store.end_probe_hold(None, at(3)).unwrap();
+    let refused = store.end_probe_hold(Some(standing), at(3)).unwrap_err();
+    let StoreError::Queue(QueueRefusal::ProbeHoldUnended(unended)) = &refused else {
+        panic!("an unended hold was not refused by name: {refused:?}");
+    };
+    assert_eq!(
+        **unended,
+        crate::queue::UnsettledHold {
+            run_id: "run-a".into(),
+            attempt_id: "a-2".into(),
+        }
+    );
+    assert_eq!(
+        refused.to_string(),
+        "the journal's probe holds kept run 'run-a''s hold for attempt 'a-2' standing through \
+         its end, so its route stays held and nothing of that end was written"
+    );
+    assert_eq!(unended_holds(&store.conn), ["run-a"]);
+}
+
+/// Fix round 0106b1r13, M2: a renewed round whose hold's end the table
+/// does not write refuses whole: its row is not written either, and the
+/// hold stands.
+#[test]
+fn a_round_whose_hold_end_is_not_written_refuses_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, event) = waited_journal(dir.path());
+    let hold = (store.hold_probe(&probe_hold("run-a", at(90)), at(60))).unwrap();
+    ends_ignored(&store);
+    let mut round = next_round("run-a", event.seq, "a", at(120), 2);
+    round.ends = Some(hold);
+    let refused = store.append_cooldown_round(round).unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            StoreError::Queue(QueueRefusal::ProbeHoldUnended(_))
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        store
+            .cooldown_rounds("run-a", event.seq, "a")
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(unended_holds(&store.conn), ["run-a"]);
+}
+
 /// Fix round 0106b1r12, S2: a settlement ends every hold of the run that
 /// names an attempt it proved, and no other: not another attempt's, nor
 /// the same attempt's of another run. A queue this binary does not write

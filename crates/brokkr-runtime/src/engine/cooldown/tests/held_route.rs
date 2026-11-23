@@ -400,6 +400,33 @@ fn an_answered_probe_opens_its_route_at_once() {
     assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
 }
 
+/// Fix round 0106b1r13, M2: an answered probe whose hold's end the table
+/// takes without writing it (every end ignored by a trigger) is not taken
+/// as settled: the run parks in the store's words, retrying nothing, and
+/// the hold stands, both gates and the wait's aggregate reading the route
+/// held until a settlement ends it.
+#[test]
+fn an_answers_hold_end_the_table_does_not_write_parks_and_the_hold_stands() {
+    let (dir, mut engine, _now, probe_at, gates) = probing(Probed::Answer);
+    rusqlite::Connection::open(engine.store.path())
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER ignored BEFORE UPDATE OF ended_at ON probe_holds
+             BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+    engine.drive().unwrap();
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
+    let reason = park_reason(&engine);
+    assert!(
+        reason.contains(
+            "the cool-down probe for claude/first ended, and its route's hold could not be ended"
+        ) && reason.contains("standing through its end"),
+        "{reason}"
+    );
+    held_until_settled(&engine, &gates, probe_at);
+}
+
 /// A hold the store refuses (every hold insert forced to fail) admits no
 /// probe: the run parks naming the unwritten hold, and nothing is probed.
 #[test]
