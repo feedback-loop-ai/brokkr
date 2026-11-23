@@ -39,6 +39,7 @@ mod refusal;
 #[cfg(test)]
 mod round430_tests;
 mod route_overlay;
+mod row;
 mod served_route;
 mod serving_shape;
 mod spawn;

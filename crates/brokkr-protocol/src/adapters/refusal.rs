@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use super::AdapterKind;
+use super::{row::Row, AdapterKind};
 use crate::{PreSessionRefusal, RefusalClass};
 
 mod codex_thread;
@@ -39,18 +39,23 @@ const REFUSAL_TEXT_LIMIT: usize = 160;
 /// Bound one refusal for the journal: a single clamped line, never empty.
 /// The provider's machine token and prose are bounded here exactly as the
 /// stderr tail is, because both are untrusted stream text.
+#[cfg(test)]
 pub(super) fn refusal_reason(
     token: &str,
     status: Option<i64>,
     text: Option<&str>,
 ) -> PreSessionRefusal {
-    refusal_reason_with(token, status, text, None)
+    let class = Row::new(&Value::String(token.to_string()), &[])
+        .token("", REFUSAL_CLASSES)
+        .unwrap_or(RefusalClass::Other);
+    refusal_reason_with(class, token, status, text, None)
 }
 
 /// [`refusal_reason`] carrying the provider's own reset as a retry-after
 /// (decision 0103 ruling 3). The class comes only from the machine token;
 /// the words are bounded exactly as before.
-pub(super) fn refusal_reason_with(
+fn refusal_reason_with(
+    class: RefusalClass,
     token: &str,
     status: Option<i64>,
     text: Option<&str>,
@@ -63,11 +68,6 @@ pub(super) fn refusal_reason_with(
         "api_error".to_string()
     } else {
         token
-    };
-    let class = if token == "rate_limit" {
-        RefusalClass::RateLimit
-    } else {
-        RefusalClass::Other
     };
     let mut words = token;
     if let Some(status) = status {
@@ -96,70 +96,96 @@ pub(super) fn claude_refusal(event: &Value) -> Option<PreSessionRefusal> {
 /// [`claude_refusal`] over the caller's clock reading, so a test can pin
 /// the reset's arithmetic exactly.
 pub(super) fn claude_refusal_at(event: &Value, now: Option<i64>) -> Option<PreSessionRefusal> {
-    match event.get("type").and_then(Value::as_str) {
-        Some("rate_limit_event") => {
-            let status = event.get("apiErrorStatus").and_then(Value::as_i64);
+    classify_claude(&Row::new(event, &[]), now)
+}
+
+const RATE_LIMIT: &str = "rate_limit";
+const API_ERROR: &str = "api_error";
+const REFUSAL_CLASSES: &[(&str, RefusalClass)] = &[(RATE_LIMIT, RefusalClass::RateLimit)];
+
+#[derive(Clone, Copy)]
+enum ClaudeRefusalRow {
+    RateLimit,
+    Assistant,
+    Result,
+}
+
+fn classify_claude(event: &Row<'_>, now: Option<i64>) -> Option<PreSessionRefusal> {
+    use ClaudeRefusalRow::{Assistant, RateLimit, Result};
+    let kind = event.kind(
+        "/type",
+        &[
+            ("rate_limit_event", RateLimit),
+            ("assistant", Assistant),
+            ("result", Result),
+        ],
+    )?;
+    let status = event.count("/apiErrorStatus");
+    let error = event.text("/error");
+    match kind {
+        RateLimit => {
             let retry_after = event
-                .pointer("/rate_limit_info/resetsAt")
-                .and_then(Value::as_u64)
-                .and_then(|at| seconds_between(now?, i64::try_from(at).ok()?));
+                .count("/rate_limit_info/resetsAt")
+                .filter(|at| *at >= 0)
+                .and_then(|at| seconds_between(now?, at));
+            let message = event.text("/message").or(error);
             Some(refusal_reason_with(
-                "rate_limit",
+                RefusalClass::RateLimit,
+                RATE_LIMIT,
                 status,
-                event
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .or_else(|| event.get("error").and_then(Value::as_str)),
+                message.as_deref(),
                 retry_after,
             ))
         }
-        Some("assistant") => {
-            let api_error = event
-                .get("isApiErrorMessage")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-                || event.get("error").and_then(Value::as_str).is_some();
-            api_error.then(|| {
-                let status = event.get("apiErrorStatus").and_then(Value::as_i64);
-                refusal_reason(
-                    claude_token(event, status),
-                    status,
-                    event
-                        .pointer("/message/content/0/text")
-                        .and_then(Value::as_str),
-                )
-            })
+        Assistant if event.flag("/isApiErrorMessage") == Some(true) || error.is_some() => {
+            let text = assistant_excerpt(event);
+            Some(claude_error(
+                event,
+                error.as_deref(),
+                status,
+                text.as_deref(),
+            ))
         }
-        Some("result") => {
-            let is_error = event
-                .get("is_error")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-                || event.get("error").and_then(Value::as_str).is_some();
-            is_error.then(|| {
-                let status = event.get("apiErrorStatus").and_then(Value::as_i64);
-                refusal_reason(
-                    claude_token(event, status),
-                    status,
-                    event.get("result").and_then(Value::as_str),
-                )
-            })
+        Result if event.flag("/is_error") == Some(true) || error.is_some() => {
+            let text = event.text("/result");
+            Some(claude_error(
+                event,
+                error.as_deref(),
+                status,
+                text.as_deref(),
+            ))
         }
-        _ => None,
+        Assistant | Result => None,
     }
 }
 
-/// The token a claude refusal speaks: the harness's own `error`, else the
-/// class's token for an HTTP 429.
-fn claude_token(event: &Value, status: Option<i64>) -> &str {
-    event
-        .get("error")
-        .and_then(Value::as_str)
-        .unwrap_or(if status == Some(429) {
-            "rate_limit"
-        } else {
-            "api_error"
-        })
+fn assistant_excerpt(event: &Row<'_>) -> Option<String> {
+    match event.items("/message/content") {
+        Some(mut blocks) => blocks.next()?.text("/text"),
+        // JSON Pointer also admits a member named "0" on an object.
+        None => event.text("/message/content/0/text"),
+    }
+}
+
+/// The harness's own token takes precedence over a synthetic HTTP token,
+/// including when its normalized spelling is unknown.
+fn claude_error(
+    event: &Row<'_>,
+    error: Option<&str>,
+    status: Option<i64>,
+    text: Option<&str>,
+) -> PreSessionRefusal {
+    let (class, token) = match error {
+        Some(token) => (
+            event
+                .token("/error", REFUSAL_CLASSES)
+                .unwrap_or(RefusalClass::Other),
+            token,
+        ),
+        None if status == Some(429) => (RefusalClass::RateLimit, RATE_LIMIT),
+        None => (RefusalClass::Other, API_ERROR),
+    };
+    refusal_reason_with(class, token, status, text, None)
 }
 
 /// The codex `exec --json` record of a pre-session refusal: an `error` or
@@ -183,10 +209,16 @@ fn codex_error(error: &Value, now: Option<&Now>, resets: &[ResetWindow]) -> PreS
     let status = machine_field(error, "status").and_then(Value::as_i64);
     let message = machine_field(error, "message").and_then(Value::as_str);
     if !codex_rate_limit(error) {
-        return refusal_reason("api_error", status, message);
+        return refusal_reason_with(RefusalClass::Other, API_ERROR, status, message, None);
     }
     let retry_after = now.and_then(|now| codex_reset(error, now, resets));
-    refusal_reason_with("rate_limit", status, message, retry_after)
+    refusal_reason_with(
+        RefusalClass::RateLimit,
+        RATE_LIMIT,
+        status,
+        message,
+        retry_after,
+    )
 }
 
 /// Whether codex's own machine fields mark this error as a rate limit.
@@ -225,8 +257,11 @@ fn codex_reset(error: &Value, now: &Now, resets: &[ResetWindow]) -> Option<u64> 
     if let Some(seconds) = exhausted_reset(now, resets) {
         return Some(seconds);
     }
-    let message = machine_field(error, "message").and_then(Value::as_str)?;
-    let stated = stated_reset(message)?;
+    let message = Row::new(machine_field(error, "message")?, &[]);
+    if !message.contains("", RESET_PREFIX) {
+        return None;
+    }
+    let stated = stated_reset(&message.text("")?)?;
     seconds_between(now.epoch, stated.epoch()?)
 }
 
@@ -246,10 +281,10 @@ fn reset_windows(limits: &Value) -> Vec<ResetWindow> {
     ["primary", "secondary"]
         .iter()
         .filter_map(|key| {
-            let window = limits.get(*key)?;
+            let window = Row::new(limits.get(*key)?, &[]);
             Some(ResetWindow {
-                used_percent: window.get("used_percent").and_then(Value::as_f64),
-                resets_at: window.get("resets_at").and_then(Value::as_i64)?,
+                used_percent: window.number("/used_percent"),
+                resets_at: window.count("/resets_at")?,
             })
         })
         .collect()
@@ -386,10 +421,12 @@ pub(super) fn local_time(epoch: i64) -> Option<LocalTime> {
     })
 }
 
+const RESET_PREFIX: &str = "try again at ";
+
 /// Codex's own words for its reset, parsed strictly: `try again at Nov
 /// 11th, 2026 10:38 AM.` Anything else gives no reset rather than a guess.
 fn stated_reset(message: &str) -> Option<LocalTime> {
-    let tail = message.split_once("try again at ")?.1;
+    let tail = message.split_once(RESET_PREFIX)?.1;
     let mut words = tail.split_whitespace();
     let month = month_of(words.next()?)?;
     let day = day_of(words.next()?.strip_suffix(',')?)?;
@@ -471,11 +508,11 @@ fn meridiem(word: &str, hour: u8) -> Option<u8> {
 pub(super) fn dsh_refusal(event: &Value) -> Option<PreSessionRefusal> {
     /// The one code the 2026-11-08 session record measured.
     const DSH_RATE_LIMIT_CODES: [&str; 1] = ["QUOTA"];
-    let reason = event.pointer("/data/reason")?;
-    if reason.get("kind").and_then(Value::as_str) != Some("error") {
+    let reason = Row::new(event, &[]);
+    if !reason.is("/data/reason/kind", "error") {
         return None;
     }
-    let error = reason.get("error").unwrap_or(&Value::Null);
+    let error = event.pointer("/data/reason/error").unwrap_or(&Value::Null);
     let code = error.get("code").and_then(Value::as_str);
     let status = error.get("status").and_then(Value::as_i64);
     let rate_limit = status == Some(402)
@@ -486,10 +523,19 @@ pub(super) fn dsh_refusal(event: &Value) -> Option<PreSessionRefusal> {
     } else {
         code.unwrap_or("api_error")
     };
-    Some(refusal_reason(
+    let class = if rate_limit {
+        RefusalClass::RateLimit
+    } else {
+        Row::new(error, &[])
+            .token("/code", REFUSAL_CLASSES)
+            .unwrap_or(RefusalClass::Other)
+    };
+    Some(refusal_reason_with(
+        class,
         token,
         status,
         error.get("message").and_then(Value::as_str),
+        None,
     ))
 }
 

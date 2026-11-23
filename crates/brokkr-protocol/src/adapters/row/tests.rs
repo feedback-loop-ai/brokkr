@@ -1,0 +1,114 @@
+use super::*;
+use serde_json::json;
+
+fn binding(value: &str) -> Vec<BoundSecret> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bindings");
+    secret::store_set(&path, "S", value).unwrap();
+    secret::resolve_bindings(&path, &["S".into()]).unwrap()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    Answer,
+}
+
+#[test]
+fn kind_matches_raw_vocabulary() {
+    let raw = json!({"type":"assistant"});
+    let bindings = binding("assi");
+    let row = Row::new(&raw, &bindings);
+    let table = &[("assistant", Kind::Answer)];
+    assert_eq!(row.kind("/type", table), Some(Kind::Answer));
+    assert_eq!(row.kind("/missing", table), None);
+}
+
+#[test]
+fn is_compares_a_whole_raw_word() {
+    let raw = json!({"type":"assistant"});
+    let bindings = binding("assi");
+    let row = Row::new(&raw, &bindings);
+    assert!(row.is("/type", "assistant"));
+    assert!(!row.is("/type", "assi"));
+}
+
+#[test]
+fn contains_matches_a_raw_substring() {
+    let raw = json!({"message":"please retry later"});
+    let bindings = binding("retry");
+    let row = Row::new(&raw, &bindings);
+    assert!(row.contains("/message", "retry"));
+    assert!(!row.contains("/missing", "retry"));
+}
+
+#[test]
+fn flag_reads_only_booleans() {
+    let raw = json!({"yes":true,"no":false,"text":"true"});
+    let row = Row::new(&raw, &[]);
+    assert_eq!(row.flag("/yes"), Some(true));
+    assert_eq!(row.flag("/no"), Some(false));
+    assert_eq!(row.flag("/text"), None);
+}
+
+#[test]
+fn count_reads_only_signed_integers() {
+    let raw = json!({"integer":-12,"float":12.5,"text":"12"});
+    let row = Row::new(&raw, &[]);
+    assert_eq!(row.count("/integer"), Some(-12));
+    assert_eq!(row.count("/float"), None);
+    assert_eq!(row.count("/text"), None);
+}
+
+#[test]
+fn number_reads_numbers_without_text_coercion() {
+    let raw = json!({"float":12.5,"integer":12,"text":"12.5"});
+    let row = Row::new(&raw, &[]);
+    assert_eq!(row.number("/float"), Some(12.5));
+    assert_eq!(row.number("/integer"), Some(12.0));
+    assert_eq!(row.number("/text"), None);
+}
+
+#[test]
+fn token_normalizes_before_matching_raw_vocabulary() {
+    let long = "a".repeat(REFUSAL_TOKEN_LIMIT);
+    let raw = json!({"error":"\t rate_limit\n", "long":format!("{long}z")});
+    let bindings = binding("limit");
+    let row = Row::new(&raw, &bindings);
+    assert_eq!(
+        row.token("/error", &[("rate_limit", Kind::Answer)]),
+        Some(Kind::Answer)
+    );
+    assert_eq!(
+        row.token("/long", &[(&long, Kind::Answer)]),
+        Some(Kind::Answer)
+    );
+}
+
+#[test]
+fn text_masks_the_whole_string() {
+    let raw = json!({"text":"prefix-value-suffix","number":5});
+    let bindings = binding("value");
+    let row = Row::new(&raw, &bindings);
+    assert_eq!(
+        row.text("/text").as_deref(),
+        Some("prefix-[secret:S]-suffix")
+    );
+    assert_eq!(row.text("/number"), None);
+}
+
+#[test]
+fn items_wrap_array_members_in_order_with_the_same_bindings() {
+    let raw = json!({"items":[{"word":"paragraph"}, {"word":"second"}], "object":{}});
+    let bindings = binding("para");
+    let row = Row::new(&raw, &bindings);
+    let words = row
+        .items("/items")
+        .unwrap()
+        .map(|item| item.text("/word"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        words,
+        vec![Some("[secret:S]graph".into()), Some("second".into())]
+    );
+    assert!(row.items("/object").is_none());
+}
