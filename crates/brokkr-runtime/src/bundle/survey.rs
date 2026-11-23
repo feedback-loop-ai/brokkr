@@ -138,9 +138,9 @@ fn surveyed(
 }
 
 /// [`surveyed`], reached by the tier tests alone, which read the typed SI2
-/// cause a compile renders to words (#1224); a build that is not a Linux
-/// test keeps `surveyed` private to the survey.
-#[cfg(all(test, target_os = "linux"))]
+/// cause a compile renders to words (#1224) on both hosts; a build that is
+/// not a test keeps `surveyed` private to the survey.
+#[cfg(test)]
 pub(super) fn surveyed_for_tests(
     resolved: &compose::Resolved,
     roots: (&Path, &Path),

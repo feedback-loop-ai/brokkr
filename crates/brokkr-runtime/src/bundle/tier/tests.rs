@@ -8,7 +8,6 @@ use super::*;
 use crate::agents::LibraryError;
 use crate::bundle::{Bundle, Invocation, SeatBody};
 use crate::places::places_tests::clean_git_config;
-#[cfg(target_os = "linux")]
 use brokkr_protocol::adapters::StrictCause;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -974,7 +973,6 @@ fn si2_refusal(workspace: &Workspace) -> String {
 /// The typed SI2 cause the survey keeps for the `work` seat of the bundle
 /// [`si2_refusal`] refused, read before the compile renders it to words
 /// (#1224): the survey records every serving's verdict past the fence.
-#[cfg(target_os = "linux")]
 fn si2_cause(workspace: &Workspace) -> Option<StrictCause> {
     use crate::capabilities::{CapabilityContext, UNMAPPED};
     let shelves = crate::places::Shelves::default();
@@ -1164,12 +1162,31 @@ fn si2_admits_an_agy_seat_without_hands_on_its_measured_shapes() {
     for missing in ["cold", "replacement"] {
         let workspace = agy_workspace();
         let refused = si2_refusal(agy_without_shape(&workspace, missing, "none"));
-        let words = format!(
-            "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider 'agy' has \
-             no measured strict MCP configuration for '{missing}'"
-        );
-        assert_eq!(refused, words);
+        let cause = agy_unmeasured(missing);
+        assert_eq!(si2_cause(&workspace), Some(cause.clone()), "{missing}");
+        assert_eq!(refused, format!("{SI2_WORK_SEAT}: {cause}"));
     }
+}
+
+/// Who an SI2 refusal of the `researcher` work seat names.
+const SI2_WORK_SEAT: &str = "bundle: seat 'work' (office 'researcher') in realm '<unmapped>'";
+
+/// The SI2 cause of agy's `shape` left unmeasured.
+fn agy_unmeasured(shape: &str) -> StrictCause {
+    StrictCause::Unmeasured {
+        provider: "agy".into(),
+        shape: shape.into(),
+    }
+}
+
+/// The operator's words for agy's unmeasured shape, pinned once for every
+/// agy SI2 test here, on both hosts.
+#[test]
+fn an_unmeasured_agy_shape_names_its_provider_and_shape() {
+    assert_eq!(
+        agy_unmeasured("cold").to_string(),
+        "provider 'agy' has no measured strict MCP configuration for 'cold'"
+    );
 }
 
 /// [`agy_workspace`] with its `researcher` office, which grants two tools,
@@ -1211,20 +1228,10 @@ fn a_boxed_agy_seat_at_a_gate_or_on_an_undeclared_shape_is_refused() {
     for missing in ["cold", "replacement"] {
         let workspace = boxed_agy_workspace();
         let refused = si2_refusal(agy_without_shape(&workspace, missing, "boxed"));
-        let cause = StrictCause::Unmeasured {
-            provider: "agy".into(),
-            shape: missing.into(),
-        };
+        let cause = agy_unmeasured(missing);
         assert_eq!(si2_cause(&workspace), Some(cause.clone()), "{missing}");
-        let who = "bundle: seat 'work' (office 'researcher') in realm '<unmapped>'";
-        assert_eq!(refused, format!("{who}: {cause}"));
+        assert_eq!(refused, format!("{SI2_WORK_SEAT}: {cause}"));
     }
-    let words = "provider 'agy' has no measured strict MCP configuration for 'cold'";
-    let cold = StrictCause::Unmeasured {
-        provider: "agy".into(),
-        shape: "cold".into(),
-    };
-    assert_eq!(cold.to_string(), words);
 }
 
 /// SI2 past the lifted fence on macOS (#1200; decision 0063): the record
@@ -1233,14 +1240,11 @@ fn a_boxed_agy_seat_at_a_gate_or_on_an_undeclared_shape_is_refused() {
 #[cfg(target_os = "macos")]
 #[test]
 fn si2_refuses_an_agy_seat_on_macos_where_nothing_is_measured() {
-    let refused = si2(&agy_workspace()).map(drop).unwrap_err();
-    let CompileError::Capability(words) = &refused else {
-        panic!("not a capability refusal: {refused:?}");
-    };
-    assert!(
-        words.ends_with("provider 'agy' has no measured strict MCP configuration for 'cold'"),
-        "{words}"
-    );
+    let workspace = agy_workspace();
+    let refused = si2_refusal(&workspace);
+    let cause = agy_unmeasured("cold");
+    assert_eq!(si2_cause(&workspace), Some(cause.clone()));
+    assert_eq!(refused, format!("{SI2_WORK_SEAT}: {cause}"));
 }
 
 /// The adapter fixture as every load refusal names it.

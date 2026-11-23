@@ -41,13 +41,38 @@ fn a_working_directory_given_through_a_link_is_the_resolved_pwd_of_agy() {
     runs_in(&mut world, json!(link), &resolved);
 }
 
+/// What a rerun of [`an_empty_working_directory_is_the_drivers_own_resolved`]
+/// in a working directory of its own reads: that it is one.
+const OWN_CWD: &str = "BROKKR_TEST_AGY_OWN_CWD";
+
+/// [`an_empty_working_directory_is_the_drivers_own_resolved`] by its full
+/// name, which the rerun is filtered to.
+const EMPTY_WORKDIR: &str =
+    "adapters::agy::tests::resolved::an_empty_working_directory_is_the_drivers_own_resolved";
+
 /// A seat that gives an empty working directory runs agy in the driver's
-/// own, resolved, and its `PWD` names that path.
+/// own, resolved, and its `PWD` names that path. Run as itself, this test
+/// reruns its binary, filtered to itself, in a fresh temporary directory,
+/// so no configuration of agy's around the checkout decides the launch;
+/// so rerun, it is the proof.
 #[test]
 fn an_empty_working_directory_is_the_drivers_own_resolved() {
-    let mut world = World::new();
-    let own = std::env::current_dir().unwrap().canonicalize().unwrap();
-    runs_in(&mut world, json!(""), &own);
+    if std::env::var_os(OWN_CWD).is_some() {
+        let mut world = World::new();
+        let own = std::env::current_dir().unwrap().canonicalize().unwrap();
+        runs_in(&mut world, json!(""), &own);
+        return;
+    }
+    let cwd = tempfile::tempdir().unwrap();
+    let rerun = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", EMPTY_WORKDIR, "--test-threads=1"])
+        .current_dir(cwd.path())
+        .env(OWN_CWD, "1")
+        .output()
+        .unwrap();
+    let ran = String::from_utf8_lossy(&rerun.stdout);
+    assert!(rerun.status.success(), "{ran}");
+    assert!(ran.contains("1 passed"), "{ran}");
 }
 
 /// A tool-less turn given `workdir` succeeds, and the child ran in
