@@ -19,8 +19,8 @@
 # a moved tree is measured against itself. Review the diff: a budget that
 # rises is a regression someone must name in the pull request.
 # quality/binary-size.json is measured from CI's release artifact, never a
-# local build, and the CPU budgets have no file: CI compares each pull
-# request against its base.
+# local build, and the CPU budgets have no file: the nightly
+# cpu-budgets.yml compares main against the head the last nightly measured.
 set -euo pipefail
 export LC_ALL=C
 cd "$(git rev-parse --show-toplevel)"

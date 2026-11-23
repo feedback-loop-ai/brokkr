@@ -1620,7 +1620,6 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "packaging",
             "flake",
             "release-binary",
-            "cpu-budgets",
             "pr-caches",
         ]
     );

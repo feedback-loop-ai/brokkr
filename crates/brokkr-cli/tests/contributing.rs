@@ -1205,7 +1205,7 @@ const CONDITIONS: [(&str, InTheQueue, Fires); 15] = [
 
 /// Every job of the workflows the required checks live in, in file order,
 /// and what it does in a merge group.
-const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 24] = [
+const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 23] = [
     // It judges the run that the pull request's own description names for
     // its own head (decisions 0033, 0038), and a merge group carries no
     // description, labels or head repository. The queue lands that head's
@@ -1236,9 +1236,6 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 24] = [
     ("ci.yml", "packaging", InTheQueue::Runs),
     ("ci.yml", "flake", InTheQueue::Runs),
     ("ci.yml", "release-binary", InTheQueue::Runs),
-    // In no required check: it measures the pull request's merge against
-    // the base its event names, and a rise is ruled on the pull request.
-    ("ci.yml", "cpu-budgets", InTheQueue::PullRequestOnly),
     // In no required check: it saves, from main, the caches a pull
     // request's jobs restore, which a merge group's cache cannot feed.
     ("ci.yml", "pr-caches", InTheQueue::PushOnly),
@@ -1704,6 +1701,65 @@ fn the_cpu_budgets_run_on_their_schedule_or_by_hand_alone() {
         event_lines(&text, "workflow_dispatch")[..2],
         ["    inputs:", "      ref:"],
         "a person cannot name the ref to measure"
+    );
+}
+
+/// What the CPU budgets' measure leaves a trace by: Valgrind, gungraun's
+/// runner, a bench run and the limit it fails over.
+const CALLGRIND_TRACES: [&str; 4] = ["valgrind", "gungraun", "cargo bench", "--callgrind-limits"];
+
+/// The workflows among `files` that start on a pull request's or the merge
+/// queue's event and measure Callgrind, each as (file, line).
+fn callgrind_on_the_pull_request_path(files: &[(String, String)]) -> Vec<(String, String)> {
+    files
+        .iter()
+        .filter(|(_, text)| {
+            events(text)
+                .iter()
+                .any(|event| ["pull_request", "merge_group"].contains(event))
+        })
+        .flat_map(|(file, text)| {
+            text.lines()
+                .filter(|line| !line.trim_start().starts_with('#'))
+                .filter(|line| {
+                    CALLGRIND_TRACES
+                        .iter()
+                        .any(|trace| line.to_lowercase().contains(trace))
+                })
+                .map(|line| (file.to_string(), line.trim().to_string()))
+        })
+        .collect()
+}
+
+/// No pull request's or merge group's run measures Callgrind (#1295): the
+/// nightly does. Every workflow is read, ci.yml among them, and a ci.yml
+/// with a bench run planted back in is the control.
+#[test]
+fn no_pull_request_or_merge_group_run_measures_callgrind() {
+    let dir = workspace().join(".github/workflows");
+    let mut files: Vec<(String, String)> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|file| file.ends_with(".yml"))
+        .map(|file| {
+            let text = std::fs::read_to_string(dir.join(&file)).unwrap();
+            (file, text)
+        })
+        .collect();
+    files.sort();
+    let read: Vec<&str> = files.iter().map(|(file, _)| file.as_str()).collect();
+    for known in ["ci.yml", "cpu-budgets.yml", "mutants.yml", "pr-gates.yml"] {
+        assert!(read.contains(&known), "{known} was not read: {read:?}");
+    }
+    assert_eq!(callgrind_on_the_pull_request_path(&files), []);
+    let ci = files.iter_mut().find(|(file, _)| file == "ci.yml").unwrap();
+    ci.1.push_str("      - run: cargo bench -p brokkr-cli --bench budgets_lib\n");
+    assert_eq!(
+        callgrind_on_the_pull_request_path(&files),
+        [(
+            "ci.yml".to_string(),
+            "- run: cargo bench -p brokkr-cli --bench budgets_lib".to_string()
+        )]
     );
 }
 
