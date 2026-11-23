@@ -7,10 +7,12 @@
 //! A probe's instant is checked once more at the fork itself: under the
 //! registry's lock, after the read of the process table that admits the
 //! driver and as the last step before the spawn, on the caller's own clock
-//! and on the monotonic one its kill is carried on. One already past on
-//! either is not spawned ([`SpawnError::Late`]). Its watchdog reads that
-//! instant again at least every [`SLICE`], so a pause before a wait moves
-//! its kill by one slice at most (the return of fix round 0106b1r12).
+//! and on the monotonic one its kill is carried on, read in that order. One
+//! already past on either is not spawned ([`SpawnError::Late`]), one that
+//! passes while the caller's clock is read included. Its watchdog reads
+//! that instant again before every wait, in slices of at most [`SLICE`], so
+//! a pause before a wait never moves its kill: past the target it kills at
+//! once (fix round 0106b1r13, M1).
 
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -68,12 +70,17 @@ impl Arm<'_> {
     /// kill is carried on, so a wall clock stepped back or a pause between
     /// the caller's two readings never launches a driver whose kill
     /// instant has gone by (the return of fix round 0106b1r12).
+    ///
+    /// The monotonic clock is read after the caller's, so an instant that
+    /// passes while the caller's clock is read refuses the spawn too (fix
+    /// round 0106b1r13, M1).
     pub(super) fn at_fork(self) -> Option<Deadline> {
         match self {
             Arm::After(length) => Some(Deadline::After(length)),
             Arm::By(by) => {
+                let left = (by.left)();
                 let ahead = Instant::now() < by.kill;
-                (by.left)().filter(|_| ahead).map(|armed| Deadline::At {
+                left.filter(|_| ahead).map(|armed| Deadline::At {
                     kill: by.kill,
                     armed,
                 })
@@ -94,12 +101,12 @@ pub(super) enum Deadline {
 }
 
 impl Deadline {
-    /// How long the watchdog waits from now: read as it arms, so an
+    /// How long the watchdog waits from `now` on the monotonic clock: an
     /// instant's wait shrinks by whatever passed before.
-    pub(super) fn left(self) -> Duration {
+    fn left_at(self, now: Instant) -> Duration {
         match self {
             Deadline::After(length) => length,
-            Deadline::At { kill, .. } => kill.saturating_duration_since(Instant::now()),
+            Deadline::At { kill, .. } => kill.saturating_duration_since(now),
         }
     }
 
@@ -135,9 +142,9 @@ impl Deadline {
         let (tx, rx) = mpsc::channel::<()>();
         let timed_out = Arc::clone(timed_out);
         let group = Pid::from_child(child);
-        let pause = armed_pause();
         let thread = std::thread::spawn(move || {
-            if self.waited(&rx, pause) {
+            let recv = |wait| rx.recv_timeout(wait);
+            if self.waited_with(|| {}, Instant::now, recv) {
                 timed_out.store(true, Ordering::SeqCst);
                 let _ = (host.kill_group)(group);
                 // A refusal here is met again, and carried, by
@@ -149,31 +156,40 @@ impl Deadline {
         (tx, thread)
     }
 
-    /// Wait on `rx` until this deadline: `true` once it is reached, `false`
-    /// once the watchdog is disarmed. An absolute deadline is waited in
-    /// slices of at most [`SLICE`], its target read again on the monotonic
-    /// clock after each, so a pause between a sample and its wait, as a
-    /// descheduled thread takes it, delays the kill by one slice at most,
-    /// never by the whole sampled wait (the return of fix round 0106b1r12).
-    /// `pause` is that pause, taken after the first sample: nothing outside
-    /// `test-support` pauses.
-    fn waited(self, rx: &mpsc::Receiver<()>, pause: Duration) -> bool {
-        let slice = match self {
-            Deadline::After(_) => Duration::MAX,
-            Deadline::At { .. } => SLICE,
-        };
-        let mut wait = self.left();
-        std::thread::sleep(pause);
+    /// Wait through `recv`, the disarm channel's timed receive, until this
+    /// deadline: `true` once it is reached, `false` once the watchdog is
+    /// disarmed. A length is waited whole from its one sample. An absolute
+    /// deadline's target is read again on the monotonic clock `now` before
+    /// every wait, the first included, so `pause`, whatever passes between
+    /// the watchdog's arming and its first wait (as a descheduled thread
+    /// takes it), is never followed by a wait sampled before it: a pause
+    /// past the target kills at once, after one look at the disarm channel
+    /// that waits nothing, and a pause short of it waits exactly what
+    /// remains, in slices of at most [`SLICE`] (fix round 0106b1r13, M1).
+    /// The thread's own clock and channel are the production seam; a test
+    /// injects all three.
+    fn waited_with(
+        self,
+        pause: impl FnOnce(),
+        now: impl Fn() -> Instant,
+        mut recv: impl FnMut(Duration) -> Result<(), RecvTimeoutError>,
+    ) -> bool {
+        let sampled = self.left_at(now());
+        pause();
         loop {
-            match rx.recv_timeout(wait.min(slice)) {
+            let wait = match self {
+                Deadline::After(_) => sampled,
+                Deadline::At { .. } => self.left_at(now()).min(SLICE),
+            };
+            match recv(wait) {
                 Err(RecvTimeoutError::Timeout) => {}
                 Ok(()) | Err(RecvTimeoutError::Disconnected) => return false,
             }
-            wait = match self {
-                Deadline::After(_) => return true,
-                Deadline::At { .. } => self.left(),
+            let reached = match self {
+                Deadline::After(_) => true,
+                Deadline::At { .. } => self.left_at(now()).is_zero(),
             };
-            if wait.is_zero() {
+            if reached {
                 return true;
             }
         }
@@ -181,35 +197,8 @@ impl Deadline {
 }
 
 /// The longest an absolute deadline's watchdog waits before it reads its
-/// target again: the most a pause before a wait can delay its kill.
+/// target again.
 const SLICE: Duration = Duration::from_millis(100);
-
-#[cfg(feature = "test-support")]
-thread_local! {
-    /// What the watchdogs armed on this thread pause between sampling their
-    /// wait and waiting it.
-    static PAUSE: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::ZERO) };
-}
-
-/// Make every watchdog armed on this thread from here pause `pause`
-/// between sampling what remains to its deadline and waiting it, as a
-/// descheduled watchdog thread does, so its kill lands that long after the
-/// deadline; `Duration::ZERO` lifts it. For the engine's tests of a late
-/// kill (fix round 0106b1r11, L3): another thread's watchdogs are unmoved.
-#[cfg(feature = "test-support")]
-pub fn pause_watchdogs_armed_here(pause: Duration) {
-    PAUSE.with(|armed| armed.set(pause));
-}
-
-/// The pause a watchdog armed on this thread takes: none outside
-/// `test-support`.
-fn armed_pause() -> Duration {
-    #[cfg(feature = "test-support")]
-    let pause = PAUSE.with(std::cell::Cell::get);
-    #[cfg(not(feature = "test-support"))]
-    let pause = Duration::ZERO;
-    pause
-}
 
 #[cfg(test)]
 mod tests;
