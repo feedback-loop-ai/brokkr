@@ -267,6 +267,11 @@ jobs:
           # other operating systems have no namespace to open, so they
           # are left to skip.
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
+          # #1137h: a test that delivers a real signal runs alone in a PID
+          # namespace of its own, and skips where none can be built. On
+          # the Linux leg, which installed bubblewrap above, a skip is a
+          # failure; macOS has no PID namespace and runs no such test.
+          BROKKR_REQUIRE_PIDNS: ${{ runner.os == 'Linux' && '1' || '' }}
       # Decision 0046 slice II, design D3/D14: Gate A (startup) executes here
       # and its durable report survives even when it fails. Gate B (lifetime)
       # is the `seatbelt-lifetime` job below, whose gated driver re-runs the
@@ -459,6 +464,9 @@ jobs:
           # this job must run the boundary proofs for real too
           # (decision 0054 ruling 9).
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+          # And the tests that deliver a real signal, each alone in a PID
+          # namespace of its own (#1137h).
+          BROKKR_REQUIRE_PIDNS: '1'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-machine-${{ strategy.job-index }}

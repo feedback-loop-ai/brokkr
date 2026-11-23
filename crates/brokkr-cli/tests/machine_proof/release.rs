@@ -11,7 +11,7 @@
 #![cfg(target_os = "linux")]
 
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use serde_json::json;
 
@@ -22,8 +22,7 @@ const REASON: &str = "its engine was killed and every process its attempt owned 
 
 /// `brokkr` run with `args` under the host's HOME.
 fn brokkr(host: &Host, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(args)
+    crate::built::brokkr(args)
         .current_dir(&host.base)
         .env("HOME", host.base.join("home"))
         .output()

@@ -80,9 +80,13 @@ ratatui = { workspace = true }
 # edge to the version brokkr-protocol already holds; no registry version moves.
 # `termios` (#1167) reads the window size of the stdout `brokkr stats graph` writes
 # to; crossterm already builds rustix with it, so no crate is added.
+# `libc` (#1137) sets SIGCHLD to its default for a doctor version probe's
+# life with `sigaction`, as brokkr-protocol's stop handler reads it: a direct
+# edge to the version brokkr-protocol already holds; no registry version moves.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", default-features = false, features = ["event", "fs", "net", "process", "std", "termios", "thread"] }
 signal-hook = "0.3.18"
+libc = "0.2.189"
 
 [dev-dependencies]
 brokkr-store = { workspace = true, features = ["test-support"] }
