@@ -76,6 +76,9 @@ pub(crate) struct Seam {
     pub(crate) held: HeldDrive,
     /// The hold the probe in flight took on its route (fix round 0106b1r4).
     pub(crate) hold: Option<brokkr_store::ProbeHoldId>,
+    /// Whether this engine's reaper has run at its first turn (the return
+    /// of fix round 0106b1r12).
+    pub(crate) reaped: bool,
 }
 
 impl Default for Seam {
@@ -86,6 +89,7 @@ impl Default for Seam {
             answers: Vec::new(),
             held: HeldDrive::Unheld,
             hold: None,
+            reaped: false,
         }
     }
 }

@@ -1176,13 +1176,19 @@ every entry reads the default budget of 3; a direct run always has none.
    crash lapses a hold while its tree may run, and a probe that parks while its tree may still
    run keeps its hold through the park. After a crash, an unended hold stands until a
    settlement proves its probe's tree over: the restarted engine's reaper, the recovery that
-   runs before any probe of the run, seals a crashed probe's attempt Settled where every driver
-   it recorded is sealed so and releases it, and every hold naming an attempt the run's
-   reservation then names settled ends; or an operator's `settle` record ends the holds of the
-   attempts it proves. The stated trade (fix round 0106b1r12, operator 2026-11-23): until then
-   the route stays cooled, for every run on the host. A hold whose tree no record can prove, as
-   on a host with no protected coordination root, or a cleanup witnessed unresolved, stands
-   until an operator settles it.
+   runs at a resumed engine's first turn whatever its cursor and again before any probe of the
+   run, seals a crashed probe's attempt Settled where every driver it recorded is sealed so and
+   releases it, and every hold naming an attempt the run's reservation then names settled
+   ends; or an operator's `settle` record ends the holds of the attempts it proves, and a settle
+   whose holds' end was interrupted ends them from its record when run again. The hold is
+   written only once the probe's reservation names its attempt, so a crash leaves no hold that
+   no reservation names. The stated trade (fix round 0106b1r12, operator 2026-11-23): until
+   then the route stays cooled, for every run on the host. Three cases have no route to that
+   settlement yet, and a hold in them stands, its route cooled, with no supported way to end
+   it: a host with no protected coordination root, where no reservation records the probe; a
+   cleanup witnessed unresolved, which `settle` refuses and `release` cannot reach, since a
+   probe journals no attempt ending; and a crashed probe's attempt whose driver no seal proves.
+   An operator route for those is a follow-up this slice does not build.
 3. **0106c — the operator lift, its consumption and its clearing rule.** Depends on 0106b. Files:
    `crates/brokkr-core/src/fold.rs`, `crates/brokkr-core/src/fold/operator.rs`,
    `crates/brokkr-runtime/src/engine/operator.rs`,

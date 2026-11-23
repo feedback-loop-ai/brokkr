@@ -32,6 +32,16 @@ impl Engine {
         cursor: Cursor,
         state: RunState,
     ) -> Result<(), EngineError> {
+        // A resumed engine's reaper runs once, at its first turn, whatever
+        // the cursor stands at (the return of fix round 0106b1r12): a
+        // fresh run has no earlier instance whose hold could stand, and an
+        // effect in flight is the restart's own recovery to adopt or end,
+        // never a probe's, for a probe journals no `effect/started`.
+        let first = !std::mem::replace(&mut self.cooldown.reaped, true);
+        let resumed = !matches!(cursor, Cursor::Start | Cursor::EffectInFlight { .. });
+        if first && resumed {
+            self.reap_at_start(events);
+        }
         match cursor {
             Cursor::Start => {
                 let initial = crate::bundle::entry::first_phase(&self.bundle, self.entry.as_ref())?

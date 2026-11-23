@@ -14,10 +14,13 @@
 //! own engine or by the operator's attestation, and every hold of the run
 //! naming one of them ends here. A hold whose attempt no record proves
 //! stands, its route cooled, until a later reaper or an operator's settle
-//! record settles it: the trade decision 0106's slice text states.
+//! record settles it: the trade decision 0106's slice text states. A
+//! resumed engine runs the same recovery and reaper once at its first
+//! turn, whatever its cursor ([`Engine::reap_at_start`]), so a resume that
+//! never reaches a wait still settles what its records prove.
 
 use brokkr_core::park::Park;
-use brokkr_core::ProviderWait;
+use brokkr_core::{EventEnvelope, ProviderWait};
 use brokkr_store::StoreError;
 
 use super::Probe;
@@ -79,11 +82,29 @@ impl Engine {
         observed: &Observed,
     ) -> Result<(), Unreaped> {
         let settled = self.settled_attempts(observed);
+        if settled.is_empty() {
+            return Ok(());
+        }
         let now = self.now();
         let reaped = self.store.settle_probe_holds(&self.run_id, &settled, now);
         reaped.map_err(|source| Unreaped {
             run: self.run_id.clone(),
             source,
         })
+    }
+
+    /// The reaper a resumed engine runs at its first turn, whatever its
+    /// cursor (the return of fix round 0106b1r12): a resume that parks at
+    /// the cap, stops, or runs another effect never reaches the wait's
+    /// own recovery, so a crashed probe its records prove, and every hold
+    /// whose attempt they name settled, is settled here first. Nothing is
+    /// refused here: a crashed probe not proven settled, or a store that
+    /// cannot end a hold, leaves every hold standing, fail closed, and the
+    /// wait parks on it in its own words when the run reaches one.
+    pub(in crate::engine) fn reap_at_start(&mut self, events: &[EventEnvelope]) {
+        let observed = crate::engine::broker::observed();
+        let recovered = self.recovered_probe("", events, &[], &observed);
+        let reaped = self.reap_probe_holds(&observed);
+        drop((recovered, reaped));
     }
 }

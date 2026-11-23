@@ -164,3 +164,44 @@ fn a_probe_whose_admission_is_refused_writes_no_hold() {
     );
     assert_eq!(holds_written(engine.store.path()), 0);
 }
+
+/// The return of fix round 0106b1r12: the reaper runs at a resumed
+/// engine's first turn, whatever its cursor, not only where a recorded
+/// wait would probe. The first engine's probe answers, its driver is
+/// sealed Settled, and it crashes before it ends its hold; the operator's
+/// stop is then journaled, so the resume stops and reaches no wait. Its
+/// first turn proves the crashed attempt by its sealed record, releases it
+/// and ends the hold naming it: no second probe runs, and both gates read
+/// the route open.
+#[test]
+fn a_resume_that_stops_before_any_wait_still_reaps_the_crashed_probes_hold() {
+    let test = "engine::cooldown::tests::held_instance::a_resume_that_stops_before_any_wait_still_reaps_the_crashed_probes_hold";
+    let Some(crashed) = Crashed::in_its_own_engine(test) else {
+        return;
+    };
+    let journal = crashed.dir.path().join("forge.db");
+    assert_eq!(
+        unended_attempts(&journal),
+        std::slice::from_ref(&crashed.first)
+    );
+    let mut store = brokkr_store::Store::open(&journal).unwrap();
+    let cited = brokkr_store::Store::open_read_only(&journal).unwrap();
+    let named = crate::engine::Named {
+        cause: crate::engine::Cause {
+            ending: brokkr_core::ending::Ending::OperatorStopped,
+            by_realm: None,
+            by_run: None,
+            by_ref: None,
+        },
+        reason: "the operator stopped it",
+        operator: "operator",
+    };
+    crate::engine::operator_stop(&mut store, &cited, &crashed.run, &named).unwrap();
+    drop((store, cited));
+    let resumed = crashed.resumed();
+    assert_eq!(logs(crashed.dir.path(), "work"), ["probe"]);
+    assert_eq!(unended_attempts(&journal), Vec::<String>::new());
+    let mut gates = super::held_route::Gates::over(&journal, base());
+    assert_eq!(gates.legs(base()), [Ok(()), Ok(())]);
+    assert_eq!(super::held_wait::standing(&resumed).0, Status::Stopped);
+}
