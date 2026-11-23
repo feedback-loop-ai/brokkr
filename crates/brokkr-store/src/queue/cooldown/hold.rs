@@ -52,14 +52,19 @@ fn after_second(deadline: OffsetDateTime) -> Option<i64> {
     (end <= LAST_SECOND).then_some(end)
 }
 
-/// Whether a hold has ended: the one predicate both gates read a hold by,
-/// through the in-force read (fix round 0106b1r12, S1). Only its ended
-/// stamp decides, which its answer, its renewed round's commit, or the
-/// settlement of its probe's process tree writes, by the engine or by an
-/// operator; its stored end, any clock and any lock state are never read.
-pub(super) fn hold_ended(ended_at: Option<i64>) -> bool {
-    ended_at.is_some()
+/// A hold that stands, as SQL: the one predicate every read and every end
+/// of a hold selects by, at the storage edge, so a pass and a claim read
+/// only the standing rows and never materialize the history (fix round
+/// 0106b1r12, S1, and its return). Only the ended stamp decides, which its
+/// answer, its renewed round's commit, or the settlement of its probe's
+/// process tree writes, by the engine or by an operator; its stored end,
+/// any clock and any lock state are never read.
+macro_rules! standing_hold {
+    () => {
+        "ended_at IS NULL"
+    };
 }
+pub(super) use standing_hold;
 
 /// One `probe_holds` row as the in-force read selects it.
 struct HoldRow {
@@ -71,7 +76,6 @@ struct HoldRow {
     route: String,
     deadline: i64,
     recorded: i64,
-    ended: Option<i64>,
 }
 
 impl HoldRow {
@@ -97,18 +101,23 @@ impl HoldRow {
     }
 }
 
-/// Every hold standing, as the rows the in-force read joins: each hold
-/// [`hold_ended`] does not read as ended, whatever the time. A queue that
+/// The standing holds' select: only the rows [`standing_hold`] names, read
+/// through version 7's partial index over them.
+pub(super) const STANDING: &str = concat!(
+    "SELECT seq, run_id, attempt_id, site, provider, route, deadline_at, recorded_at
+     FROM probe_holds WHERE ",
+    standing_hold!(),
+    " ORDER BY seq"
+);
+
+/// Every hold standing, as the rows the in-force read joins: each row
+/// [`standing_hold`] selects, whatever the time, and no other. A queue that
 /// holds no version 7 table holds no hold.
 pub(super) fn standing(conn: &Connection) -> Result<Vec<Cooldown>, StoreError> {
     if !cool_downs_writable(conn)? {
         return Ok(Vec::new());
     }
-    let mut statement = conn.prepare(
-        "SELECT seq, run_id, attempt_id, site, provider, route, deadline_at, recorded_at,
-                ended_at
-         FROM probe_holds ORDER BY seq",
-    )?;
+    let mut statement = conn.prepare(STANDING)?;
     let raw = statement.query_map([], |row| {
         Ok(HoldRow {
             seq: row.get(0)?,
@@ -119,14 +128,10 @@ pub(super) fn standing(conn: &Connection) -> Result<Vec<Cooldown>, StoreError> {
             route: row.get(5)?,
             deadline: row.get(6)?,
             recorded: row.get(7)?,
-            ended: row.get(8)?,
         })
     })?;
     let rows = raw.collect::<Result<Vec<_>, _>>()?;
-    rows.into_iter()
-        .filter(|row| !hold_ended(row.ended))
-        .map(HoldRow::cooldown)
-        .collect()
+    rows.into_iter().map(HoldRow::cooldown).collect()
 }
 
 /// End the hold `id` at `at`, if it still stands: a hold ends once, and
@@ -134,7 +139,10 @@ pub(super) fn standing(conn: &Connection) -> Result<Vec<Cooldown>, StoreError> {
 /// matches no row, so no branch decides it.
 pub(super) fn ended(conn: &Connection, id: Option<ProbeHoldId>, at: i64) -> Result<(), StoreError> {
     conn.execute(
-        "UPDATE probe_holds SET ended_at = ?2 WHERE seq = ?1 AND ended_at IS NULL",
+        concat!(
+            "UPDATE probe_holds SET ended_at = ?2 WHERE seq = ?1 AND ",
+            standing_hold!()
+        ),
         params![id.map(|id| id.0), at],
     )?;
     Ok(())
@@ -220,8 +228,11 @@ impl Store {
             if cool_downs_writable(&tx)? {
                 for attempt in attempts {
                     tx.execute(
-                        "UPDATE probe_holds SET ended_at = ?3
-                         WHERE run_id = ?1 AND attempt_id = ?2 AND ended_at IS NULL",
+                        concat!(
+                            "UPDATE probe_holds SET ended_at = ?3
+                             WHERE run_id = ?1 AND attempt_id = ?2 AND ",
+                            standing_hold!()
+                        ),
                         params![run_id, attempt, now.unix_timestamp()],
                     )?;
                 }

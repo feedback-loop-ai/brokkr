@@ -552,3 +552,25 @@ fn a_hold_the_table_does_not_write_refuses_and_ends_no_other() {
     );
     assert_eq!(unended_holds(&store.conn), ["run-a"]);
 }
+
+/// The in-force read selects the standing holds at the storage edge (the
+/// return of fix round 0106b1r12, its LOW): its statement reads through
+/// version 7's partial index over the unended rows, so a pass or a claim
+/// never reads or materializes a hold that has ended, however long the
+/// never-deleted history grows.
+#[test]
+fn the_in_force_read_selects_only_the_standing_holds_through_their_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = journal(dir.path());
+    let plan: Vec<String> = (store.conn)
+        .prepare(&format!(
+            "EXPLAIN QUERY PLAN {}",
+            super::super::hold::STANDING
+        ))
+        .unwrap()
+        .query_map([], |row| row.get(3))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(plan, ["SCAN probe_holds USING INDEX probe_holds_standing"]);
+}

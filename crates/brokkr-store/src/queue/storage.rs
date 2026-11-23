@@ -444,7 +444,9 @@ const MIGRATION_QUEUE_V7: [(&str, &str); 2] = [
 /// settlement of its probe's process tree ends it by its row or its
 /// attempt, and nothing else does: `deadline_at` is a readout (S1). Its
 /// instants are Unix seconds (UTC), as version 4's are. A hold's attempt,
-/// route and deadline are fixed, it ends once, and it is never deleted.
+/// route and deadline are fixed, it ends once, and it is never deleted, so
+/// the rows that still stand are indexed apart (`probe_holds_standing`) and
+/// a pass or a claim reads those alone, never the whole history.
 const MIGRATION_QUEUE_V7_HOLDS: &str = r#"
 CREATE TABLE IF NOT EXISTS probe_holds (
     seq INTEGER PRIMARY KEY,
@@ -460,6 +462,7 @@ CREATE TABLE IF NOT EXISTS probe_holds (
     ended_at INTEGER CONSTRAINT hold_ended_is_seconds
         CHECK (ended_at IS NULL OR typeof(ended_at) = 'integer')
 );
+CREATE INDEX IF NOT EXISTS probe_holds_standing ON probe_holds (seq) WHERE ended_at IS NULL;
 CREATE TRIGGER IF NOT EXISTS probe_holds_fixed
     BEFORE UPDATE OF seq, run_id, attempt_id, site, provider, route, recorded_at, deadline_at
     ON probe_holds

@@ -286,7 +286,7 @@ const ROWS: &str = "seq, site, provider, route, until_at, reason, retry_after_se
 
 /// Every row in force at `now`, in the order it was written, then every
 /// probe hold no settlement has ended ([`hold::standing`], by its one
-/// predicate [`hold::hold_ended`]): the pass's and the claim's one
+/// predicate [`hold::standing_hold`], selected in SQL): the pass's and the claim's one
 /// reading, so a probe in flight holds its route for both (fix round
 /// 0106b1r4, F1), and no clock, margin or lock state ends a hold (fix round
 /// 0106b1r12, S1). A row whose stored instant this reader cannot spell
