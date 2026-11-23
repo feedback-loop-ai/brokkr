@@ -88,8 +88,11 @@ Two habits from the house flow that transfer directly:
 
 ## The twelve checks
 
-All twelve are required status checks on `main`. Eleven come from ten
-jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (`engine`
+All twelve are required status checks on `main`. Two read the pull
+request's own labels and body and come from
+[`../../.github/workflows/pr-gates.yml`](../../.github/workflows/pr-gates.yml), which also
+re-runs them when a label or the body changes (#1295). Nine come from
+eight jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (`engine`
 runs once per operating system), and one is in
 [`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml). They run on
 every pull request, and again in [the merge queue](#the-merge-queue) on
@@ -98,15 +101,15 @@ each local command is the job's own, and the sections below explain them:
 
 | # | CI check | Job | Local command |
 |---|---|---|---|
-| 1 | `delivered by brokkr` | `delivered-by-brokkr` | — (a shipped run at your head; see [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand)) |
-| 2 | `MSRV (1.89)` | `msrv` | [`cargo +1.89.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
-| 3 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
-| 4 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test --parallel-heaps`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
-| 5 | `test (macos-latest)` | `engine` | on a Mac, `bash scripts/test-shards.sh test --parallel-heaps`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
-| 6 | `exact coverage gate` | `coverage` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
-| 7 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
-| 8 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
-| 9 | `baseline ratchets` | `ratchets` | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `PR_BODY="<your pull request's body>" quality/ratchet.sh baselines origin/main` |
+| 1 | `delivered by brokkr` | `delivered-by-brokkr` (pr-gates.yml) | — (a shipped run at your head; see [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand)) |
+| 2 | `baseline ratchets` | `ratchets` (pr-gates.yml) | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `PR_BODY="<your pull request's body>" quality/ratchet.sh baselines origin/main` |
+| 3 | `MSRV (1.89)` | `msrv` | [`cargo +1.89.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
+| 4 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
+| 5 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test --parallel-heaps`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
+| 6 | `test (macos-latest)` | `engine` | on a Mac, `bash scripts/test-shards.sh test --parallel-heaps`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
+| 7 | `exact coverage gate` | `coverage` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
+| 8 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
+| 9 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
 | 10 | `RustSec dependency audit` | `dependency-audit` | [`cargo audit`](#the-rustsec-advisory-audit), whose verdict moves with the advisory database |
 | 11 | `release binary artifact` | `release-binary` | [`cargo build --release --locked -p brokkr-cli`](#the-release-binary), then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
 | 12 | `mutants in the diff: brokkr-core` | `core-gate` (mutants.yml) | `bash scripts/mutants.sh gate origin/main brokkr-core` |
@@ -133,8 +136,9 @@ The four checks the list above adds to the older eight:
 - **`baseline ratchets`** (#338) holds file size and duplication to
   `quality/`'s committed baselines, refuses an unused dependency, and
   refuses any raised baseline unless the pull request body carries a
-  `Ruling:` line. CI reads that body from the pull request and judges
-  against the merge commit's first parent; locally, `origin/main` is the
+  `Ruling:` line. CI reads that body from the pull request, re-reads it
+  when you edit it, and judges against the merge commit's first parent;
+  locally, `origin/main` is the
   base and `PR_BODY` carries the body, so a raised baseline without its
   `Ruling:` line is refused here as it is there. `quality/README.md`
   explains each baseline and how to refresh it. The complexity and
