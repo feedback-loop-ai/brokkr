@@ -114,7 +114,10 @@ pub const BOUNDARY_IS_THE_REALMS: &str = "the boundary is declared by the realm 
     machine a realm runs on is the realm's fact (decision 0046 ruling 1)";
 const OUTPUT_BYTES: usize = 262_144;
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
-const MAX_TIMEOUT_MS: u64 = 600_000;
+// One command may run up to an hour: a cold Rust build plus a full test
+// suite outlasts ten minutes, and the seat's own `timeout_seconds` still
+// bounds the session (decision 0123).
+const MAX_TIMEOUT_MS: u64 = 3_600_000;
 
 /// How a bound host path may be touched from inside the box.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -49,7 +49,7 @@ fn each_call_check_refuses_in_its_own_variant() {
     for arguments in [Value::Null, json!("pwd")] {
         refused(&call(json!({"arguments": arguments})), CallRefusal::Command);
     }
-    for timeout_ms in [json!(99), json!(600_001), json!("long"), json!(1000.5)] {
+    for timeout_ms in [json!(99), json!(3_600_001), json!("long"), json!(1000.5)] {
         refused(&timed(timeout_ms), CallRefusal::Timeout);
     }
 }
@@ -79,7 +79,8 @@ fn each_bound_admits_its_exact_arguments() {
         DEFAULT_TIMEOUT_MS,
     );
     admitted(timed(json!(100)), "pwd", 100);
-    admitted(timed(json!(600_000)), "pwd", 600_000);
+    admitted(timed(json!(600_001)), "pwd", 600_001);
+    admitted(timed(json!(3_600_000)), "pwd", 3_600_000);
     admitted(call(json!({})), "pwd", DEFAULT_TIMEOUT_MS);
 }
 
@@ -100,9 +101,24 @@ fn every_call_refusal_reads_as_it_always_has() {
         ),
         (
             CallRefusal::Timeout,
-            "workspace: timeoutMs must be an integer from 100 through 600000",
+            "workspace: timeoutMs must be an integer from 100 through 3600000",
         ),
     ] {
         assert_eq!(refusal.to_string(), text);
     }
+}
+
+/// Decision 0123: the tool a harness is shown advertises the bound the
+/// call check holds, an hour, in its schema and its description.
+#[test]
+fn the_advertised_timeout_bound_is_the_checked_one() {
+    let definition = crate::hands::tool_definition();
+    let timeout = &definition["inputSchema"]["properties"]["timeoutMs"];
+    assert_eq!(timeout["minimum"], 100);
+    assert_eq!(timeout["maximum"], 3_600_000);
+    let description = definition["description"].as_str().unwrap();
+    assert!(
+        description.ends_with("may not exceed 3600000."),
+        "{description}"
+    );
 }
