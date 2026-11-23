@@ -185,6 +185,26 @@ fn a_tool_that_never_answers_gives_no_version_at_the_bound_and_leaves_no_process
     never_answers(dir.path());
 }
 
+/// A leader still unreaped at the settle is no version, and its group is
+/// never asked: the leader's own life pins the group id, so no answer about
+/// the group could prove it gone. The seam is inert and keeps the tool's
+/// FIFO held through both kills, so the leader runs past the settle; the
+/// test lets it go once the probe has answered.
+#[test]
+fn a_leader_unreaped_at_the_settle_is_no_version_and_its_group_is_not_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let (tool, holder) = never_answering(dir.path(), "never");
+    let mut command = Command::new(tool);
+    command.arg("--version");
+    let on = |record: &mut Record, call, leader| record.answered(call, leader, || Ok(()));
+    let (version, took, record) = played_as(command, disposed, Record::default(), on);
+    drop(holder);
+    assert_eq!(version, None);
+    at_the_bound(took);
+    let killed = vec![Call::KillGroup, Call::KillLeader];
+    assert_eq!((record.calls, record.reaped_at), (killed, None));
+}
+
 /// The dsh probe keeps the same bound: a selected `dsh` that never
 /// answers, asked through `invocation_version` itself (#1137f review, the
 /// MEDIUM), is no version at the bound, and the probe's own kill ended
