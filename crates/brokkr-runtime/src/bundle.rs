@@ -67,7 +67,7 @@ mod walk;
 pub(crate) use aggregate::{
     laws_of, MemberFindings, MemberLaw, MemberLaws, MemberVerdict, PanelJoin,
 };
-pub use aggregate::{Aggregate, BodyRefusal};
+pub use aggregate::{Aggregate, BodyRefusal, SelectCase};
 use capability_record::{record_capabilities, CapabilityWalk};
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};

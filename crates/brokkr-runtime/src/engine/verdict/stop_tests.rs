@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use super::tests::{driven_with, driver};
 use super::Producer;
 use crate::bundle::sequence::{before_every_gate, refuse_pre_gate_ending};
+use crate::bundle::SelectCase;
 use crate::bundle::{
     BodyRefusal, Bundle, CompileError, Invocation, Limits, SeatBody, SeatClass, SequenceStep,
     StepBody,
@@ -238,13 +239,15 @@ fn decide_takes_a_hard_ending_as_a_stop_only_before_every_gate() {
 fn compile_refuses_a_pre_gate_ending_exactly_where_decide_stops() {
     for row in geometry_table() {
         let (shape, name) = (&row.shape, &row.name);
-        let compiled = match refuse_pre_gate_ending("review", &[], &row.steps) {
+        let at = ("review", &SelectCase::Default);
+        let compiled = match refuse_pre_gate_ending(at, &[], &row.steps) {
             Ok(()) => None,
             Err(CompileError::Body(refusal)) => Some(refusal),
             Err(other) => panic!("expected a body refusal, got {other:?}"),
         };
         let refused = BodyRefusal::PreGateUndeclared {
             seat: "review".into(),
+            case: SelectCase::Default,
             step: name.clone(),
             word: "held".into(),
         };
