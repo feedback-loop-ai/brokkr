@@ -243,7 +243,7 @@ and skip hosted cache transfers.
 requests and macOS always use hosted runners.
 
 CI spreads the shards over machines (operator rulings 2026-11-01,
-2026-11-03, 2026-11-04 and 2026-11-11): five Linux runners and four macOS runners, each running the shards the script
+2026-11-03, 2026-11-04, 2026-11-11 and 2026-11-23): eight Linux runners and five macOS runners, each running the shards the script
 lays on it, still one after another, while the machines run at once. The
 `engine-machines` job names each runner's machine in `BROKKR_TEST_MACHINE`
 (`linux/2`, `macos/1`), and the script's `machines` mode prints each
@@ -363,7 +363,9 @@ counts regions a skipped boundary proof never enters, so set it as the
 suite above does. This one has its own section:
 [the coverage gate, practically](#the-coverage-gate-practically).
 
-CI measures on the suite's Linux machines (operator ruling 2026-11-01).
+CI measures on eight Linux machines (operator rulings 2026-11-01 and
+2026-11-23), laid out by the shard script's own coverage column, since the
+instrumented shards do not grow alike; `machines coverage` prints them.
 Each `coverage-machines` runner measures its machine's shards, merges its
 profiles into one and hands it on with a manifest naming the machine and
 the candidate: the checked-out tree and the cache key. The gate's own job
