@@ -491,3 +491,6 @@ pub(super) fn unjournaled<'r>(
         .filter(|row| !journaled.contains(row.checkpoint.call_id.as_str()))
         .collect())
 }
+
+#[cfg(test)]
+mod tests;

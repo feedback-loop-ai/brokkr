@@ -38,6 +38,7 @@ fn drain_into(
 
 mod claude_usage;
 mod codex_isolation;
+mod decision_0114a;
 #[cfg(unix)]
 mod seat_git;
 use codex_isolation::{
@@ -9465,9 +9466,8 @@ fn codex_pre_session_refusals_are_machine_events_not_prose() {
 }
 
 fn wire_begins_work(row: &Value) -> bool {
-    ![Step::Transcript, Step::HarnessStarted]
-        .iter()
-        .any(|step| row["step"] == step.word())
+    let step = &row["step"];
+    step != Step::Transcript.word() && step != Step::HarnessStarted.word()
 }
 
 /// Decision 0053: only the shared transcript locator and the harness

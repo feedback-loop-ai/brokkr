@@ -5009,7 +5009,6 @@ struct DshBaseline {
 /// it — publishing the locator and launch row AFTER their own work rows,
 /// and returning a confirmed rejoin built on work that was never
 /// confirmed. `may_fold` withholds the fold until the hold releases.
-#[expect(clippy::struct_excessive_bools, reason = "baseline 2026-09, #288")]
 struct DshRootWatch {
     /// The exact root this launch was built to rejoin. `None` is a cold
     /// launch, which has no offer to confirm and publishes as it always
