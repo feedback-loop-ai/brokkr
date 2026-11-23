@@ -150,6 +150,12 @@ jobs:
             machine: linux/4
           - os: ubuntu-latest
             machine: linux/5
+          - os: ubuntu-latest
+            machine: linux/6
+          - os: ubuntu-latest
+            machine: linux/7
+          - os: ubuntu-latest
+            machine: linux/8
           - os: macos-latest
             machine: macos/1
           - os: macos-latest
@@ -158,6 +164,8 @@ jobs:
             machine: macos/3
           - os: macos-latest
             machine: macos/4
+          - os: macos-latest
+            machine: macos/5
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os)) }}
     # 45 on Linux and 60 on macOS, not the usual 20 (operator rulings
     # 2026-10-09 to 2026-11-01, and 2026-11-11 for macOS): a machine's
@@ -342,7 +350,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        machine: [linux/1, linux/2, linux/3, linux/4, linux/5]
+        machine: [linux/1, linux/2, linux/3, linux/4, linux/5, linux/6, linux/7, linux/8]
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     # 45, not the usual 20: a machine's instrumented shards took up to about
     # 20 minutes on a hosted runner, its build and setup about 5, and a slow

@@ -146,6 +146,12 @@ const JOB_LINES: [(&str, &str); 13] = [
             machine: linux/4
           - os: ubuntu-latest
             machine: linux/5
+          - os: ubuntu-latest
+            machine: linux/6
+          - os: ubuntu-latest
+            machine: linux/7
+          - os: ubuntu-latest
+            machine: linux/8
           - os: macos-latest
             machine: macos/1
           - os: macos-latest
@@ -154,6 +160,8 @@ const JOB_LINES: [(&str, &str); 13] = [
             machine: macos/3
           - os: macos-latest
             machine: macos/4
+          - os: macos-latest
+            machine: macos/5
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os)) }}
     timeout-minutes: ${{ matrix.os == 'macos-latest' && 60 || 45 }}
     steps:
@@ -216,7 +224,7 @@ const JOB_LINES: [(&str, &str); 13] = [
     strategy:
       fail-fast: false
       matrix:
-        machine: [linux/1, linux/2, linux/3, linux/4, linux/5]
+        machine: [linux/1, linux/2, linux/3, linux/4, linux/5, linux/6, linux/7, linux/8]
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     timeout-minutes: 45
     steps:

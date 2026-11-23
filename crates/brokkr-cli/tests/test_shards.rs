@@ -462,50 +462,77 @@ const MODES: [(&[&str], &str, &str); 2] = [
 ];
 
 /// The shards' names, in plan order.
-const NAMES: [&str; 10] = [
-    "every library, run_pages skipped",
+const NAMES: [&str; 14] = [
+    "every library, run_pages and fleet::kept_tests skipped",
     "the libraries' run_pages tests",
+    "the libraries' fleet::kept_tests tests",
     "the it binaries, capability_broker skipped",
     "the heap measurements",
     "the other own-process binaries",
     "the fleet heap view",
-    "the run and seat heap views",
+    "the run heap view",
+    "the seat heap view",
     "the doctests",
-    "capability_broker's enabled suite, alone",
+    "capability_broker's enabled suite, its first part, alone",
+    "capability_broker's enabled suite, its second part, alone",
+    "capability_broker's enabled suite, the rest of it, alone",
     "capability_broker, its enabled suite skipped, alone",
 ];
 
 /// The test mode's shard commands after `cargo`, as the plan prints them.
-const SHARDS: [&str; 10] = [
-    "--lib -- --skip run_pages::",
+const SHARDS: [&str; 14] = [
+    "--lib -- --skip run_pages:: --skip fleet::kept_tests::",
     "--lib -- run_pages::",
+    "--lib -- fleet::kept_tests::",
     "--test it -- --skip capability_broker::",
     "--test heap_claude --test heap_codex --test heap_dsh",
     "--bin brokkr --test driver_conformance --test transcript_surfaces --test hands_exits \
      --test secret_drop --test capability_launch --test operated_repo --test queued_launch \
      --test seatbelt_lifetime_probe --test summary_heap --test heap_open --test heap_costs",
     "--test heap_fleet",
-    "--test heap_run_view --test heap_seat_view",
+    "--test heap_run_view",
+    "--test heap_seat_view",
     "--doc",
-    "--test it -- capability_broker::enabled::",
+    ENABLED_FIRST,
+    ENABLED_SECOND,
+    ENABLED_REST,
     "--test it -- capability_broker:: --skip capability_broker::enabled::",
 ];
 
+/// The broker's enabled suite's first part: the submodules libtest runs
+/// in it, any one of whose paths a test's name holds.
+const ENABLED_FIRST: &str = "--test it -- capability_broker::enabled::reach:: \
+                             capability_broker::enabled::sites::";
+
+/// Its second part, the same way.
+const ENABLED_SECOND: &str = "--test it -- capability_broker::enabled::windows:: \
+                              capability_broker::enabled::matrix:: \
+                              capability_broker::enabled::transport::";
+
+/// The rest of it: every enabled test neither part runs, a new submodule's
+/// included.
+const ENABLED_REST: &str = "--test it -- capability_broker::enabled:: \
+                            --skip capability_broker::enabled::reach:: \
+                            --skip capability_broker::enabled::sites:: \
+                            --skip capability_broker::enabled::windows:: \
+                            --skip capability_broker::enabled::matrix:: \
+                            --skip capability_broker::enabled::transport::";
+
 /// Where [`NAMES`] holds the doctests, which the coverage mode never runs.
-const DOCTESTS: usize = 7;
+const DOCTESTS: usize = 9;
 
 /// Where [`NAMES`] holds the heap measurements, the one shard
 /// `--parallel-heaps` runs through its own launcher.
-const HEAPS: usize = 3;
+const HEAPS: usize = 4;
 
 /// The word the cargo stub knows the first shard by: its `run_pages::`
 /// skip, which no other shard's command holds, though the second runs the
 /// libraries too.
 const FIRST: &str = "--skip run_pages::";
 
-/// Where [`NAMES`] holds the broker's enabled suite, which only Linux
-/// compiles, so a macOS host never runs it.
-const LINUX_ONLY: usize = 8;
+/// Where [`NAMES`] holds the broker's enabled suite's three parts, which
+/// only Linux compiles, so a macOS host never runs them.
+const LINUX_ONLY: [usize; 3] = [10, 11, 12];
 
 /// The real tree's shards are its whole suite, each target once: the
 /// plan passes the partition check in both modes and prints each shard's
@@ -622,27 +649,10 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
         ],
     );
     let split = table.replace(
-        "2 3 test:it skip:capability_broker::\n",
-        "2 3 test:it skip:capability_broker::observer::\n",
+        " test:it skip:capability_broker::\n",
+        " test:it skip:capability_broker::observer::\n",
     );
-    let unsplit: Vec<String> = [
-        "brokkr-core",
-        "brokkr-store",
-        "brokkr-runtime",
-        "brokkr-view",
-        "brokkr-cli",
-    ]
-    .iter()
-    .map(|package| {
-        format!(
-            "{package} test it does not run exactly once: the it binaries, capability_broker \
-                 skipped (skip:capability_broker::observer::), capability_broker's enabled \
-                 suite, alone (only:capability_broker::enabled::), capability_broker, its \
-                 enabled suite skipped, alone (only:capability_broker:: \
-                 skip:capability_broker::enabled::)"
-        )
-    })
-    .collect();
+    let unsplit = it_not_once(3, "skip:capability_broker::observer::");
     assert_refused(
         &real,
         &split,
@@ -765,7 +775,7 @@ fn a_failed_shard_or_an_empty_filter_fails_the_run_after_every_shard() {
     for (env, refusal) in [
         (
             ("STUB_FAIL", FIRST),
-            "test shards: every library, run_pages skipped failed with exit 101\n",
+            "test shards: every library, run_pages and fleet::kept_tests skipped failed with exit 101\n",
         ),
         (
             ("STUB_EMPTY", "-- capability_broker::"),
@@ -810,13 +820,13 @@ fn every_shards_summaries_are_read_and_an_unread_or_missing_one_refuses() {
         (
             FIRST,
             "running the library\n".to_string(),
-            "every library, run_pages skipped",
+            "every library, run_pages and fleet::kept_tests skipped",
             "printed no test result: summary, so no test is shown to have run",
         ),
         (
             FIRST,
             UNREAD.to_string(),
-            "every library, run_pages skipped",
+            "every library, run_pages and fleet::kept_tests skipped",
             unread,
         ),
     ] {
@@ -893,7 +903,7 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
     );
     for line in [
         shown.as_str(),
-        "\n==> every library, run_pages skipped: exit 0 after ",
+        "\n==> every library, run_pages and fleet::kept_tests skipped: exit 0 after ",
         "test shards: the heap measurements: no exit status recorded\n",
         "test shards: capability_broker, its enabled suite skipped, alone: not started\n",
     ] {
@@ -925,7 +935,7 @@ fn a_bound_status_with_an_unreadable_record_is_refused_by_name() {
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
         format!(
-            "test shards: the bound record of every library, run_pages skipped could not be read, so it is not \
+            "test shards: the bound record of every library, run_pages and fleet::kept_tests skipped could not be read, so it is not \
              shown to have passed\n{unstarted}"
         )
     );
@@ -934,7 +944,7 @@ fn a_bound_status_with_an_unreadable_record_is_refused_by_name() {
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert!(
         stdout.contains(
-            "test shards: the bound record of every library, run_pages skipped could not be read\n"
+            "test shards: the bound record of every library, run_pages and fleet::kept_tests skipped could not be read\n"
         ),
         "{stdout}"
     );
@@ -971,7 +981,7 @@ fn a_record_that_cannot_be_written_still_ends_the_group_and_loses_the_shard() {
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
         format!(
-            "test shards: every library, run_pages skipped recorded no exit status (its runner ended with exit 1), \
+            "test shards: every library, run_pages and fleet::kept_tests skipped recorded no exit status (its runner ended with exit 1), \
              so it is not shown to have passed\n{unstarted}"
         )
     );
@@ -1031,7 +1041,7 @@ fn a_shard_status_record_that_is_not_one_line_byte_for_byte_is_refused() {
             assert_eq!(
                 stderr,
                 format!(
-                    "test shards: every library, run_pages skipped recorded no exit status (its runner ended with \
+                    "test shards: every library, run_pages and fleet::kept_tests skipped recorded no exit status (its runner ended with \
                      exit 137), so it is not shown to have passed\n{}",
                     not_started(&later)
                 ),
@@ -1206,7 +1216,7 @@ fn the_shards_wait_after_the_build_for_the_system_sets_preparation() {
         .map_or("", |(_, log)| log);
     assert!(
         shown.starts_with(
-            "server system set: 10 entries\ntest shards: runs every library, run_pages skipped:"
+            "server system set: 10 entries\ntest shards: runs every library, run_pages and fleet::kept_tests skipped:"
         ),
         "{stdout}"
     );
@@ -1307,53 +1317,84 @@ const IT_PACKAGES: [&str; 5] = [
     "brokkr-cli",
 ];
 
-/// The broker's tests split three ways, `skip:F`, `only:F skip:G` and
-/// `only:G`, only where G extends F and the narrower shard filters G: a
-/// skip that does not extend its shard's filter is refused as more than one
-/// filter, and a narrower shard that filters another part leaves G's tests
-/// to no shard, which is refused for every `it` binary.
+/// The table's filter words for a filtered shard's command in [`SHARDS`]:
+/// each libtest filter after ` -- ` is `only:`, each `--skip` `skip:`.
+fn filters(command: &str) -> String {
+    let (_, libtest) = command.split_once(" -- ").expect("a filtered shard");
+    let mut words = Vec::new();
+    let mut args = libtest.split_whitespace();
+    while let Some(arg) = args.next() {
+        match arg {
+            "--skip" => words.push(format!("skip:{}", args.next().expect("a skip's text"))),
+            filter => words.push(format!("only:{filter}")),
+        }
+    }
+    words.join(" ")
+}
+
+/// Where [`NAMES`] holds each shard that runs `it`, in plan order.
+const IT_SHARDS: [usize; 5] = [3, 10, 11, 12, 13];
+
+/// The refusal of every package's `it` when the shard at `changed` filters
+/// `planted` and every other `it` shard filters as the table does.
+fn it_not_once(changed: usize, planted: &str) -> Vec<String> {
+    let runs: Vec<String> = IT_SHARDS
+        .iter()
+        .map(|&at| match at == changed {
+            true => format!("{} ({planted})", NAMES[at]),
+            false => format!("{} ({})", NAMES[at], filters(SHARDS[at])),
+        })
+        .collect();
+    IT_PACKAGES
+        .iter()
+        .map(|package| {
+            format!(
+                "{package} test it does not run exactly once: {}",
+                runs.join(", ")
+            )
+        })
+        .collect()
+}
+
+/// The broker's tests split as libtest's filters partition them: `skip:F`,
+/// `only:F skip:G`, the enabled suite G's parts `only:G1 only:G2 …`, and
+/// its rest, `only:G skip:G1 skip:G2 …`. A skip that does not extend its
+/// shard's one filter is refused as more than one filter; a submodule that
+/// leaves its part while the rest still skips it runs in no shard, and one
+/// the rest no longer skips runs twice, each refused for every `it` binary.
 #[test]
-fn a_narrower_skip_must_extend_its_filter_and_its_part_keep_a_shard() {
+fn the_broker_s_filters_partition_its_tests() {
     let real = metadata();
     let table = script();
     let skip = "only:capability_broker:: skip:capability_broker::enabled::";
-    let narrower = "test:it only:capability_broker::enabled::";
-    assert_eq!(table.matches(skip).count(), 1, "the broker's narrower skip");
-    assert_eq!(
-        table.matches(narrower).count(),
-        1,
-        "the broker's narrower shard"
-    );
-    let unread = |package: &str, rest: &str, filters: &str| {
-        format!(
-            "{package} test it does not run exactly once: the it binaries, capability_broker \
-             skipped (skip:capability_broker::), capability_broker's enabled suite, alone \
-             ({rest}), capability_broker, its enabled suite skipped, alone ({filters})"
-        )
-    };
+    let sites = " only:capability_broker::enabled::sites::";
+    let skipped = " skip:capability_broker::enabled::sites::";
+    for (word, owner) in [(skip, 13), (sites, 10), (skipped, 12)] {
+        assert_eq!(table.matches(word).count(), 1, "{word}");
+        assert!(filters(SHARDS[owner]).contains(word.trim()), "{word}");
+    }
     let elsewhere = "only:capability_broker:: skip:hands::";
     let mut problems = vec![format!(
         "capability_broker, its enabled suite skipped, alone: more than one filter: {elsewhere}"
     )];
-    problems.extend(
-        IT_PACKAGES
-            .iter()
-            .map(|package| unread(package, "only:capability_broker::enabled::", elsewhere)),
-    );
-    assert_refused(
-        &real,
-        &table.replace(skip, elsewhere),
-        &problems.iter().map(String::as_str).collect::<Vec<_>>(),
-    );
-    let another: Vec<String> = IT_PACKAGES
-        .iter()
-        .map(|package| unread(package, "only:capability_broker::serving::", skip))
-        .collect();
-    assert_refused(
-        &real,
-        &table.replace(narrower, "test:it only:capability_broker::serving::"),
-        &another.iter().map(String::as_str).collect::<Vec<_>>(),
-    );
+    problems.extend(it_not_once(13, elsewhere));
+    for (planted, refused) in [
+        (table.replace(skip, elsewhere), problems),
+        (
+            table.replace(sites, ""),
+            it_not_once(10, &filters(SHARDS[10]).replace(sites, "")),
+        ),
+        (
+            table.replace(skipped, ""),
+            it_not_once(12, &filters(SHARDS[12]).replace(skipped, "")),
+        ),
+    ] {
+        assert_refused(
+            &real,
+            &planted,
+            &refused.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+    }
 }
 
 /// Whether process `pid` is still there, read by the null signal.
@@ -1480,7 +1521,7 @@ fn a_binary_past_the_bound_fails_by_name_and_the_next_shard_runs() {
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert!(
         stdout.contains(
-            "test shards: every library, run_pages skipped: hang-0123abcd ran past 2 s\n"
+            "test shards: every library, run_pages and fleet::kept_tests skipped: hang-0123abcd ran past 2 s\n"
         ),
         "{stdout}"
     );
@@ -1739,7 +1780,7 @@ fn a_group_that_is_not_shown_ended_is_lost_and_names_its_members() {
         String::new()
     };
     let expected = format!(
-        "test shards: could not show every library, run_pages skipped's process group ended: process group \
+        "test shards: could not show every library, run_pages and fleet::kept_tests skipped's process group ended: process group \
          {leader} still has members{named}\n{later}"
     );
     assert_eq!(String::from_utf8_lossy(&run.stderr), expected);
@@ -1750,7 +1791,7 @@ fn a_group_that_is_not_shown_ended_is_lost_and_names_its_members() {
     );
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert!(
-        stdout.contains("test shards: every library, run_pages skipped: could not show its process group ended\n"),
+        stdout.contains("test shards: every library, run_pages and fleet::kept_tests skipped: could not show its process group ended\n"),
         "{stdout}"
     );
     let work = kept_work(&scratch);
