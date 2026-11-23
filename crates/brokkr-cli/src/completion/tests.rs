@@ -1,4 +1,4 @@
-//! The static scripts (decision 0115 ruling 1): every visible verb of the
+//! The static scripts (decision 0119 ruling 1): every visible verb of the
 //! tree and every flag in each shell's script, no hidden verb and no 0.16
 //! alias. The paths are walked from `Cli::command()`, never listed by
 //! hand, and each shell is read in the form its generator offers a verb.

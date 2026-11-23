@@ -1,4 +1,4 @@
-//! The live completer (decision 0115 rulings 2-8): clap_complete's
+//! The live completer (decision 0119 rulings 2-8): clap_complete's
 //! env-driven protocol, answered before anything else in `main()`, with
 //! each value an operator names offered from the journal, the libraries
 //! or the map. Every read is read-only and leaves no file, reads one

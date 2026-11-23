@@ -149,7 +149,7 @@ pub(crate) fn resolve_run(store: &Store, requested: &str) -> Result<String> {
 
 /// [`resolve_run`] reading at most two of a prefix's matches: enough to
 /// tell one run from several, so it costs one page however many runs the
-/// prefix names (decision 0115 ruling 4). The completer's form; its
+/// prefix names (decision 0119 ruling 4). The completer's form; its
 /// ambiguous refusal counts no further than two, and is never shown.
 pub(crate) fn resolve_run_within(store: &Store, requested: &str) -> Result<String> {
     let runs = match requested {

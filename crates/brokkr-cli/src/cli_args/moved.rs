@@ -43,7 +43,7 @@ const MOVED: [(&str, &[&str]); 30] = [
 ];
 
 /// Every old flat spelling, for the completion scripts' proof that none
-/// is offered (decision 0115 ruling 1).
+/// is offered (decision 0119 ruling 1).
 #[cfg(test)]
 pub(crate) fn old_spellings() -> impl Iterator<Item = &'static str> {
     MOVED.iter().map(|(old, _)| *old)

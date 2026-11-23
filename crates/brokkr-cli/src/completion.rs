@@ -1,4 +1,4 @@
-//! Shell completion (decision 0115). `brokkr completions <shell>` prints
+//! Shell completion (decision 0119). `brokkr completions <shell>` prints
 //! the script clap_complete writes for the command tree (ruling 1), so a
 //! shell offers every visible verb, flag and fixed value set. The tree
 //! holds no 0.16 alias, which is a respelling made before the tree parses

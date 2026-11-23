@@ -1057,7 +1057,7 @@ library, realm names from the map, and the waiting queue entries for
 the queue's commands. It reads the journal the completed command would
 read, and a `--db` or `--realms` on the line wins. It opens that journal
 read-only, creates no file beside it, and waits at most 50 ms on a busy
-one. Any failure completes nothing and prints nothing (decision 0115).
+one. Any failure completes nothing and prints nothing (decision 0119).
 
 ### Limits worth knowing
 

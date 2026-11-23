@@ -1,5 +1,5 @@
 //! A read that leaves the journal's directory as it found it (decision
-//! 0115 ruling 3). [`Store::open_read_only`] refuses every write, but
+//! 0119 ruling 3). [`Store::open_read_only`] refuses every write, but
 //! SQLite still creates a WAL journal's `-wal` and `-shm` beside it on a
 //! read-only open, and a read-only connection cannot remove them, so a
 //! reader that ran where no writer was leaves both behind. A shell's

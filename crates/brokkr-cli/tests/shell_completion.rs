@@ -1,4 +1,4 @@
-//! Decision 0115 through the binary and clap_complete's bash protocol: a
+//! Decision 0119 through the binary and clap_complete's bash protocol: a
 //! completion request reads the completed command's own journal, library
 //! or map, one page of it, writes nothing anywhere, prints nothing on
 //! stderr whatever fails, and offers no hidden verb and no 0.16 alias.

@@ -84,7 +84,7 @@ impl Store {
     /// The newest `limit` runs, newest first in `latest`'s order, each with
     /// its summary's feature line, or `None` where none is folded: one page
     /// of the `(created_at)` index and a key seek per row, whatever the
-    /// journal's size (decision 0115 ruling 4). No event is read.
+    /// journal's size (decision 0119 ruling 4). No event is read.
     pub fn recent_runs(&self, limit: u32) -> Result<Vec<(String, Option<String>)>, StoreError> {
         patiently("recent_runs", self.patience, &self.path, || {
             let mut statement = self.conn.prepare(RECENT_SQL)?;
@@ -98,7 +98,7 @@ impl Store {
 
     /// The names of the first `limit` participants of `run_id`, as their
     /// seat rows keep them: one range of the `(run_id, opened)` key,
-    /// whatever the run's or the journal's size (decision 0115 ruling 4).
+    /// whatever the run's or the journal's size (decision 0119 ruling 4).
     /// No event is read, no chain verified, and a lagging row is read as
     /// it stands: these are candidates, never a readout.
     pub fn run_seats(&self, run_id: &str, limit: u32) -> Result<Vec<SeatNames>, StoreError> {
@@ -136,7 +136,7 @@ impl Store {
 
     /// [`Store::run_candidates`], reading at most `most` of a prefix's
     /// matches: what tells one run from several costs one page, however
-    /// many runs the prefix names (decision 0115 ruling 4). A completer's
+    /// many runs the prefix names (decision 0119 ruling 4). A completer's
     /// read, which never shows how many matched.
     pub fn run_candidates_within(
         &self,

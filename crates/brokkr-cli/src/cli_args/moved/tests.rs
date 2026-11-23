@@ -158,7 +158,7 @@ fn every_root_main_had_is_placed_once() {
     placed.extend(
         roots
             .iter()
-            // `completions` is decision 0115's, a root main never had.
+            // `completions` is decision 0119's, a root main never had.
             .filter(|root| {
                 !["journal", "library", "stats", "system", "completions"].contains(root)
             }),

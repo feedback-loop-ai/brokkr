@@ -120,7 +120,7 @@ fn a_rollback_journal_no_writer_holds_is_read_and_left_alone() {
 
 /// A rollback-mode journal a peer holds exclusively, with nothing yet
 /// written beside it, is never read lock-free: the read meets the lock
-/// and refuses once the patience is spent (decision 0115 ruling 7).
+/// and refuses once the patience is spent (decision 0119 ruling 7).
 #[test]
 fn a_rollback_journal_a_peer_holds_completes_nothing_within_the_patience() {
     let dir = tempfile::tempdir().unwrap();

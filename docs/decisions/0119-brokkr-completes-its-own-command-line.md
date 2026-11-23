@@ -1,6 +1,6 @@
-# 0115 — Brokkr completes its own command line
+# 0119 — Brokkr completes its own command line
 
-Status: accepted — operator ruled on #1230, 2026-11-21: "I want auto-complete, both static and dynamic, that will improve our quality of life tremendously!!! Schedule it after the new CLI shape"; the standing ruling of 2026-11-04 ("go with recommended on anything else that comes up") places what that ruling does not name
+Status: accepted — operator ruled on #1230, 2026-11-21: "I want auto-complete, both static and dynamic, that will improve our quality of life tremendously!!! Schedule it after the new CLI shape"; the standing ruling of 2026-11-04 ("go with recommended on anything else that comes up") places what that ruling does not name; proposed on #1230 as 0115, renumbered to 0119 because #1262's 0115 holds it
 Date: 2026-11-22
 
 Built: built — the verb, the live completer and its read rules (#1230); the Homebrew formula's install is the tap's, out of scope

@@ -318,7 +318,7 @@ fn reference() -> String {
          literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, \
          and `brokkr` itself `-V`/`--version`; the tables leave them out.\n\n\
          The verbs nest under thirteen roots: decision 0113's twelve and \
-         decision 0115's `completions`. Every old flat name, such as \
+         decision 0119's `completions`. Every old flat name, such as \
          `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for \
          `brokkr journal verify`, still parses as a hidden alias until 0.17, \
          and says its new spelling on stderr.\n\n"

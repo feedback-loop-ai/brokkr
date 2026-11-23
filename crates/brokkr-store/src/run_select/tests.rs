@@ -282,7 +282,7 @@ fn a_bounded_prefix_read_costs_its_bound_whatever_the_prefix_names() {
     assert_eq!(large.run_candidates_within("zzz", 2).unwrap(), Vec::new());
 }
 
-/// The completer's page (decision 0115 ruling 4): the newest runs in
+/// The completer's page (decision 0119 ruling 4): the newest runs in
 /// `latest`'s order, ties to the row inserted last, each with the feature
 /// line its summary folded, and no more than the limit.
 #[test]
@@ -359,7 +359,7 @@ fn seated(store: &mut Store, run: &str, count: u32) {
     tx.commit().unwrap();
 }
 
-/// The completer's phase and seat page (decision 0115 ruling 4): the
+/// The completer's phase and seat page (decision 0119 ruling 4): the
 /// run's own seat rows, in the order they opened, within the limit, and
 /// none of another run's.
 #[test]

@@ -1535,7 +1535,7 @@ fn a_latch_or_repin_over_a_pin_or_latch_that_no_longer_stands_is_refused_and_wri
     assert_eq!(store.queue_entry(entry).unwrap().latch.unwrap().seq, 4);
 }
 
-/// The completer's page (decision 0115 ruling 4): only the entries still
+/// The completer's page (decision 0119 ruling 4): only the entries still
 /// waiting, queued or held, newest first, and never more than its limit.
 #[test]
 fn the_waiting_page_lists_queued_and_held_entries_newest_first_within_its_limit() {

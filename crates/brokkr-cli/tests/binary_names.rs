@@ -83,7 +83,7 @@ fn no_user_facing_help_text_names_the_binary_forge() {
 
     // Every verb a help lists, each family's own verbs walked in turn.
     let mut paths: Vec<Vec<String>> = listed(&top).into_iter().map(|verb| vec![verb]).collect();
-    // Decision 0113's twelve roots and decision 0115's `completions`.
+    // Decision 0113's twelve roots and decision 0119's `completions`.
     assert_eq!(paths.len(), 13, "{paths:?}");
     let mut at = 0;
     while let Some(path) = paths.get(at).cloned() {

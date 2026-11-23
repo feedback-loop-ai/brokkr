@@ -519,7 +519,7 @@ impl Store {
     /// The newest `limit` entries still waiting to start, queued or held,
     /// each with its standing's word: the entries an operator command
     /// names, read as one page from the unclaimed rows and never decoded
-    /// (decision 0115 ruling 4). A journal from before the queue has none.
+    /// (decision 0119 ruling 4). A journal from before the queue has none.
     pub fn queue_waiting(&self, limit: u32) -> Result<Vec<(EntryId, String)>, StoreError> {
         patiently("queue_waiting", self.patience, &self.path, || {
             if queue_stored(&self.conn)?.is_none() {
