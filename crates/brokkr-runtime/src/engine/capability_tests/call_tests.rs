@@ -447,6 +447,17 @@ fn a_checkpoint_with_no_masked_key_reaches_the_lookups() {
     assert_eq!(calls.consume(&mut checkpoint), Err(unheld));
 }
 
+/// A checkpoint that is no JSON object carries no observation, so it
+/// claims no call and is no refusal.
+#[test]
+fn a_checkpoint_that_is_no_object_claims_no_call() {
+    let (_dir, mut engine, effect) = in_flight();
+    let mut calls = consuming(&mut engine, &effect, searching("work"));
+    for mut checkpoint in [json!(null), json!("web_search"), json!([search()])] {
+        assert_eq!(calls.consume(&mut checkpoint), Ok(None), "{checkpoint}");
+    }
+}
+
 /// A name that only shares a bracket or the word with the marker is
 /// judged as before: unknown and ordinary.
 #[test]
