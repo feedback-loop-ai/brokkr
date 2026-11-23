@@ -485,12 +485,36 @@ fn body_boundaries_are_checked() {
 #[test]
 fn intent_line_endings_are_stable_after_rendering() {
     let trackers = trackers();
-    let source = DRAFT.replace("Keep the work clear.", "First\r\r\nSecond\r clause.");
-    let canonical = DRAFT.replace("Keep the work clear.", "First\nSecond\r clause.");
+    let canonical = DRAFT.replace("Keep the work clear.", "First line.\nSecond line.");
+    let source = canonical.replace('\n', "\r\n");
     let order = WorkOrder::parse(&source, &trackers).unwrap();
-    assert_eq!(order.intent(), "First\nSecond\r clause.");
+    assert_eq!(order.intent(), "First line.\nSecond line.");
     assert_eq!(order.render(), canonical);
     assert_eq!(WorkOrder::parse(&canonical, &trackers).unwrap(), order);
+}
+
+#[test]
+fn lone_carriage_returns_in_the_body_are_refused() {
+    let trackers = trackers();
+    assert_refused(
+        fixture!("lone-carriage-return"),
+        &trackers,
+        Refusal::BodyCarriageReturn,
+        "the work order's Markdown body must use LF or CRLF line endings",
+    );
+    for document in [
+        DRAFT.replace(
+            "- Read the work order.",
+            "- Read the work order.\r## Other\r\rExtra prose.",
+        ),
+        DRAFT.replace("Keep the work clear.", "First line.\r\r\nSecond line."),
+        format!("{}\r", DRAFT.trim_end_matches('\n')),
+    ] {
+        assert_eq!(
+            WorkOrder::parse(&document, &trackers).unwrap_err().0,
+            Refusal::BodyCarriageReturn
+        );
+    }
 }
 
 #[test]

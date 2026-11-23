@@ -1481,6 +1481,7 @@ fn work_order_fixtures_agree_with_the_header_schema() {
         "before-header.md",
         "empty-acceptance.md",
         "empty-intent.md",
+        "lone-carriage-return.md",
         "missing-acceptance.md",
         "missing-intent.md",
         "missing-ruling.md",

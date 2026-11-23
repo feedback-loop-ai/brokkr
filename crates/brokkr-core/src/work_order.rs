@@ -574,6 +574,10 @@ fn section(line: &str) -> Option<Section> {
 }
 
 fn read_body(mut lines: std::str::Lines<'_>) -> Result<(String, Vec<String>), Refusal> {
+    // lines() strips CRLF endings. Markdown treats any CR it leaves as a line break.
+    if lines.clone().any(|line| line.contains('\r')) {
+        return Err(Refusal::BodyCarriageReturn);
+    }
     match lines.find(|line| !line.trim().is_empty()).and_then(section) {
         Some(Section::Intent) => {}
         Some(Section::Other) => return Err(Refusal::OtherSection),
@@ -592,9 +596,7 @@ fn read_body(mut lines: std::str::Lines<'_>) -> Result<(String, Vec<String>), Re
                 }
                 return Ok((intent.to_owned(), read_acceptance(lines)?));
             }
-            // A CR left at the end after lines() would become part of
-            // the next read's CRLF separator once the intent is rendered.
-            None => intent.push(line.trim_end_matches('\r')),
+            None => intent.push(line),
         }
     }
     Err(Refusal::MissingAcceptance)
@@ -682,6 +684,8 @@ enum Refusal {
     ReferenceLink,
     #[error("host '{host}' is outside the link hosts for tracker '{tracker}'")]
     ReferenceHost { tracker: String, host: String },
+    #[error("the work order's Markdown body must use LF or CRLF line endings")]
+    BodyCarriageReturn,
     #[error("the work order needs an '## Intent' section after its header")]
     MissingIntent,
     #[error("the work order needs an '## Acceptance' section after its intent")]
