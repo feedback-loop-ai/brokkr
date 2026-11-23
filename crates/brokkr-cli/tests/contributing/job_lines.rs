@@ -545,6 +545,9 @@ const CPU_BUDGETS_LINES: &str = r#"
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           REF: ${{ inputs.ref }}
+          COUNTS: "the head's counts, 2% over the base at most"
+        run:
+      - name: the head's benches, built
         run:
       - name: the base's counts
         run:

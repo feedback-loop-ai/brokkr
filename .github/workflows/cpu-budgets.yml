@@ -9,11 +9,14 @@
 # summary names the base, the head, the commits between them and each bench
 # over its limit. Valgrind runs on Linux only.
 #
-# The base is the commit the previous successful scheduled run measured,
-# its head, while that commit is still an ancestor of main's head; where
-# there is none, the newest commit on main's first-parent line at least 24
-# hours older than the head. By hand, `ref` measures a branch or commit
-# against its merge-base with main.
+# The base is the head of the newest scheduled run whose counts reached a
+# verdict, within 2% or over it, while that commit is still an ancestor of
+# main's head; where there is none, the newest commit on main's
+# first-parent line at least 24 hours older than the head. So a rise turns
+# the one nightly whose commits hold it red, and the next measures from the
+# risen head: a rise is ruled on once, not re-reported every night. A run
+# that failed before its counts measured nothing and is never a base. By
+# hand, `ref` measures a branch or commit against its merge-base with main.
 name: cpu budgets
 
 on:
@@ -65,22 +68,33 @@ jobs:
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Cargo.lock holds no single gungraun version" >&2; exit 1; }
           cargo install --locked gungraun-runner --version "$version"
           echo "GUNGRAUN_VERSION=$version" >> "$GITHUB_ENV"
-      # The base, found the same way every night: the previous successful
-      # scheduled run's head while main still holds it, else the newest
-      # first-parent commit at least 24 hours older than the head.
+      # The base, found the same way every night: the head of the newest
+      # scheduled run whose counts step reached a verdict, success or
+      # failure, while main still holds it, else the newest first-parent
+      # commit at least 24 hours older than the head.
       - name: the base, the previous nightly's head
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           REF: ${{ inputs.ref }}
+          COUNTS: "the head's counts, 2% over the base at most"
         run: |
           head="$(git rev-parse HEAD)"
           if [ -n "$REF" ]; then
             base="$(git merge-base origin/main "$head")"
             how="the merge-base of $REF with main"
           else
-            base="$(gh api "repos/$REPO/actions/workflows/cpu-budgets.yml/runs?branch=main&event=schedule&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')"
-            how="the head the previous successful nightly measured"
+            base=""
+            how="the head the previous nightly measured"
+            runs="$(gh api "repos/$REPO/actions/workflows/cpu-budgets.yml/runs?branch=main&event=schedule&status=completed&per_page=20" --jq '.workflow_runs[] | "\(.id) \(.head_sha)"')"
+            while read -r id sha; do
+              [ -n "$id" ] || continue
+              verdict="$(gh api "repos/$REPO/actions/runs/$id/jobs" --jq "[.jobs[].steps[] | select(.name == \"$COUNTS\") | .conclusion] | first // empty")"
+              if [ "$verdict" = success ] || [ "$verdict" = failure ]; then
+                base="$sha"
+                break
+              fi
+            done <<< "$runs"
             if [ -z "$base" ] || ! git merge-base --is-ancestor "$base" "$head"; then
               cutoff=$(( $(git log -1 --format=%ct "$head") - 86400 ))
               base="$(git rev-list -1 --first-parent --before="@$cutoff" "$head")"
@@ -91,6 +105,16 @@ jobs:
           printf 'BASE_SHA=%s\nHEAD_SHA=%s\nBASE_HOW=%s\n' "$base" "$head" "$how" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/record"
           printf 'head %s\nbase %s\nfound as %s\ngungraun %s\n' "$head" "$base" "$how" "$GUNGRAUN_VERSION" > "$RUNNER_TEMP/record/measured.txt"
+      # The head's benches build in a step of their own, so a build that
+      # fails ends the run before its counts step, and the run is never a
+      # base. The build's `--timings` report is an artifact, never a gate.
+      - name: the head's benches, built
+        run: |
+          if [ "$BASE_SHA" = "$HEAD_SHA" ]; then
+            echo "the head is the base: nothing to build"
+            exit 0
+          fi
+          cargo bench --locked --no-run --timings -p brokkr-cli --bench budgets_lib --bench budgets_bin
       - name: the base's counts
         run: |
           export GUNGRAUN_HOME="$RUNNER_TEMP/gungraun"
@@ -124,7 +148,7 @@ jobs:
             echo "- nothing landed since the base: not measured" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          set -- --locked --timings -p brokkr-cli --bench budgets_lib --bench budgets_bin
+          set -- --locked -p brokkr-cli --bench budgets_lib --bench budgets_bin
           set +e
           if [ -d "$GUNGRAUN_HOME" ]; then
             NO_COLOR=1 cargo bench "$@" -- --baseline=base --callgrind-limits='ir=2%' 2>&1 | tee "$log"
