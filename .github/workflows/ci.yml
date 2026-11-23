@@ -1,6 +1,12 @@
 name: ci
 
 on:
+  # The push of a commit the merge queue already judged (#1295) runs only
+  # what nothing else feeds: the fast gates, so the README's badge still
+  # reads a verdict on main, and the builds whose caches a pull request's
+  # run restores from main, which no merge group's cache can reach. Every
+  # test, coverage, Callgrind, bootstrap and packaging job skips on `push`
+  # alone; contributing.rs holds which jobs run there.
   push:
     branches: [main]
   pull_request:
@@ -165,6 +171,7 @@ jobs:
   # (decision 0063). The plugin has no dependencies, so nothing is installed.
   plugin-tests:
     name: plugin tests (${{ matrix.os }})
+    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -191,6 +198,7 @@ jobs:
   # job's verdicts over them, so the checks main requires keep their names.
   engine-machines:
     name: test (${{ matrix.os }}) on ${{ matrix.machine }}
+    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -311,11 +319,12 @@ jobs:
   # machines above. It runs whatever they ended with, `always()`, because a
   # skipped job reports success to a required check: a machine that failed,
   # was cancelled or never ran fails both verdicts, and the machine's own
-  # job names which.
+  # job names which. On `push` the machines skip by design, so the
+  # verdicts skip with them (#1295).
   engine:
     name: test (${{ matrix.os }})
     needs: engine-machines
-    if: always()
+    if: always() && github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -342,6 +351,7 @@ jobs:
   # either way; closing #269 restores the gate.
   seatbelt-lifetime:
     name: seatbelt lifetime probe (Gate B, reporting)
+    if: github.event_name != 'push'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -383,6 +393,7 @@ jobs:
   # report its merged profile; the machines run at once.
   coverage-machines:
     name: exact coverage on ${{ matrix.machine }}
+    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -469,11 +480,12 @@ jobs:
   # The exact gate itself: every machine's profile, merged over the same
   # instrumented build, and judged whole. It runs whatever the machines
   # ended with, `always()`, because a skipped job reports success to a
-  # required check, and refuses unless every machine passed.
+  # required check, and refuses unless every machine passed. On `push` the
+  # machines skip by design, so the gate skips with them (#1295).
   coverage:
     name: exact coverage gate
     needs: coverage-machines
-    if: always()
+    if: always() && github.event_name != 'push'
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     # 30, not the usual 20: it rebuilds the instrumented binaries, about 5
     # minutes on a hosted runner, then runs the ratchets.
@@ -714,6 +726,7 @@ jobs:
   bootstrap-budgets:
     name: bootstrap budgets (60s install / 5min first run, ubuntu-latest)
     needs: release-binary
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -735,6 +748,7 @@ jobs:
 
   bootstrap-budgets-macos:
     name: bootstrap budgets (60s install / 5min first run, macos-latest)
+    if: github.event_name != 'push'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -757,6 +771,7 @@ jobs:
   packaging:
     name: packaging channels
     needs: release-binary
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -818,6 +833,7 @@ jobs:
   # the channels job renders after the tag (see packaging/README.md).
   flake:
     name: nix flake check
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -922,3 +938,60 @@ jobs:
         with:
           name: cargo-timings
           path: target/cargo-timings/
+
+  # The caches a pull request's run restores (#1295). GitHub scopes a cache
+  # to the ref that saved it, and a pull request's run reads its own ref's
+  # and its base branch's, never a merge group's. So the push to main is
+  # what saves them, and on `push` the jobs that restore them skip. Each
+  # entry builds what one such job builds, running nothing, under that
+  # job's own cache key: rust-cache's key is its `shared-key` where one is
+  # given and the job's id where not, then the runner's system and
+  # architecture and a hash of the toolchain and its CARGO and RUST
+  # variables, so `shared-key: engine-machines` here saves the very key
+  # engine-machines restores. `format, clippy, contracts` and the release
+  # binary run on `push` themselves and save their own. An exact hit means
+  # main already holds this key, so the build is skipped. Not warmed: the
+  # coverage jobs' instrumented build, which only scripts/coverage-exact.sh
+  # makes, under a key it computes itself.
+  pr-caches:
+    name: pull-request cache (${{ matrix.key }}, ${{ matrix.os }})
+    if: github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: engine-machines
+            os: ubuntu-24.04
+          - key: engine-machines
+            os: macos-latest
+          - key: seatbelt-lifetime
+            os: macos-latest
+          - key: bootstrap-budgets-macos
+            os: macos-latest
+          - key: packaging
+            os: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        id: cache
+        with:
+          shared-key: ${{ matrix.key }}
+      - name: the job's build, no test run
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          KEY: ${{ matrix.key }}
+        run: |
+          case "$KEY" in
+            engine-machines) cargo test --workspace --all-features --locked --no-run ;;
+            seatbelt-lifetime) cargo test --locked -p brokkr-seatbelt-probe --test seatbelt_lifetime_probe --no-run ;;
+            bootstrap-budgets-macos) cargo build --release --locked -p brokkr-cli ;;
+            packaging) cargo test --locked -p brokkr-cli --no-run ;;
+            *) echo "no build for the cache key $KEY" >&2; exit 1 ;;
+          esac

@@ -1611,6 +1611,7 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "flake",
             "release-binary",
             "cpu-budgets",
+            "pr-caches",
         ]
     );
     for (id, body) in &jobs {
@@ -1623,7 +1624,12 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
         .filter(|(_, body)| body.contains("cargo build --release"))
         .map(|(id, _)| id.as_str())
         .collect();
-    assert_eq!(builders, ["bootstrap-budgets-macos", "release-binary"]);
+    // pr-caches builds on macOS, on the push to main alone, to save the
+    // macOS bootstrap job's cache (#1295); Linux still builds once.
+    assert_eq!(
+        builders,
+        ["bootstrap-budgets-macos", "release-binary", "pr-caches"]
+    );
     for consumer in ["bootstrap-budgets", "packaging"] {
         let body = job(consumer);
         assert!(body.contains("    needs: release-binary\n"), "{consumer}");

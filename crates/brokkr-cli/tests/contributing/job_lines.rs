@@ -101,6 +101,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         "engine-machines",
         r#"
     name: test (${{ matrix.os }}) on ${{ matrix.machine }}
+    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -163,7 +164,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         r#"
     name: test (${{ matrix.os }})
     needs: engine-machines
-    if: always()
+    if: always() && github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -181,6 +182,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         "coverage-machines",
         r#"
     name: exact coverage on ${{ matrix.machine }}
+    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -217,7 +219,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         r#"
     name: exact coverage gate
     needs: coverage-machines
-    if: always()
+    if: always() && github.event_name != 'push'
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     timeout-minutes: 30
     steps:

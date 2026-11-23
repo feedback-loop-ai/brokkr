@@ -1095,46 +1095,109 @@ enum InTheQueue {
     PullRequestOnly,
     /// It runs on its schedule or by hand, never in the queue.
     Scheduled,
+    /// It runs on the push of a commit to `main` alone, a commit the queue
+    /// already judged, and saves what a pull request's run restores
+    /// (#1295).
+    PushOnly,
 }
 
-/// The `if:` conditions this test reads, and what each does in a merge
-/// group. Any other condition fails the test rather than being guessed at.
-const CONDITIONS: [(&str, InTheQueue); 11] = [
+/// The other events a condition lets its job or step run on: a pull
+/// request's, and the push of a commit to `main` (#1295).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Fires {
+    pull_request: bool,
+    push: bool,
+}
+
+/// Every event but the merge queue's, which `InTheQueue` holds.
+const EVERY: Fires = Fires {
+    pull_request: true,
+    push: true,
+};
+
+/// A pull request's events, and no push.
+const NOT_ON_PUSH: Fires = Fires {
+    pull_request: true,
+    push: false,
+};
+
+/// The `if:` conditions this test reads, what each does in a merge group,
+/// and the other events it runs on. Any other condition fails the test
+/// rather than being guessed at.
+const CONDITIONS: [(&str, InTheQueue, Fires); 15] = [
     (
         "github.event_name == 'pull_request'",
         InTheQueue::PullRequestOnly,
+        NOT_ON_PUSH,
     ),
     (
         "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
         InTheQueue::Scheduled,
+        Fires {
+            pull_request: false,
+            push: false,
+        },
+    ),
+    // The push of a commit the queue already judged runs only what nothing
+    // else feeds (#1295).
+    ("github.event_name != 'push'", InTheQueue::Runs, NOT_ON_PUSH),
+    (
+        "always() && github.event_name != 'push'",
+        InTheQueue::Runs,
+        NOT_ON_PUSH,
+    ),
+    (
+        "github.event_name == 'push'",
+        InTheQueue::PushOnly,
+        Fires {
+            pull_request: false,
+            push: true,
+        },
+    ),
+    // An exact cache hit leaves nothing to save, so its build is skipped.
+    (
+        "steps.cache.outputs.cache-hit != 'true'",
+        InTheQueue::Runs,
+        EVERY,
     ),
     // Both runner kinds execute the same checks in the queue. Only their
     // provisioning and cache steps differ.
-    ("runner.environment == 'self-hosted'", InTheQueue::Runs),
-    ("runner.environment != 'self-hosted'", InTheQueue::Runs),
+    (
+        "runner.environment == 'self-hosted'",
+        InTheQueue::Runs,
+        EVERY,
+    ),
+    (
+        "runner.environment != 'self-hosted'",
+        InTheQueue::Runs,
+        EVERY,
+    ),
     (
         "runner.os == 'Linux' && runner.environment != 'self-hosted'",
         InTheQueue::Runs,
+        EVERY,
     ),
-    ("runner.os == 'Linux'", InTheQueue::Runs),
-    ("runner.os == 'macOS'", InTheQueue::Runs),
-    ("always()", InTheQueue::Runs),
-    ("always() && runner.os == 'macOS'", InTheQueue::Runs),
+    ("runner.os == 'Linux'", InTheQueue::Runs, EVERY),
+    ("runner.os == 'macOS'", InTheQueue::Runs, EVERY),
+    ("always()", InTheQueue::Runs, EVERY),
+    ("always() && runner.os == 'macOS'", InTheQueue::Runs, EVERY),
     // The macOS startup gate runs on one of the suite's machines, the
     // first; the queue runs every machine.
     (
         "runner.os == 'macOS' && matrix.machine == 'macos/1'",
         InTheQueue::Runs,
+        EVERY,
     ),
     (
         "always() && runner.os == 'macOS' && matrix.machine == 'macos/1'",
         InTheQueue::Runs,
+        EVERY,
     ),
 ];
 
 /// Every job of the workflows the required checks live in, in file order,
 /// and what it does in a merge group.
-const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 23] = [
+const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 24] = [
     // It judges the run that the pull request's own description names for
     // its own head (decisions 0033, 0038), and a merge group carries no
     // description, labels or head repository. The queue lands that head's
@@ -1164,6 +1227,9 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 23] = [
     // In no required check: it measures the pull request's merge against
     // the base its event names, and a rise is ruled on the pull request.
     ("ci.yml", "cpu-budgets", InTheQueue::PullRequestOnly),
+    // In no required check: it saves, from main, the caches a pull
+    // request's jobs restore, which a merge group's cache cannot feed.
+    ("ci.yml", "pr-caches", InTheQueue::PushOnly),
     // It judges the mutants of the pull request's own diff against its
     // base, and the queue lands that diff. A miss two pull requests make
     // only together is left to the weekly run.
@@ -1198,15 +1264,42 @@ const STEPS_OUT_OF_THE_QUEUE: [(&str, &str, &str, InTheQueue); 2] = [
     ),
 ];
 
-/// What `condition`, an `if:` at `site`, does in a merge group.
-fn in_the_queue(condition: Option<&str>, site: &str) -> InTheQueue {
-    condition.map_or(InTheQueue::Runs, |condition| {
+/// What `condition`, an `if:` at `site`, does in a merge group, and the
+/// other events it runs on.
+fn read_condition(condition: Option<&str>, site: &str) -> (InTheQueue, Fires) {
+    condition.map_or((InTheQueue::Runs, EVERY), |condition| {
         CONDITIONS
             .iter()
-            .find(|(known, _)| *known == condition)
-            .map(|(_, queue)| *queue)
+            .find(|(known, _, _)| *known == condition)
+            .map(|&(_, queue, fires)| (queue, fires))
             .unwrap_or_else(|| panic!("{site} runs `if: {condition}`, which this test cannot read"))
     })
+}
+
+/// What `condition`, an `if:` at `site`, does in a merge group.
+fn in_the_queue(condition: Option<&str>, site: &str) -> InTheQueue {
+    read_condition(condition, site).0
+}
+
+/// Whether the job `id` of `jobs` runs on the event `on` picks: its own
+/// `if:`, and then the job it `needs:`, whose skip it carries unless its
+/// own condition is `always()`.
+fn job_fires(file: &str, jobs: &[(String, String)], id: &str, on: fn(Fires) -> bool) -> bool {
+    let body = jobs
+        .iter()
+        .find_map(|(job, body)| (job == id).then_some(body))
+        .unwrap_or_else(|| panic!("{file} has no {id} job"));
+    let own = body.lines().find_map(|line| line.strip_prefix("    if: "));
+    let fires = on(read_condition(own, &format!("{file}'s {id}")).1);
+    let needed = body
+        .lines()
+        .find_map(|line| line.strip_prefix("    needs: "));
+    match needed {
+        Some(needed) if fires && !own.is_some_and(|own| own.starts_with("always()")) => {
+            job_fires(file, jobs, needed, on)
+        }
+        _ => fires,
+    }
 }
 
 /// What the job `id` of `jobs` does in a merge group: its own `if:`, and
@@ -1331,6 +1424,82 @@ fn every_job_behaves_deliberately_in_a_merge_group() {
         assert!(
             matches!(queue, InTheQueue::Runs | InTheQueue::PullRequestOnly),
             "{check} neither runs nor skips deliberately in a merge group: {queue:?}"
+        );
+    }
+}
+
+/// The jobs of ci.yml that run on the push of a commit to `main` (#1295),
+/// in file order: the fast gates, so the README's badge reads a verdict
+/// on main, and the builds that save the caches a pull request's run
+/// restores. Everything else that commit already passed in the queue.
+const JOBS_ON_PUSH: [&str; 8] = [
+    "msrv",
+    "quality",
+    "license-compliance",
+    "lint-non-rust",
+    "ratchets",
+    "dependency-audit",
+    "release-binary",
+    "pr-caches",
+];
+
+/// What no step on the push to `main` may run: the suite, its coverage,
+/// the CPU and bootstrap benches, or a test that is not `--no-run`.
+const NOT_ON_PUSH_RUNS: [&str; 4] = [
+    "scripts/test-shards.sh",
+    "scripts/coverage-exact.sh",
+    "cargo bench",
+    "scripts/bootstrap-bench.sh",
+];
+
+/// The push to `main` after each merge runs only what it uniquely feeds
+/// (#1295): `JOBS_ON_PUSH`, none of whose steps on `push` runs a test,
+/// coverage, Callgrind or bootstrap measure. And every required check's
+/// job still runs on a pull request, and runs or reports in a merge group.
+#[test]
+fn the_push_to_main_runs_only_what_it_uniquely_feeds() {
+    let root = workspace();
+    let text = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
+    let jobs = workflow::jobs(&text);
+    let on_push: Vec<&str> = jobs
+        .iter()
+        .map(|(id, _)| id.as_str())
+        .filter(|id| job_fires("ci.yml", &jobs, id, |fires| fires.push))
+        .collect();
+    assert_eq!(on_push, JOBS_ON_PUSH, "ci.yml's jobs on the push to main");
+    for (id, body) in jobs.iter().filter(|(id, _)| on_push.contains(&id.as_str())) {
+        let site = format!("a step of ci.yml's {id}");
+        for step in job_steps(&body.lines().collect::<Vec<_>>()) {
+            let condition = step.iter().find_map(|line| {
+                line.strip_prefix("      - if: ")
+                    .or_else(|| line.strip_prefix("        if: "))
+            });
+            if !read_condition(condition, &site).1.push {
+                continue;
+            }
+            for line in step {
+                assert!(
+                    !NOT_ON_PUSH_RUNS.iter().any(|run| line.contains(run))
+                        && (!line.contains("cargo test") || line.contains("--no-run")),
+                    "{id} runs `{}` on the push to main",
+                    line.trim()
+                );
+            }
+        }
+    }
+    for (check, id, file) in MAIN_REQUIRES {
+        let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
+        let jobs = workflow::jobs(&text);
+        assert!(
+            job_fires(file, &jobs, id, |fires| fires.pull_request),
+            "{check} does not run on a pull request"
+        );
+        assert!(
+            matches!(
+                job_in_the_queue(file, &jobs, id),
+                InTheQueue::Runs | InTheQueue::PullRequestOnly
+            ),
+            "{check} neither runs nor reports in a merge group"
         );
     }
 }
