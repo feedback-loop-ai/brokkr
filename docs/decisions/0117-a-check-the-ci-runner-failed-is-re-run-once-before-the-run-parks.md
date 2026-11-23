@@ -1,6 +1,6 @@
 # 0117 — A check the CI runner failed, not the change, is re-run once before the run parks
 
-Status: accepted — operator ruled on #1093, 2026-11-23, accepting it on the controller's by-hand diff after the twelfth hold (https://github.com/feedback-loop-ai/brokkr/issues/1093#issuecomment-7080955448); drafted and ruled on #1093 as 0111, renumbered to 0117 because #1136's decision 0111 merged first (https://github.com/feedback-loop-ai/brokkr/issues/1093#issuecomment-7087024542)
+Status: accepted — operator ruled on #1093, 2026-11-23, accepting it on the controller's by-hand diff after the twelfth hold (https://github.com/feedback-loop-ai/brokkr/issues/1093#issuecomment-7080955448); drafted and ruled on #1093 as 0111, renumbered to 0117 because #1136's decision 0111 merged first (https://github.com/feedback-loop-ai/brokkr/issues/1093#issuecomment-7087024542); its revision rule amended by the operator on 2026-11-23, "amend it, yes" (https://github.com/feedback-loop-ai/brokkr/issues/1093#issuecomment-7089223369): a green run whose `head_sha` is the gated head proves the change's revision, and the base branch's merge queue proves the merge
 Date: 2026-11-18
 
 Built: unbuilt (#1093)
@@ -888,56 +888,47 @@ the compiled bundle outside the change, each entry bound to its producer.**
 - **(c) Whatever checks the forge reports for the head.** Refused: a missing check is invisible
   to it, so an absent audit would pass. That is the fault this ruling closes.
 
-**`green` needs the revision the run tested, established.** HEAD's pull-request workflow tells
-three revisions apart: `delivered by brokkr` checks out the trusted base and the pull request's
-head by explicit ref (`.github/workflows/ci.yml:49-64`), and the ratchet job asserts that its
-checkout is the pull request's merge commit (`:663-671`). A checkout with no `ref`, as the audit
-job's (`:681-683`), tests the forge's generated merge revision on a `pull_request` event
+**`green` needs the change's revision proven; the merge is the merge queue's.** HEAD's
+pull-request workflow tells three revisions apart: `delivered by brokkr` checks out the trusted
+base and the pull request's head by explicit ref (`.github/workflows/ci.yml:49-64`), and the
+ratchet job asserts that its checkout is the pull request's merge commit (`:663-671`). A checkout
+with no `ref`, as the audit job's (`:681-683`), tests the forge's generated merge revision on a
+`pull_request` event
 (<https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request>;
-unmeasured here). And a run's association SHA is not proof of what it tested, nor is its
-`head_sha`: both name the pull request's head whatever the job checked out. So each required
-Actions entry declares `tested`, one of two words, and **in every checkout mode the current
-execution's tested revision is proven on its own**, from the run's own record of the commit it
-tested (its **tested-commit record**), never inferred from the head or the association:
+unmeasured here). A run names only `head_sha`, the pull request's head, in both checkout modes,
+and no field of a run, a job or a check run names the merge revision a `merge`-checkout job
+tested (0117a: every `run.<id>.json` and `run.<id>.jobs.all.page1.json`).
 
-- **In both modes, first:** the observation names the tested-commit record as the run records
-  it. Where the forge records no such field, or the observation carries it as `unread`, the
-  revision is not established, in `head` mode as in `merge` mode: row `revision-unproven`.
-- `head`: the run tested the gated head itself. Three separate comparisons, never one: the
-  tested-commit record against the gated head; the run's `head_sha` against the gated head; and
-  the association's `head.sha` against the gated head. Matching heads with no tested-commit
-  record never stand in for it.
-- `merge`: the run tested the forge's merge revision, `refs/pull/<number>/merge`. The
-  tested-commit record names the exact merge commit, and the observation names that commit's two
-  parents. Its first parent must be the base the observation names, which must be the pull
-  request's current base, and its second the gated head. The merge commit is a distinct commit
-  from the head, as a valid merge always is, so the comparisons are separate, never one: the
-  run's `head_sha` and the association's `head.sha` against the gated head; the merge commit's
-  second parent against the gated head; its first parent against the association's `base.sha`
-  and the observation's base; and the merge commit against the tested-commit record.
+**Amended by the operator on 2026-11-23** ("a re-run should count as a pass if the failure is
+proven flake, anything other than that doesn't make sense to me"; "amend it, yes";
+<https://github.com/feedback-loop-ai/brokkr/issues/1093#issuecomment-7089223369>). As accepted,
+this ruling required a tested-commit record in every checkout mode, and 0117a found none, so
+`revision-unproven` was true on every live observation and no CI, first run or re-run, could pass
+live. The amended rule has two parts:
 
-The `tested` word is the operator's statement about a pinned workflow, in the compiled list; a
-wrong one costs at most a wrong `green`, which is landing as it is today.
+- **The change's revision is proven by the run.** A current execution that is a `pull_request`
+  run of the entry's bound workflow path, whose `head_sha` reads and equals the gated head, proves
+  the change's revision, in `head` mode as in `merge` mode. Where its `head_sha` is unread, or the
+  run is not of the entry's bound key (its workflow path and the `pull_request` event),
+  `revision-unproven` is true. Where its `head_sha` reads and differs from the gated head,
+  `revision-disagrees` is true, naming the two values, never resolved by preferring one source.
+  The association's `head.sha` is P5's (`association-unproven`).
+- **The merge itself is proven by the base branch's merge queue.** Main's ruleset 24071236 holds
+  a `merge_queue` rule (every case's `rules.main.json`: `merge_method` `SQUASH`,
+  `grouping_strategy` `ALLGREEN`), and HEAD's workflow runs on `merge_group`
+  (`.github/workflows/ci.yml:16`). So the forge re-runs CI on the actual merge group, under its
+  required checks, before anything lands, and the observer needs no tested-commit source of its
+  own. That is a dependency, stated here once: the observer reads the base branch's rules
+  (`rules/branches/<base>`, as 0117a read them), and where they hold no `merge_queue` rule, or the
+  read is unread or incomplete, `revision-unproven` is true for every entry. If the merge queue
+  is ever off, the rule reverts to unproven.
 
-Any one of those comparisons that fails is row `revision-disagrees`, naming the two values that
-differ; it is never resolved by preferring one source. (Fix round 1093r4's row demanded that
-the association, the run's head, the tested commit and the gated head all be one commit, which
-no valid merge is; that row is replaced.)
-
-**The tested commit, as measured: no source, so no entry is `green` yet.** 0117a found that a
-run names only `head_sha`, the pull request's head, in both checkout modes, and that no field of
-a run, a job or a check run names the merge revision a `merge`-checkout job tested (every
-`run.<id>.json` and `run.<id>.jobs.all.page1.json`; the house's audit and ratchet jobs are both
-`merge` checkouts). So the rule above applies as written: the observer seals every tested-commit
-record as `unread`, with the reason that the forge names none, and every observation with a
-matched required entry makes `revision-unproven` true, in `head` mode as in `merge` mode, for
-this house and every adopter. **No live observation is `green` until a later measurement**: the
-gate, once 0117d lifts its refusal, parks every observation for a person. That is the
-conservative outcome, and it costs every landing under the overlay a person's look, never a
-pass. What would change it is a source of the tested commit outside the change, measured by a
-later capture and ruled by a revision of this decision: a forge field naming a job's checkout,
-or a record the trusted base writes; a record a job writes under a workflow file the change can
-edit is not such a source.
+The `tested` word stays the operator's statement about a pinned workflow, in the compiled list:
+it says which revision the job checks out, and both words now need the same proof of the
+change's revision, the merge's being the queue's. The tested-commit record, its merge-parent
+comparisons and fix round 1093r4's single-commit row leave with the amendment. What a job checks
+out is still the workflow's, as it is for landing today
+([The gate grants nothing](#the-gate-grants-nothing)).
 
 The revision is the run's, not a step's: a step moved off it is CI's own machinery, green on the
 forge as well, landing's existing exposure; proving a step's revision was the deferred
@@ -980,9 +971,9 @@ predicates are `green`'s own conditions, stated once here and nowhere else:
 - **P5, this pull request's single association.** Each current execution's `pull_requests`
   names this pull request and no other, with `head.sha` the gated head and `base.sha` the base
   the observation names; and the open pull requests on the head are the launch-bound one alone.
-- **P6, the revision proven tested.** Each current execution's tested revision is established
-  from its tested-commit record, in every checkout mode, as its entry's `tested` word requires
-  (above).
+- **P6, the change's revision proven.** Each current execution is a `pull_request` run of its
+  entry's bound workflow path whose `head_sha` is the gated head, and the base branch's rules
+  hold a `merge_queue` rule, so the merge is the queue's (above, as amended 2026-11-23).
 - **P7, a readable observation from a trusted launch.** The launch passed ruling 2's rules, and
   the observation parsed under its contract, inside its bound.
 - **P8, one consistent snapshot.** For each entry, read through the join, every item of every
@@ -1035,8 +1026,8 @@ default, and each paged list carries whether it was read to its last page.
 | `not-success` | each match's conclusion | P4 | a `completed` match concluded anything but `success`; it names the check and the word. It reads only a completed match, so a null conclusion beside another status is `not-settled` alone | `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success` |
 | `association-unproven` | each current execution's `pull_requests` | P5 | it does not name this pull request, its head and its base, or is empty | `a_run_with_an_empty_association_parks_as_association_unproven` |
 | `association-ambiguous` | each current execution's `pull_requests` | P5 | it names more than one pull request, open or closed; it names every one | `an_association_naming_a_and_a_closed_b_parks_as_association_ambiguous` |
-| `revision-unproven` | each current execution's tested-commit record, in either checkout mode | P6 | the record is absent or unread, in `head` mode as in `merge` mode | `a_head_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` and `a_merge_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` |
-| `revision-disagrees` | each current execution's tested-commit record and its mode's separate comparisons | P6 | one comparison fails; it names the two values | `a_head_entry_whose_tested_commit_differs_from_the_gated_head_parks_as_revision_disagrees` and `an_association_and_a_merge_commit_that_disagree_park_as_revision_disagrees` |
+| `revision-unproven` | each current execution's `head_sha`, workflow path and event; the base branch's rules | P6 | the `head_sha` is unread, or the run is not of the entry's bound key; or the base branch's rules hold no `merge_queue` rule, or that read is unread or incomplete (amended 2026-11-23) | `a_run_whose_head_sha_is_unread_parks_as_revision_unproven` and `base_rules_without_a_merge_queue_park_every_entry_as_revision_unproven` |
+| `revision-disagrees` | each current execution's `head_sha`; the gated head | P6 | the `head_sha` reads and is not the gated head; it names the two values | `a_run_whose_head_sha_differs_from_the_gated_head_parks_as_revision_disagrees` |
 | `producer-mismatch` | every check under an entry-set entry's name from outside the entry's workflow on the head | | a check under that name from another app or workflow path is anything but completed `success`, in progress among them | `a_sole_red_from_another_producer_names_missing_required_for_its_entry_then_producer_mismatch` |
 | `status-required` | the forge's required set, where read | | it names a commit status context | `a_status_context_in_the_forges_required_set_parks_as_status_required` |
 | `required-set-disagrees` | the forge's required set, where read, each requirement's context and `app_id`; the declared list | | the forge requires a check whose identity the declared list lacks: a context it lacks, or a declared context whose required `app_id` is not that entry's app id. An `app_id` absent, null or `-1` (any app) is not the entry's, so it is true too: 0117a read 15368 on all 12, and the other forms are unmeasured. It names the context and both ids | `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees` and `a_forge_required_check_under_a_declared_name_from_another_app_parks_as_required_set_disagrees` |
@@ -1216,17 +1207,14 @@ current, which is history and which is carried is re-derived from the journal al
 
 **The person's re-run is of every job.** A failed-jobs-only re-run carries the jobs it did not
 re-run into the new attempt, as above, so the recovery `inspect` names is re-running all of the
-run's jobs, which re-creates every one and clears `carried-job`. Live, that is not yet `green`:
-the re-run's tested commit is unread as every run's is, so `revision-unproven` stays true
-([the tested commit, as measured](#3-the-observation-the-judgment-and-where-the-journal-keeps-them)). A pass is judged only over a
-builder observation that carries a tested-commit record (0117c's control,
-`a_consistent_single_attempt_snapshot_is_green`). **Proved by 0117c:**
+run's jobs, which re-creates every one and clears `carried-job`; a full re-run that comes back
+green, its `head_sha` the gated head, is `green` live (the revision rule as amended 2026-11-23).
+**Proved by 0117c:**
 `a_failed_jobs_only_rerun_carrying_a_passed_entry_parks_as_carried_job_live_and_on_replay`
 (R/1: A success, B failure; R/2 re-runs B to success and lists A carried, attempt 2, a new id,
 R/1's times: `carried-job` for A); **by 0117d:**
-`an_operator_retry_after_a_person_re_runs_all_jobs_clears_carried_job_and_parks_on_revision_unproven`
-(the observation sealed as a live observer seals it: `CI-PARK` with `revision-unproven` and no
-`carried-job`).
+`an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes` (the observation
+sealed as a live observer seals it: `CI-PASS`).
 
 The judgment is engine-written: an `Owner::Engine` flag, as `reviewed_heads` is an engine-owned
 input (`crates/brokkr-core/src/policy/inputs.rs:116`), so a seat may neither declare nor
@@ -1676,7 +1664,7 @@ cause it would write.
 the classifier drafted in fix rounds 1093r2 to 1093r8 needed, and each is unmeasured but the one
 0117a settled:
 
-- which revision a step ran on, beyond the run's tested commit: whether any forge field records
+- which revision a step ran on, beyond the run's `head_sha`: whether any forge field records
   a job's checkout;
 - the revision of the workflow file GitHub ran for a run, and whether the forge reports it;
 - how the forge names a matrix instance: settled by 0117a, by display name alone, with no key;
@@ -1738,9 +1726,9 @@ true row of the [park table](#the-park-table), with a cause a script can read an
 person can act on. Brokkr sends the forge nothing and types no failure, and the forge's required
 checks at merge stay the only CI authority. A recipe with no list behaves exactly as now. The
 cost is an exec observer per recipe that wants it, one read-only token, a list an operator keeps,
-and a person's look at every red until the deferred classifier is ruled. Until a tested-commit
-source outside the change is measured, that look is at every observation, green on the forge
-or not: 0117a found none (ruling 3). Two contract versions
+and a person's look at every red until the deferred classifier is ruled. A green run whose
+`head_sha` is the gated head proceeds live, the merge being the merge queue's (ruling 3, as
+amended 2026-11-23). Two contract versions
 are proposed, `ci-observation/v1` and `ci-checks/v1`, each minted only when 0117b lands under
 this decision's acceptance (0082) and after 0117a's evidence, and one additive `run/started`
 member, `pull_request` (ruling 3). No table contract is proposed: the gate waits on 0109's v3 and
@@ -1894,15 +1882,16 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
    makes that row's predicate always false leaves the row out of the fixture's list and fails
    that row's `Bound by` test, and 0117c records each such mutation with the test it failed
    (0071 ruling 9); `scripts/mutants.sh` over `ci/judge.rs` leaves no surviving mutant of a row
-   predicate. **The tested commit in the lists below:** a builder fixture carries a tested-commit
-   record, which no live observer writes (ruling 3); a case run live through 0117b's observer
-   seals it `unread`, so its exact list also holds `revision-unproven` for every entry with a
-   match, in the table's place, and so does its replay. `Acceptance rows:` 38
+   predicate. **The revision in the lists below** (ruling 3, as amended 2026-11-23): every fixture,
+   builder or live, carries each run's `head_sha` and the base branch's rules, so a case's exact
+   list holds `revision-unproven` or `revision-disagrees` only where its own `head_sha` or rules
+   make them true. `Acceptance rows:` 40
    ([Proved by the slices](#proved-by-the-slices)). Tests:
    - 0117a's cases: `every_0117a_evidence_case_parks_with_its_recorded_rows` (each of the eight
      directories under `crates/brokkr-core/src/ci/evidence/`, its pages served by a stub `gh`, the
      binding its own pull request and head: `CI-PARK`, never `CI-PASS`, with the exact list the
-     slice records from the payloads, `revision-unproven` for every matched entry in each);
+     slice records from the payloads; `revision-unproven` in none, since each run's `head_sha` is
+     its head and main's rules hold the merge queue);
    - the park table ([its one home](#the-park-table)):
      `every_park_statement_in_0117_cites_a_row_of_its_park_table`,
      `the_park_citation_checker_refuses_a_statement_with_no_row_or_an_unknown_row`,
@@ -1945,14 +1934,17 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
      `an_open_pull_request_list_without_the_bound_one_or_with_another_parks_as_pulls_disagree`
      (the list empty, as on a closed pull request's head in `cancelled-twin/pulls.open.on-head.page1.json`,
      and the list holding the bound one and a second: `pulls-disagree` alone in each);
-     `a_head_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` (the chief's
-     r9 case: the run's `head_sha` and the association's `head.sha` both the gated head, every
-     required check a settled success, and no tested-commit record);
-     `a_head_entry_whose_tested_commit_differs_from_the_gated_head_parks_as_revision_disagrees`
-     (both heads match; the record names another commit);
-     `a_merge_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven`;
-     `an_association_and_a_merge_commit_that_disagree_park_as_revision_disagrees`;
-     `a_merge_revision_whose_parents_are_not_the_base_and_the_head_parks_as_revision_disagrees`;
+     `a_green_run_whose_head_sha_is_the_gated_head_passes_live_and_on_replay` (the amended rule's
+     own case: `cancelled-twin/`'s green run 3561 alone, its `head_sha` the gated head, its pull
+     request open, main's rules holding the merge queue, served live through 0117b's observer:
+     `CI-PASS`, and the same on replay);
+     `a_run_whose_head_sha_is_unread_parks_as_revision_unproven` (every required check a settled
+     success, the run's `head_sha` absent: `revision-unproven` alone);
+     `a_run_whose_head_sha_differs_from_the_gated_head_parks_as_revision_disagrees` (the run names
+     another commit: `revision-disagrees` alone, naming both);
+     `base_rules_without_a_merge_queue_park_every_entry_as_revision_unproven` (the previous case
+     green, the base branch's rules served without the `merge_queue` rule, and again unread:
+     `revision-unproven` for every entry);
      `a_sole_red_from_another_producer_names_missing_required_for_its_entry_then_producer_mismatch`;
      `a_status_context_in_the_forges_required_set_parks_as_status_required`;
      `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees`;
@@ -2018,8 +2010,8 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
      10 and both attempts for A and B);
      `another_runs_cancelled_first_attempt_beside_its_successful_re_run_is_its_history`
      (`two-runs-both-rerun/`'s shape over a builder observation: the other run's attempt 1
-     cancelled and attempt 2 green, the current run green, no after-ship check in either run,
-     and a tested-commit record: `CI-PASS`);
+     cancelled and attempt 2 green, the current run green, no after-ship check in either run:
+     `CI-PASS`);
      `a_status_on_the_head_parks_as_status_present_live_and_on_replay` (one status under A's
      name: `status-present` alone);
      `a_check_run_that_joins_no_job_parks_as_attempt_unnamed_live_and_on_replay` (A's check id on
@@ -2039,7 +2031,7 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
      `other-run-not-success` naming run 44913617230 among the exact list the slice records from
      the payloads, #1222 being closed); and the control,
      `a_consistent_single_attempt_snapshot_is_green` (judged over a builder observation, every
-     item naming R/1, no other run, a tested-commit record: `CI-PASS`);
+     item naming R/1, no other run: `CI-PASS`);
    - the shared facts and the dependency rule, each its worked case in the
      [park table](#the-park-table):
      `an_unread_engine_head_names_unrelated_and_head_unpublished`;
@@ -2121,9 +2113,8 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
    decision's own. **Live read-only telemetry starts here**: from the first landing the operator
    drives under this overlay on a real pull request, each observation, judgment and park is
    journaled, and a sweep can count parked runs against the diagnosis seat attempts they saved.
-   Until a tested-commit source is measured (ruling 3), every live observation parks on
-   `revision-unproven`, so the telemetry counts parks only; this slice's `CI-PASS` tests feed
-   decide a stub observer's stdout that carries a tested-commit record. The
+   A green run whose `head_sha` is the gated head passes live (ruling 3, as amended
+   2026-11-23), so the telemetry counts passes beside parks. The
    park's lifecycle is this slice's too: a person looks and re-runs, then the operator retries
    the parked `ci` phase, which observes again. `Acceptance rows:` 3
    ([Proved by the slices](#proved-by-the-slices)). Tests:
@@ -2163,7 +2154,7 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
    - the roads: `a_green_observation_passes_to_classify`;
      `a_red_observation_parks_for_a_person_and_never_reaches_implement`;
      `a_pushed_head_after_a_head_unpublished_park_observes_again_on_retry`;
-     `an_operator_retry_after_a_person_re_runs_all_jobs_clears_carried_job_and_parks_on_revision_unproven`;
+     `an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes`;
      `a_head_the_run_made_is_never_gated_by_ci`;
      `the_environment_park_survives_the_ci_overlay`;
    - the table: `the_composed_landing_ci_table_validates_whole_against_phase_machine_v3`;
@@ -2184,7 +2175,7 @@ The operator ruled on 2026-11-21 that each build-proof finding of the tenth hold
 piece, which that slice's own review proves; one spanning two slices is owned by the slice that
 builds the reader it binds. The eleventh hold's findings are held the same way (round
 1093r12). So are the twelfth hold's rule holes, which the controller fixed by hand on the
-operator's ruling of 2026-11-22 ("go with b", #1093), with no further round. Each rule is stated where it lives, and each test is named in its slice's plan, whose
+operator's ruling of 2026-11-22 ("go with b", #1093), with no further round. The operator's amendment of 2026-11-23 to ruling 3's revision rule brings two more, and returns 0117d's retry test to `CI-PASS`. Each rule is stated where it lives, and each test is named in its slice's plan, whose
 `Acceptance rows:` line counts them, as `every_test_proved_by_the_slices_is_named_in_its_slices_plan` holds.
 
 | Slice | Test | Answers | Expects |
@@ -2211,7 +2202,9 @@ operator's ruling of 2026-11-22 ("go with b", #1093), with no further round. Eac
 | 0117c | `a_cancelled_twin_beside_a_green_run_parks_as_other_run_not_success` | another run under the names | `CI-PARK`: `other-run-not-success` among the recorded list |
 | 0117c | `a_stale_same_producer_success_beside_an_ordinary_failure_names_missing_required_and_not_success` | run versus attempt (r11 F2) | `CI-PARK`: `missing-required`, `not-success` |
 | 0117c | `a_consistent_single_attempt_snapshot_is_green` | mixed attempts, the control | `CI-PASS` |
-| 0117c | `every_0117a_evidence_case_parks_with_its_recorded_rows` | the measured shapes (round 1093r12) | `CI-PARK`, `revision-unproven` in each |
+| 0117c | `every_0117a_evidence_case_parks_with_its_recorded_rows` | the measured shapes (round 1093r12; amended 2026-11-23) | `CI-PARK`, each with its recorded rows, `revision-unproven` in none |
+| 0117c | `a_green_run_whose_head_sha_is_the_gated_head_passes_live_and_on_replay` | the amended revision rule (operator, 2026-11-23) | `CI-PASS` |
+| 0117c | `base_rules_without_a_merge_queue_park_every_entry_as_revision_unproven` | the merge queue as a dependency (operator, 2026-11-23) | `CI-PARK`: `revision-unproven` |
 | 0117c | `a_failed_jobs_only_rerun_carrying_a_passed_entry_parks_as_carried_job_live_and_on_replay` | the person's re-run (LOW, corrected) | `CI-PARK`: `carried-job` |
 | 0117c | `a_ci_attempt_record_passes_heads_fence_and_decides_from_the_judgment` | a wordless `CiAttempt` (text corrected) | `CI-PASS`; `CI-PARK`: `launch-untrusted` |
 | 0117c | `a_ci_driver_that_fails_to_spawn_parks_once_as_launch_untrusted_with_no_retry` | who settles a spawn failure (text corrected) | `CI-PARK`: `launch-untrusted` |
@@ -2234,7 +2227,7 @@ operator's ruling of 2026-11-22 ("go with b", #1093), with no further round. Eac
 | 0117c | `the_0117_index_row_names_the_last_round_the_decision_records` | the index row's history (INFO) | the row names round 1093r12 |
 | 0117d | `a_pass_without_green_through_the_real_policy_and_park_writer_parks_at_ci_pass_unbound` | one owner for `word-unbound` (text corrected) | a `ruled` park at `CI-PASS-UNBOUND` |
 | 0117d | `classify_after_ci_pass_receives_last_decision_naming_ci_pass_and_pass_and_nothing_else_of_ci` | `classify`'s input assertions | `CI-PASS` and `pass`, nothing else of `ci` |
-| 0117d | `an_operator_retry_after_a_person_re_runs_all_jobs_clears_carried_job_and_parks_on_revision_unproven` | the person's re-run (LOW; r12: live cannot pass) | `CI-PARK`: `revision-unproven`, no `carried-job` |
+| 0117d | `an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes` | the person's re-run (LOW; live passes as amended 2026-11-23) | `CI-PASS` |
 
 **Carried from the twelfth hold to the slices that build each reader.** The controller's
 by-hand pass fixed the twelfth hold's two HIGHs, the read order, the recovery text, another
@@ -2298,3 +2291,9 @@ read both positions of `revision-round-1093r12-for-issue-b1a1275c`, and over 011
 It held each name the proof list adds to its slice's plan by hand: 38 in 0117c, 5 in 0117b and
 3 in 0117d. The decision stands at 2,285 lines. The two HIGHs are fixed by widening two rows'
 reads and adding three 0117c tests and one 0117b test; the rest corrects text already there.
+
+**The operator's amendment of 2026-11-23** (ruling 3's revision rule). The controller read every
+case's `rules.main.json` (ruleset 24071236, its `merge_queue` rule, `SQUASH`, `ALLGREEN`) and
+`.github/workflows/ci.yml:16` (`merge_group`) at the base. It added two 0117c acceptance tests,
+renamed or removed the five revision tests of the tested-commit rule, and returned 0117d's retry
+test to `CI-PASS`. The counts are 40 in 0117c, 5 in 0117b and 3 in 0117d.
