@@ -5,6 +5,7 @@
 //! Every journal is a scratch one; no journal of this checkout is opened.
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
@@ -17,8 +18,13 @@ const RUN: &str = "tui-graph-the-selection-box-gets-80f98deb";
 /// The separator the request is asked to join candidates with.
 const IFS: &str = "\n";
 
-fn brokkr(dir: &Path) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+/// The built brokkr given `argv`, run in `dir`, through the one builder.
+fn brokkr<I, S>(dir: &Path, argv: I) -> Command
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command = crate::built::brokkr(argv);
     // The personal shelf is the scratch folder's, never this machine's.
     (command.current_dir(dir).env_remove("COMPLETE")).env("XDG_CONFIG_HOME", dir.join("config"));
     command
@@ -34,15 +40,13 @@ fn request(dir: &Path, words: &[&str]) -> Output {
 
 /// [`request`], the cursor on the word at `index`.
 fn request_at(dir: &Path, words: &[&str], index: usize) -> Output {
-    let mut command = brokkr(dir);
+    let mut command = brokkr(dir, ["--"].iter().chain(words));
     command
         .env("COMPLETE", "bash")
         .env("_CLAP_IFS", IFS)
         .env("_CLAP_COMPLETE_INDEX", index.to_string())
         .env("_CLAP_COMPLETE_COMP_TYPE", "9")
-        .env("_CLAP_COMPLETE_SPACE", "true")
-        .arg("--")
-        .args(words);
+        .env("_CLAP_COMPLETE_SPACE", "true");
     command.output().expect("brokkr starts")
 }
 
@@ -131,7 +135,12 @@ fn tree(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
 #[test]
 fn the_registration_is_clap_completes_bash_protocol() {
     let dir = scratch();
-    let registered = brokkr(dir.path()).env("COMPLETE", "bash").output().unwrap();
+    // `--` with no word after it asks for the registration, as the bare
+    // `COMPLETE=bash brokkr` does: clap_complete drops every argument up
+    // to the escape, and the builder is given a first word.
+    let registered = (brokkr(dir.path(), ["--"]).env("COMPLETE", "bash"))
+        .output()
+        .unwrap();
     assert_eq!(String::from_utf8_lossy(&registered.stderr), "");
     let script = String::from_utf8(registered.stdout).unwrap();
     for variable in [
@@ -191,9 +200,8 @@ fn the_live_root_offers_no_hidden_verb_and_no_alias() {
 #[test]
 fn an_unknown_shell_is_refused_silently() {
     let dir = scratch();
-    let answer = brokkr(dir.path())
+    let answer = brokkr(dir.path(), ["--", "brokkr", ""])
         .env("COMPLETE", "nushell")
-        .args(["--", "brokkr", ""])
         .output()
         .unwrap();
     assert_eq!(
@@ -310,22 +318,26 @@ fn phases_and_seats_are_the_named_runs() {
     let from = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/journals")
         .join(format!("{RUN}.ndjson"));
-    let imported = brokkr(dir.path())
-        .args([
+    let imported = brokkr(
+        dir.path(),
+        [
             "journal",
             "import",
             "--db",
             text(&db),
             "--from",
             text(&from),
-        ])
-        .output()
-        .unwrap();
+        ],
+    )
+    .output()
+    .unwrap();
     assert_eq!(imported.status.code(), Some(0), "{imported:?}");
-    let shown = brokkr(dir.path())
-        .args(["runs", "inspect", "--db", text(&db), "--run", RUN, "--json"])
-        .output()
-        .unwrap();
+    let shown = brokkr(
+        dir.path(),
+        ["runs", "inspect", "--db", text(&db), "--run", RUN, "--json"],
+    )
+    .output()
+    .unwrap();
     let view: serde_json::Value = serde_json::from_slice(&shown.stdout).unwrap();
     let names = |key: &str, field: &str| {
         let mut names: Vec<String> = (view[key].as_array().unwrap().iter())
@@ -611,12 +623,10 @@ fn a_completion_leaves_every_file_as_it_found_it() {
 #[test]
 fn a_request_switched_off_runs_the_command_as_before() {
     let dir = scratch();
-    let plain = brokkr(dir.path())
-        .args(["completions", "bash"])
+    let plain = brokkr(dir.path(), ["completions", "bash"])
         .output()
         .unwrap();
-    let off = (brokkr(dir.path()).env("COMPLETE", "0"))
-        .args(["completions", "bash"])
+    let off = (brokkr(dir.path(), ["completions", "bash"]).env("COMPLETE", "0"))
         .output()
         .unwrap();
     assert_eq!(plain.status.code(), Some(0));
