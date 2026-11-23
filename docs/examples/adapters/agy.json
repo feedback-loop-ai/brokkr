@@ -1,6 +1,6 @@
 {
   "provider": "agy",
-  "trust_tier": "untrusted",
+  "trust_tier": "trusted",
   "egress": "contracted",
   "harness_auth": {
     "names": [
@@ -21,24 +21,15 @@
     "--"
   ],
   "models": {
-    "agy-argon": {
-      "id": "gemini-4-argon",
-      "tier": "provisional"
-    },
-    "agy-carbon": {
-      "id": "gemini-4-carbon",
-      "tier": "provisional"
-    },
-    "agy-hydrogen": {
-      "id": "gemini-4-hydrogen",
-      "tier": "provisional"
-    },
-    "agy-neon": {
-      "id": "gemini-4-neon",
-      "tier": "provisional"
-    }
+    "agy-argon": "gemini-4-argon",
+    "agy-carbon": "gemini-4-carbon",
+    "agy-hydrogen": "gemini-4-hydrogen",
+    "agy-neon": "gemini-4-neon"
   },
-  "judges": [],
+  "judges": [
+    "agy-carbon",
+    "agy-neon"
+  ],
   "model_flag": "--model",
   "efforts": [
     "low",
