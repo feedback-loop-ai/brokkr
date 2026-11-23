@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use time::{format_description::well_known::Iso8601, Date};
-use url::Url;
+use url::{Host, Url};
 
 use crate::{ending::Ending, shape::Object};
 
@@ -267,7 +267,7 @@ impl Ruling {
         {
             return Err(Refusal::RulingDate);
         }
-        if Url::parse(&self.cite).is_err() {
+        if https_uri_host(&self.cite).is_none() {
             return Err(Refusal::RulingCite);
         }
         Ok(())
@@ -399,29 +399,75 @@ impl Trackers {
             .0
             .get(&reference.tracker)
             .ok_or_else(|| Refusal::UnknownTracker(reference.tracker.clone()))?;
-        let url = https_url(&reference.link)?;
-        let host = url.host_str().unwrap_or_default();
-        if hosts.iter().any(|pattern| pattern.matches(host)) {
+        let written_host = https_uri_host(&reference.link).ok_or(Refusal::ReferenceLink)?;
+        // Check the host a client would use, including URL host normalization.
+        let url = Url::parse(&reference.link).ok();
+        let host = url.as_ref().and_then(Url::host_str);
+        if host.is_some_and(|host| hosts.iter().any(|pattern| pattern.matches(host))) {
             return Ok(());
         }
         Err(Refusal::ReferenceHost {
             tracker: reference.tracker.clone(),
-            host: host.into(),
+            host: host.unwrap_or(written_host).into(),
         })
     }
 }
 
-fn https_url(text: &str) -> Result<Url, Refusal> {
-    let (scheme, rest) = text.split_once("://").ok_or(Refusal::ReferenceLink)?;
-    if !scheme.eq_ignore_ascii_case("https")
-        || rest.starts_with('/')
-        || text
-            .bytes()
-            .any(|byte| byte.is_ascii_control() || matches!(byte, b' ' | b'\\'))
-    {
-        return Err(Refusal::ReferenceLink);
+// Validate the written HTTPS URI before any client URL parser can repair it.
+// The contract's httpsLink uses the same RFC 3986 syntax and port range.
+fn https_uri_host(text: &str) -> Option<&str> {
+    let (scheme, rest) = text.split_once("://")?;
+    if !scheme.eq_ignore_ascii_case("https") {
+        return None;
     }
-    Url::parse(text).map_err(|_| Refusal::ReferenceLink)
+    let (authority, tail) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
+    let host_port = match authority.split_once('@') {
+        Some((userinfo, host_port)) if uri_chars(userinfo, b":") => host_port,
+        Some(_) => return None,
+        None => authority,
+    };
+    if !tail.splitn(2, '#').all(|part| uri_chars(part, b":@/?")) {
+        return None;
+    }
+    host_and_port(host_port)
+}
+
+fn host_and_port(authority: &str) -> Option<&str> {
+    let (host, port) = if authority.starts_with('[') {
+        let (host, _) = authority.split_once(']')?;
+        let (host, port) = authority.split_at(host.len() + 1);
+        if !matches!(Host::parse(host), Ok(Host::Ipv6(_))) {
+            return None;
+        }
+        (host, port)
+    } else {
+        let (host, port) = authority.split_at(authority.find(':').unwrap_or(authority.len()));
+        if host.is_empty() || !uri_chars(host, b"") {
+            return None;
+        }
+        (host, port)
+    };
+    if port.is_empty() {
+        return Some(host);
+    }
+    let digits = port.strip_prefix(':')?;
+    (digits.is_empty()
+        || (digits.bytes().all(|byte| byte.is_ascii_digit()) && digits.parse::<u16>().is_ok()))
+    .then_some(host)
+}
+
+fn uri_chars(text: &str, delimiters: &[u8]) -> bool {
+    let bytes = text.as_bytes();
+    bytes.iter().enumerate().all(|(index, &byte)| {
+        if byte == b'%' {
+            return bytes
+                .get(index + 1..index + 3)
+                .is_some_and(|escape| escape.iter().all(u8::is_ascii_hexdigit));
+        }
+        byte.is_ascii_alphanumeric()
+            || b"-._~!$&'()*+,;=".contains(&byte)
+            || delimiters.contains(&byte)
+    })
 }
 
 #[derive(Deserialize)]
@@ -546,7 +592,9 @@ fn read_body(mut lines: std::str::Lines<'_>) -> Result<(String, Vec<String>), Re
                 }
                 return Ok((intent.to_owned(), read_acceptance(lines)?));
             }
-            None => intent.push(line),
+            // A CR left at the end after lines() would become part of
+            // the next read's CRLF separator once the intent is rendered.
+            None => intent.push(line.trim_end_matches('\r')),
         }
     }
     Err(Refusal::MissingAcceptance)
@@ -606,7 +654,7 @@ enum Refusal {
     Title,
     #[error("a work order ruling date must be a calendar date in YYYY-MM-DD form")]
     RulingDate,
-    #[error("a work order ruling citation must be an absolute link")]
+    #[error("a work order ruling citation must be an absolute HTTPS link")]
     RulingCite,
     #[error("a work order ask number must be positive")]
     AskNumber,

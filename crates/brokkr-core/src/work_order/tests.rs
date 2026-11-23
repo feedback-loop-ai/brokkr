@@ -176,7 +176,12 @@ fn invalid_header_fixtures_have_named_refusals() {
         (
             fixture!("bad-cite"),
             RulingCite,
-            "a work order ruling citation must be an absolute link",
+            "a work order ruling citation must be an absolute HTTPS link",
+        ),
+        (
+            fixture!("malformed-ruling-cite"),
+            RulingCite,
+            "a work order ruling citation must be an absolute HTTPS link",
         ),
         (
             fixture!("zero-ask"),
@@ -195,6 +200,11 @@ fn invalid_header_fixtures_have_named_refusals() {
         ),
         (
             fixture!("http-link"),
+            ReferenceLink,
+            "a work order reference must carry an absolute HTTPS link",
+        ),
+        (
+            fixture!("malformed-reference-link"),
             ReferenceLink,
             "a work order reference must carry an absolute HTTPS link",
         ),
@@ -469,6 +479,64 @@ fn body_boundaries_are_checked() {
             "Read the intent.",
             "Read the output."
         ]
+    );
+}
+
+#[test]
+fn intent_line_endings_are_stable_after_rendering() {
+    let trackers = trackers();
+    let source = DRAFT.replace("Keep the work clear.", "First\r\r\nSecond\r clause.");
+    let canonical = DRAFT.replace("Keep the work clear.", "First\nSecond\r clause.");
+    let order = WorkOrder::parse(&source, &trackers).unwrap();
+    assert_eq!(order.intent(), "First\nSecond\r clause.");
+    assert_eq!(order.render(), canonical);
+    assert_eq!(WorkOrder::parse(&canonical, &trackers).unwrap(), order);
+}
+
+#[test]
+fn https_links_preserve_valid_spelling_and_refuse_repairs() {
+    for (link, host) in [
+        ("HTTPS://work.example", "work.example"),
+        ("https://Work.example:/", "Work.example"),
+        (
+            "https://guest:p%61ss@work.example:00065535/?a=b&c=%ab#x",
+            "work.example",
+        ),
+        ("https://[2001:db8::1]:1/project", "[2001:db8::1]"),
+        ("https://%77ork.example/project", "%77ork.example"),
+    ] {
+        assert_eq!(https_uri_host(link), Some(host), "{link}");
+    }
+    for link in [
+        "http://work.example/",
+        "https:work.example/",
+        "https:///work.example/",
+        "https://name@:42/",
+        "https://one@two@work.example/",
+        "https://g%1z@work.example/",
+        "https://work.example:65536/",
+        "https://work.example:+1/",
+        "https://[::1",
+        "https://[broken]/",
+        "https://[::1]extra/",
+        "https://work.example/a%2",
+        "https://work.example/a%z0",
+        "https://work.example/a%0z",
+        "https://work.example/a\"b",
+        "https://work.example/x#y#z",
+        "https://work.example/x\u{e9}",
+    ] {
+        assert_eq!(https_uri_host(link), None, "{link}");
+    }
+
+    let trackers = trackers();
+    let link = reference("github", "https://%FF/issue/1");
+    assert_eq!(
+        WorkOrder::parse(&link, &trackers).unwrap_err().0,
+        Refusal::ReferenceHost {
+            tracker: "github".into(),
+            host: "%FF".into(),
+        }
     );
 }
 
