@@ -1001,14 +1001,80 @@ fn the_committed_channel_templates_are_unrendered_and_name_the_real_artifacts() 
         assert!(formula.contains(artifact), "{artifact}");
     }
 
-    // One binary, in every channel (decision 0019 ruling 9).
+    // One binary, in every channel (decision 0019 ruling 9), and the
+    // formula installs its completion (#1305).
     assert!(formula.contains(r#"bin.install "brokkr""#), "{formula}");
+    assert!(formula.contains(FORMULA_COMPLETION), "{formula}");
+    assert!(
+        formula.contains(r##"assert_match "#{bin}/brokkr", (bash_completion/"brokkr").read"##),
+        "{formula}"
+    );
     assert!(
         flake.contains(r#"install -Dm755 brokkr "$out/bin/brokkr""#),
         "{flake}"
     );
     for template in [&flake, &formula] {
         assert!(!template.contains("bin/forge"), "{template}");
+    }
+}
+
+/// The completion the formula installs (#1305): decision 0119 ruling 2's
+/// live registration, for bash, zsh and fish, `:clap`'s default shells,
+/// written as homebrew-core's jj formula writes it. Homebrew's `:clap`
+/// format runs the installed binary once per shell with `COMPLETE=<shell>`
+/// and no word, and writes what it prints into the keg.
+const FORMULA_COMPLETION: &str =
+    r#"generate_completions_from_executable(bin/"brokkr", shell_parameter_format: :clap)"#;
+
+/// `text` with every run of whitespace one space, so a sentence holds
+/// wherever the paragraph wraps.
+fn unwrapped(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The form the formula installs is the form its docs name, and the
+/// binary answers Homebrew's request with it: for each shell, a
+/// registration that completes `brokkr` by calling back the path it was
+/// run as, which the formula's `test do` reads. The registration's bash
+/// protocol is `shell_completion`'s to prove.
+#[test]
+fn the_formula_installs_the_live_registration_its_docs_name() {
+    let readme = unwrapped(&read("packaging/README.md"));
+    let quickstart = unwrapped(&read("docs/guides/quickstart.md"));
+    for named in [
+        "shell_parameter_format: :clap",
+        "Its form is the live completer's registration",
+    ] {
+        assert!(readme.contains(named), "{named}");
+    }
+    let homebrew = "A Homebrew install needs no `source` line. The formula installs the live \
+                    completer's registration for bash, zsh and fish";
+    assert!(quickstart.contains(homebrew));
+
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    for (shell, registers) in [
+        ("bash", "-F _clap_complete_brokkr brokkr"),
+        ("zsh", "compdef _clap_dynamic_completer_brokkr brokkr"),
+        (
+            "fish",
+            "complete --keep-order --exclusive --command brokkr ",
+        ),
+    ] {
+        // `--` with no word after it is the bare request: the builder is
+        // given a first word, and clap_complete drops it.
+        let mut request = crate::built::brokkr(["--"]);
+        let answer = (request.current_dir(dir.path()).env("COMPLETE", shell))
+            .output()
+            .expect("brokkr starts");
+        let stderr = String::from_utf8_lossy(&answer.stderr);
+        assert_eq!(
+            (stderr.as_ref(), answer.status.code()),
+            ("", Some(0)),
+            "{shell}"
+        );
+        let script = String::from_utf8(answer.stdout).unwrap();
+        assert!(script.contains(registers), "{shell}: {script}");
+        assert!(script.contains(crate::built::BIN), "{shell}: {script}");
     }
 }
 

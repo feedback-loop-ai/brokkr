@@ -110,7 +110,9 @@ are writing. So what it may read has to be ruled.
   lives in the tap repository. Its template,
   `packaging/homebrew/brokkr.rb`, is in this repository and the release
   workflow renders it into the tap. Adding the install to the template
-  and the tap is a follow-up for packaging.
+  and the tap was a follow-up for packaging, done by #1305: the template
+  installs the live completer's registration for bash, zsh and fish, and
+  the tap takes it at the next release.
 - The nix flake's completion install. The flake fetches the release
   tarball and builds nothing, and the tarball carries no scripts.
   Generating them would mean running the binary inside the derivation
