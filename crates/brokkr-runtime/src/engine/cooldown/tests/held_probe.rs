@@ -250,7 +250,7 @@ fn a_probe_from_a_held_end_at_year_9999_is_refused_before_dispatch() {
     assert_eq!(
         reason,
         format!(
-            "the cool-down probe for claude/first was not admitted: its route's hold was not \
+            "the cool-down probe for claude/first was not dispatched: its route's hold was not \
              written: the journal's probe holds cannot show run '{run_id}''s hold on \
              claude/first ending after its deadline: the first whole second after it is past \
              9999-12-31T23:59:59Z, the last the journal can spell, so no probe runs on it and \

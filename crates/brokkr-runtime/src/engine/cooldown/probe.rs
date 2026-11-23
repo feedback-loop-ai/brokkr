@@ -197,13 +197,14 @@ impl Engine {
                 )))))
             }
         };
-        if let Err(unheld) = self.hold_the_route((wait, &attempt), now, ends.ends) {
-            return Ok(Err(Probe::Parked(Park::ruled(format!(
-                "the cool-down probe for {}/{} was not admitted: its route's hold was not \
-                 written: {unheld}",
-                wait.provider, wait.route
-            )))));
-        }
+        // The reservation first, then the hold (the return of fix round
+        // 0106b1r12): where the root is protected, every hold names an
+        // attempt its run's reservation already names, so a crash at any
+        // instant leaves a record the restarted engine's reaper, or the
+        // operator's settle, can settle the hold by. A refused admission
+        // took no hold; a hold the store refuses after the admission
+        // parks the probe unspawned, and its wait settles the lease.
+        self.cooldown.hold = None;
         if let Err(refusal) = self.admit_for_probe(
             events,
             [&attempt, &picked.site],
@@ -212,12 +213,17 @@ impl Engine {
             (began, deadline),
             &observed,
         ) {
-            // Nothing was spawned, so the probe's tree is settled empty.
-            let parked = Probe::Parked(Park::ruled(format!(
+            return Ok(Err(Probe::Parked(Park::ruled(format!(
                 "the cool-down probe for {}/{} was not admitted: {refusal}",
                 wait.provider, wait.route
-            )));
-            return Ok(Err(self.end_the_hold(wait, parked)));
+            )))));
+        }
+        if let Err(unheld) = self.hold_the_route((wait, &attempt), now, ends.ends) {
+            return Ok(Err(Probe::Parked(Park::ruled(format!(
+                "the cool-down probe for {}/{} was not dispatched: its route's hold was not \
+                 written: {unheld}",
+                wait.provider, wait.route
+            )))));
         }
         Ok(Ok(AdmittedProbe {
             attempt,
@@ -226,8 +232,9 @@ impl Engine {
         }))
     }
 
-    /// Hold the probe's route before it is reserved and dispatched (fix
-    /// round 0106b1r4, F1; the operator's ruling of 2026-11-18, amending
+    /// Hold the probe's route once it is reserved and before it is
+    /// dispatched (fix round 0106b1r4, F1, and the return of fix round
+    /// 0106b1r12; the operator's ruling of 2026-11-18, amending
     /// decision 0103 ruling 2): one hold row, written at `now`, carrying the
     /// provider, the route and the probe's `deadline`, a readout the store
     /// keeps to the first whole second strictly after it (fix round

@@ -1,6 +1,7 @@
 //! A probe's hold on its route (fix round 0106b1r4, F1; the operator's
 //! ruling of 2026-11-18, amending decision 0103 ruling 2): one version 7
-//! `probe_holds` row, written before the probe is reserved, that the pass
+//! `probe_holds` row, written once the probe is reserved and before it is
+//! dispatched, that the pass
 //! and the claim read as a cool-down through the one in-force read
 //! ([`super::in_force`]) while it is unended. A refusal's renewed round
 //! ends it in the transaction that writes the round; an answer, or the
@@ -18,7 +19,7 @@ use crate::queue::storage::cool_downs_writable;
 use crate::queue::{QueueRefusal, UnsettledHold, UnwrittenHold};
 use crate::{patiently, Store, StoreError};
 
-/// The hold one probe takes on its route before it is reserved: the run
+/// The hold one probe takes on its route before it is dispatched: the run
 /// and site it probes for, the probe's own attempt, the provider and route
 /// it asks, and the deadline its own spawn runs under.
 #[derive(Debug, Clone, PartialEq, Eq)]

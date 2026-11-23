@@ -1,6 +1,7 @@
 //! Fix round 0106b1r4, F1 (the operator's ruling of 2026-11-18, amending
 //! decision 0103 ruling 2): a probe holds its route while it is in flight.
-//! A hold is written before the probe is reserved, and the pass and the
+//! A hold is written once the probe is reserved and before it is
+//! dispatched (the return of fix round 0106b1r12), and the pass and the
 //! claim read it as cooling down through the one in-force read. A refusal's
 //! renewed round ends it in the round's own transaction; an answer ends it
 //! at once; a round the store does not take leaves it standing until a
@@ -414,7 +415,7 @@ fn a_hold_the_store_refuses_parks_before_any_probe() {
         .to_string();
     assert!(
         reason.contains(
-            "the cool-down probe for claude/first was not admitted: its route's hold was not \
+            "the cool-down probe for claude/first was not dispatched: its route's hold was not \
              written"
         ) && reason.contains("forced probe_holds failure"),
         "{reason}"
@@ -448,7 +449,7 @@ fn a_hold_the_table_does_not_write_parks_before_any_probe_and_ends_no_other() {
     assert_eq!(
         parked.payload["reason"],
         format!(
-            "the cool-down probe for claude/first was not admitted: its route's hold was not \
+            "the cool-down probe for claude/first was not dispatched: its route's hold was not \
              written: the journal's probe holds wrote no row for run '{}' on claude/first, so \
              no probe runs on it and nothing was written",
             engine.run_id
@@ -481,7 +482,7 @@ fn a_hold_on_a_queue_this_binary_does_not_write_parks_before_any_probe() {
     assert_eq!(
         parked_before_any_probe(dir.path(), &mut engine),
         format!(
-            "the cool-down probe for claude/first was not admitted: its route's hold was not \
+            "the cool-down probe for claude/first was not dispatched: its route's hold was not \
              written: the journal's queue storage is not one this binary writes, so it takes no \
              probe hold for run '{}' on claude/first, no probe runs on it, and nothing was \
              written",

@@ -140,3 +140,27 @@ fn a_hold_the_reaper_cannot_end_parks_the_resume_and_stands() {
     );
     assert_eq!(unended_attempts(&journal), [crashed.first]);
 }
+
+/// The return of fix round 0106b1r12: a probe's hold is written only once
+/// its reservation names its attempt, so a crash at any instant leaves a
+/// hold the reservation names, or none. Another run's claim taken after the
+/// first wait slice refuses the probe's admission: the probe parks
+/// unadmitted, and no hold was ever written, so none could have stood
+/// without its reservation.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_probe_whose_admission_is_refused_writes_no_hold() {
+    let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
+    let home = super::lease::home(dir.path());
+    let worktree = dir.path().join("work");
+    let claimed = super::lease::claim_after_first_slice(home, worktree, &now);
+    engine.cooldown.clock = claimed.clock;
+    engine.drive().unwrap();
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
+    let reason = park_reason(&engine);
+    assert!(
+        reason.contains("was not admitted") && reason.contains("run 'run-p' holds this worktree"),
+        "{reason}"
+    );
+    assert_eq!(holds_written(engine.store.path()), 0);
+}

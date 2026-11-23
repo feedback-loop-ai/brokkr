@@ -436,7 +436,8 @@ const MIGRATION_QUEUE_V7: [(&str, &str); 2] = [
 
 /// Version 7's probe holds (fix round 0106b1r4, F1; the operator's ruling
 /// of 2026-11-18 amending decision 0103 ruling 2): one row per probe of a
-/// cooled route, written before the probe is reserved, naming the run and
+/// cooled route, written once the probe is reserved and before it is
+/// dispatched, naming the run and
 /// the probe's own attempt, the driver instance that holds it (fix round
 /// 0106b1r12, S3). While it stands, unended, the pass and the claim read
 /// its route as cooling down through the one in-force read. A refusal ends
