@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
-use brokkr_runtime::admission::{self, Host, Judged, Machine, Reason, Verdict};
+use brokkr_runtime::admission::{self, Host, Judged, Machine, Reason, Sized, Verdict};
 use brokkr_runtime::launch::{BundleSource, QueuedLaunch};
 use brokkr_runtime::realms::World;
 use brokkr_store::{Attribution, NewEntry, QueueCommand, Wait};
@@ -269,6 +269,11 @@ struct Row<'a> {
     launch: &'a QueuedLaunch,
     /// Admission's word while the entry waits; `None` once it started.
     admission: Option<AdmissionRow>,
+    /// What a measured pass sized it by (decision 0125 ruling 8): its
+    /// demand, what is available and what is reserved; absent where the
+    /// pass sized nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    demand: Option<&'a Sized>,
 }
 
 /// Admission's verdict as scripts read it: the entry's standing and each
@@ -350,6 +355,7 @@ fn rows(entries: &[Judged]) -> Vec<Row<'_>> {
                  entry,
                  launch,
                  verdict,
+                 demand,
                  ..
              }| Row {
                 place: entry.position,
@@ -361,6 +367,7 @@ fn rows(entries: &[Judged]) -> Vec<Row<'_>> {
                 added_at: &entry.added_at,
                 launch,
                 admission: verdict.as_ref().map(AdmissionRow::of),
+                demand: demand.as_ref(),
             },
         )
         .collect()

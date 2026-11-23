@@ -611,3 +611,53 @@ fn the_registry_is_every_journal_the_realms_map_lists() {
         vec![ws.join("forge.db"), ws.join("there.db")]
     );
 }
+
+/// Decision 0125 ruling 8: `--json` carries what a measured pass sized an
+/// entry by, its demand as average and margin, what is available and what
+/// is reserved; an entry the pass sized nothing for carries no `demand`.
+#[test]
+fn the_listing_carries_what_an_entry_was_sized_by() {
+    let _host = own_host();
+    let dir = tempfile::tempdir().unwrap();
+    let (ws, db) = library(&dir);
+    let add = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
+    queue_in(ws, &db, &add).unwrap();
+    queue_in(ws, &db, &add).unwrap();
+    let mut entries = listed(&db);
+    let need = |average: u64, margin: u64| admission::Need {
+        average,
+        margin,
+        demand: average + margin,
+    };
+    entries[0].demand = Some(Sized {
+        recipe: "b".into(),
+        source: admission::Source::Measured { runs: 3 },
+        memory_bytes: need(400, 100),
+        load_millicores: need(800, 200),
+        available: admission::Available {
+            memory_bytes: 450,
+            memory_total: 1000,
+            idle_millicores: 4000,
+            cores_millicores: 8000,
+        },
+        reserved: admission::Reserved {
+            memory_bytes: 50,
+            load_millicores: 10,
+            runs: 1,
+            whole: 1,
+            admitted: 0,
+        },
+    });
+    let listed = serde_json::to_value(rows(&entries)).unwrap();
+    assert_eq!(
+        listed[0]["demand"],
+        json!({"recipe": "b", "source": {"kind": "measured", "runs": 3},
+               "memory_bytes": {"average": 400, "margin": 100, "demand": 500},
+               "load_millicores": {"average": 800, "margin": 200, "demand": 1000},
+               "available": {"memory_bytes": 450, "memory_total": 1000,
+                             "idle_millicores": 4000, "cores_millicores": 8000},
+               "reserved": {"memory_bytes": 50, "load_millicores": 10, "runs": 1, "whole": 1,
+                            "admitted": 0}})
+    );
+    assert_eq!(listed[1].get("demand"), None);
+}
