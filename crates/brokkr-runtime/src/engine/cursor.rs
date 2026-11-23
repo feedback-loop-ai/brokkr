@@ -265,18 +265,23 @@ impl Engine {
     /// journal event names. `Some` is the cleanup refusal to park with,
     /// after which nothing may probe or retry; `None` is every process it
     /// witnessed proven settled, so the wait may go on (decision 0103
-    /// ruling 4, this fix round).
+    /// ruling 4, this fix round). Then the reaper ends every probe hold of
+    /// the run whose attempt that settlement proved (fix round 0106b1r12,
+    /// S2), and a hold it cannot end refuses in the store's words.
     fn orphaned_probe_refusal(
-        &self,
+        &mut self,
         seat: &str,
         strategy: Option<&str>,
         events: &[EventEnvelope],
         waits: &[ProviderWait],
     ) -> Option<String> {
         let label = self.selected_label(seat, strategy);
-        self.recovered_probe(&label, events, waits, &crate::engine::broker::observed())
-            .err()
-            .map(|refusal| refusal.to_string())
+        let observed = crate::engine::broker::observed();
+        if let Err(refusal) = self.recovered_probe(&label, events, waits, &observed) {
+            return Some(refusal.to_string());
+        }
+        let reaped = self.reap_probe_holds(&observed);
+        reaped.err().map(|unreaped| unreaped.to_string())
     }
 
     /// The cap's park (decision 0006), with the facts the last failure

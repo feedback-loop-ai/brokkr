@@ -578,6 +578,7 @@ pub fn brokkr_store::Store::set_dispatch_bound(&mut self, core::num::nonzero::No
 impl brokkr_store::Store
 pub fn brokkr_store::Store::end_probe_hold(&mut self, core::option::Option<brokkr_store::ProbeHoldId>, time::offset_date_time::OffsetDateTime) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::hold_probe(&mut self, &brokkr_store::ProbeHold<'_>, time::offset_date_time::OffsetDateTime) -> core::result::Result<brokkr_store::ProbeHoldId, brokkr_store::StoreError>
+pub fn brokkr_store::Store::settle_probe_holds(&mut self, &str, &[alloc::string::String], time::offset_date_time::OffsetDateTime) -> core::result::Result<(), brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::envelopes_at(&self, &str, &[u64]) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::index_causes(&self, &str, &[&str]) -> core::result::Result<core::option::Option<alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>>, brokkr_store::StoreError>

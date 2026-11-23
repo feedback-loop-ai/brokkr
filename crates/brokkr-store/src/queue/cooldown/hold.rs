@@ -201,6 +201,36 @@ impl Store {
         })
     }
 
+    /// End, at `now`, every hold standing for one of `attempts` of the run
+    /// `run_id`: the attempts a settlement proved, whose probes' process
+    /// trees are therefore over (fix round 0106b1r12, S2). The restarted
+    /// engine's reaper and the operator's settle record are its callers; a
+    /// hold naming any other attempt, of this run or another, is left as
+    /// it stands. A queue that holds no version 7 table holds no hold.
+    pub fn settle_probe_holds(
+        &mut self,
+        run_id: &str,
+        attempts: &[String],
+        now: OffsetDateTime,
+    ) -> Result<(), StoreError> {
+        patiently("settle_probe_holds", self.patience, || {
+            let tx = self
+                .conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            if cool_downs_writable(&tx)? {
+                for attempt in attempts {
+                    tx.execute(
+                        "UPDATE probe_holds SET ended_at = ?3
+                         WHERE run_id = ?1 AND attempt_id = ?2 AND ended_at IS NULL",
+                        params![run_id, attempt, now.unix_timestamp()],
+                    )?;
+                }
+            }
+            tx.commit()?;
+            Ok(())
+        })
+    }
+
     /// End the hold `id` at `now`: the probe answered, so its route opens
     /// at once. Only the hold the probe wrote is touched, and `None`, a
     /// probe on a queue that took no hold, touches none.

@@ -32,6 +32,7 @@ use crate::engine::sequence::{
 use crate::engine::{phase_of, Door, Selection, SiteSpawn};
 
 mod end;
+mod reap;
 mod sequence;
 pub(in crate::engine) use end::cleanup_failure;
 pub(super) use sequence::step_context;

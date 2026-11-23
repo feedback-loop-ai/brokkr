@@ -6,7 +6,7 @@
 //! the crashed instance's, which stands, named by its attempt, until a
 //! settlement ends it.
 
-use super::crash::crashing_clock;
+use super::crash::{crashed_after_probe_cleanup, crashing_clock, driven, own_engine};
 use super::held_route::{hold_end_of, holds_written, legs, probing, unended_holds};
 use super::*;
 
@@ -24,13 +24,16 @@ fn unended_attempts(path: &std::path::Path) -> Vec<String> {
 
 /// The first engine's probe answers and its clock panics at the next read,
 /// the answer's: a crash between the probe's cleanup and its hold's end.
-/// The resumed drive's own probe answers, the retry succeeds, and of the
-/// two holds written only the resumed instance's is ended: the crashed
-/// instance's stands, and both production gates read the route cooling
-/// down a day past its stored end, naming its attempt.
+/// No coordination root can be protected, so no record proves its tree
+/// settled. The resumed drive's own probe answers, the retry succeeds, and
+/// of the two holds written only the resumed instance's is ended: the
+/// crashed instance's stands, and both production gates read the route
+/// cooling down a day past its stored end, naming its attempt.
 #[test]
 fn a_resume_never_ends_or_adopts_a_crashed_instances_hold() {
     let (dir, mut crashed, now, probe_at, gates) = probing(Probed::Answer);
+    let home = dir.path().join("unrooted");
+    let _unrooted = crate::engine::broker::admission::tests::Coordinated::unrooted(&home);
     crashed.cooldown.clock = crashing_clock(&dir.path().join("work.done"), &now);
     let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crashed.drive()));
     assert!(panic.is_err(), "the clock did not crash after the probe");
@@ -57,4 +60,96 @@ fn a_resume_never_ends_or_adopts_a_crashed_instances_hold() {
             "{leg:?}"
         );
     }
+}
+
+/// The reasons of every row and hold the in-force read of `store` holds a
+/// day past the fixture's base instant.
+fn in_force_words(store: &brokkr_store::Store) -> Vec<String> {
+    let rows = store.cooldowns_in_force(base() + time::Duration::days(1));
+    rows.unwrap().into_iter().map(|row| row.reason).collect()
+}
+
+/// Fix round 0106b1r12, S2: the restarted engine's reaper settles the tree
+/// a crashed probe's hold names. The first engine's probe answers, its
+/// driver is sealed Settled, and it crashes before it ends its hold or
+/// releases its attempt; the hold stands in the in-force read, naming that
+/// attempt. The resume's recovery, before any probe, proves the attempt by
+/// its sealed record and releases it, and the reaper ends the hold naming
+/// it. A hold of the run naming an attempt no record proves still stands.
+/// It runs in an engine of its own, as the crash test it extends does.
+#[test]
+fn the_restarted_engines_reaper_ends_the_hold_of_a_crashed_probe_its_records_prove() {
+    let test = "engine::cooldown::tests::held_instance::the_restarted_engines_reaper_ends_the_hold_of_a_crashed_probe_its_records_prove";
+    let Some((dir, home, _stand)) = own_engine(test) else {
+        return;
+    };
+    let (compiled, run, first) = crashed_after_probe_cleanup(dir.path(), &home);
+    let journal = dir.path().join("forge.db");
+    let mut store = brokkr_store::Store::open(&journal).unwrap();
+    let unproven = brokkr_store::ProbeHold {
+        run_id: &run,
+        attempt_id: "unproven",
+        site: "",
+        provider: "codex",
+        route: "second",
+        fallback: base(),
+    };
+    store.hold_probe(&unproven, base()).unwrap();
+    let standing = in_force_words(&store);
+    assert_eq!(standing.len(), 2, "{standing:?}");
+    let named = format!("(attempt {first})");
+    assert!(standing[0].contains(&named), "{standing:?}");
+    assert_eq!(unended_attempts(&journal), [first, "unproven".into()]);
+    drop(store);
+
+    driven(
+        dir.path(),
+        compiled,
+        &run,
+        base() + time::Duration::seconds(1),
+    );
+    assert_eq!(
+        logs(dir.path(), "work"),
+        ["probe", "probe", "attempt:succeed"]
+    );
+    assert_eq!(unended_attempts(&journal), ["unproven"]);
+    let standing = in_force_words(&brokkr_store::Store::open(&journal).unwrap());
+    assert_eq!(standing.len(), 1, "{standing:?}");
+    assert!(standing[0].contains("(attempt unproven)"), "{standing:?}");
+}
+
+/// The reaper's refusal: a store that cannot end the crashed probe's
+/// proven hold (every hold update forced to fail) parks the resume in the
+/// store's words before any probe, and the hold stands.
+#[test]
+fn a_hold_the_reaper_cannot_end_parks_the_resume_and_stands() {
+    let test = "engine::cooldown::tests::held_instance::a_hold_the_reaper_cannot_end_parks_the_resume_and_stands";
+    let Some((dir, home, _stand)) = own_engine(test) else {
+        return;
+    };
+    let (compiled, run, first) = crashed_after_probe_cleanup(dir.path(), &home);
+    let journal = dir.path().join("forge.db");
+    rusqlite::Connection::open(&journal)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER unended BEFORE UPDATE ON probe_holds
+             BEGIN SELECT RAISE(ABORT, 'forced probe_holds failure'); END;",
+        )
+        .unwrap();
+    let resumed = driven(
+        dir.path(),
+        compiled,
+        &run,
+        base() + time::Duration::seconds(1),
+    );
+    assert_eq!(logs(dir.path(), "work"), ["probe"]);
+    let reason = park_reason(&resumed);
+    assert!(
+        reason.contains(&format!(
+            "the cool-down probe holds of run {run} whose attempts are settled could not be \
+             ended"
+        )) && reason.contains("forced probe_holds failure"),
+        "{reason}"
+    );
+    assert_eq!(unended_attempts(&journal), [first]);
 }

@@ -132,6 +132,27 @@ impl Engine {
         let deadline = startup(Instant::now(), Duration::MAX);
         settle_orphaned(&root, [&repo, &self.run_id], label, events, waits, deadline)
     }
+
+    /// Every attempt the run's own reservation names settled, read under
+    /// the admission lock in the coordination root `observed` resolves:
+    /// each released only once its positive settlement fact was sealed
+    /// ([`settled`]), by its own engine, by [`settle_orphaned`] for a
+    /// crashed probe, or on the operator's attestation. The reaper ends the
+    /// probe holds these name (fix round 0106b1r12, S2). None where no root
+    /// is protected, no reservation stands, or it cannot be read: nothing
+    /// is proven then, and every hold stands.
+    pub(in crate::engine) fn settled_attempts(&self, observed: &Observed) -> Vec<String> {
+        let settled = || {
+            let root = observed.home.as_deref().and_then(observed.open)?;
+            let (_, repo) = keyed(&self.workdir()).ok()?;
+            let deadline = startup(Instant::now(), Duration::MAX);
+            let _lock = locked(root.dir(), deadline).ok()?;
+            standing(&root, [&repo, &self.run_id]).ok().flatten()
+        };
+        settled().map_or_else(Vec::new, |reservation| {
+            reservation.settled.into_iter().collect()
+        })
+    }
 }
 
 /// Whether the journal names `attempt` at all: every effect attempt is

@@ -1173,7 +1173,15 @@ every entry reads the default budget of 3; a direct run always has none.
    forked, refused or late before the fork, has an empty tree, settled as it is refused, and its
    hold ends then. The stored end, the probe's deadline plus the shutdown grace plus a 60-second
    margin, is a readout only; no gate reads it, so no host suspend, clock step or crash lapses a
-   hold while its tree may run.
+   hold while its tree may run. After a crash, an unended hold stands until a settlement proves
+   its probe's tree over: the restarted engine's reaper, the recovery that runs before any probe
+   of the run, seals a crashed probe's attempt Settled where every driver it recorded is sealed
+   so and releases it, and every hold naming an attempt the run's reservation then names
+   settled ends; or an operator's `settle` record ends the holds of the attempts it proves. The
+   stated trade (fix round 0106b1r12, operator 2026-11-23): until then the route stays cooled,
+   for every run on the host. A hold whose tree no record can prove, as on a host with no
+   protected coordination root, or a cleanup witnessed unresolved, stands until an operator
+   settles it.
 3. **0106c — the operator lift, its consumption and its clearing rule.** Depends on 0106b. Files:
    `crates/brokkr-core/src/fold.rs`, `crates/brokkr-core/src/fold/operator.rs`,
    `crates/brokkr-runtime/src/engine/operator.rs`,

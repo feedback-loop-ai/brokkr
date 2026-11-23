@@ -9,6 +9,9 @@
 //! records — or, where a record proves nothing, by the process group it
 //! names being gone from the host. If they hold, one `operator/commanded`
 //! with command `settle` names them; if not, it refuses and writes nothing.
+//! Once it is written, every cool-down probe hold naming an attempt it
+//! proves ends, for the record is the operator's settlement of that probe's
+//! tree (decision 0106 slice 0106b1, fix round 0106b1r12, S2).
 //!
 //! Nothing here folds the run: a run this verb exists for does not fold at
 //! all. The events are read by type (the chain is verified, the fold is
@@ -166,7 +169,14 @@ fn settle_with(
     // of the append's args fails it.
     let back = store.load(run_id)?;
     let read = settlement::release::record(&back).filter(|record| record.seq == written.seq);
-    let _ = read.expect("the record this verb just appended reads back");
+    let read = read.expect("the record this verb just appended reads back");
+    // The record is the operator's settlement of each attempt it proves,
+    // a probe's tree among them: every probe hold naming one ends now, the
+    // locks still held (fix round 0106b1r12, S2).
+    let proven: Vec<String> = (read.args.attempts.iter())
+        .map(|proven| proven.attempt.clone())
+        .collect();
+    store.settle_probe_holds(run_id, &proven, time::OffsetDateTime::now_utc())?;
     Ok(written)
 }
 

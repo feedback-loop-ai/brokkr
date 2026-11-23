@@ -166,6 +166,43 @@ fn a_probe_hold_is_in_force_until_it_ends_whatever_the_time() {
     assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), []);
 }
 
+/// Fix round 0106b1r12, S2: a settlement ends every hold of the run that
+/// names an attempt it proved, and no other: not another attempt's, nor
+/// the same attempt's of another run. A queue this binary does not write
+/// holds no hold, so a settlement there ends nothing and refuses nothing.
+#[test]
+fn a_settlement_ends_the_holds_of_the_attempts_it_proves_and_no_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    planted(&store, "run-b");
+    for (run, attempt) in [("run-a", "a-1"), ("run-a", "a-2"), ("run-b", "a-1")] {
+        let mut hold = probe_hold(run, at(30));
+        hold.attempt_id = attempt;
+        store.hold_probe(&hold, at(0)).unwrap();
+    }
+    store
+        .settle_probe_holds("run-a", &["a-1".into(), "a-9".into()], at(5))
+        .unwrap();
+    let standing: Vec<(String, String)> = store
+        .conn
+        .prepare("SELECT run_id, attempt_id FROM probe_holds WHERE ended_at IS NULL ORDER BY seq")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let pair = |run: &str, attempt: &str| (run.to_string(), attempt.to_string());
+    assert_eq!(standing, [pair("run-a", "a-2"), pair("run-b", "a-1")]);
+    store
+        .conn
+        .execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
+        .unwrap();
+    store
+        .settle_probe_holds("run-a", &["a-2".into()], at(6))
+        .unwrap();
+    assert_eq!(unended_holds(&store.conn), ["run-a", "run-b"]);
+}
+
 /// Fix round 0106b1r9, E3: a hold is only ever the evidence of its write.
 /// A queue this binary does not write, an older version's or a newer
 /// binary's, takes no hold, and refuses by name rather than reporting a

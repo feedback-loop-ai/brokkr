@@ -120,6 +120,35 @@ fn settle_writes_the_record_its_contract_names_and_leaves_the_run_unfolded() {
     assert_eq!(read.args.run, "run-a");
 }
 
+/// Fix round 0106b1r12, S2: the settle record is the operator's settlement
+/// of each attempt it proves, a probe's tree among them, honoured as the
+/// writer exclusion honours it: a probe hold naming the proven attempt
+/// ends with the record, and one naming an attempt it does not prove
+/// stands in the in-force read.
+#[test]
+fn settle_ends_the_probe_holds_of_the_attempts_it_proves_and_no_other() {
+    let mut fixture = quarantined(&[Witnessed::Settling], Some(dead_group()));
+    let at = time::OffsetDateTime::now_utc();
+    for (attempt, provider) in [("a1", "claude"), ("a9", "codex")] {
+        let hold = brokkr_store::ProbeHold {
+            run_id: "run-a",
+            attempt_id: attempt,
+            site: "",
+            provider,
+            route: "first",
+            fallback: at,
+        };
+        fixture.store.hold_probe(&hold, at).unwrap();
+    }
+    let providers = |fixture: &Fixture| -> Vec<String> {
+        let rows = fixture.store.cooldowns_in_force(at).unwrap();
+        rows.into_iter().map(|row| row.provider).collect()
+    };
+    assert_eq!(providers(&fixture), ["claude", "codex"]);
+    operator_settle(&mut fixture.store, "run-a", &ask()).expect("the facts hold");
+    assert_eq!(providers(&fixture), ["codex"]);
+}
+
 /// A run no acknowledgement stands on is refused by its typed cause,
 /// naming the command that answers it. Nothing is written.
 #[test]

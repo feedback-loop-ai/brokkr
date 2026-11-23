@@ -31,7 +31,12 @@ fn waited_run(dir: &Path, compiled: crate::bundle::Bundle) -> (String, crate::bu
 }
 
 /// The run resumed under `compiled` and driven with a clock at `at`.
-fn driven(dir: &Path, compiled: crate::bundle::Bundle, run: &str, at: OffsetDateTime) -> Engine {
+pub(super) fn driven(
+    dir: &Path,
+    compiled: crate::bundle::Bundle,
+    run: &str,
+    at: OffsetDateTime,
+) -> Engine {
     let mut engine = resumed_run(dir, compiled, run);
     engine.cooldown.clock = Clock::advancing(at).0;
     engine.drive().unwrap();
@@ -118,7 +123,10 @@ pub(super) fn spawn_live(
         .unwrap()
 }
 
-fn crashed_after_probe_cleanup(dir: &Path, home: &Path) -> (crate::bundle::Bundle, String, String) {
+pub(super) fn crashed_after_probe_cleanup(
+    dir: &Path,
+    home: &Path,
+) -> (crate::bundle::Bundle, String, String) {
     let command = driver(
         dir,
         "work",
