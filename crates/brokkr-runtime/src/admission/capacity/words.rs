@@ -31,6 +31,7 @@ impl Capacity {
             Capacity::FloorLow { .. } => "floor_low",
             Capacity::BoxedFull { .. } => "boxed_full",
             Capacity::CoolingDown { .. } => "cooling_down",
+            Capacity::Demand(short) => short.kind(),
         }
     }
 }
@@ -109,6 +110,7 @@ impl fmt::Display for Capacity {
                 until,
                 words,
             } => cooling::word(f, provider, route, *until, words),
+            Capacity::Demand(short) => write!(f, "{short}"),
         }
     }
 }

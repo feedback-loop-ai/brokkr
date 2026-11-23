@@ -15,7 +15,7 @@ use std::time::Duration;
 /// The span between the two CPU readings of one pass: long enough that a
 /// tick count of 100 Hz says a share to a percent, short enough that a
 /// listing waits on it unnoticed.
-pub const WINDOW: Duration = Duration::from_millis(500);
+const WINDOW: Duration = Duration::from_millis(500);
 
 /// A running run whose driver's tree a pass measures: the journal it is
 /// in and its id, which name its run lock (decision 0108).
@@ -38,7 +38,7 @@ pub enum Measurement {
 
 /// What the machine has now, and the whole of it: memory in bytes, CPU in
 /// thousandths of a core.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct Available {
     pub memory_bytes: u64,
     pub memory_total: u64,

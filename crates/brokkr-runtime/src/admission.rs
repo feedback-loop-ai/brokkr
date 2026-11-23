@@ -69,7 +69,8 @@ mod host;
 
 use awaited::{awaiting, came_to, observe, otherwise, unmerged, unstarted};
 pub use demand::{
-    measurable, measure_now, Available, Driven, Measurement, Unmeasured, Use, WINDOW,
+    measurable, measure_now, Available, Beside, Driven, Holder, Machine, Measurement, Need,
+    Reserved, Short, Sized, Source, Unmeasured, Use,
 };
 
 pub(crate) use capacity::Unclaimed;
@@ -414,6 +415,9 @@ pub struct Judged {
     pub launch: QueuedLaunch,
     pub verdict: Option<Verdict>,
     pub room: Option<Room>,
+    /// What a measured pass sized it by, where it reached the demand rule
+    /// (decision 0125).
+    pub demand: Option<Sized>,
 }
 
 /// Why the pass could not judge the queue at all. Nothing is admitted.
@@ -677,6 +681,7 @@ fn read(store: &Store) -> Result<Vec<(Judged, Option<Finding>)>, AdmissionError>
                 launch,
                 verdict,
                 room: None,
+                demand: None,
             };
             Ok((judged, finding))
         })

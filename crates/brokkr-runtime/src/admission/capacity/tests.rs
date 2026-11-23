@@ -204,6 +204,7 @@ impl Fixture {
             file,
             temp: TEMP.as_ref(),
             free: &probe,
+            machine: None,
         };
         verdicts(pass_within(&self.store, &host).unwrap().0)
     }
@@ -320,6 +321,7 @@ fn passed_naming(store: &Store, file: &Path) -> Result<(Vec<Judged>, Vec<Reason>
         file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     pass_within(store, &host)
 }
@@ -812,6 +814,7 @@ fn measured(
         file: &file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     let reasons = verdicts(pass_within(&fixture.store, &host).unwrap().0).remove(0);
     (reasons, asked.into_inner())
@@ -985,6 +988,7 @@ fn a_floor_path_through_a_dangling_link_is_unmeasured_and_never_measured_on_its_
             file: &file,
             temp: TEMP.as_ref(),
             free: &host::free_bytes,
+            machine: None,
         };
         let mut reasons = verdicts(pass_within(&fixture.store, &host).unwrap().0).remove(0);
         let reason = reasons.pop().unwrap();
@@ -1136,6 +1140,7 @@ fn the_writing_pass_judges_the_machine_after_it_latches() {
         file: &file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     let judged = verdicts(judge_within(&mut fixture.store, &host, BY).unwrap().0);
     let undeclared = Reason::Capacity(Capacity::Undeclared(file.clone()));
@@ -1826,6 +1831,7 @@ fn bound_to(room: &Room, entry: QueueEntry) -> Room {
         runs: room.runs,
         config: room.config.clone(),
         census: Arc::clone(&room.census),
+        recipe: room.recipe.clone(),
     }
 }
 

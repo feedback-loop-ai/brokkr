@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 41] = [
+const FROZEN: [(&str, &str); 42] = [
     // Decision 0075 ruling 2 lands seat-record v8 beside v7, frozen here.
     (
         "contracts/seat-record.v7.schema.json",
