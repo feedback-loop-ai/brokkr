@@ -411,6 +411,15 @@ fn keys_at<'a>(lines: &[&'a str], indent: &str) -> Vec<(&'a str, &'a str)> {
         .collect()
 }
 
+/// A workflow's top-level keys, in order: a workflow-wide `defaults:` or
+/// `env:` would reach every step.
+fn top_level_keys(workflow: &str) -> Vec<&str> {
+    keys_at(&workflow.lines().collect::<Vec<_>>(), "")
+        .into_iter()
+        .map(|(key, _)| key)
+        .collect()
+}
+
 /// The steps several required jobs take word for word, held once.
 const SHARED_STEPS: [(&str, &str); 6] = [
     (
@@ -510,6 +519,74 @@ fn held_lines(body: &str) -> Vec<&str> {
     held
 }
 
+/// Every line of the nightly CPU budgets' one job (#1295), held as
+/// `JOB_LINES` holds a required job's: it is no required check, but its
+/// red status is the only signal a regression raises, so a softened step,
+/// a write permission or another runner fails until it is re-read.
+const CPU_BUDGETS_LINES: &str = r#"
+    name: CPU budgets (Callgrind, against the base)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+<stable toolchain>
+<rust-cache>
+      - name: valgrind, and the gungraun runner at the library's version
+        run:
+      - name: the base, the previous nightly's head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ inputs.ref }}
+          COUNTS: "the head's counts, 2% over the base at most"
+        run:
+      - name: the head's benches, built
+        run:
+      - name: the base's counts
+        run:
+      - name: the head's counts, 2% over the base at most
+        run:
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: cpu-budgets
+          path: |
+            ${{ runner.temp }}/record/
+            ${{ runner.temp }}/gungraun/
+            target/gungraun/
+            target/cargo-timings/
+          if-no-files-found: ignore
+"#;
+
+/// The nightly CPU budgets (#1295) are held whole like the required jobs:
+/// cpu-budgets.yml's top-level keys, its one job, and every line of that
+/// job as `CPU_BUDGETS_LINES` holds it.
+#[test]
+fn the_nightly_cpu_budgets_run_every_step_unsoftened() {
+    let text =
+        std::fs::read_to_string(workspace().join(".github/workflows/cpu-budgets.yml")).unwrap();
+    assert_eq!(
+        top_level_keys(&text),
+        ["name", "on", "permissions", "concurrency", "jobs"],
+        "cpu-budgets.yml's top-level keys"
+    );
+    let jobs = workflow::jobs(&text);
+    let ids: Vec<&str> = jobs.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, ["cpu-budgets"], "cpu-budgets.yml's jobs");
+    assert_eq!(
+        held_lines(&jobs[0].1),
+        expected_lines(CPU_BUDGETS_LINES),
+        "a line of cpu-budgets.yml's job changed: re-read what its red status signals"
+    );
+}
+
 /// A skipped step or job reports success, which satisfies a required
 /// check, so the jobs behind the twelve are held whole: each workflow's
 /// top-level keys (a workflow-wide `defaults:` or `env:` would reach every
@@ -534,12 +611,7 @@ fn the_required_jobs_run_every_step_unsoftened() {
             ["name", "on", "permissions", "concurrency", "jobs"],
         ),
     ] {
-        let text = read(file);
-        let keys: Vec<&str> = keys_at(&text.lines().collect::<Vec<_>>(), "")
-            .into_iter()
-            .map(|(key, _)| key)
-            .collect();
-        assert_eq!(keys, top, "{file}'s top-level keys");
+        assert_eq!(top_level_keys(&read(file)), top, "{file}'s top-level keys");
     }
     let body_of = |id: &str, file: &str| {
         workflow::jobs(&read(file))
