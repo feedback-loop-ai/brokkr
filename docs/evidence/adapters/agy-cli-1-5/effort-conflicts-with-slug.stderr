@@ -1,0 +1,1 @@
+error: invalid model selection (--model "gemini-4-neon-high" --effort "low"): --model gemini-4-neon-high conflicts with --effort=low

@@ -36,7 +36,9 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::claude_fold::ClaudeFold;
+use super::escapes::plain_evidence;
 use super::mcp::{self, McpRefusal};
+use super::stream_turn::{plain, Observed, STOPPED_AT_REFUSAL, UNCONCLUDED};
 use super::{fold_stream_event, io_context, lost, secret, spawn_fed, Invocation, LaunchTerminal};
 use crate::native_controls::mcp::qoder::isolation;
 use crate::transcript::{Kind as TranscriptKind, Transcript};
@@ -141,24 +143,6 @@ pub(super) enum LaunchError {
     /// driver states it with ([`McpRefusal::at_launch`]).
     #[error("{}", .0.at_launch())]
     Mcp(#[from] McpRefusal),
-}
-
-/// The most characters a plain model id holds.
-const PLAIN_ID_LIMIT: usize = 80;
-
-/// Whether `text` is a plain model id: 1 to [`PLAIN_ID_LIMIT`] characters,
-/// the first an ASCII letter or a digit, so no plain id reads as a flag
-/// (H6), and each other an ASCII letter, a digit, `.`, `_` or `-`. No such
-/// character is one JSON or Rust escapes, and none is one of the mask's
-/// replacement text (`[secret:NAME]`), so a plain id has no escaped form
-/// and no mask turns another value into one.
-fn plain(text: &str) -> bool {
-    let character = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-');
-    let first = text
-        .bytes()
-        .next()
-        .is_some_and(|byte| byte.is_ascii_alphanumeric());
-    first && text.len() <= PLAIN_ID_LIMIT && text.bytes().all(character)
 }
 
 /// A qoder seat's `-m` value, built once at launch and only from a
@@ -324,9 +308,7 @@ const MCP_FILE: &str = "mcp.json";
 fn staged(document: &Value, root: &Path) -> Result<tempfile::TempDir, LaunchError> {
     let written = (tempfile::Builder::new().prefix("brokkr-qoder-mcp-"))
         .tempdir_in(root)
-        .and_then(|dir| {
-            std::fs::write(dir.path().join(MCP_FILE), document.to_string()).map(|()| dir)
-        });
+        .and_then(|dir| mcp::written(&dir.path().join(MCP_FILE), document).map(|()| dir));
     written.map_err(LaunchError::Unstaged)
 }
 
@@ -546,93 +528,13 @@ fn provider_refused(classified: PreSessionRefusal) -> PreSessionRefusal {
     PreSessionRefusal::from_parts(classified.class(), words.to_string(), status, retry_after)
 }
 
-/// Qoder's stderr as its checks read it: the raw text, lossy UTF-8, and
-/// the same text [`without_ansi`], neither masked. A marker found in either
-/// is said (V3): a false refusal costs a refused seat, a missed one accepts
-/// a model nobody pinned. Both stay here and are only matched (U2): neither
-/// is returned, emitted, logged or put in any error, so it has no `Debug`.
-struct Observed {
-    raw: String,
-    stripped: String,
-}
-
 impl Observed {
-    fn of(bytes: &[u8]) -> Observed {
-        let raw = String::from_utf8_lossy(bytes).into_owned();
-        let stripped = without_ansi(&raw);
-        Observed { raw, stripped }
-    }
-
-    fn said(&self, marker: &str) -> bool {
-        self.raw.contains(marker) || self.stripped.contains(marker)
-    }
-
     /// Whether Qoder reported it fell back to another model: the one scan
     /// of the fallback marker, whose answer every identity check reads (Z7).
     fn fell_back(&self) -> bool {
         self.said(FALLBACK)
     }
 }
-
-const ESC: char = '\u{1b}';
-const BEL: char = '\u{7}';
-
-/// The characters an escape sequence is read from.
-type Chars<'a> = std::iter::Peekable<std::str::Chars<'a>>;
-
-/// `text` without its escape sequences, each ended where ECMA-48 ends it
-/// (V2): a CSI (`ESC [`) at its final byte, an OSC (`ESC ]`) at BEL or ST
-/// (`ESC \`), and any other `ESC` followed by a byte 0x40 to 0x5F as a
-/// two-byte sequence. An `ESC` before any other byte goes alone, and that
-/// byte is kept. Qoder colours its refusals. This is the one stripper of
-/// the checks and of the evidence.
-fn without_ansi(text: &str) -> String {
-    let mut kept = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c != ESC {
-            kept.push(c);
-            continue;
-        }
-        match chars.next_if(|next| ('\u{40}'..='\u{5f}').contains(next)) {
-            Some('[') => control_sequence(&mut chars),
-            Some(']') => operating_system_command(&mut chars),
-            Some(_) | None => {}
-        }
-    }
-    kept
-}
-
-/// A CSI after its `ESC [`: parameter bytes 0x30 to 0x3F, intermediate
-/// bytes 0x20 to 0x2F, then one final byte 0x40 to 0x7E, consumed. Any
-/// other byte ends a malformed sequence and is not consumed.
-fn control_sequence(chars: &mut Chars<'_>) {
-    while chars
-        .next_if(|c| ('\u{30}'..='\u{3f}').contains(c))
-        .is_some()
-    {}
-    while chars
-        .next_if(|c| ('\u{20}'..='\u{2f}').contains(c))
-        .is_some()
-    {}
-    chars.next_if(|c| ('\u{40}'..='\u{7e}').contains(c));
-}
-
-/// An OSC after its `ESC ]`: everything up to BEL or ST, consumed with it.
-fn operating_system_command(chars: &mut Chars<'_>) {
-    while let Some(c) = chars.next() {
-        if c == BEL || (c == ESC && chars.next_if_eq(&'\\').is_some()) {
-            return;
-        }
-    }
-}
-
-/// The exit a refused seat reads when the driver stopped its harness at
-/// the refusing row: the harness never answered, so the stop is the
-/// driver's refusal and not a signal the harness died of. The refusal
-/// path journals no exit code; `lost::refusal_to_start` reads this one as
-/// a code of the command's own, which it is not, so it is named here.
-const STOPPED_AT_REFUSAL: i32 = 1;
 
 /// Run one qoder turn: the prompt on stdin, every row through
 /// [`QoderFold`], the harness stopped at a refusing row, and the turn's
@@ -668,7 +570,7 @@ fn invoke(
     }
     let status = match stopped {
         Some(_) => super::conclude_harness(&mut child)?,
-        None => io_context(child.wait(), "agent CLI did not conclude")?,
+        None => io_context(child.wait(), UNCONCLUDED)?,
     };
     // The session record holds only what masked rows wrote (H1).
     transcript.finish(&mut session_meta, emit);
@@ -703,10 +605,7 @@ fn invoke(
         // reads it (U3). It is evidence, no word of the driver's: the shared
         // driver tells it on its own stderr as it tells every adapter's, and
         // the journal names it by evidence alone (#1199).
-        stderr: captured.evidence(|raw| {
-            let stripped = without_ansi(&String::from_utf8_lossy(raw));
-            secret::mask_text(stripped.as_bytes(), bindings)
-        }),
+        stderr: captured.evidence(|raw| plain_evidence(raw, bindings)),
         state: None,
         refusal,
         answer: None,

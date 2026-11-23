@@ -518,6 +518,328 @@ started the user-scope server, and `--setting-sources ""` alone still
 started the project-scope server, so the driver always passes both. A
 site that boxes its hands still refuses the seat.
 
+### Antigravity CLI, a provisional harness
+
+Antigravity CLI (`agy`) is the second provisional harness (#1200),
+onboarded under decision
+[0075](../decisions/0075-harness-onboarding-in-a-day.md) at level 1, the
+controller's ruling of 2026-11-20. Level 1 is an adapter and a driver,
+`brokkr driver agy`, and nothing else. The seat is unboxed, except where
+its site boxes its hands: there it is boxed at level 3 (#1224), as
+[below](#a-boxed-agy-seat). It is never
+a judge or a gate, and it is never resumed, because the HOME it runs
+under is the engine's for one turn. Every model it serves is
+provisional, so it holds only the offices `realms.json` lists under
+`provisional_offices`. Its route is class `contracted`, the operator's
+ruling recorded in decision
+[0036](../decisions/0036-egress-is-a-property-of-the-route.md); its trust
+tier is `untrusted`. Every figure behind it was measured by hand on Linux
+([the record](../evidence/adapters/agy-cli-1-5.md)): the first four
+measurements on Antigravity CLI 1.5.13, then on 1.5.14 the fifth, which
+first measured the boxed store and the self-update, and the sixth, which
+ran the short security set again and first recorded a native command's
+stdin. Which fact is from which version is
+[below](#which-agy-version-each-fact-is-from).
+
+The adapter ships as an example, `docs/examples/adapters/agy.json`, for
+the reason Qoder's does: `brokkr init` does not write it, and a world
+copies it into its adapters directory. It maps the four Gemini 4 models
+to their base slugs:
+
+| Alias | Agy model | Efforts |
+|---|---|---|
+| `agy-neon` | `gemini-4-neon` | `low`, `medium`, `high`, `xhigh` |
+| `agy-carbon` | `gemini-4-carbon` | `low`, `medium`, `high` |
+| `agy-hydrogen` | `gemini-4-hydrogen` | `low`, `medium`, `high`, `xhigh` |
+| `agy-argon` | `gemini-4-argon` | `low`, `medium`, `high` |
+
+The model flag is `--model` and the effort flag `--effort`. The adapter
+declares `low`, `medium`, `high` and `xhigh`, because an adapter's
+efforts are one list for all its models. Carbon and Argon have no
+`xhigh`: the CLI refuses it with exit 1, and the seat is refused as a
+launch refusal. A slug that already names an effort, such as
+`gemini-4-neon-high`, beside a different `--effort`, is refused by the CLI
+too, so the aliases name the base slugs. The Claude, GPT-OSS and
+orchestrator slugs agy also serves are not mapped.
+
+**The launch.** The driver runs `agy --input-format stream-json
+--output-format stream-json`, then, unboxed, `--mode accept-edits`, then `--model`, the
+seat's `--effort` where it names one, and one `--settings` value. The
+prompt goes on stdin as one line, `{"event":"user","message":{"content":
+"<prompt>"}}`, and stdin is then closed, which ends the session. There is
+no `-p`: it would put the prompt in argv, and it takes the next argument
+as its value. A seat's arguments are `--model`, `--effort` and `--allow`,
+each once with one value. Any other argument, a doubled one, or a seat
+with no `--model` pin is refused before the CLI starts, by name and never
+by value: an option written as `--name=value` is named up to its `=`.
+
+**Grants ride one `--settings` value.** The adapter's tool permissions
+flag is the driver's own word, `--allow`, with names mapped to agy's
+rules, such as `git` to `command(git)` and `gh-pr-view` to `command(gh pr
+view)`. The driver turns that one value into `--settings
+'{"permissions":{"allow":[...]}}'`, and writes it in every launch, also
+when the seat holds no grant. A rule that is not `command(…)` or
+`mcp(…)` is refused, because agy ignores a rule it cannot parse without
+a word. So is a rule whose target is blank, has a blank at either end, or
+holds a control character or a parenthesis, naming `--allow` and never
+the rule. A target of several words matches a command's first words, one
+by one: `command(git status)` runs `git status --short` and not `git log`
+(`rule-multi-word-prefix`).
+
+**The engine's HOME.** HOME is the only measured way to move agy's state,
+and the only thing that shuts out the operator's own MCP servers,
+plugins and hooks. Every launch runs with HOME set, for the `agy` child
+alone and after the seat's secret bindings, so no binding replaces it, to
+a directory the driver makes for that launch, mode 0700, and removes
+when the turn ends. A seat that binds a secret named `HOME` is refused
+before the CLI starts. Each HOME is the one directory, `home`, inside a
+hands session, so nothing of the operator's shares a directory with the
+session's own records: its owner's pid in
+its name and its lock held while the driver lives, under one parent of
+agy's own, `brokkr-agy-homes-<uid>` under the engine's temporary root,
+mode 0700 and refused when it is anyone else's. A driver killed at the
+engine's deadline cannot remove its HOME, so each launch first removes
+every HOME there whose owner is dead and holds no lock, and leaves a live
+owner's, and one it cannot judge, alone. It holds a link to the operator's login,
+`~/.gemini/antigravity-cli/antigravity-oauth-token`, whose content the
+driver never reads; the engine's MCP document as
+`<HOME>/.gemini/config/mcp_config.json`, `{"mcpServers":{}}` with no
+server; and the gate as `<HOME>/.gemini/config/hooks.json`. Every other
+top-level entry
+of the operator's HOME is linked in by name, except `.gemini` and
+`.agents`, so a command the seat runs still finds `~/.cargo`, `~/.rustup`
+and its git identity. An entry whose name is not UTF-8 is skipped.
+
+**A workspace that carries agy's configuration is refused.** Agy starts
+the servers and plugins of a workspace's `.agents/` and runs its hooks in
+a workspace nobody trusted, and a workspace hook approved its own
+command. So an entry of any type at `<dir>/.agents/mcp_config.json`,
+`<dir>/.agents/plugins` or `<dir>/.agents/hooks.json`, where `<dir>` is
+the resolved working directory or any directory above it up to the
+filesystem root, refuses the launch, naming the path. Agy reads only
+within that range: its own walk up ends at the root or sooner, where the
+record measures (`git-root-*`), so the driver asks git nothing. The cost
+is a refusal for a path agy would not have read; it names the path, and removing it admits
+the seat. The check runs once, after the engine's HOME is made and
+directly before the CLI starts, and a seat it refuses leaves no HOME
+behind. A writer that plants a path after the check and before agy reads
+it is not refused; that window is narrowed, not closed (#1217).
+
+The child runs in the resolved working directory, and its `PWD` is that
+path, set after the seat's secret bindings as HOME is. Agy walks up from
+`PWD`, not from the directory it runs in (`pwd-logical`, `pwd-physical`),
+so it walks up from the path the driver checked. A seat that binds a
+secret named `PWD` is refused before the CLI starts, as one that binds
+`HOME` is.
+
+**The engine switches agy's self-update off for its seats.** A plain turn
+starts agy's background updater, which replaced the operator's binary
+during a run (`updater-default`). Every agy child the driver starts,
+boxed or not, carries `AGY_CLI_DISABLE_AUTO_UPDATE=true`, set over the
+engine's own environment as HOME is: `true` stops the turn from starting
+the updater (`updater-disabled-true`), and `1` does not
+(`updater-disabled`). A seat that binds a secret of that name is refused
+before the CLI starts, as one that binds `HOME` is. That is all it does:
+each seat launches the executable afresh, so the binary can still change
+between two seats of one run by other hands, such as the operator's own
+use of `agy`, and nothing checks the version a seat launches (#1240;
+decision [0124](../decisions/0124-an-agy-seat-never-starts-agy-s-self-updater.md)).
+`brokkr doctor` shows the version it observes.
+
+A path the check cannot read refuses, naming it. A working directory that
+cannot be resolved refuses, named as the seat gave it, and one that
+resolves to a path that is not UTF-8 refuses, naming it escaped.
+
+**The gate.** Agy's native web search runs with no rule, and no rule
+stops it. One `PreToolUse` hook in the engine's HOME does, on every tool,
+with a timeout of 10 seconds, under the name `brokkr-gate` in the shape
+the record's `documents/gate.hooks.json` holds: its command is `brokkr
+driver agy -- --gate read_file write_file edit_file run_command
+manage_task`, every word quoted for the shell agy runs it with, a mode of
+the driver that reads the hook's call and prints the decision. A tool on
+the list is answered `deny_unless_prior_grant`, so what no rule or the
+mode grants becomes a tool error the model sees, and the turn goes on.
+Any other tool, and a call the gate cannot read, is denied, naming the
+tool. That list is an unboxed seat's; a boxed seat's gate lists
+`call_mcp_tool` alone ([below](#a-boxed-agy-seat)). Web tools are never
+offered at level 1.
+
+**A command without a box runs on a terminal.** A command an unboxed agy
+seat runs through agy's own `run_command` is given a pseudo-terminal as
+its stdin (`command-stdin-v14`, the sixth measurement, on 1.5.14), so a
+command that reads its stdin to the end waits there until the seat's
+limit; #1245 is the test that met it. A boxed seat's commands run through
+the hands server and have no terminal. What Brokkr does about it is open
+on #1200.
+
+#### A boxed agy seat
+
+Where the seat's site boxes its hands, the seat is boxed as any harness
+that declares boxed shapes is (decision 0075 ruling 4; decisions 0043 and
+0046): the harness runs on the host, and its hands are the box's. The hands ride no
+argument, so the adapter's `workspace` fragment is the empty list and it
+declares no `notice` and no `harness`. Four things differ from an
+unboxed launch, and nothing else does:
+
+- the engine HOME's `<HOME>/.gemini/config/mcp_config.json` holds the
+  box's hands as its one server, `brokkr`, which is `brokkr hands serve`
+  for the seat's worktree;
+- the one `--settings` value holds the engine's one rule,
+  `mcp(brokkr/workspace)`, and nothing else;
+- the gate's command lists `call_mcp_tool` alone, so `read_file`,
+  `write_file`, `edit_file`, `run_command`, `manage_task` and every other
+  native tool is denied by name as a tool error the model sees, and the
+  turn goes on (`box-engine-workspace-tool-v14`, `box-other-natives-v14`);
+- the launch carries no `--mode`, as every boxed turn of the record ran,
+  so a native edit the gate somehow missed would need an approval nobody
+  can give, and agy's soft denial fails the turn as any denial does.
+
+**A boxed seat is boxed or refused.** What the launch's sealed inputs
+declare decides, never what was served: under a boundary that boxes, a
+launch whose hands were not served is refused before any HOME is made,
+naming the boundary, and the admission's cause where the admission refused
+them, so a boxed seat never runs with agy's native tools.
+On a host where nothing is measured for agy (macOS), a boxed agy seat does
+not launch.
+
+The model reaches the workspace tool through agy's built-in
+`call_mcp_tool`; the engine's own hands paragraph was enough for two
+models to find it on 1.5.13 (`box-default-notice`,
+`box-default-notice-carbon`). The
+gate reads the tool's name alone: the HOME's document names one server,
+so `call_mcp_tool` reaches no other, and the rule names that server's one
+tool.
+
+What the box is not: **agy's own process runs on the host**, outside the
+box. Its native tools are switched off by agy's own hook mechanism, the
+gate in the engine's HOME, and not by a boundary of the operating system.
+A gate that crashes or outlives its timeout denies the call
+(`hook-crash-v14`, `hook-timeout-v14`). What the hands tool's command sees
+is the box's: a private process space of 4 entries, an empty HOME, no
+network, and of the host's tree the worktree and the listing of its parent,
+beside the box's own read-only runtime (`box-reach-v14`).
+
+**A boxed seat takes no `--allow`.** Beside boxed hands every native tool
+is switched off, so a grant would do nothing: a seat whose arguments carry
+`--allow` is refused before agy starts, naming `--allow` and never its
+value, and leaves no HOME. The compile gives a boxed seat none of its
+office's grants.
+
+The boxed seat is still provisional and untrusted: a work seat in an office
+`provisional_offices` lists, never a gate or a judge, and never resumed.
+Store reads are measured boxed, on 1.5.14, the version of every boxed
+axis, as two facts kept apart. The box's reach: with the store sealed at
+its production path, the hands tool was denied it (`box-store-drive`),
+and with no seal it read it (`box-store-drive-control`). The driver's
+gate: the native `read_file` and `run_command` were refused by name
+before either reached the path (`box-store`), which shows the gate, not
+the seal. So an MCP capability that binds a secret is not refused at a
+boxed agy seat for want of a store measurement. Not measured on any
+version: a box whose reach names a bind or the network. Every recorded
+boxed turn ran agy by hand, not through `brokkr driver agy`; on 1.5.14 the
+three boxed turns of the security set and `box-store` ran under the
+driver's own gate. No recorded boxed turn ran on Neon or Argon, and one,
+`box-store`, on Hydrogen; four boxed runs through the driver, one per
+model, are engine runs named on #1224, not recorded turns.
+
+**A turn agy stopped at a denial is not an answer.** When agy cannot ask
+for an approval, it stops the turn, exits 0 with status `SUCCESS` and an
+empty response. The only sign is the result's `denied_actions`. A result
+that carries them fails the invocation, naming each denied action, and
+leaves no result. A denied step's own `state` is never read: the record
+shows it `ERROR` once and `DONE` the other times. The answer is the
+`response` of a `SUCCESS` result, and an empty one is no answer. Agy's
+stdout is read as bytes, to its end, and each known row is typed once from
+its text, as agy wrote it, before the seat's secrets are masked out of what
+the driver passes on. One launch is one turn: a second `init`, a second
+`result`, a known row behind the `result`, a line that is not UTF-8, or an
+`init`, `step_update` or `result` row that does not read, such as a
+`result` with no `status`, a `denied_actions` that is no list, or a key
+the driver reads written twice, fails the invocation; once a denial or a
+failure is seen, no later row changes it. A row of another `event`, and a
+line that is not JSON, is passed over and changes nothing.
+
+**The verdict.** The first of these that applies is the turn's verdict:
+
+1. a fault: a row out of order, a known row that does not type, a line
+   that is not UTF-8, a stdout that could not be read to its end, a
+   substituted model, or a denial. Where agy ended the turn itself behind
+   a failure and exited 3, its words also say agy timed out. A turn the
+   driver stopped at a refusing row has no exit of agy's: whatever agy
+   exits with afterwards is the driver's doing, so the refusal stands as
+   written and says nothing of a timeout;
+2. the signed-out words, in the first result or on stderr, whatever else
+   the result says;
+3. exit 3, agy's print timeout, which the launch never asks for. Behind a
+   turn already folded it ends the seat with no result, as every late
+   refusal does;
+4. any other non-zero exit. Before a confirmed init, exit 1 is a launch
+   refusal, such as an unknown model or an effort the model lacks, and
+   exit 2 with no known row a refused option agy does not define;
+   otherwise it fails naming the exit code;
+5. a result whose status is not `SUCCESS`, such as `ERROR`, `CANCELED`,
+   `INTERRUPTED`, `INVALID`, `WAITING` or `RUNNING`;
+6. no result;
+7. a `SUCCESS` no init confirmed, or an empty response;
+8. the answer.
+
+Every failure and refusal names the status of the turn's first result,
+whether or not a fault came before it, and names it before its own words,
+so no bound on a refusal's words cuts it; a later result changes nothing.
+A word of agy's the driver names, a status, a denied action or the served
+model, is masked through the seat's secrets whole first, and only then
+escaped and cut to 40 characters.
+
+**The served model is the pinned one, or the seat is refused.** Init's
+`model` must be exactly the pin, or the seat is refused before any row
+counts, naming both. A seat with no init row gives no answer.
+
+**Tokens.** The result's `usage` is the invocation's own, in tokens. The
+seat records input, with the cache read added back as the journal's
+input count includes it, output, thinking as reasoning output, and the
+cache read. Agy reports no price and no cache-write count, so both read
+"not reported", never 0.
+
+**What leaves.** No
+refusal, error or late message quotes agy's stderr or its `error` text.
+A failure, and a refusal behind work, leave with their words alone.
+Agy's stderr is still recorded as evidence, its escape sequences
+stripped and then masked, except a signed-out CLI's: that is a sign-in
+request holding a link made for one attempt, so the driver's own words
+stand in its place.
+
+**Sign in.** Run `agy` once and sign in through the browser. The login
+is one file, `~/.gemini/antigravity-cli/antigravity-oauth-token`. With
+no such file, the launch is refused before the CLI starts and says so.
+A signed-out CLI waits 60 seconds and then fails "authentication failed
+or timed out", which refuses the seat with the same instruction. The record
+names six environment variables in the binary and exercised none.
+
+**MCP isolation.** Agy's cold and replacement shapes, without hands on
+1.5.13 and boxed on 1.5.14, are measured on Linux
+([below](#measured-mcp-isolation)), so an agy seat compiles there, boxed
+or not. On macOS nothing is measured.
+
+#### Which agy version each fact is from
+
+A short security set is measured again on each agy version, and the full
+pass once per minor line (the operator's ruling of 2026-11-21). The sixth
+measurement is that set on 1.5.14, and it gave 1.5.13's results turn for
+turn. Each shape names the version its recordings are from:
+
+| Fact | Version |
+|---|---|
+| The boxed shapes' four axes, cold and replacement, and the MCP carriage (`iso-*-v14`, `box-*-v14`, `box-store-drive`, `box-store`) | 1.5.14 |
+| A gate that crashes or hangs denies (`hook-crash-v14`, `hook-timeout-v14`) | 1.5.14 |
+| The self-update, and `AGY_CLI_DISABLE_AUTO_UPDATE=true` stopping it | 1.5.14 |
+| A command without a box runs on a terminal (`command-stdin-v14`) | 1.5.14 |
+| The shapes without hands, whose ambient axis also rests on where agy's walk up ends (`git-root-linked-worktree`), which was not run again; of their `iso-*` turns, `iso-01`, `iso-02`, `iso-05` and `iso-06` were run again and gave the same on 1.5.14 | 1.5.13 |
+| The login and the six names of `harness_auth`, the native tool inventory, the launch grammar and its refusals, the stream's shape and the models and efforts | 1.5.13 |
+
+Brokkr checks nothing about the installed version today: a seat launches
+whatever `agy` the path names, and a version the adapter was not measured
+on is neither warned about nor refused until #1240 builds that.
+
 ## Hands
 
 `hands` (decision 0043) is the adapter's answer to a site that boxes its
@@ -527,7 +849,12 @@ the harness's: claude's fragment removes Claude Code's own tools
 (`--tools ""`) and the engine adds back only the tool of a native power
 the realm grants the seat, while codex's sets Codex's native shell
 `--sandbox read-only` beside it, because Codex has no switch that
-removes that shell ([security model](../security-model.md)). Two tokens are expanded by the engine at
+removes that shell ([security model](../security-model.md)). Agy's
+fragment, in its example adapter, is the empty list: the hands server
+rides the engine HOME's MCP document, which `brokkr driver agy` writes,
+and the driver's gate, agy's own hook and not an argument or a boundary
+of the operating system, denies every native tool by name
+([Antigravity](#a-boxed-agy-seat)). Two tokens are expanded by the engine at
 spawn — `{hands_mcp_json}`, a Claude-style MCP config naming this binary,
 and `{hands_args_toml}`, the server's arguments as a TOML array for
 `codex -c`. The codex fragment also sets
@@ -973,6 +1300,7 @@ and what such a driver then does is its own.
 | `lanetally` | `unmeasured` | The wrapper forwards argv to claude, and forwarding is not confinement. Claude's declarations and evidence are not inherited. |
 | `exec` | `unmeasured` | The engine cannot certify what an arbitrary child program reaches. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged. |
 | `qoder` (example, not shipped in `adapters/`) | `web-fetch` → `WebFetch`, `web-search` → `WebSearch`; ON is `unsupported`, OFF is the driver's default | The driver always passes `--tools Read Edit Write Glob Grep Bash`, and the record shows that `--tools` with names restricts the built-ins to those names. That the list leaves both web tools out is init's tool list, not a refused live call. Ambient MCP isolation is measured for the cold and replacement shapes without hands ([below](#measured-mcp-isolation)); a boxed shape is not. |
+| `agy` (example, not shipped in `adapters/`) | `web-fetch` → `read_url_content`, `web-search` → `search_web`; ON is `unsupported`, OFF is the driver's default | The engine HOME's one `PreToolUse` hook denies by name every tool outside `read_file`, `write_file`, `edit_file`, `run_command` and `manage_task`. `search_web` runs with no rule and under deny rules (`web-search-default`, `web-search-deny-rules`), and the gate denied it by name while the turn went on (`gate-prior-grant`). `read_url_content` was never seen running, so its denial is the gate's rule by name, not a refused live call. Whether a hook sees a subagent's calls is not measured. |
 
 Every "unmeasured" above is the controller's to measure, and
 `brokkr doctor` prints each beside the realm it matters to.
@@ -1017,6 +1345,7 @@ stands and nothing here is claimed. The evidence is
 | `lanetally` | Cold and replacement without hands, through the wrapper itself: launcher sha256 `b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb` running LaneTally's session-wrapper.sh at 4614bb7, sha256 `ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7`, over Claude Code 2.1.287 (cold) and 2.1.308 (replacement). | Process reads; store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. A different wrapper is a different measurement. |
 | `exec` | `inapplicable`: no model MCP surface. | — |
 | `qoder` (example) | Cold and replacement without hands: Qoder CLI 1.1.92, against planted user, local, project and plugin sentinels (Q07, Q10, Q11, Q14, Q15 in [`qoder-cli-1-1.md`](../evidence/adapters/qoder-cli-1-1.md#mcp-isolation-si2)). Every launch carries `--strict-mcp-config --mcp-config <the engine's file> --setting-sources ""`: either flag alone still started a planted server. | Native write, store read and process read: Qoder's permission check refused the attempts, and that check is not an isolation mechanism. No boxed shape, so a site that boxes its hands refuses the seat. A managed or enterprise MCP configuration. |
+| `agy` (example) | Cold and replacement without hands: Antigravity CLI 1.5.13, against planted user, plugin, workspace, parent, workspace-plugin and added-directory sentinels (`iso-01` to `iso-06` in [`agy-cli-1-5.md`](../evidence/adapters/agy-cli-1-5.md#mcp-isolation-si2)). Every launch runs under an engine HOME of its own, which started none of the user's servers, and a workspace carrying `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` in the working directory or any directory above it is refused before spawn, because agy starts those in a workspace nobody trusted (`iso-02`). Cold and replacement, boxed: Antigravity CLI 1.5.14, under a HOME whose one server is the engine's, which started and answered (`iso-07-engine-carriage-cold-v14`, `box-engine-workspace-tool-v14`); under the driver's gate listing `call_mcp_tool` alone, native writes and the native shell were refused by name, and the hands tool's command saw 4 entries in `/proc` (`box-other-natives-v14`, `box-reach-v14`, in the [sixth measurement](../evidence/adapters/agy-cli-1-5.md#sixth-measurement-on-1514-the-short-security-set-and-a-commands-stdin-2026-11-21)). Store read is two facts, kept apart as the [boxed seat's paragraph](#a-boxed-agy-seat) keeps them: the box's seal denied a store at its production path to the hands tool, which read it with no seal (`box-store-drive`, `box-store-drive-control`); and the driver's gate refused the native `read_file` and `run_command` by name before either reached the path (`box-store`), which shows the gate, not the seal. The native denial is the gate's, in agy's own process on the host, not a boundary of the operating system. | Without hands: native write, store read and process read, since the record's host has no terminal sandbox. Boxed: a box whose reach names a bind or the network; a boxed turn on Neon or Argon; and any recorded turn through `brokkr driver agy` itself (the record's boxed turns ran agy by hand, those on 1.5.14 under the driver's gate; four boxed driver runs, one per model, are engine runs on #1224, not recorded turns). macOS. |
 
 A shape's `measured_on.version` is not compared with the version of
 the harness installed: a measurement stays applied after the binary
@@ -1091,6 +1420,7 @@ accounting check still binding.
 | `dsh` | `headless-work` | `unmeasured` | Main does not perform this rejoin. The exact route is selected: official core **0.1.5-rc.1** (`@deepseek-ai/dsh@0.1.5-rc.1` at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`, or the release answer N1 resolves in its place) with the repository-owned six-file adaptation of `dsh-plugin-cli-session` **0.2.0** at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` under `extensions/dsh/plugin-cli-session/`, composed only in worktree- or task-owned storage through DSH's documented extension and `agents.resume` APIs. An isolated live cold+warm qualification (2026-09-12, `.forge/tasks/dsh-pair-qualification-015rc1.json`) emitted successful result envelopes, continued one root, recalled the nonce and reported per-message usage with the global pin unchanged and the installed bytes matching the provenance block. The route still stays disabled because consumer-side exact-root and independent-root confirmation, current headless model/effort and restriction precedence, a multi-message/retry current-sequence accounting boundary, and the declared composite digest are unmeasured, and the Rust route is unimplemented. The documented `--session <id>` extension interface is distinct from the installed **0.1.2-rc.1** one-shot runner, whose fresh-root result remains bounded history for that entry only. The operator's 2026-09-10 ruling reversed the earlier **0.1.0-rc.6** pin and superseded `.forge/tasks/dsh-pair-qualification-010rc6.json`; both are dated history, never the selected route, and the removal of `agent.session.events` was a measured pair incompatibility fixed by the one-expression adaptation, never a global DSH or extension limitation. The separate hands/tools plugin deferral is unrelated. |
 | `lanetally` | `wrapper-work-site` | `unmeasured` | Main does not perform this rejoin. Identity explicitly **unknown**: a wrapper is qualified on its own wrapper, never on what it wraps. Claude's captured interface says nothing about what this wrapper forwards, and support by analogy is what the field refuses. |
 | `qoder` (example) | `print-work-site` | `unsupported` | The seat runs `--no-session-persistence`, which keeps no session on disk in print mode, so there is nothing to rejoin. The driver declares no `resume` receipt and is never offered a handle. |
+| `agy` (example) | `stream-work-site` | `unsupported` | Agy keeps each conversation under HOME, and the driver removes the engine's HOME when the turn ends, so there is nothing to rejoin. The driver declares no `resume` receipt, and a start offered one is refused before it starts. |
 
 So today the three unmeasured shapes spawn cold **and say so**, with the
 reason in the record, while Codex's harness work seat rejoins main's

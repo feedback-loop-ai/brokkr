@@ -5,6 +5,7 @@
 use serde_json::{json, Map, Value};
 
 use super::*;
+use crate::adapters::escapes::without_ansi;
 use crate::adapters::AdapterKind;
 use crate::RefusalClass;
 

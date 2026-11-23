@@ -29,6 +29,9 @@ pub enum Override {
     /// The Qoder CLI a `qoder` seat runs (#1178). Born after decision
     /// 0019, so it never had a retired spelling.
     QoderBin,
+    /// The Antigravity CLI an `agy` seat runs (#1200). Born after decision
+    /// 0019, so it never had a retired spelling.
+    AgyBin,
     ExecName,
     BrowserBin,
     /// The program a linked-worktree DSH seat's scoped sandbox row runs.
@@ -65,6 +68,7 @@ impl Override {
             Override::CodexBin => "BROKKR_CODEX_BIN",
             Override::DshBin => "BROKKR_DSH_BIN",
             Override::QoderBin => "BROKKR_QODER_BIN",
+            Override::AgyBin => "BROKKR_AGY_BIN",
             Override::ExecName => "BROKKR_EXEC_NAME",
             Override::BrowserBin => "BROKKR_BROWSER_BIN",
             Override::DshRunner => "BROKKR_DSH_RUNNER",
@@ -81,14 +85,16 @@ impl Override {
             Override::CodexBin => "codex",
             Override::DshBin => "dsh",
             Override::QoderBin => "qodercli",
+            Override::AgyBin => "agy",
             Override::ExecName => "exec",
             Override::BrowserBin => "xdg-open",
             Override::DshRunner => "brokkr",
         }
     }
 
-    /// The same name under the retired prefix, or `None` for the runner and
-    /// the Qoder CLI, which were only ever read by their current names.
+    /// The same name under the retired prefix, or `None` for the runner, the
+    /// Qoder CLI and the Antigravity CLI, only ever read by their current
+    /// names.
     pub(crate) fn retired(self) -> Option<String> {
         match self {
             Override::ClaudeBin
@@ -100,7 +106,7 @@ impl Override {
                 "{RETIRED_PREFIX}{}",
                 &self.name()[CURRENT_PREFIX.len()..]
             )),
-            Override::QoderBin | Override::DshRunner => None,
+            Override::QoderBin | Override::AgyBin | Override::DshRunner => None,
         }
     }
 
@@ -113,6 +119,7 @@ impl Override {
             AdapterKind::Codex => Override::CodexBin,
             AdapterKind::Dsh => Override::DshBin,
             AdapterKind::Qoder => Override::QoderBin,
+            AdapterKind::Agy => Override::AgyBin,
             AdapterKind::Exec => Override::ExecName,
         }
     }

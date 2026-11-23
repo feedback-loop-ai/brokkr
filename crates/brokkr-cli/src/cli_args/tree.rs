@@ -289,7 +289,7 @@ enum SystemCmd {
 /// every bundle, adapter and running engine keeps reaching them.
 #[derive(Subcommand)]
 enum EngineCmd {
-    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | exec).
+    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | agy | exec).
     /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
     #[command(hide = true)]
     Driver(DriverArgs),

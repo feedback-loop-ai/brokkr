@@ -625,10 +625,10 @@ pub(super) struct RealmsArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct DriverArgs {
-    /// The adapter to run: claude, lanetally, codex, dsh, qoder or exec.
+    /// The adapter to run: claude, lanetally, codex, dsh, qoder, agy or exec.
     pub(super) kind: String,
     /// Arguments after -- pass to the agent CLI
-    /// (claude/lanetally/codex/dsh/qoder) or form the command template
+    /// (claude/lanetally/codex/dsh/qoder/agy) or form the command template
     /// (exec).
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub(super) args: Vec<String>,
