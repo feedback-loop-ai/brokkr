@@ -47,7 +47,7 @@ class Brokkr < Formula
   # completer by the path it was run as: this keg's `bin/brokkr`.
   def install
     bin.install "brokkr"
-    generate_completions_from_executable(bin/"brokkr", shells: [:bash, :zsh, :fish], shell_parameter_format: :clap)
+    generate_completions_from_executable(bin/"brokkr", shell_parameter_format: :clap)
   end
 
   test do

@@ -1019,10 +1019,12 @@ fn the_committed_channel_templates_are_unrendered_and_name_the_real_artifacts() 
 }
 
 /// The completion the formula installs (#1305): decision 0119 ruling 2's
-/// live registration, for bash, zsh and fish. Homebrew's `:clap` format
-/// runs the installed binary once per shell with `COMPLETE=<shell>` and
-/// no word, and writes what it prints into the keg.
-const FORMULA_COMPLETION: &str = r#"generate_completions_from_executable(bin/"brokkr", shells: [:bash, :zsh, :fish], shell_parameter_format: :clap)"#;
+/// live registration, for bash, zsh and fish, `:clap`'s default shells,
+/// written as homebrew-core's jj formula writes it. Homebrew's `:clap`
+/// format runs the installed binary once per shell with `COMPLETE=<shell>`
+/// and no word, and writes what it prints into the keg.
+const FORMULA_COMPLETION: &str =
+    r#"generate_completions_from_executable(bin/"brokkr", shell_parameter_format: :clap)"#;
 
 /// `text` with every run of whitespace one space, so a sentence holds
 /// wherever the paragraph wraps.
