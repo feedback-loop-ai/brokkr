@@ -911,6 +911,16 @@ fn every_add_and_claim_refusal_is_typed_says_why_and_writes_nothing() {
         QueueRefusal::DuplicateWait(queued),
         "a new queue entry names entry 1 to wait for twice",
     );
+    // A condition the column's reader refuses is never written (#1192).
+    let unclassified = Wait {
+        entry: queued,
+        on: WaitOn::Named(brokkr_core::ending::Ending::Unclassified),
+    };
+    refused_as(
+        add(&[unclassified]),
+        QueueRefusal::NotACondition(unclassified),
+        "a new queue entry cannot wait on 1:unclassified: its condition is not one a wait may name",
+    );
     let mut claim = |entry| refusal(claimed_now(&mut store, entry));
     refused_as(
         claim(held),

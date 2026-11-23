@@ -234,6 +234,7 @@ pub brokkr_store::QueueRefusal::LatchMoved
 pub brokkr_store::QueueRefusal::LatchMoved::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::LatchMoved::standing: core::option::Option<brokkr_store::Latch>
 pub brokkr_store::QueueRefusal::Launching(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::NotACondition(brokkr_store::Wait)
 pub brokkr_store::QueueRefusal::NotHeld(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::OtherGeneration(brokkr_store::Claim, brokkr_store::Generation)
 pub brokkr_store::QueueRefusal::PastTheEnds

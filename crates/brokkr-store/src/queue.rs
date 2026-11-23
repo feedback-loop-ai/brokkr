@@ -272,11 +272,16 @@ fn admit(entry: EntryId, state: EntryState, command: QueueCommand) -> Result<(),
     }
 }
 
-/// Refuse waits that name an entry twice or one the queue never held.
-/// Checked before the new entry exists, so no wait can name it, and every
-/// entry waited for is older than it: waits never close a cycle.
+/// Refuse waits on a condition the column's reader would refuse, such as
+/// `unclassified`, and waits that name an entry twice or one the queue
+/// never held. Checked before the new entry exists, so no wait can name
+/// it, and every entry waited for is older than it: waits never close a
+/// cycle.
 fn admit_waits(tx: &Transaction<'_>, waits: &[Wait]) -> Result<(), StoreError> {
     for (index, wait) in waits.iter().enumerate() {
+        if !WaitOn::ALL.contains(&wait.on) {
+            return Err(QueueRefusal::NotACondition(*wait).into());
+        }
         if waits[..index].iter().any(|seen| seen.entry == wait.entry) {
             return Err(QueueRefusal::DuplicateWait(wait.entry).into());
         }
