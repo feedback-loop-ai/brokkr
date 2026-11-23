@@ -1898,7 +1898,7 @@ fn a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home() {
     );
     let mut command = launch.command.clone();
     command.push("the task".to_string());
-    let mut emit = |_: &Value| {};
+    let mut emit = |_: &crate::adapters::Emitted| {};
     let mut observer = |_: &crate::adapters::DshObservation| {};
     invoke_dsh_launch_observed(
         launch,

@@ -219,7 +219,7 @@ fn dsh_rows(turns: u64, events: &[Value]) -> Vec<Value> {
     let (mut turns, mut meta) = (turns, Map::new());
     for event in events {
         fold_dsh_event(event, None, &mut turns, &mut meta, &mut |row| {
-            rows.push(row.clone());
+            rows.push(row.row.clone());
         });
     }
     rows

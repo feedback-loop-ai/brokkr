@@ -23,7 +23,7 @@ impl DshFoldState<'_> {
         &mut self,
         launch: &DshLaunch,
         bindings: &[secret::BoundSecret],
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) -> Option<PreSessionRefusal> {
         DshFold::new(
             self.tail,
@@ -48,7 +48,7 @@ pub(super) fn invoke_dsh_launch_observed(
     command: Vec<String>,
     bindings: &[secret::BoundSecret],
     probe: &mut ProbeAnswer,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
     wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
@@ -187,7 +187,7 @@ impl DshStreamState<'_> {
     fn settle(
         &mut self,
         line: DshStreamLine,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
         observer: &mut impl FnMut(&DshObservation),
     ) {
         self.watch.settle(
@@ -202,7 +202,7 @@ impl DshStreamState<'_> {
     /// Fold whatever the transcript appended, when the hold permits it,
     /// latching the first pre-session refusal it reads. Returns whether
     /// the probe admitted its first answer.
-    fn drain(&mut self, emit: &mut impl FnMut(&Value)) -> bool {
+    fn drain(&mut self, emit: &mut impl FnMut(&Emitted)) -> bool {
         if self.watch.may_fold() {
             let read = DshFoldState {
                 tail: &mut *self.tail,
@@ -222,7 +222,7 @@ impl DshStreamState<'_> {
     /// 430s4a3 M2; decision 0103 ruling 4(a)).
     fn poll(
         &mut self,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
         observer: &mut impl FnMut(&DshObservation),
     ) -> bool {
         if !self.probe.requested() {
@@ -245,7 +245,7 @@ impl DshStreamState<'_> {
         reads: &std::sync::mpsc::Receiver<std::io::Result<String>>,
         child: &mut Spawned,
         wait: &mut impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
         observer: &mut impl FnMut(&DshObservation),
     ) -> Result<DshPass, std::io::Error> {
         let read = if *open {
@@ -337,7 +337,7 @@ struct DshStreamCall<'a> {
 /// decision 0103 ruling 4(a)).
 fn invoke_dsh_stream_json(
     call: DshStreamCall<'_>,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
     observer: &mut impl FnMut(&DshObservation),
     mut wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
 ) -> Result<DshRun, String> {
@@ -520,10 +520,10 @@ mod tests {
         // The refused launch never reaches its three observers, so each is
         // exercised once here and then handed to the invocation, whose
         // refusal proves they were not needed.
-        let mut emit = |_: &Value| {};
+        let mut emit = |_: &Emitted| {};
         let wait = |_: &mut Spawned| Ok(None);
         let mut observer = |_: &DshObservation| {};
-        emit(&Value::Null);
+        emit(&Emitted::new(Step::SeatTurn, json!({})));
         let mut child =
             crate::process::spawned::spawn(&mut std::process::Command::new("true")).unwrap();
         assert_eq!(wait(&mut child).unwrap(), None);

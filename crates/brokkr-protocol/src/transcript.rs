@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
+use crate::adapters::{Emitted, Step};
+
 /// The existing checkpoint target bound also governs a transcript locator.
 const LOCATOR_LIMIT: usize = 80;
 
@@ -74,7 +76,7 @@ impl Transcript {
         &mut self,
         locator: &str,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) -> Value {
         self.locator = locator.chars().take(LOCATOR_LIMIT).collect();
         self.publish(session_meta, emit)
@@ -86,7 +88,7 @@ impl Transcript {
     pub(crate) fn finish(
         &mut self,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) {
         if !self.journaled {
             self.publish(session_meta, emit);
@@ -128,11 +130,14 @@ impl Transcript {
     fn publish(
         &mut self,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) -> Value {
         let transcript = self.value();
         session_meta.insert("transcript".into(), transcript.clone());
-        emit(&json!({"step": "transcript", "transcript": transcript}));
+        emit(&Emitted::new(
+            Step::Transcript,
+            json!({"transcript": transcript}),
+        ));
         self.journaled = true;
         transcript
     }
@@ -394,7 +399,7 @@ mod tests {
         let mut transcript = Transcript::at(Kind::ClaudeSession, PathBuf::from("/h/projects"));
         let mut meta = Map::new();
         let mut emitted = Vec::new();
-        let mut capture = |row: &Value| emitted.push(row.clone());
+        let mut capture = |row: &Emitted| emitted.push(row.row.clone());
         transcript.record(&"x".repeat(81), &mut meta, &mut capture);
         transcript.finish(&mut meta, &mut capture);
         assert_eq!(emitted.len(), 1, "finish does not duplicate a recorded row");
@@ -720,7 +725,7 @@ mod tests {
             let mut transcript = Transcript::at(kind, home);
             let mut meta = Map::new();
             let mut row = Value::Null;
-            transcript.finish(&mut meta, &mut |value| row = value.clone());
+            transcript.finish(&mut meta, &mut |value| row = value.row.clone());
             assert_eq!(row["transcript"]["kind"], label);
             assert_eq!(row["transcript"]["locator"], "");
         }

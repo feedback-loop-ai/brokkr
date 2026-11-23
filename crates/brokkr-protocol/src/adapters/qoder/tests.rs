@@ -69,7 +69,7 @@ fn fold_bound(
     let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
     let mut outcome = Ok(None);
     for line in std::io::BufRead::split(stdout, b'\n') {
-        let mut emit = |row: &Value| rows.push(row.clone());
+        let mut emit = |row: &Emitted| rows.push(row.row.clone());
         let line = line.unwrap();
         match fold.read(
             &line,
@@ -87,7 +87,7 @@ fn fold_bound(
             }
         }
     }
-    let mut emit = |row: &Value| rows.push(row.clone());
+    let mut emit = |row: &Emitted| rows.push(row.row.clone());
     transcript.finish(&mut session_meta, &mut emit);
     Folded {
         fold,

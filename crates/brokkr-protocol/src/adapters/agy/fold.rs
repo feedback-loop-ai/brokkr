@@ -43,7 +43,7 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::super::refusal::refusal_reason;
-use super::super::{add_usage, secret, EFFORT_NOT_REPORTED};
+use super::super::{add_usage, secret, Emitted, Step as DriverStep, EFFORT_NOT_REPORTED};
 use crate::PreSessionRefusal;
 
 /// The words agy writes when it is signed out, in a result's `error` and on
@@ -401,7 +401,7 @@ impl<'a> AgyFold<'a> {
         &mut self,
         line: &[u8],
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) -> Result<(), PreSessionRefusal> {
         let Ok(text) = std::str::from_utf8(line) else {
             self.fault.get_or_insert(Fault::Failed(Failure::NotText));
@@ -439,7 +439,7 @@ impl<'a> AgyFold<'a> {
         &mut self,
         row: Row,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) -> Result<(), PreSessionRefusal> {
         match row {
             Row::Init(_) if self.served != Served::Awaited => {
@@ -485,17 +485,16 @@ impl<'a> AgyFold<'a> {
     }
 
     /// A model response that is done is one turn, journaled on the pin.
-    fn step(&mut self, step: &Step, emit: &mut impl FnMut(&Value)) {
+    fn step(&mut self, step: &Step, emit: &mut impl FnMut(&Emitted)) {
         if (&step.step_type, &step.state) != (&StepType::AgentResponse, &StepState::Done) {
             return;
         }
         self.turns += 1;
         let mut row = Map::new();
-        row.insert("step".into(), Value::String("seat-turn".into()));
         row.insert("turn".into(), Value::from(self.turns));
         row.insert("model".into(), Value::String(self.pin.clone()));
         row.insert("effort".into(), Value::String(EFFORT_NOT_REPORTED.into()));
-        emit(&Value::Object(row));
+        emit(&Emitted::new(DriverStep::SeatTurn, Value::Object(row)));
     }
 
     /// The one result: its usage folded, and a denial the turn's fault.

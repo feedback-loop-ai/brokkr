@@ -7,7 +7,7 @@
 use serde_json::Value;
 
 use super::refusal::claude_refusal;
-use super::{row::Row, AdapterKind};
+use super::{row::Row, AdapterKind, Emitted, Step};
 use crate::Probe;
 
 /// A start's optional probe marker. Absent is not a probe; present must
@@ -278,7 +278,7 @@ pub(super) fn accept_and_flush(
     effect_id: &str,
     attempt_id: &str,
     accepted_sent: &mut bool,
-    buffered: &mut Vec<Value>,
+    buffered: &mut Vec<(Step, Value)>,
 ) {
     if *accepted_sent {
         return;
@@ -289,7 +289,7 @@ pub(super) fn accept_and_flush(
         attempt_id: attempt_id.to_string(),
         session_ref: None,
     });
-    for row in buffered.drain(..) {
+    for (_, row) in buffered.drain(..) {
         send(crate::Body::Checkpoint {
             effect_id: effect_id.to_string(),
             attempt_id: attempt_id.to_string(),
@@ -305,14 +305,14 @@ pub(super) fn accept_and_flush(
 pub(super) fn fold_capturing(
     probe: &mut ProbeAnswer,
     answer_event: bool,
-    watch: &mut impl FnMut(&Value),
-    fold: impl FnOnce(&mut dyn FnMut(&Value)) -> Option<crate::PreSessionRefusal>,
+    watch: &mut impl FnMut(&Emitted),
+    fold: impl FnOnce(&mut dyn FnMut(&Emitted)) -> Option<crate::PreSessionRefusal>,
 ) -> Option<crate::PreSessionRefusal> {
     let mut emitted: Vec<Value> = Vec::new();
     let classified = {
-        let mut capture = |data: &Value| {
+        let mut capture = |data: &Emitted| {
             if answer_event {
-                emitted.push(data.clone());
+                emitted.push(data.row.clone());
             }
             watch(data);
         };

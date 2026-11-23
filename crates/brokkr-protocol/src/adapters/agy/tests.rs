@@ -76,7 +76,7 @@ fn read(stdout: impl AsRef<[u8]>, pin: &str) -> Read {
     let mut fold = AgyFold::new(pin, &[]);
     let (mut rows, mut record, mut stopped) = (Vec::new(), Map::new(), None);
     for line in stdout.as_ref().split(|byte| *byte == b'\n') {
-        let mut emitted = |row: &Value| rows.push(row.clone());
+        let mut emitted = |row: &super::super::Emitted| rows.push(row.row.clone());
         if let Err(refused) = fold.read(line, &mut record, &mut emitted) {
             stopped = Some(refused);
             break;

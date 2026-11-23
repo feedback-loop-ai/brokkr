@@ -45,7 +45,10 @@ mod serving_shape;
 mod spawn;
 mod start;
 mod stderr;
+mod step;
 mod stream_turn;
+use step::begins_work;
+pub(crate) use step::{Emitted, Step};
 // Design D6 (b) seals the producer: the seams, the structured
 // observation, its error and the one entry point. Every parser, hasher,
 // serializer and injected helper stays private to `composite`, so no
@@ -1064,16 +1067,19 @@ impl LaunchHold {
     /// the session identifier for the two harnesses that report one. DSH
     /// records a retained DIRECTORY there, so its planner never sets a
     /// root kind that would let this door confirm anything.
-    fn observe(&mut self, data: &Value, emit: &mut impl FnMut(&Value)) {
+    fn observe(&mut self, data: &Emitted, emit: &mut impl FnMut(&Emitted)) {
         emit(data);
-        let step = data.get("step").and_then(Value::as_str).unwrap_or("");
-        if begins_work(step) {
+        if begins_work(data.step) {
             self.began_work = true;
         }
-        if self.outcome.is_some() || step != "transcript" || !self.plan.confirms_from_locator {
+        if self.outcome.is_some()
+            || data.step != Step::Transcript
+            || !self.plan.confirms_from_locator
+        {
             return;
         }
         let id = data
+            .row
             .pointer("/transcript/locator")
             .and_then(Value::as_str)
             .unwrap_or("");
@@ -1084,7 +1090,7 @@ impl LaunchHold {
 
     /// The harness named its session. This is the ONLY door through
     /// which a launch fact is published.
-    fn confirm(&mut self, id: &str, emit: &mut impl FnMut(&Value)) -> Confirmation {
+    fn confirm(&mut self, id: &str, emit: &mut impl FnMut(&Emitted)) -> Confirmation {
         if let Some(outcome) = self.outcome {
             // The root is latched: a later, different root is a
             // delegated child or a second session, never a correction of
@@ -1127,7 +1133,7 @@ impl LaunchHold {
     /// resumable root. A rejoin that was never confirmed publishes
     /// NOTHING: an unconfirmed resume is uncertain, and neither `cold`
     /// nor `resumed` would be true of it.
-    fn finish(&mut self, emit: &mut impl FnMut(&Value)) {
+    fn finish(&mut self, emit: &mut impl FnMut(&Emitted)) {
         // Every rejoin has already said what it had to say: a confirmed
         // one published on confirmation, and one that was never
         // confirmed — or that named a different root — publishes
@@ -1141,13 +1147,12 @@ impl LaunchHold {
         self.publish(false, emit);
     }
 
-    fn publish(&mut self, resumed: bool, emit: &mut impl FnMut(&Value)) {
+    fn publish(&mut self, resumed: bool, emit: &mut impl FnMut(&Emitted)) {
         if self.published {
             return;
         }
         self.published = true;
         let mut row = Map::new();
-        row.insert("step".into(), Value::String("harness-started".into()));
         row.insert("harness".into(), Value::String(self.harness.to_string()));
         row.insert(
             "launch".into(),
@@ -1181,7 +1186,7 @@ impl LaunchHold {
                 row.insert("resume_refusal".into(), Value::String(refusal.into()));
             }
         }
-        emit(&Value::Object(row));
+        emit(&Emitted::new(Step::HarnessStarted, Value::Object(row)));
     }
 
     /// Whether this launch tried to rejoin and never got its
@@ -1441,7 +1446,7 @@ fn fold_stream_event(
     fold: &mut ClaudeFold,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Option<PreSessionRefusal> {
     if refusal.is_some() {
         return refusal;
@@ -1490,7 +1495,6 @@ fn fold_stream_event(
                 );
             }
             let mut base = Map::new();
-            base.insert("step".into(), Value::String("seat-turn".into()));
             base.insert("turn".into(), Value::from(fold.turns));
             base.insert(
                 "model".into(),
@@ -1539,11 +1543,14 @@ fn fold_stream_event(
                         Value::String(target.chars().take(80).collect()),
                     );
                 }
-                emit(&Observation::claude(tool_use).onto(Value::Object(checkpoint)));
+                emit(&Emitted::new(
+                    Step::SeatTurn,
+                    Observation::claude(tool_use).onto(Value::Object(checkpoint)),
+                ));
                 emitted = true;
             }
             if !emitted {
-                emit(&Value::Object(base));
+                emit(&Emitted::new(Step::SeatTurn, Value::Object(base)));
             }
         }
         Some("result") => {
@@ -1564,7 +1571,7 @@ fn fold_result_meta(
     event: &Value,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) {
     if let Some(model) = model_in_json(event) {
         session_meta.insert("model".into(), Value::String(model));
@@ -1788,7 +1795,7 @@ fn fold_codex_event(
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     echo: &mut CodexThreadEcho,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Option<PreSessionRefusal> {
     if refusal.is_some() {
         return refusal;
@@ -1815,14 +1822,19 @@ fn fold_codex_event(
         }
         Some("turn.started") => {
             *turn += 1;
-            emit(&json!({"step":"turn-started", "turn": *turn, "harness":"codex"}));
+            emit(&Emitted::new(
+                Step::TurnStarted,
+                json!({"turn": *turn, "harness":"codex"}),
+            ));
         }
         Some(kind @ ("item.started" | "item.completed")) => {
-            emit(&Observation::codex(event).onto(json!({
-                "step": if kind == "item.started" { "item-started" } else { "item-completed" },
-                "turn": *turn,
-                "harness":"codex",
-            })));
+            let step = if kind == "item.started" {
+                Step::ItemStarted
+            } else {
+                Step::ItemCompleted
+            };
+            let row = Observation::codex(event).onto(json!({"turn": *turn, "harness":"codex"}));
+            emit(&Emitted::new(step, row));
         }
         Some("turn.completed") => {
             let usage = event.get("usage").unwrap_or(&Value::Null);
@@ -1841,7 +1853,6 @@ fn fold_codex_event(
                 session_meta.insert("effort".into(), Value::String(effort.clone()));
             }
             let mut checkpoint = Map::new();
-            checkpoint.insert("step".into(), Value::String("turn-completed".into()));
             checkpoint.insert("turn".into(), Value::from(*turn));
             checkpoint.insert("harness".into(), Value::String("codex".into()));
             checkpoint.insert(
@@ -1879,7 +1890,10 @@ fn fold_codex_event(
             // nowhere in that stream (`usage` is token counts only), so
             // total_cost_usd stays absent rather than invented.
             session_meta.insert("num_turns".into(), Value::from(*turn));
-            emit(&Value::Object(checkpoint));
+            emit(&Emitted::new(
+                Step::TurnCompleted,
+                Value::Object(checkpoint),
+            ));
         }
         // Conformance shims and older clients may provide only final metadata.
         Some("result") => {
@@ -2036,7 +2050,7 @@ fn fold_dsh_event(
     first_seq: Option<u64>,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) {
     // Current-only accounting (design D8; task 9.6): a resumed session's
     // file holds its restored history beside the new work, and only
@@ -2077,7 +2091,6 @@ fn fold_dsh_event(
                 session_meta.insert("model".into(), Value::String(model.clone()));
             }
             let mut checkpoint = Map::new();
-            checkpoint.insert("step".into(), Value::String("seat-turn".into()));
             checkpoint.insert("turn".into(), Value::from(*turns));
             checkpoint.insert("harness".into(), Value::String("deepseek".into()));
             checkpoint.insert(
@@ -2107,7 +2120,7 @@ fn fold_dsh_event(
                     add_usage(session_meta, target, value);
                 }
             }
-            emit(&Value::Object(checkpoint));
+            emit(&Emitted::new(Step::SeatTurn, Value::Object(checkpoint)));
         }
         Some("tool/call") => {
             let observation = Observation::dsh(event);
@@ -2118,13 +2131,13 @@ fn fold_dsh_event(
                 .get("model")
                 .and_then(Value::as_str)
                 .unwrap_or(MODEL_NOT_REPORTED);
-            emit(&observation.onto(json!({
-                "step":"seat-turn",
+            let row = observation.onto(json!({
                 "turn": *turns,
                 "harness":"deepseek",
                 "model": model,
                 "effort": dsh_echoed_effort(session_meta),
-            })));
+            }));
+            emit(&Emitted::new(Step::SeatTurn, row));
         }
         _ => {}
     }
@@ -2317,7 +2330,7 @@ impl DshFold<'_> {
     /// A `turn/end` naming an error before the first `assistant/message`
     /// is dsh's pre-session refusal (decision 0053), typed from the row's
     /// machine fields by `dsh_refusal` and returned to the caller to latch.
-    fn drain(&mut self, emit: &mut impl FnMut(&Value)) -> Option<PreSessionRefusal> {
+    fn drain(&mut self, emit: &mut impl FnMut(&Emitted)) -> Option<PreSessionRefusal> {
         if self.tail.file.is_none() {
             self.tail.file =
                 find_dsh_transcript(self.root).and_then(|path| std::fs::File::open(path).ok());
@@ -2340,9 +2353,9 @@ impl DshFold<'_> {
             }
             secret::mask_json(&mut event, self.bindings);
             let mut emitted: Vec<Value> = Vec::new();
-            let mut capture = |data: &Value| {
+            let mut capture = |data: &Emitted| {
                 if answer_event {
-                    emitted.push(data.clone());
+                    emitted.push(data.row.clone());
                 }
                 emit(data);
             };
@@ -2444,7 +2457,7 @@ fn invoke_stream_json(
     bindings: &[secret::BoundSecret],
     hold: &mut LaunchHold,
     probe: &mut ProbeAnswer,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession)?;
     // Read before the process can write to the transcript it resumes.
@@ -2463,7 +2476,7 @@ fn invoke_stream_json(
     let mut refusal: Option<PreSessionRefusal> = None;
     let mut stopped = false;
     let status = {
-        let mut watch = |data: &Value| hold.observe(data, emit);
+        let mut watch = |data: &Emitted| hold.observe(data, emit);
         for line in std::io::BufReader::new(stdout).lines() {
             let Ok(line) = line else { break };
             // Unparseable stream lines are noise, never repaired
@@ -3618,7 +3631,7 @@ fn invoke_codex(
     bindings: &[secret::BoundSecret],
     hold: &mut LaunchHold,
     probe_bound: &mut ProbeAnswer,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
     // A rejoin already knows the thread it is writing to, so the locator
@@ -3646,7 +3659,7 @@ fn invoke_codex(
     let mut refusal: Option<PreSessionRefusal> = None;
     let mut stopped = false;
     let status = {
-        let mut watch = |data: &Value| hold.observe(data, emit);
+        let mut watch = |data: &Emitted| hold.observe(data, emit);
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
             let Ok(line) = line else { break };
             if let Ok(mut event) = serde_json::from_str::<Value>(&line) {
@@ -3724,7 +3737,7 @@ fn invoke_codex(
     if refusal.is_none() && turn == 0 {
         refusal = codex_early_refusal(&mut echo, transcript.home(), started, workdir);
     }
-    transcript.finish(&mut session_meta, &mut |data: &Value| {
+    transcript.finish(&mut session_meta, &mut |data: &Emitted| {
         hold.observe(data, emit)
     });
     Ok(Invocation {
@@ -3776,7 +3789,7 @@ fn invoke_dsh(
     session: Option<&str>,
     bindings: &[secret::BoundSecret],
     probe: &mut ProbeAnswer,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
     let workdir = input
         .get("workdir")
@@ -4769,7 +4782,7 @@ fn invoke_dsh_launch(
     prompt: &str,
     workdir: &str,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
     wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
     let mut command = launch.command.clone();
@@ -4827,7 +4840,7 @@ fn invoke_dsh_shipped(
     mut wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
     probe: &mut ProbeAnswer,
     session_meta: &mut Map<String, Value>,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<DshRun, String> {
     let (mut child, stderr_thread) =
         spawn_dsh(command, &launch.workdir, Stdio::null(), launch, bindings)?;
@@ -4872,7 +4885,7 @@ fn fold_dsh_stream_event(
     watch: &mut DshRootWatch,
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) {
     let is_init = event.get("type").and_then(Value::as_str) == Some("system")
         && event.get("subtype").and_then(Value::as_str) == Some("init");
@@ -4898,7 +4911,7 @@ fn fold_dsh_line(
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> DshStreamLine {
     let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
         watch.unread(DshStreamLine::Malformed);
@@ -5130,7 +5143,7 @@ impl DshRootWatch {
         &mut self,
         hold: &mut LaunchHold,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) {
         let locator = self.locator.clone();
         let address = self.transcript.record(&locator, session_meta, emit);
@@ -5142,7 +5155,7 @@ impl DshRootWatch {
     /// hold latches the mismatch — while the offered one still has to
     /// survive the retained-store reads below. A settled watch hears
     /// nothing: an init event cannot reset a refusal or a mismatch.
-    fn named(&mut self, id: &str, hold: &mut LaunchHold, emit: &mut impl FnMut(&Value)) {
+    fn named(&mut self, id: &str, hold: &mut LaunchHold, emit: &mut impl FnMut(&Emitted)) {
         if self.settled {
             return;
         }
@@ -5191,7 +5204,7 @@ impl DshRootWatch {
         line: DshStreamLine,
         hold: &mut LaunchHold,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
         observer: &mut impl FnMut(&DshObservation),
     ) {
         let mut observation = DshObservation {
@@ -5396,7 +5409,7 @@ fn invoke_with_stager(
     session: Option<&str>,
     bindings: &[secret::BoundSecret],
     probe: bool,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
     stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
 ) -> Result<Invocation, String> {
     let Pinned { binary: bin, extra } = pinned;
@@ -6212,17 +6225,6 @@ fn stderr_tail_start(stderr: &str) -> usize {
     start
 }
 
-/// Whether a driver checkpoint proves the harness began work (decision
-/// 0053). Every row a driver writes before the session opens is one of
-/// two pre-session shapes — the shared `transcript` locator, and the
-/// `harness-started` launch row codex and dsh write — and the first row
-/// that is neither is the one that flips the attempt across decision
-/// 0016's boundary. Exec has no model turn: its `exec-started` row IS the
-/// start.
-fn begins_work(step: &str) -> bool {
-    !matches!(step, "transcript" | "harness-started")
-}
-
 /// The refused attempt's pointer at its own prose: `<kind>/<locator>`
 /// off the transcript row decision 0032 already shapes, or nothing when
 /// the harness never announced a session. Neither half is read for
@@ -6344,7 +6346,7 @@ fn run_seat_with(
         &str,
         &Value,
         &[secret::BoundSecret],
-        &mut dyn FnMut(&Value),
+        &mut dyn FnMut(&Emitted),
     ) -> Result<Invocation, String>,
 ) {
     let input = start.get("input").cloned().unwrap_or(json!({}));
@@ -6387,7 +6389,7 @@ fn run_seat_with(
     // the codex/dsh launch row — are buffered, flushed once the attempt
     // crosses the boundary, and dropped when it refused to start.
     let mut began_work = false;
-    let mut buffered: Vec<Value> = Vec::new();
+    let mut buffered: Vec<(Step, Value)> = Vec::new();
     let result_path = input
         .get("result_path")
         .and_then(Value::as_str)
@@ -6448,7 +6450,7 @@ fn run_seat_with(
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
     lost::invoking();
-    let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Value| {
+    let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Emitted| {
         // A probe's rows are not streamed: its one answer is reported
         // after the invocation, as the checkpoint that answer emitted
         // (decision 0103 ruling 4(a)). Streaming a `turn.started` here
@@ -6456,11 +6458,8 @@ fn run_seat_with(
         if probe {
             return;
         }
-        let data = seat_row(kind, &bindings, data);
-        let starts = data
-            .get("step")
-            .and_then(Value::as_str)
-            .is_some_and(begins_work);
+        let starts = begins_work(data.step);
+        let row = seat_row(kind, &bindings, &data.row);
         if began_work || starts {
             began_work = true;
             probe::accept_and_flush(
@@ -6473,10 +6472,10 @@ fn run_seat_with(
             send(Body::Checkpoint {
                 effect_id: effect_id.clone(),
                 attempt_id: attempt_id.clone(),
-                data,
+                data: row,
             });
         } else {
-            buffered.push(data);
+            buffered.push((data.step, row));
         }
     }) {
         Ok(invocation) => invocation,
@@ -6492,7 +6491,7 @@ fn run_seat_with(
                     attempt_id: attempt_id.clone(),
                     session_ref: None,
                 });
-                for row in buffered.drain(..) {
+                for (_, row) in buffered.drain(..) {
                     send(Body::Checkpoint {
                         effect_id: effect_id.clone(),
                         attempt_id: attempt_id.clone(),

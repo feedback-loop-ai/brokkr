@@ -60,9 +60,14 @@ pub(super) fn driven_with(
         extra: &extra,
     };
     let mut rows = Vec::new();
-    let turn = drive(pinned, false, "prompt", &input, bindings, &mut |row| {
-        rows.push(row.clone())
-    });
+    let turn = drive(
+        pinned,
+        false,
+        "prompt",
+        &input,
+        bindings,
+        &mut |row: &super::super::super::Emitted| rows.push(row.row.clone()),
+    );
     assert!(world.homes_gone());
     Driven {
         turn,
