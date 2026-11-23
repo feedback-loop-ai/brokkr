@@ -1015,7 +1015,7 @@ fn a_qoder_driver_declares_no_resume_and_no_probe() {
     assert_eq!(kind.served_route("Fast"), None);
     assert!(!super::super::probe::is_answer(
         kind,
-        &json!({"type": "assistant"})
+        &super::super::Row::new(&json!({"type": "assistant"}), &[])
     ));
 }
 

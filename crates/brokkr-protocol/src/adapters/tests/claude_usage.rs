@@ -4,6 +4,7 @@
 //! (seat-record v6; decision 0035 ruling 4), and a resumed process's cost
 //! is its own, less what `--resume` restored.
 
+use super::super::raw_fold_tests::fold_stream_event;
 use super::super::*;
 
 /// The session record after Claude's `result` events, each as

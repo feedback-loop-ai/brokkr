@@ -679,6 +679,7 @@ fn an_agy_driver_declares_no_resume_and_no_probe() {
     );
     assert_eq!(kind.served_route("gemini-4-neon"), None);
     let answer = json!({"event": "result", "result": {"status": "SUCCESS"}});
+    let answer = super::super::row::Row::new(&answer, &[]);
     assert!(!super::super::probe::is_answer(kind, &answer));
     assert_eq!(
         crate::overrides::Override::of_driver(kind).name(),

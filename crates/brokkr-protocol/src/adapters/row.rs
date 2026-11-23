@@ -8,11 +8,31 @@ use crate::secret::{self, BoundSecret};
 pub(super) struct Row<'a> {
     raw: &'a Value,
     bindings: &'a [BoundSecret],
+    fallback: Option<&'a Value>,
 }
 
 impl<'a> Row<'a> {
     pub(super) fn new(raw: &'a Value, bindings: &'a [BoundSecret]) -> Self {
-        Self { raw, bindings }
+        Self {
+            raw,
+            bindings,
+            fallback: None,
+        }
+    }
+
+    /// A Codex machine field falls back to the nested error only when
+    /// the outer field is absent. An explicit null takes precedence.
+    pub(super) fn with_fallback(&self, path: &str) -> Self {
+        Self {
+            fallback: self.raw.pointer(path),
+            ..*self
+        }
+    }
+
+    fn value(&self, path: &str) -> Option<&'a Value> {
+        self.raw
+            .pointer(path)
+            .or_else(|| self.fallback?.pointer(path))
     }
 
     pub(super) fn kind<T: Copy>(&self, path: &str, table: &[(&str, T)]) -> Option<T> {
@@ -31,15 +51,15 @@ impl<'a> Row<'a> {
     }
 
     pub(super) fn flag(&self, path: &str) -> Option<bool> {
-        self.raw.pointer(path)?.as_bool()
+        self.value(path)?.as_bool()
     }
 
     pub(super) fn count(&self, path: &str) -> Option<i64> {
-        self.raw.pointer(path)?.as_i64()
+        self.value(path)?.as_i64()
     }
 
     pub(super) fn number(&self, path: &str) -> Option<f64> {
-        self.raw.pointer(path)?.as_f64()
+        self.value(path)?.as_f64()
     }
 
     pub(super) fn token<T: Copy>(&self, path: &str, table: &[(&str, T)]) -> Option<T> {
@@ -59,8 +79,7 @@ impl<'a> Row<'a> {
     pub(super) fn items(&self, path: &str) -> Option<impl Iterator<Item = Row<'a>>> {
         let bindings = self.bindings;
         Some(
-            self.raw
-                .pointer(path)?
+            self.value(path)?
                 .as_array()?
                 .iter()
                 .map(move |item| Row::new(item, bindings)),
@@ -68,7 +87,7 @@ impl<'a> Row<'a> {
     }
 
     fn string(&self, path: &str) -> Option<&'a str> {
-        self.raw.pointer(path)?.as_str()
+        self.value(path)?.as_str()
     }
 }
 

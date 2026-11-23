@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::{codex_error, codex_rate_limit, parse_nanos, reset_windows, system_time_nanos, Now};
-use crate::PreSessionRefusal;
+use super::{codex_class, codex_error, parse_nanos, reset_windows, system_time_nanos, Now, Row};
+use crate::{PreSessionRefusal, RefusalClass};
 
 /// The closed list of non-work row kinds after this invocation's boundary
 /// (#1037, hold c-6761090419). Prompt ingestion is the measured
@@ -141,13 +141,21 @@ pub(crate) fn codex_thread_refusal(
             resets = windows;
         }
         if let Some(found) = thread_error(&row) {
-            if codex_rate_limit(&found) {
+            if codex_class(&Row::new(&found, &[]).with_fallback("/error"))
+                == RefusalClass::RateLimit
+            {
                 rate_limit_error = Some(found);
             }
             error_seen = true;
         }
     }
-    Some(codex_error(&rate_limit_error?, now, &resets))
+    let error = rate_limit_error?;
+    Some(codex_error(
+        &Row::new(&error, &[]).with_fallback("/error"),
+        RefusalClass::RateLimit,
+        now,
+        &resets,
+    ))
 }
 
 /// Whether a row is at or after the start; an untimed row is read, never assumed history.

@@ -383,9 +383,19 @@ impl QoderFold {
         }
         // The one place a row is masked: no row reaches the fold unmasked.
         let mut event = Value::Object(row);
+        let row = super::Row::new(&event, bindings);
+        let refusal = (self.claude.turns == 0)
+            .then(|| super::claude_refusal(&row))
+            .flatten();
         secret::mask_json(&mut event, bindings);
-        let classified =
-            fold_stream_event(&event, &mut self.claude, session_meta, transcript, emit);
+        let classified = fold_stream_event(
+            &event,
+            refusal,
+            &mut self.claude,
+            session_meta,
+            transcript,
+            emit,
+        );
         Ok(classified.map(provider_refused))
     }
 

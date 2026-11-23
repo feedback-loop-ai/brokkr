@@ -78,6 +78,7 @@ use refusal::{
     bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
     epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
+use row::Row;
 use spawn::{spawn_fed, spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
@@ -1436,20 +1437,14 @@ fn recordable_digest(value: &str) -> bool {
 /// never message text, thinking, or full tool inputs.
 fn fold_stream_event(
     event: &Value,
+    refusal: Option<PreSessionRefusal>,
     fold: &mut ClaudeFold,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Value),
 ) -> Option<PreSessionRefusal> {
-    // Decision 0053: a provider refusal is not a turn. It is classified
-    // ONLY before the first real turn; once one has been counted the
-    // session has opened and decision 0016's mid-session boundary holds
-    // unchanged. A refusal record emits no checkpoint and no usage, so
-    // the structural fail-to-start predicate can see it.
-    if fold.turns == 0 {
-        if let Some(reason) = claude_refusal(event) {
-            return Some(reason);
-        }
+    if refusal.is_some() {
+        return refusal;
     }
     match event.get("type").and_then(Value::as_str) {
         Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
@@ -1788,19 +1783,15 @@ impl CodexThreadEcho {
 /// transcript.
 fn fold_codex_event(
     event: &Value,
+    refusal: Option<PreSessionRefusal>,
     turn: &mut u64,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     echo: &mut CodexThreadEcho,
     emit: &mut impl FnMut(&Value),
 ) -> Option<PreSessionRefusal> {
-    // Decision 0053: an error codex reported before its first `turn.started`
-    // is a refusal to start, not a turn. After the first turn the boundary
-    // is decision 0016's, unchanged.
-    if *turn == 0 {
-        if let Some(reason) = codex_refusal(event) {
-            return Some(reason);
-        }
+    if refusal.is_some() {
+        return refusal;
     }
     match event.get("type").and_then(Value::as_str) {
         Some("thread.started") => {
@@ -2341,16 +2332,13 @@ impl DshFold<'_> {
             let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
                 continue;
             };
-            secret::mask_json(&mut event, self.bindings);
-            // Decision 0053's boundary: only an error before the first
-            // counted turn is a refusal to start. The restored history
-            // below a resumed root's boundary is not this invocation's.
-            // The first refusal is latched: a later error row is not the
-            // reason the session never started.
+            let row = Row::new(&event, self.bindings);
+            let answer_event = self.probe.requested() && probe::is_answer(AdapterKind::Dsh, &row);
+            // The first refusal before this invocation's first turn stands.
             if *self.turns == 0 && dsh_row_is_current(&event, self.first_seq) {
-                refusal = refusal.or_else(|| dsh_refusal(&event));
+                refusal = refusal.or_else(|| dsh_refusal(&row));
             }
-            let answer_event = self.probe.requested() && probe::is_answer(AdapterKind::Dsh, &event);
+            secret::mask_json(&mut event, self.bindings);
             let mut emitted: Vec<Value> = Vec::new();
             let mut capture = |data: &Value| {
                 if answer_event {
@@ -2365,7 +2353,7 @@ impl DshFold<'_> {
                 self.session_meta,
                 &mut capture,
             );
-            self.probe.admit(AdapterKind::Dsh, &event, &emitted);
+            self.probe.admit(answer_event, &emitted);
         }
         refusal
     }
@@ -2483,23 +2471,20 @@ fn invoke_stream_json(
             let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
-            // Masked before the fold clamps or rewrites anything it takes
-            // (decision 0012, layer 5): see `secret::mask_json`.
+            let row = Row::new(&event, bindings);
+            let classified = (fold.turns == 0).then(|| claude_refusal(&row)).flatten();
+            let answer = probe.requested() && probe::is_answer(AdapterKind::Claude, &row);
             secret::mask_json(&mut event, bindings);
-            // Decision 0103 ruling 4(a): a probe admits the first
-            // model-output answer and no second, captured on the same
-            // fold that builds its checkpoint.
-            let classified =
-                probe::fold_capturing(probe, AdapterKind::Claude, &event, &mut watch, |emit| {
-                    let mut adapted = |data: &Value| emit(data);
-                    fold_stream_event(
-                        &event,
-                        &mut fold,
-                        &mut session_meta,
-                        &mut transcript,
-                        &mut adapted,
-                    )
-                });
+            let classified = probe::fold_capturing(probe, answer, &mut watch, |emit| {
+                fold_stream_event(
+                    &event,
+                    classified,
+                    &mut fold,
+                    &mut session_meta,
+                    &mut transcript,
+                    &mut |data| emit(data),
+                )
+            });
             refusal = refusal.or(classified);
             // The answer is the probe's whole report: stop the harness
             // here instead of folding to EOF and waiting out a hang.
@@ -3665,27 +3650,21 @@ fn invoke_codex(
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
             let Ok(line) = line else { break };
             if let Ok(mut event) = serde_json::from_str::<Value>(&line) {
+                let row = Row::new(&event, bindings);
+                let classified = (turn == 0).then(|| codex_refusal(&row)).flatten();
+                let answer = probe_bound.requested() && probe::is_answer(AdapterKind::Codex, &row);
                 secret::mask_json(&mut event, bindings);
-                // Decision 0103 ruling 4(a): only `item.completed` whose
-                // `item.type` is `agent_message` answers a probe;
-                // `turn.started` does not.
-                let classified = probe::fold_capturing(
-                    probe_bound,
-                    AdapterKind::Codex,
-                    &event,
-                    &mut watch,
-                    |emit| {
-                        let mut adapted = |data: &Value| emit(data);
-                        fold_codex_event(
-                            &event,
-                            &mut turn,
-                            &mut session_meta,
-                            &mut transcript,
-                            &mut echo,
-                            &mut adapted,
-                        )
-                    },
-                );
+                let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
+                    fold_codex_event(
+                        &event,
+                        classified,
+                        &mut turn,
+                        &mut session_meta,
+                        &mut transcript,
+                        &mut echo,
+                        &mut |data| emit(data),
+                    )
+                });
                 refusal = refusal.or(classified);
                 // The answer is the probe's whole report: stop the harness
                 // here instead of folding to EOF and waiting out a hang.
@@ -6927,3 +6906,6 @@ mod stderr_sentinel_tests;
 
 #[cfg(test)]
 mod refusal_tests;
+
+#[cfg(test)]
+mod raw_fold_tests;

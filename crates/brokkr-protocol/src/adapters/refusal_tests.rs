@@ -8,8 +8,9 @@
 //! its words unchanged; the thread-record fallback refuses only on a
 //! usage- or rate-limit error and otherwise leaves the result lost.
 
+use super::raw_fold_tests::{claude_refusal, codex_refusal};
 use super::refusal::{
-    claude_refusal_at, codex_thread_refusal, codex_thread_refusal_since, dsh_refusal, epoch_now,
+    claude_refusal_at, codex_thread_refusal, codex_thread_refusal_since, epoch_now,
     find_codex_thread, local_time, parse_nanos, thread_header, LocalTime, Now,
 };
 use super::tests::{executable, Case};
@@ -414,7 +415,7 @@ fn dsh_quota_is_a_rate_limit_and_other_errors_stay_other() {
         "reason": {"kind": "error", "error": {
             "message": "Insufficient Balance (request_id: r)",
             "code": "QUOTA", "status": 402}}}});
-    let reason = dsh_refusal(&quota).unwrap();
+    let reason = dsh_refusal(&Row::new(&quota, &[])).unwrap();
     assert_eq!(reason.class(), RefusalClass::RateLimit);
     assert_eq!(reason.status(), Some(402));
     assert!(reason.words().starts_with("rate_limit (HTTP 402)"));
@@ -424,7 +425,7 @@ fn dsh_quota_is_a_rate_limit_and_other_errors_stay_other() {
     let other = json!({"type": "turn/end", "seq": 2, "data": {"turn": 1,
         "reason": {"kind": "error", "error": {
             "message": "internal failure", "code": "INTERNAL", "status": 500}}}});
-    let reason = dsh_refusal(&other).unwrap();
+    let reason = dsh_refusal(&Row::new(&other, &[])).unwrap();
     assert_eq!(reason.class(), RefusalClass::Other);
     assert!(reason.words().starts_with("INTERNAL (HTTP 500)"));
 
@@ -438,14 +439,14 @@ fn dsh_quota_is_a_rate_limit_and_other_errors_stay_other() {
         let event = json!({"type": "turn/end", "data": {"turn": 1,
             "reason": {"kind": "error", "error": error}}});
         assert_eq!(
-            dsh_refusal(&event).unwrap().class(),
+            dsh_refusal(&Row::new(&event, &[])).unwrap().class(),
             RefusalClass::RateLimit,
             "{event}"
         );
     }
     let bare = json!({"type": "turn/end", "data": {"turn": 1,
         "reason": {"kind": "error", "error": {"message": "boom"}}}});
-    let reason = dsh_refusal(&bare).unwrap();
+    let reason = dsh_refusal(&Row::new(&bare, &[])).unwrap();
     assert_eq!(reason.class(), RefusalClass::Other);
     assert!(reason.words().starts_with("api_error"));
 
@@ -457,7 +458,7 @@ fn dsh_quota_is_a_rate_limit_and_other_errors_stay_other() {
         json!({"type": "turn/end", "data": {"turn": 1, "reason": {}}}),
         json!({"type": "turn/end", "data": {"turn": 1}}),
     ] {
-        assert!(dsh_refusal(&event).is_none(), "{event}");
+        assert!(dsh_refusal(&Row::new(&event, &[])).is_none(), "{event}");
     }
 }
 
@@ -1884,7 +1885,7 @@ fn a_claude_rate_limit_keeps_its_structured_reset() {
         "rate_limit_info": {"status": "rejected", "resetsAt": now + 600,
             "rateLimitType": "five_hour", "utilization": 1.0,
             "isUsingOverage": false}});
-    let reason = claude_refusal_at(&event, Some(now)).unwrap();
+    let reason = claude_refusal_at(&Row::new(&event, &[]), Some(now)).unwrap();
     assert_eq!(reason.class(), RefusalClass::RateLimit);
     assert_eq!(reason.retry_after_seconds(), Some(600));
     // A pass that names no readable reset, and a clock that could not be
@@ -1892,13 +1893,13 @@ fn a_claude_rate_limit_keeps_its_structured_reset() {
     let stale = json!({"type": "rate_limit_event",
         "rate_limit_info": {"status": "rejected", "resetsAt": now - 1}});
     assert_eq!(
-        claude_refusal_at(&stale, Some(now))
+        claude_refusal_at(&Row::new(&stale, &[]), Some(now))
             .unwrap()
             .retry_after_seconds(),
         None
     );
     assert_eq!(
-        claude_refusal_at(&event, None)
+        claude_refusal_at(&Row::new(&event, &[]), None)
             .unwrap()
             .retry_after_seconds(),
         None

@@ -1,6 +1,7 @@
 use serde_json::{json, Map, Value};
 
-use super::super::{fold_codex_event, fold_dsh_event, fold_stream_event, CodexThreadEcho};
+use super::super::raw_fold_tests::{fold_codex_event, fold_stream_event};
+use super::super::{fold_dsh_event, CodexThreadEcho};
 use super::{Format, Observation, Tool, OBSERVATION_KEY};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 
