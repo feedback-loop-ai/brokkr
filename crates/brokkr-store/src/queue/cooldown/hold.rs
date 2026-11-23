@@ -15,7 +15,7 @@ use time::OffsetDateTime;
 
 use super::{time_of, Cooldown, LAST_SECOND};
 use crate::queue::storage::cool_downs_writable;
-use crate::queue::{QueueRefusal, UnwrittenHold};
+use crate::queue::{QueueRefusal, UnsettledHold, UnwrittenHold};
 use crate::{patiently, Store, StoreError};
 
 /// The hold one probe takes on its route before it is reserved: the run
@@ -64,7 +64,6 @@ macro_rules! standing_hold {
         "ended_at IS NULL"
     };
 }
-pub(super) use standing_hold;
 
 /// One `probe_holds` row as the in-force read selects it.
 struct HoldRow {
@@ -148,6 +147,29 @@ pub(super) fn ended(conn: &Connection, id: Option<ProbeHoldId>, at: i64) -> Resu
     Ok(())
 }
 
+/// Refused where a hold of the run `run_id` naming one of `attempts` still
+/// stands after its settlement's updates: the first such attempt, by name.
+fn unsettled(conn: &Connection, run_id: &str, attempts: &[String]) -> Result<(), StoreError> {
+    for attempt in attempts {
+        let standing: i64 = conn.query_row(
+            concat!(
+                "SELECT COUNT(*) FROM probe_holds WHERE run_id = ?1 AND attempt_id = ?2 AND ",
+                standing_hold!()
+            ),
+            params![run_id, attempt],
+            |row| row.get(0),
+        )?;
+        if standing > 0 {
+            let unsettled = UnsettledHold {
+                run_id: run_id.to_string(),
+                attempt_id: attempt.clone(),
+            };
+            return Err(QueueRefusal::ProbeHoldUnsettled(Box::new(unsettled)).into());
+        }
+    }
+    Ok(())
+}
+
 impl Store {
     /// Write `hold` at `now`, before its probe is reserved, in its own
     /// `Immediate` transaction: the id is the evidence of the write, and
@@ -214,7 +236,11 @@ impl Store {
     /// trees are therefore over (fix round 0106b1r12, S2). The restarted
     /// engine's reaper and the operator's settle record are its callers; a
     /// hold naming any other attempt, of this run or another, is left as
-    /// it stands. A queue that holds no version 7 table holds no hold.
+    /// it stands. A queue that holds no version 7 table holds no hold. An
+    /// end the table took without writing it, so that a hold of a settled
+    /// attempt still stands once the updates ran, refuses
+    /// ([`QueueRefusal::ProbeHoldUnsettled`]) and writes none of them: a
+    /// settlement is never reported as applied while its hold stands.
     pub fn settle_probe_holds(
         &mut self,
         run_id: &str,
@@ -236,6 +262,7 @@ impl Store {
                         params![run_id, attempt, now.unix_timestamp()],
                     )?;
                 }
+                unsettled(&tx, run_id, attempts)?;
             }
             tx.commit()?;
             Ok(())

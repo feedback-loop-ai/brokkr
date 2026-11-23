@@ -105,7 +105,8 @@ pub use queue::{
     claim_stands, Attribution, Claim, ClaimFacts, Claiming, Cooldown, CooldownAggregate,
     CooldownDuplicate, CooldownRound, CooldownRoundMismatch, Cooling, EntryId, EntryState,
     Generation, Latch, NewEntry, NotAWait, ProbeHold, ProbeHoldId, QueueCommand, QueueEntry,
-    QueueRefusal, RoundAppend, Seen, StartRefusal, UnwrittenHold, UnwrittenRow, Wait, WaitOn,
+    QueueRefusal, RoundAppend, Seen, StartRefusal, UnsettledHold, UnwrittenHold, UnwrittenRow,
+    Wait, WaitOn,
 };
 pub use redact::{redact_export, Redactor};
 pub use run_read::RunRead;

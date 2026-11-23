@@ -46,7 +46,8 @@ use entry::UnknownWord;
 use entry::{read_word, Standing};
 pub use entry::{EntryState, Latch, NewEntry, NotAWait, QueueCommand, WaitOn};
 pub use refusal::{
-    CooldownDuplicate, CooldownRoundMismatch, QueueRefusal, UnwrittenHold, UnwrittenRow,
+    CooldownDuplicate, CooldownRoundMismatch, QueueRefusal, UnsettledHold, UnwrittenHold,
+    UnwrittenRow,
 };
 #[cfg(test)]
 use storage::QUEUE_SCHEMA;

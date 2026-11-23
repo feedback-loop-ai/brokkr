@@ -202,6 +202,49 @@ fn a_settlement_ends_the_holds_of_the_attempts_it_proves_and_no_other() {
     assert_eq!(unended_holds(&store.conn), ["run-a", "run-b"]);
 }
 
+/// The return of fix round 0106b1r12: a settlement's end the table takes
+/// without writing it (a trigger that ignores the update) leaves the
+/// settled attempt's hold standing, so the settlement refuses by name and
+/// writes none of its ends, even one the table did take; it never reports
+/// a hold ended that still stands.
+#[test]
+fn a_settlement_the_table_does_not_write_refuses_and_ends_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    for attempt in ["a-1", "a-2"] {
+        let mut hold = probe_hold("run-a", at(30));
+        hold.attempt_id = attempt;
+        store.hold_probe(&hold, at(0)).unwrap();
+    }
+    store
+        .conn
+        .execute_batch(
+            "CREATE TRIGGER ignored BEFORE UPDATE OF ended_at ON probe_holds
+             WHEN OLD.attempt_id = 'a-2'
+             BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+    let refused = store
+        .settle_probe_holds("run-a", &["a-1".into(), "a-2".into()], at(5))
+        .unwrap_err();
+    let StoreError::Queue(QueueRefusal::ProbeHoldUnsettled(unsettled)) = &refused else {
+        panic!("an unsettled hold was not refused by name: {refused:?}");
+    };
+    assert_eq!(
+        **unsettled,
+        crate::queue::UnsettledHold {
+            run_id: "run-a".into(),
+            attempt_id: "a-2".into(),
+        }
+    );
+    assert_eq!(
+        refused.to_string(),
+        "the journal's probe holds kept run 'run-a''s hold for attempt 'a-2' standing through \
+         its settlement, so its route stays held and none of the settlement's ends was written"
+    );
+    assert_eq!(unended_holds(&store.conn), ["run-a", "run-a"]);
+}
+
 /// Fix round 0106b1r9, E3: a hold is only ever the evidence of its write.
 /// A queue this binary does not write, an older version's or a newer
 /// binary's, takes no hold, and refuses by name rather than reporting a

@@ -52,6 +52,15 @@ pub struct UnwrittenHold {
     pub route: String,
 }
 
+/// The probe hold a [`QueueRefusal::ProbeHoldUnsettled`] names: the run and
+/// the settled attempt whose hold the table kept standing, boxed so the
+/// store's error stays small.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsettledHold {
+    pub run_id: String,
+    pub attempt_id: String,
+}
+
 /// Why the queue refused, with the operator's text. Nothing was written.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum QueueRefusal {
@@ -194,6 +203,16 @@ pub enum QueueRefusal {
         .0.run_id, .0.provider, .0.route
     )]
     ProbeHoldUnstorable(Box<UnwrittenHold>),
+    /// A settlement's end of a probe's hold the table took without writing
+    /// it, as a trigger that ignores the update leaves it (the return of fix
+    /// round 0106b1r12): the hold still stands, so the settlement is not
+    /// reported as written, and none of its ends was.
+    #[error(
+        "the journal's probe holds kept run '{}''s hold for attempt '{}' standing through its \
+         settlement, so its route stays held and none of the settlement's ends was written",
+        .0.run_id, .0.attempt_id
+    )]
+    ProbeHoldUnsettled(Box<UnsettledHold>),
     /// A command on an entry the dispatcher has claimed and not yet
     /// linked, returned or held (decision 0095 ruling 1).
     #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]
