@@ -392,17 +392,21 @@ impl QoderFold {
             .flatten();
         let identity = CapturedId::claude(&row);
         secret::mask_json(&mut event, bindings);
-        let classified = fold_stream_event(
-            FoldInput {
-                masked: &event,
-                refusal,
+        let classified = FoldInput {
+            masked: &event,
+            refusal,
+            identity,
+        }
+        .fold(|event, identity| {
+            fold_stream_event(
+                event,
                 identity,
-            },
-            &mut self.claude,
-            session_meta,
-            transcript,
-            emit,
-        );
+                &mut self.claude,
+                session_meta,
+                transcript,
+                emit,
+            )
+        });
         Ok(classified.map(provider_refused))
     }
 

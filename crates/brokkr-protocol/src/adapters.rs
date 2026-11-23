@@ -1416,20 +1416,13 @@ fn recordable_digest(value: &str) -> bool {
 /// carry turn index, a ≤80-char tool name, and a ≤80-char target only —
 /// never message text, thinking, or full tool inputs.
 fn fold_stream_event(
-    input: FoldInput<'_>,
+    event: &Value,
+    identity: Option<CapturedId>,
     fold: &mut ClaudeFold,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Emitted),
 ) -> Option<PreSessionRefusal> {
-    let FoldInput {
-        masked: event,
-        refusal,
-        identity,
-    } = input;
-    if refusal.is_some() {
-        return refusal;
-    }
     match event.get("type").and_then(Value::as_str) {
         Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
             if let Some(identity) = identity {
@@ -1764,21 +1757,14 @@ impl CodexThreadEcho {
 /// intentionally ignored; the journal records progress and usage, not a
 /// transcript.
 fn fold_codex_event(
-    input: FoldInput<'_>,
+    event: &Value,
+    identity: Option<CapturedId>,
     turn: &mut u64,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     echo: &mut CodexThreadEcho,
     emit: &mut impl FnMut(&Emitted),
 ) -> Option<PreSessionRefusal> {
-    let FoldInput {
-        masked: event,
-        refusal,
-        identity,
-    } = input;
-    if refusal.is_some() {
-        return refusal;
-    }
     match event.get("type").and_then(Value::as_str) {
         Some("thread.started") => {
             if let Some(identity) = identity {
@@ -2469,17 +2455,21 @@ fn invoke_stream_json(
             let identity = CapturedId::claude(&row);
             secret::mask_json(&mut event, bindings);
             let classified = probe::fold_capturing(probe, answer, &mut watch, |emit| {
-                fold_stream_event(
-                    FoldInput {
-                        masked: &event,
-                        refusal: classified,
+                FoldInput {
+                    masked: &event,
+                    refusal: classified,
+                    identity,
+                }
+                .fold(|event, identity| {
+                    fold_stream_event(
+                        event,
                         identity,
-                    },
-                    &mut fold,
-                    &mut session_meta,
-                    &mut transcript,
-                    &mut |data| emit(data),
-                )
+                        &mut fold,
+                        &mut session_meta,
+                        &mut transcript,
+                        &mut |data| emit(data),
+                    )
+                })
             });
             refusal = refusal.or(classified);
             // The answer is the probe's whole report: stop the harness
@@ -3643,33 +3633,38 @@ fn invoke_codex(
         let mut watch = |data: &Emitted| hold.observe(data, emit);
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
             let Ok(line) = line else { break };
-            if let Ok(mut event) = serde_json::from_str::<Value>(&line) {
-                let row = Row::new(&event, bindings);
-                let classified = (turn == 0).then(|| codex_refusal(&row)).flatten();
-                let answer = probe_bound.requested() && probe::is_answer(AdapterKind::Codex, &row);
-                let identity = CapturedId::codex(&row);
-                secret::mask_json(&mut event, bindings);
-                let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
+            let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            let row = Row::new(&event, bindings);
+            let classified = (turn == 0).then(|| codex_refusal(&row)).flatten();
+            let answer = probe_bound.requested() && probe::is_answer(AdapterKind::Codex, &row);
+            let identity = CapturedId::codex(&row);
+            secret::mask_json(&mut event, bindings);
+            let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
+                FoldInput {
+                    masked: &event,
+                    refusal: classified,
+                    identity,
+                }
+                .fold(|event, identity| {
                     fold_codex_event(
-                        FoldInput {
-                            masked: &event,
-                            refusal: classified,
-                            identity,
-                        },
+                        event,
+                        identity,
                         &mut turn,
                         &mut session_meta,
                         &mut transcript,
                         &mut echo,
                         &mut |data| emit(data),
                     )
-                });
-                refusal = refusal.or(classified);
-                // The answer is the probe's whole report: stop the harness
-                // here instead of folding to EOF and waiting out a hang.
-                if probe_bound.answered() {
-                    stopped = true;
-                    break;
-                }
+                })
+            });
+            refusal = refusal.or(classified);
+            // The answer is the probe's whole report: stop the harness
+            // here instead of folding to EOF and waiting out a hang.
+            if probe_bound.answered() {
+                stopped = true;
+                break;
             }
         }
         if stopped {

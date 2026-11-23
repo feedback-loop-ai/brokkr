@@ -79,21 +79,22 @@ fn driver_calls(harness: &Harness, bound: bool) -> Vec<Value> {
     };
     let filter = concat!(module_path!(), "::bound_native_tool_name_fails_closed");
     let (_, filter) = filter.split_once("::").unwrap();
-    let mut child = Command::new(std::env::current_exe().unwrap())
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
         .args(["--exact", filter, "--nocapture", "--quiet"])
-        .env(SERVING, harness.kind)
-        .env("BROKKR_CLAUDE_BIN", &path)
-        .env("BROKKR_CODEX_BIN", &path)
-        .env("BROKKR_DSH_BIN", &path)
-        .env("HOME", dir.path())
-        .env("CODEX_HOME", dir.path())
-        .env("DSH_HOME", dir.path())
+        .env(SERVING, harness.kind);
+    for bin in ["BROKKR_CLAUDE_BIN", "BROKKR_CODEX_BIN", "BROKKR_DSH_BIN"] {
+        command.env(bin, &path);
+    }
+    for home in ["HOME", "CODEX_HOME", "DSH_HOME"] {
+        command.env(home, dir.path());
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    for body in [
+    let start = [
         Body::Hello {
             engine_version: "test".into(),
         },
@@ -108,14 +109,11 @@ fn driver_calls(harness: &Harness, bound: bool) -> Vec<Value> {
                 "role_path":"/dev/null", "secrets":names, "secrets_file":store,
             }),
         },
-    ] {
-        writeln!(
-            stdin,
-            "{}",
-            serde_json::to_string(&Message::new(body)).unwrap()
-        )
-        .unwrap();
-    }
+    ]
+    .map(|body| serde_json::to_string(&Message::new(body)).unwrap() + "\n")
+    .concat();
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(start.as_bytes()).unwrap();
     drop(stdin);
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success(), "{output:?}");

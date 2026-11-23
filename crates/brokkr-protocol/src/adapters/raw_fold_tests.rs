@@ -12,17 +12,16 @@ pub(super) fn fold_stream_event(
     let refusal = (fold.turns == 0)
         .then(|| super::claude_refusal(&Row::new(event, &[])))
         .flatten();
-    super::fold_stream_event(
-        FoldInput {
-            masked: event,
-            refusal,
-            identity: CapturedId::claude(&Row::new(event, &[])),
-        },
-        fold,
-        meta,
-        transcript,
-        &mut |row| emit(&row.row),
-    )
+    FoldInput {
+        masked: event,
+        refusal,
+        identity: CapturedId::claude(&Row::new(event, &[])),
+    }
+    .fold(|event, identity| {
+        super::fold_stream_event(event, identity, fold, meta, transcript, &mut |row| {
+            emit(&row.row)
+        })
+    })
 }
 
 pub(super) fn fold_codex_event(
@@ -36,18 +35,16 @@ pub(super) fn fold_codex_event(
     let refusal = (*turn == 0)
         .then(|| super::codex_refusal(&Row::new(event, &[])))
         .flatten();
-    super::fold_codex_event(
-        FoldInput {
-            masked: event,
-            refusal,
-            identity: CapturedId::codex(&Row::new(event, &[])),
-        },
-        turn,
-        meta,
-        transcript,
-        echo,
-        &mut |row| emit(&row.row),
-    )
+    FoldInput {
+        masked: event,
+        refusal,
+        identity: CapturedId::codex(&Row::new(event, &[])),
+    }
+    .fold(|event, identity| {
+        super::fold_codex_event(event, identity, turn, meta, transcript, echo, &mut |row| {
+            emit(&row.row)
+        })
+    })
 }
 
 pub(super) fn claude_refusal(event: &Value) -> Option<PreSessionRefusal> {

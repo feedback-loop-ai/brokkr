@@ -18,10 +18,11 @@ impl Stream {
         let start = json!({
             "effect_id":"effect", "attempt_id":"attempt",
             "input":{
+                "secrets":secrets.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+                "secrets_file":store,
                 "workdir":dir.path(), "result_path":dir.path().join("result.json"),
                 "allowed_results":["complete"], "feature":"f", "phase":"work",
-                "role_path":"/dev/null", "secrets_file":store,
-                "secrets":secrets.iter().map(|(name, _)| *name).collect::<Vec<_>>()
+                "role_path":"/dev/null",
             },
         });
         Self { dir, shim, start }

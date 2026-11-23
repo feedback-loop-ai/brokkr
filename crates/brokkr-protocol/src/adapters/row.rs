@@ -173,5 +173,20 @@ pub(super) struct FoldInput<'a> {
     pub(super) identity: Option<CapturedId>,
 }
 
+impl<'a> FoldInput<'a> {
+    /// The family fold over the masked row, unless the raw row was already
+    /// classified as a refusal to start: that refusal ends the row first,
+    /// and the fold never reads it. One home for both families' folds.
+    pub(super) fn fold(
+        self,
+        fold: impl FnOnce(&'a Value, Option<CapturedId>) -> Option<PreSessionRefusal>,
+    ) -> Option<PreSessionRefusal> {
+        match self.refusal {
+            Some(refusal) => Some(refusal),
+            None => fold(self.masked, self.identity),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

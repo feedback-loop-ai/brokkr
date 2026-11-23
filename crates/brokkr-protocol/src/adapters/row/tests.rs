@@ -1,6 +1,33 @@
 use super::*;
 use serde_json::json;
 
+/// A refusal decided on the raw row ends it before the fold reads the
+/// masked copy; without one, the fold gets the masked row and identity.
+#[test]
+fn a_raw_refusal_ends_the_row_before_its_fold() {
+    let masked = json!({"type": "assistant"});
+    let refused = super::super::refusal::refusal_reason("rate_limit", None, None);
+    let mut folded = Vec::new();
+    let input = |refusal| FoldInput {
+        masked: &masked,
+        refusal,
+        identity: None,
+    };
+    let ended = input(Some(refused.clone())).fold(|row, _| {
+        folded.push(row.clone());
+        None
+    });
+    assert_eq!(ended, Some(refused));
+    assert!(folded.is_empty());
+    let ended = input(None).fold(|row, identity| {
+        folded.push(row.clone());
+        assert!(identity.is_none());
+        None
+    });
+    assert_eq!(ended, None);
+    assert_eq!(folded, std::slice::from_ref(&masked));
+}
+
 fn binding(value: &str) -> Vec<BoundSecret> {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("bindings");
