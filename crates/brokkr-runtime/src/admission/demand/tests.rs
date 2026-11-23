@@ -87,10 +87,7 @@ fn judged(
         },
         unmeasured => unmeasured.clone(),
     };
-    let machine = Machine {
-        journals,
-        measure: &measure,
-    };
+    let machine = Machine::with(journals, &measure);
     let probe = |_: &Path| Ok(PLENTY);
     let host = Host {
         file: &file,
@@ -327,7 +324,7 @@ fn a_running_run_in_implement_reserves_its_verify_peak_beyond_its_measured_use()
 /// newest first; a third that cannot be read is named once and sizes
 /// nothing; one the map lists that is not there is passed over silently.
 #[test]
-fn history_is_read_across_the_registrys_journals_and_an_unreadable_one_is_named_and_skipped() {
+fn history_is_read_across_the_registry_journals_and_an_unreadable_one_is_named_and_skipped() {
     let dir = tempfile::tempdir().unwrap();
     let first = journal(dir.path(), "first.db", |store| {
         run(store, "a", "fixture", &[("implement", 2 * GIB, 1000)], true);
@@ -465,7 +462,7 @@ fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
 /// byte for byte as it was, with no `-wal`, `-shm` or lock left behind,
 /// a running run's included.
 #[test]
-fn reading_the_registrys_journals_leaves_each_directory_byte_identical() {
+fn reading_the_registry_journals_leaves_each_directory_byte_identical() {
     let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
     let registry = [
         journal(dirs[0].path(), "a.db", |store| {
@@ -508,7 +505,7 @@ fn every_demand_reason_waits_and_has_its_kind() {
         beside: Beside::default(),
     };
     for (short, kind) in [(holder, "demand_unknown"), (unknown, "demand_unknown")] {
-        let reason = Reason::Capacity(Capacity::Demand(short));
+        let reason = Reason::Capacity(Capacity::Demand(Unfit(short)));
         assert_eq!((reason.kind(), reason.holds()), (kind, false));
     }
 }

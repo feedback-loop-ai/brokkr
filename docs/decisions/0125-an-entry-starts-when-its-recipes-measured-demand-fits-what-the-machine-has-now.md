@@ -146,14 +146,16 @@ upgrade verb and `init`'s placeholder ceilings).
    optional `demand` block of rulings 3 and 4; every v1 to v4 file reads as
    it did, its demand block the defaults.
 
-8. **`brokkr queue list` shows why.** For each entry the pass sized, the
-   recipe, the demand it judged by (its source: the measured runs in its
-   window, a declaration, or unknown; each resource's average and margin),
-   what is available, and what is reserved and by how many runs; the
-   reason it waits names the same numbers. `--json` carries the same
-   fields. Each unreadable journal is named once. The per-recipe,
-   per-phase view of decision 0112 (`brokkr library recipes usage`) is
-   unchanged.
+8. **`brokkr queue list` shows why.** The reason an entry waits names the
+   demand it was judged by (its average, over which runs or a declaration,
+   and the margin), what is available, and what is reserved and by how
+   many runs, in the table and in `--json` alike. `--json` also carries,
+   for every entry the pass sized, a `demand` object: the recipe, the
+   demand's source, each resource's average, margin and demand, what is
+   available and what is reserved; an entry the pass sized nothing for
+   carries none, so an unmeasured pass lists as before. Each unreadable
+   journal is named once on stderr. The per-recipe, per-phase view of
+   decision 0112 (`brokkr library recipes usage`) is unchanged.
 
 ## The asks of #1193, as ruled
 
@@ -213,5 +215,11 @@ The operator ruled them "all recommended" on 2026-11-23.
   yet), every recipe is unknown, and a measured machine runs one entry at a
   time.
 - `queue list` and the dispatcher's pass each wait 500 ms for the CPU
-  window when they judge an entry's room; a pass reads one statement per
-  journal of the map.
+  window when they judge an entry's room, and read one history statement
+  and one statement for the unended runs per journal of the map, folding
+  each unended run. Over 20 journals of 120 runs each (about 12 MB each,
+  60 running runs in all) the reads took about 0.95 s in a debug test
+  build, measured on 2026-11-23; the window comes on top.
+- `forge.host/v5` is minted under this decision, and decision 0082 ruling
+  1 mints a contract version only under an accepted ruling: the ledger's
+  minting check holds the file until this decision is accepted.

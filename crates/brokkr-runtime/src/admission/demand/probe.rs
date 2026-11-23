@@ -20,15 +20,15 @@ const WINDOW: Duration = Duration::from_millis(500);
 /// A running run whose driver's tree a pass measures: the journal it is
 /// in and its id, which name its run lock (decision 0108).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Driven<'a> {
-    pub journal: &'a Path,
-    pub run: &'a str,
+pub(crate) struct Driven<'a> {
+    pub(crate) journal: &'a Path,
+    pub(crate) run: &'a str,
 }
 
 /// What one pass measured: the machine, and each run it was asked about,
 /// in the order asked, `None` where its driver's tree cannot be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Measurement {
+pub(crate) enum Measurement {
     Measured {
         machine: Available,
         runs: Vec<Option<Use>>,
@@ -49,9 +49,9 @@ pub struct Available {
 /// What a driver's tree uses now: its resident memory, and the cores it
 /// kept busy over the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Use {
-    pub memory_bytes: u64,
-    pub load_millicores: u64,
+pub(crate) struct Use {
+    pub(crate) memory_bytes: u64,
+    pub(crate) load_millicores: u64,
 }
 
 /// Why the machine is not measured, so admission keeps its count
@@ -154,7 +154,7 @@ pub fn measurable() -> Result<(), Unmeasured> {
 
 /// The production measure: this machine now, over [`WINDOW`], and each
 /// of `runs`' drivers' trees, through the pid its run lock records.
-pub fn measure_now(runs: &[Driven<'_>]) -> Measurement {
+pub(crate) fn measure_now(runs: &[Driven<'_>]) -> Measurement {
     match measurable() {
         Ok(()) => sampled(runs).unwrap_or_else(Measurement::Unmeasured),
         Err(why) => Measurement::Unmeasured(why),

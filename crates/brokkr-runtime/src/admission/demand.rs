@@ -31,14 +31,47 @@ mod journals;
 mod probe;
 mod words;
 
-pub use probe::{measurable, measure_now, Available, Driven, Measurement, Unmeasured, Use};
+pub use probe::{measurable, Available, Unmeasured};
+pub(crate) use probe::{Driven, Measurement, Use};
 
 /// The machine a measured pass sizes entries on, its effects injected:
 /// every journal the realms map lists, and the measure of what the
 /// machine has now and of each running run's driver tree.
 pub struct Machine<'a> {
-    pub journals: &'a [PathBuf],
-    pub measure: &'a dyn Fn(&[Driven<'_>]) -> Measurement,
+    journals: &'a [PathBuf],
+    measure: &'a dyn Fn(&[Driven<'_>]) -> Measurement,
+}
+
+impl<'a> Machine<'a> {
+    /// This machine, measured as [`probe`] measures it, beside `journals`.
+    pub fn here(journals: &'a [PathBuf]) -> Machine<'a> {
+        Machine::with(journals, &probe::measure_now)
+    }
+
+    /// A machine whose measures `measure` gives, as the tests inject them.
+    pub(crate) fn with(
+        journals: &'a [PathBuf],
+        measure: &'a dyn Fn(&[Driven<'_>]) -> Measurement,
+    ) -> Machine<'a> {
+        Machine { journals, measure }
+    }
+}
+
+/// Why decision 0125's rule holds an entry, or a journal it names beside
+/// the queue, as its kind and its words say it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unfit(pub(crate) Short);
+
+impl Unfit {
+    pub(crate) fn kind(&self) -> &'static str {
+        self.0.kind()
+    }
+}
+
+impl std::fmt::Display for Unfit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 /// What an entry was sized by: its recipe, the demand judged and where it
@@ -101,23 +134,23 @@ pub struct Reserved {
 /// A run, or an entry admitted earlier in the pass, whose demand is
 /// unknown: it holds the whole machine until it ends (ruling 6).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Holder {
+pub(crate) enum Holder {
     Run { run: String, recipe: String },
     Entry { entry: EntryId, recipe: String },
 }
 
 /// What else stands on the machine beside an entry of unknown demand.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Beside {
-    pub running: usize,
-    pub admitted: usize,
-    pub unreadable: usize,
+pub(crate) struct Beside {
+    pub(crate) running: usize,
+    pub(crate) admitted: usize,
+    pub(crate) unreadable: usize,
 }
 
 /// Why decision 0125's rule holds an entry, or, `Unreadable`, a journal
 /// it names beside the queue. Each waits and clears by itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Short {
+pub(crate) enum Short {
     /// `memory_short`; `whole` where the demand is more than the machine.
     Memory { sized: Box<Sized>, whole: bool },
     /// `cpu_short`; `whole` where the demand is more than every core.
@@ -207,22 +240,22 @@ impl Judge {
         &mut self,
         entry: EntryId,
         recipe: &str,
-    ) -> (Option<Sized>, Result<(), Short>) {
+    ) -> (Option<Sized>, Result<(), Unfit>) {
         match self {
             Judge::Unmeasured => (None, Ok(())),
             Judge::Measured(sizing) => {
                 let sized = sizing.sized(recipe);
-                let fits = sizing.fits(entry, &sized);
+                let fits = sizing.fits(entry, &sized).map_err(Unfit);
                 (Some(sized), fits)
             }
         }
     }
 
     /// Each journal of the realms map the pass could not read, named once.
-    pub(crate) fn unreadable(self) -> Vec<Short> {
+    pub(crate) fn unreadable(self) -> Vec<Unfit> {
         match self {
             Judge::Unmeasured => Vec::new(),
-            Judge::Measured(sizing) => sizing.unreadable,
+            Judge::Measured(sizing) => sizing.unreadable.into_iter().map(Unfit).collect(),
         }
     }
 }

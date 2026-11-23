@@ -49,7 +49,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
 
-use super::demand::{Judge, Machine, Short};
+use super::demand::{Judge, Machine, Unfit};
 use super::host::{self, At, HostConfig, Hosting, Place, Provider, Route, RouteClass};
 use super::{awaiting, came_to, AdmissionError, Judged, Reason};
 use crate::capabilities::manifest::ModelPins;
@@ -139,7 +139,7 @@ pub enum Capacity {
         words: String,
     },
     /// Decision 0125's rule: the entry's demand does not fit now.
-    Demand(Short),
+    Demand(Unfit),
 }
 
 /// Why what a run seats cannot be measured.

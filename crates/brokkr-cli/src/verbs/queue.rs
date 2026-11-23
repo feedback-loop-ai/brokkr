@@ -191,10 +191,7 @@ pub(super) fn on_this_host<T>(
     act: impl FnOnce(&Host<'_>) -> Result<T>,
 ) -> Result<T> {
     let journals = registry(workspace);
-    let machine = Machine {
-        journals: &journals,
-        measure: &admission::measure_now,
-    };
+    let machine = Machine::here(&journals);
     on_the_host_at(
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),

@@ -194,9 +194,8 @@ const FROZEN: [(&str, &str); 42] = [
         "contracts/run-manifest.v9.schema.json",
         "c046add105f94efccba9a4d688016eadc8f2933bdbfe70a9f625991e46878a71",
     ),
-    // Decision 0103 ruling 3 mints `forge.host/v2` beside v1; both
-    // versions' bytes are pinned from birth, so neither shape can move
-    // silently and the loader keeps reading both.
+    // Decision 0103 ruling 3 mints `forge.host/v2` beside v1; both are pinned
+    // from birth, so neither shape moves silently and the loader reads both.
     (
         "contracts/host.v1.schema.json",
         "81eadfe6d066be359f1eb2d38b9a4d5ba94c42b7c6a9929fb31a31af6fa6a2d0",
@@ -211,23 +210,19 @@ const FROZEN: [(&str, &str); 42] = [
         "contracts/evidence-archive.v1.schema.json",
         "bdb387c0324937c1fffe97c6f50699163fddd083a63d2393102dd25ab800dddf",
     ),
-    // Decision 0104 ruling 1(a) mints `forge.host/v3` beside v2, whose
-    // bytes did not move: v3 is v2 plus one optional shared-local floor on
-    // a route, and all three versions stay readable.
+    // Decision 0104 ruling 1(a) mints `forge.host/v3` beside v2, whose bytes
+    // did not move: v2 plus one optional shared-local floor on a route.
     (
         "contracts/host.v3.schema.json",
         "efdc12e47030eee6ea9d9d187d1b15581807d1169f8a2b6bb5660b1630ee4cf6",
     ),
-    // Decision 0110 ruling 7 mints `forge.host/v4` beside v3, whose bytes
-    // did not move: v4 is v3 plus a required run ceiling, pinned from
-    // birth, and all four versions stay readable.
+    // Decision 0110 ruling 7 mints `forge.host/v4` (a required run ceiling)
+    // and decision 0125 ruling 7 `forge.host/v5` (optional ceilings and a
+    // demand block), each beside the last and pinned from birth.
     (
         "contracts/host.v4.schema.json",
         "87db9ec8fd5833a07c3e70a79fa60726c50f9060390618e480e072ff915d76d6",
     ),
-    // Decision 0125 ruling 7 mints `forge.host/v5` beside v4, whose bytes
-    // did not move: v5 makes the run and boxed-build ceilings optional and
-    // adds the optional demand block, pinned from birth.
     (
         "contracts/host.v5.schema.json",
         "06933cc4d393bcffbd1e15b300a3c3c086527ea96145a0ea61db27b92707bb13",

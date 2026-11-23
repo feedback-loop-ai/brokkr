@@ -69,8 +69,7 @@ mod host;
 
 use awaited::{awaiting, came_to, observe, otherwise, unmerged, unstarted};
 pub use demand::{
-    measurable, measure_now, Available, Beside, Driven, Holder, Machine, Measurement, Need,
-    Reserved, Short, Sized, Source, Unmeasured, Use,
+    measurable, Available, Machine, Need, Reserved, Sized, Source, Unfit, Unmeasured,
 };
 
 pub(crate) use capacity::Unclaimed;

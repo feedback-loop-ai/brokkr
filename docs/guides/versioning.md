@@ -219,7 +219,7 @@ and the release window in that ruling's slice 2.
 | `forge.host/v2` | `contracts/host.v2.schema.json` | input | 0103 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
 | `forge.host/v3` | `contracts/host.v3.schema.json` | input | 0104 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
 | `forge.host/v4` | `contracts/host.v4.schema.json` | input | 0110 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
-| `forge.host/v5` | `contracts/host.v5.schema.json` | input | 0125, proposed | operator | load brokkr_runtime::admission::host::read | current | | decision |
+| `forge.host/v5` | `contracts/host.v5.schema.json` | input | 0125 | operator | load brokkr_runtime::admission::host::read | current | | decision |
 | `panel-carry/v1` | `contracts/panel-carry.v1.schema.json` | journal | 0093 | engine crates/brokkr-runtime/src/engine/dispatch.rs | load brokkr_runtime::engine::carry::facts::terminal_record | current | | |
 | `provider-wait/v1` | `contracts/provider-wait.v1.schema.json` | journal | 0103 | engine crates/brokkr-runtime/src/engine/cooldown.rs | load brokkr_core::provider_waits | current | | |
 | `park-cause/v1` | `contracts/park-cause.v1.schema.json` | journal | 0106 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::ParkCause::read | current | | |
