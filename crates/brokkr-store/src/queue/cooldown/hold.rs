@@ -32,10 +32,10 @@ pub struct ProbeHold<'a> {
     pub site: &'a str,
     pub provider: &'a str,
     pub route: &'a str,
-    /// The end the hold's row shows, kept to the first whole second after
-    /// it: a readout only, which no gate reads to end the hold (fix round
-    /// 0106b1r12, S1).
-    pub fallback: OffsetDateTime,
+    /// The probe's deadline, which the hold's row shows as its end, kept
+    /// to the first whole second after it: a readout only, which no gate
+    /// reads to end the hold (fix round 0106b1r12, S1).
+    pub deadline: OffsetDateTime,
 }
 
 /// A written hold, by its row: what the probe's answer, or its renewed
@@ -43,12 +43,12 @@ pub struct ProbeHold<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProbeHoldId(i64);
 
-/// The first whole second strictly after `fallback`, never before it (fix
+/// The first whole second strictly after `deadline`, never before it (fix
 /// round 0106b1r6, D1). `None` where that second is past [`LAST_SECOND`]:
-/// it is never clamped there, which would end the hold before its
-/// fallback (fix round 0106b1r9, E2).
-fn after_second(fallback: OffsetDateTime) -> Option<i64> {
-    let end = fallback.unix_timestamp() + 1;
+/// it is never clamped there, which would show the hold ending before its
+/// probe's deadline (fix round 0106b1r9, E2).
+fn after_second(deadline: OffsetDateTime) -> Option<i64> {
+    let end = deadline.unix_timestamp() + 1;
     (end <= LAST_SECOND).then_some(end)
 }
 
@@ -162,7 +162,7 @@ impl Store {
             provider: hold.provider.to_string(),
             route: hold.route.to_string(),
         };
-        let Some(ends) = after_second(hold.fallback) else {
+        let Some(ends) = after_second(hold.deadline) else {
             return Err(QueueRefusal::ProbeHoldUnending(Box::new(unwritten())).into());
         };
         patiently("hold_probe", self.patience, || {

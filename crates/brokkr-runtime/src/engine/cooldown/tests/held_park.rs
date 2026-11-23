@@ -23,7 +23,7 @@ fn a_probe_parked_with_its_tree_unsettled_keeps_its_hold_until_settlement() {
         site: "",
         provider: "claude",
         route: "first",
-        fallback: probe_at,
+        deadline: probe_at,
     };
     engine.cooldown.hold = Some(engine.store.hold_probe(&hold, probe_at).unwrap());
     let unresolved = Cleanup::Unresolved {

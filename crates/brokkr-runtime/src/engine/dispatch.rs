@@ -30,8 +30,6 @@ use crate::bundle::{layer_drift, site_charter_text, Bundle, ExecutableBody, Invo
 
 pub(super) mod deadline;
 mod kill;
-#[cfg(test)]
-pub(super) use kill::HOLD_MARGIN;
 pub(super) use kill::{ProbeDeadline, SpawnDeadline, Unspawned};
 
 /// One attempt of a requested effect, as [`Engine::execute`] names it

@@ -181,6 +181,13 @@ impl Engine {
     /// standing, unreleased, and the run parks: it fails closed, as an
     /// attempt whose release cannot be sealed does. Every other end releases
     /// it as the probe's settlement always has.
+    ///
+    /// A refusal reaches here only once its probe's tree is settled, so an
+    /// end that hands its hold to no round, a stop or a park before the
+    /// renewal (a computed or accumulated maximum, an end the journal
+    /// cannot spell), ends the hold here (fix round 0106b1r12, S5). A round
+    /// handed the hold ends it in its own transaction, or, unwritten, leaves
+    /// it standing.
     fn hold_extension(
         &mut self,
         waits: &[ProviderWait],
@@ -199,6 +206,8 @@ impl Engine {
             },
         };
         self.held = lease;
+        let unended = self.end_own_hold(&round.provider, &round.route);
+        let ended = unended.map_or(ended, Extension::Parked);
         self.settle_probe(ended)
     }
 

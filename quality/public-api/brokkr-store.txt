@@ -478,7 +478,7 @@ pub brokkr_store::Opened::hash: alloc::string::String
 pub brokkr_store::Opened::seq: u64
 pub struct brokkr_store::ProbeHold<'a>
 pub brokkr_store::ProbeHold::attempt_id: &'a str
-pub brokkr_store::ProbeHold::fallback: time::offset_date_time::OffsetDateTime
+pub brokkr_store::ProbeHold::deadline: time::offset_date_time::OffsetDateTime
 pub brokkr_store::ProbeHold::provider: &'a str
 pub brokkr_store::ProbeHold::route: &'a str
 pub brokkr_store::ProbeHold::run_id: &'a str

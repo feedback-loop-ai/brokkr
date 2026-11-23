@@ -8,6 +8,7 @@
 use brokkr_core::{ParkCause, ProviderLimitRefusal};
 use time::Duration as TimeDuration;
 
+use super::held_route::{holds_written, legs, unended_holds, Gates};
 use super::held_wait::{
     effect_of, held_until, parked_at_the_cap, retried_without_a_park, standing, stated_seat,
 };
@@ -161,13 +162,21 @@ fn a_probes_held_round_resumed_at_its_end_probes_once_on_the_same_effect() {
 }
 
 /// A probe's computed doubling past the maximum still parks as the
-/// provider's limit (0106a), and writes no row.
+/// provider's limit (0106a), and writes no row. Its tree settled before
+/// the park, which hands its hold to no round, so the hold ends with it
+/// (fix round 0106b1r12, S5): both production gates admit on the route a
+/// day later, past every row's end.
 #[test]
 fn a_probes_computed_doubling_past_the_maximum_still_parks_as_a_provider_limit() {
-    let (dir, mut engine, _now) =
-        seated!(&["refuse", "succeed"], Probed::RefuseThenAnswer, None, 3);
+    let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::RefuseThenAnswer, None, 3);
     engine.cooldown.host = Some(host(dir.path(), 1, 1));
+    let begun = *now.lock().unwrap();
+    let gates = Arc::new(Mutex::new(Gates::over(engine.store.path(), begun)));
     engine.drive().unwrap();
+    let journal = engine.store.path();
+    assert_eq!((holds_written(journal), unended_holds(journal)), (1, 0));
+    let later = *now.lock().unwrap() + time::Duration::days(1);
+    assert_eq!(legs(&gates, later), [Ok(()), Ok(())]);
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
     assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
     assert!(
@@ -241,8 +250,8 @@ fn a_probe_from_a_held_end_at_year_9999_is_refused_before_dispatch() {
         reason,
         format!(
             "the cool-down probe for claude/first was not admitted: its route's hold was not \
-             written: the journal's probe holds cannot end run '{run_id}''s hold on \
-             claude/first after its crash fallback: the first whole second after it is past \
+             written: the journal's probe holds cannot show run '{run_id}''s hold on \
+             claude/first ending after its deadline: the first whole second after it is past \
              9999-12-31T23:59:59Z, the last the journal can spell, so no probe runs on it and \
              nothing was written"
         )
@@ -270,6 +279,10 @@ fn a_probes_held_round_whose_end_cannot_be_spelled_parks_no_end() {
         reason.contains("whose end the journal cannot spell"),
         "{reason}"
     );
+    // The settled probe's park hands its hold to no round, so the hold
+    // ends with it (fix round 0106b1r12, S5).
+    let journal = engine.store.path();
+    assert_eq!((holds_written(journal), unended_holds(journal)), (1, 0));
 }
 
 /// The run parked once as the provider's `no-end` limit on claude/first,

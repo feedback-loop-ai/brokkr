@@ -172,15 +172,15 @@ pub enum QueueRefusal {
         .0.run_id, .0.provider, .0.route
     )]
     ProbeHoldUnwritten(Box<UnwrittenHold>),
-    /// A probe's hold whose end cannot be stored strictly after its crash
-    /// fallback, because the first whole second after it is past the last
-    /// one the journal can spell (fix rounds 0106b1r9, E2, and 0106b1r10,
-    /// H2): a hold clamped to that second would end early, so none is
+    /// A probe's hold whose end cannot be shown strictly after its probe's
+    /// deadline, because the first whole second after it is past the last
+    /// one the journal can spell (fix round 0106b1r9, E2): a hold clamped
+    /// to that second would show an end before the deadline, so none is
     /// written and the probe is not dispatched.
     #[error(
-        "the journal's probe holds cannot end run '{}''s hold on {}/{} after its crash fallback: \
-         the first whole second after it is past 9999-12-31T23:59:59Z, the last the journal can \
-         spell, so no probe runs on it and nothing was written",
+        "the journal's probe holds cannot show run '{}''s hold on {}/{} ending after its \
+         deadline: the first whole second after it is past 9999-12-31T23:59:59Z, the last the \
+         journal can spell, so no probe runs on it and nothing was written",
         .0.run_id, .0.provider, .0.route
     )]
     ProbeHoldUnending(Box<UnwrittenHold>),

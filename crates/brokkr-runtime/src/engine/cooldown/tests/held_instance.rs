@@ -92,7 +92,7 @@ fn the_restarted_engines_reaper_ends_the_hold_of_a_crashed_probe_its_records_pro
         site: "",
         provider: "codex",
         route: "second",
-        fallback: base(),
+        deadline: base(),
     };
     store.hold_probe(&unproven, base()).unwrap();
     let standing = in_force_words(&store);

@@ -120,18 +120,11 @@ pub(super) fn deadline_of(probe_at: OffsetDateTime) -> OffsetDateTime {
     probe_at + time::Duration::seconds(2)
 }
 
-/// The probe's hold's end as the store keeps it: the first whole second
-/// strictly after its crash fallback (fix round 0106b1r6, D1), the
-/// deadline plus the shutdown grace and the margin (fix round 0106b1r10,
-/// H2).
+/// The probe's hold's end as the store shows it, a readout: the first
+/// whole second strictly after its deadline (fix rounds 0106b1r6, D1, and
+/// 0106b1r12, S5).
 pub(super) fn hold_end_of(probe_at: OffsetDateTime) -> OffsetDateTime {
-    stored_end(deadline_of(probe_at))
-}
-
-/// The stored end of a hold whose probe's deadline is `deadline`.
-pub(super) fn stored_end(deadline: OffsetDateTime) -> OffsetDateTime {
-    let past = brokkr_protocol::process::SHUTDOWN_GRACE + crate::engine::dispatch::HOLD_MARGIN;
-    deadline + past + time::Duration::seconds(1)
+    deadline_of(probe_at) + time::Duration::seconds(1)
 }
 
 /// While the barrier probe is in flight, the gates' legs at `at` and
@@ -437,7 +430,7 @@ fn a_hold_the_table_does_not_write_parks_before_any_probe_and_ends_no_other() {
         site: "",
         provider: "codex",
         route: "second",
-        fallback: probe_at + time::Duration::hours(1),
+        deadline: probe_at + time::Duration::hours(1),
     };
     engine.store.hold_probe(&other, probe_at).unwrap();
     driven_raising(&mut engine, "probe_holds", "IGNORE");

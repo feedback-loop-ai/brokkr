@@ -5,25 +5,7 @@ use std::time::{Duration, Instant};
 
 use time::OffsetDateTime;
 
-use super::{ProbeDeadline, Unbounded, CLOCK_STEP, HOLD_MARGIN, MARGIN_BOUND};
-
-/// Fix round 0106b1r10, H2, as fix round 0106b1r11, L2 states it: the
-/// margin is a crash bound, and exceeds what a crashed holder can leave
-/// past its deadline, the shutdown grace, settle and drain, and the clock
-/// step it absorbs, counting no unenforced allowance for a live engine's
-/// work; and the stored end is the deadline plus the grace plus the margin.
-#[test]
-fn the_hold_margin_exceeds_the_crash_bound_of_the_shutdown_and_the_clock_step() {
-    assert_eq!(
-        (CLOCK_STEP, MARGIN_BOUND),
-        (Duration::from_secs(30), Duration::from_secs(45))
-    );
-    assert_eq!(HOLD_MARGIN, Duration::from_secs(60));
-    assert!(HOLD_MARGIN > MARGIN_BOUND);
-    let start = OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1_000);
-    let deadline = ProbeDeadline::begun(Instant::now(), start, Duration::from_secs(2)).unwrap();
-    assert_eq!(deadline.fallback, start + time::Duration::seconds(67));
-}
+use super::{ProbeDeadline, Unbounded};
 
 /// Fix round 0106b1r10, H4: a timeout the monotonic clock cannot carry is
 /// refused in its own words, where the unchecked add panicked.

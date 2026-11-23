@@ -1,7 +1,6 @@
 //! Fix round 0106b1r10, H1 to H3: a probe's hold ends on evidence, never
-//! because a clock passed. Its stored end is only the crash fallback, the
-//! deadline plus the shutdown grace and the margin, so while a live engine
-//! holds the probe the route stays held through the kill, the grace and
+//! because a clock passed. Its stored end is a readout (fix round
+//! 0106b1r12, S1), so the route stays held through the kill, the grace and
 //! the reap, until the engine's settlement proves the probe's tree ended.
 //!
 //! Each case moves the engine's clock, which the hold and both production
@@ -52,6 +51,22 @@ fn running(pid: i32) -> bool {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
     stat.rsplit_once(')')
         .is_some_and(|(_, rest)| !rest.trim_start().starts_with('Z'))
+}
+
+/// [`running`] on macOS, which has no `/proc`: the state `ps` reports for
+/// `pid`, read as running only where it names one and it is not a
+/// zombie's, so a zombie is never read as a live process (fix round
+/// 0106b1r12, S5).
+#[cfg(not(target_os = "linux"))]
+fn running(pid: i32) -> bool {
+    let shown = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output();
+    shown.is_ok_and(|shown| {
+        let state = String::from_utf8_lossy(&shown.stdout);
+        let state = state.trim();
+        !state.is_empty() && !state.starts_with('Z')
+    })
 }
 
 /// What a watcher read of both gates while a process of the probe's tree
@@ -181,12 +196,9 @@ fn a_probe_that_answers_and_lingers_through_its_grace_holds_its_route_until_it_i
 }
 
 /// Whether process `pid` runs, the witness of a late kill (fix round
-/// 0106b1r11, L3): on Linux, on the process table and not a zombie; on
-/// macOS, which has no such read here, unreaped.
-#[cfg(target_os = "linux")]
+/// 0106b1r11, L3): on the process table and not a zombie, on Linux and on
+/// macOS alike (fix round 0106b1r12, S5).
 const RUNS: fn(i32) -> bool = running;
-#[cfg(not(target_os = "linux"))]
-const RUNS: fn(i32) -> bool = alive;
 
 /// The watchdogs this thread arms pause `pause` between sampling their
 /// wait and waiting it while `body` runs, as a descheduled watchdog thread
@@ -208,17 +220,26 @@ fn with_watchdogs_paused<T>(pause: Duration, body: impl FnOnce() -> T) -> T {
 /// 0106b1r11, L3), the window in which the witness reads. Every read of
 /// both gates the driver outlived running, two seconds past the deadline,
 /// holds the route, and the settlement then ends it.
+///
+/// That the kill target passed before the fork is asserted, not assumed
+/// (fix round 0106b1r12, S5): the target is two monotonic seconds after
+/// the probe began, which is before the sample's read begins, and the fork
+/// follows the sample's read; so a pause at that read longer than the
+/// seat's two-second timeout puts the target behind the fork.
 #[test]
 fn a_probe_whose_kill_target_passed_before_the_fork_holds_its_route_until_settlement() {
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::Hang);
     let late = deadline_of(probe_at) + time::Duration::seconds(2);
     let (journal, reads) = (engine.store.path().to_path_buf(), AtomicUsize::new(0));
-    let shared = Arc::clone(&now);
+    let (shared, stalled) = (Arc::clone(&now), Arc::new(Mutex::new(None)));
+    let stall = Arc::clone(&stalled);
     engine.cooldown.clock = Clock {
         now: Box::new(move || {
             let held = unended_holds(&journal) == 1;
             if held && reads.fetch_add(1, Ordering::SeqCst) + 1 == SAMPLE {
+                let begun = Instant::now();
                 std::thread::sleep(Duration::from_millis(2_200));
+                *stall.lock().unwrap() = Some(begun.elapsed());
             }
             *shared.lock().unwrap()
         }),
@@ -227,6 +248,14 @@ fn a_probe_whose_kill_target_passed_before_the_fork_holds_its_route_until_settle
     let files = (dir.path().join("work.pid"), dir.path().join("work.pid"));
     let watch = read_while(files, RUNS, &now, (late, &gates, Duration::ZERO));
     with_watchdogs_paused(Duration::from_secs(1), || engine.drive().unwrap());
+    let stalled = stalled
+        .lock()
+        .unwrap()
+        .expect("the sample's read was never taken");
+    assert!(
+        stalled > Duration::from_secs(2),
+        "the kill target had not passed by the fork: the sample's read stalled {stalled:?}"
+    );
     let reason = park_reason(&engine);
     assert!(
         reason.contains("attempt exceeded its 2s deadline and was killed"),
@@ -282,19 +311,17 @@ fn a_kill_that_lands_after_the_deadline_finds_the_route_still_held() {
     );
 }
 
-/// A forward step of the engine's wall clock while the probe runs, the
-/// thirty seconds the margin absorbs, against the monotonic clock its
-/// watchdog waits on.
+/// A forward step of the engine's wall clock while the probe runs, thirty
+/// seconds, against the monotonic clock its watchdog waits on.
 #[test]
 fn a_forward_wall_clock_step_while_the_probe_runs_finds_the_route_still_held() {
     a_probe_whose_clock_moves_in_flight_by(time::Duration::seconds(30));
 }
 
-/// Fix round 0106b1r11, L1: a forward step of the engine's wall clock
-/// past the hold's stored end itself, beyond the margin, while the probe
-/// runs. The run's driver still holds its run lock, so the stored end is
-/// not read, and both gates read the route cooling down while the driver
-/// lives; the settlement then ends the hold.
+/// Fix rounds 0106b1r11, L1, and 0106b1r12, S1: a forward step of the
+/// engine's wall clock past the hold's stored end itself while the probe
+/// runs. No gate reads the stored end, so both read the route cooling
+/// down while the driver lives; the settlement then ends the hold.
 #[test]
 fn a_wall_clock_step_past_the_stored_end_while_the_probe_runs_finds_the_route_still_held() {
     let epoch = OffsetDateTime::UNIX_EPOCH;

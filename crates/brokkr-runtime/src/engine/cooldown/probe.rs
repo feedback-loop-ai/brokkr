@@ -185,8 +185,8 @@ impl Engine {
         let deadline = Duration::from_secs(picked.seat.limits.timeout_seconds);
         // The probe's one deadline, taken once as it begins, on the
         // monotonic clock read above and then the engine's: the fork reads
-        // it, its watchdog kills at it, and its hold's stored end, the crash
-        // fallback, lies past it by the shutdown grace and the margin.
+        // it, its watchdog kills at it, and its hold's row shows it, a
+        // readout no gate ends the hold by (fix round 0106b1r12, S1).
         let now = self.now();
         let ends = match ProbeDeadline::begun(began, now, deadline) {
             Ok(ends) => ends,
@@ -197,7 +197,7 @@ impl Engine {
                 )))))
             }
         };
-        if let Err(unheld) = self.hold_the_route((wait, &attempt), now, ends.fallback) {
+        if let Err(unheld) = self.hold_the_route((wait, &attempt), now, ends.ends) {
             return Ok(Err(Probe::Parked(Park::ruled(format!(
                 "the cool-down probe for {}/{} was not admitted: its route's hold was not \
                  written: {unheld}",
@@ -229,15 +229,14 @@ impl Engine {
     /// Hold the probe's route before it is reserved and dispatched (fix
     /// round 0106b1r4, F1; the operator's ruling of 2026-11-18, amending
     /// decision 0103 ruling 2): one hold row, written at `now`, carrying the
-    /// provider, the route and the end its row shows, `fallback`, a readout
-    /// the store keeps to the first whole second strictly after it (fix
-    /// round 0106b1r6, D1). The pass and the claim read it as cooling down
-    /// until its answer or its renewed round commits, or its probe's
-    /// process tree is settled; no clock, margin or lock state ends it (fix
-    /// round 0106b1r12, S1).
+    /// provider, the route and the probe's `deadline`, a readout the store
+    /// keeps to the first whole second strictly after it (fix round
+    /// 0106b1r6, D1). The pass and the claim read it as cooling down until
+    /// its answer or its renewed round commits, or its probe's process tree
+    /// is settled; no clock or lock state ends it (fix round 0106b1r12, S1).
     /// A hold the store refuses parks the probe unadmitted, so no probe
     /// runs on a route it could not hold: one the table did not write, one
-    /// whose end cannot be stored after its fallback, and one on a queue
+    /// whose readout cannot be stored after its deadline, and one on a queue
     /// this binary does not write, older than version 7 or a newer
     /// binary's, which takes no hold (fix round 0106b1r9, E3). An engine's
     /// own open moves a version 4 to 6 queue to version 7 before any probe.
@@ -247,7 +246,7 @@ impl Engine {
         &mut self,
         (wait, attempt): (&ProviderWait, &str),
         now: OffsetDateTime,
-        fallback: OffsetDateTime,
+        deadline: OffsetDateTime,
     ) -> Result<(), brokkr_store::StoreError> {
         let hold = ProbeHold {
             run_id: &self.run_id,
@@ -255,7 +254,7 @@ impl Engine {
             site: wait.site.as_deref().unwrap_or(""),
             provider: &wait.provider,
             route: &wait.route,
-            fallback,
+            deadline,
         };
         // Only a hold this insert returned is ever ended: one the store
         // refuses, or did not write, leaves none (fix round 0106b1r6, D2).
@@ -730,22 +729,6 @@ impl Engine {
         match proven && !renews(&probe) {
             true => self.end_the_hold(wait, probe),
             false => probe,
-        }
-    }
-
-    /// End the probe's own hold once its tree is proven ended, and go on
-    /// with what the probe left. A hold the store cannot end parks the
-    /// probe by the store's words: its route stays held until a settlement
-    /// ends it.
-    fn end_the_hold(&mut self, wait: &ProviderWait, probe: Probe) -> Probe {
-        let hold = self.cooldown.hold.take();
-        match self.store.end_probe_hold(hold, self.now()) {
-            Ok(()) => probe,
-            Err(error) => Probe::Parked(Park::ruled(format!(
-                "the cool-down probe for {}/{} ended, and its route's hold could not be ended: \
-                 {error}",
-                wait.provider, wait.route
-            ))),
         }
     }
 }

@@ -88,15 +88,15 @@ fn a_version_6_queue_migrates_to_version_7_and_keeps_its_cool_downs_ordinary() {
 }
 
 /// A probe hold on claude/first for `run`'s probe attempt `a-1` whose
-/// readout end is `fallback`.
-fn probe_hold(run: &str, fallback: OffsetDateTime) -> crate::ProbeHold<'_> {
+/// probe's deadline is `deadline`.
+fn probe_hold(run: &str, deadline: OffsetDateTime) -> crate::ProbeHold<'_> {
     crate::ProbeHold {
         run_id: run,
         attempt_id: "a-1",
         site: "",
         provider: "claude",
         route: "first",
-        fallback,
+        deadline,
     }
 }
 
@@ -495,8 +495,8 @@ fn a_hold_whose_end_cannot_be_stored_after_its_deadline_refuses_and_writes_none(
     assert_eq!(unending.run_id, "run-b");
     assert_eq!(
         refused.to_string(),
-        "the journal's probe holds cannot end run 'run-b''s hold on claude/first after its \
-         crash fallback: the first whole second after it is past 9999-12-31T23:59:59Z, the last \
+        "the journal's probe holds cannot show run 'run-b''s hold on claude/first ending after \
+         its deadline: the first whole second after it is past 9999-12-31T23:59:59Z, the last \
          the journal can spell, so no probe runs on it and nothing was written"
     );
     assert_eq!(unended_holds(&store.conn), ["run-a"]);

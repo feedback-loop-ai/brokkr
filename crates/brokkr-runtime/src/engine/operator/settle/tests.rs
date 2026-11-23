@@ -136,7 +136,7 @@ fn settle_ends_the_probe_holds_of_the_attempts_it_proves_and_no_other() {
             site: "",
             provider,
             route: "first",
-            fallback: at,
+            deadline: at,
         };
         fixture.store.hold_probe(&hold, at).unwrap();
     }
