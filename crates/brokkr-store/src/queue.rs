@@ -173,6 +173,12 @@ fn exists(
 /// lists and moves by the same places.
 const ORDER: &str = "priority DESC, position, entry_id";
 
+/// The completer's page of waiting entries ([`Store::queue_waiting`]):
+/// unclaimed rows in either waiting standing, newest first, within a limit.
+const WAITING_SQL: &str = "SELECT entry_id, state FROM queue_entries
+     WHERE run_id IS NULL AND state IN (?1, ?2)
+     ORDER BY entry_id DESC LIMIT ?3";
+
 /// A waiting entry and the priority that orders it first.
 type Waiting = (EntryId, i64);
 
@@ -507,6 +513,26 @@ impl Store {
     pub fn queue_list(&self) -> Result<Vec<QueueEntry>, StoreError> {
         patiently("queue_list", self.patience, &self.path, || {
             list_once(&self.conn, &mut || {})
+        })
+    }
+
+    /// The newest `limit` entries still waiting to start, queued or held,
+    /// each with its standing's word: the entries an operator command
+    /// names, read as one page from the unclaimed rows and never decoded
+    /// (decision 0119 ruling 4). A journal from before the queue has none.
+    pub fn queue_waiting(&self, limit: u32) -> Result<Vec<(EntryId, String)>, StoreError> {
+        patiently("queue_waiting", self.patience, &self.path, || {
+            if queue_stored(&self.conn)?.is_none() {
+                return Ok(Vec::new());
+            }
+            let waiting = [Standing::Queued.word(), Standing::Held.word()];
+            let mut statement = self.conn.prepare(WAITING_SQL)?;
+            let found = statement
+                .query_map(params![waiting[0], waiting[1], limit], |row| {
+                    Ok((EntryId(row.get(0)?), row.get(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(found)
         })
     }
 

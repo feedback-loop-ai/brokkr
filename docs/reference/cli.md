@@ -4,7 +4,7 @@
 
 Every `brokkr` verb and argument with its default, and every exit code, as the binary defines them; `brokkr <verb> --help` prints the same text. An argument marked **yes** under Selector takes a full run id, a unique prefix of one, or `latest`, the run created most recently (decision 0015, and for the write paths its proposed 2026-09-28 addendum); one marked **with a journal** does so only when the workspace journal is there, and otherwise takes the id literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, and `brokkr` itself `-V`/`--version`; the tables leave them out.
 
-The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for `brokkr journal verify`, still parses as a hidden alias until 0.17, and says its new spelling on stderr.
+The verbs nest under thirteen roots: decision 0113's twelve and decision 0119's `completions`. Every old flat name, such as `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for `brokkr journal verify`, still parses as a hidden alias until 0.17, and says its new spelling on stderr.
 
 - [`brokkr init`](#brokkr-init): Scaffold a minimal reviewable bundle and prove it compiles
 - [`brokkr run`](#brokkr-run): Start a new run and drive it until it parks or finishes
@@ -12,6 +12,7 @@ The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect`
 - [`brokkr watch`](#brokkr-watch): Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
 - [`brokkr tui`](#brokkr-tui): Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout — it issues no operator commands and writes nothing to the journal
 - [`brokkr doctor`](#brokkr-doctor): Verify tools, drivers, the workspace database, and optionally a bundle, without executing any agent
+- [`brokkr completions`](#brokkr-completions): Print the shell completion script for bash, zsh, fish, powershell or elvish: every visible verb, flag and fixed value. `source <(COMPLETE=bash brokkr)` registers the live completer instead, which also offers run ids, phases, seats, recipes, agents, realms and queue entries
 - [`brokkr runs`](#brokkr-runs): The runs in the journal: list them (the default), read one, compare two, re-run, close or command one, and the overseer that reads them all
 - [`brokkr runs list`](#brokkr-runs-list): List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
 - [`brokkr runs inspect`](#brokkr-runs-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
@@ -179,6 +180,18 @@ Usage: brokkr doctor [OPTIONS]
 | `--realms <REALMS>` |  |  | The world's map whose realm house declarations doctor checks (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal whose database doctor opens. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store, so doctor can say which declared credentials a route is taking from the ambient environment instead (default .brokkr/state/secrets.env, else .forge/secrets.env) |
+
+## brokkr completions
+
+Print the shell completion script for bash, zsh, fish, powershell or elvish: every visible verb, flag and fixed value. `source <(COMPLETE=bash brokkr)` registers the live completer instead, which also offers run ids, phases, seats, recipes, agents, realms and queue entries
+
+```text
+Usage: brokkr completions <SHELL>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<SHELL>` |  |  | The shell the script is written for |
 
 ## brokkr runs
 

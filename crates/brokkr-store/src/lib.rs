@@ -98,6 +98,7 @@ mod summary;
 mod terminal;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+mod untouched;
 pub use acknowledgement::Acknowledgement;
 pub use chain::{Chain, Rows};
 pub use damage::Damage;
@@ -113,6 +114,7 @@ pub use queue::{
 };
 pub use redact::{redact_export, Redactor};
 pub use run_read::RunRead;
+pub use run_select::SeatNames;
 pub use schema::DATABASE_SCHEMA;
 pub use seat_read::SeatRead;
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
@@ -123,7 +125,7 @@ pub use summary::Disagreement;
 use brokkr_core::summary::Account;
 pub use import::RUN_ID_MAX;
 use patience::patiently;
-use schema::{ensure_wal, schema_supported, RECORDED_SCHEMA};
+use schema::ensure_wal;
 use start::Row;
 
 /// How long any statement waits for a peer's write lock before giving
@@ -443,10 +445,12 @@ impl Store {
     /// `SQLITE_OPEN_READ_ONLY`, so every write refuses at the database
     /// rather than at a reviewer's memory: a read surface that opens
     /// this way is *unable* to append, which is what decision 0020 asks
-    /// of Muninn. No file is created and no migration runs — a missing
-    /// database is an error, never an empty fleet. A file its bytes say
-    /// is damaged, a journal recording no schema among them, refuses as
-    /// [`StoreError::Damaged`].
+    /// of Muninn. No database is created and no migration runs — a
+    /// missing database is an error, never an empty fleet. Beside a WAL
+    /// journal SQLite still creates its `-wal` and `-shm`, which this
+    /// connection cannot remove; [`Store::read_untouched`] is the read
+    /// that leaves none. A file its bytes say is damaged, a journal
+    /// recording no schema among them, refuses as [`StoreError::Damaged`].
     pub fn open_read_only(path: &Path) -> Result<Store, StoreError> {
         Store::open_reading(path).map_err(|error| damage::classified(path, error))
     }
@@ -455,20 +459,7 @@ impl Store {
         let bound = literal::journal(path)?;
         let conn = Connection::open_with_flags(&bound, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|error| literal::as_given(error, path, &bound))?;
-        conn.busy_timeout(BUSY_TIMEOUT)?;
-        conn.pragma_update(None, "cache_size", -READER_CACHE_KIB)?;
-        let found: Option<String> = patiently("open_read_only", BUSY_TIMEOUT, path, || {
-            Ok(conn
-                .query_row(RECORDED_SCHEMA, [], |row| row.get(0))
-                .optional()?)
-        })?;
-        let damage = Damage::NoSchema;
-        let found = found.ok_or_else(|| StoreError::Damaged {
-            journal: path.into(),
-            damage,
-        })?;
-        schema_supported(found.parse().unwrap_or(0))?;
-        Ok(Store::holding(conn, path))
+        Store::reading(conn, path, BUSY_TIMEOUT)
     }
 
     /// A store on `conn`, which opened `path`.

@@ -53,6 +53,12 @@ enum Root {
     /// Verify tools, drivers, the workspace database, and optionally a
     /// bundle, without executing any agent.
     Doctor(DoctorArgs),
+    /// Print the shell completion script for bash, zsh, fish, powershell
+    /// or elvish: every visible verb, flag and fixed value. `source
+    /// <(COMPLETE=bash brokkr)` registers the live completer instead, which
+    /// also offers run ids, phases, seats, recipes, agents, realms and
+    /// queue entries.
+    Completions(crate::completion::CompletionsArgs),
     /// The runs in the journal: list them (the default), read one,
     /// compare two, re-run, close or command one, and the overseer that
     /// reads them all.
@@ -320,6 +326,7 @@ impl From<Root> for Cmd {
             Root::Watch(args) => Cmd::Watch(args),
             Root::Tui(args) => Cmd::Tui(args),
             Root::Doctor(args) => Cmd::Doctor(args),
+            Root::Completions(args) => Cmd::Grouped(GroupedCmd::Completions(args)),
             Root::Runs(family) => {
                 let RunsFamily { list, command } = *family;
                 command.map_or(Cmd::Runs(list), Cmd::from)
