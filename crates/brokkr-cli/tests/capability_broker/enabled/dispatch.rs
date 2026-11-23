@@ -60,9 +60,8 @@ impl Bare {
             self.base.join("bin").display(),
             std::env::var("PATH").unwrap()
         );
-        let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+        let mut command = crate::built::brokkr(args);
         command
-            .args(args)
             .current_dir(&self.repo)
             .env("HOME", self.base.join("home"))
             .env("TMPDIR", self.base.join("tmp"))

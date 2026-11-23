@@ -122,12 +122,10 @@ impl Machine {
         }
     }
 
-    /// `program` given `args` in the workspace, under this machine's own
-    /// HOME, state, temp directory and host file.
-    fn command(&self, program: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new(program);
+    /// `command` run in the workspace, under this machine's own HOME,
+    /// state, temp directory and host file.
+    fn command(&self, mut command: Command) -> Command {
         command
-            .args(args)
             .current_dir(&self.work)
             .env("HOME", self.base.join("home"))
             .env("XDG_STATE_HOME", self.base.join("state"))
@@ -139,8 +137,7 @@ impl Machine {
 
     /// `brokkr` given `args`, run to its end.
     fn brokkr(&self, args: &[&str]) -> Output {
-        let brokkr = Path::new(env!("CARGO_BIN_EXE_brokkr"));
-        self.command(brokkr, args).output().unwrap()
+        self.command(crate::built::brokkr(args)).output().unwrap()
     }
 
     fn db(&self) -> &str {
@@ -383,11 +380,11 @@ fn ended_on_its_replaced_binary(mode: &[&str]) -> String {
     let machine = Machine::new();
     machine.queued();
     let copy = machine.base.join("bin/brokkr");
-    stage(Path::new(env!("CARGO_BIN_EXE_brokkr")), &copy);
+    stage(Path::new(crate::built::BIN), &copy);
     let holder = rusqlite::Connection::open(&machine.journal).unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     let args = [&["queue", "dispatch"][..], mode, &["--db", machine.db()]].concat();
-    let dispatcher = Standing::spawned(&mut machine.command(&copy, &args));
+    let dispatcher = Standing::spawned(&mut machine.command(crate::built::brokkr_at(&copy, &args)));
     machine.dispatching();
     let other = machine.base.join("bin/other");
     std::fs::write(&other, "#!/bin/sh\nexit 0\n").unwrap();
@@ -465,8 +462,7 @@ fn reading(
 impl Standing {
     /// `brokkr queue dispatch` given `args` on `machine`, its output piped.
     fn start(machine: &Machine, args: &[&str]) -> Standing {
-        let brokkr = Path::new(env!("CARGO_BIN_EXE_brokkr"));
-        Standing::spawned(&mut machine.command(brokkr, args))
+        Standing::spawned(&mut machine.command(crate::built::brokkr(args)))
     }
 
     /// `command` started, its output piped.
@@ -775,9 +771,10 @@ fn a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued() {
     // this build's, is pasted in a directory that is not the workspace.
     std::fs::write(machine.released(), "").unwrap();
     let pasted = command.strip_prefix("brokkr ").unwrap();
-    let brokkr = env!("CARGO_BIN_EXE_brokkr");
-    let script = format!("exec '{brokkr}' {pasted}");
-    let mut shell = machine.command(Path::new("sh"), &["-c", &script]);
+    let script = format!("exec '{}' {pasted}", crate::built::BIN);
+    let mut sh = Command::new("sh");
+    sh.args(["-c", &script]);
+    let mut shell = machine.command(sh);
     let resumed = Standing::spawned(shell.current_dir(machine.base.join("home"))).ended();
     let stdout = String::from_utf8_lossy(&resumed.stdout);
     assert_eq!(resumed.status.code(), Some(2), "{resumed:?}");

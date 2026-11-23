@@ -7,7 +7,6 @@
 //! presentation transport is asserted prose-free.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use brokkr_core::envelope::EventType;
 use brokkr_store::Store;
@@ -19,6 +18,9 @@ use serde_json::{json, Value};
 /// home, so every test in this file holds the binary's environment guard.
 #[path = "../../../tests/support/env_guard.rs"]
 mod env_guard;
+
+#[path = "support/built.rs"]
+mod built;
 use env_guard::EnvGuard;
 
 struct World {
@@ -27,10 +29,6 @@ struct World {
     home: PathBuf,
     reference: brokkr_view::Transcript,
     path: String,
-}
-
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
 }
 
 /// Materialize one synthetic source of `kind` under `home` and return the
@@ -180,8 +178,7 @@ fn command(world: &World, extra: &[&str]) -> std::process::Output {
 fn command_under(world: &World, home: &Path, extra: &[&str]) -> std::process::Output {
     let mut args = vec!["runs", "transcript", "--run", "r222", "--seat", "eff1"];
     args.extend_from_slice(extra);
-    Command::new(brokkr_bin())
-        .args(args)
+    crate::built::brokkr(args)
         .arg("--db")
         .arg(&world.db)
         .env("HOME", home)
@@ -232,8 +229,7 @@ impl Drop for Server {
 impl Server {
     fn start(world: &World) -> Self {
         use std::io::BufRead;
-        let mut child = Command::new(brokkr_bin())
-            .args(["system", "ui", "--port", "0", "--db"])
+        let mut child = crate::built::brokkr(["system", "ui", "--port", "0", "--db"])
             .arg(&world.db)
             .env("HOME", &world.home)
             .current_dir(world.dir.path())

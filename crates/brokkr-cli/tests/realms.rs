@@ -9,9 +9,7 @@ use brokkr_core::realms::RealmMap;
 use brokkr_core::EventType;
 use serde_json::{json, Value};
 
-fn brokkr() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
+use crate::isolated::{alone, Alone};
 
 pub(crate) const POLICY: &str = r#"{
   "schema": "forge.phase-machine/v1",
@@ -89,9 +87,19 @@ impl Workspace {
     /// review): a coordination root inside it would be in its writers'
     /// reach.
     fn run(&self, args: &[&str]) -> (Option<i32>, String, String) {
+        self.ran(&mut crate::built::brokkr(args))
+    }
+
+    /// `brokkr doctor` as [`Workspace::run`] runs a verb, alone in a PID
+    /// namespace of its own (#1137i).
+    fn doctor(&self, alone: &Alone) -> (Option<i32>, String, String) {
+        self.ran(&mut alone.brokkr(["doctor"]))
+    }
+
+    /// `command`, run as [`Workspace::run`] runs it.
+    fn ran(&self, command: &mut Command) -> (Option<i32>, String, String) {
         crate::engine::library(&self.path());
-        let out = Command::new(brokkr())
-            .args(args)
+        let out = command
             .env("HOME", crate::engine::home_in(self.dir.path()))
             .current_dir(self.path())
             .output()
@@ -471,6 +479,7 @@ fn the_map_chooses_the_journal_for_the_run_and_for_every_read_surface() {
 /// before find the run there too.
 #[test]
 fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
+    let Some(alone) = alone() else { return };
     let ws = Workspace::new(Some(map_over(".")));
     // The implementer vanishes, so the run — and its rerun — parks
     // awaiting an operator.
@@ -542,7 +551,7 @@ fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
         .list_runs()
         .unwrap();
     assert_eq!(runs.len(), 2, "the rerun is in the map's journal: {runs:?}");
-    let (_, readout, _) = ws.run(&["doctor"]);
+    let (_, readout, _) = ws.doctor(&alone);
     assert!(
         readout.contains(&format!("{} opens", world.display())),
         "{readout}"
@@ -1173,9 +1182,10 @@ fn compile_shows_each_realms_crossings_and_refuses_one_that_moved() {
 /// moved, and doctor says which.
 #[test]
 fn doctor_names_the_realm_and_the_crossing_that_moved_and_reports_everything_else() {
+    let Some(alone) = alone() else { return };
     let ws = Workspace::new(None);
     let (published, pin) = crossing_map(&ws);
-    let (code, sound, _) = ws.run(&["doctor"]);
+    let (code, sound, _) = ws.doctor(&alone);
     assert_eq!(code, Some(0), "{sound}");
     assert!(
         sound.contains("ok       crossings brokkr: 1 published file(s) present, 0 pin(s) matching"),
@@ -1187,7 +1197,7 @@ fn doctor_names_the_realm_and_the_crossing_that_moved_and_reports_everything_els
     );
 
     let observed = move_the_crossing(&published);
-    let (code, moved, _) = ws.run(&["doctor"]);
+    let (code, moved, _) = ws.doctor(&alone);
     assert_eq!(
         code,
         Some(1),
@@ -1216,7 +1226,7 @@ fn doctor_names_the_realm_and_the_crossing_that_moved_and_reports_everything_els
     // file is the publisher's line, the consumer's pin is a warn naming
     // who owes the bytes, and doctor claims no contract verified.
     std::fs::remove_file(&published).unwrap();
-    let (code, gone, _) = ws.run(&["doctor"]);
+    let (code, gone, _) = ws.doctor(&alone);
     assert_eq!(code, Some(1), "{gone}");
     assert!(
         gone.contains("MISSING  crossings brokkr 'orders.api': "),
@@ -1240,6 +1250,7 @@ fn doctor_names_the_realm_and_the_crossing_that_moved_and_reports_everything_els
 /// moved, no refusal invented.
 #[test]
 fn a_world_with_no_crossing_behaves_at_every_verb_as_it_always_did() {
+    let Some(alone) = alone() else { return };
     let ws = Workspace::new(Some(map_over(".")));
     let (code, run_id, stderr) = ws.brokkr_run(&[]);
     assert_eq!(code, Some(0), "{stderr}");
@@ -1271,7 +1282,7 @@ fn a_world_with_no_crossing_behaves_at_every_verb_as_it_always_did() {
     assert_eq!(code, Some(0), "{stderr}");
     let compiled: Value = serde_json::from_str(&compiled).unwrap();
     assert!(compiled.get("crossings").is_none(), "{compiled}");
-    let (_, readout, _) = ws.run(&["doctor"]);
+    let (_, readout, _) = ws.doctor(&alone);
     assert!(!readout.contains("crossings"), "{readout}");
 }
 

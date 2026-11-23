@@ -13,7 +13,6 @@
 //! in both faces, `costs`, `compare`, and `export` with `verify-run`.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use brokkr_core::EventType;
 use brokkr_store::Store;
@@ -184,10 +183,6 @@ fn the_page_reads_the_model_only_through_its_pair_helper() {
 
 // ------------------------------------------------------------ the readouts
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
 /// One command through the brokkr binary. `pub(crate)` so a sibling
 /// file of the one test binary reaches the same runner instead of
 /// copying it (#550).
@@ -198,8 +193,8 @@ pub(crate) fn brokkr(dir: &Path, args: &[&str]) -> (String, String, bool) {
 /// [`brokkr`] with `HOME` set to `home` when one is given, so a test gives
 /// a child its own coordination root without moving the process's.
 pub(crate) fn brokkr_in(dir: &Path, home: Option<&Path>, args: &[&str]) -> (String, String, bool) {
-    let mut command = Command::new(brokkr_bin());
-    command.args(args).current_dir(dir);
+    let mut command = crate::built::brokkr(args);
+    command.current_dir(dir);
     if let Some(home) = home {
         command.env("HOME", home);
         command.env("XDG_STATE_HOME", home.join(".local/state"));

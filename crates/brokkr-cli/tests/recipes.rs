@@ -9,67 +9,8 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
-const POLICY: &str = r#"{
-  "schema": "forge.phase-machine/v1",
-  "phases": ["intake", "implement", "verify", "review", "ship", "done", "stop"],
-  "initial": "intake",
-  "terminal": ["done", "stop"],
-  "shippable_from": ["review"],
-  "rules": [
-    {"id": "INTAKE-OK", "from": "intake", "result": "resolved", "next": "implement",
-     "reason": "Task framed and recorded."},
-    {"id": "IMPL-BROKEN-TWICE", "from": "implement", "result": "broken",
-     "when": {"consecutive_failures_gte": 2}, "next": "stop", "severity": "hard",
-     "reason": "Two consecutive broken implement runs; stop rather than thrash."},
-    {"id": "IMPL-BROKEN-RETRY", "from": "implement", "result": "broken",
-     "next": "implement", "reason": "First broken run; one re-run permitted."},
-    {"id": "IMPL-BLOCKED", "from": "implement", "result": "blocked", "next": "stop",
-     "severity": "hard", "reason": "Implementer blocked; report, never silently continue."},
-    {"id": "IMPL-OK", "from": "implement", "result": "complete", "next": "verify",
-     "reason": "Implementation complete and committed."},
-    {"id": "VERIFY-FAIL", "from": "verify", "result": "fail", "next": "stop",
-     "severity": "hard", "reason": "Verification failed; not shippable."},
-    {"id": "VERIFY-PASS", "from": "verify", "result": "pass", "next": "review",
-     "reason": "Suite green; reviewers read verified code."},
-    {"id": "REVIEW-SECURITY-HOLD", "from": "review", "result": "security-hold",
-     "next": "stop", "severity": "hard",
-     "reason": "Unresolved security findings. NEVER ship."},
-    {"id": "REVIEW-RESIDUAL-ABOVE-MEDIUM", "from": "review", "result": "residual",
-     "when": {"max_residual_severity_above": "medium"}, "next": "stop",
-     "severity": "hard", "reason": "Residual severity above medium; not shippable."},
-    {"id": "REVIEW-RESIDUAL-SECURITY", "from": "review", "result": "residual",
-     "when": {"has_security_residual": true}, "next": "stop", "severity": "hard",
-     "reason": "Security residuals never take the tracked-debt path."},
-    {"id": "REVIEW-RESIDUAL-OK", "from": "review", "result": "residual", "next": "ship",
-     "severity": "flagged",
-     "reason": "Non-security residuals at or below medium proceed as tracked debt."},
-    {"id": "REVIEW-CLEAN-NO-FIXES", "from": "review", "result": "clean",
-     "when": {"fixes_applied": false}, "next": "ship",
-     "reason": "Clean with no fixes reported; a gate that moves HEAD parks and ship stops on a dirty tree."},
-    {"id": "REVIEW-CLEAN", "from": "review", "result": "clean", "next": "verify",
-     "reason": "Clean but fixes applied; re-verify before shipping."},
-    {"id": "SHIP-DRIFT", "from": "ship", "result": "ready",
-     "when": {"drift_detected": true}, "next": "review", "severity": "flagged",
-     "reason": "HEAD moved after review; re-arm a scoped review."},
-    {"id": "SHIP-DIRTY", "from": "ship", "result": "ready",
-     "when": {"dirty_worktrees": true}, "next": "stop", "severity": "hard",
-     "reason": "Dirty tree at ship time is a defect."},
-    {"id": "SHIP-READY", "from": "ship", "result": "ready", "next": "ship",
-     "reason": "Gates passed and ledger written; confirm close-out and report shipped."},
-    {"id": "SHIPPED-DRIFT", "from": "ship", "result": "shipped",
-     "when": {"drift_detected": true}, "next": "review", "severity": "flagged",
-     "reason": "HEAD moved between ready and close-out; re-arm a scoped review."},
-    {"id": "SHIPPED-DIRTY", "from": "ship", "result": "shipped",
-     "when": {"dirty_worktrees": true}, "next": "stop", "severity": "hard",
-     "reason": "Dirty tree at close-out is a defect."},
-    {"id": "SHIP-COMPLETE", "from": "ship", "result": "shipped", "next": "done",
-     "reason": "Close-out confirmed: clean, reviewed, verified; done."}
-  ]
-}"#;
+// The machine proof's table, which these bundles run too.
+use crate::machine_proof::POLICY;
 
 fn happy_script() -> Value {
     json!({"seats": {
@@ -228,8 +169,8 @@ impl Ws {
     /// `brokkr <args>` in the workspace, whose personal shelf (#697) is one
     /// nothing stands at, so no host's own is listed here.
     fn brokkr(&self, args: &[&str]) -> (Option<i32>, String, String) {
-        let mut command = Command::new(brokkr_bin());
-        command.args(args).current_dir(self.path());
+        let mut command = crate::built::brokkr(args);
+        command.current_dir(self.path());
         command.env("XDG_CONFIG_HOME", self.path().join(".config"));
         command.env("HOME", self.home.path());
         let ran = crate::brokkr_folder::Ran::of(command.output().unwrap());

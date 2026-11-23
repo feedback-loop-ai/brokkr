@@ -21,9 +21,8 @@ use brokkr_runtime::{
 use brokkr_store::{validate_seat_record, SeatRecordVersion, Store};
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
+#[path = "support/built.rs"]
+mod built;
 
 const OBEDIENT_SHIM: &str = r#"#!/bin/sh
 # honor the result contract: find the result path in the prompt
@@ -543,7 +542,7 @@ fn a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement() {
     .map(|(key, value)| (key.to_string(), value.to_string()))
     .collect();
     let command = vec![
-        brokkr_bin().to_string(),
+        crate::built::BIN.to_string(),
         "driver".into(),
         "dsh".into(),
         "--".into(),
@@ -988,8 +987,7 @@ impl DshFixture {
         messages.push(json!({"proto": "forge-driver/v1", "msg_id": "m4", "type": "shutdown"}));
 
         self.stamp_staging();
-        let mut child = Command::new(brokkr_bin())
-            .arg("driver")
+        let mut child = crate::built::brokkr(["driver"])
             .arg("dsh")
             .arg("--")
             .args(extra)
@@ -1138,6 +1136,19 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
     drive_charter(kind_args, shim, workdir, &charter(workdir))
 }
 
+/// One session a driver is given: hello, the start of attempt `a1` of
+/// effect `fx` with `input`, and shutdown.
+fn session(input: Value) -> [Value; 3] {
+    [
+        json!({"proto": "forge-driver/v1", "msg_id": "m1", "type": "hello",
+               "engine_version": "test"}),
+        json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "start",
+               "effect_id": "fx", "attempt_id": "a1", "seat": "intake",
+               "input": input}),
+        json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
+    ]
+}
+
 fn drive_charter(kind_args: &[&str], shim: &Path, workdir: &Path, role: &Path) -> Vec<Value> {
     // Every harness home is test-owned. Conformance must never make a
     // driver name (or create under) the operator's real transcript home.
@@ -1152,16 +1163,8 @@ fn drive_charter(kind_args: &[&str], shim: &Path, workdir: &Path, role: &Path) -
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},
     });
-    let messages = [
-        json!({"proto": "forge-driver/v1", "msg_id": "m1", "type": "hello",
-               "engine_version": "test"}),
-        json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "start",
-               "effect_id": "fx", "attempt_id": "a1", "seat": "intake",
-               "input": input}),
-        json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
-    ];
-    let mut child = Command::new(brokkr_bin())
-        .arg("driver")
+    let messages = session(input);
+    let mut child = crate::built::brokkr(["driver"])
         .args(kind_args)
         .env("BROKKR_CLAUDE_BIN", shim)
         // Pinned unconditionally: no conformance test may ever spawn a
@@ -1920,19 +1923,12 @@ fn drive_with_secrets(
         "secrets": secrets,
         "secrets_file": store,
     });
-    let messages = [
-        json!({"proto": "forge-driver/v1", "msg_id": "m1", "type": "hello",
-               "engine_version": "test"}),
-        json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "start",
-               "effect_id": "fx", "attempt_id": "a1", "seat": "intake",
-               "input": input}),
-        json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
-    ];
+    let messages = session(input);
     let operator_home = tempfile::tempdir().unwrap();
     let codex_home = tempfile::tempdir().unwrap();
     let dsh_home = tempfile::tempdir().unwrap();
-    let mut command = Command::new(brokkr_bin());
-    command.arg("driver").args(driver_args);
+    let mut command = crate::built::brokkr(["driver"]);
+    command.args(driver_args);
     command.env("HOME", operator_home.path());
     command.env("CODEX_HOME", codex_home.path());
     command.env("DSH_HOME", dsh_home.path());
@@ -2158,9 +2154,7 @@ fn a_resumed_mismatch_is_never_an_accepted_success() {
         ];
         let operator_home = tempfile::tempdir().unwrap();
         let codex_home = tempfile::tempdir().unwrap();
-        let mut child = Command::new(brokkr_bin())
-            .arg("driver")
-            .args(["codex", "--", "--sandbox", "read-only"])
+        let mut child = crate::built::brokkr(["driver", "codex", "--", "--sandbox", "read-only"])
             .env("BROKKR_CODEX_BIN", &shim)
             .env("HOME", operator_home.path())
             .env("CODEX_HOME", codex_home.path())
@@ -2758,8 +2752,7 @@ fn launch_row<'a>(parsed: &'a [Value], word: &str) -> &'a Value {
 fn drive_codex(driver: &[String], shim: &Path, messages: &[Value]) -> Vec<Value> {
     let operator_home = tempfile::tempdir().unwrap();
     let codex_home = tempfile::tempdir().unwrap();
-    let mut child = Command::new(brokkr_bin())
-        .args(driver)
+    let mut child = crate::built::brokkr(driver)
         .env("BROKKR_CODEX_BIN", shim)
         .env("HOME", operator_home.path())
         .env("CODEX_HOME", codex_home.path())
@@ -3175,7 +3168,7 @@ fn capture_proof_input(env: &mut EnvGuard, run_dir: &Path, bundle: Bundle, label
             // name it; the brokkr driver binds itself (rebuild unit 14).
             let exe = std::env::current_exe().unwrap();
             let text = value["input"].to_string();
-            return serde_json::from_str(&text.replace(exe.to_str().unwrap(), brokkr_bin()))
+            return serde_json::from_str(&text.replace(exe.to_str().unwrap(), crate::built::BIN))
                 .unwrap();
         }
         seen.push(value["seat"].clone());
@@ -3204,7 +3197,7 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
         (ProofShape::NoHandsMember, false),
     ] {
         let (recipe, mut bundle, from) = compile_proof_shape(shape, wrapped);
-        patch_proof_bundle(&mut bundle, &from, brokkr_bin());
+        patch_proof_bundle(&mut bundle, &from, crate::built::BIN);
         let run_dir = tempfile::tempdir().unwrap();
         let body = proof_shim_body(run_dir.path(), PROOF_OFFER);
         let shim = make_shim(run_dir.path(), &body);

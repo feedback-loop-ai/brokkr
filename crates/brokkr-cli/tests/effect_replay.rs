@@ -102,10 +102,17 @@ fn parked_after_one_attempt(events: &[Value], reason: &str, tail: &str) {
 
 /// `script` as an exec seat's command.
 fn exec(script: &str) -> Vec<String> {
-    let brokkr = env!("CARGO_BIN_EXE_brokkr");
-    [brokkr, "driver", "exec", "--", "sh", "-c", script]
-        .map(str::to_string)
-        .to_vec()
+    [
+        crate::built::BIN,
+        "driver",
+        "exec",
+        "--",
+        "sh",
+        "-c",
+        script,
+    ]
+    .map(str::to_string)
+    .to_vec()
 }
 
 /// A hung seat is killed at its deadline. Its tree is gone, but what it
@@ -124,7 +131,7 @@ fn a_deadline_kill_with_attempts_left_parks_after_one_attempt() {
     .unwrap();
     let state = dir.path().join("state");
     let driver = [
-        env!("CARGO_BIN_EXE_brokkr"),
+        crate::built::BIN,
         "fake-driver",
         "--script",
         script.to_str().unwrap(),

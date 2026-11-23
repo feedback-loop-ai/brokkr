@@ -175,9 +175,8 @@ fn an_entry_queued_under_another_environment_is_held_by_its_unplaced_shelf() {
         other.join("brokkr/recipes").display()
     );
     let listed = super::under(
-        &repo,
+        &mut repo.command("", &["queue", "list", "--json"]),
         &[("XDG_CONFIG_HOME", Some(&other))],
-        &["queue", "list", "--json"],
     );
     assert_eq!((listed.code, &*listed.stderr), (Some(0), ""));
     for (queue, hold) in [

@@ -5,7 +5,6 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::Value;
 
@@ -78,8 +77,8 @@ fn the_sixty_second_table_is_the_recipe_library() {
 
     // A config home of its own, so no host's personal shelf (#697) adds rows.
     let config = tempfile::tempdir().unwrap();
-    let mut list = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    list.args(["library", "recipes", "list"]).current_dir(&root);
+    let mut list = crate::built::brokkr(["library", "recipes", "list"]);
+    list.current_dir(&root);
     hermetic(&mut list, config.path());
     let output = list.output().unwrap();
     assert!(
@@ -452,7 +451,7 @@ enum Local {
 /// variable no row has ruled on fails the test rather than dropping out of
 /// the guide. A step no row writes, such as each of `delivered by
 /// brokkr`'s, has its variables held word for word by `JOB_LINES`.
-const LOCAL_ENV: [(&str, Local); 9] = [
+const LOCAL_ENV: [(&str, Local); 10] = [
     ("BROKKR_REQUIRE_BOUNDARY_EVIDENCE", Local::Carried),
     ("BROKKR_SUPPRESSION_BASE", Local::Carried),
     ("PR_BODY", Local::Carried),
@@ -471,6 +470,10 @@ const LOCAL_ENV: [(&str, Local); 9] = [
     // Where a coverage machine leaves its profile and the gate reads every
     // machine's; a local run measures and reports in one.
     ("BROKKR_COVERAGE_PROFILES", Local::Omitted),
+    // CI requires a real-delivery test's PID namespace where it installed
+    // bubblewrap (#1137h); a local run, which may be a box that cannot nest
+    // one (decision 0054), leaves it unset and such a test skips aloud.
+    ("BROKKR_REQUIRE_PIDNS", Local::Omitted),
 ];
 
 /// A variable's value on a local run of `runner`'s leg: a literal

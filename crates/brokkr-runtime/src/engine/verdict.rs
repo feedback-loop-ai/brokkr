@@ -15,6 +15,7 @@ use thiserror::Error;
 
 use super::resume::SiteContext;
 use super::Engine;
+use crate::bundle::sequence::before_every_gate;
 use crate::bundle::Seat;
 use crate::bundle::{ExecutableBody, SeatClass, SequenceStep};
 
@@ -267,11 +268,8 @@ impl<'a> Producer<'a> {
         }
         // A step before a gate is not the last, so its word is in `ends_on`.
         let hard = |word: &str| steps[at].hard_results.iter().any(|hard| hard == word);
-        let gated = steps.iter().any(|step| step.class == SeatClass::Gate);
-        let before_gates = steps[..=at]
-            .iter()
-            .all(|step| step.class == SeatClass::Work);
-        let stops = gated && before_gates && word.is_some_and(hard);
+        let before_gates = before_every_gate(steps).is_some_and(|before| at < before.len());
+        let stops = before_gates && word.is_some_and(hard);
         let steps = (steps.iter())
             .map(|step| (step.name.as_str(), step.class))
             .collect();

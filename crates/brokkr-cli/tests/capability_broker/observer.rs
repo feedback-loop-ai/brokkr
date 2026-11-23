@@ -475,8 +475,8 @@ fn an_observer_leading_no_process_group_of_its_own_refuses_before_its_tether() {
     // socket stays open until the observer has exited, so no watcher it
     // armed could fire: what this test sees is the refusal alone.
     let (ours, theirs) = pair();
-    let mut command = Command::new(brokkr());
-    command.args(args).args(["--plan-digest", super::DIGEST]);
+    let mut command = crate::built::brokkr_at(brokkr(), args);
+    command.args(["--plan-digest", super::DIGEST]);
     command.env("HOME", &sealed.home).stdin(Stdio::null());
     let child = command.stdout(theirs).stderr(Stdio::piped()).spawn();
     let out = super::bounded(child.unwrap(), b"");

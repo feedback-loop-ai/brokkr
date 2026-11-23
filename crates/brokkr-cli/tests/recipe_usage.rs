@@ -5,7 +5,6 @@
 //! as unmeasured.
 
 use std::path::Path;
-use std::process::Command;
 
 use brokkr_core::EventType;
 use serde_json::{json, Value};
@@ -52,11 +51,8 @@ fn plant(db: &Path, run_id: &str, recipe: &str, phase: &str, usages: &[Option<Va
 /// What `brokkr library recipes usage <args> --db <db>` printed, run in `dir`,
 /// once it exited 0.
 fn usage(dir: &Path, db: &Path, args: &[&str]) -> String {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    command
-        .current_dir(dir)
-        .args(["library", "recipes", "usage"])
-        .args(args);
+    let mut command = crate::built::brokkr(["library", "recipes", "usage"]);
+    command.current_dir(dir).args(args);
     let ran = command.arg("--db").arg(db).output().unwrap();
     let said = String::from_utf8(ran.stderr).unwrap();
     assert_eq!(ran.status.code(), Some(0), "{said}");
