@@ -661,7 +661,9 @@ impl Engine {
         if !run.declares_change {
             return Ok(StepVerdict::Goes(()));
         }
-        let Some(value) = result.pointer("/inputs/change") else {
+        let Some(value) =
+            (result.get("inputs")).and_then(|inputs| inputs.get(brokkr_core::policy::CHANGE))
+        else {
             return Ok(StepVerdict::Goes(()));
         };
         let change = value.as_str();
@@ -669,7 +671,10 @@ impl Engine {
             return self.end_indeterminate(
                 run,
                 at,
-                &format!("declared input 'change' must match ^[a-z0-9][a-z0-9._-]*$, got {value}"),
+                &format!(
+                    "declared input '{}' must match ^[a-z0-9][a-z0-9._-]*$, got {value}",
+                    brokkr_core::policy::CHANGE
+                ),
                 Unproven::Proven,
             );
         }

@@ -279,7 +279,7 @@ fn schema_problem(seat: &Seat, raw_result: &Value) -> Option<String> {
                 .and_then(|value| match value.as_str() {
                     Some(change) if brokkr_core::policy::is_identifier(change) => None,
                     _ => Some(format!(
-                        "declared input 'change' must match ^[a-z0-9][a-z0-9._-]*$, got {value}"
+                        "declared input '{CHANGE}' must match ^[a-z0-9][a-z0-9._-]*$, got {value}"
                     )),
                 }),
         },
