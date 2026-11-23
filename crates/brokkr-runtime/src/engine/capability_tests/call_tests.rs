@@ -339,6 +339,135 @@ fn an_unheld_or_unattributable_call_fails_its_attempt() {
     }
 }
 
+/// The call authority of seat `work` at Codex `astra`, serving
+/// `capabilities` at the planned site.
+fn consuming(
+    engine: &mut Engine,
+    effect: &str,
+    capabilities: SiteCapabilities,
+) -> super::super::capability_calls::Calls {
+    let site = engine.bundle.sites.entry("work".into()).or_default();
+    site.capabilities = Some(capabilities);
+    let link = streaming("codex", "astra", effect, &[]);
+    let (spawn, _) = marked(engine, &link, json!({}));
+    let plan = planned(SITE, INSTANCE);
+    let facts = engine.bundle.sites.get("work");
+    super::super::capability_calls::Calls::of(facts, &spawn, "attempt", Some(&plan.context))
+}
+
+/// `checkpoint` as `seat_row` hands it to the engine: run through the
+/// real mask with `value` bound to the name `K`.
+fn masked_by(mut checkpoint: Value, value: &str) -> Value {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("secrets.env");
+    brokkr_protocol::secret::store_set(&store, "K", value).unwrap();
+    let bindings = brokkr_protocol::secret::resolve_bindings(&store, &["K".into()]).unwrap();
+    brokkr_protocol::secret::mask_json(&mut checkpoint, &bindings);
+    checkpoint
+}
+
+/// The marker's literal form is the mask's own output: a drift in it
+/// fails here before it can slip past the engine's floor.
+#[test]
+fn the_mask_writes_the_marker_the_floor_reads() {
+    let masked = masked_by(json!({"observation": "web_search"}), "serv");
+    assert_eq!(masked, json!({"ob[secret:K]ation": "web_search"}));
+}
+
+/// The held search, masked with each of `values` bound, is refused as
+/// unattributable by the authority serving `capabilities` (#1261, CC1),
+/// and no observation is left under its own key.
+fn refuses_masked(capabilities: SiteCapabilities, values: &[&str]) {
+    let (_dir, mut engine, effect) = in_flight();
+    let refused = Err(super::super::capability_calls::Refusal::Unattributable);
+    let mut calls = consuming(&mut engine, &effect, capabilities);
+    for value in values {
+        let mut checkpoint = masked_by(search(), value);
+        assert_eq!(calls.consume(&mut checkpoint), refused, "{value}");
+        assert_eq!(checkpoint.get(OBSERVATION_KEY), None, "{value}");
+    }
+}
+
+/// Bindings that rewrite the tool's name, and not a key.
+const NAMES: [&str; 3] = ["search", "web_search", "eb_sea"];
+
+/// Bindings that rewrite the observation's key, or a key beside it.
+const KEYS: [&str; 3] = ["observation", "serv", "harnes"];
+
+/// A known, unheld tool whose name a binding rewrote is refused, never
+/// passed as an unknown, ordinary call.
+#[test]
+fn a_known_unheld_tool_a_binding_rewrote_fails_closed() {
+    refuses_masked(two_candidates(), &NAMES);
+}
+
+/// A held tool whose name a binding rewrote is refused, never stamped.
+#[test]
+fn a_held_tool_a_binding_rewrote_fails_closed() {
+    refuses_masked(searching("work"), &NAMES);
+}
+
+/// A known, unheld call in a checkpoint whose keys a binding rewrote is
+/// refused, never passed as a checkpoint with no call in it (0114,
+/// invariant 3's floor).
+#[test]
+fn an_unheld_call_under_a_masked_key_fails_closed() {
+    refuses_masked(two_candidates(), &KEYS);
+}
+
+/// A held call in a checkpoint whose keys a binding rewrote is refused,
+/// never stamped.
+#[test]
+fn a_held_call_under_a_masked_key_fails_closed() {
+    refuses_masked(searching("work"), &KEYS);
+}
+
+/// A binding that rewrites only a value beside the call, and no key,
+/// leaves the call to the lookups: held, it is stamped; known and
+/// unheld, it is refused as unheld.
+#[test]
+fn a_checkpoint_with_no_masked_key_reaches_the_lookups() {
+    let (_dir, mut engine, effect) = in_flight();
+    let mut calls = consuming(&mut engine, &effect, searching("work"));
+    let mut checkpoint = masked_by(search(), "completed");
+    assert_eq!(checkpoint["step"], "item-[secret:K]");
+    let stamp = calls.consume(&mut checkpoint).unwrap().unwrap();
+    let mut stamped = json!({});
+    stamp.apply(&mut stamped);
+    let call_id = native(SITE, INSTANCE, "codex", "item_1");
+    let group = json!({"tool": "web_search", "capability": "web-search",
+                       "dialect": "codex-native-search", "call_id": call_id,
+                       "call_state": "observed"});
+    assert_eq!(stamped, group);
+    let mut calls = consuming(&mut engine, &effect, two_candidates());
+    let unheld = super::super::capability_calls::Refusal::Unheld {
+        tool: "web_search".into(),
+    };
+    let mut checkpoint = masked_by(search(), "completed");
+    assert_eq!(calls.consume(&mut checkpoint), Err(unheld));
+}
+
+/// A name that only shares a bracket or the word with the marker is
+/// judged as before: unknown and ordinary.
+#[test]
+fn a_name_without_a_whole_marker_is_judged_as_before() {
+    let (_dir, mut engine, effect) = in_flight();
+    let mut calls = consuming(&mut engine, &effect, searching("work"));
+    let names = [
+        "web_search[",
+        "secret_search",
+        "secret:K]",
+        "[secret:K",
+        "[secret:]",
+        "[secret:k]",
+        "[secret: K]",
+    ];
+    for name in names {
+        let mut checkpoint = observed(name, observation(Some("item_1"), name));
+        assert_eq!(calls.consume(&mut checkpoint), Ok(None), "{name}");
+    }
+}
+
 /// An `mcp` holding attributes no native call (CC1 tells its tools apart
 /// by their `cap-` server), so the search the inventory knows is unheld;
 /// and an MCP call the harness reports is ordinary, its evidence the
@@ -354,14 +483,7 @@ fn an_mcp_holding_or_an_mcp_call_attributes_nothing() {
         version: "1.0.0".into(),
         secrets: Vec::new(),
     };
-    let site = engine.bundle.sites.entry("work".into()).or_default();
-    site.capabilities = Some(capabilities);
-    let link = streaming("codex", "astra", &effect, &[]);
-    let (spawn, _) = marked(&engine, &link, json!({}));
-    let plan = planned(SITE, INSTANCE);
-    let facts = engine.bundle.sites.get("work");
-    let mut calls =
-        super::super::capability_calls::Calls::of(facts, &spawn, "attempt", Some(&plan.context));
+    let mut calls = consuming(&mut engine, &effect, capabilities);
     let mcp = serde_json::to_value(Observation {
         format: Format::Codex,
         call: Some("item_3".into()),
