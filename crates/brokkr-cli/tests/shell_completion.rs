@@ -515,6 +515,12 @@ fn refused_twice(dir: &Path, db: &Path) -> Duration {
     started.elapsed()
 }
 
+/// The least of three timings of [`refused_twice`]. A loaded runner's
+/// stall lands in one timing; a patience held too long is in all three.
+fn least_refused(dir: &Path, db: &Path) -> Duration {
+    (0..3).map(|_| refused_twice(dir, db)).min().unwrap()
+}
+
 /// A missing journal, a WAL journal and a rollback-mode one a peer holds
 /// exclusively, one a rollback journal stands beside, and a file that is
 /// no journal each complete nothing and print nothing on stderr. A held
@@ -543,12 +549,12 @@ fn every_failure_completes_nothing_and_prints_nothing() {
     rollback_journal(&hot, &[("run-hot", "2026-01-01T00:00:00Z")]);
     std::fs::write(dir.path().join("hot.db-journal"), "a writer's pages").unwrap();
 
-    let unheld = refused_twice(dir.path(), &missing);
+    let unheld = least_refused(dir.path(), &missing);
     for db in [&foreign, &hot] {
         refused_twice(dir.path(), db);
     }
     for db in [&held, &locked] {
-        let waited = refused_twice(dir.path(), db).saturating_sub(unheld);
+        let waited = least_refused(dir.path(), db).saturating_sub(unheld);
         assert!(
             waited < Duration::from_millis(400),
             "{db:?} waited {waited:?}"
