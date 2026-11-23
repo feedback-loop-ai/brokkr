@@ -8,6 +8,12 @@
 # cannot be published by accident.
 #
 # Tap: feedback-loop-ai/homebrew-tap, file Formula/brokkr.rb.
+#
+# The formula installs shell completion for bash, zsh and fish: the live
+# completer's registration (decision 0119 ruling 2), which the installed
+# binary prints itself at install time when `COMPLETE=<shell>` is set and
+# no word follows. It offers every verb, flag and fixed value the static
+# `brokkr completions <shell>` script offers, and the live values too.
 class Brokkr < Formula
   desc "Delivery engine that drives agent seats through a reviewable phase machine"
   homepage "https://github.com/feedback-loop-ai/brokkr"
@@ -36,12 +42,16 @@ class Brokkr < Formula
     end
   end
 
-  # Decision 0019 ruling 9: one binary, and it is `brokkr`.
+  # Decision 0019 ruling 9: one binary, and it is `brokkr`. Its
+  # completion is the live completer's registration, which names the
+  # completer by the path it was run as: this keg's `bin/brokkr`.
   def install
     bin.install "brokkr"
+    generate_completions_from_executable(bin/"brokkr", shells: [:bash, :zsh, :fish], shell_parameter_format: :clap)
   end
 
   test do
     assert_match "brokkr #{version}", shell_output("#{bin}/brokkr --version")
+    assert_match "#{bin}/brokkr", (bash_completion/"brokkr").read
   end
 end
