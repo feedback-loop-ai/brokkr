@@ -178,10 +178,6 @@ pub brokkr_store::EntryState::Queued
 impl brokkr_store::EntryState
 pub fn brokkr_store::EntryState::run(&self) -> core::option::Option<&str>
 pub fn brokkr_store::EntryState::word(&self) -> &'static str
-pub enum brokkr_store::HolderLiveness
-pub brokkr_store::HolderLiveness::Ended
-pub brokkr_store::HolderLiveness::Live
-pub brokkr_store::HolderLiveness::Unread
 pub enum brokkr_store::ImportError
 pub brokkr_store::ImportError::Collision(alloc::string::String)
 pub brokkr_store::ImportError::Redacted(alloc::string::String)
@@ -541,7 +537,7 @@ pub fn brokkr_store::Store::append_held_round(&mut self, brokkr_store::CooldownR
 pub fn brokkr_store::Store::cooldown(&self, &str, &str, time::offset_date_time::OffsetDateTime) -> core::result::Result<core::option::Option<brokkr_store::CooldownAggregate>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::cooldown_held_rounds(&self, &str, u64, &str) -> core::result::Result<alloc::collections::btree::map::BTreeMap<u64, brokkr_core::payload::provider_wait::Held>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::cooldown_rounds(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
-pub fn brokkr_store::Store::cooldowns_in_force(&self, time::offset_date_time::OffsetDateTime, brokkr_store::Holders<'_>) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::cooldowns_in_force(&self, time::offset_date_time::OffsetDateTime) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::cooldowns_newest(&self, time::offset_date_time::OffsetDateTime) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::append_next(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
@@ -590,7 +586,6 @@ pub fn brokkr_store::Store::reads_index(&self) -> core::result::Result<bool, bro
 impl brokkr_store::Store
 pub fn brokkr_store::Store::high_water(&self) -> core::result::Result<i64, brokkr_store::StoreError>
 pub fn brokkr_store::Store::journal(&self) -> core::result::Result<core::option::Option<uuid::Uuid>, brokkr_store::StoreError>
-pub fn brokkr_store::Store::queue_claim_holding<R>(&mut self, &brokkr_store::Claiming<'_>, brokkr_store::Holders<'_>, &str, impl core::ops::function::FnMut(brokkr_store::ClaimFacts<'_>) -> core::result::Result<(), R>) -> core::result::Result<core::result::Result<brokkr_store::Claim, R>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_claim_with<R>(&mut self, &brokkr_store::Claiming<'_>, &str, impl core::ops::function::FnMut(brokkr_store::ClaimFacts<'_>) -> core::result::Result<(), R>) -> core::result::Result<core::result::Result<brokkr_store::Claim, R>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_link(&mut self, brokkr_store::Claim, brokkr_store::Generation, &str, &str) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_reclaim(&mut self, brokkr_store::Claim, brokkr_store::Generation, core::option::Option<brokkr_store::StartRefusal>, core::num::nonzero::NonZeroU32, &str) -> core::result::Result<u32, brokkr_store::StoreError>
@@ -679,6 +674,5 @@ pub fn brokkr_store::redact_export(&str) -> core::result::Result<alloc::string::
 pub fn brokkr_store::validate_seat_record(&serde_json::value::Value, u64, brokkr_store::SeatRecordVersion) -> core::result::Result<(), brokkr_store::SeatRecordError>
 pub fn brokkr_store::verified_events(&str) -> core::result::Result<(alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_core::fold::RunState), brokkr_store::VerifyError>
 pub fn brokkr_store::verify_export(&str) -> core::result::Result<brokkr_core::fold::RunState, brokkr_store::VerifyError>
-pub type brokkr_store::Holders<'a> = &'a dyn core::ops::function::Fn(&str) -> brokkr_store::HolderLiveness
 pub type brokkr_store::Keyed = core::result::Result<(i64, alloc::string::String), brokkr_store::Unread>
 pub type brokkr_store::Paged = core::result::Result<brokkr_core::page::Row, brokkr_store::Unread>

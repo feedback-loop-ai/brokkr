@@ -547,14 +547,6 @@ pub fn holding(store: &Store, generation: crate::Generation) {
     store.conn.execute(plant, [generation.0]).unwrap();
 }
 
-/// The run lock's reading of every probe hold's holder as proven ended,
-/// as after a crash: what a test that drives no engine hands the in-force
-/// read, so a hold past its stored end holds nothing (fix round
-/// 0106b1r11, L1).
-pub fn holders_ended(_run_id: &str) -> crate::HolderLiveness {
-    crate::HolderLiveness::Ended
-}
-
 /// Link queued `entry` to `run`, which the journal holds, through the
 /// dispatcher's own claim and link (decision 0095 ruling 1), as
 /// generation 1, its holder planted, claiming a bundle of digest `test`,

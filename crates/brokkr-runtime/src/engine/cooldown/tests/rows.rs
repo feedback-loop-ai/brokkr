@@ -20,8 +20,7 @@ use crate::engine::cooldown::cooldown_rows;
 /// here reads them: a row written by the event is in force then.
 fn rows_of(engine: &Engine, event: &brokkr_core::EventEnvelope) -> Vec<brokkr_store::Cooldown> {
     let at = OffsetDateTime::parse(&event.recorded_at, &Rfc3339).unwrap();
-    let crashed = brokkr_store::test_support::holders_ended;
-    engine.store.cooldowns_in_force(at, &crashed).unwrap()
+    engine.store.cooldowns_in_force(at).unwrap()
 }
 
 /// One event with two refused sites — a two-route panel, claude/first and

@@ -3,9 +3,9 @@
 //! A hold is written before the probe is reserved, and the pass and the
 //! claim read it as cooling down through the one in-force read. A refusal's
 //! renewed round ends it in the round's own transaction; an answer ends it
-//! at once; a round the store does not take leaves it standing until its
-//! stored end, and then it holds nothing once its run's lock proves the
-//! driver ended (fix round 0106b1r11, L1).
+//! at once; a round the store does not take leaves it standing until a
+//! settlement ends it, whatever the clock, the journal's name or the run's
+//! lock (fix round 0106b1r12, S1).
 //!
 //! No other row is planted on the route: the old held row has expired when
 //! the probe dispatches, so whatever a second connection's pass and claim
@@ -271,20 +271,21 @@ pub(super) fn driven_raising(engine: &mut Engine, table: &str, raise: &str) {
 
 /// A renewed round the store does not take (every cool-down insert forced
 /// to fail) parks the run and leaves the probe's hold standing: the route
-/// reads cooling down until the probe's deadline, and is open at it.
+/// reads cooling down past the probe's deadline and its stored end, until
+/// a settlement ends it (fix round 0106b1r12, S1).
 #[test]
-fn a_probe_round_the_store_cannot_take_leaves_its_route_held_until_the_probes_deadline() {
+fn a_probe_round_the_store_cannot_take_leaves_its_route_held_until_it_is_settled() {
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
     std::fs::write(dir.path().join("work.release"), "").unwrap();
     driven_failing(&mut engine, "provider_cooldowns");
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
-    held_to_its_deadline(&engine, &gates, deadline_of(probe_at));
+    held_until_settled(&engine, &gates, probe_at);
 }
 
 /// A renewed round the table takes without writing (every cool-down insert
 /// ignored by a trigger) refuses by name and ends no hold (fix round
 /// 0106b1r5, H3): the run parks naming the unwritten row, and the route
-/// reads cooling down until the probe's deadline.
+/// reads cooling down until a settlement ends the hold.
 #[test]
 fn a_probe_round_the_table_does_not_write_ends_no_hold() {
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
@@ -299,64 +300,61 @@ fn a_probe_round_the_table_does_not_write_ends_no_hold() {
         reason.contains("wrote no row for run") && reason.contains("hold on its route stands"),
         "{reason}"
     );
-    held_to_its_deadline(&engine, &gates, deadline_of(probe_at));
+    held_until_settled(&engine, &gates, probe_at);
 }
 
 /// The probe left no row on the route and its hold standing: the gates read
-/// the route cooling down from the probe's instant through `deadline`, the
-/// instant its driver is killed by, and the shutdown grace past it, to the
-/// hold's stored end, and open at that end (fix rounds 0106b1r6, D1, and
-/// 0106b1r10, H2).
-pub(super) fn held_to_its_deadline(engine: &Engine, gates: &Shared, deadline: OffsetDateTime) {
-    let probe_at = deadline - time::Duration::seconds(2);
-    let end = stored_end(deadline);
+/// the route cooling down from the probe's instant through its deadline,
+/// its stored end and a day past it, for no clock ends a hold (fix round
+/// 0106b1r12, S1).
+pub(super) fn held_until_settled(engine: &Engine, gates: &Shared, probe_at: OffsetDateTime) {
+    let end = hold_end_of(probe_at);
     assert_eq!(
         engine.store.cooldown("claude", "first", probe_at).unwrap(),
         None
     );
-    let graced = deadline + brokkr_protocol::process::SHUTDOWN_GRACE;
-    for at in [probe_at, deadline, graced, end - time::Duration::seconds(1)] {
+    let day = time::Duration::days(1);
+    for at in [probe_at, deadline_of(probe_at), end, end + day] {
         assert!(held_to(&legs(gates, at), end), "at {at}");
     }
     assert_eq!(unended_holds(engine.store.path()), 1);
-    assert_eq!(legs(gates, end), [Ok(()), Ok(())]);
 }
 
-/// Fix round 0106b1r11, L1: past its stored end, a hold no evidence ended
-/// is read through its run's lock, at one instant on both production
-/// gates. While another process holds the run's lock, its driver is live
-/// and the hold stands, an hour past its end as at it; while the lock
-/// cannot be read (its directory open to others) it stands too; once the
-/// lock is free, the holder is proven ended and both gates admit.
+/// Fix round 0106b1r12, S1: no lock state and no journal name ends a hold.
+/// With a probe's hold left standing, as an unwritten renewal leaves it,
+/// both production gates, over the engine's own journal and over another
+/// name for it, read the route cooling down a day past its stored end
+/// while the run's lock is held, free, missing and replaced: no reading of
+/// the lock is taken, and only a settlement ends the hold.
 #[test]
-fn a_hold_past_its_stored_end_stands_until_its_runs_driver_is_proven_ended() {
-    use std::os::unix::fs::PermissionsExt;
+fn no_lock_state_and_no_journal_name_ends_a_hold() {
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
+    let alias = dir.path().join("alias.db");
+    std::os::unix::fs::symlink(engine.store.path(), &alias).unwrap();
+    let aliased = Arc::new(Mutex::new(Gates::over(&alias, probe_at)));
     std::fs::write(dir.path().join("work.release"), "").unwrap();
     driven_failing(&mut engine, "provider_cooldowns");
     let (end, later) = (
         hold_end_of(probe_at),
-        hold_end_of(probe_at) + time::Duration::hours(1),
+        hold_end_of(probe_at) + time::Duration::days(1),
     );
+    let read = |state: &str| {
+        for (name, gates) in [("journal", &gates), ("alias", &aliased)] {
+            let seen = legs(gates, later);
+            assert!(held_to(&seen, end), "{state}, through the {name}: {seen:?}");
+        }
+    };
     let driving = crate::run_lock::take(&engine.store, &engine.run_id).unwrap();
-    for at in [end, later] {
-        let read = legs(&gates, at);
-        assert!(held_to(&read, end), "live, at {at}: {read:?}");
-        assert!(
-            matches!(&read[0], Err(Capacity::CoolingDown { words, .. })
-                if words.contains("past its stored end, for its run's driver is not proven ended")),
-            "{read:?}"
-        );
-    }
+    read("held");
     drop(driving);
+    read("free");
     let locks = crate::run_lock::directory_path(engine.store.path());
-    let mode = |bits| std::fs::set_permissions(&locks, std::fs::Permissions::from_mode(bits));
-    mode(0o755).unwrap();
-    let unread = legs(&gates, end);
-    mode(0o700).unwrap();
-    assert!(held_to(&unread, end), "unread: {unread:?}");
+    std::fs::remove_dir_all(&locks).unwrap();
+    read("missing");
+    std::fs::create_dir(&locks).unwrap();
+    std::fs::write(locks.join(format!("{}.lock", engine.run_id)), "replaced").unwrap();
+    read("replaced");
     assert_eq!(unended_holds(engine.store.path()), 1);
-    assert_eq!(legs(&gates, end), [Ok(()), Ok(())]);
 }
 
 /// Fix round 0106b1r11, L4: a probe whose tree settled and whose refusal

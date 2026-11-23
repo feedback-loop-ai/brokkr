@@ -13,7 +13,7 @@ use super::storage::{
 };
 use super::*;
 use crate::schema::{MIGRATION_V1, SIDECAR_COLUMNS};
-use crate::test_support::{holders_ended, linked, plant_run};
+use crate::test_support::{linked, plant_run};
 use crate::DATABASE_SCHEMA;
 
 pub(super) const BY: Attribution<'static> = Attribution {
@@ -802,7 +802,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
                 BY,
             )),
             refusal(store.cooldown("claude", "first", time::OffsetDateTime::UNIX_EPOCH)),
-            refusal(store.cooldowns_in_force(time::OffsetDateTime::UNIX_EPOCH, &holders_ended)),
+            refusal(store.cooldowns_in_force(time::OffsetDateTime::UNIX_EPOCH)),
         ] {
             assert_eq!((refused.to_string(), &refused), (text.clone(), &mismatch));
         }

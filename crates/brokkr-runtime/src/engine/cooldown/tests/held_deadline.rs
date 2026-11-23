@@ -3,9 +3,9 @@
 //! engine's clock; that instant, never a length sampled from it, travels
 //! to the fork, which reads it again under the registry's lock as the last
 //! step before the spawn, and to the watchdog, which kills at it. The
-//! probe's hold ends at the first whole second strictly after it, so the
-//! kill is always earlier than the hold's end. A probe past its deadline is
-//! not spawned, and its hold stands.
+//! probe's hold ends only on its settlement (fix round 0106b1r12, S1), so
+//! no deadline ends it. A probe past its deadline is not spawned, and its
+//! tree, settled empty, ends its hold.
 //!
 //! The pause is scripted on the engine's clock: one read after the hold is
 //! written moves the clock on, as store contention, slow dispatch work or
@@ -17,8 +17,7 @@
 use std::path::PathBuf;
 
 use super::held_route::{
-    deadline_of, held_to_its_deadline, holds_written, legs, parked_before_any_probe, probing,
-    slicing, unended_holds,
+    deadline_of, holds_written, legs, parked_before_any_probe, probing, slicing, unended_holds,
 };
 use super::held_wait::standing;
 use super::*;
@@ -65,8 +64,9 @@ fn parked_reason(engine: &Engine) -> String {
 
 /// The adversarial position's pause, 3.3 seconds against the seat's
 /// two-second timeout, at clock read `read`: the probe is not spawned past
-/// its deadline, the run parks naming it, and the real pass and claim read
-/// the route cooling down through its hold's end.
+/// its deadline and the run parks naming it. Nothing of it was forked, so
+/// its tree is settled empty and the hold it wrote ends with it (fix round
+/// 0106b1r12, S1): the real pass and claim admit at the probe's instant.
 fn a_probe_paused_past_its_deadline_at(read: usize) {
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::Answer);
     let pause = (read, time::Duration::milliseconds(3_300));
@@ -79,17 +79,18 @@ fn a_probe_paused_past_its_deadline_at(read: usize) {
         parked_reason(&engine),
         format!(
             "the cool-down probe for claude/first was not spawned: its deadline {} passed \
-             before its driver could start, and its route's hold stands to its stored end, past \
-             the deadline by the shutdown grace and the hold's margin",
+             before its driver could start, so no process of it runs",
             crate::admission::spelled(deadline)
         )
     );
-    held_to_its_deadline(&engine, &gates, deadline);
+    let journal = engine.store.path();
+    assert_eq!((holds_written(journal), unended_holds(journal)), (1, 0));
+    assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
 }
 
 /// Paused before its spawn begins, the probe composes no spawn.
 #[test]
-fn a_probe_whose_deadline_passes_before_its_spawn_is_not_spawned_and_holds_to_it() {
+fn a_probe_whose_deadline_passes_before_its_spawn_is_not_spawned_and_ends_its_hold() {
     a_probe_paused_past_its_deadline_at(SAMPLE);
 }
 
@@ -98,7 +99,7 @@ fn a_probe_whose_deadline_passes_before_its_spawn_is_not_spawned_and_holds_to_it
 /// work or another attempt's hold on that lock would pause it: the fork
 /// finds the deadline passed and spawns nothing.
 #[test]
-fn a_probe_whose_deadline_passes_under_the_registry_lock_is_not_spawned_and_holds_to_it() {
+fn a_probe_whose_deadline_passes_under_the_registry_lock_is_not_spawned_and_ends_its_hold() {
     a_probe_paused_past_its_deadline_at(FORK);
 }
 

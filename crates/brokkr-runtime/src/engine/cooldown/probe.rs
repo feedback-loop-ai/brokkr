@@ -137,14 +137,13 @@ struct AdmittedProbe {
 }
 
 /// A probe whose deadline passed before its driver could be spawned (fix
-/// round 0106b1r5, H2): it is not spawned, and its route's hold stands to
-/// its stored end, past the deadline by the shutdown grace and the hold's
-/// margin (fix round 0106b1r10, H2). Its words are the park's reason.
+/// round 0106b1r5, H2): it is not spawned, so its process tree is settled
+/// empty and its route's hold ends (fix round 0106b1r12, S1). Its words are
+/// the park's reason.
 #[derive(Debug, thiserror::Error)]
 #[error(
     "the cool-down probe for {provider}/{route} was not spawned: its deadline {} passed before \
-     its driver could start, and its route's hold stands to its stored end, past the deadline \
-     by the shutdown grace and the hold's margin",
+     its driver could start, so no process of it runs",
     spelled(*ends)
 )]
 struct Late {
@@ -212,10 +211,12 @@ impl Engine {
             (began, deadline),
             &observed,
         ) {
-            return Ok(Err(Probe::Parked(Park::ruled(format!(
+            // Nothing was spawned, so the probe's tree is settled empty.
+            let parked = Probe::Parked(Park::ruled(format!(
                 "the cool-down probe for {}/{} was not admitted: {refusal}",
                 wait.provider, wait.route
-            )))));
+            )));
+            return Ok(Err(self.end_the_hold(wait, parked)));
         }
         Ok(Ok(AdmittedProbe {
             attempt,
@@ -227,13 +228,12 @@ impl Engine {
     /// Hold the probe's route before it is reserved and dispatched (fix
     /// round 0106b1r4, F1; the operator's ruling of 2026-11-18, amending
     /// decision 0103 ruling 2): one hold row, written at `now`, carrying the
-    /// provider, the route and its crash fallback `fallback` (fix round
-    /// 0106b1r10, H2), which the store keeps to the first whole second
-    /// strictly after it (fix round 0106b1r6, D1). The pass and the claim
-    /// read it as cooling down until the engine ends it on evidence (H1),
-    /// or, where nothing ended it, that second comes and the run's lock,
-    /// which this engine holds while it drives, proves its driver ended
-    /// (fix round 0106b1r11, L1).
+    /// provider, the route and the end its row shows, `fallback`, a readout
+    /// the store keeps to the first whole second strictly after it (fix
+    /// round 0106b1r6, D1). The pass and the claim read it as cooling down
+    /// until its answer or its renewed round commits, or its probe's
+    /// process tree is settled; no clock, margin or lock state ends it (fix
+    /// round 0106b1r12, S1).
     /// A hold the store refuses parks the probe unadmitted, so no probe
     /// runs on a route it could not hold: one the table did not write, one
     /// whose end cannot be stored after its fallback, and one on a queue
@@ -651,9 +651,10 @@ impl Engine {
     /// taken: a probe already past it composes no spawn, the fork reads it
     /// again on the engine's clock under the registry's lock as the last
     /// step before the spawn, and the watchdog kills at its own instant,
-    /// never at a length sampled earlier. A probe not spawned leaves its
-    /// hold standing past it (fix rounds 0106b1r5, H2, 0106b1r6, D1, and
-    /// 0106b1r9, E1).
+    /// never at a length sampled earlier (fix rounds 0106b1r5, H2,
+    /// 0106b1r6, D1, and 0106b1r9, E1). A probe not spawned, every refusal
+    /// here coming before the fork, has an empty tree, settled as it is
+    /// refused, so its hold ends with it (fix round 0106b1r12, S1).
     fn spawn_probe(
         &mut self,
         at: &Dispatch<'_>,
@@ -664,7 +665,8 @@ impl Engine {
     ) -> Probe {
         let ends = deadline.ends;
         if ends <= self.now() {
-            return Late::park(wait, ends);
+            let late = Late::park(wait, ends);
+            return self.end_the_hold(wait, late);
         }
         let door = self
             .held
@@ -676,12 +678,15 @@ impl Engine {
         let (process, input) = match spawn_site_by(&self.bundle, spawn, &input, &workdir, by, door)
         {
             Ok(started) => started,
-            Err(Unspawned::Late) => return Late::park(wait, ends),
-            Err(Unspawned::Refused(reason)) => {
-                return Probe::Parked(Park::ruled(format!(
-                    "the cool-down probe for {}/{} did not spawn: {reason}",
-                    wait.provider, wait.route
-                )));
+            Err(unspawned) => {
+                let parked = match unspawned {
+                    Unspawned::Late => Late::park(wait, ends),
+                    Unspawned::Refused(reason) => Probe::Parked(Park::ruled(format!(
+                        "the cool-down probe for {}/{} did not spawn: {reason}",
+                        wait.provider, wait.route
+                    ))),
+                };
+                return self.end_the_hold(wait, parked);
             }
         };
         let report = process.probing().run_attempt_resuming(
@@ -700,8 +705,8 @@ impl Engine {
         // rate limit's renewal ends it with the round's commit, in one
         // transaction, or leaves it standing where that round is not
         // written; a refusal that parks with no renewal ends it here (fix
-        // round 0106b1r11, L4). A tree not proven ended, like a probe never
-        // spawned, leaves it standing to its stored end.
+        // round 0106b1r11, L4). A tree not proven ended leaves it standing
+        // until a settlement proves it (fix round 0106b1r12, S1).
         let proven = matches!(report.cleanup, Cleanup::Settled);
         let probe = self.probe_end(at.effect_id, wait, report);
         match proven && !renews(&probe) {
@@ -712,7 +717,8 @@ impl Engine {
 
     /// End the probe's own hold once its tree is proven ended, and go on
     /// with what the probe left. A hold the store cannot end parks the
-    /// probe by the store's words: its route stays held to the stored end.
+    /// probe by the store's words: its route stays held until a settlement
+    /// ends it.
     fn end_the_hold(&mut self, wait: &ProviderWait, probe: Probe) -> Probe {
         let hold = self.cooldown.hold.take();
         match self.store.end_probe_hold(hold, self.now()) {

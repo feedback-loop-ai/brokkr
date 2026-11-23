@@ -83,7 +83,8 @@ fn a_refusal_committed_between_the_pass_reads_leaves_its_route_cooling_down() {
     );
     assert!(committed, "the refusal committed between the pass's reads");
     // The pass read the state before the commit: the hold standing.
-    let words = "a cool-down probe of run run-probe holds the route while it is in flight";
+    let words = "a cool-down probe of run run-probe holds the route until it answers, its \
+                 renewed cool-down commits, or its process tree is settled";
     assert!(judged[0].room.is_none(), "the pass offered room");
     assert_eq!(
         verdicts(judged),

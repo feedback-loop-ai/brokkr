@@ -1167,18 +1167,13 @@ every entry reads the default budget of 3; a direct run always has none.
    0106c's, so 0106b needs no lift table to pass its own list. A probe's hold on its route
    (0103 ruling 2 as the operator amended it on 2026-11-18, #1035) ends on evidence: its
    driver's tree proven ended by the engine's settlement, its answer, or its renewed round's
-   commit. Its stored end, the probe's deadline plus the shutdown grace plus a 60-second margin,
-   is only the crash fallback, read only once the coordination root proves the holder ended
-   (fix round 0106b1r11): the pass and the claim read the hold's run's lock (decision 0108
-   ruling 1), the proof writer admission takes of a standing run's writer, and a hold past its
-   stored end stands while that lock is held or cannot be read. A live engine's hold therefore
-   never lapses by a clock: a host suspend or a wall-clock step freezes or moves its engine
-   with the lock still held. The margin is therefore a crash bound only, stated against the
-   shutdown grace, the killed tree's settle and drain, and a 30-second clock step; no allowance
-   for a live engine's own work is counted, for nothing enforces one. Named residual (fix rounds 0106b1r10 and 0106b1r11): after an
-   engine crash, its lock is free, so the hold lapses at the stored end, and a driver the
-   crash orphaned, its watchdog gone, or one frozen by a host suspend longer than the margin
-   in which the engine then died, can outlive it.
+   commit, and by nothing else (fix round 0106b1r12): no stored end, margin, clock or lock state
+   ends it, so a hold stands through any journal name and a run lock missing, free or replaced,
+   and both gates read it by one predicate, the hold's ended stamp. A probe that was never
+   forked, refused or late before the fork, has an empty tree, settled as it is refused, and its
+   hold ends then. The stored end, the probe's deadline plus the shutdown grace plus a 60-second
+   margin, is a readout only; no gate reads it, so no host suspend, clock step or crash lapses a
+   hold while its tree may run.
 3. **0106c — the operator lift, its consumption and its clearing rule.** Depends on 0106b. Files:
    `crates/brokkr-core/src/fold.rs`, `crates/brokkr-core/src/fold/operator.rs`,
    `crates/brokkr-runtime/src/engine/operator.rs`,

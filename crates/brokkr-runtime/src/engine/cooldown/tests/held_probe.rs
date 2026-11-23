@@ -91,8 +91,7 @@ fn a_route_a_probe_holds_again_admits_nothing_after_the_first_rows_end() {
     let probe_at = held_twice(&mut engine, &now);
     let between = probe_at + TimeDuration::seconds(2);
     let held = aggregate_at(&engine, between).expect("the route stays held");
-    let crashed = brokkr_store::test_support::holders_ended;
-    let rows = engine.store.cooldowns_in_force(between, &crashed).unwrap();
+    let rows = engine.store.cooldowns_in_force(between).unwrap();
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!((rows[0].rounds, rows[0].until_at), (2, held));
     let cooling = Err(crate::admission::Capacity::CoolingDown {

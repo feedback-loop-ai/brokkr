@@ -59,7 +59,6 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use uuid::Uuid;
 
 use super::beside::standing_now;
-use super::cooldown::{HolderLiveness, Holders};
 use super::holder::{holds, latest};
 use super::storage::{queue_stored, wait_row, WAITS};
 use super::{
@@ -331,14 +330,14 @@ fn journal_id(conn: &Connection) -> Result<Option<Uuid>, StoreError> {
 
 fn claim_in<R>(
     tx: &Transaction<'_>,
-    (over, holders): (&Claiming<'_>, Holders<'_>),
+    over: &Claiming<'_>,
     reason: &str,
     judge: &mut impl FnMut(ClaimFacts<'_>) -> Result<(), R>,
 ) -> Result<Result<Claim, R>, StoreError> {
     let entry = over.entry.id;
     claimable(tx, entry, over.entry.seen())?;
     let waits = awaited(tx, entry)?;
-    let cooling = super::cooldown::in_force(tx, over.now.unix_timestamp(), holders)?;
+    let cooling = super::cooldown::in_force(tx, over.now.unix_timestamp())?;
     let moved = moved(tx, over.high_water)?;
     let facts = ClaimFacts {
         journal: journal_id(tx)?,
@@ -668,32 +667,16 @@ impl Store {
     /// The cool-down rows are read inside this transaction, so a row a
     /// peer recorded between the pass's read and this claim reaches the
     /// judge (decision 0103 ruling 2(a), slice 4d1). `now` is the pass's
-    /// instant, an argument as decision 0071 ruling 1 asks. A caller that
-    /// reads no run lock proves no probe hold's holder ended, so every hold
-    /// past its stored end stands for it (fix round 0106b1r11, L1); the
-    /// admission claim reads the lock ([`Store::queue_claim_holding`]).
+    /// instant, an argument as decision 0071 ruling 1 asks.
     pub fn queue_claim_with<R>(
         &mut self,
         claiming: &Claiming<'_>,
         reason: &str,
-        judge: impl FnMut(ClaimFacts<'_>) -> Result<(), R>,
-    ) -> Result<Result<Claim, R>, StoreError> {
-        self.queue_claim_holding(claiming, &|_| HolderLiveness::Unread, reason, judge)
-    }
-
-    /// [`Store::queue_claim_with`], with `holders`, the run lock's reading
-    /// of each probe hold's holder: a hold past its stored end stands unless
-    /// it proves its run's driver ended (fix round 0106b1r11, L1).
-    pub fn queue_claim_holding<R>(
-        &mut self,
-        claiming: &Claiming<'_>,
-        holders: Holders<'_>,
-        reason: &str,
         mut judge: impl FnMut(ClaimFacts<'_>) -> Result<(), R>,
     ) -> Result<Result<Claim, R>, StoreError> {
-        let (conn, over) = (&mut self.conn, (claiming, holders));
+        let conn = &mut self.conn;
         patiently("queue_claim", self.patience, || {
-            in_step(conn, |tx| claim_in(tx, over, reason, &mut judge))
+            in_step(conn, |tx| claim_in(tx, claiming, reason, &mut judge))
         })
     }
 
