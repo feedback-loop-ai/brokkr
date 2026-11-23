@@ -111,7 +111,7 @@ const RULE_FORMS: [&str; 2] = ["command(", "mcp("];
 /// which no seat binds: its HOME (J1), its `PWD`, the resolved working
 /// directory agy walks up from (L2), and the switch that keeps a turn from
 /// starting agy's self-updater (`updater-default`, `updater-disabled-true`;
-/// decision 0114).
+/// decision 0119).
 const HOME: &str = "HOME";
 const PWD: &str = "PWD";
 const AUTO_UPDATE: &str = "AGY_CLI_DISABLE_AUTO_UPDATE";
