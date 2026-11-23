@@ -31,12 +31,7 @@ fn waited_run(dir: &Path, compiled: crate::bundle::Bundle) -> (String, crate::bu
 }
 
 /// The run resumed under `compiled` and driven with a clock at `at`.
-pub(super) fn driven(
-    dir: &Path,
-    compiled: crate::bundle::Bundle,
-    run: &str,
-    at: OffsetDateTime,
-) -> Engine {
+fn driven(dir: &Path, compiled: crate::bundle::Bundle, run: &str, at: OffsetDateTime) -> Engine {
     let mut engine = resumed_run(dir, compiled, run);
     engine.cooldown.clock = Clock::advancing(at).0;
     engine.drive().unwrap();
@@ -123,10 +118,7 @@ pub(super) fn spawn_live(
         .unwrap()
 }
 
-pub(super) fn crashed_after_probe_cleanup(
-    dir: &Path,
-    home: &Path,
-) -> (crate::bundle::Bundle, String, String) {
+fn crashed_after_probe_cleanup(dir: &Path, home: &Path) -> (crate::bundle::Bundle, String, String) {
     let command = driver(
         dir,
         "work",
@@ -176,20 +168,19 @@ pub(super) fn crashed_after_probe_cleanup(
 #[test]
 fn a_crash_after_a_probes_cleanup_leaves_a_proven_reservation_the_resume_releases() {
     let test = "engine::cooldown::tests::crash::a_crash_after_a_probes_cleanup_leaves_a_proven_reservation_the_resume_releases";
-    let Some((dir, home, _stand)) = own_engine(test) else {
+    let Some(crashed) = Crashed::in_its_own_engine(test) else {
         return;
     };
-    let (compiled, run, first) = crashed_after_probe_cleanup(dir.path(), &home);
-    let at = reservation_path(&home, &dir.path().join("work"), &run);
-
-    let resumed = driven(
-        dir.path(),
-        compiled,
-        &run,
-        base() + time::Duration::seconds(1),
+    let (dir, home, run, first) = (
+        crashed.dir.path(),
+        &crashed.home,
+        &crashed.run,
+        &crashed.first,
     );
+    let at = reservation_path(home, &dir.join("work"), run);
+    let resumed = crashed.resumed();
     assert_eq!(
-        logs(dir.path(), "work"),
+        logs(dir, "work"),
         ["probe", "probe", "attempt:succeed"],
         "the proven reservation was not released and probed again"
     );
@@ -207,11 +198,46 @@ fn a_crash_after_a_probes_cleanup_leaves_a_proven_reservation_the_resume_release
     assert_eq!(effect, 1, "the probe spent no effect attempt: {attempts:?}");
     let (standing, settled) = reservation_after(&at);
     assert_eq!(standing, 0, "a probe's reservation stands");
-    assert!(settled.iter().any(|entry| entry == &first));
+    assert!(settled.iter().any(|entry| entry == first));
     assert!(
-        protecting_refused(&home, &dir.path().join("work")).is_ok(),
+        protecting_refused(home, &dir.join("work")).is_ok(),
         "a later admission is refused"
     );
+}
+
+/// A run whose first engine crashed after its probe's cleanup, in an
+/// engine of its own ([`crashed_after_probe_cleanup`]): its directory, its
+/// protected home and standing root, its bundle, the run, and the crashed
+/// probe's attempt.
+pub(super) struct Crashed {
+    pub(super) dir: tempfile::TempDir,
+    pub(super) home: PathBuf,
+    _stand: Coordinated,
+    compiled: crate::bundle::Bundle,
+    pub(super) run: String,
+    pub(super) first: String,
+}
+
+impl Crashed {
+    /// The crash `test` names, in its own engine; `None` in the parent run.
+    pub(super) fn in_its_own_engine(test: &str) -> Option<Crashed> {
+        let (dir, home, stand) = own_engine(test)?;
+        let (compiled, run, first) = crashed_after_probe_cleanup(dir.path(), &home);
+        Some(Crashed {
+            dir,
+            home,
+            _stand: stand,
+            compiled,
+            run,
+            first,
+        })
+    }
+
+    /// The run resumed and driven a second after the fixture's base.
+    pub(super) fn resumed(&self) -> Engine {
+        let at = base() + time::Duration::seconds(1);
+        driven(self.dir.path(), self.compiled.clone(), &self.run, at)
+    }
 }
 
 /// A clock that reads `now` and panics once the probe's done marker exists:

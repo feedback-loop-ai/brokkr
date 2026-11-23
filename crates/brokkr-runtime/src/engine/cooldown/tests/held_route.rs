@@ -363,9 +363,15 @@ fn a_settled_refusal_that_parks_without_a_renewal_ends_its_hold() {
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
     let reason = park_reason(&engine);
     assert!(reason.contains("was refused: auth failed"), "{reason}");
+    its_one_hold_ended(&engine, &gates, probe_at);
+}
+
+/// The probe wrote one hold and ended it, and both production gates admit
+/// on the route at `at`.
+pub(super) fn its_one_hold_ended(engine: &Engine, gates: &Shared, at: OffsetDateTime) {
     let journal = engine.store.path();
     assert_eq!((holds_written(journal), unended_holds(journal)), (1, 0));
-    assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
+    assert_eq!(legs(gates, at), [Ok(()), Ok(())]);
 }
 
 /// An answered probe ends its own hold: the route reads cooling down while

@@ -53,11 +53,7 @@ impl Engine {
     /// stands: a crashed probe's reservation. None where no coordination
     /// root is protected (C1) or nothing stands.
     fn orphan_at(&self, observed: &Observed, events: &[EventEnvelope]) -> Option<Unknown> {
-        let root = observed.home.as_deref().and_then(observed.open)?;
-        let (_, repo) = keyed(&self.workdir()).ok()?;
-        let deadline = startup(Instant::now(), Duration::MAX);
-        let _lock = locked(root.dir(), deadline).ok()?;
-        let reservation = standing(&root, [&repo, &self.run_id]).ok().flatten()?;
+        let reservation = self.own_reservation(observed)?;
         let attempt = orphans(reservation.attempts.into_keys(), events)
             .into_iter()
             .next()?;
@@ -142,16 +138,23 @@ impl Engine {
     /// is protected, no reservation stands, or it cannot be read: nothing
     /// is proven then, and every hold stands.
     pub(in crate::engine) fn settled_attempts(&self, observed: &Observed) -> Vec<String> {
-        let settled = || {
-            let root = observed.home.as_deref().and_then(observed.open)?;
-            let (_, repo) = keyed(&self.workdir()).ok()?;
-            let deadline = startup(Instant::now(), Duration::MAX);
-            let _lock = locked(root.dir(), deadline).ok()?;
-            standing(&root, [&repo, &self.run_id]).ok().flatten()
-        };
-        settled().map_or_else(Vec::new, |reservation| {
+        let reservation = self.own_reservation(observed);
+        reservation.map_or_else(Vec::new, |reservation| {
             reservation.settled.into_iter().collect()
         })
+    }
+
+    /// The run's own reservation in the coordination root `observed`
+    /// resolves, read under the admission lock: the one read a crashed
+    /// probe's orphan and the reaper's settled attempts are both taken
+    /// from. None where no root is protected, or the worktree, the lock or
+    /// the reservation cannot be read, or none stands.
+    fn own_reservation(&self, observed: &Observed) -> Option<Reservation> {
+        let root = observed.home.as_deref().and_then(observed.open)?;
+        let (_, repo) = keyed(&self.workdir()).ok()?;
+        let deadline = startup(Instant::now(), Duration::MAX);
+        let _lock = locked(root.dir(), deadline).ok()?;
+        standing(&root, [&repo, &self.run_id]).ok().flatten()
     }
 }
 

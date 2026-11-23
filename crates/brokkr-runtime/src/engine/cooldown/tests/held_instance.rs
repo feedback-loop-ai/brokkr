@@ -6,7 +6,7 @@
 //! the crashed instance's, which stands, named by its attempt, until a
 //! settlement ends it.
 
-use super::crash::{crashed_after_probe_cleanup, crashing_clock, driven, own_engine};
+use super::crash::{crashing_clock, Crashed};
 use super::held_route::{hold_end_of, holds_written, legs, probing, unended_holds};
 use super::*;
 
@@ -80,14 +80,13 @@ fn in_force_words(store: &brokkr_store::Store) -> Vec<String> {
 #[test]
 fn the_restarted_engines_reaper_ends_the_hold_of_a_crashed_probe_its_records_prove() {
     let test = "engine::cooldown::tests::held_instance::the_restarted_engines_reaper_ends_the_hold_of_a_crashed_probe_its_records_prove";
-    let Some((dir, home, _stand)) = own_engine(test) else {
+    let Some(crashed) = Crashed::in_its_own_engine(test) else {
         return;
     };
-    let (compiled, run, first) = crashed_after_probe_cleanup(dir.path(), &home);
-    let journal = dir.path().join("forge.db");
+    let journal = crashed.dir.path().join("forge.db");
     let mut store = brokkr_store::Store::open(&journal).unwrap();
     let unproven = brokkr_store::ProbeHold {
-        run_id: &run,
+        run_id: &crashed.run,
         attempt_id: "unproven",
         site: "",
         provider: "codex",
@@ -97,21 +96,15 @@ fn the_restarted_engines_reaper_ends_the_hold_of_a_crashed_probe_its_records_pro
     store.hold_probe(&unproven, base()).unwrap();
     let standing = in_force_words(&store);
     assert_eq!(standing.len(), 2, "{standing:?}");
-    let named = format!("(attempt {first})");
+    let named = format!("(attempt {})", crashed.first);
     assert!(standing[0].contains(&named), "{standing:?}");
-    assert_eq!(unended_attempts(&journal), [first, "unproven".into()]);
+    let both = [crashed.first.clone(), "unproven".into()];
+    assert_eq!(unended_attempts(&journal), both);
     drop(store);
 
-    driven(
-        dir.path(),
-        compiled,
-        &run,
-        base() + time::Duration::seconds(1),
-    );
-    assert_eq!(
-        logs(dir.path(), "work"),
-        ["probe", "probe", "attempt:succeed"]
-    );
+    crashed.resumed();
+    let probed = ["probe", "probe", "attempt:succeed"];
+    assert_eq!(logs(crashed.dir.path(), "work"), probed);
     assert_eq!(unended_attempts(&journal), ["unproven"]);
     let standing = in_force_words(&brokkr_store::Store::open(&journal).unwrap());
     assert_eq!(standing.len(), 1, "{standing:?}");
@@ -124,11 +117,10 @@ fn the_restarted_engines_reaper_ends_the_hold_of_a_crashed_probe_its_records_pro
 #[test]
 fn a_hold_the_reaper_cannot_end_parks_the_resume_and_stands() {
     let test = "engine::cooldown::tests::held_instance::a_hold_the_reaper_cannot_end_parks_the_resume_and_stands";
-    let Some((dir, home, _stand)) = own_engine(test) else {
+    let Some(crashed) = Crashed::in_its_own_engine(test) else {
         return;
     };
-    let (compiled, run, first) = crashed_after_probe_cleanup(dir.path(), &home);
-    let journal = dir.path().join("forge.db");
+    let journal = crashed.dir.path().join("forge.db");
     rusqlite::Connection::open(&journal)
         .unwrap()
         .execute_batch(
@@ -136,20 +128,15 @@ fn a_hold_the_reaper_cannot_end_parks_the_resume_and_stands() {
              BEGIN SELECT RAISE(ABORT, 'forced probe_holds failure'); END;",
         )
         .unwrap();
-    let resumed = driven(
-        dir.path(),
-        compiled,
-        &run,
-        base() + time::Duration::seconds(1),
+    let reason = park_reason(&crashed.resumed());
+    assert_eq!(logs(crashed.dir.path(), "work"), ["probe"]);
+    let unreaped = format!(
+        "the cool-down probe holds of run {} whose attempts are settled could not be ended",
+        crashed.run
     );
-    assert_eq!(logs(dir.path(), "work"), ["probe"]);
-    let reason = park_reason(&resumed);
     assert!(
-        reason.contains(&format!(
-            "the cool-down probe holds of run {run} whose attempts are settled could not be \
-             ended"
-        )) && reason.contains("forced probe_holds failure"),
+        reason.contains(&unreaped) && reason.contains("forced probe_holds failure"),
         "{reason}"
     );
-    assert_eq!(unended_attempts(&journal), [first]);
+    assert_eq!(unended_attempts(&journal), [crashed.first]);
 }

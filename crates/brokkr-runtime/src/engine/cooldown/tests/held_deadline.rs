@@ -17,7 +17,8 @@
 use std::path::PathBuf;
 
 use super::held_route::{
-    deadline_of, holds_written, legs, parked_before_any_probe, probing, slicing, unended_holds,
+    deadline_of, holds_written, its_one_hold_ended, legs, parked_before_any_probe, probing,
+    slicing, unended_holds,
 };
 use super::held_wait::standing;
 use super::*;
@@ -83,9 +84,7 @@ fn a_probe_paused_past_its_deadline_at(read: usize) {
             crate::admission::spelled(deadline)
         )
     );
-    let journal = engine.store.path();
-    assert_eq!((holds_written(journal), unended_holds(journal)), (1, 0));
-    assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
+    its_one_hold_ended(&engine, &gates, probe_at);
 }
 
 /// Paused before its spawn begins, the probe composes no spawn.

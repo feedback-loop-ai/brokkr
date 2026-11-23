@@ -183,16 +183,15 @@ fn a_settlement_ends_the_holds_of_the_attempts_it_proves_and_no_other() {
     store
         .settle_probe_holds("run-a", &["a-1".into(), "a-9".into()], at(5))
         .unwrap();
-    let standing: Vec<(String, String)> = store
-        .conn
-        .prepare("SELECT run_id, attempt_id FROM probe_holds WHERE ended_at IS NULL ORDER BY seq")
-        .unwrap()
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-    let pair = |run: &str, attempt: &str| (run.to_string(), attempt.to_string());
-    assert_eq!(standing, [pair("run-a", "a-2"), pair("run-b", "a-1")]);
+    let in_force = store.cooldowns_in_force(at(10)).unwrap();
+    let reasons: Vec<String> = in_force.into_iter().map(|hold| hold.reason).collect();
+    let words = |run: &str, attempt: &str| {
+        format!(
+            "a cool-down probe of run {run} (attempt {attempt}) holds the route until it \
+             answers, its renewed cool-down commits, or its process tree is settled"
+        )
+    };
+    assert_eq!(reasons, [words("run-a", "a-2"), words("run-b", "a-1")]);
     store
         .conn
         .execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
