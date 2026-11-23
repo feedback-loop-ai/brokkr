@@ -1,5 +1,5 @@
 //! Built-in driver adapters:
-//! `brokkr driver <claude|lanetally|codex|dsh|exec>`.
+//! `brokkr driver <claude|lanetally|codex|dsh|qoder|agy|exec>`.
 //!
 //! The Rust port of the retired Python adapters (decision 0009) — same
 //! protocol behavior, same prompt composition, same result-file
@@ -19,6 +19,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
 
+mod agy;
 pub mod capability_calls;
 mod claude_fold;
 mod codex;
@@ -28,6 +29,7 @@ mod dsh_effort;
 mod dsh_hands;
 mod dsh_launch;
 mod dsh_stderr;
+mod escapes;
 mod exec;
 mod lost;
 mod mcp;
@@ -38,9 +40,11 @@ mod refusal;
 mod round430_tests;
 mod route_overlay;
 mod served_route;
+mod serving_shape;
 mod spawn;
 mod start;
 mod stderr;
+mod stream_turn;
 // Design D6 (b) seals the producer: the seams, the structured
 // observation, its error and the one entry point. Every parser, hasher,
 // serializer and injected helper stays private to `composite`, so no
@@ -53,6 +57,7 @@ pub use dsh_hands::ACCESS;
 pub use mcp::{harness_auth, HarnessAuthError, StrictCause};
 pub(crate) use served_route::route_form;
 pub use served_route::split_route;
+pub(crate) use serving_shape::ServingShape;
 
 use crate::dsh_sandbox;
 use crate::hands::GitFacts;
@@ -72,7 +77,7 @@ use refusal::{
     bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
     epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
-use spawn::{spawn_harness, Spawned};
+use spawn::{spawn_fed, spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
@@ -118,6 +123,9 @@ probe::adapter_kinds! {
     /// Qoder CLI, a provisional harness at level 1 (#1178; decision 0075):
     /// unboxed, never a gate, and never resumed.
     Qoder => "qoder",
+    /// Antigravity CLI, a provisional harness at level 1 (#1200; decision
+    /// 0075): unboxed, never a gate, never resumed, under the engine's HOME.
+    Agy => "agy",
     Exec => "exec",
 }
 
@@ -136,11 +144,12 @@ impl AdapterKind {
     /// which is issue #226's complaint. Exec declares none: it has no
     /// model turn and no provider to hold a session. Qoder declares none
     /// either: its seat runs `--no-session-persistence`, so there is no
-    /// session to be told about (#1178). A driver that does not declare
-    /// receipt is never handed a handle, by any channel.
+    /// session to be told about (#1178). Agy declares none: its HOME is the
+    /// engine's for one turn, so no conversation outlives it (#1200). A
+    /// driver that does not declare receipt is never handed a handle.
     fn supports(&self) -> Vec<String> {
         match self {
-            Self::Exec | Self::Qoder => Vec::new(),
+            Self::Exec | Self::Qoder | Self::Agy => Vec::new(),
             Self::Claude | Self::Lanetally | Self::Codex | Self::Dsh => vec!["resume".into()],
         }
     }
@@ -155,6 +164,7 @@ impl AdapterKind {
             AdapterKind::Codex => "codex".to_string(),
             AdapterKind::Dsh => "deepseek-harness".to_string(),
             AdapterKind::Qoder => "qoder-cli".to_string(),
+            AdapterKind::Agy => "agy-cli".to_string(),
             // A name the reader refuses labels the driver `exec`, and
             // `run_seat` refuses every start on it by that name.
             AdapterKind::Exec => crate::overrides::read(Override::ExecName)
@@ -522,7 +532,8 @@ struct Invocation {
     refusal: Option<PreSessionRefusal>,
     /// A probe's first answer, and the only one this invocation admits
     /// (decision 0103 ruling 4(a)). `None` on every ordinary attempt and
-    /// on a probe that ended without one.
+    /// on a probe that ended without one, but an agy seat's, which carries
+    /// the response its fold accepted, masked, and is not read (#1200 J7).
     answer: Option<Value>,
     /// How this invocation ended against the session it was launched for
     /// (proposed decision 0056 ruling 7, design D7). `run_seat` refuses
@@ -783,26 +794,6 @@ fn spawn_piped(
     spawn_harness(command, workdir, piped(), piped(), &[], bindings)
 }
 
-/// Spawn a harness with `prompt` on its stdin, its stdin closed, and its
-/// stderr drained on its own thread. The two stream folds share this
-/// prologue so neither can differ from the other in how it feeds a child.
-fn spawn_fed(
-    command: &[String],
-    prompt: &str,
-    workdir: &str,
-    bindings: &[secret::BoundSecret],
-) -> Result<(Spawned, StderrCapture), String> {
-    let mut child = spawn_piped(command, workdir, bindings)?;
-    let mut stdin = child.stdin.take().expect("piped");
-    io_context(
-        stdin.write_all(prompt.as_bytes()),
-        "could not write the prompt",
-    )?;
-    drop(stdin);
-    let stderr = drain_stderr(&mut child);
-    Ok((child, stderr))
-}
-
 /// End a probe's harness at its first answer and reap it. A harness that
 /// ended on its own is reaped just the same, so the answer stands whichever
 /// way it ended (decision 0103 ruling 4(a)). Its stderr is not waited for:
@@ -815,11 +806,13 @@ fn stop_harness(child: &mut Spawned) -> std::io::Result<std::process::ExitStatus
     child.wait()
 }
 
-/// [`stop_harness`] at the ONE existing text boundary: every stopped route
-/// converts its typed wait failure here, so the operator's words have one
-/// home (#430 L3; decision 0071 rulings 5 and 8).
+/// [`stop_harness`] at a text boundary: a stopped route converts its typed
+/// wait failure with the one prefix, [`stream_turn::UNCONCLUDED`], here or,
+/// for a route that stops through `stream_turn` (agy), in its typed
+/// `Unconcluded`, so the operator's words have one home (#430 L3;
+/// decision 0071 rulings 5 and 8).
 fn conclude_harness(child: &mut Spawned) -> Result<std::process::ExitStatus, String> {
-    io_context(stop_harness(child), "agent CLI did not conclude")
+    io_context(stop_harness(child), stream_turn::UNCONCLUDED)
 }
 
 fn run_cli(
@@ -835,7 +828,7 @@ fn run_cli(
     } else {
         drop(child.stdin.take());
     }
-    io_context(child.wait_with_output(), "agent CLI did not conclude")
+    io_context(child.wait_with_output(), stream_turn::UNCONCLUDED)
 }
 
 // ---------------------------------------------------------------------
@@ -2404,7 +2397,7 @@ fn poll_until_exit(
     mut drain: impl FnMut() -> bool,
 ) -> Result<i32, String> {
     loop {
-        let finished = io_context(wait(child), "agent CLI did not conclude")?;
+        let finished = io_context(wait(child), stream_turn::UNCONCLUDED)?;
         if drain() {
             return Ok(lost::exit_code(conclude_harness(child)?));
         }
@@ -2517,7 +2510,7 @@ fn invoke_stream_json(
         let status = if stopped {
             conclude_harness(&mut child)?
         } else {
-            io_context(child.wait(), "agent CLI did not conclude")?
+            io_context(child.wait(), stream_turn::UNCONCLUDED)?
         };
         transcript.finish(&mut session_meta, &mut watch);
         status
@@ -3224,30 +3217,7 @@ pub(crate) fn serving_command(
             Ok(command)
         }
         ServingShape::Qoder => Err("a qoder command, which no modelled grammar reads back"),
-    }
-}
-
-/// The serving command shapes the built-in drivers spawn, one per builder
-/// [`serving_command`] calls and Qoder's, composed whole in its fragment's one
-/// home (#1178). LaneTally is served Claude's. `exec` and an opaque driver have
-/// none ([`crate::native_controls::grammar::grammar`] models no grammar of theirs).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ServingShape {
-    Claude,
-    Codex,
-    Dsh,
-    Qoder,
-}
-
-impl ServingShape {
-    pub(crate) fn of(harness: &str) -> Option<ServingShape> {
-        match harness {
-            "claude" | "lanetally" => Some(ServingShape::Claude),
-            "codex" => Some(ServingShape::Codex),
-            "dsh" => Some(ServingShape::Dsh),
-            "qoder" => Some(ServingShape::Qoder),
-            _ => None,
-        }
+        ServingShape::Agy => Err("an agy command, which no modelled grammar reads back"),
     }
 }
 
@@ -3727,7 +3697,7 @@ fn invoke_codex(
         if stopped {
             conclude_harness(&mut child)?
         } else {
-            io_context(child.wait(), "agent CLI did not conclude")?
+            io_context(child.wait(), stream_turn::UNCONCLUDED)?
         }
     };
     let captured = stderr_thread.take(stopped);
@@ -5548,6 +5518,7 @@ fn invoke_with_stager(
         AdapterKind::Qoder => {
             qoder::drive(bin, extra, session.is_some(), prompt, input, bindings, emit)
         }
+        AdapterKind::Agy => agy::drive(pinned, session.is_some(), prompt, input, bindings, emit),
         AdapterKind::Exec => {
             exec::invoke_exec(extra, prompt, &workdir, input, bindings, emit, stage)
         }
@@ -6922,6 +6893,10 @@ fn serve_with(
 /// The adapter main loop over the process's stdio. On Linux the driver is its
 /// harness tree's subreaper, and its reaper starts first (#1133).
 pub fn serve(kind: AdapterKind, extra: Vec<String>, confine: Confine) -> std::io::Result<()> {
+    // The agy driver's gate mode answers one hook call and serves nothing.
+    if let Some(listed) = agy::gate_listed(kind, &extra) {
+        return agy::gate(listed, std::io::stdin().lock(), std::io::stdout());
+    }
     #[cfg(target_os = "linux")]
     crate::process::reaper::start();
     let input = std::io::stdin().lock();

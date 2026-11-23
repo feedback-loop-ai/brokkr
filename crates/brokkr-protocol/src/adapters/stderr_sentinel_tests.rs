@@ -39,6 +39,18 @@ fn staged(kind: AdapterKind, child: &mut Command, dir: &Path, shim: &Path) -> Ve
             child.env("BROKKR_QODER_BIN", qoder(dir, shim));
             vec!["-m".to_string(), "Fast".to_string()]
         }
+        AdapterKind::Agy => {
+            // Init and result, and no folded turn: a refusal behind a turn
+            // agy folded is sent no result (#1200 K8), and this test reads
+            // the result every model harness sends.
+            let home = super::agy::tests::operator_home(dir);
+            let lines: Vec<&str> = super::agy::tests::TOOL_LESS.lines().collect();
+            let rows = format!("{}\n{}\n", lines[0], lines[lines.len() - 1]);
+            child
+                .env("BROKKR_AGY_BIN", prefixed(dir, shim, &rows, "agy"))
+                .env("HOME", home);
+            pinned(super::agy::tests::FLASH)
+        }
         AdapterKind::Exec => vec![shim.to_string_lossy().into_owned()],
     }
 }
@@ -47,14 +59,20 @@ fn staged(kind: AdapterKind, child: &mut Command, dir: &Path, shim: &Path) -> Ve
 /// and result rows on its stdout, then runs `shim` as the rest of itself.
 fn qoder(dir: &Path, shim: &Path) -> PathBuf {
     let rows = super::qoder::tests::tool_less_rows();
-    let stdout = dir.join("qoder-stdout");
+    prefixed(dir, shim, &rows, "qodercli")
+}
+
+/// A harness `name` that prints `rows` on its stdout, then runs `shim` as
+/// the rest of itself.
+fn prefixed(dir: &Path, shim: &Path, rows: &str, name: &str) -> PathBuf {
+    let stdout = dir.join(format!("{name}-stdout"));
     std::fs::write(&stdout, rows).unwrap();
     let body = format!(
         "#!/bin/sh\ncat '{}'\nexec '{}'\n",
         stdout.display(),
         shim.display()
     );
-    executable(dir, "qodercli", &body)
+    executable(dir, name, &body)
 }
 
 /// A harness that marks it ran, writes the sentinel only to its stderr,
@@ -110,6 +128,10 @@ fn driver(kind: AdapterKind) -> Command {
 
 fn served(mut child: Command, extra: &[String], input: Value) -> Output {
     let (hello, start) = start::hello_and_start(input);
+    // The driver inherits this process's environment, so it is read under
+    // the guard: no concurrent test's `PATH`, which the staged harnesses
+    // need to find `cat`, reaches it.
+    let _env = crate::env_guard::EnvGuard::lock();
     let mut child = child
         .env(ARGS, serde_json::to_string(extra).unwrap())
         .spawn()

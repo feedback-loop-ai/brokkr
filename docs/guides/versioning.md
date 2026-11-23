@@ -312,9 +312,10 @@ current names.
 
 - **Environment overrides.** `BROKKR_CLAUDE_BIN`, `BROKKR_LANETALLY_BIN`,
   `BROKKR_CODEX_BIN`, `BROKKR_DSH_BIN`, `BROKKR_QODER_BIN`,
-  `BROKKR_EXEC_NAME` and `BROKKR_BROWSER_BIN` are the only names that
-  configure anything. `BROKKR_QODER_BIN` came after the rename and has no
-  pre-rename spelling. A pre-rename spelling set where its current name
+  `BROKKR_AGY_BIN`, `BROKKR_EXEC_NAME` and `BROKKR_BROWSER_BIN` are the
+  only names that configure anything. `BROKKR_QODER_BIN` and
+  `BROKKR_AGY_BIN` came after the rename and have no pre-rename
+  spelling. A pre-rename spelling set where its current name
   is not is refused by both names: the seat fails to start, `brokkr doctor` reports the DSH
   selection refused, and `brokkr system ui` opens no browser. Nothing runs in
   its place. The prefix is no longer denied as a secret name, since a

@@ -5,7 +5,8 @@
 //! neither from the bytes either emits.
 
 use super::*;
-use crate::agents::{McpAxis, McpHands, McpHost, McpInvocation, McpShape, McpUnmeasured};
+use crate::agents::McpUnmeasured;
+use crate::agents::{McpAxis, McpHands, McpHost, McpInvocation, McpShape, McpSupport};
 use crate::bundle::mcp::{InlineServing, McpIntent};
 use crate::capabilities::McpFence;
 use brokkr_protocol::native_controls::HandsIntent;
@@ -1769,3 +1770,5 @@ fn an_inline_site_is_served_with_its_own_adapters_authentication_names() {
         [lost(&binding::collides("DOCS_TOKEN")), lost(binding::MCP)]
     );
 }
+
+mod agy_tests;
