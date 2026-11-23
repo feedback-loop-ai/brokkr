@@ -99,6 +99,7 @@ fn a_route_a_probe_holds_again_admits_nothing_after_the_first_rows_end() {
         provider: "claude".into(),
         route: "first".into(),
         until: held,
+        probe: false,
         words: "rate_limit: slow down".into(),
     });
     // The production pass and claim, their room taken where the round has

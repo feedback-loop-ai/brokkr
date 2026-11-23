@@ -407,6 +407,7 @@ pub brokkr_store::Claiming::generation: brokkr_store::Generation
 pub brokkr_store::Claiming::high_water: i64
 pub brokkr_store::Claiming::now: time::offset_date_time::OffsetDateTime
 pub struct brokkr_store::Cooldown
+pub brokkr_store::Cooldown::probe: bool
 pub brokkr_store::Cooldown::provider: alloc::string::String
 pub brokkr_store::Cooldown::reason: alloc::string::String
 pub brokkr_store::Cooldown::recorded_at: time::offset_date_time::OffsetDateTime

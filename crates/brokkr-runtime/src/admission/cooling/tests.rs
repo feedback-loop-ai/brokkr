@@ -100,6 +100,7 @@ fn cooling(provider: &str, route: &str, until: OffsetDateTime, words: &str) -> R
         provider: provider.into(),
         route: route.into(),
         until,
+        probe: false,
         words: words.into(),
     })
 }
@@ -164,6 +165,44 @@ fn a_cooling_entry_is_not_admitted_and_its_lane_never_latches() {
         format!(
             "provider beta is cooling on route cloud until {}: {words}",
             until.format(&Rfc3339).unwrap()
+        )
+    );
+}
+
+/// A probe's hold read a day past its probe's deadline still holds the
+/// lane, and its refusal names that time as the probe's deadline, saying
+/// no time ends the hold, never that the route cools "until" a time
+/// already gone (the return of fix round 0106b1r12).
+#[test]
+fn a_probe_holds_refusal_names_its_deadline_and_no_time_that_ends_it() {
+    let (mut fixture, file) = refused(&[]);
+    stopped_run(&mut fixture.store, "run-probe");
+    let hold = brokkr_store::ProbeHold {
+        run_id: "run-probe",
+        attempt_id: "a-1",
+        site: "",
+        provider: "beta",
+        route: "cloud",
+        deadline: at(30),
+    };
+    fixture.store.hold_probe(&hold, base()).unwrap();
+    let words = "a cool-down probe of run run-probe (attempt a-1) holds the route until it \
+                 answers, its renewed cool-down commits, or its process tree is settled";
+    let reasons = reasons_at(&fixture, &file, at(86_400));
+    let probing = Reason::Capacity(Capacity::CoolingDown {
+        provider: "beta".into(),
+        route: "cloud".into(),
+        until: at(31),
+        probe: true,
+        words: words.into(),
+    });
+    assert_eq!(reasons, vec![vec![probing]]);
+    assert_eq!(
+        reasons[0][0].to_string(),
+        format!(
+            "provider beta is held on route cloud by a cool-down probe whose deadline is {}, \
+             and no time ends that hold: {words}",
+            at(31).format(&Rfc3339).unwrap()
         )
     );
 }

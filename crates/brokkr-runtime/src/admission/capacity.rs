@@ -131,6 +131,10 @@ pub enum Capacity {
         provider: String,
         route: String,
         until: Stamp,
+        /// Whether a probe's hold stands at `until`: then it is the probe's
+        /// deadline, and no time ends the hold (the return of fix round
+        /// 0106b1r12).
+        probe: bool,
         words: String,
     },
 }

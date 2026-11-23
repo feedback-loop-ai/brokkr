@@ -64,6 +64,12 @@ pub struct Cooldown {
     pub retry_after_seconds: Option<u64>,
     pub rounds: u64,
     pub recorded_at: OffsetDateTime,
+    /// Whether the row is a probe's hold on its route (fix round
+    /// 0106b1r4, F1): no time ends it, only its answer, its renewed round
+    /// or its tree's settlement, so `until_at` is its probe's deadline, a
+    /// readout, never when the route opens (the return of fix round
+    /// 0106b1r12). A `provider_cooldowns` row is never one.
+    pub probe: bool,
 }
 
 /// The aggregate one provider and route stands at, at an instant: the
@@ -376,6 +382,7 @@ impl Raw {
             retry_after_seconds: self.retry_after.map(|retry| retry as u64),
             rounds: self.rounds as u64,
             recorded_at: time_of(self.recorded, self.seq)?,
+            probe: false,
         })
     }
 }

@@ -87,10 +87,14 @@ fn a_refusal_committed_between_the_pass_reads_leaves_its_route_cooling_down() {
     let words = "a cool-down probe of run run-probe (attempt p-1) holds the route until it \
                  answers, its renewed cool-down commits, or its process tree is settled";
     assert!(judged[0].room.is_none(), "the pass offered room");
-    assert_eq!(
-        verdicts(judged),
-        vec![vec![cooling("beta", "cloud", at(31), words)]]
-    );
+    let probing = Reason::Capacity(Capacity::CoolingDown {
+        provider: "beta".into(),
+        route: "cloud".into(),
+        until: at(31),
+        probe: true,
+        words: words.into(),
+    });
+    assert_eq!(verdicts(judged), vec![vec![probing]]);
     // The claim, after it, reads the renewed row.
     match (room.claim_at(&mut fixture.store, Generation(1), "admitted", base())).unwrap() {
         Err(reason) => assert_eq!(reason, cooling("beta", "cloud", renewed, "renewed")),

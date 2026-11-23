@@ -96,6 +96,7 @@ impl HoldRow {
             // A hold is no round of any episode.
             rounds: 0,
             recorded_at: time_of(self.recorded, self.seq)?,
+            probe: true,
         })
     }
 }

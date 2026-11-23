@@ -128,6 +128,7 @@ fn a_probe_hold_is_in_force_until_it_ends_whatever_the_time() {
             retry_after_seconds: None,
             rounds: 0,
             recorded_at: at(0),
+            probe: true,
         }]
     );
     let year = 365 * 24 * 3600;

@@ -1346,6 +1346,7 @@ fn every_capacity_reason_has_its_word() {
             provider: "p".into(),
             route: "r".into(),
             until: Stamp::UNIX_EPOCH,
+            probe: false,
             words: "w".into(),
         },
     ];

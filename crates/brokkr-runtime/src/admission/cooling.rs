@@ -31,6 +31,7 @@ pub(super) struct Cooling {
 /// last (the later row where two end together).
 struct Held {
     until: OffsetDateTime,
+    probe: bool,
     words: String,
 }
 
@@ -52,6 +53,7 @@ impl Cooling {
                     row.route.clone(),
                     Held {
                         until: row.until_at,
+                        probe: row.probe,
                         words: row.reason.clone(),
                     },
                 );
@@ -76,6 +78,7 @@ impl Cooling {
                 provider: lane.provider.clone(),
                 route: route.clone(),
                 until: held.until,
+                probe: held.probe,
                 words: held.words.clone(),
             });
         }
@@ -102,19 +105,29 @@ impl Leg<'_> {
 
 /// The reason's text, naming the provider, route, end and the provider's
 /// words. An end no RFC 3339 text can spell is named by its whole second
-/// instead, so printing a refusal never panics.
+/// instead, so printing a refusal never panics. A probe's hold (`probe`)
+/// names its time as the probe's deadline and says no time ends it, for
+/// only its answer, renewed round or settlement does (the return of fix
+/// round 0106b1r12).
 pub(super) fn word(
     f: &mut fmt::Formatter<'_>,
-    provider: &str,
-    route: &str,
+    (provider, route): (&str, &str),
     until: OffsetDateTime,
+    probe: bool,
     words: &str,
 ) -> fmt::Result {
-    write!(
-        f,
-        "provider {provider} is cooling on route {route} until {}: {words}",
-        spelled(until)
-    )
+    let until = spelled(until);
+    match probe {
+        true => write!(
+            f,
+            "provider {provider} is held on route {route} by a cool-down probe whose deadline is \
+             {until}, and no time ends that hold: {words}"
+        ),
+        false => write!(
+            f,
+            "provider {provider} is cooling on route {route} until {until}: {words}"
+        ),
+    }
 }
 
 /// `at` as RFC 3339, written by core's one stamp writer (the readouts'
