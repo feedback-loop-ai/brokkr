@@ -181,3 +181,18 @@ pub(super) fn unmerged(f: &mut fmt::Formatter<'_>, wait: &Wait, run: &str) -> fm
         wait.entry
     )
 }
+
+pub(super) fn unstarted(f: &mut fmt::Formatter<'_>, wait: Option<&Wait>, run: &str) -> fmt::Result {
+    match wait {
+        Some(wait) => write!(
+            f,
+            "waits on {wait}: its run '{run}' was never started, a row an older brokkr left \
+             with no run/started"
+        ),
+        None => write!(
+            f,
+            "run '{run}' was never started, a row an older brokkr left with no run/started: \
+             it spawned nothing, and counts against no ceiling"
+        ),
+    }
+}

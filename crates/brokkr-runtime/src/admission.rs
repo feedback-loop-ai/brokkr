@@ -66,7 +66,7 @@ mod cooling;
 mod governing;
 mod host;
 
-use awaited::{awaiting, came_to, observe, otherwise, unmerged};
+use awaited::{awaiting, came_to, observe, otherwise, unmerged, unstarted};
 
 pub(crate) use capacity::Unclaimed;
 pub use capacity::{Capacity, Host, Measured, Room, Shared, Unmeasurable};
@@ -203,38 +203,12 @@ impl fmt::Display for Reason {
                 realm,
                 differences,
                 moved,
-            } => {
-                let since = match moved {
-                    true => {
-                        "; the map on disk has changed since, and `brokkr queue judge` latches \
-                         what it finds now"
-                    }
-                    false => "",
-                };
-                write!(
-                    f,
-                    "realm {realm} changed since queued, latched until the operator re-pins, \
-                     re-queues or drops it: {}{since}",
-                    found(differences)
-                )
-            }
+            } => latched(f, realm, differences, *moved),
             Reason::MapUnreadable(detail) => write!(
                 f,
                 "the realms map it was queued under cannot be read now: {detail}"
             ),
-            Reason::UnstartedRun {
-                wait: Some(wait),
-                run,
-            } => write!(
-                f,
-                "waits on {wait}: its run '{run}' was never started, a row an older brokkr left \
-                 with no run/started"
-            ),
-            Reason::UnstartedRun { wait: None, run } => write!(
-                f,
-                "run '{run}' was never started, a row an older brokkr left with no run/started: \
-                 it spawned nothing, and counts against no ceiling"
-            ),
+            Reason::UnstartedRun { wait, run } => unstarted(f, wait.as_ref(), run),
             Reason::DispatchEnvelope => write!(
                 f,
                 "queued with --dispatch: its run would be a run-manifest/v2, which carries no \
@@ -243,6 +217,27 @@ impl fmt::Display for Reason {
             Reason::Capacity(capacity) => write!(f, "{capacity}"),
         }
     }
+}
+
+fn latched(
+    f: &mut fmt::Formatter<'_>,
+    realm: &str,
+    differences: &[Difference],
+    moved: bool,
+) -> fmt::Result {
+    let since = match moved {
+        true => {
+            "; the map on disk has changed since, and `brokkr queue judge` latches \
+             what it finds now"
+        }
+        false => "",
+    };
+    write!(
+        f,
+        "realm {realm} changed since queued, latched until the operator re-pins, \
+         re-queues or drops it: {}{since}",
+        found(differences)
+    )
 }
 
 /// Each difference, as an operator reads them in a line.
