@@ -2,8 +2,10 @@
 
 use serde_json::Value;
 
+use super::plain_thread_id;
 use super::refusal::{bounded_wire_line, REFUSAL_TOKEN_LIMIT};
 use crate::secret::{self, BoundSecret};
+use crate::PreSessionRefusal;
 
 pub(super) struct Row<'a> {
     raw: &'a Value,
@@ -69,6 +71,10 @@ impl<'a> Row<'a> {
             .find_map(|&(key, kind)| (word == key).then_some(kind))
     }
 
+    pub(super) fn ident(&self, path: &str) -> Option<Ident> {
+        Some(Ident(self.string(path)?.to_owned()))
+    }
+
     pub(super) fn text(&self, path: &str) -> Option<String> {
         Some(secret::mask_text(
             self.string(path)?.as_bytes(),
@@ -89,6 +95,82 @@ impl<'a> Row<'a> {
     fn string(&self, path: &str) -> Option<&'a str> {
         self.value(path)?.as_str()
     }
+}
+
+/// A raw session id is only compared. Its spelling never reaches the wire.
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct Ident(String);
+
+impl Ident {
+    pub(super) fn from_offered(handle: &str) -> Self {
+        Self(handle.to_owned())
+    }
+
+    pub(super) fn is_offered(&self, handle: &str) -> bool {
+        self.0 == handle
+    }
+
+    /// Admit only a plain thread to the rollout walk, independently of
+    /// whether its file has appeared yet.
+    pub(super) fn for_rollout(id: Self) -> Option<Self> {
+        plain_thread_id(&id.0).then_some(id)
+    }
+
+    pub(super) fn names_rollout(&self, name: &str) -> bool {
+        plain_thread_id(&self.0)
+            && name.match_indices(&self.0).any(|(at, _)| {
+                let before = name[..at].chars().next_back();
+                let after = name[at + self.0.len()..].chars().next();
+                !before.is_some_and(|c| c.is_ascii_alphanumeric())
+                    && !after.is_some_and(|c| c.is_ascii_alphanumeric())
+            })
+    }
+}
+
+/// One announced id paired with the only spelling a checkpoint can show.
+pub(crate) struct CapturedId {
+    pub(super) ident: Ident,
+    pub(crate) display: String,
+}
+
+impl CapturedId {
+    fn read(row: &Row<'_>, path: &str) -> Option<Self> {
+        Some(Self {
+            ident: row.ident(path)?,
+            display: row.text(path)?,
+        })
+    }
+
+    pub(super) fn init(row: &Row<'_>) -> Option<Self> {
+        (row.is("/type", "system") && row.is("/subtype", "init"))
+            .then(|| Self::read(row, "/session_id"))
+            .flatten()
+    }
+
+    pub(super) fn claude(row: &Row<'_>) -> Option<Self> {
+        if row.is("/type", "result") {
+            Self::read(row, "/session_id")
+        } else {
+            Self::init(row)
+        }
+    }
+
+    pub(super) fn codex(row: &Row<'_>) -> Option<Self> {
+        if row.is("/type", "thread.started") {
+            Self::read(row, "/thread_id")
+        } else if row.is("/type", "result") {
+            Self::read(row, "/session_id")
+        } else {
+            None
+        }
+    }
+}
+
+/// Shared reads captured before the family fold takes its masked copy.
+pub(super) struct FoldInput<'a> {
+    pub(super) masked: &'a Value,
+    pub(super) refusal: Option<PreSessionRefusal>,
+    pub(super) identity: Option<CapturedId>,
 }
 
 #[cfg(test)]

@@ -1609,27 +1609,27 @@ fn the_codex_thread_echo_reads_the_last_model_and_effort_by_id_and_never_by_scan
     .unwrap();
 
     let mut echo = CodexThreadEcho::default();
-    echo.locate(home.path(), "0199mine");
+    echo.locate_unbound(home.path(), "0199mine");
     let (model, effort) = echo.echo();
     assert_eq!(model.as_deref(), Some("gpt-5.6-sol"));
     assert_eq!(effort.as_deref(), Some("xhigh"));
 
     // The other seat's thread is reachable by ITS id, and only by it.
     let mut other = CodexThreadEcho::default();
-    other.locate(home.path(), "0199other");
+    other.locate_unbound(home.path(), "0199other");
     assert_eq!(other.echo().0.as_deref(), Some("gpt-5.6-mini"));
     assert_eq!(other.echo().1.as_deref(), Some("minimal"));
 
     // An id nobody filed, an empty id, and a home with no sessions tree
     // at all each leave the record saying nothing rather than guessing.
     let mut missing = CodexThreadEcho::default();
-    missing.locate(home.path(), "0199absent");
+    missing.locate_unbound(home.path(), "0199absent");
     assert_eq!(missing.echo(), (None, None));
     let mut empty = CodexThreadEcho::default();
-    empty.locate(home.path(), "");
+    empty.locate_unbound(home.path(), "");
     assert_eq!(empty.echo(), (None, None));
     let mut homeless = CodexThreadEcho::default();
-    homeless.locate(std::path::Path::new("/nonexistent/codex-home"), "0199mine");
+    homeless.locate_unbound(std::path::Path::new("/nonexistent/codex-home"), "0199mine");
     assert_eq!(homeless.echo(), (None, None));
 
     // The walk is BOUNDED: a thread filed deeper than the depth allows
@@ -1643,20 +1643,20 @@ fn the_codex_thread_echo_reads_the_last_model_and_effort_by_id_and_never_by_scan
     )
     .unwrap();
     let mut too_deep = CodexThreadEcho::default();
-    too_deep.locate(home.path(), "0199deep");
+    too_deep.locate_unbound(home.path(), "0199deep");
     assert_eq!(too_deep.echo(), (None, None));
 
     // A file that is not a thread record does not answer for one.
     std::fs::write(dated.join("rollout-0199plain.txt"), "effort: high\n").unwrap();
     let mut wrong_suffix = CodexThreadEcho::default();
-    wrong_suffix.locate(home.path(), "0199plain");
+    wrong_suffix.locate_unbound(home.path(), "0199plain");
     assert_eq!(wrong_suffix.echo(), (None, None));
 
     // A thread record that names neither reports neither, rather than
     // the model or level of whatever else it could find.
     std::fs::write(dated.join("rollout-0199quiet.jsonl"), "{\"turn\":1}\n").unwrap();
     let mut quiet = CodexThreadEcho::default();
-    quiet.locate(home.path(), "0199quiet");
+    quiet.locate_unbound(home.path(), "0199quiet");
     assert_eq!(quiet.echo(), (None, None));
 }
 
@@ -1679,7 +1679,7 @@ fn a_thread_id_that_is_not_one_locates_nothing_and_a_fragment_claims_no_file() {
     // `contains`, each of these would read a thread it never opened.
     for fragment in ["0199", "199mine", "0199min", "99mi"] {
         let mut borrower = CodexThreadEcho::default();
-        borrower.locate(home.path(), fragment);
+        borrower.locate_unbound(home.path(), fragment);
         assert_eq!(
             borrower.echo(),
             (None, None),
@@ -1691,13 +1691,13 @@ fn a_thread_id_that_is_not_one_locates_nothing_and_a_fragment_claims_no_file() {
     // path, not a flag, not an unbounded string.
     for refused in ["../../etc", "-flag", "thread id", "a/b", &"a".repeat(129)] {
         let mut clamped = CodexThreadEcho::default();
-        clamped.locate(home.path(), refused);
+        clamped.locate_unbound(home.path(), refused);
         assert_eq!(clamped.echo(), (None, None), "{refused:?} must be refused");
     }
 
     // And the id codex actually announced still reads its own file.
     let mut mine = CodexThreadEcho::default();
-    mine.locate(home.path(), "0199mine");
+    mine.locate_unbound(home.path(), "0199mine");
     assert_eq!(mine.echo().1.as_deref(), Some("xhigh"));
 }
 
@@ -1715,7 +1715,7 @@ fn a_thread_filed_after_it_was_announced_is_still_found_on_a_later_turn() {
     // Announced with nothing on disk yet: this turn honestly reports no
     // effort rather than inventing one.
     let mut echo = CodexThreadEcho::default();
-    echo.locate(home.path(), "0199late");
+    echo.locate_unbound(home.path(), "0199late");
     assert_eq!(echo.echo(), (None, None));
 
     // The rollout lands mid-seat, and the next turn reads it.
@@ -1780,7 +1780,7 @@ fn a_codex_turn_takes_its_model_from_the_thread_record_when_the_stream_omits_it(
     .unwrap();
 
     let mut echo = CodexThreadEcho::default();
-    echo.locate(home.path(), "01a06c05-c0a6-7991-a277-652d17ace6a6");
+    echo.locate_unbound(home.path(), "01a06c05-c0a6-7991-a277-652d17ace6a6");
     let mut turn = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
@@ -3760,11 +3760,11 @@ fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(Some("2.1.266")));
     assert_eq!(
-        hold.confirm("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone())),
+        hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone())),
         Confirmation::Fresh
     );
     assert_eq!(
-        hold.confirm("a-child-session", &mut |row: &Emitted| rows
+        hold.confirm_unbound("a-child-session", &mut |row: &Emitted| rows
             .push(row.row.clone())),
         Confirmation::Fresh,
         "the latch answers with the outcome it already had"
@@ -3782,14 +3782,14 @@ fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
     // gets no offer.
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(None));
-    hold.confirm("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone()));
+    hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone()));
     assert_eq!(rows[0]["launch"], "cold");
     assert!(rows[0].get("root_session").is_none(), "{}", rows[0]);
 
     // Nor with a version the record's own grammar cannot hold.
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(Some("(Claude Code)")));
-    hold.confirm("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone()));
+    hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone()));
     assert!(rows[0].get("root_session").is_none(), "{}", rows[0]);
 
     // The confirmation door is the transcript row, and only for a
@@ -13114,7 +13114,7 @@ fn an_eighty_character_multibyte_dsh_locator_round_trips_through_warm_planning()
     let mut transcript = Transcript::resolve(TranscriptKind::DshSession).unwrap();
     let mut meta = serde_json::Map::new();
     let mut emitted = Vec::new();
-    transcript.record(&locator, &mut meta, &mut |value| {
+    transcript.record(Locator::Retained(&locator), &mut meta, &mut |value| {
         emitted.push(value.row.clone())
     });
     assert_eq!(meta["transcript"]["locator"], locator);

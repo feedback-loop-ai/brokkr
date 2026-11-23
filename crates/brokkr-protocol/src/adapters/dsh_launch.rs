@@ -228,7 +228,10 @@ impl DshStreamState<'_> {
         if !self.probe.requested() {
             return false;
         }
-        if self.watch.confirming() && self.watch.named_the_offer && !self.watch.settled {
+        if self.watch.confirming()
+            && self.watch.named_offer_display.is_some()
+            && !self.watch.settled
+        {
             self.settle(DshStreamLine::Idle, emit, observer);
         }
         self.drain(emit)
@@ -660,17 +663,17 @@ mod tests {
         let mut pending = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
         assert!(pending.confirming());
         assert!(!pending.settled);
-        pending.named_the_offer = true;
+        pending.named_offer_display = Some("session-1".into());
         assert_eq!(poll_once(&launch, &mut pending), (false, 1));
 
         // An offer the init event has not named has nothing to settle.
         let mut unnamed = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
-        unnamed.named_the_offer = false;
+        unnamed.named_offer_display = None;
         assert_eq!(poll_once(&launch, &mut unnamed), (false, 0));
 
         // A settled watch is terminal: no later idle tick revisits it.
         let mut settled = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
-        settled.named_the_offer = true;
+        settled.named_offer_display = Some("session-1".into());
         settled.refuse();
         assert_eq!(poll_once(&launch, &mut settled), (false, 0));
 

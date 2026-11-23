@@ -112,3 +112,23 @@ fn items_wrap_array_members_in_order_with_the_same_bindings() {
     );
     assert!(row.items("/object").is_none());
 }
+
+#[test]
+fn opaque_id_matches_its_offer_and_whole_rollout_token() {
+    let raw = json!({"id":"thread-1234","other":"thread-1235","bad":"[thread-1234]"});
+    let bindings = binding("1234");
+    let row = Row::new(&raw, &bindings);
+    let id = row.ident("/id").expect("raw identifier");
+    assert!(id == Ident::from_offered("thread-1234"));
+    assert!(row.ident("/other").is_some_and(|other| id != other));
+    assert!(id.is_offered("thread-1234"));
+    assert!(!id.is_offered("thread-[secret:S]"));
+    assert!(id.names_rollout("rollout-time-thread-1234.jsonl"));
+    assert!(!id.names_rollout("rollout-time-thread-12345.jsonl"));
+    assert!(!id.names_rollout("rollout-time-xthread-1234.jsonl"));
+    assert!(!row
+        .ident("/bad")
+        .unwrap()
+        .names_rollout("rollout-[thread-1234].jsonl"));
+    assert_eq!(row.text("/id").as_deref(), Some("thread-[secret:S]"));
+}

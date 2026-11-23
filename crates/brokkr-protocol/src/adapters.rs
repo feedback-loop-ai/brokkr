@@ -68,7 +68,7 @@ use crate::hands::GitFacts;
 use crate::native_controls::grammar::Bound;
 use crate::overrides::{Override, OverrideError};
 use crate::secret;
-use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
+use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Locator, Transcript};
 use crate::{Body, Message, PreSessionRefusal, Probe, ResultStatus};
 use capability_calls::Observation;
 use claude_fold::ClaudeFold;
@@ -81,7 +81,8 @@ use refusal::{
     bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
     epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
-use row::Row;
+pub(crate) use row::CapturedId;
+use row::{FoldInput, Ident, Row};
 use spawn::{spawn_fed, spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
@@ -1057,40 +1058,14 @@ impl LaunchHold {
         self.address = Some(transcript);
     }
 
-    /// The one door every emitted row passes through, so that the
-    /// harness naming its own session is what publishes the launch —
-    /// and publishes it BEFORE the first work row, where decision 0053's
-    /// buffer will keep it in order.
-    ///
-    /// A provider names its session in exactly one place the driver
-    /// already reads: decision 0032's transcript row, whose locator IS
-    /// the session identifier for the two harnesses that report one. DSH
-    /// records a retained DIRECTORY there, so its planner never sets a
-    /// root kind that would let this door confirm anything.
-    fn observe(&mut self, data: &Emitted, emit: &mut impl FnMut(&Emitted)) {
-        emit(data);
-        if begins_work(data.step) {
-            self.began_work = true;
-        }
-        if self.outcome.is_some()
-            || data.step != Step::Transcript
-            || !self.plan.confirms_from_locator
-        {
-            return;
-        }
-        let id = data
-            .row
-            .pointer("/transcript/locator")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if !id.is_empty() {
-            self.confirm(id, emit);
-        }
-    }
-
     /// The harness named its session. This is the ONLY door through
     /// which a launch fact is published.
-    fn confirm(&mut self, id: &str, emit: &mut impl FnMut(&Emitted)) -> Confirmation {
+    fn confirm(
+        &mut self,
+        id: &Ident,
+        display: &str,
+        emit: &mut impl FnMut(&Emitted),
+    ) -> Confirmation {
         if let Some(outcome) = self.outcome {
             // The root is latched: a later, different root is a
             // delegated child or a second session, never a correction of
@@ -1099,7 +1074,7 @@ impl LaunchHold {
             return outcome;
         }
         let outcome = match &self.plan.rejoining {
-            Some(offered) if offered == id => Confirmation::Resumed,
+            Some(offered) if id.is_offered(offered) => Confirmation::Resumed,
             Some(_) => Confirmation::Mismatch,
             None => Confirmation::Fresh,
         };
@@ -1113,10 +1088,10 @@ impl LaunchHold {
         // this invocation actually observed. A missing or unrecordable
         // version leaves the root absent — the launch is still reported,
         // and the next retry simply gets no offer.
-        self.confirmed = match (&self.plan.harness_version, recordable_session_id(id)) {
+        self.confirmed = match (&self.plan.harness_version, recordable_session_id(display)) {
             (Some(version), true) if recordable_version(version) => Some(RootSession {
                 kind: self.plan.kind,
-                id: id.to_string(),
+                id: display.to_string(),
                 harness_version: version.clone(),
                 wrapper_digest: self.plan.wrapper_digest.clone(),
                 persistent: self.plan.persistent,
@@ -1441,19 +1416,23 @@ fn recordable_digest(value: &str) -> bool {
 /// carry turn index, a ≤80-char tool name, and a ≤80-char target only —
 /// never message text, thinking, or full tool inputs.
 fn fold_stream_event(
-    event: &Value,
-    refusal: Option<PreSessionRefusal>,
+    input: FoldInput<'_>,
     fold: &mut ClaudeFold,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Emitted),
 ) -> Option<PreSessionRefusal> {
+    let FoldInput {
+        masked: event,
+        refusal,
+        identity,
+    } = input;
     if refusal.is_some() {
         return refusal;
     }
     match event.get("type").and_then(Value::as_str) {
         Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
-            if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
+            if let Some(identity) = identity {
                 // Recorded NOW, not only at session end: the transcript
                 // drilldowns can only locate — and live-stream — a
                 // WORKING seat's prose if the id is known from the first
@@ -1465,7 +1444,7 @@ fn fold_stream_event(
                 // attempt on the mid-session side of decision 0016's
                 // boundary. A refused attempt keeps the locator in its
                 // failure reason instead.
-                transcript.record(session_id, session_meta, emit);
+                transcript.record(Locator::Session(identity), session_meta, emit);
             }
         }
         Some("assistant") => {
@@ -1554,7 +1533,7 @@ fn fold_stream_event(
             }
         }
         Some("result") => {
-            fold_result_meta(event, session_meta, transcript, emit);
+            fold_result_meta(event, identity, session_meta, transcript, emit);
             // A result's usage and turns are its own query's: each is
             // added to the earlier results' and replaces the live sum. Its
             // cost is the process's, less what a resume restored.
@@ -1569,6 +1548,7 @@ fn fold_stream_event(
 /// effort, and the session id as the transcript locator.
 fn fold_result_meta(
     event: &Value,
+    identity: Option<CapturedId>,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Emitted),
@@ -1579,8 +1559,8 @@ fn fold_result_meta(
     if let Some(effort) = effort_in_json(event) {
         session_meta.insert("effort".into(), Value::String(effort));
     }
-    if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
-        transcript.record(session_id, session_meta, emit);
+    if let Some(identity) = identity {
+        transcript.record(Locator::Session(identity), session_meta, emit);
     }
 }
 
@@ -1624,7 +1604,7 @@ const CODEX_THREAD_DEPTH: usize = 6;
 struct CodexThreadEcho {
     /// The sessions root and the thread id codex announced, held
     /// together because neither is ever known without the other.
-    announced: Option<(std::path::PathBuf, String)>,
+    announced: Option<(std::path::PathBuf, Ident)>,
     path: Option<std::path::PathBuf>,
 }
 
@@ -1633,16 +1613,11 @@ impl CodexThreadEcho {
     /// id is held whether or not the file is there yet, because
     /// announcing a thread and filing its rollout are two writes and
     /// codex does not promise the order.
-    fn locate(&mut self, home: &std::path::Path, thread_id: &str) {
-        // The same clamp the resume argv applies (`plain_thread_id`),
-        // applied on this path too: the id arrives from the harness's
-        // own stream and decides which file is read, so a spelling that
-        // is not an id locates nothing rather than matching whatever it
-        // happens to be a fragment of.
-        if !plain_thread_id(thread_id) {
+    fn locate(&mut self, home: &std::path::Path, thread_id: Ident) {
+        let Some(thread_id) = Ident::for_rollout(thread_id) else {
             return;
-        }
-        self.announced = Some((home.join("sessions"), thread_id.to_string()));
+        };
+        self.announced = Some((home.join("sessions"), thread_id));
         self.resolve();
     }
 
@@ -1748,7 +1723,7 @@ impl CodexThreadEcho {
             .announced
             .as_ref()
             .expect("a resolved codex thread path has an announced thread");
-        let (cwd, started) = thread_header(path, Some(announced.as_str()))?;
+        let (cwd, started) = thread_header(path, Some(announced))?;
         if cwd != workdir || started < since_nanos {
             return None;
         }
@@ -1789,21 +1764,25 @@ impl CodexThreadEcho {
 /// intentionally ignored; the journal records progress and usage, not a
 /// transcript.
 fn fold_codex_event(
-    event: &Value,
-    refusal: Option<PreSessionRefusal>,
+    input: FoldInput<'_>,
     turn: &mut u64,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     echo: &mut CodexThreadEcho,
     emit: &mut impl FnMut(&Emitted),
 ) -> Option<PreSessionRefusal> {
+    let FoldInput {
+        masked: event,
+        refusal,
+        identity,
+    } = input;
     if refusal.is_some() {
         return refusal;
     }
     match event.get("type").and_then(Value::as_str) {
         Some("thread.started") => {
-            if let Some(thread_id) = event.get("thread_id").and_then(Value::as_str) {
-                echo.locate(transcript.home(), thread_id);
+            if let Some(identity) = identity {
+                echo.locate(transcript.home(), identity.ident.clone());
                 // Recorded NOW, as the claude fold records its own —
                 // and for a second reason here: the thread id is what a
                 // retry resumes (decision 0030), and an attempt killed
@@ -1817,7 +1796,7 @@ fn fold_codex_event(
                 // hands its thread to the retry that follows, and a kill
                 // before it has none to hand — decision 0053 ruling 8,
                 // which names that window and its cost.
-                transcript.record(thread_id, session_meta, emit);
+                transcript.record(Locator::Session(identity), session_meta, emit);
             }
         }
         Some("turn.started") => {
@@ -1897,7 +1876,7 @@ fn fold_codex_event(
         }
         // Conformance shims and older clients may provide only final metadata.
         Some("result") => {
-            fold_result_meta(event, session_meta, transcript, emit);
+            fold_result_meta(event, identity, session_meta, transcript, emit);
             if let Some(value) = positive_count(event.get("num_turns")) {
                 session_meta.insert("num_turns".into(), Value::from(value));
             }
@@ -2487,11 +2466,15 @@ fn invoke_stream_json(
             let row = Row::new(&event, bindings);
             let classified = (fold.turns == 0).then(|| claude_refusal(&row)).flatten();
             let answer = probe.requested() && probe::is_answer(AdapterKind::Claude, &row);
+            let identity = CapturedId::claude(&row);
             secret::mask_json(&mut event, bindings);
             let classified = probe::fold_capturing(probe, answer, &mut watch, |emit| {
                 fold_stream_event(
-                    &event,
-                    classified,
+                    FoldInput {
+                        masked: &event,
+                        refusal: classified,
+                        identity,
+                    },
                     &mut fold,
                     &mut session_meta,
                     &mut transcript,
@@ -3635,13 +3618,11 @@ fn invoke_codex(
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
     // A rejoin already knows the thread it is writing to, so the locator
-    // is held before the first byte arrives. A cold spawn hands an empty
-    // id, which locates nothing.
+    // is held before the first byte arrives.
     let mut echo = CodexThreadEcho::default();
-    echo.locate(
-        transcript.home(),
-        hold.plan.rejoining.as_deref().unwrap_or_default(),
-    );
+    if let Some(handle) = &hold.plan.rejoining {
+        echo.locate(transcript.home(), Ident::from_offered(handle));
+    }
     // The zero-event fallback's lower bound, at the full precision a
     // rollout row and file time carry: a turn written at `…:00.100Z`
     // before this invocation's `…:00.900Z` start is history, not this
@@ -3666,11 +3647,15 @@ fn invoke_codex(
                 let row = Row::new(&event, bindings);
                 let classified = (turn == 0).then(|| codex_refusal(&row)).flatten();
                 let answer = probe_bound.requested() && probe::is_answer(AdapterKind::Codex, &row);
+                let identity = CapturedId::codex(&row);
                 secret::mask_json(&mut event, bindings);
                 let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
                     fold_codex_event(
-                        &event,
-                        classified,
+                        FoldInput {
+                            masked: &event,
+                            refusal: classified,
+                            identity,
+                        },
                         &mut turn,
                         &mut session_meta,
                         &mut transcript,
@@ -4882,6 +4867,7 @@ fn invoke_dsh_shipped(
 /// owns usage.
 fn fold_dsh_stream_event(
     event: &Value,
+    identity: Option<CapturedId>,
     watch: &mut DshRootWatch,
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
@@ -4892,15 +4878,10 @@ fn fold_dsh_stream_event(
     if !is_init {
         return;
     }
-    let Some(id) = event
-        .get("session_id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-    else {
-        return;
-    };
-    session_meta.insert("session_id".into(), Value::String(id.to_string()));
-    watch.named(id, hold, emit);
+    if let Some(identity) = identity.filter(|identity| !identity.ident.is_offered("")) {
+        session_meta.insert("session_id".into(), Value::String(identity.display.clone()));
+        watch.named(&identity.ident, &identity.display, hold, emit);
+    }
 }
 
 /// Decode one stdout line, hear an init event before the store behind it is
@@ -4917,8 +4898,9 @@ fn fold_dsh_line(
         watch.unread(DshStreamLine::Malformed);
         return DshStreamLine::Malformed;
     };
+    let identity = CapturedId::init(&Row::new(&event, bindings));
     secret::mask_json(&mut event, bindings);
-    fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
+    fold_dsh_stream_event(&event, identity, watch, hold, session_meta, emit);
     DshStreamLine::Event
 }
 
@@ -5045,7 +5027,7 @@ struct DshRootWatch {
     locator: String,
     transcript: Transcript,
     /// Whether the child's init event named the offered root.
-    named_the_offer: bool,
+    named_offer_display: Option<String>,
     /// Latched once the outcome is settled: a confirmation publishes once,
     /// and a refusal or a mismatch is not revisited by a later reading.
     /// Nothing clears it.
@@ -5085,7 +5067,7 @@ impl DshRootWatch {
             baseline,
             locator: launch.locator.clone(),
             transcript,
-            named_the_offer: false,
+            named_offer_display: None,
             settled: false,
             released: false,
             mismatched: false,
@@ -5146,7 +5128,9 @@ impl DshRootWatch {
         emit: &mut impl FnMut(&Emitted),
     ) {
         let locator = self.locator.clone();
-        let address = self.transcript.record(&locator, session_meta, emit);
+        let address = self
+            .transcript
+            .record(Locator::Retained(&locator), session_meta, emit);
         hold.address(address);
     }
 
@@ -5155,18 +5139,26 @@ impl DshRootWatch {
     /// hold latches the mismatch — while the offered one still has to
     /// survive the retained-store reads below. A settled watch hears
     /// nothing: an init event cannot reset a refusal or a mismatch.
-    fn named(&mut self, id: &str, hold: &mut LaunchHold, emit: &mut impl FnMut(&Emitted)) {
+    fn named(
+        &mut self,
+        id: &Ident,
+        display: &str,
+        hold: &mut LaunchHold,
+        emit: &mut impl FnMut(&Emitted),
+    ) {
         if self.settled {
             return;
         }
-        if self.offered.as_deref() != Some(id) {
-            // A cold plan's own fresh root, or a rejoin's mismatch. The
-            // hold decides which, and a mismatch publishes nothing.
-            self.mismatched = hold.confirm(id, emit) == Confirmation::Mismatch;
+        if self
+            .offered
+            .as_deref()
+            .is_some_and(|offered| id.is_offered(offered))
+        {
+            self.named_offer_display = Some(display.to_owned());
+        } else {
+            self.mismatched = hold.confirm(id, display, emit) == Confirmation::Mismatch;
             self.settled = true;
-            return;
         }
-        self.named_the_offer = true;
     }
 
     /// One stream line the driver could not decode, or could not read at
@@ -5189,7 +5181,7 @@ impl DshRootWatch {
         if self.settled || !self.confirming() {
             return;
         }
-        if line == DshStreamLine::Unreadable || !self.named_the_offer {
+        if line == DshStreamLine::Unreadable || self.named_offer_display.is_none() {
             self.refuse();
         }
     }
@@ -5220,7 +5212,7 @@ impl DshRootWatch {
                     &self.root,
                     offered,
                     baseline,
-                    self.named_the_offer,
+                    self.named_offer_display.is_some(),
                     &mut observation,
                 ),
             )),
@@ -5238,7 +5230,11 @@ impl DshRootWatch {
                     // address, so the root and the two coordinates a
                     // rejoin needs are one checkpoint (design D6).
                     self.record_locator(hold, session_meta, emit);
-                    hold.confirm(&offered, emit);
+                    let display = self
+                        .named_offer_display
+                        .as_deref()
+                        .expect("a confirmed dsh store has a matching init");
+                    hold.confirm(&Ident::from_offered(&offered), display, emit);
                 }
                 _ => self.refuse(),
             }

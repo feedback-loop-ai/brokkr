@@ -716,9 +716,9 @@ fn a_thread_id_matches_only_as_a_whole_name_token() {
     std::fs::write(day.join("0199mine.jsonl"), "").unwrap();
     std::fs::write(day.join("rollout-0199mine.jsonl"), "").unwrap();
     std::fs::write(day.join("rollout-0199other.jsonl"), "").unwrap();
-    assert!(find_codex_thread(&root, "0199mine", 6).is_some());
-    assert!(find_codex_thread(&root, "0199", 6).is_none());
-    assert!(find_codex_thread(&root, "0199min", 6).is_none());
+    assert!(find_codex_thread(&root, &Ident::from_offered("0199mine"), 6).is_some());
+    assert!(find_codex_thread(&root, &Ident::from_offered("0199"), 6).is_none());
+    assert!(find_codex_thread(&root, &Ident::from_offered("0199min"), 6).is_none());
 }
 
 /// The walk's depth bound: a rollout filed one level below it is not this

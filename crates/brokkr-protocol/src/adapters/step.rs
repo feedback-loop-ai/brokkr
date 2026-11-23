@@ -1,6 +1,8 @@
 //! Driver checkpoint identity, decided before its wire row is masked.
 
-use serde_json::Value;
+use serde_json::{json, Value};
+
+use super::row::CapturedId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Step {
@@ -45,12 +47,49 @@ pub(super) fn begins_work(step: Step) -> bool {
 pub(crate) struct Emitted {
     pub(super) step: Step,
     pub(crate) row: Value,
+    pub(super) identity: Option<CapturedId>,
 }
 
 impl Emitted {
     pub(crate) fn new(step: Step, mut row: Value) -> Self {
         row["step"] = Value::String(step.word().into());
-        Self { step, row }
+        Self {
+            step,
+            row,
+            identity: None,
+        }
+    }
+
+    pub(crate) fn transcript(address: &Value, identity: Option<CapturedId>) -> Self {
+        let mut emitted = Self::new(Step::Transcript, json!({"transcript": address}));
+        emitted.identity = identity;
+        emitted
+    }
+}
+
+impl super::LaunchHold {
+    /// The one door every emitted row passes through, so that the
+    /// harness naming its own session is what publishes the launch —
+    /// and publishes it BEFORE the first work row, where decision 0053's
+    /// buffer will keep it in order.
+    ///
+    /// Claude and Codex attach the raw identity to their transcript
+    /// checkpoint. Dsh confirms its session separately from its retained
+    /// directory locator.
+    pub(super) fn observe(&mut self, data: &Emitted, emit: &mut impl FnMut(&Emitted)) {
+        emit(data);
+        if begins_work(data.step) {
+            self.began_work = true;
+        }
+        if self.outcome.is_some()
+            || data.step != Step::Transcript
+            || !self.plan.confirms_from_locator
+        {
+            return;
+        }
+        if let Some(identity) = data.identity.as_ref().filter(|id| !id.ident.is_offered("")) {
+            self.confirm(&identity.ident, &identity.display, emit);
+        }
     }
 }
 

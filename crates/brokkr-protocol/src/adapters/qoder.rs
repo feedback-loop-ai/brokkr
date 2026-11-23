@@ -40,7 +40,8 @@ use super::escapes::plain_evidence;
 use super::mcp::{self, McpRefusal};
 use super::stream_turn::{plain, Observed, STOPPED_AT_REFUSAL, UNCONCLUDED};
 use super::{
-    fold_stream_event, io_context, lost, secret, spawn_fed, Emitted, Invocation, LaunchTerminal,
+    fold_stream_event, io_context, lost, secret, spawn_fed, CapturedId, Emitted, FoldInput,
+    Invocation, LaunchTerminal,
 };
 use crate::native_controls::mcp::qoder::isolation;
 use crate::transcript::{Kind as TranscriptKind, Transcript};
@@ -389,10 +390,14 @@ impl QoderFold {
         let refusal = (self.claude.turns == 0)
             .then(|| super::claude_refusal(&row))
             .flatten();
+        let identity = CapturedId::claude(&row);
         secret::mask_json(&mut event, bindings);
         let classified = fold_stream_event(
-            &event,
-            refusal,
+            FoldInput {
+                masked: &event,
+                refusal,
+                identity,
+            },
             &mut self.claude,
             session_meta,
             transcript,

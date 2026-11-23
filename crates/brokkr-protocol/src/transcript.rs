@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
-use crate::adapters::{Emitted, Step};
+use crate::adapters::{CapturedId, Emitted};
 
 /// The existing checkpoint target bound also governs a transcript locator.
 const LOCATOR_LIMIT: usize = 80;
@@ -45,6 +45,11 @@ pub(crate) struct Transcript {
     journaled: bool,
 }
 
+pub(crate) enum Locator<'a> {
+    Session(CapturedId),
+    Retained(&'a str),
+}
+
 impl Transcript {
     /// Resolve the home through the same environment the child inherits.
     pub(crate) fn resolve(kind: Kind) -> Result<Self, TranscriptRefusal> {
@@ -74,12 +79,20 @@ impl Transcript {
     /// a retry or a harness final event may reveal a newer authoritative id.
     pub(crate) fn record(
         &mut self,
-        locator: &str,
+        locator: Locator<'_>,
         session_meta: &mut Map<String, Value>,
         emit: &mut impl FnMut(&Emitted),
     ) -> Value {
-        self.locator = locator.chars().take(LOCATOR_LIMIT).collect();
-        self.publish(session_meta, emit)
+        let display = match &locator {
+            Locator::Session(identity) => identity.display.as_str(),
+            Locator::Retained(display) => *display,
+        };
+        self.locator = display.chars().take(LOCATOR_LIMIT).collect();
+        let captured = match locator {
+            Locator::Session(identity) => Some(identity),
+            Locator::Retained(_) => None,
+        };
+        self.publish(captured, session_meta, emit)
     }
 
     /// Every invocation reports the row, including `none` and a harness
@@ -91,7 +104,7 @@ impl Transcript {
         emit: &mut impl FnMut(&Emitted),
     ) {
         if !self.journaled {
-            self.publish(session_meta, emit);
+            self.publish(None, session_meta, emit);
         }
     }
 
@@ -129,15 +142,13 @@ impl Transcript {
     /// out of `session_meta` through a lookup that cannot miss.
     fn publish(
         &mut self,
+        identity: Option<CapturedId>,
         session_meta: &mut Map<String, Value>,
         emit: &mut impl FnMut(&Emitted),
     ) -> Value {
         let transcript = self.value();
         session_meta.insert("transcript".into(), transcript.clone());
-        emit(&Emitted::new(
-            Step::Transcript,
-            json!({"transcript": transcript}),
-        ));
+        emit(&Emitted::transcript(&transcript, identity));
         self.journaled = true;
         transcript
     }
@@ -400,7 +411,7 @@ mod tests {
         let mut meta = Map::new();
         let mut emitted = Vec::new();
         let mut capture = |row: &Emitted| emitted.push(row.row.clone());
-        transcript.record(&"x".repeat(81), &mut meta, &mut capture);
+        transcript.record(Locator::Retained(&"x".repeat(81)), &mut meta, &mut capture);
         transcript.finish(&mut meta, &mut capture);
         assert_eq!(emitted.len(), 1, "finish does not duplicate a recorded row");
         assert_eq!(emitted[0]["step"], "transcript");
