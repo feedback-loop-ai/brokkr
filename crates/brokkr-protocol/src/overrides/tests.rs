@@ -149,4 +149,9 @@ fn the_current_name_answers_and_absence_reads_as_the_fallback() {
         read_with(Override::DshBin, environment(&[(&codex, "x")])),
         Ok("dsh".to_string())
     );
+    // agy's override, unset, runs `agy` from the PATH.
+    assert_eq!(
+        read_with(Override::AgyBin, environment(&[])),
+        Ok("agy".to_string())
+    );
 }

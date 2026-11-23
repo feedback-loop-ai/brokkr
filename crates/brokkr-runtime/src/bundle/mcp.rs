@@ -213,7 +213,8 @@ impl McpIntent {
                 | AdapterKind::Lanetally
                 | AdapterKind::Codex
                 | AdapterKind::Dsh
-                | AdapterKind::Qoder,
+                | AdapterKind::Qoder
+                | AdapterKind::Agy,
             )
             | None => match hands {
                 Some(spec) if spec.network => McpIntent::NetworkedHands,
@@ -745,11 +746,13 @@ fn resolved(
 /// no broker (U7d, U9b1c; SI2): Claude's fragment carries them, while Codex's
 /// fragment and dsh's engine-only home do not, so the driver refuses such a
 /// set for either whichever way the fence stands; Qoder's level-1 driver
-/// carries no broker, because its broker grant is unmeasured (#1178). Any
-/// other set meets none.
+/// carries no broker, because its broker grant is unmeasured (#1178), and
+/// neither does Agy's (#1200). Any other set meets none.
 fn unbrokered(set: McpIntent, harness: &str) -> Option<StrictCause> {
     let carried = match AdapterKind::parse(harness) {
-        Some(AdapterKind::Codex | AdapterKind::Dsh | AdapterKind::Qoder) => false,
+        Some(AdapterKind::Codex | AdapterKind::Dsh | AdapterKind::Qoder | AdapterKind::Agy) => {
+            false
+        }
         Some(AdapterKind::Claude | AdapterKind::Lanetally | AdapterKind::Exec) | None => true,
     };
     let (provider, shape) = (harness.to_string(), "brokers".to_string());

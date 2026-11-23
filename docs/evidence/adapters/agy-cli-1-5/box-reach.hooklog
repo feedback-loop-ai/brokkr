@@ -1,0 +1,7 @@
+box3 gate saw tool: read_file args-keys: ['Path']
+box3 gate saw tool: call_mcp_tool args-keys: ['Arguments', 'ServerName', 'ToolName']
+box3 gate saw tool: call_mcp_tool args-keys: ['Arguments', 'ServerName', 'ToolName']
+box3 gate saw tool: call_mcp_tool args-keys: ['Arguments', 'ServerName', 'ToolName']
+box3 gate saw tool: call_mcp_tool args-keys: ['Arguments', 'ServerName', 'ToolName']
+box3 gate saw tool: call_mcp_tool args-keys: ['Arguments', 'ServerName', 'ToolName']
+box3 gate saw tool: call_mcp_tool args-keys: ['Arguments', 'ServerName', 'ToolName']

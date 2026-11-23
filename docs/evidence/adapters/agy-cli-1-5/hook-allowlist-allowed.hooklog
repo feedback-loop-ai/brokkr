@@ -1,0 +1,2 @@
+allowlist saw tool: write_file
+allowlist saw tool: run_command
