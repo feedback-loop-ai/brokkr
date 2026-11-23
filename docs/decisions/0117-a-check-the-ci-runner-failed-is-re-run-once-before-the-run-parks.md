@@ -1781,9 +1781,12 @@ tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slic
    - the contracts, each over 0117a's payloads by path, never a hand-written shape:
      `every_0117a_payload_parses_into_the_observation_edge_types` (each case's
      `check-runs.all.page<n>.json`, `runs.page1.json`, `run.<id>.jobs.all.page1.json`,
-     `statuses.page1.json`, `pulls.open.on-head.page1.json` and
-     `protection.required_status_checks.json` under `crates/brokkr-core/src/ci/evidence/`);
-     `the_house_observer_seals_the_tested_commit_unread_over_every_0117a_case`;
+     `statuses.page1.json`, `pulls.open.on-head.page1.json`,
+     `protection.required_status_checks.json` and `rules.main.json` under
+     `crates/brokkr-core/src/ci/evidence/`);
+     `the_house_observer_seals_each_runs_head_sha_and_the_base_rules_over_every_0117a_case`
+     (the amended revision rule's inputs, ruling 3: every run's `head_sha` read, and the base
+     branch's rules with their `merge_queue` rule, from `rules.main.json`);
      `the_join_reads_each_check_runs_attempt_through_its_job` (`failed-jobs-rerun-with-cancelled-twin/`:
      103 check runs, each joined by id to `run.<id>.jobs.all.page1.json`);
      `an_observation_with_an_unknown_field_refuses_whole` (one of those payloads with a field
