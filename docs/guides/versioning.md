@@ -225,6 +225,7 @@ and the release window in that ruling's slice 2.
 | `park-cause/v1` | `contracts/park-cause.v1.schema.json` | journal | 0106 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::ParkCause::read | current | | |
 | `effect-usage/v1` | `contracts/effect-usage.v1.schema.json` | journal | 0112 | engine crates/brokkr-runtime/src/engine/usage.rs | load brokkr_view::recipe_usage | current | | |
 | `brokkr.evidence-archive/v1` | `contracts/evidence-archive.v1.schema.json` | input | 0105 | operator | load brokkr_runtime::engine::evidence::read_archive | current | | decision |
+| `work-order/v1` | `contracts/work-order.v1.schema.json` | input | 0116 | engine crates/brokkr-core/src/work_order.rs | load brokkr_core::work_order::Header::read | current | | decision |
 
 `fixtures/evaluator/corpus.ndjson` is frozen contract data, never
 regenerated, only versioned; it is not a file under `contracts/` and so

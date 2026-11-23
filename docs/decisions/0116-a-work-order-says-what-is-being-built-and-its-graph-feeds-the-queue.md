@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-23, "accept 0116", on the direction of 2026-11-22: "we should have a workorder abstraction - like future [commissions], they can have a reference to external tools, e.g. github, gitlab, azure devops, linear, zenhub, jira etc, but essentially it is a DAG of future [commissions] distilled so we know what we are building"
 Date: 2026-11-22
 
-Built: unbuilt (#1272)
+Built: partial (#1272) — slice 1's document is built; its store and verbs, and slices 2 to 4, are not
 Amends: 0113
 
 ## Context
@@ -89,6 +89,11 @@ Brokkr already abstracts the first side. A harness is an adapter and a driver, a
    - `brokkr orders queue WO-<n>` renders the commission and adds the queue entry (ruling 4). Everything else to do with dispatch stays under `brokkr queue`.
    - #1264's drawing is `brokkr orders graph`, since it draws work orders (ruling 8).
    - The operator chose this on 2026-11-23, out of four candidates: "A". The others were `brokkr queue orders`, `brokkr library orders` and `brokkr work`. `work` was set aside because it already names a seat class, a recipe phase and a harness fragment.
+
+10. **A work order made from text the operator did not write enters `proposed`.** This includes a tracker import (ruling 7) and the analysis seat's output (ruling 8).
+    - Only the operator's ruling moves it to `ruled`, and so to queueable. No import, analysis or engine step moves it.
+    - Its imported text is data, never instructions. It is quoted into a commission as the work order's text, and never obeyed as the controller's or the operator's.
+    - The operator, 2026-11-23, on the security residual from #1273: "yes, rule it as you recommended" ([#1272](https://github.com/feedback-loop-ai/brokkr/issues/1272#issuecomment-7100986532)).
 
 ## Slices
 

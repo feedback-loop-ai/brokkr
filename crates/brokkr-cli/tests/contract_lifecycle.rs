@@ -20,7 +20,11 @@ pub(crate) const FILELESS: &str = "none (decision 0082 ruling 5)";
 
 /// A reader private to its crate, with the row its file names. The owning
 /// crate's tests drive it; this module only admits the name.
-pub(crate) const PRIVATE: [(&str, &str); 11] = [
+pub(crate) const PRIVATE: [(&str, &str); 12] = [
+    (
+        "contracts/work-order.v1.schema.json",
+        "load brokkr_core::work_order::Header::read",
+    ),
     (
         "contracts/operator-ending.v1.schema.json",
         "load brokkr_core::ending::operator_ending",
@@ -1409,5 +1413,74 @@ fn the_private_rows_are_exactly_the_ones_their_crates_check() {
         seen.len(),
         PRIVATE.len(),
         "a private reader has no row in the table"
+    );
+}
+
+#[test]
+fn work_order_fixtures_agree_with_the_header_schema() {
+    use brokkr_core::work_order::{Trackers, WorkOrder};
+
+    let root = workspace();
+    let schema = std::fs::read_to_string(root.join("contracts/work-order.v1.schema.json")).unwrap();
+    let schema = serde_json::from_str(&schema).unwrap();
+    let validator = jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .unwrap();
+    let definitions: Vec<String> = std::fs::read_dir(root.join("trackers"))
+        .unwrap()
+        .map(|file| std::fs::read_to_string(file.unwrap().path()).unwrap())
+        .collect();
+    let trackers = Trackers::from_definitions(definitions.iter().map(String::as_str)).unwrap();
+
+    // These headers are valid. The document reader also checks its
+    // framing, ruling positions, and its realm's tracker vocabulary.
+    let mut context_refusals = BTreeSet::from([
+        "bad-acceptance.md",
+        "before-header.md",
+        "empty-acceptance.md",
+        "empty-intent.md",
+        "missing-acceptance.md",
+        "missing-intent.md",
+        "missing-ruling.md",
+        "off-host.md",
+        "other-section.md",
+        "repeated-acceptance.md",
+        "repeated-intent.md",
+        "unclosed-header.md",
+        "unknown-tracker.md",
+    ]);
+    let mut admitted = BTreeSet::new();
+    for file in std::fs::read_dir(root.join("fixtures/work-order")).unwrap() {
+        let file = file.unwrap();
+        let name = file.file_name().into_string().unwrap();
+        let document = std::fs::read_to_string(file.path()).unwrap();
+        let json = document
+            .lines()
+            .skip_while(|line| *line != "```json")
+            .skip(1)
+            .take_while(|line| *line != "```")
+            .collect::<Vec<_>>()
+            .join("\n");
+        let header: serde_json::Value = serde_json::from_str(&json).expect(&name);
+        let contextual = context_refusals.remove(name.as_str());
+        let accepted = WorkOrder::parse(&document, &trackers).is_ok();
+        assert_eq!(
+            validator.is_valid(&header),
+            accepted || contextual,
+            "{name}"
+        );
+        if accepted {
+            admitted.insert(name);
+        }
+    }
+    assert_eq!(context_refusals, BTreeSet::new());
+    assert_eq!(
+        admitted,
+        BTreeSet::from([
+            "complete.md".into(),
+            "draft.md".into(),
+            "noncanonical.md".into()
+        ])
     );
 }
