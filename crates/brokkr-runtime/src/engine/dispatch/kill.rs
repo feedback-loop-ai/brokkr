@@ -7,6 +7,10 @@
 //! registry's lock as the last step before the spawn, after the door,
 //! record, charter and settlement work, and the watchdog's kill is that
 //! same instant carried as it was taken, never "now plus what was left".
+//! The fork refuses once either clock finds the deadline passed, and the
+//! watchdog reads its instant again every slice, so neither a wall clock
+//! stepped back nor a pause before a wait moves the kill past it (the
+//! return of fix round 0106b1r12).
 //! The route's hold ends on no deadline: only the probe's answer, its
 //! renewed round or its tree's settlement ends it (fix round 0106b1r12, S1).
 

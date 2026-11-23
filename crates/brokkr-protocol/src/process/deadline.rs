@@ -6,8 +6,11 @@
 //!
 //! A probe's instant is checked once more at the fork itself: under the
 //! registry's lock, after the read of the process table that admits the
-//! driver and as the last step before the spawn, on the caller's own
-//! clock. One already past is not spawned ([`SpawnError::Late`]).
+//! driver and as the last step before the spawn, on the caller's own clock
+//! and on the monotonic one its kill is carried on. One already past on
+//! either is not spawned ([`SpawnError::Late`]). Its watchdog reads that
+//! instant again at least every [`SLICE`], so a pause before a wait moves
+//! its kill by one slice at most (the return of fix round 0106b1r12).
 
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,14 +63,21 @@ pub(super) enum Arm<'a> {
 
 impl Arm<'_> {
     /// The watchdog's deadline, as the fork takes it: `None` for an
-    /// absolute deadline already past, which spawns nothing.
+    /// absolute deadline already past, which spawns nothing. It is past
+    /// once either clock says so: the caller's, or the monotonic one its
+    /// kill is carried on, so a wall clock stepped back or a pause between
+    /// the caller's two readings never launches a driver whose kill
+    /// instant has gone by (the return of fix round 0106b1r12).
     pub(super) fn at_fork(self) -> Option<Deadline> {
         match self {
             Arm::After(length) => Some(Deadline::After(length)),
-            Arm::By(by) => (by.left)().map(|armed| Deadline::At {
-                kill: by.kill,
-                armed,
-            }),
+            Arm::By(by) => {
+                let ahead = Instant::now() < by.kill;
+                (by.left)().filter(|_| ahead).map(|armed| Deadline::At {
+                    kill: by.kill,
+                    armed,
+                })
+            }
         }
     }
 }
@@ -127,11 +137,7 @@ impl Deadline {
         let group = Pid::from_child(child);
         let pause = armed_pause();
         let thread = std::thread::spawn(move || {
-            let wait = self.left();
-            // Between the sample and the wait, as a descheduled watchdog
-            // thread takes it: nothing outside `test-support` pauses.
-            std::thread::sleep(pause);
-            if let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(wait) {
+            if self.waited(&rx, pause) {
                 timed_out.store(true, Ordering::SeqCst);
                 let _ = (host.kill_group)(group);
                 // A refusal here is met again, and carried, by
@@ -142,7 +148,41 @@ impl Deadline {
         });
         (tx, thread)
     }
+
+    /// Wait on `rx` until this deadline: `true` once it is reached, `false`
+    /// once the watchdog is disarmed. An absolute deadline is waited in
+    /// slices of at most [`SLICE`], its target read again on the monotonic
+    /// clock after each, so a pause between a sample and its wait, as a
+    /// descheduled thread takes it, delays the kill by one slice at most,
+    /// never by the whole sampled wait (the return of fix round 0106b1r12).
+    /// `pause` is that pause, taken after the first sample: nothing outside
+    /// `test-support` pauses.
+    fn waited(self, rx: &mpsc::Receiver<()>, pause: Duration) -> bool {
+        let slice = match self {
+            Deadline::After(_) => Duration::MAX,
+            Deadline::At { .. } => SLICE,
+        };
+        let mut wait = self.left();
+        std::thread::sleep(pause);
+        loop {
+            match rx.recv_timeout(wait.min(slice)) {
+                Err(RecvTimeoutError::Timeout) => {}
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => return false,
+            }
+            wait = match self {
+                Deadline::After(_) => return true,
+                Deadline::At { .. } => self.left(),
+            };
+            if wait.is_zero() {
+                return true;
+            }
+        }
+    }
 }
+
+/// The longest an absolute deadline's watchdog waits before it reads its
+/// target again: the most a pause before a wait can delay its kill.
+const SLICE: Duration = Duration::from_millis(100);
 
 #[cfg(feature = "test-support")]
 thread_local! {

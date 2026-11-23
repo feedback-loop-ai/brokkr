@@ -215,11 +215,9 @@ fn with_watchdogs_paused<T>(pause: Duration, body: impl FnOnce() -> T) -> T {
 /// process-wide registry lock every other attempt needs), so the fork
 /// finds the deadline ahead on the engine's clock while the watchdog's kill
 /// target, two monotonic seconds after the probe began, has already
-/// passed: the driver is spawned, and its watchdog, sampling nothing left,
-/// kills it after the second its arming thread pauses it (fix round
-/// 0106b1r11, L3), the window in which the witness reads. Every read of
-/// both gates the driver outlived running, two seconds past the deadline,
-/// holds the route, and the settlement then ends it.
+/// passed. The fork reads the monotonic target too (the return of fix round
+/// 0106b1r12), so the driver is never spawned: the probe parks late, no
+/// process of it ran, and its empty tree ends its hold.
 ///
 /// That the kill target passed before the fork is asserted, not assumed
 /// (fix round 0106b1r12, S5): the target is two monotonic seconds after
@@ -227,9 +225,8 @@ fn with_watchdogs_paused<T>(pause: Duration, body: impl FnOnce() -> T) -> T {
 /// follows the sample's read; so a pause at that read longer than the
 /// seat's two-second timeout puts the target behind the fork.
 #[test]
-fn a_probe_whose_kill_target_passed_before_the_fork_holds_its_route_until_settlement() {
+fn a_probe_whose_kill_target_passed_before_the_fork_is_never_spawned() {
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::Hang);
-    let late = deadline_of(probe_at) + time::Duration::seconds(2);
     let (journal, reads) = (engine.store.path().to_path_buf(), AtomicUsize::new(0));
     let (shared, stalled) = (Arc::clone(&now), Arc::new(Mutex::new(None)));
     let stall = Arc::clone(&stalled);
@@ -245,9 +242,7 @@ fn a_probe_whose_kill_target_passed_before_the_fork_holds_its_route_until_settle
         }),
         sleep: slicing(&now),
     };
-    let files = (dir.path().join("work.pid"), dir.path().join("work.pid"));
-    let watch = read_while(files, RUNS, &now, (late, &gates, Duration::ZERO));
-    with_watchdogs_paused(Duration::from_secs(1), || engine.drive().unwrap());
+    engine.drive().unwrap();
     let stalled = stalled
         .lock()
         .unwrap()
@@ -258,10 +253,13 @@ fn a_probe_whose_kill_target_passed_before_the_fork_holds_its_route_until_settle
     );
     let reason = park_reason(&engine);
     assert!(
-        reason.contains("attempt exceeded its 2s deadline and was killed"),
+        reason.contains("was not spawned: its deadline")
+            && reason.contains("passed before its driver could start"),
         "{reason}"
     );
-    held_then_ended(&engine, (&gates, late), watch.join().unwrap(), probe_at);
+    assert!(!dir.path().join("work.pid").exists(), "the driver ran");
+    let (at, admitted) = (deadline_of(probe_at), false);
+    ended_by_settlement(&engine, &gates, at, admitted);
 }
 
 /// A hanging probe whose engine clock moves `step` past the instant it was
@@ -284,23 +282,27 @@ fn a_probe_whose_clock_moves_in_flight_by(step: time::Duration) {
 
 /// A pause of a second and a half between the watchdog's sampling of its
 /// wait and the wait itself, as a descheduled watchdog thread takes it
-/// (fix round 0106b1r11, L3), lands the kill that long after the deadline
-/// on the monotonic clock, beyond where round nine's hold had already
-/// ended. Reads of both gates begun two seconds or more after the driver
-/// wrote its pid, so past its deadline, with the engine's clock a second
-/// past it, are taken while the driver still runs, and each holds the
-/// route; the settlement then ends the hold.
+/// (fix round 0106b1r11, L3), no longer lands the kill that long after the
+/// deadline: the watchdog reads its monotonic target again every slice
+/// (the return of fix round 0106b1r12), so the driver is killed within a
+/// slice of its two-second deadline. No read of both gates begun 2.6
+/// seconds or more after the driver wrote its pid finds it running, where
+/// the sampled wait's kill, at about 3.5 seconds, left a second of such
+/// reads; every read it outlived held the route, and the settlement then
+/// ends the hold.
 #[test]
-fn a_kill_that_lands_after_the_deadline_finds_the_route_still_held() {
+fn a_watchdog_paused_after_its_sample_still_kills_at_its_deadline() {
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::Hang);
     let at = deadline_of(probe_at) + time::Duration::seconds(1);
     let files = (dir.path().join("work.pid"), dir.path().join("work.pid"));
-    let watch = read_while(files, RUNS, &now, (at, &gates, Duration::from_secs(2)));
+    let past = Duration::from_millis(2_600);
+    let watch = read_while(files, RUNS, &now, (at, &gates, past));
     with_watchdogs_paused(Duration::from_millis(1_500), || engine.drive().unwrap());
     let watched = watch.join().unwrap();
-    assert!(
-        watched.late > 0,
-        "no read past the deadline was taken while the driver ran, of {} it outlived",
+    assert_eq!(
+        watched.late,
+        0,
+        "the driver ran past its deadline and a slice, through {} reads",
         watched.seen.len()
     );
     held_then_ended(&engine, (&gates, at), watched, probe_at);

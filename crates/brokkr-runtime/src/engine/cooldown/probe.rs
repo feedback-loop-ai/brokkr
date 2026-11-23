@@ -652,7 +652,8 @@ impl Engine {
     /// end: the single seat's composed spawn and the panel member's own.
     /// `deadline`, the probe's one deadline, travels to the fork as it was
     /// taken: a probe already past it composes no spawn, the fork reads it
-    /// again on the engine's clock under the registry's lock as the last
+    /// again on the engine's clock and the monotonic one (the return of fix
+    /// round 0106b1r12) under the registry's lock as the last
     /// step before the spawn, and the watchdog kills at its own instant,
     /// never at a length sampled earlier (fix rounds 0106b1r5, H2,
     /// 0106b1r6, D1, and 0106b1r9, E1). A probe not spawned, every refusal
