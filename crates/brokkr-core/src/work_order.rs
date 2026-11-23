@@ -141,7 +141,6 @@ impl WorkOrder {
 /// spellings, then checks them into their closed types.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-#[serde(bound(deserialize = "I: Deserialize<'de>, C: Deserialize<'de>"))]
 struct Header<I, C> {
     #[serde(
         default,
@@ -165,8 +164,7 @@ struct Header<I, C> {
         skip_serializing_if = "Option::is_none"
     )]
     parent: Option<I>,
-    #[serde(deserialize_with = "objects")]
-    edges: Vec<Edge<I, C>>,
+    edges: EdgeList<I, C>,
 }
 
 impl Header<String, String> {
@@ -199,11 +197,13 @@ impl Header<String, String> {
             caps: self.caps,
             references: self.references,
             parent: self.parent.as_deref().map(WorkOrderId::read).transpose()?,
-            edges: self
-                .edges
-                .iter()
-                .map(Edge::checked)
-                .collect::<Result<_, _>>()?,
+            edges: EdgeList(
+                self.edges
+                    .0
+                    .iter()
+                    .map(Edge::checked)
+                    .collect::<Result<_, _>>()?,
+            ),
         })
     }
 }
@@ -299,6 +299,17 @@ impl Ask {
             return Err(Refusal::AskRuling);
         }
         Ok(())
+    }
+}
+
+// The wrapper lets Header derive its bounds while admitting only object-shaped edges.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+struct EdgeList<I, C>(Vec<Edge<I, C>>);
+
+impl<'de, I: Deserialize<'de>, C: Deserialize<'de>> Deserialize<'de> for EdgeList<I, C> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        objects(deserializer).map(Self)
     }
 }
 

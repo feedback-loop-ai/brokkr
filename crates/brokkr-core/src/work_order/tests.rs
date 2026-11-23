@@ -324,7 +324,7 @@ fn ids_states_and_conditions_are_closed() {
     for (word, condition) in builtins.into_iter().chain(endings) {
         let draft = draft_with("edges", json!([{"awaits": "WO-1", "condition": word}]));
         let order = WorkOrder::parse(&draft, &trackers).unwrap();
-        assert_eq!(order.header.edges[0].condition, condition);
+        assert_eq!(order.header.edges.0[0].condition, condition);
         assert_eq!(serde_json::to_value(condition).unwrap(), word);
     }
 }
@@ -357,6 +357,7 @@ fn header_shapes_are_checked() {
             "asks",
             json!([{"number":1, "question":"Where?", "extra":1}]),
         ),
+        ("edges", json!([["WO-1", "merged"]])),
         (
             "edges",
             json!([{"awaits":"WO-1", "condition":"merged", "extra":1}]),
