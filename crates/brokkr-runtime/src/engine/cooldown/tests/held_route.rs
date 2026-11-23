@@ -433,6 +433,7 @@ fn a_hold_the_table_does_not_write_parks_before_any_probe_and_ends_no_other() {
     let run_id = engine.run_id.clone();
     let other = brokkr_store::ProbeHold {
         run_id: &run_id,
+        attempt_id: "other",
         site: "",
         provider: "codex",
         route: "second",

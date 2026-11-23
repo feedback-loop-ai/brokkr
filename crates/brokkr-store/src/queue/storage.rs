@@ -436,18 +436,20 @@ const MIGRATION_QUEUE_V7: [(&str, &str); 2] = [
 
 /// Version 7's probe holds (fix round 0106b1r4, F1; the operator's ruling
 /// of 2026-11-18 amending decision 0103 ruling 2): one row per probe of a
-/// cooled route, written before the probe is reserved. While it stands,
-/// unended and before its deadline, the pass and the claim read its route
-/// as cooling down through the one in-force read. A refusal ends it in the
-/// transaction that writes the renewed round, an answer ends it at once,
-/// and any other end leaves it standing until `deadline_at`, the instant
-/// the probe's own spawn deadline runs out, after which it holds nothing.
-/// Its instants are Unix seconds (UTC), as version 4's are. A hold's route
-/// and deadline are fixed, it ends once, and it is never deleted.
+/// cooled route, written before the probe is reserved, naming the run and
+/// the probe's own attempt, the driver instance that holds it (fix round
+/// 0106b1r12, S3). While it stands, unended, the pass and the claim read
+/// its route as cooling down through the one in-force read. A refusal ends
+/// it in the transaction that writes the renewed round, an answer or the
+/// settlement of its probe's process tree ends it by its row or its
+/// attempt, and nothing else does: `deadline_at` is a readout (S1). Its
+/// instants are Unix seconds (UTC), as version 4's are. A hold's attempt,
+/// route and deadline are fixed, it ends once, and it is never deleted.
 const MIGRATION_QUEUE_V7_HOLDS: &str = r#"
 CREATE TABLE IF NOT EXISTS probe_holds (
     seq INTEGER PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES runs(run_id),
+    attempt_id TEXT NOT NULL CONSTRAINT hold_attempt_named CHECK (length(attempt_id) > 0),
     site TEXT NOT NULL,
     provider TEXT NOT NULL CONSTRAINT hold_provider_named CHECK (length(provider) > 0),
     route TEXT NOT NULL CONSTRAINT hold_route_named CHECK (length(route) > 0),
@@ -459,8 +461,9 @@ CREATE TABLE IF NOT EXISTS probe_holds (
         CHECK (ended_at IS NULL OR typeof(ended_at) = 'integer')
 );
 CREATE TRIGGER IF NOT EXISTS probe_holds_fixed
-    BEFORE UPDATE OF seq, run_id, site, provider, route, recorded_at, deadline_at ON probe_holds
-    BEGIN SELECT RAISE(ABORT, 'a probe hold''s route and deadline are fixed'); END;
+    BEFORE UPDATE OF seq, run_id, attempt_id, site, provider, route, recorded_at, deadline_at
+    ON probe_holds
+    BEGIN SELECT RAISE(ABORT, 'a probe hold''s attempt, route and deadline are fixed'); END;
 CREATE TRIGGER IF NOT EXISTS probe_holds_end_once
     BEFORE UPDATE OF ended_at ON probe_holds
     WHEN OLD.ended_at IS NOT NULL

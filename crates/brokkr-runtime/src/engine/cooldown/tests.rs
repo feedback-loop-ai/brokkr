@@ -1341,6 +1341,8 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
 // A protected root's lease is Linux only, as `lease.rs` says.
 mod held_deadline;
 #[cfg(target_os = "linux")]
+mod held_instance;
+#[cfg(target_os = "linux")]
 mod held_lease;
 mod held_panel;
 mod held_probe;

@@ -196,7 +196,7 @@ impl Engine {
                 )))))
             }
         };
-        if let Err(unheld) = self.hold_the_route(wait, now, ends.fallback) {
+        if let Err(unheld) = self.hold_the_route((wait, &attempt), now, ends.fallback) {
             return Ok(Err(Probe::Parked(Park::ruled(format!(
                 "the cool-down probe for {}/{} was not admitted: its route's hold was not \
                  written: {unheld}",
@@ -240,14 +240,17 @@ impl Engine {
     /// this binary does not write, older than version 7 or a newer
     /// binary's, which takes no hold (fix round 0106b1r9, E3). An engine's
     /// own open moves a version 4 to 6 queue to version 7 before any probe.
+    /// The hold names `attempt`, the probe's own, so no later drive of the
+    /// run ends or adopts it as its own (fix round 0106b1r12, S3).
     fn hold_the_route(
         &mut self,
-        wait: &ProviderWait,
+        (wait, attempt): (&ProviderWait, &str),
         now: OffsetDateTime,
         fallback: OffsetDateTime,
     ) -> Result<(), brokkr_store::StoreError> {
         let hold = ProbeHold {
             run_id: &self.run_id,
+            attempt_id: attempt,
             site: wait.site.as_deref().unwrap_or(""),
             provider: &wait.provider,
             route: &wait.route,

@@ -87,11 +87,12 @@ fn a_version_6_queue_migrates_to_version_7_and_keeps_its_cool_downs_ordinary() {
         .unwrap();
 }
 
-/// A probe hold on claude/first for `run` whose crash fallback is
-/// `fallback`.
+/// A probe hold on claude/first for `run`'s probe attempt `a-1` whose
+/// readout end is `fallback`.
 fn probe_hold(run: &str, fallback: OffsetDateTime) -> crate::ProbeHold<'_> {
     crate::ProbeHold {
         run_id: run,
+        attempt_id: "a-1",
         site: "",
         provider: "claude",
         route: "first",
@@ -121,8 +122,8 @@ fn a_probe_hold_is_in_force_until_it_ends_whatever_the_time() {
             provider: "claude".into(),
             route: "first".into(),
             until_at: at(31),
-            reason: "a cool-down probe of run run-a holds the route until it answers, its \
-                     renewed cool-down commits, or its process tree is settled"
+            reason: "a cool-down probe of run run-a (attempt a-1) holds the route until it \
+                     answers, its renewed cool-down commits, or its process tree is settled"
                 .into(),
             retry_after_seconds: None,
             rounds: 0,

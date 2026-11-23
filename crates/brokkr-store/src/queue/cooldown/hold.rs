@@ -19,11 +19,15 @@ use crate::queue::{QueueRefusal, UnwrittenHold};
 use crate::{patiently, Store, StoreError};
 
 /// The hold one probe takes on its route before it is reserved: the run
-/// and site it probes for, the provider and route it asks, and the
-/// deadline its own spawn runs under.
+/// and site it probes for, the probe's own attempt, the provider and route
+/// it asks, and the deadline its own spawn runs under.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeHold<'a> {
     pub run_id: &'a str,
+    /// The probe's own attempt: the driver instance that holds the route,
+    /// so a later drive of the same run never ends or adopts an earlier
+    /// instance's hold (fix round 0106b1r12, S3).
+    pub attempt_id: &'a str,
     /// The invocation-site tag, `''` for an inline seat.
     pub site: &'a str,
     pub provider: &'a str,
@@ -57,54 +61,71 @@ pub(super) fn hold_ended(ended_at: Option<i64>) -> bool {
     ended_at.is_some()
 }
 
-/// The words a hold is read with, naming the run whose probe holds it and
-/// the evidence that alone ends it.
-fn words(run_id: &str) -> String {
-    format!(
-        "a cool-down probe of run {run_id} holds the route until it answers, its renewed \
-         cool-down commits, or its process tree is settled"
-    )
+/// One `probe_holds` row as the in-force read selects it.
+struct HoldRow {
+    seq: i64,
+    run_id: String,
+    attempt_id: String,
+    site: String,
+    provider: String,
+    route: String,
+    deadline: i64,
+    recorded: i64,
+    ended: Option<i64>,
+}
+
+impl HoldRow {
+    /// The row as the in-force read joins it: its stored end is its end, a
+    /// readout, and its words name the probing run, the attempt holding it
+    /// and the evidence that alone ends it.
+    fn cooldown(self) -> Result<Cooldown, StoreError> {
+        Ok(Cooldown {
+            until_at: time_of(self.deadline, self.seq)?,
+            reason: format!(
+                "a cool-down probe of run {} (attempt {}) holds the route until it answers, its \
+                 renewed cool-down commits, or its process tree is settled",
+                self.run_id, self.attempt_id
+            ),
+            site: self.site,
+            provider: self.provider,
+            route: self.route,
+            retry_after_seconds: None,
+            // A hold is no round of any episode.
+            rounds: 0,
+            recorded_at: time_of(self.recorded, self.seq)?,
+        })
+    }
 }
 
 /// Every hold standing, as the rows the in-force read joins: each hold
-/// [`hold_ended`] does not read as ended, whatever the time. Its stored end
-/// is its row's end, a readout, and its words name the probing run. A
-/// queue that holds no version 7 table holds no hold.
+/// [`hold_ended`] does not read as ended, whatever the time. A queue that
+/// holds no version 7 table holds no hold.
 pub(super) fn standing(conn: &Connection) -> Result<Vec<Cooldown>, StoreError> {
     if !cool_downs_writable(conn)? {
         return Ok(Vec::new());
     }
     let mut statement = conn.prepare(
-        "SELECT seq, run_id, site, provider, route, deadline_at, recorded_at, ended_at
+        "SELECT seq, run_id, attempt_id, site, provider, route, deadline_at, recorded_at,
+                ended_at
          FROM probe_holds ORDER BY seq",
     )?;
     let raw = statement.query_map([], |row| {
-        Ok((
-            (row.get::<_, i64>(0)?, row.get::<_, String>(1)?),
-            (row.get::<_, String>(2)?, row.get::<_, String>(3)?),
-            row.get::<_, String>(4)?,
-            (row.get::<_, i64>(5)?, row.get::<_, i64>(6)?),
-            row.get::<_, Option<i64>>(7)?,
-        ))
+        Ok(HoldRow {
+            seq: row.get(0)?,
+            run_id: row.get(1)?,
+            attempt_id: row.get(2)?,
+            site: row.get(3)?,
+            provider: row.get(4)?,
+            route: row.get(5)?,
+            deadline: row.get(6)?,
+            recorded: row.get(7)?,
+            ended: row.get(8)?,
+        })
     })?;
     let rows = raw.collect::<Result<Vec<_>, _>>()?;
     rows.into_iter()
-        .filter(|(_, _, _, _, ended)| !hold_ended(*ended))
-        .map(
-            |((seq, run_id), (site, provider), route, (deadline, recorded), _)| {
-                Ok(Cooldown {
-                    site,
-                    provider,
-                    route,
-                    until_at: time_of(deadline, seq)?,
-                    reason: words(&run_id),
-                    retry_after_seconds: None,
-                    // A hold is no round of any episode.
-                    rounds: 0,
-                    recorded_at: time_of(recorded, seq)?,
-                })
-            },
-        )
+        .filter(|row| !hold_ended(row.ended))
+        .map(HoldRow::cooldown)
         .collect()
 }
 
@@ -157,11 +178,12 @@ impl Store {
             let written = tx
                 .query_row(
                     "INSERT INTO probe_holds
-                        (run_id, site, provider, route, recorded_at, deadline_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                        (run_id, attempt_id, site, provider, route, recorded_at, deadline_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                      RETURNING seq",
                     params![
                         hold.run_id,
+                        hold.attempt_id,
                         hold.site,
                         hold.provider,
                         hold.route,
