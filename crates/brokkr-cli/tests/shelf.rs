@@ -9,13 +9,12 @@
 //! configuration directory [`Repo::config`].
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 use crate::brokkr_folder::{completes, digest, git, started, Ran, Repo};
-use crate::isolated::{alone, Alone};
+use crate::isolated::alone;
 
 mod selected;
 
@@ -948,21 +947,8 @@ fn doctor_reads_the_shelf() {
     );
 }
 
-/// `brokkr <args>` from `repo`'s root, each variable in `env` set to its
-/// value, or unset where it has none.
-fn under(repo: &Repo, env: &[(&str, Option<&Path>)], args: &[&str]) -> Ran {
-    enved(&mut repo.command("", args), env)
-}
-
-/// `brokkr doctor` as [`under`] runs a verb, alone in a PID namespace of
-/// its own (#1137i).
-fn doctor_under(alone: &Alone, repo: &Repo, env: &[(&str, Option<&Path>)]) -> Ran {
-    enved(&mut repo.doctor(alone, "", &["doctor"]), env)
-}
-
-/// `command` run with each variable in `env` set to its value, or unset
-/// where it has none.
-fn enved(command: &mut Command, env: &[(&str, Option<&Path>)]) -> Ran {
+/// `command` run with each variable in `env` set to its value, or unset where it has none.
+fn under(command: &mut std::process::Command, env: &[(&str, Option<&Path>)]) -> Ran {
     for (variable, value) in env {
         match value {
             Some(value) => command.env(variable, value),
@@ -982,7 +968,7 @@ fn add_named(repo: &Repo, source: &Path, name: &str, env: &[(&str, Option<&Path>
         "--personal",
         source.to_str().unwrap(),
     ];
-    under(repo, env, &[&add[..], &["--name", name]].concat())
+    under(repo.command("", &add).args(["--name", name]), env)
 }
 
 /// [`add_named`] `mine`.
@@ -1448,7 +1434,7 @@ fn a_project_shelf_refuses_with_no_personal_shelf_placed() {
         ),
     ];
     for (args, refused) in cases {
-        let ran = under(&repo, &unplaced, &args);
+        let ran = under(&mut repo.command("", &args), &unplaced);
         assert_eq!((ran.code, ran.stderr), (Some(1), refused), "{args:?}");
         assert_eq!((repo.files(), kept(&repo, "x")), (before.clone(), state));
     }
@@ -1485,7 +1471,8 @@ fn an_unreadable_project_shelf_refuses_with_no_personal_shelf_placed() {
     let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
     std::fs::set_permissions(&shelf, mode(0o000)).unwrap();
     let readable = std::fs::symlink_metadata(shelf.join("x")).is_ok();
-    let ran = verbs.clone().map(|args| under(&repo, &unplaced, &args));
+    let plain = |args: Vec<&str>| under(&mut repo.command("", &args), &unplaced);
+    let ran = verbs.clone().map(plain);
     std::fs::set_permissions(&shelf, mode(0o755)).unwrap();
     if readable {
         eprintln!("skipped: this process reads a mode-000 directory, as root does");
@@ -1553,9 +1540,8 @@ fn a_personal_shelf_climbing_out_of_what_does_not_stand_refuses() {
     for (env, placed, at) in spellings {
         let shelf = placed.join("recipes");
         let ran = under(
-            &repo,
+            &mut repo.command("", &["run", "--recipe", "x", "--feature", "f", "--no-view"]),
             &env,
-            &["run", "--recipe", "x", "--feature", "f", "--no-view"],
         );
         let refused = climbing("personal", &shelf, at);
         assert_eq!(
@@ -1571,10 +1557,10 @@ fn a_personal_shelf_climbing_out_of_what_does_not_stand_refuses() {
             "{}: No such file or directory (os error 2)",
             shelf.display()
         );
-        let listed = under(&repo, &env, &["library", "recipes", "list"]);
+        let listed = under(&mut repo.command("", &["library", "recipes", "list"]), &env);
         let warned = format!("{line}warning: recipes dir {absent}\n");
         assert_eq!((listed.code, listed.stdout), (Some(0), warned), "{env:?}");
-        let doctor = doctor_under(&alone, &repo, &env);
+        let doctor = under(&mut repo.doctor(&alone, "", &["doctor"]), &env);
         let warn = format!("warn     personal shelf: {absent}");
         let warns = doctor.stdout.lines().any(|l| l == warn);
         assert_eq!((doctor.code, warns), (healthy, true), "{}", doctor.stdout);

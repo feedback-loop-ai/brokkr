@@ -8,7 +8,6 @@ use brokkr_core::envelope::EventType;
 use brokkr_store::Store;
 use serde_json::{json, Value};
 
-/// A run's journal and a HOME of its own; `transcript_privacy`'s too.
 pub(crate) struct World {
     pub(crate) dir: tempfile::TempDir,
     pub(crate) db: PathBuf,
@@ -83,8 +82,7 @@ fn record(world: &World, transcript: Value) {
         .unwrap();
 }
 
-/// `brokkr runs <args> --db <db>` in `world`: every read this file makes
-/// is the runs family's.
+/// `brokkr runs <args> --db <db>` in `world`: every read here is the runs family's.
 fn run(world: &World, args: &[&str]) -> std::process::Output {
     let argv = [&["runs"][..], args].concat();
     in_world(&argv, &world.db, &world.home, world.path())
@@ -103,16 +101,8 @@ pub(crate) fn in_world(args: &[&str], db: &Path, home: &Path, cwd: &Path) -> std
 
 /// The one seat's transcript as JSON from `db`, under `home`, from `cwd`.
 pub(crate) fn seat_json(db: &Path, home: &Path, cwd: &Path) -> std::process::Output {
-    let read = [
-        "runs",
-        "transcript",
-        "--run",
-        "r222",
-        "--seat",
-        "eff1",
-        "--json",
-    ];
-    in_world(&read, db, home, cwd)
+    let seat = ["transcript", "--run", "r222", "--seat", "eff1", "--json"];
+    in_world(&[&["runs"][..], &seat].concat(), db, home, cwd)
 }
 
 /// A run whose effects are the given `(effect_id, seat, provider)`
