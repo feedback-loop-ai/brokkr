@@ -9,11 +9,12 @@ on:
   # alone; contributing.rs holds which jobs run there.
   push:
     branches: [main]
+  # A label or a body change starts no run here (#1295): the two required
+  # checks that read a pull request's labels and body, `delivered by
+  # brokkr` and `baseline ratchets`, live in pr-gates.yml, which re-runs on
+  # `edited`, `labeled` and `unlabeled` alone.
   pull_request:
-    # `labeled` and `unlabeled` are decision 0038 ruling 4: applying the
-    # operator's by-hand label re-runs the gate on the same head, with no
-    # close-and-reopen ceremony.
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
   # The merge queue (#451): the required checks run again on the commit
   # that lands, main plus the queued pull requests, so two green pull
   # requests first meet here rather than on main. A job that judges a pull
@@ -43,70 +44,6 @@ permissions:
 # rust-toolchain.toml's channel. A tag or a branch can move under a
 # verdict with no change here; `workflow_pins.rs` refuses one (issue #340).
 jobs:
-  delivered-by-brokkr:
-    name: delivered by brokkr
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      # The verifier, the gate script and the delivery classes come from
-      # the trusted base, never from the pull request whose evidence they
-      # judge.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: base-verifier
-      # The head under judgment, with the history its merge-base needs.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          path: pr
-      - name: the base branch, for the merge-base
-        # Event data reaches the shell through the environment, never by
-        # interpolation into the command line.
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          BASE_REPO: https://github.com/${{ github.repository }}.git
-        run: |
-          git -C pr fetch --no-tags "$BASE_REPO" "${BASE_REF}:refs/remotes/base/${BASE_REF}"
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
-        with:
-          toolchain: 1.98.0
-      - name: build the base branch's offline verifier
-        run: cargo build --locked --manifest-path "base-verifier/Cargo.toml" -p brokkr-cli
-      - name: the tier is cut by the delta since the judgment (decisions 0033, 0038)
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_BASE: refs/remotes/base/${{ github.event.pull_request.base.ref }}
-          REPO: pr
-          EVIDENCE: https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git
-          VERIFIER: base-verifier/target/debug/brokkr
-          CLASSES: base-verifier/.github/delivery-classes.json
-          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        # The by-hand label is honoured inside the script, which logs the
-        # tier it would have applied (0038 ruling 6). A base branch that
-        # carries no gate script yet — the one landing that introduces it —
-        # can cut no tier: the label skips, anything else refuses.
-        run: |
-          if [ ! -f base-verifier/scripts/delivered-by-brokkr.sh ]; then
-            case ",${LABELS}," in
-              *,by-hand,*)
-                echo "delivered by brokkr: skipped — operator applied the by-hand label; the base branch carries no gate script yet"
-                exit 0 ;;
-            esac
-            echo "delivered by brokkr: the base branch carries no gate script" >&2
-            exit 1
-          fi
-          bash base-verifier/scripts/delivered-by-brokkr.sh
-
   msrv:
     name: MSRV (1.89)
     runs-on: ubuntu-24.04
@@ -637,50 +574,6 @@ jobs:
           }
           validate --no-global .github/renovate.json5
           validate .github/renovate-global.json5
-
-  # The committed baselines under quality/ may only shrink (issue #338):
-  # file size, duplication, unused dependencies, and a raised baseline that
-  # names its ruling. Complexity and the public API ride the coverage job,
-  # which has the LCOV and the pinned nightly. A required check on main, by
-  # the operator's ruling of 2026-09-26.
-  ratchets:
-    name: baseline ratchets
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      # The pull request's merge commit, and its first parent: the base a
-      # raised baseline is judged against. In a merge group it is the
-      # queue's commit, whose files and clones are judged in full.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
-        with:
-          toolchain: 1.98.0
-      - uses: ./.github/actions/setup-jscpd
-      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
-        with:
-          tool: cargo-shear@1.14.0
-          fallback: none
-      - name: file-size ratchet (quality/file-lines.txt)
-        run: quality/ratchet.sh files
-      - name: duplication ratchet (quality/jscpd-baseline-*.json)
-        run: quality/ratchet.sh clones
-      - name: no unused dependency (cargo-shear)
-        run: cargo shear --deny-warnings --locked
-      - name: a raised baseline names its ruling (quality/)
-        if: github.event_name == 'pull_request'
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          git rev-parse --verify --quiet 'HEAD^2' > /dev/null || {
-            echo "ratchet refusal: the checkout is not the pull request's merge commit" >&2
-            exit 1
-          }
-          quality/ratchet.sh baselines 'HEAD^1'
 
   dependency-audit:
     name: RustSec dependency audit

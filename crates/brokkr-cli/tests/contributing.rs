@@ -149,15 +149,16 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
     let template = std::fs::read_to_string(root.join(".github/pull_request_template.md")).unwrap();
     assert!(template.lines().any(|line| line == "Brokkr-Run: <run id>"));
 
-    let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
+    let workflow = std::fs::read_to_string(root.join(".github/workflows/pr-gates.yml")).unwrap();
     for binding in [
         "name: delivered by brokkr",
         "github.event.pull_request.base.sha",
         "fetch-depth: 0",
         "scripts/delivered-by-brokkr.sh",
         "join(github.event.pull_request.labels.*.name, ',')",
-        // Decision 0038 ruling 4: the label re-runs the gate, no reopen.
-        "types: [opened, synchronize, reopened, labeled, unlabeled]",
+        // Decision 0038 ruling 4: the label re-runs the gate, no reopen,
+        // and so does a body edit (#1295).
+        "types: [opened, synchronize, reopened, edited, labeled, unlabeled]",
     ] {
         assert!(workflow.contains(binding), "CI lost binding: {binding}");
     }
@@ -833,24 +834,28 @@ fn check_rows(guide: &str) -> Vec<CheckRow> {
         .map(|line| {
             let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
             assert_eq!(cells.len(), 4, "one four-column check row: {line}");
-            let file = if cells[2].ends_with(" (mutants.yml)") {
-                "mutants.yml"
-            } else {
-                "ci.yml"
-            };
+            let (job, file) = ["mutants.yml", "pr-gates.yml"]
+                .into_iter()
+                .find_map(|file| {
+                    cells[2]
+                        .strip_suffix(&format!(" ({file})"))
+                        .map(|job| (job, file))
+                })
+                .unwrap_or((cells[2], "ci.yml"));
             CheckRow {
                 number: cells[0].to_string(),
                 check: cells[1].trim_matches('`').to_string(),
-                job: cells[2]
-                    .trim_end_matches(" (mutants.yml)")
-                    .trim_matches('`')
-                    .to_string(),
+                job: job.trim_matches('`').to_string(),
                 file,
                 command: cells[3].to_string(),
             }
         })
         .collect()
 }
+
+/// The workflows the required checks live in, in their order: the pull
+/// request's metadata gates (#1295), the suite, and the mutants gate.
+const REQUIRED_WORKFLOWS: [&str; 3] = ["pr-gates.yml", "ci.yml", "mutants.yml"];
 
 /// The checks branch protection on main requires (operator rulings,
 /// 2026-09-26), as (context, job id, workflow), in the workflows' order.
@@ -859,7 +864,8 @@ fn check_rows(guide: &str) -> Vec<CheckRow> {
 /// `contributing_lists_the_checks_branch_protection_requires` holds this
 /// list to it.
 const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
-    ("delivered by brokkr", "delivered-by-brokkr", "ci.yml"),
+    ("delivered by brokkr", "delivered-by-brokkr", "pr-gates.yml"),
+    ("baseline ratchets", "ratchets", "pr-gates.yml"),
     ("MSRV (1.89)", "msrv", "ci.yml"),
     ("format, clippy, contracts", "quality", "ci.yml"),
     ("test (ubuntu-latest)", "engine", "ci.yml"),
@@ -871,7 +877,6 @@ const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
         "ci.yml",
     ),
     ("non-Rust lints", "lint-non-rust", "ci.yml"),
-    ("baseline ratchets", "ratchets", "ci.yml"),
     ("RustSec dependency audit", "dependency-audit", "ci.yml"),
     ("release binary artifact", "release-binary", "ci.yml"),
     (
@@ -903,7 +908,7 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         listed, required,
         "the guide lists the twelve checks main requires"
     );
-    let legs: Vec<WorkflowLeg> = ["ci.yml", "mutants.yml"]
+    let legs: Vec<WorkflowLeg> = REQUIRED_WORKFLOWS
         .into_iter()
         .flat_map(|file| workflow_legs(&root, file))
         .collect();
@@ -1043,7 +1048,7 @@ fn contributing_lists_the_checks_branch_protection_requires() {
         "the snapshot names the API it transcribes"
     );
     let contexts = &snapshot.required_status_checks.contexts;
-    let legs: Vec<WorkflowLeg> = ["ci.yml", "mutants.yml"]
+    let legs: Vec<WorkflowLeg> = REQUIRED_WORKFLOWS
         .into_iter()
         .flat_map(|file| workflow_legs(&root, file))
         .collect();
@@ -1202,7 +1207,12 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 24] = [
     // its own head (decisions 0033, 0038), and a merge group carries no
     // description, labels or head repository. The queue lands that head's
     // patch, which the judgment bound.
-    ("ci.yml", "delivered-by-brokkr", InTheQueue::PullRequestOnly),
+    (
+        "pr-gates.yml",
+        "delivered-by-brokkr",
+        InTheQueue::PullRequestOnly,
+    ),
+    ("pr-gates.yml", "ratchets", InTheQueue::Runs),
     ("ci.yml", "msrv", InTheQueue::Runs),
     ("ci.yml", "quality", InTheQueue::Runs),
     // The console plugin's tests (decision 0085 ruling 5) test the landed
@@ -1217,7 +1227,6 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 24] = [
     ("ci.yml", "coverage", InTheQueue::Runs),
     ("ci.yml", "license-compliance", InTheQueue::Runs),
     ("ci.yml", "lint-non-rust", InTheQueue::Runs),
-    ("ci.yml", "ratchets", InTheQueue::Runs),
     ("ci.yml", "dependency-audit", InTheQueue::Runs),
     ("ci.yml", "bootstrap-budgets", InTheQueue::Runs),
     ("ci.yml", "bootstrap-budgets-macos", InTheQueue::Runs),
@@ -1244,6 +1253,15 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 24] = [
 /// Every step that does not run in a merge group, as (workflow, job,
 /// step): the rest of its job judges the combined tree.
 const STEPS_OUT_OF_THE_QUEUE: [(&str, &str, &str, InTheQueue); 2] = [
+    // It reads the `Ruling:` line of the pull request's description, which
+    // a merge group does not carry. The file-size and duplication ratchets
+    // before it judge the combined tree against the baselines.
+    (
+        "pr-gates.yml",
+        "ratchets",
+        "a raised baseline names its ruling (quality/)",
+        InTheQueue::PullRequestOnly,
+    ),
     // It reads the suppressions the pull request's own diff adds against
     // its base. The tree's counts, which two pull requests could raise
     // together, ride the test jobs (quality/suppressions.txt).
@@ -1251,15 +1269,6 @@ const STEPS_OUT_OF_THE_QUEUE: [(&str, &str, &str, InTheQueue); 2] = [
         "ci.yml",
         "quality",
         "an added suppression names a ruling",
-        InTheQueue::PullRequestOnly,
-    ),
-    // It reads the `Ruling:` line of the pull request's description, which
-    // a merge group does not carry. The file-size and duplication ratchets
-    // before it judge the combined tree against the baselines.
-    (
-        "ci.yml",
-        "ratchets",
-        "a raised baseline names its ruling (quality/)",
         InTheQueue::PullRequestOnly,
     ),
 ];
@@ -1385,7 +1394,7 @@ fn every_job_behaves_deliberately_in_a_merge_group() {
     let root = workspace();
     let mut files: Vec<&str> = MAIN_REQUIRES.iter().map(|&(_, _, file)| file).collect();
     files.dedup();
-    assert_eq!(files, ["ci.yml", "mutants.yml"]);
+    assert_eq!(files, REQUIRED_WORKFLOWS);
     let (mut jobs_seen, mut steps_seen) = (Vec::new(), Vec::new());
     for file in files {
         let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
@@ -1432,12 +1441,11 @@ fn every_job_behaves_deliberately_in_a_merge_group() {
 /// in file order: the fast gates, so the README's badge reads a verdict
 /// on main, and the builds that save the caches a pull request's run
 /// restores. Everything else that commit already passed in the queue.
-const JOBS_ON_PUSH: [&str; 8] = [
+const JOBS_ON_PUSH: [&str; 7] = [
     "msrv",
     "quality",
     "license-compliance",
     "lint-non-rust",
-    "ratchets",
     "dependency-audit",
     "release-binary",
     "pr-caches",
@@ -1502,6 +1510,42 @@ fn the_push_to_main_runs_only_what_it_uniquely_feeds() {
             "{check} neither runs nor reports in a merge group"
         );
     }
+}
+
+/// A label or a body change starts no suite run (#1295): ci.yml runs on a
+/// pull request's new head alone, and pr-gates.yml, which holds the two
+/// required checks that read its labels and body, runs on those changes
+/// too, and on the merge queue's event so both still report there.
+#[test]
+fn a_label_or_body_change_reruns_only_the_metadata_gates() {
+    let root = workspace();
+    let read =
+        |file: &str| std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
+    let (ci, gates) = (read("ci.yml"), read("pr-gates.yml"));
+    assert_eq!(
+        event_lines(&ci, "pull_request"),
+        ["    types: [opened, synchronize, reopened]"],
+        "ci.yml starts on a label or a body change"
+    );
+    assert_eq!(
+        event_lines(&gates, "pull_request"),
+        ["    types: [opened, synchronize, reopened, edited, labeled, unlabeled]"],
+    );
+    assert_eq!(
+        event_lines(&gates, "merge_group"),
+        ["    types: [checks_requested]"],
+        "pr-gates.yml does not run on the merge queue's event"
+    );
+    let ids: Vec<String> = workflow::jobs(&gates)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    let held: Vec<&str> = MAIN_REQUIRES
+        .iter()
+        .filter(|&&(_, _, file)| file == "pr-gates.yml")
+        .map(|&(_, id, _)| id)
+        .collect();
+    assert_eq!(ids, held, "pr-gates.yml holds the metadata gates alone");
 }
 
 /// Every version the by-hand guide states for a pinned tool is its pin:

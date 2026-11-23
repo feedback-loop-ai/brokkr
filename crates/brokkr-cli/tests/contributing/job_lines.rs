@@ -59,6 +59,36 @@ const JOB_LINES: [(&str, &str); 13] = [
 "#,
     ),
     (
+        "ratchets",
+        r#"
+    name: baseline ratchets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+<checkout>
+          fetch-depth: 2
+<stable toolchain>
+      - uses: ./.github/actions/setup-jscpd
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-shear@1.14.0
+          fallback: none
+      - name: file-size ratchet (quality/file-lines.txt)
+        run:
+      - name: duplication ratchet (quality/jscpd-baseline-*.json)
+        run:
+      - name: no unused dependency (cargo-shear)
+        run:
+      - name: a raised baseline names its ruling (quality/)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run:
+"#,
+    ),
+    (
         "msrv",
         r#"
     name: MSRV (1.89)
@@ -300,36 +330,6 @@ const JOB_LINES: [(&str, &str); 13] = [
 "#,
     ),
     (
-        "ratchets",
-        r#"
-    name: baseline ratchets
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-<checkout>
-          fetch-depth: 2
-<stable toolchain>
-      - uses: ./.github/actions/setup-jscpd
-      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
-        with:
-          tool: cargo-shear@1.14.0
-          fallback: none
-      - name: file-size ratchet (quality/file-lines.txt)
-        run:
-      - name: duplication ratchet (quality/jscpd-baseline-*.json)
-        run:
-      - name: no unused dependency (cargo-shear)
-        run:
-      - name: a raised baseline names its ruling (quality/)
-        if: github.event_name == 'pull_request'
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run:
-"#,
-    ),
-    (
         "dependency-audit",
         r#"
     name: RustSec dependency audit
@@ -520,6 +520,10 @@ fn the_required_jobs_run_every_step_unsoftened() {
     let read =
         |file: &str| std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
     for (file, top) in [
+        (
+            "pr-gates.yml",
+            ["name", "on", "concurrency", "permissions", "jobs"],
+        ),
         (
             "ci.yml",
             ["name", "on", "concurrency", "permissions", "jobs"],
