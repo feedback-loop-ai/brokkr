@@ -106,9 +106,11 @@ impl Leg<'_> {
 /// The reason's text, naming the provider, route, end and the provider's
 /// words. An end no RFC 3339 text can spell is named by its whole second
 /// instead, so printing a refusal never panics. A probe's hold (`probe`)
-/// names its time as the probe's deadline and says no time ends it, for
-/// only its answer, renewed round or settlement does (the return of fix
-/// round 0106b1r12).
+/// says no time ends it, for only its answer, renewed round or settlement
+/// does (the return of fix round 0106b1r12), and names its time as the
+/// second its probe's deadline falls before: the store keeps the first
+/// whole second strictly after the deadline, so a deadline at an exact
+/// second is never named as a second later (fix round 0106b1r13, L1).
 pub(super) fn word(
     f: &mut fmt::Formatter<'_>,
     (provider, route): (&str, &str),
@@ -120,8 +122,8 @@ pub(super) fn word(
     match probe {
         true => write!(
             f,
-            "provider {provider} is held on route {route} by a cool-down probe whose deadline is \
-             {until}, and no time ends that hold: {words}"
+            "provider {provider} is held on route {route} by a cool-down probe whose deadline \
+             falls before {until}, and no time ends that hold: {words}"
         ),
         false => write!(
             f,
