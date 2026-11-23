@@ -65,7 +65,7 @@ A from-empty listing that genuinely reaches zero (the last long function split, 
 - a removed baseline;
 - any change to `ceilings.json`, `lib.sh`, `ratchet.sh` or `measure.sh`, since changing how a number is measured changes the number.
 
-The check reads the pull request body from the event, so an edited body needs a new event (close and reopen), as `delivered by brokkr` does.
+The check reads the pull request body from the event. It lives in `.github/workflows/pr-gates.yml` with `delivered by brokkr`, which re-runs on `edited` (#1295), so an edited body is judged again without a close and reopen, and without re-running the suite.
 
 **The public API's `Value` count.** It is the number of lines in `public-api/brokkr-core.txt` naming `serde_json::value::Value`: 26 at `1d890c6a`. Each is one public item whose signature carries the untyped value. #338's issue said 11, a count of signatures by hand; this is the count the tool reproduces.
 

@@ -15,6 +15,7 @@ mod broker;
 mod budget_frame;
 mod cli_args;
 mod compare;
+mod completion;
 mod doctor;
 mod dsh_key;
 mod exit;
@@ -704,8 +705,10 @@ pub(crate) fn safe_lines(text: &str) -> String {
 /// appears in `--help`.
 ///
 /// An old flat spelling is respelled before the parse and says its new
-/// one on stderr first (decision 0113 ruling 4).
+/// one on stderr first (decision 0113 ruling 4). A shell's completion
+/// request is answered before either, and exits (decision 0119 ruling 2).
 pub fn main() -> ExitCode {
+    completion::answer_if_asked();
     if let Some(args) = dsh_sandbox_runner_args() {
         return dsh_sandbox_runner(args);
     }
@@ -1378,6 +1381,9 @@ fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode>
         GroupedCmd::Secrets { command } => setup::secrets(workspace, command),
         GroupedCmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
         GroupedCmd::Dispatch(args) => dispatch::dispatch(workspace, args, &mut std::io::stdout()),
+        GroupedCmd::Completions(args) => {
+            Ok(completion::script(args, &mut std::io::stdout().lock()))
+        }
     }
 }
 

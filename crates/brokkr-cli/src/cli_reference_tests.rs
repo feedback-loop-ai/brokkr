@@ -317,7 +317,8 @@ fn reference() -> String {
          when the workspace journal is there, and otherwise takes the id \
          literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, \
          and `brokkr` itself `-V`/`--version`; the tables leave them out.\n\n\
-         The verbs nest under twelve roots. Every old flat name, such as \
+         The verbs nest under thirteen roots: decision 0113's twelve and \
+         decision 0119's `completions`. Every old flat name, such as \
          `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for \
          `brokkr journal verify`, still parses as a hidden alias until 0.17, \
          and says its new spelling on stderr.\n\n"
