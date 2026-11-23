@@ -1049,6 +1049,12 @@ $env:COMPLETE = "powershell"; brokkr | Out-String | Invoke-Expression; Remove-It
 eval (E:COMPLETE=elvish brokkr | slurp)
 ```
 
+A Homebrew install needs no `source` line. The formula installs the live
+completer's registration for bash, zsh and fish, which the shell reads
+from Homebrew's completion directories once Homebrew's shell setup is
+in place. Every other install, from the deb or rpm package, the release
+tarball, nix or cargo, still needs the line above or the saved script.
+
 It offers the 50 newest run ids for `--run`, `--by-run` and `runs
 compare`, newest first, and the phases and seats of the run a `--run`
 on the line names, read from that run's seat rows. It also offers recipe
