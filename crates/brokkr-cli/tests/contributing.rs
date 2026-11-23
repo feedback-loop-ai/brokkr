@@ -1680,6 +1680,33 @@ fn a_label_or_body_change_reruns_only_the_metadata_gates() {
     assert_eq!(ids, held, "pr-gates.yml holds the metadata gates alone");
 }
 
+/// The events a workflow's `on:` map names, in order, comments dropped.
+fn events(workflow: &str) -> Vec<&str> {
+    let (_, on) = workflow.split_once("\non:\n").expect("an on: map");
+    on.lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .take_while(|line| line.starts_with("  "))
+        .filter_map(|line| line.strip_prefix("  "))
+        .filter(|line| !line.starts_with(' '))
+        .map(|line| line.trim_end_matches(':'))
+        .collect()
+}
+
+/// The CPU budgets run nightly and by hand alone (#1295): cpu-budgets.yml
+/// starts on `schedule` and `workflow_dispatch` and on nothing else, never
+/// on a pull request's or the merge queue's event.
+#[test]
+fn the_cpu_budgets_run_on_their_schedule_or_by_hand_alone() {
+    let text =
+        std::fs::read_to_string(workspace().join(".github/workflows/cpu-budgets.yml")).unwrap();
+    assert_eq!(events(&text), ["schedule", "workflow_dispatch"]);
+    assert_eq!(
+        event_lines(&text, "workflow_dispatch")[..2],
+        ["    inputs:", "      ref:"],
+        "a person cannot name the ref to measure"
+    );
+}
+
 /// Every version the by-hand guide states for a pinned tool is its pin:
 /// each `tool: name@version` the workflows install, the MSRV toolchain,
 /// the Node they set up, the cargo-public-api they build, jscpd's action, the cargo-deny the
