@@ -702,7 +702,21 @@ impl Engine {
             None,
             |_| {},
         );
-        settlement::ended(&mut self.held, at.site_name, &report.cleanup);
+        self.probe_ended((at.effect_id, at.site_name), wait, report)
+    }
+
+    /// What a spawned probe's `report` leaves, its settlement witnessed on
+    /// the lease at `site` first. Its hold ends here only where that report
+    /// proves the probe's whole tree ended; a probe that parks while its
+    /// tree may still run keeps its hold through the park, until a
+    /// settlement ends it (fix round 0106b1r12, S4).
+    pub(in crate::engine::cooldown) fn probe_ended(
+        &mut self,
+        (effect_id, site): (&str, &str),
+        wait: &ProviderWait,
+        report: brokkr_protocol::AttemptReport,
+    ) -> Probe {
+        settlement::ended(&mut self.held, site, &report.cleanup);
         // The hold ends on evidence, never on a clock (fix round 0106b1r10,
         // H1): right after the settlement above proved the driver's whole
         // tree ended, for every probe that hands no renewed round on. A
@@ -712,7 +726,7 @@ impl Engine {
         // round 0106b1r11, L4). A tree not proven ended leaves it standing
         // until a settlement proves it (fix round 0106b1r12, S1).
         let proven = matches!(report.cleanup, Cleanup::Settled);
-        let probe = self.probe_end(at.effect_id, wait, report);
+        let probe = self.probe_end(effect_id, wait, report);
         match proven && !renews(&probe) {
             true => self.end_the_hold(wait, probe),
             false => probe,

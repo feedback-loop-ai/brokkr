@@ -1345,6 +1345,7 @@ mod held_instance;
 #[cfg(target_os = "linux")]
 mod held_lease;
 mod held_panel;
+mod held_park;
 mod held_probe;
 mod held_route;
 mod held_settlement;
