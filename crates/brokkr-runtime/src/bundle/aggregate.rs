@@ -20,7 +20,8 @@ pub enum Aggregate {
     UnanimousPass,
     /// Worst-member-wins over clean < residual < security-hold; severity
     /// is the max and the security flag is OR-ed, each left unknown where
-    /// a residual member's own is unreadable; the spec flag is OR-ed.
+    /// a residual member's own is unreadable; the spec and fixes flags
+    /// are OR-ed, each left unknown where a member's own is unreadable.
     ReviewPanel,
 }
 
@@ -543,11 +544,12 @@ fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
         .expect("panels have members");
     let joined = ReviewInputs::join(parsed);
     let mut inputs = Map::new();
-    // Backward-compatible evidence for frozen/third-party tables:
-    // judges never fix, so the only lawful value is false. Shipped
-    // tables no longer declare or read it and therefore drop it.
-    inputs.insert("fixes_applied".into(), Value::Bool(false));
-    inputs.insert("spec_defect".into(), Value::Bool(joined.spec_defect));
+    // Evidence for tables that declare them; shipped tables declare no
+    // `fixes_applied` and drop it. A member's witnessed `true` is kept,
+    // never overwritten, and a value no member wrote readably is unknown
+    // (decision 0121 ruling 1).
+    inputs.insert("fixes_applied".into(), json!(joined.fixes_applied));
+    inputs.insert("spec_defect".into(), json!(joined.spec_defect));
     // Both residual inputs on every result, `none` and `false` when no
     // member reports one, so an all-clean panel's word is bound to a
     // declared pair rather than an absent one (decision 0109 ruling 2). A
@@ -560,16 +562,18 @@ fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
 
 /// What a review panel's members report in their own `inputs`, joined:
 /// the highest residual severity any names, whether any names a security
-/// residual, and whether any names a spec defect. A `residual` member is
-/// the one whose word a table admits on its safety facts, so it must
-/// supply them readably: its missing or malformed fact stays unknown
-/// beside otherwise safe members, never becoming permission to ship
-/// (decision 0120 ruling 1).
+/// residual, and whether any names applied fixes or a spec defect. A
+/// `residual` member is the one whose word a table admits on its safety
+/// facts, so it must supply them readably: its missing or malformed fact
+/// stays unknown beside otherwise safe members, never becoming
+/// permission to ship (decision 0120 ruling 1). Any member's malformed
+/// fixes or spec flag stays unknown the same way (decision 0121).
 struct ReviewInputs {
     max_severity: Severity,
     severity_known: bool,
     has_security: Option<bool>,
-    spec_defect: bool,
+    fixes_applied: Option<bool>,
+    spec_defect: Option<bool>,
 }
 
 impl ReviewInputs {
@@ -578,7 +582,8 @@ impl ReviewInputs {
             max_severity: Severity::None,
             severity_known: true,
             has_security: Some(false),
-            spec_defect: false,
+            fixes_applied: Some(false),
+            spec_defect: Some(false),
         };
         for (_, result, payload) in parsed {
             let inputs = payload.get("inputs").and_then(Value::as_object);
@@ -595,9 +600,9 @@ impl ReviewInputs {
             if let Some(severity) = severity {
                 joined.max_severity = joined.max_severity.max(severity);
             }
-            joined.spec_defect |= read("spec_defect")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
+            let fixes = scope_flag(read("fixes_applied"));
+            joined.fixes_applied = joined_flag(joined.fixes_applied, fixes);
+            joined.spec_defect = joined_flag(joined.spec_defect, scope_flag(read("spec_defect")));
         }
         joined
     }
@@ -609,6 +614,14 @@ impl ReviewInputs {
     fn severity(&self) -> Option<Severity> {
         (self.severity_known || self.max_severity > Severity::Medium).then_some(self.max_severity)
     }
+}
+
+/// A member's `fixes_applied` or `spec_defect` as the join reads it: a
+/// boolean as itself, a flag the member did not write as the charter's
+/// `false` (a member writes only the residual pair, decision 0109 ruling
+/// 2), and any other value as unknown (decision 0121 ruling 1).
+fn scope_flag(value: Option<&Value>) -> Option<bool> {
+    value.map_or(Some(false), Value::as_bool)
 }
 
 /// Two observations of one flag, joined: a witnessed `true` dominates;
