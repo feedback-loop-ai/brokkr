@@ -1,6 +1,6 @@
 # 0116 — A work order says what is being built, and its graph feeds the queue
 
-Status: proposed — the operator's direction in chat, 2026-11-22: "we should have a workorder abstraction - like future [commissions], they can have a reference to external tools, e.g. github, gitlab, azure devops, linear, zenhub, jira etc, but essentially it is a DAG of future [commissions] distilled so we know what we are building"
+Status: accepted — operator ruled in chat 2026-11-23, "accept 0116", on the direction of 2026-11-22: "we should have a workorder abstraction - like future [commissions], they can have a reference to external tools, e.g. github, gitlab, azure devops, linear, zenhub, jira etc, but essentially it is a DAG of future [commissions] distilled so we know what we are building"
 Date: 2026-11-22
 
 Built: unbuilt (#1272)
@@ -27,7 +27,7 @@ The operator also named the aim:
 
 Brokkr already abstracts the first side. A harness is an adapter and a driver, and #347 wants a new harness to cost one module plus its adapter data. This decision gives the second side the same shape. A tracker is a citation and an adapter, and the work order sits between the two sides, journaled.
 
-## Rulings (proposed)
+## Rulings
 
 1. **A work order is one typed document: what is being built.** It holds:
    - **Brokkr's own id,** unique in its realm and written `WO-<n>`, and a title. A tracker's item is never the id: it is cited, with its link (ruling 7);
