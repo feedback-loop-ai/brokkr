@@ -1,0 +1,3 @@
+brokkr-engine-sentinel started parent=node /var/tmp/probe-qoder/prefix/node_modules/.bin/qodercli -p --output-format stream-json --no-session-persistence -m Fast --reasoning-effort low --permission-mode dont_ask --tools  --allowed-tools m
+brokkr-engine-sentinel started parent=node /var/tmp/probe-qoder/prefix/node_modules/.bin/qodercli -p --output-format stream-json --no-session-persistence -m Fast --reasoning-effort low --permission-mode dont_ask --tools  --allowed-tools m
+brokkr-engine-sentinel called

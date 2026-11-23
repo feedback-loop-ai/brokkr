@@ -1,0 +1,6 @@
+{"id": 1, "jsonrpc": "2.0", "result": {"capabilities": {"tools": {}}, "protocolVersion": "2024-11-05", "serverInfo": {"name": "brokkr-hands", "version": "0.14.0"}}}
+tools: ['workspace']
+$ cat .forge/secrets.env
+{"content": [{"text": "CANARY=qoder-store-canary-7f3a\n\n[exit code: 0]", "type": "text"}], "isError": false}
+$ cat seed.txt
+{"content": [{"text": "seed line for boxc\n\n[exit code: 0]", "type": "text"}], "isError": false}

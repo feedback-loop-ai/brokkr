@@ -1,0 +1,4 @@
+{"id": 1, "jsonrpc": "2.0", "result": {"capabilities": {"tools": {}}, "protocolVersion": "2024-11-05", "serverInfo": {"name": "brokkr-hands", "version": "0.14.0"}}}
+tools: ['workspace']
+$ cat .forge/secrets.env
+{"content": [{"text": "hands namespace: secrets store cannot be hidden from workspace hands: '/var/tmp/probe-qoder/sealed/ws/.forge/secrets.env' grants its group or others access (mode 0664)", "type": "text"}], "isError": true}

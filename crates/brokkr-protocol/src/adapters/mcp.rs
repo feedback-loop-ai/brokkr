@@ -363,6 +363,14 @@ pub(super) enum McpRefusal {
     Strict(#[from] StrictCause),
     #[error("provider '{provider}' final MCP configuration is not the engine's sealed server set")]
     NotSealed { provider: &'static str },
+    /// Boxed hands the standing fence served unadmitted to a driver whose
+    /// launch no compiled fragment keeps boxed (#1235).
+    #[error(
+        "provider '{provider}' cannot be served the box's hands its sealed inputs declare: no \
+         measured strict MCP configuration admitted them, and no launch with the harness's own \
+         tools is served in their place"
+    )]
+    Unboxed { provider: &'static str },
     /// The `mcp__cap-` servers a launch's allow list names, each list
     /// rendered in order, are not its sealed brokers' (U9b1d; MB1).
     #[error(

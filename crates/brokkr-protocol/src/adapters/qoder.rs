@@ -1,8 +1,11 @@
-//! `brokkr driver qoder`: Qoder CLI as a provisional harness at level 1
-//! (#1178; decision 0075). The seat is unboxed and never resumed, every
-//! model it serves is provisional, and the facts below come from the
-//! controller's hand measurement of Qoder CLI 1.1.92
-//! (`docs/evidence/adapters/qoder-cli-1-1.md`).
+//! `brokkr driver qoder`: Qoder CLI as a provisional harness (#1178;
+//! decision 0075). The seat is never resumed, every model it serves is
+//! provisional, and the facts below come from the controller's hand
+//! measurements of Qoder CLI 1.1.92 and 1.1.95
+//! (`docs/evidence/adapters/qoder-cli-1-1.md`). It is unboxed at level 1,
+//! and boxed where the engine's set serves the box's hands (#1235): the
+//! one value that decides which, and what a boxed turn must show, are in
+//! [`hands`].
 //!
 //! Qoder's stream is Claude Code's shape, so its rows go through the one
 //! Claude fold (decision 0071 ruling 5). Two things are read here first,
@@ -42,34 +45,24 @@ use crate::native_controls::mcp::qoder::isolation;
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 use crate::{PreSessionRefusal, RefusalClass};
 
-/// What every qoder seat runs before its own pin, effort and grants: a
-/// print-mode stream turn that keeps no session, accepting edits.
-const HEAD: [&str; 6] = [
+mod hands;
+use hands::{Breach, Hands, Shown};
+
+/// What every qoder seat runs before its permission mode, its own pin,
+/// effort and grants: a print-mode stream turn that keeps no session.
+const HEAD: [&str; 4] = [
     "-p",
     "--output-format",
     "stream-json",
     "--no-session-persistence",
-    "--permission-mode",
-    "accept_edits",
 ];
 
-/// The native tools a level-1 seat holds. Without `--tools` the CLI keeps
-/// its 34-tool default, `Agent`, `Workflow`, the cron tools and the web
-/// tools among them (the record's Tools facts).
-const TOOLS: [&str; 7] = ["--tools", "Read", "Edit", "Write", "Glob", "Grep", "Bash"];
-
-/// The MCP meta-tools a seat the engine serves no server is denied:
-/// `--tools ""` still leaves them, and only `--disallowed-tools` removes
-/// them (the record's Tools facts). A seat served one keeps them, because
-/// the engine's server is reached through them (Q14, Q15).
-const META_DENIED: [&str; 2] = ["--disallowed-tools", "mcp_call,mcp_get,mcp_list"];
-
 /// What the engine's MCP set gives one launch: the file the engine wrote
-/// its document to, and the grant of each tool that document serves.
+/// its document to, and the hands that set makes the seat's ([`Hands::of`]).
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Engine<'a> {
-    pub(super) file: &'a str,
-    pub(super) grants: &'a [String],
+struct Engine<'a> {
+    file: &'a str,
+    hands: &'a Hands,
 }
 
 /// The three controls a seat's argv may carry, each once and each with one
@@ -112,6 +105,16 @@ pub(super) enum LaunchError {
     Doubled(&'static str),
     #[error("refusing to invoke the agent CLI: the seat's arguments carry '{0}' with no value")]
     Valueless(&'static str),
+    /// A boxed seat's own tool grant: its launch holds no tool of Qoder's
+    /// own, so the grant names a tool that does not exist, and it is
+    /// refused rather than dropped (C4). The words name the control, never
+    /// its value.
+    #[error(
+        "refusing to invoke the agent CLI: the seat's arguments carry '--allowed-tools', and a \
+         qoder seat whose hands are boxed holds no tool of Qoder's own to grant: its one grant \
+         is the engine's workspace tool (#1235)"
+    )]
+    BoxedGrant,
     #[error(
         "refusing to invoke the agent CLI: the seat pins no model with -m, and Qoder serves a \
          model of its own choosing when none is named; a provisional seat pins its id (#1178)"
@@ -179,19 +182,22 @@ impl std::fmt::Display for ModelPin {
     }
 }
 
-/// One qoder launch: the command spawned and the id it pins.
+/// One qoder launch: the command spawned, the id it pins, and the hands
+/// its turn is checked by.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Launch {
     command: Vec<String>,
     pin: ModelPin,
+    hands: Hands,
 }
 
 /// The launch for `extra`, the arguments behind the driver's `--`, served
-/// `engine`'s set: the head, the seat's own controls in the order it wrote
-/// them, the engine's grants joined to its one `--allowed-tools` value,
-/// the MCP isolation in its one home, and the tool lists last. Nothing
-/// else in `extra` is launched: a token this driver does not admit
-/// refuses before any provider work.
+/// `engine`'s set: the head, the permission mode its hands rule, the seat's
+/// own controls in the order it wrote them, the engine's grants as the one
+/// `--allowed-tools` value of a boxed seat, the MCP isolation in its one
+/// home, and the tool lists last. Nothing else in `extra` is launched: a
+/// token this driver does not admit, and a boxed seat's own grant, refuse
+/// before any provider work.
 fn launch(bin: &str, extra: &[String], engine: Engine<'_>) -> Result<Launch, LaunchError> {
     let mut pin = None;
     let mut seen: Vec<&'static str> = Vec::new();
@@ -203,6 +209,9 @@ fn launch(bin: &str, extra: &[String], engine: Engine<'_>) -> Result<Launch, Lau
             }
             return Err(LaunchError::Positional);
         };
+        if control == CONTROLS[2] && !engine.hands.admits_seat_grant() {
+            return Err(LaunchError::BoxedGrant);
+        }
         if seen.contains(&control) {
             return Err(LaunchError::Doubled(control));
         }
@@ -216,33 +225,19 @@ fn launch(bin: &str, extra: &[String], engine: Engine<'_>) -> Result<Launch, Lau
         }
     }
     let pin = pin.ok_or(LaunchError::Unpinned)?;
+    let hands = engine.hands;
     let mut command = vec![bin.to_string()];
     command.extend(HEAD.iter().map(|part| part.to_string()));
-    command.extend(granted(extra, engine.grants));
+    command.extend(hands.mode());
+    command.extend(extra.iter().cloned());
+    command.extend(hands.granted());
     command.extend(isolation(engine.file));
-    command.extend(TOOLS.iter().map(|part| part.to_string()));
-    if engine.grants.is_empty() {
-        command.extend(META_DENIED.iter().map(|part| part.to_string()));
-    }
-    Ok(Launch { command, pin })
-}
-
-/// The seat's admitted controls with `grants` joined after the value of
-/// its one `--allowed-tools`, comma-separated as the adapter's separator,
-/// or written as that control where the seat grants nothing of its own: so
-/// the control appears once. No grant changes no byte.
-fn granted(extra: &[String], grants: &[String]) -> Vec<String> {
-    let mut seat = extra.to_vec();
-    if grants.is_empty() {
-        return seat;
-    }
-    let allowed = CONTROLS[2];
-    // Every value was read as no option, so the control is found by itself.
-    match seat.iter().position(|part| part == allowed) {
-        Some(at) => seat[at + 1] = [&seat[at + 1..at + 2], grants].concat().join(","),
-        None => seat.extend([allowed.to_string(), grants.join(",")]),
-    }
-    seat
+    command.extend(hands.tools());
+    Ok(Launch {
+        command,
+        pin,
+        hands: hands.clone(),
+    })
 }
 
 /// One qoder seat, start to end: its composed arguments, the launch
@@ -294,8 +289,9 @@ fn words_masked(mut invocation: Invocation, bindings: &[secret::BoundSecret]) ->
 /// ([`mcp::isolated`]), as every built-in harness is admitted, then the
 /// engine's set read from the intent it checked ([`mcp::qoder_set`]), its
 /// document written to a private file under `root` that the launch names,
-/// and the launch. No launch is offered a rejoin, so the cold assessment is
-/// the one admitted.
+/// the seat's hands made from that set, once ([`Hands::of`]), and the
+/// launch. No launch is offered a rejoin, so the cold assessment is the
+/// one admitted.
 fn prepared(
     bin: &str,
     extra: &[String],
@@ -308,9 +304,10 @@ fn prepared(
     let served = mcp::qoder_set(&edge, &isolated, workdir)?;
     let staged = staged(&served.document, root)?;
     let file = staged.path().join(MCP_FILE);
+    let hands = Hands::of(served.grants);
     let engine = Engine {
         file: file.to_str().ok_or(LaunchError::Unnamed)?,
-        grants: &served.grants,
+        hands: &hands,
     };
     let launch = launch(bin, &isolated.argv, engine)?;
     Ok((staged, launch))
@@ -343,6 +340,10 @@ struct QoderFold {
     /// Whether init named the pin. An init that names no model confirms
     /// nothing and leaves it unset (Y1).
     confirmed: bool,
+    /// The launch's hands, which decide whether each row is read as a
+    /// boxed turn's ([`Hands::check`]), and what a boxed stream has shown.
+    hands: Hands,
+    shown: Shown,
     claude: ClaudeFold,
 }
 
@@ -354,14 +355,18 @@ enum Stop {
     /// A turn arrived that no init confirmed. What it is refused as waits
     /// on the stderr captured by then ([`QoderFold::ended`], Y3).
     Unconfirmed,
+    /// A boxed turn's row shows the box does not hold (C5).
+    Breached(Breach),
 }
 
 impl QoderFold {
-    fn new(pin: &ModelPin) -> QoderFold {
+    fn new(pin: &ModelPin, hands: &Hands) -> QoderFold {
         QoderFold {
             pin: pin.clone(),
             initialised: false,
             confirmed: false,
+            hands: hands.clone(),
+            shown: Shown::default(),
             claude: ClaudeFold::default(),
         }
     }
@@ -389,7 +394,7 @@ impl QoderFold {
         let Ok(mut row) = serde_json::from_slice::<Map<String, Value>>(line) else {
             return Err(Stop::Refused(unmeasured_line()));
         };
-        self.confirm(&row)?;
+        self.confirm(&row, line)?;
         let assistant = row.get("type").and_then(Value::as_str) == Some("assistant");
         // Nothing persists the session, so its id locates nothing.
         row.remove("session_id");
@@ -409,8 +414,17 @@ impl QoderFold {
 
     /// `row` read for the model it confirms, as Qoder wrote it: an init
     /// row names the pin, or nothing; a second one, or a turn before init
-    /// named the pin, stops the stream (Y1).
-    fn confirm(&mut self, row: &Map<String, Value>) -> Result<(), Stop> {
+    /// named the pin, stops the stream (Y1). Then, for a boxed seat, for
+    /// what its hands must show: a row that shows the box does not hold
+    /// stops the stream before any of it counts (C5), read once from the
+    /// row's `line` into its typed row.
+    fn confirm(&mut self, row: &Map<String, Value>, line: &[u8]) -> Result<(), Stop> {
+        self.identify(row)?;
+        (self.hands.check(line, &mut self.shown)).map_err(Stop::Breached)
+    }
+
+    /// [`QoderFold::confirm`]'s reading of the model, level 1's.
+    fn identify(&mut self, row: &Map<String, Value>) -> Result<(), Stop> {
         let text = |key: &str| row.get(key).and_then(Value::as_str);
         let kind = text("type");
         if kind == Some("system") && text("subtype") == Some("init") {
@@ -432,8 +446,9 @@ impl QoderFold {
     /// The refusal the turn ends with, decided once (H5): where Qoder's
     /// fallback line is on the stderr `observed` by then, every stop and
     /// every end refuses as substituted, in the reported-on-stderr words;
-    /// otherwise a stop keeps its own words, and a clean exit no init row
-    /// confirmed is unconfirmed (Y1, Y3).
+    /// otherwise a stop keeps its own words, a clean exit no init row
+    /// confirmed is unconfirmed (Y1, Y3), and a boxed one with no result
+    /// row is unfinished (D1; decision 0115).
     ///
     /// `observed` is Qoder's stderr NOT masked, so no binding can erase a
     /// marker it overlaps (U2). It is only matched here: no byte of it
@@ -450,7 +465,10 @@ impl QoderFold {
         match stop {
             Some(Stop::Refused(refused)) => Some(refused),
             Some(Stop::Unconfirmed) => Some(unconfirmed(&self.pin)),
-            None => (exit_code == 0 && !self.confirmed).then(|| unconfirmed(&self.pin)),
+            Some(Stop::Breached(breach)) => Some(breach.refusal()),
+            None if exit_code != 0 => None,
+            None if !self.confirmed => Some(unconfirmed(&self.pin)),
+            None => (self.hands.unfinished(&self.shown)).map(|breach| breach.refusal()),
         }
     }
 
@@ -648,7 +666,7 @@ fn invoke(
     let path = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or("");
     let (workdir, result_path) = (path("workdir"), path("result_path"));
     let mut transcript = Transcript::resolve(TranscriptKind::None)?;
-    let mut fold = QoderFold::new(&launch.pin);
+    let mut fold = QoderFold::new(&launch.pin, &launch.hands);
     let (mut child, stderr_thread) = spawn_fed(&launch.command, prompt, workdir, bindings)?;
     let stdout = child.stdout.take().expect("piped");
     let mut session_meta = Map::new();
