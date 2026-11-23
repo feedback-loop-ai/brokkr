@@ -663,10 +663,12 @@ pub brokkr_runtime::bundle::Aggregate::ReviewPanel
 pub brokkr_runtime::bundle::Aggregate::UnanimousPass
 pub enum brokkr_runtime::bundle::BodyRefusal
 pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding
+pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding::case: brokkr_runtime::bundle::SelectCase
 pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding::seat: alloc::string::String
 pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding::step: alloc::string::String
 pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding::word: alloc::string::String
 pub brokkr_runtime::bundle::BodyRefusal::PreGateUndeclared
+pub brokkr_runtime::bundle::BodyRefusal::PreGateUndeclared::case: brokkr_runtime::bundle::SelectCase
 pub brokkr_runtime::bundle::BodyRefusal::PreGateUndeclared::seat: alloc::string::String
 pub brokkr_runtime::bundle::BodyRefusal::PreGateUndeclared::step: alloc::string::String
 pub brokkr_runtime::bundle::BodyRefusal::PreGateUndeclared::word: alloc::string::String
@@ -751,6 +753,11 @@ pub fn brokkr_runtime::bundle::SeatBody::selected_is_gate(&self, core::option::O
 pub enum brokkr_runtime::bundle::SeatClass
 pub brokkr_runtime::bundle::SeatClass::Gate
 pub brokkr_runtime::bundle::SeatClass::Work
+pub enum brokkr_runtime::bundle::SelectCase
+pub brokkr_runtime::bundle::SelectCase::Default
+pub brokkr_runtime::bundle::SelectCase::Strategy(alloc::boxed::Box<str>)
+impl core::fmt::Display for brokkr_runtime::bundle::SelectCase
+pub fn brokkr_runtime::bundle::SelectCase::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_runtime::bundle::StepBody
 pub brokkr_runtime::bundle::StepBody::Dialect
 pub brokkr_runtime::bundle::StepBody::Dialect::execution: brokkr_runtime::bundle::DialectExecution
