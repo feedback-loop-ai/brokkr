@@ -7,6 +7,7 @@
 //! [`StepVerdict`] is that answer, matched at every stage.
 
 use brokkr_core::envelope::EventType;
+use brokkr_core::policy::CHANGE;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::AttemptOutcome;
 use serde_json::{json, Map, Value};
@@ -661,9 +662,7 @@ impl Engine {
         if !run.declares_change {
             return Ok(StepVerdict::Goes(()));
         }
-        let Some(value) =
-            (result.get("inputs")).and_then(|inputs| inputs.get(brokkr_core::policy::CHANGE))
-        else {
+        let Some(value) = (result.get("inputs")).and_then(|inputs| inputs.get(CHANGE)) else {
             return Ok(StepVerdict::Goes(()));
         };
         let change = value.as_str();
@@ -672,8 +671,7 @@ impl Engine {
                 run,
                 at,
                 &format!(
-                    "declared input '{}' must match ^[a-z0-9][a-z0-9._-]*$, got {value}",
-                    brokkr_core::policy::CHANGE
+                    "declared input '{CHANGE}' must match ^[a-z0-9][a-z0-9._-]*$, got {value}"
                 ),
                 Unproven::Proven,
             );
