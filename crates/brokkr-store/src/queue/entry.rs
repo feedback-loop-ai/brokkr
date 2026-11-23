@@ -55,7 +55,7 @@ pub enum WaitOn {
     Named(Ending),
     /// The awaited entry started a run, and the operator recorded its
     /// work merged with `brokkr queue merged`: the record is the fact,
-    /// whatever its run came to, and nothing reads the forge.
+    /// whatever its run came to, and nothing reads the code host.
     Merged,
 }
 

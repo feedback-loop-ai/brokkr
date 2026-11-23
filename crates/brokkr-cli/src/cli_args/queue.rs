@@ -40,7 +40,7 @@ pub(crate) enum QueueCmd {
     Drop(QueueEntryArgs),
     /// Record that an entry's work merged, journaled with the reason (name
     /// the pull request and its merge commit): an entry waiting on
-    /// ENTRY:merged may start from then on. Brokkr reads no forge, so this
+    /// ENTRY:merged may start from then on. Brokkr reads no code host, so this
     /// record is the merge's one witness. Only an entry that started a run
     /// can be recorded merged.
     Merged(QueueEntryArgs),

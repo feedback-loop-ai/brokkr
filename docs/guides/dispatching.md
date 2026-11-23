@@ -59,7 +59,7 @@ ending lets the entry start; otherwise drop it or queue it again.
 `merged`, as `3:merged`, waits for the awaited entry's work to merge,
 which Brokkr learns only from the operator: `brokkr queue merged 3
 --reason TEXT` records it, journaled with the reason (name the pull
-request and its merge commit). Brokkr reads no forge. The record meets the
+request and its merge commit). Brokkr reads no code host. The record meets the
 wait whatever the run came to. Without one, the entry waits while the run
 is live or parked, and once the run is over it is held as `unmerged` until
 the merge is recorded. Only an entry that started a run can be recorded

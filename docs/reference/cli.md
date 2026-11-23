@@ -58,7 +58,7 @@ The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect`
 - [`brokkr queue release`](#brokkr-queue-release): Let a held entry be started again
 - [`brokkr queue repin`](#brokkr-queue-repin): Re-pin a waiting entry to the realms map that would govern it now: how the operator releases an entry `judge` latched a realm-drift hold on, accepting the differences it found. Refused when the map on disk is not the one the latch found; judge the queue again
 - [`brokkr queue drop`](#brokkr-queue-drop): Take an entry out of the queue. One that started a run cannot be
-- [`brokkr queue merged`](#brokkr-queue-merged): Record that an entry's work merged, journaled with the reason (name the pull request and its merge commit): an entry waiting on ENTRY:merged may start from then on. Brokkr reads no forge, so this record is the merge's one witness. Only an entry that started a run can be recorded merged
+- [`brokkr queue merged`](#brokkr-queue-merged): Record that an entry's work merged, journaled with the reason (name the pull request and its merge commit): an entry waiting on ENTRY:merged may start from then on. Brokkr reads no code host, so this record is the merge's one witness. Only an entry that started a run can be recorded merged
 - [`brokkr queue dispatch`](#brokkr-queue-dispatch): Start what admission admits from the journal's queue, each run handed to a driver of its own: one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
 - [`brokkr queue dispatch set-bound`](#brokkr-queue-dispatch-set-bound): Set the journal's bound on the refusals counted against one entry before the dispatcher holds it, a whole number of at least 1, journaled as the operator's command
 - [`brokkr queue dispatch status`](#brokkr-queue-dispatch-status): Say whether a dispatcher holds the journal, the bound in force, and each entry left launching or linked with no `spawn` row. Opens the journal read-only and writes nothing
@@ -842,7 +842,7 @@ Usage: brokkr queue drop [OPTIONS] --reason <REASON> <ENTRY>
 
 ## brokkr queue merged
 
-Record that an entry's work merged, journaled with the reason (name the pull request and its merge commit): an entry waiting on ENTRY:merged may start from then on. Brokkr reads no forge, so this record is the merge's one witness. Only an entry that started a run can be recorded merged
+Record that an entry's work merged, journaled with the reason (name the pull request and its merge commit): an entry waiting on ENTRY:merged may start from then on. Brokkr reads no code host, so this record is the merge's one witness. Only an entry that started a run can be recorded merged
 
 ```text
 Usage: brokkr queue merged [OPTIONS] --reason <REASON> <ENTRY>
