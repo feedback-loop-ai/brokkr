@@ -8,7 +8,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use brokkr_protocol::broker::Refusal;
-use brokkr_protocol::hands::{self, Base64UrlError, HandsSpec, Sealed, Session, SessionError};
+use brokkr_protocol::hands::{
+    self, Base64UrlError, HandsSpec, Sealed, Session, SessionError, SpecRefusal,
+};
+use clap::builder::ArgPredicate;
 use clap::Subcommand;
 
 use crate::Exit;
@@ -17,6 +20,7 @@ const REACH_FLAG: &str = "--reach";
 const REACH_BASE64URL_FLAG: &str = "--reach-base64url";
 const SPEC_FLAG: &str = "--spec";
 const SPEC_BASE64URL_FLAG: &str = "--spec-base64url";
+const DEFAULT_SPEC: &str = "\"workspace\"";
 
 #[derive(Subcommand, Debug)]
 pub enum HandsCommand {
@@ -35,15 +39,20 @@ pub enum HandsCommand {
         reach: Option<String>,
         /// The reach sealed at admission as unpadded base64url of its JSON
         /// bytes. Pass either `--reach` or `--reach-base64url`.
-        #[arg(long = "reach-base64url")]
+        #[arg(long = "reach-base64url", allow_hyphen_values = true)]
         reach_base64url: Option<String>,
         /// The box spec as JSON: {"kind":"workspace","network":…,"binds":[…]}.
-        /// Pass either `--spec` or `--spec-base64url`.
-        #[arg(long)]
+        /// Pass either `--spec` or `--spec-base64url`; omitting both uses
+        /// `"workspace"`.
+        #[arg(
+            long,
+            default_value = DEFAULT_SPEC,
+            default_value_if("spec_base64url", ArgPredicate::IsPresent, None)
+        )]
         spec: Option<String>,
         /// The box spec as unpadded base64url of its JSON bytes.
         /// Pass either `--spec` or `--spec-base64url`.
-        #[arg(long = "spec-base64url")]
+        #[arg(long = "spec-base64url", allow_hyphen_values = true)]
         spec_base64url: Option<String>,
     },
     /// Run one command whole inside the box with stdio passed through —
@@ -63,7 +72,7 @@ pub enum HandsCommand {
         #[arg(long)]
         bundle_root: Option<PathBuf>,
         /// The box spec as JSON, as `serve` takes it.
-        #[arg(long, default_value = "\"workspace\"")]
+        #[arg(long, default_value = DEFAULT_SPEC)]
         spec: String,
         /// The command and its arguments, run inside the box.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
@@ -72,14 +81,13 @@ pub enum HandsCommand {
 }
 
 /// Why a `--reach` / `--reach-base64url` or `--spec` / `--spec-base64url`
-/// argument was refused. Every refusal names which argument and why, and
-/// never echoes an encoded argument's value.
+/// argument was refused. Plain JSON spellings keep main's diagnostics byte
+/// for byte; encoded spellings name the argument and failure class and never
+/// echo either the raw argument value or any decoded field, value, or serde
+/// fragment.
 #[derive(Debug)]
 pub(crate) enum DocumentError {
-    Missing {
-        plain: &'static str,
-        encoded: &'static str,
-    },
+    MissingReach,
     BothSpellings {
         plain: &'static str,
         encoded: &'static str,
@@ -88,38 +96,54 @@ pub(crate) enum DocumentError {
         flag: &'static str,
         cause: Base64UrlError,
     },
-    Reach {
-        flag: &'static str,
+    PlainReach {
         cause: serde_json::Error,
     },
-    SpecJson {
-        flag: &'static str,
+    PlainSpecJson {
         cause: serde_json::Error,
     },
-    Spec {
+    PlainSpec {
+        cause: SpecRefusal,
+    },
+    EncodedNotJson {
         flag: &'static str,
-        cause: String,
+    },
+    EncodedReach,
+    EncodedSpec {
+        cause: SpecRefusal,
     },
 }
 
 impl fmt::Display for DocumentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Missing { plain, encoded } => {
-                write!(f, "{plain}: missing; pass either {plain} or {encoded}")
-            }
-            Self::BothSpellings { plain, encoded } => {
-                write!(
-                    f,
-                    "{plain}: both {plain} and {encoded} were given; pass only one"
-                )
-            }
+            Self::MissingReach => write!(
+                f,
+                "{REACH_FLAG}: missing; pass either {REACH_FLAG} or {REACH_BASE64URL_FLAG}"
+            ),
+            Self::BothSpellings { plain, encoded } => write!(
+                f,
+                "{plain}: both {plain} and {encoded} were given; pass only one"
+            ),
             Self::Encoded { flag, cause } => write!(f, "{flag}: {cause}"),
-            Self::Reach { flag, cause } => {
-                write!(f, "{flag}: {}: {cause}", Refusal::Identity)
+            Self::PlainReach { cause } => {
+                write!(f, "{REACH_FLAG}: {}: {cause}", Refusal::Identity)
             }
-            Self::SpecJson { flag, cause } => write!(f, "{flag}: {cause}"),
-            Self::Spec { flag, cause } => write!(f, "{flag}: {cause}"),
+            Self::PlainSpecJson { cause } => write!(f, "{cause}"),
+            Self::PlainSpec { cause } => write!(f, "{SPEC_FLAG}: {cause}"),
+            Self::EncodedNotJson { flag } => {
+                write!(f, "{flag}: decoded document is not valid JSON")
+            }
+            Self::EncodedReach => write!(
+                f,
+                "{REACH_BASE64URL_FLAG}: {}: decoded document is not a valid sealed reach",
+                Refusal::Identity
+            ),
+            Self::EncodedSpec { cause } => write!(
+                f,
+                "{SPEC_BASE64URL_FLAG}: decoded document is not a valid hands spec ({})",
+                cause.variant_name()
+            ),
         }
     }
 }
@@ -130,45 +154,80 @@ pub(crate) fn run(command: HandsCommand) -> anyhow::Result<ExitCode> {
     run_with(command, Session::create)
 }
 
-/// Resolve one document carried in either its plain JSON spelling or its
-/// unpadded base64url spelling, refusing if both or neither were given.
-fn resolve_document(
-    plain: (&'static str, Option<String>),
-    encoded: (&'static str, Option<String>),
-) -> Result<(&'static str, String), DocumentError> {
-    match (plain.1, encoded.1) {
-        (Some(json), None) => Ok((plain.0, json)),
+/// The reach `--reach` carries as plain JSON: one that does not read refuses
+/// with MB3's identity cause, and no box is built.
+fn parse_reach_plain(reach: &str) -> Result<Sealed, DocumentError> {
+    serde_json::from_str(reach).map_err(|cause| DocumentError::PlainReach { cause })
+}
+
+/// The reach `--reach-base64url` carries after decoding: distinguishes
+/// non-JSON from a non-reach document and discloses nothing decoded.
+fn parse_reach_encoded(reach: &str) -> Result<Sealed, DocumentError> {
+    serde_json::from_str::<serde::de::IgnoredAny>(reach).map_err(|_| {
+        DocumentError::EncodedNotJson {
+            flag: REACH_BASE64URL_FLAG,
+        }
+    })?;
+    serde_json::from_str(reach).map_err(|_| DocumentError::EncodedReach)
+}
+
+/// The box spec `--spec` carries as plain JSON, parsed through the one
+/// `HandsSpec::checked` check with main's diagnostics byte for byte.
+fn parse_spec_plain(spec: &str) -> Result<HandsSpec, DocumentError> {
+    let raw: serde_json::Value =
+        serde_json::from_str(spec).map_err(|cause| DocumentError::PlainSpecJson { cause })?;
+    HandsSpec::checked(&raw).map_err(|cause| DocumentError::PlainSpec { cause })
+}
+
+/// The box spec `--spec-base64url` carries after decoding, parsed through the
+/// same `HandsSpec::checked` check without disclosing decoded text.
+fn parse_spec_encoded(spec: &str) -> Result<HandsSpec, DocumentError> {
+    let raw: serde_json::Value =
+        serde_json::from_str(spec).map_err(|_| DocumentError::EncodedNotJson {
+            flag: SPEC_BASE64URL_FLAG,
+        })?;
+    HandsSpec::checked(&raw).map_err(|cause| DocumentError::EncodedSpec { cause })
+}
+
+fn resolve_serve_spec(
+    spec: Option<String>,
+    spec_base64url: Option<String>,
+) -> Result<HandsSpec, DocumentError> {
+    match (spec, spec_base64url) {
+        (Some(_), Some(_)) => Err(DocumentError::BothSpellings {
+            plain: SPEC_FLAG,
+            encoded: SPEC_BASE64URL_FLAG,
+        }),
+        (plain, None) => parse_spec_plain(plain.as_deref().unwrap_or(DEFAULT_SPEC)),
         (None, Some(raw)) => {
             let json = hands::decode_base64url(&raw).map_err(|cause| DocumentError::Encoded {
-                flag: encoded.0,
+                flag: SPEC_BASE64URL_FLAG,
                 cause,
             })?;
-            Ok((encoded.0, json))
+            parse_spec_encoded(&json)
         }
-        (Some(_), Some(_)) => Err(DocumentError::BothSpellings {
-            plain: plain.0,
-            encoded: encoded.0,
-        }),
-        (None, None) => Err(DocumentError::Missing {
-            plain: plain.0,
-            encoded: encoded.0,
-        }),
     }
 }
 
-/// The reach `--reach` or `--reach-base64url` carries, read as the type it
-/// is: one that does not read refuses with MB3's identity cause, and no box
-/// is built.
-fn parse_reach(flag: &'static str, reach: &str) -> Result<Sealed, DocumentError> {
-    serde_json::from_str(reach).map_err(|cause| DocumentError::Reach { flag, cause })
-}
-
-/// The box spec `--spec` or `--spec-base64url` carries, parsed through the
-/// one `HandsSpec::parse` check.
-fn parse_spec(flag: &'static str, spec: &str) -> Result<HandsSpec, DocumentError> {
-    let raw: serde_json::Value =
-        serde_json::from_str(spec).map_err(|cause| DocumentError::SpecJson { flag, cause })?;
-    HandsSpec::parse(&raw).map_err(|cause| DocumentError::Spec { flag, cause })
+fn resolve_serve_reach(
+    reach: Option<String>,
+    reach_base64url: Option<String>,
+) -> Result<Sealed, DocumentError> {
+    match (reach, reach_base64url) {
+        (Some(_), Some(_)) => Err(DocumentError::BothSpellings {
+            plain: REACH_FLAG,
+            encoded: REACH_BASE64URL_FLAG,
+        }),
+        (None, None) => Err(DocumentError::MissingReach),
+        (Some(json), None) => parse_reach_plain(&json),
+        (None, Some(raw)) => {
+            let json = hands::decode_base64url(&raw).map_err(|cause| DocumentError::Encoded {
+                flag: REACH_BASE64URL_FLAG,
+                cause,
+            })?;
+            parse_reach_encoded(&json)
+        }
+    }
 }
 
 fn resolve_serve_documents(
@@ -177,12 +236,8 @@ fn resolve_serve_documents(
     spec: Option<String>,
     spec_base64url: Option<String>,
 ) -> Result<(HandsSpec, Sealed), DocumentError> {
-    let (spec_flag, spec_json) =
-        resolve_document((SPEC_FLAG, spec), (SPEC_BASE64URL_FLAG, spec_base64url))?;
-    let spec = parse_spec(spec_flag, &spec_json)?;
-    let (reach_flag, reach_json) =
-        resolve_document((REACH_FLAG, reach), (REACH_BASE64URL_FLAG, reach_base64url))?;
-    let sealed = parse_reach(reach_flag, &reach_json)?;
+    let spec = resolve_serve_spec(spec, spec_base64url)?;
+    let sealed = resolve_serve_reach(reach, reach_base64url)?;
     Ok((spec, sealed))
 }
 
@@ -227,10 +282,7 @@ fn run_with(
             spec,
             command,
         } => {
-            let (spec, sealed) = (
-                parse_spec(SPEC_FLAG, &spec)?,
-                parse_reach(REACH_FLAG, &reach)?,
-            );
+            let (spec, sealed) = (parse_spec_plain(&spec)?, parse_reach_plain(&reach)?);
             // Only the leading separator is ours; a command may carry
             // its own `--`.
             let command: Vec<String> = match command.first().map(String::as_str) {

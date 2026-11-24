@@ -1,10 +1,11 @@
 //! `brokkr hands serve` argument builders (decision 0043; #1277).
 //!
 //! Both spellings carry the exact same JSON bytes of the sealed reach and the
-//! hands spec from one helper (`serve_documents`). Harnesses that hold MCP
-//! configuration in JSON (`claude`, `codex`, `agy`, `qoder`) pass `--reach`
-//! and `--spec` directly via [`serve_args`]. A dsh seat's `--patch` overlay
-//! passes `--reach-base64url` and `--spec-base64url` via
+//! hands spec from one helper (`serve_documents`) and share the command and
+//! plain path prefix through one builder (`build_serve_args`). Harnesses that
+//! hold MCP configuration in JSON (`claude`, `codex`, `agy`, `qoder`) pass
+//! `--reach` and `--spec` directly via [`serve_args`]. A dsh seat's `--patch`
+//! overlay passes `--reach-base64url` and `--spec-base64url` via
 //! [`serve_args_encoded`] so dsh's `--dump-config` (js-yaml) never folds a
 //! long JSON scalar onto a `{`-led content line that the driver's line rule
 //! refuses (#1277).
@@ -25,6 +26,26 @@ fn serve_documents(sealed: &Sealed, spec: &HandsSpec) -> (String, String) {
     )
 }
 
+fn build_serve_args(
+    workdir: &Path,
+    artifacts: &Path,
+    reach: (&str, String),
+    spec: (&str, String),
+) -> Vec<String> {
+    vec![
+        "hands".to_string(),
+        "serve".to_string(),
+        "--workdir".to_string(),
+        workdir.to_string_lossy().into_owned(),
+        "--artifacts".to_string(),
+        artifacts.to_string_lossy().into_owned(),
+        reach.0.to_string(),
+        reach.1,
+        spec.0.to_string(),
+        spec.1,
+    ]
+}
+
 /// The `brokkr hands serve …` argument vector a harness spawns with plain
 /// JSON `--reach` and `--spec`. A sealed reach that is not UTF-8 is carried
 /// empty, which no hands server reads.
@@ -35,18 +56,7 @@ pub fn serve_args(
     spec: &HandsSpec,
 ) -> Vec<String> {
     let (reach, spec) = serve_documents(sealed, spec);
-    vec![
-        "hands".to_string(),
-        "serve".to_string(),
-        "--workdir".to_string(),
-        workdir.to_string_lossy().into_owned(),
-        "--artifacts".to_string(),
-        artifacts.to_string_lossy().into_owned(),
-        "--reach".to_string(),
-        reach,
-        "--spec".to_string(),
-        spec,
-    ]
+    build_serve_args(workdir, artifacts, ("--reach", reach), ("--spec", spec))
 }
 
 /// The `brokkr hands serve …` argument vector a dsh seat's overlay writes
@@ -60,16 +70,16 @@ pub(crate) fn serve_args_encoded(
     spec: &HandsSpec,
 ) -> Vec<String> {
     let (reach, spec) = serve_documents(sealed, spec);
-    vec![
-        "hands".to_string(),
-        "serve".to_string(),
-        "--workdir".to_string(),
-        workdir.to_string_lossy().into_owned(),
-        "--artifacts".to_string(),
-        artifacts.to_string_lossy().into_owned(),
-        "--reach-base64url".to_string(),
-        crate::base64::encode_base64url(reach.as_bytes()),
-        "--spec-base64url".to_string(),
-        crate::base64::encode_base64url(spec.as_bytes()),
-    ]
+    build_serve_args(
+        workdir,
+        artifacts,
+        (
+            "--reach-base64url",
+            crate::base64::encode_base64url(reach.as_bytes()),
+        ),
+        (
+            "--spec-base64url",
+            crate::base64::encode_base64url(spec.as_bytes()),
+        ),
+    )
 }

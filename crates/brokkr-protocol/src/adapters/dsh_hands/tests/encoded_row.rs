@@ -2,6 +2,11 @@
 //! `--spec` as unpadded base64url so dsh's `--dump-config` never folds a
 //! `{`-led JSON scalar onto a line the driver's line rule refuses.
 //!
+//! These tests include the controller's captures from the workspace's
+//! `docs/evidence/adapters/dsh-hands-1277/` directory at compile time, so
+//! building or running them requires the workspace's `docs/evidence` tree
+//! (matching `crates/brokkr-cli/tests/agy_driver.rs` and `qoder_driver.rs`).
+//!
 //! - B5: bind the controller's 2026-11-24 Linux/dsh 0.2.2-rc.1 evidence at
 //!   compile time (`dump-folded-json.txt` refuses `Unreadable`;
 //!   `dump-base64url.txt` reads 100 rows, holds `brokkr-hands` enabled on
@@ -112,6 +117,46 @@ fn long_non_ascii_reach_and_spec() -> (Sealed, HandsSpec) {
     (sealed, spec)
 }
 
+struct EmittedHands {
+    reach: Sealed,
+    spec: HandsSpec,
+    workdir: &'static str,
+    artifacts: &'static str,
+    command: String,
+    args: Vec<String>,
+}
+
+/// Shared fixture for both writer tests: a boxed dsh seat with long non-ASCII
+/// reach and spec, passed through `mcp::dsh_hands`.
+fn emitted_hands_fixture() -> EmittedHands {
+    let (reach, spec) = long_non_ascii_reach_and_spec();
+    let workdir = "/home/valentin/source/feedback-loop-ai/caf\u{00e9}-worktree-long-enough-to-fold";
+    let artifacts = "/home/valentin/source/feedback-loop-ai/caf\u{00e9}-worktree-long-enough-to-fold/.forge/artifacts";
+    let dialect = SealedDialect {
+        stands: Some(SealedBoundary::Namespace),
+        ..Default::default()
+    };
+    let serving = super::dispatched(dialect, Vec::new(), Some(spec.clone()));
+    let mut input = json!({
+        "workdir": workdir,
+        ARTIFACT_ROOT: artifacts,
+        SERVING_INPUTS: serving,
+    });
+    input[SEALED_REACH] = serde_json::to_value(&reach).unwrap();
+
+    let (command, args) = mcp::dsh_hands(&input, workdir)
+        .expect("dsh_hands binds")
+        .expect("boxed hands present");
+    EmittedHands {
+        reach,
+        spec,
+        workdir,
+        artifacts,
+        command,
+        args,
+    }
+}
+
 /// B5: bind the controller's real dsh 0.2.2-rc.1 captures from
 /// `docs/evidence/adapters/dsh-hands-1277/` at compile time.
 #[test]
@@ -136,36 +181,25 @@ fn the_captured_dsh_dumps_prove_folded_json_refuses_and_base64url_passes_both_ju
 /// the captured 0.2.2-rc.1 composed dump.
 #[test]
 fn the_dsh_overlay_writer_encodes_reach_and_spec_and_passes_the_line_rule() {
-    let (reach, spec) = long_non_ascii_reach_and_spec();
-    let workdir = "/home/valentin/source/feedback-loop-ai/caf\u{00e9}-worktree-long-enough-to-fold";
-    let artifacts = "/home/valentin/source/feedback-loop-ai/caf\u{00e9}-worktree-long-enough-to-fold/.forge/artifacts";
-    let dialect = SealedDialect {
-        stands: Some(SealedBoundary::Namespace),
-        ..Default::default()
-    };
-    let serving = super::dispatched(dialect, Vec::new(), Some(spec.clone()));
-    let mut input = json!({
-        "workdir": workdir,
-        ARTIFACT_ROOT: artifacts,
-        SERVING_INPUTS: serving,
-    });
-    input[SEALED_REACH] = serde_json::to_value(&reach).unwrap();
-
-    let (command, args) = mcp::dsh_hands(&input, workdir)
-        .expect("dsh_hands binds")
-        .expect("boxed hands present");
-    let overlay = hands_rows(Release::V0_2_2, Mode::WorkspaceWrite, &command, &args).unwrap();
+    let fixture = emitted_hands_fixture();
+    let overlay = hands_rows(
+        Release::V0_2_2,
+        Mode::WorkspaceWrite,
+        &fixture.command,
+        &fixture.args,
+    )
+    .unwrap();
     let written = emitted_args(&overlay);
-    assert_eq!(written, args);
+    assert_eq!(written, fixture.args);
     assert_eq!(
         &written[..6],
         [
             "hands",
             "serve",
             "--workdir",
-            workdir,
+            fixture.workdir,
             "--artifacts",
-            artifacts
+            fixture.artifacts
         ]
     );
     assert_eq!(written[6], "--reach-base64url");
@@ -180,8 +214,8 @@ fn the_dsh_overlay_writer_encodes_reach_and_spec_and_passes_the_line_rule() {
     assert!(!reach_b64.contains('='));
     assert!(!spec_b64.contains('='));
 
-    let expected_reach_json = serde_json::to_string(&reach).unwrap();
-    let expected_spec_json = spec.to_value().to_string();
+    let expected_reach_json = serde_json::to_string(&fixture.reach).unwrap();
+    let expected_spec_json = fixture.spec.to_value().to_string();
     assert!(
         !expected_reach_json.is_ascii(),
         "reach must hold a non-ASCII path"
@@ -195,8 +229,8 @@ fn the_dsh_overlay_writer_encodes_reach_and_spec_and_passes_the_line_rule() {
     let decoded_reach: Sealed = serde_json::from_str(&decoded_reach_json).unwrap();
     let decoded_spec =
         HandsSpec::parse(&serde_json::from_str(&decoded_spec_json).unwrap()).unwrap();
-    assert_eq!(decoded_reach, reach);
-    assert_eq!(decoded_spec, spec);
+    assert_eq!(decoded_reach, fixture.reach);
+    assert_eq!(decoded_spec, fixture.spec);
 
     // Every line of the emitted `brokkr-hands` row passes the line rule on its own.
     let hands_row = overlay
@@ -216,7 +250,12 @@ fn the_dsh_overlay_writer_encodes_reach_and_spec_and_passes_the_line_rule() {
 
     // Direct check against `serve_args` (JSON spelling) to prove the exact
     // same two JSON documents travel in both spellings.
-    let plain = crate::hands::serve_args(Path::new(workdir), Path::new(artifacts), &reach, &spec);
+    let plain = crate::hands::serve_args(
+        Path::new(fixture.workdir),
+        Path::new(fixture.artifacts),
+        &fixture.reach,
+        &fixture.spec,
+    );
     assert_eq!(plain[6], "--reach");
     assert_eq!(plain[7], decoded_reach_json);
     assert_eq!(plain[8], "--spec");
@@ -229,25 +268,8 @@ fn the_dsh_overlay_writer_encodes_reach_and_spec_and_passes_the_line_rule() {
 /// passes both judges; emitting JSON again fails `rows(...)` with `Unreadable`.
 #[test]
 fn a_regenerated_composed_dump_with_the_writers_args_passes_both_judges() {
-    let (reach, spec) = long_non_ascii_reach_and_spec();
-    let workdir = "/home/valentin/source/feedback-loop-ai/caf\u{00e9}-worktree-long-enough-to-fold";
-    let artifacts = "/home/valentin/source/feedback-loop-ai/caf\u{00e9}-worktree-long-enough-to-fold/.forge/artifacts";
-    let dialect = SealedDialect {
-        stands: Some(SealedBoundary::Namespace),
-        ..Default::default()
-    };
-    let serving = super::dispatched(dialect, Vec::new(), Some(spec));
-    let mut input = json!({
-        "workdir": workdir,
-        ARTIFACT_ROOT: artifacts,
-        SERVING_INPUTS: serving,
-    });
-    input[SEALED_REACH] = serde_json::to_value(&reach).unwrap();
-
-    let (_, args) = mcp::dsh_hands(&input, workdir)
-        .expect("dsh_hands binds")
-        .expect("boxed hands present");
-    let folded_block = dump_args_block(&args);
+    let fixture = emitted_hands_fixture();
+    let folded_block = dump_args_block(&fixture.args);
     let head = DUMP_BASE64URL
         .split_once("    args:\n")
         .expect("captured dump carries args block")

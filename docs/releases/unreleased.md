@@ -86,8 +86,14 @@ Changes merged since v0.15.2 that the next release's notes carry.
   those exact JSON bytes as unpadded base64url under `--reach-base64url` and
   `--spec-base64url`, while `--workdir` and `--artifacts` stay plain paths
   (fail closed if folded onto a refused line). `brokkr hands serve` accepts
-  either the plain JSON or unpadded base64url spelling for each document
-  (and refuses both or neither, padding, non-alphabet bytes, invalid length,
-  non-zero trailing bits or non-UTF-8 without echoing the value), feeding
-  both spellings through one parse path. Other harnesses' JSON MCP
-  configurations and the dsh line rule itself are unchanged.
+  either the plain JSON or unpadded base64url spelling for each document:
+  `--reach` requires exactly one spelling, `--spec` refuses both spellings
+  and keeps main's `"workspace"` default when omitted, and both encoded
+  flags accept leading-hyphen values so they reach the typed decoder.
+  Encoded refusals reject padding, non-alphabet bytes, invalid length,
+  non-zero trailing bits, non-UTF-8, non-JSON, non-reach and invalid spec
+  documents by argument and failure class without echoing either the raw
+  value or any decoded text, while plain JSON callers of `hands serve` and
+  `hands exec` keep main's defaults and diagnostics byte for byte. Other
+  harnesses' JSON MCP configurations and the dsh line rule itself are
+  unchanged.
