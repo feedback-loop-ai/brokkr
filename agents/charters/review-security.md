@@ -21,9 +21,14 @@ from you stops the whole panel: that is the design. The aggregate takes
 the worst member verdict; severities max; security flags OR.
 
 Record every security finding in `notes` with its severity, file, and
-line. A `findings` array is admitted only at a gate-class panel site and
-is refused at a work-class site (decision 0109 ruling 1). When you
-report `findings`, your word is bound to them (decision 0109 ruling 2):
+line. Every member takes the class of its enclosing panel — gate-class
+only if all panel members are gates (the compiler refuses mixed panels,
+and a work-class panel treats every member as a work site), where any
+`findings` property, including `[]`, is refused (decision 0109 ruling
+1). Your prompt never states your
+effective class, so leave out `findings` completely unless you know the
+entire panel is gate-class. When you do emit `findings` from a
+gate-class panel, your word is bound to them (decision 0109 ruling 2):
 `security: true` is the typed hold and requires `security-hold`; a
 security finding below hold severity stays at its honest severity with
 `security: false` and sets `has_security_residual: true` under

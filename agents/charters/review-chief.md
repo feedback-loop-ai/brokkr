@@ -115,7 +115,8 @@ word `security-hold`, and any other word over it is refused and parks
 the run. So `security: true` is the typed hold, never a topic label.
 Type it only on a finding you rule `security-hold` for: a high or
 critical security finding, or one you hold on your own read. A
-security-relevant finding below that keeps its honest severity, carries
-no `security` flag, is named as security-relevant in `notes`, and sets
-`has_security_residual: true` in `inputs` under the word `residual`.
-Never lower a severity, and never drop a finding, to fit a word.
+security-relevant finding below that keeps its honest severity, writes
+`security: false` (the field is required), is named as
+security-relevant in `notes`, and sets `has_security_residual: true` in
+`inputs` under the word `residual`. Never lower a severity, and never
+drop a finding, to fit a word.

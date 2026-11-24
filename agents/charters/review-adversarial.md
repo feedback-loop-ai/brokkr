@@ -23,12 +23,16 @@ with `inputs: {"max_residual_severity": "<severity>",
 you stops the whole panel: that is the design. The aggregate takes the
 worst member verdict; severities max; security flags OR.
 
-Only a gate-class panel member may write a `findings` array; from a
-work-class member the engine refuses `findings` (decision 0109 ruling
-1), so record every finding in `notes` with its severity, file and line,
-and one concrete failing case. Where you write `findings`, decision 0109
-ruling 2 binds your word: any finding carrying `security: true` requires
-`security-hold`, so mark `security: true` only for a hold; a lower
-security-relevant finding keeps its honest severity with `security:
-false`, is named in `notes`, and sets `has_security_residual: true`
-under `residual`.
+A panel member inherits its enclosing panel's class: a panel is
+gate-class only when every member is gate-class (mixed panels are
+refused at compile time, and any work-class panel makes every member a
+work site). On a work-class panel the engine refuses any `findings`
+key — even an empty `[]` — under decision 0109 ruling 1. Because your prompt does not identify the
+panel's effective class, omit `findings` altogether unless you know the
+whole panel is gate-class, and record every finding in `notes` with its
+severity, file and line, and one concrete failing case. Where you write
+`findings` on a gate-class panel, decision 0109 ruling 2 binds your
+word: any finding carrying `security: true` requires `security-hold`, so
+mark `security: true` only for a hold; a lower security-relevant finding
+keeps its honest severity with `security: false`, is named in `notes`,
+and sets `has_security_residual: true` under `residual`.

@@ -82,11 +82,13 @@ Changes merged since v0.15.2 that the next release's notes carry.
   ([#1322](https://github.com/feedback-loop-ai/brokkr/issues/1322)).
   `agents/charters/review-chief.md` now states that `security: true` on a
   finding is the typed hold requiring `security-hold` and that a lower
-  security-relevant finding stays at its honest severity without the
-  `security` flag, named in `notes`, with `has_security_residual: true`
-  under `residual`. The four panel charters (`review-adversarial.md`,
-  `review-correctness.md`, `review-security.md`, and
-  `review-spec-compliance.md`) now state that `findings` is admitted only
-  at a gate-class panel site and refused at a work-class site (ruling 1),
-  and state ruling 2's `security: true` binding for their declared result
-  sets.
+  security-relevant finding stays at its honest severity with `security:
+  false` (the field is required), named in `notes`, with
+  `has_security_residual: true` under `residual`. The four panel charters
+  (`review-adversarial.md`, `review-correctness.md`, `review-security.md`,
+  and `review-spec-compliance.md`) now state panel class inheritance
+  (every member shares its enclosing panel's class; mixed panels fail to
+  compile, and a work-class panel refuses any `findings` key, even `[]`,
+  under ruling 1), instruct members to omit `findings` unless the whole
+  panel is known to be gate-class, and state ruling 2's `security: true`
+  binding for their declared result sets.

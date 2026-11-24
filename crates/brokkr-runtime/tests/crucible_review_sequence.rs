@@ -303,16 +303,31 @@ read -r done
     vec!["sh".into(), "-c".into(), script]
 }
 
-/// The shipped engine review sequence, its drivers answered by stubs, and
-/// the run starting at review so the sequence is the first effect.
-fn review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
-    let mut bundle = triage();
+/// The shipped `engine` review sequence of `recipe`, its drivers answered by
+/// stubs and its run starting at `review` so the sequence is the first effect.
+/// Matches steps by name (`positions`, `chief`) and pins every panel member's
+/// compiled class against `expected_member_class`.
+fn engine_review_bundle(
+    recipe: &str,
+    expected_member_class: brokkr_runtime::SeatClass,
+    panel: &[(&str, &str)],
+    chief: &str,
+) -> Bundle {
+    stub_engine_review(shipped_bundle(recipe), expected_member_class, panel, chief)
+}
+
+fn stub_engine_review(
+    mut bundle: Bundle,
+    expected_member_class: brokkr_runtime::SeatClass,
+    panel: &[(&str, &str)],
+    chief: &str,
+) -> Bundle {
     bundle.machine.initial = "review".to_string();
     let SeatBody::Select { cases, .. } = &mut bundle.seats.get_mut("review").unwrap().body else {
-        panic!("triage review selects by strategy");
+        panic!("review selects by strategy");
     };
     let SeatBody::Sequence { mut steps } = cases.remove("engine").expect("the engine case") else {
-        panic!("triage's engine review is a sequence");
+        panic!("engine review is a sequence");
     };
     for step in &mut steps {
         match step.name.as_str() {
@@ -321,6 +336,7 @@ fn review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
                     panic!("'positions' is a panel");
                 };
                 for member in members {
+                    assert_eq!(member.class, expected_member_class, "{}", member.name);
                     let result = panel
                         .iter()
                         .find(|(name, _)| *name == member.name)
@@ -335,6 +351,7 @@ fn review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
                 let StepBody::Invocation(Invocation::Single {
                     command,
                     candidates,
+                    role_path,
                     ..
                 }) = &mut step.body
                 else {
@@ -342,15 +359,23 @@ fn review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
                 };
                 *command = driver(chief);
                 candidates.clear();
-                if let StepBody::Invocation(Invocation::Single { role_path, .. }) = &mut step.body {
-                    *role_path = PathBuf::new();
-                }
+                *role_path = PathBuf::new();
             }
             other => panic!("unexpected review step {other:?}"),
         }
     }
     bundle.seats.get_mut("review").unwrap().body = SeatBody::Sequence { steps };
     bundle
+}
+
+/// The shipped `triage` engine review sequence, its drivers answered by stubs.
+fn review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
+    engine_review_bundle(
+        "recipes/triage",
+        brokkr_runtime::SeatClass::Gate,
+        panel,
+        chief,
+    )
 }
 
 /// Start `bundle` at its initial phase, drive it, and return the journal,
@@ -1258,7 +1283,7 @@ fn review_decision(events: &[brokkr_core::envelope::EventEnvelope]) -> &serde_js
 
 /// Issue #1322 (C3a): the chief charter states that `security: true` on a
 /// finding requires `security-hold`, and teaches the lawful `residual` shape
-/// for a lower security-relevant finding.
+/// with explicit `security: false` for a lower security-relevant finding.
 #[test]
 fn the_chief_charter_states_what_decision_0109_ruling_2_binds() {
     let prose = charter_prose("review-chief.md");
@@ -1268,8 +1293,8 @@ fn the_chief_charter_states_what_decision_0109_ruling_2_binds() {
          a finding that carries `security: true` requires the word `security-hold`, and any \
          other word over it is refused and parks the run.",
         "So `security: true` is the typed hold, never a topic label.",
-        "A security-relevant finding below that keeps its honest severity, carries no \
-         `security` flag, is named as security-relevant in `notes`, and sets \
+        "A security-relevant finding below that keeps its honest severity, writes `security: \
+         false` (the field is required), is named as security-relevant in `notes`, and sets \
          `has_security_residual: true` in `inputs` under the word `residual`.",
         "Never lower a severity, and never drop a finding, to fit a word.",
     ] {
@@ -1305,10 +1330,29 @@ fn the_engine_refuses_chief_residual_over_a_security_true_finding() {
     );
 }
 
+/// Build the shipped `fast` recipe starting at `review` with a single gate
+/// review driver returning `answer` and `implement` stubbed to `blocked`.
+fn fast_review_bundle(answer: &str) -> Bundle {
+    let mut fast = shipped_bundle("recipes/fast");
+    fast.machine.initial = "review".to_string();
+    fast.sites.remove("review");
+    fast.seats.get_mut("review").unwrap().body = SeatBody::Invocation(Invocation::Single {
+        role_path: PathBuf::new(),
+        command: driver(answer),
+        candidates: Vec::new(),
+        written: Vec::new(),
+        class: brokkr_runtime::SeatClass::Gate,
+    });
+    stub_implement_blocked(&mut fast);
+    fast
+}
+
 /// Issue #1322 (C3c): the engine admits `residual` with
 /// `has_security_residual: true`, an unflagged medium finding
-/// (`security: false`), and no flagged finding, and the shipped `fast`
-/// policy routes it to `implement` (`REVIEW-REFORGE`), not to `stop`.
+/// (`security: false`), and no flagged finding, and routes it under shipped
+/// `fast` to `implement` (`REVIEW-REFORGE`); omitting `security` is refused as
+/// malformed (`Reported::security: bool`), proving why the chief charter
+/// requires explicit `security: false`.
 #[test]
 fn the_engine_admits_residual_with_unflagged_medium_finding_and_fast_routes_to_implement() {
     let test = "crucible_review_sequence::\
@@ -1317,19 +1361,7 @@ fn the_engine_admits_residual_with_unflagged_medium_finding_and_fast_routes_to_i
         return;
     }
     let lawful = r#"{"result":"residual","inputs":{"max_residual_severity":"medium","has_security_residual":true},"findings":[{"id":"med-sec","file":"crates/brokkr-runtime/src/engine.rs","line":1,"summary":"medium security residual","severity":"medium","security":false}],"notes":"security-relevant medium finding"}"#;
-    let mut fast = shipped_bundle("recipes/fast");
-    fast.machine.initial = "review".to_string();
-    fast.sites.remove("review");
-    fast.seats.get_mut("review").unwrap().body = SeatBody::Invocation(Invocation::Single {
-        role_path: PathBuf::new(),
-        command: driver(lawful),
-        candidates: Vec::new(),
-        written: Vec::new(),
-        class: brokkr_runtime::SeatClass::Gate,
-    });
-    stub_implement_blocked(&mut fast);
-
-    let (events, _, _) = drive(fast);
+    let (events, _, _) = drive(fast_review_bundle(lawful));
     let succeeded = effect_succeeded(&events);
     let findings = succeeded.payload["result"]["findings"]
         .as_array()
@@ -1344,11 +1376,31 @@ fn the_engine_admits_residual_with_unflagged_medium_finding_and_fast_routes_to_i
     assert_eq!(decided["next"], "implement", "{decided}");
     assert_eq!(decided["inputs"]["has_security_residual"], true);
     assert_eq!(decided["inputs"]["max_residual_severity"], "medium");
+
+    let omitted = r#"{"result":"residual","inputs":{"max_residual_severity":"medium","has_security_residual":true},"findings":[{"id":"med-sec","file":"crates/brokkr-runtime/src/engine.rs","line":1,"summary":"medium security residual","severity":"medium"}],"notes":"missing security boolean"}"#;
+    let (bad_events, _, bad_end) = drive(fast_review_bundle(omitted));
+    let bad_failed = bad_events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectFailed)
+        .expect("a finding omitting the required security boolean fails admission");
+    let bad_error = bad_failed.payload["error"].as_str().unwrap();
+    assert!(
+        bad_error.contains(
+            "finding 0 is not a finding record: a repository-relative file, an optional positive \
+             line, a non-empty summary, a severity and a security flag, and nothing else"
+        ),
+        "unexpected missing-security error: {bad_error}"
+    );
+    assert_eq!(
+        bad_end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
+    );
 }
 
 /// Issue #1322 (C3d, charter side): each of the four panel charters states
-/// that `findings` is admitted only at a gate-class panel site and refused
-/// at a work-class site (decision 0109 ruling 1), and states ruling 2's
+/// panel class inheritance, refusal of any `findings` key including `[]` on a
+/// work or mixed panel (decision 0109 ruling 1), the safe default to omit
+/// `findings` when the panel's effective class is unknown, and ruling 2's
 /// `security: true` binding for its own declared result set.
 #[test]
 fn each_panel_charter_states_its_findings_and_word_rules() {
@@ -1356,8 +1408,13 @@ fn each_panel_charter_states_its_findings_and_word_rules() {
         (
             "review-adversarial.md",
             &[
-                "Only a gate-class panel member may write a `findings` array; from a work-class \
-                 member the engine refuses `findings` (decision 0109 ruling 1)",
+                "A panel member inherits its enclosing panel's class: a panel is gate-class \
+                 only when every member is gate-class (mixed panels are refused at compile time, \
+                 and any work-class panel makes every member a work site).",
+                "On a work-class panel the engine refuses any `findings` key — even an empty \
+                 `[]` — under decision 0109 ruling 1.",
+                "Because your prompt does not identify the panel's effective class, omit \
+                 `findings` altogether unless you know the whole panel is gate-class",
                 "decision 0109 ruling 2 binds your word: any finding carrying `security: true` \
                  requires `security-hold`",
                 "keeps its honest severity with `security: false`, is named in `notes`, and sets \
@@ -1367,8 +1424,12 @@ fn each_panel_charter_states_its_findings_and_word_rules() {
         (
             "review-security.md",
             &[
-                "A `findings` array is admitted only at a gate-class panel site and is refused at \
-                 a work-class site (decision 0109 ruling 1).",
+                "Every member takes the class of its enclosing panel — gate-class only if all \
+                 panel members are gates (the compiler refuses mixed panels, and a work-class \
+                 panel treats every member as a work site), where any `findings` property, \
+                 including `[]`, is refused (decision 0109 ruling 1).",
+                "Your prompt never states your effective class, so leave out `findings` \
+                 completely unless you know the entire panel is gate-class.",
                 "your word is bound to them (decision 0109 ruling 2): `security: true` is the \
                  typed hold and requires `security-hold`",
                 "stays at its honest severity with `security: false` and sets \
@@ -1378,8 +1439,12 @@ fn each_panel_charter_states_its_findings_and_word_rules() {
         (
             "review-correctness.md",
             &[
-                "A `findings` list is accepted only from a gate-class panel member; the engine \
-                 refuses `findings` from a work-class site (decision 0109 ruling 1).",
+                "Each panel member shares its panel's compiled class: a panel is gate-class \
+                 only when every sibling is `gate` (mixed panels are refused at compile time), \
+                 and a work-class panel makes every member a work site that rejects any \
+                 `findings` field, even `findings: []` (decision 0109 ruling 1).",
+                "Since the seat prompt does not name your effective class, omit the `findings` \
+                 key entirely unless you know every panel member is a gate",
                 "decision 0109 ruling 2 requires `security-hold` over any finding carrying \
                  `security: true` and your declared results exclude `security-hold`",
                 "report any security smell in `notes` at its honest severity",
@@ -1388,9 +1453,13 @@ fn each_panel_charter_states_its_findings_and_word_rules() {
         (
             "review-spec-compliance.md",
             &[
-                "The engine admits a `findings` array only from a gate-class panel site and \
-                 refuses it from a work-class site (decision 0109 ruling 1).",
-                "Under decision 0109 ruling 2, any `security: true` finding requires \
+                "Your site's class comes from the whole panel: a panel compiles as gate-class \
+                 only when all of its members are gates (mixed panels fail to compile), and from \
+                 a work-class panel every member inherits the work class and any `findings` key — \
+                 even an empty `[]` — is refused (decision 0109 ruling 1).",
+                "Because the prompt does not state the panel's effective class, do not write a \
+                 `findings` key at all unless you know the whole panel is gate-class",
+                "under decision 0109 ruling 2 any `security: true` finding requires \
                  `security-hold`, which your declared results do not include",
                 "report any security smell in `notes` at its honest severity",
             ],
@@ -1407,122 +1476,271 @@ fn each_panel_charter_states_its_findings_and_word_rules() {
     }
 }
 
-/// Build the shipped `gpt-flash` engine review sequence with stubbed drivers
-/// so the engine's work-class panel admission rule is proved on the real
-/// recipe.
-fn gpt_flash_engine_review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
-    let mut bundle = shipped_bundle("recipes/gpt-flash");
-    bundle.machine.initial = "review".to_string();
-    let SeatBody::Select { cases, .. } = &mut bundle.seats.get_mut("review").unwrap().body else {
-        panic!("gpt-flash review selects by strategy");
+/// Try to compile a mixed sequence panel (`gated` declared `class: gate`,
+/// `sibling` declared `class: work`) and return the compiler's refusal.
+fn compile_mixed_panel_error() -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let policy = review_policy(
+        "forge.phase-machine/v2",
+        serde_json::json!([
+            {"id": "REVIEW-CLEAN", "from": "review", "result": "clean",
+             "next": "done", "reason": "clean"},
+            {"id": "REVIEW-RESIDUAL", "from": "review", "result": "residual",
+             "park": true, "reason": "residual"},
+            {"id": "REVIEW-HOLD", "from": "review", "result": "security-hold",
+             "next": "stop", "severity": "hard", "reason": "hold"},
+        ]),
+    );
+    let bundle_json = serde_json::json!({
+        "name": "mixed-panel-check",
+        "description": "mixed panel compile refusal check",
+        "policy": "policy.json",
+        "seats": {
+            "work": seat(&["complete"]),
+            "review": {
+                "results": ["clean", "residual", "security-hold"],
+                "sequence": [
+                    {"name": "positions", "aggregate": "review-panel",
+                     "results": ["clean", "residual", "security-hold"],
+                     "panel": {
+                         "gated": {"agent": "review-adversarial", "class": "gate"},
+                         "sibling": {"agent": "review-correctness", "class": "work"},
+                     }},
+                    {"name": "chief", "agent": "review-chief", "class": "gate"},
+                ],
+            },
+        },
+    });
+    std::fs::write(dir.path().join("policy.json"), policy.to_string()).unwrap();
+    std::fs::write(dir.path().join("bundle.json"), bundle_json.to_string()).unwrap();
+    let root = workspace();
+    Bundle::compile_with(dir.path(), &root.join("agents"), &root.join("adapters"))
+        .expect_err("a mixed gate+work panel must be refused at compile time")
+        .to_string()
+}
+
+/// Extract `triage`'s compiled `engine` `positions` panel (with every member's
+/// compiled `MemberLaw` and `SeatClass::Gate` intact) as a top-level `review`
+/// seat so `decide()` journals `raw_result.notes.refused[member]`.
+fn triage_top_level_panel_bundle(base: &Bundle, panel_answers: &[(&str, &str)]) -> Bundle {
+    let mut bundle = stub_engine_review(
+        base.clone(),
+        brokkr_runtime::SeatClass::Gate,
+        panel_answers,
+        CLEAN,
+    );
+    let SeatBody::Sequence { mut steps } = std::mem::replace(
+        &mut bundle.seats.get_mut("review").unwrap().body,
+        SeatBody::Sequence { steps: Vec::new() },
+    ) else {
+        panic!("engine_review_bundle produces a sequence");
     };
-    let SeatBody::Sequence { mut steps } = cases.remove("engine").expect("the engine case") else {
-        panic!("gpt-flash engine review is a sequence");
+    let positions = steps
+        .drain(..)
+        .find(|step| step.name == "positions")
+        .expect("triage engine review has a positions step");
+    let StepBody::Invocation(Invocation::Panel { members, aggregate }) = positions.body else {
+        panic!("positions is a panel invocation");
     };
-    let StepBody::Invocation(Invocation::Panel { members, .. }) = &mut steps[0].body else {
-        panic!("'positions' is a panel");
-    };
-    for member in members {
-        assert_eq!(member.class, brokkr_runtime::SeatClass::Work);
-        let result = panel
-            .iter()
-            .find(|(name, _)| *name == member.name)
-            .map(|(_, result)| *result)
-            .unwrap_or(CLEAN);
-        member.command = driver(result);
-        member.candidates.clear();
-        member.role_path = PathBuf::new();
-    }
-    let StepBody::Invocation(Invocation::Single {
-        command,
-        candidates,
-        role_path,
-        ..
-    }) = &mut steps[1].body
-    else {
-        panic!("'chief' is a single step");
-    };
-    *command = driver(chief);
-    candidates.clear();
-    *role_path = PathBuf::new();
-    bundle.seats.get_mut("review").unwrap().body = SeatBody::Sequence { steps };
+    bundle.seats.get_mut("review").unwrap().body =
+        SeatBody::Invocation(Invocation::Panel { members, aggregate });
     bundle
 }
 
-/// Issue #1322 (C3d, engine side): prove both rules the panel charters state
-/// on shipped recipes — (1) a work-class panel member (`recipes/gpt-flash`)
-/// that writes `findings` is refused under decision 0109 ruling 1; (2) a
-/// gate-class panel member (`recipes/triage`) writing a medium finding with
-/// `security: false` under `residual` is admitted and reaches the chief; and
-/// (3) a gate-class panel member whose declared results lack `security-hold`
-/// (`spec-compliance`) that writes a `security: true` finding is refused
-/// under ruling 2 and poisons the panel before the chief runs.
+/// Assert that driving `bundle` fails at admission with ruling 1 work-site
+/// refusal and parks awaiting operator.
+fn assert_work_site_refusal(bundle: Bundle) {
+    let work_refusal = "the result carries 'findings' from a work site: only a gate reports \
+                        findings (decision 0109 ruling 1)";
+    let (events, _, end) = drive(bundle);
+    let failed = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectFailed)
+        .expect("a work-class panel member carrying findings fails the attempt");
+    let error = failed.payload["error"].as_str().unwrap();
+    assert!(error.contains(work_refusal), "unexpected error: {error}");
+    assert_eq!(
+        end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
+    );
+}
+
+/// Assert that driving `triage`'s top-level panel with `member` answering
+/// `answer` parks with `__member-schema-invalid__` and the exact `expected`
+/// refusal under `raw_result.notes.refused[member]`.
+fn assert_member_refusal(base: &Bundle, member: &str, answer: &str, expected: &str) {
+    let (events, _, end) = drive(triage_top_level_panel_bundle(
+        base,
+        &panel(&[(member, answer)]),
+    ));
+    let decided = review_decision(&events);
+    assert_eq!(
+        decided["result"], "__schema-invalid__",
+        "{member}: {decided}"
+    );
+    let raw = &decided["inputs"]["raw_result"];
+    assert_eq!(
+        raw["result"], "__member-schema-invalid__",
+        "{member}: {raw}"
+    );
+    assert_eq!(
+        raw["notes"]["refused"][member], expected,
+        "{member} refusal mismatch"
+    );
+    assert_eq!(
+        end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
+    );
+}
+
+/// Issue #1322 (C3d, engine side — ruling 1, class inheritance, and checkpoint
+/// evidence): (1) on shipped `gpt-flash` (work-class panel), both non-empty
+/// `findings` and an empty `findings: []` are refused under ruling 1, while
+/// omitting `findings` is admitted; (2) mixed panels are refused at compile
+/// time and at runtime every member inherits its enclosing panel's class;
+/// (3) on shipped `triage` (all-gate panel), a member's unflagged medium
+/// finding is admitted and stamped in the `positions` checkpoint itself,
+/// independent of what the chief emits.
 #[test]
-fn the_engine_enforces_the_panel_charters_findings_and_word_rules() {
+fn the_engine_enforces_panel_findings_admission_and_class_inheritance() {
     let test = "crucible_review_sequence::\
-                the_engine_enforces_the_panel_charters_findings_and_word_rules";
+                the_engine_enforces_panel_findings_admission_and_class_inheritance";
     if !crate::own_home::in_own_home(test) {
         return;
     }
     let unflagged = r#"{"result":"residual","inputs":{"max_residual_severity":"medium","has_security_residual":true},"findings":[{"id":"med","file":"crates/brokkr-runtime/src/engine.rs","line":1,"summary":"medium finding","severity":"medium","security":false}],"notes":"medium finding"}"#;
-    let flagged = r#"{"result":"residual","inputs":{"max_residual_severity":"medium","has_security_residual":true},"findings":[{"id":"sec","file":"crates/brokkr-runtime/src/engine.rs","line":1,"summary":"security smell","severity":"medium","security":true}],"notes":"security smell"}"#;
+    let empty_findings = r#"{"result":"clean","inputs":{"max_residual_severity":"none","has_security_residual":false},"findings":[],"notes":"empty findings"}"#;
+    let chief_no_findings = r#"{"result":"residual","inputs":{"max_residual_severity":"medium","has_security_residual":true},"notes":"chief echoes residual without its own findings"}"#;
 
-    // 1. Work-class panel member (`gpt-flash`): `findings` is refused (ruling 1).
-    let (work_events, _, work_end) = drive(gpt_flash_engine_review_bundle(
-        &panel(&[("adversarial", unflagged)]),
+    let flash = shipped_bundle("recipes/gpt-flash");
+    for answer in [unflagged, empty_findings] {
+        assert_work_site_refusal(stub_engine_review(
+            flash.clone(),
+            brokkr_runtime::SeatClass::Work,
+            &panel(&[("adversarial", answer)]),
+            CLEAN,
+        ));
+    }
+    let (safe_events, _, _) = drive(stub_engine_review(
+        flash,
+        brokkr_runtime::SeatClass::Work,
+        &panel(&[]),
         CLEAN,
     ));
-    let work_failed = work_events
-        .iter()
-        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectFailed)
-        .expect("a work-class panel member carrying findings fails the attempt");
-    let work_error = work_failed.payload["error"].as_str().unwrap();
     assert!(
-        work_error.contains(
-            "the result carries 'findings' from a work site: only a gate reports findings \
-             (decision 0109 ruling 1)"
-        ),
-        "unexpected work-site error: {work_error}"
-    );
-    assert_eq!(
-        work_end.state.run.status(),
-        brokkr_core::Status::AwaitingOperator
+        checkpointed(&safe_events, "positions"),
+        "omitting findings on a work-class panel is the lawful safe branch"
     );
 
-    // 2. Gate-class panel member (`triage`): unflagged medium finding under
-    //    `residual` with `has_security_residual: true` is admitted and
-    //    reaches the chief.
-    let mut gate_bundle = review_bundle(&panel(&[("adversarial", unflagged)]), unflagged);
+    let mixed_compile_err = compile_mixed_panel_error();
+    assert!(
+        mixed_compile_err.contains(
+            "seat 'review:positions' is a mixed panel: gate members [gated], work members \
+             [sibling]; a panel may judge or work, never do both"
+        ),
+        "unexpected mixed-panel compile error: {mixed_compile_err}"
+    );
+    let mut inherited = review_bundle(&panel(&[("adversarial", unflagged)]), CLEAN);
+    if let SeatBody::Sequence { steps } = &mut inherited.seats.get_mut("review").unwrap().body {
+        steps
+            .iter_mut()
+            .find(|s| s.name == "positions")
+            .unwrap()
+            .class = brokkr_runtime::SeatClass::Work;
+    }
+    assert_work_site_refusal(inherited);
+
+    let mut gate_bundle = review_bundle(&panel(&[("adversarial", unflagged)]), chief_no_findings);
     stub_implement_blocked(&mut gate_bundle);
     let (gate_events, _, _) = drive(gate_bundle);
-    assert!(
-        checkpointed(&gate_events, "positions"),
-        "the gate-class adversarial member's findings must be admitted"
+    let positions_cp = gate_events
+        .iter()
+        .find(|event| {
+            event.event_type == brokkr_core::envelope::EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step_name"] == "positions"
+        })
+        .expect("the gate-class panel must checkpoint positions");
+    let cp_result = &positions_cp.payload["checkpoint"]["result"];
+    assert_eq!(cp_result["result"], "residual", "{cp_result}");
+    assert_eq!(cp_result["inputs"]["max_residual_severity"], "medium");
+    assert_eq!(cp_result["inputs"]["has_security_residual"], true);
+    let cp_findings = cp_result["findings"]
+        .as_array()
+        .expect("positions checkpoint must carry the member's stamped finding");
+    assert_eq!(cp_findings.len(), 1, "{cp_findings:?}");
+    assert_eq!(cp_findings[0]["id"], "med");
+    assert_eq!(
+        cp_findings[0]["file"],
+        "crates/brokkr-runtime/src/engine.rs"
     );
+    assert_eq!(cp_findings[0]["line"], 1);
+    assert_eq!(cp_findings[0]["severity"], "medium");
+    assert_eq!(cp_findings[0]["security"], false);
+    assert_eq!(cp_findings[0]["site"].as_str().map(str::len), Some(64));
     assert_eq!(review_decision(&gate_events)["next"], "implement");
+}
 
-    // 3. Gate-class panel member without `security-hold` (`spec-compliance`):
-    //    both `residual` over `security: true` (ruling 2) and `security-hold`
-    //    itself (undeclared for this member) poison the panel before the chief.
-    let held_flagged = r#"{"result":"security-hold","inputs":{"max_residual_severity":"high","has_security_residual":true},"findings":[{"id":"sec","file":"crates/brokkr-runtime/src/engine.rs","line":1,"summary":"security smell","severity":"high","security":true}],"notes":"security smell"}"#;
-    for answer in [flagged, held_flagged] {
-        let (poisoned_events, _, poisoned_end) =
-            drive(review_bundle(&panel(&[("spec-compliance", answer)]), CLEAN));
-        assert!(
-            !checkpointed(&poisoned_events, "positions"),
-            "a refused panel member must not checkpoint to the chief"
-        );
-        let poisoned_failed = poisoned_events
-            .iter()
-            .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectFailed)
-            .expect("a poisoned non-final panel step fails the attempt");
-        let poisoned_error = poisoned_failed.payload["error"].as_str().unwrap();
-        assert!(
-            poisoned_error.contains("__member-schema-invalid__"),
-            "unexpected poisoned panel error: {poisoned_error}"
-        );
+/// Issue #1322 (C3d, engine side — ruling 2 across all four panel members):
+/// (1) every member gets ruling 2's exact refusal for `residual` over
+/// `security: true`; (2) hold-capable members (`adversarial`, `security`) are
+/// admitted as a hard stop for `security-hold` over it and poison `positions`
+/// for `residual`; (3) members excluding `security-hold` (`correctness`,
+/// `spec-compliance`) get the distinct undeclared-word refusal for
+/// `security-hold` and poison `positions` before the chief runs.
+#[test]
+fn the_engine_binds_every_review_panel_members_word_to_its_findings() {
+    let test = "crucible_review_sequence::\
+                the_engine_binds_every_review_panel_members_word_to_its_findings";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let flagged_residual = r#"{"result":"residual","inputs":{"max_residual_severity":"medium","has_security_residual":true},"findings":[{"id":"sec","file":"crates/brokkr-runtime/src/engine.rs","line":1,"summary":"security smell","severity":"medium","security":true}],"notes":"security smell"}"#;
+    let flagged_hold = r#"{"result":"security-hold","inputs":{"max_residual_severity":"high","has_security_residual":true},"findings":[{"id":"sec","file":"crates/brokkr-runtime/src/engine.rs","line":1,"summary":"security hold","severity":"high","security":true}],"notes":"security hold"}"#;
+    let ruling2 = "the word 'residual' stands over a security finding, which requires \
+                   'security-hold' (decision 0109 ruling 2)";
+    let undeclared =
+        "member result 'security-hold' is not among its declared results [clean, residual]";
+
+    let base = shipped_bundle("recipes/triage");
+    for member in ["adversarial", "security", "correctness", "spec-compliance"] {
+        assert_member_refusal(&base, member, flagged_residual, ruling2);
+    }
+    for member in ["adversarial", "security"] {
+        let (held_events, _, held_end) = drive(stub_engine_review(
+            base.clone(),
+            brokkr_runtime::SeatClass::Gate,
+            &panel(&[(member, flagged_hold)]),
+            CLEAN,
+        ));
+        let succeeded = effect_succeeded(&held_events);
+        assert_eq!(succeeded.payload["result"]["result"], "security-hold");
+        assert_eq!(succeeded.payload["step"], "positions");
+        assert_eq!(succeeded.payload["why"], "hard-word");
+        assert_eq!(held_end.state.run.status(), brokkr_core::Status::Stopped);
+
+        let (seq_events, _, seq_end) = drive(stub_engine_review(
+            base.clone(),
+            brokkr_runtime::SeatClass::Gate,
+            &panel(&[(member, flagged_residual)]),
+            CLEAN,
+        ));
+        assert!(!checkpointed(&seq_events, "positions"), "{member}");
         assert_eq!(
-            poisoned_end.state.run.status(),
+            seq_end.state.run.status(),
+            brokkr_core::Status::AwaitingOperator
+        );
+    }
+    for member in ["correctness", "spec-compliance"] {
+        assert_member_refusal(&base, member, flagged_hold, undeclared);
+        let (seq_events, _, seq_end) = drive(stub_engine_review(
+            base.clone(),
+            brokkr_runtime::SeatClass::Gate,
+            &panel(&[(member, flagged_hold)]),
+            CLEAN,
+        ));
+        assert!(!checkpointed(&seq_events, "positions"), "{member}");
+        assert_eq!(
+            seq_end.state.run.status(),
             brokkr_core::Status::AwaitingOperator
         );
     }

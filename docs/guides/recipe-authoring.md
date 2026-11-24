@@ -358,9 +358,14 @@ engine, never arbitrary code:
 A seat's declared `results` must cover its aggregate's vocabulary or
 compilation fails. A member declares no `results` of its own. A
 `review-panel` member reports only the words its hired agent's `results`
-list declares, `clean` and `residual` where it declares none. Only a
-gate-class panel member may write `findings`; a work-class member's
-`findings` is refused (decision 0109 ruling 1). Before the
+list declares, `clean` and `residual` where it declares none. A panel's
+members must agree on one class — mixing `gate` and `work` members in
+one panel is refused at compile time ("a panel may judge or work, never
+do both") — and every member inherits its enclosing panel's compiled
+class (`gate` only when every member is `gate`, otherwise `work`). Only
+a member of a gate-class panel may write `findings`; from a work-class
+panel any `findings` key (even an empty `[]`) is refused (decision 0109
+ruling 1). Before the
 join, its word is bound to its findings and to the residual pair the
 seat compiles (decision 0109 ruling 2): any `security: true` finding
 requires `security-hold` (a lower security-relevant finding keeps

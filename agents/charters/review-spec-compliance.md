@@ -18,10 +18,14 @@ Result: `clean` or `residual`, with `inputs` containing
 List every residual finding and its severity in `notes`; a clean result uses
 severity `none`.
 
-The engine admits a `findings` array only from a gate-class panel site and
-refuses it from a work-class site (decision 0109 ruling 1). Under decision
-0109 ruling 2, any `security: true` finding requires `security-hold`, which
-your declared results do not include — marking `security: true` has no lawful
-word and poisons the panel. Keep `security: false` on any typed finding you
-emit, and report any security smell in `notes` at its honest severity with
-file and line.
+Your site's class comes from the whole panel: a panel compiles as gate-class
+only when all of its members are gates (mixed panels fail to compile), and
+from a work-class panel every member inherits the work class and any
+`findings` key — even an empty `[]` — is refused (decision 0109 ruling 1). Because the prompt does not
+state the panel's effective class, do not write a `findings` key at all unless
+you know the whole panel is gate-class; always list every gap in `notes`. When
+you emit `findings`, under decision 0109 ruling 2 any `security: true` finding
+requires `security-hold`, which your declared results do not include — marking
+`security: true` has no lawful word and poisons the panel. Keep `security:
+false` on any typed finding you emit, and report any security smell in `notes`
+at its honest severity with file and line.

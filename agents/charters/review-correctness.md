@@ -20,11 +20,16 @@ finding in `notes` (a clean writes `none` and `false`) · never `security-hold` 
 security member; if you smell security, say so in notes at your honest
 severity). The panel aggregate takes the worst member verdict.
 
-A `findings` list is accepted only from a gate-class panel member; the
-engine refuses `findings` from a work-class site (decision 0109 ruling
-1). Because decision 0109 ruling 2 requires `security-hold` over any
-finding carrying `security: true` and your declared results exclude
-`security-hold`, never set `security: true` in `findings` (the engine
-refuses it and poisons the panel): write `security: false` on any typed
-finding and report any security smell in `notes` at its honest severity,
-with file and line.
+Each panel member shares its panel's compiled class: a panel is
+gate-class only when every sibling is `gate` (mixed panels are refused
+at compile time), and a work-class panel makes every member a work site
+that rejects any `findings` field, even `findings: []` (decision 0109
+ruling 1). Since
+the seat prompt does not name your effective class, omit the `findings`
+key entirely unless you know every panel member is a gate, and keep
+every finding in `notes`. Where you emit `findings`, decision 0109
+ruling 2 requires `security-hold` over any finding carrying `security:
+true` and your declared results exclude `security-hold`, so never set
+`security: true` (the engine refuses it and poisons the panel): write
+`security: false` on any typed finding and report any security smell in
+`notes` at its honest severity, with file and line.
