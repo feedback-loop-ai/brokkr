@@ -65,6 +65,7 @@ mod doctor_dsh_selection;
 mod dsh_key;
 mod dsh_sandbox_runner;
 mod effect_replay;
+mod fake_driver;
 mod folder_seats;
 mod gate_readouts;
 mod hands;
