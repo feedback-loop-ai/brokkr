@@ -5,6 +5,7 @@
 
 use std::os::unix::fs::PermissionsExt;
 
+use super::super::super::escapes::{assert_stderr_evidence, evidence_binding};
 use super::*;
 use fold::Event;
 
@@ -12,17 +13,7 @@ use fold::Event;
 /// written by hand, so a value `brokkr secrets set` would refuse as short
 /// is bound too.
 pub(super) fn bound(name: &str, value: &str) -> secret::BoundSecret {
-    bound_bytes(name, value.as_bytes())
-}
-
-/// [`bound`] for a value of any bytes, UTF-8 or not.
-fn bound_bytes(name: &str, value: &[u8]) -> secret::BoundSecret {
-    let dir = tempfile::tempdir().unwrap();
-    let store = dir.path().join("secrets.env");
-    std::fs::write(&store, [name.as_bytes(), b"=", value, b"\n"].concat()).unwrap();
-    std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let mut bindings = secret::resolve_bindings(&store, &[name.to_string()]).unwrap();
-    bindings.pop().unwrap()
+    evidence_binding(name, value.as_bytes())
 }
 
 /// What one turn of a fake `agy` left the driver with.
@@ -195,16 +186,12 @@ pub(super) fn sent(messages: &[crate::Body]) -> Vec<String> {
 
 #[test]
 fn stderr_evidence_masks_values_with_and_without_escapes() {
-    for (value, written) in super::super::super::escapes::EVIDENCE_CASES {
-        let bindings = [bound("AT", value)];
-        let stderr = format!("diagnostic: {written}\n");
-        let evidence = driven((TOOL_LESS, &stderr, 0), FLASH, &bindings);
-        assert_eq!(
-            evidence.turn.unwrap().stderr,
-            "diagnostic: [secret:AT]\n",
-            "{value:?}"
-        );
-    }
+    assert_stderr_evidence("AT", |stderr, bindings| {
+        driven((TOOL_LESS, stderr, 0), FLASH, bindings)
+            .turn
+            .unwrap()
+            .stderr
+    });
 }
 
 /// A bound secret spelled as a key, a status, an event name, a step's type
@@ -627,7 +614,7 @@ fn holds_none_of_the_value(words: &str) {
 fn a_refusal_under_a_temporary_root_that_is_not_utf8_names_nothing_of_it() {
     use std::os::unix::ffi::OsStrExt;
     let world = World::new();
-    let bindings = [bound_bytes("AT", LOSSY_VALUE)];
+    let bindings = [evidence_binding("AT", LOSSY_VALUE)];
     let temp = world
         .path("t")
         .join(std::ffi::OsStr::from_bytes(LOSSY_VALUE));

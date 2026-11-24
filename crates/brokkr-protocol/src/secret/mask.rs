@@ -3,35 +3,87 @@
 use std::ops::Range;
 
 use super::{covered, needles, BoundSecret, Encoder, MIN_VALUE_BYTES, NEEDLE_ENCODINGS};
-use crate::adapters::escapes::without_ansi;
+use crate::adapters::escapes::{without_ansi, without_ansi_with_offsets};
+
+type Run<'a> = (usize, usize, &'a str);
 
 impl BoundSecret {
-    /// Mask stderr after escape removal, joining both kinds of match in
-    /// one union. Stripping rejoins a value an escape split (U3), and the
-    /// extra needle covers a value that itself holds an escape (#1242).
-    /// Masking one spelling first could erase part of an overlapping match.
+    /// Mask both raw matches and matches visible after stripping (#1242).
+    /// Stripping rejoins a value split by an escape (U3). Translate the
+    /// raw runs before writing any marker, so an escape can
+    /// consume a match's prefix and the rest still belongs to the union.
     pub(crate) fn mask_ansi_evidence(raw: &[u8], bindings: &[Self]) -> String {
-        let stripped = without_ansi(&String::from_utf8_lossy(raw));
+        let raw_needles = evidence_needles(bindings, &NEEDLE_ENCODINGS);
+        let (stripped, origins) = without_ansi_with_offsets(raw);
         let mut encodings = NEEDLE_ENCODINGS.to_vec();
         encodings.push(("ansi-stripped", stripped_needle));
-        String::from_utf8_lossy(&mask_needles(stripped.as_bytes(), bindings, &encodings))
-            .into_owned()
+        let stripped_needles = evidence_needles(bindings, &encodings);
+        let raw_runs = projected_runs(&origins, covered(raw, &raw_needles));
+        let stripped_runs = covered(stripped.as_bytes(), &stripped_needles);
+        let runs = union_runs(raw_runs, stripped_runs);
+        String::from_utf8_lossy(&write_runs(stripped.as_bytes(), runs, |_, _| {})).into_owned()
     }
+}
+
+fn evidence_needles<'a>(
+    bindings: &'a [BoundSecret],
+    encodings: &[(&str, Encoder)],
+) -> Vec<(Vec<u8>, &'a str)> {
+    let mut needles = needles(bindings, encodings);
+    needles.retain(|(bytes, _)| bytes.len() >= MIN_VALUE_BYTES);
+    needles
 }
 
 fn stripped_needle(bytes: &[u8]) -> Vec<u8> {
-    let stripped = without_ansi(&String::from_utf8_lossy(bytes));
-    if stripped.len() < MIN_VALUE_BYTES {
-        return Vec::new();
-    }
-    stripped.into_bytes()
+    without_ansi(&String::from_utf8_lossy(bytes)).into_bytes()
 }
 
-#[cfg(test)]
-#[test]
-fn stripped_needles_respect_the_minimum_length() {
-    assert_eq!(stripped_needle(b"ab\x1b[0mc"), b"");
-    assert_eq!(stripped_needle(b"ab\x1b[0mcd"), b"abcd");
+/// Advance through the origins once, dropping raw runs the stripper
+/// consumed completely. The resulting runs are in stripped byte order.
+fn projected_runs<'a, 'n: 'a>(
+    origins: &'a [Range<usize>],
+    runs: impl Iterator<Item = Run<'n>> + 'a,
+) -> impl Iterator<Item = Run<'n>> + 'a {
+    let mut next = 0;
+    runs.filter_map(move |(raw_start, raw_end, name)| {
+        next += origins[next..]
+            .iter()
+            .take_while(|at| at.end <= raw_start)
+            .count();
+        let start = next;
+        next += origins[next..]
+            .iter()
+            .take_while(|at| at.start < raw_end)
+            .count();
+        (start < next).then_some((start, next, name))
+    })
+}
+
+/// Merge the two ordered run streams. At a shared start keep the stripped
+/// run's name, which is what that projection would have written already.
+fn union_runs<'a, 'n: 'a>(
+    raw: impl Iterator<Item = Run<'n>> + 'a,
+    stripped: impl Iterator<Item = Run<'n>> + 'a,
+) -> impl Iterator<Item = Run<'n>> + 'a {
+    let mut raw = raw.peekable();
+    let mut stripped = stripped.peekable();
+    let mut open: Option<Run<'n>> = None;
+    std::iter::from_fn(move || loop {
+        let next = match (raw.peek(), stripped.peek()) {
+            (Some(raw_run), Some(stripped_run)) if raw_run.0 < stripped_run.0 => raw.next(),
+            (_, Some(_)) => stripped.next(),
+            (_, None) => raw.next(),
+        };
+        match (open.as_mut(), next) {
+            (Some(run), Some(next)) if next.0 <= run.1 => run.1 = run.1.max(next.1),
+            (_, Some(next)) => {
+                if let Some(run) = open.replace(next) {
+                    return Some(run);
+                }
+            }
+            (_, None) => return open.take(),
+        }
+    })
 }
 
 pub(super) fn mask_needles(
@@ -46,15 +98,23 @@ fn write_mask(
     bytes: &[u8],
     bindings: &[BoundSecret],
     encodings: &[(&str, Encoder)],
-    mut written: impl FnMut(Range<usize>, usize),
+    written: impl FnMut(Range<usize>, usize),
 ) -> Vec<u8> {
     if bindings.is_empty() {
         return bytes.to_vec();
     }
     let needles = needles(bindings, encodings);
+    write_runs(bytes, covered(bytes, &needles), written)
+}
+
+fn write_runs<'a>(
+    bytes: &[u8],
+    runs: impl Iterator<Item = Run<'a>>,
+    mut written: impl FnMut(Range<usize>, usize),
+) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     let mut clear = 0;
-    for (start, end, name) in covered(bytes, &needles) {
+    for (start, end, name) in runs {
         out.extend_from_slice(&bytes[clear..start]);
         out.extend_from_slice(format!("[secret:{name}]").as_bytes());
         written(start..end, out.len());
