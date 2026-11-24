@@ -200,7 +200,7 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
     // `list` says it on stderr.
     let store = Store::open(&db).unwrap();
     let (_, unstarted) =
-        on_this_host(ws, |host| Ok(admission::pass_within(&store, host)?)).unwrap();
+        on_this_host(&[], |host| Ok(admission::pass_within(&store, host)?)).unwrap();
     assert_eq!(
         named(&unstarted),
         "unstarted_run: run 'run-3' was never started, a row an older brokkr left with no \
@@ -591,25 +591,44 @@ fn a_host_configuration_no_directory_places_refuses_the_pass() {
     );
 }
 
-/// Decision 0125, ruling G of #1193: the registry a measured pass reads is
-/// every journal the workspace's realms map lists, the world's and a
-/// realm's own, each once; a workspace with no map lists none.
+/// A named map supplies the same invocation's journal and every other
+/// hearth, even when --db overrides the first. An unreadable map refuses.
 #[test]
-fn the_registry_is_every_journal_the_realms_map_lists() {
+fn admission_uses_the_named_map_for_its_registry_even_with_an_explicit_db() {
     let dir = tempfile::tempdir().unwrap();
     let ws = dir.path().canonicalize().unwrap();
-    std::fs::create_dir_all(ws.join("other")).unwrap();
-    assert_eq!(registry(&ws), Vec::<PathBuf>::new());
+    std::fs::create_dir(ws.join("other")).unwrap();
+    let map = ws.join("world.json");
+    let db = ws.join("selected.db");
+    let resolve = |realms, db| admission_target(&ws, JournalArgs { realms, db });
+    assert_eq!(
+        resolve(None, Some(db.clone())).unwrap(),
+        (db.clone(), vec![])
+    );
+
     let realm = |name: &str, path: &str| json!({"name": name, "path": path, "default_branch": "main", "boundary": "open"});
     let mut there = realm("there", "other");
     there["journal"] = json!("there.db");
-    let map = json!({"schema": "forge.realms/v4", "journal": "forge.db",
-                     "realms": [realm("here", "."), there, realm("also", "other")]});
-    std::fs::write(ws.join("realms.json"), map.to_string()).unwrap();
+    let config = json!({"schema": "forge.realms/v4", "journal": "forge.db",
+                       "realms": [realm("here", "."), there, realm("also", "other")]});
+    std::fs::write(&map, config.to_string()).unwrap();
+    let world = Some(map.clone());
+    let journals = vec![ws.join("forge.db"), ws.join("there.db")];
     assert_eq!(
-        registry(&ws),
-        vec![ws.join("forge.db"), ws.join("there.db")]
+        resolve(world.clone(), None).unwrap(),
+        (ws.join("forge.db"), journals.clone())
     );
+    assert_eq!(
+        resolve(world.clone(), Some(db.clone())).unwrap(),
+        (db.clone(), journals)
+    );
+
+    std::fs::remove_file(&map).unwrap();
+    let error = resolve(world, Some(db)).unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<brokkr_runtime::realms::WorldError>(),
+        Some(brokkr_runtime::realms::WorldError::Missing(path)) if path == map.to_str().unwrap()
+    ));
 }
 
 /// Decision 0125 ruling 8: `--json` carries what a measured pass sized an

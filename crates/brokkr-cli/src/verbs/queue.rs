@@ -15,14 +15,15 @@ use std::process::ExitCode;
 use anyhow::Result;
 use brokkr_runtime::admission::{self, Host, Judged, Machine, Reason, Sized, Verdict};
 use brokkr_runtime::launch::{BundleSource, QueuedLaunch};
-use brokkr_runtime::realms::World;
 use brokkr_store::{Attribution, NewEntry, QueueCommand, Wait};
 use serde::Serialize;
 
 use super::delivery::{new_run, operator_name};
-use crate::cli_args::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
+use crate::cli_args::{
+    JournalArgs, QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs,
+};
 use crate::render::Safe;
-use crate::{open_journal, Access, Exit};
+use crate::{open_journal, Access, Exit, Invocation};
 
 /// Run one queue command.
 pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
@@ -155,9 +156,10 @@ fn list(
     QueueListArgs { journal, json }: QueueListArgs,
     stderr: &mut impl Write,
 ) -> Result<ExitCode> {
-    let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
+    let (journal, journals) = admission_target(workspace, journal)?;
+    let store = open_journal(&journal, Access::Read)?;
     let (entries, unstarted) =
-        on_this_host(workspace, |host| Ok(admission::pass_within(&store, host)?))?;
+        on_this_host(&journals, |host| Ok(admission::pass_within(&store, host)?))?;
     show(&entries, &unstarted, json, stderr)
 }
 
@@ -172,8 +174,9 @@ fn judge(
     }: QueueJudgeArgs,
     stderr: &mut impl Write,
 ) -> Result<ExitCode> {
-    let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let (entries, unstarted) = on_this_host(workspace, |host| {
+    let (journal, journals) = admission_target(workspace, journal)?;
+    let mut store = open_journal(&journal, Access::Append)?;
+    let (entries, unstarted) = on_this_host(&journals, |host| {
         attributed(&reason, |by| {
             admission::judge_within(&mut store, host, by).map_err(anyhow::Error::from)
         })
@@ -181,17 +184,31 @@ fn judge(
     show(&entries, &unstarted, json, stderr)
 }
 
+/// Resolve the queue's journal and the journals it must size entries
+/// against from the same invocation (decision 0125 ruling 3).
+pub(super) fn admission_target(
+    workspace: &Path,
+    args: JournalArgs,
+) -> Result<(PathBuf, Vec<PathBuf>)> {
+    let invoked = Invocation::inspect(workspace, args.realms, args.db)?.announce();
+    let journals = invoked
+        .world
+        .iter()
+        .flat_map(|world| world.hearths().into_iter().map(|hearth| hearth.journal))
+        .collect();
+    Ok((invoked.journal, journals))
+}
+
 /// Do `act` on this machine as admission measures it (decision 0068
 /// ruling 3, decision 0125): its host configuration where XDG puts it, its
 /// temp directory where the standard library finds it, the free space
 /// statvfs reports, and, to size entries by demand, every journal of the
-/// realms map `workspace` reads and what this machine has now.
+/// resolved realms map and what this machine has now.
 pub(super) fn on_this_host<T>(
-    workspace: &Path,
+    journals: &[PathBuf],
     act: impl FnOnce(&Host<'_>) -> Result<T>,
 ) -> Result<T> {
-    let journals = registry(workspace);
-    let machine = Machine::here(&journals);
+    let machine = Machine::here(journals);
     on_the_host_at(
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
@@ -199,16 +216,6 @@ pub(super) fn on_this_host<T>(
         Some(&machine),
         act,
     )
-}
-
-/// Every journal the realms map `workspace` reads lists (decision 0125,
-/// ruling G of #1193), as `brokkr system realms` reads that map; none
-/// where it reads none, or none that reads.
-fn registry(workspace: &Path) -> Vec<PathBuf> {
-    let world = World::inspect(workspace, None).ok().flatten();
-    (world.iter())
-        .flat_map(|world| world.hearths().into_iter().map(|hearth| hearth.journal))
-        .collect()
 }
 
 /// [`on_this_host`], with the two directories that place the host

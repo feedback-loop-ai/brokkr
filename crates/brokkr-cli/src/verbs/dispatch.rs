@@ -32,11 +32,9 @@ use rustix::event::PollFlags;
 use signal_hook::consts::{SIGINT, SIGTERM};
 
 use super::delivery::operator_name;
-use super::queue::on_this_host;
+use super::queue::{admission_target, on_this_host};
 use crate::broker::ready;
-use crate::cli_args::{
-    DispatchArgs, DispatchCmd, DriveArgs, JournalArgs, SetBoundArgs, StatusArgs,
-};
+use crate::cli_args::{DispatchArgs, DispatchCmd, DriveArgs, SetBoundArgs, StatusArgs};
 use crate::{drive_to_end, open_journal, Access, Exit};
 
 mod report;
@@ -69,13 +67,14 @@ fn host_path() -> OsString {
 /// seams are this binary's identity and its driver's spawn, and paint the
 /// pass's report. An ending exits non-zero.
 fn once(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Result<ExitCode> {
-    let (journal, binary, mut store, held) = taken(workspace, args.journal)?;
+    let (journal, journals) = admission_target(workspace, args.journal)?;
+    let (journal, binary, mut store, held) = taken(journal)?;
     let seams = Seams {
         stands: || binary.stands(),
         spawn: |spawn: &Spawn| driver(&binary, &journal, spawn).map(|child| spawned(&child)),
         claims: || true,
     };
-    let passed = on_this_host(workspace, |host| {
+    let passed = on_this_host(&journals, |host| {
         Ok(dispatch::pass(&mut store, &held, host, host_path(), seams))
     })?;
     let (lines, exit) = match passed {
@@ -89,8 +88,8 @@ fn once(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Result<Ex
 /// The journal named whole, since a driver runs in its entry's workspace;
 /// this binary's identity, recorded before anything else is read; and the
 /// journal's store with its dispatch lock taken.
-fn taken(workspace: &Path, journal: JournalArgs) -> Result<(PathBuf, Binary, Store, Dispatcher)> {
-    let journal = std::path::absolute(journal.journal(workspace)?)?;
+fn taken(journal: PathBuf) -> Result<(PathBuf, Binary, Store, Dispatcher)> {
+    let journal = std::path::absolute(journal)?;
     let binary = Binary::started(&Executable::current())?;
     let mut store = open_journal(&journal, Access::Append)?;
     match dispatch::take_dispatch(&mut store)? {
@@ -114,7 +113,8 @@ type Drivers = BTreeMap<u32, (String, Claim, Child)>;
 fn standing(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Result<ExitCode> {
     let stop = stopping()?;
     let every = Duration::from_secs(args.every);
-    let (journal, binary, mut store, held) = taken(workspace, args.journal)?;
+    let (journal, journals) = admission_target(workspace, args.journal)?;
+    let (journal, binary, mut store, held) = taken(journal)?;
     let drivers = RefCell::new(Drivers::new());
     let mut spawn = |spawn: &Spawn| {
         let child = driver(&binary, &journal, spawn)?;
@@ -144,7 +144,7 @@ fn standing(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Resul
         report: &mut report,
     };
     let path = host_path();
-    let stood = on_this_host(workspace, |host| {
+    let stood = on_this_host(&journals, |host| {
         Ok(dispatch::stand(&mut store, &held, host, &path, stand))
     })?;
     let mut lines = report::running(&drivers.into_inner());
