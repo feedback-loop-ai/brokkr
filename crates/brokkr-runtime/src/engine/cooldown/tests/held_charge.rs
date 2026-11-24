@@ -32,7 +32,7 @@ fn held_ten() -> (
 /// `taken` for its slice, then runs `slept` with the slices slept so far
 /// and the instant reached; it refuses a fiftieth slice, so a wait that
 /// never parks ends.
-fn sleeping(
+pub(super) fn sleeping(
     now: &Arc<Mutex<OffsetDateTime>>,
     taken: TimeDuration,
     mut slept: impl FnMut(u32, OffsetDateTime) + Send + Sync + 'static,
@@ -57,12 +57,23 @@ fn sleeping(
 /// A hold of `attempt`, a drive of `run` never took, on claude/first at
 /// `at`, written on a connection of its own.
 fn hold_on(journal: &Path, run: &str, attempt: &str, at: OffsetDateTime) -> ProbeHoldId {
+    hold_route(journal, (run, attempt), ("claude", "first"), at)
+}
+
+/// A hold of `attempt`, a drive of `run` never took, on `provider`/`route`
+/// at `at`, written on a connection of its own.
+pub(super) fn hold_route(
+    journal: &Path,
+    (run, attempt): (&str, &str),
+    (provider, route): (&str, &str),
+    at: OffsetDateTime,
+) -> ProbeHoldId {
     let hold = ProbeHold {
         run_id: run,
         attempt_id: attempt,
         site: "",
-        provider: "claude",
-        route: "first",
+        provider,
+        route,
         deadline: at + TimeDuration::minutes(1),
     };
     Store::open(journal).unwrap().hold_probe(&hold, at).unwrap()

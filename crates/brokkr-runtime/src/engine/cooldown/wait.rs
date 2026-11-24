@@ -511,11 +511,11 @@ impl Engine {
             .map(|wait| wait.until)
             .max()
             .expect("a wait to take");
-        for (wait, aggregate) in self.cool_down_aggregates(waits, now)? {
+        for ((provider, route), aggregate) in self.cool_down_aggregates(waits, now)? {
             if aggregate.probe().is_some() {
                 let held = slice_past(now).ok_or_else(|| CooldownError::HeldPastTheClock {
-                    provider: wait.provider.clone(),
-                    route: wait.route.clone(),
+                    provider: provider.to_string(),
+                    route: route.to_string(),
                 })?;
                 end = end.max(held);
             }
@@ -529,25 +529,30 @@ impl Engine {
     /// Every aggregate the cooled sites stand at, at `now`, through the
     /// gates' own in-force read: every unexpired row and every standing
     /// probe hold, another run's or an earlier drive's of this run alike.
-    /// This drive's own probe never stands while its wait reads: its answer
-    /// or settled end ends its hold, its renewed round's commit ends it, and
-    /// any other end parks. A store refusal gives the park reason.
+    /// The routes a refused start of this effect found held are read with
+    /// the waits' own, so the wait waits on them too, charged as any other
+    /// (fix round 0106b1r15, R1). This drive's own probe never stands while
+    /// its wait reads: its answer or settled end ends its hold, its renewed
+    /// round's commit ends it, and any other end parks. A store refusal
+    /// gives the park reason.
     fn cool_down_aggregates<'w>(
-        &self,
+        &'w self,
         waits: &'w [ProviderWait],
         now: OffsetDateTime,
-    ) -> Result<Vec<(&'w ProviderWait, CooldownAggregate)>, CooldownError> {
+    ) -> Result<Vec<(Route<'w>, CooldownAggregate)>, CooldownError> {
+        let waited = (waits.iter()).map(|wait| (wait.provider.as_str(), wait.route.as_str()));
+        let fenced = (self.cooldown.fenced.iter()).map(|(p, r)| (p.as_str(), r.as_str()));
         let mut aggregates = Vec::new();
-        for wait in waits {
+        for (provider, route) in waited.chain(fenced) {
             #[cfg(test)]
-            super::tests::held_start::before_route(&wait.provider, &wait.route);
-            match self.store.cooldown(&wait.provider, &wait.route, now) {
-                Ok(Some(aggregate)) => aggregates.push((wait, aggregate)),
+            super::tests::held_start::before_route(provider, route);
+            match self.store.cooldown(provider, route, now) {
+                Ok(Some(aggregate)) => aggregates.push(((provider, route), aggregate)),
                 Ok(None) => {}
                 Err(source) => {
                     return Err(CooldownError::AggregateUnreadable {
-                        provider: wait.provider.clone(),
-                        route: wait.route.clone(),
+                        provider: provider.to_string(),
+                        route: route.to_string(),
                         source: Box::new(source),
                     })
                 }
@@ -748,6 +753,9 @@ enum ProbeRound {
     Stopped,
     Parked(Park),
 }
+
+/// A provider and route a wait reads.
+type Route<'a> = (&'a str, &'a str);
 
 /// The instant one [`SLICE`] past `now`, where the clock can name it.
 fn slice_past(now: OffsetDateTime) -> Option<OffsetDateTime> {

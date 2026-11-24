@@ -5,6 +5,7 @@
 //! [`Engine::execute`] reads as that sequence, in order; the pieces it is
 //! split into stand beside it here, in the order it reaches them.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -158,16 +159,16 @@ impl Engine {
                 .body
                 .selected_is_gate(state.strategy.as_deref(), seat.has_gate()),
         };
-        // The routes the probes answered before this retry, read before
-        // `plan_attempt` journals their answers (fix round 0106b1r14, R1).
-        let cooled = cooled_routes(&self.cooldown.answers);
         let (selection, started) = self.plan_attempt(events, &at, &mut input, carry)?;
+        // A retry is admitted over every route it launches, read from the
+        // selection its launch runs (fix round 0106b1r15, R1).
+        let launched = self.launch_routes(at.site_name, &selection);
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
             self.active_gate_head = Some(git_head(&self.repo));
         }
-        if !self.start_admitted(started, &attempt_id, &cooled)? {
+        if !self.start_admitted(started, &attempt_id, &launched)? {
             return Ok(());
         }
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
@@ -294,6 +295,31 @@ impl Engine {
         let link = selection.get(&None);
         self.mark_serving(at.site_name, link, (brokers, hands), single.as_mut(), input);
         single
+    }
+
+    /// Every provider and route a retry's `selection` launches, the set its
+    /// start is admitted over (fix round 0106b1r15, R1): each selected
+    /// candidate's pinned routes, as the gates seat its lanes, so a panel
+    /// member no wait refused is checked as well as the refused one; and
+    /// each refused site's route, as its refusal reported it and its wait
+    /// recorded it, so a site no pin routes, an inline one, is checked on
+    /// the route it was refused on. The probes' answers name none of it. An
+    /// attempt no wait sent here is no retry, and is admitted over none.
+    fn launch_routes(&self, site_name: &str, selection: &Selection) -> Vec<(String, String)> {
+        if self.cooldown.refused.is_empty() {
+            return Vec::new();
+        }
+        let mut routes: BTreeSet<(String, String)> =
+            self.cooldown.refused.iter().cloned().collect();
+        for (site, candidate) in &selection.candidates {
+            let served = deadline::served_routes(&self.bundle.sites, site_name, site, candidate);
+            routes.extend(
+                served
+                    .into_iter()
+                    .map(|route| (candidate.provider.clone(), route)),
+            );
+        }
+        routes.into_iter().collect()
     }
 
     /// Everything the attempt decides before its durable start: the
@@ -606,15 +632,6 @@ fn rewalk_refusal(bundle: &Bundle, spawn: &SiteSpawn, (layer, key): (String, Str
              the bytes an unboxed gate runs must be the bytes its digest names (decision 0046 ruling 4)"
         ),
     }
-}
-
-/// The provider and route of every probe `answers` holds: the routes a
-/// retry's start is admitted over (fix round 0106b1r14, R1). An attempt no
-/// wait preceded has none.
-fn cooled_routes(answers: &[brokkr_core::ProbeAnswer]) -> Vec<(String, String)> {
-    (answers.iter())
-        .map(|answer| (answer.provider.clone(), answer.route.clone()))
-        .collect()
 }
 
 /// The input digest recorded when `effect_id` was requested.

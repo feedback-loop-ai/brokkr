@@ -111,29 +111,37 @@ impl Engine {
         self.append_clear_of(event_type, payload, attempt_id, &[])
     }
 
-    /// Journal an attempt's `effect/started`, admitted over `cooled`, the
-    /// routes a retry's probes answered: `true` once it is journaled, and
-    /// the launch follows it. `false` where one of them stands as the start
-    /// would be journaled: nothing was written, the gate head armed for it
-    /// is dropped, and the turn ends with the run at its effect, whose next
-    /// turn waits on the route again (fix round 0106b1r14, R1). No other
-    /// read decides a retry's start: the wait's re-read only sends it here.
+    /// Journal an attempt's `effect/started`, admitted over `launched`,
+    /// every route a retry launches (fix round 0106b1r15, R1): `true` once
+    /// it is journaled, and the launch follows it. `false` where one of
+    /// them stands as the start would be journaled: nothing was written,
+    /// the gate head armed for it is dropped, and the turn ends with the run
+    /// at its effect, whose next turn's wait reads those routes with its
+    /// own, so it waits rather than probing again at once (fix round
+    /// 0106b1r14, R1). No other read decides a retry's start: the wait's
+    /// re-read only sends it here.
     pub(super) fn start_admitted(
         &mut self,
         started: Value,
         attempt_id: &str,
-        cooled: &[(String, String)],
+        launched: &[(String, String)],
     ) -> Result<bool, EngineError> {
         #[cfg(test)]
         tests::before_start();
-        let routes: Vec<(&str, &str)> = (cooled.iter())
+        let routes: Vec<(&str, &str)> = (launched.iter())
             .map(|(provider, route)| (provider.as_str(), route.as_str()))
             .collect();
         let attempt = Some(attempt_id.to_string());
         match self.append_clear_of(EventType::EffectStarted, started, attempt, &routes) {
-            Ok(_) => Ok(true),
+            Ok(_) => {
+                #[cfg(test)]
+                tests::after_start();
+                self.cooldown.fenced.clear();
+                Ok(true)
+            }
             Err(EngineError::Store(StoreError::Queue(QueueRefusal::StartHeld(_)))) => {
                 self.active_gate_head = None;
+                self.cooldown.fenced = launched.to_vec();
                 Ok(false)
             }
             Err(error) => Err(error),

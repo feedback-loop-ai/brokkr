@@ -1377,6 +1377,7 @@ mod held_contention;
 mod held_deadline;
 #[cfg(target_os = "linux")]
 mod held_instance;
+mod held_launch;
 #[cfg(target_os = "linux")]
 mod held_lease;
 mod held_panel;

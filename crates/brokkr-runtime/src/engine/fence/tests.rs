@@ -16,13 +16,35 @@ thread_local! {
     /// The peer a test puts between an attempt's admission to start, its
     /// retry's last read of its routes included, and its `effect/started`.
     static BEFORE_START: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+    /// The peer a test puts between a retry's admitted `effect/started`
+    /// and its launch.
+    static AFTER_START: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+}
+
+/// A peer slot of this thread's.
+type Slot = std::thread::LocalKey<RefCell<Option<Box<dyn FnOnce()>>>>;
+
+/// Run the peer a test put in `slot`, once.
+fn run_once(slot: &'static Slot) {
+    if let Some(peer) = slot.with(|peer| peer.borrow_mut().take()) {
+        peer();
+    }
 }
 
 /// Run the peer a test put before the next start, once.
 pub(super) fn before_start() {
-    if let Some(peer) = BEFORE_START.with(|peer| peer.borrow_mut().take()) {
-        peer();
-    }
+    run_once(&BEFORE_START);
+}
+
+/// Run the peer a test put after the next admitted start, once.
+pub(super) fn after_start() {
+    run_once(&AFTER_START);
+}
+
+/// Put `peer` after this thread's next admitted `effect/started` and
+/// before its launch (fix round 0106b1r15, R1).
+pub(in crate::engine) fn after_the_start(peer: Box<dyn FnOnce()>) {
+    AFTER_START.with(|slot| *slot.borrow_mut() = Some(peer));
 }
 
 /// Put `peer` before this thread's next attempt's `effect/started`: after a
@@ -35,9 +57,7 @@ pub(in crate::engine) fn before_the_start(peer: Box<dyn FnOnce()>) {
 /// Run the peer a test put here, once, at the instant decision 0029's
 /// fence exists for: the fold is taken and the append not yet made.
 pub(super) fn peer_between() {
-    if let Some(peer) = PEER.with(|peer| peer.borrow_mut().take()) {
-        peer();
-    }
+    run_once(&PEER);
 }
 
 /// Put `peer` between the engine's next fold and its next append.

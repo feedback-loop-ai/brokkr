@@ -113,7 +113,14 @@ impl Engine {
             return Ok(());
         }
         match self.take_cooldown(events, state, &wait_effect, seat, &waits)? {
-            Waited::Proceed(answers) => self.run_attempt(events, state, effect_id, seat, answers),
+            // The retry is admitted over every route it launches, its
+            // refused sites' among them (fix round 0106b1r15, R1).
+            Waited::Proceed(answers) => {
+                self.cooldown.refused = (waits.iter())
+                    .map(|wait| (wait.provider.clone(), wait.route.clone()))
+                    .collect();
+                self.run_attempt(events, state, effect_id, seat, answers)
+            }
             // A probe's held round ended the drive with the run `running`
             // (decision 0106 ruling 2); no attempt is spent.
             Waited::Held => Ok(()),
@@ -366,6 +373,7 @@ impl Engine {
         // gate earned.
         let dispatched = self.execute(events, state, effect_id, seat);
         self.cooldown.answers.clear();
+        self.cooldown.refused.clear();
         if dispatched.is_err() {
             self.active_gate_head = None;
         }

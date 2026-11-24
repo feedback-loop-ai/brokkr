@@ -78,6 +78,11 @@ pub(crate) struct Seam {
     /// What the last wait charged, carried to the next turn's wait on the
     /// same waits (fix round 0106b1r15, M1).
     pub(crate) charged: Option<wait::Carried>,
+    /// The routes the retry being started was refused on, by its waits,
+    /// and those its refused start found held, which the effect's next
+    /// wait reads with its own (fix round 0106b1r15, R1).
+    pub(crate) refused: Vec<(String, String)>,
+    pub(crate) fenced: Vec<(String, String)>,
 }
 
 impl Default for Seam {
@@ -90,6 +95,8 @@ impl Default for Seam {
             hold: None,
             reaped: false,
             charged: None,
+            refused: Vec::new(),
+            fenced: Vec::new(),
         }
     }
 }

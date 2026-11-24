@@ -325,10 +325,31 @@ fn route_of(
     site: &Option<String>,
     candidate: &Candidate,
 ) -> Option<String> {
-    let facts = sites.get(&site_label(site_name, site))?;
-    let index = facts.chain.iter().position(|link| link == candidate)?;
-    match facts.pins.get(index)? {
-        ModelPins::Read(served) => served.iter().find_map(|served| served.route.clone()),
-        ModelPins::Unreadable(_) => None,
+    served_routes(sites, site_name, site, candidate)
+        .into_iter()
+        .next()
+}
+
+/// Every route a launched candidate's driver serves it on, from the site's
+/// sealed model pins, primary first, as admission seats the candidate's
+/// lanes: the candidate's own link, never another chain entry's (decision
+/// 0104 ruling 2). None where the site has no pins for it or they did not
+/// read.
+pub(in crate::engine) fn served_routes(
+    sites: &BTreeMap<String, SiteFacts>,
+    site_name: &str,
+    site: &Option<String>,
+    candidate: &Candidate,
+) -> Vec<String> {
+    let facts = sites.get(&site_label(site_name, site));
+    let pins = facts.and_then(|facts| {
+        let index = facts.chain.iter().position(|link| link == candidate)?;
+        facts.pins.get(index)
+    });
+    match pins {
+        Some(ModelPins::Read(served)) => {
+            (served.iter().filter_map(|served| served.route.clone())).collect()
+        }
+        Some(ModelPins::Unreadable(_)) | None => Vec::new(),
     }
 }

@@ -90,6 +90,14 @@ impl Peer {
     }
 }
 
+/// The two-route panel both of whose members refuse once and answer their
+/// probes, under each route's own bounds, and its clock.
+pub(super) fn retried_panel_engine(dir: &Path) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
+    let body = retried_two_route_panel(dir, Probed::Answer, Probed::Answer);
+    let host = route_host(dir, (2, 20), (3, 20));
+    with_clock(panel_engine(dir, body, 2, host))
+}
+
 /// The panel's two routes were never clear together at its retry's re-read,
 /// though each was read clear: its start reads them in one snapshot, finds
 /// X held, and journals nothing. The panel waits on X until the peer ends
@@ -99,9 +107,7 @@ impl Peer {
 #[test]
 fn a_panels_retry_starts_only_once_both_its_routes_read_clear_in_one_snapshot() {
     let dir = tempfile::tempdir().unwrap();
-    let body = retried_two_route_panel(dir.path(), Probed::Answer, Probed::Answer);
-    let host = route_host(dir.path(), (2, 20), (3, 20));
-    let (mut engine, now) = with_clock(panel_engine(dir.path(), body, 2, host));
+    let (mut engine, now) = retried_panel_engine(dir.path());
     let journal = engine.store.path().to_path_buf();
     let peer = Arc::new(Mutex::new(Peer {
         store: Store::open(&journal).unwrap(),
