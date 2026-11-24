@@ -1,10 +1,13 @@
 //! Raw harness structure and masked text (decision 0114).
 
+use std::ops::Range;
+
 use serde_json::Value;
 
+use super::capability_calls::{Tool, MCP_PREFIX, MCP_SEPARATOR};
 use super::plain_thread_id;
 use super::refusal::{bounded_wire_line, REFUSAL_TOKEN_LIMIT};
-use crate::secret::{self, BoundSecret};
+use crate::secret::{self, BoundSecret, MaskedSplit};
 use crate::PreSessionRefusal;
 
 pub(super) struct Row<'a> {
@@ -80,10 +83,36 @@ impl<'a> Row<'a> {
     }
 
     pub(super) fn text(&self, path: &str) -> Option<String> {
-        Some(secret::mask_text(
-            self.string(path)?.as_bytes(),
-            self.bindings,
-        ))
+        self.string(path).map(|text| self.masked(text))
+    }
+
+    pub(super) fn tool(&self, path: &str) -> Tool {
+        let Some(name) = self.string(path) else {
+            return Tool::Missing;
+        };
+        let Some(rest) = name.strip_prefix(MCP_PREFIX) else {
+            return Tool::Named {
+                name: self.masked(name),
+            };
+        };
+        let Some(separator) = mcp_separator(rest) else {
+            return Tool::McpUnidentified {
+                reported: self.masked(name),
+            };
+        };
+        let prefix = MCP_PREFIX.len();
+        let separator = prefix + separator.start..prefix + separator.end;
+        match secret::mask_split(name, self.bindings, prefix, separator) {
+            MaskedSplit::Parts { left, right } => Tool::Mcp {
+                server: left,
+                tool: right,
+            },
+            MaskedSplit::Whole(reported) => Tool::McpUnidentified { reported },
+        }
+    }
+
+    fn masked(&self, text: &str) -> String {
+        secret::mask_text(text.as_bytes(), self.bindings)
     }
 
     pub(super) fn at(&self, path: &str) -> Option<Row<'a>> {
@@ -103,6 +132,13 @@ impl<'a> Row<'a> {
     fn string(&self, path: &str) -> Option<&'a str> {
         self.value(path)?.as_str()
     }
+}
+
+/// The first separator after the MCP prefix, with a name on either side.
+pub(super) fn mcp_separator(rest: &str) -> Option<Range<usize>> {
+    let start = rest.find(MCP_SEPARATOR)?;
+    let end = start + MCP_SEPARATOR.len();
+    (start != 0 && end < rest.len()).then_some(start..end)
 }
 
 /// A raw session id is only compared. Its spelling never reaches the wire.

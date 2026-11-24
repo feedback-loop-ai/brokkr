@@ -189,3 +189,49 @@ fn at_keeps_bindings_on_the_nested_value() {
     assert!(row.at("/null").is_some());
     assert!(row.at("/missing").is_none());
 }
+
+#[test]
+fn tool_keeps_raw_boundaries_in_the_masked_name() {
+    use crate::adapters::tests::binding;
+
+    let cases = [
+        (
+            "mcp__srv__tool",
+            "S",
+            "v__t",
+            Tool::McpUnidentified {
+                reported: "mcp__sr[secret:S]ool".into(),
+            },
+        ),
+        (
+            "mcp__srv__tool",
+            "S",
+            "mcp_",
+            Tool::McpUnidentified {
+                reported: "[secret:S]_srv__tool".into(),
+            },
+        ),
+        (
+            "mcp__lefttail__probe",
+            "S__CUT",
+            "tail",
+            Tool::Mcp {
+                server: "left[secret:S__CUT]".into(),
+                tool: "probe".into(),
+            },
+        ),
+        (
+            "WebSearch",
+            "S",
+            "Search",
+            Tool::Named {
+                name: "Web[secret:S]".into(),
+            },
+        ),
+    ];
+    for (name, secret_name, value, expected) in cases {
+        let raw = json!({"name": name});
+        let bindings = [binding(secret_name, value)];
+        assert_eq!(Row::new(&raw, &bindings).tool("/name"), expected);
+    }
+}
