@@ -211,6 +211,7 @@ cell; the row keeps the decision's own status and `Built` state.
 | 0122 | Claimed by #1294 for "what is judged and shipped is what verification passed", which has not landed on this branch. This row goes when it lands. |
 | 0123 | Claimed by #1291 for "one workspace call may run an hour", which has not landed on this branch. This row goes when it lands. |
 | [0124](0124-an-agy-seat-never-starts-agy-s-self-updater.md) | An agy seat never starts agy's self-updater | For #1224: every agy child the driver spawns, boxed or not, carries `AGY_CLI_DISABLE_AUTO_UPDATE=true` over the engine's own value, its argv and HOME documents unchanged; the engine owns the name as it owns `HOME` and `PWD`, so a seat that binds it is refused before agy starts by the typed refusal that names it. | proposed | built |
+| [0125](0125-a-dsh-hands-row-carries-its-documents-as-unpadded-base64url.md) | A dsh hands row carries its reach and spec as unpadded base64url, and `brokkr hands serve` parses both spellings through one path | For #1277: the `dsh` overlay carries `--reach-base64url` and `--spec-base64url` while JSON harnesses keep `--reach` and `--spec`; `brokkr hands serve` accepts either spelling per document with mutual exclusion and a `"workspace"` spec default, parses both spellings through one path per document, and redacts encoded refusals without changing plain diagnostics or the `dsh` line rule. | proposed | built |
 
 ## Numbers without a decision
 

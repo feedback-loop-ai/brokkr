@@ -966,7 +966,8 @@ were run by this seat.
 | `seat-overlay.yml` and `dump-folded-json.txt` (100 rows; lines 455 and 458 start with `{` and are refused by the line rule) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 (`2811aede`, `dashscope/qwen4-max`) |
 | `overlay-base64url.yml` and `dump-base64url.txt` (100 rows, no line refused by the line rule) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
 | `dump-file-paths.txt` and `dump-short-json.txt` (100 rows each, no line refused) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
-| Compile-time reader binding on `dump-folded-json.txt` (`Unreadable`) and `dump-base64url.txt` (100 rows, `brokkr-hands` enabled on `@deepseek-ai/dsh-mcp-client`, admitted by `judge(Release::V0_2_2, …)` and `judge_mode(…, Mode::WorkspaceWrite)`) | offline tests, this change |
+| Offline reader binding (runtime fixture read) on `dump-folded-json.txt` (`Unreadable`) and `dump-base64url.txt` (100 rows, `brokkr-hands` enabled on `@deepseek-ai/dsh-mcp-client`, admitted by `judge(Release::V0_2_2, …)` and `judge_mode(…, Mode::WorkspaceWrite)`) | offline tests, this change |
+| Unkeyed boxed dsh seat launch on round 2's head (engine built from it): driver read dsh's composed tree, both judges admitted it, and dsh launched for the turn and stopped only at the missing credential | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
 | Writer binding: `--reach-base64url` and `--spec-base64url`, non-ASCII path and `-`/`_` bytes, exact round-trip decode, every emitted and folded line admitted by `rows::carriers::check`, and regenerated dump admitted by both judges | offline tests, this change |
 | `hands serve` CLI argument resolution (JSON or unpadded base64url through one deserialization per document; reach required in one spelling with main's usage order; spec defaults to `"workspace"` when omitted and refuses both spellings; leading-hyphen encoded values reach the decoder; encoded refusals disclose neither the raw value nor any decoded text; both spellings agree on every document including duplicate members; plain JSON refusals match main byte for byte on `hands serve` and `hands exec`) | offline tests, this change |
 
@@ -981,10 +982,12 @@ were run by this seat.
   `qoder`) keep `--reach` and `--spec` unchanged.
 - `brokkr hands serve` accepts each document in either its JSON spelling
   (`--reach`, `--spec`) or its unpadded base64url spelling
-  (`--reach-base64url`, `--spec-base64url`). For `--reach`, exactly one
-  spelling is required (omitting both fails at clap with exit code 2 before
-  `--spec` is parsed, printing main's exact usage order with `--reach` before
-  `--spec`); for `--spec`, both spellings refuse and omitting both uses
+  (`--reach-base64url`, `--spec-base64url`), documented in
+  [hands.md](../../reference/hands.md) and proposed decision
+  [0125](../../decisions/0125-a-dsh-hands-row-carries-its-documents-as-unpadded-base64url.md).
+  For `--reach`, exactly one spelling is required (omitting both fails at clap
+  with exit code 2 before `--spec` is parsed, printing main's exact usage order
+  with `--reach` before `--spec`, selected from structured parser state); for `--spec`, both spellings refuse and omitting both uses
   main's default `"workspace"` (shown in `brokkr hands serve --help` and
   parsed by the same check). Both encoded arguments accept leading-hyphen
   values so they reach the typed decoder. After decoding, both spellings of
@@ -1005,7 +1008,7 @@ were run by this seat.
 
 ## Pending
 
-- A live boxed dsh seat turn past the reader and both judges (#1277, #953): requires dsh and a provider key, so it is UNVERIFIED here and owed to the controller after this change builds.
+- Serving a live boxed dsh seat turn with a provider key (#1277, #953): the controller observed an unkeyed launch on round 2's head pass the driver's reader and both judges and launch dsh up to the missing credential check, but serving a keyed turn requires a provider key, remains UNVERIFIED here, and is owed to the controller after this change builds.
 - Exact coverage and `quality/ratchet.sh crap`: this seat's box has no
   LCOV output, so the crap ratchet refuses with "no LCOV at
   target/coverage/lcov.info: run scripts/coverage-exact.sh first". Every

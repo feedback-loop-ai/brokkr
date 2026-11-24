@@ -2,13 +2,14 @@
 //! `--spec` as unpadded base64url so dsh's `--dump-config` never folds a
 //! `{`-led JSON scalar onto a line the driver's line rule refuses.
 //!
-//! These tests include the controller's captures from the workspace's
-//! `docs/evidence/adapters/dsh-hands-1277/` directory at compile time, so
-//! building or running them requires the workspace's `docs/evidence` tree
-//! (matching `crates/brokkr-cli/tests/agy_driver.rs` and `qoder_driver.rs`).
+//! These tests read the controller's captures from the workspace's
+//! `docs/evidence/adapters/dsh-hands-1277/` directory at run time (not
+//! `include_bytes!`/`include_str!`), matching the adjacent runtime fixture
+//! convention in `tests.rs` and `composed_carriers.rs` so the packaged crate
+//! compiles without files above its manifest directory.
 //!
 //! - B5: bind the controller's 2026-11-24 Linux/dsh 0.2.2-rc.1 evidence at
-//!   compile time (`dump-folded-json.txt` refuses `Unreadable`;
+//!   run time (`dump-folded-json.txt` refuses `Unreadable`;
 //!   `dump-base64url.txt` reads 100 rows, holds `brokkr-hands` enabled on
 //!   `@deepseek-ai/dsh-mcp-client`, and passes both `judge` and `judge_mode`).
 //! - B6: bind the overlay writer (non-ASCII path, bytes encoding to `-` and
@@ -26,21 +27,33 @@ use super::super::{hands_rows, Mode, Release, HANDS_ID, MCP_CLIENT};
 use crate::hands::{decode_base64url, Bind, BindMode, GitFacts, HandsSpec, Sealed, SEALED_REACH};
 use crate::native_controls::{SealedBoundary, SealedDialect, ARTIFACT_ROOT, SERVING_INPUTS};
 
+/// Path to one of the controller's 2026-11-24 Linux/dsh 0.2.2-rc.1 captures
+/// under `docs/evidence/adapters/dsh-hands-1277/`.
+///
+/// Read at run time, not `include_*!`: the measured captures have one home in
+/// `docs/evidence/`, and a crate must not include a file above itself (the
+/// published tarball would not carry it).
+fn capture_path(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/evidence/adapters/dsh-hands-1277")
+        .join(name)
+}
+
 /// Controller capture (2026-11-24, Linux, dsh 0.2.2-rc.1): real seat overlay
 /// with long JSON `--reach` and `--spec`, folded by js-yaml onto lines 455
 /// and 458 starting with `{`.
-const DUMP_FOLDED_JSON: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../docs/evidence/adapters/dsh-hands-1277/dump-folded-json.txt"
-));
+fn dump_folded_json() -> Vec<u8> {
+    std::fs::read(capture_path("dump-folded-json.txt"))
+        .expect("the controller's #1277 folded-JSON capture is in the workspace")
+}
 
 /// Controller capture (2026-11-24, Linux, dsh 0.2.2-rc.1): the same seat
 /// overlay with `--reach` and `--spec` values base64url-encoded without
 /// padding.
-const DUMP_BASE64URL: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../docs/evidence/adapters/dsh-hands-1277/dump-base64url.txt"
-));
+fn dump_base64url() -> String {
+    std::fs::read_to_string(capture_path("dump-base64url.txt"))
+        .expect("the controller's #1277 base64url capture is in the workspace")
+}
 
 /// Extract the single-quoted `args:` entries from the emitted `brokkr-hands`
 /// row.
@@ -158,12 +171,14 @@ fn emitted_hands_fixture() -> EmittedHands {
 }
 
 /// B5: bind the controller's real dsh 0.2.2-rc.1 captures from
-/// `docs/evidence/adapters/dsh-hands-1277/` at compile time.
+/// `docs/evidence/adapters/dsh-hands-1277/` at run time.
 #[test]
 fn the_captured_dsh_dumps_prove_folded_json_refuses_and_base64url_passes_both_judges() {
-    assert_eq!(rows(DUMP_FOLDED_JSON), Err(Composition::Unreadable));
+    let folded_json = dump_folded_json();
+    let base64url = dump_base64url();
+    assert_eq!(rows(&folded_json), Err(Composition::Unreadable));
 
-    let parsed = rows(DUMP_BASE64URL.as_bytes()).expect("base64url dump must read");
+    let parsed = rows(base64url.as_bytes()).expect("base64url dump must read");
     assert_eq!(parsed.len(), 100);
     let hands: Vec<_> = parsed.iter().filter(|row| row.id == HANDS_ID).collect();
     assert_eq!(hands.len(), 1);
@@ -270,7 +285,8 @@ fn the_dsh_overlay_writer_encodes_reach_and_spec_and_passes_the_line_rule() {
 fn a_regenerated_composed_dump_with_the_writers_args_passes_both_judges() {
     let fixture = emitted_hands_fixture();
     let folded_block = dump_args_block(&fixture.args);
-    let head = DUMP_BASE64URL
+    let base64url = dump_base64url();
+    let head = base64url
         .split_once("    args:\n")
         .expect("captured dump carries args block")
         .0;

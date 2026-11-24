@@ -745,6 +745,82 @@ fn hands_serve_requires_reach_at_clap_before_parsing_spec() {
     }
 }
 
+/// #1277 V3 (decision 0071 ruling 8): `reformat_missing_serve_reach` selects
+/// the missing-reach diagnostic from structured clap argument state, not from
+/// rendered `--reach <REACH>` text: renaming the metavar still preserves
+/// main's usage order, while `hands serve` with `--reach-base64url` present
+/// (missing `--artifacts`) and non-`hands` missing-required errors pass
+/// through unchanged.
+#[test]
+fn missing_serve_reach_reformat_uses_structured_parser_state_not_metavar_text() {
+    use clap::CommandFactory;
+    use std::ffi::OsString;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().to_str().unwrap();
+    let artifacts = tmp.path().join("artifacts");
+    let artifacts_arg = artifacts.to_str().unwrap();
+
+    // Custom metavar on `--reach` proves selection does not match "--reach <REACH>".
+    let renamed_cmd = || {
+        crate::Cli::command().mut_subcommand("hands", |hands| {
+            hands.mut_subcommand("serve", |serve| {
+                serve.mut_arg("reach", |reach| reach.value_name("SEALED"))
+            })
+        })
+    };
+    let argv: Vec<OsString> = [
+        "brokkr",
+        "hands",
+        "serve",
+        "--workdir",
+        work,
+        "--artifacts",
+        artifacts_arg,
+        "--spec",
+        "{",
+    ]
+    .into_iter()
+    .map(OsString::from)
+    .collect();
+    let raw_err = renamed_cmd().try_get_matches_from(&argv).unwrap_err();
+    let reformatted = reformat_missing_serve_reach(raw_err, &argv, renamed_cmd);
+    assert_eq!(
+        reformatted.to_string(),
+        concat!(
+            "error: the following required arguments were not provided:\n  --reach <SEALED>\n\n",
+            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <SEALED> --spec <SPEC>\n\n",
+            "For more information, try '--help'.\n"
+        )
+    );
+
+    // When `--reach-base64url` is present and another required flag is missing,
+    // `reformat_missing_serve_reach` leaves the original error alone.
+    let missing_artifacts: Vec<OsString> = [
+        "brokkr",
+        "hands",
+        "serve",
+        "--workdir",
+        work,
+        "--reach-base64url",
+        "e30",
+    ]
+    .into_iter()
+    .map(OsString::from)
+    .collect();
+    let raw_artifacts = crate::Cli::command()
+        .try_get_matches_from(&missing_artifacts)
+        .unwrap_err();
+    let raw_text = raw_artifacts.to_string();
+    let kept = reformat_missing_serve_reach(raw_artifacts, &missing_artifacts, crate::Cli::command);
+    assert_eq!(kept.to_string(), raw_text);
+    assert!(
+        kept.to_string().contains("--artifacts <ARTIFACTS>"),
+        "got: {kept}"
+    );
+    assert!(!kept.to_string().contains("--reach <REACH>"), "got: {kept}");
+}
+
 /// #1277 R4 + R6: plain JSON `--reach` and `--spec` refusals keep main's
 /// diagnostics byte for byte on both `hands serve` and `hands exec`.
 #[test]
@@ -911,9 +987,23 @@ fn assert_reach_spelling_parity() {
     use serde_json::error::Category;
     let base = full_reach_json();
     let expected_valid: Sealed = serde_json::from_str(base).unwrap();
+    // Main's plain `serde_json::from_str::<Sealed>` also admits serde's
+    // positional array form; both spellings must admit it with the exact same
+    // `Sealed` value (#1277 V2).
+    let positional = r#"["/h",["/w",[1,2]],null,[],null]"#;
+    let expected_positional: Sealed = serde_json::from_str(
+        r#"{"home":"/h","worktree":{"path":"/w","identity":[1,2]},"git":null,"binds":[],"store":null}"#,
+    )
+    .unwrap();
 
-    let mut cases: Vec<(&str, String, Result<Sealed, RefusalClass>)> =
-        vec![("valid full reach", base.to_string(), Ok(expected_valid))];
+    let mut cases: Vec<(&str, String, Result<Sealed, RefusalClass>)> = vec![
+        ("valid full reach", base.to_string(), Ok(expected_valid)),
+        (
+            "valid positional reach (main serde tuple form)",
+            positional.to_string(),
+            Ok(expected_positional),
+        ),
+    ];
     for (label, doc) in reach_duplicate_cases(base) {
         cases.push((label, doc, Err(RefusalClass::Reach(Category::Data))));
     }
