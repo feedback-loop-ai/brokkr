@@ -19,3 +19,12 @@ with `inputs: {"max_residual_severity": "<none|info|low|medium|high|critical>",
 finding in `notes` (a clean writes `none` and `false`) · never `security-hold` (that verdict belongs to the
 security member; if you smell security, say so in notes at your honest
 severity). The panel aggregate takes the worst member verdict.
+
+A `findings` list is accepted only from a gate-class panel member; the
+engine refuses `findings` from a work-class site (decision 0109 ruling
+1). Because decision 0109 ruling 2 requires `security-hold` over any
+finding carrying `security: true` and your declared results exclude
+`security-hold`, never set `security: true` in `findings` (the engine
+refuses it and poisons the panel): write `security: false` on any typed
+finding and report any security smell in `notes` at its honest severity,
+with file and line.

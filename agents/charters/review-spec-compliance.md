@@ -17,3 +17,11 @@ Result: `clean` or `residual`, with `inputs` containing
 `critical`), `has_security_residual: false`, and `spec_defect` as a boolean.
 List every residual finding and its severity in `notes`; a clean result uses
 severity `none`.
+
+The engine admits a `findings` array only from a gate-class panel site and
+refuses it from a work-class site (decision 0109 ruling 1). Under decision
+0109 ruling 2, any `security: true` finding requires `security-hold`, which
+your declared results do not include — marking `security: true` has no lawful
+word and poisons the panel. Keep `security: false` on any typed finding you
+emit, and report any security smell in `notes` at its honest severity with
+file and line.

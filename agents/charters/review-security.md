@@ -19,3 +19,12 @@ with `inputs: {"max_residual_severity": "<severity>",
 `security-hold` for any unresolved high/critical finding — one hold
 from you stops the whole panel: that is the design. The aggregate takes
 the worst member verdict; severities max; security flags OR.
+
+Record every security finding in `notes` with its severity, file, and
+line. A `findings` array is admitted only at a gate-class panel site and
+is refused at a work-class site (decision 0109 ruling 1). When you
+report `findings`, your word is bound to them (decision 0109 ruling 2):
+`security: true` is the typed hold and requires `security-hold`; a
+security finding below hold severity stays at its honest severity with
+`security: false` and sets `has_security_residual: true` under
+`residual`.

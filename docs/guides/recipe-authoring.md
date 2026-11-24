@@ -358,9 +358,15 @@ engine, never arbitrary code:
 A seat's declared `results` must cover its aggregate's vocabulary or
 compilation fails. A member declares no `results` of its own. A
 `review-panel` member reports only the words its hired agent's `results`
-list declares, `clean` and `residual` where it declares none. Before the
+list declares, `clean` and `residual` where it declares none. Only a
+gate-class panel member may write `findings`; a work-class member's
+`findings` is refused (decision 0109 ruling 1). Before the
 join, its word is bound to its findings and to the residual pair the
-seat compiles (decision 0109 ruling 2). A refused member poisons the
+seat compiles (decision 0109 ruling 2): any `security: true` finding
+requires `security-hold` (a lower security-relevant finding keeps
+`security: false` and sets `has_security_residual: true` under
+`residual`, and a member without `security-hold` reports a security
+smell in `notes` at its honest severity). A refused member poisons the
 aggregate. The aggregate writes `max_residual_severity` and
 `has_security_residual` on every result, `none` and `false` when no
 member reports one. Any indeterminate member makes the whole attempt
