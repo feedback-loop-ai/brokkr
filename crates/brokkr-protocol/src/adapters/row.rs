@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::capability_calls::{Tool, MCP_PREFIX, MCP_SEPARATOR};
 use super::plain_thread_id;
 use super::qoder::ModelPin;
-use super::refusal::{bounded_wire_line, REFUSAL_TOKEN_LIMIT};
+use super::refusal::{bounded_wire_line, parse_nanos, REFUSAL_TOKEN_LIMIT};
 use super::stream_turn::plain;
 use crate::secret::{self, BoundSecret, MaskedSplit};
 use crate::PreSessionRefusal;
@@ -57,7 +57,23 @@ impl<'a> Row<'a> {
     }
 
     pub(super) fn is(&self, path: &str, word: &str) -> bool {
-        self.string(path) == Some(word)
+        self.equals(path, word)
+    }
+
+    pub(super) fn equals(&self, path: &str, expected: &str) -> bool {
+        self.string(path) == Some(expected)
+    }
+
+    pub(super) fn since(&self, path: &str, boundary: i128) -> Option<bool> {
+        parse_nanos(self.string(path)?).map(|time| time >= boundary)
+    }
+
+    pub(super) fn present(&self, path: &str) -> bool {
+        self.value(path).is_some_and(|value| !value.is_null())
+    }
+
+    pub(super) fn has(&self, path: &str) -> bool {
+        self.value(path).is_some()
     }
 
     pub(super) fn is_init(&self) -> bool {

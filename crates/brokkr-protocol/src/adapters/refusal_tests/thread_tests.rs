@@ -59,7 +59,7 @@ fn a_name_that_does_not_carry_a_full_codex_id_correlates_nothing() {
             "payload": {"id": id, "timestamp": "9999-12-31T00:00:00Z", "cwd": cwd}});
         std::fs::write(&path, record(&[header])).unwrap();
         assert!(
-            thread_header(&path, None).is_none(),
+            thread_header(&path, None, &cwd, 0, &[]).is_none(),
             "a name that does not carry a full codex id carries no id: {name}"
         );
     }

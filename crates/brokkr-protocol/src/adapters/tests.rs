@@ -1727,26 +1727,38 @@ fn a_real_codex_rollout_line_names_its_model_and_effort_under_payload() {
         r#"{"timestamp":"2026-09-04T10:45:14.560Z","ordinal":7,"type":"turn_context","payload":{"turn_id":"01a06c05-c0fb-75b3-8c49-f0c49038dd88","cwd":"/w","current_date":"2026-09-04","approval_policy":"never","sandbox_policy":{"type":"danger-full-access"},"model":"gpt-5.6-sol","comp_hash":"3000","personality":"pragmatic","effort":"medium","summary":"auto"}}"#,
     )
     .unwrap();
-    assert_eq!(model_in_thread(&real).as_deref(), Some("gpt-5.6-sol"));
-    assert_eq!(effort_in_thread(&real).as_deref(), Some("medium"));
+    assert_eq!(
+        model_in_thread(&Row::new(&real, &[])).as_deref(),
+        Some("gpt-5.6-sol")
+    );
+    assert_eq!(
+        effort_in_thread(&Row::new(&real, &[])).as_deref(),
+        Some("medium")
+    );
 
     let settings: Value = serde_json::from_str(
         r#"{"timestamp":"2026-09-04T10:45:14.512Z","ordinal":6,"type":"event_msg","payload":{"type":"thread_settings_applied","thread_id":"01a06c05-c0a6-7991-a277-652d17ace6a6","thread_settings":{"model":"gpt-5.6-sol","model_provider_id":"openai","approval_policy":"never","reasoning_effort":"medium"}}}"#,
     )
     .unwrap();
-    assert_eq!(model_in_thread(&settings).as_deref(), Some("gpt-5.6-sol"));
-    assert_eq!(effort_in_thread(&settings).as_deref(), Some("medium"));
+    assert_eq!(
+        model_in_thread(&Row::new(&settings, &[])).as_deref(),
+        Some("gpt-5.6-sol")
+    );
+    assert_eq!(
+        effort_in_thread(&Row::new(&settings, &[])).as_deref(),
+        Some("medium")
+    );
 
     // The record is codex's file, so both values are clamped on the way
     // across exactly as every other harness report is.
     let hostile = json!({"payload": {"model": "a model, obviously", "effort": "_high"}});
-    assert_eq!(model_in_thread(&hostile), None);
-    assert_eq!(effort_in_thread(&hostile), None);
+    assert_eq!(model_in_thread(&Row::new(&hostile, &[])), None);
+    assert_eq!(effort_in_thread(&Row::new(&hostile, &[])), None);
 
     // A line that names neither answers for neither.
     let quiet = json!({"type": "event_msg", "payload": {"type": "agent_message"}});
-    assert_eq!(model_in_thread(&quiet), None);
-    assert_eq!(effort_in_thread(&quiet), None);
+    assert_eq!(model_in_thread(&Row::new(&quiet, &[])), None);
+    assert_eq!(effort_in_thread(&Row::new(&quiet, &[])), None);
 }
 
 /// Codex's `exec --json` stream carries usage on `turn.completed` and no

@@ -293,3 +293,41 @@ fn init_matches_raw_system_and_subtype_even_without_an_id() {
         assert!(!Row::new(&raw, &bindings).is_init());
     }
 }
+
+#[test]
+fn equals_compares_the_raw_engine_value() {
+    let raw = json!({"cwd":"/my/workdir"});
+    let bindings = binding("work");
+    let row = Row::new(&raw, &bindings);
+    assert!(row.equals("/cwd", "/my/workdir"));
+    assert!(!row.equals("/cwd", "/my/[secret:S]dir"));
+    assert!(!row.equals("/missing", ""));
+}
+
+#[test]
+fn since_compares_time_without_returning_it() {
+    let raw = json!({"timestamp":"2026-11-08T10:00:00.900100Z"});
+    let bindings = binding("9001");
+    let row = Row::new(&raw, &bindings);
+    let at = parse_nanos("2026-11-08T10:00:00.900100Z").unwrap();
+    assert_eq!(row.since("/timestamp", at), Some(true));
+    assert_eq!(row.since("/timestamp", at + 1), Some(false));
+    assert_eq!(row.since("/missing", at), None);
+}
+
+#[test]
+fn present_requires_a_non_null_value() {
+    let raw = json!({"text":"", "null":null});
+    let row = Row::new(&raw, &[]);
+    assert!(row.present("/text"));
+    assert!(!row.present("/null"));
+    assert!(!row.present("/missing"));
+}
+
+#[test]
+fn has_accepts_an_explicit_null() {
+    let raw = json!({"null":null});
+    let row = Row::new(&raw, &[]);
+    assert!(row.has("/null"));
+    assert!(!row.has("/missing"));
+}

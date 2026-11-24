@@ -664,20 +664,22 @@ fn names_thread_settings(line: &str) -> bool {
     line.contains("turn_context") || line.contains("thread_settings")
 }
 
-fn model_in_thread(line: &Value) -> Option<String> {
+fn model_in_thread(line: &Row<'_>) -> Option<String> {
     ["/payload/model", "/payload/thread_settings/model"]
         .into_iter()
-        .find_map(|pointer| line.pointer(pointer).and_then(Value::as_str))
+        .find_map(|pointer| line.text(pointer))
+        .as_deref()
         .and_then(model_token)
 }
 
-fn effort_in_thread(line: &Value) -> Option<String> {
+fn effort_in_thread(line: &Row<'_>) -> Option<String> {
     [
         "/payload/effort",
         "/payload/thread_settings/reasoning_effort",
     ]
     .into_iter()
-    .find_map(|pointer| line.pointer(pointer).and_then(Value::as_str))
+    .find_map(|pointer| line.text(pointer))
+    .as_deref()
     .and_then(effort_token)
 }
 
@@ -1446,14 +1448,22 @@ const CODEX_THREAD_DEPTH: usize = 6;
 /// derived from any of it. A driver whose harness offers a real stdout
 /// stream should use it rather than inherit this.
 #[derive(Default)]
-struct CodexThreadEcho {
+struct CodexThreadEcho<'a> {
+    bindings: &'a [secret::BoundSecret],
     /// The sessions root and the thread id codex announced, held
     /// together because neither is ever known without the other.
     announced: Option<(std::path::PathBuf, Ident)>,
     path: Option<std::path::PathBuf>,
 }
 
-impl CodexThreadEcho {
+impl<'a> CodexThreadEcho<'a> {
+    fn new(bindings: &'a [secret::BoundSecret]) -> Self {
+        Self {
+            bindings,
+            ..Self::default()
+        }
+    }
+
     /// Remember the thread codex announced, and try the walk now. The
     /// id is held whether or not the file is there yet, because
     /// announcing a thread and filing its rollout are two writes and
@@ -1530,9 +1540,10 @@ impl CodexThreadEcho {
             if !names_thread_settings(line) {
                 continue;
             }
-            let Ok(line) = serde_json::from_str::<Value>(line) else {
+            let Ok(raw) = serde_json::from_str::<Value>(line) else {
                 continue;
             };
+            let line = Row::new(&raw, self.bindings);
             if model.is_none() {
                 model = model_in_thread(&line);
             }
@@ -1568,12 +1579,9 @@ impl CodexThreadEcho {
             .announced
             .as_ref()
             .expect("a resolved codex thread path has an announced thread");
-        let (cwd, started) = thread_header(path, Some(announced))?;
-        if cwd != workdir || started < since_nanos {
-            return None;
-        }
+        thread_header(path, Some(announced), workdir, since_nanos, self.bindings)?;
         let body = std::fs::read_to_string(path).ok()?;
-        codex_thread_refusal(&body, Some(since_nanos), now)
+        codex_thread_refusal(&body, Some(since_nanos), now, self.bindings)
     }
 
     /// The same read where the CLI never announced its thread, so the
@@ -1600,6 +1608,7 @@ impl CodexThreadEcho {
             workdir,
             now,
             CODEX_THREAD_DEPTH,
+            self.bindings,
         )
     }
 }
@@ -3328,7 +3337,7 @@ fn invoke_codex(
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
     // A rejoin already knows the thread it is writing to, so the locator
     // is held before the first byte arrives.
-    let mut echo = CodexThreadEcho::default();
+    let mut echo = CodexThreadEcho::new(bindings);
     if let Some(handle) = &hold.plan.rejoining {
         echo.locate(transcript.home(), Ident::from_offered(handle));
     }
@@ -3456,7 +3465,7 @@ fn invoke_codex(
 /// both reads; `started_nanos` is the invocation's start at nanosecond
 /// precision, the boundary the record's rows and file time are held to.
 fn codex_early_refusal(
-    echo: &mut CodexThreadEcho,
+    echo: &mut CodexThreadEcho<'_>,
     home: &std::path::Path,
     started_nanos: Option<i128>,
     workdir: &str,

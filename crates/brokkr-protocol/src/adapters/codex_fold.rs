@@ -35,7 +35,7 @@ pub(super) fn fold_codex_event(
     turn: &mut u64,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
-    echo: &mut CodexThreadEcho,
+    echo: &mut CodexThreadEcho<'_>,
     emit: &mut impl FnMut(&Emitted),
 ) -> Option<PreSessionRefusal> {
     match row.kind("/type", EVENT_KINDS) {
@@ -104,7 +104,7 @@ fn turn_checkpoint(
     row: &Row<'_>,
     turn: u64,
     session_meta: &mut Map<String, Value>,
-    echo: &mut CodexThreadEcho,
+    echo: &mut CodexThreadEcho<'_>,
 ) -> Map<String, Value> {
     // Codex usually reports these through its rollout (0035 ruling 3).
     // A model the stream names is the more direct report.

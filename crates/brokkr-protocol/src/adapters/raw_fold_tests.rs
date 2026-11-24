@@ -7,7 +7,7 @@ pub(super) fn fold_codex_event(
     turn: &mut u64,
     meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
-    echo: &mut CodexThreadEcho,
+    echo: &mut CodexThreadEcho<'_>,
     emit: &mut impl FnMut(&Value),
 ) -> Option<PreSessionRefusal> {
     let refusal = (*turn == 0)
@@ -33,7 +33,7 @@ pub(super) fn codex_refusal(event: &Value) -> Option<PreSessionRefusal> {
     super::codex_refusal(&Row::new(event, &[]))
 }
 
-impl CodexThreadEcho {
+impl CodexThreadEcho<'_> {
     pub(super) fn locate_unbound(&mut self, home: &Path, thread_id: &str) {
         self.locate(home, Ident::from_offered(thread_id));
     }
