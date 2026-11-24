@@ -1220,14 +1220,14 @@ fn a_held_terminal_event_parks_then_tells_its_stderr_once() {
     );
 }
 
-const CAP_STDERR: &str = "stderr at the attempt cap";
+const FAILURE_STDERR: &str = "stderr from a failed attempt";
 
-fn failing_at_the_cap(dir: &Path) -> (Engine, super::tests::driver_stderr::Watch) {
+fn failing_with_cap(dir: &Path, max_attempts: u64) -> (Engine, super::tests::driver_stderr::Watch) {
     let failed = AttemptOutcome::Failed {
-        error: "failed at the cap".into(),
+        error: "driver failed".into(),
     };
     let mut command = super::tests::driver_command("effect-1", "attempt-1", failed);
-    command[2] = format!("printf '%s\n' '{CAP_STDERR}' >&2; {}", command[2]);
+    command[2] = format!("printf '%s\n' '{FAILURE_STDERR}' >&2; {}", command[2]);
     let patience = std::time::Duration::from_millis(25);
     let mut engine = driving(dir, single_body(command), patience);
     engine
@@ -1236,7 +1236,7 @@ fn failing_at_the_cap(dir: &Path) -> (Engine, super::tests::driver_stderr::Watch
         .get_mut("work")
         .unwrap()
         .limits
-        .max_attempts = 1;
+        .max_attempts = max_attempts;
     engine.drive_once().unwrap();
     let mut request = super::tests::requested(&engine, "effect-1").payload;
     request["phase"] = json!("work");
@@ -1267,7 +1267,7 @@ fn lock_before_append(db: PathBuf, peer: WriteLock, skip: usize) {
 fn a_held_outcomes_contended_park_reaches_the_lawful_end_again() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("realm.db");
-    let (mut engine, watch) = failing_at_the_cap(dir.path());
+    let (mut engine, watch) = failing_with_cap(dir.path(), 1);
     let peer = WriteLock::default();
     // Let the attempt start, then hold its terminal append.
     lock_before_append(db.clone(), peer.clone(), 1);
@@ -1310,7 +1310,7 @@ fn a_held_outcomes_contended_park_reaches_the_lawful_end_again() {
     assert_eq!(park.payload["reason"], contentions[1]);
     let id = failed.attempt_id.as_deref().unwrap();
     let (told, held) = watch.told_and_held();
-    assert_eq!(told, format!("{id}: driver stderr: {CAP_STDERR}\n"));
+    assert_eq!(told, format!("{id}: driver stderr: {FAILURE_STDERR}\n"));
     assert_eq!(
         &held[held.len() - 2..],
         [EventType::EffectFailed, EventType::RunParked]
@@ -1320,7 +1320,7 @@ fn a_held_outcomes_contended_park_reaches_the_lawful_end_again() {
 #[test]
 fn a_drive_that_hands_back_contention_tells_the_queued_tail_once() {
     let dir = tempfile::tempdir().unwrap();
-    let (mut engine, watch) = failing_at_the_cap(dir.path());
+    let (mut engine, watch) = failing_with_cap(dir.path(), 1);
     let peer = WriteLock::default();
     // Let both EffectStarted and EffectFailed land. The same peer holds
     // the lock across the owed park and the lawful end's park.
@@ -1347,9 +1347,56 @@ fn a_drive_that_hands_back_contention_tells_the_queued_tail_once() {
     assert_eq!(failed.event_type, EventType::EffectFailed);
     let id = failed.attempt_id.as_deref().unwrap();
     let (told, held) = watch.told_and_held();
-    assert_eq!(told, format!("{id}: driver stderr: {CAP_STDERR}\n"));
+    assert_eq!(told, format!("{id}: driver stderr: {FAILURE_STDERR}\n"));
     let journal: Vec<_> = events.iter().map(|event| event.event_type).collect();
     assert_eq!(held, journal);
+}
+
+#[test]
+fn a_held_failure_tells_its_stderr_before_the_retry_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, watch) = failing_with_cap(dir.path(), 2);
+    let peer = WriteLock::default();
+    lock_before_append(dir.path().join("realm.db"), peer.clone(), 1);
+    let mut append_contentions = Vec::new();
+    let end = engine
+        .drive_racing(|error| {
+            append_contentions.push(matches!(
+                error,
+                EngineError::Store(StoreError::Contended {
+                    operation: "append",
+                    ..
+                })
+            ));
+            drop(peer.borrow_mut().take().expect("the peer holds the lock"));
+        })
+        .unwrap();
+    assert_eq!(append_contentions, [true]);
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
+
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let (retry_index, retry) = events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| event.event_type == EventType::EffectStarted)
+        .nth(1)
+        .expect("the failure below the cap is retried");
+    let failed = &events[retry_index - 1];
+    assert_eq!(failed.event_type, EventType::EffectFailed);
+    let before_retry: Vec<_> = events[..retry_index]
+        .iter()
+        .map(|event| event.event_type)
+        .collect();
+    let (told, held) = watch.told_and_held();
+    assert_eq!(held, before_retry);
+    let first = failed.attempt_id.as_deref().unwrap();
+    let second = retry.attempt_id.as_deref().unwrap();
+    assert_eq!(
+        told,
+        format!(
+            "{first}: driver stderr: {FAILURE_STDERR}\n{second}: driver stderr: {FAILURE_STDERR}\n"
+        )
+    );
 }
 
 /// A lock that outlasts both windows, end to end: nothing is writable, so

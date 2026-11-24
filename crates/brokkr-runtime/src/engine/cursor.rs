@@ -68,6 +68,11 @@ impl Engine {
         failed_attempts: u64,
     ) -> Result<(), EngineError> {
         let recorded = self.park_before_attempt(events, state, effect_id, seat, failed_attempts)?;
+        // A held failure can have landed in the lawful end. With no park
+        // due, tell its tail before this turn waits, probes or retries.
+        if !matches!(recorded, Recorded::Parked) {
+            self.stderr.tell(&mut self.told);
+        }
         let (wait_effect, waits) = match recorded {
             Recorded::Wait { effect_id, waits } => (effect_id, waits),
             Recorded::Attempt => {
@@ -361,7 +366,7 @@ impl Engine {
     }
 
     /// Append any park the terminal record already requires before stderr
-    /// can stall the engine. Share [`Engine::park_at_cursor`] and
+    /// can stall the engine. This shares [`Engine::park_at_cursor`] and
     /// [`Engine::park_before_attempt`] with the drive. A retry itself belongs
     /// to the next turn.
     pub(super) fn park_after_terminal(&mut self) -> Result<(), EngineError> {

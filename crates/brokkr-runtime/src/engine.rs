@@ -793,7 +793,8 @@ impl Engine {
     }
 
     /// [`Engine::drive_racing`]'s loop, with the run held. When the lawful end
-    /// lands a held outcome, the next turn writes its owed park at the cursor.
+    /// lands a held outcome, the next turn writes any park it owes at the
+    /// cursor. Where no park is due, the tail is told before a wait or retry.
     /// A drive returning with a tail queued tells it after releasing the run.
     fn drive_locked(
         &mut self,
