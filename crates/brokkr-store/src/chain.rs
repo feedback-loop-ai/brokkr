@@ -232,11 +232,15 @@ pub struct Landed {
 /// keeps a fence a fence. The writer's carried account is judged against
 /// the head found, in the same transaction ([`summary::judge`]). The
 /// cool-down rows are written after the event, in the same transaction: a
-/// row the table refuses rolls the event back with it.
+/// row the table refuses rolls the event back with it. `admit` judges the
+/// journal inside the same transaction, after the head's fence and before
+/// anything is written, and its refusal writes nothing (fix round
+/// 0106b1r14, R1).
 pub(crate) fn append_once(
     (conn, carried): (&mut Connection, Option<&summary::Carried>),
     event: &CooldownAppend<'_>,
     cooldowns: &[Cooling],
+    admit: &dyn Fn(&Connection) -> Result<(), StoreError>,
 ) -> Result<(crate::Landed, summary::Settled), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let (last_seq, previous_hash) = head_of(&tx, event.run_id)?;
@@ -250,6 +254,7 @@ pub(crate) fn append_once(
             });
         }
     }
+    admit(&tx)?;
     // Dropping the transaction rolls it back: a refused record writes
     // nothing, like a fence that fails.
     let seq = last_seq + 1;

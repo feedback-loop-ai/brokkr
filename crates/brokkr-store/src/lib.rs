@@ -662,7 +662,7 @@ impl Store {
     ) -> Result<Landed, StoreError> {
         let (conn, carried) = (&mut self.conn, self.carried.as_ref());
         let (landed, settled) = patiently("append", self.patience, || {
-            chain::append_once((conn, carried), &event, cooldowns)
+            chain::append_once((conn, carried), &event, cooldowns, &|_| Ok(()))
         })?;
         self.settle((event.run_id, 1), settled);
         Ok(landed)

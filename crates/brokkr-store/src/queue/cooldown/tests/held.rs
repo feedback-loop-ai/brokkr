@@ -274,6 +274,49 @@ fn no_second_hold_is_written_while_a_hold_or_a_row_holds_the_route() {
     assert_eq!(unended_holds(&store.conn), ["run-b", "run-b", "run-a"]);
 }
 
+/// Fix round 0106b1r14, R1: a retry's start is journaled only where none of
+/// its routes stands, read in the start's own transaction. A hold on any of
+/// them refuses it by name and writes nothing; once the hold ends, the
+/// start lands. Removal control: admit every append in `append_once`, and
+/// the held start is written.
+#[test]
+fn a_start_over_a_held_route_refuses_by_name_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    planted(&store, "run-b");
+    let hold = store
+        .hold_probe(&probe_hold("run-b", at(30)), at(0))
+        .unwrap();
+    let start = || crate::CooldownAppend {
+        run_id: "run-a",
+        fenced: None,
+        event_type: EventType::EffectStarted,
+        payload: json!({"effect_id": "effect", "attempt_id": "retry"}),
+        causation_id: None,
+        attempt_id: Some("retry".into()),
+    };
+    let routes = [("codex", "second"), ("claude", "first")];
+    let before = store.load("run-a").unwrap().len();
+    let refused = store.append_clear(start(), &routes, at(10)).unwrap_err();
+    let StoreError::Queue(QueueRefusal::StartHeld(held)) = &refused else {
+        panic!("a held start was not refused by name: {refused:?}");
+    };
+    assert_eq!(
+        (held.provider.as_str(), held.route.as_str()),
+        ("claude", "first")
+    );
+    assert_eq!(
+        refused.to_string(),
+        "the journal's cool-downs hold claude/first as run 'run-a''s retry would start, so the \
+         retry does not start, its run waits on the route again, and nothing was written"
+    );
+    assert_eq!(store.load("run-a").unwrap().len(), before);
+    store.end_probe_hold(Some(hold), at(11)).unwrap();
+    let landed = store.append_clear(start(), &routes, at(12)).unwrap();
+    assert_eq!(landed.envelope.event_type, EventType::EffectStarted);
+    assert_eq!(store.load("run-a").unwrap().len(), before + 1);
+}
+
 /// Ignore, by trigger, every end of a probe hold the journal of `store`
 /// would write.
 fn ends_ignored(store: &Store) {

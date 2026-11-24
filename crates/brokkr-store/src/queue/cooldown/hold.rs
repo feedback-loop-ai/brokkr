@@ -15,9 +15,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 use time::OffsetDateTime;
 
 use super::{aggregate, time_of, Cooldown, LAST_SECOND};
-use crate::queue::storage::cool_downs_writable;
+use crate::queue::storage::{cool_downs_held, cool_downs_writable};
 use crate::queue::{QueueRefusal, UnsettledHold, UnwrittenHold};
-use crate::{patiently, Store, StoreError};
+use crate::{chain, patiently, CooldownAppend, Landed, Store, StoreError};
 
 /// The hold one probe takes on its route before it is dispatched: the run
 /// and site it probes for, the probe's own attempt, the provider and route
@@ -261,6 +261,47 @@ impl Store {
             tx.commit()?;
             Ok(ProbeHoldId(seq))
         })
+    }
+
+    /// Journal `event`, a retry's `effect/started`, only where none of
+    /// `routes`, each a provider and route its waits cooled, stands at
+    /// `now`: every route is read through the in-force read the gates and
+    /// [`Store::hold_probe`] read, in the `Immediate` transaction that
+    /// appends the event, so the start's one decision covers all its routes
+    /// in one snapshot and is serialized with every hold's write. A hold
+    /// that commits first refuses the start
+    /// ([`QueueRefusal::StartHeld`]), writing nothing; a start that commits
+    /// first was admitted before that hold existed, and its launch follows
+    /// the event this wrote (fix round 0106b1r14, R1).
+    pub fn append_clear(
+        &mut self,
+        event: CooldownAppend<'_>,
+        routes: &[(&str, &str)],
+        now: OffsetDateTime,
+    ) -> Result<Landed, StoreError> {
+        let at = now.unix_timestamp();
+        let clear = |tx: &Connection| {
+            if !cool_downs_held(tx)? {
+                return Ok(());
+            }
+            for (provider, route) in routes {
+                if aggregate(tx, provider, route, at)?.is_some() {
+                    let held = UnwrittenHold {
+                        run_id: event.run_id.to_string(),
+                        provider: provider.to_string(),
+                        route: route.to_string(),
+                    };
+                    return Err(QueueRefusal::StartHeld(Box::new(held)).into());
+                }
+            }
+            Ok(())
+        };
+        let (conn, carried) = (&mut self.conn, self.carried.as_ref());
+        let (landed, settled) = patiently("append", self.patience, || {
+            chain::append_once((conn, carried), &event, &[], &clear)
+        })?;
+        self.settle((event.run_id, 1), settled);
+        Ok(landed)
     }
 
     /// End, at `now`, every hold standing for one of `attempts` of the run

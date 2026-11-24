@@ -108,6 +108,52 @@ impl Engine {
         payload: Value,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, EngineError> {
+        self.append_clear_of(event_type, payload, attempt_id, &[])
+    }
+
+    /// Journal an attempt's `effect/started`, admitted over `cooled`, the
+    /// routes a retry's probes answered: `true` once it is journaled, and
+    /// the launch follows it. `false` where one of them stands as the start
+    /// would be journaled: nothing was written, the gate head armed for it
+    /// is dropped, and the turn ends with the run at its effect, whose next
+    /// turn waits on the route again (fix round 0106b1r14, R1). No other
+    /// read decides a retry's start: the wait's re-read only sends it here.
+    pub(super) fn start_admitted(
+        &mut self,
+        started: Value,
+        attempt_id: &str,
+        cooled: &[(String, String)],
+    ) -> Result<bool, EngineError> {
+        #[cfg(test)]
+        tests::before_start();
+        let routes: Vec<(&str, &str)> = (cooled.iter())
+            .map(|(provider, route)| (provider.as_str(), route.as_str()))
+            .collect();
+        let attempt = Some(attempt_id.to_string());
+        match self.append_clear_of(EventType::EffectStarted, started, attempt, &routes) {
+            Ok(_) => Ok(true),
+            Err(EngineError::Store(StoreError::Queue(QueueRefusal::StartHeld(_)))) => {
+                self.active_gate_head = None;
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// [`Engine::append_raw`], admitted only where none of `routes` stands:
+    /// a retry's `effect/started` over the routes its waits cooled, judged
+    /// with them all in the transaction that journals it
+    /// ([`brokkr_store::Store::append_clear`]), so its launch follows one
+    /// decision serialized with every probe hold's write (fix round
+    /// 0106b1r14, R1). With no route, it is the plain append.
+    pub(super) fn append_clear_of(
+        &mut self,
+        event_type: EventType,
+        payload: Value,
+        attempt_id: Option<String>,
+        routes: &[(&str, &str)],
+    ) -> Result<EventEnvelope, EngineError> {
+        let now = (!routes.is_empty()).then(|| self.now());
         let terminal = matches!(
             event_type,
             EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
@@ -131,7 +177,10 @@ impl Engine {
                 causation_id: cause,
                 attempt_id: attempt_id.clone(),
             };
-            self.store.append_with_cooldowns(event, &cooling)
+            match now {
+                Some(now) => self.store.append_clear(event, routes, now),
+                None => self.store.append_with_cooldowns(event, &cooling),
+            }
         });
         let landed = match appended {
             Ok(landed) => landed,

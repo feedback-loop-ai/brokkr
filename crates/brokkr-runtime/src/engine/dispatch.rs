@@ -158,13 +158,18 @@ impl Engine {
                 .body
                 .selected_is_gate(state.strategy.as_deref(), seat.has_gate()),
         };
+        // The routes the probes answered before this retry, read before
+        // `plan_attempt` journals their answers (fix round 0106b1r14, R1).
+        let cooled = cooled_routes(&self.cooldown.answers);
         let (selection, started) = self.plan_attempt(events, &at, &mut input, carry)?;
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
             self.active_gate_head = Some(git_head(&self.repo));
         }
-        self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
+        if !self.start_admitted(started, &attempt_id, &cooled)? {
+            return Ok(());
+        }
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
         let deadline = deadline::Deadline::of(
             self.cooldown.host.as_deref(),
@@ -601,6 +606,15 @@ fn rewalk_refusal(bundle: &Bundle, spawn: &SiteSpawn, (layer, key): (String, Str
              the bytes an unboxed gate runs must be the bytes its digest names (decision 0046 ruling 4)"
         ),
     }
+}
+
+/// The provider and route of every probe `answers` holds: the routes a
+/// retry's start is admitted over (fix round 0106b1r14, R1). An attempt no
+/// wait preceded has none.
+fn cooled_routes(answers: &[brokkr_core::ProbeAnswer]) -> Vec<(String, String)> {
+    (answers.iter())
+        .map(|answer| (answer.provider.clone(), answer.route.clone()))
+        .collect()
 }
 
 /// The input digest recorded when `effect_id` was requested.

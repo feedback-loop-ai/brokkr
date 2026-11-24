@@ -214,6 +214,17 @@ pub enum QueueRefusal {
         .0.run_id, .0.provider, .0.route
     )]
     ProbeHoldContended(Box<UnwrittenHold>),
+    /// A retry's start over a route a standing probe hold, or an unexpired
+    /// cool-down, holds, read with every other route the start is admitted
+    /// over in the transaction that would have journaled it (fix round
+    /// 0106b1r14, R1): the retry is not started, its run waits on the
+    /// route again, and nothing was written.
+    #[error(
+        "the journal's cool-downs hold {}/{} as run '{}''s retry would start, so the retry does \
+         not start, its run waits on the route again, and nothing was written",
+        .0.provider, .0.route, .0.run_id
+    )]
+    StartHeld(Box<UnwrittenHold>),
     /// A settlement's end of a probe's hold the table took without writing
     /// it, as a trigger that ignores the update leaves it (the return of fix
     /// round 0106b1r12): the hold still stands, so the settlement is not

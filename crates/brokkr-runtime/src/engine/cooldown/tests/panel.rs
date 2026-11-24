@@ -167,7 +167,7 @@ fn start_probes(engine: &Engine) -> Vec<Value> {
 
 /// The shared log every fake driver appends its tagged line to, so a panel
 /// test can read the engine's own order across members.
-fn shared_log(dir: &Path) -> Vec<String> {
+pub(super) fn shared_log(dir: &Path) -> Vec<String> {
     std::fs::read_to_string(dir.join("all.log"))
         .unwrap_or_default()
         .lines()

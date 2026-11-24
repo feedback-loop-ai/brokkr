@@ -26,6 +26,10 @@ enum Before {
     /// `b`'s retry's re-read, once `b`'s own probe has answered and ended
     /// its hold: the retry reads it.
     Retry,
+    /// `b`'s retry's start, after its re-read found the route clear and
+    /// before its `effect/started` is journaled: the start's own
+    /// transaction reads it (fix round 0106b1r14, R1).
+    Start,
 }
 
 /// Run `a`'s flight, as `b`'s clock drives it: `a` before it flies, its
@@ -186,6 +190,12 @@ fn contended(lands: Before, b_ran: &[&str]) {
             })));
         }
         Before::Retry => {}
+        Before::Start => {
+            let landing = Arc::clone(&flight);
+            crate::engine::fence::tests::before_the_start(Box::new(move || {
+                landing.lock().unwrap().fly();
+            }));
+        }
     }
     b.cooldown.clock = b_clock(&b_now, &flight, lands, b.run_id.clone());
     b.drive().unwrap();
@@ -241,6 +251,21 @@ fn no_admitted_run_dispatches_on_a_route_another_runs_probe_holds() {
     );
     contended(
         Before::Retry,
+        &["attempt:refuse", "probe", "probe", "attempt:succeed"],
+    );
+}
+
+/// Fix round 0106b1r14, R1: run `a`'s hold commits after run `b`'s retry
+/// last read the route clear and before `b`'s `effect/started`. The start's
+/// own transaction reads the route held, so nothing of `b` is journaled or
+/// dispatched while the hold stands: `b` waits until `a`'s answer commits,
+/// probes again, and then retries. Removal control: journal the retry's
+/// start with no route to admit it over, as the plain append, and `b`
+/// dispatches its retry under `a`'s standing hold.
+#[test]
+fn a_hold_committed_between_a_retrys_read_and_its_start_holds_the_retry() {
+    contended(
+        Before::Start,
         &["attempt:refuse", "probe", "probe", "attempt:succeed"],
     );
 }

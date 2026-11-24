@@ -509,6 +509,8 @@ impl Engine {
     ) -> Result<Vec<CooldownAggregate>, CooldownError> {
         let mut aggregates = Vec::new();
         for wait in waits {
+            #[cfg(test)]
+            super::tests::held_start::before_route(&wait.provider, &wait.route);
             match self.store.cooldown(&wait.provider, &wait.route, now) {
                 Ok(Some(aggregate)) => aggregates.push(aggregate),
                 Ok(None) => {}

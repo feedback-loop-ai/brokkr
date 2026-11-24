@@ -13,6 +13,23 @@ use super::super::*;
 thread_local! {
     /// The peer a test puts between the engine's fold and its next append.
     static PEER: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+    /// The peer a test puts between an attempt's admission to start, its
+    /// retry's last read of its routes included, and its `effect/started`.
+    static BEFORE_START: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+}
+
+/// Run the peer a test put before the next start, once.
+pub(super) fn before_start() {
+    if let Some(peer) = BEFORE_START.with(|peer| peer.borrow_mut().take()) {
+        peer();
+    }
+}
+
+/// Put `peer` before this thread's next attempt's `effect/started`: after a
+/// retry's wait has last read its routes clear and before the start is
+/// journaled (fix round 0106b1r14, R1).
+pub(in crate::engine) fn before_the_start(peer: Box<dyn FnOnce()>) {
+    BEFORE_START.with(|slot| *slot.borrow_mut() = Some(peer));
 }
 
 /// Run the peer a test put here, once, at the instant decision 0029's
