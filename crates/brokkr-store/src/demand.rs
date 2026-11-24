@@ -1,14 +1,9 @@
 //! What admission reads of a journal to size an entry by what its recipe
-//! used (decision 0125): the untouched open of another journal the realms
-//! map lists, the usage its recipes' latest runs recorded under
-//! `effect-usage/v1`, and the runs that have no terminal event.
-//!
-//! The open writes nothing to the journal's directory. A journal no
-//! connection holds has no `-wal`, and is read through SQLite's
-//! `immutable` URI, which takes no lock and makes no `-wal` or `-shm`;
-//! one a connection holds, or a reader left its side files beside, is
-//! read through [`Store::open_read_only`] over the side files already
-//! there. Neither migrates, creates, leases or locks anything.
+//! used (decision 0125): the usage its recipes' latest runs recorded under
+//! `effect-usage/v1`, and the runs that have no terminal event. Another
+//! journal the realms map lists is read through [`Store::read_untouched`]
+//! (decision 0119 ruling 3), which writes nothing beside it and answers
+//! nothing from a lock-free read the journal changed under.
 //!
 //! The history is one bounded statement per journal: the latest
 //! `candidates` ended runs of each recipe by `created_at`, and of their events
@@ -16,12 +11,10 @@
 //! and `run/completed`, each prefiltered by its text and then read through
 //! `json_valid`, so an envelope no reader parses is never extracted.
 
-use std::path::{Path, PathBuf};
-
 use brokkr_core::EventType;
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::params;
 
-use crate::{damage, literal, patiently, Store, StoreError};
+use crate::{patiently, Store, StoreError};
 
 /// One event of a recipe's recent run that sizes it: its run, the recipe
 /// it started under and when, and the event.
@@ -105,24 +98,6 @@ fn event(kind: Option<String>, phase: Option<String>, usage: Option<String>) -> 
 }
 
 impl Store {
-    /// Open the EXISTING journal at `path` to read, writing nothing beside
-    /// it: no file is created, no schema migrated, no lock or lease taken,
-    /// and no `-wal` or `-shm` made where none was. A file its bytes say is
-    /// damaged refuses as [`StoreError::Damaged`], as every open does.
-    pub fn open_untouched(path: &Path) -> Result<Store, StoreError> {
-        let bound = literal::journal(path).map_err(StoreError::from)?;
-        if std::fs::symlink_metadata(beside(&bound, "-wal")).is_ok() {
-            return Store::open_read_only(path);
-        }
-        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY
-            | OpenFlags::SQLITE_OPEN_URI
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        Connection::open_with_flags(immutable(&bound), flags)
-            .map_err(|error| literal::as_given(error, path, &bound).into())
-            .and_then(|conn| Store::reading(conn, path))
-            .map_err(|error| damage::classified(path, error))
-    }
-
     /// Every event of the latest `candidates` ended runs of each recipe that
     /// sizes it ([`UsageEvent`]), newest run first.
     pub fn usage_history(&self, candidates: u32) -> Result<Vec<UsageRow>, StoreError> {
@@ -159,29 +134,6 @@ impl Store {
             Ok(rows.collect::<Result<Vec<_>, _>>()?)
         })
     }
-}
-
-/// The side file `suffix` names beside the journal `bound`.
-fn beside(bound: &Path, suffix: &str) -> PathBuf {
-    let mut named = bound.as_os_str().to_owned();
-    named.push(suffix);
-    PathBuf::from(named)
-}
-
-/// The URI SQLite reads `bound` through as a file nothing changes: its
-/// bytes percent-encoded but for the unreserved ones and `/`.
-fn immutable(bound: &Path) -> String {
-    let mut uri = String::from("file:");
-    for byte in bound.as_os_str().as_encoded_bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'.' | b'_' | b'~' => {
-                uri.push(char::from(*byte));
-            }
-            other => uri.push_str(&format!("%{other:02X}")),
-        }
-    }
-    uri.push_str("?mode=ro&immutable=1");
-    uri
 }
 
 #[cfg(test)]

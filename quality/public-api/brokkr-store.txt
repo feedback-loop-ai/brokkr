@@ -626,7 +626,6 @@ pub fn brokkr_store::Store::open_seat_trees(&self) -> core::result::Result<alloc
 pub fn brokkr_store::Store::record_tree_sweep(&mut self, brokkr_store::Swept, &std::path::Path, core::option::Option<i64>, i64) -> core::result::Result<brokkr_store::TreeSweepRecord, brokkr_store::StoreError>
 pub fn brokkr_store::Store::tree_sweeps(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::TreeSweep>, brokkr_store::StoreError>
 impl brokkr_store::Store
-pub fn brokkr_store::Store::open_untouched(&std::path::Path) -> core::result::Result<brokkr_store::Store, brokkr_store::StoreError>
 pub fn brokkr_store::Store::unended_runs(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Unended>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::usage_history(&self, u32) -> core::result::Result<alloc::vec::Vec<brokkr_store::UsageRow>, brokkr_store::StoreError>
 impl brokkr_store::Store

@@ -1,6 +1,6 @@
 //! The journals a measured pass reads (decision 0125 rulings 3 and 5,
 //! ruling G): its own store, and every other journal the realms map lists,
-//! each opened untouched ([`Store::open_untouched`]) and read through one
+//! each read untouched ([`Store::read_untouched`]) through one
 //! bounded history statement and one statement for the runs no terminal
 //! event ends, each of which is folded to tell whether it runs.
 //!
@@ -10,6 +10,7 @@
 //! fails the pass, as every other read of it does.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use brokkr_core::fold::{fold, Status};
 use brokkr_store::{Store, UsageRow};
@@ -17,6 +18,11 @@ use brokkr_store::{Store, UsageRow};
 use super::Short;
 use crate::admission::capacity::Shared;
 use crate::admission::AdmissionError;
+
+/// How long a pass waits on another journal's rollback-mode writer
+/// before it names that journal unreadable. A WAL journal is read
+/// without its lock, so this bounds only a rollback-mode one.
+const PATIENCE: Duration = Duration::from_millis(500);
 
 /// A run that reads `running`: the journal it is in, its id, its recipe
 /// and the phase it stands in.
@@ -57,8 +63,7 @@ pub(crate) fn read(
             continue;
         }
         seen.push(at);
-        let opened = Store::open_untouched(journal).map_err(AdmissionError::Store);
-        match opened.and_then(|store| one(&store, candidates)) {
+        match Store::read_untouched(journal, PATIENCE, |store| one(store, candidates)) {
             Ok((rows, running)) => {
                 read.rows.extend(rows);
                 read.running.extend(running);

@@ -5,12 +5,13 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::time::Duration;
 
 use rusqlite::params;
 use serde_json::{json, Value};
 
 use super::{UsageEvent, UsageRow};
-use crate::{Store, StoreError};
+use crate::Store;
 
 /// Plant a run of `recipe` created at `at`, past every fence: the reads
 /// here are of rows, so no chain is needed.
@@ -176,11 +177,13 @@ fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
         .collect()
 }
 
-/// A closed journal is read through the untouched open, and its directory
-/// is byte for byte as it was: no `-wal`, `-shm` or lock. A path with
+/// A closed journal's history is read untouched, and its directory is
+/// byte for byte as it was: no `-wal`, `-shm` or lock. A path with
 /// nothing at it is refused and left with nothing.
 #[test]
-fn the_untouched_open_reads_a_journal_and_leaves_its_directory_byte_identical() {
+fn a_journals_history_is_read_untouched_and_leaves_its_directory_byte_identical() {
+    const PATIENCE: Duration = Duration::from_millis(50);
+    let history = |store: &Store| store.usage_history(20);
     let dir = tempfile::tempdir().unwrap();
     let journal = dir.path().join("weird %?#name.db");
     {
@@ -197,16 +200,10 @@ fn the_untouched_open_reads_a_journal_and_leaves_its_directory_byte_identical() 
     }
     let before = files(dir.path());
     assert_eq!(before.len(), 1, "{:?}", before.keys());
-    let read = Store::open_untouched(&journal)
-        .unwrap()
-        .usage_history(20)
-        .unwrap();
+    let read = Store::read_untouched(&journal, PATIENCE, history).unwrap();
     assert_eq!(read.len(), 2);
     assert_eq!(files(dir.path()), before);
     let absent = dir.path().join("absent.db");
-    assert!(matches!(
-        Store::open_untouched(&absent),
-        Err(StoreError::Sqlite(_))
-    ));
+    assert!(Store::read_untouched(&absent, PATIENCE, history).is_err());
     assert_eq!(files(dir.path()), before);
 }
