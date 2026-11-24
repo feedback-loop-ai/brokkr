@@ -1497,7 +1497,9 @@ fn the_head_helper_reads_the_committed_map() {
 
 /// This repository carries its own map (ruling 1), and it is the
 /// bootstrap world: one realm, this repository, the journal this
-/// repository has always written. The committed blob is read (decision
+/// repository has always written, and the one grant the operator ruled on
+/// 2026-11-24 (#1329): read-only web, `web-fetch` and `web-search`, to the
+/// `researcher` office and no other. The committed blob is read (decision
 /// 0101 ruling 5), so a developer's uncommitted edit to the working map
 /// cannot make this test pass or fail.
 #[test]
@@ -1514,13 +1516,19 @@ fn the_repository_carries_the_bootstrap_map() {
     assert_eq!(
         content,
         json!({
-            "schema": "forge.realms/v3",
+            "schema": "forge.realms/v6",
             "realms": [{"name": "brokkr", "path": ".", "default_branch": "main",
-                        "house": "docs/house-rules.md", "dialect": "openspec"}],
+                        "house": "docs/house-rules.md", "dialect": "openspec",
+                        "capabilities": {
+                            "web-fetch": {"dialect": "claude-native-fetch",
+                                          "offices": ["researcher"]},
+                            "web-search": {"dialect": "claude-native-search",
+                                           "offices": ["researcher"]},
+                        }}],
             "journal": ".forge/forge.db",
         })
     );
-    assert_eq!(map.schema, "forge.realms/v3");
+    assert_eq!(map.schema, "forge.realms/v6");
     assert_eq!(map.journal, ".forge/forge.db");
     assert_eq!(map.realms.len(), 1, "the bootstrap map names one realm");
     let realm = &map.realms[0];
@@ -1529,6 +1537,26 @@ fn the_repository_carries_the_bootstrap_map() {
     assert_eq!(realm.default_branch, "main");
     assert_eq!(realm.house.as_deref(), Some("docs/house-rules.md"));
     assert_eq!(realm.dialect.as_deref(), Some("openspec"));
+    let granted: Vec<(&str, &str, Option<&[String]>)> = realm
+        .grants
+        .iter()
+        .map(|(name, grant)| {
+            (
+                name.as_str(),
+                grant.dialect.as_str(),
+                grant.offices.as_deref(),
+            )
+        })
+        .collect();
+    let researcher = ["researcher".to_owned()];
+    assert_eq!(
+        granted,
+        [
+            ("web-fetch", "claude-native-fetch", Some(&researcher[..])),
+            ("web-search", "claude-native-search", Some(&researcher[..])),
+        ],
+        "the realm grants read-only web to the researcher office alone"
+    );
 
     // A `World` still answers the journal and realm lookups, from an
     // isolated copy of the very same HEAD bytes: the repository's `docs/`
