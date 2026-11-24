@@ -13,12 +13,13 @@
 # modified or deleted, and
 #   (a) ends in `.md`;
 #   (b) lies under docs/ or is a top-level `*.md`;
-#   (c) has a file name that no file of the head's tree names: no file but
-#       a `.md` one anywhere, and no file at all under crates/, scripts/,
-#       recipes/, agents/, .github/ or quality/, the files the docs lane
-#       runs whole aside. A file read by name, `include_str!`'d or pinned
-#       by a digest is code's input, not documentation. A path holds its
-#       file name, so this finds the path too.
+#   (c) has a file name that no file of the base's tree or the head's
+#       names: no file but a `.md` one anywhere, and no file at all under
+#       crates/, scripts/, recipes/, agents/, .github/ or quality/, the
+#       files each tree's docs lane runs whole aside. A file read by name,
+#       `include_str!`'d or pinned by a digest is code's input, not
+#       documentation. A path holds its file name, so this finds the path
+#       too.
 # Anything else is `full`: an empty change, a commit git cannot find, a
 # binary, a symlink or a mode change, a path (a) to (c) refuse, or a step
 # that fails. When in doubt, it is full. The classification is a function
@@ -48,23 +49,38 @@ lane_excludes() {
   done <<< "$list"
 }
 
-# Whether the head's tree names the file name of $2 outside the
-# documentation and the docs lane's files: 0 when it does, 1 when it does
-# not, anything else when it could not be searched.
-named() {
-  local head="$1" path="$2" excludes
-  excludes="$(lane_excludes "$head")" || return 2
+# Whether $1's tree names the file name of $2 outside the documentation
+# and the docs lane's files: 0 when it does, 1 when it does not, anything
+# else when it could not be searched.
+named_in() {
+  local tree="$1" path="$2" excludes line status=0
+  excludes="$(lane_excludes "$tree")" || return 2
   [ -n "$excludes" ] || return 2
-  local pathspecs=() status=0
-  mapfile -t pathspecs <<< "$excludes"
+  # An indexed array filled by a read loop: bash 3.2, macOS's own, has no
+  # mapfile.
+  local pathspecs=()
+  while IFS= read -r line; do
+    pathspecs+=("$line")
+  done <<< "$excludes"
   # Every file but a `.md` one, anywhere; then everything under the trees
   # code is built from, their `.md` files included (an agent's charter, a
   # recipe's role, a dialect `include_str!`'d).
-  git grep -q --no-color -F -e "${path##*/}" "$head" -- . \
+  git grep -q --no-color -F -e "${path##*/}" "$tree" -- . \
     ':(exclude,glob)**/*.md' "${pathspecs[@]}" 2> /dev/null || status=$?
   [ "$status" -eq 1 ] || return "$status"
-  git grep -q --no-color -F -e "${path##*/}" "$head" -- \
+  git grep -q --no-color -F -e "${path##*/}" "$tree" -- \
     crates scripts recipes agents .github quality "${pathspecs[@]}" 2> /dev/null
+}
+
+# Whether the base's tree or the head's names the file name of $3: the
+# head holds the merge base's code, and a reader or an `include_str!` the
+# base gained since is the base's alone. 0 when either does, 1 when
+# neither does, anything else when one could not be searched.
+named() {
+  local status=0
+  named_in "$1" "$3" || status=$?
+  [ "$status" -eq 1 ] || return "$status"
+  named_in "$2" "$3"
 }
 
 # Each change, its `--raw` line and its path, one pair a line pair: a path
@@ -96,11 +112,11 @@ classify() {
     esac
     case "$path" in *.md) ;; *) full "$path is not a .md file" ;; esac
     case "$path" in docs/*) ;; */*) full "$path is neither under docs/ nor a top-level .md" ;; esac
-    named "$head" "$path"
+    named "$base" "$head" "$path"
     case $? in
       0) full "the file name of $path is named in code's input, outside the docs lane's tests" ;;
       1) ;;
-      *) full "the head could not be searched for $path" ;;
+      *) full "the base or the head could not be searched for $path" ;;
     esac
   done < "$scratch/raw"
   [ "$count" -gt 0 ] || full "the change is empty"
@@ -110,20 +126,30 @@ classify() {
 # The pinned tests, the filters of one package and target run as one
 # command, in the order the list first names each.
 run_lane() {
-  local package target filter key status=0 kind selected
-  local -A filters=()
-  local order=()
+  local package target filter key status=0 kind selected at found
+  # Two indexed arrays, a key and its filters at one index: bash 3.2,
+  # macOS's own, has no associative array.
+  local order=() filters=()
   [ -f "$tests_list" ] || { printf 'docs lane: %s is missing\n' "$tests_list" >&2; exit 1; }
   while read -r package target filter _; do
     case "$package" in '' | '#'*) continue ;; esac
     key="$package $target"
-    [ -n "${filters[$key]+set}" ] || order+=("$key")
-    filters[$key]+=" $filter"
+    # Counted loops: bash 3.2 calls an empty array's "${order[@]}" unbound
+    # under `set -u`.
+    found=0
+    while [ "$found" -lt "${#order[@]}" ] && [ "${order[found]}" != "$key" ]; do
+      found=$((found + 1))
+    done
+    if [ "$found" -eq "${#order[@]}" ]; then
+      order+=("$key")
+      filters+=("")
+    fi
+    filters[found]+=" $filter"
   done < "$tests_list"
   [ "${#order[@]}" -gt 0 ] || { printf 'docs lane: %s pins no test\n' "$tests_list" >&2; exit 1; }
-  for key in "${order[@]}"; do
-    read -r package target <<< "$key"
-    read -r -a selected <<< "${filters[$key]}"
+  for ((at = 0; at < ${#order[@]}; at++)); do
+    read -r package target <<< "${order[at]}"
+    read -r -a selected <<< "${filters[at]}"
     # As in scripts/test-shards.sh: `lib` passes `--lib`, `test:<name>` the
     # test target.
     case "$target" in

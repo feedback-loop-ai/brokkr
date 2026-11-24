@@ -939,9 +939,10 @@ minutes (#1295). The `classify` job runs the base branch's
 `scripts/docs-lane.sh classify` on the pull request's base and head, and
 calls the change `docs` only when every path it adds, modifies, deletes
 or renames is a plain text `.md` file under `docs/` or at the top level,
-and no file names its file name but another Markdown page outside
-`crates/`, `scripts/`, `recipes/`, `agents/`, `.github/` and `quality/`,
-or one of the docs lane's own tests. A page that code reads by name,
+and no file of the base's tree or the head's names its file name but
+another Markdown page outside `crates/`, `scripts/`, `recipes/`,
+`agents/`, `.github/` and `quality/`, or one of the docs lane's own
+tests. A page that code reads by name,
 compiles in with `include_str!` or pins by digest is code's input, so a
 change to it is `full`. Anything else is `full` too: an empty change, a
 binary, a symlink, a workflow, a commit git cannot find, or a step that

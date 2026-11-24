@@ -898,6 +898,24 @@ fn the_docs_lane_classifier_calls_only_unnamed_pages_docs() {
         full(&format!("the base {missing} is not a commit here"))
     );
 
+    // The base gained a reader of docs/guide.md since the head forked: the
+    // head alone names nothing, the base does.
+    let repo = lane_tree();
+    change(
+        &repo,
+        &[(
+            "crates/cli/src/guide.rs",
+            Some("include_str!(\"guide.md\");\n"),
+        )],
+    );
+    repo.git(&["tag", "tip"]);
+    repo.git(&["checkout", "-q", "--detach", "base"]);
+    change(&repo, &[("docs/guide.md", Some(edit))]);
+    assert_eq!(
+        lane_of(&repo, "tip", "HEAD"),
+        full("the file name of docs/guide.md is named in code's input, outside the docs lane's tests")
+    );
+
     let repo = lane_tree();
     std::os::unix::fs::symlink("guide.md", repo.path().join("docs/link.md")).unwrap();
     change(&repo, &[]);
@@ -1045,5 +1063,18 @@ fn the_classifier_step_is_full_off_a_pull_request_and_runs_the_bases_copy() {
     assert_eq!(
         step(&repo, "merge_group"),
         (true, "lane=full\n".to_string())
+    );
+
+    // The base's copy and the head's differ: the base's is the one run,
+    // never the copy the pull request brings.
+    let repo = lane_tree();
+    repo.put("scripts/docs-lane.sh", "echo docs\n");
+    repo.git(&["add", "-A"]);
+    repo.git(&["commit", "-q", "-m", "the base's classifier"]);
+    repo.git(&["tag", "-f", "base"]);
+    change(&repo, &[("scripts/docs-lane.sh", Some("echo full\n"))]);
+    assert_eq!(
+        step(&repo, "pull_request"),
+        (true, "lane=docs\n".to_string())
     );
 }
