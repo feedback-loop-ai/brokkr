@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 
 use super::capability_calls::Observation;
-use super::row::{CapturedId, Ident, Row};
+use super::row::{CapturedId, FoldInput, Ident, Row};
 use super::step::{Emitted, Step};
 use super::{
-    add_usage, effort_in_json, fold_result_meta, model_in_json, plain_claude_session,
-    EFFORT_NOT_REPORTED, MODEL_NOT_REPORTED, USAGE_FIELDS,
+    add_usage, claude_refusal, effort_in_json, fold_result_meta, model_in_json,
+    plain_claude_session, EFFORT_NOT_REPORTED, MODEL_NOT_REPORTED, USAGE_FIELDS,
 };
 use crate::transcript::{Locator, Transcript};
 use crate::PreSessionRefusal;
@@ -127,18 +127,63 @@ enum Event {
     Result,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum Source<'a> {
+    Claude,
+    Qoder { model: Option<&'a str> },
+}
+
+impl Source<'_> {
+    fn model(self, event: &Row<'_>) -> Option<String> {
+        match self {
+            Self::Claude => model_in_json(event),
+            Self::Qoder { model } => model.map(str::to_owned),
+        }
+    }
+
+    fn identity(self, event: &Row<'_>) -> Option<CapturedId> {
+        match self {
+            Self::Claude => CapturedId::claude(event),
+            // Qoder disables session persistence, so its id is not a locator.
+            Self::Qoder { .. } => None,
+        }
+    }
+}
+
+/// Classify a raw refusal before folding anything this row reported.
+pub(super) fn fold_stream_event(
+    event: &Row<'_>,
+    source: Source<'_>,
+    fold: &mut ClaudeFold,
+    meta: &mut Map<String, Value>,
+    transcript: &mut Transcript,
+    emit: &mut impl FnMut(&Emitted),
+) -> Option<PreSessionRefusal> {
+    let refusal = (fold.turns == 0).then(|| claude_refusal(event)).flatten();
+    FoldInput {
+        row: event,
+        refusal,
+        identity: source.identity(event),
+    }
+    .fold(|event, identity| {
+        fold_event(event, identity, source, fold, meta, transcript, emit);
+        None
+    })
+}
+
 /// One Claude stream row folded into seat telemetry. Transcript records
 /// become available as soon as init announces an id. Each tool-use block
 /// becomes one seat-turn checkpoint, in order. Text-only turns emit one
 /// checkpoint as well, and usage rides only the first checkpoint.
-pub(super) fn fold_stream_event(
+fn fold_event(
     event: &Row<'_>,
     identity: Option<CapturedId>,
+    source: Source<'_>,
     fold: &mut ClaudeFold,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Emitted),
-) -> Option<PreSessionRefusal> {
+) {
     let kinds = &[
         ("system", Event::System),
         ("assistant", Event::Assistant),
@@ -151,20 +196,31 @@ pub(super) fn fold_stream_event(
             }
         }
         Some(Event::Assistant) => {
-            let base = fold.turn(event, session_meta);
+            let base = fold.turn(event, source, session_meta);
             emit_turn(event, base, emit);
         }
         Some(Event::Result) => {
-            fold_result_meta(event, identity, session_meta, transcript, emit);
+            fold_result_meta(
+                event,
+                source.model(event),
+                identity,
+                session_meta,
+                transcript,
+                emit,
+            );
             fold.settle(event, session_meta);
         }
         None => {}
     }
-    None
 }
 
 impl ClaudeFold {
-    fn turn(&mut self, event: &Row<'_>, meta: &mut Map<String, Value>) -> Map<String, Value> {
+    fn turn(
+        &mut self,
+        event: &Row<'_>,
+        source: Source<'_>,
+        meta: &mut Map<String, Value>,
+    ) -> Map<String, Value> {
         let repeat = self.repeats(event.ident("/message/id"));
         self.turns += u64::from(!repeat);
         meta.insert("num_turns".into(), Value::from(self.turns));
@@ -174,7 +230,7 @@ impl ClaudeFold {
         // Each record names the effort it applied (decision 0035 ruling
         // 3). An absent or invalid token leaves the last valid one in meta.
         for (key, label, missing) in [
-            ("model", model_in_json(event), MODEL_NOT_REPORTED),
+            ("model", source.model(event), MODEL_NOT_REPORTED),
             ("effort", effort_in_json(event), EFFORT_NOT_REPORTED),
         ] {
             if let Some(label) = &label {

@@ -235,3 +235,31 @@ fn tool_keeps_raw_boundaries_in_the_masked_name() {
         assert_eq!(Row::new(&raw, &bindings).tool("/name"), expected);
     }
 }
+
+#[test]
+fn pin_compares_raw_models_and_only_plain_ids_can_be_quoted() {
+    let raw =
+        json!({"pinned": "Qwen4-Max", "other": "Next4-Max", "unplain": "with space", "number": 4});
+    let bindings = binding("4-Max");
+    let row = Row::new(&raw, &bindings);
+    let pin = ModelPin::parse("Qwen4-Max").unwrap();
+    assert_eq!(row.pin("/pinned", &pin), Pin::Pinned);
+    assert_eq!(row.pin("/other", &pin), Pin::Other { plain: true });
+    assert_eq!(row.text("/other").as_deref(), Some("Next[secret:S]"));
+    assert_eq!(row.pin("/unplain", &pin), Pin::Other { plain: false });
+    assert_eq!(row.pin("/number", &pin), Pin::Absent);
+    assert_eq!(row.pin("/absent", &pin), Pin::Absent);
+}
+
+#[test]
+fn init_matches_raw_system_and_subtype_even_without_an_id() {
+    let bindings = binding("init");
+    let raw = json!({"type": "system", "subtype": "init"});
+    assert!(Row::new(&raw, &bindings).is_init());
+    for raw in [
+        json!({"type": "system"}),
+        json!({"type": "assistant", "subtype": "init"}),
+    ] {
+        assert!(!Row::new(&raw, &bindings).is_init());
+    }
+}

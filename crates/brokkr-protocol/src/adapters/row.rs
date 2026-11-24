@@ -6,7 +6,9 @@ use serde_json::Value;
 
 use super::capability_calls::{Tool, MCP_PREFIX, MCP_SEPARATOR};
 use super::plain_thread_id;
+use super::qoder::ModelPin;
 use super::refusal::{bounded_wire_line, REFUSAL_TOKEN_LIMIT};
+use super::stream_turn::plain;
 use crate::secret::{self, BoundSecret, MaskedSplit};
 use crate::PreSessionRefusal;
 
@@ -14,6 +16,13 @@ pub(super) struct Row<'a> {
     raw: &'a Value,
     bindings: &'a [BoundSecret],
     fallback: Option<&'a Value>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum Pin {
+    Pinned,
+    Other { plain: bool },
+    Absent,
 }
 
 impl<'a> Row<'a> {
@@ -49,6 +58,20 @@ impl<'a> Row<'a> {
 
     pub(super) fn is(&self, path: &str, word: &str) -> bool {
         self.string(path) == Some(word)
+    }
+
+    pub(super) fn is_init(&self) -> bool {
+        self.is("/type", "system") && self.is("/subtype", "init")
+    }
+
+    pub(super) fn pin(&self, path: &str, pin: &ModelPin) -> Pin {
+        match self.string(path) {
+            Some(model) if model == pin.as_str() => Pin::Pinned,
+            Some(model) => Pin::Other {
+                plain: plain(model),
+            },
+            None => Pin::Absent,
+        }
     }
 
     pub(super) fn contains(&self, path: &str, token: &str) -> bool {
@@ -186,7 +209,7 @@ impl CapturedId {
     }
 
     pub(super) fn init(row: &Row<'_>) -> Option<Self> {
-        (row.is("/type", "system") && row.is("/subtype", "init"))
+        row.is_init()
             .then(|| Self::read(row, "/session_id"))
             .flatten()
     }

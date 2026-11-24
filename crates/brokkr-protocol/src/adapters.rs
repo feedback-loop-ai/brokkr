@@ -1394,12 +1394,13 @@ fn recordable_digest(value: &str) -> bool {
 /// effort, and the session id as the transcript locator.
 fn fold_result_meta(
     event: &Row<'_>,
+    model: Option<String>,
     identity: Option<CapturedId>,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Emitted),
 ) {
-    if let Some(model) = model_in_json(event) {
+    if let Some(model) = model {
         session_meta.insert("model".into(), Value::String(model));
     }
     if let Some(effort) = effort_in_json(event) {
@@ -1715,8 +1716,10 @@ fn fold_codex_event(
         }
         // Conformance shims and older clients may provide only final metadata.
         Some("result") => {
+            let row = Row::new(event, &[]);
             fold_result_meta(
-                &Row::new(event, &[]),
+                &row,
+                model_in_json(&row),
                 identity,
                 session_meta,
                 transcript,
@@ -2309,25 +2312,16 @@ fn invoke_stream_json(
                 continue;
             };
             let row = Row::new(&event, bindings);
-            let classified = (fold.turns == 0).then(|| claude_refusal(&row)).flatten();
             let answer = probe.answers(AdapterKind::Claude, &row);
-            let identity = CapturedId::claude(&row);
             let classified = probe::fold_capturing(probe, answer, &mut watch, |emit| {
-                FoldInput {
-                    row: &row,
-                    refusal: classified,
-                    identity,
-                }
-                .fold(|event, identity| {
-                    fold_stream_event(
-                        event,
-                        identity,
-                        &mut fold,
-                        &mut session_meta,
-                        &mut transcript,
-                        &mut |data| emit(data),
-                    )
-                })
+                fold_stream_event(
+                    &row,
+                    claude_fold::Source::Claude,
+                    &mut fold,
+                    &mut session_meta,
+                    &mut transcript,
+                    &mut |data| emit(data),
+                )
             });
             refusal = refusal.or(classified);
             // The answer is the probe's whole report: stop the harness
