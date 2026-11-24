@@ -821,6 +821,47 @@ fn missing_serve_reach_reformat_uses_structured_parser_state_not_metavar_text() 
     assert!(!kept.to_string().contains("--reach <REACH>"), "got: {kept}");
 }
 
+/// #1277 X2 (proposed decision 0125 ruling 4): non-missing-reach clap errors
+/// on `hands serve` (such as passing `--reach` twice) keep clap's usage
+/// synopsis for the present argument set rather than being rewritten by
+/// `reformat_missing_serve_reach`. Pin the exact output so the documents and
+/// behaviour cannot part.
+#[test]
+fn repeated_reach_on_hands_serve_prints_clap_usage_for_present_argument_set() {
+    use clap::Parser;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().to_str().unwrap();
+    let artifacts = tmp.path().join("artifacts");
+    let artifacts_arg = artifacts.to_str().unwrap();
+
+    let Err(err) = crate::Cli::try_parse_from([
+        "brokkr",
+        "hands",
+        "serve",
+        "--workdir",
+        work,
+        "--artifacts",
+        artifacts_arg,
+        "--reach",
+        "a",
+        "--reach",
+        "b",
+    ]) else {
+        panic!("expected clap to refuse repeated --reach on hands serve");
+    };
+    assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    assert_eq!(err.exit_code(), 2);
+    assert_eq!(
+        err.to_string(),
+        concat!(
+            "error: the argument '--reach <REACH>' cannot be used multiple times\n\n",
+            "Usage: brokkr hands serve [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS>\n\n",
+            "For more information, try '--help'.\n"
+        )
+    );
+}
+
 /// #1277 R4 + R6: plain JSON `--reach` and `--spec` refusals keep main's
 /// diagnostics byte for byte on both `hands serve` and `hands exec`.
 #[test]

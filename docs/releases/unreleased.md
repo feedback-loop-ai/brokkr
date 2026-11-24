@@ -97,8 +97,12 @@ Changes merged since v0.15.2 that the next release's notes carry.
   the same documents. Encoded refusals reduce parse errors to their
   payload-free failure class (`Base64UrlError`, serde `Category`, or
   `SpecRefusalKind`) without echoing either the raw value or any decoded
-  text, while plain JSON callers of `hands serve` and `hands exec` keep
-  main's defaults, usage order, and diagnostics byte for byte. Other
+  text. On `hands serve` and `hands exec`, refusals about a document given in
+  the plain spelling (not JSON, not the reach, or not a hands spec) and the
+  missing-reach diagnostic preserve main's diagnostics byte for byte, while
+  the usage synopsis inside any other clap error on `hands serve` (such as
+  repeated `--reach`) is clap's for the present argument set and is not
+  promised to match main's. Other
   harnesses' JSON MCP configurations and the dsh line rule itself are
   unchanged (see the [hands argument reference](../reference/hands.md) and
   proposed decision
