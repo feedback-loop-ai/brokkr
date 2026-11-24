@@ -14,7 +14,7 @@ pub(super) fn fold_codex_event(
         .then(|| super::codex_refusal(&Row::new(event, &[])))
         .flatten();
     FoldInput {
-        row: event,
+        row: (event, &Row::new(event, &[])),
         refusal,
         identity: CapturedId::codex(&Row::new(event, &[])),
     }

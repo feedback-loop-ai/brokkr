@@ -81,7 +81,8 @@ pub(super) fn is_answer(kind: AdapterKind, event: &Row<'_>) -> bool {
             event.is("/type", "assistant") && claude_refusal(event).is_none()
         }
         AdapterKind::Codex => {
-            event.is("/type", "item.completed") && event.is("/item/type", "agent_message")
+            event.is("/type", "item.completed")
+                && super::capability_calls::codex_item_is(event, "agent_message")
         }
         AdapterKind::Dsh => event.is("/type", "assistant/message"),
         AdapterKind::Qoder | AdapterKind::Agy | AdapterKind::Exec => false,

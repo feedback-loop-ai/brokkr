@@ -1611,7 +1611,7 @@ impl CodexThreadEcho {
 /// intentionally ignored; the journal records progress and usage, not a
 /// transcript.
 fn fold_codex_event(
-    event: &Value,
+    rows: (&Value, &Row<'_>),
     identity: Option<CapturedId>,
     turn: &mut u64,
     session_meta: &mut Map<String, Value>,
@@ -1619,23 +1619,13 @@ fn fold_codex_event(
     echo: &mut CodexThreadEcho,
     emit: &mut impl FnMut(&Emitted),
 ) -> Option<PreSessionRefusal> {
+    let (event, raw) = rows;
     match event.get("type").and_then(Value::as_str) {
         Some("thread.started") => {
             if let Some(identity) = identity {
                 echo.locate(transcript.home(), identity.ident.clone());
-                // Recorded NOW, as the claude fold records its own —
-                // and for a second reason here: the thread id is what a
-                // retry resumes (decision 0030), and an attempt killed
-                // on its deadline never reaches the session-finished
-                // checkpoint. Captured at `thread.started`, the id is in
-                // hand from the harness's first message. It reaches the
-                // JOURNAL with the attempt's first work checkpoint,
-                // which `run_seat` flushes it ahead of: a pre-session
-                // row would put a refused attempt on decision 0016's
-                // mid-session side. So a kill AFTER the first turn still
-                // hands its thread to the retry that follows, and a kill
-                // before it has none to hand — decision 0053 ruling 8,
-                // which names that window and its cost.
+                // Publish the locator before work so a deadline after
+                // the first turn still leaves a resume handle (0053 ruling 8).
                 transcript.record(Locator::Session(identity), session_meta, emit);
             }
         }
@@ -1652,7 +1642,8 @@ fn fold_codex_event(
             } else {
                 Step::ItemCompleted
             };
-            let row = Observation::codex(event).onto(json!({"turn": *turn, "harness":"codex"}));
+            let row =
+                Observation::codex(raw).onto_codex(raw, json!({"turn": *turn, "harness":"codex"}));
             emit(&Emitted::new(step, row));
         }
         Some("turn.completed") => {
@@ -3485,17 +3476,18 @@ fn invoke_codex(
         let mut watch = |data: &Emitted| hold.observe(data, emit);
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
             let Ok(line) = line else { break };
-            let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
+            let Ok(event) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
             let row = Row::new(&event, bindings);
             let classified = (turn == 0).then(|| codex_refusal(&row)).flatten();
             let answer = probe_bound.answers(AdapterKind::Codex, &row);
             let identity = CapturedId::codex(&row);
-            secret::mask_json(&mut event, bindings);
+            let mut masked_event = event.clone();
+            secret::mask_json(&mut masked_event, bindings);
             let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
                 FoldInput {
-                    row: &event,
+                    row: (&masked_event, &row),
                     refusal: classified,
                     identity,
                 }
