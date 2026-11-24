@@ -144,6 +144,12 @@ fn draft_body(dir: &Path, draft: Vec<String>, results: &[&str]) -> SeatBody {
     ])
 }
 
+/// [`draft_body`] over [`draft_driver`], answering `drafted` then
+/// `complete`: the draft that refuses once, then succeeds.
+fn drafted_then_complete(dir: &Path) -> SeatBody {
+    draft_body(dir, draft_driver(dir), &["drafted", "complete"])
+}
+
 /// A terminal event that carries neither a wait nor a refusal record.
 fn no_wait(event: &EventEnvelope) {
     assert!(event.payload.get("waits").is_none(), "{event:?}");
@@ -307,9 +313,9 @@ fn shared(dir: &Path) -> Vec<String> {
 /// from step 1.
 #[test]
 fn a_single_steps_rate_limit_records_its_site_and_restarts_at_step_one() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
-    let command = draft_driver(dir.path());
-    let body = draft_body(dir.path(), command, &["drafted", "complete"]);
+    let body = drafted_then_complete(dir.path());
     let engine = driven(dir.path(), body, 2);
     single_step_facts(dir.path(), &engine);
     let waits = one_wait(&engine, dir.path());
@@ -354,9 +360,9 @@ fn dialect_and_secret(engine: &mut Engine) -> String {
 /// the probe asks exactly the input the attempt ran.
 #[test]
 fn a_step_probe_carries_the_seats_dialect_prompt_the_attempt_did() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
-    let command = draft_driver(dir.path());
-    let body = draft_body(dir.path(), command, &["drafted", "complete"]);
+    let body = drafted_then_complete(dir.path());
     let mut engine = sequence_engine(dir.path(), body, 2);
     let store = dialect_and_secret(&mut engine);
     engine.drive().unwrap();
@@ -407,6 +413,11 @@ fn past_maximum_body(dir: &Path) -> SeatBody {
     past_maximum_saying(dir, "")
 }
 
+/// A two-attempt sequence engine over [`past_maximum_body`].
+fn past_maximum_engine(dir: &Path) -> Engine {
+    sequence_engine(dir, past_maximum_body(dir), 2)
+}
+
 /// [`past_maximum_body`], its draft driver printing `said` on its stderr
 /// first.
 fn past_maximum_saying(dir: &Path, said: &str) -> SeatBody {
@@ -429,6 +440,7 @@ fn past_maximum_saying(dir: &Path, said: &str) -> SeatBody {
 /// re-runs from step 1.
 #[test]
 fn a_step_panels_refused_member_records_its_tag_and_probes_its_own_spawn() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let engine = driven(dir.path(), refusing_panel_sequence(dir.path()), 2);
     let waits = one_wait(&engine, dir.path());
@@ -466,6 +478,7 @@ fn a_step_panels_refused_member_records_its_tag_and_probes_its_own_spawn() {
 /// retry runs `draft` again before `review`.
 #[test]
 fn a_later_steps_refusal_restarts_the_sequence_from_step_one() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let draft = driver(
         dir.path(),
@@ -530,6 +543,7 @@ fn a_later_steps_refusal_restarts_the_sequence_from_step_one() {
 /// wait, the run parks, and there is no probe and no retry.
 #[test]
 fn an_indeterminate_step_carries_the_refused_members_wait_and_probes_nothing() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let m = driver(
         dir.path(),
@@ -563,6 +577,7 @@ fn an_indeterminate_step_carries_the_refused_members_wait_and_probes_nothing() {
 /// and no wait: a spawn failure has no report and so no typed refusal.
 #[test]
 fn a_spawn_failure_writes_its_start_failure_site_and_no_wait() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let body = sequence(vec![
         single_step(
@@ -610,6 +625,7 @@ fn dialect_validate_step() -> SequenceStep {
 /// `start_failures` stays empty.
 #[test]
 fn a_dialect_step_writes_no_wait() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let validate = dialect_validate_step();
     let engine = driven(
@@ -628,6 +644,7 @@ fn a_dialect_step_writes_no_wait() {
 /// model step's attempt and its probe share.
 #[test]
 fn a_dialect_steps_input_carries_no_spec_dialect() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let recorded = dir.path().join("validate.input");
     let fake = dir.path().join("record-exec");
@@ -669,9 +686,9 @@ fn a_dialect_steps_input_carries_no_spec_dialect() {
 /// park adjacent, before the cursor could park through the refused record.
 #[test]
 fn the_failed_steps_park_lands_in_the_attempts_own_turn() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
-    let body = past_maximum_body(dir.path());
-    let mut engine = sequence_engine(dir.path(), body, 2);
+    let mut engine = past_maximum_engine(dir.path());
     request_effect(&mut engine);
     engine.drive_once().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
@@ -692,6 +709,7 @@ fn the_failed_steps_park_lands_in_the_attempts_own_turn() {
 /// (#1199): a stalled stderr cannot hold the run between the two.
 #[test]
 fn the_failed_steps_tail_is_told_after_its_park() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let body = past_maximum_saying(dir.path(), "drafting\n");
     let mut engine = sequence_engine(dir.path(), body, 2);
@@ -750,6 +768,7 @@ fn assert_refused_probe(engine: &Engine, dir: &Path, tag: &str) {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_single_steps_refused_probe_admission_parks_before_it_spawns() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let command = draft_driver(dir.path());
     let body = draft_body(dir.path(), command, &["complete"]);
@@ -762,6 +781,7 @@ fn a_single_steps_refused_probe_admission_parks_before_it_spawns() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_step_members_refused_probe_admission_parks_before_it_spawns() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let body = refusing_panel_sequence(dir.path());
     let engine = refused_probe(dir.path(), body);
@@ -772,6 +792,7 @@ fn a_step_members_refused_probe_admission_parks_before_it_spawns() {
 /// `review:m` wait waits the remainder, probes m, and restarts from step 1.
 #[test]
 fn a_resume_waits_the_recorded_remainder_probes_the_member_and_restarts() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let draft = driver(
         dir.path(),
@@ -876,6 +897,7 @@ fn a_resume_waits_the_recorded_remainder_probes_the_member_and_restarts() {
 /// probe asks that same command, with no selected link to derive.
 #[test]
 fn an_inline_single_steps_probe_uses_its_own_command() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let command = draft_driver(dir.path());
     let body = sequence(vec![
@@ -901,9 +923,9 @@ fn an_inline_single_steps_probe_uses_its_own_command() {
 /// runs and no retry follows.
 #[test]
 fn a_wait_past_the_maximum_parks_the_sequence_without_a_probe() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
-    let body = past_maximum_body(dir.path());
-    let mut engine = sequence_engine(dir.path(), body, 2);
+    let mut engine = past_maximum_engine(dir.path());
     engine.drive().unwrap();
     let failed = failed_here(&engine);
     assert_eq!(failed.len(), 1, "{failed:?}");
@@ -931,6 +953,7 @@ fn a_wait_past_the_maximum_parks_the_sequence_without_a_probe() {
 /// the attempt retries without a probe.
 #[test]
 fn a_missing_declaration_writes_no_wait_and_retries() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let draft = draft_driver(dir.path());
     let body = draft_body(dir.path(), draft, &["complete"]);
@@ -956,6 +979,7 @@ fn a_missing_declaration_writes_no_wait_and_retries() {
 /// and no probe: only the rate-limited member's site is cooled down.
 #[test]
 fn another_refusal_beside_a_rate_limit_gets_no_wait_and_no_probe() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let m = refusing_m(dir.path());
     let mut n = driver(
@@ -1016,6 +1040,7 @@ fn another_refusal_beside_a_rate_limit_gets_no_wait_and_no_probe() {
 /// not step `a`'s member `b:c`: a step name may contain a colon.
 #[test]
 fn a_member_wait_resolves_the_declared_step_and_member_pair() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let c = succeeding(dir.path(), "c");
     let body = sequence(vec![
@@ -1101,6 +1126,7 @@ fn a_refused_site_is_a_wait_even_when_its_cleanup_makes_the_step_indeterminate()
 /// declare parks by name before anything spawns.
 #[test]
 fn a_sequence_wait_at_a_form_it_does_not_name_parks_by_name() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let body = sequence(vec![
         single_step("draft", Vec::new(), &["complete"]),

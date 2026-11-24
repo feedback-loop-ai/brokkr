@@ -15,6 +15,7 @@ use super::*;
 /// to a policy or engine refusal, not to an indeterminate end.
 #[test]
 fn a_cleanly_settled_unanswered_probe_park_is_not_retryable() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let script = "read -r hello\n\
          printf '%s\\n' '{\"proto\":\"forge-driver/v1\",\"msg_id\":\"cap\",\"type\":\"capabilities\",\"driver\":\"test\",\"version\":\"1\",\"supports\":[]}'\n\
@@ -41,6 +42,7 @@ fn a_cleanly_settled_unanswered_probe_park_is_not_retryable() {
 
 #[test]
 fn a_probe_that_hangs_or_errors_is_infrastructure_and_keeps_the_drivers_words_out_of_the_cause() {
+    own_engine!();
     for (probed, words) in [
         (Probed::Hang, None),
         (Probed::Error, Some("probe exploded")),
@@ -96,6 +98,7 @@ fn a_resume_past_the_recorded_maximum_parks_as_a_provider_limit() {
 /// next round, parks the same way: a typed refusal beside the reason.
 #[test]
 fn an_accumulated_episode_past_the_maximum_parks_as_a_provider_limit() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Refuse, None, 3);
     engine.cooldown.host = Some(host(dir.path(), 30, 100));
     engine.drive().unwrap();
@@ -127,6 +130,7 @@ fn an_accumulated_episode_past_the_maximum_parks_as_a_provider_limit() {
 /// the engine's own sentence, built from the typed refusal.
 #[test]
 fn a_provider_limit_cause_never_copies_the_providers_words() {
+    own_engine!();
     const MARKER: &str = "MARKER-the-providers-own-words";
     let dir = tempfile::tempdir().unwrap();
     let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(2));
