@@ -3,11 +3,12 @@
 //! line of each required job, and of each job it needs, is held here, and a
 //! changed one fails until the guide's row is re-read.
 
-use super::{workspace, MAIN_REQUIRES};
+use super::{needs_of, workspace, MAIN_REQUIRES};
 use crate::workflow;
 
 /// Every line of each job behind the twelve checks, in `MAIN_REQUIRES`'s
-/// order, each job a required job `needs:` held just before it, as its
+/// order, each job a required job `needs:`, and each job that one needs,
+/// held once, before the first job that needs it, as its
 /// workflow writes it, but for comments, blank lines and the
 /// value of a `run:` or `command:` key, whose lines `LEG_LINES` holds. A
 /// skipped step or job reports success, which satisfies a required check,
@@ -17,7 +18,7 @@ use crate::workflow;
 /// `env:` line added, dropped or changed fails the test. A line changed
 /// here is a line to re-read in the guide's row and the sections it links.
 /// A line that is a key of `SHARED_STEPS` stands for that step's lines.
-const JOB_LINES: [(&str, &str); 13] = [
+const JOB_LINES: [(&str, &str); 16] = [
     (
         "delivered-by-brokkr",
         r#"
@@ -128,10 +129,57 @@ const JOB_LINES: [(&str, &str); 13] = [
 "#,
     ),
     (
+        "classify",
+        r#"
+    name: docs lane or full (scripts/docs-lane.sh)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      lane: ${{ steps.lane.outputs.lane }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: a pull request's change, documentation alone or not
+        id: lane
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run:
+"#,
+    ),
+    (
+        "docs-lane",
+        r#"
+    name: docs lane (the tests that read documentation)
+    needs: classify
+    if: needs.classify.outputs.lane == 'docs'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+<checkout>
+<stable toolchain>
+<rust-cache>
+      - name: bubblewrap for the boxed samples
+        uses: ./.github/actions/setup-bubblewrap
+        with:
+          cache-build: 'true'
+      - name: the tests that read documentation (scripts/docs-lane-tests.txt)
+        run:
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+          BROKKR_REQUIRE_PIDNS: '1'
+"#,
+    ),
+    (
         "engine-machines",
         r#"
     name: test (${{ matrix.os }}) on ${{ matrix.machine }}
-    if: github.event_name != 'push'
+    needs: classify
+    if: github.event_name != 'push' && needs.classify.outputs.lane != 'docs'
     strategy:
       fail-fast: false
       matrix:
@@ -202,7 +250,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         "engine",
         r#"
     name: test (${{ matrix.os }})
-    needs: engine-machines
+    needs: [classify, docs-lane, engine-machines]
     if: always() && github.event_name != 'push'
     strategy:
       fail-fast: false
@@ -211,8 +259,11 @@ const JOB_LINES: [(&str, &str); 13] = [
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: every machine ran its shards and passed
+      - name: the docs lane passed on a docs change, and every machine on any other
         env:
+          CLASSIFIED: ${{ needs.classify.result }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          DOCS: ${{ needs.docs-lane.result }}
           MACHINES: ${{ needs.engine-machines.result }}
         run:
 "#,
@@ -221,6 +272,8 @@ const JOB_LINES: [(&str, &str); 13] = [
         "coverage-machines",
         r#"
     name: exact coverage on ${{ matrix.machine }}
+    needs: classify
+    if: needs.classify.outputs.lane != 'docs'
     strategy:
       fail-fast: false
       matrix:
@@ -256,16 +309,11 @@ const JOB_LINES: [(&str, &str); 13] = [
     (
         "coverage",
         r#"
-    name: exact coverage gate
+    name: exact coverage report
     needs: coverage-machines
-    if: always()
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     timeout-minutes: 30
     steps:
-      - name: every machine measured its shards
-        env:
-          MACHINES: ${{ needs.coverage-machines.result }}
-        run:
 <local checkout>
 <coverage toolchain>
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -292,6 +340,24 @@ const JOB_LINES: [(&str, &str); 13] = [
         with:
           name: coverage-exact
           path: target/coverage/
+"#,
+    ),
+    (
+        "coverage-gate",
+        r#"
+    name: exact coverage gate
+    needs: [classify, docs-lane, coverage]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: the docs lane passed on a docs change, and the report on any other
+        env:
+          CLASSIFIED: ${{ needs.classify.result }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          DOCS: ${{ needs.docs-lane.result }}
+          REPORT: ${{ needs.coverage.result }}
+        run:
 "#,
     ),
     (
@@ -627,18 +693,25 @@ fn the_required_jobs_run_every_step_unsoftened() {
             .find_map(|(job, body)| (job == id).then_some(body))
             .unwrap_or_else(|| panic!("{file} has no {id} job"))
     };
+    // Each required job after every job it needs, and each of those after
+    // its own, each once: a verdict judges what its needs ran (#1295).
+    fn hold<'f>(
+        id: &str,
+        file: &'f str,
+        body_of: &dyn Fn(&str, &str) -> String,
+        required: &mut Vec<(String, &'f str)>,
+    ) {
+        if required.iter().any(|(held, _)| held == id) {
+            return;
+        }
+        for needed in needs_of(&body_of(id, file), id) {
+            hold(&needed, file, body_of, required);
+        }
+        required.push((id.to_string(), file));
+    }
     let mut required: Vec<(String, &str)> = Vec::new();
     for &(_, id, file) in &MAIN_REQUIRES {
-        if required.last().is_some_and(|(last, _)| last == id) {
-            continue;
-        }
-        let body = body_of(id, file);
-        let needed = body
-            .lines()
-            .find_map(|line| line.strip_prefix("    needs: "))
-            .map(str::to_string);
-        required.extend(needed.map(|needed| (needed, file)));
-        required.push((id.to_string(), file));
+        hold(id, file, &body_of, &mut required);
     }
     let held: Vec<&str> = JOB_LINES.iter().map(|(id, _)| *id).collect();
     let ids: Vec<&str> = required.iter().map(|(id, _)| id.as_str()).collect();

@@ -126,6 +126,75 @@ jobs:
         working-directory: extensions/dsh/brokkr-console
         run: npm test
 
+  # The docs lane (#1295): a pull request whose change scripts/docs-lane.sh
+  # classifies as documentation alone runs the tests that read documentation
+  # (`docs-lane`) in place of the test and coverage machines, which do not
+  # start, and the three suite verdicts pass on that job's own result. The
+  # classifier run is the base branch's copy, so a pull request that edits it
+  # is judged by the one it would replace, and a base without one is full.
+  # Every other event is full: a merge group can hold several pull requests
+  # and is the last check before main, and the push to main saves the
+  # caches. It fails closed: a step that fails fails this job, and every
+  # verdict with it.
+  classify:
+    name: docs lane or full (scripts/docs-lane.sh)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      lane: ${{ steps.lane.outputs.lane }}
+    steps:
+      # Only a pull request is classified, so only a pull request pays for
+      # the full history; push and merge_group are full without a checkout.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: a pull request's change, documentation alone or not
+        id: lane
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          lane=full
+          if [ "$EVENT" = pull_request ] && git show "$BASE:scripts/docs-lane.sh" > "$RUNNER_TEMP/docs-lane.sh"; then
+            lane="$(bash "$RUNNER_TEMP/docs-lane.sh" classify "$BASE" "$HEAD")"
+          fi
+          case "$lane" in docs | full) ;; *) exit 1 ;; esac
+          echo "lane=$lane" >> "$GITHUB_OUTPUT"
+
+  # The tests that read documentation, as scripts/docs-lane-tests.txt pins
+  # them (docs_lane.rs holds the list complete), on a docs change alone. The
+  # links, spelling and the rest are `non-Rust lints`, which runs on every
+  # pull request.
+  docs-lane:
+    name: docs lane (the tests that read documentation)
+    needs: classify
+    if: needs.classify.outputs.lane == 'docs'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # doc_samples runs the samples at the scaffold's boxed gates in a real
+      # namespace (decision 0043), and requires it here as the Linux test
+      # machines do, so a sample is never skipped into a pass.
+      - name: bubblewrap for the boxed samples
+        uses: ./.github/actions/setup-bubblewrap
+        with:
+          cache-build: 'true'
+      - name: the tests that read documentation (scripts/docs-lane-tests.txt)
+        run: bash scripts/docs-lane.sh run
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+          BROKKR_REQUIRE_PIDNS: '1'
+
   # The suite's machines (operator ruling 2026-11-01): one runner ran every
   # shard one after another, and a hosted merge-queue run took 57 minutes
   # on Linux and 42 on macOS, past 75 on a slow runner. Each machine below
@@ -135,7 +204,8 @@ jobs:
   # job's verdicts over them, so the checks main requires keep their names.
   engine-machines:
     name: test (${{ matrix.os }}) on ${{ matrix.machine }}
-    if: github.event_name != 'push'
+    needs: classify
+    if: github.event_name != 'push' && needs.classify.outputs.lane != 'docs'
     strategy:
       fail-fast: false
       matrix:
@@ -266,14 +336,16 @@ jobs:
           cargo run --locked -p brokkr-cli -- library compile --bundle recipes/verify
 
   # The checks main requires for the suite: each system's verdict over the
-  # machines above. It runs whatever they ended with, `always()`, because a
-  # skipped job reports success to a required check: a machine that failed,
-  # was cancelled or never ran fails both verdicts, and the machine's own
-  # job names which. On `push` the machines skip by design, so the
-  # verdicts skip with them (#1295).
+  # machines above, or over the docs lane on a docs change (#1295). It runs
+  # whatever they ended with, `always()`, because a skipped job reports
+  # success to a required check: a classifier that failed, a docs lane that
+  # did not pass on a docs change, or a machine that failed, was cancelled
+  # or never ran on any other fails both verdicts, and the job's own run
+  # names which. On `push` the machines skip by design, so the verdicts
+  # skip with them (#1295).
   engine:
     name: test (${{ matrix.os }})
-    needs: engine-machines
+    needs: [classify, docs-lane, engine-machines]
     if: always() && github.event_name != 'push'
     strategy:
       fail-fast: false
@@ -282,10 +354,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: every machine ran its shards and passed
+      - name: the docs lane passed on a docs change, and every machine on any other
         env:
+          CLASSIFIED: ${{ needs.classify.result }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          DOCS: ${{ needs.docs-lane.result }}
           MACHINES: ${{ needs.engine-machines.result }}
-        run: test "$MACHINES" = success
+        run: |
+          test "$CLASSIFIED" = success
+          case "$LANE" in docs) test "$DOCS" = success ;; full) test "$MACHINES" = success ;; *) exit 1 ;; esac
 
   # Gate A is a hard gate in `test (macos-latest)`: it passes, so it
   # protects a solved property. Gate B reports while #269 is open. The
@@ -344,9 +421,11 @@ jobs:
   # push to main too, unlike the test machines: their instrumented build is
   # made only by scripts/coverage-exact.sh as it measures, so measuring on
   # main is what saves the caches a merge group's and a pull request's
-  # coverage jobs restore (#1295).
+  # coverage jobs restore (#1295). On a docs change they do not start.
   coverage-machines:
     name: exact coverage on ${{ matrix.machine }}
+    needs: classify
+    if: needs.classify.outputs.lane != 'docs'
     strategy:
       fail-fast: false
       matrix:
@@ -433,23 +512,18 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # The exact gate itself: every machine's profile, merged over the same
-  # instrumented build, and judged whole. It runs whatever the machines
-  # ended with, `always()`, because a skipped job reports success to a
-  # required check, and refuses unless every machine passed.
+  # The exact gate's report: every machine's profile, merged over the same
+  # instrumented build, and judged whole. It runs only when every machine
+  # passed, so a machine that failed, was cancelled or never ran leaves it
+  # skipped, which the gate below refuses.
   coverage:
-    name: exact coverage gate
+    name: exact coverage report
     needs: coverage-machines
-    if: always()
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     # 30, not the usual 20: it rebuilds the instrumented binaries, about 5
     # minutes on a hosted runner, then runs the ratchets.
     timeout-minutes: 30
     steps:
-      - name: every machine measured its shards
-        env:
-          MACHINES: ${{ needs.coverage-machines.result }}
-        run: test "$MACHINES" = success
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
@@ -522,6 +596,28 @@ jobs:
         with:
           name: coverage-exact
           path: target/coverage/
+
+  # The check main requires for exact coverage: the report's verdict, or the
+  # docs lane's on a docs change (#1295). Like the suite's verdicts it runs
+  # whatever they ended with, `always()`, because a skipped job reports
+  # success to a required check, so a report that did not run on a change
+  # that is not documentation fails it.
+  coverage-gate:
+    name: exact coverage gate
+    needs: [classify, docs-lane, coverage]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: the docs lane passed on a docs change, and the report on any other
+        env:
+          CLASSIFIED: ${{ needs.classify.result }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          DOCS: ${{ needs.docs-lane.result }}
+          REPORT: ${{ needs.coverage.result }}
+        run: |
+          test "$CLASSIFIED" = success
+          case "$LANE" in docs) test "$DOCS" = success ;; full) test "$REPORT" = success ;; *) exit 1 ;; esac
 
   license-compliance:
     name: dependency licenses (cargo-deny)

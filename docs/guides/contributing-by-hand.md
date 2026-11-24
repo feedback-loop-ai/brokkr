@@ -96,7 +96,9 @@ eight jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml)
 runs once per operating system), and one is in
 [`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml). They run on
 every pull request, and again in [the merge queue](#the-merge-queue) on
-the commit that lands. This is the full list, in the workflows' own order;
+the commit that lands; a pull request that changes only documentation
+runs [the docs lane](#the-docs-lane) in place of the test and coverage
+machines. This is the full list, in the workflows' own order;
 each local command is the job's own, and the sections below explain them:
 
 | # | CI check | Job | Local command |
@@ -107,7 +109,7 @@ each local command is the job's own, and the sections below explain them:
 | 4 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
 | 5 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test --parallel-heaps`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
 | 6 | `test (macos-latest)` | `engine` | on a Mac, `bash scripts/test-shards.sh test --parallel-heaps`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
-| 7 | `exact coverage gate` | `coverage` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
+| 7 | `exact coverage gate` | `coverage-gate` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
 | 8 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
 | 9 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
 | 10 | `RustSec dependency audit` | `dependency-audit` | [`cargo audit`](#the-rustsec-advisory-audit), whose verdict moves with the advisory database |
@@ -929,6 +931,44 @@ the queue, and a skipped check counts as passed: `delivered by brokkr`,
 raised baseline's `Ruling:` line.
 `crates/brokkr-cli/tests/contributing.rs` holds which job and which step
 does which, each skip with its reason.
+
+### The docs lane
+
+A pull request whose change is documentation alone gets its verdict in
+minutes (#1295). The `classify` job runs the base branch's
+`scripts/docs-lane.sh classify` on the pull request's base and head, and
+calls the change `docs` only when every path it adds, modifies, deletes
+or renames is a plain text `.md` file under `docs/` or at the top level,
+and no file of the base's tree or the head's names its file name but
+another Markdown page outside `crates/`, `scripts/`, `recipes/`,
+`agents/`, `.github/` and `quality/`, or one of the docs lane's own
+tests. A page that code reads by name,
+compiles in with `include_str!` or pins by digest is code's input, so a
+change to it is `full`. Anything else is `full` too: an empty change, a
+binary, a symlink, a workflow, a commit git cannot find, or a step that
+fails.
+
+On `docs`, the test and coverage machines do not start, and the
+`docs-lane` job runs the tests that read documentation, the list
+`scripts/docs-lane-tests.txt` pins, with bubblewrap installed and the
+boxed samples required, as the Linux test machines run them:
+
+```
+BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 BROKKR_REQUIRE_PIDNS=1 bash scripts/docs-lane.sh run
+```
+
+`test (ubuntu-latest)`, `test (macos-latest)` and `exact coverage gate`
+then pass on the docs lane's own result, and on `full` on every machine's,
+as before: a classifier that failed, a docs lane that did not pass, or a
+machine that was skipped fails them, never passes them. The fast gates,
+`non-Rust lints` among them, run as on any pull request.
+
+Only a pull request's own event is classified. A merge group is always
+`full`, because it can hold several pull requests and is the last check
+before `main`, so a docs-only pull request still lands through the full
+queue run. `crates/brokkr-cli/tests/contributing/docs_lane.rs` holds the
+list complete: a test file that reads a page it does not name, a
+directory of `docs/` or every tracked file must be in it.
 
 ## The decision culture
 
