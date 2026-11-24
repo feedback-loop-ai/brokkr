@@ -90,10 +90,14 @@ Changes merged since v0.15.2 that the next release's notes carry.
   `--reach` requires exactly one spelling, `--spec` refuses both spellings
   and keeps main's `"workspace"` default when omitted, and both encoded
   flags accept leading-hyphen values so they reach the typed decoder.
-  Encoded refusals reject padding, non-alphabet bytes, invalid length,
-  non-zero trailing bits, non-UTF-8, non-JSON, non-reach and invalid spec
-  documents by argument and failure class without echoing either the raw
-  value or any decoded text, while plain JSON callers of `hands serve` and
-  `hands exec` keep main's defaults and diagnostics byte for byte. Other
+  After base64url decoding, each document goes through the exact same
+  parse as its plain JSON spelling (`serde_json::from_str::<Sealed>` for
+  reach, with no intermediate `Value` or map; `serde_json::from_str::<Value>`
+  plus `HandsSpec::checked` for spec), so both spellings admit and refuse
+  the same documents. Encoded refusals reduce parse errors to their
+  payload-free failure class (`Base64UrlError`, serde `Category`, or
+  `SpecRefusalKind`) without echoing either the raw value or any decoded
+  text, while plain JSON callers of `hands serve` and `hands exec` keep
+  main's defaults, usage order, and diagnostics byte for byte. Other
   harnesses' JSON MCP configurations and the dsh line rule itself are
   unchanged.

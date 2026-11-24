@@ -1276,8 +1276,10 @@ fn hands_serve_encoded_refusals_never_disclose_decoded_document() {
     };
 
     let reach_not_json = b64(format!("{{{marker}"));
-    let reach_surrogate = b64(format!(r#"{{"{marker}":"\uD800"}}"#));
+    let reach_surrogate_known = b64(r#"{"home":"\uD800"}"#.to_string());
+    let reach_surrogate_unknown = b64(format!(r#"{{"{marker}":"\uD800"}}"#));
     let reach_bad_doc = b64(format!(r#"{{"{marker}_FIELD":"{marker}_VALUE"}}"#));
+    let reach_dup = b64(reach_json.replacen(r#""home":"#, r#""home":"/dup","home":"#, 1));
     let spec_not_json = b64(format!("{{{marker}"));
     let spec_wrong_field = b64(format!(
         r#"{{"kind":"workspace","{marker}_FIELD":"{marker}_VALUE"}}"#
@@ -1286,22 +1288,28 @@ fn hands_serve_encoded_refusals_never_disclose_decoded_document() {
         r#"{{"kind":"workspace","network":"{marker}_VALUE"}}"#
     ));
 
-    let bad_reach = format!(
-        "error: --reach-base64url: {}: decoded document is not a valid sealed reach\n",
+    let bad_reach_syntax = format!(
+        "error: --reach-base64url: {}: decoded document is not a valid sealed reach (Syntax)\n",
         brokkr_protocol::broker::Refusal::Identity
     );
+    let bad_reach_data = format!(
+        "error: --reach-base64url: {}: decoded document is not a valid sealed reach (Data)\n",
+        brokkr_protocol::broker::Refusal::Identity
+    );
+    assert_refused(&["--reach-base64url", &reach_not_json], &bad_reach_syntax);
     assert_refused(
-        &["--reach-base64url", &reach_not_json],
-        "error: --reach-base64url: decoded document is not valid JSON\n",
+        &["--reach-base64url", &reach_surrogate_known],
+        &bad_reach_syntax,
     );
     assert_refused(
-        &["--reach-base64url", &reach_surrogate],
-        "error: --reach-base64url: decoded document is not valid JSON\n",
+        &["--reach-base64url", &reach_surrogate_unknown],
+        &bad_reach_data,
     );
-    assert_refused(&["--reach-base64url", &reach_bad_doc], &bad_reach);
+    assert_refused(&["--reach-base64url", &reach_bad_doc], &bad_reach_data);
+    assert_refused(&["--reach-base64url", &reach_dup], &bad_reach_data);
     assert_refused(
         &["--reach", &reach_json, "--spec-base64url", &spec_not_json],
-        "error: --spec-base64url: decoded document is not valid JSON\n",
+        "error: --spec-base64url: decoded document is not valid JSON (Syntax)\n",
     );
     assert_refused(
         &[
@@ -1388,9 +1396,18 @@ fn hands_serve_and_exec_plain_json_refusals_match_main() {
             expected,
         );
     }
+}
 
-    // Omitting reach (even alongside malformed plain `--spec`) exits with
-    // clap's 2 and missing `--reach <REACH>` diagnostic, matching main.
+/// #1277 V3: omitting `--reach` (even alongside malformed plain `--spec`) exits
+/// with clap's 2 and main's exact missing `--reach <REACH>` diagnostic and
+/// usage order (`--reach <REACH>` before `--spec <SPEC>`) on both `serve` and
+/// `exec`.
+#[test]
+fn hands_serve_and_exec_missing_reach_usage_matches_main() {
+    let tmp = tempfile::tempdir().unwrap();
+    let artifacts = artifact_root(&tmp.path().join("state"));
+    let (work_arg, root_arg) = (tmp.path().to_str().unwrap(), artifacts.to_str().unwrap());
+
     for (args, expected_usage) in [
         (
             &[
@@ -1414,7 +1431,35 @@ fn hands_serve_and_exec_plain_json_refusals_match_main() {
                 "--spec",
                 "{",
             ][..],
-            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --spec <SPEC> --reach <REACH>",
+            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> --spec <SPEC>",
+        ),
+        (
+            &[
+                "hands",
+                "exec",
+                "--workdir",
+                work_arg,
+                "--artifacts",
+                root_arg,
+                "--",
+                "true",
+            ][..],
+            "Usage: brokkr hands exec --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> <COMMAND>...",
+        ),
+        (
+            &[
+                "hands",
+                "exec",
+                "--workdir",
+                work_arg,
+                "--artifacts",
+                root_arg,
+                "--spec",
+                "{",
+                "--",
+                "true",
+            ][..],
+            "Usage: brokkr hands exec --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> --spec <SPEC> <COMMAND>...",
         ),
     ] {
         let expected_missing_reach = format!(

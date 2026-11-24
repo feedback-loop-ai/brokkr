@@ -484,12 +484,13 @@ fn hands_serve_refuses_malformed_base64url_documents() {
     }
 }
 
-/// #1277 R3 + R6: valid unpadded base64url UTF-8 that fails JSON parse or
+/// #1277 V1 + R3 + R6: valid unpadded base64url UTF-8 that fails JSON parse or
 /// document checks refuses with typed variants naming the argument and
-/// failure class (plus `SpecRefusalKind`'s variant name) and holds no
+/// failure class (serde `Category` or `SpecRefusalKind`) and holds no
 /// decoded field name, value, or serde fragment in `Display` or `Debug`.
 #[test]
 fn hands_serve_refuses_decoded_documents_without_disclosing_decoded_text() {
+    use serde_json::error::Category;
     let tmp = tempfile::tempdir().unwrap();
     let valid_reach = reach(tmp.path());
     let valid_spec = DEFAULT_SPEC.to_string();
@@ -501,95 +502,92 @@ fn hands_serve_refuses_decoded_documents_without_disclosing_decoded_text() {
         assert!(!format!("{err:?}").contains(marker));
     };
 
-    for bad_json in [
-        format!("{{{marker}"),
-        format!(r#"{{"{marker}":"\uD800"}}"#),
-        r#"{"home":"\uD800"}"#.to_string(),
+    for (bad_doc, expected_cat, cat_name) in [
+        (format!("{{{marker}"), Category::Syntax, "Syntax"),
+        (
+            r#"{"home":"\uD800"}"#.to_string(),
+            Category::Syntax,
+            "Syntax",
+        ),
+        (String::new(), Category::Eof, "Eof"),
+        (
+            format!(r#"{{"{marker}":"\uD800"}}"#),
+            Category::Data,
+            "Data",
+        ),
+        (
+            format!(r#"{{"{marker}_FIELD":"{marker}_VALUE"}}"#),
+            Category::Data,
+            "Data",
+        ),
     ] {
-        let err =
-            resolve_serve_documents(None, Some(b64(bad_json)), Some(valid_spec.clone()), None)
-                .unwrap_err();
+        let err = resolve_serve_documents(None, Some(b64(bad_doc)), Some(valid_spec.clone()), None)
+            .unwrap_err();
         assert!(matches!(
             err,
-            DocumentError::EncodedNotJson {
-                flag: "--reach-base64url"
-            }
+            DocumentError::EncodedReach { category } if category == expected_cat
         ));
         assert_redacted(
             &err,
-            "--reach-base64url: decoded document is not valid JSON",
+            &format!(
+                "--reach-base64url: {}: decoded document is not a valid sealed reach ({cat_name})",
+                brokkr_protocol::broker::Refusal::Identity
+            ),
         );
     }
 
-    let reach_bad = b64(format!(r#"{{"{marker}_FIELD":"{marker}_VALUE"}}"#));
-    let err = resolve_serve_documents(None, Some(reach_bad), Some(valid_spec), None).unwrap_err();
-    assert!(matches!(err, DocumentError::EncodedReach));
-    assert_redacted(
-        &err,
-        &format!(
-            "--reach-base64url: {}: decoded document is not a valid sealed reach",
-            brokkr_protocol::broker::Refusal::Identity
+    assert_eq!(json_category_name(Category::Io), "Io");
+
+    for (bad_spec_json, expected_cat, cat_name) in [
+        (format!("{{{marker}"), Category::Syntax, "Syntax"),
+        (String::new(), Category::Eof, "Eof"),
+    ] {
+        let err = resolve_serve_documents(
+            Some(valid_reach.clone()),
+            None,
+            None,
+            Some(b64(bad_spec_json)),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            DocumentError::EncodedSpecJson { category } if category == expected_cat
+        ));
+        assert_redacted(
+            &err,
+            &format!("--spec-base64url: decoded document is not valid JSON ({cat_name})"),
+        );
+    }
+
+    for (bad_spec, expected_kind, kind_name) in [
+        (
+            format!(r#"{{"kind":"workspace","{marker}_FIELD":"{marker}_VALUE"}}"#),
+            SpecRefusalKind::UnknownKey,
+            "UnknownKey",
         ),
-    );
-
-    let spec_not_json = b64(format!("{{{marker}"));
-    let err = resolve_serve_documents(Some(valid_reach.clone()), None, None, Some(spec_not_json))
-        .unwrap_err();
-    assert!(matches!(
-        err,
-        DocumentError::EncodedNotJson {
-            flag: "--spec-base64url"
-        }
-    ));
-    assert_redacted(&err, "--spec-base64url: decoded document is not valid JSON");
-
-    let spec_wrong_key = b64(format!(
-        r#"{{"kind":"workspace","{marker}_FIELD":"{marker}_VALUE"}}"#
-    ));
-    let err = resolve_serve_documents(Some(valid_reach.clone()), None, None, Some(spec_wrong_key))
-        .unwrap_err();
-    assert!(matches!(
-        err,
-        DocumentError::EncodedSpec {
-            cause: SpecRefusalKind::UnknownKey
-        }
-    ));
-    assert_redacted(
-        &err,
-        "--spec-base64url: decoded document is not a valid hands spec (UnknownKey)",
-    );
-
-    let spec_wrong_val = b64(format!(
-        r#"{{"kind":"workspace","network":"{marker}_VALUE"}}"#
-    ));
-    let err = resolve_serve_documents(Some(valid_reach.clone()), None, None, Some(spec_wrong_val))
-        .unwrap_err();
-    assert!(matches!(
-        err,
-        DocumentError::EncodedSpec {
-            cause: SpecRefusalKind::Network
-        }
-    ));
-    assert_redacted(
-        &err,
-        "--spec-base64url: decoded document is not a valid hands spec (Network)",
-    );
-
-    let spec_wrong_bind = b64(format!(
-        r#"{{"kind":"workspace","binds":[{{"path":"/{marker}","mode":"{marker}"}}]}}"#
-    ));
-    let err =
-        resolve_serve_documents(Some(valid_reach), None, None, Some(spec_wrong_bind)).unwrap_err();
-    assert!(matches!(
-        err,
-        DocumentError::EncodedSpec {
-            cause: SpecRefusalKind::Bind(BindRefusalKind::Mode)
-        }
-    ));
-    assert_redacted(
-        &err,
-        "--spec-base64url: decoded document is not a valid hands spec (Bind::Mode)",
-    );
+        (
+            format!(r#"{{"kind":"workspace","network":"{marker}_VALUE"}}"#),
+            SpecRefusalKind::Network,
+            "Network",
+        ),
+        (
+            format!(r#"{{"kind":"workspace","binds":[{{"path":"/{marker}","mode":"{marker}"}}]}}"#),
+            SpecRefusalKind::Bind(BindRefusalKind::Mode),
+            "Bind::Mode",
+        ),
+    ] {
+        let err =
+            resolve_serve_documents(Some(valid_reach.clone()), None, None, Some(b64(bad_spec)))
+                .unwrap_err();
+        assert!(matches!(
+            err,
+            DocumentError::EncodedSpec { cause } if cause == expected_kind
+        ));
+        assert_redacted(
+            &err,
+            &format!("--spec-base64url: decoded document is not a valid hands spec ({kind_name})"),
+        );
+    }
 }
 
 /// #1277 R3 + R6: every `SpecRefusal` and `BindRefusal` variant reduces to its
@@ -689,9 +687,10 @@ fn spec_refusal_kind_drops_decoded_fields_for_every_variant() {
     }
 }
 
-/// #1277 R4 + R8: omitting `--reach` (and `--reach-base64url`) fails at clap
-/// with exit code 2 before `--spec` is parsed, matching main's exit code,
-/// diagnostic, and precedence.
+/// #1277 V3 + R4 + R8: omitting `--reach` (and `--reach-base64url`) fails at
+/// clap with exit code 2 before `--spec` is parsed, printing main's exact
+/// usage order (`--reach <REACH>` before `--spec <SPEC>`) on both `hands serve`
+/// and `hands exec`.
 #[test]
 fn hands_serve_requires_reach_at_clap_before_parsing_spec() {
     use clap::Parser;
@@ -700,11 +699,34 @@ fn hands_serve_requires_reach_at_clap_before_parsing_spec() {
     let root_path = tmp.path().join("artifacts");
     let root_arg = root_path.to_str().unwrap();
 
-    for extra in [&[][..], &["--spec", "{"][..]] {
+    let cases: &[(&str, &[&str], &str)] = &[
+        (
+            "serve",
+            &[],
+            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH>",
+        ),
+        (
+            "serve",
+            &["--spec", "{"],
+            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> --spec <SPEC>",
+        ),
+        (
+            "exec",
+            &["--", "true"],
+            "Usage: brokkr hands exec --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> <COMMAND>...",
+        ),
+        (
+            "exec",
+            &["--spec", "{", "--", "true"],
+            "Usage: brokkr hands exec --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> --spec <SPEC> <COMMAND>...",
+        ),
+    ];
+
+    for (verb, extra, expected_usage) in cases {
         let mut argv = vec![
             "brokkr",
             "hands",
-            "serve",
+            verb,
             "--workdir",
             work_arg,
             "--artifacts",
@@ -712,16 +734,14 @@ fn hands_serve_requires_reach_at_clap_before_parsing_spec() {
         ];
         argv.extend_from_slice(extra);
         let Err(err) = crate::Cli::try_parse_from(argv) else {
-            panic!("expected clap to refuse missing --reach");
+            panic!("expected clap to refuse missing --reach on hands {verb}");
         };
         assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
         assert_eq!(err.exit_code(), 2);
-        let rendered = err.to_string();
-        assert!(
-            rendered
-                .contains("the following required arguments were not provided:\n  --reach <REACH>"),
-            "{rendered}"
+        let expected = format!(
+            "error: the following required arguments were not provided:\n  --reach <REACH>\n\n{expected_usage}\n\nFor more information, try '--help'.\n"
         );
+        assert_eq!(err.to_string(), expected);
     }
 }
 
@@ -778,4 +798,365 @@ fn plain_json_refusals_match_main_byte_for_byte_on_both_verbs() {
     );
     assert_eq!(serve_err, expected_reach);
     assert_eq!(exec_err, expected_reach);
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum RefusalClass {
+    Reach(serde_json::error::Category),
+    SpecJson(serde_json::error::Category),
+    Spec(SpecRefusalKind),
+}
+
+fn refusal_class(err: &DocumentError) -> RefusalClass {
+    match err {
+        DocumentError::PlainReach { cause } => RefusalClass::Reach(cause.classify()),
+        DocumentError::EncodedReach { category } => RefusalClass::Reach(*category),
+        DocumentError::PlainSpecJson { cause } => RefusalClass::SpecJson(cause.classify()),
+        DocumentError::EncodedSpecJson { category } => RefusalClass::SpecJson(*category),
+        DocumentError::PlainSpec { cause } => {
+            RefusalClass::Spec(SpecRefusalKind::from(cause.clone()))
+        }
+        DocumentError::EncodedSpec { cause } => RefusalClass::Spec(*cause),
+        other => panic!("unexpected document error variant in parity table: {other:?}"),
+    }
+}
+
+/// Full valid sealed reach JSON with every optional nested struct (`git`,
+/// `binds`, `store`) populated so V2 duplicates every field at every level.
+fn full_reach_json() -> &'static str {
+    concat!(
+        r#"{"home":"/h","worktree":{"path":"/w","identity":[1,2]},"#,
+        r#""git":{"dir":{"path":"/w/.git","identity":[1,3]},"#,
+        r#""common":{"path":"/w/.git","identity":[1,4]}},"#,
+        r#""binds":[{"path":"/b","identity":[1,5]}],"#,
+        r#""store":{"place":"/s","spelling":"/s"}}"#
+    )
+}
+
+fn dup_once(base: &str, needle: &str) -> String {
+    assert!(base.contains(needle), "expected {needle:?} in base doc");
+    base.replacen(needle, &format!("{needle},{needle}"), 1)
+}
+
+fn reach_duplicate_cases(base: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("dup home", dup_once(base, r#""home":"/h""#)),
+        (
+            "dup worktree",
+            dup_once(base, r#""worktree":{"path":"/w","identity":[1,2]}"#),
+        ),
+        (
+            "dup git",
+            dup_once(
+                base,
+                r#""git":{"dir":{"path":"/w/.git","identity":[1,3]},"common":{"path":"/w/.git","identity":[1,4]}}"#,
+            ),
+        ),
+        (
+            "dup binds",
+            dup_once(base, r#""binds":[{"path":"/b","identity":[1,5]}]"#),
+        ),
+        (
+            "dup store",
+            dup_once(base, r#""store":{"place":"/s","spelling":"/s"}"#),
+        ),
+        ("dup worktree.path", dup_once(base, r#""path":"/w""#)),
+        (
+            "dup worktree.identity",
+            dup_once(base, r#""identity":[1,2]"#),
+        ),
+        (
+            "dup git.dir",
+            dup_once(base, r#""dir":{"path":"/w/.git","identity":[1,3]}"#),
+        ),
+        (
+            "dup git.common",
+            dup_once(base, r#""common":{"path":"/w/.git","identity":[1,4]}"#),
+        ),
+        (
+            "dup git.dir.path",
+            base.replacen(
+                r#""dir":{"path":"/w/.git""#,
+                r#""dir":{"path":"/w/.git","path":"/w/.git""#,
+                1,
+            ),
+        ),
+        (
+            "dup git.dir.identity",
+            dup_once(base, r#""identity":[1,3]"#),
+        ),
+        (
+            "dup git.common.path",
+            base.replacen(
+                r#""common":{"path":"/w/.git""#,
+                r#""common":{"path":"/w/.git","path":"/w/.git""#,
+                1,
+            ),
+        ),
+        (
+            "dup git.common.identity",
+            dup_once(base, r#""identity":[1,4]"#),
+        ),
+        ("dup binds[0].path", dup_once(base, r#""path":"/b""#)),
+        (
+            "dup binds[0].identity",
+            dup_once(base, r#""identity":[1,5]"#),
+        ),
+        ("dup store.place", dup_once(base, r#""place":"/s""#)),
+        ("dup store.spelling", dup_once(base, r#""spelling":"/s""#)),
+    ]
+}
+
+fn assert_reach_spelling_parity() {
+    use serde_json::error::Category;
+    let base = full_reach_json();
+    let expected_valid: Sealed = serde_json::from_str(base).unwrap();
+
+    let mut cases: Vec<(&str, String, Result<Sealed, RefusalClass>)> =
+        vec![("valid full reach", base.to_string(), Ok(expected_valid))];
+    for (label, doc) in reach_duplicate_cases(base) {
+        cases.push((label, doc, Err(RefusalClass::Reach(Category::Data))));
+    }
+    cases.extend([
+        (
+            "unknown top member",
+            base.replacen('{', r#"{"extra":1,"#, 1),
+            Err(RefusalClass::Reach(Category::Data)),
+        ),
+        (
+            "unknown nested member",
+            base.replacen(r#""place":"/s""#, r#""place":"/s","extra":1"#, 1),
+            Err(RefusalClass::Reach(Category::Data)),
+        ),
+        (
+            "missing store",
+            r#"{"home":"/h","worktree":{"path":"/w","identity":null},"git":null,"binds":[]}"#
+                .to_string(),
+            Err(RefusalClass::Reach(Category::Data)),
+        ),
+        (
+            "missing worktree",
+            r#"{"home":"/h","git":null,"binds":[],"store":null}"#.to_string(),
+            Err(RefusalClass::Reach(Category::Data)),
+        ),
+        (
+            "wrong type home",
+            base.replacen(r#""home":"/h""#, r#""home":123"#, 1),
+            Err(RefusalClass::Reach(Category::Data)),
+        ),
+        (
+            "trailing bytes",
+            format!("{base} trailing"),
+            Err(RefusalClass::Reach(Category::Syntax)),
+        ),
+        (
+            "leading BOM",
+            format!("\u{feff}{base}"),
+            Err(RefusalClass::Reach(Category::Syntax)),
+        ),
+        (
+            "unpaired surrogate in known field",
+            base.replacen(r#""home":"/h""#, r#""home":"\uD800""#, 1),
+            Err(RefusalClass::Reach(Category::Syntax)),
+        ),
+        (
+            "unpaired surrogate in key",
+            r#"{"\uD800":"x"}"#.to_string(),
+            Err(RefusalClass::Reach(Category::Syntax)),
+        ),
+        // `deny_unknown_fields` refuses the unknown key before scanning its value,
+        // so `from_str::<Sealed>` returns `Data` in BOTH spellings.
+        (
+            "unpaired surrogate in unknown field",
+            r#"{"extra":"\uD800"}"#.to_string(),
+            Err(RefusalClass::Reach(Category::Data)),
+        ),
+        (
+            "empty document",
+            String::new(),
+            Err(RefusalClass::Reach(Category::Eof)),
+        ),
+        (
+            "null",
+            "null".to_string(),
+            Err(RefusalClass::Reach(Category::Data)),
+        ),
+    ]);
+
+    for (label, doc, expected) in cases {
+        let encoded = hands::encode_base64url(doc.as_bytes());
+        let plain_res = resolve_serve_documents(Some(doc), None, None, None)
+            .map(|(_, sealed)| sealed)
+            .map_err(|err| refusal_class(&err));
+        let encoded_res = resolve_serve_documents(None, Some(encoded), None, None)
+            .map(|(_, sealed)| sealed)
+            .map_err(|err| refusal_class(&err));
+        assert_eq!(plain_res, expected, "plain reach mismatch on {label}");
+        assert_eq!(
+            encoded_res, plain_res,
+            "encoded vs plain reach mismatch on {label}"
+        );
+    }
+}
+
+fn spec_duplicate_cases() -> Vec<(&'static str, &'static str, HandsSpec)> {
+    use brokkr_protocol::hands::{Bind, BindMode};
+    let bind = |path: &str, mode: BindMode, mask: &[&str]| Bind {
+        path: path.to_string(),
+        mode,
+        mask: mask.iter().map(|m| (*m).to_string()).collect(),
+    };
+    let spec_of = |network: bool, binds: Vec<Bind>| HandsSpec { network, binds };
+    vec![
+        (
+            "dup kind (main last-wins)",
+            r#"{"kind":"mitten","kind":"workspace"}"#,
+            HandsSpec::default(),
+        ),
+        (
+            "dup network (main last-wins)",
+            r#"{"kind":"workspace","network":false,"network":true}"#,
+            spec_of(true, Vec::new()),
+        ),
+        (
+            "dup binds (main last-wins)",
+            r#"{"kind":"workspace","binds":[],"binds":[{"path":"/b","mode":"ro"}]}"#,
+            spec_of(false, vec![bind("/b", BindMode::Ro, &[])]),
+        ),
+        (
+            "dup bind.path (main last-wins)",
+            r#"{"kind":"workspace","binds":[{"path":"/a","path":"/b","mode":"ro"}]}"#,
+            spec_of(false, vec![bind("/b", BindMode::Ro, &[])]),
+        ),
+        (
+            "dup bind.mode (main last-wins)",
+            r#"{"kind":"workspace","binds":[{"path":"/b","mode":"rw","mode":"ro"}]}"#,
+            spec_of(false, vec![bind("/b", BindMode::Ro, &[])]),
+        ),
+        (
+            "dup bind.mask (main last-wins)",
+            r#"{"kind":"workspace","binds":[{"path":"/b","mode":"ro","mask":["a"],"mask":["b"]}]}"#,
+            spec_of(false, vec![bind("/b", BindMode::Ro, &["b"])]),
+        ),
+    ]
+}
+
+fn spec_refusal_cases() -> Vec<(&'static str, &'static str, RefusalClass)> {
+    use serde_json::error::Category;
+    vec![
+        (
+            "unknown top member",
+            r#"{"kind":"workspace","extra":1}"#,
+            RefusalClass::Spec(SpecRefusalKind::UnknownKey),
+        ),
+        (
+            "unknown nested bind member",
+            r#"{"kind":"workspace","binds":[{"path":"/b","mode":"ro","extra":1}]}"#,
+            RefusalClass::Spec(SpecRefusalKind::Bind(BindRefusalKind::UnknownKey)),
+        ),
+        (
+            "missing kind",
+            r#"{}"#,
+            RefusalClass::Spec(SpecRefusalKind::Kind),
+        ),
+        (
+            "missing bind path",
+            r#"{"kind":"workspace","binds":[{"mode":"ro"}]}"#,
+            RefusalClass::Spec(SpecRefusalKind::Bind(BindRefusalKind::NoPath)),
+        ),
+        (
+            "wrong type network",
+            r#"{"kind":"workspace","network":"yes"}"#,
+            RefusalClass::Spec(SpecRefusalKind::Network),
+        ),
+        (
+            "wrong type binds",
+            r#"{"kind":"workspace","binds":"no"}"#,
+            RefusalClass::Spec(SpecRefusalKind::BindsNotArray),
+        ),
+        (
+            "trailing bytes",
+            r#""workspace" trailing"#,
+            RefusalClass::SpecJson(Category::Syntax),
+        ),
+        (
+            "leading BOM",
+            "\u{feff}\"workspace\"",
+            RefusalClass::SpecJson(Category::Syntax),
+        ),
+        (
+            "unpaired surrogate in value",
+            r#"{"kind":"\uD800"}"#,
+            RefusalClass::SpecJson(Category::Syntax),
+        ),
+        (
+            "unpaired surrogate in unknown field",
+            r#"{"kind":"workspace","extra":"\uD800"}"#,
+            RefusalClass::SpecJson(Category::Syntax),
+        ),
+        ("empty document", "", RefusalClass::SpecJson(Category::Eof)),
+        (
+            "null",
+            "null",
+            RefusalClass::Spec(SpecRefusalKind::NotKindOrObject),
+        ),
+    ]
+}
+
+fn assert_spec_spelling_parity() {
+    use brokkr_protocol::hands::{Bind, BindMode};
+
+    let valid_reach = full_reach_json().to_string();
+    let rich = HandsSpec {
+        network: true,
+        binds: vec![Bind {
+            path: "/b".to_string(),
+            mode: BindMode::Ro,
+            mask: vec!["secret".to_string()],
+        }],
+    };
+    let mut cases: Vec<(&str, &str, Result<HandsSpec, RefusalClass>)> = vec![
+        ("bare workspace", r#""workspace""#, Ok(HandsSpec::default())),
+        (
+            "valid object",
+            r#"{"kind":"workspace","network":true,"binds":[{"path":"/b","mode":"ro","mask":["secret"]}]}"#,
+            Ok(rich),
+        ),
+    ];
+    for (label, doc, expected) in spec_duplicate_cases() {
+        cases.push((label, doc, Ok(expected)));
+    }
+    for (label, doc, expected) in spec_refusal_cases() {
+        cases.push((label, doc, Err(expected)));
+    }
+
+    for (label, doc, expected) in cases {
+        let encoded = hands::encode_base64url(doc.as_bytes());
+        let plain_res =
+            resolve_serve_documents(Some(valid_reach.clone()), None, Some(doc.to_string()), None)
+                .map(|(spec, _)| spec)
+                .map_err(|err| refusal_class(&err));
+        let encoded_res =
+            resolve_serve_documents(Some(valid_reach.clone()), None, None, Some(encoded))
+                .map(|(spec, _)| spec)
+                .map_err(|err| refusal_class(&err));
+        assert_eq!(plain_res, expected, "plain spec mismatch on {label}");
+        assert_eq!(
+            encoded_res, plain_res,
+            "encoded vs plain spec mismatch on {label}"
+        );
+    }
+}
+
+/// #1277 V2: one table-driven test feeding the same document bytes to both
+/// spellings of `--reach` and `--spec`, asserting equal admitted values or the
+/// exact same refusal class on every case (including duplicate members of
+/// every `Sealed` field at top level and nested, unknown/missing/wrong-type
+/// members, trailing bytes, leading BOM, unpaired surrogates, empty document,
+/// `null`, and bare `"workspace"`). Main's plain `--spec` parses via
+/// `serde_json::Value` (last-wins on duplicate keys); encoded matches it.
+#[test]
+fn plain_and_encoded_spellings_agree_on_every_document() {
+    assert_reach_spelling_parity();
+    assert_spec_spelling_parity();
 }

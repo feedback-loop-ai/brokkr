@@ -452,7 +452,27 @@ impl clap::FromArgMatches for Cli {
     }
 }
 
-impl Parser for Cli {}
+impl Parser for Cli {
+    fn try_parse_from<I, T>(itr: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        let argv: Vec<std::ffi::OsString> = itr.into_iter().map(Into::into).collect();
+        let mut matches =
+            match <Self as clap::CommandFactory>::command().try_get_matches_from(&argv) {
+                Ok(matches) => matches,
+                Err(err) => {
+                    return Err(crate::hands::reformat_missing_serve_reach(
+                        err,
+                        &argv,
+                        <Self as clap::CommandFactory>::command,
+                    ));
+                }
+            };
+        <Self as clap::FromArgMatches>::from_arg_matches_mut(&mut matches)
+    }
+}
 
 #[cfg(test)]
 mod tests;

@@ -189,13 +189,24 @@ pub(crate) enum DocumentError {
     PlainSpec {
         cause: SpecRefusal,
     },
-    EncodedNotJson {
-        flag: &'static str,
+    EncodedReach {
+        category: serde_json::error::Category,
     },
-    EncodedReach,
+    EncodedSpecJson {
+        category: serde_json::error::Category,
+    },
     EncodedSpec {
         cause: SpecRefusalKind,
     },
+}
+
+fn json_category_name(category: serde_json::error::Category) -> &'static str {
+    match category {
+        serde_json::error::Category::Io => "Io",
+        serde_json::error::Category::Syntax => "Syntax",
+        serde_json::error::Category::Data => "Data",
+        serde_json::error::Category::Eof => "Eof",
+    }
 }
 
 impl fmt::Display for DocumentError {
@@ -215,13 +226,16 @@ impl fmt::Display for DocumentError {
             }
             Self::PlainSpecJson { cause } => write!(f, "{cause}"),
             Self::PlainSpec { cause } => write!(f, "{SPEC_FLAG}: {cause}"),
-            Self::EncodedNotJson { flag } => {
-                write!(f, "{flag}: decoded document is not valid JSON")
-            }
-            Self::EncodedReach => write!(
+            Self::EncodedReach { category } => write!(
                 f,
-                "{REACH_BASE64URL_FLAG}: {}: decoded document is not a valid sealed reach",
-                Refusal::Identity
+                "{REACH_BASE64URL_FLAG}: {}: decoded document is not a valid sealed reach ({})",
+                Refusal::Identity,
+                json_category_name(*category),
+            ),
+            Self::EncodedSpecJson { category } => write!(
+                f,
+                "{SPEC_BASE64URL_FLAG}: decoded document is not valid JSON ({})",
+                json_category_name(*category),
             ),
             Self::EncodedSpec { cause } => write!(
                 f,
@@ -233,45 +247,99 @@ impl fmt::Display for DocumentError {
 
 impl std::error::Error for DocumentError {}
 
+/// When `hands serve` fails clap validation because neither `--reach` nor
+/// `--reach-base64url` was given, re-render the error with `--reach` marked
+/// unconditionally required so clap emits main's exact usage order
+/// (`--reach <REACH>` before `--spec <SPEC>`, #1277 V3).
+pub(crate) fn reformat_missing_serve_reach(
+    err: clap::Error,
+    argv: &[std::ffi::OsString],
+    command: impl FnOnce() -> clap::Command,
+) -> clap::Error {
+    let missing_reach = err.kind() == clap::error::ErrorKind::MissingRequiredArgument
+        && matches!(
+            err.get(clap::error::ContextKind::InvalidArg),
+            Some(clap::error::ContextValue::Strings(args))
+                if args.iter().any(|arg| arg == "--reach <REACH>")
+        );
+    if !missing_reach {
+        return err;
+    }
+    command()
+        .mut_subcommand("hands", |hands| {
+            hands.mut_subcommand("serve", |serve| {
+                serve.mut_arg("reach", |reach| {
+                    reach
+                        .required(true)
+                        .required_unless_present(clap::builder::Resettable::<clap::Id>::Reset)
+                })
+            })
+        })
+        .try_get_matches_from(argv)
+        .unwrap_err()
+}
+
 pub(crate) fn run(command: HandsCommand) -> anyhow::Result<ExitCode> {
     run_with(command, Session::create)
+}
+
+/// Parse a sealed reach JSON document directly into [`Sealed`] with no
+/// intermediate `Value` or map: shared by both `--reach` and
+/// `--reach-base64url` (#1277 V1).
+fn parse_reach_doc(reach: &str) -> Result<Sealed, serde_json::Error> {
+    serde_json::from_str(reach)
 }
 
 /// The reach `--reach` carries as plain JSON: one that does not read refuses
 /// with MB3's identity cause, and no box is built.
 fn parse_reach_plain(reach: &str) -> Result<Sealed, DocumentError> {
-    serde_json::from_str(reach).map_err(|cause| DocumentError::PlainReach { cause })
+    parse_reach_doc(reach).map_err(|cause| DocumentError::PlainReach { cause })
 }
 
-/// The reach `--reach-base64url` carries after decoding: parses JSON once so
-/// string escapes (including unpaired UTF-16 surrogates) are checked before
-/// the typed `Sealed` conversion, and discloses nothing decoded.
+/// The reach `--reach-base64url` carries after decoding: runs the exact same
+/// `serde_json::from_str::<Sealed>` parse as `--reach`, then reduces any error
+/// to its [`serde_json::error::Category`] so nothing decoded survives in
+/// `Display` or `Debug` (#1277 V1, R3).
 fn parse_reach_encoded(reach: &str) -> Result<Sealed, DocumentError> {
-    let raw: serde_json::Value =
-        serde_json::from_str(reach).map_err(|_| DocumentError::EncodedNotJson {
-            flag: REACH_BASE64URL_FLAG,
-        })?;
-    serde_json::from_value(raw).map_err(|_| DocumentError::EncodedReach)
+    parse_reach_doc(reach).map_err(|cause| DocumentError::EncodedReach {
+        category: cause.classify(),
+    })
 }
 
-/// The box spec `--spec` carries as plain JSON, parsed through the one
-/// `HandsSpec::checked` check with main's diagnostics byte for byte.
+enum SpecDocError {
+    Json(serde_json::Error),
+    Spec(SpecRefusal),
+}
+
+/// Parse a box spec JSON document through main's `serde_json::from_str::<Value>`
+/// and [`HandsSpec::checked`] path: shared by both `--spec` and
+/// `--spec-base64url` (#1277 V1).
+fn parse_spec_doc(spec: &str) -> Result<HandsSpec, SpecDocError> {
+    let raw: serde_json::Value = serde_json::from_str(spec).map_err(SpecDocError::Json)?;
+    HandsSpec::checked(&raw).map_err(SpecDocError::Spec)
+}
+
+/// The box spec `--spec` carries as plain JSON, keeping main's diagnostics
+/// byte for byte.
 fn parse_spec_plain(spec: &str) -> Result<HandsSpec, DocumentError> {
-    let raw: serde_json::Value =
-        serde_json::from_str(spec).map_err(|cause| DocumentError::PlainSpecJson { cause })?;
-    HandsSpec::checked(&raw).map_err(|cause| DocumentError::PlainSpec { cause })
+    parse_spec_doc(spec).map_err(|cause| match cause {
+        SpecDocError::Json(cause) => DocumentError::PlainSpecJson { cause },
+        SpecDocError::Spec(cause) => DocumentError::PlainSpec { cause },
+    })
 }
 
-/// The box spec `--spec-base64url` carries after decoding, parsed through the
-/// same `HandsSpec::checked` check and reduced immediately to a payload-free
-/// [`SpecRefusalKind`] so no decoded text survives in `Display` or `Debug`.
+/// The box spec `--spec-base64url` carries after decoding: runs the exact same
+/// parse as `--spec`, then reduces any error to its serde category or
+/// payload-free [`SpecRefusalKind`] so no decoded text survives in `Display`
+/// or `Debug` (#1277 V1, R3).
 fn parse_spec_encoded(spec: &str) -> Result<HandsSpec, DocumentError> {
-    let raw: serde_json::Value =
-        serde_json::from_str(spec).map_err(|_| DocumentError::EncodedNotJson {
-            flag: SPEC_BASE64URL_FLAG,
-        })?;
-    HandsSpec::checked(&raw).map_err(|cause| DocumentError::EncodedSpec {
-        cause: SpecRefusalKind::from(cause),
+    parse_spec_doc(spec).map_err(|cause| match cause {
+        SpecDocError::Json(err) => DocumentError::EncodedSpecJson {
+            category: err.classify(),
+        },
+        SpecDocError::Spec(refusal) => DocumentError::EncodedSpec {
+            cause: SpecRefusalKind::from(refusal),
+        },
     })
 }
 
