@@ -59,13 +59,13 @@ upgrade verb and `init`'s placeholder ceilings).
 
 3. **What is learned, and from which history.** A recipe's expected demand
    is learned from the machine's own history (rulings B and G):
-   - **which runs:** the last 20 runs of the recipe, by recipe name, that
+   - **which runs:** the last 20 ended runs of the recipe, by recipe name, that
      carry `effect-usage/v1`, newest first by when each was created, read
      across the pass's own journal and every distinct journal the realms map
      the workspace reads lists (the map `brokkr system realms` reads); the
      host file's `demand.window_runs` overrides the 20;
    - **the read:** one bounded statement per journal: of the latest twice
-     `window_runs` runs of each recipe, only the `phase/entered` events and
+     `window_runs` ended runs of each recipe, only the `phase/entered` events and
      the endings that carry `usage`. A run among them that carries none is
      passed over, so a window may hold fewer runs than it asks;
    - **per phase:** an attempt's peak memory and peak load are its own, or,
@@ -100,8 +100,8 @@ upgrade verb and `init`'s placeholder ceilings).
    `max(0, expected peak − its use now)`, where the expected peak is the
    largest of its recipe's expected phase peaks over its current phase and
    every phase its recipe's window entered after that phase in any run
-   (every phase, where the window never entered its current one), without
-   the margin. A run in implement still holds its verify build. A run
+   (every measured phase, where the window never entered its current one
+   or measured any remaining phase), without the margin. A run in implement still holds its verify build. A run
    whose driver's tree cannot be read (no recorded holder, a pid the table
    does not list, a table that cannot be read) reserves its whole expected
    peak, and a reason that names the reservation says how many were. Each
@@ -210,7 +210,7 @@ The operator ruled them "all recommended" on 2026-11-23.
 - A machine whose recipes have history starts as many runs as fit, with no
   guessed run ceiling; the floors, the provider and route ceilings and the
   cool-downs bind exactly as before.
-- A recipe with no history runs alone until its first run measures it.
+- A recipe with no history runs alone until its first run ends with measurements.
   Until the fleet's engines record `effect-usage/v1` (#1208, in no release
   yet), every recipe is unknown, and a measured machine runs one entry at a
   time.

@@ -44,13 +44,30 @@ fn run(store: &mut Store, run: &str, recipe: &str, phases: &[(&str, u64, u64)], 
         store.append_next(run, kind, payload, None, None).unwrap();
     };
     append(EventType::RunStarted, json!({"feature": "f"}));
-    for (phase, memory, load) in phases {
+    for (at, (phase, memory, load)) in phases.iter().enumerate() {
         append(EventType::PhaseEntered, json!({"phase": phase}));
         if *memory > 0 {
+            let id = format!("effect-{at}");
+            append(
+                EventType::EffectRequested,
+                json!({"effect_id": id, "phase": phase, "seat": phase}),
+            );
+            append(
+                EventType::EffectStarted,
+                json!({"effect_id": id, "attempt_id": id}),
+            );
             append(
                 EventType::EffectSucceeded,
-                json!({"usage": usage(*memory, *load)}),
+                json!({"effect_id": id, "attempt_id": id, "result": {"result": "complete"},
+                       "usage": usage(*memory, *load)}),
             );
+            if let Some((next, _, _)) = phases.get(at + 1) {
+                append(
+                    EventType::TransitionDecided,
+                    json!({"from": phase, "result": "complete", "next": next,
+                           "rule_id": "FIXTURE", "severity": null, "inputs": {}, "problem": null}),
+                );
+            }
         }
     }
     if ended {
@@ -112,6 +129,15 @@ fn said(judged: &[Judged]) -> Vec<Vec<(&'static str, String)>> {
 
 fn plenty() -> Value {
     ceilings(9, 9, json!({}))
+}
+
+fn declared(memory: u64, load: u64) -> Value {
+    let mut host = plenty();
+    host["schema"] = json!("forge.host/v5");
+    host["demand"] = json!({"recipes": {"fixture": {
+        "peak_memory_bytes": memory, "peak_load_millicores": load
+    }}});
+    host
 }
 
 fn measured(memory: u64, idle: u64) -> Measurement {
@@ -395,6 +421,224 @@ fn an_entry_of_unknown_demand_starts_on_an_idle_machine_and_waits_beside_a_runni
                 .to_string()
         )]]
     );
+}
+
+#[test]
+fn a_recipes_first_running_attempt_does_not_turn_into_history() {
+    let mut fixture = Fixture::new();
+    run(
+        &mut fixture.store,
+        "first",
+        "fixture",
+        &[("intake", GIB, 1000), ("implement", 0, 0)],
+        false,
+    );
+    fixture.queue();
+    let pass = |fixture: &Fixture| {
+        judged(
+            fixture,
+            &plenty(),
+            &[],
+            measured(16 * GIB, 8000),
+            &BTreeMap::new(),
+        )
+        .0
+    };
+    let waiting = pass(&fixture);
+    assert_eq!(waiting[0].demand.as_ref().unwrap().source, Source::Unknown);
+    assert_eq!(said(&waiting)[0][0].0, "demand_unknown");
+
+    fixture
+        .store
+        .append_next("first", EventType::RunCompleted, json!({}), None, None)
+        .unwrap();
+    let after = pass(&fixture);
+    assert_eq!(
+        after[0].demand.as_ref().unwrap().source,
+        Source::Measured { runs: 1 }
+    );
+    assert_eq!(said(&after), vec![vec![]]);
+}
+
+#[test]
+fn unmeasured_remaining_phases_reserve_the_recipes_full_expected_peak() {
+    let mut fixture = Fixture::new();
+    run(
+        &mut fixture.store,
+        "stopped-early",
+        "fixture",
+        &[("intake", 4 * GIB, 1000), ("implement", 0, 0)],
+        false,
+    );
+    fixture
+        .store
+        .append_next(
+            "stopped-early",
+            EventType::RunStopped,
+            json!({}),
+            None,
+            None,
+        )
+        .unwrap();
+    run(
+        &mut fixture.store,
+        "live",
+        "fixture",
+        &[("implement", 0, 0)],
+        false,
+    );
+    fixture.queue();
+    let (entries, _) = judged(
+        &fixture,
+        &plenty(),
+        &[],
+        measured(8 * GIB, 8000),
+        &BTreeMap::new(),
+    );
+    assert_eq!(
+        entries[0].demand.as_ref().unwrap().reserved,
+        Reserved {
+            memory_bytes: 4 * GIB,
+            load_millicores: 1000,
+            runs: 1,
+            whole: 1,
+            admitted: 0,
+        }
+    );
+    assert_eq!(said(&entries)[0][0].0, "memory_short");
+}
+
+#[test]
+fn a_known_demand_waits_while_an_unknown_demand_holds_the_machine() {
+    let (mut fixture, history) = measured_fixture();
+    let other = fixture.root.join("other");
+    std::fs::create_dir_all(other.join("roles")).unwrap();
+    let bundle = fixture.root.join("bundle");
+    for file in ["policy.json", "roles/work.md"] {
+        std::fs::copy(bundle.join(file), other.join(file)).unwrap();
+    }
+    let mut manifest: Value =
+        serde_json::from_slice(&std::fs::read(bundle.join("bundle.json")).unwrap()).unwrap();
+    manifest["name"] = json!("other");
+    std::fs::write(other.join("bundle.json"), manifest.to_string()).unwrap();
+    let first = fixture.queue_bundle("other");
+    fixture.queue();
+    let pass = |fixture: &Fixture| {
+        judged(
+            fixture,
+            &plenty(),
+            &history.journals,
+            measured(16 * GIB, 8000),
+            &BTreeMap::new(),
+        )
+        .0
+    };
+    let held = |holder| {
+        (
+            "demand_unknown",
+            format!("{holder} holds the whole machine until it ends"),
+        )
+    };
+    let from_queue = pass(&fixture);
+    assert_eq!(
+        said(&from_queue),
+        vec![
+            vec![],
+            vec![held(format!("entry {first} of recipe other, admitted before it in this pass with its demand unknown,"))],
+        ]
+    );
+
+    run(
+        &mut fixture.store,
+        "live",
+        "other",
+        &[("intake", 0, 0)],
+        false,
+    );
+    let from_journal = pass(&fixture);
+    assert_eq!(
+        said(&from_journal)[1],
+        vec![held(
+            "running run 'live' of recipe other, whose demand is unknown,".to_string()
+        )]
+    );
+}
+
+#[test]
+fn demand_larger_than_the_whole_machine_starts_only_when_idle() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let registry = registry(|store| {
+        run(store, "live", "fixture", &[("implement", 0, 0)], false);
+    });
+    for (resource, unit, memory, load, total, free) in [
+        ("memory", "bytes", 16 * GIB, 1000, 16 * GIB, 8 * GIB),
+        ("cpu", "millicores", GIB, 8000, 8000, 4000),
+    ] {
+        let host = declared(memory, load);
+        let use_now = Use {
+            memory_bytes: memory,
+            load_millicores: load,
+        };
+        let pass = |journals| {
+            judged(
+                &fixture,
+                &host,
+                journals,
+                measured(8 * GIB, 4000),
+                &BTreeMap::from([("live", use_now)]),
+            )
+            .0
+        };
+        assert_eq!(said(&pass(&[])), vec![vec![]], "{resource}");
+        assert_eq!(
+            said(&pass(&registry.journals)),
+            vec![vec![(
+                if resource == "memory" {
+                    "memory_short"
+                } else {
+                    "cpu_short"
+                },
+                format!(
+                    "{resource} is short: recipe fixture needs {} {unit} ({total} average over \
+                     its declared demand + {} margin), {free} {unit} available, 0 {unit} \
+                     reserved by 1 running runs; it needs more than the machine's {total} \
+                     {unit}, so it starts only when nothing else runs",
+                    total + total / 4,
+                    total / 4,
+                ),
+            )]]
+        );
+    }
+}
+
+#[test]
+fn a_declared_demand_applies_until_the_recipe_has_measured_history() {
+    let (mut fixture, history) = measured_fixture();
+    fixture.queue();
+    let host = declared(2 * GIB, 1000);
+    let pass = |journals| {
+        judged(
+            &fixture,
+            &host,
+            journals,
+            measured(3 * GIB, 8000),
+            &BTreeMap::new(),
+        )
+        .0
+    };
+    let declared = pass(&[]);
+    let sized = declared[0].demand.as_ref().unwrap();
+    assert_eq!(sized.source, Source::Declared);
+    assert_eq!(sized.memory_bytes, Need::of(2 * GIB, 25));
+    assert_eq!(sized.load_millicores, Need::of(1000, 25));
+    assert_eq!(said(&declared), vec![vec![]]);
+    let learned = pass(&history.journals);
+    let sized = learned[0].demand.as_ref().unwrap();
+    assert_eq!(sized.source, Source::Measured { runs: 2 });
+    assert_eq!(sized.memory_bytes, Need::of(3 * GIB, 25));
+    assert_eq!(sized.load_millicores, Need::of(2000, 25));
+    assert_eq!(said(&learned)[0][0].0, "memory_short");
 }
 
 /// A host file with no run ceiling: measured, no entry waits as

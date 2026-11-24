@@ -38,7 +38,7 @@ pub(crate) struct Read {
 }
 
 /// Read `own` and each of `others` that is not `own`, each once: the
-/// latest `candidates` runs of each recipe, and the running runs.
+/// latest `candidates` ended runs of each recipe, and the running runs.
 pub(crate) fn read(
     own: &Store,
     others: &[PathBuf],

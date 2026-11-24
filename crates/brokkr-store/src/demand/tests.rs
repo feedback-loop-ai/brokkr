@@ -57,7 +57,7 @@ fn row(run: &str, recipe: &str, at: &str, event: UsageEvent) -> UsageRow {
     }
 }
 
-/// Each recipe's latest runs alone, newest first, and of their events only
+/// Each recipe's latest ended runs alone, newest first, and of their events only
 /// a phase entered and an ending that carries usage: an ending without
 /// it, another event, and an envelope that only names `usage` in its text
 /// are not read.
@@ -69,16 +69,26 @@ fn the_history_reads_each_recipes_latest_runs_and_only_the_events_that_size_it()
         ("a2", "self", "2026-11-02T00:00:00Z"),
         ("a3", "self", "2026-11-03T00:00:00Z"),
         ("b1", "verify", "2026-11-01T00:00:00Z"),
+        ("live", "self", "2026-11-04T00:00:00Z"),
     ] {
         run(&store, name, recipe, at);
     }
-    events(&store, "a1", &[("phase/entered", json!({"phase": "old"}))]);
+    events(
+        &store,
+        "a1",
+        &[
+            ("phase/entered", json!({"phase": "old"})),
+            ("effect/succeeded", json!({"usage": usage(90)})),
+            ("run/completed", json!({})),
+        ],
+    );
     events(
         &store,
         "a2",
         &[
             ("phase/entered", json!({"phase": "implement"})),
             ("effect/succeeded", json!({"usage": usage(10)})),
+            ("run/completed", json!({})),
         ],
     );
     events(
@@ -89,12 +99,24 @@ fn the_history_reads_each_recipes_latest_runs_and_only_the_events_that_size_it()
             ("effect/failed", json!({"result": "no usage"})),
             ("effect/requested", json!({"note": "\"usage\""})),
             ("effect/indeterminate", json!({"usage": usage(30)})),
+            ("run/stopped", json!({})),
         ],
     );
     events(
         &store,
         "b1",
-        &[("effect/succeeded", json!({"usage": usage(5)}))],
+        &[
+            ("effect/succeeded", json!({"usage": usage(5)})),
+            ("run/completed", json!({})),
+        ],
+    );
+    events(
+        &store,
+        "live",
+        &[
+            ("phase/entered", json!({"phase": "intake"})),
+            ("effect/succeeded", json!({"usage": usage(1)})),
+        ],
     );
     let read = store.usage_history(2).unwrap();
     let at = |day: &str| format!("2026-11-0{day}T00:00:00Z");
@@ -163,7 +185,10 @@ fn the_untouched_open_reads_a_journal_and_leaves_its_directory_byte_identical() 
         events(
             &store,
             "a",
-            &[("effect/succeeded", json!({"usage": usage(7)}))],
+            &[
+                ("effect/succeeded", json!({"usage": usage(7)})),
+                ("run/completed", json!({})),
+            ],
         );
     }
     let before = files(dir.path());

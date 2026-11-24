@@ -1,6 +1,6 @@
 //! What a recipe's measured runs say it needs (decision 0125 ruling 3):
 //! of the rows every journal's history read gave, each recipe's newest
-//! runs that carry `effect-usage/v1`, at most the window, and for each
+//! ended runs that carry `effect-usage/v1`, at most the window, and for each
 //! phase the means of its attempts' peaks, an attempt of several drivers
 //! counted as their sum. The order those runs entered their phases says
 //! which phases a running run may still enter (ruling 5).
@@ -121,7 +121,8 @@ impl Profile {
     }
 
     /// The largest expected peak of `current` and every phase a run of the
-    /// window entered after it; of every phase where none entered it.
+    /// window entered after it. Use every measured phase when the window
+    /// never entered the current phase or measured any remaining phase.
     pub(crate) fn remaining(&self, current: Option<&str>) -> Peak {
         let Some(current) = current.filter(|phase| self.entered(phase)) else {
             return self.peak();
@@ -136,9 +137,12 @@ impl Profile {
                     .map(String::as_str),
             );
         }
-        (self.phases.iter())
+        self.phases
+            .iter()
             .filter(|(phase, _)| ahead.contains(phase.as_str()))
-            .fold(Peak::default(), |all, (_, peak)| all.max(*peak))
+            .map(|(_, peak)| *peak)
+            .reduce(Peak::max)
+            .unwrap_or_else(|| self.peak())
     }
 
     fn entered(&self, phase: &str) -> bool {

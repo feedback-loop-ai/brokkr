@@ -11,7 +11,7 @@
 //! there. Neither migrates, creates, leases or locks anything.
 //!
 //! The history is one bounded statement per journal: the latest
-//! `candidates` runs of each recipe by `created_at`, and of their events
+//! `candidates` ended runs of each recipe by `created_at`, and of their events
 //! only the `phase/entered` rows and the endings carrying a `usage`
 //! object, each prefiltered by its text and then read through
 //! `json_valid`, so an envelope no reader parses is never extracted.
@@ -47,11 +47,20 @@ pub struct Unended {
     pub recipe: String,
 }
 
-/// The latest `?1` runs of each recipe, and the events of theirs that size
+/// Whether the run named by the query's `r` alias has a terminal event.
+fn ended_sql() -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM events WHERE events.run_id = r.run_id AND {})",
+        crate::terminal::terminal_predicate()
+    )
+}
+
+/// The latest `?1` ended runs of each recipe, and the events of theirs that size
 /// it, newest run first and each run's events in order.
 fn history_sql() -> String {
     let kind = crate::summary::text_at("e.envelope", "$.type");
     let phase = crate::summary::text_at("e.envelope", "$.payload.phase");
+    let ended = ended_sql();
     format!(
         "SELECT r.run_id, r.bundle_name, r.created_at, {kind}, {phase},
             CASE WHEN json_valid(e.envelope)
@@ -59,7 +68,7 @@ fn history_sql() -> String {
                 THEN json_extract(e.envelope, '$.payload.usage') END
          FROM (SELECT run_id, bundle_name, created_at, ROW_NUMBER() OVER (
                    PARTITION BY bundle_name ORDER BY created_at DESC, run_id DESC) AS latest
-               FROM runs) AS r
+               FROM runs AS r WHERE {ended}) AS r
          JOIN events AS e ON e.run_id = r.run_id
          WHERE r.latest <= ?1
            AND (instr(e.envelope, 'phase/entered') > 0 OR instr(e.envelope, '\"usage\"') > 0)
@@ -70,10 +79,9 @@ fn history_sql() -> String {
 /// The runs no terminal event ends, in the journal's order.
 fn unended_sql() -> String {
     format!(
-        "SELECT r.run_id, r.bundle_name FROM runs AS r WHERE NOT EXISTS (
-             SELECT 1 FROM events WHERE events.run_id = r.run_id AND {})
+        "SELECT r.run_id, r.bundle_name FROM runs AS r WHERE NOT {}
          ORDER BY r.created_at, r.run_id",
-        crate::terminal::terminal_predicate()
+        ended_sql()
     )
 }
 
@@ -108,7 +116,7 @@ impl Store {
             .map_err(|error| damage::classified(path, error))
     }
 
-    /// Every event of the latest `candidates` runs of each recipe that
+    /// Every event of the latest `candidates` ended runs of each recipe that
     /// sizes it ([`UsageEvent`]), newest run first.
     pub fn usage_history(&self, candidates: u32) -> Result<Vec<UsageRow>, StoreError> {
         let sql = history_sql();

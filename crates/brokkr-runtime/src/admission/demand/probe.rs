@@ -142,13 +142,15 @@ fn read(file: &'static str) -> Result<String, Unmeasured> {
 /// Whether this machine can be measured, read once with no window, for
 /// `brokkr doctor`.
 pub fn measurable() -> Result<(), Unmeasured> {
-    match cfg!(target_os = "linux") {
-        true => {
-            meminfo(&read(MEMINFO)?).ok_or(Unmeasured::Unparsed(MEMINFO))?;
-            stat(&read(STAT)?).ok_or(Unmeasured::Unparsed(STAT))?;
-            Ok(())
-        }
-        false => Err(Unmeasured::Platform),
+    #[cfg(target_os = "linux")]
+    {
+        meminfo(&read(MEMINFO)?).ok_or(Unmeasured::Unparsed(MEMINFO))?;
+        stat(&read(STAT)?).ok_or(Unmeasured::Unparsed(STAT))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(Unmeasured::Platform)
     }
 }
 
