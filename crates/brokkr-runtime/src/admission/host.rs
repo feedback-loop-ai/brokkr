@@ -396,8 +396,7 @@ impl TryFrom<WrittenHost> for HostConfig {
     }
 }
 
-/// What a host file's schema refuses before any block is read: a block
-/// or a value its version predates.
+/// What a host file's version predates, refused before any block is read.
 fn schema_admits(written: &WrittenHost) -> Result<(), Problem> {
     match written.schema {
         Schema::V1 => {

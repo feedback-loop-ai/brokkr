@@ -128,9 +128,8 @@ pub enum Reason {
     DispatchEnvelope,
     /// The machine has no room for it now.
     Capacity(Capacity),
-    /// Decision 0125's rule: its demand does not fit what the machine has
-    /// now, or a journal the rule reads beside the queue is unreadable.
-    /// Each waits and clears by itself.
+    /// Decision 0125's rule: its demand does not fit the machine now, or a
+    /// journal the rule reads is unreadable. Each waits and clears by itself.
     Demand(Unfit),
 }
 
