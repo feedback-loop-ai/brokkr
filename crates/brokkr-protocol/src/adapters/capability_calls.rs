@@ -14,7 +14,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::row::{mcp_separator, Row};
+use super::row::Row;
 
 /// The private checkpoint key an observation rides under from the driver
 /// to the engine, which consumes it before any append. The store never
@@ -118,11 +118,11 @@ impl Observation {
     }
 
     /// One dsh transcript `tool/call` event.
-    pub(super) fn dsh(event: &Value) -> Observation {
+    pub(super) fn dsh(event: &Row<'_>) -> Observation {
         Observation {
             format: Format::Dsh,
-            call: text(event, "/data/callId"),
-            tool: named(text(event, "/data/name")),
+            call: event.text("/data/callId"),
+            tool: event.tool("/data/name"),
         }
     }
 
@@ -157,38 +157,11 @@ impl Observation {
     }
 }
 
-fn text(value: &Value, pointer: &str) -> Option<String> {
-    value
-        .pointer(pointer)
-        .and_then(Value::as_str)
-        .map(str::to_string)
-}
-
 const CODEX_ITEM_TYPE: &str = "/item/type";
 
 /// Compare the Codex item category before masking its displayed spelling.
 pub(super) fn codex_item_is(event: &Row<'_>, kind: &str) -> bool {
     event.is(CODEX_ITEM_TYPE, kind)
-}
-
-/// A Claude or dsh tool name. One under the MCP prefix is an MCP call, split
-/// at the first separator after it; one that does not split into a server
-/// and a tool is kept whole as an unidentified MCP call, never as a native
-/// tool of that name.
-fn named(name: Option<String>) -> Tool {
-    let Some(name) = name else {
-        return Tool::Missing;
-    };
-    let Some(rest) = name.strip_prefix(MCP_PREFIX) else {
-        return Tool::Named { name };
-    };
-    match mcp_separator(rest) {
-        Some(separator) => Tool::Mcp {
-            server: rest[..separator.start].to_string(),
-            tool: rest[separator.end..].to_string(),
-        },
-        None => Tool::McpUnidentified { reported: name },
-    }
 }
 
 #[cfg(test)]

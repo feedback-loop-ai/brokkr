@@ -4,6 +4,7 @@ use super::super::claude_fold::{fold_stream_event, Source::Claude};
 use super::super::tests::fold_codex_into;
 use super::super::{fold_dsh_event, CodexThreadEcho, Row};
 use super::{Format, Observation, Tool, OBSERVATION_KEY};
+use crate::secret::{self, BoundSecret};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 
 /// An MCP tool name that, under its `mcp__engine__` prefix, runs past the
@@ -148,11 +149,14 @@ fn each_format_reads_the_measured_call_identity_whole() {
             seen(Format::Codex, None, Tool::Missing),
         ),
         (
-            Observation::dsh(&dsh_call("call_1", "bash")),
+            Observation::dsh(&Row::new(&dsh_call("call_1", "bash"), &[])),
             seen(Format::Dsh, Some("call_1"), named("bash")),
         ),
         (
-            Observation::dsh(&dsh_call("call_2", "mcp__engine__u0_engine_probe")),
+            Observation::dsh(&Row::new(
+                &dsh_call("call_2", "mcp__engine__u0_engine_probe"),
+                &[],
+            )),
             seen(
                 Format::Dsh,
                 Some("call_2"),
@@ -160,11 +164,11 @@ fn each_format_reads_the_measured_call_identity_whole() {
             ),
         ),
         (
-            Observation::dsh(&dsh_call("call_3", "mcp____probe")),
+            Observation::dsh(&Row::new(&dsh_call("call_3", "mcp____probe"), &[])),
             seen(Format::Dsh, Some("call_3"), unidentified("mcp____probe")),
         ),
         (
-            Observation::dsh(&dsh_call("call_4", "mcp__server__")),
+            Observation::dsh(&Row::new(&dsh_call("call_4", "mcp__server__"), &[])),
             seen(Format::Dsh, Some("call_4"), unidentified("mcp__server__")),
         ),
     ];
@@ -191,7 +195,7 @@ fn each_reading_has_one_encoding_and_decodes_back() {
                    "tool": {"kind": "mcp", "server": "engine", "tool": "probe"}}),
         ),
         (
-            Observation::dsh(&dsh_call("call_3", "mcp____probe")),
+            Observation::dsh(&Row::new(&dsh_call("call_3", "mcp____probe"), &[])),
             json!({"format": "dsh", "call": "call_3",
                    "tool": {"kind": "mcp_unidentified", "reported": "mcp____probe"}}),
         ),
@@ -245,11 +249,12 @@ fn codex_rows(events: &[Value]) -> Vec<Value> {
     rows
 }
 
-fn dsh_rows(turns: u64, events: &[Value]) -> Vec<Value> {
+fn dsh_rows(turns: u64, events: &[Value], bindings: &[BoundSecret]) -> Vec<Value> {
     let mut rows = Vec::new();
     let (mut turns, mut meta) = (turns, Map::new());
     for event in events {
-        fold_dsh_event(event, None, &mut turns, &mut meta, &mut |row| {
+        let raw = Row::new(event, bindings);
+        fold_dsh_event(event, &raw, None, &mut turns, &mut meta, &mut |row| {
             rows.push(row.row.clone());
         });
     }
@@ -363,11 +368,31 @@ fn the_folds_write_each_calls_shown_tool_and_its_observation() {
         carrying(row, seen(Format::Dsh, Some(call), seen_tool))
     };
     assert_eq!(
-        dsh_rows(1, &calls),
+        dsh_rows(1, &calls, &[]),
         vec![
             row("bash", "call_1", named("bash")),
             row(&shown, "call_2", mcp("engine", LONG_TOOL)),
         ]
     );
-    assert_eq!(dsh_rows(0, &calls), Vec::<Value>::new());
+    assert_eq!(dsh_rows(0, &calls, &[]), Vec::<Value>::new());
+}
+
+#[test]
+fn bound_name_across_separator() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("bindings");
+    secret::store_set(&store, "S", "v__t").unwrap();
+    let bindings = secret::resolve_bindings(&store, &["S".into()]).unwrap();
+    let call = dsh_call("call_1", "mcp__srv__tool");
+    let reported = "mcp__sr[secret:S]ool";
+    let rows = dsh_rows(1, &[call], &bindings);
+    assert_eq!(
+        rows,
+        [json!({
+            "step": "seat-turn", "turn": 1, "harness": "deepseek",
+            "model": "not reported", "effort": "not reported", "tool": reported,
+            "observation": {"format": "dsh", "call": "call_1",
+                            "tool": {"kind": "mcp_unidentified", "reported": reported}},
+        })],
+    );
 }

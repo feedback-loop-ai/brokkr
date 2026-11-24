@@ -4,6 +4,7 @@
 //! becomes the seat's.
 
 use super::dsh_effort::{applied_level, model_row};
+use super::tests::fold_dsh_event_unbound;
 use super::*;
 
 /// The patch and the settings document one pinned seat stages.
@@ -79,7 +80,7 @@ fn fold_header(header: serde_json::Value, seed: Option<&str>) -> (Value, Option<
     let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
         "message":{"source":{"model":"deepseek-flash"}}}});
     for event in [&header, &step] {
-        fold_dsh_event(event, None, &mut turns, &mut meta, &mut |value| {
+        fold_dsh_event_unbound(event, None, &mut turns, &mut meta, &mut |value| {
             emitted.push(value.row.clone())
         });
     }

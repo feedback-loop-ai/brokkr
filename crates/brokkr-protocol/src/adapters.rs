@@ -1774,18 +1774,12 @@ fn dsh_row_is_current(event: &Value, first_seq: Option<u64>) -> bool {
 /// unparsed JSON string, so no target is derived from it at all.
 fn fold_dsh_event(
     event: &Value,
+    raw: &Row<'_>,
     first_seq: Option<u64>,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Emitted),
 ) {
-    // Current-only accounting (design D8; task 9.6): a resumed session's
-    // file holds its restored history beside the new work, and only
-    // events past the owned pre-followup sequence are this invocation's.
-    // The boundary exists only when a root was rejoined. A cold launch
-    // carries none, so its file is folded from its first event: dsh's
-    // log index IS the sequence and starts at 0, and a cold boundary of
-    // 0 would silently drop that first event on the shipped route.
     if !dsh_row_is_current(event, first_seq) {
         return;
     }
@@ -1850,7 +1844,7 @@ fn fold_dsh_event(
             emit(&Emitted::new(Step::SeatTurn, Value::Object(checkpoint)));
         }
         Some("tool/call") => {
-            let observation = Observation::dsh(event);
+            let observation = Observation::dsh(raw);
             if observation.shown_tool().is_none() || *turns == 0 {
                 return;
             }
@@ -2069,7 +2063,7 @@ impl DshFold<'_> {
         let mut refusal = None;
         while let Some(index) = self.tail.pending.iter().position(|byte| *byte == b'\n') {
             let line: Vec<u8> = self.tail.pending.drain(..=index).collect();
-            let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
+            let Ok(event) = serde_json::from_slice::<Value>(&line) else {
                 continue;
             };
             let row = Row::new(&event, self.bindings);
@@ -2078,7 +2072,8 @@ impl DshFold<'_> {
             if *self.turns == 0 && dsh_row_is_current(&event, self.first_seq) {
                 refusal = refusal.or_else(|| dsh_refusal(&row));
             }
-            secret::mask_json(&mut event, self.bindings);
+            let mut masked = event.clone();
+            secret::mask_json(&mut masked, self.bindings);
             let mut emitted: Vec<Value> = Vec::new();
             let mut capture = |data: &Emitted| {
                 if answer_event {
@@ -2087,7 +2082,8 @@ impl DshFold<'_> {
                 emit(data);
             };
             fold_dsh_event(
-                &event,
+                &masked,
+                &row,
                 self.first_seq,
                 self.turns,
                 self.session_meta,

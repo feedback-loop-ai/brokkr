@@ -37,6 +37,17 @@ fn drain_into(
     .drain(&mut |value| emitted.push(value.row.clone()));
 }
 
+/// Fold one unbound dsh transcript row.
+pub(super) fn fold_dsh_event_unbound(
+    event: &Value,
+    first_seq: Option<u64>,
+    turns: &mut u64,
+    meta: &mut Map<String, Value>,
+    emit: &mut impl FnMut(&Emitted),
+) {
+    fold_dsh_event(event, &Row::new(event, &[]), first_seq, turns, meta, emit);
+}
+
 /// Fold one Claude stream row with no binding, appending every emitted row
 /// to `emitted`: `drain_into`'s counterpart for the Claude fold, shared by
 /// the tests that only assert on what it emitted.
@@ -1422,7 +1433,7 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
     let mut emitted: Vec<serde_json::Value> = Vec::new();
     let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
         "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}});
-    fold_dsh_event(&step, None, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event_unbound(&step, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.row.clone())
     });
     assert_eq!(
@@ -1433,24 +1444,24 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
 
     let header = serde_json::json!({"type":"request/header","data":{"header":{"config":
         {"provider":"meta-contributor","model":"meta/muse-spark-1.3-contributor","reasoningEffort":"xhigh"}}}});
-    fold_dsh_event(&header, None, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event_unbound(&header, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.row.clone())
     });
     assert_eq!(emitted.len(), 1, "a header is meta, not a checkpoint");
     assert_eq!(meta["effort"], "xhigh");
-    fold_dsh_event(&step, None, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event_unbound(&step, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.row.clone())
     });
     assert_eq!(emitted[1]["effort"], "xhigh");
     let call = serde_json::json!({"type":"tool/call","data":{"name":"bash"}});
-    fold_dsh_event(&call, None, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event_unbound(&call, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.row.clone())
     });
     assert_eq!(emitted[2]["effort"], "xhigh");
     assert_eq!(emitted[2]["tool"], "bash");
 
     let hostile = serde_json::json!({"type":"request/header","data":{"header":{"config":{"reasoningEffort":"think hard"}}}});
-    fold_dsh_event(&hostile, None, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event_unbound(&hostile, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.row.clone())
     });
     assert_eq!(
@@ -1458,7 +1469,7 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
         "a value that fails the clamp changes nothing"
     );
     let none = serde_json::json!({"type":"request/header","data":{"header":{"config":{"provider":"spark","model":"qwen3.8-flash"}}}});
-    fold_dsh_event(&none, None, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event_unbound(&none, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.row.clone())
     });
     assert_eq!(
@@ -1487,7 +1498,7 @@ fn a_cold_dsh_launch_folds_its_first_event_and_a_warm_one_folds_past_the_boundar
         let mut meta = serde_json::Map::new();
         let mut folded = Vec::new();
         for seq in seqs {
-            fold_dsh_event(&step(*seq), boundary, &mut turns, &mut meta, &mut |_| {
+            fold_dsh_event_unbound(&step(*seq), boundary, &mut turns, &mut meta, &mut |_| {
                 folded.push(*seq)
             });
         }
@@ -8088,7 +8099,7 @@ fn dsh_fold_uses_the_root_locator_and_ignores_internal_session_ids() {
         json!({"type": "turn/end", "data": {"turn": 1}}),
         json!({}),
     ] {
-        fold_dsh_event(&event, None, &mut turns, &mut meta, &mut |value| {
+        fold_dsh_event_unbound(&event, None, &mut turns, &mut meta, &mut |value| {
             emitted.push(value.row.clone())
         });
     }
@@ -9079,7 +9090,7 @@ fn a_dsh_tool_call_before_any_assembled_message_invents_no_turn() {
     let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
-    fold_dsh_event(
+    fold_dsh_event_unbound(
         &json!({"type": "tool/call", "data": {"name": "fs_read"}}),
         None,
         &mut turns,
