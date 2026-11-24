@@ -17,18 +17,30 @@ pub struct TreeNow {
 }
 
 /// Each of `roots`' trees as one read of the process table shows it,
-/// `None` for a root the table does not list; `None` whole when the table
-/// cannot be read.
+/// `None` for an absent root or a tree containing another requested root
+/// (including a repeated pid); `None` whole when the table cannot be read.
 pub fn trees_now(roots: &[u32]) -> Option<Vec<Option<TreeNow>>> {
     let entries = table::snapshot().ok()?;
-    let each = |root: &u32| {
-        let sample = tree(&entries, i32::try_from(*root).ok()?)?;
+    Some(from_table(&entries, roots))
+}
+
+fn from_table(entries: &[table::Entry], roots: &[u32]) -> Vec<Option<TreeNow>> {
+    let roots: Vec<_> = roots.iter().map(|root| i32::try_from(*root).ok()).collect();
+    let each = |(at, root): (usize, &Option<i32>)| {
+        let (sample, pids) = tree(entries, (*root)?)?;
+        let overlaps = roots
+            .iter()
+            .enumerate()
+            .any(|(other, pid)| other != at && pid.is_some_and(|pid| pids.contains(&pid)));
+        if overlaps {
+            return None;
+        }
         Some(TreeNow {
             memory_bytes: sample.rss,
             cpu: sample.cpu,
         })
     };
-    Some(roots.iter().map(each).collect())
+    roots.iter().enumerate().map(each).collect()
 }
 
 #[cfg(test)]

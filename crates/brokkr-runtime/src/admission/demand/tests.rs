@@ -346,6 +346,50 @@ fn a_running_run_in_implement_reserves_its_verify_peak_beyond_its_measured_use()
     );
 }
 
+#[test]
+fn a_queued_run_before_its_first_phase_reserves_its_whole_peak() {
+    let mut fixture = Fixture::new();
+    let registry = registry(|store| {
+        run(store, "starting", "fixture", &[], false);
+        run(store, "live", "fixture", &[("implement", 0, 0)], false);
+    });
+    fixture.queue();
+    let uses = BTreeMap::from([
+        (
+            "starting",
+            Use {
+                memory_bytes: 6 * GIB,
+                load_millicores: 2000,
+            },
+        ),
+        (
+            "live",
+            Use {
+                memory_bytes: 3 * GIB,
+                load_millicores: 500,
+            },
+        ),
+    ]);
+    let (entries, _) = judged(
+        &fixture,
+        &declared(4 * GIB, 1000),
+        &registry.journals,
+        measured(9 * GIB, 8000),
+        &uses,
+    );
+    assert_eq!(
+        entries[0].demand.as_ref().unwrap().reserved,
+        Reserved {
+            memory_bytes: 5 * GIB,
+            load_millicores: 1500,
+            runs: 2,
+            whole: 1,
+            admitted: 0,
+        }
+    );
+    assert_eq!(said(&entries)[0][0].0, "memory_short");
+}
+
 /// History read from two journals of the registry and the pass's own,
 /// newest first; a third that cannot be read is named once and sizes
 /// nothing; one the map lists that is not there is passed over silently.

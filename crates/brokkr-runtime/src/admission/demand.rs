@@ -288,7 +288,10 @@ impl Sizing {
             });
             return;
         };
-        let (memory, load) = match use_now {
+        // A queue start records the dispatcher's pid before the run's
+        // first phase. Only the driver can enter that phase, so until then
+        // the recorded tree cannot reduce this run's reservation.
+        let (memory, load) = match running.phase.as_ref().and(use_now) {
             Some(used) => (
                 peak.memory_bytes.saturating_sub(used.memory_bytes),
                 peak.load_millicores.saturating_sub(used.load_millicores),
