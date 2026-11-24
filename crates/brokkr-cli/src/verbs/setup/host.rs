@@ -12,6 +12,9 @@ use tempfile::NamedTempFile;
 
 use crate::Exit;
 
+mod seed;
+pub(super) use seed::seed;
+
 pub(crate) const UPGRADE_COMMAND: &str = "brokkr system host upgrade";
 
 #[derive(clap::Subcommand)]
@@ -142,11 +145,16 @@ fn replace(
     permissions: Permissions,
     finish: impl FnOnce(NamedTempFile, &Path) -> io::Result<()>,
 ) -> io::Result<()> {
-    let mut staged = NamedTempFile::new_in(parent(path))?;
-    staged.write_all(text.as_bytes())?;
+    let staged = stage(path, text)?;
     staged.as_file().set_permissions(permissions)?;
     staged.as_file().sync_all()?;
     finish(staged, path)
+}
+
+fn stage(path: &Path, text: &str) -> io::Result<NamedTempFile> {
+    let mut staged = NamedTempFile::new_in(parent(path))?;
+    staged.write_all(text.as_bytes())?;
+    Ok(staged)
 }
 
 fn parent(path: &Path) -> &Path {

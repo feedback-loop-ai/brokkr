@@ -1,9 +1,10 @@
+use std::error::Error;
 use std::fs;
 use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
 
 use super::*;
 
-const V4: &str = r#"{
+pub(super) const V4: &str = r#"{
   "schema" : "forge.host/v4",
   "providers": {"exec": {"ceiling": 2e0}},
   "floors": [{"place": "temp", "floor_bytes": 1}],
@@ -71,22 +72,60 @@ fn host_upgrade_refuses_bad_input_and_never_follows_a_link() {
             missing.display()
         )
     );
+    assert_eq!(missing_error.source().map(ToString::to_string), None);
     assert!(matches!(missing_error, UpgradeError::Missing(at) if at == missing));
+    let directory = fail(dir.path());
+    assert_eq!(
+        directory.to_string(),
+        format!(
+            "cannot read the host configuration at {}: expected a regular file",
+            dir.path().display()
+        )
+    );
     assert!(
-        matches!(fail(dir.path()), UpgradeError::Read(at, error) if at == dir.path() && error.kind() == io::ErrorKind::Other)
+        matches!(directory, UpgradeError::Read(at, error) if at == dir.path() && error.kind() == io::ErrorKind::Other)
     );
     let link = dir.path().join("link.json");
     symlink(&path, &link).unwrap();
-    assert!(matches!(fail(&link), UpgradeError::Link(at) if at == link));
+    let linked = fail(&link);
+    assert_eq!(
+        linked.to_string(),
+        format!(
+            "the host configuration at {} is a symbolic link",
+            link.display()
+        )
+    );
+    assert!(matches!(linked, UpgradeError::Link(at) if at == link));
     assert_eq!(fs::read_link(&link).unwrap(), path);
     assert_eq!(fs::read_to_string(&path).unwrap(), V4);
 
     let malformed = V4.replace("\"ceiling\": 3", "\"ceiling\": 0");
     fs::write(&path, &malformed).unwrap();
+    let invalid = fail(&path);
+    assert_eq!(
+        invalid.to_string(),
+        format!(
+            "the host configuration at {} is not a valid host configuration file",
+            path.display()
+        )
+    );
+    assert!(invalid.source().is_some());
     assert!(
-        matches!(fail(&path), UpgradeError::Invalid(HostError::Invalid { path: at, .. }) if at == path)
+        matches!(invalid, UpgradeError::Invalid(HostError::Invalid { path: at, .. }) if at == path)
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), malformed);
+
+    fs::write(&path, V4).unwrap();
+    let mut full: &mut [u8] = &mut [];
+    let output = upgrade_with(&path, false, &mut full, persist).unwrap_err();
+    assert_eq!(
+        output.to_string(),
+        "cannot print the host upgrade: failed to write whole buffer"
+    );
+    assert!(
+        matches!(output, UpgradeError::Output(error) if error.kind() == io::ErrorKind::WriteZero)
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), V4);
 }
 
 #[test]
@@ -102,6 +141,7 @@ fn host_upgrade_with_a_failed_rename_leaves_the_original_and_removes_the_temp_fi
         persist(staged, &dir.path().join("missing/host.json"))
     })
     .unwrap_err();
+    assert!(error.source().is_some());
     assert!(error.to_string().starts_with(&format!(
         "cannot write the host configuration at {}: ",
         path.display()

@@ -2,6 +2,7 @@
 //! `init`, `doctor`, `library compile`, `library recipes`, `library agents`,
 //! `runs muninn`, `system secrets`, `driver` and the hidden `fake-driver`.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -53,7 +54,7 @@ pub(crate) fn init(InitArgs { dir, cli }: InitArgs) -> Result<ExitCode> {
     let root = crate::folder::admit::root(&dir)?;
     let home = std::env::var_os("HOME").unwrap_or_default();
     let os = std::env::consts::OS;
-    let scaffold = init::init(&root, &path, os, Path::new(&home), cli)?;
+    let scaffold = scaffold_with_host(&root, &path, os, &home, cli)?;
     let folder = root.join(FOLDER);
     eprintln!(
         "initialized {} (digest {}), writing:",
@@ -96,6 +97,24 @@ pub(crate) fn init(InitArgs { dir, cli }: InitArgs) -> Result<ExitCode> {
         eprintln!("{}: {}", line.what(), line.detail());
     }
     Ok(Exit::Completed.into())
+}
+
+fn scaffold_with_host(
+    root: &Path,
+    path: &OsStr,
+    os: &str,
+    home: &OsStr,
+    cli: Option<init::Cli>,
+) -> Result<init::Scaffold> {
+    let host_file = brokkr_runtime::admission::host_file(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        Some(home.to_owned()),
+    )?;
+    let mut scaffold = init::init(root, path, os, Path::new(home), cli)?;
+    scaffold
+        .notes
+        .extend(host::seed(&host_file, &scaffold.bundle)?);
+    Ok(scaffold)
 }
 
 /// `brokkr doctor`: tools, drivers, the database and optionally a bundle.

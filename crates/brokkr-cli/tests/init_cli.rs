@@ -174,3 +174,60 @@ fn a_volta_bin_holding_codex_and_dsh_scaffolds_for_the_named_one() {
         );
     }
 }
+
+#[test]
+fn init_seeds_exactly_the_installed_providers_and_leaves_a_legacy_host_unchanged() {
+    use brokkr_runtime::admission::{declared_routes, HostRoutes};
+
+    let repo = crate::brokkr_folder::repository();
+    let aside = tempfile::tempdir().unwrap();
+    let bins = bins_holding(aside.path(), &["claude", "codex", "dsh"]);
+    let host = aside.path().join(".config/brokkr/host.json");
+    let (code, output) = init_under(repo.path(), &bins, aside.path(), &["--cli", "dsh"]);
+    assert_eq!(code, Some(0), "{output}");
+
+    let parsed: Value = serde_json::from_slice(&std::fs::read(&host).unwrap()).unwrap();
+    assert_eq!(parsed["schema"], "forge.host/v5");
+    assert_eq!(
+        parsed["providers"],
+        serde_json::json!({"claude":{"ceiling":1}, "dsh":{"ceiling":1}, "exec":{"ceiling":1}})
+    );
+    assert_eq!(
+        parsed["floors"],
+        serde_json::json!([{"place":"seat-scratch", "floor_bytes":30_000_000_000u64}])
+    );
+    let HostRoutes::Declared(routes) = declared_routes(&host).unwrap() else {
+        panic!("the host loader did not read the init draft");
+    };
+    assert_eq!(
+        routes.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["claude", "dsh", "exec"]
+    );
+    let lines: Vec<_> = output
+        .lines()
+        .filter(|line| line.ends_with("(placeholder to tune)"))
+        .collect();
+    let placeholders = ["claude", "dsh", "exec"].map(|provider| {
+        format!(
+            "{}: providers.{provider}.ceiling = 1 (placeholder to tune)",
+            host.display()
+        )
+    });
+    assert_eq!(lines, placeholders);
+
+    let old = r#"{"schema":"forge.host/v1","providers":{"existing":{"ceiling":2e0}},"floors":[{"place":"temp","floor_bytes":1}],"boxed_builds":{"ceiling":5}}"#;
+    std::fs::write(&host, old).unwrap();
+    let second = crate::brokkr_folder::repository();
+    let (code, output) = init_under(second.path(), &bins, aside.path(), &["--cli", "codex"]);
+    assert_eq!(code, Some(0), "{output}");
+    assert_eq!(std::fs::read(&host).unwrap(), old.as_bytes());
+    let expected = format!(
+        "Left existing host file {} as it was. Run `brokkr system host upgrade` to upgrade it.",
+        host.display()
+    );
+    assert_eq!(
+        output.lines().filter(|line| *line == expected).count(),
+        1,
+        "{output}"
+    );
+}
