@@ -15,6 +15,7 @@ use thiserror::Error;
 
 use super::resume::SiteContext;
 use super::Engine;
+use crate::agents::kinds::{SeatKinds, UNDECLARED};
 use crate::bundle::sequence::before_every_gate;
 use crate::bundle::Seat;
 use crate::bundle::{ExecutableBody, SeatClass, SequenceStep};
@@ -505,6 +506,17 @@ pub(super) fn admitted(mut report: AttemptReport, site: Option<&SiteContext>) ->
     }
 }
 
+/// `report` admitted at `site` ([`admitted`]), then judged by the kinds
+/// `site`'s own harness declares, as seat `seat` wrote it
+/// ([`Admitted::kinds_judged`]): the one road a single seat's report and a
+/// panel member's take before any journal event, cleanup evidence
+/// included, is built from them. A site no plan covers keeps v7's
+/// vocabulary.
+pub(super) fn judged(report: AttemptReport, site: Option<&SiteContext>, seat: &str) -> Admitted {
+    let kinds = site.map_or(&UNDECLARED, |site| &site.kinds);
+    admitted(report, site).kinds_judged(kinds, seat)
+}
+
 /// An admitted attempt: its report, and beside it the findings its
 /// successful result reported, stamped and typed (`None` where it
 /// reported none), kept out of the result's `Value` until the journal's
@@ -516,6 +528,20 @@ pub(crate) struct Admitted {
 }
 
 impl Admitted {
+    /// This admission judged by `kinds`, the harness of `seat`, the seat
+    /// that wrote it (decision 0075 ruling 2): a result this admission
+    /// refused keeps its refusal and its words (the controller's ruling R7
+    /// of 2026-11-21), and a result naming a kind the harness does not
+    /// declare is refused, and hands back no findings. Refused or not, a
+    /// received result naming such a kind is received as the kind refusal
+    /// ([`SeatKinds::refused`]; the controller's ruling R10), before any
+    /// cleanup evidence is read from it.
+    fn kinds_judged(self, kinds: &SeatKinds, seat: &str) -> Admitted {
+        let report = kinds.refused(seat, self.report);
+        let findings = self.findings.filter(|_| report.refused.is_none());
+        Admitted { report, findings }
+    }
+
     /// The report the journal records: its successful result carrying
     /// the stamped findings it was admitted with.
     pub(super) fn journaled(mut self) -> AttemptReport {

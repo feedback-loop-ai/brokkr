@@ -759,6 +759,7 @@ fn seat_variant(number: u16) -> Option<brokkr_store::SeatRecordVersion> {
         5 => brokkr_store::SeatRecordVersion::V5,
         6 => brokkr_store::SeatRecordVersion::V6,
         7 => brokkr_store::SeatRecordVersion::V7,
+        8 => brokkr_store::SeatRecordVersion::V8,
         _ => return None,
     })
 }

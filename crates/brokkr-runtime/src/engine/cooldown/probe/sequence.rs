@@ -132,10 +132,3 @@ pub(super) fn refused_index(
         .map_or(events, |at| &events[..at]);
     chain_index(before, effect_id, site, chain)
 }
-
-/// The label a seat's attempt and its probe are both composed under: the
-/// seat, or `<seat>:<case>` where the selector chose a case.
-pub(super) fn site_name(seat: &str, case: Option<&str>) -> String {
-    case.map(|case| format!("{seat}:{case}"))
-        .unwrap_or_else(|| seat.to_string())
-}
