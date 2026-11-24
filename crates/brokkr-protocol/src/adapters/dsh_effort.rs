@@ -77,14 +77,16 @@ fn reported_level(header: &Row<'_>) -> AppliedLevel {
     effort_token(&effort).map_or(AppliedLevel::Unchanged, AppliedLevel::Reported)
 }
 
-/// The masked header affects the next assembled step and its tool
-/// rows, while the seat retains its last valid or seeded level.
+/// The level each step shows: the seat's retained one, or not reported
+/// while a header whose level a binding masks stands. dsh writes one
+/// header per request and every step after it runs under it, so a masked
+/// header settles all of them, until the next header replaces it; the
+/// seat keeps its last valid or seeded level (decision 0114, D4).
 #[derive(Default)]
 pub(super) enum Echo {
     #[default]
     Retained,
-    MaskedHeader,
-    MaskedStep,
+    Masked,
 }
 
 impl Echo {
@@ -94,21 +96,14 @@ impl Echo {
                 meta.insert("effort".into(), Value::String(effort));
                 Self::Retained
             }
-            AppliedLevel::Masked => Self::MaskedHeader,
+            AppliedLevel::Masked => Self::Masked,
             AppliedLevel::Unchanged => Self::Retained,
-        };
-    }
-
-    pub(super) fn step(&mut self) {
-        *self = match self {
-            Self::MaskedHeader => Self::MaskedStep,
-            Self::MaskedStep | Self::Retained => Self::Retained,
         };
     }
 
     pub(super) fn shown(&self, meta: &Map<String, Value>) -> String {
         match self {
-            Self::MaskedStep | Self::MaskedHeader => EFFORT_NOT_REPORTED.to_owned(),
+            Self::Masked => EFFORT_NOT_REPORTED.to_owned(),
             Self::Retained => meta
                 .get("effort")
                 .and_then(Value::as_str)

@@ -219,7 +219,7 @@ fn assert_bound_effort(home: &Path, rows: &[Value]) {
             "medium",
             EFFORT_NOT_REPORTED,
             EFFORT_NOT_REPORTED,
-            "medium",
+            EFFORT_NOT_REPORTED,
             "medium"
         ],
     );

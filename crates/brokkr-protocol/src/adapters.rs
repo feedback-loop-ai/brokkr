@@ -1790,7 +1790,6 @@ fn fold_dsh_event(
         Some(DshEvent::Session) | None => {}
         Some(DshEvent::Header) => effort.header(event, session_meta),
         Some(DshEvent::Message) => {
-            effort.step();
             *turns += 1;
             session_meta.insert("num_turns".into(), Value::from(*turns));
             // The served model, from the harness's own record of the

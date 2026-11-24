@@ -163,7 +163,7 @@ fn a_header_the_reader_cannot_read_records_no_level() {
 }
 
 #[test]
-fn a_bound_header_hides_one_steps_effort_and_keeps_the_retained_level() {
+fn a_bound_header_hides_every_step_it_governs_and_keeps_the_retained_level() {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("bindings");
     secret::store_set(&store, "S", "high").unwrap();
@@ -179,16 +179,18 @@ fn a_bound_header_hides_one_steps_effort_and_keeps_the_retained_level() {
     let mut echo = Echo::default();
     let mut meta = Map::new();
     echo.header(&Row::new(&header("low"), &bindings), &mut meta);
-    echo.step();
     assert_eq!(echo.shown(&meta), "low");
 
+    // Every step after the masked header, however many, ran under it.
     echo.header(&Row::new(&header("xhigh"), &bindings), &mut meta);
     assert_eq!(echo.shown(&meta), EFFORT_NOT_REPORTED);
-    echo.step();
     assert_eq!(echo.shown(&meta), EFFORT_NOT_REPORTED);
     assert_eq!(meta["effort"], "low");
-    echo.step();
-    assert_eq!(echo.shown(&meta), "low");
+
+    // The next header replaces it.
+    echo.header(&Row::new(&header("medium"), &bindings), &mut meta);
+    assert_eq!(echo.shown(&meta), "medium");
+    assert_eq!(meta["effort"], "medium");
 }
 
 /// The fold reads the level off dsh's own request header — the effective
