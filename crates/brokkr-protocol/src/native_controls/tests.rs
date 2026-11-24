@@ -5443,6 +5443,8 @@ fn a_grammar_refusal_names_a_bounded_label_and_never_a_payload() {
              duplicate last-wins would resolve it against the control the engine composed"
         )
     };
+    let names_no_option =
+        |harness, written: &str, label| (harness, argv(&[written]), 1, label, NO_NAME.to_string());
     let rows: Vec<(&str, Vec<String>, usize, &str, String)> = vec![
         (
             "codex",
@@ -5451,13 +5453,7 @@ fn a_grammar_refusal_names_a_bounded_label_and_never_a_payload() {
             "'--nope'",
             NO_JOINED.to_string(),
         ),
-        (
-            "codex",
-            argv(&["-zREVIEW_SENTINEL"]),
-            1,
-            UNMODELLED,
-            NO_NAME.to_string(),
-        ),
+        names_no_option("codex", "-zREVIEW_SENTINEL", UNMODELLED),
         (
             "codex",
             argv(&["-mREVIEW_SENTINEL", "-mother"]),
@@ -5506,34 +5502,10 @@ fn a_grammar_refusal_names_a_bounded_label_and_never_a_payload() {
             UNMODELLED,
             NO_JOINED.to_string(),
         ),
-        (
-            "claude",
-            argv(&["--home/secret/.ssh/id_ed25519"]),
-            1,
-            UNMODELLED,
-            NO_NAME.to_string(),
-        ),
-        (
-            "claude",
-            argv(&["---REVIEW-SENTINEL"]),
-            1,
-            UNMODELLED,
-            NO_NAME.to_string(),
-        ),
-        (
-            "claude",
-            vec![long.clone()],
-            1,
-            UNMODELLED,
-            NO_NAME.to_string(),
-        ),
-        (
-            "claude",
-            argv(&["--"]),
-            1,
-            "the terminator '--'",
-            NO_NAME.to_string(),
-        ),
+        names_no_option("claude", "--home/secret/.ssh/id_ed25519", UNMODELLED),
+        names_no_option("claude", "---REVIEW-SENTINEL", UNMODELLED),
+        names_no_option("claude", &long, UNMODELLED),
+        names_no_option("claude", "--", "the terminator '--'"),
         (
             "lanetally",
             argv(&["--verbose=REVIEW_SENTINEL"]),
@@ -5577,6 +5549,29 @@ fn a_grammar_refusal_names_a_bounded_label_and_never_a_payload() {
                 && !rendered.contains("kkkk"),
             "{harness}: {rendered}"
         );
+    }
+}
+
+#[test]
+fn codex_launch_refuses_a_model_pin_written_on_both_spellings() {
+    let work = SandboxIntent::WorkspaceWrite;
+    let judge = |segments: &[Segment]| {
+        let mut command = argv(&["exec", "--json", "-C", "/w"]);
+        command.extend(flatten(segments));
+        grammar::judge_inline_codex_command(work, &command, segments, None, "/w", None)
+    };
+    let local = Segment::new(Origin::Local, &argv(&["--sandbox", "workspace-write"]));
+    let repeated = Segment::new(Origin::Authored, &argv(&["-mgpt-y", "--model", "gpt-x"]));
+    for segments in [vec![repeated.clone(), local.clone()], vec![repeated]] {
+        let cause = judge(&segments).expect_err("the two spellings repeat one option");
+        assert!(
+            cause.to_string().contains("repeats option '--model'"),
+            "{cause}"
+        );
+    }
+    for pin in [&["--model", "gpt-x"][..], &["-mgpt-x"][..]] {
+        let authored = Segment::new(Origin::Authored, &argv(pin));
+        assert_eq!(judge(&[authored, local.clone()]), Ok(()));
     }
 }
 
