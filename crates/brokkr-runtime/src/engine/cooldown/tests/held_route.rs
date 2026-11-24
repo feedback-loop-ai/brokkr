@@ -58,7 +58,12 @@ pub(super) fn held_to(legs: &Legs, end: OffsetDateTime) -> bool {
     legs.iter().all(|leg| {
         matches!(
             leg,
-            Err(Capacity::CoolingDown { until, .. }) if *until == end
+            Err(Capacity::CoolingDown { standing, .. })
+                if [standing.probe(), standing.ordinary()]
+                    .into_iter()
+                    .flatten()
+                    .map(|row| row.until)
+                    .max() == Some(end)
         )
     })
 }
@@ -75,12 +80,13 @@ pub(super) fn held_at_its_end(
     drive(dir.path(), &mut engine);
     assert_eq!(standing(&engine), (Status::Running, 0));
     let until = held_until(&engine);
-    let stored = engine
-        .store
-        .cooldown("claude", "first", until - time::Duration::seconds(1))
+    let stored = ordinary_end(
+        (engine
+            .store
+            .cooldown("claude", "first", until - time::Duration::seconds(1)))
         .unwrap()
-        .expect("the held row holds before its own end")
-        .until;
+        .expect("the held row holds before its own end"),
+    );
     *now.lock().unwrap() = stored;
     assert_eq!(
         engine.store.cooldown("claude", "first", stored).unwrap(),
@@ -185,12 +191,11 @@ fn a_probe_holds_its_route_from_dispatch_until_its_refusals_row_commits() {
     let held = hold_end_of(probe_at);
     assert!(held_to(&flying, held), "{flying:?}");
     assert_eq!(standing(&engine), (Status::Running, 0));
-    let end = engine
-        .store
-        .cooldown("claude", "first", probe_at)
-        .unwrap()
-        .expect("the probe's renewed round holds the route")
-        .until;
+    let end = ordinary_end(
+        (engine.store.cooldown("claude", "first", probe_at))
+            .unwrap()
+            .expect("the probe's renewed round holds the route"),
+    );
     assert!(end >= probe_at + time::Duration::seconds(5), "{end}");
     let seen = seen.lock().unwrap().clone();
     // Between the refusal and the commit the hold still held the route.
@@ -310,7 +315,8 @@ pub(super) fn held_until_settled(engine: &Engine, gates: &Shared, probe_at: Offs
         assert!(held_to(&legs(gates, at), end), "at {at}");
         let waited = engine.store.cooldown("claude", "first", at).unwrap();
         let waited = waited.expect("the hold holds the wait's aggregate");
-        assert_eq!((waited.until, waited.probe), (end, true), "at {at}");
+        let probe = waited.probe().map(|probe| probe.until);
+        assert_eq!((probe, waited.ordinary()), (Some(end), None), "at {at}");
     }
     assert_eq!(unended_holds(engine.store.path()), 1);
 }

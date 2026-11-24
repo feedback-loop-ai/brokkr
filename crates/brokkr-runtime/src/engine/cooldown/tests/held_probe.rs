@@ -31,7 +31,7 @@ fn aggregate_at(engine: &Engine, at: OffsetDateTime) -> Option<OffsetDateTime> {
         .store
         .cooldown("claude", "first", at)
         .unwrap()
-        .map(|aggregate| aggregate.until)
+        .map(ordinary_end)
 }
 
 /// Write the held terminal, resume at its end, and let the probe state
@@ -98,9 +98,12 @@ fn a_route_a_probe_holds_again_admits_nothing_after_the_first_rows_end() {
     let cooling = Err(crate::admission::Capacity::CoolingDown {
         provider: "claude".into(),
         route: "first".into(),
-        until: held,
-        probe: false,
-        words: "rate_limit: slow down".into(),
+        standing: Box::new(brokkr_store::CooldownAggregate::Ordinary(
+            brokkr_store::RowEnd {
+                until: held,
+                reason: "rate_limit: slow down".into(),
+            },
+        )),
     });
     // The production pass and claim, their room taken where the round has
     // ended (fix round 0106b1r5, M1).

@@ -49,6 +49,14 @@ fn row(site: &str, provider: &str, route: &str, until: OffsetDateTime) -> Coolin
     }
 }
 
+/// The aggregate of ordinary rows only, ending at `until` with `reason`.
+fn ordinary_at(until: OffsetDateTime, reason: &str) -> CooldownAggregate {
+    CooldownAggregate::Ordinary(RowEnd {
+        until,
+        reason: reason.into(),
+    })
+}
+
 /// A row of `route` whose words name it, so an aggregate's choice reads
 /// back.
 fn named(site: &str, route: &str, until: OffsetDateTime, reason: &str, rounds: u64) -> Cooling {
@@ -705,12 +713,7 @@ fn two_overlapping_refusals_aggregate_to_the_later_end() {
     );
     assert_eq!(
         store.cooldown("claude", "first", at(0)).unwrap(),
-        Some(CooldownAggregate {
-            until: at(30),
-            reason: "the earlier, longer".into(),
-            probe: false,
-            ordinary: Some(at(30)),
-        })
+        Some(ordinary_at(at(30), "the earlier, longer"))
     );
     // An expired row is history: neither holds, and neither is deleted.
     assert_eq!(store.cooldown("claude", "first", at(30)).unwrap(), None);
@@ -819,12 +822,7 @@ fn a_wait_is_not_shortened_by_its_rounding() {
     let now = at(10) + Duration::milliseconds(500);
     assert_eq!(
         store.cooldown("claude", "first", now).unwrap(),
-        Some(CooldownAggregate {
-            until: at(11),
-            reason: "rate_limit: slow down".into(),
-            probe: false,
-            ordinary: Some(at(11)),
-        })
+        Some(ordinary_at(at(11), "rate_limit: slow down"))
     );
     assert_eq!(store.cooldowns_in_force(now).unwrap().len(), 1);
     // The rounding lengthens the wait by under a second, never past it.
@@ -873,12 +871,7 @@ fn a_wait_in_the_last_second_is_stored_at_the_last_second() {
     assert_eq!(rows[0].until_at, last);
     assert_eq!(
         store.cooldown("claude", "first", at(0)).unwrap(),
-        Some(CooldownAggregate {
-            until: last,
-            reason: "rate_limit: slow down".into(),
-            probe: false,
-            ordinary: Some(last),
-        })
+        Some(ordinary_at(last, "rate_limit: slow down"))
     );
 }
 

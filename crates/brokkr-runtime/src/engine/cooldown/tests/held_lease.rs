@@ -102,12 +102,11 @@ fn a_probes_renewed_hold_is_committed_before_its_lease_is_released() {
     }
     assert_eq!(standing(&engine), (Status::Running, 0));
     let seen = seen.lock().unwrap().clone();
-    let end = engine
-        .store
-        .cooldown("claude", "first", probe_at)
-        .unwrap()
-        .expect("the probe's held round holds the route")
-        .until;
+    let end = ordinary_end(
+        (engine.store.cooldown("claude", "first", probe_at))
+            .unwrap()
+            .expect("the probe's held round holds the route"),
+    );
     assert!(end >= probe_at + time::Duration::seconds(5), "{end}");
     // Wherever the lease was gone, both legs already held the route.
     for look in &seen {

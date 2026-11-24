@@ -113,7 +113,7 @@ fn held_run(root: &Path, tree: &str, probed: Probed) -> (Engine, Arc<Mutex<Offse
 fn at_the_held_ends(clocks: [&Arc<Mutex<OffsetDateTime>>; 2], store: &brokkr_store::Store) {
     let early = *clocks[0].lock().unwrap();
     let held = store.cooldown("claude", "first", early).unwrap();
-    let end = held.expect("both held rows hold the route").until;
+    let end = ordinary_end(held.expect("both held rows hold the route"));
     for clock in clocks {
         *clock.lock().unwrap() = end;
     }

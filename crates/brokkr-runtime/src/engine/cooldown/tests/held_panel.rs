@@ -218,12 +218,11 @@ fn assert_a_held_again(engine: &Engine, probe_at: OffsetDateTime, stated: u64, m
         ]
     );
     let end = probe_at + TimeDuration::seconds(stated as i64);
-    let until = engine
-        .store
-        .cooldown("claude", "first", probe_at)
-        .unwrap()
-        .expect("a's route is held again")
-        .until;
+    let until = ordinary_end(
+        (engine.store.cooldown("claude", "first", probe_at))
+            .unwrap()
+            .expect("a's route is held again"),
+    );
     assert!(
         until >= end && until < end + TimeDuration::seconds(1),
         "{until}"

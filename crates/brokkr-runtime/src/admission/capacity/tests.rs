@@ -1345,9 +1345,12 @@ fn every_capacity_reason_has_its_word() {
         Capacity::CoolingDown {
             provider: "p".into(),
             route: "r".into(),
-            until: Stamp::UNIX_EPOCH,
-            probe: false,
-            words: "w".into(),
+            standing: Box::new(brokkr_store::CooldownAggregate::Ordinary(
+                brokkr_store::RowEnd {
+                    until: Stamp::UNIX_EPOCH,
+                    reason: "w".into(),
+                },
+            )),
         },
     ];
     let words = reasons.map(|reason| {

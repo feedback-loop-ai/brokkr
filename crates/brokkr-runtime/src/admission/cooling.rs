@@ -16,7 +16,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use brokkr_store::{Cooldown, CooldownAggregate};
+use brokkr_store::{Cooldown, CooldownAggregate, RowEnd};
 use time::OffsetDateTime;
 
 use super::capacity::{Capacity, Lane};
@@ -59,9 +59,7 @@ impl Cooling {
             return Err(Capacity::CoolingDown {
                 provider: lane.provider.clone(),
                 route: route.clone(),
-                until: held.until,
-                probe: held.probe,
-                words: held.reason.clone(),
+                standing: Box::new(held.clone()),
             });
         }
         Ok(())
@@ -85,32 +83,45 @@ impl Leg<'_> {
     }
 }
 
-/// The reason's text, naming the provider, route, end and the provider's
-/// words. An end no RFC 3339 text can spell is named by its whole second
-/// instead, so printing a refusal never panics. A probe's hold (`probe`)
-/// says no time ends it, for only its answer, renewed round or settlement
-/// does (the return of fix round 0106b1r12), and names its time as the
-/// second its probe's deadline falls before: the store keeps the first
-/// whole second strictly after the deadline, so a deadline at an exact
-/// second is never named as a second later (fix round 0106b1r13, L1).
+/// The reason's text, naming the provider, route, each end and the words
+/// of the row that end came from. An end no RFC 3339 text can spell is
+/// named by its whole second instead, so printing a refusal never panics.
+/// A probe's hold says no time ends it, for only its answer, renewed round
+/// or settlement does (the return of fix round 0106b1r12), and names its
+/// own time as the second its probe's deadline falls before: the store
+/// keeps the first whole second strictly after the deadline, so a deadline
+/// at an exact second is never named as a second later (fix round
+/// 0106b1r13, L1). An ordinary row beside the hold is named after it with
+/// its own end and words, so a probe's words never stand for an ordinary
+/// row's end, nor the reverse (fix round 0106b1r15, L1).
 pub(super) fn word(
     f: &mut fmt::Formatter<'_>,
     (provider, route): (&str, &str),
-    until: OffsetDateTime,
-    probe: bool,
-    words: &str,
+    standing: &CooldownAggregate,
 ) -> fmt::Result {
-    let until = spelled(until);
-    match probe {
-        true => write!(
+    match standing {
+        CooldownAggregate::Ordinary(RowEnd { until, reason }) => write!(
             f,
-            "provider {provider} is held on route {route} by a cool-down probe whose deadline \
-             falls before {until}, and no time ends that hold: {words}"
+            "provider {provider} is cooling on route {route} until {}: {reason}",
+            spelled(*until)
         ),
-        false => write!(
-            f,
-            "provider {provider} is cooling on route {route} until {until}: {words}"
-        ),
+        CooldownAggregate::Held { probe, ordinary } => {
+            write!(
+                f,
+                "provider {provider} is held on route {route} by a cool-down probe whose \
+                 deadline falls before {}, and no time ends that hold: {}",
+                spelled(probe.until),
+                probe.reason
+            )?;
+            match ordinary {
+                Some(RowEnd { until, reason }) => write!(
+                    f,
+                    "; a cool-down beside it holds the route until {}: {reason}",
+                    spelled(*until)
+                ),
+                None => Ok(()),
+            }
+        }
     }
 }
 

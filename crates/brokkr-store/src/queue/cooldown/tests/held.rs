@@ -142,10 +142,11 @@ fn a_probe_hold_is_in_force_until_it_ends_whatever_the_time() {
     for now in [at(10), at(31 + year)] {
         assert_eq!(
             store.cooldown("claude", "first", now).unwrap(),
-            Some(CooldownAggregate {
-                until: at(31),
-                reason: read[0].reason.clone(),
-                probe: true,
+            Some(CooldownAggregate::Held {
+                probe: RowEnd {
+                    until: at(31),
+                    reason: read[0].reason.clone(),
+                },
                 ordinary: None,
             }),
             "at {now}"
@@ -185,10 +186,14 @@ fn a_probe_hold_is_in_force_until_it_ends_whatever_the_time() {
 }
 
 /// Fix round 0106b1r13, H1: the aggregate a wait reads joins a cool-down
-/// row and a standing hold on its route as the gates do. The row's later
-/// end is the aggregate's while it stands, the hold marking the route held
-/// past it; once the row expires the hold alone holds it, at its readout
-/// and a day past it; once the hold ends, nothing does.
+/// row and a standing hold on its route as the gates do. While the later
+/// ordinary row stands, the joined view names it as the source of its end
+/// and words, and the hold as the probe's, with the hold's own deadline and
+/// words, never the row's (fix round 0106b1r15, L1); once the row expires
+/// the hold alone holds it, at its readout and a day past it; once the
+/// hold ends, nothing does. Removal control: keep the latest row's end and
+/// words under the probe flag, as r14's fold did, and the hold reads the
+/// ordinary row's sixty seconds and words as its own.
 #[test]
 fn the_aggregate_joins_a_row_and_a_standing_hold_as_the_gates_do() {
     let dir = tempfile::tempdir().unwrap();
@@ -201,26 +206,66 @@ fn the_aggregate_joins_a_row_and_a_standing_hold_as_the_gates_do() {
         .unwrap();
     append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
     let held = |now| store.cooldown("claude", "first", now).unwrap();
-    let row = held(at(10)).unwrap();
-    assert_eq!(
-        (row.until, row.probe, row.ordinary),
-        (at(60), true, Some(at(60)))
-    );
-    assert_eq!(row.reason, "rate_limit: slow down");
     let words = store.cooldowns_in_force(at(60)).unwrap()[0].reason.clone();
+    assert_ne!(words, "rate_limit: slow down");
+    let probe = RowEnd {
+        until: at(31),
+        reason: words,
+    };
+    let ordinary = RowEnd {
+        until: at(60),
+        reason: "rate_limit: slow down".into(),
+    };
+    let joined = CooldownAggregate::Held {
+        probe: probe.clone(),
+        ordinary: Some(ordinary.clone()),
+    };
+    assert_eq!(held(at(10)), Some(joined));
     for now in [at(60), at(60 + 24 * 3600)] {
-        let hold_only = CooldownAggregate {
-            until: at(31),
-            reason: words.clone(),
-            probe: true,
+        let hold_only = CooldownAggregate::Held {
+            probe: probe.clone(),
             ordinary: None,
         };
         assert_eq!(held(now), Some(hold_only), "at {now}");
     }
     store.end_probe_hold(Some(hold), at(61)).unwrap();
     assert_eq!(store.cooldown("claude", "first", at(61)).unwrap(), None);
-    let ordinary = store.cooldown("claude", "first", at(10)).unwrap().unwrap();
-    assert_eq!((ordinary.until, ordinary.probe), (at(60), false));
+    let alone = store.cooldown("claude", "first", at(10)).unwrap();
+    assert_eq!(alone, Some(CooldownAggregate::Ordinary(ordinary)));
+}
+
+/// Fix round 0106b1r15, L1: the one fold joins a route's rows in whatever
+/// order its caller hands them. An ordinary row joined after a hold is
+/// named as the ordinary row's, never the probe's, and a later, shorter
+/// one shortens neither end. Removal control: let the ordinary row replace
+/// the probe's end and words, and the hold reads "the row" at sixty
+/// seconds.
+#[test]
+fn a_row_joined_after_a_hold_keeps_each_end_with_its_own_row() {
+    let read = |probe: bool, until: OffsetDateTime, reason: &str| Cooldown {
+        site: String::new(),
+        provider: "claude".into(),
+        route: "first".into(),
+        until_at: until,
+        reason: reason.into(),
+        retry_after_seconds: None,
+        rounds: 1,
+        recorded_at: at(0),
+        probe,
+    };
+    let hold = CooldownAggregate::joined(None, &read(true, at(31), "the hold"));
+    let joined = CooldownAggregate::joined(Some(hold), &read(false, at(60), "the row"));
+    let ending = |until, reason: &str| RowEnd {
+        until,
+        reason: reason.into(),
+    };
+    let both = CooldownAggregate::Held {
+        probe: ending(at(31), "the hold"),
+        ordinary: Some(ending(at(60), "the row")),
+    };
+    assert_eq!(joined, both);
+    let shorter = CooldownAggregate::joined(Some(joined), &read(false, at(40), "shorter"));
+    assert_eq!(shorter, both);
 }
 
 /// Fix round 0106b1r13, H2: no second hold is written while one stands, or

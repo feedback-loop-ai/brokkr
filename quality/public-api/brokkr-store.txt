@@ -147,6 +147,15 @@ pub brokkr_store::metered::WindowSpend::phase: core::option::Option<&'a str>
 pub brokkr_store::metered::WindowSpend::realm: core::option::Option<&'a str>
 pub brokkr_store::metered::WindowSpend::run_id: &'a str
 pub brokkr_store::metered::WindowSpend::usd: f64
+pub enum brokkr_store::CooldownAggregate
+pub brokkr_store::CooldownAggregate::Held
+pub brokkr_store::CooldownAggregate::Held::ordinary: core::option::Option<brokkr_store::RowEnd>
+pub brokkr_store::CooldownAggregate::Held::probe: brokkr_store::RowEnd
+pub brokkr_store::CooldownAggregate::Ordinary(brokkr_store::RowEnd)
+impl brokkr_store::CooldownAggregate
+pub fn brokkr_store::CooldownAggregate::joined(core::option::Option<brokkr_store::CooldownAggregate>, &brokkr_store::Cooldown) -> brokkr_store::CooldownAggregate
+pub fn brokkr_store::CooldownAggregate::ordinary(&self) -> core::option::Option<&brokkr_store::RowEnd>
+pub fn brokkr_store::CooldownAggregate::probe(&self) -> core::option::Option<&brokkr_store::RowEnd>
 pub enum brokkr_store::Disagreement
 pub brokkr_store::Disagreement::Column
 pub brokkr_store::Disagreement::Column::column: &'static str
@@ -419,13 +428,6 @@ pub brokkr_store::Cooldown::rounds: u64
 pub brokkr_store::Cooldown::route: alloc::string::String
 pub brokkr_store::Cooldown::site: alloc::string::String
 pub brokkr_store::Cooldown::until_at: time::offset_date_time::OffsetDateTime
-pub struct brokkr_store::CooldownAggregate
-pub brokkr_store::CooldownAggregate::ordinary: core::option::Option<time::offset_date_time::OffsetDateTime>
-pub brokkr_store::CooldownAggregate::probe: bool
-pub brokkr_store::CooldownAggregate::reason: alloc::string::String
-pub brokkr_store::CooldownAggregate::until: time::offset_date_time::OffsetDateTime
-impl brokkr_store::CooldownAggregate
-pub fn brokkr_store::CooldownAggregate::joined(core::option::Option<brokkr_store::CooldownAggregate>, &brokkr_store::Cooldown) -> brokkr_store::CooldownAggregate
 pub struct brokkr_store::CooldownAppend<'a>
 pub brokkr_store::CooldownAppend::attempt_id: core::option::Option<alloc::string::String>
 pub brokkr_store::CooldownAppend::causation_id: core::option::Option<alloc::string::String>
@@ -509,6 +511,9 @@ impl brokkr_store::Redactor
 pub fn brokkr_store::Redactor::document(&mut self, &serde_json::value::Value) -> serde_json::value::Value
 pub fn brokkr_store::Redactor::journal(&mut self, &str) -> core::result::Result<alloc::string::String, serde_json::error::Error>
 pub fn brokkr_store::Redactor::learn(&[&str]) -> brokkr_store::Redactor
+pub struct brokkr_store::RowEnd
+pub brokkr_store::RowEnd::reason: alloc::string::String
+pub brokkr_store::RowEnd::until: time::offset_date_time::OffsetDateTime
 pub struct brokkr_store::Rows<'a, T>
 pub brokkr_store::Rows::payload: &'a dyn core::ops::function::Fn(&T) -> serde_json::value::Value
 pub brokkr_store::Rows::rows: &'a [T]

@@ -497,14 +497,16 @@ impl Engine {
             .max()
             .expect("a wait to take");
         for (wait, aggregate) in self.cool_down_aggregates(waits, now)? {
-            let held = match aggregate.probe {
-                true => slice_past(now).ok_or_else(|| CooldownError::HeldPastTheClock {
+            if aggregate.probe().is_some() {
+                let held = slice_past(now).ok_or_else(|| CooldownError::HeldPastTheClock {
                     provider: wait.provider.clone(),
                     route: wait.route.clone(),
-                })?,
-                false => aggregate.until,
-            };
-            end = end.max(held).max(aggregate.ordinary.unwrap_or(end));
+                })?;
+                end = end.max(held);
+            }
+            if let Some(ordinary) = aggregate.ordinary() {
+                end = end.max(ordinary.until);
+            }
         }
         Ok(end)
     }

@@ -40,6 +40,7 @@ pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Generation, StartRefu
 pub(crate) use cooldown::insert as insert_cooldowns;
 pub use cooldown::{
     Cooldown, CooldownAggregate, CooldownRound, Cooling, ProbeHold, ProbeHoldId, RoundAppend,
+    RowEnd,
 };
 #[cfg(test)]
 use entry::UnknownWord;

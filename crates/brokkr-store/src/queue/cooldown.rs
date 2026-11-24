@@ -23,7 +23,9 @@ use super::QueueRefusal;
 use crate::{patiently, Store, StoreError};
 
 mod hold;
+mod joined;
 pub use hold::{ProbeHold, ProbeHoldId};
+pub use joined::{CooldownAggregate, RowEnd};
 
 /// One cool-down a terminal event records, as its writer derives it. The
 /// store fills `event_seq` and `recorded_at` from the event it writes the
@@ -70,53 +72,6 @@ pub struct Cooldown {
     /// readout, never when the route opens (the return of fix round
     /// 0106b1r12). A `provider_cooldowns` row is never one.
     pub probe: bool,
-}
-
-/// The aggregate one provider and route stands at, at an instant: the
-/// latest `until_at` across every unexpired row and standing probe hold — a
-/// monotonic MAX, so a later, shorter refusal never shortens a wait — and
-/// the words of the row that ends last.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CooldownAggregate {
-    pub until: OffsetDateTime,
-    pub reason: String,
-    /// Whether a probe's hold stands on the route (fix round 0106b1r13,
-    /// H1): no time ends it, so `until` is then no end the route opens at,
-    /// and the route stays held until a read finds the hold ended.
-    pub probe: bool,
-    /// The latest end of the route's ordinary rows alone, `None` where only
-    /// a hold stands: a standing hold's stored end, a readout, never
-    /// replaces it, so a longer ordinary cool-down still ends where its row
-    /// says (fix round 0106b1r14, M1).
-    pub ordinary: Option<OffsetDateTime>,
-}
-
-impl CooldownAggregate {
-    /// `held`, the aggregate a route's earlier rows came to in the order
-    /// the store read them (rising `seq`), joined with `row`: the one home
-    /// of a route's latest end, which the engine's [`Store::cooldown`] and
-    /// admission's pass and claim fold alike (fix round 0106b1r14, L1). A
-    /// later, shorter row never shortens it, a row at the same end replaces
-    /// the earlier one's words, and a standing probe hold among the rows is
-    /// kept whichever row ends last.
-    pub fn joined(held: Option<CooldownAggregate>, row: &Cooldown) -> CooldownAggregate {
-        let probe = row.probe || held.as_ref().is_some_and(|held| held.probe);
-        let own = (!row.probe).then_some(row.until_at);
-        let ordinary = held.as_ref().and_then(|held| held.ordinary).max(own);
-        match held {
-            Some(held) if held.until > row.until_at => CooldownAggregate {
-                probe,
-                ordinary,
-                ..held
-            },
-            _ => CooldownAggregate {
-                until: row.until_at,
-                reason: row.reason.clone(),
-                probe,
-                ordinary,
-            },
-        }
-    }
 }
 
 /// One probe round appended to a terminal event's episode (decision 0103

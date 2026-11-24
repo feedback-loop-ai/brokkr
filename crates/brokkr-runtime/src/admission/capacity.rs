@@ -42,7 +42,9 @@ use std::sync::Arc;
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::fold::{fold, Status};
 use brokkr_core::realms::Boundary;
-use brokkr_store::{Claim, Claiming, Cooldown, EntryState, Generation, QueueEntry, Store, Wait};
+use brokkr_store::{
+    Claim, Claiming, Cooldown, CooldownAggregate, EntryState, Generation, QueueEntry, Store, Wait,
+};
 use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
@@ -130,12 +132,12 @@ pub enum Capacity {
     CoolingDown {
         provider: String,
         route: String,
-        until: Stamp,
-        /// Whether a probe's hold stands at `until`: then it is the probe's
-        /// deadline, and no time ends the hold (the return of fix round
-        /// 0106b1r12).
-        probe: bool,
-        words: String,
+        /// What the route stands at, each end with the row it came from: a
+        /// probe's hold, which no time ends (the return of fix round
+        /// 0106b1r12), with its own deadline and words, and the latest
+        /// ordinary row with its own (fix round 0106b1r15, L1). Boxed, so
+        /// every other refusal stays small.
+        standing: Box<CooldownAggregate>,
     },
 }
 

@@ -23,6 +23,15 @@ fn base() -> OffsetDateTime {
     OffsetDateTime::parse("2026-11-01T00:00:00Z", &Rfc3339).unwrap()
 }
 
+/// The end of the ordinary rows `aggregate` shows, where a test reads a
+/// route an ordinary row holds.
+fn ordinary_end(aggregate: brokkr_store::CooldownAggregate) -> OffsetDateTime {
+    aggregate
+        .ordinary()
+        .expect("an ordinary row holds the route")
+        .until
+}
+
 // A test's clock: one shared instant, advanced by each slice, so a wait is
 // exercised with no real sleep. The stop test builds its own sleep that
 // also journals the operator's command.

@@ -7,7 +7,9 @@
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_store::{Cooling as Row, Generation, QueueRefusal, Store, StoreError};
+use brokkr_store::{
+    CooldownAggregate, Cooling as Row, Generation, QueueRefusal, RowEnd, Store, StoreError,
+};
 use serde_json::json;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
@@ -96,23 +98,33 @@ fn judged_in(store: &Store, file: &Path, now: OffsetDateTime) -> Vec<Judged> {
 
 /// The capacity reason a lane stands at.
 fn cooling(provider: &str, route: &str, until: OffsetDateTime, words: &str) -> Reason {
-    cooling_by(false, (provider, route), until, words)
+    let standing = CooldownAggregate::Ordinary(ending(until, words));
+    cooling_by((provider, route), standing)
 }
 
-/// The capacity reason a lane stands at, a probe's hold where `probe`.
-fn cooling_by(
-    probe: bool,
-    (provider, route): (&str, &str),
-    until: OffsetDateTime,
-    words: &str,
-) -> Reason {
+/// One row's end and words, as the aggregate shows them.
+fn ending(until: OffsetDateTime, words: &str) -> RowEnd {
+    RowEnd {
+        until,
+        reason: words.into(),
+    }
+}
+
+/// The capacity reason a lane stands at, `standing`.
+fn cooling_by((provider, route): (&str, &str), standing: CooldownAggregate) -> Reason {
     Reason::Capacity(Capacity::CoolingDown {
         provider: provider.into(),
         route: route.into(),
-        until,
-        probe,
-        words: words.into(),
+        standing: Box::new(standing),
     })
+}
+
+/// A probe's hold alone, its deadline's second and words.
+fn hold_alone(until: OffsetDateTime, words: &str) -> CooldownAggregate {
+    CooldownAggregate::Held {
+        probe: ending(until, words),
+        ordinary: None,
+    }
 }
 
 /// The host this file declares: two places for each provider, beta's two
@@ -191,10 +203,9 @@ fn a_cooling_entry_is_not_admitted_and_its_lane_never_latches() {
 fn a_probe_holds_refusal_names_the_second_its_deadline_falls_before() {
     for deadline in [at(30), at(30) + time::Duration::milliseconds(500)] {
         let (fixture, file) = probe_held(deadline);
-        let words = "a cool-down probe of run run-probe (attempt a-1) holds the route until it \
-                     answers, its renewed cool-down commits, or its process tree is settled";
+        let words = HOLD_WORDS;
         let reasons = reasons_at(&fixture, &file, at(86_400));
-        let probing = cooling_by(true, ("beta", "cloud"), at(31), words);
+        let probing = cooling_by(("beta", "cloud"), hold_alone(at(31), words));
         assert_eq!(reasons, vec![vec![probing]], "{deadline}");
         assert_eq!(
             reasons[0][0].to_string(),
@@ -207,6 +218,11 @@ fn a_probe_holds_refusal_names_the_second_its_deadline_falls_before() {
         );
     }
 }
+
+/// The words the probe [`probe_held`] writes holds its route with.
+const HOLD_WORDS: &str = "a cool-down probe of run run-probe (attempt a-1) holds the route until \
+                          it answers, its renewed cool-down commits, or its process tree is \
+                          settled";
 
 /// The fixture with no row, and a probe of run `run-probe` (attempt `a-1`)
 /// holding beta/cloud from the base instant to `deadline`.
@@ -227,10 +243,15 @@ fn probe_held(deadline: OffsetDateTime) -> (Fixture, PathBuf) {
 
 /// Fix round 0106b1r14, L1: a standing hold beside a longer ordinary row,
 /// read through both callers of the one fold of a route's latest end, the
-/// engine's `Store::cooldown` and the pass, reports the hold, at the
-/// ordinary row's later end. Removal control: fold admission's rows its own
-/// way again, keeping only the winning row's flag, and the pass names the
-/// route cooling, unheld.
+/// engine's `Store::cooldown` and the pass, reports the hold. Each end
+/// keeps the row it came from (fix round 0106b1r15, L1): the ordinary
+/// row's 600 seconds and "longer" are named as the ordinary row's, and the
+/// hold's own deadline second and words as the probe's, so the refusal
+/// never shows the ordinary row's end or words as the probe's. Removal
+/// controls: fold admission's rows its own way again, keeping only the
+/// winning row's flag, and the pass names the route cooling, unheld; keep
+/// the latest row's end and words under the probe flag, as r14's fold did,
+/// and the hold reads "longer" at 600 seconds as the probe's.
 #[test]
 fn a_hold_beside_a_longer_ordinary_row_reads_held_through_both_callers() {
     let (mut fixture, file) = probe_held(at(30));
@@ -240,15 +261,24 @@ fn a_hold_beside_a_longer_ordinary_row_reads_held_through_both_callers() {
         &[row("beta", "cloud", at(600), "longer")],
     );
     let engine = fixture.store.cooldown("beta", "cloud", at(10)).unwrap();
-    let aggregate = brokkr_store::CooldownAggregate {
-        until: at(600),
-        reason: "longer".into(),
-        probe: true,
-        ordinary: Some(at(600)),
+    let aggregate = CooldownAggregate::Held {
+        probe: ending(at(31), HOLD_WORDS),
+        ordinary: Some(ending(at(600), "longer")),
     };
-    assert_eq!(engine, Some(aggregate));
-    let held = cooling_by(true, ("beta", "cloud"), at(600), "longer");
-    assert_eq!(reasons_at(&fixture, &file, at(10)), vec![vec![held]]);
+    assert_eq!(engine, Some(aggregate.clone()));
+    let held = cooling_by(("beta", "cloud"), aggregate);
+    let reasons = reasons_at(&fixture, &file, at(10));
+    assert_eq!(reasons, vec![vec![held]]);
+    assert_eq!(
+        reasons[0][0].to_string(),
+        format!(
+            "provider beta is held on route cloud by a cool-down probe whose deadline falls \
+             before {}, and no time ends that hold: {HOLD_WORDS}; a cool-down beside it holds \
+             the route until {}: longer",
+            at(31).format(&Rfc3339).unwrap(),
+            at(600).format(&Rfc3339).unwrap()
+        )
+    );
 }
 
 #[test]

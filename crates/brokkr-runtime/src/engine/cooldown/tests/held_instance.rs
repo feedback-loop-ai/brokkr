@@ -59,8 +59,10 @@ fn a_resume_never_ends_or_adopts_a_crashed_instances_hold() {
     let later = hold_end_of(probe_at) + time::Duration::days(1);
     for leg in legs(&gates, later) {
         assert!(
-            matches!(&leg, Err(crate::admission::Capacity::CoolingDown { words, .. })
-                if words.contains(&format!("(attempt {})", first[0]))),
+            matches!(&leg, Err(crate::admission::Capacity::CoolingDown { standing, .. })
+            if standing.probe().is_some_and(|probe| {
+                probe.reason.contains(&format!("(attempt {})", first[0]))
+            })),
             "{leg:?}"
         );
     }
