@@ -106,6 +106,21 @@ fn add_assigns_an_id_lists_it_and_refuses_a_second_proposal() {
 }
 
 #[test]
+fn list_prints_a_title_without_controls_or_directional_overrides() {
+    let scratch = Scratch::new();
+    let text = document(DRAFT).replace(
+        "\"Work order draft\"",
+        "\"Work\\u001b order\\u202e draft\\u009b\"",
+    );
+    scratch.add(&scratch.file(&text));
+
+    assert_eq!(
+        scratch.stdout(&["list"]),
+        "WO-1  proposed  0  Work order draft\n"
+    );
+}
+
+#[test]
 fn add_explains_that_a_ruled_header_is_only_proposed() {
     let scratch = Scratch::new();
     assert_eq!(
@@ -229,7 +244,7 @@ fn show_prints_each_line_without_controls_or_directional_overrides() {
 #[test]
 fn a_parser_refusal_prints_the_tracker_word_without_controls() {
     let scratch = Scratch::new();
-    let text = document("unknown-tracker.md").replace("\"other\"", "\"ot\\u001bher\\u202e\"");
+    let text = document("unknown-tracker.md").replace("\"other\"", "\"oth\\u001ber\\u202e\"");
     let file = scratch.file(&text);
     let (error, stderr) = scratch.refused(&["add", file.to_str().unwrap(), "--reason", REASON]);
     assert!(error.is::<brokkr_core::work_order::WorkOrderError>());
