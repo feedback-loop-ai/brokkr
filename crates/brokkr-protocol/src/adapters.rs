@@ -23,6 +23,7 @@ mod agy;
 pub mod capability_calls;
 mod claude_fold;
 mod codex;
+mod codex_fold;
 mod composite;
 mod discovery;
 mod dsh_effort;
@@ -72,6 +73,7 @@ use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Locat
 use crate::{Body, Message, PreSessionRefusal, Probe, ResultStatus};
 use capability_calls::Observation;
 use claude_fold::{fold_stream_event, ClaudeFold};
+use codex_fold::fold_codex_event;
 use dsh_stderr::redact_dsh_reasoning;
 use mcp::served;
 use probe::{pinned_model, seat_row, ProbeAnswer};
@@ -694,10 +696,6 @@ fn model_in_header(stderr: &str, pin: Option<&str>) -> Option<String> {
 
 fn positive_count(value: Option<&Value>) -> Option<u64> {
     value.and_then(Value::as_u64).filter(|value| *value > 0)
-}
-
-fn positive_cost(value: Option<&Value>) -> Option<f64> {
-    value.and_then(Value::as_f64).filter(|value| *value > 0.0)
 }
 
 fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String> {
@@ -1604,128 +1602,6 @@ impl CodexThreadEcho {
             CODEX_THREAD_DEPTH,
         )
     }
-}
-
-/// Fold Codex's stable `exec --json` JSONL into bounded live telemetry.
-/// Commands, item bodies, model output, reasoning, and filesystem paths are
-/// intentionally ignored; the journal records progress and usage, not a
-/// transcript.
-fn fold_codex_event(
-    rows: (&Value, &Row<'_>),
-    identity: Option<CapturedId>,
-    turn: &mut u64,
-    session_meta: &mut Map<String, Value>,
-    transcript: &mut Transcript,
-    echo: &mut CodexThreadEcho,
-    emit: &mut impl FnMut(&Emitted),
-) -> Option<PreSessionRefusal> {
-    let (event, raw) = rows;
-    match event.get("type").and_then(Value::as_str) {
-        Some("thread.started") => {
-            if let Some(identity) = identity {
-                echo.locate(transcript.home(), identity.ident.clone());
-                // Publish the locator before work so a deadline after
-                // the first turn still leaves a resume handle (0053 ruling 8).
-                transcript.record(Locator::Session(identity), session_meta, emit);
-            }
-        }
-        Some("turn.started") => {
-            *turn += 1;
-            emit(&Emitted::new(
-                Step::TurnStarted,
-                json!({"turn": *turn, "harness":"codex"}),
-            ));
-        }
-        Some(kind @ ("item.started" | "item.completed")) => {
-            let step = if kind == "item.started" {
-                Step::ItemStarted
-            } else {
-                Step::ItemCompleted
-            };
-            let row =
-                Observation::codex(raw).onto_codex(raw, json!({"turn": *turn, "harness":"codex"}));
-            emit(&Emitted::new(step, row));
-        }
-        Some("turn.completed") => {
-            let usage = event.get("usage").unwrap_or(&Value::Null);
-            // Neither fact is reliably on this stream, and neither is
-            // ever taken from our pin: both are read from the thread
-            // record codex writes them into (decision 0035 ruling 3),
-            // through decision 0032's retained locator. The stream is
-            // still asked first for the model — a release that does put
-            // it on `turn.completed` is the more direct report.
-            let (thread_model, effort) = echo.echo();
-            let model = model_in_json(&Row::new(event, &[])).or(thread_model);
-            if let Some(model) = &model {
-                session_meta.insert("model".into(), Value::String(model.clone()));
-            }
-            if let Some(effort) = &effort {
-                session_meta.insert("effort".into(), Value::String(effort.clone()));
-            }
-            let mut checkpoint = Map::new();
-            checkpoint.insert("turn".into(), Value::from(*turn));
-            checkpoint.insert("harness".into(), Value::String("codex".into()));
-            checkpoint.insert(
-                "model".into(),
-                Value::String(model.unwrap_or_else(|| MODEL_NOT_REPORTED.to_string())),
-            );
-            checkpoint.insert(
-                "effort".into(),
-                Value::String(effort.unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())),
-            );
-            for (source, target) in [
-                ("input_tokens", "input_tokens"),
-                ("cached_input_tokens", "cache_read_tokens"),
-                ("output_tokens", "output_tokens"),
-                // Received all along and dropped until decision 0035
-                // ruling 4 asked for it; `cache_write_tokens` is a v1
-                // field no codex record has ever filled.
-                ("cache_write_input_tokens", "cache_write_tokens"),
-                // Codex is the one built-in that meters its reasoning
-                // per turn. It is a SUBSET of output_tokens above, so it
-                // rides its own key and is never added to a total again.
-                ("reasoning_output_tokens", "reasoning_output_tokens"),
-            ] {
-                if let Some(value) = positive_count(usage.get(source)) {
-                    checkpoint.insert(target.into(), Value::from(value));
-                    add_usage(session_meta, target, value);
-                }
-            }
-            // The turn count is journaled HERE, not only from `result`.
-            // Verified against codex-cli 0.148.0: a real `codex exec
-            // --json` run ends at `turn.completed` and emits no `result`
-            // event at all, so a codex seat's num_turns never reached
-            // `brokkr stats costs` — the aggregator saw per-turn token keys it
-            // does not sum and nothing else. Cost in USD is reported
-            // nowhere in that stream (`usage` is token counts only), so
-            // total_cost_usd stays absent rather than invented.
-            session_meta.insert("num_turns".into(), Value::from(*turn));
-            emit(&Emitted::new(
-                Step::TurnCompleted,
-                Value::Object(checkpoint),
-            ));
-        }
-        // Conformance shims and older clients may provide only final metadata.
-        Some("result") => {
-            let row = Row::new(event, &[]);
-            fold_result_meta(
-                &row,
-                model_in_json(&row),
-                identity,
-                session_meta,
-                transcript,
-                emit,
-            );
-            if let Some(value) = positive_count(event.get("num_turns")) {
-                session_meta.insert("num_turns".into(), Value::from(value));
-            }
-            if let Some(value) = positive_cost(event.get("total_cost_usd")) {
-                session_meta.insert("total_cost_usd".into(), Value::from(value));
-            }
-        }
-        _ => {}
-    }
-    None
 }
 
 /// One harness-reported token count folded into the session totals.
@@ -3483,11 +3359,9 @@ fn invoke_codex(
             let classified = (turn == 0).then(|| codex_refusal(&row)).flatten();
             let answer = probe_bound.answers(AdapterKind::Codex, &row);
             let identity = CapturedId::codex(&row);
-            let mut masked_event = event.clone();
-            secret::mask_json(&mut masked_event, bindings);
             let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
                 FoldInput {
-                    row: (&masked_event, &row),
+                    row: &row,
                     refusal: classified,
                     identity,
                 }
