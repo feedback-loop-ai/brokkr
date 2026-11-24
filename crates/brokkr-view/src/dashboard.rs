@@ -336,8 +336,8 @@ fn decision_of(payload: &Value) -> Decision {
     }
 }
 
-/// Where a result payload keeps its notes: the one home of the path both
-/// the dashboard and [`result_notes`] read.
+/// The one lookup of a payload's notes, shared by the dashboard and
+/// [`result_notes`]. A present value may read as empty notes.
 const NOTES: &str = "/result/notes";
 
 /// A concluded attempt's notes: its result's `notes` — a panel's one line
@@ -345,8 +345,8 @@ const NOTES: &str = "/result/notes";
 /// where the notes are absent, the error a failed attempt wrote. An empty
 /// text is no notes.
 fn notes_of(payload: &Value) -> Option<String> {
-    match notes_at(payload, Listed::Writers) {
-        Some(notes) => notes.map(|notes| match notes {
+    match payload.pointer(NOTES) {
+        Some(notes) => read_notes(notes, Listed::Writers).map(|notes| match notes {
             ResultNotes::Text(text) => text,
             ResultNotes::Panel(lines) => lines.join("\n"),
         }),
@@ -375,7 +375,9 @@ pub enum ResultNotes {
 /// journal wrote it. Absent notes, notes empty after trimming, and a
 /// panel of no members are none.
 pub fn result_notes(payload: &Value) -> Option<ResultNotes> {
-    notes_at(payload, Listed::Every).flatten()
+    payload
+        .pointer(NOTES)
+        .and_then(|notes| read_notes(notes, Listed::Every))
 }
 
 /// Which of a panel's members a surface lists.
@@ -385,13 +387,6 @@ enum Listed {
     Writers,
     /// The writers and each member who recorded only a verdict.
     Every,
-}
-
-/// The one lookup of a payload's notes: none where the journal wrote
-/// none, else what they read as, which may itself be nothing.
-fn notes_at(payload: &Value, listed: Listed) -> Option<Option<ResultNotes>> {
-    let notes = payload.pointer(NOTES)?;
-    Some(read_notes(notes, listed))
 }
 
 /// Notes the journal wrote, read into their shape.
