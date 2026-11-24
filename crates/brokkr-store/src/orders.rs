@@ -73,14 +73,13 @@ pub(crate) fn orders_intact(conn: &Connection) -> Result<bool, StoreError> {
 
 /// Install storage on a connection already holding the write lock.
 pub(crate) fn migrate_orders(conn: &Connection) -> Result<(), StoreError> {
+    const ORDERS_SCHEMA_INSERT: &str = "INSERT OR IGNORE INTO meta (key, value) VALUES (?1, ?2)";
     if orders_schema(conn)?.is_some_and(|found| found != ORDERS_SCHEMA) {
         return Ok(());
     }
     conn.execute_batch(MIGRATION_ORDERS_V1)?;
-    conn.execute(
-        "INSERT OR IGNORE INTO meta (key, value) VALUES (?1, ?2)",
-        params![ORDERS_SCHEMA_KEY, ORDERS_SCHEMA.to_string()],
-    )?;
+    let schema = ORDERS_SCHEMA.to_string();
+    conn.execute(ORDERS_SCHEMA_INSERT, params![ORDERS_SCHEMA_KEY, schema])?;
     Ok(())
 }
 
@@ -154,19 +153,15 @@ fn current(conn: &Connection, id: &WorkOrderId) -> Result<Current, StoreError> {
 }
 
 fn proposed(conn: &Connection, id: &WorkOrderId) -> Result<bool, StoreError> {
-    Ok(conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM work_order_events WHERE number = ?1 AND event = 'proposed')",
-        [id.number()],
-        |row| row.get(0),
-    )?)
+    const IS_PROPOSED: &str =
+        "SELECT EXISTS (SELECT 1 FROM work_order_events WHERE number = ?1 AND event = 'proposed')";
+    let proposed = conn.query_row(IS_PROPOSED, [id.number()], |row| row.get(0))?;
+    Ok(proposed)
 }
 
 fn next_id(conn: &Connection) -> Result<WorkOrderId, StoreError> {
-    Ok(conn.query_row(
-        "SELECT COALESCE(MAX(number), 0) + 1 FROM work_order_events",
-        [],
-        read_id,
-    )?)
+    const NEXT_ID: &str = "SELECT COALESCE(MAX(number), 0) + 1 FROM work_order_events";
+    Ok(conn.query_row(NEXT_ID, [], read_id)?)
 }
 
 fn read_id(row: &Row<'_>) -> rusqlite::Result<WorkOrderId> {
@@ -187,24 +182,26 @@ fn record(
     event: Event<'_>,
     by: Attribution<'_>,
 ) -> Result<(), StoreError> {
+    const INSERT_EVENT: &str =
+        "INSERT INTO work_order_events (number, event, text, digest, operator, reason, recorded_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
     let (word, text, digest) = match event {
         Event::Proposed(text) => ("proposed", Some(text), text_digest(text)),
         Event::Edited(text) => ("edited", Some(text), text_digest(text)),
         Event::Ruled(digest) => ("ruled", None, digest.to_owned()),
     };
-    conn.execute(
-        "INSERT INTO work_order_events (number, event, text, digest, operator, reason, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            id.number(),
-            word,
-            text,
-            digest,
-            by.operator,
-            by.reason,
-            now_rfc3339()
-        ],
-    )?;
+    let number = id.number();
+    let recorded_at = now_rfc3339();
+    let parameters = params![
+        number,
+        word,
+        text,
+        digest,
+        by.operator,
+        by.reason,
+        recorded_at
+    ];
+    conn.execute(INSERT_EVENT, parameters)?;
     Ok(())
 }
 

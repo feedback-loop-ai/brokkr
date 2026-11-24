@@ -83,14 +83,10 @@ fn list(
     } else {
         for row in rows {
             let state = serde_json::to_string(&row.state)?;
-            writeln!(
-                out,
-                "{}  {}  {}  {}",
-                row.id,
-                state.trim_matches('"'),
-                row.open_asks,
-                Safe::new(row.title).as_str()
-            )?;
+            let state = state.trim_matches('"');
+            let title = Safe::new(row.title);
+            let title = title.as_str();
+            writeln!(out, "{}  {state}  {}  {title}", row.id, row.open_asks)?;
         }
     }
     Ok(())
@@ -134,10 +130,8 @@ fn add(
     let id = attributed(&reason, |by| store.order_add(order, by))?;
     writeln!(out, "proposed {id}")?;
     if state != WorkOrderState::Proposed {
-        writeln!(
-            out,
-            "the journal holds it as proposed until `brokkr orders rule`"
-        )?;
+        const PROPOSAL_NOTE: &str = "the journal holds it as proposed until `brokkr orders rule`";
+        writeln!(out, "{PROPOSAL_NOTE}")?;
     }
     Ok(())
 }
