@@ -772,7 +772,8 @@
    266 crates/brokkr-runtime/tests/crucible_review_sequence.rs
    223 crates/brokkr-runtime/tests/dispatch_seam.rs
    102 crates/brokkr-runtime/tests/fenced_commands.rs
-  1248 crates/brokkr-runtime/tests/frozen_contracts.rs
+  1945 crates/brokkr-runtime/tests/frozen_contracts.rs
+   108 crates/brokkr-runtime/tests/frozen_contracts/realms.rs
    446 crates/brokkr-runtime/tests/gpt_flash_shape.rs
     91 crates/brokkr-runtime/tests/inline_resume.rs
     41 crates/brokkr-runtime/tests/it.rs
