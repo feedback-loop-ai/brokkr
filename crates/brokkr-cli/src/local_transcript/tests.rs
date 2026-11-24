@@ -74,6 +74,25 @@ pub(super) fn read_common(reference: &brokkr_view::Transcript) -> TranscriptRead
     )
 }
 
+/// A reference of a kind in seat-record v8's grammar the reader does not
+/// know (`trellis-trail`) is refused as `unsupported-kind` before any
+/// discovery, echoed as recorded, even where a Claude source sits at its
+/// locator: the reader never guesses a built-in kind (decision 0075
+/// ruling 2; the controller's rulings R22 item 3 and R24).
+#[test]
+fn a_kind_the_reader_does_not_know_is_unsupported_and_never_discovered() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    let body = "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}\n";
+    std::fs::write(projects.join("one/abcd-1234.jsonl"), body).unwrap();
+    let reference = common("trellis-trail", "abcd-1234", projects.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::UnsupportedKind));
+    assert_eq!(read.reference, Some(reference));
+    assert_eq!((read.kind, read.path, read.turns.len()), (None, None, 0));
+}
+
 /// Claude: the exact filename in one immediate project directory; a
 /// duplicate is ambiguous, a symlink is unsafe, and no content is read.
 #[cfg(unix)]

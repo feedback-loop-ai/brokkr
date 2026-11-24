@@ -221,12 +221,17 @@ fn a_refused_live_checkpoint_behind_a_latch_never_takes_its_place() {
         attempt_id: "attempt",
     };
     let dir = tempfile::tempdir().unwrap();
+    let kinds = crate::agents::kinds::SeatKinds::default();
+    let declared = super::Declared {
+        kinds: &kinds,
+        seat: "seat",
+    };
 
     let mut store = in_flight_store(&dir.path().join("latched.db"), "latched");
     let mut cause = None;
     let mut sink = super::Checkpoints::new(&mut store, &mut cause, attempt("latched"));
-    sink.offer_live("a", claimed(), Ok(None), None);
-    sink.offer_live("b", claimed(), Ok(None), None);
+    sink.offer_live("a", claimed(), Ok(None), None, declared);
+    sink.offer_live("b", claimed(), Ok(None), None, declared);
     let settled = sink.settle().unwrap();
     let latched = settled.refusal.as_ref().expect("the first refusal latched");
     assert_eq!(latched.owner, "a");
@@ -250,7 +255,7 @@ fn a_refused_live_checkpoint_behind_a_latch_never_takes_its_place() {
     let mut sink = super::Checkpoints::new(&mut store, &mut cause, attempt("failed"));
     sink.offer("", json!({"step": "seat-turn", "turn": 1}), Ok(None));
     assert!(sink.failure.is_some(), "the conclusion failed the append");
-    sink.offer_live("", claimed(), Ok(None), None);
+    sink.offer_live("", claimed(), Ok(None), None, declared);
     assert!(sink.refusal.is_none(), "nothing latches behind a failure");
     assert!(matches!(
         sink.settle(),
