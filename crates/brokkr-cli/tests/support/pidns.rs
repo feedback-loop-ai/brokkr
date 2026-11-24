@@ -110,8 +110,10 @@ impl fmt::Display for Isolation {
 
 impl std::error::Error for Isolation {}
 
-/// The number of the PID namespace `link` names, as `pid:[N]` spells it
-/// with N decimal digits; anything else refuses (#1137i, Z2).
+/// The number of the PID namespace `link` names (#1137i, Z2).
+/// Its identity is exactly `pid:[N]`, where N is a canonical ASCII
+/// decimal that fits a `u64`, with no sign or leading zero (except `0`).
+/// Nothing follows the closing bracket.
 pub(crate) fn identity_at(link: &Path) -> Result<u64, Isolation> {
     let read = std::fs::read_link(link)
         .map_err(|error| Isolation::Unreadable(format!("{}: {error}", link.display())))?;
@@ -119,7 +121,8 @@ pub(crate) fn identity_at(link: &Path) -> Result<u64, Isolation> {
     let number = read
         .strip_prefix("pid:[")
         .and_then(|rest| rest.strip_suffix(']'))
-        .filter(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()));
+        .filter(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+        .filter(|number| number.len() == 1 || !number.starts_with('0'));
     number
         .and_then(|number| number.parse().ok())
         .ok_or_else(|| Isolation::Unparsable(read.into_owned()))
