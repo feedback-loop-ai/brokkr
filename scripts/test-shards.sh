@@ -121,7 +121,7 @@ usage() {
 # 45-minute limit too (41.5 minutes in #1051's pull-request run, cancelled
 # at 45.0 in merge-queue run 43093798270) while linux/5 took about 14. The
 # broker's enabled suite is Linux's alone (`#![cfg(target_os = "linux")]`), so macOS
-# never runs its shard, whose filter would match nothing there.
+# never runs its shards, whose filters would match nothing there.
 #
 # On 2026-11-23 (#1295, pull-request run 45106858213 and merge-queue run
 # 45121257648) the slowest machines took 34 minutes on Linux, 39 under

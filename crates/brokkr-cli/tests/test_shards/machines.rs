@@ -304,8 +304,8 @@ fn the_test_jobs_machines_are_the_layouts() {
 }
 
 /// A run on a macOS host, naming no machine, runs every shard but the
-/// three macOS never compiles, which its layout marks `-`; a Linux host
-/// runs them all.
+/// four macOS never compiles, the broker's enabled parts, which its layout
+/// marks `-`; a Linux host runs them all.
 #[test]
 fn a_host_runs_every_shard_its_system_compiles() {
     let real = metadata();
