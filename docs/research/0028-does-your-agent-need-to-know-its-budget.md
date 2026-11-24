@@ -40,7 +40,7 @@ about 1.5 times the uncapped. One tight cap was raised from 766 to
 Limits stated: two function-level pools and no repository-scale task,
 open models on CPU, one custom harness, one placebo wording, a
 preregistration not deposited externally, and a second, smaller model
-that resolved nothing under any cap. The paper's closing sections were
+that resolved 11.1 percent uncapped and nothing under any cap. The paper's closing sections were
 read from a fetch summary, not verbatim text.
 
 ## Findings

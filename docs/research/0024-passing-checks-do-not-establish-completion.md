@@ -34,12 +34,13 @@ allocated 4; restoring one deleted return moved an outcome from UNKNOWN
 to FAIL while the controls passed.
 
 The negative results are stated plainly. Generated diagnostic notes did
-not help repair (0 of 3 with notes against 1 of 3 withheld; later 1 of
-6, 2 of 6 and 0 of 6) and did not replicate across libraries; notes
+not help repair (0 of 3 with notes against 1 of 3 withheld; later
+operation notes 1 of 6, ordinary notes 2 of 6, withheld 0 of 6) and the
+complete-note direction reversed under a fixed three-seed replication; notes
 that accompanied a successful repair blamed code a replay found
 correct; automatic receipt-conflict feedback reduced contradictions
 without an overall gain; ordinary checks already caught all 12 failures
-in one cohort. No confidence intervals are reported, tasks were
+in one cohort. This entry found no confidence intervals in it; tasks were
 selected after earlier local gains, and the archive is private for now.
 
 ## Findings
@@ -50,7 +51,7 @@ selected after earlier local gains, and the archive is private for now.
 | 2 | Gate completion on a predicate over recorded facts, never on the agent's own claim | implemented | decision 0002 and decision 0007; `docs/security-model.md`: a seat never chooses the next phase, the pinned table rules on typed inputs that are engine-computed or seat-declared, and a verify gate stands between the implementer's result and review |
 | 3 | Read a runner error before the target is entered as unknown, not as a failing assertion | alternative | decision 0006; `recipes/brokkr-fast/scripts/verify-seat.sh`: the engine keeps a determinate failure apart from an indeterminate end and parks the second, but only for an attempt as a whole; the verify gate's own results are pass and fail, so a suite that could not start reads as a failure returned to the smith |
 | 4 | Check the scope and lifetime a witness covers: an observation establishes only the operation and phase it observed | alternative | decision 0071; `agents/charters/verify-reviewer.md`: whether the tests prove what the delivery claims is judged by a reviewer seat, with no mechanical scope contract on a receipt |
-| 5 | Before trusting a pass, run a reversion control: remove the edit and watch the check change | implemented | decision 0071; `agents/charters/implementer.md` and `scripts/mutants.sh`: ruling 9 has every new test shown to bind by a compiling mutation that removes the behaviour, named in the notes, and the core mutants gate does the same mechanically for the pure core |
+| 5 | Before trusting a pass, run a reversion control: remove the edit and watch the check change | alternative | decision 0071; `agents/charters/implementer.md` and `scripts/mutants.sh`: ruling 9 has the implementer show each new test binds by a compiling mutation that removes the behaviour, named in its notes, and the core mutants gate does it mechanically for the pure core only; no gate runs a delivery's own tests against the tree without the change (registry entry 0026, finding 5) |
 | 6 | Keep an agent's explanation apart from its result: a repair that succeeds validates none of the diagnosis written beside it | implemented | decision 0007; `docs/security-model.md`: notes are prose the table never reads, only declared typed inputs reach a rule, and the result is treated as data to check |
 
 ## Candidates

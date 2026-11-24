@@ -16,7 +16,7 @@ they cannot pass, what cheaply reduces that, and what detects it. A
 referee harness runs each rollout in a no-network container, copies the
 workspace out after the container stops, runs hidden checks in fresh
 containers, and has a host-side signer sign every tool call. Detection
-is seven deterministic host rules, an LLM judge (Sonnet 5.5) reading
+is six deterministic host rules plus a hidden-check rule, an LLM judge (Sonnet 5.5) reading
 one of three views, and an evidence scorer. Five pre-registered steps
 on Impossible-LiveCodeBench with Claude Haiku 5.5, Sonnet 5.5 and Opus
 5.5 under a 30-turn tools scaffold; total API spend $317.75.
@@ -42,8 +42,8 @@ wording per notice, a judge from the agents' own model family, key
 custody asserted and not proven. Several registered bars failed: the
 referee pilot's false-positive rate (3.5 against 3 percent), one host
 rule's recall (45 against 80 percent), and the scorer's rule that
-caught 0 of 55. The author also wrote the signing tool the harness
-uses.
+caught 0 of 55. The signing tool the harness uses is cited as the
+author's own (Tracekit, B. Ghosh).
 
 ## Findings
 

@@ -42,9 +42,8 @@ faked implementations and 2 from conversion errors.
 Limits stated: the Oracle judges returned values, not how they were
 computed; weak tests are inherited; regression tests in 87 of 112
 DeepSWE conversions keep upstream grading; the agent review loop
-accepted two broken conversions, so a person reviews each one. This
-entry's adversarial counts were read from a fetch summary of the
-paper's later sections, not verbatim text.
+accepted two broken conversions, so the authors recommend that a person
+review each conversion before use.
 
 ## Findings
 

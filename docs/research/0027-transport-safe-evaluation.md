@@ -21,7 +21,7 @@ calls pushes each trajectory-level accuracy further from one half, in
 whichever direction it already leaned. A prior analysis of public
 web-agent data it cites, not rerun, has three judges' sensitivity
 falling from 0.840, 0.884 and 0.876 on the shortest third of
-trajectories to 0.182, 0.364 and 0.477 on the longest.
+trajectories to 0.182, 0.364 and 0.477 on the longest (or capped) third.
 
 On a four-agent semi-synthetic benchmark over 250 replications, the
 scalar correction with oracle calibration has maximum bias 0.245, mean
@@ -33,7 +33,8 @@ data-hungry: over 48 cells, calibration support covers 0.209 of the
 target at 600 labels and 0.805 at 4,800, and a per-cell correction has
 mean absolute error 0.188 falling to 0.077, where a 12 percent random
 audit stays at 0.018 to 0.020. Three judges identify the truth without
-labels only if conditionally independent; the cited data show
+labels under conditional independence, and where it fails the paper
+reports a bounded set; the cited data show
 dependence of 0.41 to 0.70, including two judges that share a backbone.
 Repeated inspection breaks fixed-time intervals (joint coverage 0.535
 over 200 streams) where an e-process confidence sequence holds 0.995,
@@ -52,7 +53,7 @@ that an LLM drafted its text and proof sketches. Read from the PDF.
 |---|---|---|---|
 | 1 | Do not carry a judge's error rates, measured once, to every agent it grades: they depend on the trajectories each agent produces | not-planned | |
 | 2 | Audit a random sample of the judge's verdicts by a person, drawn with known probabilities fixed before the audit, and estimate from judge and audit together | alternative | decision 0033; `docs/security-model.md` and `docs/guides/bug-provenance.md`: the operator reviews every branch a run ships before merging it, and a later defect is traced by hand to the run that introduced it; neither is recorded as a label against the gate's verdict, and no estimate is drawn |
-| 3 | Where calibration does not cover an agent's trajectories, report a set or a bound and certify no ordering | not-planned | |
+| 3 | Where calibration does not cover an agent's trajectories, report a set or a bound and certify only the orderings that hold for every value the bound allows | not-planned | |
 | 4 | Do not count judges that share a backbone as independent evidence, and do not expect more calls of one judge to repair its error | implemented | decision 0041 and decision 0045: every panel carries two model families and the last judge before ship is hired across the vendor line from the smith; registry entry 0009 reads the same question |
 | 5 | When verdict quality is inspected repeatedly and stopped when it looks decisive, use an anytime-valid sequence, not a fixed-sample interval | not-planned | |
 | 6 | Cluster a comparison at the unit that generates the tasks: tasks from one repository are not independent | not-planned | |

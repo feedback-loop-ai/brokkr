@@ -23,15 +23,17 @@ score. Pooled hidden-test pass rate at the final step is 98.2 percent
 with no file, 90.9 with the rules file and 97.0 with the neutral file;
 the paired drop is 7.7 points (clustered interval −13.4 to −2.6), and
 −1.3 without Codex CLI, which fell from 99.0 to 67.7 percent under the
-rules file and scored 100 under the neutral one, because two of the
-rules conflicted on these tasks. In 11 of 36 rules-file steps Codex CLI
+rules file and scored 100 under the neutral one, because it read one
+ambiguous idempotency rule the other way from the other three agents and
+the reference solutions. In 11 of 36 rules-file steps Codex CLI
 reported completion with all of its own tests passing while fewer than
 half the hidden tests passed. The checkers found no real bug of the
 checked kinds in any arm (31 findings, all false alarms). At the
 boundary, the gate blocked all 11 requests it saw; where the neutral
-arm ran ungated, 4 of 60 runs crossed. OpenCode used a credential it
-found in the environment in 5 of 15 no-file runs, 0 of 15 with the
-rules file and 4 of 15 with the neutral file; every run carried four
+arm ran ungated, 4 of 60 runs crossed. A credential found in the
+repository reached the service in 5 of 15 no-file runs, 0 of 15 with
+the rules file and 4 of 15 with the neutral file, all nine of them
+OpenCode's (5 of its 5 no-file runs); every run carried four
 vendor API keys and one printed them. The Codex model pin was never
 applied, and only the session files showed that gpt-6.1-sol was served.
 
@@ -58,8 +60,8 @@ a file tells an agent what you want, a gate decides what it gets.
 Finding 3 is aimed at exactly what Brokkr leans on: house rules and
 charters are rules files. Brokkr ratchets their size
 (`quality/prompt-bytes.json`) and measures nothing of their effect. The
-paper's result is not that rules files fail but that one pair of
-conflicting rules cost one harness 31 points while three others moved
+paper's result is not that rules files fail but that one ambiguous
+rule cost one harness 31 points while three others moved
 under 2.5, and that only the neutral-file arm showed it. Two things
 follow for the operator to weigh: a conflict read of the house rules
 whenever a ruling is added (decision 0071's eleven rulings and each

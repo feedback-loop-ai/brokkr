@@ -28,7 +28,7 @@ percent, Sonnet 46 to 90, Fable 45 to 93; pooled 39 to 84. Alone, the
 largest model did not beat the middle one, and it removed the feature
 rather than repairing it in 44 of 125 runs (Sonnet 31, Haiku 13); a
 metric that counts only "defect gone" scores Fable 80 percent and
-reverses the order. With findings, removals fall to 0, 2 and 7. With
+reverses the order. With findings, removals fall to 0 (Fable), 2 (Sonnet) and 7 (Haiku). With
 the deletion check off they rise from 9 to 65 of 375 runs and repair
 falls by 8 to 21 points. Of 851 claimed repairs, 75 failed the build
 check: 50 did not compile, all in Rust and C++, 21 deleted a Python
@@ -36,8 +36,9 @@ validator in place and kept its file, and 4 were stubs. Cost per
 change, alone and with findings: Haiku $0.18 and $0.42, Sonnet $0.06
 and $0.17, Fable $0.91 and $1.73, so Sonnet with findings (90 percent)
 costs about a fifth of Fable alone (45 percent), and the smallest model
-with findings costs more than the middle one because it takes more
-steps. Copilot review did not change repair rates significantly. On
+with findings costs more than the middle one and also takes more
+steps. Copilot review, run on Haiku and Sonnet only, did not change
+repair rates significantly. On
 clean pull requests, agents alone edited correct code in 64 to 100
 percent of runs; with the checker, in 0 of 75.
 
@@ -52,11 +53,11 @@ that one and stopped).
 | # | Finding | Classification | Citation |
 |---|---|---|---|
 | 1 | Return located findings with a repair goal to the implementer, not a bare pass or fail | implemented | decision 0022 and decision 0041; `agents/charters/implementer.md`: every finding has an edge back, a gate's finding names its file, line, summary and severity, and the returned implementer is handed it as a declared input and told that finding is the work the visit owns |
-| 2 | Price the whole run and not the tier: a cheaper model that needs more steps can cost more, and a middle model with external findings can beat the largest alone at a fifth of the cost | alternative | decision 0021 and decision 0034; `docs/guides/read-surfaces.md`: the seat record carries measured usage and cost for every turn of every hire and the costs readout sums them, while which model sits where is the operator's roster ruling and the economics are left to LaneTally; no readout states cost per shipped change by tier |
+| 2 | Price the whole run and not the tier: a cheaper model can cost more over a whole run, and a middle model with external findings can beat the largest alone at a fifth of the cost | alternative | decision 0021 and decision 0034; `docs/guides/read-surfaces.md`: the seat record carries measured usage and cost for every turn of every hire and the costs readout sums them, while which model sits where is the operator's roster ruling and the economics are left to LaneTally; no readout states cost per shipped change by tier |
 | 3 | Count the removal of the thing under repair as a failure and a finding, never as a fix | alternative | decision 0041; `agents/charters/implementer.md` and `agents/charters/reviewer.md`: the implementer is held to the framing's scope and a reviewer judges the whole branch since its merge-base, so a removal is a judge's finding; no deterministic check flags it |
 | 4 | Put a compile check behind every claimed repair and feed the compiler's errors back | implemented | decision 0022; `recipes/brokkr-fast/scripts/verify-seat.sh`: the verify gate runs the formatter, the linter with warnings denied, the whole test suite and a bundle compile, and a failure returns to the implementer with the failing command's output as notes |
-| 5 | Detect removal in place and stubs, not only deleted files | not-planned | |
-| 6 | Do not let the agent that judges a change also edit it: asked to review their own work alone, agents rewrote correct code in most runs | implemented | decision 0041: judges never fix, no gate changes the tree, and the engine parks a gate that moved the head; fixes are made only by the implementer on a returned finding |
+| 5 | Extend the deletion check from removed files to removed functions and validators | not-planned | |
+| 6 | Keep review apart from repair: agents asked to review and fix a correct change edited correct code in most runs | implemented | decision 0041: judges never fix, no gate changes the tree, and the engine parks a gate that moved the head; fixes are made only by the implementer on a returned finding |
 
 ## Candidates
 
