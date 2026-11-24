@@ -414,6 +414,22 @@ fn a_sequence_steps_carried_result_is_judged_for_its_kinds_at_the_drive() {
     );
 }
 
+#[test]
+fn carry_refuses_a_settled_result_with_a_masked_nested_kind_place() {
+    use crate::agents::kinds::tests::masked_by;
+
+    let result = json!({"result": {"transcript": {"kind": "trellis--stray"}}});
+    let masked = masked_by(result, "transcript");
+    let (_dir, mut runtime) = parked_record(sequence(clean(), None), false, |record| {
+        record["settled_members"] = json!({"positions:a": masked});
+    });
+    accept(&mut runtime, json!({"members":["positions:b"]}));
+    assert_eq!(
+        refused_at_drive(&mut runtime),
+        "members positions:a have no settled verdict to carry; name them or use plain runs operator retry"
+    );
+}
+
 fn moving_body(action: &str, gate: bool) -> SeatBody {
     let mut body = body();
     let SeatBody::Invocation(Invocation::Panel { members, .. }) = &mut body else {

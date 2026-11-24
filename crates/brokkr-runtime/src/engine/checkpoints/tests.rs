@@ -262,3 +262,63 @@ fn a_refused_live_checkpoint_behind_a_latch_never_takes_its_place() {
         Err(crate::engine::EngineError::ConcludedBeneath { .. })
     ));
 }
+
+#[test]
+fn a_live_checkpoint_with_a_masked_key_latches_the_kind_refusal() {
+    use super::{Attempt, Checkpoints, Declared, Refused};
+    use crate::agents::kinds::{tests::masked_by, SeatKinds, UndeclaredKind};
+    use crate::engine::tests::in_flight_store;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = in_flight_store(&dir.path().join("masked.db"), "masked");
+    let attempt = || Attempt {
+        run_id: "masked",
+        effect_id: "effect",
+        attempt_id: "attempt",
+    };
+    let kinds = SeatKinds::default();
+    let declared = Declared {
+        kinds: &kinds,
+        seat: "work",
+    };
+    let kind = json!({"kind": "stray"});
+    for (value, row) in [
+        (
+            "transcript",
+            json!({"step": "seat-turn", "result": {"transcript": kind}}),
+        ),
+        (
+            "root_session",
+            json!({"step": "seat-turn", "result": {"root_session": kind}}),
+        ),
+        (
+            "transcript",
+            json!({"step": "seat-turn", "transcript": kind}),
+        ),
+        (
+            "root_session",
+            json!({"step": "seat-turn", "root_session": kind}),
+        ),
+        (
+            "result",
+            json!({"step": "seat-turn", "result": {"transcript": kind}}),
+        ),
+        ("scri", json!({"step": "seat-turn", "transcript": kind})),
+    ] {
+        let mut cause = None;
+        let mut sink = Checkpoints::new(&mut store, &mut cause, attempt());
+        sink.offer_live("driver", masked_by(row, value), Ok(None), None, declared);
+        let settled = sink.settle().unwrap();
+        let latched = settled.refusal.expect(value);
+        assert_eq!(latched.owner, "driver");
+        assert!(
+            matches!(latched.refused, Refused::Kind(UndeclaredKind::Masked { seat }) if seat == "work"),
+            "{value}"
+        );
+    }
+    assert!(store
+        .load("masked")
+        .unwrap()
+        .iter()
+        .all(|e| e.event_type != EventType::EffectCheckpointed));
+}

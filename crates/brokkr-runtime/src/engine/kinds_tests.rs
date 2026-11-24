@@ -1529,6 +1529,35 @@ fn a_single_seats_unresolved_cleanup_receives_the_kind_refusal_in_place_of_a_str
     }
 }
 
+#[test]
+fn a_success_with_a_masked_kind_place_is_failed_and_received_as_refused() {
+    use crate::agents::kinds::{tests::masked_by, UndeclaredKind};
+
+    let record = json!({"result": {"transcript": {"kind": "trellis-stray"}}});
+    let result = masked_by(record, "transcript");
+    let refusal = UndeclaredKind::Masked {
+        seat: "work".into(),
+    }
+    .to_string();
+    let dir = tempfile::tempdir().unwrap();
+    let settled = Visit {
+        result: Some(result.clone()),
+        ..Visit::default()
+    };
+    let events = seated(dir.path(), &[settled]).2;
+    let stderr = brokkr_protocol::process::DriverStderr::of("");
+    failed_with(&events, &stderr.named(&refusal));
+
+    let dir = tempfile::tempdir().unwrap();
+    let events = seated(dir.path(), &[unresolved(vec![], result)]).2;
+    let payload = indeterminate(&events, &[json!("trellis-stray")]);
+    assert_eq!(
+        payload["received"],
+        json!({"status": "failed", "error": refusal})
+    );
+    assert_eq!(payload["reason"], parked_on(&refusal));
+}
+
 /// A panel member's unresolved cleanup is judged as a single seat's is,
 /// on the engine's own road for a member (`settle_members`; the
 /// controller's rulings R13 and R17): the member whose result holds a

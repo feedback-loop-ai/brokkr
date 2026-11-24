@@ -62,9 +62,10 @@ struct Writer {
 impl PanelAttempt {
     /// Whether `result`, `member`'s settled result, may carry: a carried
     /// result contributes to a new verdict, so one whose kind place names
-    /// an undeclared or out-of-grammar kind of the seat that wrote it (v7's
-    /// vocabulary for a member the body no longer declares) is not carried,
-    /// while one that is not an object has no kind place by the grammar and
+    /// an undeclared or out-of-grammar kind is refused for the seat that
+    /// wrote it (v7's vocabulary for a member the body no longer declares).
+    /// A masked key where kind places are read also refuses the result.
+    /// A result that is not an object has no kind place by the grammar and
     /// carries as on main for the join to poison (the controller's ruling
     /// R23 of 2026-11-22).
     pub(crate) fn admits(&self, member: &Tag, result: &Value) -> bool {
@@ -73,7 +74,7 @@ impl PanelAttempt {
         let kinds = writer.map_or(&UNDECLARED, |writer| &writer.kinds);
         match kinds.admit(result, seat) {
             Ok(()) | Err(UndeclaredKind::Unread { .. }) => true,
-            Err(UndeclaredKind::Named { .. }) => false,
+            Err(UndeclaredKind::Named { .. } | UndeclaredKind::Masked { .. }) => false,
         }
     }
 }
