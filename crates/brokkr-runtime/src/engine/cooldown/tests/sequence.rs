@@ -144,6 +144,12 @@ fn draft_body(dir: &Path, draft: Vec<String>, results: &[&str]) -> SeatBody {
     ])
 }
 
+/// [`draft_body`] over [`draft_driver`], answering `drafted` then
+/// `complete`: the draft that refuses once, then succeeds.
+fn drafted_then_complete(dir: &Path) -> SeatBody {
+    draft_body(dir, draft_driver(dir), &["drafted", "complete"])
+}
+
 /// A terminal event that carries neither a wait nor a refusal record.
 fn no_wait(event: &EventEnvelope) {
     assert!(event.payload.get("waits").is_none(), "{event:?}");
@@ -309,8 +315,7 @@ fn shared(dir: &Path) -> Vec<String> {
 fn a_single_steps_rate_limit_records_its_site_and_restarts_at_step_one() {
     own_engine!();
     let dir = tempfile::tempdir().unwrap();
-    let command = draft_driver(dir.path());
-    let body = draft_body(dir.path(), command, &["drafted", "complete"]);
+    let body = drafted_then_complete(dir.path());
     let engine = driven(dir.path(), body, 2);
     single_step_facts(dir.path(), &engine);
     let waits = one_wait(&engine, dir.path());
@@ -357,8 +362,7 @@ fn dialect_and_secret(engine: &mut Engine) -> String {
 fn a_step_probe_carries_the_seats_dialect_prompt_the_attempt_did() {
     own_engine!();
     let dir = tempfile::tempdir().unwrap();
-    let command = draft_driver(dir.path());
-    let body = draft_body(dir.path(), command, &["drafted", "complete"]);
+    let body = drafted_then_complete(dir.path());
     let mut engine = sequence_engine(dir.path(), body, 2);
     let store = dialect_and_secret(&mut engine);
     engine.drive().unwrap();
@@ -407,6 +411,11 @@ fn refusing_panel_sequence(dir: &Path) -> SeatBody {
 /// `publish`: the park rows' shared body.
 fn past_maximum_body(dir: &Path) -> SeatBody {
     past_maximum_saying(dir, "")
+}
+
+/// A two-attempt sequence engine over [`past_maximum_body`].
+fn past_maximum_engine(dir: &Path) -> Engine {
+    sequence_engine(dir, past_maximum_body(dir), 2)
 }
 
 /// [`past_maximum_body`], its draft driver printing `said` on its stderr
@@ -679,8 +688,7 @@ fn a_dialect_steps_input_carries_no_spec_dialect() {
 fn the_failed_steps_park_lands_in_the_attempts_own_turn() {
     own_engine!();
     let dir = tempfile::tempdir().unwrap();
-    let body = past_maximum_body(dir.path());
-    let mut engine = sequence_engine(dir.path(), body, 2);
+    let mut engine = past_maximum_engine(dir.path());
     request_effect(&mut engine);
     engine.drive_once().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
@@ -917,8 +925,7 @@ fn an_inline_single_steps_probe_uses_its_own_command() {
 fn a_wait_past_the_maximum_parks_the_sequence_without_a_probe() {
     own_engine!();
     let dir = tempfile::tempdir().unwrap();
-    let body = past_maximum_body(dir.path());
-    let mut engine = sequence_engine(dir.path(), body, 2);
+    let mut engine = past_maximum_engine(dir.path());
     engine.drive().unwrap();
     let failed = failed_here(&engine);
     assert_eq!(failed.len(), 1, "{failed:?}");

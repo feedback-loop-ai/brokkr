@@ -13,6 +13,7 @@ use serde_json::json;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
+use super::panel::{retried_two_route_panel, route_host};
 use super::*;
 use crate::engine::Engine;
 
@@ -815,8 +816,6 @@ fn a_round_within_the_maximum_has_a_representable_end() {
 #[test]
 fn a_non_empty_sites_refusal_extends_and_reprobes_the_answered_member() {
     own_engine!();
-    use super::panel::{retried_two_route_panel, route_host};
-
     let dir = tempfile::tempdir().unwrap();
     let body = retried_two_route_panel(dir.path(), Probed::Answer, Probed::RefuseThenAnswer);
     let mut engine = started(dir.path(), body, work(2));
@@ -1116,7 +1115,7 @@ fn a_row_recorded_during_the_wait_holds_the_probe() {
 #[test]
 fn a_round_that_passes_any_cooled_sites_maximum_writes_no_row() {
     own_engine!();
-    use super::panel::{panel_engine, retried_two_route_panel, route_host};
+    use super::panel::panel_engine;
 
     let dir = tempfile::tempdir().unwrap();
     let body = retried_two_route_panel(dir.path(), Probed::RefuseThenAnswer, Probed::Answer);
@@ -1344,8 +1343,6 @@ fn a_store_refusal_at_the_post_probe_re_read_parks_by_name() {
 #[test]
 fn a_row_recorded_during_a_panels_probe_holds_the_next_member() {
     own_engine!();
-    use super::panel::{retried_two_route_panel, route_host};
-
     let dir = tempfile::tempdir().unwrap();
     let body = retried_two_route_panel(dir.path(), Probed::Answer, Probed::Answer);
     let mut engine = started(dir.path(), body, work(2));
