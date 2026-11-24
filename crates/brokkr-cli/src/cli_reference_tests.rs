@@ -321,7 +321,10 @@ fn reference() -> String {
          decision 0119's `completions`. Every old flat name, such as \
          `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for \
          `brokkr journal verify`, still parses as a hidden alias until 0.17, \
-         and says its new spelling on stderr.\n\n"
+         and says its new spelling on stderr. Internal engine verbs (`driver`, \
+         `hands`, `bridge`, `broker`, `fake-driver`) are hidden from this page; \
+         the `brokkr hands` argument contract is documented in \
+         [hands.md](hands.md).\n\n"
     );
     for verb in verbs(&cli) {
         let path = verb.get_bin_name().expect("a built command names its path");

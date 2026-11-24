@@ -247,36 +247,59 @@ impl fmt::Display for DocumentError {
 
 impl std::error::Error for DocumentError {}
 
+/// Whether `argv` invokes `hands serve` with neither `reach` nor
+/// `reach_base64url` supplied, checked from clap's structured `ArgMatches`
+/// state rather than rendered diagnostic text (#1277 V3, proposed decision
+/// 0125 ruling 2).
+fn is_missing_serve_reach(argv: &[std::ffi::OsString], command: &clap::Command) -> bool {
+    let matches = command
+        .clone()
+        .ignore_errors(true)
+        .mut_subcommand("hands", |hands| {
+            hands
+                .ignore_errors(true)
+                .mut_subcommand("serve", |serve| serve.ignore_errors(true))
+        })
+        .try_get_matches_from(argv);
+    matches.ok().is_some_and(|matches| {
+        matches
+            .subcommand_matches("hands")
+            .and_then(|hands| hands.subcommand_matches("serve"))
+            .is_some_and(|serve| {
+                serve.value_source("reach").is_none()
+                    && serve.value_source("reach_base64url").is_none()
+            })
+    })
+}
+
 /// When `hands serve` fails clap validation because neither `--reach` nor
 /// `--reach-base64url` was given, re-render the error with `--reach` marked
 /// unconditionally required so clap emits main's exact usage order
-/// (`--reach <REACH>` before `--spec <SPEC>`, #1277 V3).
+/// (`--reach <REACH>` before `--spec <SPEC>`, #1277 V3, proposed decision
+/// 0125 ruling 2).
 pub(crate) fn reformat_missing_serve_reach(
     err: clap::Error,
     argv: &[std::ffi::OsString],
     command: impl FnOnce() -> clap::Command,
 ) -> clap::Error {
-    let missing_reach = err.kind() == clap::error::ErrorKind::MissingRequiredArgument
-        && matches!(
-            err.get(clap::error::ContextKind::InvalidArg),
-            Some(clap::error::ContextValue::Strings(args))
-                if args.iter().any(|arg| arg == "--reach <REACH>")
-        );
-    if !missing_reach {
+    if err.kind() != clap::error::ErrorKind::MissingRequiredArgument {
         return err;
     }
-    command()
-        .mut_subcommand("hands", |hands| {
-            hands.mut_subcommand("serve", |serve| {
-                serve.mut_arg("reach", |reach| {
-                    reach
-                        .required(true)
-                        .required_unless_present(clap::builder::Resettable::<clap::Id>::Reset)
-                })
+    let cmd = command();
+    if !is_missing_serve_reach(argv, &cmd) {
+        return err;
+    }
+    cmd.mut_subcommand("hands", |hands| {
+        hands.mut_subcommand("serve", |serve| {
+            serve.mut_arg("reach", |reach| {
+                reach
+                    .required(true)
+                    .required_unless_present(clap::builder::Resettable::<clap::Id>::Reset)
             })
         })
-        .try_get_matches_from(argv)
-        .unwrap_err()
+    })
+    .try_get_matches_from(argv)
+    .unwrap_err()
 }
 
 pub(crate) fn run(command: HandsCommand) -> anyhow::Result<ExitCode> {

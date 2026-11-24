@@ -100,4 +100,6 @@ Changes merged since v0.15.2 that the next release's notes carry.
   text, while plain JSON callers of `hands serve` and `hands exec` keep
   main's defaults, usage order, and diagnostics byte for byte. Other
   harnesses' JSON MCP configurations and the dsh line rule itself are
-  unchanged.
+  unchanged (see the [hands argument reference](../reference/hands.md) and
+  proposed decision
+  [0125](../decisions/0125-a-dsh-hands-row-carries-its-documents-as-unpadded-base64url.md)).
