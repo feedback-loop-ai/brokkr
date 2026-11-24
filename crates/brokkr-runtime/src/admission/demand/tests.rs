@@ -174,20 +174,19 @@ fn measured_fixture() -> (Fixture, Registry) {
     (Fixture::new(), registry)
 }
 
+/// `fixture`'s queue judged against `registry`'s history on a machine
+/// with `memory` bytes and `load` millicores available, nothing running.
+fn judged_on(fixture: &Fixture, registry: &Registry, memory: u64, load: u64) -> Vec<Judged> {
+    let none = BTreeMap::new();
+    let machine = measured(memory, load);
+    judged(fixture, &plenty(), &registry.journals, machine, &none).0
+}
+
 #[test]
 fn an_entry_whose_memory_demand_does_not_fit_waits_naming_the_numbers_and_one_that_fits_starts() {
     let (mut fixture, registry) = measured_fixture();
-    let registry = &registry.journals;
     fixture.queue();
-    let none = BTreeMap::new();
-    let short = judged(
-        &fixture,
-        &plenty(),
-        registry,
-        measured(3 * GIB, 8000),
-        &none,
-    )
-    .0;
+    let short = judged_on(&fixture, &registry, 3 * GIB, 8000);
     assert_eq!(
         said(&short),
         vec![vec![(
@@ -198,14 +197,7 @@ fn an_entry_whose_memory_demand_does_not_fit_waits_naming_the_numbers_and_one_th
                 .to_string()
         )]]
     );
-    let fits = judged(
-        &fixture,
-        &plenty(),
-        registry,
-        measured(4 * GIB, 8000),
-        &none,
-    )
-    .0;
+    let fits = judged_on(&fixture, &registry, 4 * GIB, 8000);
     assert_eq!(said(&fits), vec![vec![]]);
     assert!(fits[0].room.is_some());
     assert_eq!(
@@ -221,17 +213,8 @@ fn an_entry_whose_memory_demand_does_not_fit_waits_naming_the_numbers_and_one_th
 #[test]
 fn an_entry_whose_load_does_not_fit_the_idle_cores_waits_as_cpu_short() {
     let (mut fixture, registry) = measured_fixture();
-    let registry = &registry.journals;
     fixture.queue();
-    let none = BTreeMap::new();
-    let short = judged(
-        &fixture,
-        &plenty(),
-        registry,
-        measured(8 * GIB, 2499),
-        &none,
-    )
-    .0;
+    let short = judged_on(&fixture, &registry, 8 * GIB, 2499);
     assert_eq!(
         said(&short),
         vec![vec![(
@@ -242,14 +225,7 @@ fn an_entry_whose_load_does_not_fit_the_idle_cores_waits_as_cpu_short() {
                 .to_string()
         )]]
     );
-    let fits = judged(
-        &fixture,
-        &plenty(),
-        registry,
-        measured(8 * GIB, 2500),
-        &none,
-    )
-    .0;
+    let fits = judged_on(&fixture, &registry, 8 * GIB, 2500);
     assert_eq!(said(&fits), vec![vec![]]);
 }
 

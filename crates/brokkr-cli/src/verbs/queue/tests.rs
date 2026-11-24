@@ -639,9 +639,14 @@ fn the_listing_carries_what_an_entry_was_sized_by() {
     let _host = own_host();
     let dir = tempfile::tempdir().unwrap();
     let (ws, db) = library(&dir);
-    let add = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
-    queue_in(ws, &db, &add).unwrap();
-    queue_in(ws, &db, &add).unwrap();
+    for _ in 0..2 {
+        queue_in(
+            ws,
+            &db,
+            &["add", "--bundle", "b", "--feature", "f", "--reason", "r"],
+        )
+        .unwrap();
+    }
     let mut entries = listed(&db);
     let need = |average: u64, margin: u64| admission::Need {
         average,

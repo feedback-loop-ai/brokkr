@@ -626,9 +626,6 @@ pub fn brokkr_store::Store::open_seat_trees(&self) -> core::result::Result<alloc
 pub fn brokkr_store::Store::record_tree_sweep(&mut self, brokkr_store::Swept, &std::path::Path, core::option::Option<i64>, i64) -> core::result::Result<brokkr_store::TreeSweepRecord, brokkr_store::StoreError>
 pub fn brokkr_store::Store::tree_sweeps(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::TreeSweep>, brokkr_store::StoreError>
 impl brokkr_store::Store
-pub fn brokkr_store::Store::unended_runs(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Unended>, brokkr_store::StoreError>
-pub fn brokkr_store::Store::usage_history(&self, u32) -> core::result::Result<alloc::vec::Vec<brokkr_store::UsageRow>, brokkr_store::StoreError>
-impl brokkr_store::Store
 pub fn brokkr_store::Store::queue_add(&mut self, brokkr_store::NewEntry<'_>, brokkr_store::Attribution<'_>) -> core::result::Result<brokkr_store::EntryId, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_command(&mut self, brokkr_store::EntryId, brokkr_store::QueueCommand, brokkr_store::Attribution<'_>) -> core::result::Result<core::option::Option<u32>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_entry(&self, brokkr_store::EntryId) -> core::result::Result<brokkr_store::QueueEntry, brokkr_store::StoreError>
@@ -659,6 +656,9 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::seat_rows(&self, &str) -> core::result::Result<brokkr_store::SeatRows, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::start_run(&mut self, &str, &str, &str, &serde_json::value::Value, serde_json::value::Value, core::option::Option<&'_ mut dyn core::ops::function::FnMut(&rusqlite::transaction::Transaction<'_>) -> core::result::Result<(), brokkr_store::StoreError>>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::unended_runs(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Unended>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::usage_history(&self, u32) -> core::result::Result<alloc::vec::Vec<brokkr_store::UsageRow>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::window_fallbacks(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowFallback<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_sites(&self, i64, i64, core::option::Option<&str>, brokkr_store::metered::SiteOrder, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSite<'_>)) -> core::result::Result<(), brokkr_store::StoreError>

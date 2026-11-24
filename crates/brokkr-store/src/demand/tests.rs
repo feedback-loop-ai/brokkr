@@ -1,11 +1,7 @@
 //! The reads admission sizes an entry by (decision 0125): a recipe's
-//! latest runs and the events of theirs that size it, the runs no terminal
-//! event ends, and an open of another journal that leaves its directory as
-//! it found it.
-
-use std::collections::BTreeMap;
-use std::path::Path;
-use std::time::Duration;
+//! latest runs and the events of theirs that size it, and the runs no
+//! terminal event ends. The untouched read of another journal is main's
+//! [`Store::read_untouched`], tested beside it.
 
 use rusqlite::params;
 use serde_json::{json, Value};
@@ -163,47 +159,4 @@ fn the_unended_runs_are_those_no_terminal_event_ends() {
             recipe: "verify".into()
         }]
     );
-}
-
-/// Every file of `dir`, by name, with its bytes.
-fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
-    std::fs::read_dir(dir)
-        .unwrap()
-        .map(|entry| {
-            let entry = entry.unwrap();
-            let name = entry.file_name().to_string_lossy().into_owned();
-            (name, std::fs::read(entry.path()).unwrap())
-        })
-        .collect()
-}
-
-/// A closed journal's history is read untouched, and its directory is
-/// byte for byte as it was: no `-wal`, `-shm` or lock. A path with
-/// nothing at it is refused and left with nothing.
-#[test]
-fn a_journals_history_is_read_untouched_and_leaves_its_directory_byte_identical() {
-    const PATIENCE: Duration = Duration::from_millis(50);
-    let history = |store: &Store| store.usage_history(20);
-    let dir = tempfile::tempdir().unwrap();
-    let journal = dir.path().join("weird %?#name.db");
-    {
-        let store = Store::open(&journal).unwrap();
-        run(&store, "a", "self", "2026-11-01T00:00:00Z");
-        events(
-            &store,
-            "a",
-            &[
-                ("effect/succeeded", json!({"usage": usage(7)})),
-                ("run/completed", json!({})),
-            ],
-        );
-    }
-    let before = files(dir.path());
-    assert_eq!(before.len(), 1, "{:?}", before.keys());
-    let read = Store::read_untouched(&journal, PATIENCE, history).unwrap();
-    assert_eq!(read.len(), 2);
-    assert_eq!(files(dir.path()), before);
-    let absent = dir.path().join("absent.db");
-    assert!(Store::read_untouched(&absent, PATIENCE, history).is_err());
-    assert_eq!(files(dir.path()), before);
 }
