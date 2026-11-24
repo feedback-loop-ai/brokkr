@@ -255,41 +255,24 @@ fn a_codex_turn_takes_its_model_from_the_thread_record_when_the_stream_omits_it(
 
     let mut echo = CodexThreadEcho::default();
     echo.locate_unbound(home.path(), "01a06c05-c0a6-7991-a277-652d17ace6a6");
-    let mut turn = 0;
-    let mut meta = Map::new();
-    let mut emitted: Vec<Value> = Vec::new();
-    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
-    fold_codex_into(
-        &Row::new(
-            &json!({"type": "turn.completed", "usage": {"input_tokens": 10}}),
-            &[],
-        ),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
+    let mut fold = CodexFold::new();
+    fold.row(
+        &json!({"type": "turn.completed", "usage": {"input_tokens": 10}}),
         &mut echo,
-        &mut emitted,
     );
-    assert_eq!(meta["model"], "gpt-5.6-sol");
-    assert_eq!(meta["effort"], "medium");
-    let checkpoint = emitted.last().unwrap();
+    assert_eq!(fold.meta["model"], "gpt-5.6-sol");
+    assert_eq!(fold.meta["effort"], "medium");
+    let checkpoint = fold.emitted.last().unwrap();
     assert_eq!(checkpoint["model"], "gpt-5.6-sol");
     assert_eq!(checkpoint["effort"], "medium");
 
     // A stream that DOES name a model outranks the record: it is the
     // more direct report of the turn that just ran.
-    fold_codex_into(
-        &Row::new(
-            &json!({"type": "turn.completed", "model": "gpt-5.6-sol-preview", "usage": {}}),
-            &[],
-        ),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
+    fold.row(
+        &json!({"type": "turn.completed", "model": "gpt-5.6-sol-preview", "usage": {}}),
         &mut echo,
-        &mut emitted,
     );
-    assert_eq!(emitted.last().unwrap()["model"], "gpt-5.6-sol-preview");
+    assert_eq!(fold.emitted.last().unwrap()["model"], "gpt-5.6-sol-preview");
 }
 
 /// A binding inside the newest thread record's model or effort settles

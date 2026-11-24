@@ -71,6 +71,38 @@ pub(super) fn fold_codex_into(
     })
 }
 
+/// One Codex fold's state from its first row, for tests that drive the
+/// reader row by row through `fold_codex_into`.
+pub(super) struct CodexFold {
+    pub(super) turn: u64,
+    pub(super) meta: Map<String, Value>,
+    pub(super) transcript: Transcript,
+    pub(super) emitted: Vec<Value>,
+}
+
+impl CodexFold {
+    pub(super) fn new() -> Self {
+        Self {
+            turn: 0,
+            meta: Map::new(),
+            transcript: Transcript::resolve(TranscriptKind::CodexThread).unwrap(),
+            emitted: Vec::new(),
+        }
+    }
+
+    /// Fold one unbound row, as the Codex reader does.
+    pub(super) fn row(&mut self, row: &Value, echo: &mut CodexThreadEcho<'_>) {
+        fold_codex_into(
+            &Row::new(row, &[]),
+            &mut self.turn,
+            &mut self.meta,
+            &mut self.transcript,
+            echo,
+            &mut self.emitted,
+        );
+    }
+}
+
 mod claude_usage;
 mod codex_isolation;
 mod decision_0114a;
@@ -8765,10 +8797,7 @@ fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
     // cost surfaces with no turns at all. Usage sums across turns —
     // inserting per turn left the session holding its last turn's
     // counts.
-    let mut turn = 0;
-    let mut meta = Map::new();
-    let mut emitted: Vec<Value> = Vec::new();
-    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
+    let mut fold = CodexFold::new();
     let mut echo = CodexThreadEcho::default();
     for event in [
         json!({"type": "thread.started", "thread_id": "thread-1"}),
@@ -8781,15 +8810,9 @@ fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
             "input_tokens": 7, "cached_input_tokens": 1, "output_tokens": 3
         }}),
     ] {
-        fold_codex_into(
-            &Row::new(&event, &[]),
-            &mut turn,
-            &mut meta,
-            &mut transcript,
-            &mut echo,
-            &mut emitted,
-        );
+        fold.row(&event, &mut echo);
     }
+    let (meta, emitted) = (&fold.meta, &fold.emitted);
     assert_eq!(meta["num_turns"], 2);
     assert_eq!(meta["input_tokens"], 17);
     assert_eq!(meta["cache_read_tokens"], 5);
@@ -9029,21 +9052,12 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
 
 #[test]
 fn a_thread_id_too_long_for_the_journal_is_clamped_in_both_places() {
-    let mut turn = 0;
-    let mut meta = Map::new();
-    let mut emitted: Vec<Value> = Vec::new();
-    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
-    fold_codex_into(
-        &Row::new(
-            &json!({"type": "thread.started", "thread_id": "x".repeat(200)}),
-            &[],
-        ),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
+    let mut fold = CodexFold::new();
+    fold.row(
+        &json!({"type": "thread.started", "thread_id": "x".repeat(200)}),
         &mut CodexThreadEcho::default(),
-        &mut emitted,
     );
+    let (meta, emitted) = (&fold.meta, &fold.emitted);
     assert_eq!(
         meta["transcript"]["locator"]
             .as_str()
