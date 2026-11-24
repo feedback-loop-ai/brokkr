@@ -1325,7 +1325,7 @@ fn bubblewrap_is_built_once_from_a_tarball_verified_by_digest() {
     assert_eq!(
         sites,
         [
-            (".github/workflows/ci.yml".to_string(), 3),
+            (".github/workflows/ci.yml".to_string(), 4),
             (".github/workflows/mutants.yml".to_string(), 2),
             (".github/workflows/release.yml".to_string(), 2),
             (".github/workflows/research-weekly.yml".to_string(), 1),
@@ -1607,11 +1607,14 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "msrv",
             "quality",
             "plugin-tests",
+            "classify",
+            "docs-lane",
             "engine-machines",
             "engine",
             "seatbelt-lifetime",
             "coverage-machines",
             "coverage",
+            "coverage-gate",
             "license-compliance",
             "lint-non-rust",
             "dependency-audit",

@@ -95,7 +95,7 @@ preflight` on the new head, named as `Brokkr-Preflight: <run-id>`; a code
 delta needs a new run. Only the operator may apply the visible `by-hand`
 escape-hatch label, and only where no landing can stand (decision 0051).
 
-Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit.
+Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit. A pull request that changes only documentation, `.md` pages under `docs/` or at the top level that no code names, runs [the docs lane](docs/guides/contributing-by-hand.md#the-docs-lane): the tests that read documentation, in minutes, in place of the test and coverage machines, and the three suite checks pass on that lane's own result. It still lands through the merge queue's full run (#1295).
 
 ## 6. Dependency admission
 
