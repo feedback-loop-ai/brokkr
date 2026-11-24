@@ -1,7 +1,5 @@
 //! The realm's append-only work-order journal (decision 0116 rulings 2, 5 and 10).
 
-use std::num::NonZeroU32;
-
 use brokkr_core::work_order::{Trackers, WorkOrder, WorkOrderError, WorkOrderId, WorkOrderState};
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
 use sha2::{Digest, Sha256};
@@ -130,7 +128,7 @@ struct Current {
 impl Current {
     fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
-            id: WorkOrderId::from_number(row.get(0)?),
+            id: read_id(row)?,
             text: row.get(1)?,
             digest: row.get(2)?,
             ruled: row.get(3)?,
@@ -164,12 +162,17 @@ fn proposed(conn: &Connection, id: &WorkOrderId) -> Result<bool, StoreError> {
 }
 
 fn next_id(conn: &Connection) -> Result<WorkOrderId, StoreError> {
-    let number: NonZeroU32 = conn.query_row(
+    Ok(conn.query_row(
         "SELECT COALESCE(MAX(number), 0) + 1 FROM work_order_events",
         [],
-        |row| row.get(0),
-    )?;
-    Ok(WorkOrderId::from_number(number))
+        read_id,
+    )?)
+}
+
+fn read_id(row: &Row<'_>) -> rusqlite::Result<WorkOrderId> {
+    let number = row.get(0)?;
+    WorkOrderId::from_number(number)
+        .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, i64::from(number)))
 }
 
 enum Event<'a> {

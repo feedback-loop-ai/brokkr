@@ -1547,7 +1547,7 @@ pub fn brokkr_core::work_order::WorkOrder::with_state(self, brokkr_core::work_or
 pub struct brokkr_core::work_order::WorkOrderError(_)
 pub struct brokkr_core::work_order::WorkOrderId(_)
 impl brokkr_core::work_order::WorkOrderId
-pub fn brokkr_core::work_order::WorkOrderId::from_number(core::num::nonzero::NonZeroU32) -> Self
+pub fn brokkr_core::work_order::WorkOrderId::from_number(u32) -> core::result::Result<Self, brokkr_core::work_order::WorkOrderError>
 pub fn brokkr_core::work_order::WorkOrderId::number(&self) -> u32
 impl core::fmt::Display for brokkr_core::work_order::WorkOrderId
 pub fn brokkr_core::work_order::WorkOrderId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

@@ -3,7 +3,6 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::num::NonZeroU32;
 use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -19,17 +18,20 @@ const ACCEPTANCE: &str = "## Acceptance";
 
 /// Brokkr's realm-local work-order identifier.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkOrderId(NonZeroU32);
+pub struct WorkOrderId(u32);
 
 impl WorkOrderId {
     /// Construct the id of a journaled work order from its positive number.
-    pub fn from_number(number: NonZeroU32) -> Self {
-        Self(number)
+    pub fn from_number(number: u32) -> Result<Self, WorkOrderError> {
+        if number == 0 {
+            return Err(WorkOrderError(Refusal::Id));
+        }
+        Ok(Self(number))
     }
 
     /// The number in the canonical `WO-<n>` id.
     pub fn number(&self) -> u32 {
-        self.0.get()
+        self.0
     }
 
     fn read(text: &str) -> Result<Self, Refusal> {
@@ -51,7 +53,7 @@ impl FromStr for WorkOrderId {
 
 impl fmt::Display for WorkOrderId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "WO-{}", self.0)
+        formatter.write_str(&format!("WO-{}", self.0))
     }
 }
 

@@ -675,10 +675,11 @@ fn invalid_tracker_definitions_are_refused() {
 
 #[test]
 fn work_order_id_exposes_its_positive_number() {
-    let number = NonZeroU32::new(u32::MAX).unwrap();
-    let id = WorkOrderId::from_number(number);
+    let number = u32::MAX;
+    let id = WorkOrderId::from_number(number).unwrap();
     assert_eq!(id, "WO-4294967295".parse().unwrap());
-    assert_eq!(id.number(), number.get());
+    assert_eq!(id.number(), number);
+    assert_eq!(WorkOrderId::from_number(0).unwrap_err().0, Refusal::Id);
 }
 
 #[test]

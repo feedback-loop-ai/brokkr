@@ -1,13 +1,12 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Error as SqlError, ErrorCode};
 use tempfile::TempDir;
 
 use super::*;
 
-const DRAFT: &str = include_str!("../../../../fixtures/work-order/draft.md");
-const COMPLETE: &str = include_str!("../../../../fixtures/work-order/complete.md");
-const GITHUB: &str = include_str!("../../../../trackers/github.json");
+const DRAFT: &str = "fixtures/work-order/draft.md";
+const COMPLETE: &str = "fixtures/work-order/complete.md";
 
 const BY: Attribution<'_> = Attribution {
     operator: "operator",
@@ -21,16 +20,23 @@ fn scratch() -> (TempDir, PathBuf, Store) {
     (dir, path, store)
 }
 
+fn fixture(relative: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(relative);
+    std::fs::read_to_string(path).unwrap()
+}
+
 fn trackers() -> Trackers {
-    Trackers::from_definitions([GITHUB]).unwrap()
+    Trackers::from_definitions([fixture("trackers/github.json").as_str()]).unwrap()
 }
 
 fn id(number: u32) -> WorkOrderId {
-    WorkOrderId::from_number(NonZeroU32::new(number).unwrap())
+    WorkOrderId::from_number(number).unwrap()
 }
 
 fn draft() -> WorkOrder {
-    WorkOrder::parse(DRAFT, &trackers()).unwrap()
+    WorkOrder::parse(&fixture(DRAFT), &trackers()).unwrap()
 }
 
 fn refusal<T: std::fmt::Debug>(result: Result<T, StoreError>, text: &str) -> OrderRefusal {
@@ -160,6 +166,15 @@ fn add_assigns_after_the_highest_number_and_refuses_a_second_proposal() {
 }
 
 #[test]
+fn a_zero_sql_number_cannot_be_read_as_an_order_id() {
+    let (_dir, _, store) = scratch();
+    assert!(matches!(
+        store.conn.query_row("SELECT 0", [], read_id),
+        Err(SqlError::IntegralValueOutOfRange(0, 0))
+    ));
+}
+
+#[test]
 fn assigning_past_the_last_number_refuses_without_wrapping() {
     let (_dir, _, mut store) = scratch();
     let last = id(u32::MAX);
@@ -181,7 +196,7 @@ fn assigning_past_the_last_number_refuses_without_wrapping() {
 fn a_ruled_header_is_journaled_and_read_as_proposed() {
     let (_dir, _, mut store) = scratch();
     let trackers = trackers();
-    let order = WorkOrder::parse(COMPLETE, &trackers).unwrap();
+    let order = WorkOrder::parse(&fixture(COMPLETE), &trackers).unwrap();
     let id = store.order_add(order.clone(), BY).unwrap();
     let expected = order.with_state(WorkOrderState::Proposed);
     assert_eq!(current(&store.conn, &id).unwrap().text, expected.render());
@@ -235,7 +250,7 @@ fn editing_returns_to_proposed_and_a_later_ruling_of_old_text_does_not_stand() {
         first.with_id(id.clone())
     );
 
-    let text = DRAFT.replace("Keep the work clear.", "Describe the edited work.");
+    let text = fixture(DRAFT).replace("Keep the work clear.", "Describe the edited work.");
     let edited = WorkOrder::parse(&text, &trackers)
         .unwrap()
         .with_id(id.clone());
@@ -259,7 +274,7 @@ fn editing_returns_to_proposed_and_a_later_ruling_of_old_text_does_not_stand() {
 fn ruling_waits_for_the_open_ask_and_can_only_be_recorded_once_per_text() {
     let (_dir, _, mut store) = scratch();
     let trackers = trackers();
-    let text = COMPLETE.replacen(",\n      \"ruling\": 1", "", 1);
+    let text = fixture(COMPLETE).replacen(",\n      \"ruling\": 1", "", 1);
     let open = WorkOrder::parse(&text, &trackers).unwrap();
     let id = store.order_add(open, BY).unwrap();
     assert!(matches!(
@@ -270,7 +285,7 @@ fn ruling_waits_for_the_open_ask_and_can_only_be_recorded_once_per_text() {
         store.order(&id, &trackers).unwrap().state(),
         WorkOrderState::Proposed
     );
-    let closed = WorkOrder::parse(COMPLETE, &trackers).unwrap();
+    let closed = WorkOrder::parse(&fixture(COMPLETE), &trackers).unwrap();
     store.order_edit(&id, closed.clone(), BY).unwrap();
     store.order_rule(&id, BY).unwrap();
     assert_eq!(store.order(&id, &trackers).unwrap(), closed);
@@ -320,7 +335,7 @@ fn every_version_is_replayable_and_events_are_append_only() {
     let (_dir, _, mut store) = scratch();
     let order = draft();
     let id = store.order_add(order.clone(), BY).unwrap();
-    let changed = DRAFT.replace("Keep the work clear.", "Record each version.");
+    let changed = fixture(DRAFT).replace("Keep the work clear.", "Record each version.");
     let edited = WorkOrder::parse(&changed, &trackers()).unwrap();
     store.order_edit(&id, edited.clone(), BY).unwrap();
     store.order_rule(&id, BY).unwrap();
@@ -375,6 +390,7 @@ fn every_version_is_replayable_and_events_are_append_only() {
 #[test]
 fn the_table_refuses_duplicate_proposals_and_wrong_event_payloads() {
     let (_dir, _, mut store) = scratch();
+    let draft_text = fixture(DRAFT);
     store.order_add(draft(), BY).unwrap();
     let insert =
         "INSERT INTO work_order_events (number, event, text, digest, operator, reason, recorded_at)
@@ -382,9 +398,9 @@ fn the_table_refuses_duplicate_proposals_and_wrong_event_payloads() {
     for (number, event, text) in [
         (2, "proposed", None),
         (1, "edited", None),
-        (1, "ruled", Some(DRAFT)),
+        (1, "ruled", Some(draft_text.as_str())),
         (1, "unknown", None),
-        (0, "proposed", Some(DRAFT)),
+        (0, "proposed", Some(draft_text.as_str())),
     ] {
         assert_constraint(
             store.conn.execute(insert, params![number, event, text]),
@@ -393,7 +409,9 @@ fn the_table_refuses_duplicate_proposals_and_wrong_event_payloads() {
         );
     }
     assert_constraint(
-        store.conn.execute(insert, params![1, "proposed", DRAFT]),
+        store
+            .conn
+            .execute(insert, params![1, "proposed", draft_text]),
         rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE,
         None,
     );
@@ -403,7 +421,7 @@ fn the_table_refuses_duplicate_proposals_and_wrong_event_payloads() {
 #[test]
 fn unreadable_text_is_reported_by_reads_and_cannot_be_ruled_if_malformed() {
     let (_dir, _, mut store) = scratch();
-    let order = WorkOrder::parse(COMPLETE, &trackers()).unwrap();
+    let order = WorkOrder::parse(&fixture(COMPLETE), &trackers()).unwrap();
     let id = store.order_add(order, BY).unwrap();
     let empty = Trackers::from_definitions([]).unwrap();
     for result in [
