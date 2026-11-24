@@ -9,33 +9,33 @@ use super::*;
 /// Each machine of each system's layout, and the shards it runs, by their
 /// place in [`NAMES`]: every shard sits on exactly one machine of each.
 const MACHINES: [(&str, &[usize]); 13] = [
-    ("linux/1", &[1, 2]),
-    ("linux/2", &[0, 6]),
-    ("linux/3", &[7, 12]),
-    ("linux/4", &[8, 13]),
-    ("linux/5", &[3, 4, 9]),
-    ("linux/6", &[11, 15]),
-    ("linux/7", &[14]),
-    ("linux/8", &[5, 10]),
-    ("macos/1", &[2, 10]),
+    ("linux/1", &[0]),
+    ("linux/2", &[10, 14]),
+    ("linux/3", &[8, 9]),
+    ("linux/4", &[6, 7]),
+    ("linux/5", &[2, 15]),
+    ("linux/6", &[5, 12]),
+    ("linux/7", &[3, 4, 13]),
+    ("linux/8", &[1, 11]),
+    ("macos/1", &[0, 4, 10, 15]),
     ("macos/2", &[1, 3]),
-    ("macos/3", &[0, 7]),
-    ("macos/4", &[5, 6, 15]),
-    ("macos/5", &[4, 8, 9]),
+    ("macos/3", &[5, 7]),
+    ("macos/4", &[2, 8]),
+    ("macos/5", &[6, 9]),
 ];
 
 /// The exact coverage gate's machines, Linux's alone, and the shards each
 /// measures, by their place in [`NAMES`]: every shard but the doctests,
 /// which cargo-llvm-cov never runs, sits on exactly one.
 const COVERAGE_MACHINES: [(&str, &[usize]); 8] = [
-    ("linux/1", &[2, 11]),
-    ("linux/2", &[15]),
-    ("linux/3", &[3, 9]),
-    ("linux/4", &[1, 6]),
-    ("linux/5", &[0, 5]),
-    ("linux/6", &[7, 12]),
-    ("linux/7", &[8, 13]),
-    ("linux/8", &[4, 14]),
+    ("linux/1", &[14]),
+    ("linux/2", &[2]),
+    ("linux/3", &[0]),
+    ("linux/4", &[6, 9]),
+    ("linux/5", &[1, 8]),
+    ("linux/6", &[5, 15]),
+    ("linux/7", &[7, 11, 12]),
+    ("linux/8", &[3, 4, 13]),
 ];
 
 /// A run whose BROKKR_TEST_MACHINE names a machine builds every binary and
@@ -167,27 +167,28 @@ const COVERAGE_MODES: [&[&str]; 3] = [
 fn a_layout_with_an_empty_machine_or_an_unnumbered_one_is_refused() {
     let real = metadata();
     let table = script();
-    // The broker's enabled rest is linux/7's one shard in the test layout,
-    // its skipped suite coverage's linux/2's, and the skipped suite's line
-    // names a macOS machine.
-    let rest = "the rest of it, alone\" 7 8 - test:it";
-    let line = "skipped, alone\" 6 2 4 test:it";
+    // The libraries' rest is linux/1's one shard in the test layout, the
+    // broker's enabled rest coverage's linux/1's, and the broker's skipped
+    // suite's line names a macOS machine.
+    let libraries = "skipped' 1 3 1 lib";
+    let rest = "the rest of it, alone\" 2 1 - test:it";
+    let line = "skipped, alone\" 5 6 1 test:it";
     for (line, planted, refusal, modes) in [
         (
-            rest,
-            "the rest of it, alone\" 9 8 - test:it",
-            "test shards: the linux layout leaves machine 7 with no shard\n",
+            libraries,
+            "skipped' 9 3 1 lib",
+            "test shards: the linux layout leaves machine 1 with no shard\n",
             TEST_MODES,
         ),
         (
-            line,
-            "skipped, alone\" 6 9 4 test:it",
-            "test shards: the linux layout leaves machine 2 with no shard\n",
+            rest,
+            "the rest of it, alone\" 2 9 - test:it",
+            "test shards: the linux layout leaves machine 1 with no shard\n",
             COVERAGE_MODES,
         ),
         (
             line,
-            "skipped, alone\" 6 2 x test:it",
+            "skipped, alone\" 5 6 x test:it",
             "test shards: capability_broker, its enabled suite skipped, alone names the macos \
              machine 'x', which is not a number from 1\n",
             TEST_MODES,

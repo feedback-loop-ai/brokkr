@@ -150,35 +150,29 @@ usage() {
 # tests, split here by count: reach and sites hold 16 of its 98, windows
 # 19, matrix, bounds and dispatch 19, and the rest 44. Coverage gets its
 # own column, since its run_pages, skipped broker and heap shards grow by
-# half or more where the rest do not. The planned sums, from those
-# measurements and the workstation's shares, in seconds:
-#   linux/1 824 (fleet::kept_tests about 620, run_pages 204)
-#   linux/2 807 (the rest of the libraries about 440, the fleet view 367)
-#   linux/3 about 791 (the run view's first half 441, the enabled second part 350)
-#   linux/4 about 791 (the run view's rest 441, the enabled third part 350)
-#   linux/5 828 (the seat view about 455, the it binaries 303, the heap measurements 70)
-#   linux/6 about 795 (the enabled first part 294, the skipped broker 501)
-#   linux/7 about 809 (the enabled suite's rest)
-#   linux/8 360 (the own-process binaries 357, the doctests 3)
-#   coverage linux/1 about 906 (fleet::kept_tests 620, the enabled first part 286)
-#   coverage linux/2 759 (the skipped broker)
-#   coverage linux/3 870 (the seat view 552, the it binaries 318)
-#   coverage linux/4 889 (the fleet view 511, run_pages 378)
-#   coverage linux/5 859 (the own-process binaries 459, the rest of the libraries 400)
-#   coverage linux/6 about 875 (the run view's first half 535, the second part 340)
-#   coverage linux/7 about 875 (the run view's rest 535, the third part 340)
-#   coverage linux/8 about 877 (the enabled suite's rest 787, the heap measurements 90)
-#   macos/1 about 1,070 (fleet::kept_tests 1,065, the doctests), and the R3
-#     startup gate
-#   macos/2 1,133 (the it binaries 748, run_pages 385)
-#   macos/3 about 1,117 (the rest of the libraries 680, the run view's first half 437)
-#   macos/4 about 1,158 (the fleet view 541, the own-process binaries 417,
-#     the skipped broker, about 200)
-#   macos/5 about 1,099 (the seat view 450, the run view's rest 437, the heap
-#     measurements 212)
-# so the slowest machines should take about 14, 15 and 19 minutes of
-# shards, 18, 19 and 23 whole. macOS's shards sum about 5,580 s, 1,115 a
-# machine over GitHub's five, so no layout there holds 18 minutes.
+# half or more where the rest do not.
+#
+# Placed first from those shares, #1320's pull-request run 45330356690
+# (2026-11-24) took 35.7 minutes: macos/3 35.5, linux/2 29.8 and
+# coverage's linux/5 25.0, the rest of the libraries far over its share.
+# Its shards, in seconds, Linux, coverage and macOS: the rest of the
+# libraries 974, 802 and 1,115 (brokkr-protocol's 422 of Linux's);
+# fleet::kept_tests 411, 821 and 617; run_pages 199, 381 and 399; the it
+# binaries 306, 258 and 890; the heap measurements 80, 71 and 169; the
+# own-process binaries 421, 437 and 478; the fleet view 530, 512 and 594;
+# the run view's first half 383, 261 and 640, its rest 367, 458 and 484;
+# the seat view 586, 334 and 494; the doctests 4, none and 6; the broker's
+# enabled parts 201, 325, 216 and 902 on Linux, 325, 227, 148 and 865
+# under coverage; its skipped suite 525, 384 and 8. Placed again from
+# those, by hand, the machines' shard sums are, in seconds:
+#   linux 974, 906, 953, 913, 936, 746, 602 and 400
+#   coverage 865, 821, 802, 846, 839, 821, 813 and 477
+#   macos 1,298, 1,289, 1,118, 1,101 and 1,088
+# so the slowest machines should take about 21, 19 and 28 minutes whole,
+# each machine's checkout, cache and build about 4 to 6 of them, and the
+# coverage gate's 5 follow its machines. The rest of the libraries is
+# Linux's floor and macOS's, the broker's enabled rest coverage's: only a
+# finer split of those moves them.
 shard_name=()
 shard_linux=()
 shard_coverage=()
@@ -192,35 +186,35 @@ shard() {
   shift 4
   shard_selectors+=("$*")
 }
-shard 'every library, run_pages and fleet::kept_tests skipped' 2 5 3 lib skip:run_pages:: skip:fleet::kept_tests::
-shard "the libraries' run_pages tests" 1 4 2 lib only:run_pages::
-shard "the libraries' fleet::kept_tests tests" 1 1 1 lib only:fleet::kept_tests::
-shard "the it binaries, capability_broker skipped" 5 3 2 test:it skip:capability_broker::
-shard 'the heap measurements' 5 8 5 test:heap_claude test:heap_codex test:heap_dsh
-shard 'the other own-process binaries' 8 5 4 bin:brokkr test:driver_conformance test:transcript_surfaces \
+shard 'every library, run_pages and fleet::kept_tests skipped' 1 3 1 lib skip:run_pages:: skip:fleet::kept_tests::
+shard "the libraries' run_pages tests" 8 5 2 lib only:run_pages::
+shard "the libraries' fleet::kept_tests tests" 5 2 4 lib only:fleet::kept_tests::
+shard "the it binaries, capability_broker skipped" 7 8 2 test:it skip:capability_broker::
+shard 'the heap measurements' 7 8 1 test:heap_claude test:heap_codex test:heap_dsh
+shard 'the other own-process binaries' 6 6 3 bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
   test:seatbelt_lifetime_probe test:summary_heap test:heap_open test:heap_costs
-shard 'the fleet heap view' 2 4 4 test:heap_fleet
-shard "the run heap view's run level and detail pane" 3 6 3 test:heap_run_view \
+shard 'the fleet heap view' 4 4 5 test:heap_fleet
+shard "the run heap view's run level and detail pane" 4 7 3 test:heap_run_view \
   only:the_console_s_run_level_holds_its_trail_and_no_checkpoint \
   only:the_detail_pane_holds_a_window_however_deep_the_scroll
-shard 'the rest of the run heap view' 4 7 5 test:heap_run_view \
+shard 'the rest of the run heap view' 3 5 4 test:heap_run_view \
   skip:the_console_s_run_level_holds_its_trail_and_no_checkpoint \
   skip:the_detail_pane_holds_a_window_however_deep_the_scroll
-shard 'the seat heap view' 5 3 5 test:heap_seat_view
-shard 'the doctests' 8 - 1 doc
-shard "capability_broker's enabled suite, its first part, alone" 6 1 - test:it \
+shard 'the seat heap view' 3 4 5 test:heap_seat_view
+shard 'the doctests' 2 - 1 doc
+shard "capability_broker's enabled suite, its first part, alone" 8 7 - test:it \
   only:capability_broker::enabled::reach:: only:capability_broker::enabled::sites::
-shard "capability_broker's enabled suite, its second part, alone" 3 6 - test:it \
+shard "capability_broker's enabled suite, its second part, alone" 6 7 - test:it \
   only:capability_broker::enabled::windows::
-shard "capability_broker's enabled suite, its third part, alone" 4 7 - test:it \
+shard "capability_broker's enabled suite, its third part, alone" 7 8 - test:it \
   only:capability_broker::enabled::matrix:: only:capability_broker::enabled::bounds:: \
   only:capability_broker::enabled::dispatch::
-shard "capability_broker's enabled suite, the rest of it, alone" 7 8 - test:it only:capability_broker::enabled:: \
+shard "capability_broker's enabled suite, the rest of it, alone" 2 1 - test:it only:capability_broker::enabled:: \
   skip:capability_broker::enabled::reach:: skip:capability_broker::enabled::sites:: \
   skip:capability_broker::enabled::windows:: skip:capability_broker::enabled::matrix:: \
   skip:capability_broker::enabled::bounds:: skip:capability_broker::enabled::dispatch::
-shard "capability_broker, its enabled suite skipped, alone" 6 2 4 test:it only:capability_broker:: skip:capability_broker::enabled::
+shard "capability_broker, its enabled suite skipped, alone" 5 6 1 test:it only:capability_broker:: skip:capability_broker::enabled::
 
 # The machine this run is, read once and unset (above).
 machine="${BROKKR_TEST_MACHINE:-}"
