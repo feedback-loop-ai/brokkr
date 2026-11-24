@@ -253,19 +253,60 @@ fn interrupts_gfm_table(line: &str) -> bool {
         || is_list_item(rest)
 }
 
+/// Advance CommonMark fenced-code-block state for `line`; returns `true` when
+/// `line` opens, lies inside, or closes a fence.
+fn step_fence(line: &str, in_fence: &mut Option<(u8, usize)>) -> bool {
+    if let Some(marker) = *in_fence {
+        if closes_fence(line, marker) {
+            *in_fence = None;
+        }
+        return true;
+    }
+    if let Some(marker) = fence_marker(line) {
+        *in_fence = Some(marker);
+        return true;
+    }
+    false
+}
+
+/// Replace CommonMark type-2 HTML comment blocks (`<!-- ... -->`) outside
+/// fenced code blocks with blank lines so commented-out headings, usage
+/// blocks, and option tables are not read as rendered GFM content, while
+/// comments still interrupt preceding blocks such as tables.
+fn strip_html_comments(page: &str) -> String {
+    let mut out = String::with_capacity(page.len());
+    let mut in_fence: Option<(u8, usize)> = None;
+    let mut in_comment = false;
+    for line in page.lines() {
+        if in_comment {
+            if line.contains("-->") {
+                in_comment = false;
+            }
+            out.push('\n');
+            continue;
+        }
+        if step_fence(line, &mut in_fence) {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if strip_up_to_three_spaces(line).starts_with("<!--") {
+            in_comment = !line.contains("-->");
+            out.push('\n');
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
 /// Extract the first GFM table from `lines`, reading every row GFM renders as
 /// part of that table whether or not it carries a leading pipe.
 fn extract_first_table(lines: &[&str]) -> Option<String> {
     let mut in_fence: Option<(u8, usize)> = None;
     for i in 0..lines.len() {
-        if let Some(marker) = in_fence {
-            if closes_fence(lines[i], marker) {
-                in_fence = None;
-            }
-            continue;
-        }
-        if let Some(marker) = fence_marker(lines[i]) {
-            in_fence = Some(marker);
+        if step_fence(lines[i], &mut in_fence) {
             continue;
         }
         let Some(next) = lines.get(i + 1) else {
@@ -341,8 +382,9 @@ fn parse_section_body(verb: &str, body: &str) -> Result<ParsedSection, HandsRefD
 /// Parse every `## ` section in `page` into its verb path, usage synopsis, and
 /// option table.
 fn parse_sections(page: &str) -> Result<Vec<ParsedSection>, HandsRefDrift> {
+    let visible = strip_html_comments(page);
     let mut raw: Vec<(String, String)> = Vec::new();
-    for line in page.lines() {
+    for line in visible.lines() {
         if let Some(heading) = line.strip_prefix("## ") {
             let verb = heading.trim().trim_matches('`').to_string();
             raw.push((verb, String::new()));
@@ -484,8 +526,7 @@ fn the_hands_reference_check_catches_synopsis_table_and_section_drift() {
     );
 }
 
-#[test]
-fn the_hands_reference_check_reads_gfm_table_rows_without_leading_pipe() {
+fn serve_reference_fixture() -> (Command, String, ParsedSection) {
     let cli = built();
     let committed = std::fs::read_to_string(workspace().join(HANDS_REFERENCE))
         .expect("docs/reference/hands.md reads");
@@ -494,6 +535,16 @@ fn the_hands_reference_check_reads_gfm_table_rows_without_leading_pipe() {
         .find(|verb| verb.get_name() == "serve")
         .expect("hands serve subcommand");
     let serve_expected = expected_section(serve);
+    (cli, committed, serve_expected)
+}
+
+#[test]
+fn the_hands_reference_check_reads_gfm_table_rows_without_leading_pipe() {
+    let (cli, committed, serve_expected) = serve_reference_fixture();
+    let serve = hands_verbs(&cli)
+        .into_iter()
+        .find(|verb| verb.get_name() == "serve")
+        .expect("hands serve subcommand");
 
     // 1. An extra option row without a leading pipe appended directly to the
     //    table (with a wrong default) is read as part of the table and fails.
@@ -557,4 +608,54 @@ fn the_hands_reference_check_reads_gfm_table_rows_without_leading_pipe() {
             actual: pipeless_table,
         }]
     );
+}
+
+#[test]
+fn the_hands_reference_check_ignores_tables_inside_html_comments() {
+    let (cli, committed, serve_expected) = serve_reference_fixture();
+    let wrong_table = format!(
+        "{}| `--extra <EXTRA>` | `\"wrong\"` | Extra option |\n",
+        serve_expected.table
+    );
+
+    // 1. Real table commented out, wrong table visible -> fails with the visible wrong table.
+    let commented_real_visible_wrong =
+        format!("<!--\n{}-->\n\n{wrong_table}", serve_expected.table);
+    let page = committed.replacen(&serve_expected.table, &commented_real_visible_wrong, 1);
+    assert_ne!(page, committed);
+    assert_eq!(
+        check_hands_reference(&cli, &page),
+        [HandsRefDrift::OptionTable {
+            verb: serve_expected.verb.clone(),
+            expected: serve_expected.table.clone(),
+            actual: wrong_table.clone(),
+        }]
+    );
+
+    // 2. Wrong table commented out, real table visible -> passes cleanly.
+    let commented_wrong_visible_real =
+        format!("<!--\n{wrong_table}-->\n\n{}", serve_expected.table);
+    let page = committed.replacen(&serve_expected.table, &commented_wrong_visible_real, 1);
+    assert_ne!(page, committed);
+    assert_eq!(check_hands_reference(&cli, &page), []);
+
+    // 3. Real table only inside an HTML comment -> fails as MissingTable.
+    let commented_only = format!("<!--\n{}-->\n", serve_expected.table);
+    let page = committed.replacen(&serve_expected.table, &commented_only, 1);
+    assert_ne!(page, committed);
+    assert_eq!(
+        check_hands_reference(&cli, &page),
+        [HandsRefDrift::MissingTable {
+            verb: serve_expected.verb,
+        }]
+    );
+
+    // 4. A single-line HTML comment immediately after the real table interrupts it.
+    let trailing_comment = format!(
+        "{}<!-- end of table -->\nTrailing note outside table.\n",
+        serve_expected.table
+    );
+    let page = committed.replacen(&serve_expected.table, &trailing_comment, 1);
+    assert_ne!(page, committed);
+    assert_eq!(check_hands_reference(&cli, &page), []);
 }

@@ -575,10 +575,14 @@ pub const brokkr_protocol::hands::BOUNDARY_EVIDENCE_ENV: &str
 pub const brokkr_protocol::hands::BOUNDARY_IS_THE_REALMS: &str
 pub const brokkr_protocol::hands::HANDS_BOX_ENV: &str
 pub const brokkr_protocol::hands::HOST_TOOLCHAIN_BINDS: &[&str]
+pub const brokkr_protocol::hands::REACH_BASE64URL_OPTION: &str
+pub const brokkr_protocol::hands::REACH_OPTION: &str
 pub const brokkr_protocol::hands::SANDBOX_BUNDLE: &str
 pub const brokkr_protocol::hands::SEALED_REACH: &str
 pub const brokkr_protocol::hands::SERVER_NAME: &str
 pub const brokkr_protocol::hands::SERVER_RESOLVER: &str
+pub const brokkr_protocol::hands::SPEC_BASE64URL_OPTION: &str
+pub const brokkr_protocol::hands::SPEC_OPTION: &str
 pub const brokkr_protocol::hands::TOOL_NAME: &str
 pub const brokkr_protocol::hands::UNHIDDEN_STORE: &str
 pub const brokkr_protocol::hands::UNPROTECTED_EVIDENCE: &str

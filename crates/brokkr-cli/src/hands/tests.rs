@@ -338,15 +338,15 @@ fn hands_serve_passes_leading_hyphen_encoded_values_to_decoder() {
     let spec_eq = format!("--spec-base64url={hyphen}");
 
     for (extra, expected_flag) in [
-        (&["--reach-base64url", hyphen][..], REACH_BASE64URL_FLAG),
-        (&[reach_eq.as_str()][..], REACH_BASE64URL_FLAG),
+        (&["--reach-base64url", hyphen][..], REACH_BASE64URL_OPTION),
+        (&[reach_eq.as_str()][..], REACH_BASE64URL_OPTION),
         (
             &["--reach", &valid_reach, "--spec-base64url", hyphen][..],
-            SPEC_BASE64URL_FLAG,
+            SPEC_BASE64URL_OPTION,
         ),
         (
             &["--reach", &valid_reach, spec_eq.as_str()][..],
-            SPEC_BASE64URL_FLAG,
+            SPEC_BASE64URL_OPTION,
         ),
     ] {
         let HandsCommand::Serve {
@@ -402,8 +402,8 @@ fn hands_serve_refuses_missing_reach_or_duplicate_spellings() {
     assert!(matches!(
         err,
         DocumentError::BothSpellings {
-            plain: "--reach",
-            encoded: "--reach-base64url"
+            plain: REACH_OPTION,
+            encoded: REACH_BASE64URL_OPTION
         }
     ));
     assert_eq!(
@@ -422,8 +422,8 @@ fn hands_serve_refuses_missing_reach_or_duplicate_spellings() {
     assert!(matches!(
         err,
         DocumentError::BothSpellings {
-            plain: "--spec",
-            encoded: "--spec-base64url"
+            plain: SPEC_OPTION,
+            encoded: SPEC_BASE64URL_OPTION
         }
     ));
     assert_eq!(
@@ -456,7 +456,7 @@ fn hands_serve_refuses_malformed_base64url_documents() {
         assert!(matches!(
             reach_err,
             DocumentError::Encoded {
-                flag: "--reach-base64url",
+                flag: REACH_BASE64URL_OPTION,
                 cause
             } if cause == expected
         ));
@@ -472,7 +472,7 @@ fn hands_serve_refuses_malformed_base64url_documents() {
         assert!(matches!(
             spec_err,
             DocumentError::Encoded {
-                flag: "--spec-base64url",
+                flag: SPEC_BASE64URL_OPTION,
                 cause
             } if cause == expected
         ));
@@ -500,6 +500,7 @@ fn hands_serve_refuses_decoded_documents_without_disclosing_decoded_text() {
         assert_eq!(err.to_string(), expected);
         assert!(!err.to_string().contains(marker));
         assert!(!format!("{err:?}").contains(marker));
+        assert!(std::error::Error::source(err).is_none());
     };
 
     for (bad_doc, expected_cat, cat_name) in [
@@ -1322,4 +1323,212 @@ fn assert_spec_spelling_parity() {
 fn plain_and_encoded_spellings_agree_on_every_document() {
     assert_reach_spelling_parity();
     assert_spec_spelling_parity();
+}
+
+/// #1277 J1 + J2: `Cli` parses the vector `brokkr_protocol::hands::serve_args`
+/// builds and binds its `hands serve` long options to the four constants
+/// exported from `brokkr_protocol::hands`.
+#[test]
+fn hands_serve_cli_parses_protocol_serve_args_and_exported_options() {
+    use brokkr_protocol::hands::{Bind, BindMode};
+    use clap::{CommandFactory, Parser};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path();
+    let artifacts = work.join("artifacts");
+    let spec = HandsSpec {
+        network: true,
+        binds: vec![Bind {
+            path: "~/.cargo".to_string(),
+            mode: BindMode::Ro,
+            mask: vec!["credentials.toml".to_string()],
+        }],
+    };
+    let sealed: Sealed = serde_json::from_str(&reach(work)).unwrap();
+
+    // 1. Parse the public `serve_args` vector directly through `Cli`.
+    let plain_vec = hands::serve_args(work, &artifacts, &sealed, &spec);
+    let mut plain_argv = vec!["brokkr".to_string()];
+    plain_argv.extend(plain_vec);
+    let parsed_plain = crate::Cli::try_parse_from(&plain_argv).expect("Cli parses serve_args");
+    let crate::Cmd::Hands {
+        command:
+            HandsCommand::Serve {
+                workdir,
+                artifacts: parsed_artifacts,
+                reach: parsed_reach,
+                reach_base64url,
+                spec: parsed_spec,
+                spec_base64url,
+            },
+    } = parsed_plain.command
+    else {
+        panic!("expected HandsCommand::Serve");
+    };
+    assert_eq!(workdir, work);
+    assert_eq!(parsed_artifacts, artifacts);
+    assert!(reach_base64url.is_none());
+    assert!(spec_base64url.is_none());
+    let (resolved_spec, resolved_reach) =
+        resolve_serve_documents(parsed_reach, reach_base64url, parsed_spec, spec_base64url)
+            .expect("serve_args documents resolve");
+    assert_eq!(resolved_spec, spec);
+    assert_eq!(resolved_reach, sealed);
+
+    // 2. Parse an encoded argv built from the exported option-name constants
+    //    and verify `Cli::command()` exposes those exact long option names.
+    let reach_json = serde_json::to_string(&sealed).unwrap();
+    let spec_json = spec.to_value().to_string();
+    let encoded_argv = vec![
+        "brokkr".to_string(),
+        "hands".to_string(),
+        "serve".to_string(),
+        "--workdir".to_string(),
+        work.to_string_lossy().into_owned(),
+        "--artifacts".to_string(),
+        artifacts.to_string_lossy().into_owned(),
+        format!("--{REACH_BASE64URL_OPTION}"),
+        hands::encode_base64url(reach_json.as_bytes()),
+        format!("--{SPEC_BASE64URL_OPTION}"),
+        hands::encode_base64url(spec_json.as_bytes()),
+    ];
+    let parsed_encoded = crate::Cli::try_parse_from(&encoded_argv).expect("Cli parses encoded");
+    let crate::Cmd::Hands {
+        command:
+            HandsCommand::Serve {
+                reach: parsed_reach,
+                reach_base64url,
+                spec: parsed_spec,
+                spec_base64url,
+                ..
+            },
+    } = parsed_encoded.command
+    else {
+        panic!("expected HandsCommand::Serve");
+    };
+    assert!(parsed_reach.is_none());
+    assert!(parsed_spec.is_none());
+    let (enc_spec, enc_reach) =
+        resolve_serve_documents(parsed_reach, reach_base64url, parsed_spec, spec_base64url)
+            .expect("encoded documents resolve");
+    assert_eq!(enc_spec, spec);
+    assert_eq!(enc_reach, sealed);
+
+    let cli = crate::Cli::command();
+    let serve_cmd = cli
+        .find_subcommand("hands")
+        .and_then(|h| h.find_subcommand("serve"))
+        .expect("hands serve subcommand");
+    for (arg_id, expected_long) in [
+        ("reach", REACH_OPTION),
+        ("reach_base64url", REACH_BASE64URL_OPTION),
+        ("spec", SPEC_OPTION),
+        ("spec_base64url", SPEC_BASE64URL_OPTION),
+    ] {
+        let arg = serve_cmd
+            .get_arguments()
+            .find(|a| a.get_id() == arg_id)
+            .unwrap_or_else(|| panic!("missing arg {arg_id}"));
+        assert_eq!(arg.get_long(), Some(expected_long));
+    }
+}
+
+/// #1277 J4: `DocumentError::source()` returns the underlying cause for every
+/// plain-spelling refusal and `None` for every encoded-spelling refusal (and
+/// missing/duplicate-spelling refusals), keeping decoded and raw values out of
+/// `source`, `Display`, and `Debug`.
+#[test]
+fn document_error_source_exposes_plain_causes_and_withholds_encoded_causes() {
+    use std::error::Error;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let valid_reach = reach(tmp.path());
+    let valid_reach_b64 = hands::encode_base64url(valid_reach.as_bytes());
+    let valid_spec = DEFAULT_SPEC.to_string();
+
+    // Plain spelling: source() returns the underlying serde_json::Error or SpecRefusal.
+    let plain_reach_err = parse_reach_plain(r#"{"home":"/h"}"#).unwrap_err();
+    let src = plain_reach_err
+        .source()
+        .expect("PlainReach must expose serde_json::Error source");
+    let json_err = src
+        .downcast_ref::<serde_json::Error>()
+        .expect("PlainReach source is serde_json::Error");
+    assert_eq!(
+        json_err.to_string(),
+        "missing field `worktree` at line 1 column 13"
+    );
+
+    let plain_spec_json_err = parse_spec_plain("{").unwrap_err();
+    let src = plain_spec_json_err
+        .source()
+        .expect("PlainSpecJson must expose serde_json::Error source");
+    let json_err = src
+        .downcast_ref::<serde_json::Error>()
+        .expect("PlainSpecJson source is serde_json::Error");
+    assert_eq!(
+        json_err.to_string(),
+        "EOF while parsing an object at line 1 column 1"
+    );
+
+    let plain_spec_err = parse_spec_plain(r#"{"kind":"mitten"}"#).unwrap_err();
+    let src = plain_spec_err
+        .source()
+        .expect("PlainSpec must expose SpecRefusal source");
+    let refusal = src
+        .downcast_ref::<SpecRefusal>()
+        .expect("PlainSpec source is SpecRefusal");
+    assert_eq!(*refusal, SpecRefusal::Kind);
+
+    // Encoded spelling and structural variants: source() returns None.
+    let secret = "SECRET_SOURCE_MARKER_1277";
+    let encoded_cases = [
+        resolve_serve_documents(
+            None,
+            Some("Zg==".to_string()),
+            Some(valid_spec.clone()),
+            None,
+        )
+        .unwrap_err(),
+        resolve_serve_documents(
+            None,
+            Some(hands::encode_base64url(format!("{{{secret}").as_bytes())),
+            Some(valid_spec.clone()),
+            None,
+        )
+        .unwrap_err(),
+        resolve_serve_documents(
+            Some(valid_reach.clone()),
+            None,
+            None,
+            Some(hands::encode_base64url(format!("{{{secret}").as_bytes())),
+        )
+        .unwrap_err(),
+        resolve_serve_documents(
+            Some(valid_reach.clone()),
+            None,
+            None,
+            Some(hands::encode_base64url(
+                format!(r#"{{"kind":"workspace","{secret}":"v"}}"#).as_bytes(),
+            )),
+        )
+        .unwrap_err(),
+        resolve_serve_documents(None, None, Some(valid_spec.clone()), None).unwrap_err(),
+        resolve_serve_documents(
+            Some(valid_reach),
+            Some(valid_reach_b64),
+            Some(valid_spec),
+            None,
+        )
+        .unwrap_err(),
+    ];
+    for err in &encoded_cases {
+        assert!(
+            err.source().is_none(),
+            "expected no source for {err:?}, got {:?}",
+            err.source()
+        );
+        assert!(!err.to_string().contains(secret));
+        assert!(!format!("{err:?}").contains(secret));
+    }
 }

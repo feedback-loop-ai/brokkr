@@ -59,8 +59,10 @@ use namespace::workspace::Workspace;
 use namespace::{workspace::Boxed, Namespace, Profile};
 pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use sealed::{drifted, seal, sealed_store, store_place, Sealed, SEALED_REACH, UNHIDDEN_STORE};
-pub use serve_args::serve_args;
 pub(crate) use serve_args::serve_args_encoded;
+pub use serve_args::{
+    serve_args, REACH_BASE64URL_OPTION, REACH_OPTION, SPEC_BASE64URL_OPTION, SPEC_OPTION,
+};
 pub(crate) use session::reap_dead_sessions_under;
 pub use session::{
     list_reapable_under, reap_dead_sessions, Listed, Listing, Reaped, Session, SessionError,

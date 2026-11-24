@@ -18,6 +18,15 @@ use std::path::Path;
 
 use super::{HandsSpec, Sealed};
 
+/// Long option name for the plain JSON sealed reach on `brokkr hands serve` and `exec`.
+pub const REACH_OPTION: &str = "reach";
+/// Long option name for the unpadded base64url sealed reach on `brokkr hands serve` (#1277).
+pub const REACH_BASE64URL_OPTION: &str = "reach-base64url";
+/// Long option name for the plain JSON box spec on `brokkr hands serve` and `exec`.
+pub const SPEC_OPTION: &str = "spec";
+/// Long option name for the unpadded base64url box spec on `brokkr hands serve` (#1277).
+pub const SPEC_BASE64URL_OPTION: &str = "spec-base64url";
+
 enum DocumentSpelling {
     Plain,
     Base64Url,
@@ -33,12 +42,12 @@ impl DocumentSpelling {
     ) -> Vec<String> {
         let reach = serde_json::to_string(sealed).unwrap_or_default();
         let spec = spec.to_value().to_string();
-        let (reach_flag, reach_value, spec_flag, spec_value) = match self {
-            Self::Plain => ("--reach", reach, "--spec", spec),
+        let (reach_option, reach_value, spec_option, spec_value) = match self {
+            Self::Plain => (REACH_OPTION, reach, SPEC_OPTION, spec),
             Self::Base64Url => (
-                "--reach-base64url",
+                REACH_BASE64URL_OPTION,
                 crate::base64::encode_base64url(reach.as_bytes()),
-                "--spec-base64url",
+                SPEC_BASE64URL_OPTION,
                 crate::base64::encode_base64url(spec.as_bytes()),
             ),
         };
@@ -49,9 +58,9 @@ impl DocumentSpelling {
             workdir.to_string_lossy().into_owned(),
             "--artifacts".to_string(),
             artifacts.to_string_lossy().into_owned(),
-            reach_flag.to_string(),
+            format!("--{reach_option}"),
             reach_value,
-            spec_flag.to_string(),
+            format!("--{spec_option}"),
             spec_value,
         ]
     }

@@ -89,10 +89,20 @@ JSON-configured harnesses unchanged.
 ## Consequences
 
 - Boxed `dsh` seats produce composed trees that read through the unchanged line
-  rule and pass both judges; the controller observed an unkeyed launch on round
-  2's head pass both judges and start `dsh` up to the missing credential
-  check (`docs/evidence/adapters/dsh-hands-0-2-2.md`), while serving a keyed
-  turn remains pending.
+  rule and pass both judges. On 2026-11-24 (Linux, `dsh` 0.2.2-rc.1, recipe
+  `ig-chief-dsh-qwen4-max-boxed-k4`), on round 4's change merged onto `main` at
+  `4d51c363`, an unkeyed launch passed the reader and both judges and stopped
+  at the missing credential (`eval-note-not-part-of-the-story--c8b73b47`), and
+  with a provider key a boxed Qwen4-Max chief seat served its whole turn
+  (`eval-note-not-part-of-the-story--be048762`: completed, boundary `namespace`,
+  24 seat turns in 5m22s, 769,587 input tokens of which 713,216 cache reads,
+  19,344 output; an earlier keyed run on round 2's head completed 21 turns in
+  `eval-note-not-part-of-the-story--1ec99967`). On round 6's head (`fcddea103`),
+  an engine built from it stopped at the same missing-credential point without
+  a key (`eval-note-not-part-of-the-story--f2b8935d`) and composed the equal
+  seat overlay (the same four flags in the same order, and the same encoded
+  reach of 689 JSON bytes and spec of 168 JSON bytes). No keyed turn was run on
+  a head after round 4's (`docs/evidence/adapters/dsh-hands-0-2-2.md`).
 - The argument contract for `brokkr hands serve` and `brokkr hands exec` is
   documented in `docs/reference/hands.md`, linked from `docs/reference/cli.md`,
   and its synopses and option tables are held to `Cli::command()` by
