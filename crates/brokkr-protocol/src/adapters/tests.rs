@@ -89,6 +89,12 @@ pub(super) fn fold_codex_into(
     })
 }
 
+impl CodexThreadEcho<'_> {
+    fn locate_unbound(&mut self, home: &Path, thread_id: &str) {
+        self.locate(home, Ident::from_offered(thread_id));
+    }
+}
+
 /// One Codex fold's state from its first row, for tests that drive the
 /// reader row by row through `fold_codex_into`.
 pub(super) struct CodexFold {
@@ -1429,61 +1435,6 @@ fn dsh_effort_rides_the_seat_settings_document_and_needs_a_model_beside_it() {
     assert!(dsh_settings_row(std::path::Path::new("/tmp/it's"))
         .unwrap()
         .contains("'/tmp/it''s'"));
-}
-
-/// The fold reads the level off dsh's own request header — the effective
-/// value after every layer — and never off the pin. A header that names
-/// none leaves the sentinel; a hostile one is clamped away.
-#[test]
-fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
-    let mut turns = 0u64;
-    let mut meta = serde_json::Map::new();
-    let mut emitted: Vec<serde_json::Value> = Vec::new();
-    let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
-        "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}});
-    fold_dsh_event_unbound(&step, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(
-        emitted[0]["effort"], "not reported",
-        "no header yet: {}",
-        emitted[0]
-    );
-
-    let header = serde_json::json!({"type":"request/header","data":{"header":{"config":
-        {"provider":"meta-contributor","model":"meta/muse-spark-1.3-contributor","reasoningEffort":"xhigh"}}}});
-    fold_dsh_event_unbound(&header, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(emitted.len(), 1, "a header is meta, not a checkpoint");
-    assert_eq!(meta["effort"], "xhigh");
-    fold_dsh_event_unbound(&step, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(emitted[1]["effort"], "xhigh");
-    let call = serde_json::json!({"type":"tool/call","data":{"name":"bash"}});
-    fold_dsh_event_unbound(&call, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(emitted[2]["effort"], "xhigh");
-    assert_eq!(emitted[2]["tool"], "bash");
-
-    let hostile = serde_json::json!({"type":"request/header","data":{"header":{"config":{"reasoningEffort":"think hard"}}}});
-    fold_dsh_event_unbound(&hostile, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(
-        meta["effort"], "xhigh",
-        "a value that fails the clamp changes nothing"
-    );
-    let none = serde_json::json!({"type":"request/header","data":{"header":{"config":{"provider":"spark","model":"qwen3.8-flash"}}}});
-    fold_dsh_event_unbound(&none, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(
-        meta["effort"], "xhigh",
-        "a header naming no level keeps the last one seen"
-    );
 }
 
 /// The current-work boundary exists only on a rejoin (design D8). dsh's
@@ -3777,15 +3728,19 @@ fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
         confirms_from_locator: true,
         effort: None,
     };
+    let confirm = |hold: &mut LaunchHold, id: &str, rows: &mut Vec<Value>| {
+        hold.confirm(&Ident::from_offered(id), id, &mut |row| {
+            rows.push(row.row.clone())
+        })
+    };
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(Some("2.1.266")));
     assert_eq!(
-        hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone())),
+        confirm(&mut hold, "019c4b7e", &mut rows),
         Confirmation::Fresh
     );
     assert_eq!(
-        hold.confirm_unbound("a-child-session", &mut |row: &Emitted| rows
-            .push(row.row.clone())),
+        confirm(&mut hold, "a-child-session", &mut rows),
         Confirmation::Fresh,
         "the latch answers with the outcome it already had"
     );
@@ -3802,14 +3757,14 @@ fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
     // gets no offer.
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(None));
-    hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone()));
+    confirm(&mut hold, "019c4b7e", &mut rows);
     assert_eq!(rows[0]["launch"], "cold");
     assert!(rows[0].get("root_session").is_none(), "{}", rows[0]);
 
     // Nor with a version the record's own grammar cannot hold.
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(Some("(Claude Code)")));
-    hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone()));
+    confirm(&mut hold, "019c4b7e", &mut rows);
     assert!(rows[0].get("root_session").is_none(), "{}", rows[0]);
 
     // The confirmation door is the transcript row, and only for a

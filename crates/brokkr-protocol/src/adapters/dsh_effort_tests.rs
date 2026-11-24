@@ -190,3 +190,58 @@ fn a_bound_header_hides_one_steps_effort_and_keeps_the_retained_level() {
     echo.step();
     assert_eq!(echo.shown(&meta), "low");
 }
+
+/// The fold reads the level off dsh's own request header — the effective
+/// value after every layer — and never off the pin. A header that names
+/// none leaves the sentinel; a hostile one is clamped away.
+#[test]
+fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
+    let mut turns = 0u64;
+    let mut meta = serde_json::Map::new();
+    let mut emitted: Vec<serde_json::Value> = Vec::new();
+    let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
+        "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}});
+    fold_dsh_event_unbound(&step, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(
+        emitted[0]["effort"], "not reported",
+        "no header yet: {}",
+        emitted[0]
+    );
+
+    let header = serde_json::json!({"type":"request/header","data":{"header":{"config":
+        {"provider":"meta-contributor","model":"meta/muse-spark-1.3-contributor","reasoningEffort":"xhigh"}}}});
+    fold_dsh_event_unbound(&header, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(emitted.len(), 1, "a header is meta, not a checkpoint");
+    assert_eq!(meta["effort"], "xhigh");
+    fold_dsh_event_unbound(&step, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(emitted[1]["effort"], "xhigh");
+    let call = serde_json::json!({"type":"tool/call","data":{"name":"bash"}});
+    fold_dsh_event_unbound(&call, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(emitted[2]["effort"], "xhigh");
+    assert_eq!(emitted[2]["tool"], "bash");
+
+    let hostile = serde_json::json!({"type":"request/header","data":{"header":{"config":{"reasoningEffort":"think hard"}}}});
+    fold_dsh_event_unbound(&hostile, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(
+        meta["effort"], "xhigh",
+        "a value that fails the clamp changes nothing"
+    );
+    let none = serde_json::json!({"type":"request/header","data":{"header":{"config":{"provider":"spark","model":"qwen3.8-flash"}}}});
+    fold_dsh_event_unbound(&none, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(
+        meta["effort"], "xhigh",
+        "a header naming no level keeps the last one seen"
+    );
+}
