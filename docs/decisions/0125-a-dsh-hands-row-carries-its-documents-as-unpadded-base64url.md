@@ -72,13 +72,18 @@ JSON-configured harnesses unchanged.
    `plain_and_encoded_spellings_agree_on_every_document` in
    `crates/brokkr-cli/src/hands/tests.rs`.
 
-4. **Encoded refusals redact decoded input at rendering while plain diagnostics
-   stay unchanged.** Refusals on `--reach-base64url` and `--spec-base64url`
-   reduce errors to `Base64UrlError`, `serde_json::error::Category`, or
-   payload-free `SpecRefusalKind`, retaining neither raw nor decoded text in
-   `Display` or `Debug`. Plain `--reach` and `--spec` on `hands serve` and
-   `hands exec` preserve main's diagnostics byte for byte. Enforcement
-   binding: redaction and plain-diagnostic tests in
+4. **Encoded refusals redact decoded input at rendering while plain-document
+   refusals and missing-reach stay unchanged.** Refusals on `--reach-base64url`
+   and `--spec-base64url` reduce errors to `Base64UrlError`,
+   `serde_json::error::Category`, or payload-free `SpecRefusalKind`, retaining
+   neither raw nor decoded text in `Display` or `Debug`. On `hands serve` and
+   `hands exec`, the refusals made about a document given in the plain
+   spelling (not JSON, not a valid sealed reach, or not a valid hands spec)
+   preserve main's diagnostics byte for byte, and so does the missing-reach
+   diagnostic; the usage synopsis inside any other clap error on `hands serve`
+   (for example `--reach a --reach b`) is clap's for the present argument set
+   and is not promised to match main's. Enforcement binding: redaction,
+   plain-diagnostic, and duplicate-reach clap tests in
    `crates/brokkr-cli/src/hands/tests.rs` and `crates/brokkr-cli/tests/hands.rs`.
 
 ## Consequences
@@ -89,7 +94,8 @@ JSON-configured harnesses unchanged.
   check (`docs/evidence/adapters/dsh-hands-0-2-2.md`), while serving a keyed
   turn remains pending.
 - The argument contract for `brokkr hands serve` and `brokkr hands exec` is
-  documented in `docs/reference/hands.md` and linked from
-  `docs/reference/cli.md`.
+  documented in `docs/reference/hands.md`, linked from `docs/reference/cli.md`,
+  and its synopses and option tables are held to `Cli::command()` by
+  `crates/brokkr-cli/src/cli_reference_tests/hands.rs`.
 - Any `--workdir` or `--artifacts` path that `dsh` folds onto a line refused by
   the line rule remains refused, fail closed.
