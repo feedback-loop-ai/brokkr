@@ -37,6 +37,26 @@ fn drain_into(
     .drain(&mut |value| emitted.push(value.row.clone()));
 }
 
+/// Fold one Claude stream row with no binding, appending every emitted row
+/// to `emitted`: `drain_into`'s counterpart for the Claude fold, shared by
+/// the tests that only assert on what it emitted.
+fn fold_into(
+    event: &Value,
+    turns: &mut ClaudeFold,
+    meta: &mut Map<String, Value>,
+    transcript: &mut Transcript,
+    emitted: &mut Vec<Value>,
+) {
+    fold_stream_event(
+        &Row::new(event, &[]),
+        Claude,
+        turns,
+        meta,
+        transcript,
+        &mut |value| emitted.push(value.row.clone()),
+    );
+}
+
 mod claude_usage;
 mod codex_isolation;
 mod decision_0114a;
@@ -156,14 +176,7 @@ fn claude_fold_journals_file_paths_only_and_bash_stays_targetless() {
         {"type": "tool_use", "name": "Edit",
          "input": {"file_path": "src/lib.rs"}},
     ]}});
-    fold_stream_event(
-        &Row::new(&event, &[]),
-        Claude,
-        &mut turns,
-        &mut meta,
-        &mut transcript,
-        &mut |c| emitted.push(c.row.clone()),
-    );
+    fold_into(&event, &mut turns, &mut meta, &mut transcript, &mut emitted);
     assert_eq!(emitted.len(), 2);
     assert_eq!(emitted[0]["tool"], "Bash");
     assert!(emitted[0].get("target").is_none(), "{}", emitted[0]);
@@ -328,13 +341,12 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         json!({"type": "result"}),
         json!({"type": "ignored"}),
     ] {
-        fold_stream_event(
-            &Row::new(&event, &[]),
-            Claude,
+        fold_into(
+            &event,
             &mut turns,
             &mut meta,
             &mut claude_transcript,
-            &mut |value| emitted.push(value.row.clone()),
+            &mut emitted,
         );
     }
     assert_eq!(meta["transcript"]["locator"], "session");
@@ -9145,14 +9157,7 @@ fn claude_fold_journals_a_toolless_turn_once_and_a_nameless_tool_use() {
     let event = json!({"type": "assistant", "message": {"content": [
         {"type": "text", "text": "reasoning the operator never sees"},
     ]}});
-    fold_stream_event(
-        &Row::new(&event, &[]),
-        Claude,
-        &mut turns,
-        &mut meta,
-        &mut transcript,
-        &mut |c| emitted.push(c.row.clone()),
-    );
+    fold_into(&event, &mut turns, &mut meta, &mut transcript, &mut emitted);
     assert_eq!(emitted.len(), 1, "the toolless turn is journaled once");
     assert!(emitted[0].get("tool").is_none());
     assert!(
@@ -9166,14 +9171,7 @@ fn claude_fold_journals_a_toolless_turn_once_and_a_nameless_tool_use() {
     let event = json!({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "input": {"file_path": "src/main.rs"}},
     ]}});
-    fold_stream_event(
-        &Row::new(&event, &[]),
-        Claude,
-        &mut turns,
-        &mut meta,
-        &mut transcript,
-        &mut |c| emitted.push(c.row.clone()),
-    );
+    fold_into(&event, &mut turns, &mut meta, &mut transcript, &mut emitted);
     assert_eq!(emitted.len(), 1);
     assert!(
         emitted[0].get("tool").is_none(),
