@@ -352,3 +352,13 @@ fn fallback_is_used_only_for_absent_fields() {
     assert!(row.is("/type", "outer"));
     assert_eq!(row.text("/missing"), None);
 }
+
+#[test]
+fn object_shape_distinguishes_records_from_other_and_missing_values() {
+    let raw = json!({"object": {}, "array": [], "null": null});
+    let row = Row::new(&raw, &[]);
+    assert!(row.is_object("/object"));
+    for path in ["/array", "/null", "/missing"] {
+        assert!(!row.is_object(path), "{path}");
+    }
+}

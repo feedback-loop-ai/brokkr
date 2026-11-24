@@ -74,6 +74,10 @@ impl<'a> Row<'a> {
         self.value(path).is_some_and(|value| !value.is_null())
     }
 
+    pub(super) fn is_object(&self, path: &str) -> bool {
+        self.value(path).is_some_and(Value::is_object)
+    }
+
     pub(super) fn has(&self, path: &str) -> bool {
         self.value(path).is_some()
     }

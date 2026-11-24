@@ -45,7 +45,15 @@ pub(super) fn fold_dsh_event_unbound(
     meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Emitted),
 ) {
-    fold_dsh_event(event, &Row::new(event, &[]), first_seq, turns, meta, emit);
+    fold_dsh_event(
+        event,
+        &Row::new(event, &[]),
+        &mut dsh_effort::Echo::default(),
+        first_seq,
+        turns,
+        meta,
+        emit,
+    );
 }
 
 /// Fold one Claude stream row with no binding, appending every emitted row

@@ -3,7 +3,7 @@
 //! document, and a header whose adapter defaulted the level never
 //! becomes the seat's.
 
-use super::dsh_effort::{applied_level, model_row};
+use super::dsh_effort::{applied_level, model_row, AppliedLevel, Echo};
 use super::tests::fold_dsh_event_unbound;
 use super::*;
 
@@ -138,8 +138,8 @@ fn a_header_the_reader_cannot_read_records_no_level() {
     let header = |header| serde_json::json!({"type": "request/header", "data": {"header": header}});
     let level = |config| header(serde_json::json!({"config": config}));
     assert_eq!(
-        applied_level(&level(serde_json::json!({"reasoningEffort": "high"}))),
-        Some("high".to_string())
+        applied_level(&Row::new(&level(json!({"reasoningEffort": "high"})), &[])),
+        AppliedLevel::Reported("high".into())
     );
     for event in [
         header(serde_json::json!([{"reasoningEffort": "high"}, {}])),
@@ -154,6 +154,39 @@ fn a_header_the_reader_cannot_read_records_no_level() {
         serde_json::json!({"type": "request/header", "data": {"header": {
             "config": {"reasoningEffort": "think hard"}}}}),
     ] {
-        assert_eq!(applied_level(&event), None, "{event}");
+        assert_eq!(
+            applied_level(&Row::new(&event, &[])),
+            AppliedLevel::Unchanged,
+            "{event}"
+        );
     }
+}
+
+#[test]
+fn a_bound_header_hides_one_steps_effort_and_keeps_the_retained_level() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("bindings");
+    secret::store_set(&store, "S", "high").unwrap();
+    let bindings = secret::resolve_bindings(&store, &["S".into()]).unwrap();
+    let header = |level| {
+        json!({
+            "data": {"header": {
+                "config": {"reasoningEffort": level},
+                "adapterDefaults": {"reasoningEffort": false},
+            }},
+        })
+    };
+    let mut echo = Echo::default();
+    let mut meta = Map::new();
+    echo.header(&Row::new(&header("low"), &bindings), &mut meta);
+    echo.step();
+    assert_eq!(echo.shown(&meta), "low");
+
+    echo.header(&Row::new(&header("xhigh"), &bindings), &mut meta);
+    assert_eq!(echo.shown(&meta), EFFORT_NOT_REPORTED);
+    echo.step();
+    assert_eq!(echo.shown(&meta), EFFORT_NOT_REPORTED);
+    assert_eq!(meta["effort"], "low");
+    echo.step();
+    assert_eq!(echo.shown(&meta), "low");
 }

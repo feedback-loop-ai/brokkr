@@ -2,7 +2,7 @@ use serde_json::{json, Map, Value};
 
 use super::super::claude_fold::{fold_stream_event, Source::Claude};
 use super::super::tests::fold_codex_into;
-use super::super::{fold_dsh_event, CodexThreadEcho, Row};
+use super::super::{dsh_effort, fold_dsh_event, CodexThreadEcho, Row};
 use super::{Format, Observation, Tool, OBSERVATION_KEY};
 use crate::secret::{self, BoundSecret};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
@@ -252,11 +252,20 @@ fn codex_rows(events: &[Value]) -> Vec<Value> {
 fn dsh_rows(turns: u64, events: &[Value], bindings: &[BoundSecret]) -> Vec<Value> {
     let mut rows = Vec::new();
     let (mut turns, mut meta) = (turns, Map::new());
+    let mut effort = dsh_effort::Echo::default();
     for event in events {
         let raw = Row::new(event, bindings);
-        fold_dsh_event(event, &raw, None, &mut turns, &mut meta, &mut |row| {
-            rows.push(row.row.clone());
-        });
+        fold_dsh_event(
+            event,
+            &raw,
+            &mut effort,
+            None,
+            &mut turns,
+            &mut meta,
+            &mut |row| {
+                rows.push(row.row.clone());
+            },
+        );
     }
     rows
 }

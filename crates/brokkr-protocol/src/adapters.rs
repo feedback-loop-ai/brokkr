@@ -1703,16 +1703,6 @@ fn applied_harness_effort(session_meta: &Map<String, Value>) -> String {
     }
 }
 
-/// The level dsh's request header last echoed for this seat, or the
-/// sentinel for a row written before any header did.
-fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
-    session_meta
-        .get("effort")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())
-}
-
 /// Whether a dsh row is this invocation's own work: a resumed session's
 /// file holds its restored history beside the new work, and only events
 /// past the owned pre-followup sequence are this invocation's (design D8;
@@ -1775,6 +1765,7 @@ fn dsh_row_is_current(event: &Value, first_seq: Option<u64>) -> bool {
 fn fold_dsh_event(
     event: &Value,
     raw: &Row<'_>,
+    effort: &mut dsh_effort::Echo,
     first_seq: Option<u64>,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
@@ -1789,18 +1780,9 @@ fn fold_dsh_event(
             // journaled before spawn. Its internal session id is not a
             // second locator shape (decision 0032).
         }
-        Some("request/header") => {
-            // The harness's own echo of the level it applied, after
-            // every layer (decision 0035 ruling 3 and its addenda). A
-            // header naming none, or naming the adapter's default,
-            // leaves the seat's effort as it stood: `not reported` for a
-            // pinned seat, invoke_dsh_launch_observed's `not applicable`
-            // seed for a pin-less one.
-            if let Some(effort) = dsh_effort::applied_level(event) {
-                session_meta.insert("effort".into(), Value::String(effort));
-            }
-        }
+        Some("request/header") => effort.header(raw, session_meta),
         Some("assistant/message") => {
+            effort.step();
             *turns += 1;
             session_meta.insert("num_turns".into(), Value::from(*turns));
             // The served model, from the harness's own record of the
@@ -1820,10 +1802,7 @@ fn fold_dsh_event(
             );
             // The last level the header echoed, on this step as on
             // every other row (decision 0035 ruling 3).
-            checkpoint.insert(
-                "effort".into(),
-                Value::String(dsh_echoed_effort(session_meta)),
-            );
+            checkpoint.insert("effort".into(), Value::String(effort.shown(session_meta)));
             let usage = event.pointer("/data/usage").unwrap_or(&Value::Null);
             let cache_read = usage
                 .get(DSH_INPUT_CACHE_READ)
@@ -1856,7 +1835,7 @@ fn fold_dsh_event(
                 "turn": *turns,
                 "harness":"deepseek",
                 "model": model,
-                "effort": dsh_echoed_effort(session_meta),
+                "effort": effort.shown(session_meta),
             }));
             emit(&Emitted::new(Step::SeatTurn, row));
         }
@@ -1978,6 +1957,7 @@ fn names_the_seats_own_session(candidate: &std::path::Path) -> bool {
 struct DshTail {
     file: Option<std::fs::File>,
     pending: Vec<u8>,
+    effort: dsh_effort::Echo,
 }
 
 /// The dsh transcript fold's per-invocation state as one parameter
@@ -2084,6 +2064,7 @@ impl DshFold<'_> {
             fold_dsh_event(
                 &masked,
                 &row,
+                &mut self.tail.effort,
                 self.first_seq,
                 self.turns,
                 self.session_meta,
