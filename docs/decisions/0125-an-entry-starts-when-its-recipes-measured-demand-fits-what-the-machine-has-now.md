@@ -1,6 +1,6 @@
 # 0125 — An entry starts when its recipe's measured demand, beside what running runs still reserve, fits what the machine has now
 
-Status: proposed — the operator ruled #1193's asks A to G "all recommended" on 2026-11-23 (https://github.com/feedback-loop-ai/brokkr/issues/1193#issuecomment-7105395628); accepting this decision is the operator's, asked at the pull request
+Status: accepted — operator ruled in chat 2026-11-24, "all recommended" (https://github.com/feedback-loop-ai/brokkr/issues/1193#issuecomment-7126565397), after ruling #1193's asks A to G "all recommended" on 2026-11-23 (https://github.com/feedback-loop-ai/brokkr/issues/1193#issuecomment-7105395628)
 Date: 2026-11-23
 
 Built: partial (#1193) — Linux is built by 1193b; macOS's measures, `brokkr system host upgrade` and `init`'s placeholder ceilings are 1193c's

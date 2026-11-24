@@ -1058,7 +1058,7 @@ reads, and every entry the capacity checks would judge waits as
 `runs_undeclared` until the operator declares one, which `brokkr doctor`
 names. This amends decision 0068 ruling 3.
 
-Decision 0125 ruling 7 (#1193, proposed) adds `forge.host/v5` beside the
+Decision 0125 ruling 7 (#1193) adds `forge.host/v5` beside the
 frozen v4, whose bytes did not move. It is v4 with `runs` and
 `boxed_builds` each OPTIONAL, and one OPTIONAL object, `demand`:
 

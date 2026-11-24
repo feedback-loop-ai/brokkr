@@ -411,7 +411,7 @@ measured every entry the capacity checks would judge waits as
 forge.host/v4 declares `runs.ceiling` ``) until the file declares one, and
 `brokkr doctor` warns of it. Neither latches.
 
-Decision 0125 (proposed) sizes an entry by what its recipe used. On Linux
+Decision 0125 sizes an entry by what its recipe used. On Linux
 every pass that judges an entry's room measures `MemAvailable` and the
 idle cores over 500 ms, reads the last 20 runs of the entry's recipe that
 carry `effect-usage/v1` across every journal of the realms map, and takes
