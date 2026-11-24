@@ -46,7 +46,6 @@ pub(super) fn fold_dsh_event_unbound(
     emit: &mut impl FnMut(&Emitted),
 ) {
     fold_dsh_event(
-        event,
         &Row::new(event, &[]),
         &mut dsh_effort::Echo::default(),
         first_seq,
@@ -127,6 +126,7 @@ mod codex_isolation;
 mod decision_0114a;
 mod decision_0114b;
 mod decision_0114c;
+mod decision_0114d;
 pub(super) use decision_0114b::words as bound_words;
 #[cfg(unix)]
 mod seat_git;
@@ -18747,7 +18747,7 @@ fn a_codex_refusal_quoting_a_long_bound_value_leaks_no_prefix() {
 }
 
 /// The dsh arm of review finding 2: the transcript fold clamps a tool
-/// name to 80 characters, so each transcript event is masked before it.
+/// name to 80 characters, so the whole name is masked before the clamp.
 #[test]
 fn a_dsh_transcript_tool_quoting_a_long_bound_value_leaks_no_prefix() {
     let dir = tempfile::tempdir().unwrap();

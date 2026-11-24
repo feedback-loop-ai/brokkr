@@ -255,17 +255,9 @@ fn dsh_rows(turns: u64, events: &[Value], bindings: &[BoundSecret]) -> Vec<Value
     let mut effort = dsh_effort::Echo::default();
     for event in events {
         let raw = Row::new(event, bindings);
-        fold_dsh_event(
-            event,
-            &raw,
-            &mut effort,
-            None,
-            &mut turns,
-            &mut meta,
-            &mut |row| {
-                rows.push(row.row.clone());
-            },
-        );
+        fold_dsh_event(&raw, &mut effort, None, &mut turns, &mut meta, &mut |row| {
+            rows.push(row.row.clone());
+        });
     }
     rows
 }

@@ -84,7 +84,7 @@ use refusal::{
 #[cfg(test)]
 use refusal::{codex_refusal, refusal_reason};
 pub(crate) use row::CapturedId;
-use row::{Ident, Row};
+use row::{FoldInput, Ident, Row};
 use spawn::{spawn_fed, spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
@@ -716,10 +716,6 @@ fn model_in_header(stderr: &str, pin: Option<&str>) -> Option<String> {
         .rev()
         .find_map(|line| line.trim().strip_prefix("model:").and_then(model_token))?;
     (Some(header.as_str()) == pin).then_some(header)
-}
-
-fn positive_count(value: Option<&Value>) -> Option<u64> {
-    value.and_then(Value::as_u64).filter(|value| *value > 0)
 }
 
 fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String> {
@@ -1673,18 +1669,19 @@ fn add_usage(session_meta: &mut Map<String, Value>, key: &str, value: u64) {
 /// adds `totalTokens`, `reasoningTokens` and a zero `cacheReadTokens` to
 /// the same object. The total is a sum the journal never stores twice;
 /// the reasoning count is decision 0035's `reasoning_output_tokens`, a
-/// reported subset of `output_tokens`, and `positive_count` keeps a
-/// reported zero out of the record as the contract requires.
+/// reported subset of `output_tokens`. Reported zeros stay out of the
+/// record as the contract requires.
 const DSH_USAGE: [(&str, &str); 4] = [
-    ("inputTokens", "input_tokens"),
-    ("outputTokens", "output_tokens"),
+    (DSH_INPUT, "input_tokens"),
+    ("/outputTokens", "output_tokens"),
     (DSH_INPUT_CACHE_READ, "cache_read_tokens"),
-    ("reasoningTokens", "reasoning_output_tokens"),
+    ("/reasoningTokens", "reasoning_output_tokens"),
 ];
 
 /// The dsh count that is a subset of the journal's `input_tokens` but a
 /// sibling of dsh's own `inputTokens`.
-const DSH_INPUT_CACHE_READ: &str = "cacheReadTokens";
+const DSH_INPUT_CACHE_READ: &str = "/cacheReadTokens";
+const DSH_INPUT: &str = "/inputTokens";
 
 /// The level the finishing record carries for a non-exec seat.
 /// Harness-written values cross the boundary clamp exactly as before —
@@ -1710,13 +1707,20 @@ fn applied_harness_effort(session_meta: &Map<String, Value>) -> String {
 /// launch carries none, so its file is read from its first event. The
 /// fold and the refusal classifier ask here, so neither can read the
 /// other's rows.
-fn dsh_row_is_current(event: &Value, first_seq: Option<u64>) -> bool {
+fn dsh_row_is_current(event: &Row<'_>, first_seq: Option<u64>) -> bool {
     first_seq.is_none_or(|first_seq| {
-        !event
-            .get("seq")
-            .and_then(Value::as_u64)
-            .is_some_and(|seq| seq <= first_seq)
+        event
+            .unsigned_count("/seq")
+            .is_none_or(|seq| seq > first_seq)
     })
+}
+
+#[derive(Clone, Copy)]
+enum DshEvent {
+    Session,
+    Header,
+    Message,
+    Tool,
 }
 
 /// One dsh session-log line folded into bounded live telemetry.
@@ -1763,8 +1767,7 @@ fn dsh_row_is_current(event: &Value, first_seq: Option<u64>) -> bool {
 /// reasoning, or tool arguments. dsh's `arguments` is the model's own
 /// unparsed JSON string, so no target is derived from it at all.
 fn fold_dsh_event(
-    event: &Value,
-    raw: &Row<'_>,
+    event: &Row<'_>,
     effort: &mut dsh_effort::Echo,
     first_seq: Option<u64>,
     turns: &mut u64,
@@ -1774,14 +1777,19 @@ fn fold_dsh_event(
     if !dsh_row_is_current(event, first_seq) {
         return;
     }
-    match event.get("type").and_then(Value::as_str) {
-        Some("session") => {
-            // The dsh locator is the retained seat root, known and
-            // journaled before spawn. Its internal session id is not a
-            // second locator shape (decision 0032).
-        }
-        Some("request/header") => effort.header(raw, session_meta),
-        Some("assistant/message") => {
+    match event.kind(
+        "/type",
+        &[
+            ("session", DshEvent::Session),
+            ("request/header", DshEvent::Header),
+            ("assistant/message", DshEvent::Message),
+            ("tool/call", DshEvent::Tool),
+        ],
+    ) {
+        // The retained directory is this driver's only locator.
+        Some(DshEvent::Session) | None => {}
+        Some(DshEvent::Header) => effort.header(event, session_meta),
+        Some(DshEvent::Message) => {
             effort.step();
             *turns += 1;
             session_meta.insert("num_turns".into(), Value::from(*turns));
@@ -1789,7 +1797,7 @@ fn fold_dsh_event(
             // response (`data.message.source.model`), never from the pin
             // (decision 0031): the last reported one becomes the seat's
             // served model, and a step that names none says so.
-            let model = model_in_json(&Row::new(event, &[]));
+            let model = model_in_json(event);
             if let Some(model) = &model {
                 session_meta.insert("model".into(), Value::String(model.clone()));
             }
@@ -1803,17 +1811,15 @@ fn fold_dsh_event(
             // The last level the header echoed, on this step as on
             // every other row (decision 0035 ruling 3).
             checkpoint.insert("effort".into(), Value::String(effort.shown(session_meta)));
-            let usage = event.pointer("/data/usage").unwrap_or(&Value::Null);
-            let cache_read = usage
-                .get(DSH_INPUT_CACHE_READ)
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
+            let usage = event.at("/data/usage");
+            let count = |source: &str| usage.as_ref()?.unsigned_count(source);
+            let cache_read = count(DSH_INPUT_CACHE_READ).unwrap_or(0);
             for (source, target) in DSH_USAGE {
-                if let Some(mut value) = positive_count(usage.get(source)) {
+                if let Some(mut value) = count(source).filter(|value| *value > 0) {
                     // The one place dsh's disjoint accounting is
                     // reconciled with the journal's inclusive
                     // `input_tokens` — see DSH_USAGE.
-                    if source == "inputTokens" {
+                    if source == DSH_INPUT {
                         value = value.saturating_add(cache_read);
                     }
                     checkpoint.insert(target.into(), Value::from(value));
@@ -1822,8 +1828,8 @@ fn fold_dsh_event(
             }
             emit(&Emitted::new(Step::SeatTurn, Value::Object(checkpoint)));
         }
-        Some("tool/call") => {
-            let observation = Observation::dsh(raw);
+        Some(DshEvent::Tool) => {
+            let observation = Observation::dsh(event);
             if observation.shown_tool().is_none() || *turns == 0 {
                 return;
             }
@@ -1839,7 +1845,6 @@ fn fold_dsh_event(
             }));
             emit(&Emitted::new(Step::SeatTurn, row));
         }
-        _ => {}
     }
 }
 
@@ -2048,12 +2053,11 @@ impl DshFold<'_> {
             };
             let row = Row::new(&event, self.bindings);
             let answer_event = self.probe.answers(AdapterKind::Dsh, &row);
-            // The first refusal before this invocation's first turn stands.
-            if *self.turns == 0 && dsh_row_is_current(&event, self.first_seq) {
-                refusal = refusal.or_else(|| dsh_refusal(&row));
-            }
-            let mut masked = event.clone();
-            secret::mask_json(&mut masked, self.bindings);
+            let row_refusal = if *self.turns == 0 && dsh_row_is_current(&row, self.first_seq) {
+                dsh_refusal(&row)
+            } else {
+                None
+            };
             let mut emitted: Vec<Value> = Vec::new();
             let mut capture = |data: &Emitted| {
                 if answer_event {
@@ -2061,15 +2065,23 @@ impl DshFold<'_> {
                 }
                 emit(data);
             };
-            fold_dsh_event(
-                &masked,
-                &row,
-                &mut self.tail.effort,
-                self.first_seq,
-                self.turns,
-                self.session_meta,
-                &mut capture,
-            );
+            let input = FoldInput {
+                row: &row,
+                refusal: row_refusal,
+                identity: None,
+            };
+            let ended = input.fold(|row, _| {
+                fold_dsh_event(
+                    row,
+                    &mut self.tail.effort,
+                    self.first_seq,
+                    self.turns,
+                    self.session_meta,
+                    &mut capture,
+                );
+                None
+            });
+            refusal = refusal.or(ended);
             self.probe.admit(answer_event, &emitted);
         }
         refusal

@@ -87,7 +87,6 @@ fn the_output_edge_masks_with_the_shared_masker_and_serializes_once() {
     let mut json_masks = [
         at(&ledger, "masked"),
         at(&probe, "seat_row"),
-        at(&adapters, "drain"),
         at(&adapters, "fold_dsh_line"),
         at(&adapters, "run_seat_with"),
         at(&adapters, "run_seat_with"),
