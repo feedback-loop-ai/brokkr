@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-23, "accept 0116", on the direction of 2026-11-22: "we should have a workorder abstraction - like future [commissions], they can have a reference to external tools, e.g. github, gitlab, azure devops, linear, zenhub, jira etc, but essentially it is a DAG of future [commissions] distilled so we know what we are building"
 Date: 2026-11-22
 
-Built: partial (#1272) — slice 1's document is built; its store and verbs, and slices 2 to 4, are not
+Built: partial (#1272) — slice 1's document and its store are built; its verbs, and slices 2 to 4, are not
 Amends: 0113
 
 ## Context

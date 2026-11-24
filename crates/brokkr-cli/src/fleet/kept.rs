@@ -456,6 +456,7 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         | StoreError::AfterTerminal { .. }
         | StoreError::UnknownHead { .. }
         | StoreError::Queue(_)
+        | StoreError::Orders(_)
         | StoreError::SeatTree(_)
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::TokenCountOutOfRange(..)

@@ -1428,7 +1428,7 @@ fn work_order_schema(root: &Path) -> Value {
 }
 
 fn work_order_validator(schema: &Value) -> jsonschema::Validator {
-    jsonschema::draft202012::options()
+    jsonschema::draft7::options()
         .should_validate_formats(true)
         .build(schema)
         .unwrap()
@@ -1485,7 +1485,6 @@ fn work_order_fixtures_agree_with_the_header_schema() {
         "missing-acceptance.md",
         "missing-intent.md",
         "missing-ruling.md",
-        "off-host.md",
         "other-section.md",
         "repeated-acceptance.md",
         "repeated-intent.md",
@@ -1547,7 +1546,8 @@ fn work_order_links_agree_with_the_header_schema() {
         ("https://github.com:/x", true, true),
         ("hTTps://github.com/a%3Cb?x=!$&'()*+,;=:#y%23z", true, true),
         ("https://%67ithub.com/x", true, true),
-        ("https://name:secret@github.com/x", true, true),
+        ("https://name:secret@github.com/x", false, false),
+        ("https://github.com/a@b", true, true),
         ("https://a@b@github.com/x", false, false),
         ("https://na%zzme@github.com/x", false, false),
         ("https://:443/x", false, false),

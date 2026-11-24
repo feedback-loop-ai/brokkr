@@ -408,6 +408,7 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::Damaged { .. }
         | StoreError::HeadMoved { .. }
         | StoreError::Json(_)
+        | StoreError::Orders(_)
         | StoreError::RowBeforeChain { .. }
         | StoreError::RunExists(_)
         | StoreError::RunIdTooLong { .. }

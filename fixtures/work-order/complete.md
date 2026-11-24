@@ -18,7 +18,8 @@
     },
     {
       "number": 2,
-      "question": "Where should this work order live?"
+      "question": "Where should this work order live?",
+      "ruling": 1
     }
   ],
   "constraints": [

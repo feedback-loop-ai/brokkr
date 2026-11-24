@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::num::NonZeroU32;
 use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -17,18 +18,26 @@ const INTENT: &str = "## Intent";
 const ACCEPTANCE: &str = "## Acceptance";
 
 /// Brokkr's realm-local work-order identifier.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct WorkOrderId(String);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkOrderId(NonZeroU32);
 
 impl WorkOrderId {
+    /// Construct the id of a journaled work order from its positive number.
+    pub fn from_number(number: NonZeroU32) -> Self {
+        Self(number)
+    }
+
+    /// The number in the canonical `WO-<n>` id.
+    pub fn number(&self) -> u32 {
+        self.0.get()
+    }
+
     fn read(text: &str) -> Result<Self, Refusal> {
         let digits = text.strip_prefix("WO-").ok_or(Refusal::Id)?;
-        let mut bytes = digits.bytes();
-        if !matches!(bytes.next(), Some(b'1'..=b'9')) || !bytes.all(|byte| byte.is_ascii_digit()) {
+        if !matches!(digits.bytes().next(), Some(b'1'..=b'9')) {
             return Err(Refusal::Id);
         }
-        Ok(Self(text.into()))
+        digits.parse().map(Self).map_err(|_| Refusal::Id)
     }
 }
 
@@ -42,7 +51,13 @@ impl FromStr for WorkOrderId {
 
 impl fmt::Display for WorkOrderId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+        write!(formatter, "WO-{}", self.0)
+    }
+}
+
+impl Serialize for WorkOrderId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
     }
 }
 
@@ -81,15 +96,22 @@ pub struct WorkOrder {
 impl WorkOrder {
     /// Read a work order with the realm's tracker vocabulary.
     pub fn parse(text: &str, trackers: &Trackers) -> Result<Self, WorkOrderError> {
-        Self::read(text, trackers).map_err(WorkOrderError)
+        Self::read(text, |references| {
+            for reference in references {
+                trackers.check(reference)?;
+            }
+            Ok(())
+        })
+        .map_err(WorkOrderError)
     }
 
-    fn read(text: &str, trackers: &Trackers) -> Result<Self, Refusal> {
+    fn read(
+        text: &str,
+        check_references: impl FnOnce(&[Reference]) -> Result<(), Refusal>,
+    ) -> Result<Self, Refusal> {
         let (json, body) = split_header(text)?;
         let header = Header::read(&json)?;
-        for reference in &header.references {
-            trackers.check(reference)?;
-        }
+        check_references(&header.references)?;
         let (intent, acceptance) = read_body(body)?;
         Ok(Self {
             header,
@@ -111,6 +133,12 @@ impl WorkOrder {
         self.header.id.as_ref()
     }
 
+    /// Set the id while retaining every other field.
+    pub fn with_id(mut self, id: WorkOrderId) -> Self {
+        self.header.id = Some(id);
+        self
+    }
+
     /// The document's title.
     pub fn title(&self) -> &str {
         &self.header.title
@@ -119,6 +147,28 @@ impl WorkOrder {
     /// The state named in the header.
     pub fn state(&self) -> WorkOrderState {
         self.header.state
+    }
+
+    /// Set the state while retaining every other field.
+    pub fn with_state(mut self, state: WorkOrderState) -> Self {
+        self.header.state = state;
+        self
+    }
+
+    /// Count asks that have no closing ruling.
+    pub fn open_asks(&self) -> usize {
+        self.header
+            .asks
+            .iter()
+            .filter(|ask| ask.ruling.is_none())
+            .count()
+    }
+
+    /// Count open asks in journaled text with references checked at admission.
+    pub fn journaled_open_asks(text: &str) -> Result<usize, WorkOrderError> {
+        Self::read(text, |_| Ok(()))
+            .map(|order| order.open_asks())
+            .map_err(WorkOrderError)
     }
 
     /// The cited external items, as written.
@@ -421,15 +471,13 @@ fn https_uri_host(text: &str) -> Option<&str> {
         return None;
     }
     let (authority, tail) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
-    let host_port = match authority.split_once('@') {
-        Some((userinfo, host_port)) if uri_chars(userinfo, b":") => host_port,
-        Some(_) => return None,
-        None => authority,
-    };
+    if authority.contains('@') {
+        return None;
+    }
     if !tail.splitn(2, '#').all(|part| uri_chars(part, b":@/?")) {
         return None;
     }
-    host_and_port(host_port)
+    host_and_port(authority)
 }
 
 fn host_and_port(authority: &str) -> Option<&str> {
@@ -650,7 +698,9 @@ enum Refusal {
     HeaderEnd,
     #[error("the work order's JSON header is invalid: {0}")]
     HeaderJson(String),
-    #[error("a work order id must be WO- followed by a positive integer without leading zeroes")]
+    #[error(
+        "a work order id must be WO- followed by a positive 32-bit integer without leading zeroes"
+    )]
     Id,
     #[error("the work order's title must occupy one non-empty line")]
     Title,

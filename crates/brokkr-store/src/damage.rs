@@ -86,6 +86,7 @@ pub(crate) fn classified(journal: &Path, error: StoreError) -> StoreError {
         | StoreError::TokenCountOutOfRange(..)
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::Queue(_)
+        | StoreError::Orders(_)
         | StoreError::SeatTree(_) => return error,
     };
     StoreError::Damaged {

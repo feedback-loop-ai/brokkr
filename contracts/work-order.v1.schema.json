@@ -1,5 +1,5 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://feedback-loop.ai/forge/contracts/work-order.v1.json",
   "title": "Work order v1 header",
   "description": "The JSON header of a work order (decision 0116). Intent and acceptance are its Markdown body. Tracker membership, link hosts and ask-to-ruling lookups are checked with the document.",
@@ -8,7 +8,7 @@
   "required": ["title", "state", "rulings", "asks", "constraints", "caps", "references", "edges"],
   "properties": {
     "id": {
-      "$ref": "#/$defs/id",
+      "$ref": "#/definitions/id",
       "description": "Brokkr's realm-local id, absent until the work order is added."
     },
     "title": {
@@ -29,7 +29,7 @@
         "properties": {
           "words": { "type": "string" },
           "date": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
-          "cite": { "$ref": "#/$defs/httpsLink" }
+          "cite": { "$ref": "#/definitions/httpsLink" }
         }
       }
     },
@@ -40,10 +40,10 @@
         "additionalProperties": false,
         "required": ["number", "question"],
         "properties": {
-          "number": { "$ref": "#/$defs/number" },
+          "number": { "$ref": "#/definitions/number" },
           "question": { "type": "string" },
           "ruling": {
-            "$ref": "#/$defs/number",
+            "$ref": "#/definitions/number",
             "description": "The closing ruling's one-based position in rulings. Omitted while the ask is open."
           }
         }
@@ -69,11 +69,11 @@
         "properties": {
           "tracker": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
           "item": { "type": "string" },
-          "link": { "$ref": "#/$defs/httpsLink" }
+          "link": { "$ref": "#/definitions/httpsLink" }
         }
       }
     },
-    "parent": { "$ref": "#/$defs/id" },
+    "parent": { "$ref": "#/definitions/id" },
     "edges": {
       "type": "array",
       "items": {
@@ -81,7 +81,7 @@
         "additionalProperties": false,
         "required": ["awaits", "condition"],
         "properties": {
-          "awaits": { "$ref": "#/$defs/id" },
+          "awaits": { "$ref": "#/definitions/id" },
           "condition": {
             "type": "string",
             "enum": [
@@ -94,12 +94,12 @@
       }
     }
   },
-  "$defs": {
+  "definitions": {
     "httpsLink": {
       "description": "An absolute HTTPS URI with a nonempty host and any explicit numeric port in 0–65535.",
       "type": "string",
       "format": "uri",
-      "pattern": "^[Hh][Tt][Tt][Pp][Ss]://(?:[^/?#@]*@)?(?:\\[[0-9A-Fa-f:.]+\\]|[^:/?#@\\[\\]]+)(?::0*(?:[0-9]{0,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:[/?#]|$)"
+      "pattern": "^[Hh][Tt][Tt][Pp][Ss]://(?:\\[[0-9A-Fa-f:.]+\\]|[^:/?#@\\[\\]]+)(?::0*(?:[0-9]{0,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:[/?#]|$)"
     },
     "id": { "type": "string", "pattern": "^WO-[1-9][0-9]*$" },
     "number": { "type": "integer", "minimum": 1, "maximum": 4294967295 }

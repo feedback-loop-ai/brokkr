@@ -143,7 +143,7 @@ fn unclassified_ending_is_refused() {
 #[test]
 fn off_host_reference_is_refused() {
     assert_refused(
-        OFF_HOST,
+        &OFF_HOST.replace("github.com@", ""),
         &trackers(),
         Refusal::ReferenceHost {
             tracker: "github".into(),
@@ -161,7 +161,7 @@ fn invalid_header_fixtures_have_named_refusals() {
         (
             fixture!("bad-id"),
             Id,
-            "a work order id must be WO- followed by a positive integer without leading zeroes",
+            "a work order id must be WO- followed by a positive 32-bit integer without leading zeroes",
         ),
         (
             fixture!("two-line-title"),
@@ -292,11 +292,20 @@ fn invalid_body_and_context_fixtures_have_named_refusals() {
 
 #[test]
 fn ids_states_and_conditions_are_closed() {
-    for id in ["WO-1", "WO-9", "WO-10", "WO-18446744073709551616"] {
+    for id in ["WO-1", "WO-9", "WO-10", "WO-4294967295"] {
         assert_eq!(id.parse::<WorkOrderId>().unwrap().to_string(), id);
     }
     for text in [
-        "1", "WO-", "WO-0", "WO-01", "WO-1x", "WO-1\n", "WO-١", "wo-1",
+        "1",
+        "WO-",
+        "WO-0",
+        "WO-01",
+        "WO-1x",
+        "WO-1\n",
+        "WO-١",
+        "wo-1",
+        "WO-+1",
+        "WO-4294967296",
     ] {
         assert_eq!(
             text.parse::<WorkOrderId>().unwrap_err().0,
@@ -523,7 +532,7 @@ fn https_links_preserve_valid_spelling_and_refuse_repairs() {
         ("HTTPS://work.example", "work.example"),
         ("https://Work.example:/", "Work.example"),
         (
-            "https://guest:p%61ss@work.example:00065535/?a=b&c=%ab#x",
+            "https://work.example:00065535/a@b?a=b@c&c=%ab#x@y",
             "work.example",
         ),
         ("https://[2001:db8::1]:1/project", "[2001:db8::1]"),
@@ -536,6 +545,7 @@ fn https_links_preserve_valid_spelling_and_refuse_repairs() {
         "https:work.example/",
         "https:///work.example/",
         "https://name@:42/",
+        "https://guest:p%61ss@work.example/",
         "https://one@two@work.example/",
         "https://g%1z@work.example/",
         "https://work.example:65536/",
@@ -660,5 +670,56 @@ fn invalid_tracker_definitions_are_refused() {
     assert_eq!(
         error.to_string(),
         "each tracker word must have exactly one definition"
+    );
+}
+
+#[test]
+fn work_order_id_exposes_its_positive_number() {
+    let number = NonZeroU32::new(u32::MAX).unwrap();
+    let id = WorkOrderId::from_number(number);
+    assert_eq!(id, "WO-4294967295".parse().unwrap());
+    assert_eq!(id.number(), number.get());
+}
+
+#[test]
+fn with_id_changes_only_the_id() {
+    let order = WorkOrder::parse(ASSIGNED, &trackers()).unwrap();
+    let expected = ASSIGNED.replace(r#""id": "WO-12""#, r#""id": "WO-42""#);
+    assert_eq!(order.with_id("WO-42".parse().unwrap()).render(), expected);
+}
+
+#[test]
+fn with_state_changes_only_the_state() {
+    let order = WorkOrder::parse(ASSIGNED, &trackers()).unwrap();
+    let expected = ASSIGNED.replace(r#""state": "ruled""#, r#""state": "proposed""#);
+    assert_eq!(
+        order.with_state(WorkOrderState::Proposed).render(),
+        expected
+    );
+}
+
+#[test]
+fn open_asks_counts_every_ask_without_a_ruling() {
+    let trackers = trackers();
+    let closed = WorkOrder::parse(ASSIGNED, &trackers).unwrap();
+    assert_eq!(closed.open_asks(), 0);
+    let text = ASSIGNED.replace(",\n      \"ruling\": 1", "").replace(
+        "\"question\": \"What assigns the id?\"",
+        "\"question\": \"What assigns the id?\",\n      \"ruling\": 1",
+    );
+    let mixed = WorkOrder::parse(&text, &trackers).unwrap();
+    assert_eq!(mixed.state(), WorkOrderState::Ruled);
+    assert_eq!(mixed.open_asks(), 1);
+    let text = text.replace(",\n      \"ruling\": 1", "");
+    assert_eq!(WorkOrder::parse(&text, &trackers).unwrap().open_asks(), 2);
+}
+
+#[test]
+fn journaled_open_asks_reads_the_document_without_tracker_definitions() {
+    let text = ASSIGNED.replacen(",\n      \"ruling\": 1", "", 1);
+    assert_eq!(WorkOrder::journaled_open_asks(&text).unwrap(), 1);
+    assert_eq!(
+        WorkOrder::journaled_open_asks("unreadable").unwrap_err().0,
+        Refusal::HeaderStart
     );
 }
