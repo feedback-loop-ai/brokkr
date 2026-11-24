@@ -20,7 +20,7 @@ pub(crate) const FILELESS: &str = "none (decision 0082 ruling 5)";
 
 /// A reader private to its crate, with the row its file names. The owning
 /// crate's tests drive it; this module only admits the name.
-pub(crate) const PRIVATE: [(&str, &str); 10] = [
+pub(crate) const PRIVATE: [(&str, &str); 11] = [
     (
         "contracts/operator-ending.v1.schema.json",
         "load brokkr_core::ending::operator_ending",
@@ -47,6 +47,10 @@ pub(crate) const PRIVATE: [(&str, &str); 10] = [
     ),
     (
         "contracts/host.v4.schema.json",
+        "load brokkr_runtime::admission::host::read",
+    ),
+    (
+        "contracts/host.v5.schema.json",
         "load brokkr_runtime::admission::host::read",
     ),
     (

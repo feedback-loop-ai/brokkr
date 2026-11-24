@@ -1060,6 +1060,11 @@ pub fn brokkr_protocol::probe::Report::parse(&str) -> core::result::Result<brokk
 pub fn brokkr_protocol::probe::Report::with_drift_from(self, &brokkr_protocol::probe::Report) -> brokkr_protocol::probe::Report
 pub fn brokkr_protocol::probe::run(&brokkr_protocol::probe::ProbeInput<'_>) -> core::result::Result<brokkr_protocol::probe::Report, brokkr_protocol::probe::ProbeError>
 pub mod brokkr_protocol::process
+pub mod brokkr_protocol::process::usage
+pub struct brokkr_protocol::process::usage::TreeNow
+pub brokkr_protocol::process::usage::TreeNow::cpu: core::time::Duration
+pub brokkr_protocol::process::usage::TreeNow::memory_bytes: u64
+pub fn brokkr_protocol::process::usage::trees_now(&[u32]) -> core::option::Option<alloc::vec::Vec<core::option::Option<brokkr_protocol::process::usage::TreeNow>>>
 pub enum brokkr_protocol::process::SpawnEnv
 pub brokkr_protocol::process::SpawnEnv::Exactly(alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>)
 pub brokkr_protocol::process::SpawnEnv::Inherit

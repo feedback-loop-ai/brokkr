@@ -9,19 +9,21 @@
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
-use brokkr_runtime::admission::{self, Host, Judged, Reason, Verdict};
+use brokkr_runtime::admission::{self, Host, Judged, Machine, Reason, Sized, Verdict};
 use brokkr_runtime::launch::{BundleSource, QueuedLaunch};
 use brokkr_store::{Attribution, NewEntry, QueueCommand, Wait};
 use serde::Serialize;
 
 use super::delivery::{new_run, operator_name};
-use crate::cli_args::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
+use crate::cli_args::{
+    JournalArgs, QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs,
+};
 use crate::render::Safe;
-use crate::{open_journal, Access, Exit};
+use crate::{open_journal, Access, Exit, Invocation};
 
 /// Run one queue command.
 pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
@@ -154,8 +156,10 @@ fn list(
     QueueListArgs { journal, json }: QueueListArgs,
     stderr: &mut impl Write,
 ) -> Result<ExitCode> {
-    let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
-    let (entries, unstarted) = on_this_host(|host| Ok(admission::pass_within(&store, host)?))?;
+    let (journal, journals) = admission_target(workspace, journal)?;
+    let store = open_journal(&journal, Access::Read)?;
+    let (entries, unstarted) =
+        on_this_host(&journals, |host| Ok(admission::pass_within(&store, host)?))?;
     show(&entries, &unstarted, json, stderr)
 }
 
@@ -170,8 +174,9 @@ fn judge(
     }: QueueJudgeArgs,
     stderr: &mut impl Write,
 ) -> Result<ExitCode> {
-    let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let (entries, unstarted) = on_this_host(|host| {
+    let (journal, journals) = admission_target(workspace, journal)?;
+    let mut store = open_journal(&journal, Access::Append)?;
+    let (entries, unstarted) = on_this_host(&journals, |host| {
         attributed(&reason, |by| {
             admission::judge_within(&mut store, host, by).map_err(anyhow::Error::from)
         })
@@ -179,26 +184,48 @@ fn judge(
     show(&entries, &unstarted, json, stderr)
 }
 
+/// Resolve the queue's journal and the journals it must size entries
+/// against from the same invocation (decision 0125 ruling 3).
+pub(super) fn admission_target(
+    workspace: &Path,
+    args: JournalArgs,
+) -> Result<(PathBuf, Vec<PathBuf>)> {
+    let invoked = Invocation::inspect(workspace, args.realms, args.db)?.announce();
+    let journals = invoked
+        .world
+        .iter()
+        .flat_map(|world| world.hearths().into_iter().map(|hearth| hearth.journal))
+        .collect();
+    Ok((invoked.journal, journals))
+}
+
 /// Do `act` on this machine as admission measures it (decision 0068
-/// ruling 3): its host configuration where XDG puts it, its temp directory
-/// where the standard library finds it, and the free space statvfs
-/// reports.
-pub(super) fn on_this_host<T>(act: impl FnOnce(&Host<'_>) -> Result<T>) -> Result<T> {
+/// ruling 3, decision 0125): its host configuration where XDG puts it, its
+/// temp directory where the standard library finds it, the free space
+/// statvfs reports, and, to size entries by demand, every journal of the
+/// resolved realms map and what this machine has now.
+pub(super) fn on_this_host<T>(
+    journals: &[PathBuf],
+    act: impl FnOnce(&Host<'_>) -> Result<T>,
+) -> Result<T> {
+    let machine = Machine::here(journals);
     on_the_host_at(
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
         &std::env::temp_dir(),
+        Some(&machine),
         act,
     )
 }
 
 /// [`on_this_host`], with the two directories that place the host
-/// configuration, and its temp directory, given rather than read from the
-/// environment.
+/// configuration, its temp directory and the machine it sizes entries on
+/// given rather than read from the environment.
 fn on_the_host_at<T>(
     xdg: Option<OsString>,
     home: Option<OsString>,
     temp: &Path,
+    machine: Option<&Machine<'_>>,
     act: impl FnOnce(&Host<'_>) -> Result<T>,
 ) -> Result<T> {
     let file = admission::host_file(xdg, home)?;
@@ -206,6 +233,7 @@ fn on_the_host_at<T>(
         file: &file,
         temp,
         free: &admission::free_bytes,
+        machine,
     })
 }
 
@@ -245,6 +273,11 @@ struct Row<'a> {
     launch: &'a QueuedLaunch,
     /// Admission's word while the entry waits; `None` once it started.
     admission: Option<AdmissionRow>,
+    /// What a measured pass sized it by (decision 0125 ruling 8): its
+    /// demand, what is available and what is reserved; absent where the
+    /// pass sized nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    demand: Option<&'a Sized>,
 }
 
 /// Admission's verdict as scripts read it: the entry's standing and each
@@ -326,6 +359,7 @@ fn rows(entries: &[Judged]) -> Vec<Row<'_>> {
                  entry,
                  launch,
                  verdict,
+                 demand,
                  ..
              }| Row {
                 place: entry.position,
@@ -337,6 +371,7 @@ fn rows(entries: &[Judged]) -> Vec<Row<'_>> {
                 added_at: &entry.added_at,
                 launch,
                 admission: verdict.as_ref().map(AdmissionRow::of),
+                demand: demand.as_ref(),
             },
         )
         .collect()

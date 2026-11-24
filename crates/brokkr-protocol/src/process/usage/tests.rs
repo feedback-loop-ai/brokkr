@@ -7,7 +7,7 @@ fn ms(millis: u64) -> Duration {
     Duration::from_millis(millis)
 }
 
-fn sample(rss: u64, cpu_ms: u64) -> Sample {
+pub(super) fn sample(rss: u64, cpu_ms: u64) -> Sample {
     Sample {
         rss,
         cpu: ms(cpu_ms),
@@ -15,7 +15,7 @@ fn sample(rss: u64, cpu_ms: u64) -> Sample {
 }
 
 /// A row of `pid` under `ppid`, its usage `usage`.
-fn entry(pid: i32, ppid: i32, usage: Option<Sample>) -> Entry {
+pub(super) fn entry(pid: i32, ppid: i32, usage: Option<Sample>) -> Entry {
     Entry {
         id: Identity {
             pid,
@@ -108,8 +108,11 @@ fn the_tree_sums_the_root_and_its_descendants_and_nothing_else() {
         entry(13, 11, None),
         entry(14, 1, Some(sample(7_000, 7_000))),
     ];
-    assert_eq!(tree(&rows, 10), Some(sample(123, 16)));
-    assert_eq!(tree(&rows, 11), Some(sample(23, 6)));
+    assert_eq!(
+        tree(&rows, 10).map(|(usage, _)| usage),
+        Some(sample(123, 16))
+    );
+    assert_eq!(tree(&rows, 11).map(|(usage, _)| usage), Some(sample(23, 6)));
     assert_eq!(tree(&rows, 99), None);
 }
 

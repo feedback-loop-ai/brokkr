@@ -341,19 +341,20 @@ v13 included, makes every entry wait until it ends.
 
 **The host configuration** belongs to the machine, not to a realm
 (`forge.host/v1`, `forge.host/v2` with cool-down bounds and containment,
-`forge.host/v3` with a shared-local deadline floor, or `forge.host/v4`
-with a run ceiling; [the v1
+`forge.host/v3` with a shared-local deadline floor, `forge.host/v4`
+with a run ceiling, or `forge.host/v5` sized by demand; [the v1
 contract](../../contracts/host.v1.schema.json), [the v2
 contract](../../contracts/host.v2.schema.json), [the v3
 contract](../../contracts/host.v3.schema.json), [the v4
-contract](../../contracts/host.v4.schema.json)):
+contract](../../contracts/host.v4.schema.json), [the v5
+contract](../../contracts/host.v5.schema.json)):
 `$XDG_CONFIG_HOME/brokkr/host.json`, else `$HOME/.config/brokkr/host.json`,
 on Linux and macOS alike. Nothing there and every measured entry waits
 (`no host configuration at <path> declares capacity`); a path that holds
 something unreadable — a link that loops or dangles, a directory, a FIFO
 or a device, never waited on — holds it, naming the error; a file that is
-not a valid `forge.host/v1`, `forge.host/v2`, `forge.host/v3` or
-`forge.host/v4` refuses the listing, naming the problem and, where one version's rules own it, that
+not a valid `forge.host/v1`, `forge.host/v2`, `forge.host/v3`,
+`forge.host/v4` or `forge.host/v5` refuses the listing, naming the problem and, where one version's rules own it, that
 version, and so does a provider or route written twice, naming the key. A provider or
 route the file does not name waits as undeclared, and every ceiling is at
 least one: there is no unlimited.
@@ -404,10 +405,30 @@ fourth. An entry at the ceiling waits as `runs_full`
 (``the journal drives <n> runs, at its ceiling of <c> (forge.host/v4
 `runs.ceiling`)``), and a claim's re-check counts the runs started since
 the pass against the same ceiling. A v1, v2 or v3 file declares no run
-ceiling: it still reads, but every entry the capacity checks would judge
-waits as `runs_undeclared` (``the host file <path> declares no run
-ceiling; forge.host/v4 declares `runs.ceiling` ``) until the file is v4, and
+ceiling: it still reads, and on a machine whose availability is not
+measured every entry the capacity checks would judge waits as
+`runs_undeclared` (``the host file <path> declares no run ceiling;
+forge.host/v4 declares `runs.ceiling` ``) until the file declares one, and
 `brokkr doctor` warns of it. Neither latches.
+
+Decision 0125 sizes an entry by what its recipe used. On Linux
+every pass that judges an entry's room measures `MemAvailable` and the
+idle cores over 500 ms, reads the last 20 runs of the entry's recipe that
+carry `effect-usage/v1` across every journal of the realms map, and takes
+the largest of its phases' average peaks plus a 25% margin as its demand.
+Every running run reserves what its remaining phases may still need beyond
+what its driver's tree uses now, and each entry the pass admits reserves
+its own before the next is judged. After every check above, an entry whose
+demand plus the reservations does not fit waits as `memory_short` or
+`cpu_short`, naming the demand, what is available and what is reserved; a
+recipe with no measured profile (no completed run in its window) and no
+declared demand starts only when nothing else runs, and waits as `demand_unknown` otherwise. On such a
+machine no run ceiling need be declared. `forge.host/v5` makes `runs` and
+`boxed_builds` optional and adds `demand`, whose `window_runs`,
+`margin_percent` and `recipes.<name>` override the window, the margin and
+declare a recipe's demand. `queue list --json` carries each sized entry's
+`demand`, and names each journal of the map it cannot read. A machine whose
+availability is not measured (macOS, for now) judges as above, unchanged.
 
 A seat on `spark-glm` is judged by that route's ceiling in place of
 `dsh`'s, because the hardware, not the account, is the limit; a `cloud`

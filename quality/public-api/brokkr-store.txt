@@ -377,6 +377,10 @@ pub brokkr_store::Swept::Scratch(i64)
 pub enum brokkr_store::TreeSweepRecord
 pub brokkr_store::TreeSweepRecord::Unrecorded
 pub brokkr_store::TreeSweepRecord::Written
+pub enum brokkr_store::UsageEvent
+pub brokkr_store::UsageEvent::Completed
+pub brokkr_store::UsageEvent::Ended(alloc::string::String)
+pub brokkr_store::UsageEvent::Entered(alloc::string::String)
 pub enum brokkr_store::VerifyError
 pub brokkr_store::VerifyError::Chain(brokkr_core::envelope::ChainError)
 pub brokkr_store::VerifyError::Fold(brokkr_core::fold::FoldError)
@@ -653,6 +657,9 @@ pub fn brokkr_store::Store::seat_rows(&self, &str) -> core::result::Result<brokk
 impl brokkr_store::Store
 pub fn brokkr_store::Store::start_run(&mut self, &str, &str, &str, &serde_json::value::Value, serde_json::value::Value, core::option::Option<&'_ mut dyn core::ops::function::FnMut(&rusqlite::transaction::Transaction<'_>) -> core::result::Result<(), brokkr_store::StoreError>>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::unended_runs(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Unended>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::usage_history(&self, u32) -> core::result::Result<alloc::vec::Vec<brokkr_store::UsageRow>, brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::window_fallbacks(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowFallback<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_sites(&self, i64, i64, core::option::Option<&str>, brokkr_store::metered::SiteOrder, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSite<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_spends(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSpend<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
@@ -663,11 +670,19 @@ pub brokkr_store::TreeSweep::kind: brokkr_store::Swept
 pub brokkr_store::TreeSweep::path: std::path::PathBuf
 pub brokkr_store::TreeSweep::removed_at: i64
 pub brokkr_store::TreeSweep::seq: i64
+pub struct brokkr_store::Unended
+pub brokkr_store::Unended::recipe: alloc::string::String
+pub brokkr_store::Unended::run: alloc::string::String
 pub struct brokkr_store::Unread
 pub brokkr_store::Unread::lane_running: bool
 pub brokkr_store::Unread::order_at: i64
 pub brokkr_store::Unread::run_id: alloc::string::String
 pub brokkr_store::Unread::why: brokkr_store::RowRefusal
+pub struct brokkr_store::UsageRow
+pub brokkr_store::UsageRow::created_at: alloc::string::String
+pub brokkr_store::UsageRow::event: brokkr_store::UsageEvent
+pub brokkr_store::UsageRow::recipe: alloc::string::String
+pub brokkr_store::UsageRow::run: alloc::string::String
 pub struct brokkr_store::Wait
 pub brokkr_store::Wait::entry: brokkr_store::EntryId
 pub brokkr_store::Wait::on: brokkr_store::WaitOn

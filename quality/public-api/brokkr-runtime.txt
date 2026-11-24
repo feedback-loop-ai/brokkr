@@ -104,6 +104,7 @@ impl core::fmt::Display for brokkr_runtime::admission::Place
 pub fn brokkr_runtime::admission::Place::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_runtime::admission::Reason
 pub brokkr_runtime::admission::Reason::Capacity(brokkr_runtime::admission::Capacity)
+pub brokkr_runtime::admission::Reason::Demand(brokkr_runtime::admission::Unfit)
 pub brokkr_runtime::admission::Reason::DispatchEnvelope
 pub brokkr_runtime::admission::Reason::Dropped(brokkr_store::queue::Wait)
 pub brokkr_runtime::admission::Reason::EndedOtherwise
@@ -141,6 +142,11 @@ pub brokkr_runtime::admission::RouteClass::Cloud
 pub brokkr_runtime::admission::RouteClass::SharedLocal
 impl core::fmt::Display for brokkr_runtime::admission::RouteClass
 pub fn brokkr_runtime::admission::RouteClass::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_runtime::admission::Source
+pub brokkr_runtime::admission::Source::Declared
+pub brokkr_runtime::admission::Source::Measured
+pub brokkr_runtime::admission::Source::Measured::runs: usize
+pub brokkr_runtime::admission::Source::Unknown
 pub enum brokkr_runtime::admission::Standing
 pub brokkr_runtime::admission::Standing::Admissible
 pub brokkr_runtime::admission::Standing::Held
@@ -153,18 +159,44 @@ pub brokkr_runtime::admission::Unmeasurable::Manifest(brokkr_runtime::admission:
 pub brokkr_runtime::admission::Unmeasurable::Pin
 pub brokkr_runtime::admission::Unmeasurable::Pin::flags: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::admission::Unmeasurable::Pin::site: alloc::string::String
+pub enum brokkr_runtime::admission::Unmeasured
+pub brokkr_runtime::admission::Unmeasured::Platform
+pub brokkr_runtime::admission::Unmeasured::Unparsed(&'static str)
+pub brokkr_runtime::admission::Unmeasured::Unreadable
+pub brokkr_runtime::admission::Unmeasured::Unreadable::file: &'static str
+pub brokkr_runtime::admission::Unmeasured::Unreadable::kind: core::io::error::ErrorKind
+pub struct brokkr_runtime::admission::Available
+pub brokkr_runtime::admission::Available::cores_millicores: u64
+pub brokkr_runtime::admission::Available::idle_millicores: u64
+pub brokkr_runtime::admission::Available::memory_bytes: u64
+pub brokkr_runtime::admission::Available::memory_total: u64
 pub struct brokkr_runtime::admission::Host<'a>
 pub brokkr_runtime::admission::Host::file: &'a std::path::Path
 pub brokkr_runtime::admission::Host::free: &'a dyn core::ops::function::Fn(&std::path::Path) -> core::io::error::Result<u64>
+pub brokkr_runtime::admission::Host::machine: core::option::Option<&'a brokkr_runtime::admission::Machine<'a>>
 pub brokkr_runtime::admission::Host::temp: &'a std::path::Path
 pub struct brokkr_runtime::admission::Judged
+pub brokkr_runtime::admission::Judged::demand: core::option::Option<brokkr_runtime::admission::Sized>
 pub brokkr_runtime::admission::Judged::entry: brokkr_store::queue::QueueEntry
 pub brokkr_runtime::admission::Judged::launch: brokkr_runtime::launch::QueuedLaunch
 pub brokkr_runtime::admission::Judged::room: core::option::Option<brokkr_runtime::admission::Room>
 pub brokkr_runtime::admission::Judged::verdict: core::option::Option<brokkr_runtime::admission::Verdict>
+pub struct brokkr_runtime::admission::Machine<'a>
+impl<'a> brokkr_runtime::admission::Machine<'a>
+pub fn brokkr_runtime::admission::Machine<'a>::here(&'a [std::path::PathBuf]) -> brokkr_runtime::admission::Machine<'a>
+pub struct brokkr_runtime::admission::Need
+pub brokkr_runtime::admission::Need::average: u64
+pub brokkr_runtime::admission::Need::demand: u64
+pub brokkr_runtime::admission::Need::margin: u64
 pub struct brokkr_runtime::admission::Released(_)
 impl core::fmt::Display for brokkr_runtime::admission::Released
 pub fn brokkr_runtime::admission::Released::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_runtime::admission::Reserved
+pub brokkr_runtime::admission::Reserved::admitted: usize
+pub brokkr_runtime::admission::Reserved::load_millicores: u64
+pub brokkr_runtime::admission::Reserved::memory_bytes: u64
+pub brokkr_runtime::admission::Reserved::runs: usize
+pub brokkr_runtime::admission::Reserved::whole: usize
 pub struct brokkr_runtime::admission::Room
 pub struct brokkr_runtime::admission::RouteDecl
 pub brokkr_runtime::admission::RouteDecl::class: brokkr_runtime::admission::RouteClass
@@ -177,6 +209,16 @@ pub fn brokkr_runtime::admission::Shared<E>::clone(&self) -> brokkr_runtime::adm
 impl<E> core::cmp::Eq for brokkr_runtime::admission::Shared<E>
 impl<E> core::cmp::PartialEq for brokkr_runtime::admission::Shared<E>
 pub fn brokkr_runtime::admission::Shared<E>::eq(&self, &brokkr_runtime::admission::Shared<E>) -> bool
+pub struct brokkr_runtime::admission::Sized
+pub brokkr_runtime::admission::Sized::available: brokkr_runtime::admission::Available
+pub brokkr_runtime::admission::Sized::load_millicores: brokkr_runtime::admission::Need
+pub brokkr_runtime::admission::Sized::memory_bytes: brokkr_runtime::admission::Need
+pub brokkr_runtime::admission::Sized::recipe: alloc::string::String
+pub brokkr_runtime::admission::Sized::reserved: brokkr_runtime::admission::Reserved
+pub brokkr_runtime::admission::Sized::source: brokkr_runtime::admission::Source
+pub struct brokkr_runtime::admission::Unfit(_)
+impl core::fmt::Display for brokkr_runtime::admission::Unfit
+pub fn brokkr_runtime::admission::Unfit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_runtime::admission::Verdict
 pub brokkr_runtime::admission::Verdict::reasons: alloc::vec::Vec<brokkr_runtime::admission::Reason>
 impl brokkr_runtime::admission::Verdict
@@ -186,6 +228,7 @@ pub fn brokkr_runtime::admission::free_bytes(&std::path::Path) -> core::io::erro
 pub fn brokkr_runtime::admission::host_file(core::option::Option<std::ffi::os_str::OsString>, core::option::Option<std::ffi::os_str::OsString>) -> core::result::Result<std::path::PathBuf, brokkr_runtime::admission::HostError>
 pub fn brokkr_runtime::admission::judge(&mut brokkr_store::Store, brokkr_store::queue::Attribution<'_>) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
 pub fn brokkr_runtime::admission::judge_within(&mut brokkr_store::Store, &brokkr_runtime::admission::Host<'_>, brokkr_store::queue::Attribution<'_>) -> core::result::Result<(alloc::vec::Vec<brokkr_runtime::admission::Judged>, alloc::vec::Vec<brokkr_runtime::admission::Reason>), brokkr_runtime::admission::AdmissionError>
+pub fn brokkr_runtime::admission::measurable() -> core::result::Result<(), brokkr_runtime::admission::Unmeasured>
 pub fn brokkr_runtime::admission::pass(&brokkr_store::Store) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
 pub fn brokkr_runtime::admission::pass_within(&brokkr_store::Store, &brokkr_runtime::admission::Host<'_>) -> core::result::Result<(alloc::vec::Vec<brokkr_runtime::admission::Judged>, alloc::vec::Vec<brokkr_runtime::admission::Reason>), brokkr_runtime::admission::AdmissionError>
 pub fn brokkr_runtime::admission::release(&mut brokkr_store::Store, brokkr_store::queue::EntryId, brokkr_store::queue::Attribution<'_>) -> core::result::Result<brokkr_runtime::admission::Released, brokkr_runtime::admission::AdmissionError>
