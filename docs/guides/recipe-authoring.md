@@ -358,9 +358,20 @@ engine, never arbitrary code:
 A seat's declared `results` must cover its aggregate's vocabulary or
 compilation fails. A member declares no `results` of its own. A
 `review-panel` member reports only the words its hired agent's `results`
-list declares, `clean` and `residual` where it declares none. Before the
+list declares, `clean` and `residual` where it declares none. A panel's
+members must agree on one class — mixing `gate` and `work` members in
+one panel is refused at compile time ("a panel may judge or work, never
+do both") — and every member inherits its enclosing panel's compiled
+class (`gate` only when every member is `gate`, otherwise `work`). Only
+a member of a gate-class panel may write `findings`; from a work-class
+panel any `findings` key (even an empty `[]`) is refused (decision 0109
+ruling 1). Before the
 join, its word is bound to its findings and to the residual pair the
-seat compiles (decision 0109 ruling 2). A refused member poisons the
+seat compiles (decision 0109 ruling 2): any `security: true` finding
+requires `security-hold` (a lower security-relevant finding keeps
+`security: false` and sets `has_security_residual: true` under
+`residual`, and a member without `security-hold` reports a security
+smell in `notes` at its honest severity). A refused member poisons the
 aggregate. The aggregate writes `max_residual_severity` and
 `has_security_residual` on every result, `none` and `false` when no
 member reports one. Any indeterminate member makes the whole attempt
@@ -469,11 +480,19 @@ older identities do not gain empty metadata.
 
 **The non-final-step rule has teeth, so read it before you use a
 sequence on a gate.** The `design` and `engine` review cases in
-`recipes/triage` put a positions panel before a single chief step. The
-panel's `review-panel` output is *not* the seat's result — it is a
-checkpoint, handed to the chief as `context.prior_results.positions` —
-so a `security-hold` from the panel reaches the rule table only if the
-chief reproduces it. The engine will accept a chief that rules lower.
+`recipes/triage` put a positions panel before a single chief step. An
+admitted `security-hold` from the panel is a compiled hard word of the
+`review` phase, so it ends the sequence at `positions` (with
+`why: "hard-word"`) before the chief runs and goes straight to the rule
+table. Any other verdict — `clean` or `residual` — is *not* the seat's
+result: it is a checkpoint, handed to the chief as
+`context.prior_results.positions`, so a `residual` from the panel
+reaches the rule table only if the chief carries it forward. The engine
+will accept a chief that rules lower than a non-hard panel verdict; in
+a recipe whose policy does not compile a panel's hold word as a hard
+stop (every arm `severity: "hard"` to terminal `stop`), that hold also
+checkpoints to the chief and reaches the rule table only if the chief
+carries it forward.
 
 The same rule does not disable the fail-closed path for a malformed
 member. A panel aggregate that cannot read a member's payload emits
