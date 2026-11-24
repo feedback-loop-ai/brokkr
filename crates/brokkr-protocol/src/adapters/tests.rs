@@ -126,7 +126,7 @@ mod codex_isolation;
 mod decision_0114a;
 mod decision_0114b;
 mod decision_0114c;
-mod decision_0114d;
+pub(super) mod decision_0114d;
 pub(super) use decision_0114b::words as bound_words;
 #[cfg(unix)]
 mod seat_git;

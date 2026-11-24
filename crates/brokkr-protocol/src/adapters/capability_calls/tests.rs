@@ -1,8 +1,9 @@
+use super::super::tests::decision_0114d::dsh_call;
 use serde_json::{json, Map, Value};
 
 use super::super::claude_fold::{fold_stream_event, Source::Claude};
 use super::super::tests::fold_codex_into;
-use super::super::{dsh_effort, fold_dsh_event, CodexThreadEcho, Row};
+use super::super::{dsh_effort, fold_dsh_event, seat_row, AdapterKind, CodexThreadEcho, Row};
 use super::{Format, Observation, Tool, OBSERVATION_KEY};
 use crate::secret::{self, BoundSecret};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
@@ -74,11 +75,6 @@ fn codex_classifies_raw_mcp_and_masks_each_quoted_field() {
         call.onto_codex(&row, json!({}))["tool"],
         "mcp_[secret:S]_call"
     );
-}
-
-fn dsh_call(call: &str, name: &str) -> Value {
-    json!({"type": "tool/call", "seq": 7,
-           "data": {"turn": 1, "step": 1, "callId": call, "name": name, "arguments": "{}"}})
 }
 
 /// U0's measured shapes, read whole: the concrete tool, the MCP server and
@@ -387,13 +383,15 @@ fn bound_name_across_separator() {
     let call = dsh_call("call_1", "mcp__srv__tool");
     let reported = "mcp__sr[secret:S]ool";
     let rows = dsh_rows(1, &[call], &bindings);
-    assert_eq!(
-        rows,
-        [json!({
+    let [projected] = rows.as_slice() else {
+        panic!("expected one dsh tool checkpoint: {rows:?}");
+    };
+    let expected = json!({
             "step": "seat-turn", "turn": 1, "harness": "deepseek",
             "model": "not reported", "effort": "not reported", "tool": reported,
             "observation": {"format": "dsh", "call": "call_1",
                             "tool": {"kind": "mcp_unidentified", "reported": reported}},
-        })],
-    );
+    });
+    assert_eq!(projected, &expected);
+    assert_eq!(seat_row(AdapterKind::Dsh, &bindings, projected), expected);
 }

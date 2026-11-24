@@ -3,7 +3,7 @@ use crate::RefusalClass;
 
 pub(super) struct Stream {
     dir: tempfile::TempDir,
-    shim: PathBuf,
+    pub(super) shim: PathBuf,
     start: Value,
 }
 
@@ -53,6 +53,35 @@ impl Stream {
     }
 
     pub(super) fn drive(&self, kind: AdapterKind, extra: &[String]) -> Driven {
+        self.drive_with(kind, |prompt, input, bindings, mut emit| {
+            let pinned = Pinned {
+                binary: self.shim.to_str().unwrap(),
+                extra,
+            };
+            invoke_with_stager(
+                kind,
+                pinned,
+                prompt,
+                input,
+                None,
+                bindings,
+                false,
+                &mut emit,
+                stage_prompt,
+            )
+        })
+    }
+
+    pub(super) fn drive_with(
+        &self,
+        kind: AdapterKind,
+        invoke: impl FnOnce(
+            &str,
+            &Value,
+            &[secret::BoundSecret],
+            &mut dyn FnMut(&Emitted),
+        ) -> Result<Invocation, String>,
+    ) -> Driven {
         let mut driven = Driven::default();
         run_seat_with(
             kind,
@@ -60,24 +89,10 @@ impl Stream {
             &self.start,
             &mut |body| driven.bodies.push(body),
             |prompt, input, bindings, emit| {
-                let pinned = Pinned {
-                    binary: self.shim.to_str().unwrap(),
-                    extra,
-                };
-                let invocation = invoke_with_stager(
-                    kind,
-                    pinned,
-                    prompt,
-                    input,
-                    None,
-                    bindings,
-                    false,
-                    &mut |item: &Emitted| {
-                        driven.emitted.push((item.step, item.row.clone()));
-                        emit(item);
-                    },
-                    stage_prompt,
-                );
+                let invocation = invoke(prompt, input, bindings, &mut |item: &Emitted| {
+                    driven.emitted.push((item.step, item.row.clone()));
+                    emit(item);
+                });
                 if let Ok(invocation) = &invocation {
                     driven.meta = Some(invocation.session_meta.clone());
                 }
@@ -103,6 +118,10 @@ pub(super) fn wire_rows(bodies: &[Body]) -> impl Iterator<Item = &Value> {
 }
 
 pub(super) fn assert_refused(bodies: &[Body], words: &str) {
+    assert_refused_as(bodies, RefusalClass::RateLimit, words);
+}
+
+pub(super) fn assert_refused_as(bodies: &[Body], class: RefusalClass, words: &str) {
     let [Body::Result {
         status: ResultStatus::Failed,
         refusal: Some(refusal),
@@ -118,7 +137,7 @@ pub(super) fn assert_refused(bodies: &[Body], words: &str) {
             refusal.words(),
             refusal.retry_after_seconds()
         ),
-        (RefusalClass::RateLimit, words, None),
+        (class, words, None),
     );
 }
 
