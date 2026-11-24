@@ -72,22 +72,26 @@ fn result_line(result: &str, notes: Option<ResultNotes>) -> String {
 }
 
 /// `text` with every line after its first indented by `indent`, and
-/// its trailing line endings dropped. A CommonMark blank line (empty or
-/// containing only spaces and tabs) stays blank. A line ends at a line
-/// feed, a carriage return, or the two together, so no bare carriage
+/// its trailing blank lines and line endings dropped because a blank line
+/// after a bullet makes the list loose. An interior CommonMark blank line
+/// (empty or containing only spaces and tabs) stays blank. A line ends at
+/// a line feed, a carriage return, or the two together, so no bare carriage
 /// return can start a line outside the bullet. Every other byte, trailing
 /// spaces included, is kept.
 fn indented(text: &str, indent: &str) -> String {
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
-    let mut lines = text.trim_end_matches('\n').split('\n');
+    let mut lines = text.split('\n');
     let mut out = lines.next().unwrap_or_default().to_string();
+    let mut last_text_end = out.len();
     for line in lines {
         out.push('\n');
         if !line.trim_matches([' ', '\t']).is_empty() {
             out.push_str(indent);
             out.push_str(line);
+            last_text_end = out.len();
         }
     }
+    out.truncate(last_text_end);
     out
 }
 
