@@ -1367,7 +1367,7 @@ fn run_with(
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
         Cmd::Grouped(command) => grouped(workspace, command),
-        Cmd::FakeDriver(args) => setup::fake_driver(args),
+        Cmd::FakeDriver(args) => setup::fake_driver(args, &mut std::io::stdin().lock()),
     }
 }
 

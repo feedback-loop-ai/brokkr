@@ -54,16 +54,16 @@ pub fn run_fake_driver(
     state_dir: &Path,
     model: Option<&str>,
     effort: Option<&str>,
+    input: &mut dyn BufRead,
 ) -> std::io::Result<()> {
     let script: Value = serde_json::from_str(&std::fs::read_to_string(script_path)?)?;
     std::fs::create_dir_all(state_dir)?;
-    let stdin = std::io::stdin();
     run_fake_session(
         &script,
         state_dir,
         model,
         effort,
-        stdin.lock(),
+        input,
         std::io::stdout(),
         std::thread::park,
     )

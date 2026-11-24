@@ -3419,35 +3419,35 @@ fn a_named_map_that_is_not_there_refuses_before_anything_opens() {
     assert!(!dir.path().join("mapped.db").exists());
 }
 
-/// The fake driver takes both halves of the hire and reports rather than
-/// panics when it cannot read its script. `--effort` rides the same argv
-/// as `--model` (decision 0035 ruling 5) so a proof can assert either
-/// pin reached the driver; a script that is not there is an error the
-/// verb returns, not one it swallows.
+/// The fake driver takes both halves of the hire (`--model`, `--effort`,
+/// decision 0035 ruling 5), reports a script it cannot read, and reads
+/// the caller's input rather than the process's stdin (#1245).
 #[test]
 fn the_fake_driver_takes_both_pins_and_reports_a_script_it_cannot_read() {
     let dir = tempfile::tempdir().unwrap();
-    let refused = run(cli(Cmd::FakeDriver(FakeDriverArgs {
-        script: dir.path().join("no-such-script.json"),
-        state: dir.path().join("state"),
-        model: Some("model-x".into()),
-        effort: Some("xhigh".into()),
-    })))
-    .unwrap_err()
-    .to_string();
-    assert!(!refused.is_empty(), "{refused}");
-
-    // A script it CAN read, driven to EOF on empty stdin: both pins are
-    // accepted by the parser and the verb succeeds.
-    let script = dir.path().join("script.json");
-    std::fs::write(&script, serde_json::to_vec(&json!({"seats": {}})).unwrap()).unwrap();
-    assert!(run(cli(Cmd::FakeDriver(FakeDriverArgs {
+    let args = |script| FakeDriverArgs {
         script,
         state: dir.path().join("state"),
         model: Some("model-x".into()),
         effort: Some("xhigh".into()),
-    })))
-    .is_ok());
+    };
+    let missing = args(dir.path().join("no-such-script.json"));
+    let refused = verbs::setup::fake_driver(missing, &mut std::io::empty()).unwrap_err();
+    assert_eq!(
+        refused.downcast_ref::<std::io::Error>().unwrap().kind(),
+        std::io::ErrorKind::NotFound
+    );
+
+    let script = dir.path().join("script.json");
+    std::fs::write(&script, serde_json::to_vec(&json!({"seats": {}})).unwrap()).unwrap();
+    let ok = verbs::setup::fake_driver(args(script.clone()), &mut std::io::empty()).unwrap();
+    assert_eq!(ok, ExitCode::SUCCESS);
+    let mut input = std::io::Cursor::new(b"\n");
+    assert_eq!(
+        verbs::setup::fake_driver(args(script), &mut input).unwrap(),
+        ExitCode::SUCCESS
+    );
+    assert_eq!(input.position(), 1);
 }
 
 /// The world reads out, and a workspace with no map says so plainly
