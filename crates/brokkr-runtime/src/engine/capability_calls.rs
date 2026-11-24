@@ -315,8 +315,7 @@ impl Calls {
 /// Whether `name` holds a secret marker, `[secret:NAME]` with `NAME` in
 /// the binding grammar (decision 0012's #1213 addendum, K2): the form the
 /// mask writes over a bound value, and nothing a name merely shares with
-/// it. Until #1242 reads the tool from the raw row, a masked name is
-/// unattributable.
+/// it. A rewritten name cannot identify the native tool for admission.
 fn masked(name: &str) -> bool {
     (name.split("[secret:").skip(1)).any(|rest| {
         rest.split_once(']')

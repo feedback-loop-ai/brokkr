@@ -84,7 +84,7 @@ use refusal::{
 #[cfg(test)]
 use refusal::{codex_refusal, refusal_reason};
 pub(crate) use row::CapturedId;
-use row::{Ident, Row};
+use row::{FoldInput, Ident, Row};
 use spawn::{spawn_fed, spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
@@ -716,10 +716,6 @@ fn model_in_header(stderr: &str, pin: Option<&str>) -> Option<String> {
         .rev()
         .find_map(|line| line.trim().strip_prefix("model:").and_then(model_token))?;
     (Some(header.as_str()) == pin).then_some(header)
-}
-
-fn positive_count(value: Option<&Value>) -> Option<u64> {
-    value.and_then(Value::as_u64).filter(|value| *value > 0)
 }
 
 fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String> {
@@ -1673,18 +1669,19 @@ fn add_usage(session_meta: &mut Map<String, Value>, key: &str, value: u64) {
 /// adds `totalTokens`, `reasoningTokens` and a zero `cacheReadTokens` to
 /// the same object. The total is a sum the journal never stores twice;
 /// the reasoning count is decision 0035's `reasoning_output_tokens`, a
-/// reported subset of `output_tokens`, and `positive_count` keeps a
-/// reported zero out of the record as the contract requires.
+/// reported subset of `output_tokens`. Reported zeros stay out of the
+/// record as the contract requires.
 const DSH_USAGE: [(&str, &str); 4] = [
-    ("inputTokens", "input_tokens"),
-    ("outputTokens", "output_tokens"),
+    (DSH_INPUT, "input_tokens"),
+    ("/outputTokens", "output_tokens"),
     (DSH_INPUT_CACHE_READ, "cache_read_tokens"),
-    ("reasoningTokens", "reasoning_output_tokens"),
+    ("/reasoningTokens", "reasoning_output_tokens"),
 ];
 
 /// The dsh count that is a subset of the journal's `input_tokens` but a
 /// sibling of dsh's own `inputTokens`.
-const DSH_INPUT_CACHE_READ: &str = "cacheReadTokens";
+const DSH_INPUT_CACHE_READ: &str = "/cacheReadTokens";
+const DSH_INPUT: &str = "/inputTokens";
 
 /// The level the finishing record carries for a non-exec seat.
 /// Harness-written values cross the boundary clamp exactly as before —
@@ -1703,16 +1700,6 @@ fn applied_harness_effort(session_meta: &Map<String, Value>) -> String {
     }
 }
 
-/// The level dsh's request header last echoed for this seat, or the
-/// sentinel for a row written before any header did.
-fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
-    session_meta
-        .get("effort")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())
-}
-
 /// Whether a dsh row is this invocation's own work: a resumed session's
 /// file holds its restored history beside the new work, and only events
 /// past the owned pre-followup sequence are this invocation's (design D8;
@@ -1720,13 +1707,20 @@ fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
 /// launch carries none, so its file is read from its first event. The
 /// fold and the refusal classifier ask here, so neither can read the
 /// other's rows.
-fn dsh_row_is_current(event: &Value, first_seq: Option<u64>) -> bool {
+fn dsh_row_is_current(event: &Row<'_>, first_seq: Option<u64>) -> bool {
     first_seq.is_none_or(|first_seq| {
-        !event
-            .get("seq")
-            .and_then(Value::as_u64)
-            .is_some_and(|seq| seq <= first_seq)
+        event
+            .unsigned_count("/seq")
+            .is_none_or(|seq| seq > first_seq)
     })
+}
+
+#[derive(Clone, Copy)]
+enum DshEvent {
+    Session,
+    Header,
+    Message,
+    Tool,
 }
 
 /// One dsh session-log line folded into bounded live telemetry.
@@ -1773,47 +1767,36 @@ fn dsh_row_is_current(event: &Value, first_seq: Option<u64>) -> bool {
 /// reasoning, or tool arguments. dsh's `arguments` is the model's own
 /// unparsed JSON string, so no target is derived from it at all.
 fn fold_dsh_event(
-    event: &Value,
+    event: &Row<'_>,
+    effort: &mut dsh_effort::Echo,
     first_seq: Option<u64>,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Emitted),
 ) {
-    // Current-only accounting (design D8; task 9.6): a resumed session's
-    // file holds its restored history beside the new work, and only
-    // events past the owned pre-followup sequence are this invocation's.
-    // The boundary exists only when a root was rejoined. A cold launch
-    // carries none, so its file is folded from its first event: dsh's
-    // log index IS the sequence and starts at 0, and a cold boundary of
-    // 0 would silently drop that first event on the shipped route.
     if !dsh_row_is_current(event, first_seq) {
         return;
     }
-    match event.get("type").and_then(Value::as_str) {
-        Some("session") => {
-            // The dsh locator is the retained seat root, known and
-            // journaled before spawn. Its internal session id is not a
-            // second locator shape (decision 0032).
-        }
-        Some("request/header") => {
-            // The harness's own echo of the level it applied, after
-            // every layer (decision 0035 ruling 3 and its addenda). A
-            // header naming none, or naming the adapter's default,
-            // leaves the seat's effort as it stood: `not reported` for a
-            // pinned seat, invoke_dsh_launch_observed's `not applicable`
-            // seed for a pin-less one.
-            if let Some(effort) = dsh_effort::applied_level(event) {
-                session_meta.insert("effort".into(), Value::String(effort));
-            }
-        }
-        Some("assistant/message") => {
+    match event.kind(
+        "/type",
+        &[
+            ("session", DshEvent::Session),
+            ("request/header", DshEvent::Header),
+            ("assistant/message", DshEvent::Message),
+            ("tool/call", DshEvent::Tool),
+        ],
+    ) {
+        // The retained directory is this driver's only locator.
+        Some(DshEvent::Session) | None => {}
+        Some(DshEvent::Header) => effort.header(event, session_meta),
+        Some(DshEvent::Message) => {
             *turns += 1;
             session_meta.insert("num_turns".into(), Value::from(*turns));
             // The served model, from the harness's own record of the
             // response (`data.message.source.model`), never from the pin
             // (decision 0031): the last reported one becomes the seat's
             // served model, and a step that names none says so.
-            let model = model_in_json(&Row::new(event, &[]));
+            let model = model_in_json(event);
             if let Some(model) = &model {
                 session_meta.insert("model".into(), Value::String(model.clone()));
             }
@@ -1826,21 +1809,16 @@ fn fold_dsh_event(
             );
             // The last level the header echoed, on this step as on
             // every other row (decision 0035 ruling 3).
-            checkpoint.insert(
-                "effort".into(),
-                Value::String(dsh_echoed_effort(session_meta)),
-            );
-            let usage = event.pointer("/data/usage").unwrap_or(&Value::Null);
-            let cache_read = usage
-                .get(DSH_INPUT_CACHE_READ)
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
+            checkpoint.insert("effort".into(), Value::String(effort.shown(session_meta)));
+            let usage = event.at("/data/usage");
+            let count = |source: &str| usage.as_ref()?.unsigned_count(source);
+            let cache_read = count(DSH_INPUT_CACHE_READ).unwrap_or(0);
             for (source, target) in DSH_USAGE {
-                if let Some(mut value) = positive_count(usage.get(source)) {
+                if let Some(mut value) = count(source).filter(|value| *value > 0) {
                     // The one place dsh's disjoint accounting is
                     // reconciled with the journal's inclusive
                     // `input_tokens` — see DSH_USAGE.
-                    if source == "inputTokens" {
+                    if source == DSH_INPUT {
                         value = value.saturating_add(cache_read);
                     }
                     checkpoint.insert(target.into(), Value::from(value));
@@ -1849,7 +1827,7 @@ fn fold_dsh_event(
             }
             emit(&Emitted::new(Step::SeatTurn, Value::Object(checkpoint)));
         }
-        Some("tool/call") => {
+        Some(DshEvent::Tool) => {
             let observation = Observation::dsh(event);
             if observation.shown_tool().is_none() || *turns == 0 {
                 return;
@@ -1862,11 +1840,10 @@ fn fold_dsh_event(
                 "turn": *turns,
                 "harness":"deepseek",
                 "model": model,
-                "effort": dsh_echoed_effort(session_meta),
+                "effort": effort.shown(session_meta),
             }));
             emit(&Emitted::new(Step::SeatTurn, row));
         }
-        _ => {}
     }
 }
 
@@ -1970,12 +1947,8 @@ fn names_the_seats_own_session(candidate: &std::path::Path) -> bool {
     let Ok(event) = serde_json::from_str::<Value>(&header) else {
         return false;
     };
-    event.get("type").and_then(Value::as_str) == Some("session")
-        && event
-            .get("delegationDepth")
-            .and_then(Value::as_u64)
-            .unwrap_or(0)
-            == 0
+    let row = Row::new(&event, &[]);
+    row.is("/type", "session") && row.unsigned_count("/delegationDepth").unwrap_or(0) == 0
 }
 
 /// What the driver has read of the growing transcript so far: the open
@@ -1984,6 +1957,7 @@ fn names_the_seats_own_session(candidate: &std::path::Path) -> bool {
 struct DshTail {
     file: Option<std::fs::File>,
     pending: Vec<u8>,
+    effort: dsh_effort::Echo,
 }
 
 /// The dsh transcript fold's per-invocation state as one parameter
@@ -2069,16 +2043,16 @@ impl DshFold<'_> {
         let mut refusal = None;
         while let Some(index) = self.tail.pending.iter().position(|byte| *byte == b'\n') {
             let line: Vec<u8> = self.tail.pending.drain(..=index).collect();
-            let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
+            let Ok(event) = serde_json::from_slice::<Value>(&line) else {
                 continue;
             };
             let row = Row::new(&event, self.bindings);
             let answer_event = self.probe.answers(AdapterKind::Dsh, &row);
-            // The first refusal before this invocation's first turn stands.
-            if *self.turns == 0 && dsh_row_is_current(&event, self.first_seq) {
-                refusal = refusal.or_else(|| dsh_refusal(&row));
-            }
-            secret::mask_json(&mut event, self.bindings);
+            let row_refusal = if *self.turns == 0 && dsh_row_is_current(&row, self.first_seq) {
+                dsh_refusal(&row)
+            } else {
+                None
+            };
             let mut emitted: Vec<Value> = Vec::new();
             let mut capture = |data: &Emitted| {
                 if answer_event {
@@ -2086,13 +2060,23 @@ impl DshFold<'_> {
                 }
                 emit(data);
             };
-            fold_dsh_event(
-                &event,
-                self.first_seq,
-                self.turns,
-                self.session_meta,
-                &mut capture,
-            );
+            let input = FoldInput {
+                row: &row,
+                refusal: row_refusal,
+                identity: None,
+            };
+            let ended = input.fold(|row, _| {
+                fold_dsh_event(
+                    row,
+                    &mut self.tail.effort,
+                    self.first_seq,
+                    self.turns,
+                    self.session_meta,
+                    &mut capture,
+                );
+                None
+            });
+            refusal = refusal.or(ended);
             self.probe.admit(answer_event, &emitted);
         }
         refusal
@@ -3580,6 +3564,14 @@ fn plain_dsh_session_id(id: &str) -> bool {
     recordable_session_id(id)
 }
 
+struct DshStoredId {
+    ident: Ident,
+    #[cfg(test)]
+    display: String,
+}
+
+type DshCensus = Vec<(DshStoredId, std::path::PathBuf)>;
+
 /// What one stored `session.v3.jsonl`'s first line states. `None` is unsafe
 /// evidence — absent, unreadable, truncated, over budget, non-JSON, not a
 /// session header at all, or a depth-zero header with no string id — and
@@ -3589,7 +3581,7 @@ enum DshStoredSession {
     /// A complete header a delegated child wrote under the owned root.
     Delegated,
     /// A complete depth-zero header naming its own session id.
-    DepthZero(String),
+    DepthZero(DshStoredId),
 }
 
 /// Classify a transcript's first line. The line must be complete within a
@@ -3618,22 +3610,21 @@ fn dsh_stored_session_with(candidate: &std::path::Path, budget: u64) -> Option<D
         return None;
     }
     let event = serde_json::from_slice::<Value>(&header).ok()?;
-    if event.get("type").and_then(Value::as_str) != Some("session") {
+    let row = Row::new(&event, &[]);
+    if !row.is("/type", "session") {
         return None;
     }
-    // The selected core's header requires a non-negative safe-integer
-    // `delegationDepth`. `as_u64` refuses a string, null, negative,
-    // fractional or missing value instead of defaulting malformed storage
-    // to the seat's own depth and admitting a partial/mismatched boundary
-    // (design D6; task 8.8(d)).
-    let depth = event.get("delegationDepth").and_then(Value::as_u64)?;
-    if depth != 0 {
+    // Malformed depth is not a depth-zero header (design D6; task 8.8(d)).
+    if row.unsigned_count("/delegationDepth")? != 0 {
         return Some(DshStoredSession::Delegated);
     }
-    event
-        .get("id")
-        .and_then(Value::as_str)
-        .map(|id| DshStoredSession::DepthZero(id.to_string()))
+    row.ident("/id").map(|ident| {
+        DshStoredSession::DepthZero(DshStoredId {
+            ident,
+            #[cfg(test)]
+            display: row.text("/id").expect("the id was read as a string"),
+        })
+    })
 }
 
 /// The one stored depth-zero session file under a retained root whose
@@ -3682,7 +3673,7 @@ fn dsh_session_file_reading(
     let mut matches: Vec<std::path::PathBuf> =
         dsh_depth_zero_sessions_reading(root, budget, read_dir)?
             .into_iter()
-            .filter(|(id, _)| id == expected)
+            .filter(|(id, _)| id.ident.is_offered(expected))
             .map(|(_, candidate)| candidate)
             .collect();
     match matches.len() {
@@ -3709,7 +3700,7 @@ fn dsh_depth_zero_sessions_reading(
     root: &std::path::Path,
     budget: usize,
     read_dir: &dyn Fn(&std::path::Path) -> std::io::Result<SessionDirEntries>,
-) -> Result<Vec<(String, std::path::PathBuf)>, String> {
+) -> Result<DshCensus, String> {
     let root = std::fs::canonicalize(root)
         .map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
     let mut found = Vec::new();
@@ -3775,9 +3766,7 @@ fn dsh_depth_zero_sessions_reading(
 
 /// Every stored depth-zero session under a retained root, read through
 /// production's own directory reader and enumeration budget.
-fn dsh_depth_zero_sessions(
-    root: &std::path::Path,
-) -> Result<Vec<(String, std::path::PathBuf)>, String> {
+fn dsh_depth_zero_sessions(root: &std::path::Path) -> Result<DshCensus, String> {
     dsh_depth_zero_sessions_reading(root, DSH_DIRECTORY_ENTRIES, &read_session_dir)
 }
 
@@ -3829,10 +3818,11 @@ fn dsh_session_last_seq_with(path: &std::path::Path, event_budget: u64) -> Optio
             return None;
         }
         let event = serde_json::from_slice::<Value>(&line).ok()?;
+        let row = Row::new(&event, &[]);
         if first {
             // The header names the session and carries no `seq`; it is not
             // part of the current-work boundary.
-            if event.get("type").and_then(Value::as_str) != Some("session") {
+            if !row.is("/type", "session") {
                 return None;
             }
             first = false;
@@ -3843,7 +3833,7 @@ fn dsh_session_last_seq_with(path: &std::path::Path, event_budget: u64) -> Optio
         // integer sequence is malformed storage, not a row to skip:
         // skipping it would report a lower maximum as if the boundary were
         // complete (design D6; task 8.8(d)).
-        let seq = event.get("seq").and_then(Value::as_u64)?;
+        let seq = row.unsigned_count("/seq")?;
         last = last.max(seq);
     }
     Some(last)
@@ -4579,19 +4569,15 @@ fn invoke_dsh_shipped(
 /// no per-message boundary, so the transcript fold — not this event —
 /// owns usage.
 fn fold_dsh_stream_event(
-    event: &Value,
-    identity: Option<CapturedId>,
+    event: &Row<'_>,
     watch: &mut DshRootWatch,
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Emitted),
 ) {
-    let is_init = event.get("type").and_then(Value::as_str) == Some("system")
-        && event.get("subtype").and_then(Value::as_str) == Some("init");
-    if !is_init {
-        return;
-    }
-    if let Some(identity) = identity.filter(|identity| !identity.ident.is_offered("")) {
+    if let Some(identity) =
+        CapturedId::init(event).filter(|identity| !identity.ident.is_offered(""))
+    {
         session_meta.insert("session_id".into(), Value::String(identity.display.clone()));
         watch.named(&identity.ident, &identity.display, hold, emit);
     }
@@ -4607,13 +4593,11 @@ fn fold_dsh_line(
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Emitted),
 ) -> DshStreamLine {
-    let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
+    let Ok(event) = serde_json::from_str::<Value>(&line) else {
         watch.unread(DshStreamLine::Malformed);
         return DshStreamLine::Malformed;
     };
-    let identity = CapturedId::init(&Row::new(&event, bindings));
-    secret::mask_json(&mut event, bindings);
-    fold_dsh_stream_event(&event, identity, watch, hold, session_meta, emit);
+    fold_dsh_stream_event(&Row::new(&event, bindings), watch, hold, session_meta, emit);
     DshStreamLine::Event
 }
 
@@ -4659,6 +4643,7 @@ enum DshDisposition {
 #[derive(Debug, Clone, PartialEq)]
 struct DshObservation {
     line: DshStreamLine,
+    #[cfg(test)]
     census: Option<Vec<(String, std::path::PathBuf)>>,
     last_seq: Option<u64>,
     disposition: DshDisposition,
@@ -4674,7 +4659,7 @@ struct DshBaseline {
     offered_file: std::path::PathBuf,
     /// Every admitted `(header id, canonical file)` occurrence, repeated
     /// ids and repeated addresses included.
-    entries: Vec<(String, std::path::PathBuf)>,
+    entries: DshCensus,
 }
 
 /// The launch-root confirmation a DSH rejoin has to pass before ANYTHING
@@ -4913,6 +4898,7 @@ impl DshRootWatch {
     ) {
         let mut observation = DshObservation {
             line,
+            #[cfg(test)]
             census: None,
             last_seq: None,
             disposition: self.disposition(),
@@ -4989,7 +4975,10 @@ fn dsh_read_offered_store(
     let Ok(sessions) = dsh_depth_zero_sessions(root) else {
         return DshDisposition::Refused;
     };
-    observation.census = Some(sessions.clone());
+    #[cfg(test)]
+    {
+        observation.census = Some(tests::dsh_census_display(&sessions));
+    }
     let Some(file) = dsh_only_header(&sessions, offered) else {
         return DshDisposition::Refused;
     };
@@ -5013,11 +5002,10 @@ fn dsh_read_offered_store(
 /// The address of the ONE header in a census that names `id`, or `None`
 /// when there is none or more than one. An ambiguous id is never resolved
 /// to whichever occurrence the enumeration happened to reach first.
-fn dsh_only_header<'a>(
-    census: &'a [(String, std::path::PathBuf)],
-    id: &str,
-) -> Option<&'a std::path::PathBuf> {
-    let mut named = census.iter().filter(|(header, _)| header == id);
+fn dsh_only_header<'a>(census: &'a DshCensus, id: &str) -> Option<&'a std::path::PathBuf> {
+    let mut named = census
+        .iter()
+        .filter(|(header, _)| header.ident.is_offered(id));
     match (named.next(), named.next()) {
         (Some((_, file)), None) => Some(file),
         _ => None,
@@ -5029,13 +5017,12 @@ fn dsh_only_header<'a>(
 /// containment. A set of ids cannot see a repeated id at a new address,
 /// and a set of pairs cannot see one pair admitted twice, so each baseline
 /// occurrence is spent at most once.
-fn dsh_census_within(
-    current: &[(String, std::path::PathBuf)],
-    baseline: &[(String, std::path::PathBuf)],
-) -> bool {
-    let mut unspent: Vec<&(String, std::path::PathBuf)> = baseline.iter().collect();
-    current.iter().all(|entry| {
-        let held = unspent.iter().position(|held| *held == entry);
+fn dsh_census_within(current: &DshCensus, baseline: &DshCensus) -> bool {
+    let mut unspent: Vec<_> = baseline.iter().collect();
+    current.iter().all(|(current, file)| {
+        let held = unspent
+            .iter()
+            .position(|(stored, path)| (&stored.ident, path) == (&current.ident, file));
         held.map(|at| unspent.swap_remove(at)).is_some()
     })
 }

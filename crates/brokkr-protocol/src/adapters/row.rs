@@ -74,6 +74,10 @@ impl<'a> Row<'a> {
         self.value(path).is_some_and(|value| !value.is_null())
     }
 
+    pub(super) fn is_object(&self, path: &str) -> bool {
+        self.value(path).is_some_and(Value::is_object)
+    }
+
     pub(super) fn has(&self, path: &str) -> bool {
         self.value(path).is_some()
     }
@@ -264,7 +268,7 @@ pub(super) struct FoldInput<R> {
 impl<R> FoldInput<R> {
     /// Run the family fold unless the raw row was already
     /// classified as a refusal to start: that refusal ends the row first,
-    /// and the fold never reads it. One home for both families' folds.
+    /// and the fold never reads it. This rule is shared by the family folds.
     pub(super) fn fold(
         self,
         fold: impl FnOnce(R, Option<CapturedId>) -> Option<PreSessionRefusal>,

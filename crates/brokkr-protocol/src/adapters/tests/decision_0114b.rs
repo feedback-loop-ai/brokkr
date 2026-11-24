@@ -42,7 +42,7 @@ fn family(stream: &Stream, kind: AdapterKind) -> Driven {
     stream.drive(kind, &extra)
 }
 
-fn turns(driven: &Driven) -> impl Iterator<Item = &Value> {
+pub(super) fn turns(driven: &Driven) -> impl Iterator<Item = &Value> {
     driven
         .emitted
         .iter()

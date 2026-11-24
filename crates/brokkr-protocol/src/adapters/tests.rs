@@ -37,6 +37,24 @@ fn drain_into(
     .drain(&mut |value| emitted.push(value.row.clone()));
 }
 
+/// Fold one unbound dsh transcript row.
+pub(super) fn fold_dsh_event_unbound(
+    event: &Value,
+    first_seq: Option<u64>,
+    turns: &mut u64,
+    meta: &mut Map<String, Value>,
+    emit: &mut impl FnMut(&Emitted),
+) {
+    fold_dsh_event(
+        &Row::new(event, &[]),
+        &mut dsh_effort::Echo::default(),
+        first_seq,
+        turns,
+        meta,
+        emit,
+    );
+}
+
 /// Fold one Claude stream row with no binding, appending every emitted row
 /// to `emitted`: `drain_into`'s counterpart for the Claude fold, shared by
 /// the tests that only assert on what it emitted.
@@ -69,6 +87,12 @@ pub(super) fn fold_codex_into(
     fold_codex_row(row, turn, meta, transcript, echo, &mut |value| {
         emitted.push(value.row.clone());
     })
+}
+
+impl CodexThreadEcho<'_> {
+    fn locate_unbound(&mut self, home: &Path, thread_id: &str) {
+        self.locate(home, Ident::from_offered(thread_id));
+    }
 }
 
 /// One Codex fold's state from its first row, for tests that drive the
@@ -108,6 +132,7 @@ mod codex_isolation;
 mod decision_0114a;
 mod decision_0114b;
 mod decision_0114c;
+pub(super) mod decision_0114d;
 pub(super) use decision_0114b::words as bound_words;
 #[cfg(unix)]
 mod seat_git;
@@ -1412,61 +1437,6 @@ fn dsh_effort_rides_the_seat_settings_document_and_needs_a_model_beside_it() {
         .contains("'/tmp/it''s'"));
 }
 
-/// The fold reads the level off dsh's own request header — the effective
-/// value after every layer — and never off the pin. A header that names
-/// none leaves the sentinel; a hostile one is clamped away.
-#[test]
-fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
-    let mut turns = 0u64;
-    let mut meta = serde_json::Map::new();
-    let mut emitted: Vec<serde_json::Value> = Vec::new();
-    let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
-        "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}});
-    fold_dsh_event(&step, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(
-        emitted[0]["effort"], "not reported",
-        "no header yet: {}",
-        emitted[0]
-    );
-
-    let header = serde_json::json!({"type":"request/header","data":{"header":{"config":
-        {"provider":"meta-contributor","model":"meta/muse-spark-1.3-contributor","reasoningEffort":"xhigh"}}}});
-    fold_dsh_event(&header, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(emitted.len(), 1, "a header is meta, not a checkpoint");
-    assert_eq!(meta["effort"], "xhigh");
-    fold_dsh_event(&step, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(emitted[1]["effort"], "xhigh");
-    let call = serde_json::json!({"type":"tool/call","data":{"name":"bash"}});
-    fold_dsh_event(&call, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(emitted[2]["effort"], "xhigh");
-    assert_eq!(emitted[2]["tool"], "bash");
-
-    let hostile = serde_json::json!({"type":"request/header","data":{"header":{"config":{"reasoningEffort":"think hard"}}}});
-    fold_dsh_event(&hostile, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(
-        meta["effort"], "xhigh",
-        "a value that fails the clamp changes nothing"
-    );
-    let none = serde_json::json!({"type":"request/header","data":{"header":{"config":{"provider":"spark","model":"qwen3.8-flash"}}}});
-    fold_dsh_event(&none, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.row.clone())
-    });
-    assert_eq!(
-        meta["effort"], "xhigh",
-        "a header naming no level keeps the last one seen"
-    );
-}
-
 /// The current-work boundary exists only on a rejoin (design D8). dsh's
 /// log index is the sequence and starts at 0, so a cold launch — which
 /// owns no pre-followup sequence — folds its file from `seq: 0`, exactly
@@ -1487,7 +1457,7 @@ fn a_cold_dsh_launch_folds_its_first_event_and_a_warm_one_folds_past_the_boundar
         let mut meta = serde_json::Map::new();
         let mut folded = Vec::new();
         for seq in seqs {
-            fold_dsh_event(&step(*seq), boundary, &mut turns, &mut meta, &mut |_| {
+            fold_dsh_event_unbound(&step(*seq), boundary, &mut turns, &mut meta, &mut |_| {
                 folded.push(*seq)
             });
         }
@@ -3758,15 +3728,19 @@ fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
         confirms_from_locator: true,
         effort: None,
     };
+    let confirm = |hold: &mut LaunchHold, id: &str, rows: &mut Vec<Value>| {
+        hold.confirm(&Ident::from_offered(id), id, &mut |row| {
+            rows.push(row.row.clone())
+        })
+    };
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(Some("2.1.266")));
     assert_eq!(
-        hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone())),
+        confirm(&mut hold, "019c4b7e", &mut rows),
         Confirmation::Fresh
     );
     assert_eq!(
-        hold.confirm_unbound("a-child-session", &mut |row: &Emitted| rows
-            .push(row.row.clone())),
+        confirm(&mut hold, "a-child-session", &mut rows),
         Confirmation::Fresh,
         "the latch answers with the outcome it already had"
     );
@@ -3783,14 +3757,14 @@ fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
     // gets no offer.
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(None));
-    hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone()));
+    confirm(&mut hold, "019c4b7e", &mut rows);
     assert_eq!(rows[0]["launch"], "cold");
     assert!(rows[0].get("root_session").is_none(), "{}", rows[0]);
 
     // Nor with a version the record's own grammar cannot hold.
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(Some("(Claude Code)")));
-    hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone()));
+    confirm(&mut hold, "019c4b7e", &mut rows);
     assert!(rows[0].get("root_session").is_none(), "{}", rows[0]);
 
     // The confirmation door is the transcript row, and only for a
@@ -6301,6 +6275,17 @@ impl DshLatchRun {
     }
 }
 
+pub(super) fn dsh_census_display(census: &DshCensus) -> Vec<(String, PathBuf)> {
+    census
+        .iter()
+        .map(|(id, file)| (id.display.clone(), file.clone()))
+        .collect()
+}
+
+fn dsh_depth_zero_sessions(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    super::dsh_depth_zero_sessions(root).map(|census| dsh_census_display(&census))
+}
+
 /// How many admitted occurrences in one observed census name `id`.
 #[cfg(unix)]
 fn census_count(observation: &DshObservation, id: &str) -> usize {
@@ -8088,7 +8073,7 @@ fn dsh_fold_uses_the_root_locator_and_ignores_internal_session_ids() {
         json!({"type": "turn/end", "data": {"turn": 1}}),
         json!({}),
     ] {
-        fold_dsh_event(&event, None, &mut turns, &mut meta, &mut |value| {
+        fold_dsh_event_unbound(&event, None, &mut turns, &mut meta, &mut |value| {
             emitted.push(value.row.clone())
         });
     }
@@ -9079,7 +9064,7 @@ fn a_dsh_tool_call_before_any_assembled_message_invents_no_turn() {
     let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
-    fold_dsh_event(
+    fold_dsh_event_unbound(
         &json!({"type": "tool/call", "data": {"name": "fs_read"}}),
         None,
         &mut turns,
@@ -11715,7 +11700,7 @@ fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
     std::fs::write(&transcript, &header).unwrap();
     assert!(dsh_stored_session_with(&transcript, 16).is_none());
     match dsh_stored_session_with(&transcript, DSH_HEADER_LIMIT) {
-        Some(DshStoredSession::DepthZero(seen)) => assert_eq!(seen, id),
+        Some(DshStoredSession::DepthZero(seen)) => assert_eq!(seen.display, id),
         _ => panic!("a complete in-budget header is admitted"),
     }
 
@@ -18728,7 +18713,7 @@ fn a_codex_refusal_quoting_a_long_bound_value_leaks_no_prefix() {
 }
 
 /// The dsh arm of review finding 2: the transcript fold clamps a tool
-/// name to 80 characters, so each transcript event is masked before it.
+/// name to 80 characters, so the whole name is masked before the clamp.
 #[test]
 fn a_dsh_transcript_tool_quoting_a_long_bound_value_leaks_no_prefix() {
     let dir = tempfile::tempdir().unwrap();
