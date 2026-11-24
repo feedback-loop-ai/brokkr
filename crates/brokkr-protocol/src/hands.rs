@@ -43,6 +43,7 @@ mod git;
 mod namespace;
 mod overlay;
 mod sealed;
+mod serve_args;
 mod session;
 mod spec_refusal;
 pub use evidence::UNPROTECTED_EVIDENCE;
@@ -51,12 +52,15 @@ use git::parse_git_dirs;
 use git::{git_dirs, git_identity};
 pub use git::{git_facts, GitFacts};
 #[rustfmt::skip] pub use namespace::{entry::ServerEntry, namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
+pub use crate::base64::{decode_base64url, encode_base64url, Base64UrlError};
 use namespace::namespace_path;
 use namespace::workspace::Workspace;
 #[cfg(test)]
 use namespace::{workspace::Boxed, Namespace, Profile};
 pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use sealed::{drifted, seal, sealed_store, store_place, Sealed, SEALED_REACH, UNHIDDEN_STORE};
+pub use serve_args::serve_args;
+pub(crate) use serve_args::serve_args_encoded;
 pub(crate) use session::reap_dead_sessions_under;
 pub use session::{
     list_reapable_under, reap_dead_sessions, Listed, Listing, Reaped, Session, SessionError,
@@ -807,28 +811,6 @@ pub fn mcp_config(
         spec,
     };
     transport.document()
-}
-
-/// The `brokkr hands serve …` argument vector a harness spawns. A sealed
-/// reach that is not UTF-8 is carried empty, which no hands server reads.
-pub fn serve_args(
-    workdir: &Path,
-    artifacts: &Path,
-    sealed: &Sealed,
-    spec: &HandsSpec,
-) -> Vec<String> {
-    vec![
-        "hands".to_string(),
-        "serve".to_string(),
-        "--workdir".to_string(),
-        workdir.to_string_lossy().into_owned(),
-        "--artifacts".to_string(),
-        artifacts.to_string_lossy().into_owned(),
-        "--reach".to_string(),
-        serde_json::to_string(sealed).unwrap_or_default(),
-        "--spec".to_string(),
-        spec.to_value().to_string(),
-    ]
 }
 
 /// One JSON-RPC exchange of the MCP stdio transport: newline-delimited

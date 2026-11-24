@@ -75,3 +75,19 @@ Changes merged since v0.15.2 that the next release's notes carry.
   - **Unchanged:** `--json`, `NO_COLOR` (no escapes; the header is bold
     only where colour is on), an empty table's header, and `brokkr
     seats`'s width (`COLUMNS`, else 80).
+
+## Fixed
+
+- **A boxed dsh seat's `brokkr-hands` overlay row passes the composed-tree
+  line rule** ([#1277](https://github.com/feedback-loop-ai/brokkr/issues/1277)).
+  dsh's `--dump-config` folds long JSON `--reach` and `--spec` values onto
+  `>-` block-scalar content lines starting with `{`, which the driver's
+  line-property closure refuses as `Unreadable`. The dsh overlay now carries
+  those exact JSON bytes as unpadded base64url under `--reach-base64url` and
+  `--spec-base64url`, while `--workdir` and `--artifacts` stay plain paths
+  (fail closed if folded onto a refused line). `brokkr hands serve` accepts
+  either the plain JSON or unpadded base64url spelling for each document
+  (and refuses both or neither, padding, non-alphabet bytes, invalid length,
+  non-zero trailing bits or non-UTF-8 without echoing the value), feeding
+  both spellings through one parse path. Other harnesses' JSON MCP
+  configurations and the dsh line rule itself are unchanged.
