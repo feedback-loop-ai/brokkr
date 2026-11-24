@@ -49,7 +49,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
 
-use super::demand::{Judge, Machine, Unfit};
+use super::demand::{Judge, Machine};
 use super::host::{self, At, HostConfig, Hosting, Place, Provider, Route, RouteClass};
 use super::{awaiting, came_to, AdmissionError, Judged, Reason};
 use crate::capabilities::manifest::ModelPins;
@@ -138,8 +138,6 @@ pub enum Capacity {
         until: Stamp,
         words: String,
     },
-    /// Decision 0125's rule: the entry's demand does not fit now.
-    Demand(Unfit),
 }
 
 /// Why what a run seats cannot be measured.
@@ -223,21 +221,18 @@ pub(super) fn sized(
     let mut demand = Judge::take(store, host, &measure.hosting)?;
     for judged in queue.iter_mut().filter(unstopped) {
         let room = measure.room(&judged.entry, &judged.launch, demand.measured());
-        let room = room.and_then(|room| {
+        let room = room.map_err(Reason::Capacity).and_then(|room| {
             let (sized, fits) = demand.admit(judged.entry.id, &room.recipe);
             judged.demand = sized;
-            fits.map(|()| room).map_err(Capacity::Demand)
+            fits.map(|()| room).map_err(Reason::Demand)
         });
         match (&mut judged.verdict, room) {
-            (Some(verdict), Err(unmet)) => verdict.reasons.push(super::Reason::Capacity(unmet)),
+            (Some(verdict), Err(unmet)) => verdict.reasons.push(unmet),
             (_, room) => judged.room = room.ok(),
         }
     }
-    let unread = demand.unreadable().into_iter().map(Capacity::Demand);
-    let named = measure
-        .unstarted
-        .into_iter()
-        .chain(unread.map(Reason::Capacity));
+    let unread = demand.unreadable().into_iter().map(Reason::Demand);
+    let named = measure.unstarted.into_iter().chain(unread);
     Ok((queue, named.collect()))
 }
 

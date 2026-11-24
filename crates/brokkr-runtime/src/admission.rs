@@ -128,6 +128,10 @@ pub enum Reason {
     DispatchEnvelope,
     /// The machine has no room for it now.
     Capacity(Capacity),
+    /// Decision 0125's rule: its demand does not fit what the machine has
+    /// now, or a journal the rule reads beside the queue is unreadable.
+    /// Each waits and clears by itself.
+    Demand(Unfit),
 }
 
 impl Reason {
@@ -135,7 +139,7 @@ impl Reason {
     pub(crate) fn holds(&self) -> bool {
         match self {
             Reason::Capacity(capacity) => capacity.holds(),
-            Reason::NotStarted(_) | Reason::Unended { .. } => false,
+            Reason::NotStarted(_) | Reason::Unended { .. } | Reason::Demand(_) => false,
             Reason::OperatorHold
             | Reason::Dropped(_)
             | Reason::Stopped { .. }
@@ -165,6 +169,7 @@ impl Reason {
             Reason::UnstartedRun { .. } => "unstarted_run",
             Reason::DispatchEnvelope => "dispatch_envelope",
             Reason::Capacity(capacity) => capacity.kind(),
+            Reason::Demand(unfit) => unfit.kind(),
         }
     }
 }
@@ -219,6 +224,7 @@ impl fmt::Display for Reason {
                  queue entry, so the dispatcher never starts it"
             ),
             Reason::Capacity(capacity) => write!(f, "{capacity}"),
+            Reason::Demand(unfit) => write!(f, "{unfit}"),
         }
     }
 }

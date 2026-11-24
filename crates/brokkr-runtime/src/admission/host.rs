@@ -376,32 +376,7 @@ impl TryFrom<WrittenHost> for HostConfig {
     type Error = Problem;
 
     fn try_from(written: WrittenHost) -> Result<HostConfig, Problem> {
-        match written.schema {
-            Schema::V1 => {
-                if written.cooldowns.is_some() {
-                    return Err(Problem::NotV2("cooldowns"));
-                }
-                if written.containment.is_some() {
-                    return Err(Problem::NotV2("containment"));
-                }
-                if let Some(problem) = floor::v3_only("forge.host/v1", &written.providers) {
-                    return Err(problem);
-                }
-            }
-            Schema::V2 => {
-                if written.containment == Some(Containment::Required) {
-                    return Err(Problem::ContainmentRequired);
-                }
-                if let Some(problem) = floor::v3_only("forge.host/v2", &written.providers) {
-                    return Err(problem);
-                }
-            }
-            Schema::V3 | Schema::V4 | Schema::V5 => {
-                if written.containment == Some(Containment::Required) {
-                    return Err(Problem::ContainmentRequired);
-                }
-            }
-        }
+        schema_admits(&written)?;
         let runs = runs::read(written.schema, written.runs)?;
         let cooldowns = written.cooldowns.map(Cooldowns::try_from).transpose()?;
         let providers = floor::providers(written.providers)?;
@@ -419,6 +394,38 @@ impl TryFrom<WrittenHost> for HostConfig {
         }
         Ok(config)
     }
+}
+
+/// What a host file's schema refuses before any block is read: a block
+/// or a value its version predates.
+fn schema_admits(written: &WrittenHost) -> Result<(), Problem> {
+    match written.schema {
+        Schema::V1 => {
+            if written.cooldowns.is_some() {
+                return Err(Problem::NotV2("cooldowns"));
+            }
+            if written.containment.is_some() {
+                return Err(Problem::NotV2("containment"));
+            }
+            if let Some(problem) = floor::v3_only("forge.host/v1", &written.providers) {
+                return Err(problem);
+            }
+        }
+        Schema::V2 => {
+            if written.containment == Some(Containment::Required) {
+                return Err(Problem::ContainmentRequired);
+            }
+            if let Some(problem) = floor::v3_only("forge.host/v2", &written.providers) {
+                return Err(problem);
+            }
+        }
+        Schema::V3 | Schema::V4 | Schema::V5 => {
+            if written.containment == Some(Containment::Required) {
+                return Err(Problem::ContainmentRequired);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// One provider's ceiling, and the routes of it the machine declares.

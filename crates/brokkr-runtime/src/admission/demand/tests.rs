@@ -11,7 +11,6 @@ use serde_json::{json, Value};
 
 use super::*;
 use crate::admission::capacity::tests::{ceilings, seated, Fixture, PLENTY, TEMP};
-use crate::admission::capacity::Capacity;
 use crate::admission::{pass_within, Judged, Reason};
 
 const GIB: u64 = 1 << 30;
@@ -525,14 +524,14 @@ fn stopped_only_history_leaves_demand_unknown_beside_a_running_run() {
     assert_eq!(unknown[0].demand.as_ref().unwrap().source, Source::Unknown);
     assert_eq!(
         unknown[0].verdict.as_ref().unwrap().reasons,
-        vec![Reason::Capacity(Capacity::Demand(Unfit(Short::Unknown {
+        vec![Reason::Demand(Unfit(Short::Unknown {
             recipe: "fixture".to_string(),
             beside: Beside {
                 running: 1,
                 admitted: 0,
                 unreadable: 0,
             },
-        })))]
+        }))]
     );
 
     host["demand"] = declared_demand;
@@ -862,7 +861,7 @@ fn every_demand_reason_waits_and_has_its_kind() {
         beside: Beside::default(),
     };
     for (short, kind) in [(holder, "demand_unknown"), (unknown, "demand_unknown")] {
-        let reason = Reason::Capacity(Capacity::Demand(Unfit(short)));
+        let reason = Reason::Demand(Unfit(short));
         assert_eq!((reason.kind(), reason.holds()), (kind, false));
     }
 }
