@@ -75,6 +75,9 @@ pub(crate) struct Seam {
     pub(crate) hold: Option<brokkr_store::ProbeHoldId>,
     /// Whether the first turn's reaper ran (the return of fix round 0106b1r12).
     pub(crate) reaped: bool,
+    /// What the last wait charged, carried to the next turn's wait on the
+    /// same waits (fix round 0106b1r15, M1).
+    pub(crate) charged: Option<wait::Carried>,
 }
 
 impl Default for Seam {
@@ -86,6 +89,7 @@ impl Default for Seam {
             held: HeldDrive::Unheld,
             hold: None,
             reaped: false,
+            charged: None,
         }
     }
 }

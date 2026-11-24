@@ -5,7 +5,7 @@
 //! between every read. An ordinary row beside the hold keeps its own end,
 //! and a slice the clock cannot name refuses by type.
 
-use brokkr_store::ProbeHold;
+use brokkr_store::{ProbeHold, ProbeHoldId};
 use time::Duration as TimeDuration;
 
 use super::held_route::held_at_its_end;
@@ -15,8 +15,9 @@ use crate::engine::cooldown::CooldownError;
 
 /// The fixture at its held row's end, nothing holding the route, with a
 /// hold of an attempt no drive of it took standing on claude/first from
-/// that instant: no answer, round or settlement ever ends it.
-fn held_forever() -> (tempfile::TempDir, Engine, OffsetDateTime) {
+/// that instant: no answer, round or settlement ever ends it, only the
+/// test that holds its id.
+pub(super) fn held_forever() -> (tempfile::TempDir, Engine, OffsetDateTime, ProbeHoldId) {
     let (dir, mut engine, now) = held_at_its_end(Probed::Answer, |_, engine| {
         engine.drive().unwrap();
     });
@@ -30,8 +31,8 @@ fn held_forever() -> (tempfile::TempDir, Engine, OffsetDateTime) {
         route: "first",
         deadline: at + TimeDuration::minutes(1),
     };
-    engine.store.hold_probe(&hold, at).unwrap();
-    (dir, engine, at)
+    let id = engine.store.hold_probe(&hold, at).unwrap();
+    (dir, engine, at, id)
 }
 
 /// A clock from `at` that moves a millisecond at every read and a whole
@@ -65,7 +66,7 @@ fn moving(at: OffsetDateTime, reads: u32) -> (Clock, Arc<Mutex<u32>>) {
 /// reading kept to the fraction, and it parks a slice late.
 #[test]
 fn a_hold_that_never_ends_parks_the_wait_at_its_maximum_within_one_slice() {
-    let (dir, mut engine, at) = held_forever();
+    let (dir, mut engine, at, _) = held_forever();
     let (clock, slept) = moving(at, 500);
     engine.cooldown.clock = clock;
     engine.drive().unwrap();
@@ -86,7 +87,7 @@ fn a_hold_that_never_ends_parks_the_wait_at_its_maximum_within_one_slice() {
 /// judged a second at a time and parks only after two slices.
 #[test]
 fn a_longer_ordinary_row_beside_a_hold_parks_at_its_own_end() {
-    let (dir, mut engine, at) = held_forever();
+    let (dir, mut engine, at, _) = held_forever();
     let other = second_run(dir.path());
     let journal = dir.path().join("forge.db");
     append_second_row_on(
@@ -112,7 +113,7 @@ fn a_longer_ordinary_row_beside_a_hold_parks_at_its_own_end() {
 /// control: add the slice unchecked, and the read panics.
 #[test]
 fn a_hold_read_at_the_clocks_last_instant_refuses_its_next_slice() {
-    let (_dir, engine, at) = held_forever();
+    let (_dir, engine, at, _) = held_forever();
     let wait = brokkr_core::ProviderWait {
         site: None,
         provider: "claude".into(),

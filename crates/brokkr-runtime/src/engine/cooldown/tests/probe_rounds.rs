@@ -106,7 +106,8 @@ fn judged(
 ) -> Result<super::super::wait::WaitBudget, super::super::CooldownError> {
     let now = engine.now();
     let span = super::super::wait::Span { end, counted, now };
-    engine.extension_park_reason(events, "effect", waits, span, Duration::ZERO)
+    let charge = super::super::wait::Charge::default();
+    engine.extension_park_reason(events, "effect", waits, span, charge)
 }
 
 /// A second run in the same journal, ready for its own refusal row.
@@ -235,7 +236,7 @@ fn engine_with_wait(
 
 /// Append one probe row at the single seat's terminal: the tests that plant
 /// a written round share one row shape.
-fn append_round(
+pub(super) fn append_round(
     engine: &mut Engine,
     event_seq: u64,
     until_at: OffsetDateTime,
@@ -881,17 +882,10 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
         "DROP TABLE provider_cooldowns",
     );
     let waits = [wait()];
-    let mut unrecorded = Duration::ZERO;
+    let mut charge = super::super::wait::Charge::default();
     let mut maxima = Vec::new();
     match engine
-        .wait_round(
-            &events,
-            "effect",
-            &waits,
-            &mut unrecorded,
-            base(),
-            &mut maxima,
-        )
+        .wait_round(&events, "effect", &waits, &mut charge, base(), &mut maxima)
         .unwrap()
     {
         super::super::wait::WaitRound::Parked(park) => {
