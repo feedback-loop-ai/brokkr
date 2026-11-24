@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.01222
 Authors: Zichuan Li, Jian Cui, Ashley Chen, Xiaojing Liao, Luyi Xing (University of Illinois Urbana-Champaign)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: chat session, operator-fed, 2026-09-04
 
 ## Summary
