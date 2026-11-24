@@ -421,8 +421,8 @@ what its driver's tree uses now, and each entry the pass admits reserves
 its own before the next is judged. After every check above, an entry whose
 demand plus the reservations does not fit waits as `memory_short` or
 `cpu_short`, naming the demand, what is available and what is reserved; a
-recipe with no measured run and no declared demand starts only when
-nothing else runs, and waits as `demand_unknown` otherwise. On such a
+recipe with no measured profile (no completed run in its window) and no
+declared demand starts only when nothing else runs, and waits as `demand_unknown` otherwise. On such a
 machine no run ceiling need be declared. `forge.host/v5` makes `runs` and
 `boxed_builds` optional and adds `demand`, whose `window_runs`,
 `margin_percent` and `recipes.<name>` override the window, the margin and

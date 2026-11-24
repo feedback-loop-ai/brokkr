@@ -1,6 +1,6 @@
 # 0125 — An entry starts when its recipe's measured demand, beside what running runs still reserve, fits what the machine has now
 
-Status: accepted — operator ruled in chat 2026-11-24, "all recommended" (https://github.com/feedback-loop-ai/brokkr/issues/1193#issuecomment-7126565397), after ruling #1193's asks A to G "all recommended" on 2026-11-23 (https://github.com/feedback-loop-ai/brokkr/issues/1193#issuecomment-7105395628)
+Status: accepted — operator ruled in chat 2026-11-24, "all recommended" (https://github.com/feedback-loop-ai/brokkr/issues/1193#issuecomment-7126565397), after ruling #1193's asks A to G "all recommended" on 2026-11-23 (https://github.com/feedback-loop-ai/brokkr/issues/1193#issuecomment-7105395628); ruling 3's narrowing, a window supplies a measured profile only once one of its runs completed, accepted 2026-11-24, "1 for 1193" (https://github.com/feedback-loop-ai/brokkr/issues/1193#issuecomment-7142093790)
 Date: 2026-11-23
 
 Built: partial (#1193) — Linux is built by 1193b; macOS's measures, `brokkr system host upgrade` and `init`'s placeholder ceilings are 1193c's
@@ -64,10 +64,11 @@ upgrade verb and `init`'s placeholder ceilings).
      across the pass's own journal and every distinct journal the realms map
      the workspace reads lists (the map `brokkr system realms` reads); the
      host file's `demand.window_runs` overrides the 20.
-     **Proposed narrowing for 1193b.** The window supplies a measured
-     profile only when it contains a run that ended with `run/completed`,
-     with all measured runs in a qualifying window contributing to its
-     per-phase means.
+     The window supplies a measured profile only when it holds a run that
+     ended with `run/completed`, and then every measured run in it
+     contributes to the per-phase means. A window of stopped runs only
+     supplies none: the recipe is sized by its declaration (ruling 4) or,
+     with none, is unknown (ruling 6) until one of its runs completes;
    - **the read:** one bounded statement per journal: of the latest twice
      `window_runs` ended runs of each recipe, only the `phase/entered` events,
      the endings that carry `usage` and each `run/completed` event. Runs
@@ -97,8 +98,8 @@ upgrade verb and `init`'s placeholder ceilings).
    keyed by recipe name: `demand.recipes.<name>` with
    `peak_memory_bytes` and `peak_load_millicores`, taken as its expected
    peaks, the margin added as to a learned one. A declaration is read only
-   while the recipe's window holds no measured run: history, once there is
-   any, wins. The recipe format does not change.
+   while the recipe's window supplies no measured profile (ruling 3): a
+   profile, once there is one, wins. The recipe format does not change.
 
 5. **What running runs reserve.** Every run that reads `running` in any
    journal the pass reads (its own included) reserves, for each resource,
@@ -118,8 +119,8 @@ upgrade verb and `init`'s placeholder ceilings).
    order, and keep their own reasons exactly: the host file, the seats,
    the provider and route ceilings, the cool-downs, the free-space floors
    and the boxed builds. Then, where availability is measured:
-   - **`demand_unknown`:** an entry whose recipe has no measured run and no
-     declaration starts only when no run reads `running` in any journal the
+   - **`demand_unknown`:** an entry whose recipe has no measured profile
+     (ruling 3) and no declaration starts only when no run reads `running` in any journal the
      pass reads, none of them is unreadable, and no entry was admitted
      earlier in the pass; otherwise it waits, and its first run then
      measures it (ruling C). A run that runs, or an entry admitted earlier
@@ -227,4 +228,4 @@ The operator ruled them "all recommended" on 2026-11-23.
   build, measured on 2026-11-23; the window comes on top.
 - `forge.host/v5` is minted under this decision, and decision 0082 ruling
   1 mints a contract version only under an accepted ruling: the ledger's
-  minting check holds the file until this decision is accepted.
+  minting check admits the file because this decision is accepted.

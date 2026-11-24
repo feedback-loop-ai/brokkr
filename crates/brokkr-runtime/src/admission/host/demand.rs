@@ -3,10 +3,10 @@
 //! optional (an absent boxed-build ceiling is none, ruling D) and one
 //! optional `demand` block: the window of a recipe's measured runs and the
 //! margin over their average (ruling B), and a demand a recipe declares by
-//! name, read only while it has no measured run. Which version may write
-//! what is judged here: a v1 to v4 file that writes `demand`, or leaves
-//! out `boxed_builds`, refuses by its own line, and reads with the
-//! defaults otherwise.
+//! name, read only while its window supplies no measured profile. Which
+//! version may write what is judged here: a v1 to v4 file that writes
+//! `demand`, or leaves out `boxed_builds`, refuses by its own line, and
+//! reads with the defaults otherwise.
 
 use std::collections::BTreeMap;
 use std::num::{NonZeroU32, NonZeroU64};

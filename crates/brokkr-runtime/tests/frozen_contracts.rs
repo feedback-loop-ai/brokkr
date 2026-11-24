@@ -225,7 +225,7 @@ const FROZEN: [(&str, &str); 42] = [
     ),
     (
         "contracts/host.v5.schema.json",
-        "06933cc4d393bcffbd1e15b300a3c3c086527ea96145a0ea61db27b92707bb13",
+        "63a2028865e4253774fdd843c3428c1ac842b19cfc496106a6686686f19ffeec",
     ),
     // Decision 0103 ruling 2(a) mints the provider-wait extension beside
     // the frozen event vocabulary; its bytes are pinned from birth. Fix

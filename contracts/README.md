@@ -1071,8 +1071,9 @@ to 1000 (20 when absent), how many of a recipe's latest runs that carry
 `effect-usage/v1` its demand averages; `margin_percent`, from 0 to 1000
 (25 when absent), the margin added over that average; and `recipes`, a
 recipe name to its declared `peak_memory_bytes` and
-`peak_load_millicores`, each at least 1, read only while the recipe has
-no measured run. An absent `boxed_builds` declares no boxed-build
+`peak_load_millicores`, each at least 1, read only while the recipe's
+window supplies no measured profile, which takes a completed run
+(decision 0125 ruling 3). An absent `boxed_builds` declares no boxed-build
 ceiling. Where the machine's availability is measured (Linux), an absent
 `runs` holds nothing; where it is not, every entry the capacity checks
 would judge waits as `runs_undeclared`, as under v1 to v3. The loader

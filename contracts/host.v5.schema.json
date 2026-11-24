@@ -127,7 +127,7 @@
         },
         "recipes": {
           "type": "object",
-          "description": "Recipe name, as a run records its bundle name, to the demand it declares: its expected peaks, the margin added as to a measured one. Read only while the recipe has no measured run; history, once there is any, wins.",
+          "description": "Recipe name, as a run records its bundle name, to the demand it declares: its expected peaks, the margin added as to a measured one. Read only while the recipe's window supplies no measured profile, which takes a completed run (decision 0125 ruling 3); a profile, once there is one, wins.",
           "additionalProperties": {
             "type": "object",
             "required": [
