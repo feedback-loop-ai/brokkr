@@ -5,7 +5,7 @@
 //! read only to prove it declares nothing provisional.
 
 use super::*;
-use crate::agents::LibraryError;
+use crate::agents::{LibraryError, TrustTier};
 use crate::bundle::{Bundle, Invocation, SeatBody};
 use crate::places::places_tests::clean_git_config;
 use brokkr_protocol::adapters::StrictCause;
@@ -1090,36 +1090,60 @@ fn assert_agy_neon_launch(bundle: &Bundle, tail: &[&str]) {
     assert_eq!(candidates[0].argv[1..], [&head[..], tail].concat());
 }
 
-#[test]
-fn an_agy_seat_outside_the_listed_offices_or_at_a_gate_is_refused() {
+/// [`agy_workspace`] with its `researcher` office hiring `model` alone, at
+/// `high`, an effort all four models take.
+fn agy_office(model: &str) -> Workspace {
     let workspace = agy_workspace();
-    let (seat_name, model, adapter) = ("work".to_string(), "agy-neon".to_string(), "agy");
-    assert_eq!(
-        workspace.refusal(seat("researcher", "work"), &["implementer"]),
-        ProvisionalRefusal::Unlisted {
-            seat: seat_name.clone(),
-            link: 1,
-            model: model.clone(),
-            adapter: adapter.into(),
-            office: Some("researcher".into()),
-        }
-    );
-    assert_eq!(
-        workspace.refusal(seat("researcher", "gate"), &["researcher"]),
-        ProvisionalRefusal::Gate {
-            seat: seat_name,
-            link: 1,
-            model,
-            adapter: adapter.into(),
-        }
-    );
+    let office = workspace.path("agents/researcher.json");
+    let mut hired: Value = serde_json::from_slice(&std::fs::read(&office).unwrap()).unwrap();
+    hired["models"] = json!([model]);
+    hired["efforts"] = json!({ model: "high" });
+    std::fs::write(office, hired.to_string()).unwrap();
+    workspace
+}
+
+/// Decision 0021's addendum of 2026-11-22 (#1252): every agy model is
+/// promoted, so each holds a work office the realm does not list.
+#[test]
+fn every_agy_model_holds_an_office_no_provisional_list_names() {
+    for model in ["agy-argon", "agy-carbon", "agy-hydrogen", "agy-neon"] {
+        let workspace = agy_office(model);
+        let compiled = workspace.compile(seat("researcher", "work"), &[]);
+        assert_eq!(chain(&compiled.unwrap()), [model]);
+    }
+}
+
+/// The same addendum: Neon and Carbon are agy's judges, so a gate seats
+/// either, and Hydrogen and Argon draw the refusal of a model outside
+/// `judges` (decision 0041 ruling 3), no longer the provisional one.
+#[test]
+fn an_agy_gate_seats_neon_and_carbon_and_refuses_hydrogen_and_argon_as_no_judge() {
+    for judge in ["agy-neon", "agy-carbon"] {
+        let workspace = agy_office(judge);
+        let compiled = workspace.compile(seat("researcher", "gate"), &[]);
+        assert_eq!(chain(&compiled.unwrap()), [judge]);
+    }
+    for model in ["agy-hydrogen", "agy-argon"] {
+        let workspace = agy_office(model);
+        let refused = workspace.compile(seat("researcher", "gate"), &[]);
+        let Err(CompileError::Invalid(words)) = refused else {
+            panic!("not a judges refusal: {:?}", refused.map(drop));
+        };
+        assert_eq!(
+            words,
+            format!(
+                "seat 'work' gate link 1 names model '{model}', which driver 'agy' does not \
+                 declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
+            )
+        );
+    }
 }
 
 /// Agy's example maps its four Gemini 4 models to their base slugs, each
-/// provisional, none a judge, and declares hands that ride no argument
-/// (#1224): the engine HOME's document carries the server.
+/// promoted, Carbon and Neon its judges, and declares hands that ride no
+/// argument (#1224): the engine HOME's document carries the server.
 #[test]
-fn the_agy_example_declares_four_provisional_models_no_judge_and_argumentless_hands() {
+fn the_agy_example_declares_four_promoted_models_two_judges_and_argumentless_hands() {
     let workspace = agy_workspace();
     let loaded = Adapters::load(&workspace.path("adapters")).unwrap();
     let agy = loaded.adapter("agy").unwrap();
@@ -1133,9 +1157,9 @@ fn the_agy_example_declares_four_provisional_models_no_judge_and_argumentless_ha
         ("agy-neon", "gemini-4-neon"),
     ];
     assert_eq!(slugs, expected);
-    let provisional: Vec<&String> = agy.provisional.iter().collect();
-    assert_eq!(provisional, agy.models.keys().collect::<Vec<_>>());
-    assert!(agy.judges.is_empty(), "{:?}", agy.judges);
+    assert!(agy.provisional.is_empty(), "{:?}", agy.provisional);
+    assert_eq!(agy.trust_tier, TrustTier::Trusted);
+    assert_eq!(agy.judges, ["agy-carbon", "agy-neon"]);
     assert_eq!(agy.hands, Some(Vec::new()));
     assert_eq!(agy.hands_notice, None);
 }
@@ -1210,21 +1234,15 @@ fn si2_admits_a_boxed_agy_work_seat_in_a_listed_office() {
     assert_agy_neon_launch(&si2(&boxed_agy_workspace()).unwrap(), &[]);
 }
 
-/// A boxed agy seat is still refused at a gate (decision 0075 ruling 5),
-/// and where the adapter does not declare the boxed shape measured.
+/// A boxed agy seat on Neon, a judge since decision 0021's addendum of
+/// 2026-11-22, holds a gate, and is refused where the adapter does not
+/// declare the boxed shape measured.
 #[cfg(target_os = "linux")]
 #[test]
-fn a_boxed_agy_seat_at_a_gate_or_on_an_undeclared_shape_is_refused() {
+fn a_boxed_agy_seat_holds_a_gate_and_is_refused_on_an_undeclared_shape() {
     let workspace = boxed_agy_workspace();
-    assert_eq!(
-        workspace.refusal(seat("researcher", "gate"), &["researcher"]),
-        ProvisionalRefusal::Gate {
-            seat: "work".into(),
-            link: 1,
-            model: "agy-neon".into(),
-            adapter: "agy".into(),
-        }
-    );
+    let gate = workspace.compile(seat("researcher", "gate"), &[]);
+    assert_eq!(chain(&gate.unwrap()), ["agy-neon"]);
     for missing in ["cold", "replacement"] {
         let workspace = boxed_agy_workspace();
         let refused = si2_refusal(agy_without_shape(&workspace, missing, "boxed"));
