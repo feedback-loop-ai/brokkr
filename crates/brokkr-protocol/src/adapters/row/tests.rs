@@ -220,6 +220,36 @@ fn tool_keeps_raw_boundaries_in_the_masked_name() {
                 tool: "probe".into(),
             },
         ),
+        // The cut moves by the run's growth only: a run strictly inside the
+        // server, two runs before the separator, and a run wholly inside the
+        // tool component each keep the raw separator's place (F1).
+        (
+            "mcp__alphabetagamma__probe",
+            "S",
+            "beta",
+            Tool::Mcp {
+                server: "alpha[secret:S]gamma".into(),
+                tool: "probe".into(),
+            },
+        ),
+        (
+            "mcp__abetacbetad__probe",
+            "S",
+            "beta",
+            Tool::Mcp {
+                server: "a[secret:S]c[secret:S]d".into(),
+                tool: "probe".into(),
+            },
+        ),
+        (
+            "mcp__srv__readtokenfile",
+            "S",
+            "token",
+            Tool::Mcp {
+                server: "srv".into(),
+                tool: "read[secret:S]file".into(),
+            },
+        ),
         (
             "WebSearch",
             "S",
