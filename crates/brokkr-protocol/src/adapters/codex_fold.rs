@@ -2,6 +2,8 @@
 
 use serde_json::{json, Map, Value};
 
+use super::refusal::codex_refusal;
+use super::row::FoldInput;
 use super::{
     add_usage, fold_result_meta, model_in_json, CapturedId, CodexThreadEcho, Emitted, Locator,
     Observation, PreSessionRefusal, Row, Step, Transcript, EFFORT_NOT_REPORTED, MODEL_NOT_REPORTED,
@@ -25,11 +27,32 @@ const EVENT_KINDS: &[(&str, Event)] = &[
     ("result", Event::Result),
 ];
 
+/// Classify a refusal only before the first counted turn (0053). Keep
+/// folding later rows so a recovered invocation retains its work.
+pub(super) fn fold_codex_row(
+    row: &Row<'_>,
+    turn: &mut u64,
+    session_meta: &mut Map<String, Value>,
+    transcript: &mut Transcript,
+    echo: &mut CodexThreadEcho<'_>,
+    emit: &mut impl FnMut(&Emitted),
+) -> Option<PreSessionRefusal> {
+    FoldInput {
+        row,
+        refusal: (*turn == 0).then(|| codex_refusal(row)).flatten(),
+        identity: CapturedId::codex(row),
+    }
+    .fold(|row, identity| {
+        fold_codex_event(row, identity, turn, session_meta, transcript, echo, emit);
+        None
+    })
+}
+
 /// Fold Codex's stable `exec --json` JSONL into bounded live telemetry.
 /// Commands, item bodies, model output, reasoning, and filesystem paths are
 /// intentionally ignored; the journal records progress and usage, not a
 /// transcript.
-pub(super) fn fold_codex_event(
+fn fold_codex_event(
     row: &Row<'_>,
     identity: Option<CapturedId>,
     turn: &mut u64,
@@ -37,7 +60,7 @@ pub(super) fn fold_codex_event(
     transcript: &mut Transcript,
     echo: &mut CodexThreadEcho<'_>,
     emit: &mut impl FnMut(&Emitted),
-) -> Option<PreSessionRefusal> {
+) {
     match row.kind("/type", EVENT_KINDS) {
         Some(Event::Thread) => {
             if let Some(identity) = identity {
@@ -97,7 +120,6 @@ pub(super) fn fold_codex_event(
         }
         None => {}
     }
-    None
 }
 
 fn turn_checkpoint(

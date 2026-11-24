@@ -1,36 +1,9 @@
-//! Unbound inputs for the existing tests of the partially migrated folds.
+//! Unbound inputs for refusal and launch tests.
 
 use super::*;
 
-pub(super) fn fold_codex_event(
-    event: &Value,
-    turn: &mut u64,
-    meta: &mut Map<String, Value>,
-    transcript: &mut Transcript,
-    echo: &mut CodexThreadEcho<'_>,
-    emit: &mut impl FnMut(&Value),
-) -> Option<PreSessionRefusal> {
-    let refusal = (*turn == 0)
-        .then(|| super::codex_refusal(&Row::new(event, &[])))
-        .flatten();
-    FoldInput {
-        row: &Row::new(event, &[]),
-        refusal,
-        identity: CapturedId::codex(&Row::new(event, &[])),
-    }
-    .fold(|event, identity| {
-        super::fold_codex_event(event, identity, turn, meta, transcript, echo, &mut |row| {
-            emit(&row.row)
-        })
-    })
-}
-
 pub(super) fn claude_refusal(event: &Value) -> Option<PreSessionRefusal> {
     super::claude_refusal(&Row::new(event, &[]))
-}
-
-pub(super) fn codex_refusal(event: &Value) -> Option<PreSessionRefusal> {
-    super::codex_refusal(&Row::new(event, &[]))
 }
 
 impl CodexThreadEcho<'_> {

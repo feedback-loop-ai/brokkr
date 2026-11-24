@@ -1,7 +1,7 @@
 use serde_json::{json, Map, Value};
 
 use super::super::claude_fold::{fold_stream_event, Source::Claude};
-use super::super::raw_fold_tests::fold_codex_event;
+use super::super::tests::fold_codex_into;
 use super::super::{fold_dsh_event, CodexThreadEcho, Row};
 use super::{Format, Observation, Tool, OBSERVATION_KEY};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
@@ -232,14 +232,13 @@ fn codex_rows(events: &[Value]) -> Vec<Value> {
     let mut echo = CodexThreadEcho::default();
     let (mut turn, mut meta) = (1, Map::new());
     for event in events {
-        let mut emit = |row: &Value| rows.push(row.clone());
-        let refused = fold_codex_event(
-            event,
+        let refused = fold_codex_into(
+            &Row::new(event, &[]),
             &mut turn,
             &mut meta,
             &mut transcript,
             &mut echo,
-            &mut emit,
+            &mut rows,
         );
         assert_eq!(refused, None);
     }

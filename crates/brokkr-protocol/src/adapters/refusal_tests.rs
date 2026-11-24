@@ -8,7 +8,7 @@
 //! its words unchanged; the thread-record fallback refuses only on a
 //! usage- or rate-limit error and otherwise leaves the result lost.
 
-use super::raw_fold_tests::{claude_refusal, codex_refusal};
+use super::raw_fold_tests::claude_refusal;
 use super::refusal::{
     claude_refusal_at, codex_thread_refusal, codex_thread_refusal_since, epoch_now,
     find_codex_thread, local_time, parse_nanos, thread_header, LocalTime, Now,
@@ -157,7 +157,7 @@ fn codex_usage_limit_and_429_are_rate_limits_and_other_errors_are_not() {
             Some(429),
         ),
     ] {
-        let reason = codex_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        let reason = codex_refusal(&Row::new(&event, &[])).unwrap_or_else(|| panic!("{event}"));
         assert_eq!(reason.class(), RefusalClass::RateLimit, "{event}");
         assert!(
             reason.words().starts_with("rate_limit"),
@@ -174,12 +174,12 @@ fn codex_usage_limit_and_429_are_rate_limits_and_other_errors_are_not() {
         json!({"type": "error", "message": "boom", "status": 500,
                "codex_error_info": "internal_server_error"}),
     ] {
-        let reason = codex_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        let reason = codex_refusal(&Row::new(&event, &[])).unwrap_or_else(|| panic!("{event}"));
         assert_eq!(reason.class(), RefusalClass::Other, "{event}");
         assert!(reason.words().starts_with("api_error"), "{event}");
     }
     // Only these two event types are pre-session refusals at all.
-    assert!(codex_refusal(&json!({"type": "item.completed"})).is_none());
+    assert!(codex_refusal(&Row::new(&json!({"type": "item.completed"}), &[])).is_none());
 }
 
 /// Decision 0103 ruling 3: codex's own "try again at …" text is parsed

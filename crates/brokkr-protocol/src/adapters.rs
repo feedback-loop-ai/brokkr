@@ -73,18 +73,18 @@ use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Locat
 use crate::{Body, Message, PreSessionRefusal, Probe, ResultStatus};
 use capability_calls::Observation;
 use claude_fold::{fold_stream_event, ClaudeFold};
-use codex_fold::fold_codex_event;
+use codex_fold::fold_codex_row;
 use dsh_stderr::redact_dsh_reasoning;
 use mcp::served;
 use probe::{pinned_model, seat_row, ProbeAnswer};
-#[cfg(test)]
-use refusal::refusal_reason;
 use refusal::{
-    bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
-    epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
+    bounded_wire_line, claude_refusal, codex_thread_refusal, dsh_refusal, epoch_now_nanos,
+    find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
+#[cfg(test)]
+use refusal::{codex_refusal, refusal_reason};
 pub(crate) use row::CapturedId;
-use row::{FoldInput, Ident, Row};
+use row::{Ident, Row};
 use spawn::{spawn_fed, spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
@@ -3349,12 +3349,6 @@ fn invoke_codex(
     let (mut child, stderr_thread) = spawn_fed(&hold.plan.command, prompt, workdir, bindings)?;
     let mut session_meta = Map::new();
     let mut turn = 0;
-    // Decision 0053: codex's wire protocol DOES carry the distinction —
-    // a machine-readable `error`/`turn.failed` before the first
-    // `turn.started` is a refusal to start. After a turn it is 0016's
-    // mid-session failure, so the fold classifies only at `turn == 0`,
-    // and — as in the claude arm — it keeps folding the rest of the
-    // stream so a session that recovered keeps its thread id and totals.
     let mut refusal: Option<PreSessionRefusal> = None;
     let mut stopped = false;
     let status = {
@@ -3365,26 +3359,16 @@ fn invoke_codex(
                 continue;
             };
             let row = Row::new(&event, bindings);
-            let classified = (turn == 0).then(|| codex_refusal(&row)).flatten();
             let answer = probe_bound.answers(AdapterKind::Codex, &row);
-            let identity = CapturedId::codex(&row);
             let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
-                FoldInput {
-                    row: &row,
-                    refusal: classified,
-                    identity,
-                }
-                .fold(|event, identity| {
-                    fold_codex_event(
-                        event,
-                        identity,
-                        &mut turn,
-                        &mut session_meta,
-                        &mut transcript,
-                        &mut echo,
-                        &mut |data| emit(data),
-                    )
-                })
+                fold_codex_row(
+                    &row,
+                    &mut turn,
+                    &mut session_meta,
+                    &mut transcript,
+                    &mut echo,
+                    &mut |data| emit(data),
+                )
             });
             refusal = refusal.or(classified);
             // The answer is the probe's whole report: stop the harness
@@ -3402,25 +3386,8 @@ fn invoke_codex(
     };
     let captured = stderr_thread.take(stopped);
     let stderr = captured.evidence(|raw| secret::mask_text(raw, bindings));
-    // An attempt that concluded without ever reaching a `turn.completed`
-    // — a release that folds none, or a codex that exits before its
-    // first turn finishes — has read the thread record not at all. Ask
-    // it once more here, on the way out, before falling back to the
-    // launch header.
-    //
-    // NOT the deadline case, though it reads like one: a deadline is
-    // enforced one process up, where the watchdog SIGKILLs this whole
-    // driver's group (`process::tree::kill_group`), so nothing after `child.wait`
-    // runs for a seat that parks. What a parked codex ran under reaches
-    // the journal from the other direction — the `turn-completed`
-    // checkpoint each folded turn already emitted names its model and
-    // effort as it goes, and a seat killed before its first turn has no
-    // fact to carry.
-    //
-    // Asked unconditionally
-    // and inserted only where nothing stands: a turn that already read
-    // the record wrote the same pair, and `or_insert` is what keeps a
-    // stream's more direct report of the model from being overwritten.
+    // Read the rollout on exit even if no turn completed. An earlier
+    // stream model still wins over the rollout and the pinned stderr echo.
     let (model, effort) = echo.echo();
     if let Some(model) = model {
         session_meta

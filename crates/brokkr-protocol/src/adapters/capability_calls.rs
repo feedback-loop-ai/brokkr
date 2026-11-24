@@ -126,24 +126,15 @@ impl Observation {
         }
     }
 
-    /// The `tool` a row shows for this call, clamped for display; `None`
-    /// where Claude's row shows no tool and dsh writes no row. Each format
-    /// shows what it always showed: Codex its item category, `unknown`
-    /// when there is none, Claude and dsh the name as reported. The call
-    /// id is not shown; it rides in the observation.
+    /// The tool display for Claude and dsh, clamped separately from the
+    /// full observation sent to the engine.
     pub(super) fn shown_tool(&self) -> Option<String> {
-        let shown = match (self.format, &self.tool) {
-            (Format::Codex, Tool::Named { name: kind }) => kind.clone(),
-            (Format::Codex, Tool::Mcp { .. }) => CODEX_MCP_ITEM.to_string(),
-            (Format::Codex, Tool::McpUnidentified { reported }) => reported.clone(),
-            (Format::Codex, Tool::Missing) => "unknown".to_string(),
-            (Format::Claude | Format::Dsh, Tool::Named { name }) if name.is_empty() => return None,
-            (Format::Claude | Format::Dsh, Tool::Missing) => return None,
-            (Format::Claude | Format::Dsh, Tool::Named { name }) => name.clone(),
-            (Format::Claude | Format::Dsh, Tool::McpUnidentified { reported }) => reported.clone(),
-            (Format::Claude | Format::Dsh, Tool::Mcp { server, tool }) => {
-                format!("{MCP_PREFIX}{server}{MCP_SEPARATOR}{tool}")
-            }
+        let shown = match &self.tool {
+            Tool::Named { name } if name.is_empty() => return None,
+            Tool::Missing => return None,
+            Tool::Named { name } => name.clone(),
+            Tool::McpUnidentified { reported } => reported.clone(),
+            Tool::Mcp { server, tool } => format!("{MCP_PREFIX}{server}{MCP_SEPARATOR}{tool}"),
         };
         Some(shown.chars().take(SHOWN_CHARS).collect())
     }

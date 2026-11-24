@@ -4,8 +4,7 @@
 //! model-output event, and dsh still classifies nothing.
 
 use super::claude_fold::Source::Claude;
-use super::raw_fold_tests::fold_codex_event;
-use super::tests::executable;
+use super::tests::{executable, fold_codex_into};
 use super::*;
 use crate::env_guard::EnvGuard;
 use crate::RefusalClass;
@@ -747,34 +746,41 @@ fn a_refusal_is_classified_only_before_the_first_counted_turn() {
     let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
     let mut echo = CodexThreadEcho::default();
     let mut emitted: Vec<Value> = Vec::new();
-    assert!(fold_codex_event(
-        &json!({"type":"error","message":"rate limit"}),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
-        &mut echo,
-        &mut |c| emitted.push(c.clone())
-    )
-    .is_some());
+    let error = json!({"type":"error","message":"rate limit"});
+    let row = Row::new(&error, &[]);
+    assert_eq!(
+        fold_codex_into(
+            &row,
+            &mut turn,
+            &mut meta,
+            &mut transcript,
+            &mut echo,
+            &mut emitted
+        )
+        .map(|refusal| refusal.class()),
+        Some(RefusalClass::Other)
+    );
     assert!(emitted.is_empty());
-    fold_codex_event(
-        &json!({"type":"turn.started"}),
+    fold_codex_into(
+        &Row::new(&json!({"type":"turn.started"}), &[]),
         &mut turn,
         &mut meta,
         &mut transcript,
         &mut echo,
-        &mut |c| emitted.push(c.clone()),
+        &mut emitted,
     );
     assert_eq!(turn, 1);
-    assert!(fold_codex_event(
-        &json!({"type":"error","message":"rate limit"}),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
-        &mut echo,
-        &mut |c| emitted.push(c.clone())
-    )
-    .is_none());
+    assert_eq!(
+        fold_codex_into(
+            &row,
+            &mut turn,
+            &mut meta,
+            &mut transcript,
+            &mut echo,
+            &mut emitted
+        ),
+        None
+    );
 }
 
 /// The valid session header and one `assistant/message` answer appended to

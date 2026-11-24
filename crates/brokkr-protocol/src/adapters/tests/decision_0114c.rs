@@ -236,3 +236,58 @@ fn bound_word_codex() {
     check_model_fallback(&sessions);
     check_stream_refusals();
 }
+
+/// Codex's `exec --json` stream carries usage on `turn.completed` and no
+/// model at all (verified against codex-cli 0.153.0), so the served
+/// model has to come off the thread record or a codex seat reaches every
+/// cost and audit surface saying `not reported` — dsh's sentinel, on a
+/// harness that does echo what served it (decision 0031 ruling 1).
+#[test]
+fn a_codex_turn_takes_its_model_from_the_thread_record_when_the_stream_omits_it() {
+    let home = tempfile::tempdir().unwrap();
+    let dated = home.path().join("sessions/2026/09/04");
+    std::fs::create_dir_all(&dated).unwrap();
+    std::fs::write(
+        dated.join("rollout-01a06c05-c0a6-7991-a277-652d17ace6a6.jsonl"),
+        thread_settings("gpt-5.6-sol", "medium") + &turn_context("gpt-5.6-sol", "medium"),
+    )
+    .unwrap();
+
+    let mut echo = CodexThreadEcho::default();
+    echo.locate_unbound(home.path(), "01a06c05-c0a6-7991-a277-652d17ace6a6");
+    let mut turn = 0;
+    let mut meta = Map::new();
+    let mut emitted: Vec<Value> = Vec::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
+    fold_codex_into(
+        &Row::new(
+            &json!({"type": "turn.completed", "usage": {"input_tokens": 10}}),
+            &[],
+        ),
+        &mut turn,
+        &mut meta,
+        &mut transcript,
+        &mut echo,
+        &mut emitted,
+    );
+    assert_eq!(meta["model"], "gpt-5.6-sol");
+    assert_eq!(meta["effort"], "medium");
+    let checkpoint = emitted.last().unwrap();
+    assert_eq!(checkpoint["model"], "gpt-5.6-sol");
+    assert_eq!(checkpoint["effort"], "medium");
+
+    // A stream that DOES name a model outranks the record: it is the
+    // more direct report of the turn that just ran.
+    fold_codex_into(
+        &Row::new(
+            &json!({"type": "turn.completed", "model": "gpt-5.6-sol-preview", "usage": {}}),
+            &[],
+        ),
+        &mut turn,
+        &mut meta,
+        &mut transcript,
+        &mut echo,
+        &mut emitted,
+    );
+    assert_eq!(emitted.last().unwrap()["model"], "gpt-5.6-sol-preview");
+}
