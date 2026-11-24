@@ -105,16 +105,18 @@ fn an_offered_roots_history_is_its_own_attempts_calls_at_its_own_site() {
         provider_id: "r".into(),
         persistence_locator: None,
         persistence_home: None,
+        root_kind: None,
     };
     let context = SiteContext::new(site, "b".repeat(64), SeatClass::Work);
     let history = RootHistory {
         attempts: BTreeSet::from(["first".into(), "second".into()]),
         calls: BTreeSet::from(["n-first".into(), "n-second".into()]),
     };
-    let offered = context.clone().offered(&events, Some(&offer));
+    let key = SiteKey::single("work", None);
+    let offered = context.clone().offered(&events, &key, Some(&offer));
     assert_eq!(offered.history, history);
     assert_eq!(
-        context.offered(&events, None).history,
+        context.offered(&events, &key, None).history,
         RootHistory::default()
     );
 }
@@ -135,6 +137,7 @@ fn the_private_context_carries_the_owned_target_and_originating_digest() {
         provider_id: "session-1".into(),
         persistence_locator: Some("sessions/brokkr/seat-1".into()),
         persistence_home: Some("/home/operator/.dsh".into()),
+        root_kind: Some("dsh-session".into()),
     };
     let context = start_context(
         json!({"headless-work": {"status": "supported"}}),

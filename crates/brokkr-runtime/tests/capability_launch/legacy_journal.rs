@@ -57,9 +57,10 @@ const UNRECORDED: [&str; 6] = [
     OBSERVATION_KEY,
 ];
 
-/// The contract this engine's line writes: v7 since decision 0109's
-/// slice 0109a1, which keeps v6's checkpoint unchanged.
-const V7: &str = "contracts/seat-record.v7.schema.json";
+/// The contract this engine's line writes: v8 since decision 0075 ruling
+/// 2 drew it at v7's line, and both keep v6's checkpoint unchanged but
+/// for v8's two open kinds.
+const V8: &str = "contracts/seat-record.v8.schema.json";
 
 /// The version the fake harness reports, and the fixture assessment
 /// qualifies against.
@@ -693,7 +694,7 @@ fn fences_the_attribution_group(store: &mut Store, run_id: &str) {
         let want = SeatRecordError {
             seq,
             path: "/".into(),
-            contract: V7,
+            contract: V8,
             settled_member: None,
         };
         assert_eq!(refusal, want, "{checkpoint}");

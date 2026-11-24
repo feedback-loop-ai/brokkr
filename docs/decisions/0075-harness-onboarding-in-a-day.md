@@ -271,3 +271,97 @@ Amended on 2026-11-21 under the same ruling, and still accepted:
    no provider chain advances past delivered work.
 
 The order of masking and folding, for every adapter, is tracked as #1242.
+
+## Addendum — 2026-11-21, operator ruled: seat-record v8 opens the transcript kind and the root session kind
+
+The operator ruled on
+[#1227](https://github.com/feedback-loop-ai/brokkr/issues/1227) that day:
+"v8 in its own story, and yes open root_session.kind". Seat-record v8
+opens the transcript kind as ruling 2 ordered, and the same version
+opens `root_session.kind` on the same rule, amending the closed `kind`
+of decision 0056 ruling 3 and nothing else of that object.
+
+Each kind is one lowercase word of letters, digits and single inner
+hyphens, at most 40 characters, declared by the harness's adapter in its
+optional `record_kinds` member. The built-in drivers declare the kinds
+they write. `none` stays a transcript's empty locator and is never a
+root session kind. The engine refuses at append, wherever a record
+names a kind, one the seat's own harness does not declare — its
+adapter's, or the kind of the built-in driver its own command runs —
+naming the kind and the seat; no other adapter's declaration counts,
+and an adapter adds kinds and a resume, never a driver. A seat answers
+to its selected candidate's adapter, or, inline, to the adapter the
+compile pins for its model-bearing built-in driver; an adapter that
+declares no kinds grants only its driver's and `none`. A site that
+answers to no adapter, an inline raw command, an inline exec site or a
+site no plan covers, keeps v7's three kinds and `none`: no adapter
+exists to hold a declaration for it, and v8 neither opens nor narrows
+what it may write. A root of a kind no built-in driver writes is
+offered for a rejoin only where the seat's adapter declares it and the
+one shape its `record_kinds.resume_shape` names is `supported` and
+covers the site: class `work`, the site's boundary among its
+`boundaries`, and its `hands` the site's, the words the engine writes
+into the driver's input, so the engine offers no wider than the
+driver's resume gate, asked about that shape, rejoins (decision 0056
+ruling 5: an unmeasured shape is `unsupported-resume` there too). A
+harness that declares its kinds is never offered decision 0030's flat
+session id. An adapter declaring a root session kind must declare
+`resume` and name in `resume_shape` one of its shapes, and declares no
+`resume_shape` without a root session kind. Wherever a record names a
+kind, anything there but a declared kind is refused, on every road,
+whether or not a schema judges it after, an unresolved cleanup's
+evidence and a panel member's result included, and the refusal never
+echoes a value outside the grammar. A record refused for its kind is a
+failed attempt and is never bound as a word.
+
+The rule this protects is one: nothing acts on a kind that the harness
+which wrote it did not declare. It is enforced from both sides:
+
+1. What a driver hands the engine is judged before any of it is
+   appended: a checkpoint, a result, a panel member's result, an
+   unresolved cleanup's received outcome. What it refuses is appended
+   nowhere, in no field. Decision 0109's refusals keep their precedence:
+   a checkpoint that claims a record only the engine authors, or a work
+   site's result that reports findings, is refused by 0109 in 0109's
+   words before its kinds are judged, and the kind check runs before
+   anything else is appended.
+2. What the engine reads back from its own journal is already journaled.
+   Copying it into a later event (decide's `raw_result`, a poisoned
+   aggregate's `notes.members`, a refused carry's evidence) adds no
+   record and no kind place: the value stands in the journal either way,
+   and refusing the copy would remove nothing. Such a copy is evidence,
+   and no reader acts on a kind inside evidence. A partial panel retry's
+   carried member is more than a copy, since the carry makes it a
+   contribution to a new verdict: a carried result whose kind place
+   names an undeclared or out-of-grammar kind of the seat that wrote it
+   is not carried, and one that is not an object has no kind place and
+   carries for the join to poison.
+3. A reader acts on a kind only at a seat-record place, the three v8
+   defines (a checkpoint's `transcript` and `root_session`, and a
+   result's `transcript`, standing alone or nested in an engine-authored
+   checkpoint), and only on a kind that was judged. A verifier judges a
+   record by the schema alone, so an exported journal verifies without
+   the adapters that wrote it; acting on a kind is a reader's, not a
+   verifier's.
+   A reader that takes a kind from an earlier event to act on it, where
+   an earlier engine may have written that event, judges the kind itself
+   before acting, as the resume offer does. The resume offer forwards a
+   transcript's locator and home only where a write of that row at that
+   seat would pass the writer's kind check, a built-in kind included,
+   which changes no offer a real journal can produce, since no built-in
+   driver writes another driver's transcript kind and a site with no
+   adapter admits all three. A reader meeting a kind it
+   does not know reads the record as holding no transcript or no root of
+   a kind it can use: it never guesses, never falls back to another
+   kind, and never fails the read of the rest.
+
+v8 is minted under this decision, which is accepted,
+through decision 0082's lifecycle, and stands at v7's engine line, so
+dispatch never chooses v7.
+
+**Enforcement binding:** `contracts/seat-record.v8.schema.json` and its
+embedded copy; `seat_record::v8_tests` in brokkr-store; the writer's
+check in `crates/brokkr-runtime/src/agents/kinds.rs` and
+`engine::kinds_tests`, whose fixture harness no code names seats,
+records, verifies, exports and renders, and whose undeclared kind is
+refused at append.

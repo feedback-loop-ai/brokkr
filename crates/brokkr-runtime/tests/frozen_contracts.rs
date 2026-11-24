@@ -24,7 +24,12 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 40] = [
+const FROZEN: [(&str, &str); 41] = [
+    // Decision 0075 ruling 2 lands seat-record v8 beside v7, frozen here.
+    (
+        "contracts/seat-record.v7.schema.json",
+        "aef8dacddbb10b272dd7008425299467fde452b6ee92302b273b9c7d5b67f80f",
+    ),
     // Decision 0109 slice 0109a1 lands seat-record v7 beside v6, which was
     // the new file when decision 0065 slice two landed and is frozen from
     // here.
@@ -808,26 +813,17 @@ fn the_capability_contracts_land_beside_their_frozen_predecessors() {
     }
 }
 
-/// Decision 0065 slice two (CC3/SC4): the capability-call attribution
-/// group arrives as seat-record v6, a new file beside v5, whose bytes
-/// `FROZEN` pins and which did not move.
+/// Each seat record lands as a new file beside its predecessor, whose bytes
+/// `FROZEN` pins and which did not move: v6, the capability-call
+/// attribution group (decision 0065 slice two, CC3/SC4); v7, a gate's
+/// findings, follow-ups and covered identity (decision 0109 slice 0109a1);
+/// v8, the open transcript and root session kinds (decision 0075 ruling 2).
 #[test]
-fn the_v6_seat_record_lands_beside_its_frozen_predecessor() {
-    assert_eq!(
-        titled("contracts/seat-record.v6.schema.json"),
-        "Forge seat record v6"
-    );
-}
-
-/// Decision 0109 slice 0109a1: a gate's findings, follow-ups and covered
-/// identity arrive as seat-record v7, a new file beside v6, whose bytes
-/// `FROZEN` pins and which did not move.
-#[test]
-fn the_v7_seat_record_lands_beside_its_frozen_predecessor() {
-    assert_eq!(
-        titled("contracts/seat-record.v7.schema.json"),
-        "Forge seat record v7"
-    );
+fn each_seat_record_lands_beside_its_frozen_predecessor() {
+    for version in [6, 7, 8] {
+        let file = format!("contracts/seat-record.v{version}.schema.json");
+        assert_eq!(titled(&file), format!("Forge seat record v{version}"));
+    }
 }
 
 /// `forge.realms/v6` is v5 plus one optional per-realm `capabilities` map

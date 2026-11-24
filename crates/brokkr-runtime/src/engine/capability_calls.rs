@@ -164,6 +164,18 @@ impl Stamp {
         checkpoint["call_id"] = Value::String(self.call_id);
         checkpoint["call_state"] = Value::String("observed".to_string());
     }
+
+    /// The group `consume` writes for a held native web search whose call
+    /// id is `call_id`, for a test that journals a call by the sink.
+    #[cfg(test)]
+    pub(super) fn native_search(call_id: &str) -> Stamp {
+        Stamp {
+            tool: "WebSearch".into(),
+            capability: "web-search".into(),
+            dialect: "native".into(),
+            call_id: call_id.into(),
+        }
+    }
 }
 
 impl Calls {

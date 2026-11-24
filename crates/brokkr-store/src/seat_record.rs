@@ -1,5 +1,5 @@
 //! Validation of the frozen seat-record contract — v1 (decision 0034)
-//! and v2 (decision 0035) through v7 (decision 0109 ruling 1), never one
+//! and v2 (decision 0035) through v8 (decision 0075 ruling 2), never one
 //! pretending to be another.
 //!
 //! Every schema is embedded beside this module so a packaged `brokkr`
@@ -38,6 +38,7 @@ const SCHEMA_V4: &str = include_str!("seat-record.v4.schema.json");
 const SCHEMA_V5: &str = include_str!("seat-record.v5.schema.json");
 const SCHEMA_V6: &str = include_str!("seat-record.v6.schema.json");
 const SCHEMA_V7: &str = include_str!("seat-record.v7.schema.json");
+const SCHEMA_V8: &str = include_str!("seat-record.v8.schema.json");
 
 const CONTRACT_V1: &str = "contracts/seat-record.v1.schema.json";
 const CONTRACT_V2: &str = "contracts/seat-record.v2.schema.json";
@@ -46,6 +47,7 @@ const CONTRACT_V4: &str = "contracts/seat-record.v4.schema.json";
 const CONTRACT_V5: &str = "contracts/seat-record.v5.schema.json";
 const CONTRACT_V6: &str = "contracts/seat-record.v6.schema.json";
 const CONTRACT_V7: &str = "contracts/seat-record.v7.schema.json";
+const CONTRACT_V8: &str = "contracts/seat-record.v8.schema.json";
 
 /// The engine line in which seat-record v2 landed. A run whose
 /// `run/started` manifest names an older engine is read under v1.
@@ -124,6 +126,17 @@ const V6_ENGINE: (u64, u64, u64) = (0, 12, 0);
 /// refused.
 const V7_ENGINE: (u64, u64, u64) = (0, 14, 0);
 
+/// The engine line in which seat-record v8 landed (decision 0075 ruling
+/// 2, with its addendum of 2026-11-21). Drawn at v7's own line, on the
+/// same argument as `V2_ENGINE`: `engine` carries no position within a
+/// line, and v8 only opens `transcript.kind` and `root_session.kind` from
+/// closed lists to a grammar every listed kind fits. Its one refusal
+/// beyond the grammar, `none` as a root session kind, v7's closed list
+/// already made. So every record any 0.14-line or later engine wrote
+/// validates under v8 exactly as it did under v7, and, as with v2, no
+/// engine string selects v7: the newest contract in a line wins.
+const V8_ENGINE: (u64, u64, u64) = V7_ENGINE;
+
 /// Which seat-record contract a record is judged against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeatRecordVersion {
@@ -134,6 +147,7 @@ pub enum SeatRecordVersion {
     V5,
     V6,
     V7,
+    V8,
 }
 
 impl SeatRecordVersion {
@@ -150,10 +164,11 @@ impl SeatRecordVersion {
         // what dispatch chooses. `V2_ENGINE` still draws v1's boundary,
         // `V4_ENGINE` draws v3's (decision 0046), `V5_ENGINE` draws v4's
         // (proposed decision 0056 ruling 7), `V6_ENGINE` draws v5's
-        // (decision 0065 ruling 8), and `V7_ENGINE` draws v6's (decision
-        // 0109 ruling 1).
+        // (decision 0065 ruling 8), and `V8_ENGINE`, which is `V7_ENGINE`,
+        // draws v6's (decision 0109 ruling 1). v7 is v2's case again: v8
+        // shares its line (see `V8_ENGINE`), so dispatch never chooses v7.
         match semver_triple(engine) {
-            Some(version) if version >= V7_ENGINE => SeatRecordVersion::V7,
+            Some(version) if version >= V8_ENGINE => SeatRecordVersion::V8,
             Some(version) if version >= V6_ENGINE => SeatRecordVersion::V6,
             Some(version) if version >= V5_ENGINE => SeatRecordVersion::V5,
             Some(version) if version >= V4_ENGINE => SeatRecordVersion::V4,
@@ -182,6 +197,7 @@ impl SeatRecordVersion {
             SeatRecordVersion::V5 => CONTRACT_V5,
             SeatRecordVersion::V6 => CONTRACT_V6,
             SeatRecordVersion::V7 => CONTRACT_V7,
+            SeatRecordVersion::V8 => CONTRACT_V8,
         }
     }
 
@@ -194,6 +210,22 @@ impl SeatRecordVersion {
             SeatRecordVersion::V5 => SCHEMA_V5,
             SeatRecordVersion::V6 => SCHEMA_V6,
             SeatRecordVersion::V7 => SCHEMA_V7,
+            SeatRecordVersion::V8 => SCHEMA_V8,
+        }
+    }
+
+    /// Whether this version carries decision 0109 ruling 1's gate report
+    /// and the engine's `authored` checkpoint: v7, and v8, which keeps
+    /// every v7 member but the two kinds it opens.
+    pub(crate) fn carries_gate_report(self) -> bool {
+        match self {
+            SeatRecordVersion::V1
+            | SeatRecordVersion::V2
+            | SeatRecordVersion::V3
+            | SeatRecordVersion::V4
+            | SeatRecordVersion::V5
+            | SeatRecordVersion::V6 => false,
+            SeatRecordVersion::V7 | SeatRecordVersion::V8 => true,
         }
     }
 
@@ -209,6 +241,7 @@ impl SeatRecordVersion {
             SeatRecordVersion::V5 => &VALIDATOR_V5,
             SeatRecordVersion::V6 => &VALIDATOR_V6,
             SeatRecordVersion::V7 => &VALIDATOR_V7,
+            SeatRecordVersion::V8 => &VALIDATOR_V8,
         }
     }
 }
@@ -251,8 +284,11 @@ static VALIDATOR_V4: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V5: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V6: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V7: OnceLock<jsonschema::Validator> = OnceLock::new();
+static VALIDATOR_V8: OnceLock<jsonschema::Validator> = OnceLock::new();
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod v7_tests;
+#[cfg(test)]
+mod v8_tests;
