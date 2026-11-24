@@ -486,49 +486,51 @@ fn hands_serve_refuses_malformed_base64url_documents() {
 
 /// #1277 R3 + R6: valid unpadded base64url UTF-8 that fails JSON parse or
 /// document checks refuses with typed variants naming the argument and
-/// failure class (plus `SpecRefusal`'s variant name) and never discloses any
-/// decoded field name, value, or serde fragment.
+/// failure class (plus `SpecRefusalKind`'s variant name) and holds no
+/// decoded field name, value, or serde fragment in `Display` or `Debug`.
 #[test]
 fn hands_serve_refuses_decoded_documents_without_disclosing_decoded_text() {
-    use brokkr_protocol::hands::BindRefusal;
-
     let tmp = tempfile::tempdir().unwrap();
     let valid_reach = reach(tmp.path());
     let valid_spec = DEFAULT_SPEC.to_string();
     let marker = "SECRET_DECODED_MARKER_1277";
     let b64 = |text: String| hands::encode_base64url(text.as_bytes());
+    let assert_redacted = |err: &DocumentError, expected: &str| {
+        assert_eq!(err.to_string(), expected);
+        assert!(!err.to_string().contains(marker));
+        assert!(!format!("{err:?}").contains(marker));
+    };
 
-    let reach_not_json = b64(format!("{{{marker}"));
-    let err = resolve_serve_documents(
-        None,
-        Some(reach_not_json.clone()),
-        Some(valid_spec.clone()),
-        None,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        err,
-        DocumentError::EncodedNotJson {
-            flag: "--reach-base64url"
-        }
-    ));
-    assert_eq!(
-        err.to_string(),
-        "--reach-base64url: decoded document is not valid JSON"
-    );
-    assert!(!err.to_string().contains(marker));
+    for bad_json in [
+        format!("{{{marker}"),
+        format!(r#"{{"{marker}":"\uD800"}}"#),
+        r#"{"home":"\uD800"}"#.to_string(),
+    ] {
+        let err =
+            resolve_serve_documents(None, Some(b64(bad_json)), Some(valid_spec.clone()), None)
+                .unwrap_err();
+        assert!(matches!(
+            err,
+            DocumentError::EncodedNotJson {
+                flag: "--reach-base64url"
+            }
+        ));
+        assert_redacted(
+            &err,
+            "--reach-base64url: decoded document is not valid JSON",
+        );
+    }
 
     let reach_bad = b64(format!(r#"{{"{marker}_FIELD":"{marker}_VALUE"}}"#));
     let err = resolve_serve_documents(None, Some(reach_bad), Some(valid_spec), None).unwrap_err();
     assert!(matches!(err, DocumentError::EncodedReach));
-    assert_eq!(
-        err.to_string(),
-        format!(
+    assert_redacted(
+        &err,
+        &format!(
             "--reach-base64url: {}: decoded document is not a valid sealed reach",
             brokkr_protocol::broker::Refusal::Identity
-        )
+        ),
     );
-    assert!(!err.to_string().contains(marker));
 
     let spec_not_json = b64(format!("{{{marker}"));
     let err = resolve_serve_documents(Some(valid_reach.clone()), None, None, Some(spec_not_json))
@@ -539,11 +541,7 @@ fn hands_serve_refuses_decoded_documents_without_disclosing_decoded_text() {
             flag: "--spec-base64url"
         }
     ));
-    assert_eq!(
-        err.to_string(),
-        "--spec-base64url: decoded document is not valid JSON"
-    );
-    assert!(!err.to_string().contains(marker));
+    assert_redacted(&err, "--spec-base64url: decoded document is not valid JSON");
 
     let spec_wrong_key = b64(format!(
         r#"{{"kind":"workspace","{marker}_FIELD":"{marker}_VALUE"}}"#
@@ -553,14 +551,13 @@ fn hands_serve_refuses_decoded_documents_without_disclosing_decoded_text() {
     assert!(matches!(
         err,
         DocumentError::EncodedSpec {
-            cause: SpecRefusal::UnknownKey { ref key }
-        } if key == &format!("{marker}_FIELD")
+            cause: SpecRefusalKind::UnknownKey
+        }
     ));
-    assert_eq!(
-        err.to_string(),
-        "--spec-base64url: decoded document is not a valid hands spec (UnknownKey)"
+    assert_redacted(
+        &err,
+        "--spec-base64url: decoded document is not a valid hands spec (UnknownKey)",
     );
-    assert!(!err.to_string().contains(marker));
 
     let spec_wrong_val = b64(format!(
         r#"{{"kind":"workspace","network":"{marker}_VALUE"}}"#
@@ -570,14 +567,13 @@ fn hands_serve_refuses_decoded_documents_without_disclosing_decoded_text() {
     assert!(matches!(
         err,
         DocumentError::EncodedSpec {
-            cause: SpecRefusal::Network { .. }
+            cause: SpecRefusalKind::Network
         }
     ));
-    assert_eq!(
-        err.to_string(),
-        "--spec-base64url: decoded document is not a valid hands spec (Network)"
+    assert_redacted(
+        &err,
+        "--spec-base64url: decoded document is not a valid hands spec (Network)",
     );
-    assert!(!err.to_string().contains(marker));
 
     let spec_wrong_bind = b64(format!(
         r#"{{"kind":"workspace","binds":[{{"path":"/{marker}","mode":"{marker}"}}]}}"#
@@ -587,14 +583,146 @@ fn hands_serve_refuses_decoded_documents_without_disclosing_decoded_text() {
     assert!(matches!(
         err,
         DocumentError::EncodedSpec {
-            cause: SpecRefusal::Bind(BindRefusal::Mode { .. })
+            cause: SpecRefusalKind::Bind(BindRefusalKind::Mode)
         }
     ));
-    assert_eq!(
-        err.to_string(),
-        "--spec-base64url: decoded document is not a valid hands spec (Bind::Mode)"
+    assert_redacted(
+        &err,
+        "--spec-base64url: decoded document is not a valid hands spec (Bind::Mode)",
     );
-    assert!(!err.to_string().contains(marker));
+}
+
+/// #1277 R3 + R6: every `SpecRefusal` and `BindRefusal` variant reduces to its
+/// payload-free `SpecRefusalKind` with its exact variant name and drops all
+/// decoded strings from both `Display` and `Debug`.
+#[test]
+fn spec_refusal_kind_drops_decoded_fields_for_every_variant() {
+    let marker = "SECRET_SPEC_MARKER_1277";
+    let cases = [
+        (
+            SpecRefusal::UnknownKind {
+                kind: marker.to_string(),
+            },
+            SpecRefusalKind::UnknownKind,
+            "UnknownKind",
+        ),
+        (
+            SpecRefusal::NotKindOrObject {
+                got: marker.to_string(),
+            },
+            SpecRefusalKind::NotKindOrObject,
+            "NotKindOrObject",
+        ),
+        (SpecRefusal::Boundary, SpecRefusalKind::Boundary, "Boundary"),
+        (
+            SpecRefusal::UnknownKey {
+                key: marker.to_string(),
+            },
+            SpecRefusalKind::UnknownKey,
+            "UnknownKey",
+        ),
+        (SpecRefusal::Kind, SpecRefusalKind::Kind, "Kind"),
+        (
+            SpecRefusal::Network {
+                got: marker.to_string(),
+            },
+            SpecRefusalKind::Network,
+            "Network",
+        ),
+        (
+            SpecRefusal::BindsNotArray,
+            SpecRefusalKind::BindsNotArray,
+            "BindsNotArray",
+        ),
+        (
+            SpecRefusal::Bind(BindRefusal::NotObject),
+            SpecRefusalKind::Bind(BindRefusalKind::NotObject),
+            "Bind::NotObject",
+        ),
+        (
+            SpecRefusal::Bind(BindRefusal::UnknownKey {
+                key: marker.to_string(),
+            }),
+            SpecRefusalKind::Bind(BindRefusalKind::UnknownKey),
+            "Bind::UnknownKey",
+        ),
+        (
+            SpecRefusal::Bind(BindRefusal::NoPath),
+            SpecRefusalKind::Bind(BindRefusalKind::NoPath),
+            "Bind::NoPath",
+        ),
+        (
+            SpecRefusal::Bind(BindRefusal::Mode {
+                path: marker.to_string(),
+            }),
+            SpecRefusalKind::Bind(BindRefusalKind::Mode),
+            "Bind::Mode",
+        ),
+        (
+            SpecRefusal::Bind(BindRefusal::MaskNotArray {
+                path: marker.to_string(),
+            }),
+            SpecRefusalKind::Bind(BindRefusalKind::MaskNotArray),
+            "Bind::MaskNotArray",
+        ),
+        (
+            SpecRefusal::Bind(BindRefusal::MaskName {
+                path: marker.to_string(),
+            }),
+            SpecRefusalKind::Bind(BindRefusalKind::MaskName),
+            "Bind::MaskName",
+        ),
+    ];
+    for (refusal, expected_kind, expected_name) in cases {
+        let kind = SpecRefusalKind::from(refusal);
+        assert_eq!(kind, expected_kind);
+        assert_eq!(kind.to_string(), expected_name);
+        let err = DocumentError::EncodedSpec { cause: kind };
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "--spec-base64url: decoded document is not a valid hands spec ({expected_name})"
+            )
+        );
+        assert!(!err.to_string().contains(marker));
+        assert!(!format!("{err:?}").contains(marker));
+    }
+}
+
+/// #1277 R4 + R8: omitting `--reach` (and `--reach-base64url`) fails at clap
+/// with exit code 2 before `--spec` is parsed, matching main's exit code,
+/// diagnostic, and precedence.
+#[test]
+fn hands_serve_requires_reach_at_clap_before_parsing_spec() {
+    use clap::Parser;
+    let tmp = tempfile::tempdir().unwrap();
+    let work_arg = tmp.path().to_str().unwrap();
+    let root_path = tmp.path().join("artifacts");
+    let root_arg = root_path.to_str().unwrap();
+
+    for extra in [&[][..], &["--spec", "{"][..]] {
+        let mut argv = vec![
+            "brokkr",
+            "hands",
+            "serve",
+            "--workdir",
+            work_arg,
+            "--artifacts",
+            root_arg,
+        ];
+        argv.extend_from_slice(extra);
+        let Err(err) = crate::Cli::try_parse_from(argv) else {
+            panic!("expected clap to refuse missing --reach");
+        };
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+        assert_eq!(err.exit_code(), 2);
+        let rendered = err.to_string();
+        assert!(
+            rendered
+                .contains("the following required arguments were not provided:\n  --reach <REACH>"),
+            "{rendered}"
+        );
+    }
 }
 
 /// #1277 R4 + R6: plain JSON `--reach` and `--spec` refusals keep main's

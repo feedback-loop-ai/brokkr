@@ -1260,102 +1260,67 @@ fn hands_serve_encoded_refusals_never_disclose_decoded_document() {
     let (work_arg, root_arg) = (tmp.path().to_str().unwrap(), artifacts.to_str().unwrap());
     let reach_json = reach(tmp.path());
     let marker = "SECRET_DECODED_MARKER_1277";
-
-    let reach_not_json = brokkr_protocol::hands::encode_base64url(format!("{{{marker}").as_bytes());
-    let reach_bad_doc = brokkr_protocol::hands::encode_base64url(
-        format!(r#"{{"{marker}_FIELD":"{marker}_VALUE"}}"#).as_bytes(),
-    );
-    let spec_not_json = brokkr_protocol::hands::encode_base64url(format!("{{{marker}").as_bytes());
-    let spec_wrong_field = brokkr_protocol::hands::encode_base64url(
-        format!(r#"{{"kind":"workspace","{marker}_FIELD":"{marker}_VALUE"}}"#).as_bytes(),
-    );
-    let spec_wrong_value = brokkr_protocol::hands::encode_base64url(
-        format!(r#"{{"kind":"workspace","network":"{marker}_VALUE"}}"#).as_bytes(),
-    );
-
-    let cases: [(&[&str], String); 5] = [
-        (
-            &[
-                "hands",
-                "serve",
-                "--workdir",
-                work_arg,
-                "--artifacts",
-                root_arg,
-                "--reach-base64url",
-                &reach_not_json,
-            ],
-            "error: --reach-base64url: decoded document is not valid JSON\n".to_string(),
-        ),
-        (
-            &[
-                "hands",
-                "serve",
-                "--workdir",
-                work_arg,
-                "--artifacts",
-                root_arg,
-                "--reach-base64url",
-                &reach_bad_doc,
-            ],
-            format!(
-                "error: --reach-base64url: {}: decoded document is not a valid sealed reach\n",
-                brokkr_protocol::broker::Refusal::Identity
-            ),
-        ),
-        (
-            &[
-                "hands",
-                "serve",
-                "--workdir",
-                work_arg,
-                "--artifacts",
-                root_arg,
-                "--reach",
-                &reach_json,
-                "--spec-base64url",
-                &spec_not_json,
-            ],
-            "error: --spec-base64url: decoded document is not valid JSON\n".to_string(),
-        ),
-        (
-            &[
-                "hands",
-                "serve",
-                "--workdir",
-                work_arg,
-                "--artifacts",
-                root_arg,
-                "--reach",
-                &reach_json,
-                "--spec-base64url",
-                &spec_wrong_field,
-            ],
-            "error: --spec-base64url: decoded document is not a valid hands spec (UnknownKey)\n"
-                .to_string(),
-        ),
-        (
-            &[
-                "hands",
-                "serve",
-                "--workdir",
-                work_arg,
-                "--artifacts",
-                root_arg,
-                "--reach",
-                &reach_json,
-                "--spec-base64url",
-                &spec_wrong_value,
-            ],
-            "error: --spec-base64url: decoded document is not a valid hands spec (Network)\n"
-                .to_string(),
-        ),
-    ];
-
-    for (args, expected) in cases {
+    let b64 = |text: String| brokkr_protocol::hands::encode_base64url(text.as_bytes());
+    let assert_refused = |extra: &[&str], expected: &str| {
         assert!(!expected.contains(marker));
-        assert_hands_refused(args, &expected);
-    }
+        let mut args = vec![
+            "hands",
+            "serve",
+            "--workdir",
+            work_arg,
+            "--artifacts",
+            root_arg,
+        ];
+        args.extend_from_slice(extra);
+        assert_hands_refused(&args, expected);
+    };
+
+    let reach_not_json = b64(format!("{{{marker}"));
+    let reach_surrogate = b64(format!(r#"{{"{marker}":"\uD800"}}"#));
+    let reach_bad_doc = b64(format!(r#"{{"{marker}_FIELD":"{marker}_VALUE"}}"#));
+    let spec_not_json = b64(format!("{{{marker}"));
+    let spec_wrong_field = b64(format!(
+        r#"{{"kind":"workspace","{marker}_FIELD":"{marker}_VALUE"}}"#
+    ));
+    let spec_wrong_value = b64(format!(
+        r#"{{"kind":"workspace","network":"{marker}_VALUE"}}"#
+    ));
+
+    let bad_reach = format!(
+        "error: --reach-base64url: {}: decoded document is not a valid sealed reach\n",
+        brokkr_protocol::broker::Refusal::Identity
+    );
+    assert_refused(
+        &["--reach-base64url", &reach_not_json],
+        "error: --reach-base64url: decoded document is not valid JSON\n",
+    );
+    assert_refused(
+        &["--reach-base64url", &reach_surrogate],
+        "error: --reach-base64url: decoded document is not valid JSON\n",
+    );
+    assert_refused(&["--reach-base64url", &reach_bad_doc], &bad_reach);
+    assert_refused(
+        &["--reach", &reach_json, "--spec-base64url", &spec_not_json],
+        "error: --spec-base64url: decoded document is not valid JSON\n",
+    );
+    assert_refused(
+        &[
+            "--reach",
+            &reach_json,
+            "--spec-base64url",
+            &spec_wrong_field,
+        ],
+        "error: --spec-base64url: decoded document is not a valid hands spec (UnknownKey)\n",
+    );
+    assert_refused(
+        &[
+            "--reach",
+            &reach_json,
+            "--spec-base64url",
+            &spec_wrong_value,
+        ],
+        "error: --spec-base64url: decoded document is not a valid hands spec (Network)\n",
+    );
 }
 
 /// #1277 R4: plain JSON refusals on `hands serve` and `hands exec` print
@@ -1422,5 +1387,46 @@ fn hands_serve_and_exec_plain_json_refusals_match_main() {
             ],
             expected,
         );
+    }
+
+    // Omitting reach (even alongside malformed plain `--spec`) exits with
+    // clap's 2 and missing `--reach <REACH>` diagnostic, matching main.
+    for (args, expected_usage) in [
+        (
+            &[
+                "hands",
+                "serve",
+                "--workdir",
+                work_arg,
+                "--artifacts",
+                root_arg,
+            ][..],
+            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH>",
+        ),
+        (
+            &[
+                "hands",
+                "serve",
+                "--workdir",
+                work_arg,
+                "--artifacts",
+                root_arg,
+                "--spec",
+                "{",
+            ][..],
+            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --spec <SPEC> --reach <REACH>",
+        ),
+    ] {
+        let expected_missing_reach = format!(
+            "error: the following required arguments were not provided:\n  --reach <REACH>\n\n{expected_usage}\n\nFor more information, try '--help'.\n"
+        );
+        let out = crate::built::brokkr(args).output().unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "expected clap exit 2, stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&out.stderr), expected_missing_reach);
     }
 }

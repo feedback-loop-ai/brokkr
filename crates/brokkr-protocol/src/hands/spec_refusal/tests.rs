@@ -108,20 +108,18 @@ fn an_admitted_spec_reads_as_its_exact_hands() {
 
 #[test]
 fn every_spec_refusal_reads_as_it_always_has() {
-    for (refusal, text, variant) in [
+    for (refusal, text) in [
         (
             SpecRefusal::UnknownKind {
                 kind: "mitts".to_string(),
             },
             "hands 'mitts' is not a known kind; the vocabulary is: workspace",
-            "UnknownKind",
         ),
         (
             SpecRefusal::NotKindOrObject {
                 got: "[1]".to_string(),
             },
             "hands must be \"workspace\" or an object, got [1]",
-            "NotKindOrObject",
         ),
         (
             SpecRefusal::Boundary,
@@ -129,39 +127,26 @@ fn every_spec_refusal_reads_as_it_always_has() {
              (realms.json, forge.realms/v4) and never by a bundle or an agent, \
              because the machine a realm runs on is the realm's fact \
              (decision 0046 ruling 1)",
-            "Boundary",
         ),
         (
             SpecRefusal::UnknownKey {
                 key: "artifacts".to_string(),
             },
             "hands has unknown key 'artifacts'; known: kind, network, binds",
-            "UnknownKey",
         ),
-        (
-            SpecRefusal::Kind,
-            "hands.kind must be \"workspace\"",
-            "Kind",
-        ),
+        (SpecRefusal::Kind, "hands.kind must be \"workspace\""),
         (
             SpecRefusal::Network {
                 got: "\"on\"".to_string(),
             },
             "hands.network must be a boolean, got \"on\"",
-            "Network",
         ),
-        (
-            SpecRefusal::BindsNotArray,
-            "hands.binds must be an array",
-            "BindsNotArray",
-        ),
+        (SpecRefusal::BindsNotArray, "hands.binds must be an array"),
         (
             SpecRefusal::Bind(BindRefusal::NoPath),
             "hands.binds entry needs a non-empty 'path'",
-            "Bind::NoPath",
         ),
     ] {
         assert_eq!(refusal.to_string(), text);
-        assert_eq!(refusal.variant_name(), variant);
     }
 }

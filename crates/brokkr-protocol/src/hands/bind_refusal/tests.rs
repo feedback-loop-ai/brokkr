@@ -58,42 +58,35 @@ fn each_bind_check_refuses_in_its_own_variant() {
 #[test]
 fn every_bind_refusal_reads_as_it_always_has() {
     let path = "~/.cargo".to_string();
-    for (refusal, text, variant) in [
+    for (refusal, text) in [
         (
             BindRefusal::NotObject,
             "hands.binds entry must be an object",
-            "Bind::NotObject",
         ),
         (
             BindRefusal::UnknownKey {
                 key: "size".to_string(),
             },
             "hands.binds entry has unknown key 'size'; known: path, mode, mask",
-            "Bind::UnknownKey",
         ),
         (
             BindRefusal::NoPath,
             "hands.binds entry needs a non-empty 'path'",
-            "Bind::NoPath",
         ),
         (
             BindRefusal::Mode { path: path.clone() },
             "hands.binds entry '~/.cargo' needs mode \"ro\", \"rw\" or \"overlay\"",
-            "Bind::Mode",
         ),
         (
             BindRefusal::MaskNotArray { path: path.clone() },
             "hands.binds entry '~/.cargo' mask must be an array",
-            "Bind::MaskNotArray",
         ),
         (
             BindRefusal::MaskName { path },
             "hands.binds entry '~/.cargo' mask names one file each, without a slash",
-            "Bind::MaskName",
         ),
     ] {
         assert_eq!(refusal.to_string(), text);
-        assert_eq!(refusal.variant_name(), variant);
     }
 }
 

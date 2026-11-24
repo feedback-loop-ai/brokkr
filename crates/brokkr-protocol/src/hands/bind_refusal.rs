@@ -31,20 +31,5 @@ pub enum BindRefusal {
     MaskName { path: String },
 }
 
-impl BindRefusal {
-    /// Stable variant name with no field name or value taken from the
-    /// rejected bind entry (#1277).
-    pub fn variant_name(&self) -> &'static str {
-        match self {
-            Self::NotObject => "Bind::NotObject",
-            Self::UnknownKey { .. } => "Bind::UnknownKey",
-            Self::NoPath => "Bind::NoPath",
-            Self::Mode { .. } => "Bind::Mode",
-            Self::MaskNotArray { .. } => "Bind::MaskNotArray",
-            Self::MaskName { .. } => "Bind::MaskName",
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests;

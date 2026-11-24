@@ -38,22 +38,5 @@ pub enum SpecRefusal {
     Bind(BindRefusal),
 }
 
-impl SpecRefusal {
-    /// Stable variant name with no field name or value taken from the
-    /// rejected document (#1277).
-    pub fn variant_name(&self) -> &'static str {
-        match self {
-            Self::UnknownKind { .. } => "UnknownKind",
-            Self::NotKindOrObject { .. } => "NotKindOrObject",
-            Self::Boundary => "Boundary",
-            Self::UnknownKey { .. } => "UnknownKey",
-            Self::Kind => "Kind",
-            Self::Network { .. } => "Network",
-            Self::BindsNotArray => "BindsNotArray",
-            Self::Bind(bind) => bind.variant_name(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests;
