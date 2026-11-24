@@ -222,6 +222,13 @@ says what it lost and why. Anything else — `"optional"`, `true`, a
 dialect, a tool list, a class — is refused rather than read as optional:
 a request is never a grant.
 
+This repository's own realm grants exactly two, to one office: the
+`researcher`'s `web-fetch` and `web-search`, through Claude's native
+dialects, read-only web access the operator ruled on 2026-11-24 (#1329).
+Every other office of the shipped library asks for nothing beyond its
+hands and holds nothing, and a seat on dsh holds neither until dsh's own
+web tools are measured on and off (decision 0065 ruling 4).
+
 A capability's **class** — `reads`, `writes`, `egress`, one or more — is
 the abstraction's, not an implementation's. It lives in the operator's
 `capabilities/<name>.json`, beside `realms.json`:
