@@ -71,7 +71,7 @@ use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Locator, Transcript};
 use crate::{Body, Message, PreSessionRefusal, Probe, ResultStatus};
 use capability_calls::Observation;
-use claude_fold::ClaudeFold;
+use claude_fold::{fold_stream_event, ClaudeFold};
 use dsh_stderr::redact_dsh_reasoning;
 use mcp::served;
 use probe::{pinned_model, seat_row, ProbeAnswer};
@@ -568,7 +568,7 @@ fn model_token(raw: &str) -> Option<String> {
 /// The built-in harnesses have used each of these envelopes for usage
 /// reports. This reads only a string in a named model field; it never
 /// scans prose or substitutes the configured pin.
-fn model_in_json(event: &Value) -> Option<String> {
+fn model_in_json(event: &Row<'_>) -> Option<String> {
     [
         "/model",
         "/message/model",
@@ -579,7 +579,8 @@ fn model_in_json(event: &Value) -> Option<String> {
         "/message/source/model",
     ]
     .into_iter()
-    .find_map(|pointer| event.pointer(pointer).and_then(Value::as_str))
+    .find_map(|pointer| event.text(pointer))
+    .as_deref()
     .and_then(model_token)
 }
 
@@ -624,10 +625,11 @@ fn effort_token(raw: &str) -> Option<String> {
 /// prose, and it never substitutes the configured pin: the pin is what a
 /// bundle ASKED for, and the whole point of reading the echo is that it
 /// is the value that survived every profile and plugin layer.
-fn effort_in_json(event: &Value) -> Option<String> {
+fn effort_in_json(event: &Row<'_>) -> Option<String> {
     ["/effort", "/turn_context/effort"]
         .into_iter()
-        .find_map(|pointer| event.pointer(pointer).and_then(Value::as_str))
+        .find_map(|pointer| event.text(pointer))
+        .as_deref()
         .and_then(effort_token)
 }
 
@@ -696,32 +698,6 @@ fn positive_count(value: Option<&Value>) -> Option<u64> {
 
 fn positive_cost(value: Option<&Value>) -> Option<f64> {
     value.and_then(Value::as_f64).filter(|value| *value > 0.0)
-}
-
-/// Claude reports cache reads and cache creations beside its uncached
-/// input count. The seat record's input count is inclusive of reads,
-/// while cache creations retain their own `cache_write_tokens` name.
-fn claude_usage(usage: Option<&Value>) -> Map<String, Value> {
-    let usage = usage.unwrap_or(&Value::Null);
-    let input = positive_count(usage.get("input_tokens"));
-    let cache_read = positive_count(usage.get("cache_read_input_tokens"));
-    let mut record = Map::new();
-    let inclusive = input
-        .unwrap_or_default()
-        .saturating_add(cache_read.unwrap_or_default());
-    if inclusive > 0 {
-        record.insert("input_tokens".into(), Value::from(inclusive));
-    }
-    for (source, target) in [
-        ("output_tokens", "output_tokens"),
-        ("cache_read_input_tokens", "cache_read_tokens"),
-        ("cache_creation_input_tokens", "cache_write_tokens"),
-    ] {
-        if let Some(value) = positive_count(usage.get(source)) {
-            record.insert(target.into(), Value::from(value));
-        }
-    }
-    record
 }
 
 fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String> {
@@ -1414,148 +1390,17 @@ fn recordable_digest(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// One parsed claude stream-json line folded into the seat's telemetry:
-/// `system`/`init` and `result` feed `session_meta`; each `tool_use`
-/// block of an `assistant` message becomes one seat-turn checkpoint,
-/// in block order, all carrying the message's turn number. The first
-/// checkpoint for a message carries that message's usage; a text-only
-/// message still emits one checkpoint, so usage and progress never
-/// disappear merely because the model called no tool.
-/// Privacy invariant (journal is evidence, not transcript): checkpoints
-/// carry turn index, a ≤80-char tool name, and a ≤80-char target only —
-/// never message text, thinking, or full tool inputs.
-fn fold_stream_event(
-    event: &Value,
-    identity: Option<CapturedId>,
-    fold: &mut ClaudeFold,
-    session_meta: &mut Map<String, Value>,
-    transcript: &mut Transcript,
-    emit: &mut impl FnMut(&Emitted),
-) -> Option<PreSessionRefusal> {
-    match event.get("type").and_then(Value::as_str) {
-        Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
-            if let Some(identity) = identity {
-                // Recorded NOW, not only at session end: the transcript
-                // drilldowns can only locate — and live-stream — a
-                // WORKING seat's prose if the id is known from the first
-                // message. Decision 0032's shared module clamps and
-                // shapes the one transcript row. Since decision 0053 the
-                // row reaches the JOURNAL one beat later: `run_seat`
-                // buffers it until a checkpoint proves work began,
-                // because a checkpoint before that would put a refused
-                // attempt on the mid-session side of decision 0016's
-                // boundary. A refused attempt keeps the locator in its
-                // failure reason instead.
-                transcript.record(Locator::Session(identity), session_meta, emit);
-            }
-        }
-        Some("assistant") => {
-            // A message streams a line per content block, each repeating
-            // its id and usage: a repeat is its turn again, usage counted.
-            let repeat = fold.repeats(event.pointer("/message/id").and_then(Value::as_str));
-            fold.turns += u64::from(!repeat);
-            session_meta.insert("num_turns".into(), Value::from(fold.turns));
-            let model = model_in_json(event);
-            if let Some(model) = &model {
-                session_meta.insert("model".into(), Value::String(model.clone()));
-            }
-            // The harness's own echo, beside this assistant record and
-            // not from our pin (decision 0035 ruling 3). Claude writes it
-            // per record, so a thread that changes effort mid-seat says
-            // so turn by turn; the last one seen is the seat's.
-            let effort = effort_in_json(event);
-            if let Some(effort) = &effort {
-                session_meta.insert("effort".into(), Value::String(effort.clone()));
-            }
-            let usage = claude_usage(event.pointer("/message/usage").filter(|_| !repeat));
-            for (key, value) in &usage {
-                add_usage(
-                    session_meta,
-                    key,
-                    value.as_u64().expect("claude usage is a positive integer"),
-                );
-            }
-            let mut base = Map::new();
-            base.insert("turn".into(), Value::from(fold.turns));
-            base.insert(
-                "model".into(),
-                Value::String(
-                    model
-                        .clone()
-                        .unwrap_or_else(|| MODEL_NOT_REPORTED.to_string()),
-                ),
-            );
-            base.insert(
-                "effort".into(),
-                Value::String(
-                    effort
-                        .clone()
-                        .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string()),
-                ),
-            );
-            // No `reasoning_output_tokens` here, and that absence is the
-            // ruling: claude reports its thinking tokens ONLY in the
-            // result (`output_tokens_details.thinking_tokens`), so a
-            // per-turn figure would have to be invented. Decision 0035
-            // ruling 4 says absent, never zero and never back-filled
-            // from the run total.
-            base.extend(usage);
-            let blocks = event.pointer("/message/content").and_then(Value::as_array);
-            let tool_uses = blocks
-                .into_iter()
-                .flatten()
-                .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"));
-            let mut emitted = false;
-            for tool_use in tool_uses {
-                let mut checkpoint = base.clone();
-                if emitted {
-                    for key in USAGE_FIELDS {
-                        checkpoint.remove(key);
-                    }
-                }
-                // file_path ONLY: commands and URLs can embed inline secrets,
-                // and the journal is append-only — the verification review
-                // hard-stopped on exactly this (run verify-…-917996f5). Full
-                // detail belongs to the resumable transcript, not the record.
-                let target = tool_use.pointer("/input/file_path").and_then(Value::as_str);
-                if let Some(target) = target {
-                    checkpoint.insert(
-                        "target".into(),
-                        Value::String(target.chars().take(80).collect()),
-                    );
-                }
-                emit(&Emitted::new(
-                    Step::SeatTurn,
-                    Observation::claude(tool_use).onto(Value::Object(checkpoint)),
-                ));
-                emitted = true;
-            }
-            if !emitted {
-                emit(&Emitted::new(Step::SeatTurn, Value::Object(base)));
-            }
-        }
-        Some("result") => {
-            fold_result_meta(event, identity, session_meta, transcript, emit);
-            // A result's usage and turns are its own query's: each is
-            // added to the earlier results' and replaces the live sum. Its
-            // cost is the process's, less what a resume restored.
-            fold.settle(event, session_meta);
-        }
-        _ => {}
-    }
-    None
-}
-
 /// What a claude or codex `result` names on the same terms: the model and
 /// effort, and the session id as the transcript locator.
 fn fold_result_meta(
-    event: &Value,
+    event: &Row<'_>,
+    model: Option<String>,
     identity: Option<CapturedId>,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Emitted),
 ) {
-    if let Some(model) = model_in_json(event) {
+    if let Some(model) = model {
         session_meta.insert("model".into(), Value::String(model));
     }
     if let Some(effort) = effort_in_json(event) {
@@ -1819,7 +1664,7 @@ fn fold_codex_event(
             // still asked first for the model — a release that does put
             // it on `turn.completed` is the more direct report.
             let (thread_model, effort) = echo.echo();
-            let model = model_in_json(event).or(thread_model);
+            let model = model_in_json(&Row::new(event, &[])).or(thread_model);
             if let Some(model) = &model {
                 session_meta.insert("model".into(), Value::String(model.clone()));
             }
@@ -1871,7 +1716,15 @@ fn fold_codex_event(
         }
         // Conformance shims and older clients may provide only final metadata.
         Some("result") => {
-            fold_result_meta(event, identity, session_meta, transcript, emit);
+            let row = Row::new(event, &[]);
+            fold_result_meta(
+                &row,
+                model_in_json(&row),
+                identity,
+                session_meta,
+                transcript,
+                emit,
+            );
             if let Some(value) = positive_count(event.get("num_turns")) {
                 session_meta.insert("num_turns".into(), Value::from(value));
             }
@@ -2060,7 +1913,7 @@ fn fold_dsh_event(
             // response (`data.message.source.model`), never from the pin
             // (decision 0031): the last reported one becomes the seat's
             // served model, and a step that names none says so.
-            let model = model_in_json(event);
+            let model = model_in_json(&Row::new(event, &[]));
             if let Some(model) = &model {
                 session_meta.insert("model".into(), Value::String(model.clone()));
             }
@@ -2455,30 +2308,20 @@ fn invoke_stream_json(
             let Ok(line) = line else { break };
             // Unparseable stream lines are noise, never repaired
             // (decision 0001).
-            let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
+            let Ok(event) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
             let row = Row::new(&event, bindings);
-            let classified = (fold.turns == 0).then(|| claude_refusal(&row)).flatten();
             let answer = probe.answers(AdapterKind::Claude, &row);
-            let identity = CapturedId::claude(&row);
-            secret::mask_json(&mut event, bindings);
             let classified = probe::fold_capturing(probe, answer, &mut watch, |emit| {
-                FoldInput {
-                    masked: &event,
-                    refusal: classified,
-                    identity,
-                }
-                .fold(|event, identity| {
-                    fold_stream_event(
-                        event,
-                        identity,
-                        &mut fold,
-                        &mut session_meta,
-                        &mut transcript,
-                        &mut |data| emit(data),
-                    )
-                })
+                fold_stream_event(
+                    &row,
+                    claude_fold::Source::Claude,
+                    &mut fold,
+                    &mut session_meta,
+                    &mut transcript,
+                    &mut |data| emit(data),
+                )
             });
             refusal = refusal.or(classified);
             // The answer is the probe's whole report: stop the harness
@@ -3652,7 +3495,7 @@ fn invoke_codex(
             secret::mask_json(&mut event, bindings);
             let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
                 FoldInput {
-                    masked: &event,
+                    row: &event,
                     refusal: classified,
                     identity,
                 }

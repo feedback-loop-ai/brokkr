@@ -9,7 +9,7 @@ fn a_raw_refusal_ends_the_row_before_its_fold() {
     let refused = super::super::refusal::refusal_reason("rate_limit", None, None);
     let mut folded = Vec::new();
     let input = |refusal| FoldInput {
-        masked: &masked,
+        row: &masked,
         refusal,
         identity: None,
     };
@@ -158,4 +158,138 @@ fn opaque_id_matches_its_offer_and_whole_rollout_token() {
         .unwrap()
         .names_rollout("rollout-[thread-1234].jsonl"));
     assert_eq!(row.text("/id").as_deref(), Some("thread-[secret:S]"));
+}
+
+#[test]
+fn unsigned_count_keeps_the_json_integer_range() {
+    let raw = json!({"usage": u64::MAX, "zero": 0, "negative": -1, "fraction": 1.5, "text": "12"});
+    let row = Row::new(&raw, &[]);
+    assert_eq!(
+        [
+            "/usage",
+            "/zero",
+            "/negative",
+            "/fraction",
+            "/text",
+            "/missing"
+        ]
+        .map(|path| row.unsigned_count(path)),
+        [Some(u64::MAX), Some(0), None, None, None, None]
+    );
+}
+
+#[test]
+fn at_keeps_bindings_on_the_nested_value() {
+    let raw = json!({"nested": {"type": "assistant"}, "null": null});
+    let bindings = binding("assi");
+    let row = Row::new(&raw, &bindings);
+    let nested = row.at("/nested").unwrap();
+    assert!(nested.is("/type", "assistant"));
+    assert_eq!(nested.text("/type").as_deref(), Some("[secret:S]stant"));
+    assert!(row.at("/null").is_some());
+    assert!(row.at("/missing").is_none());
+}
+
+#[test]
+fn tool_keeps_raw_boundaries_in_the_masked_name() {
+    use crate::adapters::tests::binding;
+
+    let cases = [
+        (
+            "mcp__srv__tool",
+            "S",
+            "v__t",
+            Tool::McpUnidentified {
+                reported: "mcp__sr[secret:S]ool".into(),
+            },
+        ),
+        (
+            "mcp__srv__tool",
+            "S",
+            "mcp_",
+            Tool::McpUnidentified {
+                reported: "[secret:S]_srv__tool".into(),
+            },
+        ),
+        (
+            "mcp__lefttail__probe",
+            "S__CUT",
+            "tail",
+            Tool::Mcp {
+                server: "left[secret:S__CUT]".into(),
+                tool: "probe".into(),
+            },
+        ),
+        // The cut moves by the run's growth only: a run strictly inside the
+        // server, two runs before the separator, and a run wholly inside the
+        // tool component each keep the raw separator's place (F1).
+        (
+            "mcp__alphabetagamma__probe",
+            "S",
+            "beta",
+            Tool::Mcp {
+                server: "alpha[secret:S]gamma".into(),
+                tool: "probe".into(),
+            },
+        ),
+        (
+            "mcp__abetacbetad__probe",
+            "S",
+            "beta",
+            Tool::Mcp {
+                server: "a[secret:S]c[secret:S]d".into(),
+                tool: "probe".into(),
+            },
+        ),
+        (
+            "mcp__srv__readtokenfile",
+            "S",
+            "token",
+            Tool::Mcp {
+                server: "srv".into(),
+                tool: "read[secret:S]file".into(),
+            },
+        ),
+        (
+            "WebSearch",
+            "S",
+            "Search",
+            Tool::Named {
+                name: "Web[secret:S]".into(),
+            },
+        ),
+    ];
+    for (name, secret_name, value, expected) in cases {
+        let raw = json!({"name": name});
+        let bindings = [binding(secret_name, value)];
+        assert_eq!(Row::new(&raw, &bindings).tool("/name"), expected);
+    }
+}
+
+#[test]
+fn pin_compares_raw_models_and_only_plain_ids_can_be_quoted() {
+    let raw =
+        json!({"pinned": "Qwen4-Max", "other": "Next4-Max", "unplain": "with space", "number": 4});
+    let bindings = binding("4-Max");
+    let row = Row::new(&raw, &bindings);
+    let pin = ModelPin::parse("Qwen4-Max").unwrap();
+    assert_eq!(row.pin("/pinned", &pin), Pin::Pinned);
+    assert_eq!(row.pin("/other", &pin), Pin::Other { plain: true });
+    assert_eq!(row.text("/other").as_deref(), Some("Next[secret:S]"));
+    assert_eq!(row.pin("/unplain", &pin), Pin::Other { plain: false });
+    assert_eq!(row.pin("/number", &pin), Pin::Absent);
+    assert_eq!(row.pin("/absent", &pin), Pin::Absent);
+}
+
+#[test]
+fn init_matches_raw_system_and_subtype_even_without_an_id() {
+    let bindings = binding("init");
+    let raw = json!({"type": "system", "subtype": "init"});
+    assert!(Row::new(&raw, &bindings).is_init());
+    for raw in [
+        json!({"type": "system"}),
+        json!({"type": "assistant", "subtype": "init"}),
+    ] {
+        assert!(!Row::new(&raw, &bindings).is_init());
+    }
 }

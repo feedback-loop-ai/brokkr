@@ -2,28 +2,6 @@
 
 use super::*;
 
-pub(super) fn fold_stream_event(
-    event: &Value,
-    fold: &mut ClaudeFold,
-    meta: &mut Map<String, Value>,
-    transcript: &mut Transcript,
-    emit: &mut impl FnMut(&Value),
-) -> Option<PreSessionRefusal> {
-    let refusal = (fold.turns == 0)
-        .then(|| super::claude_refusal(&Row::new(event, &[])))
-        .flatten();
-    FoldInput {
-        masked: event,
-        refusal,
-        identity: CapturedId::claude(&Row::new(event, &[])),
-    }
-    .fold(|event, identity| {
-        super::fold_stream_event(event, identity, fold, meta, transcript, &mut |row| {
-            emit(&row.row)
-        })
-    })
-}
-
 pub(super) fn fold_codex_event(
     event: &Value,
     turn: &mut u64,
@@ -36,7 +14,7 @@ pub(super) fn fold_codex_event(
         .then(|| super::codex_refusal(&Row::new(event, &[])))
         .flatten();
     FoldInput {
-        masked: event,
+        row: event,
         refusal,
         identity: CapturedId::codex(&Row::new(event, &[])),
     }

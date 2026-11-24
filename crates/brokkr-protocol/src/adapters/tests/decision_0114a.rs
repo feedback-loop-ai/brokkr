@@ -1,7 +1,7 @@
 use super::*;
 use crate::RefusalClass;
 
-struct Stream {
+pub(super) struct Stream {
     dir: tempfile::TempDir,
     shim: PathBuf,
     start: Value,
@@ -28,7 +28,7 @@ impl Stream {
         Self { dir, shim, start }
     }
 
-    fn rows(rows: &[Value], secrets: &[(&str, &str)]) -> Self {
+    pub(super) fn rows(rows: &[Value], secrets: &[(&str, &str)]) -> Self {
         let rows = rows
             .iter()
             .map(Value::to_string)
@@ -41,19 +41,26 @@ impl Stream {
     }
 
     fn run(&self, kind: AdapterKind, extra: &[String]) -> (Vec<Step>, Vec<Body>) {
-        let mut bodies = Vec::new();
-        let mut steps = Vec::new();
+        let driven = self.drive(kind, extra);
+        (
+            driven.emitted.iter().map(|(step, _)| *step).collect(),
+            driven.bodies,
+        )
+    }
+
+    pub(super) fn drive(&self, kind: AdapterKind, extra: &[String]) -> Driven {
+        let mut driven = Driven::default();
         run_seat_with(
             kind,
             Ok(()),
             &self.start,
-            &mut |body| bodies.push(body),
+            &mut |body| driven.bodies.push(body),
             |prompt, input, bindings, emit| {
                 let pinned = Pinned {
                     binary: self.shim.to_str().unwrap(),
                     extra,
                 };
-                invoke_with_stager(
+                let invocation = invoke_with_stager(
                     kind,
                     pinned,
                     prompt,
@@ -62,18 +69,29 @@ impl Stream {
                     bindings,
                     false,
                     &mut |item: &Emitted| {
-                        steps.push(item.step);
+                        driven.emitted.push((item.step, item.row.clone()));
                         emit(item);
                     },
                     stage_prompt,
-                )
+                );
+                if let Ok(invocation) = &invocation {
+                    driven.meta = Some(invocation.session_meta.clone());
+                }
+                invocation
             },
         );
-        (steps, bodies)
+        driven
     }
 }
 
-fn wire_rows(bodies: &[Body]) -> impl Iterator<Item = &Value> {
+#[derive(Default)]
+pub(super) struct Driven {
+    pub(super) emitted: Vec<(Step, Value)>,
+    pub(super) bodies: Vec<Body>,
+    pub(super) meta: Option<Map<String, Value>>,
+}
+
+pub(super) fn wire_rows(bodies: &[Body]) -> impl Iterator<Item = &Value> {
     bodies.iter().filter_map(|body| match body {
         Body::Checkpoint { data, .. } => Some(data),
         _ => None,
@@ -108,6 +126,23 @@ fn bound_driver_step_keeps_the_refusal() {
     let codex = json!({"type":"turn.failed","error":{"codex_error_info":"usage_limit_exceeded","message":"quota exhausted"}});
     let claude =
         json!({"type":"rate_limit_event","apiErrorStatus":429,"message":"quota exhausted"});
+    // Qoder level 1 folds the Claude family's rows behind its pin, and
+    // writes its transcript step alone before a refusal to start (#1178,
+    // carried onto #1242): a bound step word keeps that refusal typed too.
+    let pin = ["-m".to_string(), "Fast-v2".to_string()];
+    let qoder = [
+        json!({"type":"system","subtype":"init","session_id":"session-1234","model":"Fast-v2"}),
+        claude.clone(),
+    ];
+    let words = "rate_limit: Qoder's provider refused the turn at its rate limit";
+    let (plain_steps, plain) = Stream::rows(&qoder, &[]).run(AdapterKind::Qoder, &pin);
+    assert_eq!(plain_steps, [Step::Transcript]);
+    assert_refused(&plain, words);
+    for value in ["scri", "seat"] {
+        let bound = Stream::rows(&qoder, &[("S", value)]).run(AdapterKind::Qoder, &pin);
+        assert_eq!(bound.0, plain_steps, "{value}");
+        assert_refused(&bound.1, words);
+    }
     let cases = [
         (
             AdapterKind::Codex,
@@ -117,7 +152,7 @@ fn bound_driver_step_keeps_the_refusal() {
         ),
         (
             AdapterKind::Claude,
-            vec![claude],
+            vec![claude.clone()],
             "star",
             "rate_limit (HTTP 429): quota exhausted",
         ),
@@ -181,7 +216,7 @@ fn hold(stream: &Stream, kind: &'static str, offer: Option<&str>) -> LaunchHold 
     )
 }
 
-fn bindings(stream: &Stream) -> Vec<secret::BoundSecret> {
+pub(super) fn bindings(stream: &Stream) -> Vec<secret::BoundSecret> {
     let names: Vec<String> =
         serde_json::from_value(stream.start["input"]["secrets"].clone()).unwrap();
     secret::resolve_bindings(&stream.dir.path().join("secrets.env"), &names).unwrap()
@@ -194,21 +229,8 @@ fn claude_id(event: Value) {
             std::slice::from_ref(&event),
             if bound { &values } else { &[] },
         );
-        let mut hold = hold(&stream, "claude-session", Some("session-1234"));
-        let mut wire = Vec::new();
-        let command = hold.plan.command.clone();
-        let bindings = bindings(&stream);
-        invoke_stream_json(
-            &command,
-            "prompt",
-            stream.dir.path().to_str().unwrap(),
-            &bindings,
-            &mut hold,
-            &mut ProbeAnswer::new(false),
-            &mut |item| wire.push(seat_row(AdapterKind::Claude, &bindings, &item.row)),
-        )
-        .unwrap();
-        assert_eq!(hold.terminal(), LaunchTerminal::Resumed);
+        let (launch, wire) = claude_launch(&stream, Some("session-1234"));
+        assert_eq!(launch, LaunchTerminal::Resumed);
         assert_eq!(
             wire[0]["transcript"]["locator"],
             if bound {
@@ -223,6 +245,24 @@ fn claude_id(event: Value) {
             (!bound).then(|| &event["session_id"])
         );
     }
+}
+
+pub(super) fn claude_launch(stream: &Stream, offer: Option<&str>) -> (LaunchTerminal, Vec<Value>) {
+    let mut hold = hold(stream, "claude-session", offer);
+    let command = hold.plan.command.clone();
+    let bindings = bindings(stream);
+    let mut wire = Vec::new();
+    invoke_stream_json(
+        &command,
+        "prompt",
+        stream.dir.path().to_str().unwrap(),
+        &bindings,
+        &mut hold,
+        &mut ProbeAnswer::new(false),
+        &mut |item| wire.push(seat_row(AdapterKind::Claude, &bindings, &item.row)),
+    )
+    .unwrap();
+    (hold.terminal(), wire)
 }
 
 fn dsh_id(bound: bool) {

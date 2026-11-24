@@ -600,22 +600,6 @@ fn needles<'b>(
     needles
 }
 
-fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Encoder)]) -> Vec<u8> {
-    if bindings.is_empty() {
-        return bytes.to_vec();
-    }
-    let needles = needles(bindings, encodings);
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut clear = 0;
-    for (start, end, name) in covered(bytes, &needles) {
-        out.extend_from_slice(&bytes[clear..start]);
-        out.extend_from_slice(format!("[secret:{name}]").as_bytes());
-        clear = end;
-    }
-    out.extend_from_slice(&bytes[clear..]);
-    out
-}
-
 /// Every run of `bytes` that occurrences of `needles` cover, in order, as
 /// where it begins and ends and the name the run's marker reads (#1213,
 /// decision 0012's addendum of 2026-11-21): the union of every occurrence
@@ -789,9 +773,12 @@ pub use handoff::{exec_confined, send_environment};
 
 mod guard;
 pub(crate) mod handoff;
+mod mask;
 mod refusal;
 mod store;
 
+use mask::mask_needles;
+pub(crate) use mask::{mask_split, MaskedSplit};
 use refusal::{NameRefusal, ReferenceRefusal, ValueRefusal};
 
 #[cfg(test)]

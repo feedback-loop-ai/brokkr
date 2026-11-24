@@ -16,13 +16,12 @@
 //! - its session is never persisted (`--no-session-persistence`), so its
 //!   session id locates nothing and is dropped: the transcript is `none`.
 //!
-//! Decision 0075's 2026-11-21 addendum rules the rest: the pin is a plain
-//! model id ([`ModelPin`]), every row is decided on as Qoder wrote it and
-//! only a masked copy of it reaches the Claude fold, a stdout line no
-//! measured stream carries refuses the seat, a provider's refusal is named
-//! by its class alone, a fallback notice wins every stop, and every word
-//! names only plain ids.
+//! Decision 0075's 2026-11-21 addendum also rules that an unmeasured
+//! stdout line refuses the seat, a provider refusal is named by its
+//! class alone, and a fallback notice wins every stop. Decision 0114
+//! reads structure through [`Row`] and masks each text projection.
 //!
+//! The pin is a plain model id ([`ModelPin`]).
 //! Its cost is credits, and every dollar and token figure it reports is 0;
 //! the fold already reads a zero as not reported. Qoder's two system
 //! subtypes Claude Code does not write, `artifacts_update` and
@@ -35,13 +34,14 @@ use std::path::Path;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-use super::claude_fold::ClaudeFold;
+use super::claude_fold::{ClaudeFold, Source};
 use super::escapes::plain_evidence;
 use super::mcp::{self, McpRefusal};
+use super::row::{Pin, Row};
 use super::stream_turn::{plain, Observed, STOPPED_AT_REFUSAL, UNCONCLUDED};
 use super::{
-    fold_stream_event, io_context, lost, secret, spawn_fed, CapturedId, Emitted, FoldInput,
-    Invocation, LaunchTerminal,
+    fold_stream_event, io_context, lost, model_token, secret, spawn_fed, Emitted, Invocation,
+    LaunchTerminal,
 };
 use crate::native_controls::mcp::qoder::isolation;
 use crate::transcript::{Kind as TranscriptKind, Transcript};
@@ -149,14 +149,21 @@ pub(super) enum LaunchError {
 }
 
 /// A qoder seat's `-m` value, built once at launch and only from a
-/// [`plain`] id (Z1). Every later use, the stream's check and every word
-/// that names it, takes this type, and none outside this module (H6).
+/// [`plain`] id (Z1), compared in [`Row::pin`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ModelPin(String);
+pub(super) struct ModelPin(String);
 
 impl ModelPin {
-    fn parse(value: &str) -> Option<ModelPin> {
+    pub(super) fn parse(value: &str) -> Option<ModelPin> {
         plain(value).then(|| ModelPin(value.to_string()))
+    }
+
+    pub(super) fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn reported(&self, bindings: &[secret::BoundSecret]) -> Option<String> {
+        model_token(&secret::mask_text(self.0.as_bytes(), bindings))
     }
 }
 
@@ -315,20 +322,18 @@ fn staged(document: &Value, root: &Path) -> Result<tempfile::TempDir, LaunchErro
     written.map_err(LaunchError::Unstaged)
 }
 
-/// Qoder's rows read for the model they served, before the Claude fold
-/// reads them for everything else. Every rule of Qoder's own is decided on
-/// a row as Qoder wrote it, and the Claude fold reads only a copy the
-/// seat's bindings masked, so its classifier, its session record and every
-/// row it emits read masked text alone, as every other adapter's do (H1).
+/// Qoder's pin admission, before the shared fold reads each row.
 struct QoderFold {
     pin: ModelPin,
-    /// Whether an init row has been read: every measured stream carries
-    /// exactly one, and a second refuses the seat (Y1).
+    /// Every measured stream carries exactly one init (Y1).
     initialised: bool,
-    /// Whether init named the pin. An init that names no model confirms
-    /// nothing and leaves it unset (Y1).
-    confirmed: bool,
+    confirmed: Option<ConfirmedPin>,
     claude: ClaudeFold,
+}
+
+struct ConfirmedPin {
+    /// A bound pin still confirms the launch and has no reportable label.
+    model: Option<String>,
 }
 
 /// Why the fold stopped a stream at a row.
@@ -346,7 +351,7 @@ impl QoderFold {
         QoderFold {
             pin: pin.clone(),
             initialised: false,
-            confirmed: false,
+            confirmed: None,
             claude: ClaudeFold::default(),
         }
     }
@@ -356,13 +361,8 @@ impl QoderFold {
         self.claude.turns > 0
     }
 
-    /// One stdout line, as Qoder wrote it. `Err` stops the stream there: a
-    /// line that is no JSON object (Z3), a second init row, a first one
-    /// naming another model than the pin, or a turn no init confirmed
-    /// (Y1). Nothing of a stopping row is folded. Those rules read the row
-    /// unmasked; the Claude fold reads only its copy masked by `bindings`,
-    /// once the pin is written in, and a refusal it classifies is named by
-    /// its class alone ([`provider_refused`], H1 and H2).
+    /// Decide Qoder's admission before folding the row. A provider
+    /// refusal is named by its class alone (H1 and H2).
     fn read(
         &mut self,
         line: &[u8],
@@ -371,65 +371,70 @@ impl QoderFold {
         transcript: &mut Transcript,
         emit: &mut impl FnMut(&Emitted),
     ) -> Result<Option<PreSessionRefusal>, Stop> {
-        let Ok(mut row) = serde_json::from_slice::<Map<String, Value>>(line) else {
+        let Ok(object) = serde_json::from_slice::<Map<String, Value>>(line) else {
             return Err(Stop::Refused(unmeasured_line()));
         };
-        self.confirm(&row)?;
-        let assistant = row.get("type").and_then(Value::as_str) == Some("assistant");
-        // Nothing persists the session, so its id locates nothing.
-        row.remove("session_id");
-        // An assistant row names Qoder's internal code; init named the
-        // model, and an assistant row reaches here only once it has.
-        let message = row.get_mut("message").and_then(Value::as_object_mut);
-        if let (true, Some(message)) = (assistant, message) {
-            message.insert("model".into(), Value::String(self.pin.to_string()));
-        }
-        // The one place a row is masked: no row reaches the fold unmasked.
-        let mut event = Value::Object(row);
-        let row = super::Row::new(&event, bindings);
-        let refusal = (self.claude.turns == 0)
-            .then(|| super::claude_refusal(&row))
-            .flatten();
-        let identity = CapturedId::claude(&row);
-        secret::mask_json(&mut event, bindings);
-        let classified = FoldInput {
-            masked: &event,
-            refusal,
-            identity,
-        }
-        .fold(|event, identity| {
-            fold_stream_event(
-                event,
-                identity,
-                &mut self.claude,
-                session_meta,
-                transcript,
-                emit,
-            )
-        });
+        let event = Value::Object(object);
+        let row = Row::new(&event, bindings);
+        self.confirm(&row, bindings, session_meta)?;
+        let model = self.confirmed.as_ref().and_then(|pin| pin.model.as_deref());
+        let classified = fold_stream_event(
+            &row,
+            Source::Qoder { model },
+            &mut self.claude,
+            session_meta,
+            transcript,
+            emit,
+        );
         Ok(classified.map(provider_refused))
     }
 
-    /// `row` read for the model it confirms, as Qoder wrote it: an init
-    /// row names the pin, or nothing; a second one, or a turn before init
-    /// named the pin, stops the stream (Y1).
-    fn confirm(&mut self, row: &Map<String, Value>) -> Result<(), Stop> {
-        let text = |key: &str| row.get(key).and_then(Value::as_str);
-        let kind = text("type");
-        if kind == Some("system") && text("subtype") == Some("init") {
-            if std::mem::replace(&mut self.initialised, true) {
-                return Err(Stop::Refused(second_init()));
-            }
-            match text("model") {
-                Some(served) if served == self.pin.0 => self.confirmed = true,
-                Some(served) => return Err(Stop::Refused(substituted(&self.pin, Some(served)))),
-                // An init that names nothing confirms nothing (Y1).
-                None => {}
-            }
-        } else if !self.confirmed && matches!(kind, Some("assistant" | "user" | "result")) {
+    /// A second init, a different model or work before confirmation stops
+    /// the stream (Y1). An init that names no model confirms nothing.
+    fn confirm(
+        &mut self,
+        row: &Row<'_>,
+        bindings: &[secret::BoundSecret],
+        meta: &mut Map<String, Value>,
+    ) -> Result<(), Stop> {
+        if row.is_init() {
+            return self.confirm_init(row, bindings, meta);
+        }
+        let work = &[("assistant", ()), ("user", ()), ("result", ())];
+        if self.confirmed.is_none() && row.kind("/type", work).is_some() {
             return Err(Stop::Unconfirmed);
         }
         Ok(())
+    }
+
+    fn confirm_init(
+        &mut self,
+        row: &Row<'_>,
+        bindings: &[secret::BoundSecret],
+        meta: &mut Map<String, Value>,
+    ) -> Result<(), Stop> {
+        if std::mem::replace(&mut self.initialised, true) {
+            return Err(Stop::Refused(second_init()));
+        }
+        match row.pin("/model", &self.pin) {
+            Pin::Pinned => {
+                let model = self.pin.reported(bindings);
+                if let Some(label) = &model {
+                    meta.insert("model".into(), Value::String(label.clone()));
+                }
+                self.confirmed = Some(ConfirmedPin { model });
+                Ok(())
+            }
+            Pin::Other { plain } => {
+                let served = if plain {
+                    Substitution::Plain(row.text("/model").unwrap_or_default())
+                } else {
+                    Substitution::Unplain
+                };
+                Err(Stop::Refused(substituted(&self.pin, served)))
+            }
+            Pin::Absent => Ok(()),
+        }
     }
 
     /// The refusal the turn ends with, decided once (H5): where Qoder's
@@ -448,12 +453,12 @@ impl QoderFold {
         exit_code: i32,
     ) -> Option<PreSessionRefusal> {
         if observed.fell_back() {
-            return Some(substituted(&self.pin, None));
+            return Some(substituted(&self.pin, Substitution::Stderr));
         }
         match stop {
             Some(Stop::Refused(refused)) => Some(refused),
             Some(Stop::Unconfirmed) => Some(unconfirmed(&self.pin)),
-            None => (exit_code == 0 && !self.confirmed).then(|| unconfirmed(&self.pin)),
+            None => (exit_code == 0 && self.confirmed.is_none()).then(|| unconfirmed(&self.pin)),
         }
     }
 
@@ -479,20 +484,23 @@ impl QoderFold {
     }
 }
 
-/// The refusal of a seat Qoder served another model than its pin: the one
-/// init named, as Qoder wrote it, or, where init named none other, the
-/// fallback Qoder reported on stderr, in words of the driver's own (U1).
-/// The words name the pin and, only where it is a plain id, the served
-/// model, each by `Display` in single quotes and whole (Z4, H2).
-fn substituted(pin: &ModelPin, served: Option<&str>) -> PreSessionRefusal {
+enum Substitution {
+    Plain(String),
+    Unplain,
+    Stderr,
+}
+
+/// Name the substituted model only when init reported a plain id.
+/// Row has already masked that id whole (decision 0114).
+fn substituted(pin: &ModelPin, served: Substitution) -> PreSessionRefusal {
     let words = match served {
-        Some(served) if plain(served) => {
+        Substitution::Plain(served) => {
             format!("the seat pinned '{pin}' and Qoder served '{served}'")
         }
-        Some(_) => {
+        Substitution::Unplain => {
             format!("the seat pinned '{pin}' and Qoder served a model that is not a plain id")
         }
-        None => format!(
+        Substitution::Stderr => format!(
             "the seat pinned '{pin}' and Qoder reported on stderr that it fell back to another \
              model"
         ),
@@ -593,7 +601,6 @@ fn invoke(
         Some(_) => super::conclude_harness(&mut child)?,
         None => io_context(child.wait(), UNCONCLUDED)?,
     };
-    // The session record holds only what masked rows wrote (H1).
     transcript.finish(&mut session_meta, emit);
     let captured = stderr_thread.take(stopped.is_some());
     let exit_code = match stopped {

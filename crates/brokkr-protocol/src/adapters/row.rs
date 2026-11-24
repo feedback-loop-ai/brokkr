@@ -1,16 +1,28 @@
 //! Raw harness structure and masked text (decision 0114).
 
+use std::ops::Range;
+
 use serde_json::Value;
 
+use super::capability_calls::{Tool, MCP_PREFIX, MCP_SEPARATOR};
 use super::plain_thread_id;
+use super::qoder::ModelPin;
 use super::refusal::{bounded_wire_line, REFUSAL_TOKEN_LIMIT};
-use crate::secret::{self, BoundSecret};
+use super::stream_turn::plain;
+use crate::secret::{self, BoundSecret, MaskedSplit};
 use crate::PreSessionRefusal;
 
 pub(super) struct Row<'a> {
     raw: &'a Value,
     bindings: &'a [BoundSecret],
     fallback: Option<&'a Value>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum Pin {
+    Pinned,
+    Other { plain: bool },
+    Absent,
 }
 
 impl<'a> Row<'a> {
@@ -48,6 +60,20 @@ impl<'a> Row<'a> {
         self.string(path) == Some(word)
     }
 
+    pub(super) fn is_init(&self) -> bool {
+        self.is("/type", "system") && self.is("/subtype", "init")
+    }
+
+    pub(super) fn pin(&self, path: &str, pin: &ModelPin) -> Pin {
+        match self.string(path) {
+            Some(model) if model == pin.as_str() => Pin::Pinned,
+            Some(model) => Pin::Other {
+                plain: plain(model),
+            },
+            None => Pin::Absent,
+        }
+    }
+
     pub(super) fn contains(&self, path: &str, token: &str) -> bool {
         self.string(path).is_some_and(|word| word.contains(token))
     }
@@ -58,6 +84,10 @@ impl<'a> Row<'a> {
 
     pub(super) fn count(&self, path: &str) -> Option<i64> {
         self.value(path)?.as_i64()
+    }
+
+    pub(super) fn unsigned_count(&self, path: &str) -> Option<u64> {
+        self.value(path)?.as_u64()
     }
 
     pub(super) fn number(&self, path: &str) -> Option<f64> {
@@ -76,10 +106,40 @@ impl<'a> Row<'a> {
     }
 
     pub(super) fn text(&self, path: &str) -> Option<String> {
-        Some(secret::mask_text(
-            self.string(path)?.as_bytes(),
-            self.bindings,
-        ))
+        self.string(path).map(|text| self.masked(text))
+    }
+
+    pub(super) fn tool(&self, path: &str) -> Tool {
+        let Some(name) = self.string(path) else {
+            return Tool::Missing;
+        };
+        let Some(rest) = name.strip_prefix(MCP_PREFIX) else {
+            return Tool::Named {
+                name: self.masked(name),
+            };
+        };
+        let Some(separator) = mcp_separator(rest) else {
+            return Tool::McpUnidentified {
+                reported: self.masked(name),
+            };
+        };
+        let prefix = MCP_PREFIX.len();
+        let separator = prefix + separator.start..prefix + separator.end;
+        match secret::mask_split(name, self.bindings, prefix, separator) {
+            MaskedSplit::Parts { left, right } => Tool::Mcp {
+                server: left,
+                tool: right,
+            },
+            MaskedSplit::Whole(reported) => Tool::McpUnidentified { reported },
+        }
+    }
+
+    fn masked(&self, text: &str) -> String {
+        secret::mask_text(text.as_bytes(), self.bindings)
+    }
+
+    pub(super) fn at(&self, path: &str) -> Option<Row<'a>> {
+        Some(Self::new(self.value(path)?, self.bindings))
     }
 
     pub(super) fn items(&self, path: &str) -> Option<impl Iterator<Item = Row<'a>>> {
@@ -95,6 +155,13 @@ impl<'a> Row<'a> {
     fn string(&self, path: &str) -> Option<&'a str> {
         self.value(path)?.as_str()
     }
+}
+
+/// The first separator after the MCP prefix, with a name on either side.
+pub(super) fn mcp_separator(rest: &str) -> Option<Range<usize>> {
+    let start = rest.find(MCP_SEPARATOR)?;
+    let end = start + MCP_SEPARATOR.len();
+    (start != 0 && end < rest.len()).then_some(start..end)
 }
 
 /// A raw session id is only compared. Its spelling never reaches the wire.
@@ -142,7 +209,7 @@ impl CapturedId {
     }
 
     pub(super) fn init(row: &Row<'_>) -> Option<Self> {
-        (row.is("/type", "system") && row.is("/subtype", "init"))
+        row.is_init()
             .then(|| Self::read(row, "/session_id"))
             .flatten()
     }
@@ -166,24 +233,24 @@ impl CapturedId {
     }
 }
 
-/// Shared reads captured before the family fold takes its masked copy.
-pub(super) struct FoldInput<'a> {
-    pub(super) masked: &'a Value,
+/// The input and prior decisions for one family fold.
+pub(super) struct FoldInput<R> {
+    pub(super) row: R,
     pub(super) refusal: Option<PreSessionRefusal>,
     pub(super) identity: Option<CapturedId>,
 }
 
-impl<'a> FoldInput<'a> {
-    /// The family fold over the masked row, unless the raw row was already
+impl<R> FoldInput<R> {
+    /// Run the family fold unless the raw row was already
     /// classified as a refusal to start: that refusal ends the row first,
     /// and the fold never reads it. One home for both families' folds.
     pub(super) fn fold(
         self,
-        fold: impl FnOnce(&'a Value, Option<CapturedId>) -> Option<PreSessionRefusal>,
+        fold: impl FnOnce(R, Option<CapturedId>) -> Option<PreSessionRefusal>,
     ) -> Option<PreSessionRefusal> {
         match self.refusal {
             Some(refusal) => Some(refusal),
-            None => fold(self.masked, self.identity),
+            None => fold(self.row, self.identity),
         }
     }
 }

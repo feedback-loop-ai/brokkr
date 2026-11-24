@@ -14,6 +14,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::row::{mcp_separator, Row};
+
 /// The private checkpoint key an observation rides under from the driver
 /// to the engine, which consumes it before any append. The store never
 /// admits it.
@@ -24,8 +26,8 @@ const SHOWN_CHARS: usize = 80;
 
 /// How Claude and dsh name an MCP tool, as U0 measured both:
 /// `mcp__<server>__<tool>`.
-const MCP_PREFIX: &str = "mcp__";
-const MCP_SEPARATOR: &str = "__";
+pub(super) const MCP_PREFIX: &str = "mcp__";
+pub(super) const MCP_SEPARATOR: &str = "__";
 
 /// Codex's item type for an MCP call. It is a category, never a tool name:
 /// the server and tool ride beside it on the item.
@@ -75,11 +77,11 @@ pub struct Observation {
 
 impl Observation {
     /// One `tool_use` block of a Claude `assistant` message.
-    pub(super) fn claude(block: &Value) -> Observation {
+    pub(super) fn claude(block: &Row<'_>) -> Observation {
         Observation {
             format: Format::Claude,
-            call: text(block, "/id"),
-            tool: named(text(block, "/name")),
+            call: block.text("/id"),
+            tool: block.tool("/name"),
         }
     }
 
@@ -175,12 +177,12 @@ fn named(name: Option<String>) -> Tool {
     let Some(rest) = name.strip_prefix(MCP_PREFIX) else {
         return Tool::Named { name };
     };
-    match rest.split_once(MCP_SEPARATOR) {
-        Some((server, tool)) if !server.is_empty() && !tool.is_empty() => Tool::Mcp {
-            server: server.to_string(),
-            tool: tool.to_string(),
+    match mcp_separator(rest) {
+        Some(separator) => Tool::Mcp {
+            server: rest[..separator.start].to_string(),
+            tool: rest[separator.end..].to_string(),
         },
-        _ => Tool::McpUnidentified { reported: name },
+        None => Tool::McpUnidentified { reported: name },
     }
 }
 
