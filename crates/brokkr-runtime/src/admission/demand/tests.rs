@@ -710,6 +710,45 @@ fn demand_larger_than_the_whole_machine_starts_only_when_idle() {
     }
 }
 
+/// An entry larger than the whole machine in one resource is still held
+/// by the other on an idle machine: an every-core build is whole in CPU
+/// once its margin is added, and still waits for its memory, and the
+/// mirror (ruling 6, B4).
+#[test]
+fn a_whole_machine_entry_on_an_idle_machine_still_waits_for_its_other_resource() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    for (whole, memory, load, machine, kind) in [
+        (
+            "cpu",
+            10 * GIB,
+            7000,
+            measured(4 * GIB, 8000),
+            "memory_short",
+        ),
+        (
+            "memory",
+            14 * GIB,
+            4000,
+            measured(16 * GIB, 2000),
+            "cpu_short",
+        ),
+    ] {
+        let host = declared(memory, load);
+        let held = judged(&fixture, &host, &[], machine, &BTreeMap::new()).0;
+        let said = said(&held);
+        assert_eq!(said.len(), 1, "{whole}");
+        let [(said_kind, words)] = said[0].as_slice() else {
+            panic!("{whole}: one reason, not {:?}", said[0]);
+        };
+        assert_eq!(*said_kind, kind, "{whole}: {words}");
+        assert!(
+            !words.contains("starts only when nothing else runs"),
+            "{whole}: {words}"
+        );
+    }
+}
+
 #[test]
 fn a_declared_demand_applies_until_the_recipe_has_measured_history() {
     let (mut fixture, history) = measured_fixture();

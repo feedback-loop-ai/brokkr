@@ -351,18 +351,22 @@ impl Sizing {
                 whole,
             },
         };
-        match (whole_memory || whole_cpu, self.idle()) {
-            (true, true) => {}
-            (true, false) => return Err(short(true, whole_memory)),
-            (false, _) => {
-                if memory.saturating_add(self.reserved.memory_bytes) > self.machine.memory_bytes {
-                    return Err(short(false, true));
-                }
-                if load.saturating_add(self.reserved.load_millicores) > self.machine.idle_millicores
-                {
-                    return Err(short(false, false));
-                }
-            }
+        // Ruling 6's exception is a resource's: one the entry needs more of
+        // than the whole machine waits for an idle machine, and every other
+        // resource is still judged against what is available beside what is
+        // reserved (B4: for memory and for CPU).
+        if (whole_memory || whole_cpu) && !self.idle() {
+            return Err(short(true, whole_memory));
+        }
+        if !whole_memory
+            && memory.saturating_add(self.reserved.memory_bytes) > self.machine.memory_bytes
+        {
+            return Err(short(false, true));
+        }
+        if !whole_cpu
+            && load.saturating_add(self.reserved.load_millicores) > self.machine.idle_millicores
+        {
+            return Err(short(false, false));
         }
         self.reserved.memory_bytes = self.reserved.memory_bytes.saturating_add(memory);
         self.reserved.load_millicores = self.reserved.load_millicores.saturating_add(load);
