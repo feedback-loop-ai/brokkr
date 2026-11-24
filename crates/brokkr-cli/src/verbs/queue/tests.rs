@@ -55,7 +55,7 @@ fn queue_in(workspace: &Path, db: &Path, words: &[&str]) -> Result<ExitCode> {
     queue(workspace, parsed(db, words))
 }
 
-/// What `brokkr queue list`, `judge`, `repin` or `move`, run in
+/// What `brokkr queue list`, `judge`, `repin`, `move` or `merged`, run in
 /// `workspace` against `db`, prints on stderr.
 fn stderr_of(workspace: &Path, db: &Path, words: &[&str]) -> String {
     let mut stderr = Vec::new();
@@ -67,7 +67,8 @@ fn stderr_of(workspace: &Path, db: &Path, words: &[&str]) -> String {
             let command = QueueCommand::Move { to: args.to };
             change(workspace, args.entry, command, &mut stderr)
         }
-        _ => unreachable!("only list, judge, repin and move are read on stderr here"),
+        QueueCmd::Merged(args) => change(workspace, args, QueueCommand::Merged, &mut stderr),
+        _ => unreachable!("only list, judge, repin, move and merged are read on stderr here"),
     };
     assert_eq!(exit.unwrap(), completed());
     String::from_utf8(stderr).unwrap()
@@ -450,6 +451,41 @@ fn an_empty_queue_says_so() {
     assert_eq!(serde_json::to_value(rows(&[])).unwrap(), json!([]));
 }
 
+/// `brokkr queue merged` (#1192) records a merge of an entry that started
+/// a run and says so; of one that started none it is refused in its own
+/// words.
+#[test]
+fn a_merge_is_recorded_of_a_started_entry_and_refused_of_an_unstarted_one() {
+    let (dir, _host) = (tempfile::tempdir().unwrap(), own_host());
+    let (ws, db) = library(&dir);
+    for feature in ["merges", "waits"] {
+        let add = [
+            "add",
+            "--bundle",
+            "b",
+            "--feature",
+            feature,
+            "--reason",
+            "r",
+        ];
+        queue_in(ws, &db, &add).unwrap();
+    }
+    let mut store = Store::open(&db).unwrap();
+    let manifest = json!({"schema": "run-manifest/v1"});
+    (store.create_run("run-1", "f", "b", &manifest)).unwrap();
+    brokkr_store::test_support::linked(&mut store, EntryId(1), "run-1");
+    drop(store);
+    let merged = ["merged", "1", "--reason", "PR #2 merged as abc123"];
+    assert_eq!(
+        stderr_of(ws, &db, &merged),
+        "recorded queue entry 1 merged\n"
+    );
+    assert_eq!(
+        refused_in(ws, &db, &["merged", "2", "--reason", "r"]),
+        failed("error: queue entry 2 has started no run, so no merge of its work can be recorded")
+    );
+}
+
 #[test]
 fn each_refusal_leaves_with_its_own_words() {
     let _host = own_host();
@@ -529,7 +565,9 @@ fn each_refusal_leaves_with_its_own_words() {
     assert_eq!(
         unknown.err().unwrap().to_string(),
         "error: invalid value '1:named' for '--after <ENTRY:CONDITION>': '1:named' is not \
-         ENTRY:CONDITION, with CONDITION one of completed, ended\n\n\
+         ENTRY:CONDITION, with CONDITION one of completed, ended, shipped, shipped-flagged, \
+         refused, failed, blocked, exhausted, superseded, infrastructure, delivered-elsewhere, \
+         withdrawn, operator-stopped, merged\n\n\
          For more information, try '--help'.\n"
     );
 

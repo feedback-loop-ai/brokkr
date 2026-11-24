@@ -155,6 +155,7 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
     let store = Store::open(&path).unwrap();
     let claimed = EntryState::Claimed {
         run: "run-a".into(),
+        merged: false,
     };
     assert_eq!(
         rows(&store),
@@ -459,6 +460,7 @@ fn a_journal_at_mains_schema_migrates_to_the_queue_and_keeps_its_runs() {
     assert_eq!(store.list_runs().unwrap()[0].0, "old-run");
     let claimed = EntryState::Claimed {
         run: "old-run".into(),
+        merged: false,
     };
     assert_eq!(
         rows(&store),
@@ -911,6 +913,16 @@ fn every_add_and_claim_refusal_is_typed_says_why_and_writes_nothing() {
         QueueRefusal::DuplicateWait(queued),
         "a new queue entry names entry 1 to wait for twice",
     );
+    // A condition the column's reader refuses is never written (#1192).
+    let unclassified = Wait {
+        entry: queued,
+        on: WaitOn::Named(brokkr_core::ending::Ending::Unclassified),
+    };
+    refused_as(
+        add(&[unclassified]),
+        QueueRefusal::NotACondition(unclassified),
+        "a new queue entry cannot wait on 1:unclassified: its condition is not one a wait may name",
+    );
     let mut claim = |entry| refusal(claimed_now(&mut store, entry));
     refused_as(
         claim(held),
@@ -1098,14 +1110,16 @@ fn a_wait_reads_back_as_written_and_nothing_else_reads_as_one() {
     }
     for text in ["3", "x:completed", "3:named", "3:"] {
         let refused = text.parse::<Wait>().unwrap_err();
-        let said =
-            format!("'{text}' is not ENTRY:CONDITION, with CONDITION one of completed, ended");
+        let said = format!("'{text}' is not ENTRY:CONDITION, with CONDITION one of {CONDITIONS}");
         assert_eq!(
             (refused.to_string(), refused),
             (said, NotAWait(text.to_string()))
         );
     }
-    let claimed = EntryState::Claimed { run: "r".into() };
+    let claimed = EntryState::Claimed {
+        run: "r".into(),
+        merged: false,
+    };
     let states = [
         (EntryState::Queued, "queued", None),
         (EntryState::Held, "held", None),
@@ -1116,6 +1130,138 @@ fn a_wait_reads_back_as_written_and_nothing_else_reads_as_one() {
     for (state, word, run) in states {
         assert_eq!((state.word(), state.run()), (word, run));
     }
+}
+
+/// Every condition a wait may name, as `NotAWait` lists them (#1192).
+const CONDITIONS: &str = "completed, ended, shipped, shipped-flagged, refused, failed, blocked, \
+                          exhausted, superseded, infrastructure, delivered-elsewhere, withdrawn, \
+                          operator-stopped, merged";
+
+/// Each named ending of decision 0064 but `unclassified` is a condition
+/// (#1192): it reads back from its text and from the stored column as
+/// written, and `unclassified`, which no run comes to, is refused.
+#[test]
+fn a_named_ending_is_a_wait_and_unclassified_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let text = "3:unclassified";
+    let refused = text
+        .parse::<Wait>()
+        .map_err(|refused| (refused.to_string(), refused));
+    let said = format!("'{text}' is not ENTRY:CONDITION, with CONDITION one of {CONDITIONS}");
+    assert_eq!(refused, Err((said, NotAWait(text.to_string()))));
+    let merged = Wait {
+        entry: EntryId(3),
+        on: WaitOn::Merged,
+    };
+    let text = "3:merged";
+    assert_eq!(
+        (text.parse(), merged.to_string()),
+        (Ok(merged), text.into())
+    );
+    let awaited = queue(&mut store, 1)[0];
+    let named = &WaitOn::ALL[2..13];
+    let mut written = Vec::new();
+    for (on, ending) in named.iter().zip(brokkr_core::ending::Ending::ALL) {
+        let text = format!("3:{}", ending.word());
+        let wait = Wait {
+            entry: EntryId(3),
+            on: WaitOn::Named(ending),
+        };
+        assert_eq!(
+            (*on, wait.to_string(), text.parse()),
+            (wait.on, text, Ok(wait))
+        );
+        let wait = Wait {
+            entry: awaited,
+            on: *on,
+        };
+        let new = NewEntry {
+            payload: "waits",
+            priority: 0,
+            waits: &[wait],
+        };
+        store.queue_add(new, BY).unwrap();
+        written.push(vec![wait]);
+    }
+    let read: Vec<Vec<Wait>> = rows(&store).into_iter().skip(1).map(|row| row.4).collect();
+    assert_eq!((named.len(), read), (11, written));
+}
+
+/// A `merged` record (#1192) is refused of every entry that started no
+/// run, writing nothing. Of one that did, it is journaled with its
+/// operator and reason and no place, again beside the first when made
+/// twice, and moves no standing or place: the entry reads merged from
+/// then on, and a wait on it is written and read back as `merged`.
+#[test]
+fn a_merge_is_recorded_only_of_an_entry_that_started_a_run_and_moves_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, [queued, held, dropped, claimed]) = every_standing(dir.path());
+    let launching = queue(&mut store, 1)[0];
+    claimed_now(&mut store, launching).unwrap().unwrap();
+    let (listed, mut journaled) = (rows(&store), commands(&store.conn));
+    let mut merged = |entry| refusal(store.queue_command(entry, QueueCommand::Merged, BY));
+    let unstarted =
+        |n| format!("queue entry {n} has started no run, so no merge of its work can be recorded");
+    refused_as(
+        merged(queued),
+        QueueRefusal::Unstarted(queued),
+        &unstarted(1),
+    );
+    refused_as(merged(held), QueueRefusal::Unstarted(held), &unstarted(2));
+    refused_as(
+        merged(launching),
+        QueueRefusal::Launching(launching),
+        "queue entry 5 is launching; the dispatcher links, returns or holds it first",
+    );
+    refused_as(
+        merged(dropped),
+        QueueRefusal::Dropped(dropped),
+        "queue entry 3 was dropped",
+    );
+    assert_eq!(
+        (rows(&store), commands(&store.conn)),
+        (listed.clone(), journaled.clone())
+    );
+
+    let corrected = Attribution {
+        operator: "vy",
+        reason: "PR #2 merged as abc123",
+    };
+    for by in [BY, corrected] {
+        let recorded = store.queue_command(claimed, QueueCommand::Merged, by);
+        assert_eq!(recorded.unwrap(), None);
+        let row = (
+            4,
+            "merged".into(),
+            None,
+            by.operator.into(),
+            by.reason.into(),
+        );
+        journaled.push(row);
+    }
+    assert_eq!(commands(&store.conn), journaled);
+    let merged = EntryState::Claimed {
+        run: "run-b".into(),
+        merged: true,
+    };
+    let mut expected = listed;
+    for row in expected.iter_mut().filter(|row| row.0 == claimed.0) {
+        row.2 = merged.clone();
+    }
+    assert_eq!(rows(&store), expected);
+    assert_eq!(store.queue_entry(claimed).unwrap().state, merged);
+    let wait = Wait {
+        entry: claimed,
+        on: WaitOn::Merged,
+    };
+    let new = NewEntry {
+        payload: "waits",
+        priority: 0,
+        waits: &[wait],
+    };
+    let waiting = store.queue_add(new, BY).unwrap();
+    assert_eq!(store.queue_entry(waiting).unwrap().waits, vec![wait]);
 }
 
 /// The guards the migration installs refuse every rewrite of what is

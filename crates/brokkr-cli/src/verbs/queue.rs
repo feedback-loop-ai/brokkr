@@ -1,7 +1,8 @@
 //! `brokkr queue` (decision 0068 ruling 1): the dispatcher's queue in the
 //! journal's own database. `add` queues the launch `brokkr run` would make
 //! with the same arguments; `move`, `hold`, `release`, `repin` and `drop`
-//! change an entry, each journaled with its reason; `list` reads it, with
+//! change an entry, and `merged` records that its work merged, each
+//! journaled with its reason; `list` reads it, with
 //! admission's verdict on each entry that waits, and `judge` shows the
 //! same once it has latched the realm drift admission finds. Nothing here
 //! starts a run.
@@ -41,6 +42,12 @@ pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
         ),
         QueueCmd::Repin(args) => repin(workspace, args, &mut std::io::stderr()),
         QueueCmd::Drop(args) => change(workspace, args, QueueCommand::Drop, &mut std::io::stderr()),
+        QueueCmd::Merged(args) => change(
+            workspace,
+            args,
+            QueueCommand::Merged,
+            &mut std::io::stderr(),
+        ),
     }
 }
 
@@ -81,7 +88,7 @@ fn attributed<T>(reason: &str, act: impl FnOnce(Attribution<'_>) -> T) -> T {
     })
 }
 
-/// `brokkr queue move|hold|release|drop`.
+/// `brokkr queue move|hold|release|drop|merged`.
 fn change(
     workspace: &Path,
     QueueEntryArgs {
@@ -106,6 +113,7 @@ fn change(
         QueueCommand::Hold => format!("held queue entry {entry}"),
         QueueCommand::Release => format!("released queue entry {entry}"),
         QueueCommand::Drop => format!("dropped queue entry {entry}"),
+        QueueCommand::Merged => format!("recorded queue entry {entry} merged"),
     };
     writeln!(stderr, "{said}")?;
     Ok(Exit::Completed.into())

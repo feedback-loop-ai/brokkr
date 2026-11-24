@@ -59,6 +59,7 @@ The verbs nest under thirteen roots: decision 0113's twelve and decision 0119's 
 - [`brokkr queue release`](#brokkr-queue-release): Let a held entry be started again
 - [`brokkr queue repin`](#brokkr-queue-repin): Re-pin a waiting entry to the realms map that would govern it now: how the operator releases an entry `judge` latched a realm-drift hold on, accepting the differences it found. Refused when the map on disk is not the one the latch found; judge the queue again
 - [`brokkr queue drop`](#brokkr-queue-drop): Take an entry out of the queue. One that started a run cannot be
+- [`brokkr queue merged`](#brokkr-queue-merged): Record that an entry's work merged, journaled with the reason (name the pull request and its merge commit): an entry waiting on ENTRY:merged may start from then on. Brokkr reads no code host, so this record is the merge's one witness. Only an entry that started a run can be recorded merged
 - [`brokkr queue dispatch`](#brokkr-queue-dispatch): Start what admission admits from the journal's queue, each run handed to a driver of its own: one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
 - [`brokkr queue dispatch set-bound`](#brokkr-queue-dispatch-set-bound): Set the journal's bound on the refusals counted against one entry before the dispatcher holds it, a whole number of at least 1, journaled as the operator's command
 - [`brokkr queue dispatch status`](#brokkr-queue-dispatch-status): Say whether a dispatcher holds the journal, the bound in force, and each entry left launching or linked with no `spawn` row. Opens the journal read-only and writes nothing
@@ -744,7 +745,7 @@ Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON>
 | `--repo <REPO>` |  |  | The repository the run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
 | `--dispatch <DISPATCH>` |  |  | Canonical forge-dispatch/v2 JSON. When present the run id, Looper/grant correlation, recipe, repository, budget, and producer bounds are pinned into an immutable run-manifest/v2 |
 | `--priority <PRIORITY>` | `0` |  | The entry's priority, which orders the queue first: a higher priority is judged and started first, and `move` orders an entry only among those of its own priority |
-| `--after <ENTRY:CONDITION>...` |  |  | An earlier entry this one waits for, and on what: `3:completed` (its run completed) or `3:ended` (its run ended at all). Repeatable |
+| `--after <ENTRY:CONDITION>...` |  |  | An earlier entry this one waits for, and on what: `3:completed` (its run completed), `3:ended` (its run ended at all), or a named ending, as `3:shipped` (its run is over and ended so; one that ended otherwise holds this entry). The named endings are shipped, shipped-flagged, refused, failed, blocked, exhausted, superseded, infrastructure, delivered-elsewhere, withdrawn and operator-stopped. Or `3:merged` (the operator recorded its work merged with `brokkr queue merged`; a run over with no such record holds this entry). Repeatable |
 | `--reason <REASON>` |  |  | Why, journaled with the command |
 
 ## brokkr queue list
@@ -843,6 +844,21 @@ Take an entry out of the queue. One that started a run cannot be
 
 ```text
 Usage: brokkr queue drop [OPTIONS] --reason <REASON> <ENTRY>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<ENTRY>` |  |  | The entry's id, as `brokkr queue list` prints it |
+| `--reason <REASON>` |  |  | Why, journaled with the command |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr queue merged
+
+Record that an entry's work merged, journaled with the reason (name the pull request and its merge commit): an entry waiting on ENTRY:merged may start from then on. Brokkr reads no code host, so this record is the merge's one witness. Only an entry that started a run can be recorded merged
+
+```text
+Usage: brokkr queue merged [OPTIONS] --reason <REASON> <ENTRY>
 ```
 
 | Argument | Default | Selector | Description |

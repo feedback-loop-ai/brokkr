@@ -106,6 +106,10 @@ pub enum brokkr_runtime::admission::Reason
 pub brokkr_runtime::admission::Reason::Capacity(brokkr_runtime::admission::Capacity)
 pub brokkr_runtime::admission::Reason::DispatchEnvelope
 pub brokkr_runtime::admission::Reason::Dropped(brokkr_store::queue::Wait)
+pub brokkr_runtime::admission::Reason::EndedOtherwise
+pub brokkr_runtime::admission::Reason::EndedOtherwise::ending: brokkr_core::ending::Ending
+pub brokkr_runtime::admission::Reason::EndedOtherwise::run: alloc::string::String
+pub brokkr_runtime::admission::Reason::EndedOtherwise::wait: brokkr_store::queue::Wait
 pub brokkr_runtime::admission::Reason::MapUnreadable(alloc::string::String)
 pub brokkr_runtime::admission::Reason::NotStarted(brokkr_store::queue::Wait)
 pub brokkr_runtime::admission::Reason::OperatorHold
@@ -122,6 +126,9 @@ pub brokkr_runtime::admission::Reason::Stopped::wait: brokkr_store::queue::Wait
 pub brokkr_runtime::admission::Reason::Unended
 pub brokkr_runtime::admission::Reason::Unended::run: alloc::string::String
 pub brokkr_runtime::admission::Reason::Unended::wait: brokkr_store::queue::Wait
+pub brokkr_runtime::admission::Reason::Unmerged
+pub brokkr_runtime::admission::Reason::Unmerged::run: alloc::string::String
+pub brokkr_runtime::admission::Reason::Unmerged::wait: brokkr_store::queue::Wait
 pub brokkr_runtime::admission::Reason::UnstartedRun
 pub brokkr_runtime::admission::Reason::UnstartedRun::run: alloc::string::String
 pub brokkr_runtime::admission::Reason::UnstartedRun::wait: core::option::Option<brokkr_store::queue::Wait>

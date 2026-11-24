@@ -182,6 +182,7 @@ pub brokkr_store::Disposal::Held(brokkr_store::StartRefusal, u32)
 pub brokkr_store::Disposal::Reclaimed(u32)
 pub enum brokkr_store::EntryState
 pub brokkr_store::EntryState::Claimed
+pub brokkr_store::EntryState::Claimed::merged: bool
 pub brokkr_store::EntryState::Claimed::run: alloc::string::String
 pub brokkr_store::EntryState::Dropped
 pub brokkr_store::EntryState::Held
@@ -205,6 +206,7 @@ pub brokkr_store::IndexFault::Stray
 pub enum brokkr_store::QueueCommand
 pub brokkr_store::QueueCommand::Drop
 pub brokkr_store::QueueCommand::Hold
+pub brokkr_store::QueueCommand::Merged
 pub brokkr_store::QueueCommand::Move
 pub brokkr_store::QueueCommand::Move::to: u32
 pub brokkr_store::QueueCommand::Release
@@ -234,6 +236,7 @@ pub brokkr_store::QueueRefusal::LatchMoved
 pub brokkr_store::QueueRefusal::LatchMoved::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::LatchMoved::standing: core::option::Option<brokkr_store::Latch>
 pub brokkr_store::QueueRefusal::Launching(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::NotACondition(brokkr_store::Wait)
 pub brokkr_store::QueueRefusal::NotHeld(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::OtherGeneration(brokkr_store::Claim, brokkr_store::Generation)
 pub brokkr_store::QueueRefusal::PastTheEnds
@@ -256,6 +259,7 @@ pub brokkr_store::QueueRefusal::UnknownWait(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::Unmeasured
 pub brokkr_store::QueueRefusal::Unmeasured::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::Unseen(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::Unstarted(brokkr_store::EntryId)
 pub enum brokkr_store::RoundAppend
 pub brokkr_store::RoundAppend::NoTable
 pub brokkr_store::RoundAppend::Written
@@ -381,8 +385,10 @@ pub brokkr_store::VerifyError::SeatRecord(brokkr_store::SeatRecordError)
 pub enum brokkr_store::WaitOn
 pub brokkr_store::WaitOn::Completed
 pub brokkr_store::WaitOn::Ended
+pub brokkr_store::WaitOn::Merged
+pub brokkr_store::WaitOn::Named(brokkr_core::ending::Ending)
 impl brokkr_store::WaitOn
-pub const brokkr_store::WaitOn::ALL: [brokkr_store::WaitOn; 2]
+pub const brokkr_store::WaitOn::ALL: [brokkr_store::WaitOn; 14]
 pub fn brokkr_store::WaitOn::word(self) -> &'static str
 impl rusqlite::types::from_sql::FromSql for brokkr_store::WaitOn
 pub fn brokkr_store::WaitOn::column_result(rusqlite::types::value_ref::ValueRef<'_>) -> rusqlite::types::from_sql::FromSqlResult<Self>

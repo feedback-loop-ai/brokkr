@@ -439,12 +439,14 @@ fn queue_refusal(refusal: QueueRefusal) -> Queue {
         other @ (QueueRefusal::UnknownEntry(_)
         | QueueRefusal::UnknownWait(_)
         | QueueRefusal::DuplicateWait(_)
+        | QueueRefusal::NotACondition(_)
         | QueueRefusal::PastTheEnds { .. }
         | QueueRefusal::AlreadyHeld(_)
         | QueueRefusal::NotHeld(_)
         | QueueRefusal::Held(_)
         | QueueRefusal::Claimed { .. }
         | QueueRefusal::Dropped(_)
+        | QueueRefusal::Unstarted(_)
         | QueueRefusal::RunTaken { .. }
         | QueueRefusal::LatchMoved { .. }
         | QueueRefusal::PinMoved { .. }

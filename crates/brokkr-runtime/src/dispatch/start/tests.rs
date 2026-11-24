@@ -572,7 +572,7 @@ fn a_stand_that_ends_before_a_spawn_row_leaves_the_link_alone() {
     assert_eq!(count(&store, "spawn"), 0);
     assert_eq!(
         store.queue_entry(claimed.entry).unwrap().state,
-        brokkr_store::EntryState::Claimed { run }
+        brokkr_store::EntryState::Claimed { run, merged: false }
     );
 }
 
