@@ -47,6 +47,13 @@ impl ProbeAnswer {
         self.requested
     }
 
+    /// Does `row` answer this invocation's probe? Only when a probe was
+    /// requested, and only by the adapter's model-output answer
+    /// ([`is_answer`]). One home for every family's reader.
+    pub(super) fn answers(&self, kind: AdapterKind, row: &Row<'_>) -> bool {
+        self.requested && is_answer(kind, row)
+    }
+
     /// Has the first answer been admitted? The adapter stops its harness
     /// at that point (decision 0103 ruling 4(a)).
     pub(super) fn answered(&self) -> bool {

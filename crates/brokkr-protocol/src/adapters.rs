@@ -2311,7 +2311,7 @@ impl DshFold<'_> {
                 continue;
             };
             let row = Row::new(&event, self.bindings);
-            let answer_event = self.probe.requested() && probe::is_answer(AdapterKind::Dsh, &row);
+            let answer_event = self.probe.answers(AdapterKind::Dsh, &row);
             // The first refusal before this invocation's first turn stands.
             if *self.turns == 0 && dsh_row_is_current(&event, self.first_seq) {
                 refusal = refusal.or_else(|| dsh_refusal(&row));
@@ -2451,7 +2451,7 @@ fn invoke_stream_json(
             };
             let row = Row::new(&event, bindings);
             let classified = (fold.turns == 0).then(|| claude_refusal(&row)).flatten();
-            let answer = probe.requested() && probe::is_answer(AdapterKind::Claude, &row);
+            let answer = probe.answers(AdapterKind::Claude, &row);
             let identity = CapturedId::claude(&row);
             secret::mask_json(&mut event, bindings);
             let classified = probe::fold_capturing(probe, answer, &mut watch, |emit| {
@@ -3638,7 +3638,7 @@ fn invoke_codex(
             };
             let row = Row::new(&event, bindings);
             let classified = (turn == 0).then(|| codex_refusal(&row)).flatten();
-            let answer = probe_bound.requested() && probe::is_answer(AdapterKind::Codex, &row);
+            let answer = probe_bound.answers(AdapterKind::Codex, &row);
             let identity = CapturedId::codex(&row);
             secret::mask_json(&mut event, bindings);
             let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
