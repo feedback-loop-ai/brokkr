@@ -126,6 +126,23 @@ fn bound_driver_step_keeps_the_refusal() {
     let codex = json!({"type":"turn.failed","error":{"codex_error_info":"usage_limit_exceeded","message":"quota exhausted"}});
     let claude =
         json!({"type":"rate_limit_event","apiErrorStatus":429,"message":"quota exhausted"});
+    // Qoder level 1 folds the Claude family's rows behind its pin, and
+    // writes its transcript step alone before a refusal to start (#1178,
+    // carried onto #1242): a bound step word keeps that refusal typed too.
+    let pin = ["-m".to_string(), "Fast-v2".to_string()];
+    let qoder = [
+        json!({"type":"system","subtype":"init","session_id":"session-1234","model":"Fast-v2"}),
+        claude.clone(),
+    ];
+    let words = "rate_limit: Qoder's provider refused the turn at its rate limit";
+    let (plain_steps, plain) = Stream::rows(&qoder, &[]).run(AdapterKind::Qoder, &pin);
+    assert_eq!(plain_steps, [Step::Transcript]);
+    assert_refused(&plain, words);
+    for value in ["scri", "seat"] {
+        let bound = Stream::rows(&qoder, &[("S", value)]).run(AdapterKind::Qoder, &pin);
+        assert_eq!(bound.0, plain_steps, "{value}");
+        assert_refused(&bound.1, words);
+    }
     let cases = [
         (
             AdapterKind::Codex,
@@ -135,7 +152,7 @@ fn bound_driver_step_keeps_the_refusal() {
         ),
         (
             AdapterKind::Claude,
-            vec![claude],
+            vec![claude.clone()],
             "star",
             "rate_limit (HTTP 429): quota exhausted",
         ),

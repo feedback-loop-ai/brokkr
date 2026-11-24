@@ -214,6 +214,11 @@ fn a_bound_secret_of_any_spelling_changes_no_verdict_and_leaves_masked() {
         "run_command",
         FLASH,
         "d",
+        // The shared driver's own step words (#1283's high 1, carried onto
+        // #1242): its typed step, never the masked row, decides work.
+        "scri",
+        "star",
+        "seat",
     ];
     // The rows the driver emits unbound: its two turns, then its transcript.
     let unbound = driven((TOOLS_TURN, "", 0), FLASH, &[]).rows;
