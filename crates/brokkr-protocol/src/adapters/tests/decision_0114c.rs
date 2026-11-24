@@ -291,3 +291,29 @@ fn a_codex_turn_takes_its_model_from_the_thread_record_when_the_stream_omits_it(
     );
     assert_eq!(emitted.last().unwrap()["model"], "gpt-5.6-sol-preview");
 }
+
+/// A binding inside the newest thread record's model or effort settles
+/// that field as not reported: the walk never takes an older record's
+/// value for a turn that did not run under it (decision 0114 D4). A value
+/// the clamp refuses still walks on to the older record.
+#[test]
+fn a_bound_thread_field_is_not_answered_by_an_older_record() {
+    let home = tempfile::tempdir().unwrap();
+    let sessions = home.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let rollout = sessions.join(format!("rollout-{THREAD}.jsonl"));
+    let bound = [binding("S", "private")];
+    for (newest, expected) in [
+        (turn_context("private-v2", "private-high"), (None, None)),
+        (
+            turn_context("a model, obviously", "_high"),
+            (Some("older-v1"), Some("low")),
+        ),
+    ] {
+        std::fs::write(&rollout, turn_context("older-v1", "low") + &newest).unwrap();
+        let mut echo = CodexThreadEcho::new(&bound);
+        echo.locate(home.path(), Ident::from_offered(THREAD));
+        let (model, effort) = echo.echo();
+        assert_eq!((model.as_deref(), effort.as_deref()), expected);
+    }
+}

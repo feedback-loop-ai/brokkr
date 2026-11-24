@@ -664,23 +664,45 @@ fn names_thread_settings(line: &str) -> bool {
     line.contains("turn_context") || line.contains("thread_settings")
 }
 
-fn model_in_thread(line: &Row<'_>) -> Option<String> {
-    ["/payload/model", "/payload/thread_settings/model"]
+/// What one thread record answers for a field, read at the first of
+/// `pointers` it names:
+/// - `None`: it cannot answer, because the field is absent or the token
+///   clamp refused its value, so the walk goes on to an older record;
+/// - `Some(None)`: a binding touched the value. The record did answer,
+///   with a value the seat may not quote, so the field settles as not
+///   reported and is never an older record's (decision 0114 D4);
+/// - `Some(Some(value))`: the value, clamped.
+fn thread_field(
+    line: &Row<'_>,
+    pointers: [&str; 2],
+    token: fn(&str) -> Option<String>,
+) -> Option<Option<String>> {
+    let (pointer, text) = pointers
         .into_iter()
-        .find_map(|pointer| line.text(pointer))
-        .as_deref()
-        .and_then(model_token)
+        .find_map(|pointer| Some((pointer, line.text(pointer)?)))?;
+    if !line.equals(pointer, &text) {
+        return Some(None);
+    }
+    token(&text).map(Some)
 }
 
-fn effort_in_thread(line: &Row<'_>) -> Option<String> {
-    [
-        "/payload/effort",
-        "/payload/thread_settings/reasoning_effort",
-    ]
-    .into_iter()
-    .find_map(|pointer| line.text(pointer))
-    .as_deref()
-    .and_then(effort_token)
+fn model_in_thread(line: &Row<'_>) -> Option<Option<String>> {
+    thread_field(
+        line,
+        ["/payload/model", "/payload/thread_settings/model"],
+        model_token,
+    )
+}
+
+fn effort_in_thread(line: &Row<'_>) -> Option<Option<String>> {
+    thread_field(
+        line,
+        [
+            "/payload/effort",
+            "/payload/thread_settings/reasoning_effort",
+        ],
+        effort_token,
+    )
 }
 
 /// Codex releases which omit the model from JSONL name it in the
@@ -1530,7 +1552,9 @@ impl<'a> CodexThreadEcho<'a> {
         // is the distinction ruling 3 makes load-bearing. So a field the
         // anchor leaves empty keeps walking for the newest record that
         // can answer it. The pair still binds every field one record
-        // answers; only a refusal splits it.
+        // answers; only a refusal splits it. A binding inside a value is
+        // not a refusal: that record answered, so the field settles as
+        // not reported there (decision 0114 D4).
         let mut model = None;
         let mut effort = None;
         for line in body.lines().rev() {
@@ -1551,7 +1575,7 @@ impl<'a> CodexThreadEcho<'a> {
                 effort = effort_in_thread(&line);
             }
         }
-        (model, effort)
+        (model.flatten(), effort.flatten())
     }
 
     /// The refusal the thread record's own error states, read on the way

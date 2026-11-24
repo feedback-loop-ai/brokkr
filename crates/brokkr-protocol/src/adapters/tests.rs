@@ -1744,11 +1744,11 @@ fn a_real_codex_rollout_line_names_its_model_and_effort_under_payload() {
     )
     .unwrap();
     assert_eq!(
-        model_in_thread(&Row::new(&real, &[])).as_deref(),
+        model_in_thread(&Row::new(&real, &[])).flatten().as_deref(),
         Some("gpt-5.6-sol")
     );
     assert_eq!(
-        effort_in_thread(&Row::new(&real, &[])).as_deref(),
+        effort_in_thread(&Row::new(&real, &[])).flatten().as_deref(),
         Some("medium")
     );
 
@@ -1757,11 +1757,15 @@ fn a_real_codex_rollout_line_names_its_model_and_effort_under_payload() {
     )
     .unwrap();
     assert_eq!(
-        model_in_thread(&Row::new(&settings, &[])).as_deref(),
+        model_in_thread(&Row::new(&settings, &[]))
+            .flatten()
+            .as_deref(),
         Some("gpt-5.6-sol")
     );
     assert_eq!(
-        effort_in_thread(&Row::new(&settings, &[])).as_deref(),
+        effort_in_thread(&Row::new(&settings, &[]))
+            .flatten()
+            .as_deref(),
         Some("medium")
     );
 
