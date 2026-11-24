@@ -475,8 +475,6 @@ pub brokkr_protocol::hands::BindRefusal::NoPath
 pub brokkr_protocol::hands::BindRefusal::NotObject
 pub brokkr_protocol::hands::BindRefusal::UnknownKey
 pub brokkr_protocol::hands::BindRefusal::UnknownKey::key: alloc::string::String
-impl brokkr_protocol::hands::BindRefusal
-pub fn brokkr_protocol::hands::BindRefusal::variant_name(&self) -> &'static str
 pub enum brokkr_protocol::hands::OverlayWrites<'a>
 pub brokkr_protocol::hands::OverlayWrites::Ram
 pub brokkr_protocol::hands::OverlayWrites::Session(&'a std::path::Path)
@@ -500,8 +498,6 @@ pub brokkr_protocol::hands::SpecRefusal::UnknownKey
 pub brokkr_protocol::hands::SpecRefusal::UnknownKey::key: alloc::string::String
 pub brokkr_protocol::hands::SpecRefusal::UnknownKind
 pub brokkr_protocol::hands::SpecRefusal::UnknownKind::kind: alloc::string::String
-impl brokkr_protocol::hands::SpecRefusal
-pub fn brokkr_protocol::hands::SpecRefusal::variant_name(&self) -> &'static str
 pub struct brokkr_protocol::hands::Bind
 pub brokkr_protocol::hands::Bind::mask: alloc::vec::Vec<alloc::string::String>
 pub brokkr_protocol::hands::Bind::mode: brokkr_protocol::hands::BindMode

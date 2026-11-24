@@ -9,7 +9,7 @@ use std::process::ExitCode;
 
 use brokkr_protocol::broker::Refusal;
 use brokkr_protocol::hands::{
-    self, Base64UrlError, HandsSpec, Sealed, Session, SessionError, SpecRefusal,
+    self, Base64UrlError, BindRefusal, HandsSpec, Sealed, Session, SessionError, SpecRefusal,
 };
 use clap::builder::ArgPredicate;
 use clap::Subcommand;
@@ -35,7 +35,7 @@ pub enum HandsCommand {
         artifacts: PathBuf,
         /// The reach sealed at admission as JSON, which every box is built
         /// from (U8a2c). Pass either `--reach` or `--reach-base64url`.
-        #[arg(long)]
+        #[arg(long, required_unless_present = "reach_base64url")]
         reach: Option<String>,
         /// The reach sealed at admission as unpadded base64url of its JSON
         /// bytes. Pass either `--reach` or `--reach-base64url`.
@@ -80,11 +80,95 @@ pub enum HandsCommand {
     },
 }
 
+/// Payload-free variant of [`BindRefusal`]: holds no key or path taken from a
+/// decoded `--spec-base64url` document in either `Display` or `Debug` (#1277).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BindRefusalKind {
+    NotObject,
+    UnknownKey,
+    NoPath,
+    Mode,
+    MaskNotArray,
+    MaskName,
+}
+
+impl From<BindRefusal> for BindRefusalKind {
+    fn from(refusal: BindRefusal) -> Self {
+        match refusal {
+            BindRefusal::NotObject => Self::NotObject,
+            BindRefusal::UnknownKey { .. } => Self::UnknownKey,
+            BindRefusal::NoPath => Self::NoPath,
+            BindRefusal::Mode { .. } => Self::Mode,
+            BindRefusal::MaskNotArray { .. } => Self::MaskNotArray,
+            BindRefusal::MaskName { .. } => Self::MaskName,
+        }
+    }
+}
+
+impl fmt::Display for BindRefusalKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::NotObject => "Bind::NotObject",
+            Self::UnknownKey => "Bind::UnknownKey",
+            Self::NoPath => "Bind::NoPath",
+            Self::Mode => "Bind::Mode",
+            Self::MaskNotArray => "Bind::MaskNotArray",
+            Self::MaskName => "Bind::MaskName",
+        })
+    }
+}
+
+/// Payload-free variant of [`SpecRefusal`] carried by
+/// [`DocumentError::EncodedSpec`]: drops every field name, value and fragment
+/// taken from a decoded `--spec-base64url` document so neither `Display` nor
+/// `Debug` retains decoded text (#1277).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SpecRefusalKind {
+    UnknownKind,
+    NotKindOrObject,
+    Boundary,
+    UnknownKey,
+    Kind,
+    Network,
+    BindsNotArray,
+    Bind(BindRefusalKind),
+}
+
+impl From<SpecRefusal> for SpecRefusalKind {
+    fn from(refusal: SpecRefusal) -> Self {
+        match refusal {
+            SpecRefusal::UnknownKind { .. } => Self::UnknownKind,
+            SpecRefusal::NotKindOrObject { .. } => Self::NotKindOrObject,
+            SpecRefusal::Boundary => Self::Boundary,
+            SpecRefusal::UnknownKey { .. } => Self::UnknownKey,
+            SpecRefusal::Kind => Self::Kind,
+            SpecRefusal::Network { .. } => Self::Network,
+            SpecRefusal::BindsNotArray => Self::BindsNotArray,
+            SpecRefusal::Bind(bind) => Self::Bind(bind.into()),
+        }
+    }
+}
+
+impl fmt::Display for SpecRefusalKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownKind => f.write_str("UnknownKind"),
+            Self::NotKindOrObject => f.write_str("NotKindOrObject"),
+            Self::Boundary => f.write_str("Boundary"),
+            Self::UnknownKey => f.write_str("UnknownKey"),
+            Self::Kind => f.write_str("Kind"),
+            Self::Network => f.write_str("Network"),
+            Self::BindsNotArray => f.write_str("BindsNotArray"),
+            Self::Bind(bind) => write!(f, "{bind}"),
+        }
+    }
+}
+
 /// Why a `--reach` / `--reach-base64url` or `--spec` / `--spec-base64url`
 /// argument was refused. Plain JSON spellings keep main's diagnostics byte
-/// for byte; encoded spellings name the argument and failure class and never
-/// echo either the raw argument value or any decoded field, value, or serde
-/// fragment.
+/// for byte; encoded spellings name the argument and failure class and hold
+/// neither the raw argument value nor any decoded field, value, or serde
+/// fragment in `Display` or `Debug`.
 #[derive(Debug)]
 pub(crate) enum DocumentError {
     MissingReach,
@@ -110,7 +194,7 @@ pub(crate) enum DocumentError {
     },
     EncodedReach,
     EncodedSpec {
-        cause: SpecRefusal,
+        cause: SpecRefusalKind,
     },
 }
 
@@ -141,8 +225,7 @@ impl fmt::Display for DocumentError {
             ),
             Self::EncodedSpec { cause } => write!(
                 f,
-                "{SPEC_BASE64URL_FLAG}: decoded document is not a valid hands spec ({})",
-                cause.variant_name()
+                "{SPEC_BASE64URL_FLAG}: decoded document is not a valid hands spec ({cause})"
             ),
         }
     }
@@ -160,15 +243,15 @@ fn parse_reach_plain(reach: &str) -> Result<Sealed, DocumentError> {
     serde_json::from_str(reach).map_err(|cause| DocumentError::PlainReach { cause })
 }
 
-/// The reach `--reach-base64url` carries after decoding: distinguishes
-/// non-JSON from a non-reach document and discloses nothing decoded.
+/// The reach `--reach-base64url` carries after decoding: parses JSON once so
+/// string escapes (including unpaired UTF-16 surrogates) are checked before
+/// the typed `Sealed` conversion, and discloses nothing decoded.
 fn parse_reach_encoded(reach: &str) -> Result<Sealed, DocumentError> {
-    serde_json::from_str::<serde::de::IgnoredAny>(reach).map_err(|_| {
-        DocumentError::EncodedNotJson {
+    let raw: serde_json::Value =
+        serde_json::from_str(reach).map_err(|_| DocumentError::EncodedNotJson {
             flag: REACH_BASE64URL_FLAG,
-        }
-    })?;
-    serde_json::from_str(reach).map_err(|_| DocumentError::EncodedReach)
+        })?;
+    serde_json::from_value(raw).map_err(|_| DocumentError::EncodedReach)
 }
 
 /// The box spec `--spec` carries as plain JSON, parsed through the one
@@ -180,13 +263,16 @@ fn parse_spec_plain(spec: &str) -> Result<HandsSpec, DocumentError> {
 }
 
 /// The box spec `--spec-base64url` carries after decoding, parsed through the
-/// same `HandsSpec::checked` check without disclosing decoded text.
+/// same `HandsSpec::checked` check and reduced immediately to a payload-free
+/// [`SpecRefusalKind`] so no decoded text survives in `Display` or `Debug`.
 fn parse_spec_encoded(spec: &str) -> Result<HandsSpec, DocumentError> {
     let raw: serde_json::Value =
         serde_json::from_str(spec).map_err(|_| DocumentError::EncodedNotJson {
             flag: SPEC_BASE64URL_FLAG,
         })?;
-    HandsSpec::checked(&raw).map_err(|cause| DocumentError::EncodedSpec { cause })
+    HandsSpec::checked(&raw).map_err(|cause| DocumentError::EncodedSpec {
+        cause: SpecRefusalKind::from(cause),
+    })
 }
 
 fn resolve_serve_spec(

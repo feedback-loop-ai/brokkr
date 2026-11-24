@@ -982,13 +982,17 @@ were run by this seat.
 - `brokkr hands serve` accepts each document in either its JSON spelling
   (`--reach`, `--spec`) or its unpadded base64url spelling
   (`--reach-base64url`, `--spec-base64url`). For `--reach`, exactly one
-  spelling is required; for `--spec`, both spellings refuse and omitting both
-  uses main's default `"workspace"` (shown in `brokkr hands serve --help` and
-  parsed by the same check). Both encoded arguments accept leading-hyphen
-  values so they reach the typed decoder; encoded refusals name the argument
-  and failure class (including `SpecRefusal`'s variant name) without echoing
-  either the raw value or any decoded text, while plain JSON refusals on
-  `hands serve` and `hands exec` keep main's diagnostics byte for byte. One
+  spelling is required (omitting both fails at clap with exit code 2 before
+  `--spec` is parsed, matching main); for `--spec`, both spellings refuse and
+  omitting both uses main's default `"workspace"` (shown in
+  `brokkr hands serve --help` and parsed by the same check). Both encoded
+  arguments accept leading-hyphen values so they reach the typed decoder;
+  encoded refusals parse JSON once before schema conversion (so unpaired
+  UTF-16 surrogates classify as invalid JSON) and name the argument and
+  failure class (through a payload-free `SpecRefusalKind`) without holding
+  any raw value or decoded text in `Display` or `Debug`, while plain JSON
+  refusals on `hands serve` and `hands exec` keep main's diagnostics byte for
+  byte. One
   codec in `crates/brokkr-protocol/src/base64.rs` (extracted from
   `secret.rs`'s existing RFC 4648 encoder) serves both the overlay writer and
   `hands serve`.
