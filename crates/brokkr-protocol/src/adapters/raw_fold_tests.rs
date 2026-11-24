@@ -9,13 +9,14 @@ pub(super) fn fold_stream_event(
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Value),
 ) -> Option<PreSessionRefusal> {
+    let row = Row::new(event, &[]);
     let refusal = (fold.turns == 0)
-        .then(|| super::claude_refusal(&Row::new(event, &[])))
+        .then(|| super::claude_refusal(&row))
         .flatten();
     FoldInput {
-        masked: event,
+        row: &row,
         refusal,
-        identity: CapturedId::claude(&Row::new(event, &[])),
+        identity: CapturedId::claude(&row),
     }
     .fold(|event, identity| {
         super::fold_stream_event(event, identity, fold, meta, transcript, &mut |row| {
@@ -36,7 +37,7 @@ pub(super) fn fold_codex_event(
         .then(|| super::codex_refusal(&Row::new(event, &[])))
         .flatten();
     FoldInput {
-        masked: event,
+        row: event,
         refusal,
         identity: CapturedId::codex(&Row::new(event, &[])),
     }

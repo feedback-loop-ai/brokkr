@@ -390,14 +390,18 @@ fn served_model_evidence_is_strict_and_dsh_reads_nested_usage_chunks() {
     assert_eq!(model_token("model with spaces"), None);
 
     assert_eq!(
-        model_in_json(&json!({"model":"gpt-5.6-sol"})).as_deref(),
+        model_in_json(&Row::new(&json!({"model":"gpt-5.6-sol"}), &[])).as_deref(),
         Some("gpt-5.6-sol")
     );
     assert_eq!(
-        model_in_json(&json!({"data":{"message":{"source":{"model":"served-by-dsh"}}}})).as_deref(),
+        model_in_json(&Row::new(
+            &json!({"data":{"message":{"source":{"model":"served-by-dsh"}}}}),
+            &[]
+        ))
+        .as_deref(),
         Some("served-by-dsh")
     );
-    assert_eq!(model_in_json(&json!({"model":7})), None);
+    assert_eq!(model_in_json(&Row::new(&json!({"model":7}), &[])), None);
     let header = "noise\nmodel: first\n model: second ";
     assert_eq!(
         model_in_header(header, Some("second")).as_deref(),

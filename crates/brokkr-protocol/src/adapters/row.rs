@@ -60,6 +60,10 @@ impl<'a> Row<'a> {
         self.value(path)?.as_i64()
     }
 
+    pub(super) fn unsigned_count(&self, path: &str) -> Option<u64> {
+        self.value(path)?.as_u64()
+    }
+
     pub(super) fn number(&self, path: &str) -> Option<f64> {
         self.value(path)?.as_f64()
     }
@@ -80,6 +84,10 @@ impl<'a> Row<'a> {
             self.string(path)?.as_bytes(),
             self.bindings,
         ))
+    }
+
+    pub(super) fn at(&self, path: &str) -> Option<Row<'a>> {
+        Some(Self::new(self.value(path)?, self.bindings))
     }
 
     pub(super) fn items(&self, path: &str) -> Option<impl Iterator<Item = Row<'a>>> {
@@ -166,24 +174,24 @@ impl CapturedId {
     }
 }
 
-/// Shared reads captured before the family fold takes its masked copy.
-pub(super) struct FoldInput<'a> {
-    pub(super) masked: &'a Value,
+/// The input and prior decisions for one family fold.
+pub(super) struct FoldInput<R> {
+    pub(super) row: R,
     pub(super) refusal: Option<PreSessionRefusal>,
     pub(super) identity: Option<CapturedId>,
 }
 
-impl<'a> FoldInput<'a> {
-    /// The family fold over the masked row, unless the raw row was already
+impl<R> FoldInput<R> {
+    /// Run the family fold unless the raw row was already
     /// classified as a refusal to start: that refusal ends the row first,
     /// and the fold never reads it. One home for both families' folds.
     pub(super) fn fold(
         self,
-        fold: impl FnOnce(&'a Value, Option<CapturedId>) -> Option<PreSessionRefusal>,
+        fold: impl FnOnce(R, Option<CapturedId>) -> Option<PreSessionRefusal>,
     ) -> Option<PreSessionRefusal> {
         match self.refusal {
             Some(refusal) => Some(refusal),
-            None => fold(self.masked, self.identity),
+            None => fold(self.row, self.identity),
         }
     }
 }

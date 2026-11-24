@@ -9,7 +9,7 @@ fn a_raw_refusal_ends_the_row_before_its_fold() {
     let refused = super::super::refusal::refusal_reason("rate_limit", None, None);
     let mut folded = Vec::new();
     let input = |refusal| FoldInput {
-        masked: &masked,
+        row: &masked,
         refusal,
         identity: None,
     };
@@ -158,4 +158,34 @@ fn opaque_id_matches_its_offer_and_whole_rollout_token() {
         .unwrap()
         .names_rollout("rollout-[thread-1234].jsonl"));
     assert_eq!(row.text("/id").as_deref(), Some("thread-[secret:S]"));
+}
+
+#[test]
+fn unsigned_count_keeps_the_json_integer_range() {
+    let raw = json!({"usage": u64::MAX, "zero": 0, "negative": -1, "fraction": 1.5, "text": "12"});
+    let row = Row::new(&raw, &[]);
+    assert_eq!(
+        [
+            "/usage",
+            "/zero",
+            "/negative",
+            "/fraction",
+            "/text",
+            "/missing"
+        ]
+        .map(|path| row.unsigned_count(path)),
+        [Some(u64::MAX), Some(0), None, None, None, None]
+    );
+}
+
+#[test]
+fn at_keeps_bindings_on_the_nested_value() {
+    let raw = json!({"nested": {"type": "assistant"}, "null": null});
+    let bindings = binding("assi");
+    let row = Row::new(&raw, &bindings);
+    let nested = row.at("/nested").unwrap();
+    assert!(nested.is("/type", "assistant"));
+    assert_eq!(nested.text("/type").as_deref(), Some("[secret:S]stant"));
+    assert!(row.at("/null").is_some());
+    assert!(row.at("/missing").is_none());
 }

@@ -6,7 +6,15 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
-use super::{add_usage, claude_usage, plain_claude_session, positive_cost, positive_count};
+use super::capability_calls::Observation;
+use super::row::{CapturedId, Ident, Row};
+use super::step::{Emitted, Step};
+use super::{
+    add_usage, effort_in_json, fold_result_meta, model_in_json, plain_claude_session,
+    EFFORT_NOT_REPORTED, MODEL_NOT_REPORTED, USAGE_FIELDS,
+};
+use crate::transcript::{Locator, Transcript};
+use crate::PreSessionRefusal;
 
 const REASONING: &str = "reasoning_output_tokens";
 
@@ -33,7 +41,7 @@ pub(super) struct ClaudeFold {
     /// launched; `None` on a cold launch or with nothing to restore.
     restored: Option<f64>,
     /// The id of the message the last assistant line carried.
-    message: Option<String>,
+    message: Option<Ident>,
 }
 
 impl ClaudeFold {
@@ -65,9 +73,9 @@ impl ClaudeFold {
     /// every line read a seat's tokens two and a half times over (114
     /// Claude seats in the swarmail journal: 774.6M input against their
     /// transcripts' 315.1M). A line without an id is a message of its own.
-    pub(super) fn repeats(&mut self, id: Option<&str>) -> bool {
-        let repeat = id.is_some() && id == self.message.as_deref();
-        self.message = id.map(str::to_string);
+    pub(super) fn repeats(&mut self, id: Option<Ident>) -> bool {
+        let repeat = id.is_some() && id == self.message;
+        self.message = id;
         repeat
     }
 
@@ -75,13 +83,13 @@ impl ClaudeFold {
     /// what earlier results settled, and the sums written over the live
     /// estimate, which repeats a message's usage per content block and
     /// reads its output before it is final.
-    pub(super) fn settle(&mut self, event: &Value, session_meta: &mut Map<String, Value>) {
-        let mut reported = claude_usage(event.get("usage"));
+    pub(super) fn settle(&mut self, event: &Row<'_>, session_meta: &mut Map<String, Value>) {
+        let mut reported = claude_usage(event.at("/usage"));
         for (key, pointer) in [
             ("num_turns", "/num_turns"),
             (REASONING, "/usage/output_tokens_details/thinking_tokens"),
         ] {
-            if let Some(value) = positive_count(event.pointer(pointer)) {
+            if let Some(value) = event.unsigned_count(pointer).filter(|value| *value != 0) {
                 reported.insert(key.into(), Value::from(value));
             }
         }
@@ -101,7 +109,7 @@ impl ClaudeFold {
         }
         // The process's cost so far, less what `--resume` restored. A
         // total below the restored figure cannot be split, so it is absent.
-        if let Some(total) = positive_cost(event.get("total_cost_usd")) {
+        if let Some(total) = event.number("/total_cost_usd").filter(|total| *total > 0.0) {
             let own = total - self.restored.unwrap_or_default();
             if own > 0.0 {
                 session_meta.insert("total_cost_usd".into(), Value::from(own));
@@ -110,6 +118,139 @@ impl ClaudeFold {
             }
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum Event {
+    System,
+    Assistant,
+    Result,
+}
+
+/// One Claude stream row folded into seat telemetry. Transcript records
+/// become available as soon as init announces an id. Each tool-use block
+/// becomes one seat-turn checkpoint, in order. Text-only turns emit one
+/// checkpoint as well, and usage rides only the first checkpoint.
+pub(super) fn fold_stream_event(
+    event: &Row<'_>,
+    identity: Option<CapturedId>,
+    fold: &mut ClaudeFold,
+    session_meta: &mut Map<String, Value>,
+    transcript: &mut Transcript,
+    emit: &mut impl FnMut(&Emitted),
+) -> Option<PreSessionRefusal> {
+    let kinds = &[
+        ("system", Event::System),
+        ("assistant", Event::Assistant),
+        ("result", Event::Result),
+    ];
+    match event.kind("/type", kinds) {
+        Some(Event::System) => {
+            if let Some(identity) = identity {
+                transcript.record(Locator::Session(identity), session_meta, emit);
+            }
+        }
+        Some(Event::Assistant) => {
+            let base = fold.turn(event, session_meta);
+            emit_turn(event, base, emit);
+        }
+        Some(Event::Result) => {
+            fold_result_meta(event, identity, session_meta, transcript, emit);
+            fold.settle(event, session_meta);
+        }
+        None => {}
+    }
+    None
+}
+
+impl ClaudeFold {
+    fn turn(&mut self, event: &Row<'_>, meta: &mut Map<String, Value>) -> Map<String, Value> {
+        let repeat = self.repeats(event.ident("/message/id"));
+        self.turns += u64::from(!repeat);
+        meta.insert("num_turns".into(), Value::from(self.turns));
+
+        let mut base = Map::new();
+        base.insert("turn".into(), Value::from(self.turns));
+        // Each record names the effort it applied (decision 0035 ruling
+        // 3). An absent or invalid token leaves the last valid one in meta.
+        for (key, label, missing) in [
+            ("model", model_in_json(event), MODEL_NOT_REPORTED),
+            ("effort", effort_in_json(event), EFFORT_NOT_REPORTED),
+        ] {
+            if let Some(label) = &label {
+                meta.insert(key.into(), Value::String(label.clone()));
+            }
+            base.insert(
+                key.into(),
+                Value::String(label.unwrap_or_else(|| missing.into())),
+            );
+        }
+        if !repeat {
+            // Thinking tokens are reported only in the result (0035 ruling 4).
+            for (key, value) in claude_usage(event.at("/message/usage")) {
+                add_usage(
+                    meta,
+                    &key,
+                    value.as_u64().expect("claude usage is a positive integer"),
+                );
+                base.insert(key, value);
+            }
+        }
+        base
+    }
+}
+
+fn emit_turn(event: &Row<'_>, mut base: Map<String, Value>, emit: &mut impl FnMut(&Emitted)) {
+    let blocks = event
+        .items("/message/content")
+        .into_iter()
+        .flatten()
+        .filter(|block| block.is("/type", "tool_use"));
+    let mut emitted = false;
+    for block in blocks {
+        let mut checkpoint = base.clone();
+        // The journal keeps only file_path, never commands, URLs or full inputs.
+        if let Some(target) = block.text("/input/file_path") {
+            checkpoint.insert(
+                "target".into(),
+                Value::String(target.chars().take(80).collect()),
+            );
+        }
+        emit(&Emitted::new(
+            Step::SeatTurn,
+            Observation::claude(&block).onto(Value::Object(checkpoint)),
+        ));
+        if !emitted {
+            for key in USAGE_FIELDS {
+                base.remove(key);
+            }
+        }
+        emitted = true;
+    }
+    if !emitted {
+        emit(&Emitted::new(Step::SeatTurn, Value::Object(base)));
+    }
+}
+
+/// Claude reports cache reads and cache creations beside its uncached
+/// input count. The seat record's input count is inclusive of reads,
+/// while cache creations retain their own cache_write_tokens name.
+fn claude_usage(usage: Option<Row<'_>>) -> Map<String, Value> {
+    let Some(usage) = usage else {
+        return Map::new();
+    };
+    let raw = |path| usage.unsigned_count(path).unwrap_or_default();
+    let read = raw("/cache_read_input_tokens");
+    [
+        ("input_tokens", raw("/input_tokens").saturating_add(read)),
+        ("output_tokens", raw("/output_tokens")),
+        ("cache_read_tokens", read),
+        ("cache_write_tokens", raw("/cache_creation_input_tokens")),
+    ]
+    .into_iter()
+    .filter(|(_, count)| *count != 0)
+    .map(|(key, count)| (key.to_owned(), Value::from(count)))
+    .collect()
 }
 
 /// The newest `totalCostUSD` a `cost-state` record of `session` holds in

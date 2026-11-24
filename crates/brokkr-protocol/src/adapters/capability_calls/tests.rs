@@ -1,7 +1,7 @@
 use serde_json::{json, Map, Value};
 
 use super::super::raw_fold_tests::{fold_codex_event, fold_stream_event};
-use super::super::{fold_dsh_event, CodexThreadEcho};
+use super::super::{fold_dsh_event, CodexThreadEcho, Row};
 use super::{Format, Observation, Tool, OBSERVATION_KEY};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 
@@ -59,11 +59,14 @@ fn each_format_reads_the_measured_call_identity_whole() {
     let long = format!("mcp__engine__{LONG_TOOL}");
     let cases = [
         (
-            Observation::claude(&claude_block("toolu_01", "WebSearch")),
+            Observation::claude(&Row::new(&claude_block("toolu_01", "WebSearch"), &[])),
             seen(Format::Claude, Some("toolu_01"), named("WebSearch")),
         ),
         (
-            Observation::claude(&claude_block("toolu_02", "mcp__plugin_docs_srv__lookup")),
+            Observation::claude(&Row::new(
+                &claude_block("toolu_02", "mcp__plugin_docs_srv__lookup"),
+                &[],
+            )),
             seen(
                 Format::Claude,
                 Some("toolu_02"),
@@ -71,11 +74,11 @@ fn each_format_reads_the_measured_call_identity_whole() {
             ),
         ),
         (
-            Observation::claude(&claude_block("toolu_03", &long)),
+            Observation::claude(&Row::new(&claude_block("toolu_03", &long), &[])),
             seen(Format::Claude, Some("toolu_03"), mcp("engine", LONG_TOOL)),
         ),
         (
-            Observation::claude(&claude_block("toolu_04", "mcp__engine")),
+            Observation::claude(&Row::new(&claude_block("toolu_04", "mcp__engine"), &[])),
             seen(
                 Format::Claude,
                 Some("toolu_04"),
@@ -83,7 +86,7 @@ fn each_format_reads_the_measured_call_identity_whole() {
             ),
         ),
         (
-            Observation::claude(&json!({"type": "tool_use", "name": 7})),
+            Observation::claude(&Row::new(&json!({"type": "tool_use", "name": 7}), &[])),
             seen(Format::Claude, None, Tool::Missing),
         ),
         (
@@ -149,7 +152,7 @@ fn each_format_reads_the_measured_call_identity_whole() {
 fn each_reading_has_one_encoding_and_decodes_back() {
     let cases = [
         (
-            Observation::claude(&claude_block("toolu_01", "WebSearch")),
+            Observation::claude(&Row::new(&claude_block("toolu_01", "WebSearch"), &[])),
             json!({"format": "claude", "call": "toolu_01",
                    "tool": {"kind": "named", "name": "WebSearch"}}),
         ),

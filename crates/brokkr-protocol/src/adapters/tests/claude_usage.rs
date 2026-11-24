@@ -164,7 +164,7 @@ fn resumed_cost(home: &Path, session: &str, total: f64) -> Option<Value> {
     let mut fold = ClaudeFold::rejoining(home, Some(session));
     let mut meta = Map::new();
     fold.settle(
-        &json!({"type": "result", "total_cost_usd": total}),
+        &Row::new(&json!({"type": "result", "total_cost_usd": total}), &[]),
         &mut meta,
     );
     meta.get("total_cost_usd").cloned()

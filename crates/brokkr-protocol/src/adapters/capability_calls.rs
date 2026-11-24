@@ -14,6 +14,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::row::Row;
+
 /// The private checkpoint key an observation rides under from the driver
 /// to the engine, which consumes it before any append. The store never
 /// admits it.
@@ -75,11 +77,11 @@ pub struct Observation {
 
 impl Observation {
     /// One `tool_use` block of a Claude `assistant` message.
-    pub(super) fn claude(block: &Value) -> Observation {
+    pub(super) fn claude(block: &Row<'_>) -> Observation {
         Observation {
             format: Format::Claude,
-            call: text(block, "/id"),
-            tool: named(text(block, "/name")),
+            call: block.text("/id"),
+            tool: named(block.text("/name")),
         }
     }
 

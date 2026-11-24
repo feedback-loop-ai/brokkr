@@ -392,8 +392,10 @@ impl QoderFold {
             .flatten();
         let identity = CapturedId::claude(&row);
         secret::mask_json(&mut event, bindings);
+        // This legacy input is already masked with the seat's bindings.
+        // The Qoder row migration removes this copy.
         let classified = FoldInput {
-            masked: &event,
+            row: &super::Row::new(&event, &[]),
             refusal,
             identity,
         }
