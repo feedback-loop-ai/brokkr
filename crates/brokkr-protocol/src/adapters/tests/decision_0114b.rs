@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use super::super::agy::tests::{operator_home, turn_row, FLASH, TOOLS_TURN};
 use super::super::claude_fold::Source::Claude;
 use super::decision_0114a::{bindings, claude_launch, wire_rows, Driven, Stream};
 use super::*;
@@ -126,9 +127,14 @@ pub(super) fn assert_bound_projection(
 ) {
     for word in words(structure) {
         let (driven, bound) = drive(word);
-        assert_work(&driven);
         assert_eq!(driven.emitted.len(), plain.emitted.len(), "{kind:?} {word}");
         assert_eq!(driven.meta, plain.meta, "{kind:?} {word}");
+        assert_eq!(
+            wire_rows(&driven.bodies).count(),
+            wire_rows(&plain.bodies).count(),
+            "{kind:?} {word}"
+        );
+        assert_work(&driven);
         let guard = secret::Guard::new(&bound);
         for (((step, plain), (actual_step, projected)), actual) in plain
             .emitted
@@ -389,6 +395,91 @@ fn bound_word_claude_family() {
     }
     assert_qoder_projection();
     assert_raw_refusals();
+}
+
+#[test]
+fn bound_word_agy_has_exact_seat_rows() {
+    let mut env = EnvGuard::lock();
+    let home = tempfile::tempdir().unwrap();
+    env.set("HOME", operator_home(home.path()));
+    let rows: Vec<Value> = TOOLS_TURN
+        .lines()
+        .map(|row| serde_json::from_str(row).unwrap())
+        .collect();
+    let kind = AdapterKind::Agy;
+    let extra = ["--model".into(), FLASH.into()];
+    let plain = Stream::rows(&rows, &[]).drive(kind, &extra);
+    assert_work(&plain);
+    let transcript = json!({"kind":"none","locator":"","home":""});
+    assert_eq!(
+        plain.emitted,
+        [
+            (Step::SeatTurn, turn_row(1, FLASH)),
+            (Step::SeatTurn, turn_row(2, FLASH)),
+            (
+                Step::Transcript,
+                json!({"step":"transcript","transcript":transcript})
+            ),
+        ]
+    );
+    assert_eq!(
+        wire_rows(&plain.bodies).last(),
+        Some(
+            &json!({"step":"agy-cli-session-finished","exit_code":0,"model":FLASH,
+            "effort":"not reported","transcript":transcript,"num_turns":1,
+            "input_tokens":18037,"output_tokens":81,"cache_read_tokens":6851})
+        )
+    );
+    let structure = &[
+        // agy's event tags, fields and structural words. Bind refusal-only
+        // words here too, against the recorded successful turn.
+        "event",
+        "init",
+        "step_update",
+        "result",
+        "model",
+        "step_type",
+        "state",
+        "agent_response",
+        "DONE",
+        "status",
+        "SUCCESS",
+        "response",
+        "usage",
+        "num_turns",
+        "denied_actions",
+        "action",
+        "error",
+        "input_tokens",
+        "output_tokens",
+        "thinking_tokens",
+        "cache_read_tokens",
+        "ACTIVE",
+        "user_input",
+        "tool",
+        "ERROR",
+        FLASH,
+        // The projected checkpoint's vocabulary, including its keys.
+        "step",
+        "seat-turn",
+        "turn",
+        "effort",
+        "transcript",
+        "kind",
+        "none",
+        "locator",
+        "home",
+    ];
+    assert_bound_projection(
+        kind,
+        structure,
+        &plain,
+        |word| {
+            let stream = Stream::rows(&rows, &[("S", word)]);
+            (stream.drive(kind, &extra), bindings(&stream))
+        },
+        |_, plain, _| plain.clone(),
+    );
 }
 
 #[test]

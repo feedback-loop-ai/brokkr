@@ -27,7 +27,7 @@ const NEON: &str = recorded!("named-model-neon-base.ndjson");
 const CARBON: &str = recorded!("named-model-carbon-base.ndjson");
 const HYDROGEN: &str = recorded!("named-model-hydrogen-base.ndjson");
 const ARGON: &str = recorded!("named-model-argon-base.ndjson");
-const TOOLS_TURN: &str = recorded!("tools-turn.ndjson");
+pub(in crate::adapters) const TOOLS_TURN: &str = recorded!("tools-turn.ndjson");
 const GATE_PRIOR: &str = recorded!("gate-prior-grant.ndjson");
 const DENIED_DEFAULT: &str = recorded!("denied-command-default.ndjson");
 const DENIED_ACCEPT: &str = recorded!("denied-command-accept-edits.ndjson");
@@ -91,7 +91,7 @@ fn read(stdout: impl AsRef<[u8]>, pin: &str) -> Read {
 }
 
 /// The one turn row a recorded answer's model response folds to.
-fn turn_row(turn: u64, pin: &str) -> Value {
+pub(in crate::adapters) fn turn_row(turn: u64, pin: &str) -> Value {
     json!({"step": "seat-turn", "turn": turn, "model": pin, "effort": "not reported"})
 }
 
