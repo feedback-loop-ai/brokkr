@@ -11,6 +11,8 @@ use serde_json::Value;
 use crate::doc_samples::hermetic;
 use crate::workflow;
 
+#[path = "contributing/boundary_guides.rs"]
+mod boundary_guides;
 #[path = "contributing/docs_lane.rs"]
 mod docs_lane;
 #[path = "contributing/inline_copies.rs"]
@@ -1308,7 +1310,7 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 26] = [
 
 /// Every step that does not run in a merge group, as (workflow, job,
 /// step): the rest of its job judges the combined tree.
-const STEPS_OUT_OF_THE_QUEUE: [(&str, &str, &str, InTheQueue); 2] = [
+const STEPS_OUT_OF_THE_QUEUE: [(&str, &str, &str, InTheQueue); 3] = [
     // It reads the `Ruling:` line of the pull request's description, which
     // a merge group does not carry. The file-size and duplication ratchets
     // before it judge the combined tree against the baselines.
@@ -1325,6 +1327,15 @@ const STEPS_OUT_OF_THE_QUEUE: [(&str, &str, &str, InTheQueue); 2] = [
         "ci.yml",
         "quality",
         "an added suppression names a ruling",
+        InTheQueue::PullRequestOnly,
+    ),
+    // The docs lane classifies a pull request's change alone: a merge
+    // group is full without reading git, so its classify job checks
+    // nothing out and pays for no history (1295b, review LOW).
+    (
+        "ci.yml",
+        "classify",
+        "- uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0",
         InTheQueue::PullRequestOnly,
     ),
 ];
@@ -1923,74 +1934,4 @@ fn version_token(text: &str) -> &str {
         .find(|c: char| !c.is_ascii_alphanumeric() && c != '.')
         .unwrap_or(text.len());
     text[..end].trim_end_matches('.')
-}
-
-/// Decision 0046's guides: no page states that the network was off under
-/// `harness` or `open`, and the decision carries its one-line erratum
-/// under a heading of its own. Which sections and rows a page keeps is a
-/// reviewer's call since #365: a false claim fails here, a lost section
-/// does not.
-#[test]
-fn no_boundary_guide_says_the_network_was_off_and_0046_carries_its_erratum() {
-    let root = workspace();
-    for page in [
-        "docs/guides/provider-adapters.md",
-        "docs/guides/recipe-authoring.md",
-        "docs/guides/quickstart.md",
-        "docs/guides/journal-and-verification.md",
-        "docs/guides/repository-layout.md",
-        "docs/guides/driver-authoring.md",
-        "ARCHITECTURE.md",
-        "contracts/README.md",
-    ] {
-        let raw = std::fs::read_to_string(root.join(page)).unwrap();
-        // Task 12.8 (design DD15): the prefix is a narrowing the engine
-        // attempts on Linux, and no page says the network was off.
-        let lower = raw
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .to_lowercase();
-        for claim in ["network was off", "network is off", "network off"] {
-            assert!(
-                !lower.contains(claim),
-                "{page} states the network was off: {claim}"
-            );
-        }
-    }
-
-    // The erratum: one heading, one line, the decision otherwise untouched.
-    // The accepted 2026-09-09 Seatbelt addendum follows the erratum, so the
-    // erratum section is delimited by the next `##` heading, not the file end.
-    let decision =
-        std::fs::read_to_string(root.join("docs/decisions/0046-the-boundary-is-named.md")).unwrap();
-    assert!(decision.starts_with("# 0046 — The boundary is named"));
-    assert!(decision.contains("\nStatus: accepted (operator ruled in chat, 2026-09-05)\n"));
-    let erratum: Vec<&str> = decision
-        .split("\n## Erratum\n")
-        .nth(1)
-        .expect("the decision carries its erratum heading")
-        .split("\n## ")
-        .next()
-        .expect("the erratum section is bounded by the next heading")
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect();
-    assert_eq!(
-        erratum.len(),
-        1,
-        "the erratum is exactly one line: {erratum:?}"
-    );
-    for named in [
-        "`seat-record.v3`",
-        "`seat-record.v4`",
-        "#202",
-        "decision 0034 rulings 6 and 7",
-        "nothing else is renumbered",
-    ] {
-        assert!(
-            erratum[0].contains(named),
-            "the erratum does not name {named}"
-        );
-    }
 }

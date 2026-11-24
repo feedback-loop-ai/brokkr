@@ -138,6 +138,7 @@ const JOB_LINES: [(&str, &str); 16] = [
       lane: ${{ steps.lane.outputs.lane }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name == 'pull_request'
         with:
           fetch-depth: 0
           persist-credentials: false

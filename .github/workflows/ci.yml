@@ -143,7 +143,10 @@ jobs:
     outputs:
       lane: ${{ steps.lane.outputs.lane }}
     steps:
+      # Only a pull request is classified, so only a pull request pays for
+      # the full history; push and merge_group are full without a checkout.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name == 'pull_request'
         with:
           fetch-depth: 0
           persist-credentials: false
