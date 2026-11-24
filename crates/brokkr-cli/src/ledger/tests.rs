@@ -165,6 +165,24 @@ bob (clean): not a member\n  - bob (clean)\n  - carol (residual): second\n\n    
     );
 }
 
+#[test]
+fn notes_keep_non_ascii_whitespace_under_their_bullets_and_drop_the_final_line_ending() {
+    let panel = json!({
+        "members": {"alice": "one low\n \t \n\u{a0}\nsecond line"},
+        "verdicts": {"alice": "residual"}
+    });
+    let rendered = rendered_with(
+        Some(json!("first\n\u{a0}\n\u{3000}\nfourth\n")),
+        Some(panel),
+    );
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass** — first\n  \u{a0}\n  \u{3000}\n  fourth\n\n\
+## Review residuals\n\n- **residual**\n  - alice (residual): one low\n\n    \u{a0}\n    \
+second line\n\n"
+    );
+}
+
 /// Notes of an unknown shape print as the journal wrote them, and only
 /// absent notes are "no notes recorded".
 #[test]
