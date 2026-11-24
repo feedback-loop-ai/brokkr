@@ -152,7 +152,8 @@ realm has not granted — so the day a harness loses a power it used without
 anyone's permission is loud, not discovered later:
 
 ```text
-ok       capabilities brokkr: grants nothing; every native capability is governed by the no-grant default — switched off, or the seat is refused
+ok       capabilities brokkr 'web-fetch': dialect 'claude-native-fetch' (provider-native, provider 'claude') · tools [WebFetch] · offices [researcher] only · restrictions none
+ok       capabilities brokkr 'web-search': dialect 'claude-native-search' (provider-native, provider 'claude') · tools [WebSearch] · offices [researcher] only · restrictions none
 ok       capabilities brokkr plan codex: adapter-level scope: … · a seat on codex that holds none of its native capabilities is admitted, each of them switched off by the composed command; that is composition, not a live measurement
 warn     capabilities brokkr native codex 'web-search': NOT granted here: the adapter-level plan above switches it off · evidence: codex-cli 0.154.0, cold `codex exec` only … · still unmeasured: whether the OFF switch holds on a RESUMED codex session is unmeasured; …
 warn     capabilities brokkr native dsh: native inventory unmeasured: … Nothing is granted through it and no native denial is claimed

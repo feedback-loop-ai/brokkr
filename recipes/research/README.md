@@ -29,7 +29,10 @@ in one run, and the gate refuses an eleventh entry.
   (`capabilities`), and holds neither unless the realm grants it through
   a tool dialect in `realms.json` (decision 0065); otherwise the run
   proceeds without them, with a notice in the run manifest and in the
-  seat's prompt. This repository's own `realms.json` grants nothing. The
+  seat's prompt. This repository's own `realms.json` grants both to the
+  `researcher` office alone, through Claude's native dialects
+  (`claude-native-fetch`, `claude-native-search`): read-only web access,
+  the operator's ruling of 2026-11-24. No other office holds either. The
   charter is the configurable prompt, and editing it moves this recipe's
   witness digest.
 - **verify** (`roles/verify-seat.sh`, in Brokkr's box with no network
