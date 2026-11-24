@@ -781,15 +781,20 @@ impl Engine {
         // A drive that returns stops driving: let the run go so an operator
         // can conclude it while a view still paints (decision 0108 ruling
         // 1). A second drive here takes it again, as a new driver.
-        if self.run_lock.is_none() {
-            self.run_lock = Some(crate::run_lock::take(&self.store, &self.run_id)?);
-        }
-        let ended = self.drive_locked(before_lawful_end);
+        let ended = (|| {
+            if self.run_lock.is_none() {
+                self.run_lock = Some(crate::run_lock::take(&self.store, &self.run_id)?);
+            }
+            self.drive_locked(before_lawful_end)
+        })();
         self.run_lock = None;
+        self.stderr.tell(&mut self.told);
         ended
     }
 
-    /// [`Engine::drive_racing`]'s loop, with the run held.
+    /// [`Engine::drive_racing`]'s loop, with the run held. When the lawful end
+    /// lands a held outcome, the next turn writes its owed park at the cursor.
+    /// A drive returning with a tail queued tells it after releasing the run.
     fn drive_locked(
         &mut self,
         mut before_lawful_end: impl FnMut(&EngineError),
@@ -800,9 +805,7 @@ impl Engine {
                 Ok(None) => {}
                 Err(error) => {
                     before_lawful_end(&error);
-                    let end = self.lawful_end_under_contention(error)?;
-                    self.finish_turn()?;
-                    if let Some(end) = end {
+                    if let Some(end) = self.lawful_end_under_contention(error)? {
                         return Ok(end);
                     }
                 }
