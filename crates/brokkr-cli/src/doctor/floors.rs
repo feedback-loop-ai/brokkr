@@ -13,12 +13,13 @@ use std::path::Path;
 
 use brokkr_runtime::admission::{
     declared_routes, host_file, measurable, runs_undeclared, HostRoutes, RouteClass, RouteDecl,
-    Unmeasured,
+    Unmeasured, CURRENT_HOST_SCHEMA,
 };
 use brokkr_runtime::agents::EgressClass;
 use brokkr_runtime::Adapters;
 
 use super::{safe, Report};
+use crate::verbs::setup::host::UPGRADE_COMMAND;
 
 /// Print the machine's floor lines and egress mismatches, reading the
 /// host file where `host_file` places it, and whether this machine's
@@ -59,16 +60,16 @@ pub(super) fn report_from(
 /// ceiling the warning it has been. Neither refuses.
 fn runs(report: &mut Report, file: &Path, measured: Result<(), Unmeasured>) {
     let shown = safe(&file.display().to_string());
-    let undeclared = runs_undeclared(file);
+    let undeclared = runs_undeclared(file).map(|version| (version, upgrade_hint(version)));
     match measured {
         Ok(()) => {
-            if let Some(version) = undeclared {
+            if let Some((version, upgrade)) = undeclared {
                 report.ok(
                     "host",
                     format!(
                         "the host file {shown} is {version} and declares no run ceiling; this \
                          machine's availability is measured, so queued entries are judged by \
-                         their recipes' measured demand (decision 0125)"
+                         their recipes' measured demand (decision 0125){upgrade}"
                     ),
                 );
             }
@@ -83,17 +84,24 @@ fn runs(report: &mut Report, file: &Path, measured: Result<(), Unmeasured>) {
                     ),
                 );
             }
-            if let Some(version) = undeclared {
+            if let Some((version, upgrade)) = undeclared {
                 report.warn(
                     "host",
                     format!(
                         "the host file {shown} is {version} and declares no run ceiling, so \
-                         every queued entry waits as runs_undeclared; forge.host/v4 declares \
-                         runs.ceiling"
+                         every queued entry waits as runs_undeclared{upgrade}; declare runs.ceiling"
                     ),
                 );
             }
         }
+    }
+}
+
+fn upgrade_hint(version: &str) -> String {
+    if version == CURRENT_HOST_SCHEMA {
+        String::new()
+    } else {
+        format!("; run `{UPGRADE_COMMAND}` to upgrade the host file")
     }
 }
 

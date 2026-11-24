@@ -19,6 +19,31 @@ use crate::{agents, doctor, init, muninn, recipes};
 use crate::{compiled_view, driver_payload, now_rfc3339};
 use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCmd};
 
+pub(crate) mod host;
+
+#[derive(clap::Subcommand)]
+pub(crate) enum ConfigurationCmd {
+    /// Manage the operator-side secrets store: bundles
+    /// and journals carry NAMES only; values live in this env-format
+    /// file outside version control. There is no value-printing verb.
+    Secrets {
+        #[command(subcommand)]
+        command: SecretsCmd,
+    },
+    /// Manage the machine's host configuration.
+    Host {
+        #[command(subcommand)]
+        command: host::HostCmd,
+    },
+}
+
+pub(crate) fn configuration(workspace: &Path, command: ConfigurationCmd) -> Result<ExitCode> {
+    match command {
+        ConfigurationCmd::Secrets { command } => secrets(workspace, command),
+        ConfigurationCmd::Host { command } => host::run(command),
+    }
+}
+
 /// `brokkr init`: write the `.brokkr/` folder at the repository root
 /// `dir`, read for its own manifests so the implement and verify seats
 /// are told commands that would actually run there (decision 0083 ruling

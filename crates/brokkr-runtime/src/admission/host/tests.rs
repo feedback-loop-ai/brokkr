@@ -1593,3 +1593,42 @@ fn the_floor_cap_is_the_fleets_attempt_bound() {
     );
     assert_eq!(super::floor::MAX_FLOOR_SECONDS, 7200);
 }
+
+#[test]
+fn host_upgrade_changes_only_the_schema_token_and_loads_all_legacy_values() {
+    for version in ["v1", "v2", "v3", "v4"] {
+        let mut fixture = v3_route("shared-local", Some(json!(321)));
+        let schema = format!("forge.host/{version}");
+        fixture["schema"] = json!(schema);
+        if version == "v1" || version == "v2" {
+            fixture["providers"]["dsh"]["routes"]["s"] =
+                json!({"ceiling":2, "class":"shared-local"});
+        }
+        if version != "v1" {
+            fixture["containment"] = json!("best-effort");
+            fixture["cooldowns"] = json!({"default_seconds": 17, "max_seconds": 27});
+        }
+        if version == "v4" {
+            fixture["runs"] = json!({"ceiling": 7});
+        }
+        // Keep another occurrence of the version, the escaped schema key,
+        // the exponent spelling, and the original line endings.
+        fixture["providers"][&schema] = json!({"ceiling": 3});
+        let old = format!(r#""forge.host\u002f{version}""#);
+        let source = serde_json::to_string_pretty(&fixture)
+            .unwrap()
+            .replace(
+                &format!(r#""schema": "{schema}""#),
+                &format!(r#""sch\u0065ma": {old}"#),
+            )
+            .replace(r#""floor_bytes": 1"#, r#""floor_bytes": 1.00e0"#)
+            .replace('\n', "\r\n");
+        let path = Path::new("host.json");
+        let upgrade = host_upgrade(path, &source).unwrap().unwrap();
+        assert_eq!(upgrade, source.replace(&old, r#""forge.host/v5""#));
+        let mut unchanged = loaded(&source);
+        unchanged.schema = Schema::V5;
+        assert_eq!(loaded(&upgrade), unchanged);
+        assert_eq!(host_upgrade(path, &upgrade).unwrap(), None);
+    }
+}

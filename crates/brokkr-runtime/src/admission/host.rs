@@ -49,7 +49,7 @@ mod shape;
 
 pub use floor::{declared_routes, HostRoutes, RouteDecl};
 pub use free::free_bytes;
-pub use runs::runs_undeclared;
+pub use runs::{host_upgrade, runs_undeclared, CURRENT_HOST_SCHEMA};
 use shape::Integral;
 
 /// A host configuration, read whole: every key known, every ceiling at

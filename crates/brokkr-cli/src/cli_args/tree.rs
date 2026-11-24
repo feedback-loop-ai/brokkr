@@ -11,7 +11,7 @@
 use clap::{ArgGroup, Parser, Subcommand};
 
 use super::*;
-use crate::verbs::{analytics, backup, evidence, graph};
+use crate::verbs::{analytics, backup, evidence, graph, setup};
 use crate::{AgentsCmd, Cli, Cmd, KeepRefsCmd, MuninnCmd, RecipesCmd};
 
 /// The command line as typed. Its exit codes are [`crate::exit::Exit`]'s.
@@ -268,13 +268,8 @@ enum SystemCmd {
     /// branch and current HEAD, and the journal the world writes.
     /// Read-only, like every other readout.
     Realms(RealmsArgs),
-    /// Manage the operator-side secrets store: bundles
-    /// and journals carry NAMES only; values live in this env-format
-    /// file outside version control. There is no value-printing verb.
-    Secrets {
-        #[command(subcommand)]
-        command: SecretsCmd,
-    },
+    #[command(flatten)]
+    Configuration(setup::ConfigurationCmd),
     /// Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI.
     Probe {
         #[command(subcommand)]
@@ -408,7 +403,7 @@ impl From<SystemCmd> for Cmd {
     fn from(command: SystemCmd) -> Cmd {
         match command {
             SystemCmd::Realms(args) => Cmd::Realms(args),
-            SystemCmd::Secrets { command } => Cmd::Grouped(GroupedCmd::Secrets { command }),
+            SystemCmd::Configuration(command) => Cmd::Grouped(GroupedCmd::Configuration(command)),
             SystemCmd::Probe { command } => Cmd::Probe { command },
             SystemCmd::Ui(args) => Cmd::Ui(args),
         }

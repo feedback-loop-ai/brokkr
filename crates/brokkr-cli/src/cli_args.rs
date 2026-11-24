@@ -671,7 +671,7 @@ pub(super) enum GroupedCmd {
     Recipes { command: super::RecipesCmd },
     Agents { command: super::AgentsCmd },
     Muninn { command: super::MuninnCmd },
-    Secrets { command: SecretsCmd },
+    Configuration(crate::verbs::setup::ConfigurationCmd),
     Sweep(SweepArgs),
     Dispatch(DispatchArgs),
     Completions(crate::completion::CompletionsArgs),

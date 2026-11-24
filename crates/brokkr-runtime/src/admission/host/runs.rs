@@ -15,6 +15,9 @@ use thiserror::Error;
 
 use super::{read as read_host, Ceiling, Hosting, Schema};
 
+mod upgrade;
+pub use upgrade::{host_upgrade, CURRENT_HOST_SCHEMA};
+
 /// Why a file's run ceiling is not one the loader can obey.
 #[derive(Debug, Error)]
 pub enum Problem {
@@ -39,7 +42,7 @@ impl Problem {
 
 impl Schema {
     /// The version's name, as the file writes it.
-    pub(super) fn contract(self) -> &'static str {
+    pub(super) const fn contract(self) -> &'static str {
         match self {
             Schema::V1 => "forge.host/v1",
             Schema::V2 => "forge.host/v2",

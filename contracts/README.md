@@ -1081,6 +1081,10 @@ refuses a v1 to v4 file that writes `demand` or leaves out
 `boxed_builds`, each naming its version, and a window or margin out of
 range; every v1 to v4 file reads with the defaults.
 
+Run `brokkr system host upgrade --check` to preview the change to v5.
+Run `brokkr system host upgrade` to change the schema while preserving
+every declared value.
+
 The same slice adds one more file and changes none of the bytes above —
 `run-manifest.v12`'s included, which is now pinned by digest beside the
 frozen files:
