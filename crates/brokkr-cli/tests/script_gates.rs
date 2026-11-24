@@ -854,7 +854,7 @@ fn the_docs_lane_classifier_calls_only_unnamed_pages_docs() {
     let edit = "# changed\n";
     let full = |reason: &str| ("full\n".to_string(), format!("docs lane: full: {reason}\n"));
     let docs = || ("docs\n".to_string(), String::new());
-    let cases: [(&[Edit], (String, String)); 13] = [
+    let cases: [(&[Edit], (String, String)); 15] = [
         (&[("docs/guide.md", Some(edit))], docs()),
         (&[("README.md", Some(edit))], docs()),
         (&[("docs/listed.md", Some(edit))], docs()),
@@ -889,6 +889,13 @@ fn the_docs_lane_classifier_calls_only_unnamed_pages_docs() {
             full("notes/guide.md is neither under docs/ nor a top-level .md"),
         ),
         (&[("scripts/old.sh", None)], full("scripts/old.sh is not a .md file")),
+        // A page deleted (D, 100644 to 000000): alone it is documentation;
+        // one that code still names is not, since the base names it.
+        (&[("docs/guide.md", None)], docs()),
+        (
+            &[("docs/compiled.md", None)],
+            full("the file name of docs/compiled.md is named in code's input, outside the docs lane's tests"),
+        ),
         (
             &[("docs/blob.md", Some("a\0binary\0page\n"))],
             full("docs/blob.md is a binary file"),
