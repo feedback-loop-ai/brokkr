@@ -27,32 +27,31 @@ use super::super::{hands_rows, Mode, Release, HANDS_ID, MCP_CLIENT};
 use crate::hands::{decode_base64url, Bind, BindMode, GitFacts, HandsSpec, Sealed, SEALED_REACH};
 use crate::native_controls::{SealedBoundary, SealedDialect, ARTIFACT_ROOT, SERVING_INPUTS};
 
-/// Path to one of the controller's 2026-11-24 Linux/dsh 0.2.2-rc.1 captures
-/// under `docs/evidence/adapters/dsh-hands-1277/`.
-///
-/// Read at run time, not `include_*!`: the measured captures have one home in
-/// `docs/evidence/`, and a crate must not include a file above itself (the
-/// published tarball would not carry it).
-fn capture_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/evidence/adapters/dsh-hands-1277")
-        .join(name)
-}
-
 /// Controller capture (2026-11-24, Linux, dsh 0.2.2-rc.1): real seat overlay
 /// with long JSON `--reach` and `--spec`, folded by js-yaml onto lines 455
 /// and 458 starting with `{`.
+///
+/// Read at run time by explicit `.txt` file path (not `include_*!` and not by
+/// joining onto the directory literal, which also holds `README.md`): the
+/// measured captures have one home in `docs/evidence/`, a crate must not
+/// include a file above itself, and the test reads no `.md` page.
 fn dump_folded_json() -> Vec<u8> {
-    std::fs::read(capture_path("dump-folded-json.txt"))
-        .expect("the controller's #1277 folded-JSON capture is in the workspace")
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/evidence/adapters/dsh-hands-1277/dump-folded-json.txt"),
+    )
+    .expect("the controller's #1277 folded-JSON capture is in the workspace")
 }
 
 /// Controller capture (2026-11-24, Linux, dsh 0.2.2-rc.1): the same seat
 /// overlay with `--reach` and `--spec` values base64url-encoded without
 /// padding.
 fn dump_base64url() -> String {
-    std::fs::read_to_string(capture_path("dump-base64url.txt"))
-        .expect("the controller's #1277 base64url capture is in the workspace")
+    std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/evidence/adapters/dsh-hands-1277/dump-base64url.txt"),
+    )
+    .expect("the controller's #1277 base64url capture is in the workspace")
 }
 
 /// Extract the single-quoted `args:` entries from the emitted `brokkr-hands`
