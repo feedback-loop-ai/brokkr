@@ -4,7 +4,7 @@
 
 Every `brokkr` verb and argument with its default, and every exit code, as the binary defines them; `brokkr <verb> --help` prints the same text. An argument marked **yes** under Selector takes a full run id, a unique prefix of one, or `latest`, the run created most recently (decision 0015, and for the write paths its proposed 2026-09-28 addendum); one marked **with a journal** does so only when the workspace journal is there, and otherwise takes the id literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, and `brokkr` itself `-V`/`--version`; the tables leave them out.
 
-The verbs nest under thirteen roots: decision 0113's twelve and decision 0119's `completions`. Every old flat name, such as `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for `brokkr journal verify`, still parses as a hidden alias until 0.17, and says its new spelling on stderr. Internal engine verbs (`driver`, `hands`, `bridge`, `broker`, `fake-driver`) are hidden from this page; the `brokkr hands` argument contract is documented in [hands.md](hands.md).
+The verbs nest under fourteen roots: decision 0113's twelve, decision 0119's `completions` and decision 0116's `orders`. Every old flat name, such as `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for `brokkr journal verify`, still parses as a hidden alias until 0.17, and says its new spelling on stderr. Internal engine verbs (`driver`, `hands`, `bridge`, `broker`, `fake-driver`) are hidden from this page; the `brokkr hands` argument contract is documented in [hands.md](hands.md).
 
 - [`brokkr init`](#brokkr-init): Scaffold a minimal reviewable bundle and prove it compiles
 - [`brokkr run`](#brokkr-run): Start a new run and drive it until it parks or finishes
@@ -64,6 +64,12 @@ The verbs nest under thirteen roots: decision 0113's twelve and decision 0119's 
 - [`brokkr queue dispatch set-bound`](#brokkr-queue-dispatch-set-bound): Set the journal's bound on the refusals counted against one entry before the dispatcher holds it, a whole number of at least 1, journaled as the operator's command
 - [`brokkr queue dispatch status`](#brokkr-queue-dispatch-status): Say whether a dispatcher holds the journal, the bound in force, and each entry left launching or linked with no `spawn` row. Opens the journal read-only and writes nothing
 - [`brokkr queue sweep`](#brokkr-queue-sweep): Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
+- [`brokkr orders`](#brokkr-orders): Work orders in the journal: list them (the default), show one, propose or edit its text, or record the operator's ruling
+- [`brokkr orders list`](#brokkr-orders-list): List work orders by number, with state, open ask count and title. Use `--json` for the view model
+- [`brokkr orders show`](#brokkr-orders-show): Print a work order's canonical Markdown and journaled state
+- [`brokkr orders add`](#brokkr-orders-add): Propose a work order from a Markdown file
+- [`brokkr orders edit`](#brokkr-orders-edit): Replace a work order's text and return it to proposed
+- [`brokkr orders rule`](#brokkr-orders-rule): Record the operator's ruling after every ask is closed
 - [`brokkr stats`](#brokkr-stats): What the runs did, read across them: analytics, a recipe's graph, a run's costs and its delivery ledger
 - [`brokkr stats analytics`](#brokkr-stats-analytics): What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
 - [`brokkr stats graph`](#brokkr-stats-graph): One recipe's state machine and its traffic over a range. `--json` emits the view model
@@ -925,6 +931,95 @@ Usage: brokkr queue sweep [OPTIONS]
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--dry-run` |  |  | List what a pass would remove, with sizes, and write nothing: no tree-sweep row, no dispatch holder and no migration |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr orders
+
+Work orders in the journal: list them (the default), show one, propose or edit its text, or record the operator's ruling
+
+```text
+Usage: brokkr orders [OPTIONS]
+       brokkr orders <COMMAND>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--json` |  |  | Emit the view model for scripts |
+
+## brokkr orders list
+
+List work orders by number, with state, open ask count and title. Use `--json` for the view model
+
+```text
+Usage: brokkr orders list [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--json` |  |  | Emit the view model for scripts |
+
+## brokkr orders show
+
+Print a work order's canonical Markdown and journaled state
+
+```text
+Usage: brokkr orders show [OPTIONS] <WO-<n>>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<WO-<n>>` |  |  | The work order's id |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr orders add
+
+Propose a work order from a Markdown file
+
+```text
+Usage: brokkr orders add [OPTIONS] --reason <WHY> <FILE>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<FILE>` |  |  | The Markdown file holding the work order |
+| `--reason <WHY>` |  |  | Why, journaled with the command |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr orders edit
+
+Replace a work order's text and return it to proposed
+
+```text
+Usage: brokkr orders edit [OPTIONS] --reason <WHY> <WO-<n>> <FILE>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<WO-<n>>` |  |  | The work order's id |
+| `--reason <WHY>` |  |  | Why, journaled with the command |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `<FILE>` |  |  | The Markdown file holding the replacement text |
+
+## brokkr orders rule
+
+Record the operator's ruling after every ask is closed
+
+```text
+Usage: brokkr orders rule [OPTIONS] --reason <WHY> <WO-<n>>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<WO-<n>>` |  |  | The work order's id |
+| `--reason <WHY>` |  |  | Why, journaled with the command |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 

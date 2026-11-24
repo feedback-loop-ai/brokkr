@@ -10,7 +10,7 @@ macro_rules! fixture {
 
 macro_rules! tracker {
     ($name:literal) => {
-        include_str!(concat!("../../../../trackers/", $name, ".json"))
+        include_str!(concat!("../../../brokkr-cli/trackers/", $name, ".json"))
     };
 }
 

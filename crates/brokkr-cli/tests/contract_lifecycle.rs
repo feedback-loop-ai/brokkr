@@ -1435,7 +1435,7 @@ fn work_order_validator(schema: &Value) -> jsonschema::Validator {
 }
 
 fn work_order_trackers(root: &Path) -> Trackers {
-    let definitions: Vec<String> = std::fs::read_dir(root.join("trackers"))
+    let definitions: Vec<String> = std::fs::read_dir(root.join("crates/brokkr-cli/trackers"))
         .unwrap()
         .map(|file| std::fs::read_to_string(file.unwrap().path()).unwrap())
         .collect();

@@ -13,10 +13,10 @@ fn listed(command: &clap::Command) -> Vec<&str> {
 }
 
 #[test]
-fn the_help_lists_thirteen_roots_and_each_family_its_verbs() {
+fn the_help_lists_fourteen_roots_and_each_family_its_verbs() {
     let tree = Cli::command();
-    // Decision 0113's twelve, and decision 0119's `completions` beside
-    // `doctor`.
+    // Decision 0113's twelve, decision 0119's `completions` beside
+    // `doctor`, and decision 0116's `orders` beside `queue`.
     assert_eq!(
         listed(&tree),
         [
@@ -31,6 +31,7 @@ fn the_help_lists_thirteen_roots_and_each_family_its_verbs() {
             "journal",
             "library",
             "queue",
+            "orders",
             "stats",
             "system"
         ]
@@ -49,6 +50,7 @@ fn the_help_lists_thirteen_roots_and_each_family_its_verbs() {
         family("queue"),
         "add list judge move hold release repin drop merged dispatch sweep"
     );
+    assert_eq!(family("orders"), "list show add edit rule");
     assert_eq!(family("stats"), "analytics graph costs ledger");
     assert_eq!(family("system"), "realms secrets host probe ui");
 }
@@ -81,6 +83,31 @@ fn a_bare_runs_lists_runs_as_runs_list_does() {
     }
     // A flag of the bare listing is not also taken beside a verb.
     let both = Cli::try_parse_from(["brokkr", "runs", "--json", "inspect", "--run", "r"]);
+    assert_eq!(
+        both.err().map(|error| error.kind()),
+        Some(clap::error::ErrorKind::ArgumentConflict)
+    );
+}
+
+#[test]
+fn a_bare_orders_lists_work_orders_as_orders_list_does() {
+    use crate::{GroupedCmd, OrdersCmd};
+
+    for line in [
+        &["brokkr", "orders", "--json", "--db", "scratch.db"][..],
+        &["brokkr", "orders", "list", "--json", "--db", "scratch.db"],
+    ] {
+        let parsed = Cli::try_parse_from(line).unwrap();
+        assert!(
+            matches!(
+                parsed.command,
+                Cmd::Grouped(GroupedCmd::Orders(OrdersCmd::List(args)))
+                    if args.json && args.journal.db.as_deref() == Some(std::path::Path::new("scratch.db"))
+            ),
+            "{line:?}"
+        );
+    }
+    let both = Cli::try_parse_from(["brokkr", "orders", "--json", "show", "WO-1"]);
     assert_eq!(
         both.err().map(|error| error.kind()),
         Some(clap::error::ErrorKind::ArgumentConflict)

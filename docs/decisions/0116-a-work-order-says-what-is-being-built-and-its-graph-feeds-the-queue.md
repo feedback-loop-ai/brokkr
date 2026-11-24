@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-23, "accept 0116", on the direction of 2026-11-22: "we should have a workorder abstraction - like future [commissions], they can have a reference to external tools, e.g. github, gitlab, azure devops, linear, zenhub, jira etc, but essentially it is a DAG of future [commissions] distilled so we know what we are building"
 Date: 2026-11-22
 
-Built: partial (#1272) — slice 1's document and its store are built; its verbs, and slices 2 to 4, are not
+Built: partial (#1272) — slice 1 (the document, its store and the brokkr orders verbs) is built; slices 2 to 4 are not
 Amends: 0113
 
 ## Context
@@ -83,7 +83,8 @@ Brokkr already abstracts the first side. A harness is an adapter and a driver, a
    - #1264's view draws work orders. A queued one is drawn solid, with its entry's state. A future one is drawn dotted, in the column it would start in.
    - The operator, 2026-11-22: "yes to both".
 
-9. **The verbs are a thirteenth root, `brokkr orders`.** This amends decision 0113 ruling 1, which holds the CLI at twelve roots.
+9. **The verbs are a fourteenth root, `brokkr orders`.** This amends decision 0113 ruling 1, which holds the CLI at twelve roots.
+   - Corrected 2026-11-24: written as the thirteenth; decision 0119's `completions` (#1284) became the thirteenth root first.
    - Decision 0113 groups verbs into families by the object they act on. A work order is a new object, so it gets a family of its own.
    - A bare `brokkr orders` lists work orders, as a bare `brokkr runs` lists runs (decision 0113 ruling 3).
    - `brokkr orders queue WO-<n>` renders the commission and adds the queue entry (ruling 4). Everything else to do with dispatch stays under `brokkr queue`.

@@ -28,7 +28,8 @@ fn fixture(relative: &str) -> String {
 }
 
 fn trackers() -> Trackers {
-    Trackers::from_definitions([fixture("trackers/github.json").as_str()]).unwrap()
+    Trackers::from_definitions([fixture("crates/brokkr-cli/trackers/github.json").as_str()])
+        .unwrap()
 }
 
 fn id(number: u32) -> WorkOrderId {
