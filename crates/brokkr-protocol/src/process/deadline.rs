@@ -9,10 +9,13 @@
 //! driver and as the last step before the spawn, on the caller's own clock
 //! and on the monotonic one its kill is carried on, read in that order. One
 //! already past on either is not spawned ([`SpawnError::Late`]), one that
-//! passes while the caller's clock is read included. Its watchdog reads
-//! that instant again before every wait, in slices of at most [`SLICE`], so
-//! a pause before a wait never moves its kill: past the target it kills at
-//! once (fix round 0106b1r13, M1).
+//! passes while the caller's clock is read included. Its watchdog waits
+//! toward that instant, in slices of at most [`SLICE`], each bound to an
+//! absolute instant whose remainder is read as the wait's own argument, so
+//! a pause before a wait, or between a slice's sample and its wait, never
+//! moves its kill: past the target it kills at once (fix rounds
+//! 0106b1r13, M1, and 0106b1r14, M2). A length's watchdog waits to the
+//! instant its arming plus that length names, the same way.
 
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,11 +78,18 @@ impl Arm<'_> {
     /// passes while the caller's clock is read refuses the spawn too (fix
     /// round 0106b1r13, M1).
     pub(super) fn at_fork(self) -> Option<Deadline> {
+        self.at_fork_on(Instant::now)
+    }
+
+    /// [`Arm::at_fork`] on the monotonic clock `now`: the thread's own in
+    /// production, injected by a test so the order of the two reads is
+    /// proved on no wall time (fix round 0106b1r14, M2).
+    fn at_fork_on(self, now: impl Fn() -> Instant) -> Option<Deadline> {
         match self {
             Arm::After(length) => Some(Deadline::After(length)),
             Arm::By(by) => {
                 let left = (by.left)();
-                let ahead = Instant::now() < by.kill;
+                let ahead = now() < by.kill;
                 left.filter(|_| ahead).map(|armed| Deadline::At {
                     kill: by.kill,
                     armed,
@@ -101,15 +111,6 @@ pub(super) enum Deadline {
 }
 
 impl Deadline {
-    /// How long the watchdog waits from `now` on the monotonic clock: an
-    /// instant's wait shrinks by whatever passed before.
-    fn left_at(self, now: Instant) -> Duration {
-        match self {
-            Deadline::After(length) => length,
-            Deadline::At { kill, .. } => kill.saturating_duration_since(now),
-        }
-    }
-
     /// When the watchdog kills, for a driver whose watchdog armed at
     /// `started`.
     pub(super) fn kills(self, started: Instant) -> Instant {
@@ -158,38 +159,38 @@ impl Deadline {
 
     /// Wait through `recv`, the disarm channel's timed receive, until this
     /// deadline: `true` once it is reached, `false` once the watchdog is
-    /// disarmed. A length is waited whole from its one sample. An absolute
-    /// deadline's target is read again on the monotonic clock `now` before
-    /// every wait, the first included, so `pause`, whatever passes between
-    /// the watchdog's arming and its first wait (as a descheduled thread
-    /// takes it), is never followed by a wait sampled before it: a pause
-    /// past the target kills at once, after one look at the disarm channel
-    /// that waits nothing, and a pause short of it waits exactly what
-    /// remains, in slices of at most [`SLICE`] (fix round 0106b1r13, M1).
-    /// The thread's own clock and channel are the production seam; a test
-    /// injects all three.
+    /// disarmed. The target is one absolute instant on the monotonic clock
+    /// `now`, taken once as the watchdog arms: a length counts from that
+    /// arming, and an absolute deadline is its kill. Every wait is bound to
+    /// an instant, the target, or for an absolute deadline one [`SLICE`]
+    /// past the sample and never past the target, and what remains to that
+    /// instant is read on `now` as the wait's own argument, after `pause`,
+    /// whatever passes between the sample and the wait (as a descheduled
+    /// thread takes it). So no pause, before any wait, moves a kill past
+    /// its target: one past it is followed by a look at the disarm channel
+    /// that waits nothing, and the kill (fix round 0106b1r14, M2). The
+    /// thread's own clock and channel are the production seam, with no
+    /// pause; a test injects all three.
     fn waited_with(
         self,
-        pause: impl FnOnce(),
+        mut pause: impl FnMut(),
         now: impl Fn() -> Instant,
         mut recv: impl FnMut(Duration) -> Result<(), RecvTimeoutError>,
     ) -> bool {
-        let sampled = self.left_at(now());
-        pause();
+        let target = self.kills(now());
         loop {
-            let wait = match self {
-                Deadline::After(_) => sampled,
-                Deadline::At { .. } => self.left_at(now()).min(SLICE),
+            let until = match self {
+                Deadline::After(_) => target,
+                Deadline::At { .. } => now()
+                    .checked_add(SLICE)
+                    .map_or(target, |slice| slice.min(target)),
             };
-            match recv(wait) {
+            pause();
+            match recv(until.saturating_duration_since(now())) {
                 Err(RecvTimeoutError::Timeout) => {}
                 Ok(()) | Err(RecvTimeoutError::Disconnected) => return false,
             }
-            let reached = match self {
-                Deadline::After(_) => true,
-                Deadline::At { .. } => self.left_at(now()).is_zero(),
-            };
-            if reached {
+            if now() >= target {
                 return true;
             }
         }
