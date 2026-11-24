@@ -1470,11 +1470,17 @@ fn assert_bounded_first_shard_ran(scratch: &Scratch) {
     );
 }
 
-/// `scratch`'s run is under 10 s and only its first shard started: every
-/// later shard still ran in its turn.
+/// How long a run whose first shard is bounded may take: the bound, its
+/// kill, and every later shard's stub on a loaded host. Thirteen later
+/// shards took 10.5 s in a whole-suite run (#1295), so 15 s keeps a margin
+/// while the 600 s hang and the 25 s `run_within` limit stay far above it.
+const BOUNDED_RUN_CEILING: Duration = Duration::from_secs(15);
+
+/// `scratch`'s run is under [`BOUNDED_RUN_CEILING`] and only its first shard
+/// started: every later shard still ran in its turn.
 fn assert_bounded_first_shard(scratch: &Scratch, started: Instant) {
     assert!(
-        started.elapsed() < Duration::from_secs(10),
+        started.elapsed() < BOUNDED_RUN_CEILING,
         "the bound took {:?}",
         started.elapsed()
     );
@@ -1509,8 +1515,8 @@ fn real_python3() -> String {
         .to_string()
 }
 
-/// A `deps` binary that sleeps past a 2 s bound fails its shard by name in
-/// under 10 s, nothing of its process group remains, and the next shard
+/// A `deps` binary that sleeps past a 2 s bound fails its shard by name
+/// under [`BOUNDED_RUN_CEILING`], nothing of its process group remains, and the next shard
 /// still runs and passes. The binary writes nothing at all: its clock is
 /// its process, so a silent binary cannot be unbounded.
 #[test]
