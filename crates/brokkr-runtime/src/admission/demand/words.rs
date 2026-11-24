@@ -76,10 +76,9 @@ impl fmt::Display for Shortfall<'_> {
         let reserved = reserved(&sized.reserved, unit, self.reserved);
         write!(
             f,
-            "{name} is short: recipe {} needs {demand}, ",
-            sized.recipe
-        )?;
-        write!(f, "{} {unit} available, {reserved}", self.available)
+            "{name} is short: recipe {} needs {demand}, {} {unit} available, {reserved}",
+            sized.recipe, self.available
+        )
     }
 }
 
@@ -156,5 +155,22 @@ impl fmt::Display for Holder {
                  demand unknown,"
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{source, Source};
+
+    /// Each source's words. An entry of unknown demand never reaches a
+    /// shortfall's text (it waits as `demand_unknown`), but the match
+    /// names every source.
+    #[test]
+    fn each_source_names_where_the_average_came_from() {
+        let runs = Source::Measured { runs: 3 };
+        assert_eq!(source(runs), "the average of its last 3 measured runs");
+        assert_eq!(source(Source::Declared), "its declared demand");
+        let unknown = source(Source::Unknown);
+        assert_eq!(unknown, "no measured run and no declaration");
     }
 }

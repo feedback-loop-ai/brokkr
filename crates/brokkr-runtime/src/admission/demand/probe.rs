@@ -157,10 +157,7 @@ pub fn measurable() -> Result<(), Unmeasured> {
 /// The production measure: this machine now, over [`WINDOW`], and each
 /// of `runs`' drivers' trees, through the pid its run lock records.
 pub(crate) fn measure_now(runs: &[Driven<'_>]) -> Measurement {
-    match measurable() {
-        Ok(()) => sampled(runs).unwrap_or_else(Measurement::Unmeasured),
-        Err(why) => Measurement::Unmeasured(why),
-    }
+    (measurable().and_then(|()| sampled(runs))).unwrap_or_else(Measurement::Unmeasured)
 }
 
 /// The two readings of one window, and what lies between them. A run

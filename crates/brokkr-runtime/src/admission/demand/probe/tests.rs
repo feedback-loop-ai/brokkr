@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use super::{available, idle, load, meminfo, stat, Available, Ticks, Unmeasured};
+use super::{available, idle, load, meminfo, read, stat, Available, Ticks, Unmeasured};
 
 const MEMINFO: &str = "MemTotal:       16384000 kB\nMemFree:         1000 kB\n\
                        MemAvailable:    8192000 kB\nBuffers:           10 kB\n";
@@ -81,4 +81,13 @@ fn a_trees_load_is_its_cpu_time_over_the_window() {
     let window = Duration::from_millis(500);
     assert_eq!(load(Duration::from_millis(750), window), 1500);
     assert_eq!(load(Duration::ZERO, window), 0);
+}
+
+/// A file that cannot be read is named, with why.
+#[test]
+fn a_file_that_cannot_be_read_is_named_with_why() {
+    let file = "/proc/brokkr-no-such-measure";
+    let why = std::io::ErrorKind::NotFound;
+    let refused = Unmeasured::Unreadable { file, kind: why };
+    assert_eq!(read(file), Err(refused));
 }

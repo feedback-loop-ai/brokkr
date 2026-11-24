@@ -188,6 +188,7 @@ fn a_run_id_that_would_escape_the_directory_is_refused() {
     for run in ["../escape", "a/b", "a/", "/absolute", ".", "..", "", "a\0b"] {
         let refused = take(&store, run).unwrap_err();
         assert_eq!(refused, RunLockError::UnsafeId(run.to_string()));
+        assert!(recorded_at(&path, run).is_none(), "{run}");
         assert_eq!(
             refused.to_string(),
             format!("run '{run}' is not a safe file name, so it has no run lock")

@@ -847,6 +847,14 @@ fn a_refusals_version_is_its_problems_own() {
             },
             "forge.host/v2",
         ),
+        (
+            Problem::Demand(super::demand::Problem::NotV5("forge.host/v4")),
+            "forge.host/v4",
+        ),
+        (
+            Problem::Demand(super::demand::Problem::Window(0)),
+            "forge.host/v5",
+        ),
     ];
     for (problem, contract) in cases {
         assert_eq!(problem.contract(), contract, "{problem:?}");

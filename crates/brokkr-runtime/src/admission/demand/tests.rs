@@ -871,8 +871,9 @@ fn every_demand_reason_waits_and_has_its_kind() {
 
 /// Each journal is read once however often the map names it, the pass's
 /// own included. A run with no event yet and a parked run reserve
-/// nothing. A path beneath a file is no journal and not absent either:
-/// it is unreadable, and that alone keeps an entry of unknown demand
+/// nothing. A path beneath a file is no journal and not absent either,
+/// and a journal whose unended run does not fold sizes nothing: each is
+/// named unreadable, and that alone keeps an entry of unknown demand
 /// waiting on a machine where nothing runs.
 #[test]
 fn a_journal_named_twice_runs_that_do_not_run_and_a_path_beneath_a_file() {
@@ -898,16 +899,22 @@ fn a_journal_named_twice_runs_that_do_not_run_and_a_path_beneath_a_file() {
 
     let file = dir.path().join("a-file");
     std::fs::write(&file, "").unwrap();
-    let beneath = [file.join("forge.db")];
+    let unfolding = journal(dir.path(), "unfolding.db", |store| {
+        let manifest = json!({"schema": "run-manifest/v1"});
+        store.create_run("r0", "f", "verify", &manifest).unwrap();
+        let entered = json!({"phase": "implement"});
+        (store.append_next("r0", EventType::PhaseEntered, entered, None, None)).unwrap();
+    });
+    let beneath = [file.join("forge.db"), unfolding];
     let (waiting, named) = judged(&fixture, &plenty(), &beneath, measured(GIB, 0), &none);
     let kinds: Vec<&str> = named.iter().map(Reason::kind).collect();
-    assert_eq!(kinds, ["journal_unreadable"]);
+    assert_eq!(kinds, ["journal_unreadable", "journal_unreadable"]);
     let words = said(&waiting);
     assert_eq!(words[0][0].0, "demand_unknown");
     assert!(
         words[0][0]
             .1
-            .ends_with("and 1 journals of the realms map cannot be read"),
+            .ends_with("and 2 journals of the realms map cannot be read"),
         "{words:?}"
     );
 }
