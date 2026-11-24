@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.00468
 Authors: Salsabil, Saha, Dristi, Phair, Mozumder, Dwyer, Elbaum (University of Virginia)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: chat session, operator-fed, 2026-09-04
 
 ## Summary

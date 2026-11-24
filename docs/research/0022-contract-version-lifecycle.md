@@ -3,7 +3,7 @@
 Source: https://github.com/feedback-loop-ai/brokkr/issues/361
 Authors: Brokkr's implementer seat (Claude Opus 5.5), from the issue's measurement of `ba52724e`
 Read: 2026-10-11
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: run `design-story-361-contract-versio-157ad85e`, on main at `3ad0f66c` (code-health epic #330)
 
 ## Summary
@@ -85,6 +85,17 @@ question once a realms reader can retire. Row 10 is an alternative. The v1
 table is pinned by its bytes and by the evaluator corpus's differential
 test, and decision 0082's ruling 5 records why that stands in for a
 schema.
+
+## Correction — 2026-11-24
+
+Against main at `56e4a2102`, before the operator's ruling. Brokkr's own
+`realms.json` has been `forge.realms/v6` since
+[#1330](https://github.com/feedback-loop-ai/brokkr/pull/1330)
+(2026-11-24), so it is no longer the v3 writer that the paragraph above
+and the realms table name. `brokkr init`'s writer has moved to
+`crates/brokkr-cli/src/init.rs:1119-1125`. It still writes v4 when a
+boundary is chosen and v3 otherwise, so row 11 is still a gap. No class
+changes.
 
 ## The families, counted
 
