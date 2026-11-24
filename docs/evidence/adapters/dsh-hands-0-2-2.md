@@ -968,7 +968,7 @@ were run by this seat.
 | `dump-file-paths.txt` and `dump-short-json.txt` (100 rows each, no line refused) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
 | Compile-time reader binding on `dump-folded-json.txt` (`Unreadable`) and `dump-base64url.txt` (100 rows, `brokkr-hands` enabled on `@deepseek-ai/dsh-mcp-client`, admitted by `judge(Release::V0_2_2, …)` and `judge_mode(…, Mode::WorkspaceWrite)`) | offline tests, this change |
 | Writer binding: `--reach-base64url` and `--spec-base64url`, non-ASCII path and `-`/`_` bytes, exact round-trip decode, every emitted and folded line admitted by `rows::carriers::check`, and regenerated dump admitted by both judges | offline tests, this change |
-| `hands serve` CLI argument resolution (JSON or unpadded base64url; reach required in one spelling; spec defaults to `"workspace"` when omitted and refuses both spellings; leading-hyphen encoded values reach the decoder; encoded refusals disclose neither the raw value nor any decoded text; plain JSON refusals match main byte for byte on `hands serve` and `hands exec`) | offline tests, this change |
+| `hands serve` CLI argument resolution (JSON or unpadded base64url through one deserialization per document; reach required in one spelling with main's usage order; spec defaults to `"workspace"` when omitted and refuses both spellings; leading-hyphen encoded values reach the decoder; encoded refusals disclose neither the raw value nor any decoded text; both spellings agree on every document including duplicate members; plain JSON refusals match main byte for byte on `hands serve` and `hands exec`) | offline tests, this change |
 
 ### The fix
 
@@ -983,16 +983,19 @@ were run by this seat.
   (`--reach`, `--spec`) or its unpadded base64url spelling
   (`--reach-base64url`, `--spec-base64url`). For `--reach`, exactly one
   spelling is required (omitting both fails at clap with exit code 2 before
-  `--spec` is parsed, matching main); for `--spec`, both spellings refuse and
-  omitting both uses main's default `"workspace"` (shown in
-  `brokkr hands serve --help` and parsed by the same check). Both encoded
-  arguments accept leading-hyphen values so they reach the typed decoder;
-  encoded refusals parse JSON once before schema conversion (so unpaired
-  UTF-16 surrogates classify as invalid JSON) and name the argument and
-  failure class (through a payload-free `SpecRefusalKind`) without holding
-  any raw value or decoded text in `Display` or `Debug`, while plain JSON
-  refusals on `hands serve` and `hands exec` keep main's diagnostics byte for
-  byte. One
+  `--spec` is parsed, printing main's exact usage order with `--reach` before
+  `--spec`); for `--spec`, both spellings refuse and omitting both uses
+  main's default `"workspace"` (shown in `brokkr hands serve --help` and
+  parsed by the same check). Both encoded arguments accept leading-hyphen
+  values so they reach the typed decoder. After decoding, both spellings of
+  each document go through the exact same parse (`serde_json::from_str::<Sealed>`
+  directly for reach, with no intermediate `Value` or map, so duplicate
+  members refuse identically in both spellings; `serde_json::from_str::<Value>`
+  plus `HandsSpec::checked` for spec, matching main). Encoded refusals meet
+  redaction at error reduction by keeping only the serde `Category` or
+  payload-free `SpecRefusalKind` (no raw value or decoded text in `Display`
+  or `Debug`), while plain JSON refusals on `hands serve` and `hands exec`
+  keep main's diagnostics byte for byte. One
   codec in `crates/brokkr-protocol/src/base64.rs` (extracted from
   `secret.rs`'s existing RFC 4648 encoder) serves both the overlay writer and
   `hands serve`.
