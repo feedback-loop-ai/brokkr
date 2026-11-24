@@ -167,9 +167,13 @@ impl Apart {
 /// records why it refused, `$1` the parent's namespace number and `$2`
 /// the link it reads its own from. It reads and parses its own as
 /// `pid:[N]`, refuses one unreadable, unparsable or its parent's, and
-/// only then hands the rest to its program, through `timeout` where
-/// [`LIMIT`] names seconds, so the deadline's kill is sent inside the
-/// namespace and nowhere else.
+/// only then hands the rest to its program. Where [`LIMIT`] names seconds
+/// it runs the program beside a sleeper that sends it KILL at the
+/// deadline, so the deadline's kill is sent inside the namespace and
+/// nowhere else, and the guard exits with the program's status: 137 for
+/// the deadline's KILL. It does not use `timeout -s KILL`: Ubuntu's
+/// rust-coreutils `timeout` 0.2.2 never sends that KILL, waiting out the
+/// program and then answering 124 (#1332).
 #[cfg(target_os = "linux")]
 pub(crate) const GUARD: &str = "refuse() { printf '%s\\n' \"$1\" > \"$0\"; exit 125; }; \
     own=$(/usr/bin/readlink \"$2\") || refuse \"unreadable $2\"; \
@@ -177,15 +181,18 @@ pub(crate) const GUARD: &str = "refuse() { printf '%s\\n' \"$1\" > \"$0\"; exit 
     \"pid:[\"*\"]\") ;; *) refuse \"unparsable $own\";; esac; \
     [ \"$own\" != \"pid:[$1]\" ] || refuse \"shared $1\"; shift 2; \
     limit=${BOUNDED_SECONDS-}; unset BOUNDED_SECONDS; \
-    [ -z \"$limit\" ] || exec /usr/bin/timeout -s KILL \"$limit\" \"$@\"; exec \"$@\"";
+    [ -z \"$limit\" ] || { \"$@\" <&0 & program=$!; \
+    { /usr/bin/sleep \"$limit\"; kill -KILL \"$program\" 2>/dev/null; } & sleeper=$!; \
+    wait \"$program\"; status=$?; kill \"$sleeper\" 2>/dev/null; exit \"$status\"; }; \
+    exec \"$@\"";
 
 /// The variable that gives a guarded run its deadline in seconds; the
 /// guard removes it before its program starts.
 #[cfg(target_os = "linux")]
 pub(crate) const LIMIT: &str = "BOUNDED_SECONDS";
 
-/// A deadline as whole seconds for `timeout`, rounded up, and never 0,
-/// which `timeout` reads as no deadline at all (#1137i, Z4).
+/// A deadline as whole seconds for the guard's sleeper, rounded up, and
+/// never 0, which would kill the program before it starts (#1137i, Z4).
 #[cfg(target_os = "linux")]
 pub(crate) fn seconds(limit: std::time::Duration) -> String {
     let rounded = limit.as_secs() + u64::from(limit.subsec_nanos() > 0);

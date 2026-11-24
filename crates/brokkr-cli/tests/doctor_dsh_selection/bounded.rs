@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::isolated::{seconds, Isolated, LIMIT};
 
 /// Run `isolated` under a deadline, its stdout in a file so a full pipe
-/// cannot be what stops it. `None` is the deadline: `timeout` killed it
+/// cannot be what stops it. `None` is the deadline: the guard killed it
 /// there, and the namespace ended with it, so a looping child outlives
 /// neither the call nor the suite, and no kill of this test's leaves the
 /// namespace. A guard that refused fails the test with its reason; a
@@ -53,7 +53,8 @@ pub(super) fn bounded(
         std::thread::sleep(std::time::Duration::from_millis(20));
     };
     isolated.judged();
-    // `timeout` answers 124 for a deadline, and 137 when its KILL ended it.
+    // The guard answers 137 when the deadline's KILL ended the program;
+    // 124 stays a deadline too, as GNU `timeout` answered it before #1332.
     match status.code() {
         Some(124 | 137) => None,
         _ => Some((status, std::fs::read_to_string(&captured).unwrap())),
