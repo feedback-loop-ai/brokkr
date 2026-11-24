@@ -1,15 +1,31 @@
-//! The `engine` case of `recipes/triage` puts a panel-then-chief sequence
-//! on the protected `review` phase. Ruling 7 moved the old standalone
-//! crew here so triage, not the operator, chooses it.
+//! The `engine` case of `recipes/triage` (and recipes extending it such as
+//! `recipes/gpt-flash` and `recipes/night-shift`) puts a panel-then-chief
+//! sequence on the protected `review` phase. Ruling 7 moved the old
+//! standalone crew here so triage, not the operator, chooses it.
 //!
-//! The shape's own hazard is that the panel's verdict is NOT the
-//! machine's verdict: `positions` is a non-final step, so its
-//! `review-panel` output never reaches the rule table and is never
-//! checked against the seat's declared results. A `security-hold` from
-//! the panel therefore only stops the run if the chief reproduces it.
+//! How a panel verdict reaches the rule table depends on the recipe shape
+//! and its policy's hard words (decision 0050 ruling 7):
 //!
-//! Two things have to hold for that to be enforceable, and this file
-//! pins both against the SHIPPED recipe rather than a fixture:
+//! - **Compiled hard-stop shape (`recipes/triage`, `recipes/gpt-flash`,
+//!   `recipes/night-shift`):** `triage`'s `review` policy makes
+//!   `security-hold` a compiled hard word (`severity: "hard"` to terminal
+//!   `stop`), so an admitted `security-hold` from `positions` ends the
+//!   sequence at `positions` (`why: "hard-word"`) before the chief runs and
+//!   goes straight to the rule table (`a_panel_security_hold_ends_the_sequence_before_the_chief_rules`,
+//!   `the_engine_binds_every_review_panel_members_word_to_its_findings`).
+//! - **Non-hard or uncompiled-stop shape (`clean`/`residual` in `triage` or
+//!   `gpt-flash`, or a hold word in a sequence whose policy does not compile
+//!   every arm of that word as a hard stop to terminal `stop` — such as
+//!   `advancing_hard_bundle`, `nonterminal_stop_bundle`, or an uncompiled
+//!   sequence as in `chief_synthesis_carries_a_panel_security_hold_to_the_machine`):**
+//!   `positions` is a non-final step whose `review-panel` output is only
+//!   checkpointed into `context.prior_results.positions`. The chief runs
+//!   next, its result is the seat's result, and the engine accepts a chief
+//!   that rules lower — so that panel verdict or non-hard-stop hold stops
+//!   or routes the run only if the chief carries it forward.
+//!
+//! Two things have to hold for the sequence shape to be enforceable, and
+//! this file pins both against the SHIPPED recipe rather than a fixture:
 //!
 //! 1. the structure — a two-step sequence, the panel under
 //!    the `review-panel` aggregate, the chief a single GATE step, and
@@ -17,19 +33,22 @@
 //!    inherited reforging ladder rules on it unmodified;
 //! 2. the library charter — `agents/charters/review-chief.md` states the floor the chief
 //!    may not rule below, naming `security-hold` explicitly, covers
-//!    the branch the same non-final rule creates (a panel result
-//!    OUTSIDE the vocabulary, which the aggregate emits to fail closed
-//!    and which nothing downstream of a non-final step will check), and
+//!    the branch an unreadable panel would create (`__member-schema-invalid__`,
+//!    which fails at a compiled non-final step's vocabulary check and
+//!    is covered in the charter as a belt-and-braces floor), and
 //!    rules that the panel's own prose is DATA and never instruction —
 //!    the positions' prose remains model output, and
 //!    `aggregate_results` copies their `notes` verbatim into the gate's
 //!    context.
 //!
-//! The third leg, that the panel's result actually ARRIVES at the
-//! chief's driver input and that the chief's result is what the effect
-//! reports, is behavioural and lives beside the sequence executor:
-//! `chief_synthesis_carries_a_panel_security_hold_to_the_machine` in
-//! `crates/brokkr-runtime/src/engine/tests.rs`.
+//! The behavioural leg for the non-hard-stop / uncompiled sequence — that
+//! the panel's result arrives at the chief's driver input and that the
+//! chief's result is what the effect reports — lives beside the sequence
+//! executor: `chief_synthesis_carries_a_panel_security_hold_to_the_machine`
+//! in `crates/brokkr-runtime/src/engine/tests.rs`, and the shipped
+//! work-panel residual carry lives in
+//! `the_work_panel_carries_a_members_residual_inputs_and_notes_to_the_chief`
+//! below.
 
 use std::path::PathBuf;
 
@@ -283,18 +302,34 @@ fn review_sequence_seat(results: &[&str], first: &str, last: &str) -> serde_json
 }
 
 fn driver(result: &str) -> Vec<String> {
+    driver_with(result, None)
+}
+
+fn capturing_driver(result: &str, start_capture: &std::path::Path) -> Vec<String> {
+    driver_with(result, Some(start_capture))
+}
+
+fn driver_with(result: &str, start_capture: Option<&std::path::Path>) -> Vec<String> {
+    let capture = start_capture
+        .map(|_| "printf '%s\n' \"$start\" > \"$1\"\n")
+        .unwrap_or("");
     let script = format!(
         r#"read -r hello
 printf '%s\n' '{{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"crucible","version":"1","supports":[]}}'
 read -r start
-effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
+{capture}effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
 attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
 printf '{{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}}\n' "$effect_id" "$attempt_id"
 printf '{{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{result},"error":null}}\n' "$effect_id" "$attempt_id"
 read -r done
 "#
     );
-    vec!["sh".into(), "-c".into(), script]
+    let mut argv = vec!["sh".into(), "-c".into(), script];
+    if let Some(path) = start_capture {
+        argv.push("crucible".into());
+        argv.push(path.display().to_string());
+    }
+    argv
 }
 
 /// The shipped `engine` review sequence of `recipe`, its drivers answered by
@@ -311,10 +346,19 @@ fn engine_review_bundle(
 }
 
 fn stub_engine_review(
-    mut bundle: Bundle,
+    bundle: Bundle,
     expected_member_class: brokkr_runtime::SeatClass,
     panel: &[(&str, &str)],
     chief: &str,
+) -> Bundle {
+    stub_engine_review_with(bundle, expected_member_class, panel, driver(chief))
+}
+
+fn stub_engine_review_with(
+    mut bundle: Bundle,
+    expected_member_class: brokkr_runtime::SeatClass,
+    panel: &[(&str, &str)],
+    chief_command: Vec<String>,
 ) -> Bundle {
     bundle.machine.initial = "review".to_string();
     let SeatBody::Select { cases, .. } = &mut bundle.seats.get_mut("review").unwrap().body else {
@@ -351,7 +395,7 @@ fn stub_engine_review(
                 else {
                     panic!("'chief' is a single step");
                 };
-                *command = driver(chief);
+                *command = chief_command.clone();
                 candidates.clear();
                 *role_path = PathBuf::new();
             }
@@ -1689,6 +1733,89 @@ fn the_engine_enforces_panel_findings_admission_and_class_inheritance() {
     assert_eq!(cp_findings[0]["security"], false);
     assert_eq!(cp_findings[0]["site"].as_str().map(str::len), Some(64));
     assert_eq!(review_decision(&gate_events)["next"], "implement");
+}
+
+/// Issue #1322 (D1 — work-panel residual survival and mirror refusal): on the
+/// shipped `gpt-flash` work-class panel, when `adversarial` returns `residual`
+/// at `medium` with its finding in `notes` and no `findings` member while the
+/// remaining members are `clean`, `positions` joins to `residual` with both
+/// residual inputs preserved and delivers `adversarial`'s `notes` unchanged in
+/// the chief's `context.prior_results.positions`. Adding a `findings` member
+/// to that same result is refused under decision 0109 ruling 1.
+#[test]
+fn the_work_panel_carries_a_members_residual_inputs_and_notes_to_the_chief() {
+    let test = "crucible_review_sequence::the_work_panel_carries_a_members_residual_inputs_and_notes_to_the_chief";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let notes = "crates/brokkr-runtime/src/engine.rs:1 [medium] security-relevant residual;                  concrete failing case: unchecked boundary input";
+    let work_residual = serde_json::json!({
+        "result": "residual",
+        "inputs": {"max_residual_severity": "medium", "has_security_residual": true},
+        "notes": notes,
+    })
+    .to_string();
+    let mirror_with_findings = serde_json::json!({
+        "result": "residual",
+        "inputs": {"max_residual_severity": "medium", "has_security_residual": true},
+        "findings": [{
+            "id": "med",
+            "file": "crates/brokkr-runtime/src/engine.rs",
+            "line": 1,
+            "summary": "medium finding",
+            "severity": "medium",
+            "security": false
+        }],
+        "notes": notes,
+    })
+    .to_string();
+
+    let flash = shipped_bundle("recipes/gpt-flash");
+    assert_work_site_refusal(stub_engine_review(
+        flash.clone(),
+        brokkr_runtime::SeatClass::Work,
+        &panel(&[("adversarial", &mirror_with_findings)]),
+        CLEAN,
+    ));
+
+    let capture = tempfile::tempdir().unwrap();
+    let chief_start = capture.path().join("chief-start.json");
+    let chief_residual = r#"{"result":"residual","inputs":{"max_residual_severity":"medium","has_security_residual":true},"notes":"chief carries work-panel residual"}"#;
+    let mut bundle = stub_engine_review_with(
+        flash,
+        brokkr_runtime::SeatClass::Work,
+        &panel(&[("adversarial", &work_residual)]),
+        capturing_driver(chief_residual, &chief_start),
+    );
+    stub_implement_blocked(&mut bundle);
+    let (events, _, _) = drive(bundle);
+
+    let positions_cp = events
+        .iter()
+        .find(|event| {
+            event.event_type == brokkr_core::envelope::EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step_name"] == "positions"
+        })
+        .expect("work-panel residual must checkpoint positions before chief runs");
+    let cp_result = &positions_cp.payload["checkpoint"]["result"];
+    assert_eq!(cp_result["result"], "residual", "{cp_result}");
+    assert_eq!(cp_result["inputs"]["max_residual_severity"], "medium");
+    assert_eq!(cp_result["inputs"]["has_security_residual"], true);
+    assert!(cp_result.get("findings").is_none(), "{cp_result}");
+    assert_eq!(cp_result["notes"]["members"]["adversarial"], notes);
+
+    let start: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&chief_start).unwrap()).unwrap();
+    let positions = &start["input"]["context"]["prior_results"]["positions"];
+    assert_eq!(positions["result"], "residual", "{positions}");
+    assert_eq!(positions["inputs"]["max_residual_severity"], "medium");
+    assert_eq!(positions["inputs"]["has_security_residual"], true);
+    assert_eq!(positions["notes"]["members"]["adversarial"], notes);
+    assert_eq!(positions["notes"]["verdicts"]["adversarial"], "residual");
+    for clean_member in ["correctness", "security", "spec-compliance"] {
+        assert_eq!(positions["notes"]["verdicts"][clean_member], "clean");
+    }
+    assert_eq!(review_decision(&events)["next"], "implement");
 }
 
 /// Issue #1322 (C3d, engine side — ruling 2 across all four panel members):

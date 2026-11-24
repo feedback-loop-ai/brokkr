@@ -488,7 +488,11 @@ table. Any other verdict — `clean` or `residual` — is *not* the seat's
 result: it is a checkpoint, handed to the chief as
 `context.prior_results.positions`, so a `residual` from the panel
 reaches the rule table only if the chief carries it forward. The engine
-will accept a chief that rules lower than a non-hard panel verdict.
+will accept a chief that rules lower than a non-hard panel verdict; in
+a recipe whose policy does not compile a panel's hold word as a hard
+stop (every arm `severity: "hard"` to terminal `stop`), that hold also
+checkpoints to the chief and reaches the rule table only if the chief
+carries it forward.
 
 The same rule does not disable the fail-closed path for a malformed
 member. A panel aggregate that cannot read a member's payload emits
