@@ -1,9 +1,8 @@
 //! `brokkr hands serve` argument builders (decision 0043; #1277).
 //!
-//! Both spellings carry the exact same JSON bytes of the sealed reach and the
-//! hands spec from one helper (`serve_documents`) and share the command and
-//! plain path prefix through one builder (`build_serve_args`). Harnesses that
-//! hold MCP configuration in JSON (`claude`, `codex`, `agy`, `qoder`) pass
+//! Both spellings serialize the exact same JSON bytes of the sealed reach and
+//! the hands spec through one builder ([`DocumentSpelling::build`]). Harnesses
+//! that hold MCP configuration in JSON (`claude`, `codex`, `agy`, `qoder`) pass
 //! `--reach` and `--spec` directly via [`serve_args`]. A dsh seat's `--patch`
 //! overlay passes `--reach-base64url` and `--spec-base64url` via
 //! [`serve_args_encoded`] so dsh's `--dump-config` (js-yaml) never folds a
@@ -19,31 +18,43 @@ use std::path::Path;
 
 use super::{HandsSpec, Sealed};
 
-fn serve_documents(sealed: &Sealed, spec: &HandsSpec) -> (String, String) {
-    (
-        serde_json::to_string(sealed).unwrap_or_default(),
-        spec.to_value().to_string(),
-    )
+enum DocumentSpelling {
+    Plain,
+    Base64Url,
 }
 
-fn build_serve_args(
-    workdir: &Path,
-    artifacts: &Path,
-    reach: (&str, String),
-    spec: (&str, String),
-) -> Vec<String> {
-    vec![
-        "hands".to_string(),
-        "serve".to_string(),
-        "--workdir".to_string(),
-        workdir.to_string_lossy().into_owned(),
-        "--artifacts".to_string(),
-        artifacts.to_string_lossy().into_owned(),
-        reach.0.to_string(),
-        reach.1,
-        spec.0.to_string(),
-        spec.1,
-    ]
+impl DocumentSpelling {
+    fn build(
+        self,
+        workdir: &Path,
+        artifacts: &Path,
+        sealed: &Sealed,
+        spec: &HandsSpec,
+    ) -> Vec<String> {
+        let reach = serde_json::to_string(sealed).unwrap_or_default();
+        let spec = spec.to_value().to_string();
+        let (reach_flag, reach_value, spec_flag, spec_value) = match self {
+            Self::Plain => ("--reach", reach, "--spec", spec),
+            Self::Base64Url => (
+                "--reach-base64url",
+                crate::base64::encode_base64url(reach.as_bytes()),
+                "--spec-base64url",
+                crate::base64::encode_base64url(spec.as_bytes()),
+            ),
+        };
+        vec![
+            "hands".to_string(),
+            "serve".to_string(),
+            "--workdir".to_string(),
+            workdir.to_string_lossy().into_owned(),
+            "--artifacts".to_string(),
+            artifacts.to_string_lossy().into_owned(),
+            reach_flag.to_string(),
+            reach_value,
+            spec_flag.to_string(),
+            spec_value,
+        ]
+    }
 }
 
 /// The `brokkr hands serve …` argument vector a harness spawns with plain
@@ -55,8 +66,7 @@ pub fn serve_args(
     sealed: &Sealed,
     spec: &HandsSpec,
 ) -> Vec<String> {
-    let (reach, spec) = serve_documents(sealed, spec);
-    build_serve_args(workdir, artifacts, ("--reach", reach), ("--spec", spec))
+    DocumentSpelling::Plain.build(workdir, artifacts, sealed, spec)
 }
 
 /// The `brokkr hands serve …` argument vector a dsh seat's overlay writes
@@ -69,17 +79,5 @@ pub(crate) fn serve_args_encoded(
     sealed: &Sealed,
     spec: &HandsSpec,
 ) -> Vec<String> {
-    let (reach, spec) = serve_documents(sealed, spec);
-    build_serve_args(
-        workdir,
-        artifacts,
-        (
-            "--reach-base64url",
-            crate::base64::encode_base64url(reach.as_bytes()),
-        ),
-        (
-            "--spec-base64url",
-            crate::base64::encode_base64url(spec.as_bytes()),
-        ),
-    )
+    DocumentSpelling::Base64Url.build(workdir, artifacts, sealed, spec)
 }

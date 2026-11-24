@@ -687,6 +687,14 @@ fn spec_refusal_kind_drops_decoded_fields_for_every_variant() {
     }
 }
 
+/// Temporary workdir and artifacts path strings for clap argv tests.
+fn hands_dir_args() -> (tempfile::TempDir, String, String) {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().to_str().unwrap().to_string();
+    let artifacts = tmp.path().join("artifacts").to_str().unwrap().to_string();
+    (tmp, work, artifacts)
+}
+
 /// #1277 V3 + R4 + R8: omitting `--reach` (and `--reach-base64url`) fails at
 /// clap with exit code 2 before `--spec` is parsed, printing main's exact
 /// usage order (`--reach <REACH>` before `--spec <SPEC>`) on both `hands serve`
@@ -694,10 +702,7 @@ fn spec_refusal_kind_drops_decoded_fields_for_every_variant() {
 #[test]
 fn hands_serve_requires_reach_at_clap_before_parsing_spec() {
     use clap::Parser;
-    let tmp = tempfile::tempdir().unwrap();
-    let work_arg = tmp.path().to_str().unwrap();
-    let root_path = tmp.path().join("artifacts");
-    let root_arg = root_path.to_str().unwrap();
+    let (_tmp, work_arg, root_arg) = hands_dir_args();
 
     let cases: &[(&str, &[&str], &str)] = &[
         (
@@ -728,9 +733,9 @@ fn hands_serve_requires_reach_at_clap_before_parsing_spec() {
             "hands",
             verb,
             "--workdir",
-            work_arg,
+            work_arg.as_str(),
             "--artifacts",
-            root_arg,
+            root_arg.as_str(),
         ];
         argv.extend_from_slice(extra);
         let Err(err) = crate::Cli::try_parse_from(argv) else {
@@ -756,10 +761,7 @@ fn missing_serve_reach_reformat_uses_structured_parser_state_not_metavar_text() 
     use clap::CommandFactory;
     use std::ffi::OsString;
 
-    let tmp = tempfile::tempdir().unwrap();
-    let work = tmp.path().to_str().unwrap();
-    let artifacts = tmp.path().join("artifacts");
-    let artifacts_arg = artifacts.to_str().unwrap();
+    let (_tmp, work, artifacts_arg) = hands_dir_args();
 
     // Custom metavar on `--reach` proves selection does not match "--reach <REACH>".
     let renamed_cmd = || {
@@ -774,9 +776,9 @@ fn missing_serve_reach_reformat_uses_structured_parser_state_not_metavar_text() 
         "hands",
         "serve",
         "--workdir",
-        work,
+        work.as_str(),
         "--artifacts",
-        artifacts_arg,
+        artifacts_arg.as_str(),
         "--spec",
         "{",
     ]
@@ -801,7 +803,7 @@ fn missing_serve_reach_reformat_uses_structured_parser_state_not_metavar_text() 
         "hands",
         "serve",
         "--workdir",
-        work,
+        work.as_str(),
         "--reach-base64url",
         "e30",
     ]
@@ -821,85 +823,75 @@ fn missing_serve_reach_reformat_uses_structured_parser_state_not_metavar_text() 
     assert!(!kept.to_string().contains("--reach <REACH>"), "got: {kept}");
 }
 
-/// #1277 Z5: when `hands serve` receives plain `--reach` and `--artifacts` is
-/// absent, `is_missing_serve_reach` must short-circuit false on
-/// `serve.value_source("reach").is_none()` so `reformat_missing_serve_reach`
-/// leaves clap's own error untouched instead of marking `--reach`
-/// unconditionally required.
+/// #1277 Z5 + X2 (proposed decision 0125 ruling 4): non-missing-reach clap
+/// errors on `hands serve` keep clap's own error and usage synopsis untouched
+/// rather than being rewritten by `reformat_missing_serve_reach`:
+/// - Z5: plain `--reach` with `--artifacts` absent short-circuits
+///   `is_missing_serve_reach` false on `serve.value_source("reach").is_none()`
+///   (passing `--spec` alongside plain `--reach` distinguishes clap's natural
+///   conditional-required usage from the reformatted usage).
+/// - X2: repeated `--reach` keeps clap's usage synopsis for the present
+///   argument set.
 #[test]
-fn hands_serve_with_plain_reach_and_missing_artifacts_keeps_clap_usage() {
+fn non_missing_reach_clap_errors_on_hands_serve_keep_clap_usage() {
+    use clap::error::ErrorKind;
     use clap::Parser;
 
-    let tmp = tempfile::tempdir().unwrap();
-    let work = tmp.path().to_str().unwrap();
+    let (_tmp, work, artifacts) = hands_dir_args();
 
-    // Passing `--spec` alongside plain `--reach` distinguishes clap's natural
-    // error (where `--reach` is conditionally required) from the reformatted
-    // error (where `--reach` is forced unconditionally required).
-    let Err(err) = crate::Cli::try_parse_from([
-        "brokkr",
-        "hands",
-        "serve",
-        "--workdir",
-        work,
-        "--spec",
-        DEFAULT_SPEC,
-        "--reach",
-        "{}",
-    ]) else {
-        panic!("expected clap to refuse missing --artifacts on hands serve");
-    };
-    assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
-    assert_eq!(err.exit_code(), 2);
-    assert_eq!(
-        err.to_string(),
-        concat!(
-            "error: the following required arguments were not provided:\n  --artifacts <ARTIFACTS>\n\n",
-            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --spec <SPEC> --reach <REACH>\n\n",
-            "For more information, try '--help'.\n"
-        )
-    );
-}
+    let cases: &[(&str, &[&str], ErrorKind, &str)] = &[
+        (
+            "plain --reach with missing --artifacts",
+            &[
+                "brokkr",
+                "hands",
+                "serve",
+                "--workdir",
+                work.as_str(),
+                "--spec",
+                DEFAULT_SPEC,
+                "--reach",
+                "{}",
+            ],
+            ErrorKind::MissingRequiredArgument,
+            concat!(
+                "error: the following required arguments were not provided:\n  --artifacts <ARTIFACTS>\n\n",
+                "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --spec <SPEC> --reach <REACH>\n\n",
+                "For more information, try '--help'.\n"
+            ),
+        ),
+        (
+            "repeated --reach",
+            &[
+                "brokkr",
+                "hands",
+                "serve",
+                "--workdir",
+                work.as_str(),
+                "--artifacts",
+                artifacts.as_str(),
+                "--reach",
+                "a",
+                "--reach",
+                "b",
+            ],
+            ErrorKind::ArgumentConflict,
+            concat!(
+                "error: the argument '--reach <REACH>' cannot be used multiple times\n\n",
+                "Usage: brokkr hands serve [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS>\n\n",
+                "For more information, try '--help'.\n"
+            ),
+        ),
+    ];
 
-/// #1277 X2 (proposed decision 0125 ruling 4): non-missing-reach clap errors
-/// on `hands serve` (such as passing `--reach` twice) keep clap's usage
-/// synopsis for the present argument set rather than being rewritten by
-/// `reformat_missing_serve_reach`. Pin the exact output so the documents and
-/// behaviour cannot part.
-#[test]
-fn repeated_reach_on_hands_serve_prints_clap_usage_for_present_argument_set() {
-    use clap::Parser;
-
-    let tmp = tempfile::tempdir().unwrap();
-    let work = tmp.path().to_str().unwrap();
-    let artifacts = tmp.path().join("artifacts");
-    let artifacts_arg = artifacts.to_str().unwrap();
-
-    let Err(err) = crate::Cli::try_parse_from([
-        "brokkr",
-        "hands",
-        "serve",
-        "--workdir",
-        work,
-        "--artifacts",
-        artifacts_arg,
-        "--reach",
-        "a",
-        "--reach",
-        "b",
-    ]) else {
-        panic!("expected clap to refuse repeated --reach on hands serve");
-    };
-    assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
-    assert_eq!(err.exit_code(), 2);
-    assert_eq!(
-        err.to_string(),
-        concat!(
-            "error: the argument '--reach <REACH>' cannot be used multiple times\n\n",
-            "Usage: brokkr hands serve [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS>\n\n",
-            "For more information, try '--help'.\n"
-        )
-    );
+    for &(label, argv, expected_kind, expected_text) in cases {
+        let Err(err) = crate::Cli::try_parse_from(argv) else {
+            panic!("expected clap to refuse {label} on hands serve");
+        };
+        assert_eq!(err.kind(), expected_kind, "{label}");
+        assert_eq!(err.exit_code(), 2, "{label}");
+        assert_eq!(err.to_string(), expected_text, "{label}");
+    }
 }
 
 /// #1277 R4 + R6: plain JSON `--reach` and `--spec` refusals keep main's

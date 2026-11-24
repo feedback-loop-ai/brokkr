@@ -1031,77 +1031,102 @@ fn boxed_exec_settles_under_load() {
     assert_eq!(failed, Vec::<(usize, &str)>::new());
 }
 
-fn assert_hands_refused(args: &[&str], expected_stderr: &str) {
-    let out = crate::built::brokkr(args).output().unwrap();
-    assert_eq!(
-        out.status.code(),
-        Some(1),
-        "expected exit 1, stderr: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&out.stderr), expected_stderr);
+struct HandsFixture {
+    tmp: tempfile::TempDir,
+    work_arg: String,
+    root_arg: String,
+    reach_json: String,
 }
 
-fn ping_hands_serve(tmp: &Path, extra_args: &[&str]) {
-    let artifacts = artifact_root(&tmp.join("state"));
-    let (work_arg, root_arg) = (tmp.to_str().unwrap(), artifacts.to_str().unwrap());
-    let mut args = vec![
-        "hands",
-        "serve",
-        "--workdir",
-        work_arg,
-        "--artifacts",
-        root_arg,
-    ];
-    args.extend_from_slice(extra_args);
-    let mut child = crate::built::brokkr(&args)
-        .env("TMPDIR", tmp)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+impl HandsFixture {
+    fn new() -> Self {
+        let tmp = tempfile::tempdir().unwrap();
+        let artifacts = artifact_root(&tmp.path().join("state"));
+        let work_arg = tmp.path().to_str().unwrap().to_string();
+        let root_arg = artifacts.to_str().unwrap().to_string();
+        let reach_json = reach(tmp.path());
+        Self {
+            tmp,
+            work_arg,
+            root_arg,
+            reach_json,
+        }
+    }
+
+    fn argv<'a>(&'a self, verb: &'a str, extra: &[&'a str]) -> Vec<&'a str> {
+        let mut args = vec![
+            "hands",
+            verb,
+            "--workdir",
+            &self.work_arg,
+            "--artifacts",
+            &self.root_arg,
+        ];
+        args.extend_from_slice(extra);
+        args
+    }
+
+    fn assert_refused(&self, verb: &str, extra: &[&str], expected_stderr: &str) {
+        let out = crate::built::brokkr(self.argv(verb, extra))
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "expected exit 1, stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&out.stderr), expected_stderr);
+    }
+
+    fn assert_serve_refused(&self, extra: &[&str], expected_stderr: &str) {
+        self.assert_refused("serve", extra, expected_stderr);
+    }
+
+    fn ping_serve(&self, extra_args: &[&str]) {
+        let mut child = crate::built::brokkr(self.argv("serve", extra_args))
+            .env("TMPDIR", self.tmp.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(
+            child.stdin.as_mut().unwrap(),
+            r#"{{"jsonrpc":"2.0","id":1,"method":"ping"}}"#
+        )
         .unwrap();
-    writeln!(
-        child.stdin.as_mut().unwrap(),
-        r#"{{"jsonrpc":"2.0","id":1,"method":"ping"}}"#
-    )
-    .unwrap();
-    drop(child.stdin.take());
-    let out = child.wait_with_output().unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&out.stdout),
-        "{\"id\":1,\"jsonrpc\":\"2.0\",\"result\":{}}\n"
-    );
+        drop(child.stdin.take());
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "{\"id\":1,\"jsonrpc\":\"2.0\",\"result\":{}}\n"
+        );
+    }
 }
 
 #[test]
 fn hands_serve_accepts_base64url_documents_and_refuses_invalid_spellings() {
-    let tmp = tempfile::tempdir().unwrap();
-    let artifacts = artifact_root(&tmp.path().join("state"));
-    let (work_arg, root_arg) = (tmp.path().to_str().unwrap(), artifacts.to_str().unwrap());
-    let reach_json = reach(tmp.path());
+    let fx = HandsFixture::new();
     let spec_json = r#"{"binds":[],"kind":"workspace","network":false}"#;
-    let reach_b64 = brokkr_protocol::hands::encode_base64url(reach_json.as_bytes());
+    let reach_b64 = brokkr_protocol::hands::encode_base64url(fx.reach_json.as_bytes());
     let spec_b64 = brokkr_protocol::hands::encode_base64url(spec_json.as_bytes());
 
     // Encoded reach and spec answer ping cleanly.
-    ping_hands_serve(
-        tmp.path(),
-        &[
-            "--reach-base64url",
-            &reach_b64,
-            "--spec-base64url",
-            &spec_b64,
-        ],
-    );
+    fx.ping_serve(&[
+        "--reach-base64url",
+        &reach_b64,
+        "--spec-base64url",
+        &spec_b64,
+    ]);
 
     // R1: omitting `--spec` defaults to `"workspace"`, and `--help` shows the default.
-    ping_hands_serve(tmp.path(), &["--reach", &reach_json]);
+    fx.ping_serve(&["--reach", &fx.reach_json]);
     let help = crate::built::brokkr(["hands", "serve", "--help"])
         .output()
         .unwrap();
@@ -1112,79 +1137,50 @@ fn hands_serve_accepts_base64url_documents_and_refuses_invalid_spellings() {
         String::from_utf8_lossy(&help.stdout)
     );
 
-    // R5: passing both spellings refuses with its exact refusal and exit code 1.
-    let both_reach_stderr =
-        "error: --reach: both --reach and --reach-base64url were given; pass only one\n";
-    assert_hands_refused(
-        &[
-            "hands",
-            "serve",
-            "--workdir",
-            work_arg,
-            "--artifacts",
-            root_arg,
-            "--reach",
-            &reach_json,
-            "--reach-base64url",
-            &reach_b64,
-            "--spec",
-            spec_json,
-        ],
-        both_reach_stderr,
-    );
-    assert!(!both_reach_stderr.contains(&reach_b64));
-
-    let both_spec_stderr =
-        "error: --spec: both --spec and --spec-base64url were given; pass only one\n";
-    assert_hands_refused(
-        &[
-            "hands",
-            "serve",
-            "--workdir",
-            work_arg,
-            "--artifacts",
-            root_arg,
-            "--reach",
-            &reach_json,
-            "--spec",
-            spec_json,
-            "--spec-base64url",
-            &spec_b64,
-        ],
-        both_spec_stderr,
-    );
-    assert!(!both_spec_stderr.contains(&spec_b64));
-
-    // R5: passing padded base64url refuses with its exact refusal and exit code 1.
+    // R5: passing both spellings or padded base64url refuses with exact stderr and exit code 1.
     let padded = format!("{reach_b64}=");
-    let padded_stderr =
-        "error: --reach-base64url: contains '=' padding, which unpadded base64url forbids\n";
-    assert_hands_refused(
-        &[
-            "hands",
-            "serve",
-            "--workdir",
-            work_arg,
-            "--artifacts",
-            root_arg,
-            "--reach-base64url",
-            &padded,
-            "--spec-base64url",
+    let refusal_cases: &[(&[&str], &str, &str)] = &[
+        (
+            &[
+                "--reach",
+                &fx.reach_json,
+                "--reach-base64url",
+                &reach_b64,
+                "--spec",
+                spec_json,
+            ],
+            "error: --reach: both --reach and --reach-base64url were given; pass only one\n",
+            &reach_b64,
+        ),
+        (
+            &[
+                "--reach",
+                &fx.reach_json,
+                "--spec",
+                spec_json,
+                "--spec-base64url",
+                &spec_b64,
+            ],
+            "error: --spec: both --spec and --spec-base64url were given; pass only one\n",
             &spec_b64,
-        ],
-        padded_stderr,
-    );
-    assert!(!padded_stderr.contains(&padded));
+        ),
+        (
+            &["--reach-base64url", &padded, "--spec-base64url", &spec_b64],
+            "error: --reach-base64url: contains '=' padding, which unpadded base64url forbids\n",
+            &padded,
+        ),
+    ];
+    for &(extra, expected_stderr, secret_needle) in refusal_cases {
+        fx.assert_serve_refused(extra, expected_stderr);
+        assert!(!expected_stderr.contains(secret_needle));
+    }
 }
 
 /// #1277 R2: leading-hyphen encoded values (both space-separated and `=`
 /// forms) reach the typed decoder and never echo the argument value.
 #[test]
 fn hands_serve_passes_leading_hyphen_encoded_values_to_typed_decoder() {
-    let tmp = tempfile::tempdir().unwrap();
-    let artifacts = artifact_root(&tmp.path().join("state"));
-    let (work_arg, root_arg) = (tmp.path().to_str().unwrap(), artifacts.to_str().unwrap());
-    let reach_json = reach(tmp.path());
+    let fx = HandsFixture::new();
     let hyphen = "-wNotADoc123";
     let reach_eq = format!("--reach-base64url={hyphen}");
     let spec_eq = format!("--spec-base64url={hyphen}");
@@ -1194,60 +1190,18 @@ fn hands_serve_passes_leading_hyphen_encoded_values_to_typed_decoder() {
     assert!(!reach_stderr.contains(hyphen));
     assert!(!spec_stderr.contains(hyphen));
 
-    assert_hands_refused(
-        &[
-            "hands",
-            "serve",
-            "--workdir",
-            work_arg,
-            "--artifacts",
-            root_arg,
-            "--reach-base64url",
-            hyphen,
-        ],
-        reach_stderr,
-    );
-    assert_hands_refused(
-        &[
-            "hands",
-            "serve",
-            "--workdir",
-            work_arg,
-            "--artifacts",
-            root_arg,
-            &reach_eq,
-        ],
-        reach_stderr,
-    );
-    assert_hands_refused(
-        &[
-            "hands",
-            "serve",
-            "--workdir",
-            work_arg,
-            "--artifacts",
-            root_arg,
-            "--reach",
-            &reach_json,
-            "--spec-base64url",
-            hyphen,
-        ],
-        spec_stderr,
-    );
-    assert_hands_refused(
-        &[
-            "hands",
-            "serve",
-            "--workdir",
-            work_arg,
-            "--artifacts",
-            root_arg,
-            "--reach",
-            &reach_json,
-            &spec_eq,
-        ],
-        spec_stderr,
-    );
+    let cases: &[(&[&str], &str)] = &[
+        (&["--reach-base64url", hyphen], reach_stderr),
+        (&[&reach_eq], reach_stderr),
+        (
+            &["--reach", &fx.reach_json, "--spec-base64url", hyphen],
+            spec_stderr,
+        ),
+        (&["--reach", &fx.reach_json, &spec_eq], spec_stderr),
+    ];
+    for &(extra, expected_stderr) in cases {
+        fx.assert_serve_refused(extra, expected_stderr);
+    }
 }
 
 /// #1277 R3: an encoded document that fails JSON parse or a document check
@@ -1255,31 +1209,21 @@ fn hands_serve_passes_leading_hyphen_encoded_values_to_typed_decoder() {
 /// a decoded wrong field or wrong value.
 #[test]
 fn hands_serve_encoded_refusals_never_disclose_decoded_document() {
-    let tmp = tempfile::tempdir().unwrap();
-    let artifacts = artifact_root(&tmp.path().join("state"));
-    let (work_arg, root_arg) = (tmp.path().to_str().unwrap(), artifacts.to_str().unwrap());
-    let reach_json = reach(tmp.path());
+    let fx = HandsFixture::new();
     let marker = "SECRET_DECODED_MARKER_1277";
     let b64 = |text: String| brokkr_protocol::hands::encode_base64url(text.as_bytes());
     let assert_refused = |extra: &[&str], expected: &str| {
         assert!(!expected.contains(marker));
-        let mut args = vec![
-            "hands",
-            "serve",
-            "--workdir",
-            work_arg,
-            "--artifacts",
-            root_arg,
-        ];
-        args.extend_from_slice(extra);
-        assert_hands_refused(&args, expected);
+        fx.assert_serve_refused(extra, expected);
     };
 
     let reach_not_json = b64(format!("{{{marker}"));
     let reach_surrogate_known = b64(r#"{"home":"\uD800"}"#.to_string());
     let reach_surrogate_unknown = b64(format!(r#"{{"{marker}":"\uD800"}}"#));
     let reach_bad_doc = b64(format!(r#"{{"{marker}_FIELD":"{marker}_VALUE"}}"#));
-    let reach_dup = b64(reach_json.replacen(r#""home":"#, r#""home":"/dup","home":"#, 1));
+    let reach_dup = b64(fx
+        .reach_json
+        .replacen(r#""home":"#, r#""home":"/dup","home":"#, 1));
     let spec_not_json = b64(format!("{{{marker}"));
     let spec_wrong_field = b64(format!(
         r#"{{"kind":"workspace","{marker}_FIELD":"{marker}_VALUE"}}"#
@@ -1308,13 +1252,18 @@ fn hands_serve_encoded_refusals_never_disclose_decoded_document() {
     assert_refused(&["--reach-base64url", &reach_bad_doc], &bad_reach_data);
     assert_refused(&["--reach-base64url", &reach_dup], &bad_reach_data);
     assert_refused(
-        &["--reach", &reach_json, "--spec-base64url", &spec_not_json],
+        &[
+            "--reach",
+            &fx.reach_json,
+            "--spec-base64url",
+            &spec_not_json,
+        ],
         "error: --spec-base64url: decoded document is not valid JSON (Syntax)\n",
     );
     assert_refused(
         &[
             "--reach",
-            &reach_json,
+            &fx.reach_json,
             "--spec-base64url",
             &spec_wrong_field,
         ],
@@ -1323,7 +1272,7 @@ fn hands_serve_encoded_refusals_never_disclose_decoded_document() {
     assert_refused(
         &[
             "--reach",
-            &reach_json,
+            &fx.reach_json,
             "--spec-base64url",
             &spec_wrong_value,
         ],
@@ -1335,10 +1284,7 @@ fn hands_serve_encoded_refusals_never_disclose_decoded_document() {
 /// main's exact diagnostics byte for byte.
 #[test]
 fn hands_serve_and_exec_plain_json_refusals_match_main() {
-    let tmp = tempfile::tempdir().unwrap();
-    let artifacts = artifact_root(&tmp.path().join("state"));
-    let (work_arg, root_arg) = (tmp.path().to_str().unwrap(), artifacts.to_str().unwrap());
-    let reach_json = reach(tmp.path());
+    let fx = HandsFixture::new();
 
     let bad_reach_expected = format!(
         "error: --reach: {}: missing field `worktree` at line 1 column 13\n",
@@ -1347,12 +1293,12 @@ fn hands_serve_and_exec_plain_json_refusals_match_main() {
     let cases = [
         (
             "{",
-            reach_json.as_str(),
+            fx.reach_json.as_str(),
             "error: EOF while parsing an object at line 1 column 1\n",
         ),
         (
             r#"{"kind":"mitten"}"#,
-            reach_json.as_str(),
+            fx.reach_json.as_str(),
             "error: --spec: hands.kind must be \"workspace\"\n",
         ),
         (
@@ -1363,36 +1309,10 @@ fn hands_serve_and_exec_plain_json_refusals_match_main() {
     ];
 
     for (spec_arg, reach_arg, expected) in cases {
-        assert_hands_refused(
-            &[
-                "hands",
-                "serve",
-                "--workdir",
-                work_arg,
-                "--artifacts",
-                root_arg,
-                "--reach",
-                reach_arg,
-                "--spec",
-                spec_arg,
-            ],
-            expected,
-        );
-        assert_hands_refused(
-            &[
-                "hands",
-                "exec",
-                "--workdir",
-                work_arg,
-                "--artifacts",
-                root_arg,
-                "--reach",
-                reach_arg,
-                "--spec",
-                spec_arg,
-                "--",
-                "true",
-            ],
+        fx.assert_serve_refused(&["--reach", reach_arg, "--spec", spec_arg], expected);
+        fx.assert_refused(
+            "exec",
+            &["--reach", reach_arg, "--spec", spec_arg, "--", "true"],
             expected,
         );
     }
