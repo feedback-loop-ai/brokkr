@@ -76,7 +76,7 @@ fn the_output_edge_masks_with_the_shared_masker_and_serializes_once() {
     let guard = PathBuf::from("brokkr-protocol/src/secret/guard.rs");
     let protocol = |needle: &str| {
         let mut calls = production_calls(needle);
-        calls.retain(|(file, _)| file.starts_with("brokkr-protocol/src"));
+        calls.retain(|(file, _)| file.starts_with("brokkr-protocol/src") & !tests(file));
         calls.sort();
         calls
     };

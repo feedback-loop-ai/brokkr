@@ -15,9 +15,6 @@ pub(super) fn production_calls(needle: &str) -> Vec<(PathBuf, String)> {
         let entries = std::fs::read_dir(&dir).unwrap();
         for path in entries.map(|entry| entry.unwrap().path()) {
             let name = path.file_name().unwrap().to_str().unwrap_or_default();
-            if name == "tests" {
-                continue;
-            }
             let tests = (name == "tests.rs") | name.ends_with("_tests.rs");
             let src = path.components().any(|c| c.as_os_str() == "src");
             if path.is_dir() {
