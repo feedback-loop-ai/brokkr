@@ -46,6 +46,7 @@ use serde_json::{json, Value};
 
 use super::resume::{RootHistory, SiteContext};
 use super::SiteSpawn;
+use crate::agents::kinds::masked;
 use crate::bundle::SiteFacts;
 use crate::capabilities::{Implementation, NativePlan, Outcome};
 
@@ -310,17 +311,6 @@ impl Calls {
             call_id,
         }))
     }
-}
-
-/// Whether `name` holds a secret marker, `[secret:NAME]` with `NAME` in
-/// the binding grammar (decision 0012's #1213 addendum, K2): the form the
-/// mask writes over a bound value, and nothing a name merely shares with
-/// it. A rewritten name cannot identify the native tool for admission.
-fn masked(name: &str) -> bool {
-    (name.split("[secret:").skip(1)).any(|rest| {
-        rest.split_once(']')
-            .is_some_and(|(binding, _)| brokkr_protocol::secret::valid_name(binding))
-    })
 }
 
 /// The step every settled broker checkpoint names: the engine's own row,

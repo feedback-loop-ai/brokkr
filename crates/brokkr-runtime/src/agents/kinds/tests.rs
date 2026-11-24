@@ -420,3 +420,44 @@ fn an_inline_exec_site_and_a_raw_command_answer_to_no_adapter() {
     let judged = raw.admit(&fourth, "work");
     assert_eq!(judged, refused(Member::Transcript, "exec-log"));
 }
+
+/// `checkpoint` as `seat_row` hands it to the engine: run through the
+/// real mask with `value` bound to the name `K`.
+pub(crate) fn masked_by(mut checkpoint: Value, value: &str) -> Value {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("secrets.env");
+    brokkr_protocol::secret::store_set(&store, "K", value).unwrap();
+    let bindings = brokkr_protocol::secret::resolve_bindings(&store, &["K".into()]).unwrap();
+    brokkr_protocol::secret::mask_json(&mut checkpoint, &bindings);
+    checkpoint
+}
+
+#[test]
+fn named_reads_masked_keys_at_the_record_and_result_only() {
+    let kinds = loaded().seat(Some("trellis"), &argv(&["sh"]));
+    let transcript = json!({"kind": "trellis-trail"});
+    let nested = json!({"result": {"transcript": transcript}});
+    let top = json!({"transcript": transcript});
+    let masked = UndeclaredKind::Masked {
+        seat: "work".into(),
+    };
+    for record in [nested, top.clone()] {
+        let record = masked_by(record, "transcript");
+        assert_eq!(
+            Named::places(&record, "work").map(drop),
+            Err(masked.clone())
+        );
+    }
+    assert_eq!(
+        masked.to_string(),
+        "seat 'work' recorded a masked key where kind places are read (decision 0075 ruling 2)"
+    );
+    let notes = json!({"result": {"notes": {"transcript": transcript}}});
+    let deep = masked_by(notes, "transcript");
+    assert_eq!(Named::places(&deep, "work").map(drop), Ok(()));
+    assert_eq!(kinds.admit(&deep, "work"), Ok(()));
+    assert_eq!(
+        kinds.admit(&masked_by(top, "kind"), "work"),
+        outside(Member::Transcript)
+    );
+}

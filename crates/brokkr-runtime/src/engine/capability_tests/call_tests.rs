@@ -10,6 +10,7 @@
 //! use.
 
 use super::*;
+use crate::agents::kinds::tests::masked_by;
 use crate::engine::tests::run_panel;
 use brokkr_protocol::adapters::capability_calls::{Format, Observation, Tool, OBSERVATION_KEY};
 
@@ -353,17 +354,6 @@ fn consuming(
     let plan = planned(SITE, INSTANCE);
     let facts = engine.bundle.sites.get("work");
     super::super::capability_calls::Calls::of(facts, &spawn, "attempt", Some(&plan.context))
-}
-
-/// `checkpoint` as `seat_row` hands it to the engine: run through the
-/// real mask with `value` bound to the name `K`.
-fn masked_by(mut checkpoint: Value, value: &str) -> Value {
-    let dir = tempfile::tempdir().unwrap();
-    let store = dir.path().join("secrets.env");
-    brokkr_protocol::secret::store_set(&store, "K", value).unwrap();
-    let bindings = brokkr_protocol::secret::resolve_bindings(&store, &["K".into()]).unwrap();
-    brokkr_protocol::secret::mask_json(&mut checkpoint, &bindings);
-    checkpoint
 }
 
 /// The marker's literal form is the mask's own output: a drift in it

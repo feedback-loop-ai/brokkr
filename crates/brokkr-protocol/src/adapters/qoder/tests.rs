@@ -1179,7 +1179,8 @@ fn invoked(
         delivered,
         code,
     };
-    driven(&turn, bound)
+    let (bindings, masked) = bound_as(bound);
+    (driven(&turn, &bindings), masked)
 }
 
 /// One fake `qodercli` turn: the pin its seat writes, what it prints and
@@ -1193,28 +1194,19 @@ struct Turn<'a> {
     code: i32,
 }
 
-/// `turn` run by [`drive`] with `bound` bound; beside it, `bound` as masked.
+/// Run the fake turn through the driver with the seat's bindings.
 #[cfg(unix)]
-fn driven(turn: &Turn<'_>, bound: &str) -> (Result<Invocation, String>, String) {
+fn driven(turn: &Turn<'_>, bindings: &[secret::BoundSecret]) -> Result<Invocation, String> {
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     let written = turn.delivered.then_some(result.as_path());
     let bin = fake_qoder(dir.path(), turn.stdout, turn.stderr, written, turn.code);
     let input = json!({"workdir": dir.path(), "result_path": result});
-    let (bindings, masked) = bound_as(bound);
     let bin = bin.to_string_lossy();
     let extra = argv(&["-m", turn.pin]);
-    let turn = drive(
-        &bin,
-        &extra,
-        false,
-        "prompt",
-        &input,
-        &bindings,
-        &mut |_| {},
-    );
+    let turn = drive(&bin, &extra, false, "prompt", &input, bindings, &mut |_| {});
     reaped(dir.path());
-    (turn, masked)
+    turn
 }
 
 /// `bound` bound to the seat, and as its mask writes it.
@@ -1426,6 +1418,21 @@ fn a_split_secret_in_the_fallback_line_reaches_no_word_and_no_stderr() {
             );
         }
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn stderr_evidence_masks_values_with_and_without_escapes() {
+    super::super::escapes::assert_stderr_evidence("QT", |stderr, bindings| {
+        let turn = Turn {
+            pin: "Fast",
+            stdout: TOOL_LESS.as_bytes(),
+            stderr,
+            delivered: false,
+            code: 0,
+        };
+        driven(&turn, bindings).unwrap().stderr
+    });
 }
 
 /// U2: a binding that overlaps the fallback marker erases nothing the
@@ -1717,7 +1724,8 @@ fn a_bad_line_or_a_second_init_after_work_ends_with_its_words() {
             delivered: true,
             code: 0,
         };
-        let (late, _) = driven(&turn, SECRET);
+        let (bindings, _) = bound_as(SECRET);
+        let late = driven(&turn, &bindings);
         assert_eq!(late.map(drop), Err(words.to_string()));
     }
 }
@@ -1753,7 +1761,8 @@ fn a_bound_pin_is_masked_once_in_the_refusal_words() {
             delivered: false,
             code: 0,
         };
-        let (driven, masked) = driven(&turn, bound);
+        let (bindings, masked) = bound_as(bound);
+        let driven = driven(&turn, &bindings);
         let words = FELL_BACK.replace("'Fast'", &format!("'{masked}'"));
         assert_eq!(masked, "[secret:QT]");
         assert_eq!(refusal_words(driven), Some(words.clone()), "{bound}");

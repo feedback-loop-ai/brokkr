@@ -27,6 +27,17 @@ use super::{Adapter, Adapters, ResumeShape, ResumeStatus};
 use crate::argv::Dispatch;
 use crate::bundle::built_in_model_driver;
 
+/// Whether `name` holds a secret marker, `[secret:NAME]` with `NAME` in
+/// the binding grammar (decision 0012's #1213 addendum, K2): the form the
+/// mask writes over a bound value, and nothing a name merely shares with
+/// it. A rewritten name cannot identify a kind place or a native tool.
+pub(crate) fn masked(name: &str) -> bool {
+    (name.split("[secret:").skip(1)).any(|rest| {
+        rest.split_once(']')
+            .is_some_and(|(binding, _)| brokkr_protocol::secret::valid_name(binding))
+    })
+}
+
 /// The longest kind seat-record v8 admits.
 const KIND_LIMIT: usize = 40;
 
@@ -243,32 +254,13 @@ impl SeatKinds {
     /// on every road, whether or not a schema judges that road after, and
     /// so is a record that is not an object, whose places cannot be read.
     pub(crate) fn admit(&self, record: &Value, seat: &str) -> Result<(), UndeclaredKind> {
-        let seat = || seat.to_string();
-        let read = record.is_object().then(|| Named::deserialize(record).ok());
-        let Some(named) = read.flatten() else {
-            return Err(UndeclaredKind::Unread { seat: seat() });
-        };
-        let nested = match named.result {
-            Nested::Members(nested) => nested,
-            Nested::Sequence(_) | Nested::Other(_) | Nested::Absent => Members::default(),
-        };
-        // A nested result's root session is no place seat-record v8
-        // defines: the closed result of an authored row refuses it, and
-        // the open object of any other row is judged for nothing. The
-        // check stays, and fails closed (the controller's ruling R30).
-        let places = [
-            (Member::Transcript, named.transcript),
-            (Member::RootSession, named.root_session),
-            (Member::ResultTranscript, nested.transcript),
-            (Member::ResultRootSession, nested.root_session),
-        ];
-        for (member, place) in places {
+        for (member, place) in Named::places(record, seat)? {
             let kind = match place.recorded() {
                 None => continue,
                 Some(Recorded::Word(word)) if self.declares(member, &word) => continue,
                 Some(kind) => kind,
             };
-            let seat = seat();
+            let seat = seat.to_owned();
             return Err(UndeclaredKind::Named { seat, member, kind });
         }
         Ok(())
@@ -368,6 +360,44 @@ struct Named {
     root_session: Place,
     #[serde(default)]
     result: Nested,
+}
+
+impl Named {
+    fn places(record: &Value, seat: &str) -> Result<[(Member, Place); 4], UndeclaredKind> {
+        // Only the record and its result name kind places. Keys deeper
+        // inside either object are judged by the grammar of the place,
+        // where it reads them, or are outside kind admission altogether.
+        let root = record.as_object();
+        let result = record.get("result").and_then(Value::as_object);
+        let mut keys = [root, result]
+            .into_iter()
+            .flatten()
+            .flat_map(|map| map.keys());
+        if keys.any(|key| masked(key)) {
+            return Err(UndeclaredKind::Masked {
+                seat: seat.to_owned(),
+            });
+        }
+        let named = root
+            .and_then(|_| Self::deserialize(record).ok())
+            .ok_or_else(|| UndeclaredKind::Unread {
+                seat: seat.to_owned(),
+            })?;
+        let nested = match named.result {
+            Nested::Members(nested) => nested,
+            Nested::Sequence(_) | Nested::Other(_) | Nested::Absent => Members::default(),
+        };
+        // A nested result's root session is no place seat-record v8
+        // defines: the closed result of an authored row refuses it, and
+        // the open object of any other row is judged for nothing. The
+        // check stays, and fails closed (the controller's ruling R30).
+        Ok([
+            (Member::Transcript, named.transcript),
+            (Member::RootSession, named.root_session),
+            (Member::ResultTranscript, nested.transcript),
+            (Member::ResultRootSession, nested.root_session),
+        ])
+    }
 }
 
 /// A record's nested `result`: an object whose kind places are read, or
@@ -471,7 +501,13 @@ pub(crate) enum UndeclaredKind {
         Recorded::Outside
     )]
     Unread { seat: String },
+    /// A masked member name may have hidden one of the kind places.
+    #[error(
+        "seat '{seat}' recorded a masked key where kind places are read \
+         (decision 0075 ruling 2)"
+    )]
+    Masked { seat: String },
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
