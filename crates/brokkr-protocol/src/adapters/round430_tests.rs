@@ -513,3 +513,21 @@ fn masked_refusal_991b_does_not_leak_a_value_rewritten_by_the_first_collapse() {
         assert!(!reread.words().contains(value), "{}", reread.words());
     }
 }
+
+#[test]
+fn bound_refusal_class_comes_from_the_raw_token() {
+    let (refusal, _) = masked_claude_refusal(
+        false,
+        &json!({
+            "type": "result", "is_error": true, "apiErrorStatus": 429,
+            "error": " \t rate_limit ", "result": "usage limit reached",
+        }),
+        &[("K", "type"), ("S", "limit")],
+    );
+    assert_eq!(refusal.class(), RefusalClass::RateLimit);
+    assert_eq!(
+        refusal.words(),
+        "rate_[secret:S] (HTTP 429): usage [secret:S] reached"
+    );
+    assert_eq!(refusal.retry_after_seconds(), None);
+}

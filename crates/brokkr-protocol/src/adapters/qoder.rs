@@ -39,7 +39,10 @@ use super::claude_fold::ClaudeFold;
 use super::escapes::plain_evidence;
 use super::mcp::{self, McpRefusal};
 use super::stream_turn::{plain, Observed, STOPPED_AT_REFUSAL, UNCONCLUDED};
-use super::{fold_stream_event, io_context, lost, secret, spawn_fed, Invocation, LaunchTerminal};
+use super::{
+    fold_stream_event, io_context, lost, secret, spawn_fed, CapturedId, Emitted, FoldInput,
+    Invocation, LaunchTerminal,
+};
 use crate::native_controls::mcp::qoder::isolation;
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 use crate::{PreSessionRefusal, RefusalClass};
@@ -245,7 +248,7 @@ pub(super) fn drive(
     prompt: &str,
     input: &Value,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
     // The seat before its one mask: its errors rendered, not masked.
     let mut driven = || {
@@ -366,7 +369,7 @@ impl QoderFold {
         bindings: &[secret::BoundSecret],
         session_meta: &mut Map<String, Value>,
         transcript: &mut Transcript,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) -> Result<Option<PreSessionRefusal>, Stop> {
         let Ok(mut row) = serde_json::from_slice::<Map<String, Value>>(line) else {
             return Err(Stop::Refused(unmeasured_line()));
@@ -383,9 +386,27 @@ impl QoderFold {
         }
         // The one place a row is masked: no row reaches the fold unmasked.
         let mut event = Value::Object(row);
+        let row = super::Row::new(&event, bindings);
+        let refusal = (self.claude.turns == 0)
+            .then(|| super::claude_refusal(&row))
+            .flatten();
+        let identity = CapturedId::claude(&row);
         secret::mask_json(&mut event, bindings);
-        let classified =
-            fold_stream_event(&event, &mut self.claude, session_meta, transcript, emit);
+        let classified = FoldInput {
+            masked: &event,
+            refusal,
+            identity,
+        }
+        .fold(|event, identity| {
+            fold_stream_event(
+                event,
+                identity,
+                &mut self.claude,
+                session_meta,
+                transcript,
+                emit,
+            )
+        });
         Ok(classified.map(provider_refused))
     }
 
@@ -545,7 +566,7 @@ fn invoke(
     prompt: &str,
     input: &Value,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
     let path = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or("");
     let (workdir, result_path) = (path("workdir"), path("result_path"));

@@ -157,9 +157,10 @@ fn text(value: &Value, pointer: &str) -> Option<String> {
 }
 
 /// The category a Codex `item.*` event names (`agent_message`,
-/// `command_execution`, `mcp_tool_call`, …), read once here for both the
-/// observation and the probe's answer bound (decision 0103 ruling 4(a)).
-pub(super) fn codex_item_type(event: &Value) -> Option<String> {
+/// `command_execution`, `mcp_tool_call`, …), as the observation reads it.
+/// The probe's answer bound (decision 0103 ruling 4(a)) reads the same
+/// field through `Row` in `probe::is_answer`; 0114c gives both one home.
+fn codex_item_type(event: &Value) -> Option<String> {
     text(event, "/item/type")
 }
 

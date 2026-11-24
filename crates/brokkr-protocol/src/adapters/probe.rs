@@ -7,7 +7,7 @@
 use serde_json::Value;
 
 use super::refusal::claude_refusal;
-use super::AdapterKind;
+use super::{row::Row, AdapterKind, Emitted, Step};
 use crate::Probe;
 
 /// A start's optional probe marker. Absent is not a probe; present must
@@ -47,6 +47,13 @@ impl ProbeAnswer {
         self.requested
     }
 
+    /// Does `row` answer this invocation's probe? Only when a probe was
+    /// requested, and only by the adapter's model-output answer
+    /// ([`is_answer`]). One home for every family's reader.
+    pub(super) fn answers(&self, kind: AdapterKind, row: &Row<'_>) -> bool {
+        self.requested && is_answer(kind, row)
+    }
+
     /// Has the first answer been admitted? The adapter stops its harness
     /// at that point (decision 0103 ruling 4(a)).
     pub(super) fn answered(&self) -> bool {
@@ -55,8 +62,8 @@ impl ProbeAnswer {
 
     /// Admit this event's checkpoints if it is the adapter's answer. The
     /// first answer latches; a later one is not admitted.
-    pub(super) fn admit(&mut self, kind: AdapterKind, event: &Value, emitted: &[Value]) {
-        if !self.requested || self.answer.is_some() || !is_answer(kind, event) {
+    pub(super) fn admit(&mut self, answer_event: bool, emitted: &[Value]) {
+        if !self.requested || self.answer.is_some() || !answer_event {
             return;
         }
         self.answer = emitted.first().cloned();
@@ -68,18 +75,15 @@ impl ProbeAnswer {
 }
 
 /// Is this event the adapter's model-output answer for a probe?
-pub(super) fn is_answer(kind: AdapterKind, event: &Value) -> bool {
+pub(super) fn is_answer(kind: AdapterKind, event: &Row<'_>) -> bool {
     match kind {
         AdapterKind::Claude | AdapterKind::Lanetally => {
-            event.get("type").and_then(Value::as_str) == Some("assistant")
-                && claude_refusal(event).is_none()
+            event.is("/type", "assistant") && claude_refusal(event).is_none()
         }
         AdapterKind::Codex => {
-            event.get("type").and_then(Value::as_str) == Some("item.completed")
-                && super::capability_calls::codex_item_type(event).as_deref()
-                    == Some("agent_message")
+            event.is("/type", "item.completed") && event.is("/item/type", "agent_message")
         }
-        AdapterKind::Dsh => event.get("type").and_then(Value::as_str) == Some("assistant/message"),
+        AdapterKind::Dsh => event.is("/type", "assistant/message"),
         AdapterKind::Qoder | AdapterKind::Agy | AdapterKind::Exec => false,
     }
 }
@@ -281,7 +285,7 @@ pub(super) fn accept_and_flush(
     effect_id: &str,
     attempt_id: &str,
     accepted_sent: &mut bool,
-    buffered: &mut Vec<Value>,
+    buffered: &mut Vec<(Step, Value)>,
 ) {
     if *accepted_sent {
         return;
@@ -292,7 +296,7 @@ pub(super) fn accept_and_flush(
         attempt_id: attempt_id.to_string(),
         session_ref: None,
     });
-    for row in buffered.drain(..) {
+    for (_, row) in buffered.drain(..) {
         send(crate::Body::Checkpoint {
             effect_id: effect_id.to_string(),
             attempt_id: attempt_id.to_string(),
@@ -307,22 +311,20 @@ pub(super) fn accept_and_flush(
 /// checkpoint that event emitted — never one rebuilt here.
 pub(super) fn fold_capturing(
     probe: &mut ProbeAnswer,
-    kind: AdapterKind,
-    event: &Value,
-    watch: &mut impl FnMut(&Value),
-    fold: impl FnOnce(&mut dyn FnMut(&Value)) -> Option<crate::PreSessionRefusal>,
+    answer_event: bool,
+    watch: &mut impl FnMut(&Emitted),
+    fold: impl FnOnce(&mut dyn FnMut(&Emitted)) -> Option<crate::PreSessionRefusal>,
 ) -> Option<crate::PreSessionRefusal> {
-    let answer_event = probe.requested() && is_answer(kind, event);
     let mut emitted: Vec<Value> = Vec::new();
     let classified = {
-        let mut capture = |data: &Value| {
+        let mut capture = |data: &Emitted| {
             if answer_event {
-                emitted.push(data.clone());
+                emitted.push(data.row.clone());
             }
             watch(data);
         };
         fold(&mut capture)
     };
-    probe.admit(kind, event, &emitted);
+    probe.admit(answer_event, &emitted);
     classified
 }

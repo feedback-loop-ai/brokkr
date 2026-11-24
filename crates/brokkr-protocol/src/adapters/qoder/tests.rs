@@ -69,7 +69,7 @@ fn fold_bound(
     let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
     let mut outcome = Ok(None);
     for line in std::io::BufRead::split(stdout, b'\n') {
-        let mut emit = |row: &Value| rows.push(row.clone());
+        let mut emit = |row: &Emitted| rows.push(row.row.clone());
         let line = line.unwrap();
         match fold.read(
             &line,
@@ -87,7 +87,7 @@ fn fold_bound(
             }
         }
     }
-    let mut emit = |row: &Value| rows.push(row.clone());
+    let mut emit = |row: &Emitted| rows.push(row.row.clone());
     transcript.finish(&mut session_meta, &mut emit);
     Folded {
         fold,
@@ -1015,7 +1015,7 @@ fn a_qoder_driver_declares_no_resume_and_no_probe() {
     assert_eq!(kind.served_route("Fast"), None);
     assert!(!super::super::probe::is_answer(
         kind,
-        &json!({"type": "assistant"})
+        &super::super::Row::new(&json!({"type": "assistant"}), &[])
     ));
 }
 

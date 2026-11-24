@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::{codex_error, codex_rate_limit, parse_nanos, reset_windows, system_time_nanos, Now};
-use crate::PreSessionRefusal;
+use super::super::Ident;
+use super::{codex_class, codex_error, parse_nanos, reset_windows, system_time_nanos, Now, Row};
+use crate::{PreSessionRefusal, RefusalClass};
 
 /// The closed list of non-work row kinds after this invocation's boundary
 /// (#1037, hold c-6761090419). Prompt ingestion is the measured
@@ -141,13 +142,21 @@ pub(crate) fn codex_thread_refusal(
             resets = windows;
         }
         if let Some(found) = thread_error(&row) {
-            if codex_rate_limit(&found) {
+            if codex_class(&Row::new(&found, &[]).with_fallback("/error"))
+                == RefusalClass::RateLimit
+            {
                 rate_limit_error = Some(found);
             }
             error_seen = true;
         }
     }
-    Some(codex_error(&rate_limit_error?, now, &resets))
+    let error = rate_limit_error?;
+    Some(codex_error(
+        &Row::new(&error, &[]).with_fallback("/error"),
+        RefusalClass::RateLimit,
+        now,
+        &resets,
+    ))
 }
 
 /// Whether a row is at or after the start; an untimed row is read, never assumed history.
@@ -203,13 +212,17 @@ pub(crate) fn codex_thread_refusal_since(
 /// bounded walk below `root`. The id is codex's own announcement, never
 /// "the newest file": a concurrent seat's thread must not lend this one
 /// its effort (decision 0035).
-pub(crate) fn find_codex_thread(root: &Path, thread_id: &str, depth: usize) -> Option<PathBuf> {
+pub(in crate::adapters) fn find_codex_thread(
+    root: &Path,
+    thread_id: &Ident,
+    depth: usize,
+) -> Option<PathBuf> {
     let mut found = None;
     walk_codex_threads(root, depth, &mut |path| {
         let named = path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| names_codex_thread(name, thread_id));
+            .is_some_and(|name| thread_id.names_rollout(name));
         if named {
             found = Some(path.to_path_buf());
         }
@@ -268,25 +281,15 @@ fn walk_codex_threads(root: &Path, depth: usize, visit: &mut impl FnMut(&Path) -
         .any(|directory| walk_codex_threads(&directory, depth - 1, visit))
 }
 
-/// `name` carries `thread_id` as a WHOLE token, bounded at both ends by a
-/// non-alphanumeric or by the ends of the name, never as a fragment: a
-/// fragment is not an announcement, and a bare `contains` would lose the
-/// "never by the newest file" rule by another route.
-fn names_codex_thread(name: &str, thread_id: &str) -> bool {
-    name.match_indices(thread_id).any(|(at, _)| {
-        let before = name[..at].chars().next_back();
-        let after = name[at + thread_id.len()..].chars().next();
-        !before.is_some_and(|c| c.is_ascii_alphanumeric())
-            && !after.is_some_and(|c| c.is_ascii_alphanumeric())
-    })
-}
-
 /// The cwd and session start a rollout's header names, only when its first
 /// row is a `session_meta` with string `cwd`, `timestamp` and `id` in its
 /// payload, and the id is this record's own (F4): the announced thread when
 /// one is known, else the full id at the end of its `rollout-…-<id>.jsonl`
 /// file name.
-pub(crate) fn thread_header(path: &Path, announced: Option<&str>) -> Option<(String, i128)> {
+pub(in crate::adapters) fn thread_header(
+    path: &Path,
+    announced: Option<&Ident>,
+) -> Option<(String, i128)> {
     let body = std::fs::read_to_string(path).ok()?;
     let first = body.lines().next()?;
     let row = serde_json::from_str::<Value>(first).ok()?;
@@ -296,16 +299,16 @@ pub(crate) fn thread_header(path: &Path, announced: Option<&str>) -> Option<(Str
     let payload = row.get("payload")?;
     let cwd = payload.get("cwd").and_then(Value::as_str)?.to_string();
     let started = parse_nanos(payload.get("timestamp")?.as_str()?)?;
-    let id = payload.get("id").and_then(Value::as_str)?;
-    names_own_record(path, id, announced).then_some((cwd, started))
+    let id = Row::new(payload, &[]).ident("/id")?;
+    names_own_record(path, &id, announced).then_some((cwd, started))
 }
 
 /// Whether `id` is the record's own: equal to the announced thread when
 /// one is known, else equal to the full id the file name carries. A
 /// mismatch, including an empty id or a fragment of the real id,
 /// correlates nothing.
-fn names_own_record(path: &Path, id: &str, announced: Option<&str>) -> bool {
-    if id.is_empty() {
+fn names_own_record(path: &Path, id: &Ident, announced: Option<&Ident>) -> bool {
+    if id.is_offered("") {
         return false;
     }
     announced.map_or_else(
@@ -313,7 +316,7 @@ fn names_own_record(path: &Path, id: &str, announced: Option<&str>) -> bool {
             path.file_name()
                 .and_then(|name| name.to_str())
                 .and_then(record_id_from_name)
-                .is_some_and(|own| own == id)
+                .is_some_and(|own| id.is_offered(own))
         },
         |announced| announced == id,
     )

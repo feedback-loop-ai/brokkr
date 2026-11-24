@@ -80,7 +80,7 @@ fn fold_header(header: serde_json::Value, seed: Option<&str>) -> (Value, Option<
         "message":{"source":{"model":"deepseek-flash"}}}});
     for event in [&header, &step] {
         fold_dsh_event(event, None, &mut turns, &mut meta, &mut |value| {
-            emitted.push(value.clone())
+            emitted.push(value.row.clone())
         });
     }
     assert_eq!(emitted.len(), 1, "{emitted:?}");

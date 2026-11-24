@@ -1,7 +1,7 @@
+use super::raw_fold_tests::{claude_refusal, codex_refusal, fold_codex_event, fold_stream_event};
 use super::*;
 use crate::env_guard::EnvGuard;
 use std::{os::unix::ffi::OsStrExt, path::Path};
-
 /// The wait every test's poll hands production: one child's exit code as
 /// the driver's own `lost` reads it, so a signal is `-1` here exactly as it
 /// is in the driver. One helper, one home for the rule (fix round 430s4a6
@@ -33,11 +33,12 @@ fn drain_into(
         bindings,
         &mut ProbeAnswer::new(false),
     )
-    .drain(&mut |value| emitted.push(value.clone()));
+    .drain(&mut |value| emitted.push(value.row.clone()));
 }
 
 mod claude_usage;
 mod codex_isolation;
+mod decision_0114a;
 #[cfg(unix)]
 mod seat_git;
 use codex_isolation::{
@@ -75,7 +76,7 @@ pub(super) fn invoke_case(
         case.session,
         bindings,
         case.probe,
-        emit,
+        &mut |row| emit(&row.row),
         stage_prompt,
     )
 }
@@ -1389,7 +1390,7 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
     let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
         "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}});
     fold_dsh_event(&step, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.clone())
+        emitted.push(value.row.clone())
     });
     assert_eq!(
         emitted[0]["effort"], "not reported",
@@ -1400,24 +1401,24 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
     let header = serde_json::json!({"type":"request/header","data":{"header":{"config":
         {"provider":"meta-contributor","model":"meta/muse-spark-1.3-contributor","reasoningEffort":"xhigh"}}}});
     fold_dsh_event(&header, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.clone())
+        emitted.push(value.row.clone())
     });
     assert_eq!(emitted.len(), 1, "a header is meta, not a checkpoint");
     assert_eq!(meta["effort"], "xhigh");
     fold_dsh_event(&step, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.clone())
+        emitted.push(value.row.clone())
     });
     assert_eq!(emitted[1]["effort"], "xhigh");
     let call = serde_json::json!({"type":"tool/call","data":{"name":"bash"}});
     fold_dsh_event(&call, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.clone())
+        emitted.push(value.row.clone())
     });
     assert_eq!(emitted[2]["effort"], "xhigh");
     assert_eq!(emitted[2]["tool"], "bash");
 
     let hostile = serde_json::json!({"type":"request/header","data":{"header":{"config":{"reasoningEffort":"think hard"}}}});
     fold_dsh_event(&hostile, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.clone())
+        emitted.push(value.row.clone())
     });
     assert_eq!(
         meta["effort"], "xhigh",
@@ -1425,7 +1426,7 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
     );
     let none = serde_json::json!({"type":"request/header","data":{"header":{"config":{"provider":"spark","model":"qwen3.8-flash"}}}});
     fold_dsh_event(&none, None, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.clone())
+        emitted.push(value.row.clone())
     });
     assert_eq!(
         meta["effort"], "xhigh",
@@ -1609,27 +1610,27 @@ fn the_codex_thread_echo_reads_the_last_model_and_effort_by_id_and_never_by_scan
     .unwrap();
 
     let mut echo = CodexThreadEcho::default();
-    echo.locate(home.path(), "0199mine");
+    echo.locate_unbound(home.path(), "0199mine");
     let (model, effort) = echo.echo();
     assert_eq!(model.as_deref(), Some("gpt-5.6-sol"));
     assert_eq!(effort.as_deref(), Some("xhigh"));
 
     // The other seat's thread is reachable by ITS id, and only by it.
     let mut other = CodexThreadEcho::default();
-    other.locate(home.path(), "0199other");
+    other.locate_unbound(home.path(), "0199other");
     assert_eq!(other.echo().0.as_deref(), Some("gpt-5.6-mini"));
     assert_eq!(other.echo().1.as_deref(), Some("minimal"));
 
     // An id nobody filed, an empty id, and a home with no sessions tree
     // at all each leave the record saying nothing rather than guessing.
     let mut missing = CodexThreadEcho::default();
-    missing.locate(home.path(), "0199absent");
+    missing.locate_unbound(home.path(), "0199absent");
     assert_eq!(missing.echo(), (None, None));
     let mut empty = CodexThreadEcho::default();
-    empty.locate(home.path(), "");
+    empty.locate_unbound(home.path(), "");
     assert_eq!(empty.echo(), (None, None));
     let mut homeless = CodexThreadEcho::default();
-    homeless.locate(std::path::Path::new("/nonexistent/codex-home"), "0199mine");
+    homeless.locate_unbound(std::path::Path::new("/nonexistent/codex-home"), "0199mine");
     assert_eq!(homeless.echo(), (None, None));
 
     // The walk is BOUNDED: a thread filed deeper than the depth allows
@@ -1643,20 +1644,20 @@ fn the_codex_thread_echo_reads_the_last_model_and_effort_by_id_and_never_by_scan
     )
     .unwrap();
     let mut too_deep = CodexThreadEcho::default();
-    too_deep.locate(home.path(), "0199deep");
+    too_deep.locate_unbound(home.path(), "0199deep");
     assert_eq!(too_deep.echo(), (None, None));
 
     // A file that is not a thread record does not answer for one.
     std::fs::write(dated.join("rollout-0199plain.txt"), "effort: high\n").unwrap();
     let mut wrong_suffix = CodexThreadEcho::default();
-    wrong_suffix.locate(home.path(), "0199plain");
+    wrong_suffix.locate_unbound(home.path(), "0199plain");
     assert_eq!(wrong_suffix.echo(), (None, None));
 
     // A thread record that names neither reports neither, rather than
     // the model or level of whatever else it could find.
     std::fs::write(dated.join("rollout-0199quiet.jsonl"), "{\"turn\":1}\n").unwrap();
     let mut quiet = CodexThreadEcho::default();
-    quiet.locate(home.path(), "0199quiet");
+    quiet.locate_unbound(home.path(), "0199quiet");
     assert_eq!(quiet.echo(), (None, None));
 }
 
@@ -1679,7 +1680,7 @@ fn a_thread_id_that_is_not_one_locates_nothing_and_a_fragment_claims_no_file() {
     // `contains`, each of these would read a thread it never opened.
     for fragment in ["0199", "199mine", "0199min", "99mi"] {
         let mut borrower = CodexThreadEcho::default();
-        borrower.locate(home.path(), fragment);
+        borrower.locate_unbound(home.path(), fragment);
         assert_eq!(
             borrower.echo(),
             (None, None),
@@ -1691,13 +1692,13 @@ fn a_thread_id_that_is_not_one_locates_nothing_and_a_fragment_claims_no_file() {
     // path, not a flag, not an unbounded string.
     for refused in ["../../etc", "-flag", "thread id", "a/b", &"a".repeat(129)] {
         let mut clamped = CodexThreadEcho::default();
-        clamped.locate(home.path(), refused);
+        clamped.locate_unbound(home.path(), refused);
         assert_eq!(clamped.echo(), (None, None), "{refused:?} must be refused");
     }
 
     // And the id codex actually announced still reads its own file.
     let mut mine = CodexThreadEcho::default();
-    mine.locate(home.path(), "0199mine");
+    mine.locate_unbound(home.path(), "0199mine");
     assert_eq!(mine.echo().1.as_deref(), Some("xhigh"));
 }
 
@@ -1715,7 +1716,7 @@ fn a_thread_filed_after_it_was_announced_is_still_found_on_a_later_turn() {
     // Announced with nothing on disk yet: this turn honestly reports no
     // effort rather than inventing one.
     let mut echo = CodexThreadEcho::default();
-    echo.locate(home.path(), "0199late");
+    echo.locate_unbound(home.path(), "0199late");
     assert_eq!(echo.echo(), (None, None));
 
     // The rollout lands mid-seat, and the next turn reads it.
@@ -1780,7 +1781,7 @@ fn a_codex_turn_takes_its_model_from_the_thread_record_when_the_stream_omits_it(
     .unwrap();
 
     let mut echo = CodexThreadEcho::default();
-    echo.locate(home.path(), "01a06c05-c0a6-7991-a277-652d17ace6a6");
+    echo.locate_unbound(home.path(), "01a06c05-c0a6-7991-a277-652d17ace6a6");
     let mut turn = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
@@ -3760,15 +3761,16 @@ fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(Some("2.1.266")));
     assert_eq!(
-        hold.confirm("019c4b7e", &mut |row: &Value| rows.push(row.clone())),
+        hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone())),
         Confirmation::Fresh
     );
     assert_eq!(
-        hold.confirm("a-child-session", &mut |row: &Value| rows.push(row.clone())),
+        hold.confirm_unbound("a-child-session", &mut |row: &Emitted| rows
+            .push(row.row.clone())),
         Confirmation::Fresh,
         "the latch answers with the outcome it already had"
     );
-    hold.finish(&mut |row: &Value| rows.push(row.clone()));
+    hold.finish(&mut |row: &Emitted| rows.push(row.row.clone()));
     assert_eq!(
         rows.len(),
         1,
@@ -3781,14 +3783,14 @@ fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
     // gets no offer.
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(None));
-    hold.confirm("019c4b7e", &mut |row: &Value| rows.push(row.clone()));
+    hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone()));
     assert_eq!(rows[0]["launch"], "cold");
     assert!(rows[0].get("root_session").is_none(), "{}", rows[0]);
 
     // Nor with a version the record's own grammar cannot hold.
     let mut rows = Vec::new();
     let mut hold = LaunchHold::new("claude", plan(Some("(Claude Code)")));
-    hold.confirm("019c4b7e", &mut |row: &Value| rows.push(row.clone()));
+    hold.confirm_unbound("019c4b7e", &mut |row: &Emitted| rows.push(row.row.clone()));
     assert!(rows[0].get("root_session").is_none(), "{}", rows[0]);
 
     // The confirmation door is the transcript row, and only for a
@@ -3804,8 +3806,11 @@ fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
         },
     );
     hold.observe(
-        &json!({"step":"transcript", "transcript":{"locator":"2026/09/09/seat"}}),
-        &mut |row: &Value| rows.push(row.clone()),
+        &Emitted::new(
+            Step::Transcript,
+            json!({"transcript":{"locator":"2026/09/09/seat"}}),
+        ),
+        &mut |row: &Emitted| rows.push(row.row.clone()),
     );
     assert_eq!(rows.len(), 1, "the transcript row itself, and no launch");
     assert_eq!(rows[0]["step"], "transcript");
@@ -5662,7 +5667,7 @@ fn run_dsh_stream(launch: DshLaunch, workdir: &std::path::Path) -> (Invocation, 
         "the prompt",
         workdir.to_str().unwrap(),
         &[],
-        &mut |value| emitted.push(value.clone()),
+        &mut |value| emitted.push(value.row.clone()),
         wait_for_exit,
     )
     .unwrap();
@@ -5833,9 +5838,7 @@ fn the_dsh_launch_hold_needs_every_confirmation_before_it_publishes() {
              single replacement is never authorized"
         );
         assert!(
-            !emitted
-                .iter()
-                .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+            !emitted.iter().any(wire_begins_work),
             "{case}: and no work row either — an unconfirmed rejoin's fold \
              would address a session this driver cannot name: {emitted:?}"
         );
@@ -5914,9 +5917,7 @@ fn dsh_work_before_the_init_event_is_never_adopted_by_it() {
             "{label}: no launch row, no root_session and no locator: {emitted:?}"
         );
         assert!(
-            !emitted
-                .iter()
-                .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+            !emitted.iter().any(wire_begins_work),
             "{label}: and no work row was drained before the hold released: {emitted:?}"
         );
         assert!(
@@ -6061,9 +6062,7 @@ fn dsh_uncertainty_before_the_init_event_is_never_cured_by_a_later_reading() {
             "{label}: no launch row, no root_session and no locator: {emitted:?}"
         );
         assert!(
-            !emitted
-                .iter()
-                .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+            !emitted.iter().any(wire_begins_work),
             "{label}: and the work in front of the init event is never folded: {emitted:?}"
         );
         assert!(
@@ -6257,7 +6256,7 @@ impl DshLatchRun {
                 "{label}: no root_session, transcript locator or launch row: {row}"
             );
             assert!(
-                !begins_work(row["step"].as_str().unwrap_or_default()),
+                !wire_begins_work(row),
                 "{label}: no held work row and no session-finished row escapes: {row}"
             );
         }
@@ -7326,9 +7325,7 @@ fn a_dsh_deadline_kill_inside_the_open_launch_hold_fabricates_nothing() {
         "nothing is fabricated from a hold that never released: {emitted:?}"
     );
     assert!(
-        !emitted
-            .iter()
-            .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+        !emitted.iter().any(wire_begins_work),
         "and no confirmed-session checkpoint: {emitted:?}"
     );
     assert!(invocation.refusal.is_none(), "and no replacement starts");
@@ -8092,7 +8089,7 @@ fn dsh_fold_uses_the_root_locator_and_ignores_internal_session_ids() {
         json!({}),
     ] {
         fold_dsh_event(&event, None, &mut turns, &mut meta, &mut |value| {
-            emitted.push(value.clone())
+            emitted.push(value.row.clone())
         });
     }
     assert_eq!(emitted.len(), 1, "{emitted:?}");
@@ -9102,7 +9099,7 @@ fn a_dsh_tool_call_before_any_assembled_message_invents_no_turn() {
         None,
         &mut turns,
         &mut meta,
-        &mut |value| emitted.push(value.clone()),
+        &mut |value| emitted.push(value.row.clone()),
     );
     assert!(emitted.is_empty());
     assert!(meta.get("num_turns").is_none());
@@ -9135,7 +9132,7 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
         "the prompt",
         workdir,
         &[],
-        &mut |event: &Value| emitted.push(event.clone()),
+        &mut |event: &Emitted| emitted.push(event.row.clone()),
         |child| {
             passes += 1;
             if passes == 1 {
@@ -9468,24 +9465,27 @@ fn codex_pre_session_refusals_are_machine_events_not_prose() {
     .is_none());
 }
 
+fn wire_begins_work(row: &Value) -> bool {
+    let step = &row["step"];
+    step != Step::Transcript.word() && step != Step::HarnessStarted.word()
+}
+
 /// Decision 0053: only the shared transcript locator and the harness
 /// launch row are pre-session; the first row that is neither flips the
 /// attempt across the boundary, and exec's own launch row is its start.
 #[test]
 fn only_the_shared_pre_session_rows_do_not_begin_work() {
-    assert!(!begins_work("transcript"));
-    assert!(!begins_work("harness-started"));
+    assert!(!begins_work(Step::Transcript));
+    assert!(!begins_work(Step::HarnessStarted));
     for step in [
-        "seat-turn",
-        "turn-started",
-        "item-started",
-        "item-completed",
-        "turn-completed",
-        "exec-started",
-        "claude-code-session-finished",
-        "deepseek-harness-session-finished",
+        Step::SeatTurn,
+        Step::TurnStarted,
+        Step::ItemStarted,
+        Step::ItemCompleted,
+        Step::TurnCompleted,
+        Step::ExecStarted,
     ] {
-        assert!(begins_work(step), "{step} begins work");
+        assert!(begins_work(step), "{step:?} begins work");
     }
 }
 
@@ -13114,8 +13114,8 @@ fn an_eighty_character_multibyte_dsh_locator_round_trips_through_warm_planning()
     let mut transcript = Transcript::resolve(TranscriptKind::DshSession).unwrap();
     let mut meta = serde_json::Map::new();
     let mut emitted = Vec::new();
-    transcript.record(&locator, &mut meta, &mut |value| {
-        emitted.push(value.clone())
+    transcript.record(Locator::Retained(&locator), &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
     });
     assert_eq!(meta["transcript"]["locator"], locator);
 }
@@ -14207,7 +14207,7 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
                     prompt,
                     &workdir,
                     &[],
-                    &mut |row: &Value| emit(row),
+                    &mut |row: &Emitted| emit(row),
                     wait_for_exit,
                 );
                 stderr = invocation.as_ref().ok().map(|done| done.stderr.clone());

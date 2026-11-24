@@ -29,7 +29,7 @@ use super::escapes::plain_evidence;
 use super::mcp::{self, McpRefusal};
 use super::spawn::{spawn_fed_in, Unstarted};
 use super::stream_turn::{streamed_lines, Turn, Unconcluded};
-use super::{secret, Invocation, LaunchTerminal};
+use super::{secret, Emitted, Invocation, LaunchTerminal};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 
 mod fold;
@@ -462,7 +462,7 @@ pub(super) fn drive(
     prompt: &str,
     input: &Value,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
     let ended = match offered {
         true => Err(Ended::Launch(LaunchError::Resumed)),
@@ -486,7 +486,7 @@ fn turn(
     prompt: &str,
     input: &Value,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, Ended> {
     let bound = |name: &&str| bindings.iter().any(|binding| binding.name() == *name);
     if let Some(name) = OWNED.into_iter().find(bound) {
@@ -582,7 +582,7 @@ fn invoke(
     input: &Value,
     prompt: &str,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, Ended> {
     let Prepared {
         home,

@@ -3,6 +3,7 @@
 //! fake harness refuses and then answers, a probe ends only on the first
 //! model-output event, and dsh still classifies nothing.
 
+use super::raw_fold_tests::{fold_codex_event, fold_stream_event};
 use super::tests::executable;
 use super::*;
 use crate::env_guard::EnvGuard;
@@ -945,8 +946,10 @@ fn a_probe_admits_only_the_first_answer_and_exec_has_none() {
     });
     let row = json!({"step": "seat-turn", "turn": 1});
 
+    let answer = Row::new(&answer, &[]);
+    let is_answer = super::probe::is_answer(AdapterKind::Claude, &answer);
     let mut unrequested = ProbeAnswer::new(false);
-    unrequested.admit(AdapterKind::Claude, &answer, std::slice::from_ref(&row));
+    unrequested.admit(is_answer, std::slice::from_ref(&row));
     assert!(
         !unrequested.answered(),
         "an ordinary invocation admits no answer"
@@ -954,14 +957,16 @@ fn a_probe_admits_only_the_first_answer_and_exec_has_none() {
 
     let mut probe = ProbeAnswer::new(true);
     probe.admit(
-        AdapterKind::Claude,
-        &json!({"type": "system"}),
+        super::probe::is_answer(
+            AdapterKind::Claude,
+            &Row::new(&json!({"type": "system"}), &[]),
+        ),
         std::slice::from_ref(&row),
     );
     assert!(!probe.answered(), "a non-answer event admits nothing");
-    probe.admit(AdapterKind::Claude, &answer, std::slice::from_ref(&row));
+    probe.admit(is_answer, std::slice::from_ref(&row));
     assert!(probe.answered(), "the first answer is admitted");
-    probe.admit(AdapterKind::Claude, &answer, &[json!({"step": "second"})]);
+    probe.admit(is_answer, &[json!({"step": "second"})]);
     assert_eq!(
         probe.take(),
         Some(row),
