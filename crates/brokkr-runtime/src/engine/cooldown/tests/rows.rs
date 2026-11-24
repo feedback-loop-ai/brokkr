@@ -26,6 +26,7 @@ fn rows_of(engine: &Engine, event: &brokkr_core::EventEnvelope) -> Vec<brokkr_st
 /// codex/second — writes two rows, each at its own site and route.
 #[test]
 fn a_two_route_panel_writes_a_row_per_refused_site() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let mut engine = two_route_engine(
         dir.path(),
@@ -65,6 +66,7 @@ fn assert_row(row: &brokkr_store::Cooldown, site: &str, provider: &str, route: &
 /// site's row, and retries nothing: the retry behaviour is unchanged.
 #[test]
 fn an_indeterminate_panel_records_the_refused_site() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let a = indeterminate_once(dir.path(), "a");
     let body = b_only_panel(dir.path(), a);

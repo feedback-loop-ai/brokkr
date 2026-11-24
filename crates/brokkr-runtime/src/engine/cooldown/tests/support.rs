@@ -24,6 +24,8 @@ macro_rules! own_engine {
     }};
 }
 
+pub(super) use own_engine;
+
 #[test]
 fn the_own_engine_guard_derives_its_libtest_path() {
     own_engine!();
@@ -124,18 +126,31 @@ pub(super) fn stopped_at_barrier(mut engine: Engine, dir: &Path, tag: &str) -> E
 /// answers, so it never writes the marker) fails the wait at once with
 /// what it journaled and what its shims did, not at the wait's end.
 #[test]
-#[should_panic(expected = "the engine ended before the probe started:\njournal:")]
 fn a_barrier_wait_whose_engine_ends_first_says_what_it_did() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     let driver = std::thread::spawn(move || {
         engine.drive().unwrap();
         engine
     });
-    barrier_awaited(
-        &dir.path().join("work.started"),
-        driver,
-        dir.path(),
-        "the probe",
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        barrier_awaited(
+            &dir.path().join("work.started"),
+            driver,
+            dir.path(),
+            "the probe",
+        )
+    }))
+    .expect_err("the barrier wait must panic");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied());
+    assert!(
+        message.is_some_and(
+            |text| text.contains("the engine ended before the probe started:\njournal:")
+        ),
+        "unexpected barrier panic: {message:?}"
     );
 }
 
@@ -144,6 +159,7 @@ fn a_barrier_wait_whose_engine_ends_first_says_what_it_did() {
 /// the deadline the seat's attempt and probe were given.
 #[test]
 fn the_witness_names_the_journal_the_shims_and_the_deadlines() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     engine.drive().unwrap();
     let seen = witness(&engine, dir.path());

@@ -75,6 +75,7 @@ pub(super) fn claim_after_first_slice(
 /// "did not spawn".
 #[test]
 fn a_boxed_seats_probe_on_a_resume_spawns_in_its_claims_reach_and_retries() {
+    own_engine!();
     let (dir, mut engine, _now) = resumed_at(
         &["succeed"],
         base() + time::Duration::seconds(1),
@@ -95,6 +96,7 @@ fn a_boxed_seats_probe_on_a_resume_spawns_in_its_claims_reach_and_retries() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_probe_holds_the_writer_lease_at_a_protected_root() {
+    own_engine!();
     let (dir, engine, _now) = seated!(&["refuse", "succeed"], Probed::Barrier, None, 2);
     let home = home(dir.path());
     let worktree = dir.path().join("work");
@@ -128,6 +130,7 @@ fn a_probe_holds_the_writer_lease_at_a_protected_root() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_refused_admission_at_the_probe_parks_naming_the_refusal() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     let home = home(dir.path());
     let worktree = dir.path().join("work");
@@ -160,6 +163,7 @@ fn a_refused_admission_at_the_probe_parks_naming_the_refusal() {
 /// settlement releases nothing, and the same answer and retry follow.
 #[test]
 fn a_probes_unprotected_root_settles_nothing_and_answers() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     let home = home(dir.path());
     let _stand = Coordinated::unrooted(&home);
@@ -175,6 +179,7 @@ fn a_probes_unprotected_root_settles_nothing_and_answers() {
 /// `effect/failed` events and two starts, none of them the probe's.
 #[test]
 fn the_cap_counts_the_effects_failures_and_not_the_probes_journals() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "refuse"], Probed::Answer, None, 2);
     engine.drive().unwrap();
     assert_eq!(

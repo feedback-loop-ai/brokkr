@@ -29,6 +29,7 @@ fn assert_cap_without_until(reason: &str, attempts: &str, route: &str, retry: u6
 /// with no readable declaration says that instead of inventing one.
 #[test]
 fn a_cap_wait_keeps_the_retry_after_and_declared_maximum() {
+    own_engine!();
     for retry in [Some(7u64), None] {
         let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, retry, 1);
         drove(&mut engine, dir.path(), &["attempt:refuse"]);
@@ -110,6 +111,7 @@ fn a_live_route_unresolved_cap_speaks_first_with_the_refusal() {
 /// the failed event, with 0006's text first and an explicit no-`until`.
 #[test]
 fn a_live_host_unreadable_cap_speaks_first_with_the_refusal() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse"], Probed::Answer, Some(7), 1);
     invalid_host(dir.path(), &mut engine);
     let before = *now.lock().unwrap();

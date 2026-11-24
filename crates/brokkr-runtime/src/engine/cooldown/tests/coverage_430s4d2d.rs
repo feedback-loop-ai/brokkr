@@ -47,6 +47,7 @@ fn a_resume_over_an_episode_unreadable_record_states_the_generic_cause() {
 /// the error's text (0071 ruling 8).
 #[test]
 fn a_fold_failure_in_the_wait_round_propagates_through_the_step() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let engine = super::probe_rounds::wide_seat(dir.path(), &["refuse", "succeed"], Probed::Answer);
     let (mut engine, now) = with_clock(engine);
@@ -89,6 +90,7 @@ fn a_fold_failure_in_the_wait_round_propagates_through_the_step() {
 /// aggregate-read failure arm, reached through the panel's own round.
 #[test]
 fn a_panels_second_member_parks_when_its_probe_read_loses_the_aggregate() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let plain = super::panel::two_route_engine(
         dir.path(),
