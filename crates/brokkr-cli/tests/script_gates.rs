@@ -807,6 +807,11 @@ fn lane_tree() -> Repo {
         ("openspec/plan.md", "See docs/proposed.md.\n"),
         ("docs/roled.md", "# roled\n"),
         ("recipes/r/roles/reviewer.md", "Read docs/roled.md first.\n"),
+        ("docs/tested.md", "# tested\n"),
+        (
+            "crates/cli/tests/unlisted.rs",
+            "read(\"docs/tested.md\");\n",
+        ),
     ] {
         repo.put(path, text);
     }
@@ -849,7 +854,7 @@ fn the_docs_lane_classifier_calls_only_unnamed_pages_docs() {
     let edit = "# changed\n";
     let full = |reason: &str| ("full\n".to_string(), format!("docs lane: full: {reason}\n"));
     let docs = || ("docs\n".to_string(), String::new());
-    let cases: [(&[Edit], (String, String)); 12] = [
+    let cases: [(&[Edit], (String, String)); 13] = [
         (&[("docs/guide.md", Some(edit))], docs()),
         (&[("README.md", Some(edit))], docs()),
         (&[("docs/listed.md", Some(edit))], docs()),
@@ -861,6 +866,11 @@ fn the_docs_lane_classifier_calls_only_unnamed_pages_docs() {
         (
             &[("docs/roled.md", Some(edit))],
             full("the file name of docs/roled.md is named in code's input, outside the docs lane's tests"),
+        ),
+        (
+            // A test the docs lane does not run names its page.
+            &[("docs/tested.md", Some(edit))],
+            full("the file name of docs/tested.md is named in code's input, outside the docs lane's tests"),
         ),
         (
             &[("docs/guide.md", Some(edit)), ("crates/cli/src/lib.rs", Some("fn f() {}\n"))],

@@ -19,38 +19,45 @@ use crate::workflow;
 const LIST: &str = "scripts/docs-lane-tests.txt";
 
 /// One entry of the list: the package, the test target and the libtest
-/// filter it runs, and the files that filter runs whole.
+/// filter it runs, and the files that filter runs whole, each path with the
+/// tracked files it matches as the classifier's `:(exclude,literal)`
+/// pathspec reads it, so the guard holds the very files the classifier
+/// stops searching.
 #[derive(Debug)]
 struct Entry {
     package: String,
     target: String,
     filter: String,
-    paths: Vec<String>,
+    paths: Vec<(String, Vec<String>)>,
 }
 
 impl Entry {
-    /// Whether `file` is one of the entry's files, or under one of its
-    /// directories.
+    /// Whether the classifier skips `file` for one of this entry's paths.
     fn covers(&self, file: &str) -> bool {
         self.paths
             .iter()
-            .any(|path| file == path || (path.ends_with('/') && file.starts_with(path.as_str())))
+            .any(|(_, matched)| matched.iter().any(|path| path == file))
     }
 }
 
 /// The list's entries, comments and blank lines skipped; a line short of a
 /// path is refused.
-fn entries(list: &str) -> Vec<Entry> {
+fn entries(root: &Path, list: &str) -> Vec<Entry> {
     list.lines()
         .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
         .map(|line| {
             let fields: Vec<&str> = line.split_whitespace().collect();
             assert!(fields.len() >= 4, "{LIST}: `{line}` names no file");
+            let matched =
+                |path: &str| crate::tracked_files::tracked(root, &[&format!(":(literal){path}")]);
             Entry {
                 package: fields[0].to_string(),
                 target: fields[1].to_string(),
                 filter: fields[2].to_string(),
-                paths: fields[3..].iter().map(|path| path.to_string()).collect(),
+                paths: fields[3..]
+                    .iter()
+                    .map(|path| (path.to_string(), matched(path)))
+                    .collect(),
             }
         })
         .collect()
@@ -96,24 +103,18 @@ impl Pages {
             None => (false, literal),
         };
         let bare = literal.trim_start_matches(['.', '/']);
-        // A glob that ends in `md` or reaches into docs/; one of every file
-        // where the line lists tracked files; a format whose placeholder is
-        // a root above docs/.
-        let lists = magic
-            || ["tracked(", "ls-files"]
-                .iter()
-                .any(|read| line.contains(read));
-        let glob = bare.contains('*')
-            && (bare.ends_with("md")
-                || bare.contains("docs")
-                || (lists && bare.trim_matches(['*', '/']).is_empty()));
-        let format = bare.starts_with('{') && bare.contains("}/docs");
-        if matches!(literal, "md" | ".md") || glob || format {
+        if matches!(literal, "md" | ".md") || pattern_enumerates(bare, magic, line) {
             return Some(Reads::Enumerates);
         }
         if self.top_level.iter().any(|name| bare == name) {
             return Some(Reads::Names);
         }
+        self.under_docs_reads(bare, line)
+    }
+
+    /// What a literal that is no pattern reads under docs/: a page by name,
+    /// or docs/ itself, a directory holding a page, or a placeholder in it.
+    fn under_docs_reads(&self, bare: &str, line: &str) -> Option<Reads> {
         let rest = match bare.strip_prefix("docs") {
             Some("") => {
                 return ["join(", "read_dir(", "tracked("]
@@ -162,6 +163,23 @@ impl Pages {
     }
 }
 
+/// Whether a literal, its pathspec magic read past, is a pattern that can
+/// reach a page: a glob that ends in `md` or reaches into docs/; one of
+/// every file where the line lists tracked files (`magic`, the literal was
+/// a pathspec, says it does); a format whose placeholder is a root above
+/// docs/.
+fn pattern_enumerates(bare: &str, magic: bool, line: &str) -> bool {
+    let lists = magic
+        || ["tracked(", "ls-files"]
+            .iter()
+            .any(|read| line.contains(read));
+    let glob = bare.contains('*')
+        && (bare.ends_with("md")
+            || bare.contains("docs")
+            || (lists && bare.trim_matches(['*', '/']).is_empty()));
+    glob || (bare.starts_with('{') && bare.contains("}/docs"))
+}
+
 /// The package, the test target and the module path a test file's tests
 /// run under: `it`'s modules by their files (`#[path]`'d support aside), a
 /// file of its own target at that target's root, and a library's modules
@@ -190,19 +208,18 @@ fn test_home(root: &Path, file: &str) -> (String, String, String) {
     }
 }
 
-/// The tracked `.rs` files under crates/ that hold a test, with their text:
-/// every file of a package's tests/ directory, a support module that holds
-/// no `#[test]` of its own included, and each file of src/ that holds one.
+/// The tracked `.rs` files of every package's tests/ and src/, with their
+/// text: a support module, or a module of src/ that holds no `#[test]` of
+/// its own, included, so one that reads pages is held to its callers.
 fn test_files(root: &Path) -> Vec<(String, String)> {
     crate::tracked_files::tracked(root, &["crates/"])
         .into_iter()
         .filter(|path| {
-            path.ends_with(".rs") && (path.contains("/tests/") || path.contains("/src/"))
+            path.ends_with(".rs") && matches!(path.split('/').nth(2), Some("tests" | "src"))
         })
         .filter_map(|path| {
             let text = std::fs::read_to_string(root.join(&path)).ok()?;
-            let support = path.split('/').nth(2) == Some("tests");
-            (support || text.contains("#[test]")).then_some((path, text))
+            Some((path, text))
         })
         .collect()
 }
@@ -210,7 +227,11 @@ fn test_files(root: &Path) -> Vec<(String, String)> {
 /// The test files the rule above calls readers of unnamed pages that read
 /// only files the classifier refuses to call docs, each with what it reads
 /// instead.
-const EXEMPT: [(&str, &str); 8] = [
+const EXEMPT: [(&str, &str); 9] = [
+    (
+        "crates/brokkr-protocol/src/adapters.rs",
+        "`.md` is the suffix of a staged prompt's temporary file",
+    ),
     (
         "crates/brokkr-cli/src/doctor/tests.rs",
         "`docs` is a scratch realm's directory, joined to a temporary directory",
@@ -283,50 +304,86 @@ fn support_problems<'a>(
         .collect()
 }
 
-/// Where the docs lane fails to run a test that reads documentation, one
-/// problem a line: a file that reads documentation it does not name is
-/// listed or exempt; a listed file runs under its entry's filter; an
-/// entry's file exists; an exemption is a file that still enumerates; and
-/// no unlisted file reaches a listed `it` module's helpers, whose reads
-/// would escape the lane.
-fn lane_problems(root: &Path, files: &[(String, String)], list: &str) -> Vec<String> {
-    let pages = Pages::of(root);
-    let entries = entries(list);
+/// Where one entry fails to run what it names: each path matches a tracked
+/// file, and each file it matches, which the classifier then never
+/// searches, is a test file that runs under the entry's own filter.
+fn entry_problems(root: &Path, files: &[(String, String)], entry: &Entry) -> Vec<String> {
     let mut problems = Vec::new();
-    let listed = |file: &str| entries.iter().find(|entry| entry.covers(file));
-    for (file, text) in files {
-        let reads = pages.file_reads(text);
-        let exempt = EXEMPT.iter().any(|(path, _)| path == file);
-        match (listed(file), reads) {
-            (Some(entry), _) => {
-                let (package, target, module) = test_home(root, file);
-                if (package.as_str(), target.as_str()) != (&entry.package, &entry.target)
-                    || !format!("{module}::").starts_with(entry.filter.as_str())
-                {
-                    problems.push(format!(
-                        "{file} runs as {package} {target} {module}, not under its entry's `{} {} {}`",
-                        entry.package, entry.target, entry.filter
-                    ));
-                }
+    for (path, matched) in &entry.paths {
+        if matched.is_empty() {
+            problems.push(format!(
+                "{LIST} names {path}, which matches no tracked file"
+            ));
+        }
+        for file in matched {
+            if !files.iter().any(|(test, _)| test == file) {
+                problems.push(format!("{LIST} names {file}, which is no test file"));
+                continue;
             }
-            (None, Some(Reads::Enumerates)) if !exempt && !text.contains("#[test]") => {
-                problems.extend(support_problems(file, files, &listed))
+            let (package, target, module) = test_home(root, file);
+            if (package.as_str(), target.as_str()) != (&entry.package, &entry.target)
+                || !format!("{module}::").starts_with(entry.filter.as_str())
+            {
+                problems.push(format!(
+                    "{file} runs as {package} {target} {module}, not under its entry's `{} {} {}`",
+                    entry.package, entry.target, entry.filter
+                ));
             }
-            (None, Some(Reads::Enumerates)) if !exempt => problems.push(format!(
-                "{file} reads documentation it does not name, and {LIST} does not run it"
-            )),
-            (None, reads) if exempt && reads != Some(Reads::Enumerates) => {
-                problems.push(format!("{file} is exempt and no longer reads unnamed docs"))
-            }
-            _ => {}
         }
     }
-    for entry in &entries {
-        for path in &entry.paths {
-            if !root.join(path).exists() {
-                problems.push(format!("{LIST} names {path}, which does not exist"));
-            }
+    problems
+}
+
+/// Where an unlisted file escapes the lane: one that reads documentation it
+/// does not name is exempt, or a support module whose callers are all
+/// listed; and an exemption is a file that still enumerates.
+fn reader_problems<'a>(
+    (file, text): &(String, String),
+    reads: Option<Reads>,
+    files: &'a [(String, String)],
+    listed: &dyn Fn(&str) -> Option<&'a Entry>,
+) -> Vec<String> {
+    let exempt = EXEMPT.iter().any(|(path, _)| path == file);
+    match (reads, exempt) {
+        (Some(Reads::Enumerates), false) if !text.contains("#[test]") => {
+            support_problems(file, files, listed)
         }
+        (Some(Reads::Enumerates), false) => vec![format!(
+            "{file} reads documentation it does not name, and {LIST} does not run it"
+        )],
+        (Some(Reads::Enumerates), true) | (Some(Reads::Names) | None, false) => Vec::new(),
+        (Some(Reads::Names) | None, true) => {
+            vec![format!("{file} is exempt and no longer reads unnamed docs")]
+        }
+    }
+}
+
+/// Where the docs lane fails to run a test that reads documentation, one
+/// problem a line: every entry runs what it names; every exemption is a
+/// file the guard reads; every unlisted file that
+/// reads documentation it does not name is exempt or reached only from
+/// listed files; and no unlisted file of brokkr-cli's tests reaches a
+/// listed `it` module's helpers, whose reads would escape the lane.
+fn lane_problems(root: &Path, files: &[(String, String)], list: &str) -> Vec<String> {
+    let pages = Pages::of(root);
+    let entries = entries(root, list);
+    let listed = |file: &str| entries.iter().find(|entry| entry.covers(file));
+    let mut problems: Vec<String> = entries
+        .iter()
+        .flat_map(|entry| entry_problems(root, files, entry))
+        .collect();
+    for (path, _) in EXEMPT {
+        if !files.iter().any(|(file, _)| file == path) {
+            problems.push(format!("{path} is exempt and is no file the guard reads"));
+        }
+    }
+    for pair in files.iter().filter(|(file, _)| listed(file).is_none()) {
+        problems.extend(reader_problems(
+            pair,
+            pages.file_reads(&pair.1),
+            files,
+            &listed,
+        ));
     }
     let modules: BTreeSet<&str> = entries
         .iter()
@@ -334,7 +391,10 @@ fn lane_problems(root: &Path, files: &[(String, String)], list: &str) -> Vec<Str
         .filter_map(|entry| entry.filter.strip_suffix("::"))
         .filter(|module| !module.contains("::"))
         .collect();
-    for (file, text) in files.iter().filter(|(file, _)| listed(file).is_none()) {
+    let unlisted = files
+        .iter()
+        .filter(|(file, _)| file.starts_with("crates/brokkr-cli/tests/") && listed(file).is_none());
+    for (file, text) in unlisted {
         for module in &modules {
             if text.contains(&format!("crate::{module}::")) {
                 problems.push(format!(
@@ -348,11 +408,13 @@ fn lane_problems(root: &Path, files: &[(String, String)], list: &str) -> Vec<Str
 
 /// Every test file that reads documentation it does not name is in the
 /// docs lane's list or exempt with its reason, and every listed file runs
-/// under its entry's filter. Five altered trees are the control: an entry
+/// under its entry's filter. Altered trees are the control: an entry
 /// dropped, an unlisted reader of a docs/ directory added, a support module
 /// that reads every `.md` by a pathspec glob and that nothing reaches, the
-/// same module reached by an unlisted test, and an entry's filter that
-/// misses its files.
+/// same module reached by an unlisted test, an entry's filter that misses
+/// its files, an entry that names a directory its filter does not run, a
+/// page or a missing file, and a module of src/ with no test of its own
+/// that reads every page.
 #[test]
 fn the_docs_lane_runs_every_test_that_reads_documentation() {
     let root = workspace();
@@ -416,6 +478,45 @@ fn the_docs_lane_runs_every_test_that_reads_documentation() {
             "crates/brokkr-cli/tests/doc_truth.rs runs as brokkr-cli test:it doc_truth, not under its entry's `brokkr-cli test:it doc_truths::`".to_string()
         ),
         "a filter that misses its files passes"
+    );
+
+    // An entry that names more than its filter runs: the classifier stops
+    // searching every file a path matches, so each must run under it.
+    let entry = "brokkr-cli test:it contributing:: crates/brokkr-cli/tests/contributing.rs";
+    for (path, problem) in [
+        (
+            "crates/brokkr-runtime/tests",
+            "crates/brokkr-runtime/tests/adoption.rs runs as brokkr-runtime test:it adoption, not under its entry's `brokkr-cli test:it contributing::`".to_string(),
+        ),
+        (
+            "docs/guides/provider-adapters.md",
+            format!("{LIST} names docs/guides/provider-adapters.md, which is no test file"),
+        ),
+        (
+            "crates/brokkr-cli/tests/gone.rs",
+            format!("{LIST} names crates/brokkr-cli/tests/gone.rs, which matches no tracked file"),
+        ),
+    ] {
+        let widened = list.replace(entry, &format!("{entry} {path}"));
+        assert_ne!(widened, list);
+        assert!(
+            lane_problems(&root, &files, &widened).contains(&problem),
+            "an entry naming {path} passes"
+        );
+    }
+
+    // A module of src/ with no test of its own that reads every page.
+    let mut support = files.clone();
+    let module = "crates/brokkr-core/src/numbered_pages.rs";
+    support.push((
+        module.to_string(),
+        "pub fn all() { tracked(&root, &[\":(glob)docs/**/*.md\"]); }\n".to_string(),
+    ));
+    assert_eq!(
+        lane_problems(&root, &support, &list),
+        [format!(
+            "{module} reads documentation it does not name, and no test of its package reaches it"
+        )]
     );
 }
 
