@@ -193,6 +193,20 @@ pub(super) fn sent(messages: &[crate::Body]) -> Vec<String> {
         .collect()
 }
 
+#[test]
+fn stderr_evidence_masks_values_with_and_without_escapes() {
+    for (value, written) in super::super::super::escapes::EVIDENCE_CASES {
+        let bindings = [bound("AT", value)];
+        let stderr = format!("diagnostic: {written}\n");
+        let evidence = driven((TOOL_LESS, &stderr, 0), FLASH, &bindings);
+        assert_eq!(
+            evidence.turn.unwrap().stderr,
+            "diagnostic: [secret:AT]\n",
+            "{value:?}"
+        );
+    }
+}
+
 /// A bound secret spelled as a key, a status, an event name, a step's type
 /// or state, a tool's name, the pin or one letter changes no verdict, and
 /// reads in clear nowhere the driver's output goes (J2; decision 0114,

@@ -2,7 +2,37 @@
 
 use std::ops::Range;
 
-use super::{covered, needles, BoundSecret, Encoder, NEEDLE_ENCODINGS};
+use super::{covered, needles, BoundSecret, Encoder, MIN_VALUE_BYTES, NEEDLE_ENCODINGS};
+use crate::adapters::escapes::without_ansi;
+
+impl BoundSecret {
+    /// Mask stderr after escape removal, joining both kinds of match in
+    /// one union. Stripping rejoins a value an escape split (U3), and the
+    /// extra needle covers a value that itself holds an escape (#1242).
+    /// Masking one spelling first could erase part of an overlapping match.
+    pub(crate) fn mask_ansi_evidence(raw: &[u8], bindings: &[Self]) -> String {
+        let stripped = without_ansi(&String::from_utf8_lossy(raw));
+        let mut encodings = NEEDLE_ENCODINGS.to_vec();
+        encodings.push(("ansi-stripped", stripped_needle));
+        String::from_utf8_lossy(&mask_needles(stripped.as_bytes(), bindings, &encodings))
+            .into_owned()
+    }
+}
+
+fn stripped_needle(bytes: &[u8]) -> Vec<u8> {
+    let stripped = without_ansi(&String::from_utf8_lossy(bytes));
+    if stripped.len() < MIN_VALUE_BYTES {
+        return Vec::new();
+    }
+    stripped.into_bytes()
+}
+
+#[cfg(test)]
+#[test]
+fn stripped_needles_respect_the_minimum_length() {
+    assert_eq!(stripped_needle(b"ab\x1b[0mc"), b"");
+    assert_eq!(stripped_needle(b"ab\x1b[0mcd"), b"abcd");
+}
 
 pub(super) fn mask_needles(
     bytes: &[u8],

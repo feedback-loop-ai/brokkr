@@ -1428,6 +1428,20 @@ fn a_split_secret_in_the_fallback_line_reaches_no_word_and_no_stderr() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn stderr_evidence_masks_values_with_and_without_escapes() {
+    for (bound, written) in super::super::escapes::EVIDENCE_CASES {
+        let stderr = format!("diagnostic: {written}\n");
+        let (invocation, _) = invoked(TOOL_LESS, &stderr, false, 0, bound);
+        assert_eq!(
+            invocation.unwrap().stderr,
+            "diagnostic: [secret:QT]\n",
+            "{bound:?}"
+        );
+    }
+}
+
 /// U2: a binding that overlaps the fallback marker erases nothing the
 /// check reads, so a turn init confirmed, that exited 0 and delivered its
 /// result, is still refused as substituted, in words with no byte of

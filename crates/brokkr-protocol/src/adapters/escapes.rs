@@ -1,7 +1,6 @@
 //! A harness's escape sequences, ended where ECMA-48 ends them, and its
-//! stderr as evidence: stripped first, then masked. The one home Qoder's
-//! (#1178) and Antigravity's (#1200) drivers read through, moved here from
-//! the qoder driver unchanged.
+//! stderr evidence shared by the Qoder (#1178) and Antigravity (#1200)
+//! drivers.
 
 use crate::secret;
 
@@ -17,7 +16,7 @@ type Chars<'a> = std::iter::Peekable<std::str::Chars<'a>>;
 /// two-byte sequence. An `ESC` before any other byte goes alone, and that
 /// byte is kept. Qoder colours its refusals. This is the one stripper of
 /// the checks and of the evidence.
-pub(super) fn without_ansi(text: &str) -> String {
+pub(crate) fn without_ansi(text: &str) -> String {
     let mut kept = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
@@ -58,10 +57,18 @@ fn operating_system_command(chars: &mut Chars<'_>) {
     }
 }
 
-/// A harness's raw stderr as evidence: lossy UTF-8, stripped first, so a
-/// value an escape split is whole when the mask reads it (U3), then masked
-/// through the seat's `bindings`. It is evidence, no word of the driver's.
+/// A harness's raw stderr as evidence, masked through the seat's bindings.
 pub(super) fn plain_evidence(raw: &[u8], bindings: &[secret::BoundSecret]) -> String {
-    let stripped = without_ansi(&String::from_utf8_lossy(raw));
-    secret::mask_text(stripped.as_bytes(), bindings)
+    secret::BoundSecret::mask_ansi_evidence(raw, bindings)
 }
+
+#[cfg(test)]
+pub(super) const EVIDENCE_CASES: [(&str, &str); 4] = [
+    ("bloom\u{1b}[31mpond", "bloom\u{1b}[31mpond"),
+    (
+        "bloom\u{1b}]0;window\u{7}pond",
+        "bloom\u{1b}]0;window\u{7}pond",
+    ),
+    ("bloompond", "bloom\u{1b}[31mpond"),
+    ("bloompond", "bloompond"),
+];

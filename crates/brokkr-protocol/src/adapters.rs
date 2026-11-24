@@ -30,7 +30,7 @@ mod dsh_effort;
 mod dsh_hands;
 mod dsh_launch;
 mod dsh_stderr;
-mod escapes;
+pub(crate) mod escapes;
 mod exec;
 mod lost;
 mod mcp;
