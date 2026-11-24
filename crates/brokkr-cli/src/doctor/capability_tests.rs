@@ -1134,11 +1134,13 @@ fn malformed_definition_and_dialect_json_are_their_own_failing_lines() {
 }
 
 /// The shipped repository, read as doctor reads it: the realm grants
-/// nothing, Codex's search is named with its cold-0.154.0 scope and its
-/// resumed gap, Claude's two tools are named as adapter data, and DSH and
+/// Claude's two read tools to the `researcher` office alone (the
+/// operator's read-only web ruling of 2026-11-24, #1329) and nothing else,
+/// Codex's search is named with its cold-0.154.0 scope and its resumed
+/// gap, Claude's two tools are named as adapter data, and DSH and
 /// LaneTally stay unmeasured on their own terms.
 #[test]
-fn the_shipped_realm_grants_nothing_and_names_every_native_power_it_denies() {
+fn the_shipped_realm_grants_the_researcher_read_only_web_and_names_every_native_power_it_denies() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut availability = Availability::unspecified();
     // `exec` is installed wherever a POSIX `sh` is, which the provider
@@ -1159,7 +1161,14 @@ fn the_shipped_realm_grants_nothing_and_names_every_native_power_it_denies() {
     assert!(report.healthy);
     let rendered = report.render();
     assert!(
-        rendered.starts_with("ok       capabilities brokkr: grants nothing;"),
+        rendered.starts_with(
+            "ok       capabilities brokkr 'web-fetch': dialect 'claude-native-fetch' \
+             (provider-native, provider 'claude') · tools [WebFetch] · offices [researcher] \
+             only · restrictions none\n\
+             ok       capabilities brokkr 'web-search': dialect 'claude-native-search' \
+             (provider-native, provider 'claude') · tools [WebSearch] · offices [researcher] \
+             only · restrictions none\n"
+        ),
         "{rendered}"
     );
     // Each installed Claude and Codex seat that holds nothing is one
@@ -1173,8 +1182,14 @@ fn the_shipped_realm_grants_nothing_and_names_every_native_power_it_denies() {
          adapter-level plan above switches it off · evidence: codex-cli 0.154.0, cold `codex \
          exec` only",
         "whether the OFF switch holds on a RESUMED codex session is unmeasured",
-        "warn     capabilities brokkr native claude 'web-fetch': NOT granted here",
-        "warn     capabilities brokkr native claude 'web-search': NOT granted here",
+        "ok       capabilities brokkr native claude 'web-fetch': granted to offices \
+         [researcher] only through dialect 'claude-native-fetch'; the adapter-level plan of a \
+         seat of office 'researcher' that wants it is admitted with it ON; for a seat that \
+         does not hold it, the adapter-level plan above switches it off",
+        "ok       capabilities brokkr native claude 'web-search': granted to offices \
+         [researcher] only through dialect 'claude-native-search'; the adapter-level plan of a \
+         seat of office 'researcher' that wants it is admitted with it ON; for a seat that \
+         does not hold it, the adapter-level plan above switches it off",
         "no live denial or enablement of WebSearch has been measured",
         "warn     capabilities brokkr native dsh: native inventory unmeasured: dsh's \
          tool_permissions and mcp declarations cover command-line narrowing",
