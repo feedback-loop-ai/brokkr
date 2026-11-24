@@ -541,14 +541,7 @@ fn a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement() {
     .into_iter()
     .map(|(key, value)| (key.to_string(), value.to_string()))
     .collect();
-    let command = vec![
-        crate::built::BIN.to_string(),
-        "driver".into(),
-        "dsh".into(),
-        "--".into(),
-        "--model".into(),
-        DSH_PIN.into(),
-    ];
+    let command = crate::built_argv!(["driver", "dsh", "--", "--model", DSH_PIN]);
     // Long enough that the probe, the composite read and the staging all
     // complete first (4 s was not, on a loaded macOS runner), so the kill
     // lands on the stalled child and not on the planner.
@@ -3168,8 +3161,10 @@ fn capture_proof_input(env: &mut EnvGuard, run_dir: &Path, bundle: Bundle, label
             // name it; the brokkr driver binds itself (rebuild unit 14).
             let exe = std::env::current_exe().unwrap();
             let text = value["input"].to_string();
-            return serde_json::from_str(&text.replace(exe.to_str().unwrap(), crate::built::BIN))
-                .unwrap();
+            return serde_json::from_str(
+                &text.replace(exe.to_str().unwrap(), crate::built::bare_path()),
+            )
+            .unwrap();
         }
         seen.push(value["seat"].clone());
     }
@@ -3197,7 +3192,7 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
         (ProofShape::NoHandsMember, false),
     ] {
         let (recipe, mut bundle, from) = compile_proof_shape(shape, wrapped);
-        patch_proof_bundle(&mut bundle, &from, crate::built::BIN);
+        patch_proof_bundle(&mut bundle, &from, crate::built::bare_path());
         let run_dir = tempfile::tempdir().unwrap();
         let body = proof_shim_body(run_dir.path(), PROOF_OFFER);
         let shim = make_shim(run_dir.path(), &body);

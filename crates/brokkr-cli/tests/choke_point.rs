@@ -1,44 +1,84 @@
-//! One choke point for the built `brokkr` (#1137i): no test source names
-//! the binary but `support/built.rs`, the plain door refuses doctor, and
-//! the isolated door's guard refuses, with its typed reason and before
-//! its program starts, a namespace identity it cannot read or parse, or
-//! its parent's (Z1 and Z2).
+//! The builder keeps the binary's path private at compile time (#1137i,
+//! Z1). Its command, argv and shell doors refuse doctor. Tests can stage
+//! an executable copy. The scan pins the bare path and the isolated door,
+//! whose guard refuses an unreadable, unparsable or shared PID namespace
+//! before its program starts (Z2).
 
 use std::path::Path;
 
 /// The one file that names the binary.
 const BUILDER: &str = "support/built.rs";
 
-/// The lines of `source` that spawn the built binary or name it outside
-/// the builder: the variable Cargo names it by, anywhere, or a
-/// `Command::new` of the builder's path.
-fn bypasses(source: &str) -> Vec<String> {
-    let named = concat!("CARGO_BIN_", "EXE_brokkr");
-    let code = crate::rust_source::code(source).expect("a test source lexes");
-    let spawned = code
+const PINS: &[(&str, &[&str])] = &[
+    (
+        "bare_path",
+        &[
+            // The adapter config names the available provider executable.
+            "agent_fallback.rs",
+            // The gate script chooses the verifier's journal command.
+            "delivered_by_brokkr.rs",
+            // The native dsh fixture is a symlink to the real built image.
+            "doctor_dsh_selection.rs",
+            // The engine and its captured inputs supply their own arguments.
+            "driver_conformance.rs",
+            // The compiler composed the engine's arguments before retargeting.
+            "qoder_driver.rs",
+            // The compile fixture substitutes only the composed engine path.
+            "route_overlay_driver.rs",
+            // The fake adapter config also names its provider executable.
+            "support/fake_office.rs",
+        ],
+    ),
+    // The PID namespace runner alone can use the isolated path.
+    ("isolated_brokkr_path", &["support/isolated.rs"]),
+];
+
+/// Report the Cargo name in the source and check path door names in code.
+fn bypasses(relative: &str, source: &str) -> Vec<String> {
+    let cargo_name = concat!("CARGO_BIN_", "EXE_brokkr");
+    let mut found: Vec<_> = source
         .lines()
-        .filter(|line| line.contains("Command::new(") && line.contains("BIN"));
-    let named = source.lines().filter(|line| line.contains(named));
-    named
-        .chain(spawned)
+        .filter(|line| line.contains(cargo_name))
         .map(|line| line.trim().to_owned())
-        .collect()
+        .collect();
+    let code = crate::rust_source::code(source).expect("a test source lexes");
+    for &(door, pins) in PINS {
+        let uses = code.lines().zip(source.lines()).filter(|(code, _)| {
+            code.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .any(|name| name == door)
+        });
+        if pins.contains(&relative) {
+            if uses.count() == 0 {
+                found.push(format!("unused pin for {door}"));
+            }
+        } else {
+            found.extend(uses.map(|(_, line)| line.trim().to_owned()));
+        }
+    }
+    found
 }
 
-/// Z1: every tracked test source of this crate spawns the built binary
-/// through the builder, so every `doctor` it runs is alone in its
-/// namespace.
+/// Z1: every tracked source uses the builder and every pin has a user.
 #[test]
 fn no_test_spawns_the_built_brokkr_but_through_its_builder() {
     let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let tracked = crate::tracked_files::tracked(&tests, &["*.rs"]);
+    for &(_, pins) in PINS {
+        for &pin in pins {
+            assert!(
+                tracked.iter().any(|file| file == pin),
+                "{pin}: pinned source is absent"
+            );
+        }
+    }
     let mut found = Vec::new();
-    for relative in crate::tracked_files::tracked(&tests, &["*.rs"]) {
+    for relative in tracked {
         if relative == BUILDER {
             continue;
         }
         let source = std::fs::read_to_string(tests.join(&relative)).unwrap();
         found.extend(
-            bypasses(&source)
+            bypasses(&relative, &source)
                 .into_iter()
                 .map(|line| format!("{relative}: {line}")),
         );
@@ -46,15 +86,40 @@ fn no_test_spawns_the_built_brokkr_but_through_its_builder() {
     assert_eq!(found, Vec::<String>::new());
 }
 
-/// Z1: the scan sees both ways round the builder, and not the builder's
-/// own words in a string or a comment.
 #[test]
-fn the_scan_catches_a_named_binary_and_a_spawned_path() {
-    let named = concat!("let b = env!(\"CARGO_BIN_", "EXE_brokkr\");");
-    let spawned = "let c = Command::new(crate::built::BIN);";
-    let quoted = "let d = \"Command::new(BIN)\"; // Command::new(BIN)";
-    let source = [named, spawned, quoted].join("\n");
-    assert_eq!(bypasses(&source), [named, spawned]);
+fn the_scan_catches_the_cargo_name_and_a_path_assigned_to_a_variable() {
+    let named = concat!(r#"let b = env!("CARGO_BIN_"#, r#"EXE_brokkr");"#);
+    let assigned = r#"let b = crate::built::bare_path(); Command::new(b).arg("doctor");"#;
+    let source = [named, assigned].join("\n");
+    assert_eq!(bypasses("unlisted.rs", &source), [named, assigned]);
+}
+
+#[test]
+fn the_scan_catches_a_path_on_its_own_line() {
+    let path = "crate::built::bare_path()";
+    let source = ["Command::new(", path, r#").arg("doctor");"#].join("\n");
+    assert_eq!(bypasses("unlisted.rs", &source), [path]);
+}
+
+#[test]
+fn the_scan_catches_a_path_formatted_into_a_shell_command() {
+    let supplied = r#".args(["-c", &format!("'{}' doctor", crate::built::bare_path())]);"#;
+    let source = [r#"Command::new("sh")"#, supplied].join("\n");
+    assert_eq!(bypasses("unlisted.rs", &source), [supplied]);
+}
+
+#[test]
+fn the_scan_ignores_a_path_name_in_a_string_and_comment() {
+    let source = "let longer_bare_path = \"bare_path\";\n// bare_path";
+    assert_eq!(bypasses("unlisted.rs", source), Vec::<String>::new());
+}
+
+#[test]
+fn the_scan_refuses_a_pin_without_a_path_use() {
+    assert_eq!(
+        bypasses("qoder_driver.rs", r#"let unused = "bare_path";"#),
+        ["unused pin for bare_path"]
+    );
 }
 
 /// Z1: the plain door refuses doctor before anything runs.
@@ -73,6 +138,46 @@ fn the_plain_door_refuses_doctor() {
 #[should_panic(expected = "the built brokkr is given its verb as it is built")]
 fn the_plain_door_refuses_a_command_without_its_verb() {
     crate::built::brokkr::<[&str; 0], &str>([]);
+}
+
+/// The argv door shares the command door's refusal.
+#[test]
+#[should_panic(
+    expected = "`brokkr doctor` reaches doctor's version probe, which delivers real \
+                           kills: run it through isolated::brokkr"
+)]
+fn the_argv_door_refuses_doctor() {
+    drop(crate::built_argv!(["doctor"]));
+}
+
+#[test]
+#[should_panic(expected = "the built brokkr is given its verb as it is built")]
+fn the_argv_door_refuses_empty_arguments() {
+    drop(crate::built_argv!([] as [&str; 0]));
+}
+
+#[test]
+#[should_panic(
+    expected = "`brokkr doctor` reaches doctor's version probe, which delivers real \
+                           kills: run it through isolated::brokkr"
+)]
+fn the_shell_line_refuses_doctor() {
+    drop(crate::built_shell_line!(["doctor"]));
+}
+
+#[test]
+fn the_shell_line_keeps_an_apostrophe_in_one_word() {
+    let word = "operator's path";
+    let line = crate::built_shell_line!([word]);
+    let script = format!("set -- {line}; shift; printf '<%s>\\n' \"$@\"");
+    let output = std::process::Command::new("sh")
+        .args(["-c", &script])
+        .output()
+        .unwrap();
+    assert_eq!(
+        (output.status.code(), output.stdout.as_slice()),
+        (Some(0), b"<operator's path>\n".as_slice())
+    );
 }
 
 /// The guard's verdicts (Z2), proved without a namespace: the guard runs

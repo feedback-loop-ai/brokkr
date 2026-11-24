@@ -125,7 +125,7 @@ pub(super) fn patch(bundle: &mut Bundle) {
     let from = from.to_string_lossy();
     let retarget = |words: &mut [String]| {
         let engine = words.iter_mut().filter(|part| **part == from);
-        engine.for_each(|part| *part = crate::built::BIN.to_string());
+        engine.for_each(|part| *part = crate::built::bare_path().to_owned());
     };
     let singles = bundle
         .seats

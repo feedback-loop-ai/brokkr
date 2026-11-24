@@ -1074,7 +1074,8 @@ fn the_formula_installs_the_live_registration_its_docs_name() {
         );
         let script = String::from_utf8(answer.stdout).unwrap();
         assert!(script.contains(registers), "{shell}: {script}");
-        assert!(script.contains(crate::built::BIN), "{shell}: {script}");
+        let program = request.get_program().to_str().unwrap();
+        assert!(script.contains(program), "{shell}: {script}");
     }
 }
 

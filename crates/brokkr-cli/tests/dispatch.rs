@@ -385,7 +385,7 @@ fn ended_on_its_replaced_binary(mode: &[&str]) -> String {
     let machine = Machine::new();
     machine.queued();
     let copy = machine.base.join("bin/brokkr");
-    stage(Path::new(crate::built::BIN), &copy);
+    stage(&copy);
     let holder = rusqlite::Connection::open(&machine.journal).unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     let args = [&["queue", "dispatch"][..], mode, &["--db", machine.db()]].concat();
@@ -776,7 +776,8 @@ fn a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued() {
     // this build's, is pasted in a directory that is not the workspace.
     std::fs::write(machine.released(), "").unwrap();
     let pasted = command.strip_prefix("brokkr ").unwrap();
-    let script = format!("exec '{}' {pasted}", crate::built::BIN);
+    let (verb, rest) = pasted.split_at(pasted.find(' ').unwrap_or(pasted.len()));
+    let script = format!("exec {}{rest}", crate::built_shell_line!([verb]));
     let mut sh = Command::new("sh");
     sh.args(["-c", &script]);
     let mut shell = machine.command(sh);
@@ -843,11 +844,11 @@ fn every_out_of_its_range_or_beside_once_is_refused() {
     assert!(!machine.journal.exists(), "no journal was opened");
 }
 
-/// `from` copied to `to` by a staging name renamed into place, so no
-/// writer of `to` can make its exec busy (#255).
-fn stage(from: &Path, to: &Path) {
+/// The built binary copied to `to` by a staging name renamed into place,
+/// so no writer of `to` can make its exec busy (#255).
+fn stage(to: &Path) {
     std::fs::create_dir_all(to.parent().unwrap()).unwrap();
     let staged = to.with_extension("staged");
-    std::fs::copy(from, &staged).unwrap();
+    crate::stage_brokkr!(&staged).unwrap();
     std::fs::rename(&staged, to).unwrap();
 }

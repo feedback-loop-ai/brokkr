@@ -30,7 +30,7 @@ impl Alone {
             "{:?} reaches no probe: run it through built::brokkr",
             argv[0]
         );
-        self.running(OsStr::new(crate::built::BIN), argv)
+        self.running(OsStr::new(crate::isolated_brokkr_path!()), argv)
     }
 
     /// `program` given `argv`, alone in a PID namespace of its own.

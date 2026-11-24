@@ -235,7 +235,7 @@ fn real_fixture() -> (tempfile::TempDir, PathBuf, Bundle) {
     let home = tempfile::tempdir().unwrap();
     let root = home.path().canonicalize().unwrap();
     let recipe = tree(&root);
-    let bundle = compile(&root, &recipe, crate::built::BIN);
+    let bundle = compile(&root, &recipe, crate::built::bare_path());
     (home, root, bundle)
 }
 
@@ -343,7 +343,7 @@ fn a_library_outside_the_run_tree_refuses_the_start_with_patch_unbound() {
     let (run_root, library) = (root.join("run"), root.join("library"));
     std::fs::create_dir_all(&run_root).unwrap();
     let recipe = tree(&library);
-    let bundle = compile(&library, &recipe, crate::built::BIN);
+    let bundle = compile(&library, &recipe, crate::built::bare_path());
     let said = failure(&run(&run_root, bundle));
     assert!(
         said.contains("a `--patch` with no bound route overlay"),

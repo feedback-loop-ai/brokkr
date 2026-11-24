@@ -323,7 +323,7 @@ impl Gate {
             .env("PR_BASE", "main")
             .env("REPO", &self.repo)
             .env("EVIDENCE", &self.evidence)
-            .env("VERIFIER", crate::built::BIN)
+            .env("VERIFIER", crate::built::bare_path())
             .env("LABELS", labels)
             .env("CLASSES", workspace().join(".github/delivery-classes.json"))
             .output()
@@ -1054,8 +1054,8 @@ fn gate_classes(side: &Path, bundle: &Path) {
     std::fs::write(
         &wrapper,
         format!(
-            "#!/bin/sh\nshift 4\nexec '{}' fake-driver \"$@\"\n",
-            crate::built::BIN
+            "#!/bin/sh\nshift 4\nexec {} \"$@\"\n",
+            crate::built_shell_line!(["fake-driver"])
         ),
     )
     .unwrap();

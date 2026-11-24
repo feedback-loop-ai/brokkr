@@ -102,17 +102,7 @@ fn parked_after_one_attempt(events: &[Value], reason: &str, tail: &str) {
 
 /// `script` as an exec seat's command.
 fn exec(script: &str) -> Vec<String> {
-    [
-        crate::built::BIN,
-        "driver",
-        "exec",
-        "--",
-        "sh",
-        "-c",
-        script,
-    ]
-    .map(str::to_string)
-    .to_vec()
+    crate::built_argv!(["driver", "exec", "--", "sh", "-c", script])
 }
 
 /// A hung seat is killed at its deadline. Its tree is gone, but what it
@@ -130,15 +120,13 @@ fn a_deadline_kill_with_attempts_left_parks_after_one_attempt() {
     )
     .unwrap();
     let state = dir.path().join("state");
-    let driver = [
-        crate::built::BIN,
+    let driver = crate::built_argv!([
         "fake-driver",
         "--script",
         script.to_str().unwrap(),
         "--state",
         state.to_str().unwrap(),
-    ];
-    let driver: Vec<String> = driver.map(str::to_string).to_vec();
+    ]);
     let events = journal(dir.path(), &driver, "replay");
     parked_after_one_attempt(&events, &killed(), "");
 }

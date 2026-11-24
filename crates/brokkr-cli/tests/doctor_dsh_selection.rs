@@ -797,11 +797,10 @@ fn an_obstructed_path_search_takes_the_explicit_safe_refusal() {
         return;
     }
     assert!(!Path::new(MISSING_LOADER).exists());
-    let broken = patch_elf_interpreter(
-        Path::new(crate::built::BIN),
-        &cwd.join("native").join("broken"),
-        MISSING_LOADER,
-    );
+    let broken = cwd.join("native").join("broken");
+    std::fs::create_dir_all(broken.parent().unwrap()).unwrap();
+    crate::stage_brokkr!(&broken).unwrap();
+    let broken = patch_elf_interpreter(&broken, &broken, MISSING_LOADER);
     let doctor_marks = marks(cwd, "doctor");
     for (what, install) in [
         ("a native image with a missing loader", None),
@@ -1993,7 +1992,7 @@ fn a_native_image_on_path_is_selected_as_the_child_selects_it() {
     let cwd = workspace.path();
     let native = cwd.join("native");
     std::fs::create_dir_all(&native).unwrap();
-    std::os::unix::fs::symlink(crate::built::BIN, native.join("dsh")).unwrap();
+    std::os::unix::fs::symlink(crate::built::bare_path(), native.join("dsh")).unwrap();
     let child = native_dsh(cwd, native.to_str()).unwrap();
     assert!(child.status.success(), "the native child ran the image");
     let banner = String::from_utf8_lossy(&child.stdout);
