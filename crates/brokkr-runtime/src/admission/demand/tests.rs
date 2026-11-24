@@ -126,6 +126,13 @@ fn said(judged: &[Judged]) -> Vec<Vec<(&'static str, String)>> {
         .collect()
 }
 
+/// Each judged entry's reasons, as kinds only.
+fn kinds(judged: &[Judged]) -> Vec<Vec<&'static str>> {
+    (said(judged).into_iter())
+        .map(|reasons| reasons.into_iter().map(|(kind, _)| kind).collect())
+        .collect()
+}
+
 fn plenty() -> Value {
     ceilings(9, 9, json!({}))
 }
@@ -244,11 +251,7 @@ fn a_second_entry_in_one_pass_sees_the_first_ones_reservation() {
         &none,
     )
     .0;
-    let kinds: Vec<Vec<&str>> = said(&judged)
-        .into_iter()
-        .map(|reasons| reasons.into_iter().map(|(kind, _)| kind).collect())
-        .collect();
-    assert_eq!(kinds, vec![vec![], vec!["memory_short"]]);
+    assert_eq!(kinds(&judged), vec![vec![], vec!["memory_short"]]);
     let reserved = judged[1].demand.as_ref().unwrap().reserved;
     assert_eq!(
         reserved,
@@ -864,4 +867,63 @@ fn every_demand_reason_waits_and_has_its_kind() {
         let reason = Reason::Demand(Unfit(short));
         assert_eq!((reason.kind(), reason.holds()), (kind, false));
     }
+}
+
+/// Each journal is read once however often the map names it, the pass's
+/// own included. A run with no event yet and a parked run reserve
+/// nothing. A path beneath a file is no journal and not absent either:
+/// it is unreadable, and that alone keeps an entry of unknown demand
+/// waiting on a machine where nothing runs.
+#[test]
+fn a_journal_named_twice_runs_that_do_not_run_and_a_path_beneath_a_file() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let dir = tempfile::tempdir().unwrap();
+    let other = journal(dir.path(), "other.db", |store| {
+        let manifest = seated(&[("alpha", "a-1")], false);
+        store
+            .create_run("no-event", "f", "verify", &manifest)
+            .unwrap();
+        run(store, "parked", "verify", &[], false);
+        let lost = json!({"reason": "lost"});
+        (store.append_next("parked", EventType::RunParked, lost, None, None)).unwrap();
+    });
+    let none = BTreeMap::new();
+    let twice = [fixture.store.path().to_path_buf(), other.clone(), other];
+    let (idle, named) = judged(&fixture, &plenty(), &twice, measured(GIB, 0), &none);
+    assert!(named.is_empty(), "{named:?}");
+    assert_eq!(said(&idle), vec![vec![]]);
+    let reserved = idle[0].demand.as_ref().unwrap().reserved;
+    assert_eq!((reserved.runs, reserved.whole), (0, 0));
+
+    let file = dir.path().join("a-file");
+    std::fs::write(&file, "").unwrap();
+    let beneath = [file.join("forge.db")];
+    let (waiting, named) = judged(&fixture, &plenty(), &beneath, measured(GIB, 0), &none);
+    let kinds: Vec<&str> = named.iter().map(Reason::kind).collect();
+    assert_eq!(kinds, ["journal_unreadable"]);
+    let words = said(&waiting);
+    assert_eq!(words[0][0].0, "demand_unknown");
+    assert!(
+        words[0][0]
+            .1
+            .ends_with("and 1 journals of the realms map cannot be read"),
+        "{words:?}"
+    );
+}
+
+/// Two entries that need more memory than the whole machine has: the first
+/// starts on the idle machine, and the second waits, because an entry
+/// admitted before it in the pass is enough to make the machine not idle.
+#[test]
+fn a_second_whole_machine_entry_waits_for_the_first_admitted_in_the_pass() {
+    let phases = [("verify", 20 * GIB, 1000)];
+    let registry = registry(|store| run(store, "h1", "fixture", &phases, true));
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    fixture.queue();
+    let judged = judged_on(&fixture, &registry, 16 * GIB, 8000);
+    assert_eq!(kinds(&judged), vec![vec![], vec!["memory_short"]]);
+    let reserved = judged[1].demand.as_ref().unwrap().reserved;
+    assert_eq!((reserved.runs, reserved.admitted), (0, 1));
 }
