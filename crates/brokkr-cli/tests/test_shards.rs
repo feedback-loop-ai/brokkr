@@ -1,5 +1,5 @@
 //! The workspace suite as shards (#633): `scripts/test-shards.sh` runs the
-//! tests `cargo test --workspace` runs, each test target exactly once, one
+//! tests `cargo test --workspace` runs, each test exactly once, one
 //! shard after another and capability_broker last. What it refuses is
 //! bound here: its shards are held to the real tree's `cargo metadata`, a
 //! planted target no shard runs, one run twice, a selector that names
@@ -434,6 +434,15 @@ fn one_after_another(prefix: &str, shards: &[&str]) -> Vec<String> {
         .collect()
 }
 
+/// The cargo calls a run makes after `prefix`: `build` once, then each of
+/// `shards` in order.
+fn build_then(prefix: &str, build: &str, shards: &[&str]) -> Vec<String> {
+    std::iter::once(&build)
+        .chain(shards)
+        .map(|shard| format!("{prefix} {shard}"))
+        .collect()
+}
+
 /// `call` with the scratch's random heap bound-record path replaced by a
 /// placeholder, so a command's shape is compared exactly.
 fn without_bound_path(call: &str) -> String {
@@ -462,7 +471,7 @@ const MODES: [(&[&str], &str, &str); 2] = [
 ];
 
 /// The shards' names, in plan order.
-const NAMES: [&str; 14] = [
+const NAMES: [&str; 16] = [
     "every library, run_pages and fleet::kept_tests skipped",
     "the libraries' run_pages tests",
     "the libraries' fleet::kept_tests tests",
@@ -470,17 +479,19 @@ const NAMES: [&str; 14] = [
     "the heap measurements",
     "the other own-process binaries",
     "the fleet heap view",
-    "the run heap view",
+    "the run heap view's run level and detail pane",
+    "the rest of the run heap view",
     "the seat heap view",
     "the doctests",
     "capability_broker's enabled suite, its first part, alone",
     "capability_broker's enabled suite, its second part, alone",
+    "capability_broker's enabled suite, its third part, alone",
     "capability_broker's enabled suite, the rest of it, alone",
     "capability_broker, its enabled suite skipped, alone",
 ];
 
 /// The test mode's shard commands after `cargo`, as the plan prints them.
-const SHARDS: [&str; 14] = [
+const SHARDS: [&str; 16] = [
     "--lib -- --skip run_pages:: --skip fleet::kept_tests::",
     "--lib -- run_pages::",
     "--lib -- fleet::kept_tests::",
@@ -490,11 +501,13 @@ const SHARDS: [&str; 14] = [
      --test secret_drop --test capability_launch --test operated_repo --test queued_launch \
      --test seatbelt_lifetime_probe --test summary_heap --test heap_open --test heap_costs",
     "--test heap_fleet",
-    "--test heap_run_view",
+    RUN_VIEW_FIRST,
+    RUN_VIEW_REST,
     "--test heap_seat_view",
     "--doc",
     ENABLED_FIRST,
     ENABLED_SECOND,
+    ENABLED_THIRD,
     ENABLED_REST,
     "--test it -- capability_broker:: --skip capability_broker::enabled::",
 ];
@@ -505,9 +518,12 @@ const ENABLED_FIRST: &str = "--test it -- capability_broker::enabled::reach:: \
                              capability_broker::enabled::sites::";
 
 /// Its second part, the same way.
-const ENABLED_SECOND: &str = "--test it -- capability_broker::enabled::windows:: \
-                              capability_broker::enabled::matrix:: \
-                              capability_broker::enabled::transport::";
+const ENABLED_SECOND: &str = "--test it -- capability_broker::enabled::windows::";
+
+/// Its third part, the same way.
+const ENABLED_THIRD: &str = "--test it -- capability_broker::enabled::matrix:: \
+                             capability_broker::enabled::bounds:: \
+                             capability_broker::enabled::dispatch::";
 
 /// The rest of it: every enabled test neither part runs, a new submodule's
 /// included.
@@ -516,10 +532,21 @@ const ENABLED_REST: &str = "--test it -- capability_broker::enabled:: \
                             --skip capability_broker::enabled::sites:: \
                             --skip capability_broker::enabled::windows:: \
                             --skip capability_broker::enabled::matrix:: \
-                            --skip capability_broker::enabled::transport::";
+                            --skip capability_broker::enabled::bounds:: \
+                            --skip capability_broker::enabled::dispatch::";
+
+/// The run heap view's first half: the two tests libtest runs in it.
+const RUN_VIEW_FIRST: &str = "--test heap_run_view -- \
+                              the_console_s_run_level_holds_its_trail_and_no_checkpoint \
+                              the_detail_pane_holds_a_window_however_deep_the_scroll";
+
+/// Its rest: every other test of the binary, a new one's included.
+const RUN_VIEW_REST: &str = "--test heap_run_view -- \
+                             --skip the_console_s_run_level_holds_its_trail_and_no_checkpoint \
+                             --skip the_detail_pane_holds_a_window_however_deep_the_scroll";
 
 /// Where [`NAMES`] holds the doctests, which the coverage mode never runs.
-const DOCTESTS: usize = 9;
+const DOCTESTS: usize = 10;
 
 /// Where [`NAMES`] holds the heap measurements, the one shard
 /// `--parallel-heaps` runs through its own launcher.
@@ -530,9 +557,9 @@ const HEAPS: usize = 4;
 /// libraries too.
 const FIRST: &str = "--skip run_pages::";
 
-/// Where [`NAMES`] holds the broker's enabled suite's three parts, which
+/// Where [`NAMES`] holds the broker's enabled suite's four parts, which
 /// only Linux compiles, so a macOS host never runs them.
-const LINUX_ONLY: [usize; 3] = [10, 11, 12];
+const LINUX_ONLY: [usize; 4] = [11, 12, 13, 14];
 
 /// The real tree's shards are its whole suite, each target once: the
 /// plan passes the partition check in both modes and prints each shard's
@@ -581,9 +608,7 @@ fn assert_refused(metadata: &Metadata, script: &str, problems: &[&str]) {
         .iter()
         .map(|problem| format!("{problem}\n"))
         .chain([
-            "test shards: the shards are not the whole suite, each test target \
-                 exactly once\n"
-                .to_string(),
+            "test shards: the shards are not the whole suite, each test exactly once\n".to_string(),
         ])
         .collect();
     assert_eq!(run.status.code(), Some(1), "{run:?}");
@@ -711,12 +736,11 @@ fn every_shard_runs_alone_one_after_another_in_plan_order() {
             "{args:?}"
         );
         assert_eq!(run.status.code(), Some(0), "{args:?}: {run:?}");
-        let calls: Vec<String> = [build]
-            .iter()
-            .chain(&shards)
-            .map(|shard| format!("{prefix} {shard}"))
-            .collect();
-        assert_eq!(scratch.calls(), calls, "{args:?}");
+        assert_eq!(
+            scratch.calls(),
+            build_then(prefix, build, &shards),
+            "{args:?}"
+        );
         let stdout = String::from_utf8_lossy(&run.stdout);
         assert!(
             stdout.contains(
@@ -1333,7 +1357,7 @@ fn filters(command: &str) -> String {
 }
 
 /// Where [`NAMES`] holds each shard that runs `it`, in plan order.
-const IT_SHARDS: [usize; 5] = [3, 10, 11, 12, 13];
+const IT_SHARDS: [usize; 6] = [3, 11, 12, 13, 14, 15];
 
 /// The refusal of every package's `it` when the shard at `changed` filters
 /// `planted` and every other `it` shard filters as the table does.
@@ -1369,7 +1393,7 @@ fn the_broker_s_filters_partition_its_tests() {
     let skip = "only:capability_broker:: skip:capability_broker::enabled::";
     let sites = " only:capability_broker::enabled::sites::";
     let skipped = " skip:capability_broker::enabled::sites::";
-    for (word, owner) in [(skip, 13), (sites, 10), (skipped, 12)] {
+    for (word, owner) in [(skip, 15), (sites, 11), (skipped, 14)] {
         assert_eq!(table.matches(word).count(), 1, "{word}");
         assert!(filters(SHARDS[owner]).contains(word.trim()), "{word}");
     }
@@ -1377,16 +1401,16 @@ fn the_broker_s_filters_partition_its_tests() {
     let mut problems = vec![format!(
         "capability_broker, its enabled suite skipped, alone: more than one filter: {elsewhere}"
     )];
-    problems.extend(it_not_once(13, elsewhere));
+    problems.extend(it_not_once(15, elsewhere));
     for (planted, refused) in [
         (table.replace(skip, elsewhere), problems),
         (
             table.replace(sites, ""),
-            it_not_once(10, &filters(SHARDS[10]).replace(sites, "")),
+            it_not_once(11, &filters(SHARDS[11]).replace(sites, "")),
         ),
         (
             table.replace(skipped, ""),
-            it_not_once(12, &filters(SHARDS[12]).replace(skipped, "")),
+            it_not_once(14, &filters(SHARDS[14]).replace(skipped, "")),
         ),
     ] {
         assert_refused(
@@ -1472,9 +1496,10 @@ fn assert_bounded_first_shard_ran(scratch: &Scratch) {
 
 /// How long a run whose first shard is bounded may take: the bound, its
 /// kill, and every later shard's stub on a loaded host. Thirteen later
-/// shards took 10.5 s in a whole-suite run (#1295), so 15 s keeps a margin
-/// while the 600 s hang and the 25 s `run_within` limit stay far above it.
-const BOUNDED_RUN_CEILING: Duration = Duration::from_secs(15);
+/// shards took 10.5 s in a whole-suite run (#1295), so fifteen take about
+/// 12, and 18 s keeps the same margin while the 600 s hang and the 25 s
+/// `run_within` limit stay above it.
+const BOUNDED_RUN_CEILING: Duration = Duration::from_secs(18);
 
 /// `scratch`'s run is under [`BOUNDED_RUN_CEILING`] and only its first shard
 /// started: every later shard still ran in its turn.

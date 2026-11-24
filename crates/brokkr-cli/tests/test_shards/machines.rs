@@ -9,33 +9,33 @@ use super::*;
 /// Each machine of each system's layout, and the shards it runs, by their
 /// place in [`NAMES`]: every shard sits on exactly one machine of each.
 const MACHINES: [(&str, &[usize]); 13] = [
-    ("linux/1", &[0, 6]),
-    ("linux/2", &[3, 5]),
-    ("linux/3", &[7, 9]),
-    ("linux/4", &[10, 13]),
-    ("linux/5", &[1, 2]),
-    ("linux/6", &[4, 8]),
-    ("linux/7", &[11]),
-    ("linux/8", &[12]),
-    ("macos/1", &[5, 6, 9, 13]),
-    ("macos/2", &[0, 8]),
-    ("macos/3", &[2]),
-    ("macos/4", &[1, 3]),
-    ("macos/5", &[4, 7]),
+    ("linux/1", &[1, 2]),
+    ("linux/2", &[0, 6]),
+    ("linux/3", &[7, 12]),
+    ("linux/4", &[8, 13]),
+    ("linux/5", &[3, 4, 9]),
+    ("linux/6", &[11, 15]),
+    ("linux/7", &[14]),
+    ("linux/8", &[5, 10]),
+    ("macos/1", &[2, 10]),
+    ("macos/2", &[1, 3]),
+    ("macos/3", &[0, 7]),
+    ("macos/4", &[5, 6, 15]),
+    ("macos/5", &[4, 8, 9]),
 ];
 
 /// The exact coverage gate's machines, Linux's alone, and the shards each
 /// measures, by their place in [`NAMES`]: every shard but the doctests,
 /// which cargo-llvm-cov never runs, sits on exactly one.
 const COVERAGE_MACHINES: [(&str, &[usize]); 8] = [
-    ("linux/1", &[7]),
-    ("linux/2", &[4, 13]),
-    ("linux/3", &[2, 10]),
-    ("linux/4", &[1, 8]),
-    ("linux/5", &[0, 6]),
-    ("linux/6", &[3, 5]),
-    ("linux/7", &[11]),
-    ("linux/8", &[12]),
+    ("linux/1", &[2, 11]),
+    ("linux/2", &[15]),
+    ("linux/3", &[3, 9]),
+    ("linux/4", &[1, 6]),
+    ("linux/5", &[0, 5]),
+    ("linux/6", &[7, 12]),
+    ("linux/7", &[8, 13]),
+    ("linux/8", &[4, 14]),
 ];
 
 /// A run whose BROKKR_TEST_MACHINE names a machine builds every binary and
@@ -66,12 +66,11 @@ fn a_machine_runs_only_its_shards_one_after_another_in_plan_order() {
                 one_after_another(prefix, &shards),
                 "{machine} {args:?}"
             );
-            let calls: Vec<String> = [build]
-                .iter()
-                .chain(&shards)
-                .map(|shard| format!("{prefix} {shard}"))
-                .collect();
-            assert_eq!(scratch.calls(), calls, "{machine} {args:?}");
+            assert_eq!(
+                scratch.calls(),
+                build_then(prefix, build, &shards),
+                "{machine} {args:?}"
+            );
             assert_eq!(
                 scratch.lines("machine"),
                 vec!["unset"; shards.len()],
@@ -168,34 +167,27 @@ const COVERAGE_MODES: [&[&str]; 3] = [
 fn a_layout_with_an_empty_machine_or_an_unnumbered_one_is_refused() {
     let real = metadata();
     let table = script();
-    // The broker's enabled rest is linux/8's one shard in both Linux
-    // layouts, the run heap view coverage's linux/1's, and the last shard's
-    // line names a macOS machine.
-    let rest = "the rest of it, alone\" 8 8 - test:it";
-    let run_view = "'the run heap view' 3 1 5 ";
-    let line = "skipped, alone\" 4 2 1 test:it";
+    // The broker's enabled rest is linux/7's one shard in the test layout,
+    // its skipped suite coverage's linux/2's, and the skipped suite's line
+    // names a macOS machine.
+    let rest = "the rest of it, alone\" 7 8 - test:it";
+    let line = "skipped, alone\" 6 2 4 test:it";
     for (line, planted, refusal, modes) in [
         (
             rest,
             "the rest of it, alone\" 9 8 - test:it",
-            "test shards: the linux layout leaves machine 8 with no shard\n",
+            "test shards: the linux layout leaves machine 7 with no shard\n",
             TEST_MODES,
         ),
         (
-            rest,
-            "the rest of it, alone\" 8 9 - test:it",
-            "test shards: the linux layout leaves machine 8 with no shard\n",
-            COVERAGE_MODES,
-        ),
-        (
-            run_view,
-            "'the run heap view' 3 9 5 ",
-            "test shards: the linux layout leaves machine 1 with no shard\n",
+            line,
+            "skipped, alone\" 6 9 4 test:it",
+            "test shards: the linux layout leaves machine 2 with no shard\n",
             COVERAGE_MODES,
         ),
         (
             line,
-            "skipped, alone\" 4 2 x test:it",
+            "skipped, alone\" 6 2 x test:it",
             "test shards: capability_broker, its enabled suite skipped, alone names the macos \
              machine 'x', which is not a number from 1\n",
             TEST_MODES,

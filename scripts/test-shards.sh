@@ -39,9 +39,11 @@
 #
 # Before anything runs, the shards are held to `cargo metadata`: every test
 # target `cargo test --workspace` runs (every target with `test = true`,
-# and in the test mode every library's doctests) is selected exactly once,
-# or exactly twice by a filter and its skip. A target no shard selects, one
-# selected twice, a selector that names no target, a shard that runs a
+# and in the test mode every library's doctests) is selected by shards
+# whose filters run each of its tests exactly once, as the partition check
+# below reads them: one shard with no filter, or several whose `only:` and
+# `skip:` texts split its tests. A target no shard selects, a test two
+# shards would run, a selector that names no target, a shard that runs a
 # target the suite does not, and a selector the plan cannot read are each
 # refused by name. Every shard's output is ruled on as scripts/run-it-tests.sh
 # rules on a run's: a shard that prints a `test result:` summary the
@@ -140,35 +142,43 @@ usage() {
 # _one_and_not_the_journal (525 s), so fleet::kept_tests is its own shard:
 # cargo cannot select one package's library without building it with other
 # features. The run view took 671 s to the seat view's 346, so they are
-# two shards; the run view's wall time is its one longest test, which a
-# filter split cannot shorten. The broker's enabled suite runs its tests
-# one at a time, so its parts sum their tests: about 16 of its 98 tests in
-# the first part, which fills the broker's skipped suite's machine under
-# coverage, and about 41 in each other. Coverage gets its own column, since
-# its run_pages, skipped broker and heap shards grow by half or more where
-# the rest do not. The planned sums, from those measurements and the
-# workstation's shares, in seconds:
-#   linux/1 807 (the rest of the libraries 440, the fleet view 367)
-#   linux/2 660 (the it binaries 303, the own-process binaries 357)
-#   linux/3 885 (the run view 882, the doctests 3)
-#   linux/4 789 (the enabled first part about 290, the skipped broker 501)
-#   linux/5 824 (run_pages 204, fleet::kept_tests about 620)
-#   linux/6 525 (the heap measurements 70, the seat view 455)
-#   linux/7 and linux/8 about 755 each (the enabled second part and rest)
-#   coverage linux/1 1,070 (the run view)
-#   coverage linux/2 849 (the heap measurements 90, the skipped broker 759)
-#   coverage linux/3 about 900 (fleet::kept_tests 620, the first part 280)
-#   coverage linux/4 930 (run_pages 378, the seat view 552)
-#   coverage linux/5 911 (the rest of the libraries 400, the fleet view 511)
-#   coverage linux/6 777 (the it binaries 318, the own-process binaries 459)
-#   coverage linux/7 and linux/8 about 735 each (the second part and rest)
-#   macos/1 about 1,090 (the own-process binaries 417, the fleet view 541,
-#     the doctests and the skipped broker), and the R3 startup gate
-#   macos/2 1,130 (the rest of the libraries 680, the seat view 450)
-#   macos/3 about 1,065 (fleet::kept_tests)
-#   macos/4 1,133 (run_pages 385, the it binaries 748)
-#   macos/5 1,085 (the heap measurements 212, the run view 873)
-# so the slowest machines should take about 18, 22 and 23 minutes whole.
+# two shards. The run view's tests hold one lock, so its wall time is
+# their sum: run one at a time on the workstation (2026-11-24) its seven
+# took 606 s, its run level's and detail pane's 302 of them and the other
+# five 304, so it splits in two by those two tests' names. The broker's
+# enabled suite runs its tests one at a time too, so its parts sum their
+# tests, split here by count: reach and sites hold 16 of its 98, windows
+# 19, matrix, bounds and dispatch 19, and the rest 44. Coverage gets its
+# own column, since its run_pages, skipped broker and heap shards grow by
+# half or more where the rest do not. The planned sums, from those
+# measurements and the workstation's shares, in seconds:
+#   linux/1 824 (fleet::kept_tests about 620, run_pages 204)
+#   linux/2 807 (the rest of the libraries about 440, the fleet view 367)
+#   linux/3 about 791 (the run view's first half 441, the enabled second part 350)
+#   linux/4 about 791 (the run view's rest 441, the enabled third part 350)
+#   linux/5 828 (the seat view about 455, the it binaries 303, the heap measurements 70)
+#   linux/6 about 795 (the enabled first part 294, the skipped broker 501)
+#   linux/7 about 809 (the enabled suite's rest)
+#   linux/8 360 (the own-process binaries 357, the doctests 3)
+#   coverage linux/1 about 906 (fleet::kept_tests 620, the enabled first part 286)
+#   coverage linux/2 759 (the skipped broker)
+#   coverage linux/3 870 (the seat view 552, the it binaries 318)
+#   coverage linux/4 889 (the fleet view 511, run_pages 378)
+#   coverage linux/5 859 (the own-process binaries 459, the rest of the libraries 400)
+#   coverage linux/6 about 875 (the run view's first half 535, the second part 340)
+#   coverage linux/7 about 875 (the run view's rest 535, the third part 340)
+#   coverage linux/8 about 877 (the enabled suite's rest 787, the heap measurements 90)
+#   macos/1 about 1,070 (fleet::kept_tests 1,065, the doctests), and the R3
+#     startup gate
+#   macos/2 1,133 (the it binaries 748, run_pages 385)
+#   macos/3 about 1,117 (the rest of the libraries 680, the run view's first half 437)
+#   macos/4 about 1,158 (the fleet view 541, the own-process binaries 417,
+#     the skipped broker, about 200)
+#   macos/5 about 1,099 (the seat view 450, the run view's rest 437, the heap
+#     measurements 212)
+# so the slowest machines should take about 14, 15 and 19 minutes of
+# shards, 18, 19 and 23 whole. macOS's shards sum about 5,580 s, 1,115 a
+# machine over GitHub's five, so no layout there holds 18 minutes.
 shard_name=()
 shard_linux=()
 shard_coverage=()
@@ -182,28 +192,35 @@ shard() {
   shift 4
   shard_selectors+=("$*")
 }
-shard 'every library, run_pages and fleet::kept_tests skipped' 1 5 2 lib skip:run_pages:: skip:fleet::kept_tests::
-shard "the libraries' run_pages tests" 5 4 4 lib only:run_pages::
-shard "the libraries' fleet::kept_tests tests" 5 3 3 lib only:fleet::kept_tests::
-shard "the it binaries, capability_broker skipped" 2 6 4 test:it skip:capability_broker::
-shard 'the heap measurements' 6 2 5 test:heap_claude test:heap_codex test:heap_dsh
-shard 'the other own-process binaries' 2 6 1 bin:brokkr test:driver_conformance test:transcript_surfaces \
+shard 'every library, run_pages and fleet::kept_tests skipped' 2 5 3 lib skip:run_pages:: skip:fleet::kept_tests::
+shard "the libraries' run_pages tests" 1 4 2 lib only:run_pages::
+shard "the libraries' fleet::kept_tests tests" 1 1 1 lib only:fleet::kept_tests::
+shard "the it binaries, capability_broker skipped" 5 3 2 test:it skip:capability_broker::
+shard 'the heap measurements' 5 8 5 test:heap_claude test:heap_codex test:heap_dsh
+shard 'the other own-process binaries' 8 5 4 bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
   test:seatbelt_lifetime_probe test:summary_heap test:heap_open test:heap_costs
-shard 'the fleet heap view' 1 5 1 test:heap_fleet
-shard 'the run heap view' 3 1 5 test:heap_run_view
-shard 'the seat heap view' 6 4 2 test:heap_seat_view
-shard 'the doctests' 3 - 1 doc
-shard "capability_broker's enabled suite, its first part, alone" 4 3 - test:it \
+shard 'the fleet heap view' 2 4 4 test:heap_fleet
+shard "the run heap view's run level and detail pane" 3 6 3 test:heap_run_view \
+  only:the_console_s_run_level_holds_its_trail_and_no_checkpoint \
+  only:the_detail_pane_holds_a_window_however_deep_the_scroll
+shard 'the rest of the run heap view' 4 7 5 test:heap_run_view \
+  skip:the_console_s_run_level_holds_its_trail_and_no_checkpoint \
+  skip:the_detail_pane_holds_a_window_however_deep_the_scroll
+shard 'the seat heap view' 5 3 5 test:heap_seat_view
+shard 'the doctests' 8 - 1 doc
+shard "capability_broker's enabled suite, its first part, alone" 6 1 - test:it \
   only:capability_broker::enabled::reach:: only:capability_broker::enabled::sites::
-shard "capability_broker's enabled suite, its second part, alone" 7 7 - test:it \
-  only:capability_broker::enabled::windows:: only:capability_broker::enabled::matrix:: \
-  only:capability_broker::enabled::transport::
-shard "capability_broker's enabled suite, the rest of it, alone" 8 8 - test:it only:capability_broker::enabled:: \
+shard "capability_broker's enabled suite, its second part, alone" 3 6 - test:it \
+  only:capability_broker::enabled::windows::
+shard "capability_broker's enabled suite, its third part, alone" 4 7 - test:it \
+  only:capability_broker::enabled::matrix:: only:capability_broker::enabled::bounds:: \
+  only:capability_broker::enabled::dispatch::
+shard "capability_broker's enabled suite, the rest of it, alone" 7 8 - test:it only:capability_broker::enabled:: \
   skip:capability_broker::enabled::reach:: skip:capability_broker::enabled::sites:: \
   skip:capability_broker::enabled::windows:: skip:capability_broker::enabled::matrix:: \
-  skip:capability_broker::enabled::transport::
-shard "capability_broker, its enabled suite skipped, alone" 4 2 1 test:it only:capability_broker:: skip:capability_broker::enabled::
+  skip:capability_broker::enabled::bounds:: skip:capability_broker::enabled::dispatch::
+shard "capability_broker, its enabled suite skipped, alone" 6 2 4 test:it only:capability_broker:: skip:capability_broker::enabled::
 
 # The machine this run is, read once and unset (above).
 machine="${BROKKR_TEST_MACHINE:-}"
@@ -404,7 +421,7 @@ problems="$(jq -r --argjson doctests "$doctests" '
 ' --args "${plan_lines[@]}" <<<"$metadata")" || refuse 'cargo metadata could not be read'
 if [ -n "$problems" ]; then
   printf '%s\n' "$problems" >&2
-  refuse 'the shards are not the whole suite, each test target exactly once'
+  refuse 'the shards are not the whole suite, each test exactly once'
 fi
 
 # One shard's whole command, into `argv`.
