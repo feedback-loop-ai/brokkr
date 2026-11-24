@@ -31,9 +31,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
-use bind_refusal::BindRefusal;
+pub use bind_refusal::BindRefusal;
 use call_refusal::CallRefusal;
-use spec_refusal::SpecRefusal;
+pub use spec_refusal::SpecRefusal;
 
 mod bind_refusal;
 mod call_refusal;
@@ -173,18 +173,20 @@ impl HandsSpec {
     }
 
     /// The string-or-object read: a string is the kind, an object is
-    /// checked whole.
-    fn checked(raw: &Value) -> Result<HandsSpec, SpecRefusal<'_>> {
+    /// checked whole, refusing in its typed [`SpecRefusal`].
+    pub fn checked(raw: &Value) -> Result<HandsSpec, SpecRefusal> {
         match raw {
             Value::String(kind) if kind == "workspace" => Ok(HandsSpec::default()),
-            Value::String(kind) => Err(SpecRefusal::UnknownKind { kind }),
+            Value::String(kind) => Err(SpecRefusal::UnknownKind { kind: kind.clone() }),
             Value::Object(object) => HandsSpec::checked_object(object),
-            got => Err(SpecRefusal::NotKindOrObject { got }),
+            got => Err(SpecRefusal::NotKindOrObject {
+                got: got.to_string(),
+            }),
         }
     }
 
     /// The object's checks, in order, each refusing in its own variant.
-    fn checked_object(object: &Map<String, Value>) -> Result<HandsSpec, SpecRefusal<'_>> {
+    fn checked_object(object: &Map<String, Value>) -> Result<HandsSpec, SpecRefusal> {
         // Named as a misplaced field, never as an unknown key: the author
         // is told where the word lives (decision 0046 ruling 1).
         if object.contains_key("boundary") {
@@ -192,7 +194,7 @@ impl HandsSpec {
         }
         let known = ["kind", "network", "binds"];
         if let Some(key) = object.keys().find(|key| !known.contains(&key.as_str())) {
-            return Err(SpecRefusal::UnknownKey { key });
+            return Err(SpecRefusal::UnknownKey { key: key.clone() });
         }
         if object.get("kind").and_then(Value::as_str) != Some("workspace") {
             return Err(SpecRefusal::Kind);
@@ -200,7 +202,11 @@ impl HandsSpec {
         let network = match object.get("network") {
             None => false,
             Some(Value::Bool(flag)) => *flag,
-            Some(got) => return Err(SpecRefusal::Network { got }),
+            Some(got) => {
+                return Err(SpecRefusal::Network {
+                    got: got.to_string(),
+                });
+            }
         };
         let mut binds = Vec::new();
         if let Some(raw_binds) = object.get("binds") {
@@ -231,18 +237,19 @@ impl HandsSpec {
 
 impl Bind {
     /// The bind's checks, in order, each refusing in its own variant.
-    fn checked(raw: &Value) -> Result<Bind, BindRefusal<'_>> {
+    fn checked(raw: &Value) -> Result<Bind, BindRefusal> {
         let Some(object) = raw.as_object() else {
             return Err(BindRefusal::NotObject);
         };
         let known = ["path", "mode", "mask"];
         if let Some(key) = object.keys().find(|key| !known.contains(&key.as_str())) {
-            return Err(BindRefusal::UnknownKey { key });
+            return Err(BindRefusal::UnknownKey { key: key.clone() });
         }
         let present = object.get("path").and_then(Value::as_str);
         let Some(path) = present.filter(|path| !path.is_empty()) else {
             return Err(BindRefusal::NoPath);
         };
+        let path = path.to_string();
         let mode = match object.get("mode").and_then(Value::as_str) {
             Some("ro") => BindMode::Ro,
             Some("rw") => BindMode::Rw,
@@ -264,7 +271,6 @@ impl Bind {
                 }
             }
         }
-        let path = path.to_string();
         Ok(Bind { path, mode, mask })
     }
 }

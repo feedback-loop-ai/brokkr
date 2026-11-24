@@ -188,12 +188,34 @@ fn a_session_that_cannot_lock_prints_the_lock_and_the_errno() {
     );
 }
 
+fn parse_serve_cli(work: &std::path::Path, extra: &[&str]) -> HandsCommand {
+    use clap::Parser;
+    let work_arg = work.to_str().unwrap();
+    let root_path = work.join("artifacts");
+    let root_arg = root_path.to_str().unwrap();
+    let mut argv = vec![
+        "brokkr",
+        "hands",
+        "serve",
+        "--workdir",
+        work_arg,
+        "--artifacts",
+        root_arg,
+    ];
+    argv.extend_from_slice(extra);
+    let crate::Cmd::Hands { command } = crate::Cli::try_parse_from(argv)
+        .expect("clap must parse hands serve")
+        .command
+    else {
+        panic!("expected hands serve");
+    };
+    command
+}
+
 /// #1277 B3: `hands serve` takes each document in JSON or unpadded base64url,
 /// and both spellings decode into the exact same `Sealed` and `HandsSpec`.
 #[test]
 fn hands_serve_accepts_base64url_spellings_and_parses_identically_to_json() {
-    use clap::Parser;
-
     let tmp = tempfile::tempdir().unwrap();
     let reach_json = reach(tmp.path());
     let spec_json = serde_json::json!({
@@ -217,74 +239,157 @@ fn hands_serve_accepts_base64url_spellings_and_parses_identically_to_json() {
             .unwrap();
     assert_eq!(encoded, plain);
 
-    // Mixed spellings (one JSON, one base64url) also resolve identically.
     let mixed =
         resolve_serve_documents(Some(reach_json), None, None, Some(spec_b64.clone())).unwrap();
     assert_eq!(mixed, plain);
 
-    // Clap parses the new flags under the hidden `hands` root verb.
-    let parsed = crate::Cli::try_parse_from([
-        "brokkr",
-        "hands",
-        "serve",
-        "--workdir",
-        tmp.path().to_str().unwrap(),
-        "--artifacts",
-        tmp.path().join("artifacts").to_str().unwrap(),
-        "--reach-base64url",
-        &reach_b64,
-        "--spec-base64url",
-        &spec_b64,
-    ])
-    .unwrap();
     assert!(matches!(
-        parsed.command,
-        crate::Cmd::Hands {
-            command: HandsCommand::Serve {
-                reach: None,
-                reach_base64url: Some(ref r),
-                spec: None,
-                spec_base64url: Some(ref s),
-                ..
-            }
+        parse_serve_cli(
+            tmp.path(),
+            &["--reach-base64url", &reach_b64, "--spec-base64url", &spec_b64]
+        ),
+        HandsCommand::Serve {
+            reach: None,
+            reach_base64url: Some(ref r),
+            spec: None,
+            spec_base64url: Some(ref s),
+            ..
         } if r == &reach_b64 && s == &spec_b64
     ));
 }
 
-/// #1277 B3: both spellings given or neither given refuses with typed
+/// #1277 R1: omitting `--spec` defaults to main's `"workspace"`, parsed by the
+/// same code, while explicit `--spec` plus `--spec-base64url` still refuses;
+/// `brokkr hands serve --help` shows the default as main does.
+#[test]
+fn hands_serve_defaults_omitted_spec_to_workspace_and_shows_default_in_help() {
+    use clap::CommandFactory;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let reach_json = reach(tmp.path());
+    let reach_b64 = hands::encode_base64url(reach_json.as_bytes());
+    let spec_b64 = hands::encode_base64url(DEFAULT_SPEC.as_bytes());
+
+    let main_default = resolve_serve_documents(
+        Some(reach_json.clone()),
+        None,
+        Some(DEFAULT_SPEC.to_string()),
+        None,
+    )
+    .unwrap();
+    let omitted_plain =
+        resolve_serve_documents(Some(reach_json.clone()), None, None, None).unwrap();
+    let omitted_encoded = resolve_serve_documents(None, Some(reach_b64), None, None).unwrap();
+    assert_eq!(omitted_plain, main_default);
+    assert_eq!(omitted_encoded, main_default);
+    assert_eq!(omitted_plain.0, HandsSpec::default());
+
+    assert!(matches!(
+        parse_serve_cli(tmp.path(), &["--reach", &reach_json]),
+        HandsCommand::Serve {
+            spec: Some(ref s),
+            spec_base64url: None,
+            ..
+        } if s == DEFAULT_SPEC
+    ));
+    assert!(matches!(
+        parse_serve_cli(
+            tmp.path(),
+            &[
+                "--reach",
+                &reach_json,
+                "--spec",
+                DEFAULT_SPEC,
+                "--spec-base64url",
+                &spec_b64,
+            ]
+        ),
+        HandsCommand::Serve {
+            spec: Some(ref s),
+            spec_base64url: Some(ref b),
+            ..
+        } if s == DEFAULT_SPEC && b == &spec_b64
+    ));
+
+    let cmd = crate::Cli::command();
+    let help = cmd
+        .find_subcommand("hands")
+        .unwrap()
+        .find_subcommand("serve")
+        .unwrap()
+        .clone()
+        .render_help()
+        .to_string();
+    assert!(
+        help.contains("[default: \"workspace\"]"),
+        "expected default in help:\n{help}"
+    );
+}
+
+/// #1277 R2: leading-hyphen values on `--reach-base64url` and
+/// `--spec-base64url` (both space and `=` forms) reach the typed decoder
+/// rather than failing at clap as an unknown flag.
+#[test]
+fn hands_serve_passes_leading_hyphen_encoded_values_to_decoder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let valid_reach = reach(tmp.path());
+    let hyphen = "-wNotADoc123";
+    let reach_eq = format!("--reach-base64url={hyphen}");
+    let spec_eq = format!("--spec-base64url={hyphen}");
+
+    for (extra, expected_flag) in [
+        (&["--reach-base64url", hyphen][..], REACH_BASE64URL_FLAG),
+        (&[reach_eq.as_str()][..], REACH_BASE64URL_FLAG),
+        (
+            &["--reach", &valid_reach, "--spec-base64url", hyphen][..],
+            SPEC_BASE64URL_FLAG,
+        ),
+        (
+            &["--reach", &valid_reach, spec_eq.as_str()][..],
+            SPEC_BASE64URL_FLAG,
+        ),
+    ] {
+        let HandsCommand::Serve {
+            reach,
+            reach_base64url,
+            spec,
+            spec_base64url,
+            ..
+        } = parse_serve_cli(tmp.path(), extra)
+        else {
+            panic!("expected hands serve");
+        };
+        let err =
+            resolve_serve_documents(reach, reach_base64url, spec, spec_base64url).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DocumentError::Encoded {
+                    flag,
+                    cause: Base64UrlError::NotUtf8
+                } if flag == expected_flag
+            ),
+            "{err}"
+        );
+        assert!(!err.to_string().contains(hyphen));
+    }
+}
+
+/// #1277 B3 + R1: missing reach or duplicate spellings refuse with typed
 /// `DocumentError` variants naming the arguments and never echoing values.
 #[test]
-fn hands_serve_refuses_missing_or_duplicate_spellings() {
+fn hands_serve_refuses_missing_reach_or_duplicate_spellings() {
     let tmp = tempfile::tempdir().unwrap();
     let valid_reach = reach(tmp.path());
     let valid_reach_b64 = hands::encode_base64url(valid_reach.as_bytes());
-    let valid_spec = "\"workspace\"".to_string();
+    let valid_spec = DEFAULT_SPEC.to_string();
     let valid_spec_b64 = hands::encode_base64url(valid_spec.as_bytes());
 
     let err = resolve_serve_documents(None, None, Some(valid_spec.clone()), None).unwrap_err();
-    assert!(matches!(
-        err,
-        DocumentError::Missing {
-            plain: "--reach",
-            encoded: "--reach-base64url"
-        }
-    ));
+    assert!(matches!(err, DocumentError::MissingReach));
     assert_eq!(
         err.to_string(),
         "--reach: missing; pass either --reach or --reach-base64url"
-    );
-
-    let err = resolve_serve_documents(Some(valid_reach.clone()), None, None, None).unwrap_err();
-    assert!(matches!(
-        err,
-        DocumentError::Missing {
-            plain: "--spec",
-            encoded: "--spec-base64url"
-        }
-    ));
-    assert_eq!(
-        err.to_string(),
-        "--spec: missing; pass either --spec or --spec-base64url"
     );
 
     let err = resolve_serve_documents(
@@ -335,7 +440,7 @@ fn hands_serve_refuses_missing_or_duplicate_spellings() {
 fn hands_serve_refuses_malformed_base64url_documents() {
     let tmp = tempfile::tempdir().unwrap();
     let valid_reach = reach(tmp.path());
-    let valid_spec = "\"workspace\"".to_string();
+    let valid_spec = DEFAULT_SPEC.to_string();
     let non_utf8 = hands::encode_base64url(&[0xff, 0xfe]);
 
     for (bad, expected) in [
@@ -348,16 +453,13 @@ fn hands_serve_refuses_malformed_base64url_documents() {
         let reach_err =
             resolve_serve_documents(None, Some(bad.to_string()), Some(valid_spec.clone()), None)
                 .unwrap_err();
-        assert!(
-            matches!(
-                reach_err,
-                DocumentError::Encoded {
-                    flag: "--reach-base64url",
-                    cause
-                } if cause == expected
-            ),
-            "{reach_err}"
-        );
+        assert!(matches!(
+            reach_err,
+            DocumentError::Encoded {
+                flag: "--reach-base64url",
+                cause
+            } if cause == expected
+        ));
         assert_eq!(
             reach_err.to_string(),
             format!("--reach-base64url: {expected}")
@@ -367,16 +469,13 @@ fn hands_serve_refuses_malformed_base64url_documents() {
         let spec_err =
             resolve_serve_documents(Some(valid_reach.clone()), None, None, Some(bad.to_string()))
                 .unwrap_err();
-        assert!(
-            matches!(
-                spec_err,
-                DocumentError::Encoded {
-                    flag: "--spec-base64url",
-                    cause
-                } if cause == expected
-            ),
-            "{spec_err}"
-        );
+        assert!(matches!(
+            spec_err,
+            DocumentError::Encoded {
+                flag: "--spec-base64url",
+                cause
+            } if cause == expected
+        ));
         assert_eq!(
             spec_err.to_string(),
             format!("--spec-base64url: {expected}")
@@ -385,73 +484,170 @@ fn hands_serve_refuses_malformed_base64url_documents() {
     }
 }
 
-/// #1277 B3: valid unpadded base64url UTF-8 that is not a valid reach or
-/// spec document runs through the same parse checks and never echoes the
-/// encoded argument value.
+/// #1277 R3 + R6: valid unpadded base64url UTF-8 that fails JSON parse or
+/// document checks refuses with typed variants naming the argument and
+/// failure class (plus `SpecRefusal`'s variant name) and never discloses any
+/// decoded field name, value, or serde fragment.
 #[test]
-fn hands_serve_refuses_decoded_documents_that_fail_parse() {
+fn hands_serve_refuses_decoded_documents_without_disclosing_decoded_text() {
+    use brokkr_protocol::hands::BindRefusal;
+
     let tmp = tempfile::tempdir().unwrap();
     let valid_reach = reach(tmp.path());
-    let valid_spec = "\"workspace\"".to_string();
+    let valid_spec = DEFAULT_SPEC.to_string();
+    let marker = "SECRET_DECODED_MARKER_1277";
+    let b64 = |text: String| hands::encode_base64url(text.as_bytes());
 
-    let bad_reach_b64 = hands::encode_base64url(b"{\"home\":\"/h\"}");
-    let err = resolve_serve_documents(None, Some(bad_reach_b64.clone()), Some(valid_spec), None)
-        .unwrap_err();
+    let reach_not_json = b64(format!("{{{marker}"));
+    let err = resolve_serve_documents(
+        None,
+        Some(reach_not_json.clone()),
+        Some(valid_spec.clone()),
+        None,
+    )
+    .unwrap_err();
     assert!(matches!(
         err,
-        DocumentError::Reach {
-            flag: "--reach-base64url",
-            ..
+        DocumentError::EncodedNotJson {
+            flag: "--reach-base64url"
         }
     ));
+    assert_eq!(
+        err.to_string(),
+        "--reach-base64url: decoded document is not valid JSON"
+    );
+    assert!(!err.to_string().contains(marker));
+
+    let reach_bad = b64(format!(r#"{{"{marker}_FIELD":"{marker}_VALUE"}}"#));
+    let err = resolve_serve_documents(None, Some(reach_bad), Some(valid_spec), None).unwrap_err();
+    assert!(matches!(err, DocumentError::EncodedReach));
     assert_eq!(
         err.to_string(),
         format!(
-            "--reach-base64url: {}: missing field `worktree` at line 1 column 13",
+            "--reach-base64url: {}: decoded document is not a valid sealed reach",
             brokkr_protocol::broker::Refusal::Identity
         )
     );
-    assert!(!err.to_string().contains(&bad_reach_b64));
+    assert!(!err.to_string().contains(marker));
 
-    let bad_spec_json_b64 = hands::encode_base64url(b"{");
-    let err = resolve_serve_documents(
-        Some(valid_reach.clone()),
-        None,
-        None,
-        Some(bad_spec_json_b64.clone()),
-    )
-    .unwrap_err();
+    let spec_not_json = b64(format!("{{{marker}"));
+    let err = resolve_serve_documents(Some(valid_reach.clone()), None, None, Some(spec_not_json))
+        .unwrap_err();
     assert!(matches!(
         err,
-        DocumentError::SpecJson {
-            flag: "--spec-base64url",
-            ..
+        DocumentError::EncodedNotJson {
+            flag: "--spec-base64url"
         }
     ));
     assert_eq!(
         err.to_string(),
-        "--spec-base64url: EOF while parsing an object at line 1 column 1"
+        "--spec-base64url: decoded document is not valid JSON"
     );
-    assert!(!err.to_string().contains(&bad_spec_json_b64));
+    assert!(!err.to_string().contains(marker));
 
-    let bad_spec_schema_b64 = hands::encode_base64url(b"{\"kind\":\"mitten\"}");
-    let err = resolve_serve_documents(
-        Some(valid_reach),
-        None,
-        None,
-        Some(bad_spec_schema_b64.clone()),
-    )
-    .unwrap_err();
+    let spec_wrong_key = b64(format!(
+        r#"{{"kind":"workspace","{marker}_FIELD":"{marker}_VALUE"}}"#
+    ));
+    let err = resolve_serve_documents(Some(valid_reach.clone()), None, None, Some(spec_wrong_key))
+        .unwrap_err();
     assert!(matches!(
         err,
-        DocumentError::Spec {
-            flag: "--spec-base64url",
-            ..
+        DocumentError::EncodedSpec {
+            cause: SpecRefusal::UnknownKey { ref key }
+        } if key == &format!("{marker}_FIELD")
+    ));
+    assert_eq!(
+        err.to_string(),
+        "--spec-base64url: decoded document is not a valid hands spec (UnknownKey)"
+    );
+    assert!(!err.to_string().contains(marker));
+
+    let spec_wrong_val = b64(format!(
+        r#"{{"kind":"workspace","network":"{marker}_VALUE"}}"#
+    ));
+    let err = resolve_serve_documents(Some(valid_reach.clone()), None, None, Some(spec_wrong_val))
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        DocumentError::EncodedSpec {
+            cause: SpecRefusal::Network { .. }
         }
     ));
     assert_eq!(
         err.to_string(),
-        "--spec-base64url: hands.kind must be \"workspace\""
+        "--spec-base64url: decoded document is not a valid hands spec (Network)"
     );
-    assert!(!err.to_string().contains(&bad_spec_schema_b64));
+    assert!(!err.to_string().contains(marker));
+
+    let spec_wrong_bind = b64(format!(
+        r#"{{"kind":"workspace","binds":[{{"path":"/{marker}","mode":"{marker}"}}]}}"#
+    ));
+    let err =
+        resolve_serve_documents(Some(valid_reach), None, None, Some(spec_wrong_bind)).unwrap_err();
+    assert!(matches!(
+        err,
+        DocumentError::EncodedSpec {
+            cause: SpecRefusal::Bind(BindRefusal::Mode { .. })
+        }
+    ));
+    assert_eq!(
+        err.to_string(),
+        "--spec-base64url: decoded document is not a valid hands spec (Bind::Mode)"
+    );
+    assert!(!err.to_string().contains(marker));
+}
+
+/// #1277 R4 + R6: plain JSON `--reach` and `--spec` refusals keep main's
+/// diagnostics byte for byte on both `hands serve` and `hands exec`.
+#[test]
+fn plain_json_refusals_match_main_byte_for_byte_on_both_verbs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let unreached = |_: &str| -> Result<Session, SessionError> { panic!("no session is made") };
+    let (workdir, artifacts) = (tmp.path().to_path_buf(), tmp.path().join("artifacts"));
+    let valid_reach = reach(&workdir);
+
+    let run_pair = |spec: &str, reach_arg: &str| {
+        let serve = HandsCommand::Serve {
+            workdir: workdir.clone(),
+            artifacts: artifacts.clone(),
+            reach: Some(reach_arg.to_string()),
+            reach_base64url: None,
+            spec: Some(spec.to_string()),
+            spec_base64url: None,
+        };
+        let exec = HandsCommand::Exec {
+            workdir: workdir.clone(),
+            artifacts: artifacts.clone(),
+            reach: reach_arg.to_string(),
+            bundle_root: None,
+            spec: spec.to_string(),
+            command: vec!["true".to_string()],
+        };
+        (
+            run_with(serve, unreached).unwrap_err().to_string(),
+            run_with(exec, unreached).unwrap_err().to_string(),
+        )
+    };
+
+    let (serve_err, exec_err) = run_pair("{", &valid_reach);
+    assert_eq!(serve_err, "EOF while parsing an object at line 1 column 1");
+    assert_eq!(exec_err, "EOF while parsing an object at line 1 column 1");
+
+    assert!(matches!(
+        parse_spec_plain(r#"{"kind":"mitten"}"#),
+        Err(DocumentError::PlainSpec {
+            cause: SpecRefusal::Kind
+        })
+    ));
+    let (serve_err, exec_err) = run_pair(r#"{"kind":"mitten"}"#, &valid_reach);
+    assert_eq!(serve_err, r#"--spec: hands.kind must be "workspace""#);
+    assert_eq!(exec_err, r#"--spec: hands.kind must be "workspace""#);
+
+    let (serve_err, exec_err) = run_pair(DEFAULT_SPEC, r#"{"home":"/h"}"#);
+    let expected_reach = format!(
+        "--reach: {}: missing field `worktree` at line 1 column 13",
+        brokkr_protocol::broker::Refusal::Identity
+    );
+    assert_eq!(serve_err, expected_reach);
+    assert_eq!(exec_err, expected_reach);
 }

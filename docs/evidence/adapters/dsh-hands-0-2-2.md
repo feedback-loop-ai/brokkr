@@ -968,7 +968,7 @@ were run by this seat.
 | `dump-file-paths.txt` and `dump-short-json.txt` (100 rows each, no line refused) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
 | Compile-time reader binding on `dump-folded-json.txt` (`Unreadable`) and `dump-base64url.txt` (100 rows, `brokkr-hands` enabled on `@deepseek-ai/dsh-mcp-client`, admitted by `judge(Release::V0_2_2, …)` and `judge_mode(…, Mode::WorkspaceWrite)`) | offline tests, this change |
 | Writer binding: `--reach-base64url` and `--spec-base64url`, non-ASCII path and `-`/`_` bytes, exact round-trip decode, every emitted and folded line admitted by `rows::carriers::check`, and regenerated dump admitted by both judges | offline tests, this change |
-| `hands serve` CLI argument resolution (JSON or unpadded base64url, exactly one spelling per document, strict decoder refusals) | offline tests, this change |
+| `hands serve` CLI argument resolution (JSON or unpadded base64url; reach required in one spelling; spec defaults to `"workspace"` when omitted and refuses both spellings; leading-hyphen encoded values reach the decoder; encoded refusals disclose neither the raw value nor any decoded text; plain JSON refusals match main byte for byte on `hands serve` and `hands exec`) | offline tests, this change |
 
 ### The fix
 
@@ -981,8 +981,14 @@ were run by this seat.
   `qoder`) keep `--reach` and `--spec` unchanged.
 - `brokkr hands serve` accepts each document in either its JSON spelling
   (`--reach`, `--spec`) or its unpadded base64url spelling
-  (`--reach-base64url`, `--spec-base64url`), and requires exactly one spelling
-  for each. Both spellings decode into the same parse and check path. One
+  (`--reach-base64url`, `--spec-base64url`). For `--reach`, exactly one
+  spelling is required; for `--spec`, both spellings refuse and omitting both
+  uses main's default `"workspace"` (shown in `brokkr hands serve --help` and
+  parsed by the same check). Both encoded arguments accept leading-hyphen
+  values so they reach the typed decoder; encoded refusals name the argument
+  and failure class (including `SpecRefusal`'s variant name) without echoing
+  either the raw value or any decoded text, while plain JSON refusals on
+  `hands serve` and `hands exec` keep main's diagnostics byte for byte. One
   codec in `crates/brokkr-protocol/src/base64.rs` (extracted from
   `secret.rs`'s existing RFC 4648 encoder) serves both the overlay writer and
   `hands serve`.
