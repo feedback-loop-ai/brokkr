@@ -45,13 +45,7 @@ fn workspace() -> PathBuf {
 }
 
 fn triage() -> Bundle {
-    let root = workspace();
-    Bundle::compile_with(
-        &root.join("recipes/triage"),
-        &root.join("agents"),
-        &root.join("adapters"),
-    )
-    .expect("recipes/triage must compile")
+    shipped_bundle("recipes/triage")
 }
 
 #[test]
@@ -1244,8 +1238,8 @@ fn charter_prose(name: &str) -> String {
     charter.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// A compiled shipped recipe with `review` as its initial phase and its
-/// seats stubbed for a single review decision.
+/// Compile a shipped recipe against the workspace's `agents` and `adapters`
+/// libraries.
 fn shipped_bundle(recipe: &str) -> Bundle {
     let root = workspace();
     Bundle::compile_with(
@@ -1411,10 +1405,13 @@ fn each_panel_charter_states_its_findings_and_word_rules() {
                 "A panel member inherits its enclosing panel's class: a panel is gate-class \
                  only when every member is gate-class (mixed panels are refused at compile time, \
                  and any work-class panel makes every member a work site).",
-                "On a work-class panel the engine refuses any `findings` key — even an empty \
-                 `[]` — under decision 0109 ruling 1.",
-                "Because your prompt does not identify the panel's effective class, omit \
-                 `findings` altogether unless you know the whole panel is gate-class",
+                "On a work-class panel your result file holds `result`, `inputs` and `notes` and \
+                 no other member — the engine refuses any `findings` key, even an empty `[]`, \
+                 under decision 0109 ruling 1.",
+                "Because your prompt does not identify the panel's effective class, keep your \
+                 result file to `result`, `inputs` and `notes` alone and omit `findings` \
+                 altogether unless you know the whole panel is gate-class, putting every finding \
+                 in `notes` with its severity, the file and line, and one concrete failing case.",
                 "decision 0109 ruling 2 binds your word: any finding carrying `security: true` \
                  requires `security-hold`",
                 "keeps its honest severity with `security: false`, is named in `notes`, and sets \
@@ -1424,16 +1421,21 @@ fn each_panel_charter_states_its_findings_and_word_rules() {
         (
             "review-security.md",
             &[
+                "Record every security finding in `notes` with its severity, file and line, and \
+                 one concrete failing case.",
                 "Every member takes the class of its enclosing panel — gate-class only if all \
                  panel members are gates (the compiler refuses mixed panels, and a work-class \
-                 panel treats every member as a work site), where any `findings` property, \
-                 including `[]`, is refused (decision 0109 ruling 1).",
-                "Your prompt never states your effective class, so leave out `findings` \
-                 completely unless you know the entire panel is gate-class.",
+                 panel treats every member as a work site).",
+                "From a work site, your result object carries only `result`, `inputs` and `notes` \
+                 and nothing else: any `findings` property, including `[]`, is refused (decision \
+                 0109 ruling 1).",
+                "Your prompt never states your effective class, so keep your result object to \
+                 `result`, `inputs` and `notes` and leave out `findings` completely unless you \
+                 know the entire panel is gate-class.",
                 "your word is bound to them (decision 0109 ruling 2): `security: true` is the \
                  typed hold and requires `security-hold`",
-                "stays at its honest severity with `security: false` and sets \
-                 `has_security_residual: true` under `residual`",
+                "stays at its honest severity with `security: false`, is named in `notes`, and \
+                 sets `has_security_residual: true` under `residual`",
             ],
         ),
         (
@@ -1441,13 +1443,17 @@ fn each_panel_charter_states_its_findings_and_word_rules() {
             &[
                 "Each panel member shares its panel's compiled class: a panel is gate-class \
                  only when every sibling is `gate` (mixed panels are refused at compile time), \
-                 and a work-class panel makes every member a work site that rejects any \
+                 and a work-class panel makes every member a work site whose JSON holds only \
+                 `result`, `inputs` and `notes` and no other top-level member, rejecting any \
                  `findings` field, even `findings: []` (decision 0109 ruling 1).",
-                "Since the seat prompt does not name your effective class, omit the `findings` \
-                 key entirely unless you know every panel member is a gate",
+                "Since the seat prompt does not name your effective class, emit only `result`, \
+                 `inputs` and `notes` with no `findings` key unless you know every panel member \
+                 is a gate, and put every finding in `notes` with its severity, file and line, \
+                 and one concrete failing case.",
                 "decision 0109 ruling 2 requires `security-hold` over any finding carrying \
                  `security: true` and your declared results exclude `security-hold`",
-                "report any security smell in `notes` at its honest severity",
+                "report any security smell in `notes` at its honest severity, with file, line, \
+                 and one concrete failing case.",
             ],
         ),
         (
@@ -1455,13 +1461,18 @@ fn each_panel_charter_states_its_findings_and_word_rules() {
             &[
                 "Your site's class comes from the whole panel: a panel compiles as gate-class \
                  only when all of its members are gates (mixed panels fail to compile), and from \
-                 a work-class panel every member inherits the work class and any `findings` key — \
-                 even an empty `[]` — is refused (decision 0109 ruling 1).",
-                "Because the prompt does not state the panel's effective class, do not write a \
-                 `findings` key at all unless you know the whole panel is gate-class",
+                 a work-class panel every member inherits the work class.",
+                "On a work-class panel your result contains strictly `result`, `inputs`, and \
+                 `notes` with no extra fields, and any `findings` key — even an empty `[]` — is \
+                 refused (decision 0109 ruling 1).",
+                "Because the prompt does not state the panel's effective class, limit your result \
+                 to `result`, `inputs`, and `notes` and do not write a `findings` key at all \
+                 unless you know the whole panel is gate-class; always list every gap in `notes`, \
+                 each with its severity, file and line, and one concrete failing case.",
                 "under decision 0109 ruling 2 any `security: true` finding requires \
                  `security-hold`, which your declared results do not include",
-                "report any security smell in `notes` at its honest severity",
+                "report any security smell in `notes` at its honest severity with file, line, and \
+                 one concrete failing case.",
             ],
         ),
     ];

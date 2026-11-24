@@ -480,11 +480,15 @@ older identities do not gain empty metadata.
 
 **The non-final-step rule has teeth, so read it before you use a
 sequence on a gate.** The `design` and `engine` review cases in
-`recipes/triage` put a positions panel before a single chief step. The
-panel's `review-panel` output is *not* the seat's result — it is a
-checkpoint, handed to the chief as `context.prior_results.positions` —
-so a `security-hold` from the panel reaches the rule table only if the
-chief reproduces it. The engine will accept a chief that rules lower.
+`recipes/triage` put a positions panel before a single chief step. An
+admitted `security-hold` from the panel is a compiled hard word of the
+`review` phase, so it ends the sequence at `positions` (with
+`why: "hard-word"`) before the chief runs and goes straight to the rule
+table. Any other verdict — `clean` or `residual` — is *not* the seat's
+result: it is a checkpoint, handed to the chief as
+`context.prior_results.positions`, so a `residual` from the panel
+reaches the rule table only if the chief carries it forward. The engine
+will accept a chief that rules lower than a non-hard panel verdict.
 
 The same rule does not disable the fail-closed path for a malformed
 member. A panel aggregate that cannot read a member's payload emits

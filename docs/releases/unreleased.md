@@ -89,6 +89,8 @@ Changes merged since v0.15.2 that the next release's notes carry.
   and `review-spec-compliance.md`) now state panel class inheritance
   (every member shares its enclosing panel's class; mixed panels fail to
   compile, and a work-class panel refuses any `findings` key, even `[]`,
-  under ruling 1), instruct members to omit `findings` unless the whole
-  panel is known to be gate-class, and state ruling 2's `security: true`
-  binding for their declared result sets.
+  under ruling 1), instruct members to keep their result to `result`,
+  `inputs`, and `notes` alone (omitting `findings` unless the whole panel
+  is known to be gate-class) and put each finding in `notes` with its
+  severity, file and line, and one concrete failing case, and state
+  ruling 2's `security: true` binding for their declared result sets.
