@@ -3,11 +3,10 @@
 `brokkr hands` is an internal engine verb (`#[command(hide = true)]`), so the
 generated [CLI reference](cli.md) omits it. This page records the argument
 contract for `brokkr hands serve` and `brokkr hands exec` as defined in
-`crates/brokkr-cli/src/hands.rs` (decision [0043](../decisions/0043-the-hands-are-one-tool.md),
-decision [0065](../decisions/0065-the-box-seals-what-the-harness-hands-it.md),
+`crates/brokkr-cli/src/hands.rs` (decision [0043](../decisions/0043-the-hands-are-one-tool.md)
 and proposed decision [0125](../decisions/0125-a-dsh-hands-row-carries-its-documents-as-unpadded-base64url.md)).
 The synopsis and option table of each subcommand are checked against
-`Cli::command()` by `crates/brokkr-cli/src/cli_reference_tests/hands.rs`.
+`Cli::command()` by `crates/brokkr-cli/src/cli_reference_tests/hands_tests.rs`.
 
 ## `brokkr hands serve`
 

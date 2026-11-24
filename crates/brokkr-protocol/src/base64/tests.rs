@@ -16,7 +16,7 @@ fn base64url_round_trips_rfc4648_vectors_non_ascii_and_url_symbols() {
         assert_eq!(encoded, expected);
         assert_eq!(decode_url_nopad(&encoded), Ok(raw.to_vec()));
     }
-    let non_ascii = "/home/valentin/caf\u{00e9}/\u{00be}\u{00be}\u{00be}\u{00bf}\u{00bf}\u{00bf}/\u{65e5}\u{672c}\u{8a9e}";
+    let non_ascii = "/home/valentin/work\u{00e9}/\u{00be}\u{00be}\u{00be}\u{00bf}\u{00bf}\u{00bf}/\u{65e5}\u{672c}\u{8a9e}";
     let encoded = encode_base64url(non_ascii.as_bytes());
     assert!(encoded.contains('-'), "expected - in {encoded}");
     assert!(encoded.contains('_'), "expected _ in {encoded}");
@@ -34,7 +34,7 @@ fn base64url_refuses_padding_bad_alphabet_bad_length_trailing_bits_and_non_utf8(
         "contains '=' padding, which unpadded base64url forbids"
     );
 
-    for bad in ["+/8", "Zm9v\n", "Zm9v ", "Zm9v!", "caf\u{00e9}"] {
+    for bad in ["+/8", "Zm9v\n", "Zm9v ", "Zm9v!", "Zm9v\u{00e9}"] {
         assert_eq!(
             decode_base64url(bad),
             Err(Base64UrlError::InvalidAlphabet),

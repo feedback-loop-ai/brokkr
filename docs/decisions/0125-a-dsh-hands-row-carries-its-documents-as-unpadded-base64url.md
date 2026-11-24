@@ -96,6 +96,6 @@ JSON-configured harnesses unchanged.
 - The argument contract for `brokkr hands serve` and `brokkr hands exec` is
   documented in `docs/reference/hands.md`, linked from `docs/reference/cli.md`,
   and its synopses and option tables are held to `Cli::command()` by
-  `crates/brokkr-cli/src/cli_reference_tests/hands.rs`.
+  `crates/brokkr-cli/src/cli_reference_tests/hands_tests.rs`.
 - Any `--workdir` or `--artifacts` path that `dsh` folds onto a line refused by
   the line rule remains refused, fail closed.

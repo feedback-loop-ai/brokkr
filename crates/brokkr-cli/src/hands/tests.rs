@@ -821,6 +821,46 @@ fn missing_serve_reach_reformat_uses_structured_parser_state_not_metavar_text() 
     assert!(!kept.to_string().contains("--reach <REACH>"), "got: {kept}");
 }
 
+/// #1277 Z5: when `hands serve` receives plain `--reach` and `--artifacts` is
+/// absent, `is_missing_serve_reach` must short-circuit false on
+/// `serve.value_source("reach").is_none()` so `reformat_missing_serve_reach`
+/// leaves clap's own error untouched instead of marking `--reach`
+/// unconditionally required.
+#[test]
+fn hands_serve_with_plain_reach_and_missing_artifacts_keeps_clap_usage() {
+    use clap::Parser;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().to_str().unwrap();
+
+    // Passing `--spec` alongside plain `--reach` distinguishes clap's natural
+    // error (where `--reach` is conditionally required) from the reformatted
+    // error (where `--reach` is forced unconditionally required).
+    let Err(err) = crate::Cli::try_parse_from([
+        "brokkr",
+        "hands",
+        "serve",
+        "--workdir",
+        work,
+        "--spec",
+        DEFAULT_SPEC,
+        "--reach",
+        "{}",
+    ]) else {
+        panic!("expected clap to refuse missing --artifacts on hands serve");
+    };
+    assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    assert_eq!(err.exit_code(), 2);
+    assert_eq!(
+        err.to_string(),
+        concat!(
+            "error: the following required arguments were not provided:\n  --artifacts <ARTIFACTS>\n\n",
+            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --spec <SPEC> --reach <REACH>\n\n",
+            "For more information, try '--help'.\n"
+        )
+    );
+}
+
 /// #1277 X2 (proposed decision 0125 ruling 4): non-missing-reach clap errors
 /// on `hands serve` (such as passing `--reach` twice) keep clap's usage
 /// synopsis for the present argument set rather than being rewritten by

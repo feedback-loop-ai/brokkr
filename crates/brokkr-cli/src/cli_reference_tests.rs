@@ -33,7 +33,7 @@ use crate::exit::Exit;
 use crate::Cli;
 
 mod flat;
-mod hands;
+mod hands_tests;
 #[path = "../tests/support/records.rs"]
 mod records;
 #[path = "../tests/support/tracked.rs"]
