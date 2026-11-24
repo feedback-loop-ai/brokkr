@@ -2,23 +2,6 @@
 
 use super::*;
 
-pub(super) fn fold_stream_event(
-    event: &Value,
-    fold: &mut ClaudeFold,
-    meta: &mut Map<String, Value>,
-    transcript: &mut Transcript,
-    emit: &mut impl FnMut(&Value),
-) -> Option<PreSessionRefusal> {
-    super::fold_stream_event(
-        &Row::new(event, &[]),
-        claude_fold::Source::Claude,
-        fold,
-        meta,
-        transcript,
-        &mut |row| emit(&row.row),
-    )
-}
-
 pub(super) fn fold_codex_event(
     event: &Value,
     turn: &mut u64,

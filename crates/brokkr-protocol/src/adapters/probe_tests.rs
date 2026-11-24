@@ -3,7 +3,8 @@
 //! fake harness refuses and then answers, a probe ends only on the first
 //! model-output event, and dsh still classifies nothing.
 
-use super::raw_fold_tests::{fold_codex_event, fold_stream_event};
+use super::claude_fold::Source::Claude;
+use super::raw_fold_tests::fold_codex_event;
 use super::tests::executable;
 use super::*;
 use crate::env_guard::EnvGuard;
@@ -712,31 +713,34 @@ fn a_refusal_is_classified_only_before_the_first_counted_turn() {
     let mut turns = ClaudeFold::default();
     let mut meta = Map::new();
     let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
-    let mut emitted: Vec<Value> = Vec::new();
-    assert!(
-        fold_stream_event(&refusal, &mut turns, &mut meta, &mut transcript, &mut |c| {
-            emitted.push(c.clone())
-        })
-        .is_some()
+    let mut emitted = Vec::new();
+    let bound = [super::tests::binding("S", "assi")];
+    let refusal = Row::new(&refusal, &bound);
+    let mut fold = |row: &Row<'_>, turns: &mut ClaudeFold| {
+        fold_stream_event(
+            row,
+            Claude,
+            turns,
+            &mut meta,
+            &mut transcript,
+            &mut |item| {
+                emitted.push(item.step);
+            },
+        )
+    };
+    let rejected = fold(&refusal, &mut turns);
+    let reported = rejected
+        .as_ref()
+        .map(|refusal| (refusal.class(), refusal.words()));
+    assert_eq!(
+        reported,
+        Some((RefusalClass::RateLimit, "rate_limit: limit"))
     );
-    assert!(
-        emitted.is_empty(),
-        "a refusal emits no checkpoint: {emitted:?}"
-    );
-    fold_stream_event(
-        &json!({"type":"assistant","message":{"content":[]}}),
-        &mut turns,
-        &mut meta,
-        &mut transcript,
-        &mut |c| emitted.push(c.clone()),
-    );
+    let work = json!({"type":"assistant","message":{"content":[]}});
+    assert_eq!(fold(&Row::new(&work, &bound), &mut turns), None);
     assert_eq!(turns.turns, 1);
-    assert!(
-        fold_stream_event(&refusal, &mut turns, &mut meta, &mut transcript, &mut |c| {
-            emitted.push(c.clone())
-        })
-        .is_none()
-    );
+    assert_eq!(fold(&refusal, &mut turns), None);
+    assert_eq!(emitted, [Step::SeatTurn, Step::SeatTurn]);
 
     let mut turn = 0;
     let mut meta = Map::new();

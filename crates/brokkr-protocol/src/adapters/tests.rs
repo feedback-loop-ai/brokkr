@@ -1,4 +1,5 @@
-use super::raw_fold_tests::{claude_refusal, codex_refusal, fold_codex_event, fold_stream_event};
+use super::claude_fold::Source::Claude;
+use super::raw_fold_tests::{claude_refusal, codex_refusal, fold_codex_event};
 use super::*;
 use crate::env_guard::EnvGuard;
 use std::{os::unix::ffi::OsStrExt, path::Path};
@@ -155,9 +156,14 @@ fn claude_fold_journals_file_paths_only_and_bash_stays_targetless() {
         {"type": "tool_use", "name": "Edit",
          "input": {"file_path": "src/lib.rs"}},
     ]}});
-    fold_stream_event(&event, &mut turns, &mut meta, &mut transcript, &mut |c| {
-        emitted.push(c.clone())
-    });
+    fold_stream_event(
+        &Row::new(&event, &[]),
+        Claude,
+        &mut turns,
+        &mut meta,
+        &mut transcript,
+        &mut |c| emitted.push(c.row.clone()),
+    );
     assert_eq!(emitted.len(), 2);
     assert_eq!(emitted[0]["tool"], "Bash");
     assert!(emitted[0].get("target").is_none(), "{}", emitted[0]);
@@ -323,11 +329,12 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         json!({"type": "ignored"}),
     ] {
         fold_stream_event(
-            &event,
+            &Row::new(&event, &[]),
+            Claude,
             &mut turns,
             &mut meta,
             &mut claude_transcript,
-            &mut |value| emitted.push(value.clone()),
+            &mut |value| emitted.push(value.row.clone()),
         );
     }
     assert_eq!(meta["transcript"]["locator"], "session");
@@ -990,45 +997,6 @@ fn dialect_exec_turns_command_output_and_state_into_a_typed_result() {
         raw["notes"],
         "validator stderr: 1 bytes (first byte: non-ASCII; sha256: a8100ae6aa1940d0)"
     );
-}
-
-#[test]
-fn init_journals_the_shared_transcript_checkpoint_with_the_id() {
-    // The id used to be stashed for the session-finished checkpoint
-    // only, which meant a WORKING seat had no session id in the
-    // journal — so the transcript drilldowns could not locate, let
-    // alone live-stream, the prose being written. init carries the id
-    // in the first stream message; it is journaled immediately.
-    let mut turns = ClaudeFold::default();
-    let mut meta = serde_json::Map::new();
-    let mut emitted: Vec<serde_json::Value> = Vec::new();
-    let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
-    fold_stream_event(
-        &serde_json::json!({"type": "system", "subtype": "init",
-                            "session_id": "abcd-1234-ef"}),
-        &mut turns,
-        &mut meta,
-        &mut transcript,
-        &mut |value| emitted.push(value.clone()),
-    );
-    assert_eq!(emitted.len(), 1, "one checkpoint, immediately");
-    assert_eq!(emitted[0]["step"], "transcript");
-    assert_eq!(emitted[0]["transcript"]["locator"], "abcd-1234-ef");
-    assert_eq!(
-        meta["transcript"]["locator"], "abcd-1234-ef",
-        "and the meta still feeds the finish"
-    );
-
-    // A non-string id is refused wholesale, not stringified.
-    let mut emitted: Vec<serde_json::Value> = Vec::new();
-    fold_stream_event(
-        &serde_json::json!({"type": "system", "subtype": "init", "session_id": 7}),
-        &mut turns,
-        &mut meta,
-        &mut transcript,
-        &mut |value| emitted.push(value.clone()),
-    );
-    assert!(emitted.is_empty(), "no string, no checkpoint");
 }
 
 #[cfg(unix)]
@@ -9177,9 +9145,14 @@ fn claude_fold_journals_a_toolless_turn_once_and_a_nameless_tool_use() {
     let event = json!({"type": "assistant", "message": {"content": [
         {"type": "text", "text": "reasoning the operator never sees"},
     ]}});
-    fold_stream_event(&event, &mut turns, &mut meta, &mut transcript, &mut |c| {
-        emitted.push(c.clone())
-    });
+    fold_stream_event(
+        &Row::new(&event, &[]),
+        Claude,
+        &mut turns,
+        &mut meta,
+        &mut transcript,
+        &mut |c| emitted.push(c.row.clone()),
+    );
     assert_eq!(emitted.len(), 1, "the toolless turn is journaled once");
     assert!(emitted[0].get("tool").is_none());
     assert!(
@@ -9193,9 +9166,14 @@ fn claude_fold_journals_a_toolless_turn_once_and_a_nameless_tool_use() {
     let event = json!({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "input": {"file_path": "src/main.rs"}},
     ]}});
-    fold_stream_event(&event, &mut turns, &mut meta, &mut transcript, &mut |c| {
-        emitted.push(c.clone())
-    });
+    fold_stream_event(
+        &Row::new(&event, &[]),
+        Claude,
+        &mut turns,
+        &mut meta,
+        &mut transcript,
+        &mut |c| emitted.push(c.row.clone()),
+    );
     assert_eq!(emitted.len(), 1);
     assert!(
         emitted[0].get("tool").is_none(),

@@ -1,6 +1,7 @@
 use serde_json::{json, Map, Value};
 
-use super::super::raw_fold_tests::{fold_codex_event, fold_stream_event};
+use super::super::claude_fold::{fold_stream_event, Source::Claude};
+use super::super::raw_fold_tests::fold_codex_event;
 use super::super::{fold_dsh_event, CodexThreadEcho, Row};
 use super::{Format, Observation, Tool, OBSERVATION_KEY};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
@@ -185,12 +186,13 @@ fn claude_rows(blocks: Vec<Value>) -> Vec<Value> {
     let event = json!({"type": "assistant", "message": {"model": "claude-opus-5-5",
         "usage": {"input_tokens": 13, "output_tokens": 2}, "content": blocks}});
     let refused = fold_stream_event(
-        &event,
+        &Row::new(&event, &[]),
+        Claude,
         &mut super::super::ClaudeFold::default(),
         &mut Map::new(),
         &mut transcript,
         &mut |row| {
-            rows.push(row.clone());
+            rows.push(row.row.clone());
         },
     );
     assert_eq!(refused, None);

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use super::super::claude_fold::Source::Claude;
 use super::decision_0114a::{bindings, claude_launch, wire_rows, Driven, Stream};
 use super::*;
 use crate::RefusalClass;
@@ -419,4 +420,47 @@ fn claude_does_not_record_or_resume_a_truncated_session_id() {
     let (rejoin, rows) = claude_launch(&stream, Some(&prefix));
     assert_eq!(rejoin, LaunchTerminal::Mismatch);
     assert_eq!(rows.len(), 1);
+}
+
+#[test]
+fn init_journals_the_shared_transcript_checkpoint_with_the_id() {
+    // The id used to be stashed for the session-finished checkpoint
+    // only, which meant a WORKING seat had no session id in the
+    // journal — so the transcript drilldowns could not locate, let
+    // alone live-stream, the prose being written. init carries the id
+    // in the first stream message; it is journaled immediately.
+    let mut turns = ClaudeFold::default();
+    let mut meta = serde_json::Map::new();
+    let mut emitted: Vec<serde_json::Value> = Vec::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
+    fold_stream_event(
+        &Row::new(&init(MODEL, "abcd-1234-ef"), &[]),
+        Claude,
+        &mut turns,
+        &mut meta,
+        &mut transcript,
+        &mut |value| emitted.push(value.row.clone()),
+    );
+    assert_eq!(emitted.len(), 1, "one checkpoint, immediately");
+    assert_eq!(emitted[0]["step"], "transcript");
+    assert_eq!(emitted[0]["transcript"]["locator"], "abcd-1234-ef");
+    assert_eq!(
+        meta["transcript"]["locator"], "abcd-1234-ef",
+        "and the meta still feeds the finish"
+    );
+
+    // A non-string id is refused wholesale, not stringified.
+    let mut emitted: Vec<serde_json::Value> = Vec::new();
+    fold_stream_event(
+        &Row::new(
+            &json!({"type": "system", "subtype": "init", "session_id": 7}),
+            &[],
+        ),
+        Claude,
+        &mut turns,
+        &mut meta,
+        &mut transcript,
+        &mut |value| emitted.push(value.row.clone()),
+    );
+    assert!(emitted.is_empty(), "no string, no checkpoint");
 }
