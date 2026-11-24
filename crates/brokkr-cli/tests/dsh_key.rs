@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::brokkr_folder::{Ran, Repo};
-use crate::isolated::Alone;
+use crate::isolated::{alone, Alone};
 
 /// What every planted key holds: output carrying it is a leak.
 const PLANTED: &str = "planted-value-717";
@@ -36,21 +36,16 @@ const UNSET: &str = "dsh key deepseek-official: dsh reaches no DEEPSEEK_API_KEY:
                      export DEEPSEEK_API_KEY where brokkr runs";
 
 /// A repository, a PATH holding only an executable dsh stand-in, and an
-/// empty dsh home, every one the test's own; and the PID namespace its
-/// doctor runs alone in (#1137i).
+/// empty dsh home, every one the test's own.
 struct DshHost {
     repo: Repo,
     bins: PathBuf,
     home: PathBuf,
     _home: tempfile::TempDir,
-    alone: Alone,
 }
 
 impl DshHost {
-    /// The host, or `None` once a host that cannot give doctor its PID
-    /// namespace has skipped the test.
-    fn new() -> Option<DshHost> {
-        let alone = crate::isolated::alone()?;
+    fn new() -> DshHost {
         let repo = Repo::new();
         let bins = repo.root.with_file_name("bins");
         std::fs::create_dir(&bins).unwrap();
@@ -63,13 +58,12 @@ impl DshHost {
         std::fs::rename(&staged, bins.join("dsh")).unwrap();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("profiles/headless")).unwrap();
-        Some(DshHost {
+        DshHost {
             repo,
             bins,
             home: dir.path().canonicalize().unwrap(),
             _home: dir,
-            alone,
-        })
+        }
     }
 
     /// `brokkr <args>` at the root, `key` the launching environment's key.
@@ -140,8 +134,8 @@ impl DshHost {
     }
 
     /// `brokkr doctor`'s dsh key check lines, and its exit code.
-    fn doctor(&self, key: Option<&str>) -> (Vec<String>, Option<i32>) {
-        let mut doctor = self.repo.doctor(&self.alone, "", &["doctor"]);
+    fn doctor(&self, alone: &Alone, key: Option<&str>) -> (Vec<String>, Option<i32>) {
+        let mut doctor = self.repo.doctor(alone, "", &["doctor"]);
         let doctor = self.hosted(&mut doctor, key);
         let lines = doctor.stdout.lines().filter(|line| {
             ["dsh key ", "dsh home ", "dsh home:", "dsh workdir:"]
@@ -209,20 +203,19 @@ fn refused(seats: &str, in_repo: &Path) -> String {
 /// no key there, and fails the report.
 #[test]
 fn an_engine_only_seat_reads_its_key_from_the_launching_environment_alone() {
-    let Some(host) = DshHost::new() else {
-        return;
-    };
+    let host = DshHost::new();
     let served = engine("deepseek-official", "implement, intake");
     assert_eq!(host.init(None), host.initialised(None));
+    let Some(alone) = alone() else { return };
     let missing = (
         vec![format!("MISSING  {UNSET}"), format!("ok       {served}")],
         Some(1),
     );
-    assert_eq!(host.doctor(None), missing);
+    assert_eq!(host.doctor(&alone, None), missing);
     // A variable set to nothing is no key.
-    assert_eq!(host.doctor(Some("")), missing);
+    assert_eq!(host.doctor(&alone, Some("")), missing);
     assert_eq!(
-        host.doctor(Some(PLANTED)).0,
+        host.doctor(&alone, Some(PLANTED)).0,
         [format!("ok       {REACHED}"), format!("ok       {served}")]
     );
     let patch = host.home.join("profiles/headless/cordis.patch.yml");
@@ -231,22 +224,21 @@ fn an_engine_only_seat_reads_its_key_from_the_launching_environment_alone() {
         &host.home.join(".env"),
         &format!("DEEPSEEK_API_KEY={PLANTED}\n"),
     );
-    assert_eq!(host.doctor(None), missing);
+    assert_eq!(host.doctor(&alone, None), missing);
 }
 
 /// A `.env` in the repository the scaffold's seats run in refuses each
 /// engine-only launch, whatever the environment gives, and is never read.
 #[test]
 fn a_workdir_dotenv_refuses_every_engine_only_launch_and_is_never_read() {
-    let Some(host) = DshHost::new() else {
-        return;
-    };
+    let host = DshHost::new();
     let initialised = host.initialised(Some(PLANTED));
     assert_eq!(host.init(Some(PLANTED)), initialised);
     let in_repo = host.repo.path(".env");
     host.unreadable(&in_repo, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
     let refused = refused("implement, intake", &in_repo);
-    assert_eq!(host.doctor(Some(PLANTED)), (vec![refused], Some(1)));
+    let Some(alone) = alone() else { return };
+    assert_eq!(host.doctor(&alone, Some(PLANTED)), (vec![refused], Some(1)));
 }
 
 /// An inline dsh seat, whose launch the compile carries no argv for, is
@@ -255,9 +247,7 @@ fn a_workdir_dotenv_refuses_every_engine_only_launch_and_is_never_read() {
 /// the report, and a repository `.env` still refuses that seat's launch.
 #[test]
 fn an_inline_dsh_seat_leaves_the_agent_seats_home_standing() {
-    let Some(host) = DshHost::new() else {
-        return;
-    };
+    let host = DshHost::new();
     host.init(Some(PLANTED));
     let bundle = host.repo.path(".brokkr/bundle.json");
     let seats = std::fs::read_to_string(&bundle).unwrap();
@@ -280,11 +270,12 @@ fn an_inline_dsh_seat_leaves_the_agent_seats_home_standing() {
         &host.home.join(".env"),
         &format!("DEEPSEEK_API_KEY={PLANTED}\n"),
     );
-    assert_eq!(host.doctor(None), (missing, Some(1)));
+    let Some(alone) = alone() else { return };
+    assert_eq!(host.doctor(&alone, None), (missing, Some(1)));
     let in_repo = host.repo.path(".env");
     host.unreadable(&in_repo, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
     let beside = vec![refused("implement", &in_repo), unmodelled.to_string()];
-    assert_eq!(host.doctor(Some(PLANTED)), (beside, Some(1)));
+    assert_eq!(host.doctor(&alone, Some(PLANTED)), (beside, Some(1)));
 }
 
 /// A seat whose model rides a route no engine-only home was measured on is
@@ -293,9 +284,7 @@ fn an_inline_dsh_seat_leaves_the_agent_seats_home_standing() {
 /// engine-only home serves; past it (Linux) the route refuses its seats.
 #[test]
 fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
-    let Some(host) = DshHost::new() else {
-        return;
-    };
+    let host = DshHost::new();
     host.init(Some(PLANTED));
     let adapter = host.repo.path(".brokkr/adapters/dsh.json");
     let scaffold = std::fs::read_to_string(&adapter).unwrap();
@@ -313,6 +302,7 @@ fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
     assert!(hired.contains(efforts) && hired.contains(models), "{hired}");
     let hired = hired.replace(efforts, "\"spark\": \"high\"");
     std::fs::write(&intake, hired.replace(models, "\"spark\"")).unwrap();
+    let Some(alone) = alone() else { return };
     let operator = format!("ok       {}", operator("spark", "intake"));
     let implement = [
         format!("ok       {REACHED}"),
@@ -326,7 +316,7 @@ fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
                        route: provider 'dsh' has no measured strict MCP configuration on route \
                        'spark'";
         let expected = [&implement[..], &[refused.to_string()]].concat();
-        assert_eq!(host.doctor(Some(PLANTED)), (expected, Some(1)));
+        assert_eq!(host.doctor(&alone, Some(PLANTED)), (expected, Some(1)));
         return;
     }
     let spark = |key: String| [key, operator.clone()];
@@ -335,7 +325,7 @@ fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
         host.unreached("SPARK_API_KEY")
     );
     assert_eq!(
-        host.doctor(Some(PLANTED)),
+        host.doctor(&alone, Some(PLANTED)),
         ([implement.clone(), spark(unreached)].concat(), Some(1))
     );
     let patch = host.home.join("profiles/headless/cordis.patch.yml");
@@ -346,7 +336,7 @@ fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
         patch.display()
     );
     assert_eq!(
-        host.doctor(Some(PLANTED)).0,
+        host.doctor(&alone, Some(PLANTED)).0,
         [implement, spark(service)].concat()
     );
     // The repository's `.env` is told present but unread for the
@@ -361,7 +351,7 @@ fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
     );
     let refused = refused("implement", &in_repo);
     assert_eq!(
-        host.doctor(Some(PLANTED)).0,
+        host.doctor(&alone, Some(PLANTED)).0,
         [vec![refused], spark(untold).to_vec()].concat()
     );
 }
