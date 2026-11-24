@@ -68,6 +68,15 @@ impl Scratch {
         (error, String::from_utf8(stderr).unwrap())
     }
 
+    fn refused_order(&self, words: &[&str]) -> (OrderRefusal, String) {
+        let (error, stderr) = self.refused(words);
+        match error.downcast::<StoreError>() {
+            Ok(StoreError::Orders(refusal)) => (refusal, stderr),
+            Ok(other) => panic!("expected a work order refusal, got store error {other:?}"),
+            Err(other) => panic!("expected a work order refusal, got {other:?}"),
+        }
+    }
+
     fn add(&self, file: &Path) -> String {
         self.stdout(&["add", file.to_str().unwrap(), "--reason", REASON])
     }
@@ -142,11 +151,8 @@ fn ruling_waits_for_closed_asks_and_an_edit_returns_the_order_to_proposed() {
     let file = scratch.file(&open);
     scratch.add(&file);
     let rule = ["rule", "WO-12", "--reason", REASON];
-    let (error, stderr) = scratch.refused(&rule);
-    assert!(matches!(
-        error.downcast_ref::<StoreError>(),
-        Some(StoreError::Orders(OrderRefusal::OpenAsk(id))) if id.number() == 12
-    ));
+    let (refusal, stderr) = scratch.refused_order(&rule);
+    assert!(matches!(refusal, OrderRefusal::OpenAsk(id) if id.number() == 12));
     assert_eq!(
         stderr,
         "error: WO-12 has an open ask; close its asks before ruling it\n"
@@ -199,12 +205,8 @@ fn ruling_an_order_the_cli_cannot_show_journals_no_ruling() {
         .order_add(order, by)
         .unwrap();
 
-    let rule = ["rule", "WO-12", "--reason", REASON];
-    let (error, stderr) = scratch.refused(&rule);
-    assert!(matches!(
-        error.downcast_ref::<StoreError>(),
-        Some(StoreError::Orders(OrderRefusal::Unreadable(id, _))) if id.number() == 12
-    ));
+    let (refusal, stderr) = scratch.refused_order(&["rule", "WO-12", "--reason", REASON]);
+    assert!(matches!(refusal, OrderRefusal::Unreadable(id, _) if id.number() == 12));
     assert!(stderr.starts_with(
         "error: the journal's text for WO-12 cannot be read: the work order cites unknown tracker 'custom'"
     ));
