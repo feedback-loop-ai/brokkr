@@ -415,7 +415,7 @@ fn an_entry_of_unknown_demand_starts_on_an_idle_machine_and_waits_beside_a_runni
         said(&beside),
         vec![vec![(
             "demand_unknown",
-            "recipe fixture has no measured run and no declared demand, so it starts only when \
+            "recipe fixture has no measured or declared demand, so it starts only when \
              nothing else runs, and 1 runs are running, 0 entries were admitted before it in \
              this pass and 0 journals of the realms map cannot be read"
                 .to_string()
@@ -461,25 +461,79 @@ fn a_recipes_first_running_attempt_does_not_turn_into_history() {
 }
 
 #[test]
-fn unmeasured_remaining_phases_reserve_the_recipes_full_expected_peak() {
+fn stopped_only_history_leaves_demand_unknown_beside_a_running_run() {
     let mut fixture = Fixture::new();
     run(
         &mut fixture.store,
-        "stopped-early",
+        "stopped-in-intake",
         "fixture",
-        &[("intake", 4 * GIB, 1000), ("implement", 0, 0)],
+        &[("intake", 300 << 20, 1000)],
         false,
     );
     fixture
         .store
         .append_next(
-            "stopped-early",
+            "stopped-in-intake",
             EventType::RunStopped,
             json!({}),
             None,
             None,
         )
         .unwrap();
+    run(
+        &mut fixture.store,
+        "live",
+        "fixture",
+        &[("implement", 0, 0)],
+        false,
+    );
+    fixture.queue();
+    let mut host = declared(GIB, 1000);
+    let declared_demand = host.as_object_mut().unwrap().remove("demand").unwrap();
+    host.as_object_mut().unwrap().remove("runs");
+    let pass = |host: &Value| {
+        judged(
+            &fixture,
+            host,
+            &[],
+            measured(16 * GIB, 8000),
+            &BTreeMap::new(),
+        )
+        .0
+    };
+    let unknown = pass(&host);
+    assert_eq!(unknown[0].demand.as_ref().unwrap().source, Source::Unknown);
+    assert_eq!(
+        unknown[0].verdict.as_ref().unwrap().reasons,
+        vec![Reason::Capacity(Capacity::Demand(Unfit(Short::Unknown {
+            recipe: "fixture".to_string(),
+            beside: Beside {
+                running: 1,
+                admitted: 0,
+                unreadable: 0,
+            },
+        })))]
+    );
+
+    host["demand"] = declared_demand;
+    let declared = pass(&host);
+    assert_eq!(
+        declared[0].demand.as_ref().unwrap().source,
+        Source::Declared
+    );
+    assert_eq!(said(&declared), vec![vec![]]);
+}
+
+#[test]
+fn unmeasured_remaining_phases_reserve_the_recipes_full_expected_peak() {
+    let mut fixture = Fixture::new();
+    run(
+        &mut fixture.store,
+        "completed-without-implement-usage",
+        "fixture",
+        &[("intake", 4 * GIB, 1000), ("implement", 0, 0)],
+        true,
+    );
     run(
         &mut fixture.store,
         "live",

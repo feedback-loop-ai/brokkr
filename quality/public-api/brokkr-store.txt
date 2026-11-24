@@ -378,6 +378,7 @@ pub enum brokkr_store::TreeSweepRecord
 pub brokkr_store::TreeSweepRecord::Unrecorded
 pub brokkr_store::TreeSweepRecord::Written
 pub enum brokkr_store::UsageEvent
+pub brokkr_store::UsageEvent::Completed
 pub brokkr_store::UsageEvent::Ended(alloc::string::String)
 pub brokkr_store::UsageEvent::Entered(alloc::string::String)
 pub enum brokkr_store::VerifyError

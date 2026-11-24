@@ -1,7 +1,8 @@
 //! What a recipe's measured runs say it needs (decision 0125 ruling 3):
 //! of the rows every journal's history read gave, each recipe's newest
-//! ended runs that carry `effect-usage/v1`, at most the window, and for each
-//! phase the means of its attempts' peaks, an attempt of several drivers
+//! ended runs that carry `effect-usage/v1`, at most the window. A profile
+//! needs a completed run in that window. Each phase uses the means of
+//! its attempts' peaks, an attempt of several drivers
 //! counted as their sum. The order those runs entered their phases says
 //! which phases a running run may still enter (ruling 5).
 
@@ -78,11 +79,12 @@ fn attempt(usage: &str) -> Option<Peak> {
     }
 }
 
-/// One run as its rows read: when it was created, the phases it entered
-/// in order, and each measured attempt's phase and peaks.
+/// One run as its rows read: when it was created, whether it completed,
+/// the phases it entered in order, and each measured attempt's phase and peaks.
 #[derive(Default)]
 struct Run {
     created_at: String,
+    completed: bool,
     entered: Vec<String>,
     attempts: Vec<(String, Peak)>,
 }
@@ -90,6 +92,7 @@ struct Run {
 impl Run {
     fn note(&mut self, event: &UsageEvent) {
         match event {
+            UsageEvent::Completed => self.completed = true,
             UsageEvent::Entered(phase) => self.entered.push(phase.clone()),
             UsageEvent::Ended(usage) => {
                 let phase = self.entered.last().cloned();
@@ -179,8 +182,8 @@ impl Profile {
     }
 }
 
-/// Every recipe's profile, by name: only a recipe with a measured run in
-/// its window has one.
+/// Every recipe's profile, by name: only a recipe with a completed run
+/// in its measured window has one.
 pub(crate) fn learn(
     rows: impl IntoIterator<Item = UsageRow>,
     window: usize,
@@ -198,10 +201,12 @@ pub(crate) fn learn(
         }
     }
     (recipes.into_iter())
-        .map(|(recipe, mut runs)| {
+        .filter_map(|(recipe, mut runs)| {
             runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
             runs.truncate(window);
-            (recipe, Profile::of(runs))
+            runs.iter()
+                .any(|run| run.completed)
+                .then(|| (recipe, Profile::of(runs)))
         })
         .collect()
 }

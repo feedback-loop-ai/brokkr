@@ -63,11 +63,16 @@ upgrade verb and `init`'s placeholder ceilings).
      carry `effect-usage/v1`, newest first by when each was created, read
      across the pass's own journal and every distinct journal the realms map
      the workspace reads lists (the map `brokkr system realms` reads); the
-     host file's `demand.window_runs` overrides the 20;
+     host file's `demand.window_runs` overrides the 20.
+     **Proposed narrowing for 1193b.** The window supplies a measured
+     profile only when it contains a run that ended with `run/completed`,
+     with all measured runs in a qualifying window contributing to its
+     per-phase means.
    - **the read:** one bounded statement per journal: of the latest twice
-     `window_runs` ended runs of each recipe, only the `phase/entered` events and
-     the endings that carry `usage`. A run among them that carries none is
-     passed over, so a window may hold fewer runs than it asks;
+     `window_runs` ended runs of each recipe, only the `phase/entered` events,
+     the endings that carry `usage` and each `run/completed` event. Runs
+     without usage are passed over, so a window may hold fewer runs than it
+     asks;
    - **per phase:** an attempt's peak memory and peak load are its own, or,
      for an attempt of several drivers, their sum (a panel's members; a
      sequence's steps are summed too, an upper estimate); its phase is the

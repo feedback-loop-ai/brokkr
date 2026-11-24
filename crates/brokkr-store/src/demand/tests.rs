@@ -57,10 +57,9 @@ fn row(run: &str, recipe: &str, at: &str, event: UsageEvent) -> UsageRow {
     }
 }
 
-/// Each recipe's latest ended runs alone, newest first, and of their events only
-/// a phase entered and an ending that carries usage: an ending without
-/// it, another event, and an envelope that only names `usage` in its text
-/// are not read.
+/// Each recipe's latest ended runs, newest first, supply phases entered,
+/// run completions and attempt endings carrying usage. Text that mentions
+/// usage or completion in another event does not produce a row.
 #[test]
 fn the_history_reads_each_recipes_latest_runs_and_only_the_events_that_size_it() {
     let (_dir, store) = crate::tests::store();
@@ -97,7 +96,10 @@ fn the_history_reads_each_recipes_latest_runs_and_only_the_events_that_size_it()
         &[
             ("phase/entered", json!({"phase": "verify"})),
             ("effect/failed", json!({"result": "no usage"})),
-            ("effect/requested", json!({"note": "\"usage\""})),
+            (
+                "effect/requested",
+                json!({"note": "\"usage\"", "text": "run/completed"}),
+            ),
             ("effect/indeterminate", json!({"usage": usage(30)})),
             ("run/stopped", json!({})),
         ],
@@ -132,7 +134,9 @@ fn the_history_reads_each_recipes_latest_runs_and_only_the_events_that_size_it()
                 UsageEvent::Entered("implement".into())
             ),
             row("a2", "self", &at("2"), ended(10)),
+            row("a2", "self", &at("2"), UsageEvent::Completed),
             row("b1", "verify", &at("1"), ended(5)),
+            row("b1", "verify", &at("1"), UsageEvent::Completed),
         ]
     );
 }
@@ -197,7 +201,7 @@ fn the_untouched_open_reads_a_journal_and_leaves_its_directory_byte_identical() 
         .unwrap()
         .usage_history(20)
         .unwrap();
-    assert_eq!(read.len(), 1);
+    assert_eq!(read.len(), 2);
     assert_eq!(files(dir.path()), before);
     let absent = dir.path().join("absent.db");
     assert!(matches!(

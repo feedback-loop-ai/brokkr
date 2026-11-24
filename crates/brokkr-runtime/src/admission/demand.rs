@@ -92,7 +92,7 @@ pub struct Sized {
 pub enum Source {
     /// The mean of the recipe's last `runs` measured runs.
     Measured { runs: usize },
-    /// The host file's declaration, the recipe having no measured run.
+    /// The host file's declaration, the recipe having no measured profile.
     Declared,
     /// Neither (ruling C).
     Unknown,
@@ -155,7 +155,7 @@ pub(crate) enum Short {
     Memory { sized: Box<Sized>, whole: bool },
     /// `cpu_short`; `whole` where the demand is more than every core.
     Cpu { sized: Box<Sized>, whole: bool },
-    /// `demand_unknown`: no measured run and no declaration, and something
+    /// `demand_unknown`: no measured profile and no declaration, and something
     /// else stands on the machine.
     Unknown { recipe: String, beside: Beside },
     /// `demand_unknown`: a run or an admitted entry whose demand is

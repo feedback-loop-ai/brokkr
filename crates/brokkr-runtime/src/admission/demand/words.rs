@@ -128,7 +128,7 @@ impl fmt::Display for Short {
             }
             Short::Unknown { recipe, beside } => write!(
                 f,
-                "recipe {recipe} has no measured run and no declared demand, so it starts only \
+                "recipe {recipe} has no measured or declared demand, so it starts only \
                  when nothing else runs, and {} runs are running, {} entries were admitted \
                  before it in this pass and {} journals of the realms map cannot be read",
                 beside.running, beside.admitted, beside.unreadable

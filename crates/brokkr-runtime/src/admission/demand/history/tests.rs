@@ -41,7 +41,8 @@ fn peak(memory_bytes: u64, load_millicores: u64) -> Peak {
 
 /// The window is the two newest measured runs whichever journal holds
 /// them: the newest run carries no usage and is passed over, the oldest
-/// is past the window. A panel's members are summed, an ending before any
+/// is past the window. The stopped run still contributes beside a completed
+/// run. A panel's members are summed, an ending before any
 /// phase and a usage that is not `effect-usage/v1` are not counted, and a
 /// mean is rounded up.
 #[test]
@@ -65,6 +66,7 @@ fn a_recipes_window_is_its_newest_measured_runs_and_each_phase_the_mean_of_its_a
                 ended(seat(10, 2000)),
                 entered("verify"),
                 ended(panel.to_string()),
+                UsageEvent::Completed,
             ],
         ),
     ];
@@ -79,10 +81,26 @@ fn a_recipes_window_is_its_newest_measured_runs_and_each_phase_the_mean_of_its_a
                 ended("{\"cpu\": 1}".into()),
             ],
         ),
-        rows("bare", "self", 4, &[entered("implement")]),
-        rows("other", "verify", 3, &[entered("build"), ended(seat(1, 1))]),
+        rows(
+            "bare",
+            "self",
+            4,
+            &[entered("implement"), UsageEvent::Completed],
+        ),
+        rows(
+            "other",
+            "verify",
+            3,
+            &[entered("build"), ended(seat(1, 1)), UsageEvent::Completed],
+        ),
     ];
-    let learned = learn(first_journal.into_iter().chain(second_journal).flatten(), 2);
+    let measured = first_journal.iter().chain(&second_journal).flatten();
+    let narrow = learn(measured.clone().cloned(), 1);
+    assert_eq!(
+        narrow.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["verify"]
+    );
+    let learned = learn(measured.cloned(), 2);
     let profile = &learned["self"];
     assert_eq!(profile.runs, 2);
     assert_eq!(
@@ -118,6 +136,7 @@ fn a_running_runs_remaining_phases_are_its_current_and_those_entered_after_it() 
                 entered("implement"),
                 entered("ship"),
                 usage(2),
+                UsageEvent::Completed,
             ],
         ),
         20,

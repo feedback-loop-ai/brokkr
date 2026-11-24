@@ -12,12 +12,13 @@
 //!
 //! The history is one bounded statement per journal: the latest
 //! `candidates` ended runs of each recipe by `created_at`, and of their events
-//! only the `phase/entered` rows and the endings carrying a `usage`
-//! object, each prefiltered by its text and then read through
+//! only the `phase/entered` rows, the endings carrying a `usage` object
+//! and `run/completed`, each prefiltered by its text and then read through
 //! `json_valid`, so an envelope no reader parses is never extracted.
 
 use std::path::{Path, PathBuf};
 
+use brokkr_core::EventType;
 use rusqlite::{params, Connection, OpenFlags};
 
 use crate::{damage, literal, patiently, Store, StoreError};
@@ -32,10 +33,11 @@ pub struct UsageRow {
     pub event: UsageEvent,
 }
 
-/// A `phase/entered` and the phase it names, or an ending of an attempt
-/// and the `usage` object it carries, as its JSON text.
+/// A phase entered, an attempt ending with its usage as JSON text, or
+/// a run completion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UsageEvent {
+    Completed,
     Entered(String),
     Ended(String),
 }
@@ -46,6 +48,8 @@ pub struct Unended {
     pub run: String,
     pub recipe: String,
 }
+
+const RUN_COMPLETED: &str = EventType::RunCompleted.as_str();
 
 /// Whether the run named by the query's `r` alias has a terminal event.
 fn ended_sql() -> String {
@@ -71,7 +75,9 @@ fn history_sql() -> String {
                FROM runs AS r WHERE {ended}) AS r
          JOIN events AS e ON e.run_id = r.run_id
          WHERE r.latest <= ?1
-           AND (instr(e.envelope, 'phase/entered') > 0 OR instr(e.envelope, '\"usage\"') > 0)
+           AND (instr(e.envelope, 'phase/entered') > 0
+                OR instr(e.envelope, '\"usage\"') > 0
+                OR instr(e.envelope, '{RUN_COMPLETED}') > 0)
          ORDER BY r.created_at DESC, r.run_id DESC, e.seq"
     )
 }
@@ -89,6 +95,7 @@ fn unended_sql() -> String {
 /// an ending without `usage`, or a row whose text only looked like one.
 fn event(kind: Option<String>, phase: Option<String>, usage: Option<String>) -> Option<UsageEvent> {
     match (kind.as_deref(), phase, usage) {
+        (Some(RUN_COMPLETED), _, _) => Some(UsageEvent::Completed),
         (Some("phase/entered"), Some(phase), _) => Some(UsageEvent::Entered(phase)),
         (Some("effect/succeeded" | "effect/failed" | "effect/indeterminate"), _, Some(usage)) => {
             Some(UsageEvent::Ended(usage))
