@@ -83,6 +83,7 @@ mod opening;
 mod origin;
 mod page;
 mod patience;
+pub mod ports;
 mod queue;
 mod read;
 mod redact;
@@ -746,18 +747,22 @@ impl Store {
     pub fn export_ndjson(&self, run_id: &str) -> Result<String, StoreError> {
         let events = self.load(run_id)?;
         seat_record::validate_events(&events)?;
-        let mut out = String::new();
-        for event in &events {
-            out.push_str(&serde_json::to_string(&serde_json::to_value(event)?)?);
-            out.push('\n');
-        }
-        Ok(out)
+        format_canonical_ndjson(&events)
     }
 
     /// The journal head hash — cheap identity for fencing and anchors.
     pub fn head_hash(&self, run_id: &str) -> Result<(u64, String), StoreError> {
         self.head(run_id)
     }
+}
+
+pub(crate) fn format_canonical_ndjson(events: &[EventEnvelope]) -> Result<String, StoreError> {
+    let mut out = String::new();
+    for event in events {
+        out.push_str(&serde_json::to_string(&serde_json::to_value(event)?)?);
+        out.push('\n');
+    }
+    Ok(out)
 }
 
 fn now_rfc3339() -> String {

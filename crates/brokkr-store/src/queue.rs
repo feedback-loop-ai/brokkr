@@ -247,6 +247,22 @@ fn set_standing(
 
 /// Journal one operator command, in the transaction that carried it out,
 /// and say its place in the journal of commands.
+fn record_at(
+    tx: &Transaction<'_>,
+    entry: EntryId,
+    word: &str,
+    position: Option<u32>,
+    by: Attribution<'_>,
+    now: &str,
+) -> Result<i64, StoreError> {
+    tx.execute(
+        "INSERT INTO queue_commands (entry_id, command, position, operator, reason, recorded_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![entry.0, word, position, by.operator, by.reason, now],
+    )?;
+    Ok(tx.last_insert_rowid())
+}
+
 fn record(
     tx: &Transaction<'_>,
     entry: EntryId,
@@ -254,19 +270,7 @@ fn record(
     position: Option<u32>,
     by: Attribution<'_>,
 ) -> Result<i64, StoreError> {
-    tx.execute(
-        "INSERT INTO queue_commands (entry_id, command, position, operator, reason, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            entry.0,
-            word,
-            position,
-            by.operator,
-            by.reason,
-            now_rfc3339()
-        ],
-    )?;
-    Ok(tx.last_insert_rowid())
+    record_at(tx, entry, word, position, by, &now_rfc3339())
 }
 
 /// Refuse a command the entry's standing cannot take: a `merged` record
@@ -308,25 +312,20 @@ fn admit_waits(tx: &Transaction<'_>, waits: &[Wait]) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn add_once(
-    conn: &mut Connection,
+pub(crate) fn add_at(
+    conn: &Connection,
     new: NewEntry<'_>,
     by: Attribution<'_>,
+    now: &str,
 ) -> Result<EntryId, StoreError> {
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let tx = Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
     queue_stored(&tx)?;
     admit_waits(&tx, new.waits)?;
     let end = waiting(&tx)?.len() as u32 + 1;
     tx.execute(
         "INSERT INTO queue_entries (payload, priority, added_at, state, position)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            new.payload,
-            new.priority,
-            now_rfc3339(),
-            Standing::Queued.word(),
-            end
-        ],
+        params![new.payload, new.priority, now, Standing::Queued.word(), end],
     )?;
     let entry = EntryId(tx.last_insert_rowid());
     // Added at the end, it stands last among its own priority; the
@@ -340,9 +339,17 @@ fn add_once(
             params![entry.0, wait.entry.0, wait.on.word()],
         )?;
     }
-    record(&tx, entry, "add", Some(place), by)?;
+    record_at(&tx, entry, "add", Some(place), by, now)?;
     tx.commit()?;
     Ok(entry)
+}
+
+fn add_once(
+    conn: &mut Connection,
+    new: NewEntry<'_>,
+    by: Attribution<'_>,
+) -> Result<EntryId, StoreError> {
+    add_at(conn, new, by, &now_rfc3339())
 }
 
 fn command_once(
