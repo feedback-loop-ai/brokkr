@@ -10,12 +10,11 @@
 //! and on the monotonic one its kill is carried on, read in that order. One
 //! already past on either is not spawned ([`SpawnError::Late`]), one that
 //! passes while the caller's clock is read included. Its watchdog waits
-//! toward that instant, in slices of at most [`SLICE`], each bound to an
-//! absolute instant whose remainder is read as the wait's own argument, so
-//! a pause before a wait, or between a slice's sample and its wait, never
-//! moves its kill: past the target it kills at once (fix rounds
-//! 0106b1r13, M1, and 0106b1r14, M2). A length's watchdog waits to the
-//! instant its arming plus that length names, the same way.
+//! toward that instant in slices of at most [`SLICE`], reading the
+//! monotonic clock again on every wake, so a thread descheduled anywhere
+//! in its wait kills at most one slice past the target or past its pause's
+//! end (fix rounds 0106b1r13, M1, and 0106b1r15, M2). A length's watchdog
+//! waits to the instant its arming plus that length names, the same way.
 
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -161,16 +160,16 @@ impl Deadline {
     /// deadline: `true` once it is reached, `false` once the watchdog is
     /// disarmed. The target is one absolute instant on the monotonic clock
     /// `now`, taken once as the watchdog arms: a length counts from that
-    /// arming, and an absolute deadline is its kill. Every wait is bound to
-    /// an instant, the target, or for an absolute deadline one [`SLICE`]
-    /// past the sample and never past the target, and what remains to that
-    /// instant is read on `now` as the wait's own argument, after `pause`,
-    /// whatever passes between the sample and the wait (as a descheduled
-    /// thread takes it). So no pause, before any wait, moves a kill past
-    /// its target: one past it is followed by a look at the disarm channel
-    /// that waits nothing, and the kill (fix round 0106b1r14, M2). The
-    /// thread's own clock and channel are the production seam, with no
-    /// pause; a test injects all three.
+    /// arming, and an absolute deadline is its kill. Stable std has no
+    /// receive bound to an absolute instant, so no single wait is longer
+    /// than one [`SLICE`], for a length and an absolute deadline alike, and
+    /// every wake reads `now` again and kills once the target has passed. A
+    /// thread descheduled after a wait's sample and before that wait (where
+    /// a test injects `pause`) waits out at most the one slice it sampled
+    /// once it resumes, so its kill lands at most one slice past the target
+    /// or past the pause's end (fix round 0106b1r15, M2, the bar the
+    /// operator ruled). The thread's own clock and channel are the
+    /// production seam, with no pause; a test injects all three.
     fn waited_with(
         self,
         mut pause: impl FnMut(),
@@ -179,14 +178,9 @@ impl Deadline {
     ) -> bool {
         let target = self.kills(now());
         loop {
-            let until = match self {
-                Deadline::After(_) => target,
-                Deadline::At { .. } => now()
-                    .checked_add(SLICE)
-                    .map_or(target, |slice| slice.min(target)),
-            };
+            let wait = target.saturating_duration_since(now()).min(SLICE);
             pause();
-            match recv(until.saturating_duration_since(now())) {
+            match recv(wait) {
                 Err(RecvTimeoutError::Timeout) => {}
                 Ok(()) | Err(RecvTimeoutError::Disconnected) => return false,
             }
@@ -197,9 +191,9 @@ impl Deadline {
     }
 }
 
-/// The longest an absolute deadline's watchdog waits before it reads its
-/// target again.
-const SLICE: Duration = Duration::from_millis(100);
+/// The longest any watchdog waits before it reads the clock again (fix
+/// round 0106b1r15, M2).
+const SLICE: Duration = Duration::from_millis(10);
 
 #[cfg(test)]
 mod tests;

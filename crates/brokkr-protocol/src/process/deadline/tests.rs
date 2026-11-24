@@ -1,10 +1,10 @@
 //! An absolute deadline is met at its instant (fix rounds 0106b1r6, D1,
 //! and 0106b1r9, E1), and one whose monotonic instant has passed is never
 //! spawned (the return of fix round 0106b1r12), including one that passes
-//! while the caller's clock is read; a watchdog paused past its target
-//! kills at once, and one paused short of it waits exactly what remains
-//! (fix round 0106b1r13, M1), wherever the pause falls, between a slice's
-//! sample and its wait included (fix round 0106b1r14, M2).
+//! while the caller's clock is read; a watchdog suspended between a wait's
+//! sample and that wait kills within one 10 ms slice of its resuming, past
+//! its target or short of it, for a length and an absolute deadline alike
+//! (fix rounds 0106b1r13, M1, and 0106b1r15, M2).
 
 use std::cell::Cell;
 use std::sync::mpsc::RecvTimeoutError;
@@ -67,8 +67,8 @@ fn an_instant_that_passes_while_the_callers_clock_is_read_arms_nothing() {
 }
 
 /// A watchdog for `deadline`, armed at `base` on an injected monotonic
-/// clock, paused by `paused` once, before its `pausing`th wait and after
-/// that wait's sample, whose every wait on its disarm channel times out
+/// clock, suspended for `paused` once, after its `pausing`th wait's sample
+/// and before that wait, whose every wait on its disarm channel times out
 /// and moves the clock by the wait: whether it killed, each wait it asked
 /// for, and the clock at its end.
 fn watched_through_a_pause(
@@ -104,36 +104,41 @@ fn at_one_second(base: Instant) -> Deadline {
     }
 }
 
-/// A pause between a slice's sample and its wait, past the target, kills at
-/// once: the wait reads what remains after the pause, nothing, and the
-/// kill lands at the pause's end, for an absolute deadline on its first or
-/// its third slice and for a length. Removal control: hand the wait the
-/// remainder read before the pause, and each kill lands a slice, or the
-/// whole length, past the pause's end.
+/// A thread suspended after a wait's sample and before that wait, until the
+/// clock is past the target, waits out only the one slice it sampled once
+/// it resumes, and kills within one 10 ms slice of the pause's end: for an
+/// absolute deadline on its first or its third wait, and for a length.
+/// Removal control: hand the wait the whole remainder, as before, and the
+/// resumed thread waits that remainder out past the target, the kill
+/// landing a whole second after the pause's end.
 #[test]
-fn a_watchdog_paused_past_its_target_kills_at_once() {
+fn a_watchdog_suspended_after_its_sample_past_its_target_kills_within_one_slice() {
     let base = Instant::now();
     let ms = Duration::from_millis;
     let first = watched_through_a_pause(at_one_second(base), base, (1, ms(2000)));
-    assert_eq!(first, (true, vec![ms(0)], ms(2000)));
+    assert_eq!(first, (true, vec![ms(10)], ms(2010)));
     let third = watched_through_a_pause(at_one_second(base), base, (3, ms(2000)));
-    assert_eq!(third, (true, vec![ms(100), ms(100), ms(0)], ms(2200)));
+    assert_eq!(third, (true, vec![ms(10), ms(10), ms(10)], ms(2030)));
     let length = Deadline::After(Duration::from_secs(1));
     let after = watched_through_a_pause(length, base, (1, ms(2000)));
-    assert_eq!(after, (true, vec![ms(0)], ms(2000)));
+    assert_eq!(after, (true, vec![ms(10)], ms(2010)));
 }
 
-/// A pause short of the target waits exactly what remains, in slices of at
-/// most a tenth of a second, and kills at the target.
+/// A thread suspended short of the target, or a watchdog never suspended,
+/// waits in slices of at most 10 ms, reading the clock on every wake, and
+/// kills at the first wake at or past the target: exactly at it, or within
+/// one slice of it where a suspension leaves less than a slice.
 #[test]
-fn a_watchdog_paused_short_of_its_target_waits_exactly_what_remains() {
+fn a_watchdog_suspended_short_of_its_target_kills_within_one_slice_of_it() {
     let base = Instant::now();
     let ms = Duration::from_millis;
     let paused = watched_through_a_pause(at_one_second(base), base, (1, ms(950)));
-    assert_eq!(paused, (true, vec![ms(0), ms(50)], ms(1000)));
-    let paused = watched_through_a_pause(at_one_second(base), base, (1, ms(750)));
-    let waits = vec![ms(0), ms(100), ms(100), ms(50)];
-    assert_eq!(paused, (true, waits, ms(1000)));
+    assert_eq!(paused, (true, vec![ms(10); 5], ms(1000)));
+    let paused = watched_through_a_pause(at_one_second(base), base, (1, ms(995)));
+    assert_eq!(paused, (true, vec![ms(10)], ms(1005)));
+    let length = Deadline::After(Duration::from_secs(1));
+    let never = watched_through_a_pause(length, base, (0, Duration::ZERO));
+    assert_eq!(never, (true, vec![ms(10); 100], ms(1000)));
 }
 
 /// A disarm the channel holds when it is looked at ends the watch without
