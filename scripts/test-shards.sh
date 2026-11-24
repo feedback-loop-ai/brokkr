@@ -32,12 +32,18 @@
 # runs each of `it`'s tests exactly once. The broker's tests split once more
 # the same way: `only:F skip:G` and `only:G`, where G extends F, so a test
 # whose name holds G holds F too, and each runs in exactly one of the three.
+# Its enabled suite splits again by submodule (2026-11-24): libtest runs a
+# test whose name holds any one of a shard's filters, so `only:G1 only:G2`
+# runs two submodules, and the suite's last shard, `only:G skip:G1 skip:G2
+# ...`, runs every one the others leave, a new submodule included.
 #
 # Before anything runs, the shards are held to `cargo metadata`: every test
 # target `cargo test --workspace` runs (every target with `test = true`,
-# and in the test mode every library's doctests) is selected exactly once,
-# or exactly twice by a filter and its skip. A target no shard selects, one
-# selected twice, a selector that names no target, a shard that runs a
+# and in the test mode every library's doctests) is selected by shards
+# whose filters run each of its tests exactly once, as the partition check
+# below reads them: one shard with no filter, or several whose `only:` and
+# `skip:` texts split its tests. A target no shard selects, a test two
+# shards would run, a selector that names no target, a shard that runs a
 # target the suite does not, and a selector the plan cannot read are each
 # refused by name. Every shard's output is ruled on as scripts/run-it-tests.sh
 # rules on a run's: a shard that prints a `test result:` summary the
@@ -84,11 +90,13 @@ usage() {
   exit 2
 }
 
-# The shards, in the order they run, each with its machine on Linux and on
-# macOS. A selector is `lib` (every library's unit tests), `bin:<name>`,
-# `test:<name>` or `doc` (every library's doctests, alone in its shard);
-# `skip:<filter>` and `only:<filter>` pass libtest a skip or a filter, and
-# a shard may pass both, `only:F skip:G`, where G extends F.
+# The shards, in the order they run, each with its machine on Linux's test
+# machines, on Linux's coverage machines and on macOS. A selector is `lib`
+# (every library's unit tests), `bin:<name>`, `test:<name>` or `doc` (every
+# library's doctests, alone in its shard); `skip:<filter>` and
+# `only:<filter>` pass libtest a skip or a filter. A shard's filters are
+# `only:`s alone, which libtest runs a test for holding any one of, `skip:`s
+# alone, or one `only:F` and `skip:`s that each extend F.
 # Hosted runners took about 11, 3, 1, 4, 13, 0 and 20 minutes (the
 # broker's two together) for them on Linux, half as long again under
 # coverage, and 9, 8, 3, 19 (the two heap shards together), 0 and 0 on
@@ -113,30 +121,106 @@ usage() {
 # 45-minute limit too (41.5 minutes in #1051's pull-request run, cancelled
 # at 45.0 in merge-queue run 43093798270) while linux/5 took about 14. The
 # broker's enabled suite is Linux's alone (`#![cfg(target_os = "linux")]`), so macOS
-# never runs its shard, whose filter would match nothing there.
+# never runs its shards, whose filters would match nothing there.
+#
+# On 2026-11-23 (#1295, pull-request run 45106858213 and merge-queue run
+# 45121257648) the slowest machines took 34 minutes on Linux, 39 under
+# coverage and 37 on macOS, each about 3 to 4 of them checkout, cache and
+# build. In seconds, Linux, coverage and macOS: the broker's enabled suite
+# 1,803, 1,753 and none; the run and seat heap views 1,337, 1,622 and
+# 1,323; the fleet heap view 367, 511 and 541; the libraries, run_pages
+# skipped, 1,015, 1,014 and 1,744; run_pages 204, 378 and 385; the broker's
+# skipped suite 501, 759 and macos/1's few minutes; the it binaries 303,
+# 318 and 748; the heap measurements 70, 90 and 212; the other own-process
+# binaries 357, 459 and 417; the doctests 3. The operator ruled more
+# machines (2026-11-23), and #1295's third part aims at most about 8 on
+# Linux, 8 for coverage and 5 on macOS, GitHub's cap there, whose shards
+# sum at most about 14, 15 and 18 minutes; the heavy shards split along
+# libtest's own seams (2026-11-24). Measured on a workstation,
+# the libraries' wall time was brokkr-cli's (537 of 859 s), and that was
+# one test's, fleet::kept_tests's a_refresh_reads_what_landed_since_the_last
+# _one_and_not_the_journal (525 s), so fleet::kept_tests is its own shard:
+# cargo cannot select one package's library without building it with other
+# features. The run view took 671 s to the seat view's 346, so they are
+# two shards. The run view's tests hold one lock, so its wall time is
+# their sum: run one at a time on the workstation (2026-11-24) its seven
+# took 606 s, its run level's and detail pane's 302 of them and the other
+# five 304, so it splits in two by those two tests' names. The broker's
+# enabled suite runs its tests one at a time too, so its parts sum their
+# tests, split here by count: reach and sites hold 16 of its 98, windows
+# 19, matrix, bounds and dispatch 19, and the rest 44. Coverage gets its
+# own column, since its run_pages, skipped broker and heap shards grow by
+# half or more where the rest do not. The planned sums, from those
+# measurements and the workstation's shares, in seconds:
+#   linux/1 824 (fleet::kept_tests about 620, run_pages 204)
+#   linux/2 807 (the rest of the libraries about 440, the fleet view 367)
+#   linux/3 about 791 (the run view's first half 441, the enabled second part 350)
+#   linux/4 about 791 (the run view's rest 441, the enabled third part 350)
+#   linux/5 828 (the seat view about 455, the it binaries 303, the heap measurements 70)
+#   linux/6 about 795 (the enabled first part 294, the skipped broker 501)
+#   linux/7 about 809 (the enabled suite's rest)
+#   linux/8 360 (the own-process binaries 357, the doctests 3)
+#   coverage linux/1 about 906 (fleet::kept_tests 620, the enabled first part 286)
+#   coverage linux/2 759 (the skipped broker)
+#   coverage linux/3 870 (the seat view 552, the it binaries 318)
+#   coverage linux/4 889 (the fleet view 511, run_pages 378)
+#   coverage linux/5 859 (the own-process binaries 459, the rest of the libraries 400)
+#   coverage linux/6 about 875 (the run view's first half 535, the second part 340)
+#   coverage linux/7 about 875 (the run view's rest 535, the third part 340)
+#   coverage linux/8 about 877 (the enabled suite's rest 787, the heap measurements 90)
+#   macos/1 about 1,070 (fleet::kept_tests 1,065, the doctests), and the R3
+#     startup gate
+#   macos/2 1,133 (the it binaries 748, run_pages 385)
+#   macos/3 about 1,117 (the rest of the libraries 680, the run view's first half 437)
+#   macos/4 about 1,158 (the fleet view 541, the own-process binaries 417,
+#     the skipped broker, about 200)
+#   macos/5 about 1,099 (the seat view 450, the run view's rest 437, the heap
+#     measurements 212)
+# so the slowest machines should take about 14, 15 and 19 minutes of
+# shards, 18, 19 and 23 whole. macOS's shards sum about 5,580 s, 1,115 a
+# machine over GitHub's five, so no layout there holds 18 minutes.
 shard_name=()
 shard_linux=()
+shard_coverage=()
 shard_macos=()
 shard_selectors=()
 shard() {
   shard_name+=("$1")
   shard_linux+=("$2")
-  shard_macos+=("$3")
-  shift 3
+  shard_coverage+=("$3")
+  shard_macos+=("$4")
+  shift 4
   shard_selectors+=("$*")
 }
-shard 'every library, run_pages skipped' 1 1 lib skip:run_pages::
-shard "the libraries' run_pages tests" 5 2 lib only:run_pages::
-shard "the it binaries, capability_broker skipped" 2 3 test:it skip:capability_broker::
-shard 'the heap measurements' 2 2 test:heap_claude test:heap_codex test:heap_dsh
-shard 'the other own-process binaries' 2 4 bin:brokkr test:driver_conformance test:transcript_surfaces \
+shard 'every library, run_pages and fleet::kept_tests skipped' 2 5 3 lib skip:run_pages:: skip:fleet::kept_tests::
+shard "the libraries' run_pages tests" 1 4 2 lib only:run_pages::
+shard "the libraries' fleet::kept_tests tests" 1 1 1 lib only:fleet::kept_tests::
+shard "the it binaries, capability_broker skipped" 5 3 2 test:it skip:capability_broker::
+shard 'the heap measurements' 5 8 5 test:heap_claude test:heap_codex test:heap_dsh
+shard 'the other own-process binaries' 8 5 4 bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
   test:seatbelt_lifetime_probe test:summary_heap test:heap_open test:heap_costs
-shard 'the fleet heap view' 3 3 test:heap_fleet
-shard 'the run and seat heap views' 3 4 test:heap_run_view test:heap_seat_view
-shard 'the doctests' 2 1 doc
-shard "capability_broker's enabled suite, alone" 4 - test:it only:capability_broker::enabled::
-shard "capability_broker, its enabled suite skipped, alone" 5 1 test:it only:capability_broker:: skip:capability_broker::enabled::
+shard 'the fleet heap view' 2 4 4 test:heap_fleet
+shard "the run heap view's run level and detail pane" 3 6 3 test:heap_run_view \
+  only:the_console_s_run_level_holds_its_trail_and_no_checkpoint \
+  only:the_detail_pane_holds_a_window_however_deep_the_scroll
+shard 'the rest of the run heap view' 4 7 5 test:heap_run_view \
+  skip:the_console_s_run_level_holds_its_trail_and_no_checkpoint \
+  skip:the_detail_pane_holds_a_window_however_deep_the_scroll
+shard 'the seat heap view' 5 3 5 test:heap_seat_view
+shard 'the doctests' 8 - 1 doc
+shard "capability_broker's enabled suite, its first part, alone" 6 1 - test:it \
+  only:capability_broker::enabled::reach:: only:capability_broker::enabled::sites::
+shard "capability_broker's enabled suite, its second part, alone" 3 6 - test:it \
+  only:capability_broker::enabled::windows::
+shard "capability_broker's enabled suite, its third part, alone" 4 7 - test:it \
+  only:capability_broker::enabled::matrix:: only:capability_broker::enabled::bounds:: \
+  only:capability_broker::enabled::dispatch::
+shard "capability_broker's enabled suite, the rest of it, alone" 7 8 - test:it only:capability_broker::enabled:: \
+  skip:capability_broker::enabled::reach:: skip:capability_broker::enabled::sites:: \
+  skip:capability_broker::enabled::windows:: skip:capability_broker::enabled::matrix:: \
+  skip:capability_broker::enabled::bounds:: skip:capability_broker::enabled::dispatch::
+shard "capability_broker, its enabled suite skipped, alone" 6 2 4 test:it only:capability_broker:: skip:capability_broker::enabled::
 
 # The machine this run is, read once and unset (above).
 machine="${BROKKR_TEST_MACHINE:-}"
@@ -191,10 +275,13 @@ for index in "${!shard_name[@]}"; do
   planned+=("$index")
 done
 
-# The machine shard $2 runs on in system $1's layout.
+# The machine shard $2 runs on in system $1's layout: on Linux the test
+# machines' or, in the modes that measure coverage, the coverage machines'.
 machine_of() {
   case "$1" in
-    linux) printf '%s' "${shard_linux[$2]}" ;;
+    linux)
+      if "$doctests"; then printf '%s' "${shard_linux[$2]}"; else printf '%s' "${shard_coverage[$2]}"; fi
+      ;;
     macos) printf '%s' "${shard_macos[$2]}" ;;
   esac
 }
@@ -250,6 +337,14 @@ done
 cd "$(git rev-parse --show-toplevel)"
 
 # The partition check, read from Cargo's own typed account of the targets.
+# A test runs in a shard when one of the shard's `only:` texts, if it has
+# any, is in its name and none of its `skip:` texts is. Which shards run a
+# test so turns only on which of its target's filter texts its name holds,
+# and a name holds every text that a text it holds holds. Where no test
+# name holds two texts neither of which holds the other, as a module path
+# holds one chain of modules, each test is represented by the longest text
+# its name holds, or by "" where it holds none, and each of those must run
+# in exactly one shard.
 plan_lines=()
 for index in "${planned[@]}"; do
   plan_lines+=("${shard_name[$index]}	${shard_selectors[$index]}")
@@ -274,14 +369,15 @@ problems="$(jq -r --argjson doctests "$doctests" '
      + if $doctests then [$targets[] | select(.kind == "lib" and .doctest) | "\(.package) doc \(.name)"]
        else [] end) as $suite
   | [$ARGS.positional[] | split("\t") | {shard: .[0], words: (.[1] | split(" "))}] as $shards
-  | [$shards[] | .shard as $shard
+  | def text: sub("^(skip|only):"; "");
+  [$shards[] | .shard as $shard
       | ([.words[] | select(startswith("skip:") or startswith("only:"))]) as $filters
+      | ([$filters[] | select(startswith("only:")) | text]) as $only
+      | ([$filters[] | select(startswith("skip:")) | text]) as $skip
       | (if ($filters | length) < 2 then empty
-         elif ($filters | length) == 2 and ($filters[0] | startswith("only:"))
-              and ($filters[1] | startswith("skip:"))
-              and (($filters[1] | ltrimstr("skip:")) as $narrower
-                   | ($filters[0] | ltrimstr("only:")) as $wider
-                   | ($narrower | startswith($wider)) and $narrower != $wider)
+         elif ($skip | length) == 0 or ($only | length) == 0 then empty
+         elif ($only | length) == 1 and ($filters[0] | startswith("only:"))
+              and ($skip | all(startswith($only[0]) and . != $only[0]))
          then empty
          else "\($shard): more than one filter: \($filters | join(" "))" end),
         (.words[] | select((startswith("skip:") or startswith("only:")) | not) as $word
@@ -290,8 +386,10 @@ problems="$(jq -r --argjson doctests "$doctests" '
             else "\($shard): a selector the plan cannot read: \($word)" end)]
     as $unread
   | [$shards[] | .shard as $shard
-      | ([.words[] | select(startswith("skip:") or startswith("only:"))] | join(" ")
-         | if . == "" then "none" else . end) as $filter
+      | ([.words[] | select(startswith("skip:") or startswith("only:"))]) as $filters
+      | ($filters | join(" ") | if . == "" then "none" else . end) as $filter
+      | ([$filters[] | select(startswith("only:")) | text]) as $only
+      | ([$filters[] | select(startswith("skip:")) | text]) as $skip
       | .words[] | select((startswith("skip:") or startswith("only:")) | not) as $word
       | ($word | capture("^(?<kind>bin|test):(?<name>.*)$") // null) as $named
       | [if $word == "lib" then $targets[] | select(.kind == "lib") | "\(.package) lib \(.name)"
@@ -299,34 +397,31 @@ problems="$(jq -r --argjson doctests "$doctests" '
          elif $named != null then $targets[] | select(.kind == $named.kind and .name == $named.name)
            | "\(.package) \(.kind) \(.name)"
          else empty end] as $units
-      | if ($units | length) == 0 then {shard: $shard, word: $word, unit: null, filter: $filter}
-        else $units[] | {shard: $shard, word: $word, unit: ., filter: $filter} end]
+      | {shard: $shard, word: $word, filter: $filter, only: $only, skip: $skip} as $run
+      | if ($units | length) == 0 then $run + {unit: null}
+        else $units[] | $run + {unit: .} end]
     as $selected
   | $unread[],
     ($selected[] | select(.unit == null and (.word | test("^(lib|doc|(bin|test):[A-Za-z0-9_-]+)$")))
       | "\(.shard): \(.word) selects no target"),
     ($selected[] | select(.unit != null) | .unit as $unit | select($suite | index($unit) | not)
       | "\(.shard) runs \($unit), which cargo test --workspace does not"),
+    # Each test as the longest filter text its name holds, or "" (above).
     ($suite[] as $unit
       | [$selected[] | select(.unit == $unit)] as $runs
-      | ($runs | map(.filter) | sort) as $filters
       | if ($runs | length) == 0 then "no shard runs \($unit)"
-        elif $filters == ["none"] then empty
-        elif ($filters | length) == 2 and ($filters[0] | startswith("only:"))
-             and $filters[1] == "skip:\($filters[0] | ltrimstr("only:"))" then empty
-        # `only:F skip:G`, `only:G` and `skip:F`, sorted: the space sorts first.
-        elif ($filters | length) == 3 and ($filters[2] | startswith("skip:"))
-             and ($filters[1] | startswith("only:"))
-             and (($filters[2] | ltrimstr("skip:")) as $wider
-                  | ($filters[1] | ltrimstr("only:")) as $narrower
-                  | ($narrower | startswith($wider)) and $narrower != $wider
-                    and $filters[0] == "only:\($wider) skip:\($narrower)") then empty
+        elif ([""] + [$runs[] | (.only + .skip)[]] | unique) as $names
+             | all($names[]; . as $name
+                 | [$runs[] | select((.only == [] or any(.only[]; . as $text | $name | contains($text)))
+                                     and all(.skip[]; . as $text | $name | contains($text) | not))]
+                 | length == 1)
+        then empty
         else "\($unit) does not run exactly once: \($runs | map("\(.shard) (\(.filter))") | join(", "))"
         end)
 ' --args "${plan_lines[@]}" <<<"$metadata")" || refuse 'cargo metadata could not be read'
 if [ -n "$problems" ]; then
   printf '%s\n' "$problems" >&2
-  refuse 'the shards are not the whole suite, each test target exactly once'
+  refuse 'the shards are not the whole suite, each test exactly once'
 fi
 
 # One shard's whole command, into `argv`.
