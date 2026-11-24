@@ -144,7 +144,10 @@ signal kills still leaves its tail on the engine's stderr.
 
 **2026-11-21, round three (#1199, proposed).** The Codex stderr header is checked
 against the pin in the seat's own validated passthrough. The driver uses
-`--model` and Codex's declared `-m` there. Other built-in adapters use
+`--model` there, and `-m`, the alias that Codex's grammar gives `--model`.
+An inline Codex passthrough that writes the pin on both is refused at launch
+as a repeat of `--model` (`codex_launch_refuses_a_model_pin_written_on_both_spellings`).
+Other built-in adapters use
 `--model` alone for refusal attribution. The engine queues the masked tail
 while it appends the terminal event and any park due on that ending, then
 tells it after those appends. A terminal event held for journal contention

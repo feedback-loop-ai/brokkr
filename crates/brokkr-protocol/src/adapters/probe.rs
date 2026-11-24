@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use super::refusal::claude_refusal;
 use super::{row::Row, AdapterKind, Emitted, Step};
+use crate::native_controls::grammar;
 use crate::Probe;
 
 /// A start's optional probe marker. Absent is not a probe; present must
@@ -149,16 +150,16 @@ pub(super) fn pinned_model<'a>(extra: &'a [String], model_flag: Option<&str>) ->
 }
 
 impl super::AdapterKind {
-    /// The built-in short model flag, in addition to `--model`.
+    /// The short alias for `--model` in the kind's native command grammar.
     pub(super) fn model_flag(self) -> Option<&'static str> {
-        match self {
-            Self::Codex => Some("-m"),
-            // Qoder's `-m` pin is read by its own launch (#1178); the shared
-            // reader's one table is #1248's.
-            Self::Claude | Self::Lanetally | Self::Dsh | Self::Qoder | Self::Agy | Self::Exec => {
-                None
-            }
-        }
+        // Qoder reads its declared short flag at its own launch (#1178).
+        // The shared reader has no grammar for Qoder (#1256, item 6).
+        grammar::grammar(self.command_name())?
+            .options
+            .iter()
+            .filter(|spec| spec.canonical == "--model")
+            .flat_map(|spec| spec.aliases.iter().copied())
+            .next()
     }
 }
 
@@ -179,7 +180,6 @@ macro_rules! adapter_kinds {
             #[cfg(test)]
             const ALL: &[Self] = &[$(Self::$kind),+];
 
-            #[cfg(test)]
             fn command_name(self) -> &'static str {
                 match self { $(Self::$kind => $name),+ }
             }
@@ -329,3 +329,6 @@ pub(super) fn fold_capturing(
     probe.admit(answer_event, &emitted);
     classified
 }
+
+#[cfg(test)]
+mod tests;
