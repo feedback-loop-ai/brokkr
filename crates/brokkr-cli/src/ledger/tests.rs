@@ -183,6 +183,34 @@ second line\n\n"
     );
 }
 
+#[test]
+fn verify_notes_drop_trailing_blank_lines_before_the_section_break() {
+    let rendered = rendered_with(
+        Some(json!("12 tests passed\n \n\t\n")),
+        Some(json!("one low")),
+    );
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass** — 12 tests passed\n\n\
+## Review residuals\n\n- **residual** — one low\n\n"
+    );
+}
+
+#[test]
+fn review_panel_bullets_stay_adjacent_and_keep_trailing_spaces_on_text_lines() {
+    let panel = json!({
+        "members": {"alice": "one low\n \t\n", "bob": "two  \r\n \r\n"},
+        "verdicts": {"alice": "residual", "bob": "residual"}
+    });
+    let rendered = rendered_with(None, Some(panel));
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass** — no notes recorded\n\n\
+## Review residuals\n\n- **residual**\n  - alice (residual): one low\n  \
+- bob (residual): two\x20\x20\n\n"
+    );
+}
+
 /// Notes of an unknown shape print as the journal wrote them, and only
 /// absent notes are "no notes recorded".
 #[test]
