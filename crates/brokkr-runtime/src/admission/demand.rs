@@ -1,6 +1,6 @@
 //! Decision 0125: an entry starts only when its recipe's measured demand,
 //! plus what running runs still reserve, fits what the machine has
-//! available now. Linux is measured ([`probe`]); a machine that is not,
+//! available now. Linux and macOS are measured ([`probe`]); a machine that is not,
 //! or a pass given no [`Machine`], keeps decision 0068's count ceilings
 //! exactly (ruling 2).
 //!
@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use brokkr_protocol::process::usage::MemoryPressure;
 use brokkr_store::{EntryId, Store};
 use serde::Serialize;
 
@@ -152,15 +153,31 @@ pub(crate) struct Beside {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Short {
     /// `memory_short`; `whole` where the demand is more than the machine.
-    Memory { sized: Box<Sized>, whole: bool },
+    Memory {
+        sized: Box<Sized>,
+        whole: bool,
+    },
     /// `cpu_short`; `whole` where the demand is more than every core.
-    Cpu { sized: Box<Sized>, whole: bool },
+    Cpu {
+        sized: Box<Sized>,
+        whole: bool,
+    },
     /// `demand_unknown`: no measured profile and no declaration, and something
     /// else stands on the machine.
-    Unknown { recipe: String, beside: Beside },
+    Unknown {
+        recipe: String,
+        beside: Beside,
+    },
     /// `demand_unknown`: a run or an admitted entry whose demand is
     /// unknown holds the machine.
     Held(Holder),
+    Observation(Observation),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Observation {
+    /// `memory_pressure`: Darwin is at warn or critical.
+    Pressure(MemoryPressure),
     /// `journal_unreadable`: a journal of the realms map, unread.
     Unreadable {
         journal: PathBuf,
@@ -177,6 +194,7 @@ pub(crate) enum Judge {
 /// What a measured pass knows, and what it has reserved so far.
 pub(crate) struct Sizing {
     machine: Available,
+    pressure: MemoryPressure,
     profiles: BTreeMap<String, Profile>,
     settings: Demand,
     reserved: Reserved,
@@ -208,11 +226,17 @@ impl Judge {
                 run: &running.run,
             })
             .collect();
-        let Measurement::Measured { machine, runs } = (machine.measure)(&driven) else {
+        let Measurement::Measured {
+            machine,
+            pressure,
+            runs,
+        } = (machine.measure)(&driven)
+        else {
             return Ok(Judge::Unmeasured);
         };
         let mut sizing = Sizing {
             machine,
+            pressure,
             profiles: history::learn(read.rows, settings.window_runs.get() as usize),
             settings,
             reserved: Reserved::default(),
@@ -243,11 +267,7 @@ impl Judge {
     ) -> (Option<Sized>, Result<(), Unfit>) {
         match self {
             Judge::Unmeasured => (None, Ok(())),
-            Judge::Measured(sizing) => {
-                let sized = sizing.sized(recipe);
-                let fits = sizing.fits(entry, &sized).map_err(Unfit);
-                (Some(sized), fits)
-            }
+            Judge::Measured(sizing) => sizing.judge(entry, recipe),
         }
     }
 
@@ -261,6 +281,17 @@ impl Judge {
 }
 
 impl Sizing {
+    fn judge(&mut self, entry: EntryId, recipe: &str) -> (Option<Sized>, Result<(), Unfit>) {
+        let sized = self.sized(recipe);
+        let fits = match self.pressure {
+            MemoryPressure::Normal => self.fits(entry, &sized),
+            level @ (MemoryPressure::Warn | MemoryPressure::Critical) => {
+                Err(Short::Observation(Observation::Pressure(level)))
+            }
+        };
+        (Some(sized), fits.map_err(Unfit))
+    }
+
     /// A recipe's expected peaks over `phase` and the phases after it, and
     /// where they came from: its window, else its declaration.
     fn expected(&self, recipe: &str, phase: Option<&str>) -> Option<(Peak, Source)> {

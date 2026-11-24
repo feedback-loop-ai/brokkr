@@ -18,6 +18,10 @@ use std::time::Duration;
 use super::table::Entry;
 use crate::AttemptUsage;
 
+mod machine;
+pub use machine::MemoryPressure;
+#[cfg(target_os = "macos")]
+pub use machine::{cpu, memory, Cpu, Memory};
 mod now;
 pub use now::{trees_now, TreeNow};
 

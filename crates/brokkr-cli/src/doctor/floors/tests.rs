@@ -206,7 +206,7 @@ fn an_unmeasured_machine_says_so_and_a_host_file_without_a_run_ceiling_is_one_wa
     assert!(v3.healthy, "{}", v3.render());
     let file = config.path().join("brokkr/host.json");
     let said = "warn     host: this machine's availability is not measured (this host's \
-                availability is not measured yet (macOS is #1193's next slice)), so admission \
+                availability is not measured), so admission \
                 keeps its count ceilings and the run ceiling stays required (decision 0125)";
     assert_eq!(
         v3.render(),
