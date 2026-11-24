@@ -190,17 +190,7 @@ fn a_cooling_entry_is_not_admitted_and_its_lane_never_latches() {
 #[test]
 fn a_probe_holds_refusal_names_the_second_its_deadline_falls_before() {
     for deadline in [at(30), at(30) + time::Duration::milliseconds(500)] {
-        let (mut fixture, file) = refused(&[]);
-        stopped_run(&mut fixture.store, "run-probe");
-        let hold = brokkr_store::ProbeHold {
-            run_id: "run-probe",
-            attempt_id: "a-1",
-            site: "",
-            provider: "beta",
-            route: "cloud",
-            deadline,
-        };
-        fixture.store.hold_probe(&hold, base()).unwrap();
+        let (fixture, file) = probe_held(deadline);
         let words = "a cool-down probe of run run-probe (attempt a-1) holds the route until it \
                      answers, its renewed cool-down commits, or its process tree is settled";
         let reasons = reasons_at(&fixture, &file, at(86_400));
@@ -218,14 +208,9 @@ fn a_probe_holds_refusal_names_the_second_its_deadline_falls_before() {
     }
 }
 
-/// Fix round 0106b1r14, L1: a standing hold beside a longer ordinary row,
-/// read through both callers of the one fold of a route's latest end, the
-/// engine's `Store::cooldown` and the pass, reports the hold, at the
-/// ordinary row's later end. Removal control: fold admission's rows its own
-/// way again, keeping only the winning row's flag, and the pass names the
-/// route cooling, unheld.
-#[test]
-fn a_hold_beside_a_longer_ordinary_row_reads_held_through_both_callers() {
+/// The fixture with no row, and a probe of run `run-probe` (attempt `a-1`)
+/// holding beta/cloud from the base instant to `deadline`.
+fn probe_held(deadline: OffsetDateTime) -> (Fixture, PathBuf) {
     let (mut fixture, file) = refused(&[]);
     stopped_run(&mut fixture.store, "run-probe");
     let hold = brokkr_store::ProbeHold {
@@ -234,9 +219,21 @@ fn a_hold_beside_a_longer_ordinary_row_reads_held_through_both_callers() {
         site: "",
         provider: "beta",
         route: "cloud",
-        deadline: at(30),
+        deadline,
     };
     fixture.store.hold_probe(&hold, base()).unwrap();
+    (fixture, file)
+}
+
+/// Fix round 0106b1r14, L1: a standing hold beside a longer ordinary row,
+/// read through both callers of the one fold of a route's latest end, the
+/// engine's `Store::cooldown` and the pass, reports the hold, at the
+/// ordinary row's later end. Removal control: fold admission's rows its own
+/// way again, keeping only the winning row's flag, and the pass names the
+/// route cooling, unheld.
+#[test]
+fn a_hold_beside_a_longer_ordinary_row_reads_held_through_both_callers() {
+    let (mut fixture, file) = probe_held(at(30));
     refuse(
         &mut fixture.store,
         "run-a",

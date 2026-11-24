@@ -244,6 +244,7 @@ pub brokkr_store::QueueRefusal::RunTaken::run: alloc::string::String
 pub brokkr_store::QueueRefusal::SchemaMismatch
 pub brokkr_store::QueueRefusal::SchemaMismatch::found: u32
 pub brokkr_store::QueueRefusal::Stale(brokkr_store::Claim)
+pub brokkr_store::QueueRefusal::StartHeld(alloc::boxed::Box<brokkr_store::UnwrittenHold>)
 pub brokkr_store::QueueRefusal::Superseded(brokkr_store::Generation)
 pub brokkr_store::QueueRefusal::TableLost
 pub brokkr_store::QueueRefusal::TableLost::table: &'static str
@@ -419,9 +420,12 @@ pub brokkr_store::Cooldown::route: alloc::string::String
 pub brokkr_store::Cooldown::site: alloc::string::String
 pub brokkr_store::Cooldown::until_at: time::offset_date_time::OffsetDateTime
 pub struct brokkr_store::CooldownAggregate
+pub brokkr_store::CooldownAggregate::ordinary: core::option::Option<time::offset_date_time::OffsetDateTime>
 pub brokkr_store::CooldownAggregate::probe: bool
 pub brokkr_store::CooldownAggregate::reason: alloc::string::String
 pub brokkr_store::CooldownAggregate::until: time::offset_date_time::OffsetDateTime
+impl brokkr_store::CooldownAggregate
+pub fn brokkr_store::CooldownAggregate::joined(core::option::Option<brokkr_store::CooldownAggregate>, &brokkr_store::Cooldown) -> brokkr_store::CooldownAggregate
 pub struct brokkr_store::CooldownAppend<'a>
 pub brokkr_store::CooldownAppend::attempt_id: core::option::Option<alloc::string::String>
 pub brokkr_store::CooldownAppend::causation_id: core::option::Option<alloc::string::String>
@@ -538,6 +542,11 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::append_chain<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_chain_without_waiting<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::append_clear(&mut self, brokkr_store::CooldownAppend<'_>, &[(&str, &str)], time::offset_date_time::OffsetDateTime) -> core::result::Result<brokkr_store::Landed, brokkr_store::StoreError>
+pub fn brokkr_store::Store::end_probe_hold(&mut self, core::option::Option<brokkr_store::ProbeHoldId>, time::offset_date_time::OffsetDateTime) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::hold_probe(&mut self, &brokkr_store::ProbeHold<'_>, time::offset_date_time::OffsetDateTime) -> core::result::Result<brokkr_store::ProbeHoldId, brokkr_store::StoreError>
+pub fn brokkr_store::Store::settle_probe_holds(&mut self, &str, &[alloc::string::String], time::offset_date_time::OffsetDateTime) -> core::result::Result<(), brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::append_cooldown_round(&mut self, brokkr_store::CooldownRound<'_>) -> core::result::Result<brokkr_store::RoundAppend, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_held_round(&mut self, brokkr_store::CooldownRound<'_>, brokkr_core::payload::provider_wait::Held) -> core::result::Result<brokkr_store::RoundAppend, brokkr_store::StoreError>
 pub fn brokkr_store::Store::cooldown(&self, &str, &str, time::offset_date_time::OffsetDateTime) -> core::result::Result<core::option::Option<brokkr_store::CooldownAggregate>, brokkr_store::StoreError>
@@ -580,10 +589,6 @@ pub fn brokkr_store::Store::dispatch_bound(&self) -> core::result::Result<core::
 pub fn brokkr_store::Store::dispatch_hold(&mut self, u32) -> core::result::Result<brokkr_store::Generation, brokkr_store::StoreError>
 pub fn brokkr_store::Store::dispatch_holder(&self) -> core::result::Result<core::option::Option<(brokkr_store::Generation, u32, alloc::string::String)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::set_dispatch_bound(&mut self, core::num::nonzero::NonZeroU32, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
-impl brokkr_store::Store
-pub fn brokkr_store::Store::end_probe_hold(&mut self, core::option::Option<brokkr_store::ProbeHoldId>, time::offset_date_time::OffsetDateTime) -> core::result::Result<(), brokkr_store::StoreError>
-pub fn brokkr_store::Store::hold_probe(&mut self, &brokkr_store::ProbeHold<'_>, time::offset_date_time::OffsetDateTime) -> core::result::Result<brokkr_store::ProbeHoldId, brokkr_store::StoreError>
-pub fn brokkr_store::Store::settle_probe_holds(&mut self, &str, &[alloc::string::String], time::offset_date_time::OffsetDateTime) -> core::result::Result<(), brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::envelopes_at(&self, &str, &[u64]) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::index_causes(&self, &str, &[&str]) -> core::result::Result<core::option::Option<alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>>, brokkr_store::StoreError>

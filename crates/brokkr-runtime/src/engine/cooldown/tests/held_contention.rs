@@ -263,7 +263,7 @@ fn no_admitted_run_dispatches_on_a_route_another_runs_probe_holds() {
 /// start with no route to admit it over, as the plain append, and `b`
 /// dispatches its retry under `a`'s standing hold.
 #[test]
-fn a_hold_committed_between_a_retrys_read_and_its_start_holds_the_retry() {
+fn a_hold_committed_between_the_retry_read_and_its_start_holds_the_retry() {
     contended(
         Before::Start,
         &["attempt:refuse", "probe", "probe", "attempt:succeed"],
