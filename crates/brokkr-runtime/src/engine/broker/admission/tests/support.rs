@@ -140,16 +140,54 @@ fn lock_child() {
     }
 }
 
-/// The id of a process group that has ended: a child that led its own group
-/// and was reaped, so the host no longer shows a member.
-pub(in crate::engine) fn dead_group() -> u32 {
+const DEAD_GROUP: &str = "BROKKR_DEAD_GROUP";
+
+/// The child entry [`dead_group`] starts: spawns a short-lived child in its
+/// own process group, waits for it to exit and be reaped, and prints its
+/// group id. Spawning `.process_group(0)` directly in the shared test process
+/// exposes the child to `attempts`'s orphan reaper, which adopts and reaps
+/// non-engine-group zombies before `child.wait()` runs. Inert without the
+/// environment, so a plain suite run passes over it.
+#[test]
+fn dead_group_child() {
+    if std::env::var_os(DEAD_GROUP).is_none() {
+        return;
+    }
     let mut child = std::process::Command::new("true")
         .process_group(0)
         .spawn()
         .expect("a child leading its own process group");
     let group = child.id();
-    child.wait().unwrap();
-    group
+    let status = child.wait().expect("the child exits and is reaped");
+    assert!(status.success(), "{status}");
+    println!("{DEAD_GROUP}={group}");
+}
+
+/// The id of a process group that has ended: a child that led its own group
+/// and was reaped, so the host no longer shows a member.
+pub(in crate::engine) fn dead_group() -> u32 {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "engine::broker::admission::tests::support::dead_group_child",
+            "--nocapture",
+        ])
+        .env(DEAD_GROUP, "1")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("the dead_group helper runs");
+    assert!(
+        output.status.success(),
+        "dead_group_child failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let prefix = format!("{DEAD_GROUP}=");
+    stdout
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .unwrap_or_else(|| panic!("dead_group_child printed no group id:\n{stdout}"))
 }
 
 /// A run of `worktree` whose attempt `attempt` stands, its one `work` site
