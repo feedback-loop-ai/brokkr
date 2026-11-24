@@ -84,6 +84,11 @@ pub struct CooldownAggregate {
     /// H1): no time ends it, so `until` is then no end the route opens at,
     /// and the route stays held until a read finds the hold ended.
     pub probe: bool,
+    /// The latest end of the route's ordinary rows alone, `None` where only
+    /// a hold stands: a standing hold's stored end, a readout, never
+    /// replaces it, so a longer ordinary cool-down still ends where its row
+    /// says (fix round 0106b1r14, M1).
+    pub ordinary: Option<OffsetDateTime>,
 }
 
 impl CooldownAggregate {
@@ -96,12 +101,19 @@ impl CooldownAggregate {
     /// kept whichever row ends last.
     pub fn joined(held: Option<CooldownAggregate>, row: &Cooldown) -> CooldownAggregate {
         let probe = row.probe || held.as_ref().is_some_and(|held| held.probe);
+        let own = (!row.probe).then_some(row.until_at);
+        let ordinary = held.as_ref().and_then(|held| held.ordinary).max(own);
         match held {
-            Some(held) if held.until > row.until_at => CooldownAggregate { probe, ..held },
+            Some(held) if held.until > row.until_at => CooldownAggregate {
+                probe,
+                ordinary,
+                ..held
+            },
             _ => CooldownAggregate {
                 until: row.until_at,
                 reason: row.reason.clone(),
                 probe,
+                ordinary,
             },
         }
     }

@@ -95,8 +95,22 @@ fn only_the_own_row_and_the_maximum(engine: &Engine, expected: &str) {
     assert!(reason.contains("declared 100s maximum"), "{reason}");
 }
 
+/// The maximum judged over a wait to `end` with nothing waited before it,
+/// at the engine's own instant.
+fn judged(
+    engine: &Engine,
+    events: &[brokkr_core::EventEnvelope],
+    waits: &[brokkr_core::ProviderWait],
+    end: OffsetDateTime,
+    counted: OffsetDateTime,
+) -> Result<super::super::wait::WaitBudget, super::super::CooldownError> {
+    let now = engine.now();
+    let span = super::super::wait::Span { end, counted, now };
+    engine.extension_park_reason(events, "effect", waits, span, Duration::ZERO)
+}
+
 /// A second run in the same journal, ready for its own refusal row.
-fn second_run(dir: &Path) -> String {
+pub(super) fn second_run(dir: &Path) -> String {
     let store = brokkr_store::Store::open(&dir.join("forge.db")).unwrap();
     let engine = Engine::start(
         store,
@@ -110,7 +124,7 @@ fn second_run(dir: &Path) -> String {
 
 /// Append a second run's own terminal refusal for `provider`/`route`,
 /// ending at `until`: another run's aggregate row on the route run-A cools.
-fn append_second_row_on(
+pub(super) fn append_second_row_on(
     db: &Path,
     run_id: &str,
     provider: &str,
@@ -867,7 +881,7 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
         "DROP TABLE provider_cooldowns",
     );
     let waits = [wait()];
-    let mut unrecorded = 0;
+    let mut unrecorded = Duration::ZERO;
     let mut maxima = Vec::new();
     match engine
         .wait_round(
@@ -894,8 +908,7 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
     // Bounds that stop reading between rounds.
     let (dir, mut engine, events) = waited_round_fixture();
     invalid_host(dir.path(), &mut engine);
-    let error = engine
-        .extension_park_reason(&events, "effect", &waits, waits[0].until, base(), 0)
+    let error = judged(&engine, &events, &waits, waits[0].until, base())
         .expect_err("unreadable bounds park");
     assert!(
         matches!(
@@ -915,8 +928,7 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
         "DROP TRIGGER provider_cooldowns_append_only_update;
          UPDATE provider_cooldowns SET recorded_at = -9223372036854775808;",
     );
-    let error = engine
-        .extension_park_reason(&events, "effect", &waits, waits[0].until, base(), 0)
+    let error = judged(&engine, &events, &waits, waits[0].until, base())
         .expect_err("an unreadable round parks");
     assert!(
         matches!(
@@ -1389,16 +1401,14 @@ fn a_maximum_park_carries_the_rounds_typed_facts() {
         .pop()
         .expect("the terminal's own row")
         .until_at;
-    let error = engine
-        .extension_park_reason(
-            &events,
-            "effect",
-            &waits,
-            row_until + Duration::seconds(60),
-            until,
-            0,
-        )
-        .expect_err("a round past the maximum parks");
+    let error = judged(
+        &engine,
+        &events,
+        &waits,
+        row_until + Duration::seconds(60),
+        until,
+    )
+    .expect_err("a round past the maximum parks");
     match error {
         super::super::CooldownError::Maximum(facts) => {
             let super::super::MaximumFacts {

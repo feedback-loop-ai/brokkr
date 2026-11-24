@@ -247,6 +247,7 @@ fn a_hold_beside_a_longer_ordinary_row_reads_held_through_both_callers() {
         until: at(600),
         reason: "longer".into(),
         probe: true,
+        ordinary: Some(at(600)),
     };
     assert_eq!(engine, Some(aggregate));
     let held = cooling_by(true, ("beta", "cloud"), at(600), "longer");

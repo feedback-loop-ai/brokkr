@@ -23,6 +23,23 @@ fn base() -> OffsetDateTime {
     OffsetDateTime::parse("2026-11-01T00:00:00Z", &Rfc3339).unwrap()
 }
 
+// A test's clock: one shared instant, advanced by each slice, so a wait is
+// exercised with no real sleep. The stop test builds its own sleep that
+// also journals the operator's command.
+impl Clock {
+    pub(crate) fn advancing(start: OffsetDateTime) -> (Clock, Arc<Mutex<OffsetDateTime>>) {
+        let shared = Arc::new(Mutex::new(start));
+        let (read, write) = (Arc::clone(&shared), Arc::clone(&shared));
+        let clock = Clock {
+            now: Box::new(move || *read.lock().unwrap()),
+            sleep: Box::new(move |slice| {
+                *write.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64)
+            }),
+        };
+        (clock, shared)
+    }
+}
+
 /// A seat with the limits this test needs.
 fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
     started_in(dir, "work", body, limits)
@@ -1345,6 +1362,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
 }
 
 // A protected root's lease is Linux only, as `lease.rs` says.
+mod held_budget;
 mod held_contention;
 mod held_deadline;
 #[cfg(target_os = "linux")]

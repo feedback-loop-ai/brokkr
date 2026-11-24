@@ -60,7 +60,7 @@ impl Engine {
         // round is counted once by `episode`, never again as a remainder.
         let mut round = Round {
             answers: Vec::with_capacity(waits.len()),
-            unrecorded: 0,
+            unrecorded: TimeDuration::ZERO,
             counted: waits
                 .iter()
                 .map(|wait| wait.until)
@@ -146,7 +146,7 @@ impl Engine {
         seat: &str,
     ) -> Result<ProbedRound, EngineError> {
         let waits = round.waits;
-        let unrecorded = round.unrecorded;
+        let unrecorded = whole(round.unrecorded);
         match self.probe_each(events, state, effect_id, seat, waits)? {
             ProbeRound::Stopped => Ok(ProbedRound::Stopped),
             ProbeRound::Parked(reason) => Ok(ProbedRound::Parked(reason)),
@@ -214,20 +214,26 @@ impl Engine {
     /// One round's wait: a stop, the park reason the maximum gives, or the
     /// wait taken. The episode's own stored rows seed the counted baseline,
     /// so a written round's remainder is never counted twice; `unrecorded`
-    /// is the seconds waited on rows this episode does not own.
+    /// is the time waited on rows and holds this episode does not own, kept
+    /// whole to the fraction. Each wait is judged and charged from the one
+    /// clock sample its end was read at, so a slice on a standing hold is
+    /// charged its whole length however the clock moves before the judge
+    /// reads, and a hold that never ends parks at the maximum (fix round
+    /// 0106b1r14, M1).
     pub(super) fn wait_round(
         &mut self,
         events: &[EventEnvelope],
         effect_id: &str,
         waits: &[ProviderWait],
-        unrecorded: &mut u64,
+        unrecorded: &mut TimeDuration,
         counted: OffsetDateTime,
         maxima: &mut Vec<Option<SiteMax>>,
     ) -> Result<WaitRound, EngineError> {
         if self.moved_from_the_effect()? {
             return Ok(WaitRound::Stopped);
         }
-        let mut end = match self.cool_down_end(waits, self.now()) {
+        let mut now = self.now();
+        let mut end = match self.cool_down_end(waits, now) {
             Ok(end) => end,
             Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
         };
@@ -235,17 +241,12 @@ impl Engine {
             // The maximum is judged before every wait this round takes,
             // including a re-wait to an end another run moved during the
             // slices.
-            let budget = match self.extension_park_reason(
-                events,
-                effect_id,
-                waits,
-                end,
-                counted,
-                *unrecorded,
-            ) {
-                Ok(budget) => budget,
-                Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
-            };
+            let span = Span { end, counted, now };
+            let budget =
+                match self.extension_park_reason(events, effect_id, waits, span, *unrecorded) {
+                    Ok(budget) => budget,
+                    Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
+                };
             *unrecorded = budget.waited;
             *maxima = budget.maxima;
             if self.wait_in_slices(end)? {
@@ -254,7 +255,7 @@ impl Engine {
             // Re-read the aggregate at the wait's own end, before any
             // probe: a row recorded during the slices can hold every
             // cooled site past the end sampled before them.
-            let now = self.now();
+            now = self.now();
             end = match self.cool_down_end(waits, now) {
                 Ok(end) => end,
                 Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
@@ -324,16 +325,18 @@ impl Engine {
     /// reason to park. The episode's own stored rows seed the baseline, so a
     /// round written before this wait is counted once and a resume over it
     /// does not add its remainder again; a remainder waited on another run's
-    /// row is not a row of this episode and is carried in `unrecorded`.
+    /// row is not a row of this episode and is carried in `unrecorded`. The
+    /// wait's `span` is judged at the instant its end was read, never at a
+    /// later reading of the clock (fix round 0106b1r14, M1).
     pub(super) fn extension_park_reason(
         &self,
         events: &[EventEnvelope],
         effect_id: &str,
         waits: &[ProviderWait],
-        end: OffsetDateTime,
-        counted: OffsetDateTime,
-        unrecorded: u64,
+        span: Span,
+        unrecorded: TimeDuration,
     ) -> Result<WaitBudget, CooldownError> {
+        let Span { end, counted, now } = span;
         let episode =
             episode_by_site(&self.store, &self.run_id, events, effect_id).map_err(|source| {
                 let wait = &waits[0];
@@ -344,7 +347,8 @@ impl Engine {
                 }
             })?;
         let counted = counted.max(episode.latest.unwrap_or(counted));
-        let waited = unrecorded.saturating_add(beyond_the_record(counted, end, self.now()));
+        let elapsed = unrecorded.saturating_add(beyond_the_record(counted, end, now));
+        let waited = whole(elapsed);
         let mut maxima = Vec::with_capacity(waits.len());
         for wait in waits {
             let max = match self.cooldown_bounds(&wait.provider, &wait.route) {
@@ -384,7 +388,7 @@ impl Engine {
                     words: wait.words.clone(),
                     retry_after_seconds: None,
                     seconds: waited,
-                    until: self.now(),
+                    until: now,
                     rounds,
                     held: None,
                 };
@@ -396,7 +400,10 @@ impl Engine {
                 })));
             }
         }
-        Ok(WaitBudget { waited, maxima })
+        Ok(WaitBudget {
+            waited: elapsed,
+            maxima,
+        })
     }
 
     /// Append one probe's next round after judging it against the maximum
@@ -472,10 +479,13 @@ impl Engine {
     /// standing probe hold has no end a clock reaches, and its stored end is
     /// a readout, so its route is held one slice past `now` and read again
     /// then, each slice waited counted as the episode's: it never reads open
-    /// at `now`, whatever its stored end (fix round 0106b1r13, H1). A store
-    /// refusal parks by its own words, never as an absent aggregate
-    /// (decision 0103 ruling 2(a)); a version 1, 2 or 3 journal answers
-    /// none, so the event's own `until` stands.
+    /// at `now`, whatever its stored end (fix round 0106b1r13, H1). An
+    /// ordinary row beside the hold keeps its own end, so a longer one is
+    /// waited and judged to that end; a slice the clock cannot name past
+    /// `now` refuses ([`CooldownError::HeldPastTheClock`]), never wraps
+    /// (fix round 0106b1r14, M1). A store refusal parks by its own words,
+    /// never as an absent aggregate (decision 0103 ruling 2(a)); a version
+    /// 1, 2 or 3 journal answers none, so the event's own `until` stands.
     pub(super) fn cool_down_end(
         &self,
         waits: &[ProviderWait],
@@ -486,12 +496,15 @@ impl Engine {
             .map(|wait| wait.until)
             .max()
             .expect("a wait to take");
-        for aggregate in self.cool_down_aggregates(waits, now)? {
+        for (wait, aggregate) in self.cool_down_aggregates(waits, now)? {
             let held = match aggregate.probe {
-                true => now + SLICE,
+                true => slice_past(now).ok_or_else(|| CooldownError::HeldPastTheClock {
+                    provider: wait.provider.clone(),
+                    route: wait.route.clone(),
+                })?,
                 false => aggregate.until,
             };
-            end = end.max(held);
+            end = end.max(held).max(aggregate.ordinary.unwrap_or(end));
         }
         Ok(end)
     }
@@ -502,17 +515,17 @@ impl Engine {
     /// This drive's own probe never stands while its wait reads: its answer
     /// or settled end ends its hold, its renewed round's commit ends it, and
     /// any other end parks. A store refusal gives the park reason.
-    fn cool_down_aggregates(
+    fn cool_down_aggregates<'w>(
         &self,
-        waits: &[ProviderWait],
+        waits: &'w [ProviderWait],
         now: OffsetDateTime,
-    ) -> Result<Vec<CooldownAggregate>, CooldownError> {
+    ) -> Result<Vec<(&'w ProviderWait, CooldownAggregate)>, CooldownError> {
         let mut aggregates = Vec::new();
         for wait in waits {
             #[cfg(test)]
             super::tests::held_start::before_route(&wait.provider, &wait.route);
             match self.store.cooldown(&wait.provider, &wait.route, now) {
-                Ok(Some(aggregate)) => aggregates.push(aggregate),
+                Ok(Some(aggregate)) => aggregates.push((wait, aggregate)),
                 Ok(None) => {}
                 Err(source) => {
                     return Err(CooldownError::AggregateUnreadable {
@@ -692,18 +705,27 @@ enum ProbedRound {
 /// the episode counts, and the cooled sites.
 struct Round<'a> {
     answers: Vec<ProbeAnswer>,
-    unrecorded: u64,
+    unrecorded: TimeDuration,
     counted: OffsetDateTime,
     waits: &'a [ProviderWait],
     maxima: Vec<Option<SiteMax>>,
 }
 
-/// One round's waited seconds and each cooled site's declared maximum, as
-/// the round's one bounds read left them.
+/// One round's waited time, kept to the fraction, and each cooled site's
+/// declared maximum, as the round's one bounds read left them.
 #[derive(Debug)]
 pub(super) struct WaitBudget {
-    waited: u64,
+    waited: TimeDuration,
     maxima: Vec<Option<SiteMax>>,
+}
+
+/// One wait as its judge reads it: the end it waits to, the latest end the
+/// episode already counts, and the one clock sample the end was read at.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Span {
+    pub(super) end: OffsetDateTime,
+    pub(super) counted: OffsetDateTime,
+    pub(super) now: OffsetDateTime,
 }
 
 /// What one step left the round loop.
@@ -727,11 +749,28 @@ enum ProbeRound {
     Parked(Park),
 }
 
-/// The seconds from `end` that lie past what the episode already counts:
-/// `counted` is the latest own or probe-round end it sums, and an instant
-/// already reached is no wait at all.
-fn beyond_the_record(counted: OffsetDateTime, end: OffsetDateTime, now: OffsetDateTime) -> u64 {
-    (end - counted.max(now)).whole_seconds().max(0) as u64
+/// The time from `end` that lies past what the episode already counts,
+/// kept to the fraction: `counted` is the latest own or probe-round end it
+/// sums, and an instant already reached is no wait at all.
+fn beyond_the_record(
+    counted: OffsetDateTime,
+    end: OffsetDateTime,
+    now: OffsetDateTime,
+) -> TimeDuration {
+    (end - counted.max(now)).max(TimeDuration::ZERO)
+}
+
+/// The whole seconds of `waited`, a judge's and a record's unit: the
+/// fraction is dropped once, from the total, never from each slice.
+fn whole(waited: TimeDuration) -> u64 {
+    waited.whole_seconds().max(0) as u64
+}
+
+/// The instant one [`SLICE`] past `now`, where the clock can name it.
+fn slice_past(now: OffsetDateTime) -> Option<OffsetDateTime> {
+    TimeDuration::try_from(SLICE)
+        .ok()
+        .and_then(|slice| now.checked_add(slice))
 }
 
 /// Did the store not take a probe's judged round: no table this binary may

@@ -227,6 +227,13 @@ pub(super) enum CooldownError {
     },
     #[error("the journal refused the attempt's outcome: {0}")]
     WaitUnwritten(Box<brokkr_store::QueueRefusal>),
+    /// A standing probe hold read so near the clock's last instant that
+    /// its next slice cannot be named (fix round 0106b1r14, M1).
+    #[error(
+        "a cool-down wait for {provider}/{route} is held by a probe at an instant whose next \
+         slice the clock cannot name"
+    )]
+    HeldPastTheClock { provider: String, route: String },
 }
 
 /// What the engine does with a wait it read: proceed to the retry, leave
@@ -394,7 +401,8 @@ fn said(error: &CooldownError) -> Said<'_> {
         | CooldownError::RoundsUnreadable { .. }
         | CooldownError::AggregateUnreadable { .. }
         | CooldownError::RoundUnwritable { .. }
-        | CooldownError::WaitUnwritten(_) => Said::Own,
+        | CooldownError::WaitUnwritten(_)
+        | CooldownError::HeldPastTheClock { .. } => Said::Own,
     }
 }
 
@@ -760,29 +768,6 @@ impl Engine {
 
     pub(super) fn now(&self) -> OffsetDateTime {
         (self.cooldown.clock.now)()
-    }
-}
-
-// A test's clock: one shared instant, advanced by each slice, so a wait is
-// exercised with no real sleep. The stop test builds its own sleep that
-// also journals the operator's command.
-#[cfg(test)]
-impl Clock {
-    pub(crate) fn advancing(
-        start: OffsetDateTime,
-    ) -> (Clock, std::sync::Arc<std::sync::Mutex<OffsetDateTime>>) {
-        let shared = std::sync::Arc::new(std::sync::Mutex::new(start));
-        let read = std::sync::Arc::clone(&shared);
-        let write = std::sync::Arc::clone(&shared);
-        (
-            Clock {
-                now: Box::new(move || *read.lock().unwrap()),
-                sleep: Box::new(move |slice| {
-                    *write.lock().unwrap() += TimeDuration::seconds(slice.as_secs() as i64)
-                }),
-            },
-            shared,
-        )
     }
 }
 

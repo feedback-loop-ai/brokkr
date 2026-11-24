@@ -146,6 +146,7 @@ fn a_probe_hold_is_in_force_until_it_ends_whatever_the_time() {
                 until: at(31),
                 reason: read[0].reason.clone(),
                 probe: true,
+                ordinary: None,
             }),
             "at {now}"
         );
@@ -201,7 +202,10 @@ fn the_aggregate_joins_a_row_and_a_standing_hold_as_the_gates_do() {
     append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
     let held = |now| store.cooldown("claude", "first", now).unwrap();
     let row = held(at(10)).unwrap();
-    assert_eq!((row.until, row.probe), (at(60), true));
+    assert_eq!(
+        (row.until, row.probe, row.ordinary),
+        (at(60), true, Some(at(60)))
+    );
     assert_eq!(row.reason, "rate_limit: slow down");
     let words = store.cooldowns_in_force(at(60)).unwrap()[0].reason.clone();
     for now in [at(60), at(60 + 24 * 3600)] {
@@ -209,6 +213,7 @@ fn the_aggregate_joins_a_row_and_a_standing_hold_as_the_gates_do() {
             until: at(31),
             reason: words.clone(),
             probe: true,
+            ordinary: None,
         };
         assert_eq!(held(now), Some(hold_only), "at {now}");
     }

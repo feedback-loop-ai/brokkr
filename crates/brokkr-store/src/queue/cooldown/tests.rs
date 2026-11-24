@@ -709,6 +709,7 @@ fn two_overlapping_refusals_aggregate_to_the_later_end() {
             until: at(30),
             reason: "the earlier, longer".into(),
             probe: false,
+            ordinary: Some(at(30)),
         })
     );
     // An expired row is history: neither holds, and neither is deleted.
@@ -822,6 +823,7 @@ fn a_wait_is_not_shortened_by_its_rounding() {
             until: at(11),
             reason: "rate_limit: slow down".into(),
             probe: false,
+            ordinary: Some(at(11)),
         })
     );
     assert_eq!(store.cooldowns_in_force(now).unwrap().len(), 1);
@@ -875,6 +877,7 @@ fn a_wait_in_the_last_second_is_stored_at_the_last_second() {
             until: last,
             reason: "rate_limit: slow down".into(),
             probe: false,
+            ordinary: Some(last),
         })
     );
 }
