@@ -243,6 +243,13 @@ fn assert_qoder_projection() {
         }
     }
 
+    // Qoder's own D1 words are swept through its seat as the Claude
+    // family's are (F2): its admission, pin, turns and projection read the
+    // raw row, so a bound word changes nothing but the wire's mask.
+    let rows = [init.clone(), turn.clone(), result];
+    let plain = family(&Stream::rows(&rows, &[]), AdapterKind::Qoder);
+    assert_bound_projection(AdapterKind::Qoder, &rows, &plain);
+
     let stream = Stream::rows(&[init.clone(), turn, init], &[("S", "assi")]);
     let lost = family(&stream, AdapterKind::Qoder);
     let [Body::Accepted { .. }, Body::Checkpoint { data, .. }, Body::Checkpoint {
