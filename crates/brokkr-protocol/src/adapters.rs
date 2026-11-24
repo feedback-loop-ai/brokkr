@@ -4568,19 +4568,15 @@ fn invoke_dsh_shipped(
 /// no per-message boundary, so the transcript fold — not this event —
 /// owns usage.
 fn fold_dsh_stream_event(
-    event: &Value,
-    identity: Option<CapturedId>,
+    event: &Row<'_>,
     watch: &mut DshRootWatch,
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Emitted),
 ) {
-    let is_init = event.get("type").and_then(Value::as_str) == Some("system")
-        && event.get("subtype").and_then(Value::as_str) == Some("init");
-    if !is_init {
-        return;
-    }
-    if let Some(identity) = identity.filter(|identity| !identity.ident.is_offered("")) {
+    if let Some(identity) =
+        CapturedId::init(event).filter(|identity| !identity.ident.is_offered(""))
+    {
         session_meta.insert("session_id".into(), Value::String(identity.display.clone()));
         watch.named(&identity.ident, &identity.display, hold, emit);
     }
@@ -4596,13 +4592,11 @@ fn fold_dsh_line(
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Emitted),
 ) -> DshStreamLine {
-    let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
+    let Ok(event) = serde_json::from_str::<Value>(&line) else {
         watch.unread(DshStreamLine::Malformed);
         return DshStreamLine::Malformed;
     };
-    let identity = CapturedId::init(&Row::new(&event, bindings));
-    secret::mask_json(&mut event, bindings);
-    fold_dsh_stream_event(&event, identity, watch, hold, session_meta, emit);
+    fold_dsh_stream_event(&Row::new(&event, bindings), watch, hold, session_meta, emit);
     DshStreamLine::Event
 }
 
