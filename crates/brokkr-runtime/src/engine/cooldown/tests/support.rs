@@ -1,8 +1,37 @@
 //! The cool-down tests' support for #1110, apart from `tests.rs` so that
 //! file stays within ruling 4's 2,000-line test ceiling: the seat limits a
-//! fixture gives, and the test of the witness a failed assertion prints.
+//! fixture gives, the test of the witness a failed assertion prints, and
+//! the guard that gives a process-launching test its own engine.
 
 use super::*;
+
+/// Re-execute the test alone before it can launch a driver. The nested
+/// item's type name includes the test function; libtest drops the crate
+/// prefix and ends at the test function itself.
+macro_rules! own_engine {
+    () => {
+        if !$crate::engine::tests::in_its_own_engine(own_engine!(path)) {
+            return;
+        }
+    };
+    (path) => {{
+        fn test_marker() {}
+        std::any::type_name_of_val(&test_marker)
+            .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+            .unwrap()
+            .strip_suffix("::test_marker")
+            .unwrap()
+    }};
+}
+
+#[test]
+fn the_own_engine_guard_derives_its_libtest_path() {
+    own_engine!();
+    assert_eq!(
+        own_engine!(path),
+        "engine::cooldown::tests::support::the_own_engine_guard_derives_its_libtest_path"
+    );
+}
 
 /// The seat's limits where its deadline is not what the test proves: far
 /// past any load, so only the clock the test drives decides the rounds
