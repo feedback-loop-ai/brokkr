@@ -85,6 +85,8 @@ fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
         root_arg,
         "--reach",
         &reach(&work),
+        "--spec",
+        "\"workspace\"",
     ])
     .stdin(Stdio::piped())
     .stdout(Stdio::piped())
@@ -138,6 +140,8 @@ fn serving(tmp: &Path) -> (std::process::Child, PathBuf) {
         root_arg,
         "--reach",
         &reach(tmp),
+        "--spec",
+        "\"workspace\"",
     ])
     .env("TMPDIR", tmp)
     .stdin(Stdio::piped())
@@ -1025,4 +1029,95 @@ fn boxed_exec_settles_under_load() {
         cores * 2
     );
     assert_eq!(failed, Vec::<(usize, &str)>::new());
+}
+
+#[test]
+fn hands_serve_accepts_base64url_documents_and_refuses_invalid_spellings() {
+    let tmp = tempfile::tempdir().unwrap();
+    let artifacts = artifact_root(&tmp.path().join("state"));
+    let (work_arg, root_arg) = (tmp.path().to_str().unwrap(), artifacts.to_str().unwrap());
+    let reach_json = reach(tmp.path());
+    let spec_json = r#"{"binds":[],"kind":"workspace","network":false}"#;
+    let reach_b64 = brokkr_protocol::hands::encode_base64url(reach_json.as_bytes());
+    let spec_b64 = brokkr_protocol::hands::encode_base64url(spec_json.as_bytes());
+
+    let mut child = crate::built::brokkr([
+        "hands",
+        "serve",
+        "--workdir",
+        work_arg,
+        "--artifacts",
+        root_arg,
+        "--reach-base64url",
+        &reach_b64,
+        "--spec-base64url",
+        &spec_b64,
+    ])
+    .env("TMPDIR", tmp.path())
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .unwrap();
+    writeln!(
+        child.stdin.as_mut().unwrap(),
+        r#"{{"jsonrpc":"2.0","id":1,"method":"ping"}}"#
+    )
+    .unwrap();
+    drop(child.stdin.take());
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "{\"id\":1,\"jsonrpc\":\"2.0\",\"result\":{}}\n"
+    );
+
+    // Passing both spellings refuses and never echoes the encoded value.
+    let both = crate::built::brokkr([
+        "hands",
+        "serve",
+        "--workdir",
+        work_arg,
+        "--artifacts",
+        root_arg,
+        "--reach",
+        &reach_json,
+        "--reach-base64url",
+        &reach_b64,
+        "--spec",
+        spec_json,
+    ])
+    .output()
+    .unwrap();
+    assert!(!both.status.success());
+    let stderr = String::from_utf8_lossy(&both.stderr);
+    assert!(stderr.contains("--reach"), "{stderr}");
+    assert!(stderr.contains("--reach-base64url"), "{stderr}");
+    assert!(!stderr.contains(&reach_b64), "{stderr}");
+
+    // Passing padded base64url refuses and never echoes the value.
+    let padded = format!("{reach_b64}=");
+    let bad = crate::built::brokkr([
+        "hands",
+        "serve",
+        "--workdir",
+        work_arg,
+        "--artifacts",
+        root_arg,
+        "--reach-base64url",
+        &padded,
+        "--spec-base64url",
+        &spec_b64,
+    ])
+    .output()
+    .unwrap();
+    assert!(!bad.status.success());
+    let stderr = String::from_utf8_lossy(&bad.stderr);
+    assert!(stderr.contains("--reach-base64url"), "{stderr}");
+    assert!(stderr.contains("padding"), "{stderr}");
+    assert!(!stderr.contains(&padded), "{stderr}");
 }

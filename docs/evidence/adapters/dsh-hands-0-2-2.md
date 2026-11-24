@@ -939,8 +939,60 @@ adapters::dsh_hands`, which gave 103 passed. The new tests are in
   on 0.2.2-rc.1 (`Overlay::HandsRow("tool-agent-team")`), each matched by
   variant.
 
+## The boxed `brokkr-hands` row under `--dump-config` (#1277, 2026-11-24)
+
+Every boxed dsh seat was refused before its first turn with `Unreadable`
+("the composed dsh tree cannot be read as the one sequence of id and package
+rows dsh writes"). The driver's `brokkr-hands` overlay row carried
+`hands serve --workdir <path> --artifacts <path> --reach <JSON> --spec <JSON>`,
+and dsh's `--dump-config` (js-yaml) folds long string scalars onto a `>-`
+block scalar whose content line begins with `{`. Round 1052g8's line-property
+closure (`crates/brokkr-protocol/src/adapters/dsh_hands/composition/rows/carriers.rs`)
+reads every line as a structure line at its own position and refuses any line
+that opens a non-empty flow collection. Because a sealed reach always holds
+four absolute paths, `--reach` was always folded. The controller's captures
+are recorded in [dsh-hands-1277/README.md](dsh-hands-1277/README.md).
+
+### Provenance (#1277)
+
+The implementing seat has no dsh and no API key. **No dsh capture below was
+re-run by that seat.** Every live capture is the controller's measurement of
+2026-11-24 on Linux with dsh 0.2.2-rc.1, quoted from
+[dsh-hands-1277/README.md](dsh-hands-1277/README.md). The offline bindings
+were run by this seat.
+
+| Figure | Source |
+| --- | --- |
+| `seat-overlay.yml` and `dump-folded-json.txt` (100 rows; lines 455 and 458 start with `{` and are refused by the line rule) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 (`2811aede`, `dashscope/qwen4-max`) |
+| `overlay-base64url.yml` and `dump-base64url.txt` (100 rows, no line refused by the line rule) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
+| `dump-file-paths.txt` and `dump-short-json.txt` (100 rows each, no line refused) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
+| Compile-time reader binding on `dump-folded-json.txt` (`Unreadable`) and `dump-base64url.txt` (100 rows, `brokkr-hands` enabled on `@deepseek-ai/dsh-mcp-client`, admitted by `judge(Release::V0_2_2, …)` and `judge_mode(…, Mode::WorkspaceWrite)`) | offline tests, this change |
+| Writer binding: `--reach-base64url` and `--spec-base64url`, non-ASCII path and `-`/`_` bytes, exact round-trip decode, every emitted and folded line admitted by `rows::carriers::check`, and regenerated dump admitted by both judges | offline tests, this change |
+| `hands serve` CLI argument resolution (JSON or unpadded base64url, exactly one spelling per document, strict decoder refusals) | offline tests, this change |
+
+### The fix
+
+- The line rule and row grammar (`composition/rows.rs` and
+  `composition/rows/carriers.rs`) did not change.
+- In a dsh seat's overlay only, the `brokkr-hands` row carries the exact
+  JSON bytes of the sealed reach and the hands spec encoded as RFC 4648
+  base64url without padding under `--reach-base64url` and `--spec-base64url`.
+  Harnesses that carry MCP configuration in JSON (`claude`, `codex`, `agy`,
+  `qoder`) keep `--reach` and `--spec` unchanged.
+- `brokkr hands serve` accepts each document in either its JSON spelling
+  (`--reach`, `--spec`) or its unpadded base64url spelling
+  (`--reach-base64url`, `--spec-base64url`), and requires exactly one spelling
+  for each. Both spellings decode into the same parse and check path. One
+  codec in `crates/brokkr-protocol/src/base64.rs` (extracted from
+  `secret.rs`'s existing RFC 4648 encoder) serves both the overlay writer and
+  `hands serve`.
+- `--workdir` and `--artifacts` stay plain paths and are not encoded: a path
+  dsh folds onto a line the line rule refuses (for example starting with a
+  YAML flow indicator or a quote) stays refused, fail closed.
+
 ## Pending
 
+- A live boxed dsh seat turn past the reader and both judges (#1277, #953): requires dsh and a provider key, so it is UNVERIFIED here and owed to the controller after this change builds.
 - Exact coverage and `quality/ratchet.sh crap`: this seat's box has no
   LCOV output, so the crap ratchet refuses with "no LCOV at
   target/coverage/lcov.info: run scripts/coverage-exact.sh first". Every

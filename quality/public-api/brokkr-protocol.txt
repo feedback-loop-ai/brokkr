@@ -454,6 +454,12 @@ pub fn brokkr_protocol::dsh_sandbox::stage_seat_store(&brokkr_protocol::dsh_sand
 pub mod brokkr_protocol::fake
 pub fn brokkr_protocol::fake::run_fake_driver(&std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&str>) -> core::io::error::Result<()>
 pub mod brokkr_protocol::hands
+pub enum brokkr_protocol::hands::Base64UrlError
+pub brokkr_protocol::hands::Base64UrlError::InvalidAlphabet
+pub brokkr_protocol::hands::Base64UrlError::InvalidLength
+pub brokkr_protocol::hands::Base64UrlError::NonZeroTrailingBits
+pub brokkr_protocol::hands::Base64UrlError::NotUtf8
+pub brokkr_protocol::hands::Base64UrlError::Padding
 pub enum brokkr_protocol::hands::BindMode
 pub brokkr_protocol::hands::BindMode::Overlay
 pub brokkr_protocol::hands::BindMode::Ro
@@ -553,8 +559,10 @@ pub const brokkr_protocol::hands::UNHIDDEN_STORE: &str
 pub const brokkr_protocol::hands::UNPROTECTED_EVIDENCE: &str
 pub fn brokkr_protocol::hands::boundary_evidence_required() -> bool
 pub fn brokkr_protocol::hands::bwrap_on(&std::ffi::os_str::OsStr) -> core::result::Result<std::path::PathBuf, alloc::string::String>
+pub fn brokkr_protocol::hands::decode_base64url(&str) -> core::result::Result<alloc::string::String, brokkr_protocol::hands::Base64UrlError>
 pub fn brokkr_protocol::hands::drain_bounded<R: alloc::io::read::Read>(R) -> (alloc::vec::Vec<u8>, bool)
 pub fn brokkr_protocol::hands::drifted(&brokkr_protocol::hands::Sealed, &brokkr_protocol::hands::HandsSpec, &std::path::Path) -> core::option::Option<std::path::PathBuf>
+pub fn brokkr_protocol::hands::encode_base64url(&[u8]) -> alloc::string::String
 pub fn brokkr_protocol::hands::execute(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, &std::path::Path, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
 pub fn brokkr_protocol::hands::execute_in(&std::path::Path, &brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, &std::path::Path, &std::path::Path, &[(alloc::string::String, alloc::string::String)], &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
 pub fn brokkr_protocol::hands::git_facts(&std::path::Path) -> brokkr_protocol::hands::GitFacts

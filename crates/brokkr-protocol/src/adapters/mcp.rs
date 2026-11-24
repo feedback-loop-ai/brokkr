@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::{claude_restriction_control, last_message_door, placed, ResumeGate, ServingShape};
-use crate::hands::{Sealed, SEALED_REACH};
+use crate::hands::{serve_args_encoded, Sealed, SEALED_REACH};
 use crate::native_controls::{
     SealedAssessment, SealedBoundary, SealedBroker, SealedFence, SealedIsolation, SealedServers,
     SealedServing, Transport, ARTIFACT_ROOT, SERVING_INPUTS,
@@ -235,7 +235,7 @@ fn dsh_hands_at(
     let hands = hands_transport(sealed, (brokkr, workdir), input, &reach)
         .filter(|hands| hands.expand(&[]).is_some())
         .ok_or(McpRefusal::Unbindable)?;
-    let args = crate::hands::serve_args(hands.workdir, hands.artifacts, hands.sealed, hands.spec);
+    let args = serve_args_encoded(hands.workdir, hands.artifacts, hands.sealed, hands.spec);
     Ok(Some((brokkr.to_string_lossy().into_owned(), args)))
 }
 
