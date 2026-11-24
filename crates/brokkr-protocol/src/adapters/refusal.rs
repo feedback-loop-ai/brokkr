@@ -3,6 +3,8 @@
 //! machine fields; the provider and route are filled later, never from
 //! prose, and the bounded evidence line lives here alone.
 
+use std::ops::Range;
+
 use serde_json::Value;
 
 use super::{row::Row, AdapterKind};
@@ -194,25 +196,16 @@ pub(super) fn codex_refusal(event: &Row<'_>) -> Option<PreSessionRefusal> {
     // A missing clock is no reset, never no refusal (decision 0103).
     let class = codex_class(&error);
     let now = (class == RefusalClass::RateLimit).then(Now::read).flatten();
-    Some(codex_error(&error, class, now.as_ref(), &[]))
+    Some(codex_error(&error, class, now.as_ref()))
 }
 
-/// One codex refusal from a stream event or a thread record. The
-/// exhausted window's reset is preferred over the provider's prose.
-fn codex_error(
-    error: &Row<'_>,
-    class: RefusalClass,
-    now: Option<&Now>,
-    resets: &[ResetWindow],
-) -> PreSessionRefusal {
+/// One Codex refusal from the machine fields and masked prose of an error.
+fn codex_error(error: &Row<'_>, class: RefusalClass, now: Option<&Now>) -> PreSessionRefusal {
     let status = error.count("/status");
     let message = error.text("/message");
     let (token, retry_after) = match class {
         RefusalClass::Other => (API_ERROR, None),
-        RefusalClass::RateLimit => (
-            RATE_LIMIT,
-            now.and_then(|now| codex_reset(error, now, resets)),
-        ),
+        RefusalClass::RateLimit => (RATE_LIMIT, now.and_then(|now| codex_reset(error, now))),
     };
     refusal_reason_with(class, token, status, message.as_deref(), retry_after)
 }
@@ -237,17 +230,9 @@ struct ResetWindow {
     resets_at: i64,
 }
 
-/// The provider's stated reset, in whole seconds from the refusal. The
-/// exhausted window's structured reset wins; otherwise the strict "try
-/// again at …" text. Absent, stale or unparseable is no guess.
-fn codex_reset(error: &Row<'_>, now: &Now, resets: &[ResetWindow]) -> Option<u64> {
-    if let Some(seconds) = exhausted_reset(now, resets) {
-        return Some(seconds);
-    }
-    if !error.contains("/message", RESET_PREFIX) {
-        return None;
-    }
-    let stated = stated_reset(&error.text("/message")?)?;
+/// The provider's stated reset, in whole seconds from the refusal.
+fn codex_reset(error: &Row<'_>, now: &Now) -> Option<u64> {
+    let stated = error.reset("/message")?;
     seconds_between(now.epoch, stated.epoch()?)
 }
 
@@ -263,11 +248,11 @@ fn exhausted_reset(now: &Now, resets: &[ResetWindow]) -> Option<u64> {
 
 /// Every window a codex `token_count` row states; one without
 /// `resets_at` is skipped rather than read as zero.
-fn reset_windows(limits: &Value) -> Vec<ResetWindow> {
-    ["primary", "secondary"]
+fn reset_windows(limits: &Row<'_>) -> Vec<ResetWindow> {
+    ["/primary", "/secondary"]
         .iter()
         .filter_map(|key| {
-            let window = Row::new(limits.get(*key)?, &[]);
+            let window = limits.at(key)?;
             Some(ResetWindow {
                 used_percent: window.number("/used_percent"),
                 resets_at: window.count("/resets_at")?,
@@ -411,7 +396,7 @@ const RESET_PREFIX: &str = "try again at ";
 
 /// Codex's own words for its reset, parsed strictly: `try again at Nov
 /// 11th, 2026 10:38 AM.` Anything else gives no reset rather than a guess.
-fn stated_reset(message: &str) -> Option<LocalTime> {
+pub(super) fn stated_reset(message: &str) -> Option<(LocalTime, Range<usize>)> {
     let tail = message.split_once(RESET_PREFIX)?.1;
     let mut words = tail.split_whitespace();
     let month = month_of(words.next()?)?;
@@ -422,14 +407,16 @@ fn stated_reset(message: &str) -> Option<LocalTime> {
     if words.next().is_some() {
         return None;
     }
-    Some(LocalTime {
+    let consumed = message.len() - tail.len()..message.trim_end().len();
+    let reset = LocalTime {
         year,
         month,
         day,
         hour,
         minute,
         second: 0,
-    })
+    };
+    Some((reset, consumed))
 }
 
 fn month_of(word: &str) -> Option<u8> {

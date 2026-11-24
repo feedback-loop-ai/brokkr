@@ -23,6 +23,7 @@ mod agy;
 pub mod capability_calls;
 mod claude_fold;
 mod codex;
+mod codex_fold;
 mod composite;
 mod discovery;
 mod dsh_effort;
@@ -72,17 +73,18 @@ use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Locat
 use crate::{Body, Message, PreSessionRefusal, Probe, ResultStatus};
 use capability_calls::Observation;
 use claude_fold::{fold_stream_event, ClaudeFold};
+use codex_fold::fold_codex_row;
 use dsh_stderr::redact_dsh_reasoning;
 use mcp::served;
 use probe::{pinned_model, seat_row, ProbeAnswer};
-#[cfg(test)]
-use refusal::refusal_reason;
 use refusal::{
-    bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
-    epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
+    bounded_wire_line, claude_refusal, codex_thread_refusal, dsh_refusal, epoch_now_nanos,
+    find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
+#[cfg(test)]
+use refusal::{codex_refusal, refusal_reason};
 pub(crate) use row::CapturedId;
-use row::{FoldInput, Ident, Row};
+use row::{Ident, Row};
 use spawn::{spawn_fed, spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
@@ -662,21 +664,45 @@ fn names_thread_settings(line: &str) -> bool {
     line.contains("turn_context") || line.contains("thread_settings")
 }
 
-fn model_in_thread(line: &Value) -> Option<String> {
-    ["/payload/model", "/payload/thread_settings/model"]
+/// What one thread record answers for a field, read at the first of
+/// `pointers` it names:
+/// - `None`: it cannot answer, because the field is absent or the token
+///   clamp refused its value, so the walk goes on to an older record;
+/// - `Some(None)`: a binding touched the value. The record did answer,
+///   with a value the seat may not quote, so the field settles as not
+///   reported and is never an older record's (decision 0114 D4);
+/// - `Some(Some(value))`: the value, clamped.
+fn thread_field(
+    line: &Row<'_>,
+    pointers: [&str; 2],
+    token: fn(&str) -> Option<String>,
+) -> Option<Option<String>> {
+    let (pointer, text) = pointers
         .into_iter()
-        .find_map(|pointer| line.pointer(pointer).and_then(Value::as_str))
-        .and_then(model_token)
+        .find_map(|pointer| Some((pointer, line.text(pointer)?)))?;
+    if !line.equals(pointer, &text) {
+        return Some(None);
+    }
+    token(&text).map(Some)
 }
 
-fn effort_in_thread(line: &Value) -> Option<String> {
-    [
-        "/payload/effort",
-        "/payload/thread_settings/reasoning_effort",
-    ]
-    .into_iter()
-    .find_map(|pointer| line.pointer(pointer).and_then(Value::as_str))
-    .and_then(effort_token)
+fn model_in_thread(line: &Row<'_>) -> Option<Option<String>> {
+    thread_field(
+        line,
+        ["/payload/model", "/payload/thread_settings/model"],
+        model_token,
+    )
+}
+
+fn effort_in_thread(line: &Row<'_>) -> Option<Option<String>> {
+    thread_field(
+        line,
+        [
+            "/payload/effort",
+            "/payload/thread_settings/reasoning_effort",
+        ],
+        effort_token,
+    )
 }
 
 /// Codex releases which omit the model from JSONL name it in the
@@ -694,10 +720,6 @@ fn model_in_header(stderr: &str, pin: Option<&str>) -> Option<String> {
 
 fn positive_count(value: Option<&Value>) -> Option<u64> {
     value.and_then(Value::as_u64).filter(|value| *value > 0)
-}
-
-fn positive_cost(value: Option<&Value>) -> Option<f64> {
-    value.and_then(Value::as_f64).filter(|value| *value > 0.0)
 }
 
 fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String> {
@@ -1448,14 +1470,22 @@ const CODEX_THREAD_DEPTH: usize = 6;
 /// derived from any of it. A driver whose harness offers a real stdout
 /// stream should use it rather than inherit this.
 #[derive(Default)]
-struct CodexThreadEcho {
+struct CodexThreadEcho<'a> {
+    bindings: &'a [secret::BoundSecret],
     /// The sessions root and the thread id codex announced, held
     /// together because neither is ever known without the other.
     announced: Option<(std::path::PathBuf, Ident)>,
     path: Option<std::path::PathBuf>,
 }
 
-impl CodexThreadEcho {
+impl<'a> CodexThreadEcho<'a> {
+    fn new(bindings: &'a [secret::BoundSecret]) -> Self {
+        Self {
+            bindings,
+            ..Self::default()
+        }
+    }
+
     /// Remember the thread codex announced, and try the walk now. The
     /// id is held whether or not the file is there yet, because
     /// announcing a thread and filing its rollout are two writes and
@@ -1522,7 +1552,9 @@ impl CodexThreadEcho {
         // is the distinction ruling 3 makes load-bearing. So a field the
         // anchor leaves empty keeps walking for the newest record that
         // can answer it. The pair still binds every field one record
-        // answers; only a refusal splits it.
+        // answers; only a refusal splits it. A binding inside a value is
+        // not a refusal: that record answered, so the field settles as
+        // not reported there (decision 0114 D4).
         let mut model = None;
         let mut effort = None;
         for line in body.lines().rev() {
@@ -1532,9 +1564,10 @@ impl CodexThreadEcho {
             if !names_thread_settings(line) {
                 continue;
             }
-            let Ok(line) = serde_json::from_str::<Value>(line) else {
+            let Ok(raw) = serde_json::from_str::<Value>(line) else {
                 continue;
             };
+            let line = Row::new(&raw, self.bindings);
             if model.is_none() {
                 model = model_in_thread(&line);
             }
@@ -1542,7 +1575,7 @@ impl CodexThreadEcho {
                 effort = effort_in_thread(&line);
             }
         }
-        (model, effort)
+        (model.flatten(), effort.flatten())
     }
 
     /// The refusal the thread record's own error states, read on the way
@@ -1570,12 +1603,9 @@ impl CodexThreadEcho {
             .announced
             .as_ref()
             .expect("a resolved codex thread path has an announced thread");
-        let (cwd, started) = thread_header(path, Some(announced))?;
-        if cwd != workdir || started < since_nanos {
-            return None;
-        }
+        thread_header(path, Some(announced), workdir, since_nanos, self.bindings)?;
         let body = std::fs::read_to_string(path).ok()?;
-        codex_thread_refusal(&body, Some(since_nanos), now)
+        codex_thread_refusal(&body, Some(since_nanos), now, self.bindings)
     }
 
     /// The same read where the CLI never announced its thread, so the
@@ -1602,139 +1632,9 @@ impl CodexThreadEcho {
             workdir,
             now,
             CODEX_THREAD_DEPTH,
+            self.bindings,
         )
     }
-}
-
-/// Fold Codex's stable `exec --json` JSONL into bounded live telemetry.
-/// Commands, item bodies, model output, reasoning, and filesystem paths are
-/// intentionally ignored; the journal records progress and usage, not a
-/// transcript.
-fn fold_codex_event(
-    event: &Value,
-    identity: Option<CapturedId>,
-    turn: &mut u64,
-    session_meta: &mut Map<String, Value>,
-    transcript: &mut Transcript,
-    echo: &mut CodexThreadEcho,
-    emit: &mut impl FnMut(&Emitted),
-) -> Option<PreSessionRefusal> {
-    match event.get("type").and_then(Value::as_str) {
-        Some("thread.started") => {
-            if let Some(identity) = identity {
-                echo.locate(transcript.home(), identity.ident.clone());
-                // Recorded NOW, as the claude fold records its own —
-                // and for a second reason here: the thread id is what a
-                // retry resumes (decision 0030), and an attempt killed
-                // on its deadline never reaches the session-finished
-                // checkpoint. Captured at `thread.started`, the id is in
-                // hand from the harness's first message. It reaches the
-                // JOURNAL with the attempt's first work checkpoint,
-                // which `run_seat` flushes it ahead of: a pre-session
-                // row would put a refused attempt on decision 0016's
-                // mid-session side. So a kill AFTER the first turn still
-                // hands its thread to the retry that follows, and a kill
-                // before it has none to hand — decision 0053 ruling 8,
-                // which names that window and its cost.
-                transcript.record(Locator::Session(identity), session_meta, emit);
-            }
-        }
-        Some("turn.started") => {
-            *turn += 1;
-            emit(&Emitted::new(
-                Step::TurnStarted,
-                json!({"turn": *turn, "harness":"codex"}),
-            ));
-        }
-        Some(kind @ ("item.started" | "item.completed")) => {
-            let step = if kind == "item.started" {
-                Step::ItemStarted
-            } else {
-                Step::ItemCompleted
-            };
-            let row = Observation::codex(event).onto(json!({"turn": *turn, "harness":"codex"}));
-            emit(&Emitted::new(step, row));
-        }
-        Some("turn.completed") => {
-            let usage = event.get("usage").unwrap_or(&Value::Null);
-            // Neither fact is reliably on this stream, and neither is
-            // ever taken from our pin: both are read from the thread
-            // record codex writes them into (decision 0035 ruling 3),
-            // through decision 0032's retained locator. The stream is
-            // still asked first for the model — a release that does put
-            // it on `turn.completed` is the more direct report.
-            let (thread_model, effort) = echo.echo();
-            let model = model_in_json(&Row::new(event, &[])).or(thread_model);
-            if let Some(model) = &model {
-                session_meta.insert("model".into(), Value::String(model.clone()));
-            }
-            if let Some(effort) = &effort {
-                session_meta.insert("effort".into(), Value::String(effort.clone()));
-            }
-            let mut checkpoint = Map::new();
-            checkpoint.insert("turn".into(), Value::from(*turn));
-            checkpoint.insert("harness".into(), Value::String("codex".into()));
-            checkpoint.insert(
-                "model".into(),
-                Value::String(model.unwrap_or_else(|| MODEL_NOT_REPORTED.to_string())),
-            );
-            checkpoint.insert(
-                "effort".into(),
-                Value::String(effort.unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())),
-            );
-            for (source, target) in [
-                ("input_tokens", "input_tokens"),
-                ("cached_input_tokens", "cache_read_tokens"),
-                ("output_tokens", "output_tokens"),
-                // Received all along and dropped until decision 0035
-                // ruling 4 asked for it; `cache_write_tokens` is a v1
-                // field no codex record has ever filled.
-                ("cache_write_input_tokens", "cache_write_tokens"),
-                // Codex is the one built-in that meters its reasoning
-                // per turn. It is a SUBSET of output_tokens above, so it
-                // rides its own key and is never added to a total again.
-                ("reasoning_output_tokens", "reasoning_output_tokens"),
-            ] {
-                if let Some(value) = positive_count(usage.get(source)) {
-                    checkpoint.insert(target.into(), Value::from(value));
-                    add_usage(session_meta, target, value);
-                }
-            }
-            // The turn count is journaled HERE, not only from `result`.
-            // Verified against codex-cli 0.148.0: a real `codex exec
-            // --json` run ends at `turn.completed` and emits no `result`
-            // event at all, so a codex seat's num_turns never reached
-            // `brokkr stats costs` — the aggregator saw per-turn token keys it
-            // does not sum and nothing else. Cost in USD is reported
-            // nowhere in that stream (`usage` is token counts only), so
-            // total_cost_usd stays absent rather than invented.
-            session_meta.insert("num_turns".into(), Value::from(*turn));
-            emit(&Emitted::new(
-                Step::TurnCompleted,
-                Value::Object(checkpoint),
-            ));
-        }
-        // Conformance shims and older clients may provide only final metadata.
-        Some("result") => {
-            let row = Row::new(event, &[]);
-            fold_result_meta(
-                &row,
-                model_in_json(&row),
-                identity,
-                session_meta,
-                transcript,
-                emit,
-            );
-            if let Some(value) = positive_count(event.get("num_turns")) {
-                session_meta.insert("num_turns".into(), Value::from(value));
-            }
-            if let Some(value) = positive_cost(event.get("total_cost_usd")) {
-                session_meta.insert("total_cost_usd".into(), Value::from(value));
-            }
-        }
-        _ => {}
-    }
-    None
 }
 
 /// One harness-reported token count folded into the session totals.
@@ -3461,7 +3361,7 @@ fn invoke_codex(
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
     // A rejoin already knows the thread it is writing to, so the locator
     // is held before the first byte arrives.
-    let mut echo = CodexThreadEcho::default();
+    let mut echo = CodexThreadEcho::new(bindings);
     if let Some(handle) = &hold.plan.rejoining {
         echo.locate(transcript.home(), Ident::from_offered(handle));
     }
@@ -3473,43 +3373,26 @@ fn invoke_codex(
     let (mut child, stderr_thread) = spawn_fed(&hold.plan.command, prompt, workdir, bindings)?;
     let mut session_meta = Map::new();
     let mut turn = 0;
-    // Decision 0053: codex's wire protocol DOES carry the distinction —
-    // a machine-readable `error`/`turn.failed` before the first
-    // `turn.started` is a refusal to start. After a turn it is 0016's
-    // mid-session failure, so the fold classifies only at `turn == 0`,
-    // and — as in the claude arm — it keeps folding the rest of the
-    // stream so a session that recovered keeps its thread id and totals.
     let mut refusal: Option<PreSessionRefusal> = None;
     let mut stopped = false;
     let status = {
         let mut watch = |data: &Emitted| hold.observe(data, emit);
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
             let Ok(line) = line else { break };
-            let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
+            let Ok(event) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
             let row = Row::new(&event, bindings);
-            let classified = (turn == 0).then(|| codex_refusal(&row)).flatten();
             let answer = probe_bound.answers(AdapterKind::Codex, &row);
-            let identity = CapturedId::codex(&row);
-            secret::mask_json(&mut event, bindings);
             let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
-                FoldInput {
-                    row: &event,
-                    refusal: classified,
-                    identity,
-                }
-                .fold(|event, identity| {
-                    fold_codex_event(
-                        event,
-                        identity,
-                        &mut turn,
-                        &mut session_meta,
-                        &mut transcript,
-                        &mut echo,
-                        &mut |data| emit(data),
-                    )
-                })
+                fold_codex_row(
+                    &row,
+                    &mut turn,
+                    &mut session_meta,
+                    &mut transcript,
+                    &mut echo,
+                    &mut |data| emit(data),
+                )
             });
             refusal = refusal.or(classified);
             // The answer is the probe's whole report: stop the harness
@@ -3527,25 +3410,8 @@ fn invoke_codex(
     };
     let captured = stderr_thread.take(stopped);
     let stderr = captured.evidence(|raw| secret::mask_text(raw, bindings));
-    // An attempt that concluded without ever reaching a `turn.completed`
-    // — a release that folds none, or a codex that exits before its
-    // first turn finishes — has read the thread record not at all. Ask
-    // it once more here, on the way out, before falling back to the
-    // launch header.
-    //
-    // NOT the deadline case, though it reads like one: a deadline is
-    // enforced one process up, where the watchdog SIGKILLs this whole
-    // driver's group (`process::tree::kill_group`), so nothing after `child.wait`
-    // runs for a seat that parks. What a parked codex ran under reaches
-    // the journal from the other direction — the `turn-completed`
-    // checkpoint each folded turn already emitted names its model and
-    // effort as it goes, and a seat killed before its first turn has no
-    // fact to carry.
-    //
-    // Asked unconditionally
-    // and inserted only where nothing stands: a turn that already read
-    // the record wrote the same pair, and `or_insert` is what keeps a
-    // stream's more direct report of the model from being overwritten.
+    // Read the rollout on exit even if no turn completed. An earlier
+    // stream model still wins over the rollout and the pinned stderr echo.
     let (model, effort) = echo.echo();
     if let Some(model) = model {
         session_meta
@@ -3590,7 +3456,7 @@ fn invoke_codex(
 /// both reads; `started_nanos` is the invocation's start at nanosecond
 /// precision, the boundary the record's rows and file time are held to.
 fn codex_early_refusal(
-    echo: &mut CodexThreadEcho,
+    echo: &mut CodexThreadEcho<'_>,
     home: &std::path::Path,
     started_nanos: Option<i128>,
     workdir: &str,

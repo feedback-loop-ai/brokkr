@@ -1,5 +1,5 @@
 use super::claude_fold::Source::Claude;
-use super::raw_fold_tests::{claude_refusal, codex_refusal, fold_codex_event};
+use super::raw_fold_tests::claude_refusal;
 use super::*;
 use crate::env_guard::EnvGuard;
 use std::{os::unix::ffi::OsStrExt, path::Path};
@@ -57,10 +57,58 @@ fn fold_into(
     );
 }
 
+/// Fold through the Codex reader's refusal and emission entry point.
+pub(super) fn fold_codex_into(
+    row: &Row<'_>,
+    turn: &mut u64,
+    meta: &mut Map<String, Value>,
+    transcript: &mut Transcript,
+    echo: &mut CodexThreadEcho<'_>,
+    emitted: &mut Vec<Value>,
+) -> Option<PreSessionRefusal> {
+    fold_codex_row(row, turn, meta, transcript, echo, &mut |value| {
+        emitted.push(value.row.clone());
+    })
+}
+
+/// One Codex fold's state from its first row, for tests that drive the
+/// reader row by row through `fold_codex_into`.
+pub(super) struct CodexFold {
+    pub(super) turn: u64,
+    pub(super) meta: Map<String, Value>,
+    pub(super) transcript: Transcript,
+    pub(super) emitted: Vec<Value>,
+}
+
+impl CodexFold {
+    pub(super) fn new() -> Self {
+        Self {
+            turn: 0,
+            meta: Map::new(),
+            transcript: Transcript::resolve(TranscriptKind::CodexThread).unwrap(),
+            emitted: Vec::new(),
+        }
+    }
+
+    /// Fold one unbound row, as the Codex reader does.
+    pub(super) fn row(&mut self, row: &Value, echo: &mut CodexThreadEcho<'_>) {
+        fold_codex_into(
+            &Row::new(row, &[]),
+            &mut self.turn,
+            &mut self.meta,
+            &mut self.transcript,
+            echo,
+            &mut self.emitted,
+        );
+    }
+}
+
 mod claude_usage;
 mod codex_isolation;
 mod decision_0114a;
 mod decision_0114b;
+mod decision_0114c;
+pub(super) use decision_0114b::words as bound_words;
 #[cfg(unix)]
 mod seat_git;
 use codex_isolation::{
@@ -375,13 +423,13 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         json!({"type": "result"}),
         json!({"type": "ignored"}),
     ] {
-        fold_codex_event(
-            &event,
+        fold_codex_into(
+            &Row::new(&event, &[]),
             &mut turns.turns,
             &mut meta,
             &mut codex_transcript,
             &mut echo,
-            &mut |value| emitted.push(value.clone()),
+            &mut emitted,
         );
     }
     assert_eq!(meta["transcript"]["locator"], "final");
@@ -1727,75 +1775,42 @@ fn a_real_codex_rollout_line_names_its_model_and_effort_under_payload() {
         r#"{"timestamp":"2026-09-04T10:45:14.560Z","ordinal":7,"type":"turn_context","payload":{"turn_id":"01a06c05-c0fb-75b3-8c49-f0c49038dd88","cwd":"/w","current_date":"2026-09-04","approval_policy":"never","sandbox_policy":{"type":"danger-full-access"},"model":"gpt-5.6-sol","comp_hash":"3000","personality":"pragmatic","effort":"medium","summary":"auto"}}"#,
     )
     .unwrap();
-    assert_eq!(model_in_thread(&real).as_deref(), Some("gpt-5.6-sol"));
-    assert_eq!(effort_in_thread(&real).as_deref(), Some("medium"));
+    assert_eq!(
+        model_in_thread(&Row::new(&real, &[])).flatten().as_deref(),
+        Some("gpt-5.6-sol")
+    );
+    assert_eq!(
+        effort_in_thread(&Row::new(&real, &[])).flatten().as_deref(),
+        Some("medium")
+    );
 
     let settings: Value = serde_json::from_str(
         r#"{"timestamp":"2026-09-04T10:45:14.512Z","ordinal":6,"type":"event_msg","payload":{"type":"thread_settings_applied","thread_id":"01a06c05-c0a6-7991-a277-652d17ace6a6","thread_settings":{"model":"gpt-5.6-sol","model_provider_id":"openai","approval_policy":"never","reasoning_effort":"medium"}}}"#,
     )
     .unwrap();
-    assert_eq!(model_in_thread(&settings).as_deref(), Some("gpt-5.6-sol"));
-    assert_eq!(effort_in_thread(&settings).as_deref(), Some("medium"));
+    assert_eq!(
+        model_in_thread(&Row::new(&settings, &[]))
+            .flatten()
+            .as_deref(),
+        Some("gpt-5.6-sol")
+    );
+    assert_eq!(
+        effort_in_thread(&Row::new(&settings, &[]))
+            .flatten()
+            .as_deref(),
+        Some("medium")
+    );
 
     // The record is codex's file, so both values are clamped on the way
     // across exactly as every other harness report is.
     let hostile = json!({"payload": {"model": "a model, obviously", "effort": "_high"}});
-    assert_eq!(model_in_thread(&hostile), None);
-    assert_eq!(effort_in_thread(&hostile), None);
+    assert_eq!(model_in_thread(&Row::new(&hostile, &[])), None);
+    assert_eq!(effort_in_thread(&Row::new(&hostile, &[])), None);
 
     // A line that names neither answers for neither.
     let quiet = json!({"type": "event_msg", "payload": {"type": "agent_message"}});
-    assert_eq!(model_in_thread(&quiet), None);
-    assert_eq!(effort_in_thread(&quiet), None);
-}
-
-/// Codex's `exec --json` stream carries usage on `turn.completed` and no
-/// model at all (verified against codex-cli 0.153.0), so the served
-/// model has to come off the thread record or a codex seat reaches every
-/// cost and audit surface saying `not reported` — dsh's sentinel, on a
-/// harness that does echo what served it (decision 0031 ruling 1).
-#[test]
-fn a_codex_turn_takes_its_model_from_the_thread_record_when_the_stream_omits_it() {
-    let home = tempfile::tempdir().unwrap();
-    let dated = home.path().join("sessions/2026/09/04");
-    std::fs::create_dir_all(&dated).unwrap();
-    std::fs::write(
-        dated.join("rollout-01a06c05-c0a6-7991-a277-652d17ace6a6.jsonl"),
-        thread_settings("gpt-5.6-sol", "medium") + &turn_context("gpt-5.6-sol", "medium"),
-    )
-    .unwrap();
-
-    let mut echo = CodexThreadEcho::default();
-    echo.locate_unbound(home.path(), "01a06c05-c0a6-7991-a277-652d17ace6a6");
-    let mut turn = 0;
-    let mut meta = Map::new();
-    let mut emitted: Vec<Value> = Vec::new();
-    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
-    fold_codex_event(
-        &json!({"type": "turn.completed", "usage": {"input_tokens": 10}}),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
-        &mut echo,
-        &mut |value| emitted.push(value.clone()),
-    );
-    assert_eq!(meta["model"], "gpt-5.6-sol");
-    assert_eq!(meta["effort"], "medium");
-    let checkpoint = emitted.last().unwrap();
-    assert_eq!(checkpoint["model"], "gpt-5.6-sol");
-    assert_eq!(checkpoint["effort"], "medium");
-
-    // A stream that DOES name a model outranks the record: it is the
-    // more direct report of the turn that just ran.
-    fold_codex_event(
-        &json!({"type": "turn.completed", "model": "gpt-5.6-sol-preview", "usage": {}}),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
-        &mut echo,
-        &mut |value| emitted.push(value.clone()),
-    );
-    assert_eq!(emitted.last().unwrap()["model"], "gpt-5.6-sol-preview");
+    assert_eq!(model_in_thread(&Row::new(&quiet, &[])), None);
+    assert_eq!(effort_in_thread(&Row::new(&quiet, &[])), None);
 }
 
 /// The effort clamp, at both edges. A level crosses the driver boundary
@@ -8782,10 +8797,7 @@ fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
     // cost surfaces with no turns at all. Usage sums across turns —
     // inserting per turn left the session holding its last turn's
     // counts.
-    let mut turn = 0;
-    let mut meta = Map::new();
-    let mut emitted: Vec<Value> = Vec::new();
-    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
+    let mut fold = CodexFold::new();
     let mut echo = CodexThreadEcho::default();
     for event in [
         json!({"type": "thread.started", "thread_id": "thread-1"}),
@@ -8798,15 +8810,9 @@ fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
             "input_tokens": 7, "cached_input_tokens": 1, "output_tokens": 3
         }}),
     ] {
-        fold_codex_event(
-            &event,
-            &mut turn,
-            &mut meta,
-            &mut transcript,
-            &mut echo,
-            &mut |value| emitted.push(value.clone()),
-        );
+        fold.row(&event, &mut echo);
     }
+    let (meta, emitted) = (&fold.meta, &fold.emitted);
     assert_eq!(meta["num_turns"], 2);
     assert_eq!(meta["input_tokens"], 17);
     assert_eq!(meta["cache_read_tokens"], 5);
@@ -9046,18 +9052,12 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
 
 #[test]
 fn a_thread_id_too_long_for_the_journal_is_clamped_in_both_places() {
-    let mut turn = 0;
-    let mut meta = Map::new();
-    let mut emitted: Vec<Value> = Vec::new();
-    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
-    fold_codex_event(
+    let mut fold = CodexFold::new();
+    fold.row(
         &json!({"type": "thread.started", "thread_id": "x".repeat(200)}),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
         &mut CodexThreadEcho::default(),
-        &mut |value| emitted.push(value.clone()),
     );
+    let (meta, emitted) = (&fold.meta, &fold.emitted);
     assert_eq!(
         meta["transcript"]["locator"]
             .as_str()
@@ -9437,12 +9437,15 @@ fn codex_pre_session_refusals_are_machine_events_not_prose() {
             "quota exceeded",
         ),
     ] {
-        let reason = codex_refusal(&event).unwrap().to_string();
+        let reason = codex_refusal(&Row::new(&event, &[])).unwrap().to_string();
         assert!(reason.contains(needle), "{reason}");
     }
-    assert!(codex_refusal(&json!({"type":"turn.started"})).is_none());
-    assert!(codex_refusal(&json!({"type":"item.completed","item":{
-        "type":"command_execution","aggregated_output":"rate limit"}}))
+    assert!(codex_refusal(&Row::new(&json!({"type":"turn.started"}), &[])).is_none());
+    assert!(codex_refusal(&Row::new(
+        &json!({"type":"item.completed","item":{
+        "type":"command_execution","aggregated_output":"rate limit"}}),
+        &[]
+    ))
     .is_none());
 }
 
@@ -9636,7 +9639,7 @@ fn claude_and_codex_refusals_cover_every_machine_field_shape() {
         (json!({"type":"error","error":{"message":"boom"}}), "boom"),
         (json!({"type":"turn.failed","message":"boom"}), "boom"),
     ] {
-        let reason = codex_refusal(&event)
+        let reason = codex_refusal(&Row::new(&event, &[]))
             .unwrap_or_else(|| panic!("{event}"))
             .to_string();
         assert!(reason.contains(needle), "{event}: {reason}");

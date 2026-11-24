@@ -1,7 +1,7 @@
 use serde_json::{json, Map, Value};
 
 use super::super::claude_fold::{fold_stream_event, Source::Claude};
-use super::super::raw_fold_tests::fold_codex_event;
+use super::super::tests::fold_codex_into;
 use super::super::{fold_dsh_event, CodexThreadEcho, Row};
 use super::{Format, Observation, Tool, OBSERVATION_KEY};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
@@ -44,6 +44,35 @@ fn claude_block(id: &str, name: &str) -> Value {
 
 fn codex_item(item: Value) -> Value {
     json!({"type": "item.completed", "item": item})
+}
+
+fn codex_observation(item: Value) -> Observation {
+    Observation::codex(&Row::new(&codex_item(item), &[]))
+}
+
+#[test]
+fn codex_classifies_raw_mcp_and_masks_each_quoted_field() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("bindings");
+    crate::secret::store_set(&store, "S", "tool").unwrap();
+    let bindings = crate::secret::resolve_bindings(&store, &["S".into()]).unwrap();
+    let event = codex_item(json!({
+        "id": "tool_1", "type": "mcp_tool_call", "server": "toolbox", "tool": "read_tool"
+    }));
+    let row = Row::new(&event, &bindings);
+    let call = Observation::codex(&row);
+    assert_eq!(
+        call,
+        seen(
+            Format::Codex,
+            Some("[secret:S]_1"),
+            mcp("[secret:S]box", "read_[secret:S]")
+        )
+    );
+    assert_eq!(
+        call.onto_codex(&row, json!({}))["tool"],
+        "mcp_[secret:S]_call"
+    );
 }
 
 fn dsh_call(call: &str, name: &str) -> Value {
@@ -91,33 +120,31 @@ fn each_format_reads_the_measured_call_identity_whole() {
             seen(Format::Claude, None, Tool::Missing),
         ),
         (
-            Observation::codex(&codex_item(json!({"id": "item_0",
-                "type": "command_execution", "command": "ls", "exit_code": 0}))),
+            codex_observation(json!({"id": "item_0",
+                "type": "command_execution", "command": "ls", "exit_code": 0})),
             seen(Format::Codex, Some("item_0"), named("command_execution")),
         ),
         (
-            Observation::codex(&codex_item(json!({"id": "item_1", "type": "mcp_tool_call",
-                "server": "engine", "tool": LONG_TOOL, "status": "completed"}))),
+            codex_observation(json!({"id": "item_1", "type": "mcp_tool_call",
+                "server": "engine", "tool": LONG_TOOL, "status": "completed"})),
             seen(Format::Codex, Some("item_1"), mcp("engine", LONG_TOOL)),
         ),
         (
-            Observation::codex(&codex_item(json!({"id": "item_2", "type": "mcp_tool_call",
-                "server": "", "tool": "probe"}))),
+            codex_observation(json!({"id": "item_2", "type": "mcp_tool_call",
+                "server": "", "tool": "probe"})),
             seen(Format::Codex, Some("item_2"), unidentified("mcp_tool_call")),
         ),
         (
-            Observation::codex(&codex_item(json!({"id": "item_3", "type": "mcp_tool_call",
-                "server": "s", "tool": ""}))),
+            codex_observation(json!({"id": "item_3", "type": "mcp_tool_call",
+                "server": "s", "tool": ""})),
             seen(Format::Codex, Some("item_3"), unidentified("mcp_tool_call")),
         ),
         (
-            Observation::codex(&codex_item(
-                json!({"type": "mcp_tool_call", "server": "engine"}),
-            )),
+            codex_observation(json!({"type": "mcp_tool_call", "server": "engine"})),
             seen(Format::Codex, None, unidentified("mcp_tool_call")),
         ),
         (
-            Observation::codex(&codex_item(json!({}))),
+            codex_observation(json!({})),
             seen(Format::Codex, None, Tool::Missing),
         ),
         (
@@ -158,8 +185,8 @@ fn each_reading_has_one_encoding_and_decodes_back() {
                    "tool": {"kind": "named", "name": "WebSearch"}}),
         ),
         (
-            Observation::codex(&codex_item(json!({"id": "item_1", "type": "mcp_tool_call",
-                "server": "engine", "tool": "probe"}))),
+            codex_observation(json!({"id": "item_1", "type": "mcp_tool_call",
+                "server": "engine", "tool": "probe"})),
             json!({"format": "codex", "call": "item_1",
                    "tool": {"kind": "mcp", "server": "engine", "tool": "probe"}}),
         ),
@@ -169,7 +196,7 @@ fn each_reading_has_one_encoding_and_decodes_back() {
                    "tool": {"kind": "mcp_unidentified", "reported": "mcp____probe"}}),
         ),
         (
-            Observation::codex(&codex_item(json!({}))),
+            codex_observation(json!({})),
             json!({"format": "codex", "call": null, "tool": {"kind": "missing"}}),
         ),
     ];
@@ -205,14 +232,13 @@ fn codex_rows(events: &[Value]) -> Vec<Value> {
     let mut echo = CodexThreadEcho::default();
     let (mut turn, mut meta) = (1, Map::new());
     for event in events {
-        let mut emit = |row: &Value| rows.push(row.clone());
-        let refused = fold_codex_event(
-            event,
+        let refused = fold_codex_into(
+            &Row::new(event, &[]),
             &mut turn,
             &mut meta,
             &mut transcript,
             &mut echo,
-            &mut emit,
+            &mut rows,
         );
         assert_eq!(refused, None);
     }

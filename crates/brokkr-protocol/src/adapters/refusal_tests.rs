@@ -8,7 +8,7 @@
 //! its words unchanged; the thread-record fallback refuses only on a
 //! usage- or rate-limit error and otherwise leaves the result lost.
 
-use super::raw_fold_tests::{claude_refusal, codex_refusal};
+use super::raw_fold_tests::claude_refusal;
 use super::refusal::{
     claude_refusal_at, codex_thread_refusal, codex_thread_refusal_since, epoch_now,
     find_codex_thread, local_time, parse_nanos, thread_header, LocalTime, Now,
@@ -157,7 +157,7 @@ fn codex_usage_limit_and_429_are_rate_limits_and_other_errors_are_not() {
             Some(429),
         ),
     ] {
-        let reason = codex_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        let reason = codex_refusal(&Row::new(&event, &[])).unwrap_or_else(|| panic!("{event}"));
         assert_eq!(reason.class(), RefusalClass::RateLimit, "{event}");
         assert!(
             reason.words().starts_with("rate_limit"),
@@ -174,12 +174,12 @@ fn codex_usage_limit_and_429_are_rate_limits_and_other_errors_are_not() {
         json!({"type": "error", "message": "boom", "status": 500,
                "codex_error_info": "internal_server_error"}),
     ] {
-        let reason = codex_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        let reason = codex_refusal(&Row::new(&event, &[])).unwrap_or_else(|| panic!("{event}"));
         assert_eq!(reason.class(), RefusalClass::Other, "{event}");
         assert!(reason.words().starts_with("api_error"), "{event}");
     }
     // Only these two event types are pre-session refusals at all.
-    assert!(codex_refusal(&json!({"type": "item.completed"})).is_none());
+    assert!(codex_refusal(&Row::new(&json!({"type": "item.completed"}), &[])).is_none());
 }
 
 /// Decision 0103 ruling 3: codex's own "try again at …" text is parsed
@@ -193,7 +193,7 @@ fn codex_stated_reset_is_parsed_strictly_against_the_refusal_time() {
                    Nov 11th, 2026 10:38 AM.";
     let error = json!({"message": message, "codex_error_info": "usage_limit_exceeded"});
     let row = task_complete(error);
-    let reason = codex_thread_refusal(&record(&[row]), None, Some(&refused_at())).unwrap();
+    let reason = codex_thread_refusal(&record(&[row]), None, Some(&refused_at()), &[]).unwrap();
     assert_eq!(reason.class(), RefusalClass::RateLimit);
     // 2026-11-08 09:38 -> 2026-11-11 10:38 is three days and one hour.
     assert_eq!(reason.retry_after_seconds(), Some(262_800));
@@ -235,7 +235,7 @@ fn codex_stated_reset_is_parsed_strictly_against_the_refusal_time() {
             json!({"message": message, "codex_error_info": "usage_limit_exceeded"}),
         )]);
         assert_eq!(
-            codex_thread_refusal(&body, None, Some(&now))
+            codex_thread_refusal(&body, None, Some(&now), &[])
                 .unwrap()
                 .retry_after_seconds(),
             Some(expected),
@@ -252,7 +252,7 @@ fn codex_stated_reset_is_parsed_strictly_against_the_refusal_time() {
             "message": format!("try again at {month} 1st, 2026 12:00 PM"),
             "codex_error_info": "usage_limit_exceeded"}))]);
         assert!(
-            codex_thread_refusal(&body, None, Some(&now_at(0, 2025, 1, 1, 0, 0)))
+            codex_thread_refusal(&body, None, Some(&now_at(0, 2025, 1, 1, 0, 0)), &[])
                 .unwrap()
                 .retry_after_seconds()
                 .is_some(),
@@ -264,7 +264,7 @@ fn codex_stated_reset_is_parsed_strictly_against_the_refusal_time() {
         "message": "try again at Nov 8th, 2026 10:38 AM.",
         "codex_error_info": "usage_limit_exceeded"}))]);
     assert_eq!(
-        codex_thread_refusal(&body, None, Some(&now_at(0, 2026, 11, 8, 10, 38)))
+        codex_thread_refusal(&body, None, Some(&now_at(0, 2026, 11, 8, 10, 38)), &[])
             .unwrap()
             .retry_after_seconds(),
         None
@@ -296,7 +296,7 @@ fn codex_stated_reset_is_parsed_strictly_against_the_refusal_time() {
         let body = record(&[task_complete(
             json!({"message": text, "codex_error_info": "usage_limit_exceeded"}),
         )]);
-        let reason = codex_thread_refusal(&body, None, Some(&refused_at())).unwrap();
+        let reason = codex_thread_refusal(&body, None, Some(&refused_at()), &[]).unwrap();
         assert_eq!(reason.class(), RefusalClass::RateLimit, "{text}");
         assert_eq!(reason.retry_after_seconds(), None, "{text}");
     }
@@ -316,7 +316,7 @@ fn codex_prefers_the_structured_reset_over_its_words() {
                              "codex_error_info": "usage_limit_exceeded"})),
     ]);
     assert_eq!(
-        codex_thread_refusal(&body, None, Some(&now))
+        codex_thread_refusal(&body, None, Some(&now), &[])
             .unwrap()
             .retry_after_seconds(),
         Some(300)
@@ -330,7 +330,7 @@ fn codex_prefers_the_structured_reset_over_its_words() {
                              "codex_error_info": "usage_limit_exceeded"})),
     ]);
     assert_eq!(
-        codex_thread_refusal(&past, None, Some(&now))
+        codex_thread_refusal(&past, None, Some(&now), &[])
             .unwrap()
             .retry_after_seconds(),
         Some(44_700)
@@ -348,7 +348,7 @@ fn a_codex_thread_record_without_a_rate_limit_error_is_no_refusal() {
         json!({"message": "auth failed", "codex_error_info": "unauthorized"}),
     )]);
     assert!(
-        codex_thread_refusal(&unauthorized, None, Some(&refused_at())).is_none(),
+        codex_thread_refusal(&unauthorized, None, Some(&refused_at()), &[]).is_none(),
         "a non-rate-limit error is not refusal evidence"
     );
 
@@ -356,7 +356,7 @@ fn a_codex_thread_record_without_a_rate_limit_error_is_no_refusal() {
         "type": "event_msg",
         "payload": {"type": "task_complete", "turn_id": "t",
                     "last_agent_message": "done"}})]);
-    assert!(codex_thread_refusal(&normal, None, Some(&refused_at())).is_none());
+    assert!(codex_thread_refusal(&normal, None, Some(&refused_at()), &[]).is_none());
 
     // The record's own `error` event is the other shape read.
     let event = record(&[json!({"timestamp": "t", "ordinal": 1,
@@ -364,7 +364,7 @@ fn a_codex_thread_record_without_a_rate_limit_error_is_no_refusal() {
         "payload": {"type": "error", "message": "out of quota",
                     "codex_error_info": "usage_limit_exceeded"}})]);
     assert_eq!(
-        codex_thread_refusal(&event, None, Some(&refused_at()))
+        codex_thread_refusal(&event, None, Some(&refused_at()), &[])
             .unwrap()
             .class(),
         RefusalClass::RateLimit
@@ -379,7 +379,8 @@ fn a_codex_thread_record_without_a_rate_limit_error_is_no_refusal() {
             codex_thread_refusal(
                 &record(std::slice::from_ref(&quiet)),
                 None,
-                Some(&refused_at())
+                Some(&refused_at()),
+                &[]
             )
             .is_none(),
             "{quiet}"
@@ -388,7 +389,7 @@ fn a_codex_thread_record_without_a_rate_limit_error_is_no_refusal() {
     let bare = record(&[json!({"type": "error", "message": "no session",
                                "codex_error_info": "usage_limit_exceeded"})]);
     assert_eq!(
-        codex_thread_refusal(&bare, None, Some(&refused_at()))
+        codex_thread_refusal(&bare, None, Some(&refused_at()), &[])
             .unwrap()
             .class(),
         RefusalClass::RateLimit
@@ -397,13 +398,13 @@ fn a_codex_thread_record_without_a_rate_limit_error_is_no_refusal() {
     // simply carries no reset (decision 0103 ruling 1(a)).
     let unreadable = record(&[task_complete(json!({
         "message": "quota", "codex_error_info": "usage_limit_exceeded"}))]);
-    let reason = codex_thread_refusal(&unreadable, None, None).unwrap();
+    let reason = codex_thread_refusal(&unreadable, None, None, &[]).unwrap();
     assert_eq!(reason.class(), RefusalClass::RateLimit);
     assert_eq!(reason.retry_after_seconds(), None);
 
     // A truncated row answers nothing, as the model/effort echo does.
     let truncated = format!("{}{{not json", record(&[token_count(1)]));
-    assert!(codex_thread_refusal(&truncated, None, Some(&refused_at())).is_none());
+    assert!(codex_thread_refusal(&truncated, None, Some(&refused_at()), &[]).is_none());
 }
 
 /// Decision 0103 ruling 1(a): dsh's `turn/end` error carries the code and
@@ -687,24 +688,24 @@ fn a_zero_event_exit_picks_only_the_rollout_recorded_for_its_cwd() {
     };
     write(&format!("rollout-a-{THREAD}.jsonl"), "/one");
     write(&format!("rollout-b-{THREAD}.jsonl"), "/two");
-    let reason = codex_thread_refusal_since(&root, 0, "/two", Some(&refused_at()), 6).unwrap();
+    let reason = codex_thread_refusal_since(&root, 0, "/two", Some(&refused_at()), 6, &[]).unwrap();
     assert_eq!(reason.class(), RefusalClass::RateLimit);
 
     // A third file for the same cwd leaves two candidates: ambiguous.
     write(&format!("rollout-c-{THREAD}.jsonl"), "/two");
-    assert!(codex_thread_refusal_since(&root, 0, "/two", Some(&refused_at()), 6).is_none());
+    assert!(codex_thread_refusal_since(&root, 0, "/two", Some(&refused_at()), 6, &[]).is_none());
 
     // A file that is not a rollout and a cwd-less rollout are read, never
     // guessed from: neither can become this seat's record.
     std::fs::write(day.join("notes.txt"), "not a rollout").unwrap();
     std::fs::write(day.join("rollout-broken.jsonl"), "not json\n").unwrap();
-    assert!(codex_thread_refusal_since(&root, 0, "/three", Some(&refused_at()), 6).is_none());
+    assert!(codex_thread_refusal_since(&root, 0, "/three", Some(&refused_at()), 6, &[]).is_none());
 
     // No directory, no depth and a window that excludes every file each
     // answer nothing rather than scanning further.
-    assert!(codex_thread_refusal_since(&root.join("missing"), 0, "/two", None, 6).is_none());
-    assert!(codex_thread_refusal_since(&root, i128::MAX, "/two", None, 6).is_none());
-    assert!(codex_thread_refusal_since(&root, 0, "/two", None, 0).is_none());
+    assert!(codex_thread_refusal_since(&root.join("missing"), 0, "/two", None, 6, &[]).is_none());
+    assert!(codex_thread_refusal_since(&root, i128::MAX, "/two", None, 6, &[]).is_none());
+    assert!(codex_thread_refusal_since(&root, 0, "/two", None, 0, &[]).is_none());
 }
 
 /// A thread id matches a file name only as a whole token, never as a
@@ -739,11 +740,11 @@ fn a_rollout_below_the_walk_bound_is_not_read() {
     );
     let since = parse_nanos("2026-11-08T10:00:00.900Z").unwrap();
     assert!(
-        codex_thread_refusal_since(&root, since, "/this-seat", None, 6).is_none(),
+        codex_thread_refusal_since(&root, since, "/this-seat", None, 6, &[]).is_none(),
         "a file below the depth bound is not read"
     );
     assert!(
-        codex_thread_refusal_since(&root, since, "/this-seat", None, 7).is_some(),
+        codex_thread_refusal_since(&root, since, "/this-seat", None, 7, &[]).is_some(),
         "the same file one level up is within the bound"
     );
 }
@@ -779,7 +780,7 @@ fn a_codex_thread_reads_only_the_errors_after_its_last_turn_start() {
         json!({"type": "event_msg", "payload": {"type": "task_complete",
             "last_agent_message": "done"}}),
     ]);
-    assert!(codex_thread_refusal(&stale, None, Some(&refused_at())).is_none());
+    assert!(codex_thread_refusal(&stale, None, Some(&refused_at()), &[]).is_none());
 
     // Work before a later start is not reset (the chief's high finding):
     // the whole invocation is read, so the earlier successful turn keeps
@@ -792,7 +793,7 @@ fn a_codex_thread_reads_only_the_errors_after_its_last_turn_start() {
         json!({"type": "event_msg", "payload": {"type": "task_started"}}),
         task_complete(json!({"message": "quota", "codex_error_info": "usage_limit_exceeded"})),
     ]);
-    assert!(codex_thread_refusal(&current, None, Some(&refused_at())).is_none());
+    assert!(codex_thread_refusal(&current, None, Some(&refused_at()), &[]).is_none());
 
     // A single start with the error after it is still this invocation's.
     let one_turn = record(&[
@@ -800,7 +801,7 @@ fn a_codex_thread_reads_only_the_errors_after_its_last_turn_start() {
         task_complete(json!({"message": "quota", "codex_error_info": "usage_limit_exceeded"})),
     ]);
     assert_eq!(
-        codex_thread_refusal(&one_turn, None, Some(&refused_at()))
+        codex_thread_refusal(&one_turn, None, Some(&refused_at()), &[])
             .unwrap()
             .class(),
         RefusalClass::RateLimit
@@ -815,13 +816,13 @@ fn a_codex_thread_reads_only_the_errors_after_its_last_turn_start() {
                              "codex_error_info": "usage_limit_exceeded"})),
     ]);
     let since = Some(i128::from(refused_at().epoch) * 1_000_000_000);
-    assert!(codex_thread_refusal(&historical, since, Some(&refused_at())).is_none());
+    assert!(codex_thread_refusal(&historical, since, Some(&refused_at()), &[]).is_none());
     let fresh = record(&[json!({
         "timestamp": "2026-11-08T10:00:00Z", "type": "event_msg",
         "payload": {"type": "task_complete", "error": {
             "message": "quota", "codex_error_info": "usage_limit_exceeded"}}})]);
     assert_eq!(
-        codex_thread_refusal(&fresh, since, Some(&refused_at()))
+        codex_thread_refusal(&fresh, since, Some(&refused_at()), &[])
             .unwrap()
             .class(),
         RefusalClass::RateLimit
@@ -849,7 +850,8 @@ fn a_successful_completion_clears_the_recovered_error() {
                "payload": {"type": "error", "message": "transient",
                            "codex_error_info": "usage_limit_exceeded"}})
     };
-    let refusal = |rows: &[Value]| codex_thread_refusal(&record(rows), None, Some(&refused_at()));
+    let refusal =
+        |rows: &[Value]| codex_thread_refusal(&record(rows), None, Some(&refused_at()), &[]);
 
     // The transient error alone, before any work, is the invocation's
     // refusal: this is the control the completion below clears.
@@ -939,15 +941,15 @@ fn a_previous_refusal_in_the_start_second_is_history() {
     let since = parse_nanos("2026-11-08T10:00:00.900Z").unwrap();
     let at = |timestamp: &str| record(&[completion_at(timestamp)]);
     assert!(
-        codex_thread_refusal(&at("2026-11-08T10:00:00.100Z"), Some(since), None).is_none(),
+        codex_thread_refusal(&at("2026-11-08T10:00:00.100Z"), Some(since), None, &[]).is_none(),
         "a completion 800ms before the start is history"
     );
     assert!(
-        codex_thread_refusal(&at("2026-11-08T10:00:00.900Z"), Some(since), None).is_some(),
+        codex_thread_refusal(&at("2026-11-08T10:00:00.900Z"), Some(since), None, &[]).is_some(),
         "a completion exactly at the start is current"
     );
     assert!(
-        codex_thread_refusal(&at("2026-11-08T10:00:01.000Z"), Some(since), None).is_some(),
+        codex_thread_refusal(&at("2026-11-08T10:00:01.000Z"), Some(since), None, &[]).is_some(),
         "a completion after the start is current"
     );
 }
@@ -996,7 +998,7 @@ fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
         "2026-11-08T10:00:01.000Z",
     );
     assert!(
-        codex_thread_refusal_since(&root, since, "/this-seat", None, 6).is_none(),
+        codex_thread_refusal_since(&root, since, "/this-seat", None, 6, &[]).is_none(),
         "a singleton foreign rollout is not this invocation's"
     );
 
@@ -1031,7 +1033,7 @@ fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
         "/this-seat",
         "2026-11-08T10:00:00.900Z",
     );
-    let reason = codex_thread_refusal_since(&root, since, "/this-seat", None, 6)
+    let reason = codex_thread_refusal_since(&root, since, "/this-seat", None, 6, &[])
         .expect("the correlated rollout is this invocation's");
     assert_eq!(reason.class(), RefusalClass::RateLimit);
 }
@@ -1050,7 +1052,7 @@ fn a_session_that_began_before_this_invocation_is_history() {
         "2026-11-08T10:00:00.100Z",
     );
     assert!(
-        codex_thread_refusal_since(&root, since, "/this-seat", None, 6).is_none(),
+        codex_thread_refusal_since(&root, since, "/this-seat", None, 6, &[]).is_none(),
         "a session that began 800ms before the start is history"
     );
     rollout(
@@ -1059,7 +1061,7 @@ fn a_session_that_began_before_this_invocation_is_history() {
         "/this-seat",
         "2026-11-08T10:00:00.900Z",
     );
-    let reason = codex_thread_refusal_since(&root, since, "/this-seat", None, 6)
+    let reason = codex_thread_refusal_since(&root, since, "/this-seat", None, 6, &[])
         .expect("the current session's rollout is read");
     assert_eq!(reason.class(), RefusalClass::RateLimit);
 }
@@ -1415,19 +1417,19 @@ fn a_session_meta_missing_a_required_header_field_is_no_header() {
         ]);
         std::fs::write(&path, body).unwrap();
         assert!(
-            thread_header(&path, None).is_none(),
+            thread_header(&path, None, "/this-seat", 0, &[]).is_none(),
             "{name}: a header needs cwd, timestamp and id"
         );
     }
     let no_payload = day.join("rollout-no-payload.jsonl");
     std::fs::write(&no_payload, record(&[json!({"type": "session_meta"})])).unwrap();
     assert!(
-        thread_header(&no_payload, None).is_none(),
+        thread_header(&no_payload, None, "/this-seat", 0, &[]).is_none(),
         "a header needs a payload"
     );
 
     // None of the malformed headers can correlate a current record.
-    assert!(codex_thread_refusal_since(&root, 0, "/this-seat", None, 6).is_none());
+    assert!(codex_thread_refusal_since(&root, 0, "/this-seat", None, 6, &[]).is_none());
 }
 
 /// The fallback's narrowed evidence: `rate_limit_exceeded` and an HTTP
@@ -1441,7 +1443,7 @@ fn a_codex_thread_record_reads_rate_limit_exceeded_and_429_as_refusals() {
         ),
         (json!({"message": "slow down", "status": 429}), Some(429)),
     ] {
-        let reason = codex_thread_refusal(&record(&[task_complete(error)]), None, None)
+        let reason = codex_thread_refusal(&record(&[task_complete(error)]), None, None, &[])
             .unwrap_or_else(|| panic!("{status:?}"));
         assert_eq!(reason.class(), RefusalClass::RateLimit);
         assert!(reason.words().starts_with("rate_limit"), "{reason}");
@@ -1659,15 +1661,15 @@ fn review_chief_submillisecond_history_is_not_current() {
     let since = parse_nanos("2026-11-08T10:00:00.900900Z").unwrap();
     let at = |timestamp: &str| record(&[completion_at(timestamp)]);
     assert!(
-        codex_thread_refusal(&at("2026-11-08T10:00:00.900100Z"), Some(since), None).is_none(),
+        codex_thread_refusal(&at("2026-11-08T10:00:00.900100Z"), Some(since), None, &[]).is_none(),
         "100µs before the start is history"
     );
     assert!(
-        codex_thread_refusal(&at("2026-11-08T10:00:00.900900Z"), Some(since), None).is_some(),
+        codex_thread_refusal(&at("2026-11-08T10:00:00.900900Z"), Some(since), None, &[]).is_some(),
         "exactly at the start is current"
     );
     assert!(
-        codex_thread_refusal(&at("2026-11-08T10:00:00.901000Z"), Some(since), None).is_some(),
+        codex_thread_refusal(&at("2026-11-08T10:00:00.901000Z"), Some(since), None, &[]).is_some(),
         "after the start is current"
     );
 }
@@ -1681,7 +1683,7 @@ fn an_untimed_work_row_is_never_assumed_history() {
         "payload": {"type": "function_call", "name": "exec_command"}});
     let body = record(&[work, completion_at("2026-11-08T10:00:01Z")]);
     assert!(
-        codex_thread_refusal(&body, Some(since), None).is_none(),
+        codex_thread_refusal(&body, Some(since), None, &[]).is_none(),
         "an untimed work row cannot be assumed history"
     );
 }
@@ -1707,13 +1709,13 @@ fn an_undecodable_row_is_never_read_as_history() {
         "]".repeat(130)
     );
     // The control: the same error beside readable rows is a refusal.
-    assert!(codex_thread_refusal(&record(&[error()]), Some(since), None).is_some());
+    assert!(codex_thread_refusal(&record(&[error()]), Some(since), None, &[]).is_some());
     for raw in [truncated.to_string(), deep] {
         let before = format!("{raw}\n{}", record(&[error()]));
         let after = format!("{}{raw}\n", record(&[error()]));
         for body in [before, after] {
             assert!(
-                codex_thread_refusal(&body, Some(since), None).is_none(),
+                codex_thread_refusal(&body, Some(since), None, &[]).is_none(),
                 "an undecodable line is never read as history: {body}"
             );
         }
@@ -1766,7 +1768,7 @@ fn a_codex_refusal_reads_only_the_closed_non_work_kinds() {
     ];
     for row in non_work {
         let body = record(&[row.clone(), error()]);
-        let reason = codex_thread_refusal(&body, None, None)
+        let reason = codex_thread_refusal(&body, None, None, &[])
             .unwrap_or_else(|| panic!("a non-work row before the error is not work: {row}"));
         assert_eq!(reason.class(), RefusalClass::RateLimit, "{row}");
     }
@@ -1777,7 +1779,7 @@ fn a_codex_refusal_reads_only_the_closed_non_work_kinds() {
                              "codex_error_info": "usage_limit_exceeded"})),
     ] {
         assert!(
-            codex_thread_refusal(&record(std::slice::from_ref(&row)), None, None).is_some(),
+            codex_thread_refusal(&record(std::slice::from_ref(&row)), None, None, &[]).is_some(),
             "{row}"
         );
     }
@@ -1815,7 +1817,7 @@ fn a_codex_refusal_reads_only_the_closed_non_work_kinds() {
     for row in work {
         for rows in [vec![row.clone(), error()], vec![error(), row.clone()]] {
             assert!(
-                codex_thread_refusal(&record(&rows), None, None).is_none(),
+                codex_thread_refusal(&record(&rows), None, None, &[]).is_none(),
                 "a work row makes the whole invocation non-refusal: {row}"
             );
         }
@@ -1831,7 +1833,7 @@ fn a_started_turn_after_the_error_is_a_notice() {
                              "codex_error_info": "usage_limit_exceeded"})),
         json!({"type": "event_msg", "payload": {"type": "task_started"}}),
     ]);
-    assert!(codex_thread_refusal(&body, None, None).is_none());
+    assert!(codex_thread_refusal(&body, None, None, &[]).is_none());
 }
 
 /// Decision 0103 ruling 3: the structured reset belongs to the window
@@ -1857,7 +1859,7 @@ fn a_codex_structured_reset_belongs_to_the_exhausted_window() {
         task_complete(error.clone()),
     ]);
     assert_eq!(
-        codex_thread_refusal(&body, None, Some(&now))
+        codex_thread_refusal(&body, None, Some(&now), &[])
             .unwrap()
             .retry_after_seconds(),
         Some(3_600)
@@ -1868,7 +1870,7 @@ fn a_codex_structured_reset_belongs_to_the_exhausted_window() {
         task_complete(error),
     ]);
     assert_eq!(
-        codex_thread_refusal(&body, None, Some(&now))
+        codex_thread_refusal(&body, None, Some(&now), &[])
             .unwrap()
             .retry_after_seconds(),
         Some(3_600)
@@ -1921,7 +1923,7 @@ fn a_text_reset_across_the_host_fall_back_waits_the_real_seconds() {
         "message": "try again at Oct 25th, 2026 2:30 AM.",
         "codex_error_info": "usage_limit_exceeded"}))]);
     assert_eq!(
-        codex_thread_refusal(&body, None, Some(&now))
+        codex_thread_refusal(&body, None, Some(&now), &[])
             .unwrap()
             .retry_after_seconds(),
         Some(7_200)

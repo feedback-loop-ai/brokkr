@@ -60,15 +60,6 @@ fn is_compares_a_whole_raw_word() {
 }
 
 #[test]
-fn contains_matches_a_raw_substring() {
-    let raw = json!({"message":"please retry later"});
-    let bindings = binding("retry");
-    let row = Row::new(&raw, &bindings);
-    assert!(row.contains("/message", "retry"));
-    assert!(!row.contains("/missing", "retry"));
-}
-
-#[test]
 fn flag_reads_only_booleans() {
     let raw = json!({"yes":true,"no":false,"text":"true"});
     let row = Row::new(&raw, &[]);
@@ -292,4 +283,72 @@ fn init_matches_raw_system_and_subtype_even_without_an_id() {
     ] {
         assert!(!Row::new(&raw, &bindings).is_init());
     }
+}
+
+#[test]
+fn equals_compares_the_raw_engine_value() {
+    let raw = json!({"cwd":"/my/workdir"});
+    let bindings = binding("work");
+    let row = Row::new(&raw, &bindings);
+    assert!(row.equals("/cwd", "/my/workdir"));
+    assert!(!row.equals("/cwd", "/my/[secret:S]dir"));
+    assert!(!row.equals("/missing", ""));
+}
+
+#[test]
+fn since_compares_time_without_returning_it() {
+    let raw = json!({"timestamp":"2026-11-08T10:00:00.900100Z"});
+    let bindings = binding("9001");
+    let row = Row::new(&raw, &bindings);
+    let at = parse_nanos("2026-11-08T10:00:00.900100Z").unwrap();
+    assert_eq!(row.since("/timestamp", at), Some(true));
+    assert_eq!(row.since("/timestamp", at + 1), Some(false));
+    assert_eq!(row.since("/missing", at), None);
+}
+
+#[test]
+fn present_requires_a_non_null_value() {
+    let raw = json!({"text":"", "null":null});
+    let row = Row::new(&raw, &[]);
+    assert!(row.present("/text"));
+    assert!(!row.present("/null"));
+    assert!(!row.present("/missing"));
+}
+
+#[test]
+fn has_accepts_an_explicit_null() {
+    let raw = json!({"null":null});
+    let row = Row::new(&raw, &[]);
+    assert!(row.has("/null"));
+    assert!(!row.has("/missing"));
+}
+
+#[test]
+fn reset_rejects_bindings_that_touch_the_consumed_time() {
+    let raw = json!({"error":{"message":"usage limit; try again at Nov 11th, 2026 10:38 AM."}});
+    let expected = LocalTime {
+        year: 2026,
+        month: 11,
+        day: 11,
+        hour: 10,
+        minute: 38,
+        second: 0,
+    };
+    for (value, reset) in [("at Nov", None), ("11th", None), ("usage", Some(expected))] {
+        let bindings = binding(value);
+        let row = Row::new(&raw, &bindings).with_fallback("/error");
+        assert_eq!(row.reset("/message"), reset, "{value}");
+    }
+}
+
+#[test]
+fn fallback_is_used_only_for_absent_fields() {
+    let raw = json!({"status":null,"error":{"status":429,"message":"private text","type":"inner"},
+        "type":"outer"});
+    let bindings = binding("private");
+    let row = Row::new(&raw, &bindings).with_fallback("/error");
+    assert_eq!(row.count("/status"), None);
+    assert_eq!(row.text("/message").as_deref(), Some("[secret:S] text"));
+    assert!(row.is("/type", "outer"));
+    assert_eq!(row.text("/missing"), None);
 }

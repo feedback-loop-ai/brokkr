@@ -34,6 +34,15 @@ fn write_mask(
     out
 }
 
+/// Whether a run in the shared union mask touches a span of the raw text.
+pub(crate) fn mask_intersects(text: &str, bindings: &[BoundSecret], span: Range<usize>) -> bool {
+    let mut intersects = false;
+    write_mask(text.as_bytes(), bindings, &NEEDLE_ENCODINGS, |run, _| {
+        intersects |= run.start < span.end && span.start < run.end;
+    });
+    intersects
+}
+
 pub(crate) enum MaskedSplit {
     Parts { left: String, right: String },
     Whole(String),
