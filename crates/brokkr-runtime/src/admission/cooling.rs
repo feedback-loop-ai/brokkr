@@ -106,22 +106,31 @@ pub(super) fn word(
             spelled(*until)
         ),
         CooldownAggregate::Held { probe, ordinary } => {
-            write!(
-                f,
-                "provider {provider} is held on route {route} by a cool-down probe whose \
-                 deadline falls before {}, and no time ends that hold: {}",
-                spelled(probe.until),
-                probe.reason
-            )?;
-            match ordinary {
-                Some(RowEnd { until, reason }) => write!(
-                    f,
-                    "; a cool-down beside it holds the route until {}: {reason}",
-                    spelled(*until)
-                ),
-                None => Ok(()),
-            }
+            held_word(f, (provider, route), probe, ordinary.as_ref())
         }
+    }
+}
+
+fn held_word(
+    f: &mut fmt::Formatter<'_>,
+    (provider, route): (&str, &str),
+    probe: &RowEnd,
+    ordinary: Option<&RowEnd>,
+) -> fmt::Result {
+    write!(
+        f,
+        "provider {provider} is held on route {route} by a cool-down probe whose \
+         deadline falls before {}, and no time ends that hold: {}",
+        spelled(probe.until),
+        probe.reason
+    )?;
+    match ordinary {
+        Some(RowEnd { until, reason }) => write!(
+            f,
+            "; a cool-down beside it holds the route until {}: {reason}",
+            spelled(*until)
+        ),
+        None => Ok(()),
     }
 }
 

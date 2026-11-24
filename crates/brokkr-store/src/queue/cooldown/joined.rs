@@ -45,11 +45,7 @@ impl CooldownAggregate {
     /// and a standing probe hold among the rows is kept whichever row ends
     /// last, with its own deadline and words (fix round 0106b1r15, L1).
     pub fn joined(held: Option<CooldownAggregate>, row: &Cooldown) -> CooldownAggregate {
-        let (probe, ordinary) = match held {
-            None => (None, None),
-            Some(CooldownAggregate::Ordinary(ordinary)) => (None, Some(ordinary)),
-            Some(CooldownAggregate::Held { probe, ordinary }) => (Some(probe), ordinary),
-        };
+        let (probe, ordinary) = held.map_or((None, None), Self::into_ends);
         match (row.probe, probe) {
             (true, probe) => CooldownAggregate::Held {
                 probe: RowEnd::later(probe, row),
@@ -60,6 +56,13 @@ impl CooldownAggregate {
                 probe,
                 ordinary: Some(RowEnd::later(ordinary, row)),
             },
+        }
+    }
+
+    fn into_ends(self) -> (Option<RowEnd>, Option<RowEnd>) {
+        match self {
+            CooldownAggregate::Ordinary(ordinary) => (None, Some(ordinary)),
+            CooldownAggregate::Held { probe, ordinary } => (Some(probe), ordinary),
         }
     }
 
