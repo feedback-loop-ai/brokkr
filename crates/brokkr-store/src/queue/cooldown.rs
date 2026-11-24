@@ -86,6 +86,27 @@ pub struct CooldownAggregate {
     pub probe: bool,
 }
 
+impl CooldownAggregate {
+    /// `held`, the aggregate a route's earlier rows came to in the order
+    /// the store read them (rising `seq`), joined with `row`: the one home
+    /// of a route's latest end, which the engine's [`Store::cooldown`] and
+    /// admission's pass and claim fold alike (fix round 0106b1r14, L1). A
+    /// later, shorter row never shortens it, a row at the same end replaces
+    /// the earlier one's words, and a standing probe hold among the rows is
+    /// kept whichever row ends last.
+    pub fn joined(held: Option<CooldownAggregate>, row: &Cooldown) -> CooldownAggregate {
+        let probe = row.probe || held.as_ref().is_some_and(|held| held.probe);
+        match held {
+            Some(held) if held.until > row.until_at => CooldownAggregate { probe, ..held },
+            _ => CooldownAggregate {
+                until: row.until_at,
+                reason: row.reason.clone(),
+                probe,
+            },
+        }
+    }
+}
+
 /// One probe round appended to a terminal event's episode (decision 0103
 /// ruling 2(a), slice 4d2b). The event is the terminal whose `waits` entry
 /// names `site`; the store fills the row's `recorded_at` from `until_at`
@@ -405,19 +426,9 @@ fn aggregate(
     now: i64,
 ) -> Result<Option<CooldownAggregate>, StoreError> {
     let held = in_force(conn, now)?
-        .into_iter()
+        .iter()
         .filter(|row| row.provider == provider && row.route == route)
-        .fold(None, |held: Option<CooldownAggregate>, row| {
-            let probe = row.probe || held.as_ref().is_some_and(|held| held.probe);
-            Some(match held {
-                Some(held) if held.until > row.until_at => CooldownAggregate { probe, ..held },
-                _ => CooldownAggregate {
-                    until: row.until_at,
-                    reason: row.reason,
-                    probe,
-                },
-            })
-        });
+        .fold(None, |held, row| Some(CooldownAggregate::joined(held, row)));
     Ok(held)
 }
 

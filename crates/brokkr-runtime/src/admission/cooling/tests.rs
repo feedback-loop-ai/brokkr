@@ -218,6 +218,41 @@ fn a_probe_holds_refusal_names_the_second_its_deadline_falls_before() {
     }
 }
 
+/// Fix round 0106b1r14, L1: a standing hold beside a longer ordinary row,
+/// read through both callers of the one fold of a route's latest end, the
+/// engine's `Store::cooldown` and the pass, reports the hold, at the
+/// ordinary row's later end. Removal control: fold admission's rows its own
+/// way again, keeping only the winning row's flag, and the pass names the
+/// route cooling, unheld.
+#[test]
+fn a_hold_beside_a_longer_ordinary_row_reads_held_through_both_callers() {
+    let (mut fixture, file) = refused(&[]);
+    stopped_run(&mut fixture.store, "run-probe");
+    let hold = brokkr_store::ProbeHold {
+        run_id: "run-probe",
+        attempt_id: "a-1",
+        site: "",
+        provider: "beta",
+        route: "cloud",
+        deadline: at(30),
+    };
+    fixture.store.hold_probe(&hold, base()).unwrap();
+    refuse(
+        &mut fixture.store,
+        "run-a",
+        &[row("beta", "cloud", at(600), "longer")],
+    );
+    let engine = fixture.store.cooldown("beta", "cloud", at(10)).unwrap();
+    let aggregate = brokkr_store::CooldownAggregate {
+        until: at(600),
+        reason: "longer".into(),
+        probe: true,
+    };
+    assert_eq!(engine, Some(aggregate));
+    let held = cooling_by(true, ("beta", "cloud"), at(600), "longer");
+    assert_eq!(reasons_at(&fixture, &file, at(10)), vec![vec![held]]);
+}
+
 #[test]
 fn an_entry_on_a_route_with_no_row_is_admitted() {
     let mut fixture = Fixture::new();

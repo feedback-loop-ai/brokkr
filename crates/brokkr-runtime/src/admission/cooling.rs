@@ -16,7 +16,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use brokkr_store::Cooldown;
+use brokkr_store::{Cooldown, CooldownAggregate};
 use time::OffsetDateTime;
 
 use super::capacity::{Capacity, Lane};
@@ -24,40 +24,22 @@ use super::capacity::{Capacity, Lane};
 /// Every unexpired row's provider and route, aggregated to the latest end
 /// across them and the words of the latest row at that end.
 pub(super) struct Cooling {
-    providers: BTreeMap<String, BTreeMap<String, Held>>,
-}
-
-/// One lane's aggregate: when it ends, and the words of the row that ends
-/// last (the later row where two end together).
-struct Held {
-    until: OffsetDateTime,
-    probe: bool,
-    words: String,
+    providers: BTreeMap<String, BTreeMap<String, CooldownAggregate>>,
 }
 
 impl Cooling {
-    /// Aggregate `rows`, in the order the store read them (rising `seq`):
-    /// a later, shorter row never shortens a wait, and a row at the same
-    /// end replaces the earlier one's words.
+    /// Aggregate `rows`, in the order the store read them (rising `seq`),
+    /// by the store's one fold of a route's latest end
+    /// ([`CooldownAggregate::joined`]), so the gates and the engine never
+    /// read one route two ways (fix round 0106b1r14, L1).
     pub(super) fn of(rows: &[Cooldown]) -> Cooling {
         let mut cooling = Cooling {
             providers: BTreeMap::new(),
         };
         for row in rows {
             let routes = cooling.providers.entry(row.provider.clone()).or_default();
-            let keep = routes
-                .get(&row.route)
-                .is_some_and(|held| held.until > row.until_at);
-            if !keep {
-                routes.insert(
-                    row.route.clone(),
-                    Held {
-                        until: row.until_at,
-                        probe: row.probe,
-                        words: row.reason.clone(),
-                    },
-                );
-            }
+            let held = routes.remove(&row.route);
+            routes.insert(row.route.clone(), CooldownAggregate::joined(held, row));
         }
         cooling
     }
@@ -79,7 +61,7 @@ impl Cooling {
                 route: route.clone(),
                 until: held.until,
                 probe: held.probe,
-                words: held.words.clone(),
+                words: held.reason.clone(),
             });
         }
         Ok(())
