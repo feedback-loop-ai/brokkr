@@ -340,3 +340,15 @@ fn reset_rejects_bindings_that_touch_the_consumed_time() {
         assert_eq!(row.reset("/message"), reset, "{value}");
     }
 }
+
+#[test]
+fn fallback_is_used_only_for_absent_fields() {
+    let raw = json!({"status":null,"error":{"status":429,"message":"private text","type":"inner"},
+        "type":"outer"});
+    let bindings = binding("private");
+    let row = Row::new(&raw, &bindings).with_fallback("/error");
+    assert_eq!(row.count("/status"), None);
+    assert_eq!(row.text("/message").as_deref(), Some("[secret:S] text"));
+    assert!(row.is("/type", "outer"));
+    assert_eq!(row.text("/missing"), None);
+}

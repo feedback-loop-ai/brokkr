@@ -61,6 +61,8 @@ mod claude_usage;
 mod codex_isolation;
 mod decision_0114a;
 mod decision_0114b;
+mod decision_0114c;
+pub(super) use decision_0114b::words as bound_words;
 #[cfg(unix)]
 mod seat_git;
 use codex_isolation::{

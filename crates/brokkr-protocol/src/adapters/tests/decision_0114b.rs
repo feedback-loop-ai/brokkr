@@ -59,7 +59,7 @@ fn tuple(row: &Value) -> (&Value, &Value, &Value, &Value, &Value) {
     )
 }
 
-fn assert_work(driven: &Driven) {
+pub(super) fn assert_work(driven: &Driven) {
     assert!(matches!(driven.bodies.first(), Some(Body::Accepted { .. })));
     assert!(driven.bodies.iter().all(|body| !matches!(
         body,
@@ -113,14 +113,48 @@ fn assert_claude_projection(plain: &Driven) {
     }
 }
 
-fn words<'a>(words: &[&'a str]) -> BTreeSet<&'a str> {
+pub(in crate::adapters) fn words<'a>(words: &[&'a str]) -> BTreeSet<&'a str> {
     words.iter().flat_map(|word| [*word, &word[..4]]).collect()
 }
 
-fn assert_bound_projection(kind: AdapterKind, rows: &[Value], plain: &Driven) {
+pub(super) fn assert_bound_projection(
+    kind: AdapterKind,
+    structure: &[&str],
+    plain: &Driven,
+    mut drive: impl FnMut(&str) -> (Driven, Vec<secret::BoundSecret>),
+    project: impl Fn(Step, &Value, &str) -> Value,
+) {
+    for word in words(structure) {
+        let (driven, bound) = drive(word);
+        assert_work(&driven);
+        assert_eq!(driven.emitted.len(), plain.emitted.len(), "{kind:?} {word}");
+        assert_eq!(driven.meta, plain.meta, "{kind:?} {word}");
+        let guard = secret::Guard::new(&bound);
+        for (((step, plain), (actual_step, projected)), actual) in plain
+            .emitted
+            .iter()
+            .zip(&driven.emitted)
+            .zip(wire_rows(&driven.bodies))
+        {
+            assert_eq!(actual_step, step, "{kind:?} {word}");
+            assert_eq!(projected, &project(*step, plain, word), "{kind:?} {word}");
+            assert_eq!(
+                actual,
+                &seat_row(kind, &bound, projected),
+                "{kind:?} {word}"
+            );
+            // seat_row inserts these required keys after its mask.
+            if !["model", "mode", "effort", "effo"].contains(&word) {
+                assert!(guard.json(actual.to_string().as_bytes()), "{kind:?} {word}");
+            }
+        }
+    }
+}
+
+fn assert_family_bound_projection(kind: AdapterKind, rows: &[Value], plain: &Driven) {
     // id and __ are below MIN_VALUE_BYTES. Refusal-only terms run on
     // their own shapes below.
-    let structure = words(&[
+    let structure = &[
         "type",
         "subtype",
         "system",
@@ -148,27 +182,17 @@ fn assert_bound_projection(kind: AdapterKind, rows: &[Value], plain: &Driven) {
         "cache_read_input_tokens",
         "output_tokens",
         "cache_creation_input_tokens",
-    ]);
-    for word in structure {
-        let stream = Stream::rows(rows, &[("S", word)]);
-        let driven = family(&stream, kind);
-        assert_work(&driven);
-        assert_eq!(driven.emitted, plain.emitted, "{kind:?} {word}");
-        assert_eq!(driven.meta, plain.meta, "{kind:?} {word}");
-        let bound = bindings(&stream);
-        let guard = secret::Guard::new(&bound);
-        for ((_, projected), actual) in plain.emitted.iter().zip(wire_rows(&driven.bodies)) {
-            assert_eq!(
-                actual,
-                &seat_row(kind, &bound, projected),
-                "{kind:?} {word}"
-            );
-            // seat_row inserts these required keys after its mask.
-            if !["model", "mode", "effort", "effo"].contains(&word) {
-                assert!(guard.json(actual.to_string().as_bytes()), "{kind:?} {word}");
-            }
-        }
-    }
+    ];
+    assert_bound_projection(
+        kind,
+        structure,
+        plain,
+        |word| {
+            let stream = Stream::rows(rows, &[("S", word)]);
+            (family(&stream, kind), bindings(&stream))
+        },
+        |_, plain, _| plain.clone(),
+    );
     let stream = Stream::rows(rows, &[("S", PRIVATE)]);
     let driven = family(&stream, kind);
     let turn = turns(&driven).next().unwrap();
@@ -248,7 +272,7 @@ fn assert_qoder_projection() {
     // raw row, so a bound word changes nothing but the wire's mask.
     let rows = [init.clone(), turn.clone(), result];
     let plain = family(&Stream::rows(&rows, &[]), AdapterKind::Qoder);
-    assert_bound_projection(AdapterKind::Qoder, &rows, &plain);
+    assert_family_bound_projection(AdapterKind::Qoder, &rows, &plain);
 
     let stream = Stream::rows(&[init.clone(), turn, init], &[("S", "assi")]);
     let lost = family(&stream, AdapterKind::Qoder);
@@ -360,7 +384,7 @@ fn bound_word_claude_family() {
     for kind in [AdapterKind::Claude, AdapterKind::Lanetally] {
         let plain = family(&Stream::rows(&rows, &[]), kind);
         assert_claude_projection(&plain);
-        assert_bound_projection(kind, &rows, &plain);
+        assert_family_bound_projection(kind, &rows, &plain);
         assert_model_and_effort(kind, &turn);
     }
     assert_qoder_projection();

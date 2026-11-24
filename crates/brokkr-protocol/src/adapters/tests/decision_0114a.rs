@@ -29,13 +29,17 @@ impl Stream {
     }
 
     pub(super) fn rows(rows: &[Value], secrets: &[(&str, &str)]) -> Self {
+        Self::rows_with_stderr(rows, secrets, "")
+    }
+
+    pub(super) fn rows_with_stderr(rows: &[Value], secrets: &[(&str, &str)], stderr: &str) -> Self {
         let rows = rows
             .iter()
             .map(Value::to_string)
             .collect::<Vec<_>>()
             .join("\n");
         Self::script(
-            &format!("#!/bin/sh\ncat >/dev/null\ncat <<'ROWS'\n{rows}\nROWS\n"),
+            &format!("#!/bin/sh\ncat >/dev/null\ncat <<'ROWS'\n{rows}\nROWS\ncat >&2 <<'STDERR'\n{stderr}\nSTDERR\n"),
             secrets,
         )
     }
@@ -98,7 +102,7 @@ pub(super) fn wire_rows(bodies: &[Body]) -> impl Iterator<Item = &Value> {
     })
 }
 
-fn assert_refused(bodies: &[Body], words: &str) {
+pub(super) fn assert_refused(bodies: &[Body], words: &str) {
     let [Body::Result {
         status: ResultStatus::Failed,
         refusal: Some(refusal),
@@ -348,7 +352,7 @@ fn codex_id(home: &Path, bound: bool) {
         std::fs::write(sessions.join(file), format!("{line}\n")).unwrap();
     }
     let id = "thread-1234";
-    let values = [("S", "1234")];
+    let values = [("S", "1234"), ("WORD", "started")];
     let stream = Stream::rows(
         &[json!({"type":"thread.started","thread_id":id})],
         if bound { &values } else { &[] },
