@@ -76,7 +76,7 @@ The verbs nest under thirteen roots: decision 0113's twelve and decision 0119's 
 - [`brokkr system secrets list`](#brokkr-system-secrets-list): Print bound names, one per line — names, never values
 - [`brokkr system secrets remove`](#brokkr-system-secrets-remove): Remove NAME from the store
 - [`brokkr system host`](#brokkr-system-host): Manage the machine's host configuration
-- [`brokkr system host upgrade`](#brokkr-system-host-upgrade): Upgrade the machine's host configuration to forge.host/v5
+- [`brokkr system host upgrade`](#brokkr-system-host-upgrade): Upgrade the machine's host configuration to v5
 - [`brokkr system probe`](#brokkr-system-probe): Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
 - [`brokkr system probe harness`](#brokkr-system-probe-harness): Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
 - [`brokkr system ui`](#brokkr-system-ui): Serve the embedded read-only surface on loopback
@@ -1076,7 +1076,7 @@ Usage: brokkr system host <COMMAND>
 
 ## brokkr system host upgrade
 
-Upgrade the machine's host configuration to forge.host/v5
+Upgrade the machine's host configuration to v5
 
 ```text
 Usage: brokkr system host upgrade [OPTIONS]

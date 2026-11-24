@@ -19,7 +19,7 @@ pub(crate) const UPGRADE_COMMAND: &str = "brokkr system host upgrade";
 
 #[derive(clap::Subcommand)]
 pub(crate) enum HostCmd {
-    /// Upgrade the machine's host configuration to forge.host/v5.
+    /// Upgrade the machine's host configuration to v5.
     Upgrade {
         /// Print the diff and return a failure status if an upgrade is needed.
         #[arg(long)]

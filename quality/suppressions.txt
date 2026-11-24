@@ -7,6 +7,7 @@
    18 expect clippy::too_many_arguments
    14 expect clippy::too_many_lines
     3 expect dead_code
+    1 expect deprecated
 # test
     3 expect clippy::disallowed_macros
     9 expect clippy::disallowed_methods
