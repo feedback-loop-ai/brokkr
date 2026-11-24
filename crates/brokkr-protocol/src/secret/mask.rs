@@ -13,11 +13,11 @@ impl BoundSecret {
     /// raw runs before writing any marker, so an escape can
     /// consume a match's prefix and the rest still belongs to the union.
     pub(crate) fn mask_ansi_evidence(raw: &[u8], bindings: &[Self]) -> String {
-        let raw_needles = evidence_needles(bindings, &NEEDLE_ENCODINGS);
+        let raw_needles = needles(bindings, &NEEDLE_ENCODINGS);
         let (stripped, origins) = without_ansi_with_offsets(raw);
         let mut encodings = NEEDLE_ENCODINGS.to_vec();
         encodings.push(("ansi-stripped", stripped_needle));
-        let stripped_needles = evidence_needles(bindings, &encodings);
+        let stripped_needles = needles(bindings, &encodings);
         let raw_runs = projected_runs(&origins, covered(raw, &raw_needles));
         let stripped_runs = covered(stripped.as_bytes(), &stripped_needles);
         let runs = union_runs(raw_runs, stripped_runs);
@@ -25,17 +25,18 @@ impl BoundSecret {
     }
 }
 
-fn evidence_needles<'a>(
-    bindings: &'a [BoundSecret],
-    encodings: &[(&str, Encoder)],
-) -> Vec<(Vec<u8>, &'a str)> {
-    let mut needles = needles(bindings, encodings);
-    needles.retain(|(bytes, _)| bytes.len() >= MIN_VALUE_BYTES);
-    needles
-}
-
+/// A value's ANSI-stripped form, held to the masker's minimum needle
+/// length: only this needle is floored, as ce633e1ff floored it, because a
+/// short stripped form of a longer value would match ordinary text. The
+/// value's own encodings keep no floor, as `mask_text` and `Guard` keep
+/// none, so a short bound value is still masked (#1242). An empty needle
+/// is dropped by `needles`.
 fn stripped_needle(bytes: &[u8]) -> Vec<u8> {
-    without_ansi(&String::from_utf8_lossy(bytes)).into_bytes()
+    let stripped = without_ansi(&String::from_utf8_lossy(bytes)).into_bytes();
+    match stripped.len() >= MIN_VALUE_BYTES {
+        true => stripped,
+        false => Vec::new(),
+    }
 }
 
 /// Advance through the origins once, dropping raw runs the stripper

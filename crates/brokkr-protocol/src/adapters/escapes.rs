@@ -129,7 +129,7 @@ pub(super) fn assert_stderr_evidence(
     ];
     assert_eq!(
         evidence("diagnostic: ABC \x1bABC xyz\n", &short),
-        "diagnostic: ABC BC xyz\n"
+        format!("diagnostic: [secret:{name}] [secret:{name}] xyz\n")
     );
 
     let overlapping = [
