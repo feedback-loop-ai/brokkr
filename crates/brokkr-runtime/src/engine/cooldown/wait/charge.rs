@@ -11,7 +11,8 @@ use brokkr_core::{EventEnvelope, ProviderWait};
 use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::super::held::SiteMax;
-use super::super::{episode_by_site, CooldownError, Engine, Episode};
+use super::super::{episode_by_site, park_of, CooldownError, Engine, Episode};
+use super::WaitRound;
 
 impl Engine {
     /// The effect's episode, and the latest end it counts: `counted`, or
@@ -37,19 +38,23 @@ impl Engine {
         Ok((episode, counted))
     }
 
-    /// `charge` carried to the sample `now`, past the end the episode
-    /// counts, with nothing judged: the sample that found a wait's end
-    /// passed charges the last wait's time this way.
-    pub(super) fn charged_to(
+    /// Charge the last sample past the episode's counted end, or park
+    /// with the typed cause if the episode cannot be read.
+    pub(super) fn finish_wait(
         &self,
         events: &[EventEnvelope],
         effect_id: &str,
         waits: &[ProviderWait],
         (counted, now): (OffsetDateTime, OffsetDateTime),
-        charge: Charge,
-    ) -> Result<Charge, CooldownError> {
-        let (_, counted) = self.counted_episode(events, effect_id, waits, counted)?;
-        Ok(charge.to(counted, now))
+        charge: &mut Charge,
+    ) -> WaitRound {
+        match self.counted_episode(events, effect_id, waits, counted) {
+            Ok((_, counted)) => {
+                *charge = charge.to(counted, now);
+                WaitRound::Waited
+            }
+            Err(error) => WaitRound::Parked(park_of(&error)),
+        }
     }
 }
 

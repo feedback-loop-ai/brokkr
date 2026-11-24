@@ -283,11 +283,7 @@ impl Engine {
         }
         // The sample that found the end passed charges the last wait's
         // time, which the round's judge then counts; it judges nothing.
-        *charge = match self.charged_to(events, effect_id, waits, (counted, now), *charge) {
-            Ok(charged) => charged,
-            Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
-        };
-        Ok(WaitRound::Waited)
+        Ok(self.finish_wait(events, effect_id, waits, (counted, now), charge))
     }
 
     /// Does any cooled site still stand in an aggregate at `now`, a row or
