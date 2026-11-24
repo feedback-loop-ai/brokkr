@@ -394,10 +394,10 @@ fn the_display_cap_stops_before_the_first_oversized_turn() {
 #[test]
 fn codex_projects_ordered_content() {
     let text = concat!(
-        "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n",
-        "{\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"think\"}]}}\n",
-        "{\"timestamp\":\"t3\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"Read\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
-        "{\"timestamp\":\"t4\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"c1\",\"output\":\"ok\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"think\"}]}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"Read\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:04Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"c1\",\"output\":\"ok\"}}\n",
     );
     let projection = project(
         TranscriptKind::CodexThread,
@@ -424,9 +424,9 @@ fn codex_projects_ordered_content() {
 #[test]
 fn codex_quiet_metadata_and_unknown_events_count() {
     let text = concat!(
-        "{\"timestamp\":\"t\",\"type\":\"turn_context\",\"payload\":{\"model\":\"m\"}}\n",
-        "{\"timestamp\":\"t\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\"}}\n",
-        "{\"timestamp\":\"t\",\"type\":\"event_msg\",\"payload\":{\"type\":\"future_event\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"turn_context\",\"payload\":{\"model\":\"m\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"future_event\"}}\n",
     );
     let projection = project(
         TranscriptKind::CodexThread,
@@ -687,11 +687,11 @@ fn dsh_tool_result(
 #[test]
 fn codex_five_record_ruling_reads_in_order() {
     let text = [
-        row(json!({"timestamp":"t1","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"question"}]}})),
-        row(json!({"timestamp":"t2","type":"response_item","payload":{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"consider"}]}})),
-        row(json!({"timestamp":"t3","type":"response_item","payload":{"type":"function_call","name":"Read","call_id":"c1","arguments":"{\"path\":\"a\"}"}})),
-        row(json!({"timestamp":"t4","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"contents"}})),
-        row(json!({"timestamp":"t5","type":"response_item","payload":{"type":"message","role":"assistant","id":"m1","content":[{"type":"output_text","text":"ruling"}]}})),
+        row(json!({"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"question"}]}})),
+        row(json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"consider"}]}})),
+        row(json!({"timestamp":"2026-01-01T00:00:03Z","type":"response_item","payload":{"type":"function_call","name":"Read","call_id":"c1","arguments":"{\"path\":\"a\"}"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:04Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"contents"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:05Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"m1","content":[{"type":"output_text","text":"ruling"}]}})),
     ]
     .concat();
     let projection = codex(&text);
@@ -709,7 +709,7 @@ fn codex_five_record_ruling_reads_in_order() {
         vec!["user", "assistant", "assistant", "tool", "assistant"]
     );
     assert_eq!(projection.turns[0].blocks, vec![Block::text("question")]);
-    assert_eq!(projection.turns[0].ts, "t1");
+    assert_eq!(projection.turns[0].ts, "2026-01-01T00:00:01Z");
     assert_eq!(
         projection.turns[1].blocks,
         vec![Block::reasoning("consider")]
@@ -723,20 +723,20 @@ fn codex_five_record_ruling_reads_in_order() {
         vec![Block::tool_result("contents [c1]")]
     );
     assert_eq!(projection.turns[4].blocks, vec![Block::text("ruling")]);
-    assert_eq!(projection.turns[4].ts, "t5");
+    assert_eq!(projection.turns[4].ts, "2026-01-01T00:00:05Z");
 }
 
 #[test]
 fn codex_canonical_records_beside_matching_events_show_once() {
     let text = [
-        row(json!({"timestamp":"t1","type":"response_item","payload":{"type":"message","role":"assistant","id":"m1","content":[{"type":"output_text","text":"canonical"}]}})),
-        row(json!({"timestamp":"t1b","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"mirror"}]}}})),
-        row(json!({"timestamp":"t2","type":"response_item","payload":{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"think"}]}})),
-        row(json!({"timestamp":"t2b","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"r1","summary_text":["think"]}}})),
-        row(json!({"timestamp":"t3","type":"response_item","payload":{"type":"function_call","name":"Read","call_id":"c1","arguments":"{}"}})),
-        row(json!({"timestamp":"t3b","type":"event_msg","payload":{"type":"exec_command_begin","call_id":"c1","command":"ls"}})),
-        row(json!({"timestamp":"t4","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}})),
-        row(json!({"timestamp":"t4b","type":"event_msg","payload":{"type":"exec_command_end","call_id":"c1","stdout":"ok"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"m1","content":[{"type":"output_text","text":"canonical"}]}})),
+        row(json!({"timestamp":"2026-01-01T00:00:01.500Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"mirror"}]}}})),
+        row(json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"think"}]}})),
+        row(json!({"timestamp":"2026-01-01T00:00:02.500Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"r1","summary_text":["think"]}}})),
+        row(json!({"timestamp":"2026-01-01T00:00:03Z","type":"response_item","payload":{"type":"function_call","name":"Read","call_id":"c1","arguments":"{}"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:03.500Z","type":"event_msg","payload":{"type":"exec_command_begin","call_id":"c1","command":"ls"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:04Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:04.500Z","type":"event_msg","payload":{"type":"exec_command_end","call_id":"c1","stdout":"ok"}})),
     ]
     .concat();
     let projection = codex(&text);
@@ -744,7 +744,7 @@ fn codex_canonical_records_beside_matching_events_show_once() {
     assert_eq!(projection.unrecognized_records, 0);
     assert_eq!(projection.turns.len(), 4);
     assert_eq!(projection.turns[0].blocks, vec![Block::text("canonical")]);
-    assert_eq!(projection.turns[0].ts, "t1");
+    assert_eq!(projection.turns[0].ts, "2026-01-01T00:00:01Z");
     assert_eq!(projection.turns[1].blocks, vec![Block::reasoning("think")]);
     assert_eq!(
         projection.turns[2].blocks,
@@ -759,11 +759,11 @@ fn codex_canonical_records_beside_matching_events_show_once() {
 #[test]
 fn codex_event_only_snapshot_reads_all_five_kinds() {
     let text = [
-        row(json!({"timestamp":"t1","type":"event_msg","payload":{"type":"user_message","message":"q"}})),
-        row(json!({"timestamp":"t2","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"r1","summary_text":["think"]}}})),
-        row(json!({"timestamp":"t3","type":"event_msg","payload":{"type":"item_completed","item":{"type":"FunctionCallOutput","call_id":"c1","output":"ok"}}})),
-        row(json!({"timestamp":"t4","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"c2","command":"ls","stdout":"files"}}})),
-        row(json!({"timestamp":"t5","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"ruling"}]}}})),
+        row(json!({"timestamp":"2026-01-01T00:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"q"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:02Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"r1","summary_text":["think"]}}})),
+        row(json!({"timestamp":"2026-01-01T00:00:03Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"FunctionCallOutput","call_id":"c1","output":"ok"}}})),
+        row(json!({"timestamp":"2026-01-01T00:00:04Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"c2","command":"ls","stdout":"files"}}})),
+        row(json!({"timestamp":"2026-01-01T00:00:05Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"ruling"}]}}})),
     ]
     .concat();
     let projection = codex(&text);
@@ -787,22 +787,22 @@ fn codex_event_only_snapshot_reads_all_five_kinds() {
 #[test]
 fn codex_late_canonical_replaces_fallback_and_keeps_unrelated_events() {
     let text = [
-        row(json!({"timestamp":"t1","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"fallback"}]}}})),
-        row(json!({"timestamp":"t2","type":"response_item","payload":{"type":"message","role":"assistant","id":"m1","content":[{"type":"output_text","text":"canonical"}]}})),
-        row(json!({"timestamp":"t3","type":"event_msg","payload":{"type":"user_message","message":"unrelated"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:01Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"fallback"}]}}})),
+        row(json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"m1","content":[{"type":"output_text","text":"canonical"}]}})),
+        row(json!({"timestamp":"2026-01-01T00:00:03Z","type":"event_msg","payload":{"type":"user_message","message":"unrelated"}})),
     ]
     .concat();
     let projection = codex(&text);
     assert_eq!(projection.turns.len(), 2);
     assert_eq!(projection.turns[0].blocks, vec![Block::text("canonical")]);
-    assert_eq!(projection.turns[0].ts, "t2");
+    assert_eq!(projection.turns[0].ts, "2026-01-01T00:00:02Z");
     assert_eq!(projection.turns[1].blocks, vec![Block::text("unrelated")]);
 }
 
 #[test]
 fn codex_absent_or_incomplete_canonical_cannot_suppress_the_visible_event() {
     let fallback = row(
-        json!({"timestamp":"t1","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"fallback"}]}}}),
+        json!({"timestamp":"2026-01-01T00:00:01Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"fallback"}]}}}),
     );
     // The canonical counterpart lies beyond the bounded snapshot.
     let projection = codex(&fallback);
@@ -812,7 +812,7 @@ fn codex_absent_or_incomplete_canonical_cannot_suppress_the_visible_event() {
     // Above the source cap the newline-less canonical tail never
     // participates, so it cannot suppress the visible event.
     let canonical = concat!(
-        "{\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",",
+        "{\"timestamp\":\"2026-01-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",",
         "\"role\":\"assistant\",\"id\":\"m1\",\"content\":[{\"type\":\"output_text\",\"text\":\"canonical\"}]}}"
     );
     let text = format!("{fallback}{canonical}");
@@ -830,7 +830,7 @@ fn codex_absent_or_incomplete_canonical_cannot_suppress_the_visible_event() {
 
     // An incomplete canonical append does not parse and cannot suppress.
     let incomplete = concat!(
-        "{\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",",
+        "{\"timestamp\":\"2026-01-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",",
         "\"role\":\"assistant\",\"id\":\"m1\",\"content\":[{\"type\":\"output_text\",\"text\":\"canonical\"}"
     );
     let text = format!("{fallback}{incomplete}");
@@ -869,8 +869,8 @@ fn codex_two_calls_with_equal_arguments_keep_distinct_ids() {
 #[test]
 fn codex_orphan_output_and_encrypted_reasoning_are_honest() {
     let text = [
-        row(json!({"timestamp":"t1","type":"response_item","payload":{"type":"function_call_output","call_id":"c9","output":"orphan"}})),
-        row(json!({"timestamp":"t2","type":"response_item","payload":{"type":"reasoning","id":"r9","encrypted_content":"AAAA"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c9","output":"orphan"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"reasoning","id":"r9","encrypted_content":"AAAA"}})),
     ]
     .concat();
     let projection = codex(&text);
@@ -881,7 +881,7 @@ fn codex_orphan_output_and_encrypted_reasoning_are_honest() {
         projection.turns[0].blocks,
         vec![Block::tool_result("orphan [c9]")]
     );
-    assert_eq!(projection.turns[0].ts, "t1");
+    assert_eq!(projection.turns[0].ts, "2026-01-01T00:00:01Z");
 }
 
 #[test]
@@ -2090,10 +2090,10 @@ fn source_utf8_refusal_keeps_established_overflow() {
 
 #[test]
 fn codex_media_parts_name_their_class() {
-    let text = row(json!({"timestamp":"t1","type":"response_item","payload":{
+    let text = row(json!({"type":"response_item","payload":{
         "type":"message","role":"user",
         "content":[{"type":"input_text","text":"see"},{"type":"input_image"},
-                   {"type":"input_audio"}]}}));
+                   {"type":"input_audio"}]},"timestamp":"2026-01-01T00:00:01Z"}));
     let projection = codex(&text);
     assert!(projection.unavailable.is_none());
     assert_eq!(projection.unrecognized_records, 0);
@@ -2110,15 +2110,13 @@ fn codex_media_parts_name_their_class() {
 
 #[test]
 fn codex_unassociated_user_mirrors_are_both_preserved() {
-    let text = [
-        row(json!({"timestamp":"t1","type":"response_item","payload":{
-            "type":"message","role":"user",
-            "content":[{"type":"input_text","text":"question"}]}})),
-        row(json!({"timestamp":"t1b","type":"event_msg","payload":{
-            "type":"user_message","message":"question"}})),
-    ]
-    .concat();
-    let projection = codex(&text);
+    let text = concat!(
+        "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",",
+        "\"content\":[{\"type\":\"input_text\",\"text\":\"question\"}]}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:01.500Z\",\"type\":\"event_msg\",",
+        "\"payload\":{\"type\":\"user_message\",\"message\":\"question\"}}\n",
+    );
+    let projection = codex(text);
     assert!(projection.unavailable.is_none());
     assert_eq!(projection.unrecognized_records, 0);
     assert_eq!(
@@ -2276,17 +2274,17 @@ fn dsh_omission_only_assembly_does_not_suppress_cited_chunks() {
 
 #[test]
 fn wrong_typed_text_members_count_once_and_keep_supported_siblings() {
-    let message = row(json!({"timestamp":"t1","type":"response_item","payload":{
+    let message = row(json!({"type":"response_item","payload":{
         "type":"message","role":"assistant","id":"m1",
-        "content":[{"type":"output_text","text":"kept"},{"type":"output_text","text":7}]}}));
+        "content":[{"type":"output_text","text":"kept"},{"type":"output_text","text":7}]},"timestamp":"2026-01-01T00:00:01Z"}));
     let projection = codex(&message);
     assert_eq!(projection.unrecognized_records, 1);
     assert_eq!(projection.turns.len(), 1);
     assert_eq!(projection.turns[0].blocks, vec![Block::text("kept")]);
 
-    let reasoning = row(json!({"timestamp":"t2","type":"response_item","payload":{
-        "type":"reasoning","id":"r1",
-        "summary":[{"type":"summary_text","text":"kept"},{"type":"summary_text","text":7}]}}));
+    let reasoning = row(json!({"type":"response_item","payload":{
+        "type":"reasoning","id":"r1","summary":[
+        {"type":"summary_text","text":"kept"},{"type":"summary_text","text":7}]},"timestamp":"2026-01-01T00:00:02Z"}));
     let projection = codex(&reasoning);
     assert_eq!(projection.unrecognized_records, 1);
     assert_eq!(projection.turns.len(), 1);
@@ -2498,12 +2496,12 @@ fn codex_quiet_top_level_without_payload_is_not_counted() {
         "world_state",
         "security_risk_score",
     ] {
-        let text = row(json!({"timestamp":"t","type":kind}));
+        let text = row(json!({"timestamp":"2026-01-01T00:00:00Z","type":kind}));
         let projection = codex(&text);
         assert_eq!(projection.unrecognized_records, 0, "{kind}");
         assert!(projection.turns.is_empty());
     }
-    let projection = codex(&row(json!({"timestamp":"t","type":"future-top"})));
+    let projection = codex("{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"future-top\"}\n");
     assert_eq!(projection.unrecognized_records, 1);
 }
 
@@ -2542,26 +2540,26 @@ fn dsh_undeclared_blocks_alias_supplies_no_content() {
 #[test]
 fn codex_remaining_declared_variants_project_or_stay_quiet() {
     let text = [
-        row(json!({"timestamp":"t1","type":"response_item","payload":{
+        row(json!({"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{
             "type":"tool_search_call","call_id":"s1","arguments":{"q":"x"}}})),
-        row(json!({"timestamp":"t2","type":"response_item","payload":{
+        row(json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{
             "type":"tool_search_output","call_id":"s1","tools":[{"name":"read"}]}})),
-        row(json!({"timestamp":"t3","type":"response_item","payload":{
+        row(json!({"timestamp":"2026-01-01T00:00:03Z","type":"response_item","payload":{
             "type":"local_shell_call","call_id":"s2","action":{"command":"ls"}}})),
-        row(json!({"timestamp":"t4","type":"response_item","payload":{
+        row(json!({"timestamp":"2026-01-01T00:00:04Z","type":"response_item","payload":{
             "type":"web_search_call","call_id":"s3","action":{"query":"rust"}}})),
-        row(json!({"timestamp":"t5","type":"response_item","payload":{
+        row(json!({"timestamp":"2026-01-01T00:00:05Z","type":"response_item","payload":{
             "type":"custom_tool_call","call_id":"s4","name":"apply","input":"patch"}})),
-        row(json!({"timestamp":"t6","type":"response_item","payload":{
+        row(json!({"timestamp":"2026-01-01T00:00:06Z","type":"response_item","payload":{
             "type":"custom_tool_call_output","call_id":"s4","output":"done"}})),
-        row(json!({"timestamp":"t7","type":"response_item","payload":{"type":"additional_tools"}})),
-        row(json!({"timestamp":"t8","type":"response_item","payload":{"type":"compaction"}})),
-        row(json!({"timestamp":"t9","type":"response_item","payload":{"type":"compaction_summary"}})),
-        row(json!({"timestamp":"t10","type":"response_item","payload":{"type":"context_compaction"}})),
-        row(json!({"timestamp":"t11","type":"response_item","payload":{"type":"compaction_trigger"}})),
-        row(json!({"timestamp":"t12","type":"event_msg","payload":{"type":"user_message"}})),
-        row(json!({"timestamp":"t13","type":"event_msg","payload":{"type":"agent_message"}})),
-        row(json!({"timestamp":"t14","type":"event_msg","payload":{"type":"agent_reasoning"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:07Z","type":"response_item","payload":{"type":"additional_tools"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:08Z","type":"response_item","payload":{"type":"compaction"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:09Z","type":"response_item","payload":{"type":"compaction_summary"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:10Z","type":"response_item","payload":{"type":"context_compaction"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:11Z","type":"response_item","payload":{"type":"compaction_trigger"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:12Z","type":"event_msg","payload":{"type":"user_message"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:13Z","type":"event_msg","payload":{"type":"agent_message"}})),
+        row(json!({"timestamp":"2026-01-01T00:00:14Z","type":"event_msg","payload":{"type":"agent_reasoning"}})),
     ]
     .concat();
     let projection = codex(&text);
@@ -2922,7 +2920,7 @@ fn codex_blockless_rows_are_counted_without_being_retained() {
     let mut text = String::new();
     for _ in 0..1000 {
         text.push_str("1\n");
-        text.push_str(&row(json!({"type":"session_meta","timestamp":"t"})));
+        text.push_str("{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"session_meta\"}\n");
         text.push_str(&row(json!({"type":"totally_unknown"})));
         text.push_str(&row(
             json!({"type":"response_item","payload":{"type":"future_item"}}),

@@ -275,7 +275,7 @@ fn a_readable_claude_source_serializes_its_turns() {
     let path = write_claude(
         &world,
         "abcd-1234",
-        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hello\"},\"timestamp\":\"T\"}\n",
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hello\"},\"timestamp\":\"2026-01-01T00:00:01Z\"}\n",
     );
     let output = run(
         &world,
@@ -918,12 +918,12 @@ fn a_panel_parent_has_no_reference_while_its_member_reads() {
 fn turn_selection_skips_metadata_and_selects_the_tool_result() {
     let world = world_effects(&[("eff1", "review", None)]);
     let body = concat!(
-        "{\"timestamp\":\"t0\",\"type\":\"turn_context\",\"payload\":{\"model\":\"m\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"turn_context\",\"payload\":{\"model\":\"m\"}}\n",
         "not json\n",
-        "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n",
-        "{\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"think\"}]}}\n",
-        "{\"timestamp\":\"t3\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"Read\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
-        "{\"timestamp\":\"t4\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"c1\",\"output\":\"ok\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"think\"}]}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"Read\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:04Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"c1\",\"output\":\"ok\"}}\n",
     );
     let path = write_codex(&world, "0199mine", body);
     checkpoint(

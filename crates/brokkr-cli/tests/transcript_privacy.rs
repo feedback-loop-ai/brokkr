@@ -68,7 +68,7 @@ fn write_transcript(world: &World) -> PathBuf {
          \"content\":[{{\"type\":\"text\",\"text\":\"{SENTINEL}-output\"}},\
          {{\"type\":\"thinking\",\"text\":\"{SENTINEL}-reasoning\"}},\
          {{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{{\"file_path\":\"{SENTINEL}-arg\"}}}}]}},\
-         \"timestamp\":\"T\"}}\n"
+         \"timestamp\":\"2026-01-01T00:00:01Z\"}}\n"
     );
     std::fs::write(&file, body).unwrap();
     file
@@ -748,9 +748,9 @@ fn growth_reads_keep_the_tree_config_and_journal_inert() {
     }
 }
 
-/// Terminal controls in prompt, tool argument and stamp survive only as
-/// JSON data; the text face and every refusal are sanitized, and the
-/// journal is untouched.
+/// Terminal controls in the prompt and tool argument survive only as JSON
+/// data. The text face and every refusal are sanitized, and the journal
+/// is untouched.
 #[test]
 fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
     let world = world();
@@ -760,7 +760,7 @@ fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
     std::fs::write(
         &file,
         format!(
-            "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"\\u001b[2J{SENTINEL}-output\"}},{{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{{\"file_path\":\"\\u001b[33m{SENTINEL}-arg\"}}}}]}},\"timestamp\":\"\\u001b[0mT\"}}\n"
+            "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"\\u001b[2J{SENTINEL}-output\"}},{{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{{\"file_path\":\"\\u001b[33m{SENTINEL}-arg\"}}}}]}},\"timestamp\":\"2026-01-01T00:00:01Z\"}}\n"
         ),
     )
     .unwrap();

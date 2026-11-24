@@ -815,25 +815,25 @@ fn display_cost(blocks: &[Block]) -> Option<usize> {
     Some(cost)
 }
 
-/// Who speaks a turn: the three roles the classifiers name, or a role a
-/// record names outside them, kept as written (empty when a row supplies
-/// no turn).
+/// Who speaks a turn, with a fixed label for invalid recorded roles.
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum Role {
     User,
     Assistant,
     Tool,
     Recorded(String),
+    InvalidRecorded,
 }
 
 impl Role {
-    /// The role a record names: one of the three, or kept as written.
+    /// Classify a recorded role and keep short custom words as written.
     fn recorded(word: &str) -> Role {
         match word {
             "user" => Role::User,
             "assistant" => Role::Assistant,
             "tool" => Role::Tool,
-            other => Role::Recorded(other.to_string()),
+            other if recorded::role_word(other) => Role::Recorded(other.to_string()),
+            _ => Role::InvalidRecorded,
         }
     }
 
@@ -844,6 +844,7 @@ impl Role {
             Role::Assistant => "assistant".to_string(),
             Role::Tool => "tool".to_string(),
             Role::Recorded(word) => word,
+            Role::InvalidRecorded => "unknown".to_string(),
         }
     }
 }
@@ -883,9 +884,17 @@ impl<B> RowOutcome<B> {
         RowOutcome::of(vec![block], role)
     }
 
-    /// The same outcome at its record's recorded timestamp.
-    fn at(mut self, ts: String) -> RowOutcome<B> {
-        self.ts = ts;
+    /// Admit metadata for records with blocks and combine their diagnostics.
+    fn at(mut self, row: &Value) -> RowOutcome<B> {
+        if self.blocks.is_empty() {
+            return self;
+        }
+        match row.get("timestamp").and_then(Value::as_str) {
+            Some(ts) if recorded::timestamp(ts) => self.ts = ts.to_string(),
+            Some(_) => self.unrecognized = true,
+            None => {}
+        }
+        self.unrecognized |= matches!(self.role, Role::InvalidRecorded);
         self
     }
 }
@@ -1037,11 +1046,6 @@ fn claude_row(value: &Value) -> RowOutcome<Block> {
     if kind != "user" && kind != "assistant" {
         return RowOutcome::nothing(true);
     }
-    let ts = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
     let message = value.get("message");
     let role = Role::recorded(
         message
@@ -1060,7 +1064,7 @@ fn claude_row(value: &Value) -> RowOutcome<Block> {
             ..RowOutcome::of(Vec::new(), role)
         },
     };
-    outcome.at(ts)
+    outcome.at(value)
 }
 
 /// One Claude content member: nonblank prose, or a tool marker naming its
@@ -1460,11 +1464,6 @@ impl CodexAssociation {
 
 /// Project one Codex record into its blocks and recorded metadata.
 fn codex_row(value: &Value) -> CodexRecord {
-    let ts = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
     let payload = value.get("payload");
     let (outcome, canonical) = match value.get("type").and_then(Value::as_str) {
         Some("response_item") => (payload.map(codex_response_item), true),
@@ -1473,7 +1472,7 @@ fn codex_row(value: &Value) -> CodexRecord {
         None => (None, false),
     };
     CodexRecord {
-        outcome: outcome.unwrap_or_else(|| RowOutcome::nothing(true)).at(ts),
+        outcome: outcome.map_or_else(|| RowOutcome::nothing(true), |row| row.at(value)),
         canonical,
     }
 }
@@ -1732,6 +1731,7 @@ fn codex_completed_item(item: &Value) -> RowOutcome<CodexBlock> {
 // ----------------------------------------------------------------- DSH
 
 mod dsh_versions;
+mod recorded;
 use dsh_versions::DshVersion;
 
 /// The version-zero recognized quiet vocabulary: the captured 0.1.2-rc.1

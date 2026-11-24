@@ -53,7 +53,10 @@ fn codex_row(index: usize) -> String {
             index - 1
         ),
     };
-    format!("{{\"timestamp\":\"t{index}\",\"type\":\"response_item\",\"payload\":{payload}}}\n")
+    let second = index % 60;
+    format!(
+        "{{\"timestamp\":\"2026-01-01T00:00:{second:02}Z\",\"type\":\"response_item\",\"payload\":{payload}}}\n"
+    )
 }
 
 /// A DSH session streaming its answer: a user message, then text deltas,
