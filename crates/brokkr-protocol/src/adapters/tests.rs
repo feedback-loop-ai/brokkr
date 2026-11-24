@@ -6320,6 +6320,17 @@ impl DshLatchRun {
     }
 }
 
+pub(super) fn dsh_census_display(census: &DshCensus) -> Vec<(String, PathBuf)> {
+    census
+        .iter()
+        .map(|(id, file)| (id.display.clone(), file.clone()))
+        .collect()
+}
+
+fn dsh_depth_zero_sessions(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    super::dsh_depth_zero_sessions(root).map(|census| dsh_census_display(&census))
+}
+
 /// How many admitted occurrences in one observed census name `id`.
 #[cfg(unix)]
 fn census_count(observation: &DshObservation, id: &str) -> usize {
@@ -11734,7 +11745,7 @@ fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
     std::fs::write(&transcript, &header).unwrap();
     assert!(dsh_stored_session_with(&transcript, 16).is_none());
     match dsh_stored_session_with(&transcript, DSH_HEADER_LIMIT) {
-        Some(DshStoredSession::DepthZero(seen)) => assert_eq!(seen, id),
+        Some(DshStoredSession::DepthZero(seen)) => assert_eq!(seen.display, id),
         _ => panic!("a complete in-budget header is admitted"),
     }
 

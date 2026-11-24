@@ -1948,12 +1948,8 @@ fn names_the_seats_own_session(candidate: &std::path::Path) -> bool {
     let Ok(event) = serde_json::from_str::<Value>(&header) else {
         return false;
     };
-    event.get("type").and_then(Value::as_str) == Some("session")
-        && event
-            .get("delegationDepth")
-            .and_then(Value::as_u64)
-            .unwrap_or(0)
-            == 0
+    let row = Row::new(&event, &[]);
+    row.is("/type", "session") && row.unsigned_count("/delegationDepth").unwrap_or(0) == 0
 }
 
 /// What the driver has read of the growing transcript so far: the open
@@ -3569,6 +3565,14 @@ fn plain_dsh_session_id(id: &str) -> bool {
     recordable_session_id(id)
 }
 
+struct DshStoredId {
+    ident: Ident,
+    #[cfg(test)]
+    display: String,
+}
+
+type DshCensus = Vec<(DshStoredId, std::path::PathBuf)>;
+
 /// What one stored `session.v3.jsonl`'s first line states. `None` is unsafe
 /// evidence — absent, unreadable, truncated, over budget, non-JSON, not a
 /// session header at all, or a depth-zero header with no string id — and
@@ -3578,7 +3582,7 @@ enum DshStoredSession {
     /// A complete header a delegated child wrote under the owned root.
     Delegated,
     /// A complete depth-zero header naming its own session id.
-    DepthZero(String),
+    DepthZero(DshStoredId),
 }
 
 /// Classify a transcript's first line. The line must be complete within a
@@ -3607,22 +3611,21 @@ fn dsh_stored_session_with(candidate: &std::path::Path, budget: u64) -> Option<D
         return None;
     }
     let event = serde_json::from_slice::<Value>(&header).ok()?;
-    if event.get("type").and_then(Value::as_str) != Some("session") {
+    let row = Row::new(&event, &[]);
+    if !row.is("/type", "session") {
         return None;
     }
-    // The selected core's header requires a non-negative safe-integer
-    // `delegationDepth`. `as_u64` refuses a string, null, negative,
-    // fractional or missing value instead of defaulting malformed storage
-    // to the seat's own depth and admitting a partial/mismatched boundary
-    // (design D6; task 8.8(d)).
-    let depth = event.get("delegationDepth").and_then(Value::as_u64)?;
-    if depth != 0 {
+    // Malformed depth is not a depth-zero header (design D6; task 8.8(d)).
+    if row.unsigned_count("/delegationDepth")? != 0 {
         return Some(DshStoredSession::Delegated);
     }
-    event
-        .get("id")
-        .and_then(Value::as_str)
-        .map(|id| DshStoredSession::DepthZero(id.to_string()))
+    row.ident("/id").map(|ident| {
+        DshStoredSession::DepthZero(DshStoredId {
+            ident,
+            #[cfg(test)]
+            display: row.text("/id").expect("the id was read as a string"),
+        })
+    })
 }
 
 /// The one stored depth-zero session file under a retained root whose
@@ -3671,7 +3674,7 @@ fn dsh_session_file_reading(
     let mut matches: Vec<std::path::PathBuf> =
         dsh_depth_zero_sessions_reading(root, budget, read_dir)?
             .into_iter()
-            .filter(|(id, _)| id == expected)
+            .filter(|(id, _)| id.ident.is_offered(expected))
             .map(|(_, candidate)| candidate)
             .collect();
     match matches.len() {
@@ -3698,7 +3701,7 @@ fn dsh_depth_zero_sessions_reading(
     root: &std::path::Path,
     budget: usize,
     read_dir: &dyn Fn(&std::path::Path) -> std::io::Result<SessionDirEntries>,
-) -> Result<Vec<(String, std::path::PathBuf)>, String> {
+) -> Result<DshCensus, String> {
     let root = std::fs::canonicalize(root)
         .map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
     let mut found = Vec::new();
@@ -3764,9 +3767,7 @@ fn dsh_depth_zero_sessions_reading(
 
 /// Every stored depth-zero session under a retained root, read through
 /// production's own directory reader and enumeration budget.
-fn dsh_depth_zero_sessions(
-    root: &std::path::Path,
-) -> Result<Vec<(String, std::path::PathBuf)>, String> {
+fn dsh_depth_zero_sessions(root: &std::path::Path) -> Result<DshCensus, String> {
     dsh_depth_zero_sessions_reading(root, DSH_DIRECTORY_ENTRIES, &read_session_dir)
 }
 
@@ -3818,10 +3819,11 @@ fn dsh_session_last_seq_with(path: &std::path::Path, event_budget: u64) -> Optio
             return None;
         }
         let event = serde_json::from_slice::<Value>(&line).ok()?;
+        let row = Row::new(&event, &[]);
         if first {
             // The header names the session and carries no `seq`; it is not
             // part of the current-work boundary.
-            if event.get("type").and_then(Value::as_str) != Some("session") {
+            if !row.is("/type", "session") {
                 return None;
             }
             first = false;
@@ -3832,7 +3834,7 @@ fn dsh_session_last_seq_with(path: &std::path::Path, event_budget: u64) -> Optio
         // integer sequence is malformed storage, not a row to skip:
         // skipping it would report a lower maximum as if the boundary were
         // complete (design D6; task 8.8(d)).
-        let seq = event.get("seq").and_then(Value::as_u64)?;
+        let seq = row.unsigned_count("/seq")?;
         last = last.max(seq);
     }
     Some(last)
@@ -4642,6 +4644,7 @@ enum DshDisposition {
 #[derive(Debug, Clone, PartialEq)]
 struct DshObservation {
     line: DshStreamLine,
+    #[cfg(test)]
     census: Option<Vec<(String, std::path::PathBuf)>>,
     last_seq: Option<u64>,
     disposition: DshDisposition,
@@ -4657,7 +4660,7 @@ struct DshBaseline {
     offered_file: std::path::PathBuf,
     /// Every admitted `(header id, canonical file)` occurrence, repeated
     /// ids and repeated addresses included.
-    entries: Vec<(String, std::path::PathBuf)>,
+    entries: DshCensus,
 }
 
 /// The launch-root confirmation a DSH rejoin has to pass before ANYTHING
@@ -4896,6 +4899,7 @@ impl DshRootWatch {
     ) {
         let mut observation = DshObservation {
             line,
+            #[cfg(test)]
             census: None,
             last_seq: None,
             disposition: self.disposition(),
@@ -4972,7 +4976,10 @@ fn dsh_read_offered_store(
     let Ok(sessions) = dsh_depth_zero_sessions(root) else {
         return DshDisposition::Refused;
     };
-    observation.census = Some(sessions.clone());
+    #[cfg(test)]
+    {
+        observation.census = Some(tests::dsh_census_display(&sessions));
+    }
     let Some(file) = dsh_only_header(&sessions, offered) else {
         return DshDisposition::Refused;
     };
@@ -4996,11 +5003,10 @@ fn dsh_read_offered_store(
 /// The address of the ONE header in a census that names `id`, or `None`
 /// when there is none or more than one. An ambiguous id is never resolved
 /// to whichever occurrence the enumeration happened to reach first.
-fn dsh_only_header<'a>(
-    census: &'a [(String, std::path::PathBuf)],
-    id: &str,
-) -> Option<&'a std::path::PathBuf> {
-    let mut named = census.iter().filter(|(header, _)| header == id);
+fn dsh_only_header<'a>(census: &'a DshCensus, id: &str) -> Option<&'a std::path::PathBuf> {
+    let mut named = census
+        .iter()
+        .filter(|(header, _)| header.ident.is_offered(id));
     match (named.next(), named.next()) {
         (Some((_, file)), None) => Some(file),
         _ => None,
@@ -5012,13 +5018,12 @@ fn dsh_only_header<'a>(
 /// containment. A set of ids cannot see a repeated id at a new address,
 /// and a set of pairs cannot see one pair admitted twice, so each baseline
 /// occurrence is spent at most once.
-fn dsh_census_within(
-    current: &[(String, std::path::PathBuf)],
-    baseline: &[(String, std::path::PathBuf)],
-) -> bool {
-    let mut unspent: Vec<&(String, std::path::PathBuf)> = baseline.iter().collect();
-    current.iter().all(|entry| {
-        let held = unspent.iter().position(|held| *held == entry);
+fn dsh_census_within(current: &DshCensus, baseline: &DshCensus) -> bool {
+    let mut unspent: Vec<_> = baseline.iter().collect();
+    current.iter().all(|(current, file)| {
+        let held = unspent
+            .iter()
+            .position(|(stored, path)| (&stored.ident, path) == (&current.ident, file));
         held.map(|at| unspent.swap_remove(at)).is_some()
     })
 }
