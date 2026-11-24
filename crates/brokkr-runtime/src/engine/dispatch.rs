@@ -24,8 +24,8 @@ use super::carry::{CarryPlan, CarryRefusal};
 use super::panel::PanelAt;
 use super::sequence::SequenceAt;
 use super::{
-    argv_for, arms_effect_gate_head, git_head, phase_of, select_candidates, verify_record, Engine,
-    EngineError, Selection, SiteSpawn, RESULTS,
+    argv_for, arms_effect_gate_head, git_head, invocation_sites, phase_of, select_candidates,
+    site_label, verify_record, Engine, EngineError, Selection, SiteSpawn, RESULTS,
 };
 use crate::bundle::{layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation};
 
@@ -162,7 +162,7 @@ impl Engine {
         let (selection, started) = self.plan_attempt(events, &at, &mut input, carry)?;
         // A retry is admitted over every route it launches, read from the
         // selection its launch runs (fix round 0106b1r15, R1).
-        let launched = self.launch_routes(at.site_name, &selection);
+        let launched = self.launch_routes(&at, &selection);
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
@@ -297,27 +297,26 @@ impl Engine {
         single
     }
 
-    /// Every provider and route a retry's `selection` launches, the set its
-    /// start is admitted over (fix round 0106b1r15, R1): each selected
-    /// candidate's pinned routes, as the gates seat its lanes, so a panel
-    /// member no wait refused is checked as well as the refused one; and
-    /// each refused site's route, as its refusal reported it and its wait
-    /// recorded it, so a site no pin routes, an inline one, is checked on
-    /// the route it was refused on. The probes' answers name none of it. An
-    /// attempt no wait sent here is no retry, and is admitted over none.
-    fn launch_routes(&self, site_name: &str, selection: &Selection) -> Vec<(String, String)> {
+    /// The routes a retry is admitted over. The selected body names its
+    /// launch sites and the selection names each agent-backed site's link.
+    /// Inline sites serve their own compiled pins. Keep the refused routes
+    /// as well, including those reported by an inline driver with no pins.
+    fn launch_routes(&self, at: &Dispatch<'_>, selection: &Selection) -> Vec<(String, String)> {
         if self.cooldown.refused.is_empty() {
             return Vec::new();
         }
         let mut routes: BTreeSet<(String, String)> =
             self.cooldown.refused.iter().cloned().collect();
-        for (site, candidate) in &selection.candidates {
-            let served = deadline::served_routes(&self.bundle.sites, site_name, site, candidate);
-            routes.extend(
-                served
-                    .into_iter()
-                    .map(|route| (candidate.provider.clone(), route)),
-            );
+        for (site, _) in invocation_sites(at.body) {
+            let label = site_label(at.site_name, &site);
+            let Some(facts) = self.bundle.sites.get(&label) else {
+                continue;
+            };
+            let Some((provider, served)) = deadline::served_routes(facts, selection.get(&site))
+            else {
+                continue;
+            };
+            routes.extend(served.map(|route| (provider.to_string(), route.to_string())));
         }
         routes.into_iter().collect()
     }

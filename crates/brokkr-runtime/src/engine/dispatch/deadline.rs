@@ -33,6 +33,7 @@ use std::time::Duration;
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 
 use super::super::carry::Panelled;
+use super::super::marks::outcome_at;
 use super::super::{site_label, DriverRun, Selection};
 use crate::admission::{read_host, HostError, Hosting};
 use crate::agents::Candidate;
@@ -325,31 +326,29 @@ fn route_of(
     site: &Option<String>,
     candidate: &Candidate,
 ) -> Option<String> {
-    served_routes(sites, site_name, site, candidate)
-        .into_iter()
-        .next()
+    let facts = sites.get(&site_label(site_name, site))?;
+    let (_, mut routes) = served_routes(facts, Some(candidate))?;
+    routes.next().map(str::to_owned)
 }
 
-/// Every route a launched candidate's driver serves it on, from the site's
-/// sealed model pins, primary first, as admission seats the candidate's
-/// lanes: the candidate's own link, never another chain entry's (decision
-/// 0104 ruling 2). None where the site has no pins for it or they did not
-/// read.
-pub(in crate::engine) fn served_routes(
-    sites: &BTreeMap<String, SiteFacts>,
-    site_name: &str,
-    site: &Option<String>,
-    candidate: &Candidate,
-) -> Vec<String> {
-    let facts = sites.get(&site_label(site_name, site));
-    let pins = facts.and_then(|facts| {
-        let index = facts.chain.iter().position(|link| link == candidate)?;
-        facts.pins.get(index)
-    });
-    match pins {
-        Some(ModelPins::Read(served)) => {
-            (served.iter().filter_map(|served| served.route.clone())).collect()
-        }
-        Some(ModelPins::Unreadable(_)) | None => Vec::new(),
-    }
+/// The compiled routes served by the selected chain link or the inline
+/// site's single outcome, primary first, as admission seats its lanes.
+pub(super) fn served_routes<'a>(
+    facts: &'a SiteFacts,
+    candidate: Option<&'a Candidate>,
+) -> Option<(&'a str, impl Iterator<Item = &'a str>)> {
+    let (index, provider) = match candidate {
+        Some(candidate) => (
+            facts.chain.iter().position(|link| link == candidate)?,
+            candidate.provider.as_str(),
+        ),
+        None => (0, outcome_at(Some(facts), None)?.provider.as_str()),
+    };
+    let ModelPins::Read(served) = facts.pins.get(index)? else {
+        return None;
+    };
+    Some((
+        provider,
+        served.iter().filter_map(|served| served.route.as_deref()),
+    ))
 }

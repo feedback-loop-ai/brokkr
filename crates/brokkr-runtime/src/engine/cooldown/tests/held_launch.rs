@@ -10,10 +10,13 @@ use time::Duration as TimeDuration;
 
 use super::held_charge::{hold_route, sleeping};
 use super::held_start::retried_panel_engine;
-use super::panel::{plain_engine, shared_log, two_candidate_panel, two_route_drivers};
+use super::panel::{
+    b_only_panel, plain_engine, shared_log, two_candidate_panel, two_route_drivers,
+};
 use super::*;
-use crate::bundle::SiteFacts;
+use crate::bundle::{McpIntent, SeatClass, SiteFacts};
 use crate::capabilities::manifest::{ModelPins, Served};
+use crate::capabilities::{NativePlan, Outcome, SiteAsks, SiteCapabilities};
 use crate::engine::fence::tests::{after_the_start, before_the_start};
 
 /// The two routes every panel case here launches on.
@@ -33,8 +36,8 @@ fn after_the_retry_start(peer: Box<dyn FnOnce()>) {
 
 /// The mixed panel: `a` on claude/first succeeds every attempt, `b` on
 /// codex/second refuses once and then succeeds; `a`'s site carries the pin
-/// its compile seals, claude/first, so its launch plan names that route.
-fn mixed_panel(dir: &Path) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
+/// its compile seals, claude/first, whether it runs an agent or inline.
+fn mixed_panel(dir: &Path, inline: bool) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
     let (a, b) = two_route_drivers(
         dir,
         &["succeed", "succeed"],
@@ -43,18 +46,45 @@ fn mixed_panel(dir: &Path) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
         Probed::Answer,
     );
     let pinned = candidate("claude", "claude/first", a.clone());
-    let mut engine = plain_engine(dir, two_candidate_panel(a, b), 2);
+    let body = if inline {
+        b_only_panel(dir, a)
+    } else {
+        two_candidate_panel(a, b)
+    };
+    let mut engine = plain_engine(dir, body, 2);
     let served = Served {
         id: "claude/first".into(),
         route: Some("first".into()),
     };
     let facts = SiteFacts {
-        chain: vec![pinned],
+        chain: if inline { Vec::new() } else { vec![pinned] },
+        capabilities: inline.then(inline_capabilities),
+        local: inline.then(Default::default),
+        inline_dialect: inline.then(Default::default),
+        inline_mcp: inline.then_some(McpIntent::Empty),
         pins: vec![ModelPins::Read(vec![served])],
         ..SiteFacts::default()
     };
     engine.bundle.sites.insert("work:a".into(), facts);
     with_clock(engine)
+}
+
+fn inline_capabilities() -> SiteCapabilities {
+    let asks = SiteAsks::at(SeatClass::Work, "work:a", None, None).unwrap();
+    let outcome = Outcome {
+        provider: "claude".into(),
+        harness: "claude".into(),
+        model: None,
+        held: Default::default(),
+        not_held: Default::default(),
+        notices: Vec::new(),
+        native: NativePlan::Unmeasured {
+            declaration: None,
+            reason: "test driver".into(),
+            provenance: Default::default(),
+        },
+    };
+    SiteCapabilities::unjudged(asks, vec![outcome])
 }
 
 /// Only `b` refused and only `b` was probed, but the whole panel retries,
@@ -66,8 +96,19 @@ fn mixed_panel(dir: &Path) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
 /// while the peer holds its route, the panel never waiting.
 #[test]
 fn a_mixed_panels_retry_waits_on_the_route_of_the_member_no_wait_refused() {
+    mixed_panel_retry_waits_for_the_peer(false);
+}
+
+/// A successful inline member is absent from the agent candidate map.
+/// Its compiled route still needs to be clear before the panel retries.
+#[test]
+fn a_mixed_panels_retry_waits_on_the_route_of_the_inline_member() {
+    mixed_panel_retry_waits_for_the_peer(true);
+}
+
+fn mixed_panel_retry_waits_for_the_peer(inline: bool) {
     let dir = tempfile::tempdir().unwrap();
-    let (mut engine, now) = mixed_panel(dir.path());
+    let (mut engine, now) = mixed_panel(dir.path(), inline);
     let (journal, run) = (engine.store.path().to_path_buf(), engine.run_id.clone());
     let held: Arc<Mutex<Option<ProbeHoldId>>> = Arc::default();
     let released: Arc<Mutex<Option<Vec<String>>>> = Arc::default();
