@@ -7,7 +7,9 @@ use serde_json::Value;
 use super::capability_calls::{Tool, MCP_PREFIX, MCP_SEPARATOR};
 use super::plain_thread_id;
 use super::qoder::ModelPin;
-use super::refusal::{bounded_wire_line, parse_nanos, REFUSAL_TOKEN_LIMIT};
+use super::refusal::{
+    bounded_wire_line, parse_nanos, stated_reset, LocalTime, REFUSAL_TOKEN_LIMIT,
+};
 use super::stream_turn::plain;
 use crate::secret::{self, BoundSecret, MaskedSplit};
 use crate::PreSessionRefusal;
@@ -90,10 +92,6 @@ impl<'a> Row<'a> {
         }
     }
 
-    pub(super) fn contains(&self, path: &str, token: &str) -> bool {
-        self.string(path).is_some_and(|word| word.contains(token))
-    }
-
     pub(super) fn flag(&self, path: &str) -> Option<bool> {
         self.value(path)?.as_bool()
     }
@@ -108,6 +106,13 @@ impl<'a> Row<'a> {
 
     pub(super) fn number(&self, path: &str) -> Option<f64> {
         self.value(path)?.as_f64()
+    }
+
+    /// A stated time can leave the row only when its parsed span is clear.
+    pub(super) fn reset(&self, path: &str) -> Option<LocalTime> {
+        let raw = self.string(path)?;
+        let (reset, span) = stated_reset(raw)?;
+        (!secret::mask_intersects(raw, self.bindings, span)).then_some(reset)
     }
 
     pub(super) fn token<T: Copy>(&self, path: &str, table: &[(&str, T)]) -> Option<T> {

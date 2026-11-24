@@ -3,6 +3,8 @@
 //! machine fields; the provider and route are filled later, never from
 //! prose, and the bounded evidence line lives here alone.
 
+use std::ops::Range;
+
 use serde_json::Value;
 
 use super::{row::Row, AdapterKind};
@@ -230,10 +232,7 @@ struct ResetWindow {
 
 /// The provider's stated reset, in whole seconds from the refusal.
 fn codex_reset(error: &Row<'_>, now: &Now) -> Option<u64> {
-    if !error.contains("/message", RESET_PREFIX) {
-        return None;
-    }
-    let stated = stated_reset(&error.text("/message")?)?;
+    let stated = error.reset("/message")?;
     seconds_between(now.epoch, stated.epoch()?)
 }
 
@@ -397,7 +396,7 @@ const RESET_PREFIX: &str = "try again at ";
 
 /// Codex's own words for its reset, parsed strictly: `try again at Nov
 /// 11th, 2026 10:38 AM.` Anything else gives no reset rather than a guess.
-fn stated_reset(message: &str) -> Option<LocalTime> {
+pub(super) fn stated_reset(message: &str) -> Option<(LocalTime, Range<usize>)> {
     let tail = message.split_once(RESET_PREFIX)?.1;
     let mut words = tail.split_whitespace();
     let month = month_of(words.next()?)?;
@@ -408,14 +407,16 @@ fn stated_reset(message: &str) -> Option<LocalTime> {
     if words.next().is_some() {
         return None;
     }
-    Some(LocalTime {
+    let consumed = message.len() - tail.len()..message.trim_end().len();
+    let reset = LocalTime {
         year,
         month,
         day,
         hour,
         minute,
         second: 0,
-    })
+    };
+    Some((reset, consumed))
 }
 
 fn month_of(word: &str) -> Option<u8> {

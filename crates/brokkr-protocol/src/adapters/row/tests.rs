@@ -60,15 +60,6 @@ fn is_compares_a_whole_raw_word() {
 }
 
 #[test]
-fn contains_matches_a_raw_substring() {
-    let raw = json!({"message":"please retry later"});
-    let bindings = binding("retry");
-    let row = Row::new(&raw, &bindings);
-    assert!(row.contains("/message", "retry"));
-    assert!(!row.contains("/missing", "retry"));
-}
-
-#[test]
 fn flag_reads_only_booleans() {
     let raw = json!({"yes":true,"no":false,"text":"true"});
     let row = Row::new(&raw, &[]);
@@ -330,4 +321,22 @@ fn has_accepts_an_explicit_null() {
     let row = Row::new(&raw, &[]);
     assert!(row.has("/null"));
     assert!(!row.has("/missing"));
+}
+
+#[test]
+fn reset_rejects_bindings_that_touch_the_consumed_time() {
+    let raw = json!({"error":{"message":"usage limit; try again at Nov 11th, 2026 10:38 AM."}});
+    let expected = LocalTime {
+        year: 2026,
+        month: 11,
+        day: 11,
+        hour: 10,
+        minute: 38,
+        second: 0,
+    };
+    for (value, reset) in [("at Nov", None), ("11th", None), ("usage", Some(expected))] {
+        let bindings = binding(value);
+        let row = Row::new(&raw, &bindings).with_fallback("/error");
+        assert_eq!(row.reset("/message"), reset, "{value}");
+    }
 }
