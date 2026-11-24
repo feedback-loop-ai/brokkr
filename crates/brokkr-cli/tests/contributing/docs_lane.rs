@@ -142,9 +142,21 @@ impl Pages {
     /// line reads, a line's literals split at its double quotes, and every
     /// tracked file read whole an enumeration, `tracked_text` named in any
     /// form (a `use` of it, an alias) among them.
+    ///
+    /// It fails closed on a bare `docs` in a file that reaches the
+    /// workspace: there it enumerates wherever it stands, since a constant
+    /// or an array can carry it to a `join` on another line (a reader that
+    /// keeps the directory in a constant would otherwise pass unlisted). A
+    /// file that never reaches the workspace reads no page through it.
     fn file_reads(&self, text: &str) -> Option<Reads> {
-        text.lines()
+        let code: Vec<&str> = text
+            .lines()
             .filter(|line| !line.trim_start().starts_with("//"))
+            .collect();
+        let reaches = code
+            .iter()
+            .any(|line| WORKSPACE_ROOTS.iter().any(|root| line.contains(root)));
+        code.into_iter()
             .flat_map(|line| {
                 let declares = ["mod ", "#[path"]
                     .iter()
@@ -155,12 +167,30 @@ impl Pages {
                 line.split('"')
                     .skip(1)
                     .step_by(2)
-                    .filter_map(|literal| self.literal_reads(literal, line))
+                    .filter_map(|literal| {
+                        self.literal_reads(literal, line).or_else(|| {
+                            (reaches && bare_docs(literal)).then_some(Reads::Enumerates)
+                        })
+                    })
                     .chain(whole_tree)
                     .collect::<Vec<_>>()
             })
             .max()
     }
+}
+
+/// What a file names to reach the workspace's own tree: its manifest
+/// directory, or the test crates' helpers that return the workspace root.
+const WORKSPACE_ROOTS: [&str; 3] = ["CARGO_MANIFEST_DIR", "workspace(", "repo_root("];
+
+/// Whether a literal is docs/ itself, its pathspec magic and leading or
+/// trailing slashes read past.
+fn bare_docs(literal: &str) -> bool {
+    let literal = match literal.strip_prefix(":(") {
+        Some(magic) => magic.split_once(')').map_or(magic, |(_, rest)| rest),
+        None => literal,
+    };
+    literal.trim_start_matches(['.', '/']).trim_end_matches('/') == "docs"
 }
 
 /// Whether a literal, its pathspec magic read past, is a pattern that can
@@ -227,7 +257,7 @@ fn test_files(root: &Path) -> Vec<(String, String)> {
 /// The test files the rule above calls readers of unnamed pages that read
 /// only files the classifier refuses to call docs, each with what it reads
 /// instead.
-const EXEMPT: [(&str, &str); 9] = [
+const EXEMPT: [(&str, &str); 13] = [
     (
         "crates/brokkr-protocol/src/adapters.rs",
         "`.md` is the suffix of a staged prompt's temporary file",
@@ -235,6 +265,14 @@ const EXEMPT: [(&str, &str); 9] = [
     (
         "crates/brokkr-cli/src/doctor/tests.rs",
         "`docs` is a scratch realm's directory, joined to a temporary directory",
+    ),
+    (
+        "crates/brokkr-cli/tests/capability_broker/enabled.rs",
+        "`docs` is a stub MCP server's name in its handshake",
+    ),
+    (
+        "crates/brokkr-cli/tests/realms.rs",
+        "it links the workspace's docs/ so a World loads docs/house-rules.md alone, which realms.json names, so the classifier refuses it",
     ),
     (
         "crates/brokkr-cli/tests/init_doctor.rs",
@@ -245,12 +283,20 @@ const EXEMPT: [(&str, &str); 9] = [
         "the `.ndjson` journals under docs/evidence alone, no `.md` page",
     ),
     (
+        "crates/brokkr-runtime/src/agents/charter_data/tests.rs",
+        "`docs` is a capability's name in a charter's asks",
+    ),
+    (
         "crates/brokkr-runtime/src/capabilities/tests/dialect_policy.rs",
         "`docs` is a dialect's name, its file under a temporary root",
     ),
     (
         "crates/brokkr-runtime/src/engine/artifact_gate_tests.rs",
         "`docs` is a directory of a temporary tree",
+    ),
+    (
+        "crates/brokkr-runtime/src/engine/capability_tests/provision_tests/brokered_tests.rs",
+        "`docs` is a panel member's name",
     ),
     (
         "crates/brokkr-runtime/src/engine/capability_tests/provision_tests/brokered_tests/writers_tests.rs",
@@ -435,10 +481,30 @@ fn the_docs_lane_runs_every_test_that_reads_documentation() {
         "a dropped entry passes"
     );
 
+    // The panel's shape (1295b, ruling 9): a reader that keeps docs/ in a
+    // constant, whose `join` stands on another line. Its entry dropped, the
+    // guard refuses it.
+    let unlisted: String = list
+        .lines()
+        .filter(|line| !line.starts_with("brokkr-cli test:it layering::test_targets::"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    assert_ne!(unlisted, list, "the list runs layering::test_targets");
+    assert!(
+        lane_problems(&root, &files, &unlisted).contains(&format!(
+            "crates/brokkr-cli/tests/layering/test_targets.rs reads documentation it does not name, and {LIST} does not run it"
+        )),
+        "a reader holding docs/ in a constant passes unlisted"
+    );
+
     let reader = "crates/brokkr-cli/tests/new_reader.rs";
     for (text, problem) in [
         (
             "#[test]\nfn reads() { walk(workspace().join(\"docs/guides\")); }\n",
+            format!("{reader} reads documentation it does not name, and {LIST} does not run it"),
+        ),
+        (
+            "const TREE: &str = \"docs\";\n#[test]\nfn reads() { walk(workspace().join(TREE)); }\n",
             format!("{reader} reads documentation it does not name, and {LIST} does not run it"),
         ),
         (
@@ -565,6 +631,22 @@ fn a_literal_names_or_enumerates_documentation() {
         Some(Reads::Enumerates)
     );
     assert_eq!(pages.file_reads("// reads \"docs/guides\"\n"), None);
+    // A bare `docs` enumerates anywhere in a file that reaches the
+    // workspace, and names nothing in one that does not.
+    for (text, reads) in [
+        (
+            "const TREE: &str = \"docs\";\nlet root = workspace().join(TREE);\n",
+            Some(Reads::Enumerates),
+        ),
+        (
+            "for tree in [\"docs/\", \"dialects\"] {}\nlet root = env!(\"CARGO_MANIFEST_DIR\");\n",
+            Some(Reads::Enumerates),
+        ),
+        ("let member = \"docs\";\n", None),
+        ("// workspace()\nlet member = \"docs\";\n", None),
+    ] {
+        assert_eq!(pages.file_reads(text), reads, "{text}");
+    }
 }
 
 /// One verdict job's `run:` block, as ci.yml writes it.
