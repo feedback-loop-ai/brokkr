@@ -84,7 +84,7 @@ mod guard {
     use std::process::Command;
 
     use crate::isolated::{seconds, Guard};
-    use crate::pidns::Isolation;
+    use crate::pidns::{identity_at, Isolation};
 
     /// The namespace the guard is told is its parent's.
     const OUTER: u64 = 4026531836;
@@ -92,6 +92,14 @@ mod guard {
     /// What the guard did, given a link that reads `target` (or none at
     /// all): its exit code, its refusal, and whether the seam ran.
     fn guarded(target: Option<&str>) -> (Option<i32>, Option<Isolation>, bool) {
+        guarded_with(target, |_| {})
+    }
+
+    /// Let a second reader inspect the same link before the fixture drops.
+    fn guarded_with(
+        target: Option<&str>,
+        inspect: impl FnOnce(&Path),
+    ) -> (Option<i32>, Option<Isolation>, bool) {
         let dir = tempfile::tempdir().unwrap();
         let (link, delivered) = (dir.path().join("ns-pid"), dir.path().join("delivered"));
         if let Some(target) = target {
@@ -104,7 +112,9 @@ mod guard {
             .args(["/bin/sh", "-c", ": > \"$0\""])
             .arg(&delivered);
         let status = launcher.status().unwrap();
-        (status.code(), guard.refused(), delivered.exists())
+        let outcome = (status.code(), guard.refused(), delivered.exists());
+        inspect(&link);
+        outcome
     }
 
     /// A namespace apart from its parent's is admitted, and its program
@@ -148,6 +158,39 @@ mod guard {
         for read in ["pid:[]", "pid:[+5]", "pid:[12a]", "pid:[5", "net:[5]"] {
             let refused = Some(Isolation::Unparsable(read.into()));
             assert_eq!(guarded(Some(read)), (Some(125), refused, false), "{read}");
+        }
+    }
+
+    /// Z2: the parent and child read the same canonical namespace numbers.
+    #[test]
+    fn the_guard_and_parent_read_one_namespace_grammar() {
+        for (read, number) in [
+            (format!("pid:[0{OUTER}]"), None),
+            ("pid:[00]".into(), None),
+            ("pid:[99999999999999999999]".into(), None),
+            ("pid:[100000000000000000000]".into(), None),
+            ("pid:[18446744073709551616]".into(), None),
+            (format!("pid:[{}]\n", OUTER + 1), None),
+            (
+                "pid:[17999999999999999999]".into(),
+                Some(17999999999999999999),
+            ),
+            (
+                "pid:[18446744073709551609]".into(),
+                Some(18446744073709551609),
+            ),
+            ("pid:[18446744073709551615]".into(), Some(u64::MAX)),
+            ("pid:[0]".into(), Some(0)),
+        ] {
+            let parsed = number.ok_or_else(|| Isolation::Unparsable(read.clone()));
+            let outcome = guarded_with(Some(&read), |link| {
+                assert_eq!(identity_at(link), parsed, "parent read {read:?}");
+            });
+            let expected = match parsed {
+                Ok(_) => (Some(0), None, true),
+                Err(refused) => (Some(125), Some(refused), false),
+            };
+            assert_eq!(outcome, expected, "guard read {read:?}");
         }
     }
 

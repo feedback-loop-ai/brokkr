@@ -479,7 +479,6 @@ fn the_map_chooses_the_journal_for_the_run_and_for_every_read_surface() {
 /// before find the run there too.
 #[test]
 fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
-    let Some(alone) = alone() else { return };
     let ws = Workspace::new(Some(map_over(".")));
     // The implementer vanishes, so the run — and its rerun — parks
     // awaiting an operator.
@@ -551,11 +550,13 @@ fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
         .list_runs()
         .unwrap();
     assert_eq!(runs.len(), 2, "the rerun is in the map's journal: {runs:?}");
-    let (_, readout, _) = ws.doctor(&alone);
-    assert!(
-        readout.contains(&format!("{} opens", world.display())),
-        "{readout}"
-    );
+    if let Some(alone) = alone() {
+        let (_, readout, _) = ws.doctor(&alone);
+        assert!(
+            readout.contains(&format!("{} opens", world.display())),
+            "{readout}"
+        );
+    }
     assert!(!default.exists(), "no verb opened the default journal");
 }
 
@@ -1250,7 +1251,6 @@ fn doctor_names_the_realm_and_the_crossing_that_moved_and_reports_everything_els
 /// moved, no refusal invented.
 #[test]
 fn a_world_with_no_crossing_behaves_at_every_verb_as_it_always_did() {
-    let Some(alone) = alone() else { return };
     let ws = Workspace::new(Some(map_over(".")));
     let (code, run_id, stderr) = ws.brokkr_run(&[]);
     assert_eq!(code, Some(0), "{stderr}");
@@ -1282,6 +1282,7 @@ fn a_world_with_no_crossing_behaves_at_every_verb_as_it_always_did() {
     assert_eq!(code, Some(0), "{stderr}");
     let compiled: Value = serde_json::from_str(&compiled).unwrap();
     assert!(compiled.get("crossings").is_none(), "{compiled}");
+    let Some(alone) = alone() else { return };
     let (_, readout, _) = ws.doctor(&alone);
     assert!(!readout.contains("crossings"), "{readout}");
 }

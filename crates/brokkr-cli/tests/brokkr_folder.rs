@@ -423,7 +423,6 @@ pub(crate) fn half_moved(root: &Path, left: &str) -> String {
 
 #[test]
 fn discovery_finds_the_folder_from_a_subdirectory() {
-    let Some(alone) = alone() else { return };
     let repo = Repo::new();
     repo.folder();
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/dsh.json");
@@ -453,6 +452,7 @@ fn discovery_finds_the_folder_from_a_subdirectory() {
     // declares, set in the environment, is checked against the folder's
     // store, and, the folder being doctor's bundle (R5), against its
     // seats, none of which binds it.
+    let Some(alone) = alone() else { return };
     let mut doctor = repo.doctor(&alone, "src/deep", &["doctor"]);
     doctor.env("SPARK_API_KEY", "set");
     let printed = String::from_utf8(doctor.output().unwrap().stdout).unwrap();
@@ -555,7 +555,6 @@ fn init_writes_only_under_the_folder() {
 /// before the move is listed from the folder's journal.
 #[test]
 fn a_hand_moved_layout_runs() {
-    let Some(alone) = alone() else { return };
     let repo = Repo::new();
     repo.bundle("", "old", completes());
     let map = |journal: &str, path: &str| {
@@ -588,6 +587,10 @@ fn a_hand_moved_layout_runs() {
     std::fs::remove_file(repo.path("realms.json")).unwrap();
     repo.write(".brokkr/realms.json", &map("state/forge.db", ".."));
 
+    let runs = repo.brokkr("src", &["runs", "--json"]);
+    assert_eq!(listed(&runs), [run], "{}", runs.stderr);
+
+    let Some(alone) = alone() else { return };
     let doctor = repo.doctored(&alone, "", &["doctor"]);
     let root = repo.root.display();
     let clean = format!("ok       folder: {root}/.brokkr (found from {root})");
@@ -597,8 +600,6 @@ fn a_hand_moved_layout_runs() {
         "{}",
         doctor.stdout
     );
-    let runs = repo.brokkr("src", &["runs", "--json"]);
-    assert_eq!(listed(&runs), [run], "{}", runs.stderr);
 }
 
 #[test]
@@ -655,7 +656,6 @@ fn a_folder_that_is_not_a_directory_refuses() {
 
 #[test]
 fn no_folder_outside_a_library_names_init() {
-    let Some(alone) = alone() else { return };
     let repo = Repo::new();
     repo.bundle("b", "plain", completes());
     let ran = repo.brokkr("", &["run", "--bundle", "b", "--feature", "x"]);
@@ -664,14 +664,16 @@ fn no_folder_outside_a_library_names_init() {
     // `--db` supplies the journal alone: the ledger's run-local place
     // has none here, and doctor reports the journal's as `none`.
     refused_with_no_place(&repo, &ledger_of_a_library_run(&repo));
-    let ran = repo.doctored(&alone, "", &["doctor"]);
-    let none = no_place(&repo.root, &repo.root).replacen("error: ", "none: ", 1);
-    let line = format!("warn     database: {none}");
-    assert!(
-        ran.stdout.lines().any(|printed| printed == line),
-        "{line} in {}",
-        ran.stdout
-    );
+    if let Some(alone) = alone() {
+        let ran = repo.doctored(&alone, "", &["doctor"]);
+        let none = no_place(&repo.root, &repo.root).replacen("error: ", "none: ", 1);
+        let line = format!("warn     database: {none}");
+        assert!(
+            ran.stdout.lines().any(|printed| printed == line),
+            "{line} in {}",
+            ran.stdout
+        );
+    }
     assert!(!repo.path(".forge").exists() && !repo.path(".brokkr").exists());
 }
 
@@ -1436,7 +1438,6 @@ fn a_default_map_that_is_no_file_refuses() {
 /// root does, skips the case.
 #[test]
 fn an_unreadable_library_mark_refuses() {
-    let Some(alone) = alone() else { return };
     let repo = Repo::new();
     repo.library();
     std::fs::create_dir(repo.path(".brokkr")).unwrap();
@@ -1448,10 +1449,8 @@ fn an_unreadable_library_mark_refuses() {
         eprintln!("skipped: this process reads a mode-000 directory, as root does");
         return;
     }
-    let (runs, doctor) = (
-        repo.brokkr("", &["runs"]),
-        repo.doctored(&alone, "", &["doctor"]),
-    );
+    let runs = repo.brokkr("", &["runs"]);
+    let doctor = alone().map(|alone| repo.doctored(&alone, "", &["doctor"]));
     std::fs::set_permissions(&recipes, mode(0o755)).unwrap();
     let denied = format!(
         "reading {}: Permission denied (os error 13)",
@@ -1461,12 +1460,14 @@ fn an_unreadable_library_mark_refuses() {
         (runs.code, runs.stderr),
         (Some(1), format!("error: {denied}\n"))
     );
-    let database = doctor
-        .stdout
-        .lines()
-        .find(|line| line.contains(" database: "));
-    let reported = format!("warn     database: none: {denied}");
-    assert_eq!(database, Some(reported.as_str()), "{}", doctor.stdout);
+    if let Some(doctor) = doctor {
+        let database = doctor
+            .stdout
+            .lines()
+            .find(|line| line.contains(" database: "));
+        let reported = format!("warn     database: none: {denied}");
+        assert_eq!(database, Some(reported.as_str()), "{}", doctor.stdout);
+    }
     assert!(!repo.path(".brokkr/state").exists() && !repo.path(".forge").exists());
 }
 

@@ -1065,19 +1065,20 @@ fn run_recipe_reads_the_project_shelf_then_the_personal_one() {
     let listed = repo.brokkr("", &["library", "recipes", "list"]);
     let both = line("x", "project", &project) + &line("mine", "personal", &mine);
     assert_eq!((listed.code, listed.stdout), (Some(0), both));
-    let Some(alone) = alone() else { return };
-    let doctor = repo.doctored(&alone, "", &["doctor"]);
-    let compiled = digest(&repo, mine.to_str().unwrap());
-    let shown = format!(
-        "ok       personal recipe mine: {} at {}",
-        &compiled[..12],
-        mine.display()
-    );
-    assert!(
-        doctor.stdout.lines().any(|l| l == shown),
-        "{}",
-        doctor.stdout
-    );
+    if let Some(alone) = alone() {
+        let doctor = repo.doctored(&alone, "", &["doctor"]);
+        let compiled = digest(&repo, mine.to_str().unwrap());
+        let shown = format!(
+            "ok       personal recipe mine: {} at {}",
+            &compiled[..12],
+            mine.display()
+        );
+        assert!(
+            doctor.stdout.lines().any(|l| l == shown),
+            "{}",
+            doctor.stdout
+        );
+    }
 
     let before = (repo.files(), digest(&repo, ".brokkr"));
     std::fs::write(mine.join("roles/role.md"), "# edited\n").unwrap();

@@ -1159,7 +1159,6 @@ fn missing(refusal: &str) -> String {
 /// read. Each leaves the report unhealthy.
 #[test]
 fn doctor_checks_a_moved_folder() {
-    let Some(alone) = alone() else { return };
     let repo = Repo::new();
     let ran = repo.brokkr("", &["init", "."]);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
@@ -1169,14 +1168,17 @@ fn doctor_checks_a_moved_folder() {
         repo.root.display(),
         repo.root.display()
     );
-    let left = format!(
-        "MISSING  folder: {found}, but {} still stands at the root (decision 0083); move or \
-         remove it\n",
-        repo.path("bundle.json").display()
-    );
-    let doctor = repo.doctored(&alone, "", &["doctor"]);
-    assert_eq!(doctor.code, Some(1));
-    assert!(doctor.stdout.starts_with(&left), "{}", doctor.stdout);
+    let alone = alone();
+    if let Some(alone) = &alone {
+        let left = format!(
+            "MISSING  folder: {found}, but {} still stands at the root (decision 0083); move or \
+             remove it\n",
+            repo.path("bundle.json").display()
+        );
+        let doctor = repo.doctored(alone, "", &["doctor"]);
+        assert_eq!(doctor.code, Some(1));
+        assert!(doctor.stdout.starts_with(&left), "{}", doctor.stdout);
+    }
 
     std::fs::remove_file(repo.path("bundle.json")).unwrap();
     let charter = "agents/charters/implementer.md";
@@ -1186,15 +1188,18 @@ fn doctor_checks_a_moved_folder() {
         let compile = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
         assert_eq!(compile.code, Some(1));
         let refused = compile.stderr.strip_prefix("error: ").unwrap();
-        let clause =
-            format!("MISSING  folder: {found}, but its compile refuses (decision 0083): {refused}");
-        let doctor = repo.doctored(&alone, "", &["doctor"]);
-        assert_eq!(doctor.code, Some(1));
-        assert!(
-            doctor.stdout.starts_with(&clause),
-            "{clause}\n{}",
-            doctor.stdout
-        );
+        if let Some(alone) = &alone {
+            let clause = format!(
+                "MISSING  folder: {found}, but its compile refuses (decision 0083): {refused}"
+            );
+            let doctor = repo.doctored(alone, "", &["doctor"]);
+            assert_eq!(doctor.code, Some(1));
+            assert!(
+                doctor.stdout.starts_with(&clause),
+                "{clause}\n{}",
+                doctor.stdout
+            );
+        }
     };
     refuses_as_compile();
 
@@ -1219,20 +1224,23 @@ fn doctor_checks_a_moved_folder() {
 /// bundle given (decision 0040 ruling 4).
 #[test]
 fn doctor_reads_the_found_folder_as_its_bundle() {
-    let Some(alone) = alone() else { return };
     let repo = Repo::new();
     assert_eq!(repo.brokkr("", &["init", "."]).code, Some(0));
-    let named = repo.doctored(&alone, "", &["doctor", "--bundle", ".brokkr"]);
-    let found = repo.doctored(&alone, "", &["doctor"]);
-    let bundle = "\nok       bundle: 'starter' compiles, digest ";
-    assert_eq!(found.stdout.matches(bundle).count(), 1, "{}", found.stdout);
-    assert_eq!((found.code, found.stdout), (named.code, named.stdout));
+    let alone = alone();
+    if let Some(alone) = &alone {
+        let named = repo.doctored(alone, "", &["doctor", "--bundle", ".brokkr"]);
+        let found = repo.doctored(alone, "", &["doctor"]);
+        let bundle = "\nok       bundle: 'starter' compiles, digest ";
+        assert_eq!(found.stdout.matches(bundle).count(), 1, "{}", found.stdout);
+        assert_eq!((found.code, found.stdout), (named.code, named.stdout));
+    }
 
     let dsh = crate::workspace_root::workspace().join("adapters/dsh.json");
     std::fs::copy(dsh, repo.path(".brokkr/adapters/dsh.json")).unwrap();
     std::fs::remove_file(repo.path(".brokkr/policy.json")).unwrap();
     let compile = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
     let refused = compile.stderr.strip_prefix("error: ").unwrap().trim_end();
+    let Some(alone) = alone else { return };
     let ambient = |args: &[&str]| {
         let mut doctor = repo.doctor(&alone, "", args);
         doctor.env("SPARK_API_KEY", "review-placeholder");
