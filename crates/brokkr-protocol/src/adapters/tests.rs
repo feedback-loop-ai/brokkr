@@ -39,6 +39,7 @@ fn drain_into(
 mod claude_usage;
 mod codex_isolation;
 mod decision_0114a;
+mod decision_0114b;
 #[cfg(unix)]
 mod seat_git;
 use codex_isolation::{
