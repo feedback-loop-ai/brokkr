@@ -449,6 +449,23 @@ directory, where boxed seats' private `/tmp` and `HOME` are made; and a
 floor may name an absolute `path` in place of a `place`. Here the temp
 directory is a separate, RAM-backed tmpfs, so both floors matter.
 
+### `brokkr orders` — work orders and their citations
+
+The six shipped citation trackers are Azure DevOps, GitHub, GitLab, Jira,
+Linear and ZenHub. To add another, put one JSON definition per `.json` file
+in `.brokkr/trackers/` for a found folder or in the `trackers` directory
+at the root of a recipe library. The shipped files in
+`crates/brokkr-cli/trackers/` show the required `tracker` and `hosts`
+fields and the optional `description`. Definitions load in filename byte
+order after the shipped ones. Duplicate words, invalid definitions and
+unreadable paths refuse every order command. A missing directory or a
+bare workspace uses the shipped set.
+
+`brokkr orders show WO-1` prints the text digest on its first line.
+Use that value with `brokkr orders rule WO-1 --digest HEX --reason WHY`.
+Invisible format characters in the text appear as code-point marks such as
+`<U+202E>`. U+FE00 through U+FE0F keep their emoji or glyph presentation.
+
 ### `brokkr runs inspect` — one run, explained
 
 Header, ruling, seats, decision trail, the phase graph as a tree, and

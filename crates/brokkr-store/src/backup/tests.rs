@@ -519,7 +519,11 @@ fn a_backup_records_the_versioned_inventory_this_build_reads() {
     let dir = tempfile::tempdir().unwrap();
     let (_, backup) = completed(dir.path());
     let inventory = inventory_of(&backup);
-    assert_eq!(inventory.format, JOURNAL_BACKUP_FORMAT);
+    assert_eq!(inventory.format, "brokkr.journal-backup.v2");
+    assert!(matches!(
+        inventory.schemas.orders,
+        OrdersSchema::Recorded(Some(1))
+    ));
     assert_eq!(inventory.engine, env!("CARGO_PKG_VERSION"));
     assert_eq!(inventory.boundary.taken_at, TAKEN_AT);
     assert_eq!(
@@ -898,14 +902,14 @@ fn an_inventory_of_another_format_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
     let (_, backup) = completed(dir.path());
     let mut inventory = inventory_of(&backup);
-    inventory.format = "brokkr.journal-backup.v2".into();
+    inventory.format = "brokkr.journal-backup.v3".into();
     rewrite_inventory(&backup, &inventory);
     let destination = absent_destination(dir.path());
     let refused = restore(&backup.to, &destination).unwrap_err();
     let BackupError::UnknownFormat { found } = refused else {
         panic!("an inventory of another format is refused by name: {refused:?}");
     };
-    assert_eq!(found, "brokkr.journal-backup.v2");
+    assert_eq!(found, "brokkr.journal-backup.v3");
     assert_absent(&destination);
 }
 
@@ -1299,10 +1303,10 @@ fn inventory_refusals() -> Vec<(BackupError, String)> {
         ),
         (
             BackupError::UnknownFormat {
-                found: "brokkr.journal-backup.v2".into(),
+                found: "brokkr.journal-backup.v3".into(),
             },
-            "the backup's format is 'brokkr.journal-backup.v2'; this build reads \
-             'brokkr.journal-backup.v1'"
+            "the backup's format is 'brokkr.journal-backup.v3'; this build reads \
+             'brokkr.journal-backup.v1' and 'brokkr.journal-backup.v2'"
                 .to_string(),
         ),
     ]

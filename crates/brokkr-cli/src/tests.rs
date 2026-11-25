@@ -2107,9 +2107,8 @@ fn a_hostile_error_display_is_sanitized_line_by_line() {
     assert!(!safe.contains('\u{061c}'));
     assert!(!safe.contains('\u{202e}'));
     assert_eq!(
-        safe.lines().count(),
-        2,
-        "the chain's own line breaks survive"
+        safe,
+        "error: bad [2Jpath<U+061C>name\ncaused by: <U+202E>reversed"
     );
 }
 
@@ -3788,9 +3787,8 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
     assert!(cited.contains(operator), "{cited:?}");
     assert!(cited.contains(reason), "{cited:?}");
 
-    // Harmless where it is drawn. Not "no ESC" — every control character
-    // and every reordering character, because the danger is the class,
-    // and `\n` only because the renderer's own line breaks are made of it.
+    // The drawing drops controls and shows the three format marks.
+    // Its own line breaks remain.
     let drawn = crate::render::inspect(
         &brokkr_view::run_view(&events, Some(&state)),
         None,
@@ -3801,14 +3799,7 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
     let dropped: String = drawn
         .chars()
         .filter(|c| {
-            (c.is_control() && *c != '\n')
-                || matches!(c,
-                    '\u{061C}'
-                    | '\u{200B}'..='\u{200F}'
-                    | '\u{202A}'..='\u{202E}'
-                    | '\u{2060}'..='\u{2064}'
-                    | '\u{2066}'..='\u{2069}'
-                    | '\u{FEFF}')
+            (c.is_control() && *c != '\n') || matches!(c, '\u{061c}' | '\u{202e}' | '\u{200b}')
         })
         .collect();
     assert_eq!(
@@ -3816,15 +3807,17 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
         "the trail drew {dropped:?} from a hostile reason"
     );
 
-    // Stripped, not swallowed. The conclusion stays legible — the
-    // operator is named, their words are quoted — and what is left of
-    // the ANSI sequence is the inert `[31m` that colours nothing.
+    // The conclusion names the operator and quotes their words.
+    // The ANSI sequence leaves an inert `[31m`.
     let stopped = drawn
         .lines()
         .find(|line| line.contains("run/stopped"))
         .unwrap_or_default();
     assert!(stopped.contains("operator 'root[31m'"), "{stopped:?}");
-    assert!(stopped.contains("closeddrawrof"), "{stopped:?}");
+    assert!(
+        stopped.contains("closed<U+061C><U+202E>drawrof<U+200B>"),
+        "{stopped:?}"
+    );
 
     // The forged citation is left as the plain text it always was, and
     // the newline meant to give it a line of its own is gone with the
