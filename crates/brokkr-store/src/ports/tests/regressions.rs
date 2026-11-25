@@ -66,10 +66,6 @@ fn sqlite_table_count(path: &std::path::Path, table: &str) -> i64 {
 
 #[test]
 fn wildcard_ports_import_does_not_shadow_store_methods() {
-    #[expect(
-        unused_imports,
-        reason = "proves wildcard import does not shadow Store methods"
-    )]
     use crate::ports::*;
 
     let dir = tempdir().unwrap();
@@ -80,6 +76,8 @@ fn wildcard_ports_import_does_not_shadow_store_methods() {
         .unwrap();
     assert_eq!(store.list_runs().unwrap().len(), 1);
     assert_eq!(store.manifest("shadow-1").unwrap(), manifest);
+    let ports = SqlitePorts::new(&store);
+    assert!(ports.list_queue().unwrap().is_empty());
 }
 
 // ---------------------------------------------------------------------------
