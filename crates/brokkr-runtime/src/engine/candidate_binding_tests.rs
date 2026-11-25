@@ -4,13 +4,28 @@
 
 use super::*;
 use crate::engine::git_head;
-use crate::engine::tests::{
-    commit_file, engine, git_commit, single_body, state, CLASSES, DOCS_CLASS,
-};
+use crate::engine::tests::{engine, git_commit, single_body, state, CLASSES, DOCS_CLASS};
 use crate::engine::verdict::covered_tests::reviewing_on;
 use brokkr_core::decision::PhaseResult;
 use brokkr_core::fold::Cursor;
 use brokkr_core::policy::Machine;
+
+/// `contents` written at `path` and committed alone, as a seat that
+/// committed its work leaves the tree.
+fn committed(repo: &std::path::Path, path: &str, contents: &str, message: &str) {
+    let file = repo.join(path);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, contents).unwrap();
+    for args in [vec!["add", "--", path], vec!["commit", "-qm", message]] {
+        let out = std::process::Command::new("git")
+            .args(&args)
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "git {args:?}: {said}");
+    }
+}
 
 /// A verify seat beside the review and ship seats the test bundle hires,
 /// over `table`. Nothing is committed yet.
@@ -178,21 +193,21 @@ fn a_verify_ruling_without_a_readable_witness_and_a_ship_drift_fail_closed() {
 fn a_docs_class_delta_over_the_verified_candidate_is_judged_and_shipped_and_code_is_not() {
     let (_dir, mut engine) = verifying(table());
     git_commit(&engine.repo, "base");
-    commit_file(&engine.repo, CLASSES, DOCS_CLASS, "classes");
+    committed(&engine.repo, CLASSES, DOCS_CLASS, "classes");
     let verified = decided(
         &mut engine,
         &verify_state(),
         json!({"result":"checks-good"}),
     );
     let state = after_verify(&verified);
-    commit_file(&engine.repo, "docs/answer.md", "# answer\n", "answered");
+    committed(&engine.repo, "docs/answer.md", "# answer\n", "answered");
     assert_eq!(judge(&mut engine, &state)["next"], "ship");
     let done = shipped(&mut engine, &state);
     assert_eq!(
         (&done["next"], &done["problem"]),
         (&json!("done"), &Value::Null)
     );
-    commit_file(&engine.repo, "src/answer.rs", "fn answer() {}\n", "coded");
+    committed(&engine.repo, "src/answer.rs", "fn answer() {}\n", "coded");
     let refused = judge(&mut engine, &state);
     assert_eq!(
         (&refused["next"], &refused["problem"]),

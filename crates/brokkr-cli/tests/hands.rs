@@ -955,6 +955,10 @@ fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
             .unwrap()
             .success());
     }
+    // Instrumented seats whose fixed environment clears LLVM_PROFILE_FILE
+    // leave their default profile in the tree, and a verified candidate
+    // counts every untracked file (decision 0122).
+    std::fs::write(work.path().join(".git/info/exclude"), "*.profraw\n").unwrap();
     let output = crate::built::brokkr([
         "run",
         "--bundle",

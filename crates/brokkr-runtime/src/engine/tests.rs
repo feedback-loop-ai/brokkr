@@ -4992,7 +4992,7 @@ fn git(repo: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-pub(super) fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String {
+fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String {
     let file = repo.join(path);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(file, contents).unwrap();

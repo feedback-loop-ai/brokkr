@@ -318,6 +318,10 @@ fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes(
             assert!(output.status.success(), "{said}");
         };
         git(&["init", "-q", "--initial-branch=main"]);
+        // Instrumented seats whose fixed environment clears
+        // LLVM_PROFILE_FILE leave their default profile in the tree, and a
+        // verified candidate counts every untracked file (decision 0122).
+        std::fs::write(ws.path().join(".git/info/exclude"), "*.profraw\n").unwrap();
         let (code, _, stderr) = ws.unmarked(&["init", "."]);
         assert_eq!(code, Some(0), "{stderr}");
         let folder = ws.path().join(".brokkr");
