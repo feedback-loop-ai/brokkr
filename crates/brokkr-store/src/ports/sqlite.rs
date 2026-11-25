@@ -16,7 +16,7 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::read;
+use crate::damage;
 use crate::start::Row;
 use crate::summary::Listed;
 use crate::{
@@ -37,24 +37,24 @@ impl<'a> SqlitePorts<'a> {
     pub fn new(store: &'a Store) -> Self {
         Self(store)
     }
+
+    fn projected_runs(&self) -> Result<Vec<String>, StoreError> {
+        patiently("rebuild", self.0.patience, &self.0.path, || {
+            query_strings(&self.0.conn, EXISTING_PROJECTED_RUNS)
+        })
+    }
 }
 
 const INSERT_EVENT_INDEX: &str = "INSERT OR IGNORE INTO event_index
          (run_id, seq, type, attempt_id, member, recorded_at, event_id, stream_ordinal)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 
-// Plain `INSERT` (not `INSERT OR IGNORE`) so a duplicate `(run_id, seq)` can
-// never be silently ignored; `verify_chain_for_sqlite` inside the immediate
-// transaction already rules out duplicate or non-contiguous sequence numbers
-// (pinned by `sqlite_append_envelopes_enforces_chain_integrity`), so a
-// redundant `inserted == 0` guard would be unreachable under exact coverage.
-const INSERT_VERIFIED_EVENT: &str =
-    "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)";
 const UPDATE_CREATED_AT: &str = "UPDATE runs SET created_at = ?2 WHERE run_id = ?1";
 const LIST_RUNS_SUMMARY: &str =
-    "SELECT run_id, COALESCE(feature, ''), COALESCE(created_at_whole, created_at, '')
-     FROM run_summary
-     ORDER BY COALESCE(created_at_whole, created_at, ''), run_id";
+    "SELECT s.run_id, COALESCE(s.feature, ''), COALESCE(s.created_at_whole, s.created_at, '')
+     FROM run_summary AS s
+     LEFT JOIN runs AS r ON r.run_id = s.run_id
+     ORDER BY COALESCE(s.created_at_whole, s.created_at, ''), r.rowid, s.run_id";
 const PROJECTION_TABLES: [&str; 5] = [
     "run_summary",
     "seat_summary",
@@ -62,8 +62,13 @@ const PROJECTION_TABLES: [&str; 5] = [
     "seat_lag",
     "event_index",
 ];
-const HAS_LOCAL_RUN_OR_EVENTS: &str = "SELECT EXISTS(SELECT 1 FROM runs WHERE run_id = ?1)
-         OR EXISTS(SELECT 1 FROM events WHERE run_id = ?1)";
+const HAS_LOCAL_RUNS_OR_EVENTS: &str =
+    "SELECT EXISTS(SELECT 1 FROM runs) OR EXISTS(SELECT 1 FROM events)";
+const HAS_RUNLESS_SUMMARY: &str =
+    "SELECT EXISTS(SELECT 1 FROM run_summary WHERE run_id NOT IN (SELECT run_id FROM runs))";
+const DECOUPLED_PREFIX: &str =
+    "SELECT CAST(seq AS TEXT), type, attempt_id, member, recorded_at, event_id
+     FROM event_index WHERE run_id = ?1 AND seq <= ?2 ORDER BY seq";
 const EXISTING_PROJECTED_RUNS: &str = "SELECT run_id FROM run_summary
      UNION SELECT DISTINCT run_id FROM seat_summary
      UNION SELECT run_id FROM seat_head
@@ -167,9 +172,30 @@ fn has_run(conn: &Connection, run_id: &str) -> Result<bool, StoreError> {
     Ok(found.is_some())
 }
 
-fn has_local_run_or_events(tx: &Connection, run_id: &str) -> Result<bool, StoreError> {
-    let found: i64 = tx.query_row(HAS_LOCAL_RUN_OR_EVENTS, params![run_id], |row| row.get(0))?;
+fn divergent(run_id: &str) -> StoreError {
+    StoreError::DivergentEventLog {
+        run_id: run_id.to_string(),
+    }
+}
+
+fn query_strings(conn: &Connection, sql: &str) -> Result<Vec<String>, StoreError> {
+    Ok(conn
+        .prepare(sql)?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+fn has_local_runs_or_events(tx: &Connection) -> Result<bool, StoreError> {
+    let found: i64 = tx.query_row(HAS_LOCAL_RUNS_OR_EVENTS, [], |row| row.get(0))?;
     Ok(found != 0)
+}
+
+fn refuse_decoupled_store(tx: &Connection, run_id: &str) -> Result<(), StoreError> {
+    let has_runless: i64 = tx.query_row(HAS_RUNLESS_SUMMARY, [], |row| row.get(0))?;
+    if has_runless != 0 {
+        return Err(divergent(run_id));
+    }
+    Ok(())
 }
 
 fn ensure_run_exists(conn: &Connection, run_id: &str) -> Result<(), StoreError> {
@@ -198,9 +224,24 @@ fn refuse_row_before_chain(conn: &Connection, run_id: &str) -> Result<(), StoreE
     Ok(())
 }
 
+fn read_local_event(r: &rusqlite::Row<'_>) -> rusqlite::Result<(i64, String, String)> {
+    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+}
+
 fn load_verified_local(tx: &Connection, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
     refuse_row_before_chain(tx, run_id)?;
-    let local = read::rows_in(tx, run_id, None)?;
+    let rows = tx
+        .prepare("SELECT seq, event_hash, envelope FROM events WHERE run_id = ?1 ORDER BY seq")?
+        .query_map(params![run_id], read_local_event)?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut local = Vec::with_capacity(rows.len());
+    for (sql_seq, sql_hash, raw) in rows {
+        let envelope = damage::envelope(run_id, sql_seq, &raw)?;
+        if sql_seq as u64 != envelope.seq || sql_hash != envelope.event_hash {
+            return Err(divergent(run_id));
+        }
+        local.push(envelope);
+    }
     verify_chain_after(run_id, 0, ZERO_HASH, &local)?;
     Ok(local)
 }
@@ -212,7 +253,11 @@ fn insert_events(
     envelopes: &[EventEnvelope],
     check_terminal: bool,
 ) -> Result<(), StoreError> {
-    let mut insert = tx.prepare_cached(INSERT_VERIFIED_EVENT)?;
+    // Plain `INSERT` (not `INSERT OR IGNORE`) so duplicate `(run_id, seq)` is
+    // never silently ignored; `verify_chain_for_sqlite` rules out duplicates
+    // (pinned by `sqlite_append_envelopes_enforces_chain_integrity`), so a
+    // redundant `inserted == 0` guard would be unreachable under exact coverage.
+    let mut insert = tx.prepare_cached(import::INSERT_EVENT)?;
     for envelope in envelopes {
         if check_terminal {
             terminal::refuse(tx, run_id, envelope.event_type, *head_seq)?;
@@ -299,10 +344,23 @@ fn listed_for_projection(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
-    Ok(match row {
-        Some((feature, created_at)) => Listed::new(&feature, &created_at),
-        None => fallback.clone(),
-    })
+    if let Some((feature, created_at)) = row {
+        return Ok(Listed::new(&feature, &created_at));
+    }
+    if fallback.listing().feature.is_empty() {
+        let existing: Option<String> = tx
+            .query_row(
+                "SELECT feature FROM run_summary
+                 WHERE run_id = ?1 AND feature IS NOT NULL AND feature != ''",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(feature) = existing {
+            return Ok(Listed::new(&feature, fallback.listing().created_at));
+        }
+    }
+    Ok(fallback.clone())
 }
 
 fn write_full_projection(
@@ -336,46 +394,121 @@ fn clear_run_projections(tx: &Connection, run_id: &str) -> Result<(), StoreError
     Ok(())
 }
 
-fn clear_stale_projections(tx: &Connection, keep: &BTreeSet<&str>) -> Result<(), StoreError> {
-    let existing: Vec<String> = tx
-        .prepare(EXISTING_PROJECTED_RUNS)?
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    for run_id in existing {
+fn clear_stale_projections(
+    tx: &Connection,
+    pre_existing: &[String],
+    keep: &BTreeSet<&str>,
+) -> Result<(), StoreError> {
+    for run_id in pre_existing {
         if !keep.contains(run_id.as_str()) {
-            clear_run_projections(tx, &run_id)?;
+            clear_run_projections(tx, run_id)?;
         }
     }
     Ok(())
 }
 
+enum ProjectionStream {
+    Colocated(Vec<EventEnvelope>),
+    Decoupled(Vec<EventEnvelope>),
+}
+
 fn is_projection_current(
     tx: &Connection,
     run_id: &str,
-    incoming_max: i64,
+    (expected_seq, expected_hash): (i64, &str),
+    allow_ahead: bool,
 ) -> Result<bool, StoreError> {
-    let progress: Option<(i64, Option<i64>)> = tx
+    let progress: Option<(i64, Option<i64>, String)> = tx
         .query_row(
-            "SELECT head_seq, folded_seq FROM run_summary WHERE run_id = ?1",
+            "SELECT head_seq, folded_seq, head_hash FROM run_summary WHERE run_id = ?1",
+            params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    Ok(match progress {
+        Some((head_seq, folded_seq, head_hash)) => {
+            folded_seq == Some(head_seq)
+                && ((allow_ahead && head_seq > expected_seq)
+                    || (head_seq == expected_seq && head_hash == expected_hash))
+        }
+        None => false,
+    })
+}
+
+fn read_index_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<[Option<String>; 6]> {
+    Ok([
+        r.get(0)?,
+        r.get(1)?,
+        r.get(2)?,
+        r.get(3)?,
+        r.get(4)?,
+        r.get(5)?,
+    ])
+}
+
+fn verify_decoupled_prefix(
+    tx: &Connection,
+    run_id: &str,
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    let incoming_max = checked_seq(envelopes.len() as u64)?;
+    let stored = tx
+        .prepare(DECOUPLED_PREFIX)?
+        .query_map(params![run_id, incoming_max], read_index_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    let incoming: Vec<[Option<String>; 6]> = envelopes
+        .iter()
+        .map(|envelope| {
+            let indexed = Indexed::of(envelope);
+            [
+                Some(envelope.seq.to_string()),
+                Some(indexed.event_type.as_str().to_string()),
+                indexed.attempt_id.map(str::to_string),
+                indexed.member.map(str::to_string),
+                Some(indexed.recorded_at.to_string()),
+                Some(envelope.event_id.clone()),
+            ]
+        })
+        .collect();
+    if stored != incoming {
+        return Err(divergent(run_id));
+    }
+    Ok(())
+}
+
+fn verify_decoupled_chain(
+    tx: &Connection,
+    run_id: &str,
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    let existing: Option<(i64, String)> = tx
+        .query_row(
+            "SELECT head_seq, head_hash FROM run_summary WHERE run_id = ?1 AND head_seq > 0",
             params![run_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
-    Ok(match progress {
-        Some((head_seq, folded_seq)) => {
-            head_seq > incoming_max
-                || (head_seq == incoming_max && folded_seq == Some(incoming_max))
+    let Some((existing_head_seq, existing_head_hash)) = existing else {
+        return Ok(());
+    };
+    let incoming_max = checked_seq(envelopes.len() as u64)?;
+    if incoming_max >= existing_head_seq {
+        let at_head = &envelopes[(existing_head_seq - 1) as usize];
+        if at_head.event_hash != existing_head_hash {
+            return Err(divergent(run_id));
         }
-        None => false,
-    })
+    } else {
+        verify_decoupled_prefix(tx, run_id, envelopes)?;
+    }
+    Ok(())
 }
 
 fn resolve_projection_stream(
     tx: &Connection,
     run_id: &str,
     envelopes: &[EventEnvelope],
-) -> Result<Vec<EventEnvelope>, StoreError> {
-    if has_local_run_or_events(tx, run_id)? {
+) -> Result<ProjectionStream, StoreError> {
+    if has_local_runs_or_events(tx)? {
         let local = load_verified_local(tx, run_id)?;
         let matched: Vec<EventEnvelope> = local
             .iter()
@@ -384,14 +517,13 @@ fn resolve_projection_stream(
             .cloned()
             .collect();
         if serde_json::to_vec(&matched)? != serde_json::to_vec(envelopes)? {
-            return Err(StoreError::DivergentEventLog {
-                run_id: run_id.to_string(),
-            });
+            return Err(divergent(run_id));
         }
-        Ok(local)
+        Ok(ProjectionStream::Colocated(local))
     } else {
         verify_chain_for_sqlite(run_id, (0, ZERO_HASH), envelopes)?;
-        Ok(envelopes.to_vec())
+        verify_decoupled_chain(tx, run_id, envelopes)?;
+        Ok(ProjectionStream::Decoupled(envelopes.to_vec()))
     }
 }
 
@@ -399,10 +531,7 @@ fn verify_local_events_match(
     tx: &Connection,
     verified: &[VerifiedRun],
 ) -> Result<bool, StoreError> {
-    let local_runs: Vec<String> = tx
-        .prepare(LOCAL_RUNS)?
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<Vec<_>, _>>()?;
+    let local_runs = query_strings(tx, LOCAL_RUNS)?;
     if local_runs.is_empty() {
         return Ok(false);
     }
@@ -420,9 +549,7 @@ fn verify_local_events_match(
         }
     }
     if let Some((extra, _)) = expected.into_iter().next() {
-        return Err(StoreError::DivergentEventLog {
-            run_id: extra.to_string(),
-        });
+        return Err(divergent(extra));
     }
     Ok(true)
 }
@@ -437,20 +564,27 @@ fn rebuild_colocated(tx: &Connection, verified: &[VerifiedRun]) -> Result<u64, S
     Ok(total)
 }
 
-fn rebuild_decoupled(tx: &Connection, verified: &[VerifiedRun]) -> Result<u64, StoreError> {
+fn rebuild_decoupled(
+    tx: &Connection,
+    verified: &[VerifiedRun],
+    pre_existing: &[String],
+) -> Result<u64, StoreError> {
     let keep: BTreeSet<&str> = verified.iter().map(|run| run.run_id.as_str()).collect();
-    clear_stale_projections(tx, &keep)?;
+    clear_stale_projections(tx, pre_existing, &keep)?;
     let mut total = 0u64;
     for run in verified {
-        let scanned_head = checked_seq(run.events.last().map_or(0, |event| event.seq))?;
-        let current_head: Option<i64> = tx
+        let Some(last) = run.events.last() else {
+            continue;
+        };
+        let scanned_head = checked_seq(last.seq)?;
+        let current: Option<(i64, Option<i64>)> = tx
             .query_row(
-                "SELECT head_seq FROM run_summary WHERE run_id = ?1",
+                "SELECT head_seq, folded_seq FROM run_summary WHERE run_id = ?1",
                 params![run.run_id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        if current_head.is_some_and(|head| head > scanned_head) || run.events.is_empty() {
+        if current.is_some_and(|(head, folded)| head > scanned_head && folded == Some(head)) {
             continue;
         }
         clear_run_projections(tx, &run.run_id)?;
@@ -468,6 +602,7 @@ impl EventLog for SqlitePorts<'_> {
         let host = origin::local_host();
         patiently("create_run", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
+            refuse_decoupled_store(&tx, run_id)?;
             let row = Row {
                 run_id,
                 feature,
@@ -524,6 +659,7 @@ impl EventLog for SqlitePorts<'_> {
         let feature = listed.listing().feature;
         patiently("import_run", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
+            refuse_decoupled_store(&tx, run_id)?;
             refuse_existing(&tx, run_id)?;
             tx.execute(
                 "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
@@ -566,12 +702,10 @@ impl EventLog for SqlitePorts<'_> {
 
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
         patiently("list_runs", self.0.patience, &self.0.path, || {
-            Ok(self
-                .0
-                .conn
-                .prepare("SELECT run_id FROM runs ORDER BY created_at, run_id")?
-                .query_map([], |row| row.get(0))?
-                .collect::<Result<Vec<_>, _>>()?)
+            query_strings(
+                &self.0.conn,
+                "SELECT run_id FROM runs ORDER BY created_at, run_id",
+            )
         })
     }
 }
@@ -582,21 +716,21 @@ impl ProjectionStore for SqlitePorts<'_> {
         if envelopes.is_empty() {
             return Ok(());
         }
-        let max_seq = envelopes
-            .iter()
-            .map(|envelope| envelope.seq)
-            .max()
-            .expect("envelopes is non-empty");
-        let incoming_max = checked_seq(max_seq)?;
         patiently("apply_envelopes", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
-            let stream = resolve_projection_stream(&tx, run_id, envelopes)?;
-            if is_projection_current(&tx, run_id, incoming_max)? {
+            let resolved = resolve_projection_stream(&tx, run_id, envelopes)?;
+            let (stream, allow_ahead) = match &resolved {
+                ProjectionStream::Colocated(events) => (events.as_slice(), false),
+                ProjectionStream::Decoupled(events) => (events.as_slice(), true),
+            };
+            let head = stream.last().expect("stream is non-empty");
+            let target = (checked_seq(head.seq)?, head.event_hash.as_str());
+            if is_projection_current(&tx, run_id, target, allow_ahead)? {
                 return Ok(());
             }
-            let listed = listing_from(None, &stream);
-            let account = Account::whole(run_id, &stream);
-            write_full_projection(&tx, run_id, &stream, &account, &listed)?;
+            let listed = listing_from(None, stream);
+            let account = Account::whole(run_id, stream);
+            write_full_projection(&tx, run_id, stream, &account, &listed)?;
             tx.commit()?;
             Ok(())
         })
@@ -614,6 +748,7 @@ impl ProjectionStore for SqlitePorts<'_> {
     }
 
     fn rebuild_from(&self, log: &dyn EventLog) -> Result<u64, StoreError> {
+        let pre_existing = self.projected_runs()?;
         let run_ids = log.list_run_ids()?;
         let mut verified = Vec::with_capacity(run_ids.len());
         for run_id in run_ids {
@@ -634,7 +769,7 @@ impl ProjectionStore for SqlitePorts<'_> {
             let total = if verify_local_events_match(&tx, &verified)? {
                 rebuild_colocated(&tx, &verified)?
             } else {
-                rebuild_decoupled(&tx, &verified)?
+                rebuild_decoupled(&tx, &verified, &pre_existing)?
             };
             tx.commit()?;
             Ok(total)

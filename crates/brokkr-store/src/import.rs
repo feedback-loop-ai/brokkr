@@ -91,7 +91,7 @@ pub const RUN_ID_MAX: usize = 128;
 /// character. Import is the first path by which a run id somebody else
 /// authored reaches the `runs` table, and from there `brokkr journal export`'s
 /// `<out>/<run_id>.ndjson` and the operator's terminal.
-pub(crate) fn adoptable(character: char) -> bool {
+fn adoptable(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '-' || character == '_'
 }
 

@@ -30,7 +30,7 @@ fn event_index_ordinals(path: &std::path::Path, run_id: &str) -> Vec<(i64, Optio
     rows
 }
 
-fn completed_vs_phase_pair(
+pub(super) fn completed_vs_phase_pair(
     run_id: &str,
     feature: &str,
 ) -> (EventEnvelope, EventEnvelope, EventEnvelope) {
@@ -233,6 +233,16 @@ fn colocated_rebuild_from_preserves_empty_runs_created_at_and_subsequent_append(
         drop(raw);
 
         assert_eq!(ports.rebuild_from(&ports).unwrap(), 1);
+        let raw = Connection::open(&path).unwrap();
+        let empty_seat_head: (i64, String) = raw
+            .query_row(
+                "SELECT folded_seq, folded_hash FROM seat_head WHERE run_id = 'empty-local'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(empty_seat_head, (0, ZERO_HASH.to_string()));
+        drop(raw);
         assert!(store.summary_disagreements().unwrap().is_empty());
         assert_eq!(ports.list_runs().unwrap(), store.list_runs().unwrap());
         assert!(ports

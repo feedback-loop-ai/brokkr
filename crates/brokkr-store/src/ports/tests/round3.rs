@@ -346,9 +346,10 @@ fn colocated_rebuild_from_refuses_divergent_logs_and_preserves_terminal_fence() 
         err,
         StoreError::DivergentEventLog { ref run_id } if run_id == "div-1"
     ));
-    assert!(err
-        .to_string()
-        .contains("divergent event log for run 'div-1'"));
+    assert_eq!(
+        err.to_string(),
+        "event log for run 'div-1' diverges from local store state"
+    );
 
     let late_e3 = sealed_event(
         "div-1",

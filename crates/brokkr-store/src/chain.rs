@@ -98,8 +98,7 @@ fn marked_members(
 /// The one insert every append seals its row with, prepared through the
 /// connection's statement cache (#1156): prepared afresh, the statement
 /// and every trigger it fires cost each row of a large append again.
-pub(crate) const INSERT_EVENT: &str =
-    "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
+const INSERT_EVENT: &str = "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
          VALUES (?1, ?2, ?3, ?4)";
 
 /// Seal `payload` as the run's next event after `head`, its seq and hash,

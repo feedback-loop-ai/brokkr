@@ -274,10 +274,10 @@ pub enum StoreError {
         #[source]
         source: Box<StoreError>,
     },
-    /// `ProjectionStore::rebuild_from` was handed an event log that diverges
-    /// from this store's own `events` table; refusing keeps local projections
-    /// aligned with local events (including terminal fences).
-    #[error("divergent event log for run '{run_id}': rebuild source does not match local events")]
+    /// An event log or projection update diverges from this store's local
+    /// state (co-located `events`/`runs` mismatch, forked decoupled projection
+    /// chain, or mixing co-located and decoupled modes).
+    #[error("event log for run '{run_id}' diverges from local store state")]
     DivergentEventLog { run_id: String },
 }
 
