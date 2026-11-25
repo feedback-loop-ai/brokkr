@@ -50,9 +50,10 @@ and scheduled loops on throughput, correctness, cost and human effort.
 
 The operator ruled this erratum on 2026-11-25, "approve all the fact and
 wording fixes" for row 5 and the summary; "0007-1 approved" for row 1;
-"0007-2 approved" for row 2; "0007-3 - approved" for row 3; "0007 - row
-6 - approved, but only if this can be done in an automated way", then
-"that's not use case for us" and "the rest can be done" for row 6
+"0007-2 approved" for row 2; "0007-3 - approved" for row 3; "0007-4
+approved" for row 4; "0007 - row 6 - approved, but only if this can be
+done in an automated way", then "that's not use case for us" and "the
+rest can be done" for row 6
 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
 every row of this entry was checked three ways: against the article,
 against main at `4912e583e`, and against the open issues and pull
@@ -99,6 +100,15 @@ word.
   deadline loses its tokens (#826), Codex and dsh seats carry no dollar
   figure (#765), and Claude usage may double-count repeated message
   records (#402)
+- **Row 4** keeps `implemented`. Citation: decision 0041: a gate hires
+  judges only and is chartered to change nothing, and the engine parks a
+  gate that moves HEAD, though an uncommitted write passes that check;
+  decision 0043: the verifier and shipper are pinned scripts, boxed
+  under the namespace boundary and unboxed under harness; open gaps: the
+  moved-head fence arms only at a gate step, so a work-class review
+  position that commits is unseen (#564), an uncommitted edit passes
+  (#1260), and nothing yet binds verify's pass to the candidate the
+  judge and the ship see (the open PR #1294 would add that binding)
 - **Row 5** keeps `not-planned`. Finding: "Track agent-authored edits to
   the loop's own configuration as a distinct signal (the paper measures
   agent-majority context files beside loop artifacts; tracking edits to
