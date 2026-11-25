@@ -117,21 +117,20 @@ fn held_word(
     probe: &RowEnd,
     ordinary: Option<&RowEnd>,
 ) -> fmt::Result {
-    write!(
-        f,
+    let mut write_held = |hold: fmt::Arguments<'_>| match ordinary {
+        Some(RowEnd { until, reason }) => write!(
+            f,
+            "{hold}; a cool-down beside it holds the route until {}: {reason}",
+            spelled(*until)
+        ),
+        None => write!(f, "{hold}"),
+    };
+    write_held(format_args!(
         "provider {provider} is held on route {route} by a cool-down probe whose \
          deadline falls before {}, and no time ends that hold: {}",
         spelled(probe.until),
         probe.reason
-    )?;
-    match ordinary {
-        Some(RowEnd { until, reason }) => write!(
-            f,
-            "; a cool-down beside it holds the route until {}: {reason}",
-            spelled(*until)
-        ),
-        None => Ok(()),
-    }
+    ))
 }
 
 /// `at` as RFC 3339, written by core's one stamp writer (the readouts'
