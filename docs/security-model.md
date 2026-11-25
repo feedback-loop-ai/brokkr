@@ -610,7 +610,7 @@ provisioning hashes the whole running binary.
   rewrite or corrupt the object store, and write any worktree's
   `config.worktree`, and in a repository with `extensions.worktreeConfig`
   a `core.hooksPath` written there plants a hook the host's next `git`
-  runs. `hands.rs` records this as known open
+  runs. `hands/namespace/workspace.rs` records this as known open
   (decision [0054](decisions/0054-the-dsh-harness-sandbox-reaches-a-linked-worktree-s-git-metadata.md)'s
   consequences). The dsh runner closes it for dsh seats by giving the
   seat a private common directory.
