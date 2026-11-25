@@ -56,42 +56,30 @@ report or hidden-failure-rate calculation is implemented.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all the fact and
-wording fixes" for row 2 and the summary; "approve all that move to
-planned as well" for row 4
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
-- **Summary.** For "Providing the constraint text to the model raises
-  joint success for every model (360 to 423 joint passes; GPT-5.5 joint
-  success 41.3 to 52.8 percent) and lifts constraint compliance by 10.2
-  to 25.6 percentage points, while functional success does not improve."
-  read "Providing the constraint text to the model raises joint success
-  for every model (360 to 423 joint passes; GPT-5.5 joint success 41.3
-  to 52.8 percent) and lifts constraint compliance by 10.2 to 25.6
-  percentage points, while functional success falls slightly (0.7 points
-  for GPT-5.5, 3.3 to 9.9 points for the others)."
-- **Summary.** For "Eleven constraint categories are tracked; error
-  semantics (152 instances) and schema/typing (143) are the most common,
-  and ordering/argument preservation and idempotence carry the lowest
-  joint success rates." read "Ten constraint categories are tracked;
-  error semantics (152 instances) and schema/typing (143) are the most
-  common, idempotence and scope generalization carry the lowest joint
-  success rates, and ordering/argument preservation is among the
-  categories satisfied most often."
-- **Row 2** keeps `implemented`. Finding: "Give the worker the
-  acceptance constraints in its input: explicit constraint guidance
-  raises constraint compliance and joint success, at a small cost in
-  functional success (0.7 to 9.9 points)".
+- **Summary.** For "while functional success does not improve." read
+  "while functional success falls slightly (0.7 points for GPT-5.5, 3.3
+  to 9.9 points for the others)." (ruled: "approve all the fact and
+  wording fixes")
+- **Summary.** For "Eleven constraint categories are" read "Ten
+  constraint categories are"; for "the most common, and
+  ordering/argument preservation and idempotence carry the lowest" read
+  "the most common, idempotence and scope generalization carry the
+  lowest"; for "lowest joint success rates." read "lowest joint success
+  rates, and ordering/argument preservation is among the categories
+  satisfied most often." (ruled: "approve all the fact and wording
+  fixes")
+- **Row 2** keeps `implemented`. Finding: For "constraint guidance
+  raises compliance without hurting functional success" read "constraint
+  guidance raises constraint compliance and joint success, at a small
+  cost in functional success (0.7 to 9.9 points)". (ruled: "approve all
+  the fact and wording fixes")
 - **Row 4** now reads `planned`, not `not-planned`. Citation: #436:
   independent acceptance (checks authored apart from the implementation,
   and a second reviewer) and a qualification report of escaped defects
   and false approvals; no standing hidden-failure metric over runs
-  exists today
+  exists today (ruled: "approve all that move to planned as well")
 
 ## Candidates
 

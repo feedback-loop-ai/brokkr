@@ -51,76 +51,64 @@ and version the judge prompt as a model component.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "0002, 0003, 0004 -
-approved"
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
 - **Authors.** For "GitHub Secret Scanning team (GitHub)" read "Mariko
-  Wakabayashi, Zixiao Chen (Microsoft)".
-- **Summary.** For "The workflow has eight steps in order: define the
-  product decision first as one primary metric plus explicit guardrails;
-  run the offline evaluation on every meaningful change with prompts and
-  configs versioned like code; keep the evaluation set close to
-  production; treat production labels as signals rather than ground
-  truth and review disputed subsets by hand; add synthetic and open
-  datasets for rare cases without replacing production data; categorise
-  every failure by source (model, prompt, input, pipeline, dataset,
-  label); use a model as a judge for triage, never for verdicts; then
-  move to online experiments with documented risks." read "The workflow
-  has seven steps in order: define the product decision first as one
-  primary metric plus explicit guardrails; run the offline evaluation on
-  every meaningful change with prompts and configs versioned like code;
-  keep the evaluation set close to production; treat production labels
-  as signals rather than ground truth and review disputed subsets by
-  hand; add synthetic and open datasets for rare cases without replacing
-  production data; categorise every failure by source (model, prompt,
-  input, pipeline, dataset, label); and use a model as a judge to focus
-  human review, its output treated as another prediction rather than
-  ground truth. Passing them is what justifies moving to online
-  experiments with documented risks."
-- **Summary.** For "The advancement rule is the sharp part: a change
-  advances only if the primary metric improves and every guardrail stays
-  in range." read "The advancement rule is the sharp part: a change
-  advances only if every guardrail stays in range (recall may fall only
-  within a predefined acceptable range), and among the changes that
-  qualify the one with the strongest false-positive reduction is
-  chosen."
-- **Row 1** keeps `alternative`. Finding: "Advance a change only when
-  every guardrail holds, and choose among those by the primary metric; a
-  large win that breaches a guardrail is rejected".
-- **Row 2** now reads `alternative`, not `implemented`. Citation:
-  decision 0017: charters, tables and adapters are digest-pinned bundle
-  identity, so a change moves a witness in
+  Wakabayashi, Zixiao Chen (Microsoft)". (ruled: "0002, 0003, 0004 -
+  approved")
+- **Summary.** For "The workflow has eight steps in order:" read "The
+  workflow has seven steps in order:"; after "pipeline, dataset,
+  label);" add "and"; for "as a judge for triage, never for verdicts;
+  then move to online experiments" read "as a judge to focus human
+  review, its output treated as another prediction rather than ground
+  truth. Passing them is what justifies moving to online experiments".
+  (ruled: "0002, 0003, 0004 - approved")
+- **Summary.** For "advances only if the primary metric improves and
+  every guardrail stays" read "advances only if every guardrail stays";
+  for "guardrail stays in range." read "guardrail stays in range (recall
+  may fall only within a predefined acceptable range), and among the
+  changes that qualify the one with the strongest false-positive
+  reduction is chosen." (ruled: "0002, 0003, 0004 - approved")
+- **Row 1** keeps `alternative`. Finding: For "change only when the
+  primary metric improves and every guardrail holds; a large win" read
+  "change only when every guardrail holds, and choose among those by the
+  primary metric; a large win". (ruled: "0002, 0003, 0004 - approved")
+- **Row 2** now reads `alternative`, not `implemented`. Citation: For
+  "are digest-pinned bundle identity;
+  `crates/brokkr-runtime/tests/witness_digests.rs`" read "are
+  digest-pinned bundle identity, so a change moves a witness in
   `crates/brokkr-runtime/tests/witness_digests.rs` and must be re-pinned
   on purpose; no evaluation is re-run on a change (#283 proposes a
-  real-provider check after each upgrade)
-- **Row 3** now reads `planned`, not `alternative`. Finding: "Keep the
-  evaluation set and pipeline close to production, and treat production
-  labels as signals, not ground truth". Citation: #271: the journal and
-  transcripts become an evaluation corpus once outcomes are closed back
-  into the journal, a verdict or a green landing being an input, not
-  proof; #436 owns the versioned, held-out evaluation protocol; until
-  then decision 0021 keeps outcome scoring in the operator's ledger
-- **Row 4** keeps `alternative`. Citation: decision 0064 and decision
-  0106 (`contracts/park-cause.v1.schema.json`, slice 0106a): a terminal
-  run's ending separates `infrastructure` from `failed` and `refused`,
-  and a park's cause is typed `ruled`, `attempt-cap` (with a failure
-  class: provider limit, provider refusal, start failure or
-  determinate), `infrastructure` or `provider-limit`; decision 0006's
-  determinate and indeterminate attempts stand beneath them; there is no
-  model, prompt, input, dataset or label split; the rest of decision
-  0106 is #1035
-- **Row 7** keeps `implemented`. Citation: decision 0031 and decision
-  0035: the run manifest pins bundle, adapter and agent digests; the
-  seat record carries the served model and effort; not recorded: the
-  operator's host configuration a claude seat loads (`CLAUDE.md`, user
-  settings, hooks; `docs/security-model.md`, #467), and the harness
-  version, which is read but checked against nothing (#1240)
+  real-provider check after each upgrade)". (ruled: "0002, 0003, 0004 -
+  approved")
+- **Row 3** now reads `planned`, not `alternative`. Finding: For "Build
+  the evaluation set from production cases and treat production" read
+  "Keep the evaluation set and pipeline close to production, and treat
+  production". Citation: For "decision 0021: outcome scoring is placed
+  outside the engine, in the operator's ledger; the journal is the
+  production record" read "#271: the journal and transcripts become an
+  evaluation corpus once outcomes are closed back into the journal, a
+  verdict or a green landing being an input, not proof; #436 owns the
+  versioned, held-out evaluation protocol; until then decision 0021
+  keeps outcome scoring in the operator's ledger". (ruled: "0002, 0003,
+  0004 - approved")
+- **Row 4** keeps `alternative`. Citation: For "decision 0006: failures
+  are determinate, indeterminate or result-driven; no source axis" read
+  "decision 0064 and decision 0106
+  (`contracts/park-cause.v1.schema.json`, slice 0106a): a terminal run's
+  ending separates `infrastructure` from `failed` and `refused`, and a
+  park's cause is typed `ruled`, `attempt-cap` (with a failure class:
+  provider limit, provider refusal, start failure or determinate),
+  `infrastructure` or `provider-limit`; decision 0006's determinate and
+  indeterminate attempts stand beneath them; there is no model, prompt,
+  input, dataset or label split; the rest of decision 0106 is #1035".
+  (ruled: "0002, 0003, 0004 - approved")
+- **Row 7** keeps `implemented`. Citation: For "served model and effort"
+  read "served model and effort; not recorded: the operator's host
+  configuration a claude seat loads (`CLAUDE.md`, user settings, hooks;
+  `docs/security-model.md`, #467), and the harness version, which is
+  read but checked against nothing (#1240)". (ruled: "0002, 0003, 0004 -
+  approved")
 
 ## Candidates
 

@@ -43,14 +43,7 @@ and recording this survey does not approve adopting another framework.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "0018-4 approved" for row
-4; "approve all the fact and wording fixes" for the summary
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
 - **Summary.** For
   "[Overview](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/README.md)
@@ -60,20 +53,17 @@ word.
   "[Overview](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/README.md)
   and [formula
   resolution](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/docs/design/formula-resolution.md)
-  (partially implemented)."
-- **Summary.** For "It records declaration-order execution with advisory
-  `depends_on`, optional aggressive JSON extraction, and configurable
-  error handling that can continue or finish early." read "It records
-  declaration-order execution with advisory `depends_on`, aggressive
-  JSON extraction (opt-in through `parse_json` for agent steps, an
-  automatic fallback for bash steps), and configurable error handling
-  that can continue or finish early."
-- **Row 4** keeps `implemented`. Citation: decision 0016 and decision
-  0017; `crates/brokkr-runtime/src/bundle.rs` resolves and pins
-  configuration into the manifest; this is configuration identity, not
-  proof of agent-output correctness, and the installed harness version
-  is not yet checked against the version its adapter record measured
-  (#1240)
+  (partially implemented)." (ruled: "approve all the fact and wording
+  fixes")
+- **Summary.** For "with advisory `depends_on`, optional aggressive JSON
+  extraction, and configurable error" read "with advisory `depends_on`,
+  aggressive JSON extraction (opt-in through `parse_json` for agent
+  steps, an automatic fallback for bash steps), and configurable error".
+  (ruled: "approve all the fact and wording fixes")
+- **Row 4** keeps `implemented`. Citation: For "proof of agent-output
+  correctness" read "proof of agent-output correctness, and the
+  installed harness version is not yet checked against the version its
+  adapter record measured (#1240)". (ruled: "0018-4 approved")
 
 ## Candidates
 

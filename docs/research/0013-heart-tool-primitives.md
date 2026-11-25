@@ -51,37 +51,29 @@ fallbacks also differ from substituting a cheaper model after a failure.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "0013 - approved"
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
-- **Authors.** For "Haibo Jin, Xucheng Yu, Haohan Wang (School of
-  Information Sciences, University of Illinois Urbana-Champaign); Suijin
-  Wang, Haojing Luo (Starc Institute)" read "Haibo Jin, Xucheng Yu,
-  Haohan Wang (School of Information Sciences, University of Illinois
-  Urbana-Champaign); Suijin Wang, Haojing Luo (Independent Researcher;
-  Starc Institute)".
-- **Row 4** now reads `implemented`, not `alternative`. Citation:
-  decision 0041 and decision 0042; `recipes/triage/policy.json`:
-  clarify, analyze and review findings return to specify, design, tasks
-  or triage, and each return is capped by a declared visit bound
-  (`visits_clarify_gte` 5, `visits_analyze_gte` 5, `visits_specify_gte`
-  3, `visits_triage_gte` 2) that parks for the operator; the cap counts
-  visits, not tokens or cost (#604 and #1048 propose cost and
-  no-progress budgets)
-- **Row 5** keeps `alternative`. Finding: "Run the orchestration roles
-  on a small, cheap model where it matches a frontier one; HEART cuts
-  API cost by up to 85 percent despite using more tokens". Citation:
-  decision 0021 and decision 0041;
-  `crates/brokkr-runtime/src/agents.rs`: strategy selects declared hires
-  and availability resolves approved fallback chains; a running failure
-  does not trigger a cheaper replacement and no runtime quality/cost
-  scorer chooses the model; #224 proposes cheaper lanes for prepared
-  work, unruled
+- **Authors.** For "Wang, Haojing Luo (Starc Institute)" read "Wang,
+  Haojing Luo (Independent Researcher; Starc Institute)". (ruled: "0013
+  - approved")
+- **Row 4** now reads `implemented`, not `alternative`. Citation: For
+  "decision 0042; `recipes/triage/policy.json`: declared findings return
+  to implement, design or triage under phase-visit bounds, with bounded
+  clarify/analyze loops and per-seat attempt/deadline limits" read
+  "decision 0042; `recipes/triage/policy.json`: clarify, analyze and
+  review findings return to specify, design, tasks or triage, and each
+  return is capped by a declared visit bound (`visits_clarify_gte` 5,
+  `visits_analyze_gte` 5, `visits_specify_gte` 3, `visits_triage_gte` 2)
+  that parks for the operator; the cap counts visits, not tokens or cost
+  (#604 and #1048 propose cost and no-progress budgets)". (ruled: "0013
+  - approved")
+- **Row 5** keeps `alternative`. Finding: For "Cut API cost by routing
+  work to cheaper calls where quality allows" read "Run the
+  orchestration roles on a small, cheap model where it matches a
+  frontier one; HEART cuts API cost by up to 85 percent despite using
+  more tokens". Citation: For "scorer chooses the model" read "scorer
+  chooses the model; #224 proposes cheaper lanes for prepared work,
+  unruled". (ruled: "0013 - approved")
 
 ## Candidates
 

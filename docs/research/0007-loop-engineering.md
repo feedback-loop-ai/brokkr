@@ -48,71 +48,55 @@ and scheduled loops on throughput, correctness, cost and human effort.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all the fact and
-wording fixes" for row 5 and the summary; "0007-1 approved" for row 1;
-"0007-2 approved" for row 2; "0007-3 - approved" for row 3; "0007-4
-approved" for row 4; "0007 - row 6 - approved, but only if this can be
-done in an automated way", then "that's not use case for us" and "the
-rest can be done" for row 6
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
 - **Source.** For "https://arxiv.org/abs/2608.21884" read
-  "https://arxiv.org/abs/2608.21884v1".
-- **Summary.** For "The paper consolidates a definition from eleven
-  gray-literature sources, measures real adoption by mining
-  repositories, and pre-registers a controlled experiment." read "The
-  paper consolidates a definition from eleven gray-literature sources,
-  measures real adoption by mining repositories, and outlines a planned
-  controlled experiment."
+  "https://arxiv.org/abs/2608.21884v1". (ruled: "approve all the fact
+  and wording fixes")
+- **Summary.** For "mining repositories, and pre-registers a controlled
+  experiment." read "mining repositories, and outlines a planned
+  controlled experiment." (ruled: "approve all the fact and wording
+  fixes")
 - **Summary.** For "Thirty repositories have agent-majority commits on
-  their own loop configuration; twelve loops are disabled but still
-  present." read "Thirty repositories pair an agent-majority context
-  file (AGENTS.md or CLAUDE.md) with a committed loop artifact; twelve
-  loops are disabled but still present."
-- **Summary.** For "The sharpest finding is that the practice's
-  rhetoric, budgets, verifiers, state and stop conditions, is nearly
-  absent from its artifacts." read "The sharpest finding is that the
-  practice's rhetoric is barely visible in its artifacts: fixed-phrase
-  heuristics found no stop conditions, budgets or verifiers, manual
-  annotation found a goal or stop-condition mechanism in 55 of 256
-  inspected repositories, and almost none commits its state files."
-- **Row 1** keeps `implemented`. Citation: decision 0006: bounded
-  attempts and deadlines; decision 0002: the journal is the state and
-  the table is the stop condition; decision 0043: the box, around a seat
-  that declares hands in a namespace realm and nowhere else; decision
-  0021: the checker is a gate seat; decision 0001: escalation is a park;
-  the budget is attempts and deadlines only: decision 0067's enforced
-  visit budgets are unbuilt (#463), and cost, stagnation and
-  elapsed-time budgets are #604
-- **Row 2** keeps `implemented`. Citation: `policy/phase-machine.json`
-  and each recipe's policy table (`recipes/fast/policy.json`) carry the
-  terminal rules; each recipe's `recipes/fast/bundle.json` carries the
-  per-seat attempts and deadlines; cost, stagnation and elapsed-time
-  budgets are not yet committed artifacts (#604, decision 0067 unbuilt)
-- **Row 3** keeps `implemented`. Citation: decision 0034 and decision
-  0035: `contracts/seat-record.v8.schema.json` records usage, cost,
-  effort and reasoning tokens per seat; gaps: a Codex seat killed at its
-  deadline loses its tokens (#826), Codex and dsh seats carry no dollar
-  figure (#765), and Claude usage may double-count repeated message
-  records (#402)
-- **Row 4** keeps `implemented`. Citation: decision 0041: a gate hires
-  judges only and is chartered to change nothing, and the engine parks a
-  gate that moves HEAD, though an uncommitted write passes that check;
-  decision 0043: the verifier and shipper are pinned scripts, boxed
-  under the namespace boundary and unboxed under harness; open gaps: the
-  moved-head fence arms only at a gate step, so a work-class review
-  position that commits is unseen (#564), an uncommitted edit passes
-  (#1260), and nothing yet binds verify's pass to the candidate the
-  judge and the ship see (the open PR #1294 would add that binding)
-- **Row 5** keeps `not-planned`. Finding: "Track agent-authored edits to
-  the loop's own configuration as a distinct signal (the paper measures
-  agent-majority context files beside loop artifacts; tracking edits to
-  the loop's configuration is the analogous signal for Brokkr)".
+  their own loop configuration; twelve loops are" read "Thirty
+  repositories pair an agent-majority context file (AGENTS.md or
+  CLAUDE.md) with a committed loop artifact; twelve loops are". (ruled:
+  "approve all the fact and wording fixes")
+- **Summary.** For "that the practice's rhetoric, budgets, verifiers,
+  state and stop conditions, is nearly absent from its artifacts." read
+  "that the practice's rhetoric is barely visible in its artifacts:
+  fixed-phrase heuristics found no stop conditions, budgets or
+  verifiers, manual annotation found a goal or stop-condition mechanism
+  in 55 of 256 inspected repositories, and almost none commits its state
+  files." (ruled: "approve all the fact and wording fixes")
+- **Row 1** keeps `implemented`. Citation: For "escalation is a park"
+  read "escalation is a park; the budget is attempts and deadlines only:
+  decision 0067's enforced visit budgets are unbuilt (#463), and cost,
+  stagnation and elapsed-time budgets are #604". (ruled: "0007-1
+  approved")
+- **Row 2** keeps `implemented`. Citation: For "per-seat attempts and
+  deadlines" read "per-seat attempts and deadlines; cost, stagnation and
+  elapsed-time budgets are not yet committed artifacts (#604, decision
+  0067 unbuilt)". (ruled: "0007-2 approved")
+- **Row 3** keeps `implemented`. Citation: For "and decision 0035:
+  `contracts/seat-record.v2.schema.json` records usage, cost," read "and
+  decision 0035: `contracts/seat-record.v8.schema.json` records usage,
+  cost,"; for "reasoning tokens per seat" read "reasoning tokens per
+  seat; gaps: a Codex seat killed at its deadline loses its tokens
+  (#826), Codex and dsh seats carry no dollar figure (#765), and Claude
+  usage may double-count repeated message records (#402)". (ruled:
+  "0007-3 - approved")
+- **Row 4** keeps `implemented`. Citation: For "and unboxed under
+  harness" read "and unboxed under harness; open gaps: the moved-head
+  fence arms only at a gate step, so a work-class review position that
+  commits is unseen (#564), an uncommitted edit passes (#1260), and
+  nothing yet binds verify's pass to the candidate the judge and the
+  ship see (the open PR #1294 would add that binding)". (ruled: "0007-4
+  approved")
+- **Row 5** keeps `not-planned`. Finding: After "a distinct signal" add
+  "(the paper measures agent-majority context files beside loop
+  artifacts; tracking edits to the loop's configuration is the analogous
+  signal for Brokkr)". (ruled: "approve all the fact and wording fixes")
 - **Row 6** now reads `planned`, not `not-planned`, taken up only in an
   automated form. Citation: #1386, under #436. Brokkr's own autonomy
   levels are recipe variants that differ only in where a run stops for
@@ -122,7 +106,9 @@ word.
   seats only until #765), and the operator commands each run's journal
   records. Interactive prompting is not one of the levels: Brokkr has no
   workflow for it, since every seat runs headless, and it is not a use
-  case for Brokkr.
+  case for Brokkr. (ruled: "0007 - row 6 - approved, but only if this
+  can be done in an automated way", then "that's not use case for us"
+  and "the rest can be done")
 
 ## Candidates
 

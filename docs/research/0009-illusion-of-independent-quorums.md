@@ -59,29 +59,17 @@ read independent evidence. Finding 2 remains not-planned.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all the fact and
-wording fixes" for the summary
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
 - **Summary.** For "Simulated with 8,400 reviewer calls per
-  configuration: under shared evidence a model-diverse 2-of-3 quorum
-  commits unsafe actions in 96.8 to 97.3 percent of cases, while
-  separating the evidence paths of the same model drops the faulted
-  failure rate to 6.7 percent and raises inter-reviewer disagreement
-  from 25.8 to 90.8 percent; under unanimity, path separation drops
-  failures to about 0.1 percent." read "Simulated with 8,400 calls per
-  configuration to stylized Bernoulli reviewers (no real-model results):
-  under shared evidence a 2-of-3 quorum commits unsafe actions in 97.3
-  percent of cases when replicated and 96.8 percent when model-diverse,
-  while separating the evidence paths of the same model drops the
-  faulted failure rate to 6.7 percent and raises inter-reviewer
-  disagreement from 25.8 to 90.8 percent; under unanimity, path
-  separation drops failures to about 0.1 percent."
+  configuration: under shared evidence" read "Simulated with 8,400 calls
+  per configuration to stylized Bernoulli reviewers (no real-model
+  results): under shared evidence"; for "shared evidence a model-diverse
+  2-of-3 quorum commits" read "shared evidence a 2-of-3 quorum commits";
+  for "unsafe actions in 96.8 to 97.3 percent of cases, while separating
+  the" read "unsafe actions in 97.3 percent of cases when replicated and
+  96.8 percent when model-diverse, while separating the". (ruled:
+  "approve all the fact and wording fixes")
 
 ## Candidates
 

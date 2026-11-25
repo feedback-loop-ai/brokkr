@@ -51,35 +51,33 @@ building only; the authors make no causal claim.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "0005 - approved"
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
-- **Row 1** now reads `alternative`, not `implemented`. Finding: "Turn a
-  failure that exposes an unenforced obligation into a fix paired with a
-  decidable check (208 such pairs in the paper's case)". Citation:
-  `docs/decisions/README.md`: every determinable ruling of a decision
-  names its enforcement binding, and a ruling without one must say it is
-  judgment guidance; this binds decisions, not individual fixes, and no
-  pairing rate is tracked
-- **Row 2** now reads `implemented`, not `alternative`. Citation:
-  decision 0071 and `quality/README.md`: #335 recorded code-health
+- **Row 1** now reads `alternative`, not `implemented`. Finding: For
+  "Every fix ships with a decidable check; track the pairing rate" read
+  "Turn a failure that exposes an unenforced obligation into a fix
+  paired with a decidable check (208 such pairs in the paper's case)".
+  Citation: After "every determinable ruling" add "of a decision"; for
+  "it is judgment guidance" read "it is judgment guidance; this binds
+  decisions, not individual fixes, and no pairing rate is tracked".
+  (ruled: "0005 - approved")
+- **Row 2** now reads `implemented`, not `alternative`. Citation: For
+  "`docs/decisions/README.md`: a decision is proposed and the binding
+  lands with the slice that enacts it; there is no drain phase" read
+  "decision 0071 and `quality/README.md`: #335 recorded code-health
   baselines on main before any code moved (audit), #338 turned them into
   ratchets that may only shrink (drain), and CI's `ratchets` job and
   `quality/ratchet.sh` refuse a regression, a raised baseline needing a
-  named ruling (promote); the remaining debt is epic #330
+  named ruling (promote); the remaining debt is epic #330". (ruled:
+  "0005 - approved")
 - **Row 3** keeps `not-planned`. Citation: `quality/file-lines.txt` and
   `quality/suppressions.txt` already hold production and test line
   counts and lint suppressions as committed baselines; no
   support-to-production ratio, unmodelled share or drift-recurrence
-  measure is computed over time
-- **Row 5** keeps `alternative`. Finding: "Progressive disclosure of
-  tools and representations to the agent (a practice the paper credits
-  to a comparator case)".
+  measure is computed over time (ruled: "0005 - approved")
+- **Row 5** keeps `alternative`. Finding: After "to the agent" add "(a
+  practice the paper credits to a comparator case)". (ruled: "0005 -
+  approved")
 
 ## Candidates
 

@@ -53,49 +53,37 @@ used by PTA-IRT.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all the fact and
-wording fixes" for row 2 and the summary; "approve all that move to
-planned as well" for row 4
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
-- **Summary.** For "On four SWE benchmarks under low calibration
-  budgets, PTA-IRT achieves the lowest score error and the highest
-  Kendall and Spearman ranking agreement against classical IRT, neural
-  IRT and agent-driven item-selection baselines, and stays the best
-  method across the full budget range; a small budget already yields
-  practically useful ranking agreement." read "On four SWE benchmarks
-  under low calibration budgets, PTA-IRT achieves the lowest score error
-  and the highest Kendall and Spearman ranking agreement against
-  classical IRT, neural IRT and agent-driven item-selection baselines,
-  and in the budget study on SWE-bench Lite it stays the best method
-  across the full 5 to 25 percent range; a small budget already yields
-  practically useful ranking agreement."
+- **Summary.** After "item-selection baselines, and" add "in the budget
+  study on SWE-bench Lite it"; for "across the full budget range; a
+  small" read "across the full 5 to 25 percent range; a small". (ruled:
+  "approve all the fact and wording fixes")
 - **Summary.** For "Ablations show the trajectory features carry the
-  gains: removing the trajectory scorer or the privileged supervision
-  weakens recovery, and corrupted trajectory summaries weaken it too."
-  read "Ablations show that each component contributes: removing the
-  trajectory scorer or the privileged supervision weakens recovery,
-  replacing stratified selection costs the most, and corrupted
-  trajectory summaries weaken it too."
-- **Row 2** keeps `alternative`. Citation: decision 0034;
+  gains: removing the trajectory" read "Ablations show that each
+  component contributes: removing the trajectory"; after "supervision
+  weakens recovery," add "replacing stratified selection costs the
+  most,". (ruled: "approve all the fact and wording fixes")
+- **Row 2** keeps `alternative`. Citation: For "decision 0034;
+  `crates/brokkr-store/src/seat-record.v4.schema.json` and
+  `crates/brokkr-cli/src/compare.rs`: bounded" read "decision 0034;
   `contracts/seat-record.v8.schema.json` and
-  `crates/brokkr-cli/src/compare.rs`: bounded tool/target metadata,
-  verdicts and accounting support process comparison; the record
-  excludes full trajectories and Brokkr has no trajectory-aware
-  estimator
-- **Row 4** now reads `planned`, not `alternative`. Finding: "Price the
-  evaluation itself: report what each evaluation cost, per model and per
-  task, as a first-class result (Brokkr's extension of the paper's cost
-  motivation; the paper does not price its own calibration)". Citation:
-  #1268: no eval seats a harness whose turn cost is not observed, and
-  each eval report carries a cost table per model and office; today
-  `crates/brokkr-cli/src/compare.rs` reports per-seat cost and attempt
-  deltas between two runs; no calibration subset is priced
+  `crates/brokkr-cli/src/compare.rs`: bounded". (ruled: "approve all the
+  fact and wording fixes")
+- **Row 4** now reads `planned`, not `alternative`. Finding: For
+  "evaluation itself: report per-task and calibration costs as
+  first-class results" read "evaluation itself: report what each
+  evaluation cost, per model and per task, as a first-class result
+  (Brokkr's extension of the paper's cost motivation; the paper does not
+  price its own calibration)". Citation: For "decision 0034;
+  `crates/brokkr-cli/src/compare.rs`: comparisons report per-seat
+  accounting, cost and attempt" read "#1268: no eval seats a harness
+  whose turn cost is not observed, and each eval report carries a cost
+  table per model and office; today `crates/brokkr-cli/src/compare.rs`
+  reports per-seat cost and attempt"; for "attempt deltas between runs;
+  no calibration-subset cost or estimate of unrun tasks is produced"
+  read "attempt deltas between two runs; no calibration subset is
+  priced". (ruled: "approve all that move to planned as well")
 
 ## Candidates
 

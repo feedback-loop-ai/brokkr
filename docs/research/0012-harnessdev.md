@@ -53,27 +53,28 @@ No creator-variance or held-out harness ranking has landed.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all that move to
-planned as well" for rows 1 and 2
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
-- **Row 1** now reads `planned`, not `alternative`. Citation: #436 owns
+- **Row 1** now reads `planned`, not `alternative`. Citation: For
+  "decision 0010 and decision 0034; `crates/brokkr-cli/src/compare.rs`:
+  run comparison reports recipe identity, verdict" read "#436 owns
   held-out, repeated evaluation of delivery quality with total cost per
   accepted result; today `crates/brokkr-cli/src/compare.rs` compares two
-  runs' recipe identity, verdict trails, attempts and reported cost, and
-  does not score held-out harness capability or efficiency
-- **Row 2** now reads `planned`, not `alternative`. Citation: #436 owns
-  a versioned evaluation corpus whose held-out cases are kept from
+  runs' recipe identity, verdict"; for "and reported cost, but does not
+  score" read "and reported cost, and does not score". (ruled: "approve
+  all that move to planned as well")
+- **Row 2** now reads `planned`, not `alternative`. Citation: For
+  "decision 0041; `fixtures/evaluator/corpus.ndjson` and
+  `crates/brokkr-cli/tests/machine_proof.rs`: judge roles and frozen
+  evaluator cases provide separate checks, but the cases are visible to
+  implementers and are not held-out evaluation tasks" read "#436 owns a
+  versioned evaluation corpus whose held-out cases are kept from
   candidate seats; today decision 0041 separates judge seats from
   implementers, and no held-out task set exists
   (`fixtures/evaluator/corpus.ndjson` is the policy evaluator's
   differential test corpus, read by
-  `crates/brokkr-core/tests/differential.rs`)
+  `crates/brokkr-core/tests/differential.rs`)". (ruled: "approve all
+  that move to planned as well")
 
 ## Candidates
 

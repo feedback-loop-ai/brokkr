@@ -238,26 +238,24 @@ count that cost first.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all that move
-their state to implemented" for rows 1 and 3; "0021-7 approved" for row
-7 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)),
-after every row of this entry was checked three ways: against the
-article, against main at `4912e583e`, and against the open issues and
-pull requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
-- **Row 1** now reads `implemented`, not `planned`. Citation: decision
-  0006 (2026-10-11 addendum, ruling 1);
+- **Row 1** now reads `implemented`, not `planned`. Citation: For "#434;
+  `docs/decisions/0006-bounded-attempts-and-deadlines.md`" read
+  "decision 0006 (2026-10-11 addendum, ruling 1);
   `crates/brokkr-protocol/src/process.rs` (`eof_outcome`) and
   `crates/brokkr-protocol/src/adapters/lost.rs`; reading the seat's
   reach before retrying a reported failure (ruling 2's
-  partial-side-effect row) is still #434
-- **Row 3** now reads `implemented`, not `planned`. Citation: decision
-  0006 (2026-10-11 addendum, rulings 1, 2 and 6);
+  partial-side-effect row) is still #434". (ruled: "approve all that
+  move their state to implemented")
+- **Row 3** now reads `implemented`, not `planned`. Citation: For "#434;
+  `crates/brokkr-protocol/src/process.rs`" read "decision 0006
+  (2026-10-11 addendum, rulings 1, 2 and 6);
   `crates/brokkr-protocol/src/process.rs` (`eof_outcome`), pinned in
-  `crates/brokkr-protocol/src/process/tests.rs`
-- **Row 7** keeps `implemented`. Citation: decision 0006,
-  `crates/brokkr-protocol/src/lib.rs` (`Cleanup`, `settled_outcome`);
-  the "proven gone" read has two open fail-open reports, #522 and #1159,
-  and #472 would replace it on Linux
+  `crates/brokkr-protocol/src/process/tests.rs`". (ruled: "approve all
+  that move their state to implemented")
+- **Row 7** keeps `implemented`. Citation: After "decision 0006,
+  `crates/brokkr-protocol/src/lib.rs`" add "(`Cleanup`,
+  `settled_outcome`); the "proven gone" read has two open fail-open
+  reports, #522 and #1159, and #472 would replace it on Linux". (ruled:
+  "0021-7 approved")

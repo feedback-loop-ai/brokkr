@@ -57,35 +57,30 @@ per-activation risk certificate; sandbox spawning still consumes compute.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all the fact and
-wording fixes" for row 2 and the summary; "approve all that move to
-planned as well" for row 4
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
-readable; where this section differs, this section is the product's
-word.
+Ruled on 2026-11-25 (#1350).
 
-- **Summary.** For "In a stylized branching model, trajectory harm
-  phase-transitions as the authority reproduction number crosses one:
-  proportional to local risk below criticality, proportional to its
-  square root at criticality, and with a positive floor above it." read
-  "In a stylized branching model, trajectory harm phase-transitions as
-  the authority reproduction number crosses one: as local risk
-  approaches zero, harm is proportional to local risk below criticality,
-  proportional to its square root at criticality, and keeps a positive
-  floor above it."
-- **Row 2** keeps `alternative`. Finding: "Each activation's local
-  certificate must stay valid conditional on the full pre-activation
-  history, including the information used to select the request".
-- **Row 4** now reads `planned`, not `alternative`. Finding: "Grant
-  recursive authority sparingly, with an explicit risk charge for each
-  activation". Citation: #476 builds decision 0025's operator-signed,
-  expiring grant under a compiled never-list ceiling, with escalation as
-  the default; `crates/brokkr-cli/src/muninn.rs` records validated
-  proposals without executing them; no per-activation risk charge is
-  planned
+- **Summary.** After "number crosses one:" add "as local risk approaches
+  zero, harm is"; for "at criticality, and with a positive floor" read
+  "at criticality, and keeps a positive floor". (ruled: "approve all the
+  fact and wording fixes")
+- **Row 2** keeps `alternative`. Finding: For "Condition an activation
+  on the full history that selected it, not only the local certificate"
+  read "Each activation's local certificate must stay valid conditional
+  on the full pre-activation history, including the information used to
+  select the request". (ruled: "approve all the fact and wording fixes")
+- **Row 4** now reads `planned`, not `alternative`. Finding: For "Grant
+  recursive authority sparingly and treat delegation as an explicit,
+  revocable loan" read "Grant recursive authority sparingly, with an
+  explicit risk charge for each activation". Citation: For "decision
+  0020; `crates/brokkr-cli/src/muninn.rs`: Muninn reads a dossier and
+  records validated proposals" read "#476 builds decision 0025's
+  operator-signed, expiring grant under a compiled never-list ceiling,
+  with escalation as the default; `crates/brokkr-cli/src/muninn.rs`
+  records validated proposals"; for "without executing them; the signed,
+  expiring grant and recursive-authority ceiling of decision 0025 are
+  not implemented here" read "without executing them; no per-activation
+  risk charge is planned". (ruled: "approve all that move to planned as
+  well")
 
 ## Candidates
 
