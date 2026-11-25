@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 use super::*;
 
 macro_rules! fixture {
-    ($name:literal) => {
-        include_str!(concat!("../../../../fixtures/work-order/", $name, ".md"))
+    ($file:literal) => {
+        include_str!(concat!("../../../../fixtures/work-order/", $file))
     };
 }
 
@@ -14,12 +14,12 @@ macro_rules! tracker {
     };
 }
 
-const ASSIGNED: &str = fixture!("complete");
-const DRAFT: &str = fixture!("draft");
-const NONCANONICAL: &str = fixture!("noncanonical");
-const UNKNOWN_KEY: &str = fixture!("unknown-key");
-const UNCLASSIFIED: &str = fixture!("unclassified");
-const OFF_HOST: &str = fixture!("off-host");
+const ASSIGNED: &str = fixture!("complete.md");
+const DRAFT: &str = fixture!("draft.md");
+const NONCANONICAL: &str = fixture!("noncanonical.md");
+const UNKNOWN_KEY: &str = fixture!("unknown-key.md");
+const UNCLASSIFIED: &str = fixture!("unclassified.md");
+const OFF_HOST: &str = fixture!("off-host.md");
 
 const DEFINITIONS: [(&str, &str, &str); 6] = [
     (
@@ -162,52 +162,52 @@ fn invalid_header_fixtures_have_named_refusals() {
     let trackers = trackers();
     let invalid_headers = [
         (
-            fixture!("bad-id"),
+            fixture!("bad-id.md"),
             Id,
             "a work order id must be WO- followed by a positive 32-bit integer without leading zeroes",
         ),
         (
-            fixture!("two-line-title"),
+            fixture!("two-line-title.md"),
             Title,
             "the work order's title must occupy one non-empty line",
         ),
         (
-            fixture!("bad-date"),
+            fixture!("bad-date.md"),
             RulingDate,
             "a work order ruling date must be a calendar date in YYYY-MM-DD form",
         ),
         (
-            fixture!("bad-cite"),
+            fixture!("bad-cite.md"),
             RulingCite,
             "a work order ruling citation must be an absolute HTTPS link",
         ),
         (
-            fixture!("malformed-ruling-cite"),
+            fixture!("malformed-ruling-cite.md"),
             RulingCite,
             "a work order ruling citation must be an absolute HTTPS link",
         ),
         (
-            fixture!("zero-ask"),
+            fixture!("zero-ask.md"),
             AskNumber,
             "a work order ask number must be positive",
         ),
         (
-            fixture!("bad-crate"),
+            fixture!("bad-crate.md"),
             CapCrate,
             "each public-API cap must be keyed by a crate name",
         ),
         (
-            fixture!("unknown-condition"),
+            fixture!("unknown-condition.md"),
             Condition,
             "a work order edge condition must name completed, ended, merged or an ending",
         ),
         (
-            fixture!("http-link"),
+            fixture!("http-link.md"),
             ReferenceLink,
             "a work order reference must carry an absolute HTTPS link",
         ),
         (
-            fixture!("malformed-reference-link"),
+            fixture!("malformed-reference-link.md"),
             ReferenceLink,
             "a work order reference must carry an absolute HTTPS link",
         ),
@@ -228,62 +228,62 @@ fn invalid_body_and_context_fixtures_have_named_refusals() {
     let trackers = trackers();
     let invalid_documents = [
         (
-            fixture!("before-header"),
+            fixture!("before-header.md"),
             HeaderStart,
             "a work order must start with a fenced JSON header",
         ),
         (
-            fixture!("unclosed-header"),
+            fixture!("unclosed-header.md"),
             HeaderEnd,
             "the work order's JSON header needs a closing fence",
         ),
         (
-            fixture!("missing-ruling"),
+            fixture!("missing-ruling.md"),
             AskRuling,
             "a work order ask must name an existing ruling by its one-based position",
         ),
         (
-            fixture!("unknown-tracker"),
+            fixture!("unknown-tracker.md"),
             UnknownTracker("other".into()),
             "the work order cites unknown tracker 'other'",
         ),
         (
-            fixture!("missing-intent"),
+            fixture!("missing-intent.md"),
             MissingIntent,
             "the work order needs an '## Intent' section after its header",
         ),
         (
-            fixture!("missing-acceptance"),
+            fixture!("missing-acceptance.md"),
             MissingAcceptance,
             "the work order needs an '## Acceptance' section after its intent",
         ),
         (
-            fixture!("repeated-intent"),
+            fixture!("repeated-intent.md"),
             RepeatedIntent,
             "the work order repeats its '## Intent' section",
         ),
         (
-            fixture!("repeated-acceptance"),
+            fixture!("repeated-acceptance.md"),
             RepeatedAcceptance,
             "the work order repeats its '## Acceptance' section",
         ),
         (
-            fixture!("other-section"),
+            fixture!("other-section.md"),
             OtherSection,
             "a work order has only '## Intent' and '## Acceptance' sections",
         ),
         (
-            fixture!("empty-intent"),
+            fixture!("empty-intent.md"),
             EmptyIntent,
             "the work order's intent must contain prose",
         ),
         (
-            fixture!("empty-acceptance"),
+            fixture!("empty-acceptance.md"),
             EmptyAcceptance,
             "the work order's acceptance must contain at least one list item",
         ),
         (
-            fixture!("bad-acceptance"),
+            fixture!("bad-acceptance.md"),
             AcceptanceItem,
             "each work order acceptance item must be a non-empty list item on one line",
         ),
@@ -513,7 +513,7 @@ fn intent_line_endings_are_stable_after_rendering() {
 fn lone_carriage_returns_in_the_body_are_refused() {
     let trackers = trackers();
     assert_refused(
-        fixture!("lone-carriage-return"),
+        fixture!("lone-carriage-return.md"),
         &trackers,
         Refusal::BodyCarriageReturn,
         "the work order's Markdown body must use LF or CRLF line endings",
