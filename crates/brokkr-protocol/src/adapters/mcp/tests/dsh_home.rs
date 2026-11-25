@@ -192,7 +192,7 @@ fn invoked(
         "the prompt",
         homes.workdir(),
         bindings,
-        &mut |row: &Value| emitted.push(row.clone()),
+        &mut |row: &crate::adapters::Emitted| emitted.push(row.row.clone()),
         wait_for_exit,
     );
     (invoked, emitted)

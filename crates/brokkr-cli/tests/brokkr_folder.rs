@@ -15,6 +15,8 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Value};
 
+use crate::isolated::{alone, Alone, Isolated};
+
 /// The table every bundle here runs: implement, the protected review, done.
 fn policy() -> String {
     let rule = |id: &str, from: &str, result: &str, next: &str| {
@@ -53,6 +55,20 @@ impl Ran {
             stderr,
         }
     }
+}
+
+/// `command` run with `stdin` written to it, as [`Repo::brokkr`] runs it.
+fn given(command: &mut Command, stdin: &str) -> Ran {
+    let pipes = [Command::stdin::<Stdio>, Command::stdout, Command::stderr];
+    for pipe in pipes {
+        pipe(command, Stdio::piped());
+    }
+    let mut child = command.spawn().unwrap();
+    let given = child.stdin.take().unwrap().write_all(stdin.as_bytes());
+    if let Err(error) = given {
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe, "{error}");
+    }
+    Ran::of(child.wait_with_output().unwrap())
 }
 
 /// A fresh repository, and a directory beside it that is in no
@@ -95,17 +111,30 @@ impl Repo {
         path
     }
 
-    /// `brokkr` standing in `dir`, relative to the root, created first,
-    /// with [`Repo::config`] for its configuration directory and a HOME of
-    /// its own beside the repository ([`crate::engine::home_in`]).
-    pub(crate) fn command(&self, dir: &str) -> Command {
+    /// `brokkr <argv>` standing in `dir`, relative to the root, created
+    /// first, with [`Repo::config`] for its configuration directory and a
+    /// HOME of its own beside the repository ([`crate::engine::home_in`]).
+    pub(crate) fn command(&self, dir: &str, argv: &[&str]) -> Command {
+        let mut command = crate::built::brokkr(argv);
+        self.standing(dir, &mut command);
+        command
+    }
+
+    /// [`Repo::command`] for `brokkr doctor`, alone in a PID namespace of
+    /// its own (#1137i).
+    pub(crate) fn doctor(&self, alone: &Alone, dir: &str, argv: &[&str]) -> Isolated {
+        let mut doctor = alone.brokkr(argv);
+        self.standing(dir, &mut doctor);
+        doctor
+    }
+
+    /// `command` standing in `dir`, as [`Repo::command`] stands it.
+    fn standing(&self, dir: &str, command: &mut Command) {
         let cwd = self.path(dir);
         std::fs::create_dir_all(&cwd).unwrap();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
         command.current_dir(cwd).env("TMPDIR", &self.aside);
         command.env("XDG_CONFIG_HOME", self.config());
         command.env("HOME", crate::engine::home_in(&self.aside));
-        command
     }
 
     /// The `XDG_CONFIG_HOME` every `brokkr` here reads, beside the
@@ -124,23 +153,17 @@ impl Repo {
     /// [`Ran`] judge. Any other failure to deliver the input is the
     /// test's.
     fn brokkr_with(&self, dir: &str, args: &[&str], stdin: &str) -> Ran {
-        let mut child = self
-            .command(dir)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let given = child.stdin.take().unwrap().write_all(stdin.as_bytes());
-        if let Err(error) = given {
-            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe, "{error}");
-        }
-        Ran::of(child.wait_with_output().unwrap())
+        given(&mut self.command(dir, args), stdin)
     }
 
     pub(crate) fn brokkr(&self, dir: &str, args: &[&str]) -> Ran {
         self.brokkr_with(dir, args, "")
+    }
+
+    /// [`Repo::brokkr`] for `brokkr doctor`, alone in a PID namespace of
+    /// its own (#1137i).
+    pub(crate) fn doctored(&self, alone: &Alone, dir: &str, args: &[&str]) -> Ran {
+        given(&mut self.doctor(alone, dir, args), "")
     }
 
     /// `brokkr init .` at the root under a PATH holding only the agent
@@ -148,8 +171,8 @@ impl Repo {
     /// first of them whatever this host carries.
     pub(crate) fn init_with_only(&self, present: &[&str]) -> Ran {
         let bins = bins_holding(&self.aside, present);
-        let mut init = self.command("");
-        init.args(["init", "."]).env("PATH", &bins);
+        let mut init = self.command("", &["init", "."]);
+        init.env("PATH", &bins);
         Ran::of(init.output().unwrap())
     }
 
@@ -429,8 +452,9 @@ fn discovery_finds_the_folder_from_a_subdirectory() {
     // declares, set in the environment, is checked against the folder's
     // store, and, the folder being doctor's bundle (R5), against its
     // seats, none of which binds it.
-    let mut doctor = repo.command("src/deep");
-    doctor.arg("doctor").env("SPARK_API_KEY", "set");
+    let Some(alone) = alone() else { return };
+    let mut doctor = repo.doctor(&alone, "src/deep", &["doctor"]);
+    doctor.env("SPARK_API_KEY", "set");
     let printed = String::from_utf8(doctor.output().unwrap().stdout).unwrap();
     let state = repo.path(".brokkr/state");
     let lines = [
@@ -563,7 +587,11 @@ fn a_hand_moved_layout_runs() {
     std::fs::remove_file(repo.path("realms.json")).unwrap();
     repo.write(".brokkr/realms.json", &map("state/forge.db", ".."));
 
-    let doctor = repo.brokkr("", &["doctor"]);
+    let runs = repo.brokkr("src", &["runs", "--json"]);
+    assert_eq!(listed(&runs), [run], "{}", runs.stderr);
+
+    let Some(alone) = alone() else { return };
+    let doctor = repo.doctored(&alone, "", &["doctor"]);
     let root = repo.root.display();
     let clean = format!("ok       folder: {root}/.brokkr (found from {root})");
     assert_eq!(
@@ -572,8 +600,6 @@ fn a_hand_moved_layout_runs() {
         "{}",
         doctor.stdout
     );
-    let runs = repo.brokkr("src", &["runs", "--json"]);
-    assert_eq!(listed(&runs), [run], "{}", runs.stderr);
 }
 
 #[test]
@@ -638,14 +664,16 @@ fn no_folder_outside_a_library_names_init() {
     // `--db` supplies the journal alone: the ledger's run-local place
     // has none here, and doctor reports the journal's as `none`.
     refused_with_no_place(&repo, &ledger_of_a_library_run(&repo));
-    let ran = repo.brokkr("", &["doctor"]);
-    let none = no_place(&repo.root, &repo.root).replacen("error: ", "none: ", 1);
-    let line = format!("warn     database: {none}");
-    assert!(
-        ran.stdout.lines().any(|printed| printed == line),
-        "{line} in {}",
-        ran.stdout
-    );
+    if let Some(alone) = alone() {
+        let ran = repo.doctored(&alone, "", &["doctor"]);
+        let none = no_place(&repo.root, &repo.root).replacen("error: ", "none: ", 1);
+        let line = format!("warn     database: {none}");
+        assert!(
+            ran.stdout.lines().any(|printed| printed == line),
+            "{line} in {}",
+            ran.stdout
+        );
+    }
     assert!(!repo.path(".forge").exists() && !repo.path(".brokkr").exists());
 }
 
@@ -1421,7 +1449,8 @@ fn an_unreadable_library_mark_refuses() {
         eprintln!("skipped: this process reads a mode-000 directory, as root does");
         return;
     }
-    let (runs, doctor) = (repo.brokkr("", &["runs"]), repo.brokkr("", &["doctor"]));
+    let runs = repo.brokkr("", &["runs"]);
+    let doctor = alone().map(|alone| repo.doctored(&alone, "", &["doctor"]));
     std::fs::set_permissions(&recipes, mode(0o755)).unwrap();
     let denied = format!(
         "reading {}: Permission denied (os error 13)",
@@ -1431,12 +1460,14 @@ fn an_unreadable_library_mark_refuses() {
         (runs.code, runs.stderr),
         (Some(1), format!("error: {denied}\n"))
     );
-    let database = doctor
-        .stdout
-        .lines()
-        .find(|line| line.contains(" database: "));
-    let reported = format!("warn     database: none: {denied}");
-    assert_eq!(database, Some(reported.as_str()), "{}", doctor.stdout);
+    if let Some(doctor) = doctor {
+        let database = doctor
+            .stdout
+            .lines()
+            .find(|line| line.contains(" database: "));
+        let reported = format!("warn     database: none: {denied}");
+        assert_eq!(database, Some(reported.as_str()), "{}", doctor.stdout);
+    }
     assert!(!repo.path(".brokkr/state").exists() && !repo.path(".forge").exists());
 }
 

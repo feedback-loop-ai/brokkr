@@ -293,3 +293,103 @@ fn an_unsettled_rejoin_keeps_its_reason() {
          invocation"
     );
 }
+
+/// #1227 Y5: `lost::refusal_to_start` short-circuits on nonzero exit so a
+/// non-agy child exiting nonzero never performs a `result_path` metadata lookup,
+/// and `lost::ResultFile::observe` classifies absent, empty, and non-empty
+/// result files through one observation shared with `delivered_result` and
+/// `agy::concluded`.
+#[test]
+fn refusal_to_start_short_circuits_nonzero_exit_and_result_file_classifies_sizes() {
+    let refusal = Some(crate::PreSessionRefusal::from_parts(
+        crate::RefusalClass::RateLimit,
+        "rate limited".to_string(),
+        None,
+        None,
+    ));
+    let mut probed = 0usize;
+    let out = lost::refusal_to_start(
+        refusal.clone(),
+        false,
+        || {
+            probed += 1;
+            true
+        },
+        1,
+        LaunchTerminal::Cold,
+    );
+    assert_eq!(out, refusal);
+    assert_eq!(probed, 0, "nonzero exit must not query result_exists");
+
+    let signalled = lost::refusal_to_start(
+        refusal.clone(),
+        false,
+        || {
+            probed += 1;
+            true
+        },
+        -1,
+        LaunchTerminal::Cold,
+    );
+    assert_eq!(signalled, None);
+    assert_eq!(probed, 0, "signal exit must not query result_exists");
+
+    let delivered = lost::refusal_to_start(
+        refusal,
+        false,
+        || {
+            probed += 1;
+            true
+        },
+        0,
+        LaunchTerminal::Cold,
+    );
+    assert_eq!(delivered, None);
+    assert_eq!(probed, 1, "zero exit queries result_exists once");
+
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing.json");
+    let empty = dir.path().join("empty.json");
+    let full = dir.path().join("full.json");
+    std::fs::write(&empty, b"").unwrap();
+    std::fs::write(&full, br#"{"result":"complete"}"#).unwrap();
+
+    for (input, expected, exists, delivered) in [
+        (json!({}), lost::ResultFile::Absent, false, false),
+        (
+            json!({"result_path": 123}),
+            lost::ResultFile::Absent,
+            false,
+            false,
+        ),
+        (
+            json!({"result_path": ""}),
+            lost::ResultFile::Absent,
+            false,
+            false,
+        ),
+        (
+            json!({"result_path": missing}),
+            lost::ResultFile::Absent,
+            false,
+            false,
+        ),
+        (
+            json!({"result_path": empty}),
+            lost::ResultFile::Empty,
+            true,
+            false,
+        ),
+        (
+            json!({"result_path": full}),
+            lost::ResultFile::NonEmpty,
+            true,
+            true,
+        ),
+    ] {
+        let observed = lost::ResultFile::observe(&input);
+        assert_eq!(observed, expected);
+        assert_eq!(observed.exists(), exists);
+        assert_eq!(observed.delivered(), delivered);
+    }
+}

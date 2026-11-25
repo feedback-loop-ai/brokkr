@@ -384,6 +384,7 @@ fn set_bound_two_governs_the_next_pass() {
         file: &absent,
         temp: dir.path(),
         free: &|_: &Path| Ok(1 << 40),
+        machine: None,
     };
     let seams = Seams {
         stands: || Ok(()),

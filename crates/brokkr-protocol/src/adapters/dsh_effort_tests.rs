@@ -3,7 +3,8 @@
 //! document, and a header whose adapter defaulted the level never
 //! becomes the seat's.
 
-use super::dsh_effort::{applied_level, model_row};
+use super::dsh_effort::{applied_level, model_row, AppliedLevel, Echo};
+use super::tests::fold_dsh_event_unbound;
 use super::*;
 
 /// The patch and the settings document one pinned seat stages.
@@ -79,8 +80,8 @@ fn fold_header(header: serde_json::Value, seed: Option<&str>) -> (Value, Option<
     let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
         "message":{"source":{"model":"deepseek-flash"}}}});
     for event in [&header, &step] {
-        fold_dsh_event(event, None, &mut turns, &mut meta, &mut |value| {
-            emitted.push(value.clone())
+        fold_dsh_event_unbound(event, None, &mut turns, &mut meta, &mut |value| {
+            emitted.push(value.row.clone())
         });
     }
     assert_eq!(emitted.len(), 1, "{emitted:?}");
@@ -137,8 +138,8 @@ fn a_header_the_reader_cannot_read_records_no_level() {
     let header = |header| serde_json::json!({"type": "request/header", "data": {"header": header}});
     let level = |config| header(serde_json::json!({"config": config}));
     assert_eq!(
-        applied_level(&level(serde_json::json!({"reasoningEffort": "high"}))),
-        Some("high".to_string())
+        applied_level(&Row::new(&level(json!({"reasoningEffort": "high"})), &[])),
+        AppliedLevel::Reported("high".into())
     );
     for event in [
         header(serde_json::json!([{"reasoningEffort": "high"}, {}])),
@@ -153,6 +154,96 @@ fn a_header_the_reader_cannot_read_records_no_level() {
         serde_json::json!({"type": "request/header", "data": {"header": {
             "config": {"reasoningEffort": "think hard"}}}}),
     ] {
-        assert_eq!(applied_level(&event), None, "{event}");
+        assert_eq!(
+            applied_level(&Row::new(&event, &[])),
+            AppliedLevel::Unchanged,
+            "{event}"
+        );
     }
+}
+
+#[test]
+fn a_bound_header_hides_every_step_it_governs_and_keeps_the_retained_level() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("bindings");
+    secret::store_set(&store, "S", "high").unwrap();
+    let bindings = secret::resolve_bindings(&store, &["S".into()]).unwrap();
+    let header = |level| {
+        json!({
+            "data": {"header": {
+                "config": {"reasoningEffort": level},
+                "adapterDefaults": {"reasoningEffort": false},
+            }},
+        })
+    };
+    let mut echo = Echo::default();
+    let mut meta = Map::new();
+    echo.header(&Row::new(&header("low"), &bindings), &mut meta);
+    assert_eq!(echo.shown(&meta), "low");
+
+    // Every step after the masked header, however many, ran under it.
+    echo.header(&Row::new(&header("xhigh"), &bindings), &mut meta);
+    assert_eq!(echo.shown(&meta), EFFORT_NOT_REPORTED);
+    assert_eq!(echo.shown(&meta), EFFORT_NOT_REPORTED);
+    assert_eq!(meta["effort"], "low");
+
+    // The next header replaces it.
+    echo.header(&Row::new(&header("medium"), &bindings), &mut meta);
+    assert_eq!(echo.shown(&meta), "medium");
+    assert_eq!(meta["effort"], "medium");
+}
+
+/// The fold reads the level off dsh's own request header — the effective
+/// value after every layer — and never off the pin. A header that names
+/// none leaves the sentinel; a hostile one is clamped away.
+#[test]
+fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
+    let mut turns = 0u64;
+    let mut meta = serde_json::Map::new();
+    let mut emitted: Vec<serde_json::Value> = Vec::new();
+    let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
+        "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}});
+    fold_dsh_event_unbound(&step, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(
+        emitted[0]["effort"], "not reported",
+        "no header yet: {}",
+        emitted[0]
+    );
+
+    let header = serde_json::json!({"type":"request/header","data":{"header":{"config":
+        {"provider":"meta-contributor","model":"meta/muse-spark-1.3-contributor","reasoningEffort":"xhigh"}}}});
+    fold_dsh_event_unbound(&header, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(emitted.len(), 1, "a header is meta, not a checkpoint");
+    assert_eq!(meta["effort"], "xhigh");
+    fold_dsh_event_unbound(&step, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(emitted[1]["effort"], "xhigh");
+    let call = serde_json::json!({"type":"tool/call","data":{"name":"bash"}});
+    fold_dsh_event_unbound(&call, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(emitted[2]["effort"], "xhigh");
+    assert_eq!(emitted[2]["tool"], "bash");
+
+    let hostile = serde_json::json!({"type":"request/header","data":{"header":{"config":{"reasoningEffort":"think hard"}}}});
+    fold_dsh_event_unbound(&hostile, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(
+        meta["effort"], "xhigh",
+        "a value that fails the clamp changes nothing"
+    );
+    let none = serde_json::json!({"type":"request/header","data":{"header":{"config":{"provider":"spark","model":"qwen3.8-flash"}}}});
+    fold_dsh_event_unbound(&none, None, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.row.clone())
+    });
+    assert_eq!(
+        meta["effort"], "xhigh",
+        "a header naming no level keeps the last one seen"
+    );
 }

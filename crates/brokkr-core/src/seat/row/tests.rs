@@ -1386,3 +1386,24 @@ fn a_reopened_session_moves_the_earlier_site_s_rule() {
     assert_eq!(rows(&carried), rows(&whole));
     assert_eq!(rows(&whole)[0].1, Metering::Turns);
 }
+
+/// Decision 0075 ruling 2, the controller's rulings R22 item 3 and R24: a
+/// checkpoint transcript of a kind in the grammar no reader knows
+/// (`trellis-trail`) is the seat's latest reference, kept as recorded and
+/// never replaced by the earlier reference of a kind a reader knows, every
+/// other fact of the row reads as it does for a known kind, and the kept
+/// row reads back from its data.
+#[test]
+fn a_transcript_kind_no_reader_knows_is_kept_as_recorded_and_the_rest_reads() {
+    let mut events = journals::retried();
+    let last = (events.iter_mut().rev())
+        .find(|event| event.payload.pointer("/checkpoint/transcript").is_some())
+        .unwrap();
+    last.payload["checkpoint"]["transcript"]["kind"] = json!("trellis-trail");
+    let mut known = facts_of(&journals::retried());
+    known[0].transcript.as_mut().unwrap().kind = "trellis-trail".to_string();
+    assert_eq!(facts_of(&events), known);
+    for row in Account::whole("run", &events).seats() {
+        assert_eq!(SeatRow::of_data(row.data()).as_ref(), Some(row));
+    }
+}

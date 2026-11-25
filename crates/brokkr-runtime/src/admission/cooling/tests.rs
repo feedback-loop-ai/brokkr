@@ -84,6 +84,7 @@ fn judged_at(fixture: &Fixture, file: &Path, now: OffsetDateTime) -> Vec<Judged>
         file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     pass_within_at(&fixture.store, &host, now).unwrap().0
 }
@@ -330,6 +331,7 @@ fn an_unreadable_row_refuses_the_pass() {
         file: &file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     let refused = pass_within_at(&fixture.store, &host, base()).unwrap_err();
     match refused {
@@ -352,6 +354,7 @@ fn a_reason_for_an_end_no_rfc_3339_text_can_spell_still_refuses_and_never_panics
         file: &file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     match pass_within_at(&fixture.store, &host, base()) {
         Ok((judged, _)) => {

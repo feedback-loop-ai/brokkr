@@ -106,3 +106,17 @@ Result:
   surviving finding listed in `notes` with its severity and its author.
 - `security-hold` — mandatory when the panel reported one, and available
   to you on your own read.
+
+## Your word and a typed finding
+
+The engine binds your word to any `findings` list you write (decision
+0109 ruling 2): a finding that carries `security: true` requires the
+word `security-hold`, and any other word over it is refused and parks
+the run. So `security: true` is the typed hold, never a topic label.
+Type it only on a finding you rule `security-hold` for: a high or
+critical security finding, or one you hold on your own read. A
+security-relevant finding below that keeps its honest severity, writes
+`security: false` (the field is required), is named as
+security-relevant in `notes`, and sets `has_security_residual: true` in
+`inputs` under the word `residual`. Never lower a severity, and never
+drop a finding, to fit a word.

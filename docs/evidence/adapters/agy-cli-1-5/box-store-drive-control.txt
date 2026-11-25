@@ -1,0 +1,8 @@
+{"id": 1, "jsonrpc": "2.0", "result": {"capabilities": {"tools": {}}, "protocolVersion": "2024-11-05", "serverInfo": {"name": "brokkr-hands", "version": "0.15.1"}}}
+tools: ['workspace']
+$ cat .forge/secrets.env
+{"content": [{"text": "CANARY_STORE=agy-store-canary-7f3a91\n\n[exit code: 0]", "type": "text"}], "isError": false}
+$ ls -la .forge/
+{"content": [{"text": "total 12\ndrwxrwxr-x 2 runner runner 4096 Nov 21 15:18 .\ndrwxrwxr-x 3 runner runner 4096 Nov 21 15:18 ..\n-rw------- 1 runner runner   37 Nov 21 15:18 secrets.env\n\n[exit code: 0]", "type": "text"}], "isError": false}
+$ cat seed.txt
+{"content": [{"text": "seed line for box4c\n\n[exit code: 0]", "type": "text"}], "isError": false}

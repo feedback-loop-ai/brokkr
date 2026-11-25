@@ -123,8 +123,9 @@ impl Session {
     }
 
     /// A new session under `tmp`: a test hands in its own directory, so
-    /// the host's temporary directory never holds a test's tree (#620).
-    pub(super) fn create_under(tmp: &Path, label: &str) -> Result<Session, SessionError> {
+    /// the host's temporary directory never holds a test's tree (#620), and
+    /// an agy launch its engine HOME under its own parent (#1200).
+    pub(crate) fn create_under(tmp: &Path, label: &str) -> Result<Session, SessionError> {
         Session::create_in(tmp, label, flock, create_lock)
     }
 
@@ -384,6 +385,13 @@ enum Probe {
 /// is dead, and keep, saying why, each one whose lock cannot be probed.
 pub fn reap_dead_sessions() -> Reaped {
     reap_dead_sessions_in(&std::env::temp_dir(), flock)
+}
+
+/// [`reap_dead_sessions`] under `tmp`: the engine's HOME directories of agy
+/// launches, each a session under their own parent, whose dead owners the
+/// next launch reaps (#1200).
+pub(crate) fn reap_dead_sessions_under(tmp: &Path) -> Reaped {
+    reap_dead_sessions_in(tmp, flock)
 }
 
 /// What the reaping would do under `tmp`, in the directory's order: the

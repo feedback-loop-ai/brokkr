@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::sequence::hard_results;
-use super::{Bundle, CompileError, SeatBody, SequenceStep, StepBody};
+use super::{Bundle, CompileError, SeatBody, SelectCase, SequenceStep, StepBody};
 use crate::bundle::Invocation;
 
 fn workspace() -> PathBuf {
@@ -808,25 +808,7 @@ fn checked_before_review() -> tempfile::TempDir {
 fn a_protected_sequences_pre_gate_ending_that_does_not_stop_is_refused() {
     let impassable = || fixture(policy(pre_gate_rules(false)), work_then_impassable_gate());
     let refused = impassable();
-    match compile(refused.path()) {
-        Err(CompileError::Body(refusal)) => {
-            let want = super::BodyRefusal::PreGateEnding {
-                seat: "review".into(),
-                step: "draft".into(),
-                word: "waived".into(),
-            };
-            assert_eq!(refusal, want);
-            assert_eq!(
-                refusal.to_string(),
-                "seat 'review' is the protected phase's, and its sequence step 'draft' runs \
-                 before its first gate step yet may end the sequence on 'waived', a word that \
-                 does not stop the run; no gate has recorded a head there, so the engine can \
-                 never take that ending (decision 0109 ruling 7)"
-            );
-        }
-        Err(other) => panic!("expected CompileError::Body, got {other:?}"),
-        Ok(_) => panic!("the pre-gate ending that does not stop is refused"),
-    }
+    draft_waived_refused(refused.path(), SelectCase::Default, "the default case");
 
     let hard = fixture(
         policy(pre_gate_rules(true)),
@@ -870,17 +852,18 @@ fn a_protected_sequences_undeclared_pre_gate_stop_is_refused() {
         Err(CompileError::Body(refusal)) => {
             let want = super::BodyRefusal::PreGateUndeclared {
                 seat: "review".into(),
+                case: SelectCase::Default,
                 step: "draft".into(),
                 word: "hold".into(),
             };
             assert_eq!(refusal, want);
             assert_eq!(
                 refusal.to_string(),
-                "seat 'review' is the protected phase's, and its sequence step 'draft' runs \
-                 before its first gate step yet may end the sequence on 'hold', a stop the \
-                 seat's results do not declare; decide refuses a word outside the seat's \
-                 results, so the engine can never take that ending (decision 0050 ruling 7): \
-                 declare 'hold' in the seat's results"
+                "seat 'review' is the protected phase's, and its sequence step 'draft', read \
+                 under the default case, runs before its first gate step yet may end the \
+                 sequence on 'hold', a stop the seat's results do not declare; decide refuses a \
+                 word outside the seat's results, so the engine can never take that ending \
+                 (decision 0050 ruling 7): declare 'hold' in the seat's results"
             );
         }
         Err(other) => panic!("expected CompileError::Body, got {other:?}"),
@@ -890,4 +873,55 @@ fn a_protected_sequences_undeclared_pre_gate_stop_is_refused() {
     let steps = compiled_steps(declared.path(), "the declared pre-gate stop");
     assert_eq!(steps[0].ends_on, ["hold"]);
     assert_eq!(steps[0].hard_results, ["hold"]);
+}
+
+/// #1221, INFO: a select's pre-gate refusal names the case whose sequence
+/// it read. `chore`'s sequence compiles on its own; `feature`'s, the
+/// second case, holds the ending that does not stop the run.
+#[test]
+fn a_selects_pre_gate_refusal_names_the_case_it_read() {
+    let chore = json!({"sequence": [step("draft", "work", Some(json!(["waived", "hold"]))),
+                                    step("judge", "gate", None)]});
+    let feature = json!({"sequence": work_then_impassable_gate()["sequence"]});
+    let single = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
+    let select = |cases: Value| {
+        let select = json!({"on": "strategy", "cases": cases, "default": single});
+        fixture(
+            policy(pre_gate_rules(false)),
+            json!({"results": ["hold", "waived"], "select": select}),
+        )
+    };
+    let alone = select(json!({"chore": chore}));
+    compile(alone.path()).expect("chore's sequence compiles on its own");
+    let both = select(json!({"chore": chore, "feature": feature}));
+    let feature = SelectCase::Strategy("feature".into());
+    draft_waived_refused(both.path(), feature, "select case 'feature'");
+}
+
+/// The bundle at `dir` is refused for `review`'s step `draft`, read under
+/// `case`, which the text names as `under`, ending on `waived` before its
+/// first gate step.
+fn draft_waived_refused(dir: &Path, case: SelectCase, under: &str) {
+    match compile(dir) {
+        Err(CompileError::Body(refusal)) => {
+            let want = super::BodyRefusal::PreGateEnding {
+                seat: "review".into(),
+                case,
+                step: "draft".into(),
+                word: "waived".into(),
+            };
+            assert_eq!(refusal, want);
+            assert_eq!(
+                refusal.to_string(),
+                format!(
+                    "seat 'review' is the protected phase's, and its sequence step 'draft', read \
+                     under {under}, runs before its first gate step yet may end the sequence on \
+                     'waived', a word that does not stop the run; no gate has recorded a head \
+                     there, so the engine can never take that ending (decision 0109 ruling 7)"
+                )
+            );
+        }
+        Err(other) => panic!("expected CompileError::Body, got {other:?}"),
+        Ok(_) => panic!("draft's pre-gate ending under {under} is refused"),
+    }
 }

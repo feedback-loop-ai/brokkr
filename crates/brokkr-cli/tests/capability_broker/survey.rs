@@ -152,8 +152,7 @@ fn a_request_it_cannot_read_replies_why_alone_and_fails() {
 fn a_survey_leading_no_group_of_its_own_refuses_identity() {
     let root = Root::new();
     let missing = asking(&root, "no-such-mcp-server", Vec::new());
-    let mut command = Command::new(brokkr());
-    command.args(["broker", "survey"]);
+    let command = crate::built::brokkr_at(brokkr(), ["broker", "survey"]);
     // Held until it ends: were a watcher armed, the input's end could
     // only kill this test's own group.
     let ran = surveying_as(command, &line(&missing), Input::Held);
@@ -182,8 +181,7 @@ fn stopped_output() -> (UnixStream, UnixStream) {
 fn the_end_of_its_input_after_the_request_kills_the_survey_and_its_group() {
     let root = Root::new();
     let (_ours, theirs) = stopped_output();
-    let mut child = Command::new(brokkr())
-        .args(["broker", "survey"])
+    let mut child = crate::built::brokkr_at(brokkr(), ["broker", "survey"])
         .process_group(0)
         .stdin(Stdio::piped())
         .stdout(Stdio::from(OwnedFd::from(theirs)))

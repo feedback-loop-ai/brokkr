@@ -360,8 +360,7 @@ fn inspect_fails_a_readout_its_output_refuses_with_the_cause() {
         "--capability-call",
         "a1:b:1",
     ];
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(args)
+    let out = crate::built::brokkr(args)
         .current_dir(&workspace.root)
         .env("HOME", &workspace.home)
         .env("XDG_STATE_HOME", workspace.home.join(".local/state"))

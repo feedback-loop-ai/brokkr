@@ -1,0 +1,27 @@
+# The docs lane's tests (#1295): what a pull request that changes only
+# documentation runs in place of the whole matrix, through
+# `scripts/docs-lane.sh run`. One entry a line:
+#
+#   <package> <target> <filter> <file>...
+#
+# The target is `lib`, a package's library tests, or `test:<name>`, as in
+# scripts/test-shards.sh (`test:it` is brokkr-cli's one integration binary),
+# and the filter a module path libtest runs whole. The files are the ones
+# that filter runs, a directory ending in `/`: the classifier counts a page
+# they name as documentation, which a page named anywhere else is not.
+# crates/brokkr-cli/tests/contributing/docs_lane.rs holds the list complete:
+# a test file that reads documentation it does not name must be here.
+brokkr-cli test:it contributing:: crates/brokkr-cli/tests/contributing.rs crates/brokkr-cli/tests/contributing/
+brokkr-cli test:it decisions_index:: crates/brokkr-cli/tests/decisions_index.rs crates/brokkr-cli/tests/decisions_index/
+brokkr-cli test:it diagrams:: crates/brokkr-cli/tests/diagrams.rs
+brokkr-cli test:it doc_samples:: crates/brokkr-cli/tests/doc_samples.rs
+brokkr-cli test:it doc_truth:: crates/brokkr-cli/tests/doc_truth.rs crates/brokkr-cli/tests/doc_truth/
+brokkr-cli test:it hosts:: crates/brokkr-cli/tests/hosts.rs
+brokkr-cli test:it house_prose:: crates/brokkr-cli/tests/house_prose.rs
+brokkr-cli test:it layering::test_targets:: crates/brokkr-cli/tests/layering/test_targets.rs crates/brokkr-cli/tests/layering/test_targets/
+brokkr-cli test:it private_hosts:: crates/brokkr-cli/tests/private_hosts.rs
+brokkr-cli test:it rename_guard:: crates/brokkr-cli/tests/rename_guard.rs
+brokkr-cli test:it research_registry:: crates/brokkr-cli/tests/research_registry.rs
+brokkr-cli test:it script_gates:: crates/brokkr-cli/tests/script_gates.rs
+brokkr-cli test:it status_pages:: crates/brokkr-cli/tests/status_pages.rs
+brokkr-cli lib cli_reference_tests:: crates/brokkr-cli/src/cli_reference_tests.rs crates/brokkr-cli/src/cli_reference_tests/

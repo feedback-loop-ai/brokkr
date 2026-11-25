@@ -667,8 +667,17 @@ fn unknown() -> [String; 2] {
 /// The bundle's compile is a run's, refused by the map itself and named
 /// once, and the survey stays unread. The same folder under a readable map
 /// still compiles, and its seat's refusal is its own realm's.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_broken_map_compiles_no_folder_given_or_found_under_no_map() {
+    // The real doctor probes versions, so it runs where the one tool on
+    // `PATH` is the `git` the folder's compile asks (#1137), and alone in
+    // a PID namespace, since its probe of that `git` delivers real kills
+    // (#1137h, I4).
+    use crate::doctor::hermetic_tests::{host_tool, rerun_alone};
+    if rerun_alone(&[("git", &host_tool("git"))]) {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     // A real repository at the root: the folder's compile asks git, and a

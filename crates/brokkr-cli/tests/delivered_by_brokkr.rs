@@ -18,10 +18,6 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventEnvelope;
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
 /// A real namespace can be built here: bubblewrap answers, and this
 /// process is not itself inside a box (`BROKKR_HANDS_BOX`), where a
 /// box-building test skips explicitly rather than nesting.
@@ -235,8 +231,7 @@ fn drive_delivery(
     ];
     args.extend(extra.iter().map(|arg| (*arg).to_string()));
     crate::engine::library(side);
-    let out = Command::new(brokkr_bin())
-        .args(&args)
+    let out = crate::built::brokkr(&args)
         .env("HOME", crate::engine::home_in(side))
         .current_dir(side)
         .output()
@@ -328,7 +323,7 @@ impl Gate {
             .env("PR_BASE", "main")
             .env("REPO", &self.repo)
             .env("EVIDENCE", &self.evidence)
-            .env("VERIFIER", brokkr_bin())
+            .env("VERIFIER", crate::built::bare_path())
             .env("LABELS", labels)
             .env("CLASSES", workspace().join(".github/delivery-classes.json"))
             .output()
@@ -1059,8 +1054,8 @@ fn gate_classes(side: &Path, bundle: &Path) {
     std::fs::write(
         &wrapper,
         format!(
-            "#!/bin/sh\nshift 4\nexec '{}' fake-driver \"$@\"\n",
-            brokkr_bin()
+            "#!/bin/sh\nshift 4\nexec {} \"$@\"\n",
+            crate::built_shell_line!(["fake-driver"])
         ),
     )
     .unwrap();

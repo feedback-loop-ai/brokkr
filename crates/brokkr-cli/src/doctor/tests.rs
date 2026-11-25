@@ -2,6 +2,7 @@ use super::*;
 use brokkr_protocol::adapters::{dsh_composite, CompositeError};
 use serde_json::json;
 use std::path::PathBuf;
+use std::process::Command;
 
 fn always_missing(_: &str) -> Option<String> {
     None
@@ -920,20 +921,14 @@ fn a_host_only_dialect_tool_is_unreachable_in_the_gate_box() {
     let work = dir.path().join("work");
     std::fs::create_dir_all(&work).unwrap();
 
-    // The host PATH finds the fixture, which is the reading doctor used to
-    // take and report as green. PATH is prepended, never replaced, and
-    // restored before the box is opened, so no other test's lookup moves.
-    let on_host = {
-        let mut env = crate::tests::env_guard::EnvGuard::lock();
-        let mut search = tools.clone().into_os_string();
-        if let Some(path) = std::env::var_os("PATH") {
-            search.push(":");
-            search.push(path);
-        }
-        env.set("PATH", &search);
-        tool_version("brokkr-218-fixture")
-    };
-    assert_eq!(on_host, Some("fixture 1.0.0".into()));
+    // The host runs the fixture, which is the reading doctor used to take
+    // and report as green. It is run by its own path, so the host's PATH,
+    // and every tool on it, takes no part (#1137), and as a plain child
+    // the test reaps, not through the version probe, whose kills a test
+    // delivers only alone in a PID namespace (#1137h, I4).
+    let on_host = Command::new(&tool).arg("--version").output().unwrap();
+    assert!(on_host.status.success(), "{on_host:?}");
+    assert_eq!(on_host.stdout, b"fixture 1.0.0\n");
 
     // ...but the gate's box binds no part of that home, so the same bare
     // name is not on the box's PATH and the version probe cannot answer.
@@ -1104,18 +1099,19 @@ fn doctor_reports_readable_and_absent_house_declarations() {
     );
 }
 
+/// `doctor()` itself reaches the real probe, so the re-run is alone in its
+/// PID namespace (#1137h, I4).
+#[cfg(target_os = "linux")]
 #[test]
 fn public_doctor_includes_the_workspace_house_check() {
+    if hermetic_tests::rerun_alone(&[]) {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let mut env = crate::tests::env_guard::EnvGuard::lock();
     env.set("HOME", dir.path());
     env.set("XDG_STATE_HOME", dir.path().join(".local/state"));
-    let report = doctor(
-        None,
-        Some(&dir.path().join("forge.db")),
-        &crate::folder::DoctorDefaults::of(dir.path().into(), None),
-        None,
-    );
+    let report = hermetic_tests::doctored_in(dir.path());
     assert!(report.render().contains("house rules:"));
 }
 #[test]
@@ -1133,9 +1129,8 @@ fn report_and_tool_probe_expose_all_health_states() {
     assert!(rendered.contains("warn     optional: absent"));
     assert!(rendered.contains("MISSING  required: absent"));
 
-    assert_eq!(tool_version("forge-certainly-does-not-exist"), None);
-    assert_eq!(tool_version("false"), None);
-    assert!(tool_version("true").is_some());
+    // An absent tool is no version: held by the probe itself, alone in a
+    // PID namespace, in `a_hermetic_doctor_test_probes_only_the_tools_it_planted`.
     assert_eq!(
         safe_line(b"tool 1.0\x1b[31m\nforged line\n"),
         "tool 1.0[31m"
@@ -1718,6 +1713,10 @@ fn the_ambient_probe_answers_whether_a_variable_is_set_never_what_it_says() {
 /// realm's boundary rather than against bubblewrap alone.
 #[test]
 fn doctor_names_the_boundaries_this_machine_offers_and_judges_hands_by_the_realms() {
+    // The bundle's compile asks git: the one tool on `PATH` (#1137).
+    if hermetic_tests::rerun_with_git() {
+        return;
+    }
     fn linux_box(program: &str) -> Option<String> {
         match program {
             "bwrap" => Some("0.11.0".into()),
@@ -1795,6 +1794,9 @@ fn doctor_names_the_boundaries_this_machine_offers_and_judges_hands_by_the_realm
 /// still a hard failure.
 #[test]
 fn doctor_still_compiles_a_named_bundle() {
+    if hermetic_tests::rerun_with_git() {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let report = doctor_with_probe(
         Some(&workspace().join("recipes/fast")),
@@ -1897,11 +1899,6 @@ fn doctor_exposes_the_effort_pin_refusal_with_its_repair() {
         "{rendered}"
     );
     assert!(rendered.contains("--effort <level>"), "{rendered}");
-}
-
-#[test]
-fn the_posix_shell_probe_executes_a_portable_shell_operation() {
-    assert_eq!(tool_version("sh").as_deref(), Some("POSIX shell"));
 }
 
 #[test]
@@ -2038,11 +2035,17 @@ fn doctor_warns_when_the_dsh_composite_differs_from_a_declared_digest() {
     );
 }
 
-/// `dsh_provider_line` reads the shipped adapter's real seams; whether the
-/// host has a DSH install or not, it answers without panicking and names
-/// the executable the seam selected.
+/// `dsh_provider_line` reads the shipped adapter's real seams under a PATH
+/// of its own that holds no DSH (#1137): it answers without panicking and
+/// names what the seam looked for, and never runs the host's DSH. The
+/// real probe stands behind it, so the re-run is alone in its PID
+/// namespace (#1137h, I4).
+#[cfg(target_os = "linux")]
 #[test]
 fn dsh_provider_line_reads_the_real_adapter_and_its_seams() {
+    if hermetic_tests::rerun_alone(&[]) {
+        return;
+    }
     let adapters = Adapters::load(&workspace().join("adapters")).unwrap();
     let adapter = adapters
         .providers()
@@ -2663,21 +2666,7 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
         if set_primary {
             child.env("BROKKR_DSH_BIN", &primary);
         }
-        // Only ETXTBSY is retried: a test that re-executes its own
-        // binary can reach `exec` while another thread of this run still
-        // holds a write descriptor to a file it staged, which is a fact
-        // about the moment rather than about the seam (#255).
-        let output = loop {
-            match child.output() {
-                Ok(output) => break output,
-                Err(error) if error.raw_os_error() == Some(26) => {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                }
-                Err(error) => panic!("case {case}: the child test binary runs: {error}"),
-            }
-        };
-        let said = String::from_utf8_lossy(&output.stdout).into_owned()
-            + &String::from_utf8_lossy(&output.stderr);
+        let (passed, said) = hermetic_tests::ran(&mut child, &format!("case {case}"));
         // A filter that matches nothing exits ZERO. Without this the
         // whole control would pass while asserting nothing at all.
         assert!(
@@ -2686,7 +2675,7 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
         );
         // Every case is now unconditional: the installs, the runtime and
         // the search are all the fixture's.
-        assert!(output.status.success(), "case {case}: {said}");
+        assert!(passed, "case {case}: {said}");
     }
 }
 
@@ -2862,24 +2851,13 @@ fn an_env_launcher_without_a_program_reaches_neither_doctor_callback() {
             .env("DSH_HOME", &home)
             .env("PATH", &search)
             .env_remove("BROKKR_DSH_BIN");
-        // Only ETXTBSY is retried, as in the seam-precedence test (#255).
-        let output = loop {
-            match child.output() {
-                Ok(output) => break output,
-                Err(error) if error.raw_os_error() == Some(26) => {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                }
-                Err(error) => panic!("{tag}: the child test binary runs: {error}"),
-            }
-        };
-        let said = String::from_utf8_lossy(&output.stdout).into_owned()
-            + &String::from_utf8_lossy(&output.stderr);
+        let (passed, said) = hermetic_tests::ran(&mut child, tag);
         // A filter that matches nothing exits zero.
         assert!(
             said.contains("1 passed") || said.contains("1 failed"),
             "{tag}: the child ran the case: {said}"
         );
-        assert!(output.status.success(), "{tag}: {said}");
+        assert!(passed, "{tag}: {said}");
     }
 }
 
@@ -3019,11 +2997,15 @@ fn a_selected_and_unprobed_dsh_is_not_reported_missing() {
 /// and never the canonical file behind it. The launcher prints the path
 /// it was run by, so a probe of the canonical target answers
 /// `lib/launcher.sh` and fails here. A launcher that exits nonzero and
-/// one that is not there report no version.
-#[cfg(unix)]
+/// one that is not there report no version. The real probe delivers its
+/// kills, so the re-run is alone in its PID namespace (#1137h, I4).
+#[cfg(target_os = "linux")]
 #[test]
 fn the_dsh_probe_runs_the_selected_invocation_and_not_its_canonical_target() {
     use std::os::unix::fs::PermissionsExt;
+    if hermetic_tests::rerun_alone(&[]) {
+        return;
+    }
 
     let dir = tempfile::tempdir().unwrap();
     let (bin, lib) = (dir.path().join("bin"), dir.path().join("lib"));

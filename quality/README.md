@@ -65,7 +65,7 @@ A from-empty listing that genuinely reaches zero (the last long function split, 
 - a removed baseline;
 - any change to `ceilings.json`, `lib.sh`, `ratchet.sh` or `measure.sh`, since changing how a number is measured changes the number.
 
-The check reads the pull request body from the event, so an edited body needs a new event (close and reopen), as `delivered by brokkr` does.
+The check reads the pull request body from the event. It lives in `.github/workflows/pr-gates.yml` with `delivered by brokkr`, which re-runs on `edited` (#1295), so an edited body is judged again without a close and reopen, and without re-running the suite.
 
 **The public API's `Value` count.** It is the number of lines in `public-api/brokkr-core.txt` naming `serde_json::value::Value`: 26 at `1d890c6a`. Each is one public item whose signature carries the untyped value. #338's issue said 11, a count of signatures by hand; this is the count the tool reproduces.
 
@@ -149,7 +149,7 @@ The baselines above measure code shape. These four files hold what Brokkr costs 
 
 Each file holds its ceilings in one `budgets` object of whole numbers. `ratchet.sh` reads the four as its table's `budgets` listing: a ceiling that rose, or a new one, is raised and needs a `Ruling:` line; a lowered or dropped one is a shrink. The gates above hold the tree to the numbers; the ratchet holds the numbers to their history.
 
-`scripts/measure-budgets.sh` rewrites the first three from the tests' own reports; the tests print what they measure even when it is over budget. The binary size is read from CI's artifact, never a local build, whose embedded paths differ. The CPU budgets have no file: the `cpu-budgets` job counts instructions under Callgrind for the pull request and for its base in one run, and fails a rise over 2%.
+`scripts/measure-budgets.sh` rewrites the first three from the tests' own reports; the tests print what they measure even when it is over budget. The binary size is read from CI's artifact, never a local build, whose embedded paths differ. The CPU budgets have no file, and no pull request or merge group measures them: the nightly `.github/workflows/cpu-budgets.yml` counts instructions under Callgrind for main's head and for its base, the head the previous nightly measured to a verdict, in one run, and fails a rise over 2%, its summary naming the commits between the two; the next night measures from the risen head, so a rise turns one nightly red. By hand, its `ref` input measures a branch against its merge-base with main.
 
 ```sh
 scripts/measure-budgets.sh

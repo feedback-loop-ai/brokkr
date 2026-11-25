@@ -18,6 +18,13 @@ use std::time::Duration;
 use super::table::Entry;
 use crate::AttemptUsage;
 
+mod machine;
+pub use machine::MemoryPressure;
+#[cfg(target_os = "macos")]
+pub use machine::{cpu, memory, Cpu, Memory};
+mod now;
+pub use now::{trees_now, TreeNow};
+
 /// The span a peak load is read over: the most cores the tree kept busy
 /// across any second of its ticks.
 const WINDOW: Duration = Duration::from_secs(1);
@@ -103,9 +110,9 @@ fn scaled(value: u64, by: u64, per: u64) -> u64 {
 
 /// What `entries` shows of the tree rooted at `root`: the summed sample of
 /// the root and every descendant by parent. A row whose usage did not read
-/// adds nothing. `None` when the root is not among them, and the tick is
-/// skipped.
-pub(super) fn tree(entries: &[Entry], root: i32) -> Option<Sample> {
+/// adds nothing. Also returns the pids included in the sum. `None` when
+/// the root is not among them, and the tick is skipped.
+pub(super) fn tree(entries: &[Entry], root: i32) -> Option<(Sample, BTreeSet<i32>)> {
     let mut pids = BTreeSet::from([root]);
     let mut sum = entries
         .iter()
@@ -118,7 +125,7 @@ pub(super) fn tree(entries: &[Entry], root: i32) -> Option<Sample> {
             .filter(|entry| pids.contains(&entry.ppid) && !pids.contains(&entry.id.pid))
             .collect();
         if found.is_empty() {
-            return Some(sum);
+            return Some((sum, pids));
         }
         for entry in found {
             pids.insert(entry.id.pid);
@@ -168,7 +175,7 @@ impl Meter {
     /// One tick `at` its time since spawn: the tree under `root` that
     /// `entries` shows, when it shows the root.
     pub(super) fn tick(&mut self, at: Duration, entries: &[Entry], root: i32) {
-        if let Some(sample) = tree(entries, root) {
+        if let Some((sample, _)) = tree(entries, root) {
             self.sample(at, sample);
         }
     }

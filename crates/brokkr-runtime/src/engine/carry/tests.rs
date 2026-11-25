@@ -981,6 +981,24 @@ fn the_carry_reads_a_step_record_by_its_authorship_never_by_its_word() {
     assert_eq!(steps(Some("engine")), ["p"]);
 }
 
+/// A visit at a phase whose seat now selects no body for the run's
+/// strategy (a select with no case for it and no default) still reads its
+/// attempts, resolves no writer for their members, and is refused as no
+/// panel at that phase.
+#[test]
+fn a_visit_whose_seat_selects_no_body_reads_its_attempts_and_is_no_panel() {
+    let (_dir, _runtime, initial, events) = clean_visit();
+    let (_unselected_dir, unselected) = engine(SeatBody::Select {
+        cases: BTreeMap::new(),
+        default: None,
+    });
+    let facts = observed(&unselected, &initial, &events, u64::MAX);
+    let read: Vec<_> = (facts.attempts.iter()).map(|at| at.id.as_str()).collect();
+    assert_eq!(read, ["settled"]);
+    let refusal = carry_plan(&facts, &[Tag("b".into())]).unwrap_err().0;
+    assert!(matches!(&refusal, Refusal::NoPanel { phase } if phase == "work"));
+}
+
 fn observed(
     runtime: &Engine,
     initial: &RunState,

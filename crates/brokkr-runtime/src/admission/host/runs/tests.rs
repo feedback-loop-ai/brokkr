@@ -149,9 +149,18 @@ fn doctor_reads_the_version_of_a_host_file_that_declares_no_run_ceiling() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("host.json");
     assert_eq!(runs_undeclared(&file), None, "an absent host file");
+    let older = |version| Undeclared {
+        version,
+        upgradable: true,
+    };
+    let current = Undeclared {
+        version: "forge.host/v5",
+        upgradable: false,
+    };
     for (host, said) in [
-        (with("forge.host/v3", None), Some("forge.host/v3")),
-        (with("forge.host/v1", None), Some("forge.host/v1")),
+        (with("forge.host/v3", None), Some(older("forge.host/v3"))),
+        (with("forge.host/v1", None), Some(older("forge.host/v1"))),
+        (with("forge.host/v5", None), Some(current)),
         (v4(), None),
         (with("forge.host/v4", None), None),
     ] {

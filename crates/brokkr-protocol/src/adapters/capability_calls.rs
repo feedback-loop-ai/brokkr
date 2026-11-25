@@ -14,6 +14,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::row::Row;
+
 /// The private checkpoint key an observation rides under from the driver
 /// to the engine, which consumes it before any append. The store never
 /// admits it.
@@ -24,8 +26,8 @@ const SHOWN_CHARS: usize = 80;
 
 /// How Claude and dsh name an MCP tool, as U0 measured both:
 /// `mcp__<server>__<tool>`.
-const MCP_PREFIX: &str = "mcp__";
-const MCP_SEPARATOR: &str = "__";
+pub(super) const MCP_PREFIX: &str = "mcp__";
+pub(super) const MCP_SEPARATOR: &str = "__";
 
 /// Codex's item type for an MCP call. It is a category, never a tool name:
 /// the server and tool ride beside it on the item.
@@ -75,63 +77,64 @@ pub struct Observation {
 
 impl Observation {
     /// One `tool_use` block of a Claude `assistant` message.
-    pub(super) fn claude(block: &Value) -> Observation {
+    pub(super) fn claude(block: &Row<'_>) -> Observation {
         Observation {
             format: Format::Claude,
-            call: text(block, "/id"),
-            tool: named(text(block, "/name")),
+            call: block.text("/id"),
+            tool: block.tool("/name"),
         }
     }
 
     /// One Codex `item.started` or `item.completed` event. The pair shares
     /// its item id; counting it once is not this reading's to decide.
-    pub(super) fn codex(event: &Value) -> Observation {
-        let tool = match codex_item_type(event) {
-            Some(kind) if kind == CODEX_MCP_ITEM => {
-                match (text(event, "/item/server"), text(event, "/item/tool")) {
-                    (Some(server), Some(tool)) if !server.is_empty() && !tool.is_empty() => {
-                        Tool::Mcp { server, tool }
-                    }
-                    _ => Tool::McpUnidentified { reported: kind },
+    pub(super) fn codex(event: &Row<'_>) -> Observation {
+        let tool = if codex_item_is(event, CODEX_MCP_ITEM) {
+            match (event.text("/item/server"), event.text("/item/tool")) {
+                (Some(server), Some(tool)) if !server.is_empty() && !tool.is_empty() => {
+                    Tool::Mcp { server, tool }
                 }
+                _ => Tool::McpUnidentified {
+                    reported: event.text(CODEX_ITEM_TYPE).unwrap_or_default(),
+                },
             }
-            Some(name) => Tool::Named { name },
-            None => Tool::Missing,
+        } else {
+            match event.text(CODEX_ITEM_TYPE) {
+                Some(name) => Tool::Named { name },
+                None => Tool::Missing,
+            }
         };
         Observation {
             format: Format::Codex,
-            call: text(event, "/item/id"),
+            call: event.text("/item/id"),
             tool,
         }
     }
 
+    pub(super) fn onto_codex(self, event: &Row<'_>, row: Value) -> Value {
+        let shown = event
+            .text(CODEX_ITEM_TYPE)
+            .unwrap_or_else(|| "unknown".into());
+        self.onto_with_tool(row, Some(shown.chars().take(SHOWN_CHARS).collect()))
+    }
+
     /// One dsh transcript `tool/call` event.
-    pub(super) fn dsh(event: &Value) -> Observation {
+    pub(super) fn dsh(event: &Row<'_>) -> Observation {
         Observation {
             format: Format::Dsh,
-            call: text(event, "/data/callId"),
-            tool: named(text(event, "/data/name")),
+            call: event.text("/data/callId"),
+            tool: event.tool("/data/name"),
         }
     }
 
-    /// The `tool` a row shows for this call, clamped for display; `None`
-    /// where Claude's row shows no tool and dsh writes no row. Each format
-    /// shows what it always showed: Codex its item category, `unknown`
-    /// when there is none, Claude and dsh the name as reported. The call
-    /// id is not shown; it rides in the observation.
+    /// The tool display for Claude and dsh, clamped separately from the
+    /// full observation sent to the engine.
     pub(super) fn shown_tool(&self) -> Option<String> {
-        let shown = match (self.format, &self.tool) {
-            (Format::Codex, Tool::Named { name: kind }) => kind.clone(),
-            (Format::Codex, Tool::Mcp { .. }) => CODEX_MCP_ITEM.to_string(),
-            (Format::Codex, Tool::McpUnidentified { reported }) => reported.clone(),
-            (Format::Codex, Tool::Missing) => "unknown".to_string(),
-            (Format::Claude | Format::Dsh, Tool::Named { name }) if name.is_empty() => return None,
-            (Format::Claude | Format::Dsh, Tool::Missing) => return None,
-            (Format::Claude | Format::Dsh, Tool::Named { name }) => name.clone(),
-            (Format::Claude | Format::Dsh, Tool::McpUnidentified { reported }) => reported.clone(),
-            (Format::Claude | Format::Dsh, Tool::Mcp { server, tool }) => {
-                format!("{MCP_PREFIX}{server}{MCP_SEPARATOR}{tool}")
-            }
+        let shown = match &self.tool {
+            Tool::Named { name } if name.is_empty() => return None,
+            Tool::Missing => return None,
+            Tool::Named { name } => name.clone(),
+            Tool::McpUnidentified { reported } => reported.clone(),
+            Tool::Mcp { server, tool } => format!("{MCP_PREFIX}{server}{MCP_SEPARATOR}{tool}"),
         };
         Some(shown.chars().take(SHOWN_CHARS).collect())
     }
@@ -140,8 +143,13 @@ impl Observation {
     /// the `tool` [`Self::shown_tool`] shows, where it shows one, and the
     /// observation itself under [`OBSERVATION_KEY`], whole and unclamped,
     /// for the engine to consume before any append (U4f2).
-    pub(super) fn onto(self, mut row: Value) -> Value {
-        if let Some(tool) = self.shown_tool() {
+    pub(super) fn onto(self, row: Value) -> Value {
+        let shown = self.shown_tool();
+        self.onto_with_tool(row, shown)
+    }
+
+    fn onto_with_tool(self, mut row: Value, shown: Option<String>) -> Value {
+        if let Some(tool) = shown {
             row["tool"] = Value::String(tool);
         }
         row[OBSERVATION_KEY] = serde_json::to_value(self).expect("an observation encodes");
@@ -149,38 +157,11 @@ impl Observation {
     }
 }
 
-fn text(value: &Value, pointer: &str) -> Option<String> {
-    value
-        .pointer(pointer)
-        .and_then(Value::as_str)
-        .map(str::to_string)
-}
+const CODEX_ITEM_TYPE: &str = "/item/type";
 
-/// The category a Codex `item.*` event names (`agent_message`,
-/// `command_execution`, `mcp_tool_call`, …), read once here for both the
-/// observation and the probe's answer bound (decision 0103 ruling 4(a)).
-pub(super) fn codex_item_type(event: &Value) -> Option<String> {
-    text(event, "/item/type")
-}
-
-/// A Claude or dsh tool name. One under the MCP prefix is an MCP call, split
-/// at the first separator after it; one that does not split into a server
-/// and a tool is kept whole as an unidentified MCP call, never as a native
-/// tool of that name.
-fn named(name: Option<String>) -> Tool {
-    let Some(name) = name else {
-        return Tool::Missing;
-    };
-    let Some(rest) = name.strip_prefix(MCP_PREFIX) else {
-        return Tool::Named { name };
-    };
-    match rest.split_once(MCP_SEPARATOR) {
-        Some((server, tool)) if !server.is_empty() && !tool.is_empty() => Tool::Mcp {
-            server: server.to_string(),
-            tool: tool.to_string(),
-        },
-        _ => Tool::McpUnidentified { reported: name },
-    }
+/// Compare the Codex item category before masking its displayed spelling.
+pub(super) fn codex_item_is(event: &Row<'_>, kind: &str) -> bool {
+    event.is(CODEX_ITEM_TYPE, kind)
 }
 
 #[cfg(test)]

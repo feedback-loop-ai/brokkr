@@ -4,7 +4,7 @@
 
 Every `brokkr` verb and argument with its default, and every exit code, as the binary defines them; `brokkr <verb> --help` prints the same text. An argument marked **yes** under Selector takes a full run id, a unique prefix of one, or `latest`, the run created most recently (decision 0015, and for the write paths its proposed 2026-09-28 addendum); one marked **with a journal** does so only when the workspace journal is there, and otherwise takes the id literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, and `brokkr` itself `-V`/`--version`; the tables leave them out.
 
-The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for `brokkr journal verify`, still parses as a hidden alias until 0.17, and says its new spelling on stderr.
+The verbs nest under thirteen roots: decision 0113's twelve and decision 0119's `completions`. Every old flat name, such as `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for `brokkr journal verify`, still parses as a hidden alias until 0.17, and says its new spelling on stderr. Internal engine verbs (`driver`, `hands`, `bridge`, `broker`, `fake-driver`) are hidden from this page; the `brokkr hands` argument contract is documented in [hands.md](hands.md).
 
 - [`brokkr init`](#brokkr-init): Scaffold a minimal reviewable bundle and prove it compiles
 - [`brokkr run`](#brokkr-run): Start a new run and drive it until it parks or finishes
@@ -12,6 +12,7 @@ The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect`
 - [`brokkr watch`](#brokkr-watch): Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
 - [`brokkr tui`](#brokkr-tui): Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout — it issues no operator commands and writes nothing to the journal
 - [`brokkr doctor`](#brokkr-doctor): Verify tools, drivers, the workspace database, and optionally a bundle, without executing any agent
+- [`brokkr completions`](#brokkr-completions): Print the shell completion script for bash, zsh, fish, powershell or elvish: every visible verb, flag and fixed value. `source <(COMPLETE=bash brokkr)` registers the live completer instead, which also offers run ids, phases, seats, recipes, agents, realms and queue entries
 - [`brokkr runs`](#brokkr-runs): The runs in the journal: list them (the default), read one, compare two, re-run, close or command one, and the overseer that reads them all
 - [`brokkr runs list`](#brokkr-runs-list): List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
 - [`brokkr runs inspect`](#brokkr-runs-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
@@ -58,6 +59,7 @@ The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect`
 - [`brokkr queue release`](#brokkr-queue-release): Let a held entry be started again
 - [`brokkr queue repin`](#brokkr-queue-repin): Re-pin a waiting entry to the realms map that would govern it now: how the operator releases an entry `judge` latched a realm-drift hold on, accepting the differences it found. Refused when the map on disk is not the one the latch found; judge the queue again
 - [`brokkr queue drop`](#brokkr-queue-drop): Take an entry out of the queue. One that started a run cannot be
+- [`brokkr queue merged`](#brokkr-queue-merged): Record that an entry's work merged, journaled with the reason (name the pull request and its merge commit): an entry waiting on ENTRY:merged may start from then on. Brokkr reads no code host, so this record is the merge's one witness. Only an entry that started a run can be recorded merged
 - [`brokkr queue dispatch`](#brokkr-queue-dispatch): Start what admission admits from the journal's queue, each run handed to a driver of its own: one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
 - [`brokkr queue dispatch set-bound`](#brokkr-queue-dispatch-set-bound): Set the journal's bound on the refusals counted against one entry before the dispatcher holds it, a whole number of at least 1, journaled as the operator's command
 - [`brokkr queue dispatch status`](#brokkr-queue-dispatch-status): Say whether a dispatcher holds the journal, the bound in force, and each entry left launching or linked with no `spawn` row. Opens the journal read-only and writes nothing
@@ -73,6 +75,8 @@ The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect`
 - [`brokkr system secrets set`](#brokkr-system-secrets-set): Bind NAME to a value read from STDIN (never argv — the CLI obeys its own injection discipline). Creates the store 0600
 - [`brokkr system secrets list`](#brokkr-system-secrets-list): Print bound names, one per line — names, never values
 - [`brokkr system secrets remove`](#brokkr-system-secrets-remove): Remove NAME from the store
+- [`brokkr system host`](#brokkr-system-host): Manage the machine's host configuration
+- [`brokkr system host upgrade`](#brokkr-system-host-upgrade): Upgrade the machine's host configuration to v5
 - [`brokkr system probe`](#brokkr-system-probe): Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
 - [`brokkr system probe harness`](#brokkr-system-probe-harness): Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
 - [`brokkr system ui`](#brokkr-system-ui): Serve the embedded read-only surface on loopback
@@ -179,6 +183,18 @@ Usage: brokkr doctor [OPTIONS]
 | `--realms <REALMS>` |  |  | The world's map whose realm house declarations doctor checks (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal whose database doctor opens. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store, so doctor can say which declared credentials a route is taking from the ambient environment instead (default .brokkr/state/secrets.env, else .forge/secrets.env) |
+
+## brokkr completions
+
+Print the shell completion script for bash, zsh, fish, powershell or elvish: every visible verb, flag and fixed value. `source <(COMPLETE=bash brokkr)` registers the live completer instead, which also offers run ids, phases, seats, recipes, agents, realms and queue entries
+
+```text
+Usage: brokkr completions <SHELL>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<SHELL>` |  |  | The shell the script is written for |
 
 ## brokkr runs
 
@@ -731,7 +747,7 @@ Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON>
 | `--repo <REPO>` |  |  | The repository the run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
 | `--dispatch <DISPATCH>` |  |  | Canonical forge-dispatch/v2 JSON. When present the run id, Looper/grant correlation, recipe, repository, budget, and producer bounds are pinned into an immutable run-manifest/v2 |
 | `--priority <PRIORITY>` | `0` |  | The entry's priority, which orders the queue first: a higher priority is judged and started first, and `move` orders an entry only among those of its own priority |
-| `--after <ENTRY:CONDITION>...` |  |  | An earlier entry this one waits for, and on what: `3:completed` (its run completed) or `3:ended` (its run ended at all). Repeatable |
+| `--after <ENTRY:CONDITION>...` |  |  | An earlier entry this one waits for, and on what: `3:completed` (its run completed), `3:ended` (its run ended at all), or a named ending, as `3:shipped` (its run is over and ended so; one that ended otherwise holds this entry). The named endings are shipped, shipped-flagged, refused, failed, blocked, exhausted, superseded, infrastructure, delivered-elsewhere, withdrawn and operator-stopped. Or `3:merged` (the operator recorded its work merged with `brokkr queue merged`; a run over with no such record holds this entry). Repeatable |
 | `--reason <REASON>` |  |  | Why, journaled with the command |
 
 ## brokkr queue list
@@ -830,6 +846,21 @@ Take an entry out of the queue. One that started a run cannot be
 
 ```text
 Usage: brokkr queue drop [OPTIONS] --reason <REASON> <ENTRY>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<ENTRY>` |  |  | The entry's id, as `brokkr queue list` prints it |
+| `--reason <REASON>` |  |  | Why, journaled with the command |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr queue merged
+
+Record that an entry's work merged, journaled with the reason (name the pull request and its merge commit): an entry waiting on ENTRY:merged may start from then on. Brokkr reads no code host, so this record is the merge's one witness. Only an entry that started a run can be recorded merged
+
+```text
+Usage: brokkr queue merged [OPTIONS] --reason <REASON> <ENTRY>
 ```
 
 | Argument | Default | Selector | Description |
@@ -1034,6 +1065,26 @@ Usage: brokkr system secrets remove [OPTIONS] <NAME>
 | --- | --- | --- | --- |
 | `<NAME>` |  |  | The bound name to remove |
 | `--secrets-file <SECRETS_FILE>` |  |  | The store file to remove it from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
+
+## brokkr system host
+
+Manage the machine's host configuration
+
+```text
+Usage: brokkr system host <COMMAND>
+```
+
+## brokkr system host upgrade
+
+Upgrade the machine's host configuration to v5
+
+```text
+Usage: brokkr system host upgrade [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--check` |  |  | Print the diff and return a failure status if an upgrade is needed |
 
 ## brokkr system probe
 

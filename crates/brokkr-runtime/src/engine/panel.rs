@@ -32,6 +32,7 @@ use super::{
     stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Door, DriverRun, Engine,
     EngineError, Indeterminate, Selection, Site, SiteSpawn, Unproven,
 };
+use crate::agents::kinds::{SeatKinds, UNDECLARED};
 use crate::bundle::{
     Aggregate, Bundle, MemberFindings, MemberVerdict, PanelJoin, PanelMember, ENGINE_VERSION,
 };
@@ -234,12 +235,7 @@ impl Engine {
                 // decision 0056 ruling 1).
                 let plan = selection.plan(&site);
                 if let Some(plan) = plan {
-                    input["resume_context"] = resume::start_context(
-                        plan.assessment.clone(),
-                        plan.originating.as_ref(),
-                        plan.offer.as_ref(),
-                        plan.route_overlay.as_ref(),
-                    );
+                    plan.attach_resume_context(&mut input);
                 }
                 MemberRun {
                     name: member.name.clone(),
@@ -326,7 +322,8 @@ impl Engine {
             // abandoned channel must not deadlock the members.
             drop(sender);
             sink.take(&receiver, |sink, (member, checkpoint)| {
-                offer_member_checkpoint(sink, runs, &mut calls, tag_prefix, &member, checkpoint);
+                let at = (runs, &mut calls[..], tag_prefix);
+                offer_member_checkpoint(sink, at, &member, checkpoint);
             });
             handles
                 .into_iter()
@@ -366,7 +363,7 @@ impl Engine {
             settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
             // Each member's findings carry the member's own site.
             let report = self.settled_by(ids, &run.spawn, begun, report)?;
-            let admitted = super::verdict::admitted(report, run.context.as_ref());
+            let admitted = super::verdict::judged(report, run.context.as_ref(), &run.driver_seat);
             if let Some(findings) = admitted.findings {
                 stamped.insert(name.clone(), MemberFindings::Read(findings));
             }
@@ -496,7 +493,7 @@ impl MemberRun {
             Ok(spawned) => spawned,
             Err(refused) => return DriverRun::SpawnFailed(refused),
         };
-        DriverRun::Ran(process.run_attempt_resuming(
+        DriverRun::Ran(super::received(process.run_attempt_resuming(
             ENGINE_VERSION,
             effect_id,
             attempt_id,
@@ -507,7 +504,12 @@ impl MemberRun {
             // the locator rides the member's private `resume_context`.
             self.offer.as_ref().map(|offer| offer.provider_id.clone()),
             on_checkpoint,
-        ))
+        )))
+    }
+
+    /// What this member's own harness declares (decision 0075 ruling 2).
+    fn kinds(&self) -> &SeatKinds {
+        (self.context.as_ref()).map_or(&UNDECLARED, |context| &context.kinds)
     }
 }
 
@@ -536,12 +538,11 @@ fn unspawned(error: &str) -> AttemptReport {
 
 /// Offer one live member checkpoint to the panel's sink, on the main
 /// thread: read by the call authority of the member it is tagged with,
-/// stamped with that member's boundary and structural identity.
+/// stamped with that member's boundary and structural identity, and
+/// admitted by the kinds that member's own harness declares.
 fn offer_member_checkpoint(
     sink: &mut Checkpoints<'_, fn(&mut Store)>,
-    runs: &[MemberRun],
-    calls: &mut [Calls],
-    tag_prefix: &str,
+    (runs, calls, tag_prefix): (&[MemberRun], &mut [Calls], &str),
     member: &str,
     mut checkpoint: Value,
 ) {
@@ -549,6 +550,9 @@ fn offer_member_checkpoint(
         .iter()
         .position(|run| Tag::prefixed(tag_prefix, &run.name).0 == member);
     let owner = at.map(|at| &runs[at]);
+    let seat = owner.map_or(member, |run| run.driver_seat.as_str());
+    let kinds = owner.map_or(&UNDECLARED, MemberRun::kinds);
+    let declared = checkpoints::Declared { kinds, seat };
     let call = at.map_or(Ok(None), |at| calls[at].consume(&mut checkpoint));
     let boundary = owner.and_then(|run| run.boundary);
     let checkpoint = stamp_boundary(tag_member(checkpoint, member), boundary);
@@ -559,7 +563,7 @@ fn offer_member_checkpoint(
         Some(context) => context.stamp(checkpoint),
         None => resume::unstamped(checkpoint),
     };
-    sink.offer_live(member, checkpoint, call, context);
+    sink.offer_live(member, checkpoint, call, context, declared);
 }
 
 /// Join member reports into the attempt's single outcome: any
@@ -626,5 +630,17 @@ pub(super) fn outcome_over(
     }
     AttemptOutcome::Succeeded {
         result: join.aggregate_results(&member_results),
+    }
+}
+
+impl super::SitePlan {
+    pub(super) fn attach_resume_context(&self, input: &mut Value) {
+        input["resume_context"] = resume::start_context(
+            self.assessment.clone(),
+            self.originating.as_ref(),
+            self.offer.as_ref(),
+            self.route_overlay.as_ref(),
+            self.context.kinds.declared_transcript_kind().as_ref(),
+        );
     }
 }

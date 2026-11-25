@@ -32,8 +32,12 @@ run() {
 run_itself() { run "$*" "$@"; }
 dirty="$(git status --porcelain 2>&1 || true)"
 [ -z "$dirty" ] || { printf 'git status --porcelain is not empty; the researcher left uncommitted work:\n%s' "$dirty" > "$notes"; write_result fail; exit 0; }
-base="main"
-git rev-parse --verify --quiet "$base" >/dev/null || base="origin/main"
+# The remote's main is the base: a worktree shares its checkout's local
+# branches, and a local main can lag the remote by months, which reads every
+# file merged since as the researcher's (2026-11-24). Local main is the
+# fallback only where no remote-tracking ref exists.
+base="origin/main"
+git rev-parse --verify --quiet "$base" >/dev/null || base="main"
 run "git diff $base...HEAD --name-only" git diff "$base...HEAD" --name-only
 if [ -s "$output" ]; then
     outside="$(grep -v '^docs/research/' "$output" || true)"

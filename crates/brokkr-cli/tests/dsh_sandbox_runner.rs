@@ -12,14 +12,14 @@
 //! could otherwise get away with.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 #[cfg(unix)]
 use brokkr_protocol::dsh_sandbox::{RunnerRefusal, ScopeRefusal, RUNNER_FAILURE_SIGNATURE};
 
 fn brokkr(args: &[&str], path: &Path, dump: Option<&Path>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    command.args(args).env("PATH", path);
+    let mut command = crate::built::brokkr(args);
+    command.env("PATH", path);
     if let Some(dump) = dump {
         command.env("DUMP", dump);
     }

@@ -3,7 +3,7 @@
 Source: https://github.com/microsoft/amplifier-bundle-recipes (multi-repository investigation; immutable sources in linked dossiers)
 Authors: repository maintainers cited in the dossiers; analysis synthesized by Codex
 Read: 2026-09-27
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: operator-requested parallel, deep investigation of every project in research 0018, 2026-09-27
 
 ## Summary

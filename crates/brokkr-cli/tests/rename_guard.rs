@@ -21,11 +21,12 @@ struct Offense {
     text: String,
 }
 
-const FIXED_PROSE: [&str; 8] = [
+const FIXED_PROSE: [&str; 9] = [
     "README.md",
     "ARCHITECTURE.md",
     "CONTRIBUTING.md",
     ".github/workflows/ci.yml",
+    ".github/workflows/pr-gates.yml",
     ".github/workflows/release.yml",
     "docs/decisions/README.md",
     "docs/lore/README.md",

@@ -57,7 +57,10 @@ pub(super) fn declares_change(steps: &[SequenceStep]) -> bool {
 pub(crate) fn nearest_change(context: &Value) -> Option<String> {
     crate::phase_name::CHANGE_SOURCES.iter().find_map(|phase| {
         context
-            .pointer(&format!("/results/{phase}/inputs/change"))
+            .pointer(&format!(
+                "/results/{phase}/inputs/{}",
+                brokkr_core::policy::CHANGE
+            ))
             .and_then(Value::as_str)
             .map(str::to_string)
     })

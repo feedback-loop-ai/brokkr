@@ -341,5 +341,10 @@ mod source_tests;
 #[cfg(test)]
 mod tests;
 
+/// The lock every test that touches the process-global panic hook takes,
+/// the completer's among them.
+#[cfg(test)]
+pub(crate) use tests::TERMINAL;
+
 #[cfg(test)]
 mod view_tests;

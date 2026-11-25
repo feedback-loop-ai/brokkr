@@ -212,6 +212,31 @@ fn masker_masks_adjacent_and_repeated_needles() {
     assert_eq!(mask_bytes(b"-wxyzabcd-", &bindings), b"-[secret:W]-");
 }
 
+/// `mask_intersects`, which decision 0114's `reset` asks: a masked run
+/// touches a span only when the two share a byte. A run wholly before the
+/// span, wholly after it, or meeting it at an edge does not.
+#[test]
+fn mask_intersects_only_a_run_that_shares_a_byte_with_the_span() {
+    let bindings = vec![bound("K", b"vvvv")];
+    // The runs are 3..7 and 11..15.
+    let text = "ab vvvv cd vvvv";
+    for (span, expected) in [
+        (0..3, false),
+        (7..11, false),
+        (8..10, false),
+        (0..4, true),
+        (6..12, true),
+        (14..15, true),
+        (0..15, true),
+    ] {
+        assert_eq!(
+            mask_intersects(text, &bindings, span.clone()),
+            expected,
+            "{span:?}"
+        );
+    }
+}
+
 #[test]
 fn occurrences_finds_every_start_overlapping_ones_included() {
     let occurrences = |bytes, needle| super::Occurrences::new(bytes, needle).collect::<Vec<_>>();

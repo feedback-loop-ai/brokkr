@@ -13,6 +13,7 @@ use serde_json::json;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
+use super::panel::{retried_two_route_panel, route_host};
 use super::*;
 use crate::engine::Engine;
 
@@ -296,6 +297,7 @@ pub(super) fn clock_on_marker(
 /// probe answers, and the retry runs with `failed_attempts` unchanged.
 #[test]
 fn a_probe_refusal_extends_the_wait_without_an_attempt() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::RefuseThenAnswer, None, 2);
     let start = start_of(&now);
     // A wait the clock takes in slices; the clock's `LONG_WAIT` lead keeps
@@ -344,6 +346,7 @@ fn a_probe_refusal_extends_the_wait_without_an_attempt() {
 /// run-A waits until run-B's ends, not its own.
 #[test]
 fn two_overlapping_refusals_from_two_runs_hold_until_the_longer_ends() {
+    own_engine!();
     let (dir, mut engine, now) = seated_for_two_runs();
     let start = start_of(&now);
     let (b, db) = second_run_route(dir.path());
@@ -364,6 +367,7 @@ fn two_overlapping_refusals_from_two_runs_hold_until_the_longer_ends() {
 /// after the probes waits it out and probes again before the retry.
 #[test]
 fn a_row_recorded_while_the_probe_ran_holds_the_route_again() {
+    own_engine!();
     let (dir, mut engine, now, start, b, db) = two_run_fixture();
     engine.cooldown.clock = clock_on_probe(&now, dir.path(), true, move || {
         append_second_row(&db, &b, start + Duration::seconds(120));
@@ -395,6 +399,7 @@ fn a_row_recorded_while_the_probe_ran_holds_the_route_again() {
 /// it, names the maximum, and writes no row for that round.
 #[test]
 fn the_episode_maximum_parks_the_probe_loop_and_writes_no_row_for_the_round() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Refuse, None, 3);
     engine.cooldown.host = Some(host(dir.path(), 30, 100));
     let (reason, _) = drove_one(
@@ -420,6 +425,7 @@ fn the_episode_maximum_parks_the_probe_loop_and_writes_no_row_for_the_round() {
 /// no retry follows it.
 #[test]
 fn a_stop_during_the_extended_wait_ends_the_run_without_a_probe_or_retry() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::RefuseThenAnswer, None, 2);
     let start = start_of(&now);
     engine.cooldown.host = Some(host(dir.path(), 30, 1000));
@@ -444,6 +450,7 @@ fn a_stop_during_the_extended_wait_ends_the_run_without_a_probe_or_retry() {
 /// refusal parks as 4c does and writes no row.
 #[test]
 fn a_version_three_journal_parks_a_probe_refusal_as_4c_and_writes_no_row() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Refuse, None, 2);
     let db = dir.path().join("forge.db");
     rusqlite::Connection::open(&db)
@@ -469,6 +476,7 @@ fn a_version_three_journal_parks_a_probe_refusal_as_4c_and_writes_no_row() {
 /// never as an absent aggregate, and retries nothing.
 #[test]
 fn a_store_refusal_while_reading_the_aggregate_parks_by_name() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     let db = dir.path().join("forge.db");
     after_first_slice(&mut engine, &now, move || {
@@ -491,6 +499,7 @@ fn a_store_refusal_while_reading_the_aggregate_parks_by_name() {
 /// malformed present refusal — each park and write no probe row.
 #[test]
 fn the_unchanged_probe_ends_write_no_row() {
+    own_engine!();
     for (probed, expected) in [
         (Probed::Hang, "ended without an answer"),
         (Probed::Error, "probe exploded"),
@@ -660,6 +669,7 @@ fn engine_losing_the_table_on_probe(probed: Probed) -> (tempfile::TempDir, Engin
 /// lost once the probe ran — parks naming the store's words, never silently.
 #[test]
 fn a_lost_table_at_the_probe_append_parks_naming_the_store() {
+    own_engine!();
     let (dir, mut engine) = engine_losing_the_table_on_probe(Probed::RefuseThenAnswer);
     let (reason, _) = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
     assert!(
@@ -678,6 +688,7 @@ fn a_lost_table_at_the_probe_append_parks_naming_the_store() {
 /// round the table refuses.
 #[test]
 fn a_probe_refusal_fills_a_terminal_whose_own_row_is_absent() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let mut engine = wide_seat(dir.path(), &["succeed"], Probed::RefuseThenAnswer);
     let (clock, now) = Clock::advancing(base());
@@ -720,6 +731,7 @@ pub(super) fn wide_seat(dir: &Path, verdicts: &[&str], probed: Probed) -> Engine
 /// declared maximum together, and no probe runs.
 #[test]
 fn a_remainder_already_in_force_counts_toward_the_maximum_before_the_first_probe() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     engine.cooldown.host = Some(host(dir.path(), 30, 100));
     let start = start_of(&now);
@@ -750,6 +762,7 @@ fn a_remainder_already_in_force_counts_toward_the_maximum_before_the_first_probe
 /// that would pass the maximum rather than waiting rows forever.
 #[test]
 fn a_repeated_remainder_on_another_runs_row_cannot_outlast_the_maximum() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     engine.cooldown.host = Some(host(dir.path(), 30, 150));
     let start = start_of(&now);
@@ -802,8 +815,7 @@ fn a_round_within_the_maximum_has_a_representable_end() {
 /// retry: the answered member's first answer is replaced, not duplicated.
 #[test]
 fn a_non_empty_sites_refusal_extends_and_reprobes_the_answered_member() {
-    use super::panel::{retried_two_route_panel, route_host};
-
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let body = retried_two_route_panel(dir.path(), Probed::Answer, Probed::RefuseThenAnswer);
     let mut engine = started(dir.path(), body, work(2));
@@ -936,6 +948,7 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
 /// the wait sleeps: the resume's own guard, exercised through the round.
 #[test]
 fn a_stop_journaled_before_the_first_slice_is_honoured() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     engine.cooldown.host = Some(host(dir.path(), 30, 1000));
     let db = dir.path().join("forge.db");
@@ -970,6 +983,7 @@ fn a_stop_journaled_before_the_first_slice_is_honoured() {
 /// written end, the probe answers and the retry runs, spending no attempt.
 #[test]
 fn a_resume_over_a_written_round_counts_it_once() {
+    own_engine!();
     let start = ahead_of(OffsetDateTime::now_utc());
     let (dir, mut engine, now) = resumed_at(
         &["succeed"],
@@ -1008,6 +1022,7 @@ fn a_resume_over_a_written_round_counts_it_once() {
 /// maximum and is neither written nor waited.
 #[test]
 fn a_filled_round_is_counted_so_the_next_round_parks_at_the_maximum() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let command = driver(
         dir.path(),
@@ -1037,6 +1052,7 @@ fn a_filled_round_is_counted_so_the_next_round_parks_at_the_maximum() {
 /// row and parks naming the maximum.
 #[test]
 fn a_remainder_waited_on_another_run_counts_before_the_extension_writes() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse"], Probed::Refuse, None, 3);
     engine.cooldown.host = Some(host(dir.path(), 30, 100));
     let start = start_of(&now);
@@ -1074,6 +1090,7 @@ fn a_fill_after_the_own_rows_second_is_counted_as_a_round() {
 /// the later row's end stands.
 #[test]
 fn a_row_recorded_during_the_wait_holds_the_probe() {
+    own_engine!();
     let (dir, mut engine, now, start, b, db) = two_run_fixture();
     after_first_slice(&mut engine, &now, move || {
         append_second_row(&db, &b, start + Duration::seconds(120));
@@ -1097,7 +1114,8 @@ fn a_row_recorded_during_the_wait_holds_the_probe() {
 /// names `a`'s own round and length and `b`'s maximum as `b`'s (finding 5).
 #[test]
 fn a_round_that_passes_any_cooled_sites_maximum_writes_no_row() {
-    use super::panel::{panel_engine, retried_two_route_panel, route_host};
+    own_engine!();
+    use super::panel::panel_engine;
 
     let dir = tempfile::tempdir().unwrap();
     let body = retried_two_route_panel(dir.path(), Probed::RefuseThenAnswer, Probed::Answer);
@@ -1225,6 +1243,7 @@ fn every_episode_store_refusal_parks_naming_the_store() {
 /// the probe's rate-limit refusal writes no row.
 #[test]
 fn a_stop_that_lands_during_the_probe_writes_no_probe_row() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::BarrierRefuse, None, 2);
     engine.cooldown.host = Some(host(dir.path(), 30, 1000));
     let engine = super::support::stopped_at_barrier(engine, dir.path(), "work");
@@ -1244,6 +1263,7 @@ fn a_stop_that_lands_during_the_probe_writes_no_probe_row() {
 /// before its slices; the clock writes the declaration after the first.
 #[test]
 fn a_round_whose_wait_found_no_declaration_is_not_written() {
+    own_engine!();
     for retry in [i64::MAX as u64, 5_000] {
         let dir = tempfile::tempdir().unwrap();
         let command = driver(
@@ -1304,6 +1324,7 @@ fn a_round_whose_wait_found_no_declaration_is_not_written() {
 /// (finding 2).
 #[test]
 fn a_store_refusal_at_the_post_probe_re_read_parks_by_name() {
+    own_engine!();
     let (dir, mut engine) = engine_losing_the_table_on_probe(Probed::Answer);
     let (reason, _) = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
     assert!(
@@ -1321,8 +1342,7 @@ fn a_store_refusal_at_the_post_probe_re_read_parks_by_name() {
 /// so the later member is not probed inside the hold (finding 3).
 #[test]
 fn a_row_recorded_during_a_panels_probe_holds_the_next_member() {
-    use super::panel::{retried_two_route_panel, route_host};
-
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let body = retried_two_route_panel(dir.path(), Probed::Answer, Probed::Answer);
     let mut engine = started(dir.path(), body, work(2));

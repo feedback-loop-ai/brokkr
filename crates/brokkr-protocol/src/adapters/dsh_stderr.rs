@@ -104,6 +104,7 @@ mod tests {
             state: None,
             refusal: None,
             launch: LaunchTerminal::Cold,
+            result_exists: None,
         }
     }
 

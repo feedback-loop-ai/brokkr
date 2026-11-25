@@ -7,12 +7,9 @@
 //! fields and reads it on the composition row (measured 2026-10-17 on
 //! 0.1.5-rc.1 and 0.2.1-rc.2, #728). The driver writes it on both.
 
-use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
-use brokkr_core::shape::Object;
-
-use super::{dsh_model_row, effort_token};
+use super::{dsh_model_row, effort_token, Row, EFFORT_NOT_REPORTED};
 
 /// The pinned level as the one YAML scalar both channels write: clamped
 /// to one bounded word by `effort_token`, and single-quoted with its
@@ -37,40 +34,81 @@ pub(super) fn model_row(model: &str, effort: Option<&str>) -> Result<String, Str
     Ok(row)
 }
 
-/// What the fold reads of a request header: the level in its `config`,
-/// and whether the adapter's default supplied it. The header is an open
-/// harness record, so every other key is left unread; it and both of the
-/// records it holds are each an [`Object`].
-#[derive(Deserialize)]
-struct Header {
-    #[serde(default)]
-    config: Object<Config>,
-    #[serde(default, rename = "adapterDefaults")]
-    defaults: Object<Defaults>,
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum AppliedLevel {
+    Reported(String),
+    Masked,
+    Unchanged,
 }
 
-#[derive(Deserialize, Default)]
-struct Config {
-    #[serde(rename = "reasoningEffort")]
-    effort: Option<String>,
-}
-
-#[derive(Deserialize, Default)]
-struct Defaults {
-    #[serde(default, rename = "reasoningEffort")]
-    effort: bool,
-}
-
-/// The level a `request/header` event says this seat ran at, or `None`
-/// when it says none the seat chose: no level, one that fails the clamp,
-/// a header that does not read, or a level the adapter defaulted. dsh 0.2
-/// replaces a pin it did not read with its adapter's default and marks
-/// it `adapterDefaults.reasoningEffort: true`; that level is the
-/// adapter's, never the seat's, so the seat's effort stands as it was.
-pub(super) fn applied_level(event: &Value) -> Option<String> {
-    let Object(header) = Object::<Header>::deserialize(event.pointer("/data/header")?).ok()?;
-    if header.defaults.0.effort {
-        return None;
+/// The level a request header attributes to the seat. A malformed
+/// header or a level marked as the adapter's default leaves it standing.
+pub(super) fn applied_level(event: &Row<'_>) -> AppliedLevel {
+    let Some(header) = event.at("/data/header") else {
+        return AppliedLevel::Unchanged;
+    };
+    if adapter_defaulted_or_unreadable(&header) {
+        return AppliedLevel::Unchanged;
     }
-    header.config.0.effort.as_deref().and_then(effort_token)
+    reported_level(&header)
+}
+
+fn adapter_defaulted_or_unreadable(header: &Row<'_>) -> bool {
+    const DEFAULTS: &str = "/adapterDefaults";
+    const DEFAULTED: &str = "/adapterDefaults/reasoningEffort";
+
+    if header.has(DEFAULTS) && !header.is_object(DEFAULTS) {
+        return true;
+    }
+    match header.flag(DEFAULTED) {
+        Some(defaulted) => defaulted,
+        None => header.has(DEFAULTED),
+    }
+}
+
+fn reported_level(header: &Row<'_>) -> AppliedLevel {
+    const LEVEL: &str = "/config/reasoningEffort";
+    let Some(effort) = header.text(LEVEL) else {
+        return AppliedLevel::Unchanged;
+    };
+    if !header.equals(LEVEL, &effort) {
+        return AppliedLevel::Masked;
+    }
+    effort_token(&effort).map_or(AppliedLevel::Unchanged, AppliedLevel::Reported)
+}
+
+/// The level each step shows: the seat's retained one, or not reported
+/// while a header whose level a binding masks stands. dsh writes one
+/// header per request and every step after it runs under it, so a masked
+/// header settles all of them, until the next header replaces it; the
+/// seat keeps its last valid or seeded level (decision 0114, D4).
+#[derive(Default)]
+pub(super) enum Echo {
+    #[default]
+    Retained,
+    Masked,
+}
+
+impl Echo {
+    pub(super) fn header(&mut self, event: &Row<'_>, meta: &mut Map<String, Value>) {
+        *self = match applied_level(event) {
+            AppliedLevel::Reported(effort) => {
+                meta.insert("effort".into(), Value::String(effort));
+                Self::Retained
+            }
+            AppliedLevel::Masked => Self::Masked,
+            AppliedLevel::Unchanged => Self::Retained,
+        };
+    }
+
+    pub(super) fn shown(&self, meta: &Map<String, Value>) -> String {
+        match self {
+            Self::Masked => EFFORT_NOT_REPORTED.to_owned(),
+            Self::Retained => meta
+                .get("effort")
+                .and_then(Value::as_str)
+                .unwrap_or(EFFORT_NOT_REPORTED)
+                .to_owned(),
+        }
+    }
 }

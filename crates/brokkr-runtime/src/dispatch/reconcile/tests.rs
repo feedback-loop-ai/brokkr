@@ -192,7 +192,10 @@ fn a_pass_ended_after_its_start_is_adopted_and_linked_with_no_second_run() {
     let state = store.queue_entry(EntryId(1)).unwrap().state;
     assert_eq!(
         state,
-        EntryState::Claimed { run: run.clone() },
+        EntryState::Claimed {
+            run: run.clone(),
+            merged: false
+        },
         "no reclaim ends a claim whose run exists"
     );
     let mut rows = added_and_claimed();

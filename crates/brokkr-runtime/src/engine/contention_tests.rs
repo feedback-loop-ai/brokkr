@@ -735,7 +735,7 @@ fn a_refusal_counts_what_was_held_behind_it_against_the_other_members() {
             .into(),
     };
     let refused = AttemptOutcome::Failed {
-        error: "seat record at journal seq 6 violates contracts/seat-record.v7.schema.json at /"
+        error: "seat record at journal seq 6 violates contracts/seat-record.v8.schema.json at /"
             .into(),
     };
     let members = ["one", "two", "three", "four"];
@@ -1220,6 +1220,185 @@ fn a_held_terminal_event_parks_then_tells_its_stderr_once() {
     );
 }
 
+const FAILURE_STDERR: &str = "stderr from a failed attempt";
+
+fn failing_with_cap(dir: &Path, max_attempts: u64) -> (Engine, super::tests::driver_stderr::Watch) {
+    let failed = AttemptOutcome::Failed {
+        error: "driver failed".into(),
+    };
+    let mut command = super::tests::driver_command("effect-1", "attempt-1", failed);
+    command[2] = format!("printf '%s\n' '{FAILURE_STDERR}' >&2; {}", command[2]);
+    let patience = std::time::Duration::from_millis(25);
+    let mut engine = driving(dir, single_body(command), patience);
+    engine
+        .bundle
+        .seats
+        .get_mut("work")
+        .unwrap()
+        .limits
+        .max_attempts = max_attempts;
+    engine.drive_once().unwrap();
+    let mut request = super::tests::requested(&engine, "effect-1").payload;
+    request["phase"] = json!("work");
+    request["seat"] = json!("work");
+    request["idempotency_key"] = json!("work:test");
+    engine
+        .append(EventType::EffectRequested, request, None)
+        .unwrap();
+    let watch = super::tests::driver_stderr::Watch::on_db(dir.join("realm.db"), &mut engine);
+    (engine, watch)
+}
+
+type WriteLock = std::rc::Rc<std::cell::RefCell<Option<rusqlite::Connection>>>;
+
+/// Take the peer's lock before the engine's next append after `skip` writes.
+/// The fence hook runs once per append, before any of its settling retries.
+fn lock_before_append(db: PathBuf, peer: WriteLock, skip: usize) {
+    super::fence::tests::after_the_fold(Box::new(move || {
+        if skip == 0 {
+            *peer.borrow_mut() = Some(write_lock_on(&db));
+        } else {
+            lock_before_append(db, peer, skip - 1);
+        }
+    }));
+}
+
+#[test]
+fn a_held_outcomes_contended_park_reaches_the_lawful_end_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("realm.db");
+    let (mut engine, watch) = failing_with_cap(dir.path(), 1);
+    let peer = WriteLock::default();
+    // Let the attempt start, then hold its terminal append.
+    lock_before_append(db.clone(), peer.clone(), 1);
+    let mut contentions = Vec::new();
+
+    let ended = engine.drive_racing(|error| {
+        assert!(
+            matches!(
+                error,
+                EngineError::Store(StoreError::Contended {
+                    operation: "append",
+                    ..
+                })
+            ),
+            "{error:?}"
+        );
+        contentions.push(format!("journal contention: {error}"));
+        drop(
+            peer.borrow_mut()
+                .take()
+                .expect("the peer holds the write lock"),
+        );
+        if contentions.len() == 1 {
+            // Let the held failure land, then take the lock at its owed park.
+            lock_before_append(db.clone(), peer.clone(), 1);
+        }
+    });
+
+    assert_eq!(contentions.len(), 2, "{contentions:?}");
+    let end = ended.expect("the second lawful end parks");
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
+    assert_eq!(
+        end.state.run.park_reason().unwrap().as_str(),
+        contentions[1]
+    );
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let (failed, park) = (&events[events.len() - 2], events.last().unwrap());
+    assert_eq!(failed.event_type, EventType::EffectFailed);
+    assert_eq!(park.event_type, EventType::RunParked);
+    assert_eq!(park.payload["reason"], contentions[1]);
+    let id = failed.attempt_id.as_deref().unwrap();
+    let (told, held) = watch.told_and_held();
+    assert_eq!(told, format!("{id}: driver stderr: {FAILURE_STDERR}\n"));
+    assert_eq!(
+        &held[held.len() - 2..],
+        [EventType::EffectFailed, EventType::RunParked]
+    );
+}
+
+#[test]
+fn a_drive_that_hands_back_contention_tells_the_queued_tail_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, watch) = failing_with_cap(dir.path(), 1);
+    let peer = WriteLock::default();
+    // Let both EffectStarted and EffectFailed land. The same peer holds
+    // the lock across the owed park and the lawful end's park.
+    lock_before_append(dir.path().join("realm.db"), peer.clone(), 2);
+    let handed_back = engine.drive().expect_err("neither park can land");
+    drop(
+        peer.borrow_mut()
+            .take()
+            .expect("the peer still holds the lock"),
+    );
+    assert!(
+        matches!(
+            handed_back,
+            EngineError::Store(StoreError::Contended {
+                operation: "append",
+                ..
+            })
+        ),
+        "{handed_back:?}"
+    );
+
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let failed = events.last().unwrap();
+    assert_eq!(failed.event_type, EventType::EffectFailed);
+    let id = failed.attempt_id.as_deref().unwrap();
+    let (told, held) = watch.told_and_held();
+    assert_eq!(told, format!("{id}: driver stderr: {FAILURE_STDERR}\n"));
+    let journal: Vec<_> = events.iter().map(|event| event.event_type).collect();
+    assert_eq!(held, journal);
+}
+
+#[test]
+fn a_held_failure_tells_its_stderr_before_the_retry_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, watch) = failing_with_cap(dir.path(), 2);
+    let peer = WriteLock::default();
+    lock_before_append(dir.path().join("realm.db"), peer.clone(), 1);
+    let mut append_contentions = Vec::new();
+    let end = engine
+        .drive_racing(|error| {
+            append_contentions.push(matches!(
+                error,
+                EngineError::Store(StoreError::Contended {
+                    operation: "append",
+                    ..
+                })
+            ));
+            drop(peer.borrow_mut().take().expect("the peer holds the lock"));
+        })
+        .unwrap();
+    assert_eq!(append_contentions, [true]);
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
+
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let (retry_index, retry) = events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| event.event_type == EventType::EffectStarted)
+        .nth(1)
+        .expect("the failure below the cap is retried");
+    let failed = &events[retry_index - 1];
+    assert_eq!(failed.event_type, EventType::EffectFailed);
+    let before_retry: Vec<_> = events[..retry_index]
+        .iter()
+        .map(|event| event.event_type)
+        .collect();
+    let (told, held) = watch.told_and_held();
+    assert_eq!(held, before_retry);
+    let first = failed.attempt_id.as_deref().unwrap();
+    let second = retry.attempt_id.as_deref().unwrap();
+    assert_eq!(
+        told,
+        format!(
+            "{first}: driver stderr: {FAILURE_STDERR}\n{second}: driver stderr: {FAILURE_STDERR}\n"
+        )
+    );
+}
+
 /// A lock that outlasts both windows, end to end: nothing is writable, so
 /// the drive hands the typed contention back with nothing written after
 /// the attempt started, and the next resume settles the attempt as
@@ -1472,7 +1651,7 @@ fn a_held_result_the_fence_refuses_settles_the_attempt_indeterminate() {
                 "effect_id": "effect-1",
                 "attempt_id": "attempt-1",
                 "reason": "the journal refused the result a peer's lock had held back: seat \
-                           record at journal seq 5 violates contracts/seat-record.v7.schema.json \
+                           record at journal seq 5 violates contracts/seat-record.v8.schema.json \
                            at /",
             })
         )

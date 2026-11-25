@@ -96,11 +96,7 @@ pub(crate) fn brokkr() -> &'static Path {
         assert!(lock(&live));
         std::fs::rename(dir.join("lock.new"), dir.join("lock")).unwrap();
         let (staged, copy) = (dir.join("brokkr.staged"), dir.join("brokkr"));
-        let cp = Command::new("/bin/cp")
-            .arg(env!("CARGO_BIN_EXE_brokkr"))
-            .arg(&staged)
-            .status();
-        assert_eq!(cp.unwrap().code(), Some(0), "copying the binary");
+        crate::stage_brokkr!(&staged).expect("copying the binary");
         chmod(&staged, 0o755);
         std::fs::rename(&staged, &copy).unwrap();
         (std::fs::canonicalize(copy).unwrap(), live)
@@ -165,8 +161,8 @@ impl Root {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = confined();
-        command.args(args).current_dir(&self.path);
+        let mut command = confined(args);
+        command.current_dir(&self.path);
         command
     }
 
@@ -179,12 +175,12 @@ impl Root {
             true => {
                 let mut command = Command::new(setpriv());
                 command.args(["--no-new-privs", "/bin/sh", "-c", HARNESS]);
-                command.arg(brokkr());
+                command.arg(brokkr()).args(args);
                 command
             }
-            false => Command::new(brokkr()),
+            false => crate::built::brokkr_at(brokkr(), args),
         };
-        command.args(args).current_dir(&self.path);
+        command.current_dir(&self.path);
         command
     }
 
@@ -317,14 +313,14 @@ fn killed(pid: u32) {
 /// under `no_new_privs`, without which its observer refuses a host's
 /// multiply-linked system file (MB3). Setting it here would bind every
 /// later test in this process, so `setpriv` sets it for the child alone.
-fn confined() -> Command {
+fn confined(args: &[&str]) -> Command {
     match cfg!(target_os = "linux") {
         true => {
             let mut command = Command::new("setpriv");
-            command.arg("--no-new-privs").arg(brokkr());
+            command.arg("--no-new-privs").arg(brokkr()).args(args);
             command
         }
-        false => Command::new(brokkr()),
+        false => crate::built::brokkr_at(brokkr(), args),
     }
 }
 
@@ -575,12 +571,14 @@ fn the_grouped_library_verbs_still_dispatch() {
     assert_eq!((ran.code, ran.stdout.as_str()), (Some(0), "DOCS_TOKEN\n"));
 }
 
-/// `brokkr init`'s folder, in a repository of its own whatever checkout
-/// the root sits in, whose map grants its one realm `library-docs`
-/// through an MCP dialect that no seat asks for.
+/// `brokkr init`'s folder, in a repository of its own whatever checkout the
+/// root sits in, its host file under `.git`; its map grants its one realm
+/// `library-docs` through an MCP dialect that no seat asks for.
 fn granting_mcp(root: &Root) {
     crate::brokkr_folder::git(&root.path, &["init", "-q"]);
-    assert_eq!(root.brokkr(&["init", "."]).code, Some(0));
+    let mut init = root.command(&["init", "."]);
+    init.env("XDG_CONFIG_HOME", root.path.join(".git/brokkr-config"));
+    assert_eq!(root.ran(init).code, Some(0));
     let map = root.path.join(".brokkr/realms.json");
     let mut realms: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&map).unwrap()).unwrap();

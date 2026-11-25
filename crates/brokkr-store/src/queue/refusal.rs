@@ -6,7 +6,7 @@ use thiserror::Error;
 use super::claim::{Claim, Generation};
 use super::entry::Latch;
 use super::storage::QUEUE_SCHEMA;
-use super::EntryId;
+use super::{EntryId, Wait};
 
 /// The key of a duplicated cool-down row (decision 0103, slice 4d1): the
 /// run, event seq, site and round a lost unique index no longer holds
@@ -40,6 +40,8 @@ pub enum QueueRefusal {
     UnknownWait(EntryId),
     #[error("a new queue entry names entry {0} to wait for twice")]
     DuplicateWait(EntryId),
+    #[error("a new queue entry cannot wait on {0}: its condition is not one a wait may name")]
+    NotACondition(Wait),
     #[error("queue entry {entry} cannot move to place {to}: the queue's places run 1 to {last}")]
     PastTheEnds { entry: EntryId, to: u32, last: u32 },
     #[error("queue entry {0} is already held")]
@@ -52,6 +54,10 @@ pub enum QueueRefusal {
     Claimed { entry: EntryId, run: String },
     #[error("queue entry {0} was dropped")]
     Dropped(EntryId),
+    /// A `merged` record of an entry still queued or held: no run of it
+    /// exists whose work could have merged (#1192).
+    #[error("queue entry {0} has started no run, so no merge of its work can be recorded")]
+    Unstarted(EntryId),
     #[error("run '{run}' already started queue entry {entry}")]
     RunTaken { run: String, entry: EntryId },
     #[error("queue storage {found} unsupported (want {QUEUE_SCHEMA})")]
