@@ -55,3 +55,30 @@ fn doctor_names_each_provider_dialect_and_its_shared_offices() {
         ]
     );
 }
+
+#[test]
+fn doctor_reports_the_names_and_refusal_of_an_invalid_provider_grant() {
+    let dir = workspace_with(None);
+    let root = dir.path();
+    let private = realm(
+        "private",
+        Some(json!({"web-search": {
+            "dialects": {"codex": "codex-native-search", "claude": "absent"},
+            "offices": ["researcher"]
+        }})),
+    );
+    write(
+        root,
+        "realms.json",
+        &json!({"schema": "forge.realms/v9", "journal": "forge.db", "realms": [private]}),
+    );
+    let (healthy, lines) = lines(root, &installed(&[]));
+    assert!(!healthy, "{lines:#?}");
+    assert_eq!(
+        lines.iter().find(|line| line.contains("'web-search':")).map(String::as_str),
+        Some("MISSING  capabilities private 'web-search': provider 'claude' through dialect 'absent', \
+              provider 'codex' through dialect 'codex-native-search' · offices [researcher] only · \
+              realm 'private': capability 'web-search': tool dialect 'absent' is not at \
+              'dialects/tools/absent.json' in the operator configuration")
+    );
+}

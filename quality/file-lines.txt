@@ -395,7 +395,7 @@
   1932 crates/brokkr-cli/src/doctor/capability_tests.rs
    122 crates/brokkr-cli/src/doctor/capability_tests/binding_tests.rs
    854 crates/brokkr-cli/src/doctor/capability_tests/mcp_tests.rs
-    57 crates/brokkr-cli/src/doctor/capability_tests/provider_dialects_tests.rs
+    84 crates/brokkr-cli/src/doctor/capability_tests/provider_dialects_tests.rs
    449 crates/brokkr-cli/src/doctor/folder/folder_tests.rs
    166 crates/brokkr-cli/src/doctor/paths/tests.rs
     82 crates/brokkr-cli/src/doctor/provisional/tests.rs
@@ -695,7 +695,7 @@
   1972 crates/brokkr-runtime/src/capabilities/tests.rs
    281 crates/brokkr-runtime/src/capabilities/tests/attribution.rs
    597 crates/brokkr-runtime/src/capabilities/tests/binding.rs
-  1025 crates/brokkr-runtime/src/capabilities/tests/dialect_policy.rs
+  1030 crates/brokkr-runtime/src/capabilities/tests/dialect_policy.rs
    128 crates/brokkr-runtime/src/capabilities/tests/fence.rs
    295 crates/brokkr-runtime/src/capabilities/tests/gate_class.rs
    426 crates/brokkr-runtime/src/capabilities/tests/manifest.rs
