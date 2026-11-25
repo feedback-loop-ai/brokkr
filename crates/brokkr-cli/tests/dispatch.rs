@@ -678,7 +678,13 @@ fn a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it() {
         "queue: 0 waiting, 0 held\nleft running: run {run}, driver pid {pid}\nstopped: a signal \
          asked the dispatcher to stop; it claimed nothing after, and its drivers run on\n"
     );
-    assert!(stdout.ends_with(&last), "{stdout}");
+    if !stdout.ends_with(&last) {
+        // Name why the queued entry waited: on a machine measured by
+        // demand, the real machine's numbers decide it (decision 0125).
+        let listed = machine.brokkr(&["queue", "list", "--json", "--db", machine.db()]);
+        let listed = String::from_utf8_lossy(&listed.stdout);
+        panic!("{stdout}\nqueue list --json:\n{listed}");
+    }
     assert_eq!(machine.commands(), ["add", "claim", "link", "spawn", "add"]);
 
     std::fs::write(machine.released(), "").unwrap();
