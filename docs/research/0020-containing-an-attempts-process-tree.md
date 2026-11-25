@@ -264,3 +264,41 @@ cannot reach a cgroup tree or nest the namespaces.
 | 7 | Polling the process table cannot close the table-read race or the read-to-fork instant, and stays the fallback where no containment is offered | implemented | decision 0006, `crates/brokkr-protocol/src/process/tree.rs` |
 | 8 | macOS offers no cgroup; whether a launchd job's coalition holds an escape tree is unmeasured | not-planned | |
 | 9 | The user manager answers a unit never made exactly as a finished scope (no control group, `inactive`), so a unit's state cannot settle an attempt; the cgroup path must be read, and a launch must not outlive the cleanup that reads it | planned | #472 |
+
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "0020 - approved"
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Summary.** For "Decision 0080 proposes the rulings this entry argues
+  for." read "Decision 0080, accepted by the operator on 2026-10-12,
+  rules what this entry argues for; it is unbuilt (#472)."
+- **Row 1** keeps `planned`. Finding: "A per-attempt transient user
+  scope, ended by one `cgroup.kill` write and proven settled by
+  `populated 0`, leaves no process of a `setsid` double-fork escape
+  tree, needs no privilege, and costs 23–73 ms to start (five runs on
+  the operator's host)". Citation: #472; decision 0080 (accepted,
+  unbuilt); the start cost is the controller's measurement on the
+  operator's host, not part of run 38057456223
+- **Row 4** now reads `planned`, not `not-planned`. Citation: #472;
+  decision 0080 ruling 2 rules re-execution out of the containment
+  ladder (accepted 2026-10-12, unbuilt)
+- **Row 5** keeps `implemented`. Citation: decision 0043,
+  `crates/brokkr-protocol/src/hands/namespace.rs` and
+  `crates/brokkr-protocol/src/hands/namespace/isolation.rs`
+  (`--unshare-pid`, `--die-with-parent`); the escape-tree result was
+  measured on the operator's host only; on both GitHub Linux runners
+  bwrap refused to start ("setting up uid map: Permission denied", runs
+  38057456223 and 38077308914)
+- **Row 6** now reads `planned`, not `not-planned`. Finding: "Wrapping
+  each harness in a PID namespace, where cgroups cannot be had, is
+  unmeasured against the harnesses' own sandboxes, unavailable in
+  Docker, and refused by bwrap on both GitHub Linux runners measured".
+  Citation: #472; decision 0080 ruling 9 names the per-harness
+  PID-namespace study (each harness under `bwrap --unshare-pid`,
+  measuring whether its own sandbox still starts)

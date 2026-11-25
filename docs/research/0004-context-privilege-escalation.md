@@ -105,11 +105,11 @@ word.
   `/etc/codex/managed_config.toml`), which codex loads whatever options
   it is passed; `crates/brokkr-protocol/src/adapters/agy/home.rs`
   (`WORKSPACE_CONFIGURATION`): an agy seat is refused when its working
-  directory or any directory above it holds `<dir>/.agents/mcp_config.json`,
-  `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` (a pathname check at launch,
-  #1217); both refuse named files, not unknown ones, and a claude seat
-  still loads the operator's own configuration
-  (`docs/security-model.md`)
+  directory or any directory above it holds
+  `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or
+  `<dir>/.agents/hooks.json` (a pathname check at launch, #1217); both
+  refuse named files, not unknown ones, and a claude seat still loads
+  the operator's own configuration (`docs/security-model.md`)
 
 ## Candidates
 

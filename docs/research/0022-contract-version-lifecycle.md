@@ -367,3 +367,20 @@ still builds, and which tags carry release archives, was not checked.
 Whether any third-party driver or Looper deployment reads a specific
 version was not checked either. Decision 0082's Ruled section names all
 three.
+
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all that move
+their state to implemented" for rows 7 and 8
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 7** now reads `implemented`, not `planned`. Citation: decision
+  0082 ruling 1, `crates/brokkr-cli/tests/decisions_index/minting.rs`
+- **Row 8** now reads `implemented`, not `planned`. Citation: decision
+  0082 ruling 4, `docs/guides/versioning.md`,
+  `crates/brokkr-cli/tests/contract_lifecycle.rs`

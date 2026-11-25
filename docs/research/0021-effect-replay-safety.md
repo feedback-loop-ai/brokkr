@@ -235,3 +235,25 @@ what the code decides, not a measured incidence. How often a deadline
 kill or a protocol violation after `start` occurs in the operator's
 journals was not measured. The addendum's Ruled paragraph has the build
 count that cost first.
+
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all that move
+their state to implemented" for rows 1 and 3
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 1** now reads `implemented`, not `planned`. Citation: decision
+  0006 (2026-10-11 addendum, ruling 1);
+  `crates/brokkr-protocol/src/process.rs` (`eof_outcome`) and
+  `crates/brokkr-protocol/src/adapters/lost.rs`; reading the seat's
+  reach before retrying a reported failure (ruling 2's
+  partial-side-effect row) is still #434
+- **Row 3** now reads `implemented`, not `planned`. Citation: decision
+  0006 (2026-10-11 addendum, rulings 1, 2 and 6);
+  `crates/brokkr-protocol/src/process.rs` (`eof_outcome`), pinned in
+  `crates/brokkr-protocol/src/process/tests.rs`
