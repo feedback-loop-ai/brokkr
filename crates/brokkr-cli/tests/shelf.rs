@@ -1020,16 +1020,18 @@ fn add_personal_installs_beside_the_host_file() {
 /// compiled against the folder's agents, which lack them, so it refuses,
 /// the repository byte for byte as it was, and makes nothing on the
 /// shelf, not even the configuration directory it would have stood in.
+/// The install gets its own empty config path because init seeds the host file.
 #[test]
 fn a_personal_install_copies_no_agent_into_the_repository() {
     let (repo, fast) = library_of_fast();
     let before = repo.files();
-    let ran = add_personal(&repo, &fast, &[]);
+    let config = repo.config().with_file_name("install-config");
+    let ran = add_personal(&repo, &fast, &[("XDG_CONFIG_HOME", Some(&config))]);
     let refused = "error: recipe 'mine' does not compile (removed): bundle: seat 'implement': \
                    agent 'fast-implementer' is not in the library; known agents: implementer, \
                    intake, reviewer\n";
     assert_eq!((ran.code, &*ran.stderr), (Some(1), refused));
-    assert!(!repo.config().exists());
+    assert!(!config.exists());
     assert_eq!(repo.files(), before);
 }
 

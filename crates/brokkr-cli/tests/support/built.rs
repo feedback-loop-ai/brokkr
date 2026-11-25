@@ -43,6 +43,12 @@ where
     }
     let mut command = Command::new(program);
     command.args(argv);
+    // The host file is the machine's, under XDG_CONFIG_HOME or HOME:
+    // `init` seeds one where none stands (decision 0125, ask E), and the
+    // loader reads it. A test reaches it only under the HOME it sets, or
+    // an XDG_CONFIG_HOME it sets after this, never the invoking user's
+    // (1193c's review, finding 1).
+    command.env_remove("XDG_CONFIG_HOME");
     command
 }
 

@@ -853,6 +853,7 @@ fn init_on_an_empty_path() -> (tempfile::TempDir, String) {
     crate::brokkr_folder::plant_git(&empty_path);
     let out = crate::built::brokkr(["init", "."])
         .env("PATH", &empty_path)
+        .env("XDG_CONFIG_HOME", dir.path().join(".git/brokkr-config"))
         .current_dir(dir.path())
         .output()
         .unwrap();

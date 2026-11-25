@@ -15,7 +15,7 @@ use std::time::Duration;
 use brokkr_core::fold::{fold, Status};
 use brokkr_store::{Store, UsageRow};
 
-use super::Short;
+use super::{Observation, Short};
 use crate::admission::capacity::Shared;
 use crate::admission::AdmissionError;
 
@@ -68,10 +68,12 @@ pub(crate) fn read(
                 read.rows.extend(rows);
                 read.running.extend(running);
             }
-            Err(error) => read.unreadable.push(Short::Unreadable {
-                journal: journal.clone(),
-                error: Shared::new(error),
-            }),
+            Err(error) => read
+                .unreadable
+                .push(Short::Observation(Observation::Unreadable {
+                    journal: journal.clone(),
+                    error: Shared::new(error),
+                })),
         }
     }
     Ok(read)

@@ -94,8 +94,11 @@ fn judged(
 ) -> (Vec<Judged>, Vec<Reason>) {
     let file = fixture.declare(host);
     let measure = |driven: &[Driven<'_>]| match &measured {
-        Measurement::Measured { machine, .. } => Measurement::Measured {
+        Measurement::Measured {
+            machine, pressure, ..
+        } => Measurement::Measured {
             machine: *machine,
+            pressure: *pressure,
             runs: driven
                 .iter()
                 .map(|run| uses.get(run.run).copied())
@@ -149,6 +152,7 @@ fn declared(memory: u64, load: u64) -> Value {
 fn measured(memory: u64, idle: u64) -> Measurement {
     Measurement::Measured {
         machine: available(memory, idle),
+        pressure: MemoryPressure::Normal,
         runs: Vec::new(),
     }
 }
@@ -933,4 +937,37 @@ fn a_second_whole_machine_entry_waits_for_the_first_admitted_in_the_pass() {
     assert_eq!(kinds(&judged), vec![vec![], vec!["memory_short"]]);
     let reserved = judged[1].demand.as_ref().unwrap().reserved;
     assert_eq!((reserved.runs, reserved.admitted), (0, 1));
+}
+
+#[test]
+fn kernel_pressure_vetoes_demand_at_warn_and_critical_and_clears_at_normal() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let host = declared(GIB, 1000);
+    for (pressure, reasons) in [
+        (
+            MemoryPressure::Warn,
+            vec![(
+                "memory_pressure",
+                "kernel memory pressure is warn".to_string(),
+            )],
+        ),
+        (
+            MemoryPressure::Critical,
+            vec![(
+                "memory_pressure",
+                "kernel memory pressure is critical".to_string(),
+            )],
+        ),
+        (MemoryPressure::Normal, vec![]),
+    ] {
+        let machine = Measurement::Measured {
+            machine: available(8 * GIB, 8000),
+            pressure,
+            runs: Vec::new(),
+        };
+        let (entries, warnings) = judged(&fixture, &host, &[], machine, &BTreeMap::new());
+        assert_eq!(warnings, []);
+        assert_eq!(said(&entries), vec![reasons]);
+    }
 }

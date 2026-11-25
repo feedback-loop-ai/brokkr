@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use super::{Holder, Reserved, Short, Sized, Source};
+use super::{Holder, Observation, Reserved, Short, Sized, Source};
 
 impl Short {
     /// The reason's kind, as scripts read it.
@@ -14,7 +14,16 @@ impl Short {
             Short::Memory { .. } => "memory_short",
             Short::Cpu { .. } => "cpu_short",
             Short::Unknown { .. } | Short::Held(_) => "demand_unknown",
-            Short::Unreadable { .. } => "journal_unreadable",
+            Short::Observation(observed) => observed.kind(),
+        }
+    }
+}
+
+impl Observation {
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Pressure(_) => "memory_pressure",
+            Self::Unreadable { .. } => "journal_unreadable",
         }
     }
 }
@@ -133,7 +142,16 @@ impl fmt::Display for Short {
                 beside.running, beside.admitted, beside.unreadable
             ),
             Short::Held(holder) => write!(f, "{holder} holds the whole machine until it ends"),
-            Short::Unreadable { journal, error } => write!(
+            Short::Observation(observed) => observed.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for Observation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Pressure(level) => write!(f, "kernel memory pressure is {level}"),
+            Self::Unreadable { journal, error } => write!(
                 f,
                 "the journal {} the realms map lists cannot be read, and sizes nothing: {error}",
                 journal.display()

@@ -50,7 +50,7 @@ fn the_help_lists_thirteen_roots_and_each_family_its_verbs() {
         "add list judge move hold release repin drop merged dispatch sweep"
     );
     assert_eq!(family("stats"), "analytics graph costs ledger");
-    assert_eq!(family("system"), "realms secrets probe ui");
+    assert_eq!(family("system"), "realms secrets host probe ui");
 }
 
 #[test]

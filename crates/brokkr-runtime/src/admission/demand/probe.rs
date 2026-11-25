@@ -2,8 +2,9 @@
 //! driver tree uses, measured inside one pass (decision 0125 ruling 1).
 //! Linux reads `/proc/meminfo` once and `/proc/stat`'s `cpu` lines twice,
 //! [`WINDOW`] apart, with one read of the process table at each end of
-//! the window; nothing is carried from an earlier pass. Every other host
-//! is unmeasured until 1193c (ruling 2).
+//! the window. macOS reads VM and memory-pressure statistics and samples
+//! processor ticks over the same window. Ruling 2's platform fallback no
+//! longer applies to macOS; a failed read still uses that ruling.
 //!
 //! The parsing is pure, and the reads are this module's alone: the pass
 //! takes them through [`super::Machine`]'s seam, which every test injects.
@@ -11,6 +12,77 @@
 use std::io::ErrorKind;
 use std::path::Path;
 use std::time::Duration;
+
+use brokkr_protocol::process::usage::MemoryPressure;
+
+// Inline, not a file of its own: Linux compiles and covers this file, so
+// the complexity gate reads these macOS-only functions as the rest of the
+// platform-only code in files Linux compiles (1193c, #1369's CI).
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::io;
+
+    use brokkr_protocol::process::usage::{self, Cpu, Memory, MemoryPressure};
+
+    use super::{idle, Available, Ticks, Unmeasured};
+
+    const CPU: &str = "HOST_CPU_LOAD_INFO and hw.logicalcpu";
+    const MEMORY: &str = "HOST_VM_INFO64, hw.memsize and kern.memorystatus_vm_pressure_level";
+
+    fn unreadable(file: &'static str, error: io::Error) -> Unmeasured {
+        Unmeasured::Unreadable {
+            file,
+            kind: error.kind(),
+        }
+    }
+
+    fn memory() -> Result<Memory, Unmeasured> {
+        usage::memory().map_err(|error| unreadable(MEMORY, error))
+    }
+
+    pub(super) fn cpu() -> Result<Cpu, Unmeasured> {
+        usage::cpu().map_err(|error| unreadable(CPU, error))
+    }
+
+    pub(super) fn measurable() -> Result<(), Unmeasured> {
+        memory()?;
+        cpu()?;
+        Ok(())
+    }
+
+    pub(super) fn machine(
+        before: Cpu,
+        after: Cpu,
+    ) -> Result<(Available, MemoryPressure), Unmeasured> {
+        let (idle_ticks, total, cores) = after.since(before);
+        let zero = Ticks {
+            idle: 0,
+            total: 0,
+            cores,
+        };
+        let delta = Ticks {
+            idle: idle_ticks,
+            total,
+            cores,
+        };
+        let (idle_millicores, cores_millicores) =
+            idle(zero, delta).ok_or(Unmeasured::Unparsed(CPU))?;
+        let memory = memory()?;
+        Ok((
+            Available {
+                memory_bytes: memory.available_bytes,
+                memory_total: memory.total_bytes,
+                idle_millicores,
+                cores_millicores,
+            },
+            memory.pressure,
+        ))
+    }
+}
+#[cfg(not(target_os = "macos"))]
+use linux as platform;
+#[cfg(target_os = "macos")]
+use macos as platform;
 
 /// The span between the two CPU readings of one pass: long enough that a
 /// tick count of 100 Hz says a share to a percent, short enough that a
@@ -31,6 +103,7 @@ pub(crate) struct Driven<'a> {
 pub(crate) enum Measurement {
     Measured {
         machine: Available,
+        pressure: MemoryPressure,
         runs: Vec<Option<Use>>,
     },
     Unmeasured(Unmeasured),
@@ -58,8 +131,8 @@ pub(crate) struct Use {
 /// ceilings (ruling 2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Unmeasured {
-    /// A host whose measures are not built: macOS, until 1193c.
-    #[error("this host's availability is not measured yet (macOS is #1193's next slice)")]
+    /// A host with no availability probe.
+    #[error("this host's availability is not measured")]
     Platform,
     #[error("{file} cannot be read: {kind}")]
     Unreadable { file: &'static str, kind: ErrorKind },
@@ -67,10 +140,13 @@ pub enum Unmeasured {
     Unparsed(&'static str),
 }
 
+#[cfg(any(test, not(target_os = "macos")))]
 const MEMINFO: &str = "/proc/meminfo";
+#[cfg(any(test, not(target_os = "macos")))]
 const STAT: &str = "/proc/stat";
 
 /// `MemAvailable` and `MemTotal` from a `/proc/meminfo`'s text, in bytes.
+#[cfg(any(test, not(target_os = "macos")))]
 pub(super) fn meminfo(text: &str) -> Option<(u64, u64)> {
     let field = |name: &str| {
         let line = text.lines().find(|line| line.starts_with(name))?;
@@ -91,6 +167,7 @@ pub(super) struct Ticks {
     pub(super) cores: u64,
 }
 
+#[cfg(any(test, not(target_os = "macos")))]
 pub(super) fn stat(text: &str) -> Option<Ticks> {
     let mut lines = text.lines();
     let first = lines.next()?.strip_prefix("cpu ")?;
@@ -132,6 +209,7 @@ pub(super) fn load(cpu: Duration, wall: Duration) -> u64 {
 }
 
 /// Read `file` whole, or say why it cannot be.
+#[cfg(any(test, not(target_os = "macos")))]
 fn read(file: &'static str) -> Result<String, Unmeasured> {
     std::fs::read_to_string(file).map_err(|error| Unmeasured::Unreadable {
         file,
@@ -142,22 +220,46 @@ fn read(file: &'static str) -> Result<String, Unmeasured> {
 /// Whether this machine can be measured, read once with no window, for
 /// `brokkr doctor`.
 pub fn measurable() -> Result<(), Unmeasured> {
-    #[cfg(target_os = "linux")]
-    {
-        meminfo(&read(MEMINFO)?).ok_or(Unmeasured::Unparsed(MEMINFO))?;
-        stat(&read(STAT)?).ok_or(Unmeasured::Unparsed(STAT))?;
-        Ok(())
+    platform::measurable()
+}
+
+#[cfg(not(target_os = "macos"))]
+mod linux {
+    use super::*;
+
+    pub(super) fn measurable() -> Result<(), Unmeasured> {
+        #[cfg(target_os = "linux")]
+        {
+            meminfo(&read(MEMINFO)?).ok_or(Unmeasured::Unparsed(MEMINFO))?;
+            stat(&read(STAT)?).ok_or(Unmeasured::Unparsed(STAT))?;
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Err(Unmeasured::Platform)
+        }
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        Err(Unmeasured::Platform)
+
+    pub(super) fn cpu() -> Result<String, Unmeasured> {
+        read(STAT)
+    }
+
+    pub(super) fn machine(
+        before: String,
+        after: String,
+    ) -> Result<(Available, MemoryPressure), Unmeasured> {
+        available(&before, &after, &read(MEMINFO)?).map(|machine| (machine, MemoryPressure::Normal))
     }
 }
 
 /// The production measure: this machine now, over [`WINDOW`], and each
 /// of `runs`' drivers' trees, through the pid its run lock records.
 pub(crate) fn measure_now(runs: &[Driven<'_>]) -> Measurement {
-    (measurable().and_then(|()| sampled(runs))).unwrap_or_else(Measurement::Unmeasured)
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let measured = Err(Unmeasured::Platform);
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let measured = sampled(runs);
+    measured.unwrap_or_else(Measurement::Unmeasured)
 }
 
 /// The two readings of one window, and what lies between them. A run
@@ -169,11 +271,11 @@ fn sampled(runs: &[Driven<'_>]) -> Result<Measurement, Unmeasured> {
         .collect();
     let roots: Vec<u32> = pids.iter().flatten().copied().collect();
     let started = std::time::Instant::now();
-    let (before, trees) = (read(STAT)?, trees_now(&roots));
+    let (before, trees) = (platform::cpu()?, trees_now(&roots));
     std::thread::sleep(WINDOW);
-    let (after, again) = (read(STAT)?, trees_now(&roots));
+    let (after, again) = (platform::cpu()?, trees_now(&roots));
     let wall = started.elapsed();
-    let machine = available(&before, &after, &read(MEMINFO)?)?;
+    let (machine, pressure) = platform::machine(before, after)?;
     let each = |at: usize| {
         let first = trees.as_ref()?.get(at).copied().flatten()?;
         let last = again.as_ref()?.get(at).copied().flatten()?;
@@ -186,11 +288,16 @@ fn sampled(runs: &[Driven<'_>]) -> Result<Measurement, Unmeasured> {
     let runs = (pids.iter())
         .map(|pid| pid.and_then(|_| measured.next().flatten()))
         .collect();
-    Ok(Measurement::Measured { machine, runs })
+    Ok(Measurement::Measured {
+        machine,
+        pressure,
+        runs,
+    })
 }
 
 /// The machine as two `/proc/stat` texts and a `/proc/meminfo` text say
 /// it is.
+#[cfg(any(test, not(target_os = "macos")))]
 pub(super) fn available(
     before: &str,
     after: &str,

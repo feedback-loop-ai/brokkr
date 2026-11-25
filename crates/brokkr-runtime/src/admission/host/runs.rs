@@ -15,6 +15,9 @@ use thiserror::Error;
 
 use super::{read as read_host, Ceiling, Hosting, Schema};
 
+mod upgrade;
+pub use upgrade::{host_upgrade, CURRENT_HOST_SCHEMA};
+
 /// Why a file's run ceiling is not one the loader can obey.
 #[derive(Debug, Error)]
 pub enum Problem {
@@ -39,7 +42,7 @@ impl Problem {
 
 impl Schema {
     /// The version's name, as the file writes it.
-    pub(super) fn contract(self) -> &'static str {
+    pub(super) const fn contract(self) -> &'static str {
         match self {
             Schema::V1 => "forge.host/v1",
             Schema::V2 => "forge.host/v2",
@@ -73,11 +76,24 @@ pub(super) fn read(
 /// every entry the capacity checks would judge waits as `runs_undeclared`.
 /// `None` for a file that declares one, and for one absent, unreadable or
 /// invalid, which other lines name.
-pub fn runs_undeclared(file: &Path) -> Option<&'static str> {
+pub fn runs_undeclared(file: &Path) -> Option<Undeclared> {
     match read_host(file) {
-        Ok(Hosting::Declared(config)) if config.runs.is_none() => Some(config.schema.contract()),
+        Ok(Hosting::Declared(config)) if config.runs.is_none() => Some(Undeclared {
+            version: config.schema.contract(),
+            upgradable: config.schema != Schema::V5,
+        }),
         Ok(Hosting::Declared(_) | Hosting::Absent | Hosting::Unreadable(_)) | Err(_) => None,
     }
+}
+
+/// A host file that declares no run ceiling, as [`runs_undeclared`] reads
+/// it: its version, and whether `brokkr system host upgrade` would bring
+/// it up, which is the version's to say, never a compared string (1193c's
+/// review, finding 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Undeclared {
+    pub version: &'static str,
+    pub upgradable: bool,
 }
 
 #[cfg(test)]

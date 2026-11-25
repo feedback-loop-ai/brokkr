@@ -206,14 +206,14 @@ fn an_unmeasured_machine_says_so_and_a_host_file_without_a_run_ceiling_is_one_wa
     assert!(v3.healthy, "{}", v3.render());
     let file = config.path().join("brokkr/host.json");
     let said = "warn     host: this machine's availability is not measured (this host's \
-                availability is not measured yet (macOS is #1193's next slice)), so admission \
+                availability is not measured), so admission \
                 keeps its count ceilings and the run ceiling stays required (decision 0125)";
     assert_eq!(
         v3.render(),
         format!(
             "{}\n{said}\nwarn     host: the host file {} is forge.host/v3 and declares no run \
-             ceiling, so every queued entry waits as runs_undeclared; forge.host/v4 declares \
-             runs.ceiling",
+             ceiling, so every queued entry waits as runs_undeclared; run `brokkr system host upgrade` \
+             to upgrade the host file; declare runs.ceiling",
             floor_and_mismatch(),
             file.display()
         )
@@ -236,11 +236,23 @@ fn a_measured_machine_judges_a_host_file_without_a_run_ceiling_by_demand() {
         format!(
             "{}\nok       host: the host file {} is forge.host/v3 and declares no run ceiling; \
              this machine's availability is measured, so queued entries are judged by their \
-             recipes' measured demand (decision 0125)",
+             recipes' measured demand (decision 0125); run `brokkr system host upgrade` to upgrade \
+             the host file",
             floor_and_mismatch(),
             file.display()
         )
     );
     let v4 = under_config(config.path(), "forge.host/v4", true, Ok(()));
     assert_eq!(v4.render(), floor_and_mismatch());
+    let v5 = under_config(config.path(), "forge.host/v5", false, Ok(()));
+    assert_eq!(
+        v5.render(),
+        format!(
+            "{}\nok       host: the host file {} is forge.host/v5 and declares no run ceiling; \
+             this machine's availability is measured, so queued entries are judged by their \
+             recipes' measured demand (decision 0125)",
+            floor_and_mismatch(),
+            file.display()
+        )
+    );
 }

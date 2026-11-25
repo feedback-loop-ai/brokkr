@@ -1378,7 +1378,7 @@ fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode>
         GroupedCmd::Recipes { command } => setup::recipes(workspace, command),
         GroupedCmd::Agents { command } => setup::agents(workspace, command),
         GroupedCmd::Muninn { command } => setup::muninn(workspace, command),
-        GroupedCmd::Secrets { command } => setup::secrets(workspace, command),
+        GroupedCmd::Configuration(command) => setup::configuration(workspace, command),
         GroupedCmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
         GroupedCmd::Dispatch(args) => dispatch::dispatch(workspace, args, &mut std::io::stdout()),
         GroupedCmd::Completions(args) => {
