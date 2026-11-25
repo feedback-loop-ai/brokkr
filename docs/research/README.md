@@ -78,6 +78,29 @@ dated correction of a stale clause; neither changes a class. The ruling
 plans no candidate. A row reads `planned` only once the operator opens
 its issue.
 
+## Ruled, 2026-11-25
+
+The operator ruled the three-way check of all 190 findings in this
+registry on 2026-11-25
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)). Each
+row was checked against its article, against main at `4912e583e`, and
+against the open issues and pull requests; 126 items disagreed on at
+least one leg, and the operator ruled each of them, by entry, by kind
+and by row. Entries 0001–0022, ruled on 2026-11-24, each gain a dated
+erratum section: the rows ruled the day before stay readable above it,
+and where they differ the erratum is the product's word. Entries
+0023–0032 were corrected in place and are ruled, as the operator ruled
+that morning ("rule them as recommended too").
+
+Thirty-two rows change class. Twenty-one move to `planned`, each citing
+the open issue that would build it; one of them, 0007 row 6, is
+#1386, filed under the ruling. Six move to `implemented`, because main
+now does what they say. Five move to `alternative`: three that main
+already approximates and two whose `implemented` claimed more than
+main does. The other items correct a fact, a citation or a sentence,
+or name the open issue that carries a gap; none of those changes a
+class.
+
 ## Index
 
 | # | Article | Source | Findings | Status |
@@ -104,13 +127,13 @@ its issue.
 | [0020](0020-containing-an-attempts-process-tree.md) | Containing an attempt's process tree: what Linux and macOS offer, measured | [GitHub Actions run 38057456223](https://github.com/feedback-loop-ai/brokkr/actions/runs/38057456223) | 9 | ruled |
 | [0021](0021-effect-replay-safety.md) | Effect replay safety: what each attempt's end proves, measured from the code | [issue #434](https://github.com/feedback-loop-ai/brokkr/issues/434) | 10 | ruled |
 | [0022](0022-contract-version-lifecycle.md) | Contract version lifecycle: who writes and reads each file in `contracts/`, and under which ruling, measured from the code | [issue #361](https://github.com/feedback-loop-ai/brokkr/issues/361) | 11 | ruled |
-| [0023](0023-truthgate.md) | Truthgate: Checking Coding Agents Against a Record They Cannot Edit - Cheating, Deterrence and Disclosure on Impossible Tasks | [arXiv 2611.23335](https://arxiv.org/abs/2611.23335) | 6 | proposed |
-| [0024](0024-passing-checks-do-not-establish-completion.md) | When Passing Checks Do Not Establish Completion: Evidence Interpretation in Coding Agents | [arXiv 2611.22835](https://arxiv.org/abs/2611.22835) | 6 | proposed |
-| [0025](0025-unfaithful-work-reports.md) | Characterizing and Detecting Unfaithful Work Reports by Coding Agents | [arXiv 2611.25760](https://arxiv.org/abs/2611.25760) | 6 | proposed |
-| [0026](0026-who-grades-the-agent.md) | Who Grades the Agent? Privilege Separation for Coding-Agent Benchmarks | [arXiv 2611.27860](https://arxiv.org/abs/2611.27860) | 6 | proposed |
-| [0027](0027-transport-safe-evaluation.md) | Transport-Safe Evaluation of LLM Agents: Trajectory-Dependent Judge Error and Anytime-Valid Auditing | [arXiv 2611.30742](https://arxiv.org/abs/2611.30742) | 6 | proposed |
-| [0028](0028-does-your-agent-need-to-know-its-budget.md) | Does Your Agent Need to Know Its Budget? A Placebo-Controlled Experiment on LLM Coding Agents | [arXiv 2611.21614](https://arxiv.org/abs/2611.21614) | 4 | proposed |
-| [0029](0029-exercised-rarely-recovered.md) | Exercised, Rarely Recovered: What Public Reports Say About Recovery in 50 AI Agent Harnesses and Runtimes | [arXiv 2611.27090](https://arxiv.org/abs/2611.27090) | 7 | proposed |
-| [0030](0030-markdown-is-not-a-firewall.md) | Markdown Is Not a Firewall: four coding agents, one rules file, four boundaries | [arXiv 2611.27112](https://arxiv.org/abs/2611.27112) | 6 | proposed |
-| [0031](0031-does-the-agents-map-match-the-territory.md) | Does the Agent's Map Match the Territory? Architectural Claims in AI Agent Context Files and Their Fit with the Code | [arXiv 2611.29916](https://arxiv.org/abs/2611.29916) | 6 | proposed |
-| [0032](0032-fixed-or-deleted.md) | Fixed or Deleted? External Feedback Lets Cheaper AI Coding Agents Repair Rule Violations | [arXiv 2611.29162](https://arxiv.org/abs/2611.29162) | 6 | proposed |
+| [0023](0023-truthgate.md) | Truthgate: Checking Coding Agents Against a Record They Cannot Edit - Cheating, Deterrence and Disclosure on Impossible Tasks | [arXiv 2611.23335](https://arxiv.org/abs/2611.23335) | 6 | ruled |
+| [0024](0024-passing-checks-do-not-establish-completion.md) | When Passing Checks Do Not Establish Completion: Evidence Interpretation in Coding Agents | [arXiv 2611.22835](https://arxiv.org/abs/2611.22835) | 6 | ruled |
+| [0025](0025-unfaithful-work-reports.md) | Characterizing and Detecting Unfaithful Work Reports by Coding Agents | [arXiv 2611.25760](https://arxiv.org/abs/2611.25760) | 6 | ruled |
+| [0026](0026-who-grades-the-agent.md) | Who Grades the Agent? Privilege Separation for Coding-Agent Benchmarks | [arXiv 2611.27860](https://arxiv.org/abs/2611.27860) | 6 | ruled |
+| [0027](0027-transport-safe-evaluation.md) | Transport-Safe Evaluation of LLM Agents: Trajectory-Dependent Judge Error and Anytime-Valid Auditing | [arXiv 2611.30742](https://arxiv.org/abs/2611.30742) | 6 | ruled |
+| [0028](0028-does-your-agent-need-to-know-its-budget.md) | Does Your Agent Need to Know Its Budget? A Placebo-Controlled Experiment on LLM Coding Agents | [arXiv 2611.21614](https://arxiv.org/abs/2611.21614) | 4 | ruled |
+| [0029](0029-exercised-rarely-recovered.md) | Exercised, Rarely Recovered: What Public Reports Say About Recovery in 50 AI Agent Harnesses and Runtimes | [arXiv 2611.27090](https://arxiv.org/abs/2611.27090) | 7 | ruled |
+| [0030](0030-markdown-is-not-a-firewall.md) | Markdown Is Not a Firewall: four coding agents, one rules file, four boundaries | [arXiv 2611.27112](https://arxiv.org/abs/2611.27112) | 6 | ruled |
+| [0031](0031-does-the-agents-map-match-the-territory.md) | Does the Agent's Map Match the Territory? Architectural Claims in AI Agent Context Files and Their Fit with the Code | [arXiv 2611.29916](https://arxiv.org/abs/2611.29916) | 6 | ruled |
+| [0032](0032-fixed-or-deleted.md) | Fixed or Deleted? External Feedback Lets Cheaper AI Coding Agents Repair Rule Violations | [arXiv 2611.29162](https://arxiv.org/abs/2611.29162) | 6 | ruled |

@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2611.27090
 Authors: Kaviru Hapuarachchi (University of Colombo School of Computing)
 Read: 2026-11-24
-Status: proposed
+Status: ruled (2026-11-25)
 Intake: research sweep, run weekly-research-sweep-registry-d-5feb3fa3, 2026-11-24
 
 ## Summary

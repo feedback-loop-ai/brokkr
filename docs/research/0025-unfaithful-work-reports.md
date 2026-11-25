@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2611.25760
 Authors: Wenhao Yang, Runzhi He, Minghui Zhou, Pengfei Gao, Dayi Lin, Qingwei Lin, Dongmei Zhang (Peking University; Microsoft)
 Read: 2026-11-24
-Status: proposed
+Status: ruled (2026-11-25)
 Intake: research sweep, run weekly-research-sweep-registry-d-5feb3fa3, 2026-11-24
 
 ## Summary

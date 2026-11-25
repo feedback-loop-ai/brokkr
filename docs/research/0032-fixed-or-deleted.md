@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2611.29162
 Authors: Laura Wynter (Singapore Management University; CodeAssure Labs)
 Read: 2026-11-24
-Status: proposed
+Status: ruled (2026-11-25)
 Intake: research sweep, run weekly-research-sweep-registry-d-5feb3fa3, 2026-11-24
 
 ## Summary
@@ -57,7 +57,7 @@ that one and stopped).
 | 3 | Count the removal of the thing under repair as a failure and a finding, never as a fix | alternative | decision 0041; `agents/charters/implementer.md` and `agents/charters/reviewer.md`: the implementer is held to the framing's scope and a reviewer judges the whole branch since its merge-base, so a removal is a judge's finding; no deterministic check flags it |
 | 4 | Put a compile check behind every claimed repair and feed the compiler's errors back | implemented | decision 0022; `recipes/brokkr-fast/scripts/verify-seat.sh`: the verify gate runs the formatter, the linter with warnings denied, the whole test suite and a bundle compile, and a failure returns to the implementer with the failing command's output as notes |
 | 5 | Extend the deletion check from removed files to removed functions and validators | not-planned | |
-| 6 | Keep review apart from repair: agents asked to review and fix a correct change edited correct code in most runs | implemented | decision 0041: judges never fix, no gate changes the tree, and the engine parks a gate that moved the head; fixes are made only by the implementer on a returned finding |
+| 6 | Keep review apart from repair: agents asked to review and fix a correct change edited correct code in most runs | implemented | decision 0041: judges never fix, and the engine parks a gate seat that moved the head; fixes are made only by the implementer on a returned finding; an uncommitted edit by a gate is not caught (#1260), and a review panel's positions are not fenced at all (#564) |
 
 ## Candidates
 

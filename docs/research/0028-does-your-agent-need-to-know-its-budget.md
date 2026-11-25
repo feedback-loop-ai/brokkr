@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2611.21614
 Authors: Iftesam Nabi, Jarif Ul Alam, Sunzid Hassan, Sabbir Alom Shuvo, Md Faiaz Al Islam, Yead Rahman, Mehrab Hosain (Louisiana Tech University)
 Read: 2026-11-24
-Status: proposed
+Status: ruled (2026-11-25)
 Intake: research sweep, run weekly-research-sweep-registry-d-5feb3fa3, 2026-11-24
 
 ## Summary
