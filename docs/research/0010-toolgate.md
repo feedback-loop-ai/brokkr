@@ -51,8 +51,8 @@ this PR. Finding 2 remains a candidate, not an implemented screen.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all the fact and
-wording fixes" for row 4
+The operator ruled this erratum on 2026-11-25, "0010 - 3 approved" for
+row 3; "approve all the fact and wording fixes" for row 4
 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
 every row of this entry was checked three ways: against the article,
 against main at `4912e583e`, and against the open issues and pull
@@ -60,6 +60,13 @@ requests. The text above stands as ruled on 2026-11-24 and stays
 readable; where this section differs, this section is the product's
 word.
 
+- **Row 3** keeps `alternative`. Citation: decision 0038;
+  `scripts/delivered-by-brokkr.sh`: an unchanged patch retains its
+  delivery evidence, a docs delta requires an additional preflight over
+  the exact head, and a code delta requires a new delivery run;
+  preflight alone cannot replace delivery evidence; open: #286 reports
+  that the boxed preflight verify seat cannot meet the exact coverage
+  gate, so the docs tier may have no reachable path
 - **Row 4** keeps `implemented`. Citation: decision 0035;
   `recipes/research-dsh/bundle.json` and
   `contracts/seat-record.v8.schema.json`: model hires carry configured
