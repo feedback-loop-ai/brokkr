@@ -1090,7 +1090,77 @@ fn open_split_journal<'a>(
     journal
 }
 
+struct InterceptingMemLog<'a> {
+    inner: MemEventLog,
+    on_head: Option<Box<dyn Fn() + 'a>>,
+    on_list_run_ids: Option<Box<dyn Fn() -> Result<(), StoreError> + 'a>>,
+}
+
+impl EventLog for InterceptingMemLog<'_> {
+    fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError> {
+        self.inner.create_run(run_id, manifest)
+    }
+
+    fn append_envelopes(
+        &self,
+        run_id: &str,
+        expected_head: (u64, &str),
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError> {
+        self.inner
+            .append_envelopes(run_id, expected_head, envelopes)
+    }
+
+    fn import_run_stream(
+        &self,
+        run_id: &str,
+        manifest: &Value,
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError> {
+        self.inner.import_run_stream(run_id, manifest, envelopes)
+    }
+
+    fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {
+        if let Some(hook) = &self.on_head {
+            hook();
+        }
+        self.inner.head(run_id)
+    }
+
+    fn read_stream(&self, run_id: &str, from_seq: u64) -> Result<Vec<EventEnvelope>, StoreError> {
+        self.inner.read_stream(run_id, from_seq)
+    }
+
+    fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
+        self.inner.manifest(run_id)
+    }
+
+    fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
+        if let Some(hook) = &self.on_list_run_ids {
+            hook()?;
+        }
+        self.inner.list_run_ids()
+    }
+}
+
+fn query_run_pairs<T: rusqlite::types::FromSql>(
+    path: &std::path::Path,
+    sql: &str,
+    run_id: &str,
+) -> Vec<(i64, T)> {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let rows = conn
+        .prepare(sql)
+        .unwrap()
+        .query_map([run_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    rows
+}
+
 mod regressions;
 mod round3;
 mod round4;
 mod round5;
+mod round6;

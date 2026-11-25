@@ -13,21 +13,16 @@ use tempfile::tempdir;
 
 use super::regressions::{sealed_event, sqlite_table_count};
 use super::round3::{started_event, summary_snapshot};
-use super::{sample_manifest, started_payload, MemEventLog};
+use super::{query_run_pairs, sample_manifest, started_payload, MemEventLog};
 use crate::ports::{EventLog, ProjectionStore, SqlitePorts};
 use crate::{Store, StoreError};
 
 fn event_index_ordinals(path: &std::path::Path, run_id: &str) -> Vec<(i64, Option<i64>)> {
-    let conn = Connection::open(path).unwrap();
-    let mut stmt = conn
-        .prepare("SELECT seq, stream_ordinal FROM event_index WHERE run_id = ?1 ORDER BY seq")
-        .unwrap();
-    let rows = stmt
-        .query_map([run_id], |row| Ok((row.get(0)?, row.get(1)?)))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-    rows
+    query_run_pairs(
+        path,
+        "SELECT seq, stream_ordinal FROM event_index WHERE run_id = ?1 ORDER BY seq",
+        run_id,
+    )
 }
 
 pub(super) fn completed_vs_phase_pair(

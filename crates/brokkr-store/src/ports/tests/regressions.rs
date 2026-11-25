@@ -14,7 +14,7 @@ use tempfile::tempdir;
 
 use super::{
     open_split_journal, sample_manifest, started_payload, valid_checkpoint_payload,
-    MemCoordinationStore, MemEventLog, MemProjectionStore,
+    InterceptingMemLog, MemCoordinationStore, MemEventLog, MemProjectionStore,
 };
 use crate::damage::Damage;
 use crate::ports::{EventLog, Journal, ProjectionStore, SqlitePorts};
@@ -488,58 +488,13 @@ fn settled_members_validation_on_effect_failed_and_indeterminate() {
     assert_eq!(appended.seq, 3);
 }
 
-struct CountingEventLog {
-    inner: MemEventLog,
-    head_calls: Cell<usize>,
-}
-
-impl EventLog for CountingEventLog {
-    fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError> {
-        self.inner.create_run(run_id, manifest)
-    }
-
-    fn append_envelopes(
-        &self,
-        run_id: &str,
-        expected_head: (u64, &str),
-        envelopes: &[EventEnvelope],
-    ) -> Result<(), StoreError> {
-        self.inner
-            .append_envelopes(run_id, expected_head, envelopes)
-    }
-
-    fn import_run_stream(
-        &self,
-        run_id: &str,
-        manifest: &Value,
-        envelopes: &[EventEnvelope],
-    ) -> Result<(), StoreError> {
-        self.inner.import_run_stream(run_id, manifest, envelopes)
-    }
-
-    fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {
-        self.head_calls.set(self.head_calls.get() + 1);
-        self.inner.head(run_id)
-    }
-
-    fn read_stream(&self, run_id: &str, from_seq: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        self.inner.read_stream(run_id, from_seq)
-    }
-
-    fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
-        self.inner.manifest(run_id)
-    }
-
-    fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
-        self.inner.list_run_ids()
-    }
-}
-
 #[test]
 fn seq_overflow_and_single_head_call_in_append_event() {
-    let counting = CountingEventLog {
+    let head_calls = Cell::new(0usize);
+    let counting = InterceptingMemLog {
         inner: MemEventLog::default(),
-        head_calls: Cell::new(0),
+        on_head: Some(Box::new(|| head_calls.set(head_calls.get() + 1))),
+        on_list_run_ids: None,
     };
     let journal = Journal::new(
         counting,
@@ -559,7 +514,7 @@ fn seq_overflow_and_single_head_call_in_append_event() {
             "2026-11-25T10:00:00Z",
         )
         .unwrap();
-    assert_eq!(journal.event_log().head_calls.get(), 1);
+    assert_eq!(head_calls.get(), 1);
 
     let e2 = journal
         .append_if_head(
@@ -572,7 +527,7 @@ fn seq_overflow_and_single_head_call_in_append_event() {
         )
         .unwrap();
     assert_eq!(e2.seq, 2);
-    assert_eq!(journal.event_log().head_calls.get(), 1);
+    assert_eq!(head_calls.get(), 1);
 
     assert!(matches!(
         journal.append_if_head(

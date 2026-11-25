@@ -23,6 +23,9 @@ mod sqlite;
 
 pub use journal::Journal;
 pub use sqlite::SqlitePorts;
+pub(crate) use sqlite::{
+    migrate_projection_hashes, projection_hashes_intact, refuse_if_decoupled_projection_db,
+};
 
 /// Persistence seam for durable per-run manifests and append-only event
 /// streams (decision 0126 ruling 1; decision 0071 ruling 2).

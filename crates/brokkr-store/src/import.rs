@@ -214,6 +214,7 @@ fn adopt_once(
     // Gate 5 inside the transaction that would write, so a concurrent
     // adoption of the same run loses here rather than forking the
     // destination.
+    crate::ports::refuse_if_decoupled_projection_db(&tx, row.run_id)?;
     refuse_existing(&tx, row.run_id)?;
     tx.execute(
         "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at,

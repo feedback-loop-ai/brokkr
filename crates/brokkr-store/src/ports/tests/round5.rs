@@ -7,13 +7,13 @@
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use rusqlite::{params, Connection};
-use serde_json::{json, Value};
+use serde_json::json;
 use tempfile::tempdir;
 
 use super::regressions::{sealed_event, sqlite_table_count};
 use super::round3::{started_event, summary_snapshot};
 use super::round4::completed_vs_phase_pair;
-use super::{sample_manifest, MemEventLog};
+use super::{query_run_pairs, sample_manifest, InterceptingMemLog, MemEventLog};
 use crate::ports::{EventLog, ProjectionStore, SqlitePorts};
 use crate::{Store, StoreError};
 
@@ -28,16 +28,26 @@ fn summary_hash(path: &std::path::Path, run_id: &str) -> String {
 }
 
 fn event_index_types(path: &std::path::Path, run_id: &str) -> Vec<(i64, String)> {
-    let conn = Connection::open(path).unwrap();
-    let mut stmt = conn
-        .prepare("SELECT seq, type FROM event_index WHERE run_id = ?1 ORDER BY seq")
-        .unwrap();
-    let rows = stmt
-        .query_map([run_id], |row| Ok((row.get(0)?, row.get(1)?)))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-    rows
+    query_run_pairs(
+        path,
+        "SELECT seq, type FROM event_index WHERE run_id = ?1 ORDER BY seq",
+        run_id,
+    )
+}
+
+fn assert_colocated_divergent(
+    ports: &SqlitePorts<'_>,
+    expected_run_id: &str,
+    batch: &[EventEnvelope],
+) {
+    assert!(matches!(
+        ports.apply_envelopes(expected_run_id, batch),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == expected_run_id
+    ));
+    assert!(matches!(
+        ports.rebuild_from(ports),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == expected_run_id
+    ));
 }
 
 #[test]
@@ -247,14 +257,7 @@ fn colocated_apply_envelopes_and_rebuild_refuse_tampered_sql_event_columns() {
         [],
     )
     .unwrap();
-    assert!(matches!(
-        ports.apply_envelopes("t1", &[e1.clone(), e2_completed.clone()]),
-        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "t1"
-    ));
-    assert!(matches!(
-        ports.rebuild_from(&ports),
-        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "t1"
-    ));
+    assert_colocated_divergent(&ports, "t1", &[e1.clone(), e2_completed.clone()]);
 
     raw.execute(
         "UPDATE events SET event_hash = ?1, seq = 99 WHERE run_id = 't1' AND seq = 2",
@@ -262,66 +265,7 @@ fn colocated_apply_envelopes_and_rebuild_refuse_tampered_sql_event_columns() {
     )
     .unwrap();
     drop(raw);
-    assert!(matches!(
-        ports.apply_envelopes("t1", &[e1, e2_completed]),
-        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "t1"
-    ));
-    assert!(matches!(
-        ports.rebuild_from(&ports),
-        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "t1"
-    ));
-}
-
-struct ConcurrentWriterLog<'a> {
-    inner: MemEventLog,
-    target: &'a Store,
-    injected_run: (&'static str, EventEnvelope),
-}
-
-impl EventLog for ConcurrentWriterLog<'_> {
-    fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError> {
-        self.inner.create_run(run_id, manifest)
-    }
-
-    fn append_envelopes(
-        &self,
-        run_id: &str,
-        expected_head: (u64, &str),
-        envelopes: &[EventEnvelope],
-    ) -> Result<(), StoreError> {
-        self.inner
-            .append_envelopes(run_id, expected_head, envelopes)
-    }
-
-    fn import_run_stream(
-        &self,
-        run_id: &str,
-        manifest: &Value,
-        envelopes: &[EventEnvelope],
-    ) -> Result<(), StoreError> {
-        self.inner.import_run_stream(run_id, manifest, envelopes)
-    }
-
-    fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {
-        self.inner.head(run_id)
-    }
-
-    fn read_stream(&self, run_id: &str, from_seq: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        self.inner.read_stream(run_id, from_seq)
-    }
-
-    fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
-        self.inner.manifest(run_id)
-    }
-
-    fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
-        let ports = SqlitePorts::new(self.target);
-        ports.apply_envelopes(
-            self.injected_run.0,
-            std::slice::from_ref(&self.injected_run.1),
-        )?;
-        self.inner.list_run_ids()
-    }
+    assert_colocated_divergent(&ports, "t1", &[e1, e2_completed]);
 }
 
 #[test]
@@ -343,10 +287,13 @@ fn concurrent_decoupled_rebuild_preserves_run_created_during_scan() {
     inner
         .import_run_stream("kept-1", &sample_manifest("kept"), &[kept_e1])
         .unwrap();
-    let scanning_log = ConcurrentWriterLog {
+    let store_ref = &store;
+    let scanning_log = InterceptingMemLog {
         inner,
-        target: &store,
-        injected_run: ("new-run", new_e1),
+        on_head: None,
+        on_list_run_ids: Some(Box::new(move || {
+            SqlitePorts::new(store_ref).apply_envelopes("new-run", std::slice::from_ref(&new_e1))
+        })),
     };
 
     assert_eq!(ports.rebuild_from(&scanning_log).unwrap(), 1);

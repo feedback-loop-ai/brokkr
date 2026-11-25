@@ -38,6 +38,7 @@ pub(crate) fn insert_run(tx: &Connection, row: &Row<'_>) -> Result<Listed, Store
         manifest,
         origin,
     } = row;
+    crate::ports::refuse_if_decoupled_projection_db(tx, run_id)?;
     refuse_existing(tx, run_id)?;
     let listed = Listed::new(feature, &now_rfc3339());
     let created_at = listed.listing().created_at;

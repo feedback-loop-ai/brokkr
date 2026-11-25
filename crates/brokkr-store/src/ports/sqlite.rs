@@ -5,12 +5,9 @@
 //! [`Store`] so importing `brokkr_store::ports::*` never shadows inherent
 //! [`Store`] methods (`create_run`, `list_runs`, `manifest`).
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope, EventType};
-use brokkr_core::event_index::Indexed;
-use brokkr_core::summary::{Account, Summary};
+use brokkr_core::summary::Account;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
@@ -20,12 +17,20 @@ use crate::damage;
 use crate::start::Row;
 use crate::summary::Listed;
 use crate::{
-    event_index, head_of, import, now_rfc3339, origin, patiently, queue, refuse_existing,
-    seat_summary, start, summary, terminal, Attribution, Cooldown, EntryId, NewEntry, QueueEntry,
-    Store, StoreError,
+    head_of, import, origin, patiently, queue, refuse_existing, start, terminal, Attribution,
+    Cooldown, EntryId, NewEntry, QueueEntry, Store, StoreError,
 };
 
 use super::{CoordinationStore, EventLog, ProjectionStore};
+
+mod projection;
+
+pub(crate) use projection::{migrate_projection_hashes, projection_hashes_intact};
+use projection::{
+    rebuild_colocated, rebuild_decoupled, resolve_projection_plan, verify_local_events_match,
+    write_decoupled_projection, write_full_projection, ProjectionPlan, VerifiedRun,
+    EXISTING_PROJECTED_RUNS,
+};
 
 /// Thin adapter exposing a SQLite [`Store`] through the [`EventLog`],
 /// [`ProjectionStore`], and [`CoordinationStore`] traits without shadowing
@@ -45,45 +50,15 @@ impl<'a> SqlitePorts<'a> {
     }
 }
 
-const INSERT_EVENT_INDEX: &str = "INSERT OR IGNORE INTO event_index
-         (run_id, seq, type, attempt_id, member, recorded_at, event_id, stream_ordinal)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
-
 const UPDATE_CREATED_AT: &str = "UPDATE runs SET created_at = ?2 WHERE run_id = ?1";
 const LIST_RUNS_SUMMARY: &str =
-    "SELECT s.run_id, COALESCE(s.feature, ''), COALESCE(s.created_at_whole, s.created_at, '')
-     FROM run_summary AS s
-     LEFT JOIN runs AS r ON r.run_id = s.run_id
-     ORDER BY COALESCE(s.created_at_whole, s.created_at, ''), r.rowid, s.run_id";
-const PROJECTION_TABLES: [&str; 5] = [
-    "run_summary",
-    "seat_summary",
-    "seat_head",
-    "seat_lag",
-    "event_index",
-];
+    "SELECT run_id, COALESCE(feature, ''), COALESCE(created_at_whole, created_at, '')
+     FROM run_summary
+     ORDER BY COALESCE(created_at_whole, created_at, ''), run_id";
 const HAS_LOCAL_RUNS_OR_EVENTS: &str =
     "SELECT EXISTS(SELECT 1 FROM runs) OR EXISTS(SELECT 1 FROM events)";
 const HAS_RUNLESS_SUMMARY: &str =
     "SELECT EXISTS(SELECT 1 FROM run_summary WHERE run_id NOT IN (SELECT run_id FROM runs))";
-const DECOUPLED_PREFIX: &str =
-    "SELECT CAST(seq AS TEXT), type, attempt_id, member, recorded_at, event_id
-     FROM event_index WHERE run_id = ?1 AND seq <= ?2 ORDER BY seq";
-const EXISTING_PROJECTED_RUNS: &str = "SELECT run_id FROM run_summary
-     UNION SELECT DISTINCT run_id FROM seat_summary
-     UNION SELECT run_id FROM seat_head
-     UNION SELECT run_id FROM seat_lag
-     UNION SELECT DISTINCT run_id FROM event_index";
-const LOCAL_RUNS: &str = "SELECT run_id FROM runs
-     UNION SELECT DISTINCT run_id FROM events
-     ORDER BY run_id";
-
-struct VerifiedRun {
-    run_id: String,
-    events: Vec<EventEnvelope>,
-    account: Account,
-    listed: Listed,
-}
 
 fn manifest_meta(manifest: &Value) -> (&str, &str) {
     let feature = manifest
@@ -190,7 +165,12 @@ fn has_local_runs_or_events(tx: &Connection) -> Result<bool, StoreError> {
     Ok(found != 0)
 }
 
-fn refuse_decoupled_store(tx: &Connection, run_id: &str) -> Result<(), StoreError> {
+/// Refuse authoritative `runs`/`events` writes into a SQLite database already
+/// carrying decoupled projections (runs in `run_summary` absent from `runs`).
+pub(crate) fn refuse_if_decoupled_projection_db(
+    tx: &Connection,
+    run_id: &str,
+) -> Result<(), StoreError> {
     let has_runless: i64 = tx.query_row(HAS_RUNLESS_SUMMARY, [], |row| row.get(0))?;
     if has_runless != 0 {
         return Err(divergent(run_id));
@@ -273,327 +253,6 @@ fn insert_events(
     Ok(())
 }
 
-type OrdinalStreams<'a> = BTreeMap<(&'a str, Option<&'a str>), (Option<&'a str>, i64)>;
-
-fn checkpoint_ordinal<'a>(
-    envelope: &'a EventEnvelope,
-    indexed: Indexed<'a>,
-    streams: &mut OrdinalStreams<'a>,
-) -> Option<i64> {
-    if indexed.event_type != EventType::EffectCheckpointed {
-        return None;
-    }
-    let checkpoint_member = envelope
-        .payload
-        .get("checkpoint")
-        .and_then(|value| value.get("member"))
-        .and_then(Value::as_str);
-    let Some(attempt_id) = indexed
-        .attempt_id
-        .filter(|_| checkpoint_member == indexed.member)
-    else {
-        return Some(0);
-    };
-    let effect_id = envelope.payload.get("effect_id").and_then(Value::as_str);
-    let (last_effect, ordinal) = streams
-        .entry((attempt_id, indexed.member))
-        .or_insert((effect_id, 0));
-    if *last_effect != effect_id {
-        *last_effect = effect_id;
-        *ordinal = 1;
-    } else {
-        *ordinal += 1;
-    }
-    Some(*ordinal)
-}
-
-fn insert_event_index_rows(
-    tx: &Connection,
-    run_id: &str,
-    envelopes: &[EventEnvelope],
-) -> Result<(), StoreError> {
-    let mut insert = tx.prepare_cached(INSERT_EVENT_INDEX)?;
-    let mut streams = BTreeMap::new();
-    for envelope in envelopes {
-        let seq = checked_seq(envelope.seq)?;
-        let indexed = Indexed::of(envelope);
-        let ordinal = checkpoint_ordinal(envelope, indexed, &mut streams);
-        insert.execute(params![
-            run_id,
-            seq,
-            indexed.event_type.as_str(),
-            indexed.attempt_id,
-            indexed.member,
-            indexed.recorded_at,
-            envelope.event_id,
-            ordinal,
-        ])?;
-    }
-    Ok(())
-}
-
-fn listed_for_projection(
-    tx: &Connection,
-    run_id: &str,
-    fallback: &Listed,
-) -> Result<Listed, StoreError> {
-    let row: Option<(String, String)> = tx
-        .query_row(
-            "SELECT feature, created_at FROM runs WHERE run_id = ?1",
-            params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()?;
-    if let Some((feature, created_at)) = row {
-        return Ok(Listed::new(&feature, &created_at));
-    }
-    if fallback.listing().feature.is_empty() {
-        let existing: Option<String> = tx
-            .query_row(
-                "SELECT feature FROM run_summary
-                 WHERE run_id = ?1 AND feature IS NOT NULL AND feature != ''",
-                params![run_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if let Some(feature) = existing {
-            return Ok(Listed::new(&feature, fallback.listing().created_at));
-        }
-    }
-    Ok(fallback.clone())
-}
-
-fn write_full_projection(
-    tx: &Connection,
-    run_id: &str,
-    events: &[EventEnvelope],
-    account: &Account,
-    fallback_listed: &Listed,
-) -> Result<(), StoreError> {
-    let listed = listed_for_projection(tx, run_id, fallback_listed)?;
-    summary::upsert(tx, run_id, &Summary::of(account, listed.listing()))?;
-    seat_summary::write(tx, account, None)?;
-    insert_event_index_rows(tx, run_id, events)?;
-    event_index::write_parks(tx, account)?;
-    event_index::write_all_checkpoints(tx, account)?;
-    Ok(())
-}
-
-fn clear_projections(tx: &Connection) -> Result<(), StoreError> {
-    for table in PROJECTION_TABLES {
-        tx.execute(&format!("DELETE FROM {table}"), [])?;
-    }
-    Ok(())
-}
-
-fn clear_run_projections(tx: &Connection, run_id: &str) -> Result<(), StoreError> {
-    for table in PROJECTION_TABLES {
-        let sql = format!("DELETE FROM {table} WHERE run_id = ?1");
-        tx.execute(&sql, params![run_id])?;
-    }
-    Ok(())
-}
-
-fn clear_stale_projections(
-    tx: &Connection,
-    pre_existing: &[String],
-    keep: &BTreeSet<&str>,
-) -> Result<(), StoreError> {
-    for run_id in pre_existing {
-        if !keep.contains(run_id.as_str()) {
-            clear_run_projections(tx, run_id)?;
-        }
-    }
-    Ok(())
-}
-
-enum ProjectionStream {
-    Colocated(Vec<EventEnvelope>),
-    Decoupled(Vec<EventEnvelope>),
-}
-
-fn is_projection_current(
-    tx: &Connection,
-    run_id: &str,
-    (expected_seq, expected_hash): (i64, &str),
-    allow_ahead: bool,
-) -> Result<bool, StoreError> {
-    let progress: Option<(i64, Option<i64>, String)> = tx
-        .query_row(
-            "SELECT head_seq, folded_seq, head_hash FROM run_summary WHERE run_id = ?1",
-            params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()?;
-    Ok(match progress {
-        Some((head_seq, folded_seq, head_hash)) => {
-            folded_seq == Some(head_seq)
-                && ((allow_ahead && head_seq > expected_seq)
-                    || (head_seq == expected_seq && head_hash == expected_hash))
-        }
-        None => false,
-    })
-}
-
-fn read_index_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<[Option<String>; 6]> {
-    Ok([
-        r.get(0)?,
-        r.get(1)?,
-        r.get(2)?,
-        r.get(3)?,
-        r.get(4)?,
-        r.get(5)?,
-    ])
-}
-
-fn verify_decoupled_prefix(
-    tx: &Connection,
-    run_id: &str,
-    envelopes: &[EventEnvelope],
-) -> Result<(), StoreError> {
-    let incoming_max = checked_seq(envelopes.len() as u64)?;
-    let stored = tx
-        .prepare(DECOUPLED_PREFIX)?
-        .query_map(params![run_id, incoming_max], read_index_row)?
-        .collect::<Result<Vec<_>, _>>()?;
-    let incoming: Vec<[Option<String>; 6]> = envelopes
-        .iter()
-        .map(|envelope| {
-            let indexed = Indexed::of(envelope);
-            [
-                Some(envelope.seq.to_string()),
-                Some(indexed.event_type.as_str().to_string()),
-                indexed.attempt_id.map(str::to_string),
-                indexed.member.map(str::to_string),
-                Some(indexed.recorded_at.to_string()),
-                Some(envelope.event_id.clone()),
-            ]
-        })
-        .collect();
-    if stored != incoming {
-        return Err(divergent(run_id));
-    }
-    Ok(())
-}
-
-fn verify_decoupled_chain(
-    tx: &Connection,
-    run_id: &str,
-    envelopes: &[EventEnvelope],
-) -> Result<(), StoreError> {
-    let existing: Option<(i64, String)> = tx
-        .query_row(
-            "SELECT head_seq, head_hash FROM run_summary WHERE run_id = ?1 AND head_seq > 0",
-            params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()?;
-    let Some((existing_head_seq, existing_head_hash)) = existing else {
-        return Ok(());
-    };
-    let incoming_max = checked_seq(envelopes.len() as u64)?;
-    if incoming_max >= existing_head_seq {
-        let at_head = &envelopes[(existing_head_seq - 1) as usize];
-        if at_head.event_hash != existing_head_hash {
-            return Err(divergent(run_id));
-        }
-    } else {
-        verify_decoupled_prefix(tx, run_id, envelopes)?;
-    }
-    Ok(())
-}
-
-fn resolve_projection_stream(
-    tx: &Connection,
-    run_id: &str,
-    envelopes: &[EventEnvelope],
-) -> Result<ProjectionStream, StoreError> {
-    if has_local_runs_or_events(tx)? {
-        let local = load_verified_local(tx, run_id)?;
-        let matched: Vec<EventEnvelope> = local
-            .iter()
-            .skip_while(|event| event.seq < envelopes[0].seq)
-            .take(envelopes.len())
-            .cloned()
-            .collect();
-        if serde_json::to_vec(&matched)? != serde_json::to_vec(envelopes)? {
-            return Err(divergent(run_id));
-        }
-        Ok(ProjectionStream::Colocated(local))
-    } else {
-        verify_chain_for_sqlite(run_id, (0, ZERO_HASH), envelopes)?;
-        verify_decoupled_chain(tx, run_id, envelopes)?;
-        Ok(ProjectionStream::Decoupled(envelopes.to_vec()))
-    }
-}
-
-fn verify_local_events_match(
-    tx: &Connection,
-    verified: &[VerifiedRun],
-) -> Result<bool, StoreError> {
-    let local_runs = query_strings(tx, LOCAL_RUNS)?;
-    if local_runs.is_empty() {
-        return Ok(false);
-    }
-    let mut expected: BTreeMap<&str, &[EventEnvelope]> = verified
-        .iter()
-        .map(|run| (run.run_id.as_str(), run.events.as_slice()))
-        .collect();
-    for run_id in local_runs {
-        let local = load_verified_local(tx, &run_id)?;
-        let Some(external) = expected.remove(run_id.as_str()) else {
-            return Err(StoreError::DivergentEventLog { run_id });
-        };
-        if serde_json::to_vec(&local)? != serde_json::to_vec(external)? {
-            return Err(StoreError::DivergentEventLog { run_id });
-        }
-    }
-    if let Some((extra, _)) = expected.into_iter().next() {
-        return Err(divergent(extra));
-    }
-    Ok(true)
-}
-
-fn rebuild_colocated(tx: &Connection, verified: &[VerifiedRun]) -> Result<u64, StoreError> {
-    clear_projections(tx)?;
-    let mut total = 0u64;
-    for run in verified {
-        write_full_projection(tx, &run.run_id, &run.events, &run.account, &run.listed)?;
-        total += run.events.len() as u64;
-    }
-    Ok(total)
-}
-
-fn rebuild_decoupled(
-    tx: &Connection,
-    verified: &[VerifiedRun],
-    pre_existing: &[String],
-) -> Result<u64, StoreError> {
-    let keep: BTreeSet<&str> = verified.iter().map(|run| run.run_id.as_str()).collect();
-    clear_stale_projections(tx, pre_existing, &keep)?;
-    let mut total = 0u64;
-    for run in verified {
-        let Some(last) = run.events.last() else {
-            continue;
-        };
-        let scanned_head = checked_seq(last.seq)?;
-        let current: Option<(i64, Option<i64>)> = tx
-            .query_row(
-                "SELECT head_seq, folded_seq FROM run_summary WHERE run_id = ?1",
-                params![run.run_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        if current.is_some_and(|(head, folded)| head > scanned_head && folded == Some(head)) {
-            continue;
-        }
-        clear_run_projections(tx, &run.run_id)?;
-        write_full_projection(tx, &run.run_id, &run.events, &run.account, &run.listed)?;
-        total += run.events.len() as u64;
-    }
-    Ok(total)
-}
-
 impl EventLog for SqlitePorts<'_> {
     fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError> {
         import::recordable(run_id)?;
@@ -602,7 +261,6 @@ impl EventLog for SqlitePorts<'_> {
         let host = origin::local_host();
         patiently("create_run", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
-            refuse_decoupled_store(&tx, run_id)?;
             let row = Row {
                 run_id,
                 feature,
@@ -651,23 +309,30 @@ impl EventLog for SqlitePorts<'_> {
         let listed = listing_from(Some(manifest), envelopes);
         let (_, bundle_name) = manifest_meta(manifest);
         let manifest_json = serde_json::to_string(manifest)?;
-        let created_at = if listed.listing().created_at.is_empty() {
-            now_rfc3339()
-        } else {
-            listed.listing().created_at.to_string()
-        };
         let feature = listed.listing().feature;
+        let created_at = listed.listing().created_at;
         patiently("import_run", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
-            refuse_decoupled_store(&tx, run_id)?;
-            refuse_existing(&tx, run_id)?;
-            tx.execute(
-                "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![run_id, feature, bundle_name, manifest_json, created_at],
-            )?;
-            let mut head_seq = 0;
-            insert_events(&tx, run_id, &mut head_seq, envelopes, false)?;
+            if envelopes.is_empty() {
+                let row = Row {
+                    run_id,
+                    feature,
+                    bundle_name,
+                    manifest: &manifest_json,
+                    origin: None,
+                };
+                start::insert_run(&tx, &row)?;
+            } else {
+                refuse_if_decoupled_projection_db(&tx, run_id)?;
+                refuse_existing(&tx, run_id)?;
+                tx.execute(
+                    "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![run_id, feature, bundle_name, manifest_json, created_at],
+                )?;
+                let mut head_seq = 0;
+                insert_events(&tx, run_id, &mut head_seq, envelopes, false)?;
+            }
             tx.commit()?;
             Ok(())
         })
@@ -713,30 +378,41 @@ impl EventLog for SqlitePorts<'_> {
 impl ProjectionStore for SqlitePorts<'_> {
     fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
         verify_batch_envelopes(run_id, envelopes)?;
-        if envelopes.is_empty() {
-            return Ok(());
-        }
         patiently("apply_envelopes", self.0.patience, &self.0.path, || {
-            let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
-            let resolved = resolve_projection_stream(&tx, run_id, envelopes)?;
-            let (stream, allow_ahead) = match &resolved {
-                ProjectionStream::Colocated(events) => (events.as_slice(), false),
-                ProjectionStream::Decoupled(events) => (events.as_slice(), true),
-            };
-            let head = stream.last().expect("stream is non-empty");
-            let target = (checked_seq(head.seq)?, head.event_hash.as_str());
-            if is_projection_current(&tx, run_id, target, allow_ahead)? {
+            if envelopes.is_empty() {
+                if has_local_runs_or_events(&self.0.conn)? && !has_run(&self.0.conn, run_id)? {
+                    return Err(divergent(run_id));
+                }
                 return Ok(());
             }
-            let listed = listing_from(None, stream);
-            let account = Account::whole(run_id, stream);
-            write_full_projection(&tx, run_id, stream, &account, &listed)?;
-            tx.commit()?;
-            Ok(())
+            let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
+            match resolve_projection_plan(&tx, run_id, envelopes)? {
+                ProjectionPlan::Skip => Ok(()),
+                ProjectionPlan::Colocated(stream) => {
+                    let listed = listing_from(None, &stream);
+                    let account = Account::whole(run_id, &stream);
+                    write_full_projection(&tx, run_id, &stream, &account, &listed)?;
+                    tx.commit()?;
+                    Ok(())
+                }
+                ProjectionPlan::Decoupled(stream) => {
+                    let listed = listing_from(None, &stream);
+                    let account = Account::whole(run_id, &stream);
+                    write_decoupled_projection(&tx, run_id, &stream, &account, &listed)?;
+                    tx.commit()?;
+                    Ok(())
+                }
+            }
         })
     }
 
     fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
+        let colocated = patiently("list_runs", self.0.patience, &self.0.path, || {
+            has_local_runs_or_events(&self.0.conn)
+        })?;
+        if colocated {
+            return self.0.list_runs();
+        }
         patiently("list_runs", self.0.patience, &self.0.path, || {
             Ok(self
                 .0
