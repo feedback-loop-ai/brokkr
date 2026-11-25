@@ -607,7 +607,7 @@ impl Engine {
     /// Wait the recorded remainder in bounded slices, honouring an operator
     /// `stop` through the journal's high-water mark. `true` is a stop:
     /// nothing may probe or retry after it.
-    fn wait_in_slices(&mut self, until: OffsetDateTime) -> Result<bool, EngineError> {
+    pub(super) fn wait_in_slices(&mut self, until: OffsetDateTime) -> Result<bool, EngineError> {
         // Sample BEFORE the first stop check: an event journaled between
         // the caller's fold and this sample is then still a change, and the
         // check below sees it now rather than the sample swallowing it.

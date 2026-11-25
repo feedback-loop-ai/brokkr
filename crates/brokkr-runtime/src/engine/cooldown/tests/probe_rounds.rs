@@ -1100,6 +1100,22 @@ fn a_stop_journaled_before_the_first_slice_is_honoured() {
     );
 }
 
+#[test]
+fn a_run_that_left_the_effect_sleeps_no_slice() {
+    let (dir, mut engine, _) = waited_round_fixture();
+    let now = Arc::new(Mutex::new(base()));
+    let (clock, slept) = super::held_charge::sleeping(&now, Duration::seconds(1), |_, _| {});
+    engine.cooldown.clock = clock;
+    append_stop(&dir.path().join("forge.db"), &engine.run_id);
+
+    let stopped = engine
+        .wait_in_slices(base() + Duration::seconds(2))
+        .unwrap();
+    let slices = *slept.lock().unwrap();
+    drive_to_stop(&mut engine);
+    assert_eq!((stopped, slices), (true, 0));
+}
+
 /// A resume over a round already written counts that round's remainder
 /// once: the episode through it is within the maximum, the engine waits the
 /// written end, the probe answers and the retry runs, spending no attempt.
