@@ -502,26 +502,39 @@ impl Authority {
         }))
     }
 
-    /// The holding the realm's grant of `capability` seals at `site`,
-    /// before any provider is asked to carry it: the grant reaching the
-    /// site's office, its loaded dialect, the tools it admits, GP1's gates
-    /// and the binding's own reading (design D3 steps 5 and 6). What MB4's
-    /// comparison admitted for an `mcp` binding is sealed on it here, the
-    /// one place a holding gets it (U7c0).
-    pub(super) fn sealed(&self, site: &SiteAsks, capability: &str) -> Result<Holding, Unheld> {
+    /// Choose a validated dialect for the candidate's adapter provider.
+    pub(super) fn seat_dialect(
+        &self,
+        capability: &str,
+        grant: &CapabilityGrant,
+        provider: &str,
+    ) -> Result<&ToolDialect, Cause> {
+        match &grant.dialect {
+            GrantDialect::Single(name) => self
+                .dialect(capability)
+                .map_err(|missing| Cause::incompatible(name, missing.to_string())),
+            GrantDialect::PerProvider(names) => self
+                .provider_dialects
+                .get(capability)
+                .and_then(|dialects| dialects.get(provider))
+                .ok_or_else(|| Cause::ProviderUnavailable {
+                    provider: provider.into(),
+                    served: names.keys().cloned().collect(),
+                }),
+        }
+    }
+
+    /// Seal the holding after the grant reaches the office and the
+    /// candidate's provider has selected its dialect. GP1's gates, the
+    /// tool set and the binding's own reading apply to that dialect.
+    pub(super) fn sealed(
+        &self,
+        site: &SiteAsks,
+        capability: &str,
+        provider: &str,
+    ) -> Result<Holding, Unheld> {
         let grant = self.reaching(site, capability)?;
-        let name = match &grant.dialect {
-            GrantDialect::Single(name) => name,
-            GrantDialect::PerProvider(_) => {
-                return Err(Cause::Ungranted(
-                    "per-provider tool dialects are not yet supported".into(),
-                )
-                .into())
-            }
-        };
-        let dialect = self
-            .dialect(capability)
-            .map_err(|missing| Cause::incompatible(name, missing.to_string()))?;
+        let dialect = self.seat_dialect(capability, grant, provider)?;
         let tools = grant.tools.clone().unwrap_or_else(|| dialect.tools.clone());
         if tools.is_empty() {
             let none = "the realm's grant admits no tool".to_string();

@@ -1165,7 +1165,7 @@ impl Authority {
         capability: &str,
         serving: &Serving<'_>,
     ) -> Result<(Holding, Option<String>), Unheld> {
-        let holding = self.sealed(site, capability)?;
+        let holding = self.sealed(site, capability, serving.provider)?;
         (holding.collision(serving.auth)).map_err(|unserved| unserved.unheld(&holding.dialect))?;
         let through = |but| Unheld::Cause(Cause::incompatible(&holding.dialect, but));
         let (tools, provider, realm) = (&holding.tools, serving.provider, &self.context.realm);
@@ -1257,7 +1257,7 @@ impl Authority {
                     return Err(cause.required(who, capability));
                 }
                 Err(Unheld::Cause(cause)) => {
-                    // `through` is empty where no grant was found at all.
+                    // `through` names the grant when the cause carries one.
                     dropped.push((capability.clone(), cause.through(), cause.but()));
                     not_held.insert(capability.clone(), cause.but());
                 }

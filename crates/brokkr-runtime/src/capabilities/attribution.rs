@@ -105,7 +105,7 @@ impl Authority {
                 Implementation::Mcp { .. } => continue,
             }
             let dialect = self
-                .dialect(capability)
+                .seat_dialect(capability, &self.context.grants[capability], provider)
                 .expect("a held capability's dialect is loaded");
             representable(capability, dialect, &holding.tools).map_err(|_| {
                 Refusal::Unrepresentable {

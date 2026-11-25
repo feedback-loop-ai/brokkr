@@ -335,8 +335,9 @@ fn the_resolver_seals_an_admitted_mcp_grant_on_its_holding_and_the_fence_still_f
     let site = asks(json!({"library-docs": "requires"}));
     let resolver = docs_at(root.path(), "local", None);
     let required = |cause: Cause| cause.required(resolver.who(&site), "library-docs");
-    let sealed =
-        |egress, minimum| docs_at(root.path(), egress, minimum).sealed(&site, "library-docs");
+    let sealed = |egress, minimum| {
+        docs_at(root.path(), egress, minimum).sealed(&site, "library-docs", "test-native")
+    };
     let digest = docs_at(root.path(), "local", None).dialects["library-docs"]
         .sha256
         .clone();

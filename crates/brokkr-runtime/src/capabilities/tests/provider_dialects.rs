@@ -158,3 +158,98 @@ fn an_mcp_dialect_can_serve_any_provider_key() {
         ]
     );
 }
+
+fn claude_search(root: &Path) {
+    let mut search = native_dialect("search-claude", "web-search", &["lookup", "search"]);
+    search["provider"] = json!("claude");
+    dialect(root, &search);
+}
+
+#[test]
+fn each_provider_holds_and_records_only_its_own_native_dialect() {
+    let root = cq1_root();
+    claude_search(root.path());
+    let written = json!({
+        "dialects": {"claude": "search-claude", "test-native": "search-native"},
+        "offices": ["researcher"],
+        "retain": false
+    });
+    let authority = Authority::load(context_at(
+        SCHEMA_V9,
+        root.path(),
+        json!({"web-search": written}),
+    ))
+    .unwrap();
+    let native = switchable();
+    let site = asks(json!({"web-search": "requires"}));
+    let realm = authority.manifest(&[]);
+    assert_eq!(realm["grants"]["web-search"], written);
+    assert_eq!(
+        realm["dialects"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["search-claude", "search-native"],
+    );
+    for (provider, name) in [
+        ("claude", "search-claude"),
+        ("test-native", "search-native"),
+    ] {
+        let candidate = Serving {
+            provider,
+            ..serving(&native)
+        };
+        let outcome = authority.resolve(&site, &candidate).unwrap();
+        let record = outcome.manifest();
+        let held = &record["held"]["web-search"];
+        assert_eq!(held["dialect"], name);
+        assert_eq!(held["dialect_sha256"], realm["dialects"][name]["sha256"]);
+        assert_eq!(held["implementation"]["provider"], provider);
+        assert_eq!(held["retention"]["realm"], "veto");
+        assert_eq!(record["notices"], json!([]));
+        assert_eq!(argv_of(&outcome), ["--search-on"]);
+    }
+}
+
+#[test]
+fn a_provider_without_a_key_never_holds_another_providers_dialect() {
+    use super::binding::WHO;
+
+    let root = cq1_root();
+    claude_search(root.path());
+    let authority = Authority::load(provider_context(
+        root.path(),
+        "web-search",
+        json!({"claude": "search-claude"}),
+    ))
+    .unwrap();
+    let native = switchable();
+    let resolve =
+        |strength| authority.resolve(&asks(json!({"web-search": strength})), &serving(&native));
+    let cause =
+        "provider 'test-native' has no dialect in this grant, which serves providers [claude]";
+    assert_eq!(
+        resolve("requires").unwrap_err(),
+        format!(
+            "{WHO}: requires capability 'web-search' through the realm's per-provider grant, \
+             but {cause}; the capability cannot be held under this grant"
+        )
+    );
+    let outcome = resolve("wants").unwrap();
+    let record = outcome.manifest();
+    assert_eq!(record["held"], json!({}));
+    assert_eq!(argv_of(&outcome), ["--search-off"]);
+    assert_eq!(
+        record["not_held"]["web-search"],
+        format!("{cause}; native capability remains OFF")
+    );
+    assert_eq!(
+        record["notices"],
+        json!([format!(
+            "{WHO}: dropped wanted capability 'web-search' through the realm's \
+             per-provider grant because {cause}; native capability remains OFF"
+        )])
+    );
+}
