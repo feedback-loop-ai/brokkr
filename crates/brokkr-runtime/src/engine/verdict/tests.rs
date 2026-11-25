@@ -4,7 +4,7 @@
 
 use serde_json::{json, Value};
 
-use crate::bundle::{Aggregate, GateAssessment, Invocation, SeatBody, SiteKey};
+use crate::bundle::{Aggregate, GateAssessment, Invocation, Limits, SeatBody, SiteKey};
 use crate::engine::heads::HeadReads;
 use crate::engine::tests::{accepted, bundle, capabilities, git_commit, member, single_body, wire};
 use crate::engine::Engine;
@@ -126,6 +126,11 @@ pub(super) fn begun(
     git_commit(&work, "base");
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let mut compiled = bundle(dir.path(), body);
+    // Keep engine/tests.rs's 2-second fixture timeout for tests that read it,
+    // while giving verdict runs the default timeout so a loaded host never
+    // times out `work`'s scripted driver before review runs.
+    let work_seat = compiled.seats.get_mut("work").unwrap();
+    work_seat.limits.timeout_seconds = Limits::default().timeout_seconds;
     shape(&mut compiled);
     let heads = heads(&work);
     let mut engine = Engine::start(store, compiled, "findings", Some(work)).unwrap();
