@@ -638,6 +638,7 @@ fn invoke(
         refusal,
         answer: None,
         launch: LaunchTerminal::Cold,
+        result_exists: None,
     })
 }
 

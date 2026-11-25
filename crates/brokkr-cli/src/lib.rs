@@ -53,6 +53,8 @@ pub use crate::budget_frame::{
 #[doc(hidden)]
 pub use crate::tui::transcript_surfaces_for_test;
 #[doc(hidden)]
+pub use crate::tui_read::tui_transcript_for_test;
+#[doc(hidden)]
 pub use local_transcript::read_local;
 #[doc(hidden)]
 pub use ui::{handle, Response};

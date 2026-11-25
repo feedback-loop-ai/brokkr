@@ -52,6 +52,7 @@ pub brokkr_view::transcript::LegacyProvenance::Claude
 pub brokkr_view::transcript::LegacyProvenance::LaneTally
 pub brokkr_view::transcript::LegacyProvenance::Other
 pub enum brokkr_view::transcript::TranscriptKind
+pub brokkr_view::transcript::TranscriptKind::AgyConversation
 pub brokkr_view::transcript::TranscriptKind::ClaudeSession
 pub brokkr_view::transcript::TranscriptKind::CodexThread
 pub brokkr_view::transcript::TranscriptKind::DshSession
@@ -88,6 +89,7 @@ pub fn brokkr_view::transcript::Block::text(impl core::convert::Into<alloc::stri
 pub fn brokkr_view::transcript::Block::tool(impl core::convert::Into<alloc::string::String>) -> brokkr_view::transcript::Block
 pub fn brokkr_view::transcript::Block::tool_result(impl core::convert::Into<alloc::string::String>) -> brokkr_view::transcript::Block
 pub struct brokkr_view::transcript::Projection
+pub brokkr_view::transcript::Projection::notices: alloc::vec::Vec<alloc::string::String>
 pub brokkr_view::transcript::Projection::skipped_lines: u64
 pub brokkr_view::transcript::Projection::truncated: bool
 pub brokkr_view::transcript::Projection::turns: alloc::vec::Vec<brokkr_view::transcript::Turn>

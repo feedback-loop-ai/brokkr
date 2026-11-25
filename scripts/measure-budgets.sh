@@ -44,6 +44,7 @@ report() {
   report cargo test --locked -p brokkr-cli --test heap_claude
   report cargo test --locked -p brokkr-cli --test heap_codex
   report cargo test --locked -p brokkr-cli --test heap_dsh
+  report cargo test --locked -p brokkr-cli --test heap_agy
   report cargo test --locked -p brokkr-cli --test heap_fleet
   report cargo test --locked -p brokkr-cli --test heap_open
   report cargo test --locked -p brokkr-cli --test heap_run_view
@@ -70,7 +71,7 @@ grep -oE "wall${tab}[a-z0-9-]+${tab}[0-9]+\$" "$scratch/release" > "$scratch/wal
 
 [[ -s "$scratch/prompts" ]] || { printf 'measure-budgets: the prompt test reported no site\n' >&2; exit 1; }
 [[ "$(wc -l < "$scratch/packages")" -eq 1 ]] || { printf 'measure-budgets: the crate count was not reported once\n' >&2; exit 1; }
-[[ "$(wc -l < "$scratch/peaks")" -eq 27 ]] || { printf 'measure-budgets: not every transcript kind, fleet page, listing, opening, run view, run frame, detail window, seat view, costs and compare reported its peak\n' >&2; exit 1; }
+[[ "$(wc -l < "$scratch/peaks")" -eq 28 ]] || { printf 'measure-budgets: not every transcript kind, fleet page, listing, opening, run view, run frame, detail window, seat view, costs and compare reported its peak\n' >&2; exit 1; }
 [[ "$(wc -l < "$scratch/walls")" -eq 13 ]] || { printf 'measure-budgets: the fleet page, costs and compare did not report their wall times at both sizes, or the opening, the whole read, the run view, the run frame, the console run level, idle and at work, and the seat view theirs\n' >&2; exit 1; }
 
 jq -Rn --arg date "$(date -u +%F)" '

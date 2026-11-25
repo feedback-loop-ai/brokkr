@@ -205,6 +205,9 @@
   "hands": {
     "workspace": []
   },
+  "record_kinds": {
+    "transcript": "agy-conversation"
+  },
   "resume": {
     "stream-work-site": {
       "status": "unsupported",
@@ -218,7 +221,7 @@
         "not applicable"
       ],
       "hands": "none",
-      "reason": "agy keeps each conversation under HOME (docs/evidence/adapters/agy-cli-1-5.md, Facts), and brokkr driver agy removes the engine's HOME when the turn ends, so there is no conversation to rejoin"
+      "reason": "agy keeps each conversation under HOME (docs/evidence/adapters/agy-cli-1-5.md, Facts), and brokkr driver agy removes the engine's HOME when the turn ends, keeping only transcript.jsonl for the run view (#1227); rejoin is not built yet"
     }
   }
 }

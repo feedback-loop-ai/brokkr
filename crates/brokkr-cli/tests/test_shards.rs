@@ -108,7 +108,7 @@ run_dep() {
 }
 if [ "$1" = metadata ]; then cat "$dir/metadata.json"; exit 0; fi
 if [[ " $* " == *" --message-format=json "* ]]; then
-  for heap in heap_claude heap_codex heap_dsh; do
+  for heap in heap_claude heap_codex heap_dsh heap_agy; do
     printf '{"reason":"compiler-artifact","profile":{"test":true},"target":{"name":"%s"},"executable":"%s/%s-0123abcd"}\n' \
       "$heap" "$dir" "$heap"
   done
@@ -496,7 +496,7 @@ const SHARDS: [&str; 16] = [
     "--lib -- run_pages::",
     "--lib -- fleet::kept_tests::",
     "--test it -- --skip capability_broker::",
-    "--test heap_claude --test heap_codex --test heap_dsh",
+    "--test heap_claude --test heap_codex --test heap_dsh --test heap_agy",
     "--bin brokkr --test driver_conformance --test transcript_surfaces --test hands_exits \
      --test secret_drop --test capability_launch --test operated_repo --test queued_launch \
      --test seatbelt_lifetime_probe --test summary_heap --test heap_open --test heap_costs",
@@ -1847,7 +1847,7 @@ fn a_group_that_is_not_shown_ended_is_lost_and_names_its_members() {
 fn a_heap_child_past_the_bound_reaches_the_shards_record_and_summary() {
     let scratch = Scratch::new(&metadata(), &script());
     scratch.executable("rustc", RUSTC);
-    for heap in ["heap_claude", "heap_codex", "heap_dsh"] {
+    for heap in ["heap_claude", "heap_codex", "heap_dsh", "heap_agy"] {
         let path = scratch.dir.path().join(format!("{heap}-0123abcd"));
         std::fs::write(&path, SLEEPING_HEAP).expect("a heap child");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
@@ -1871,7 +1871,7 @@ fn a_heap_child_past_the_bound_reaches_the_shards_record_and_summary() {
     let mut expected = one_after_another(TEST, &SHARDS[..HEAPS]);
     expected.extend(one_after_another(TEST, &SHARDS[HEAPS + 1..]));
     assert_eq!(scratch.events(), expected, "a later shard did not run");
-    for heap in ["heap_claude", "heap_codex", "heap_dsh"] {
+    for heap in ["heap_claude", "heap_codex", "heap_dsh", "heap_agy"] {
         let pid = recorded_pid(&scratch, &format!("{heap}-0123abcd.pid"));
         poll(|| !process_alive(pid));
         assert!(!process_alive(pid), "{heap}-0123abcd {pid} still runs");

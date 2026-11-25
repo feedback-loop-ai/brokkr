@@ -365,3 +365,126 @@ check in `crates/brokkr-runtime/src/agents/kinds.rs` and
 `engine::kinds_tests`, whose fixture harness no code names seats,
 records, verifies, exports and renders, and whose undeclared kind is
 refused at append.
+
+## Addendum — 2026-11-24, Antigravity CLI level 2 kept transcripts
+
+Addendum status: proposed
+
+Keeping a turn's transcript file in the operator's state directory after an
+Antigravity CLI seat ends is a new effect on disk (`#1227`, decision 0075
+level 2).
+
+- **What is kept and where.** When a seat's loaded adapter declares
+  `record_kinds.transcript: "agy-conversation"` (carried from the engine in
+  `resume_context.declared_transcript_kind` through one shared type in
+  `brokkr-protocol`, `DeclaredTranscriptKind`, using the one declared-kind
+  grammar in `brokkr-core` shared with the adapter loader and runtime and
+  refusing `"none"`, over-long words and invalid spellings; an unreadable or
+  refused value refuses the launch naming
+  `resume_context.declared_transcript_kind` rather than recording `none`),
+  `brokkr driver agy` copies one file —
+  `<engine HOME>/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`
+  — out of the engine's temporary HOME after `agy` exits and before the engine
+  HOME is removed, into
+  `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/transcript.jsonl`
+  (beside `~/.local/state/brokkr/dsh-homes/`). The conversation database,
+  `transcript_full.jsonl`, `chunks/` and `steps/` are not kept.
+- **Modes, bounds and untrusted-source checks.** `<id>` must be a single
+  exact 36-byte lowercase UUID (`8-4-4-4-12`, one shared helper in
+  `brokkr-core`) read beside the fold without changing the fold's `init` type
+  (absent, non-string, repeated, or non-UUID values yield `InvalidId` and
+  `none` while leaving model confirmation and the turn's verdict unchanged).
+  Before publishing, the driver validates the reference it will record against
+  the same home and path rule the run view uses (`is_valid_transcript_home`,
+  `is_native_transcript_home`, and `is_clean_transcript_path` in
+  `brokkr-core`), so a relative operator `HOME`, a non-native drive or UNC
+  spelling, or one carrying a control character such as a newline keeps
+  nothing with a typed notice (`KeepNotice::InvalidReference`). Every component under
+  the engine HOME is opened with `O_NOFOLLOW`, the leaf must be a regular
+  file, and the copy is bounded at the shared 32 MiB source cap
+  (`TRANSCRIPT_SOURCE_CAP`). Ancestors above `agy-conversations`
+  (`~/.local/state/brokkr` and up) are traversed and, if missing, created with
+  `create_dir_all`, asking nothing of an existing ancestor that the operating
+  system does not ask to traverse it and create an entry in it (an existing
+  ancestor of mode 0300 succeeds). No mode is changed by pathname:
+  `agy-conversations` and each conversation directory that the keeper creates
+  is created with `mkdirat` at mode 0700, opened with `O_NOFOLLOW`, verified by
+  `(st_dev, st_ino)` against the `statat` taken right after `mkdirat`, and set
+  to mode 0700 through that verified handle with `fchmod`, while an existing
+  directory's mode is never changed. When the umask makes a directory the
+  keeper has just created impossible for its owner to open, no transcript is
+  kept and that directory is removed through `unlink_if_same` so nothing of the
+  attempt remains (a umask that leaves a newly created directory openable, such
+  as 0100 leaving mode 0600, is opened, set to 0700 through the verified
+  handle, and keeps the transcript); a replaced entry is left untouched
+  (`KeepNotice::ReplacedDirectory`) with nothing kept. The `agy-conversations` parent is checked to be a real directory
+  (never a symlink) owned by the effective UID with no group or other access
+  (`mode & 0o077 == 0`); if an existing owner-only parent is not writable by
+  the owner (for example mode 0500), creating the conversation directory fails
+  with a typed keep notice (`KeepNotice::Io`, recording `none`) and leaves the
+  turn unchanged. The kept file is set to mode 0600 through `fchmod`, tightening agy's
+  measured 0644 mode.
+- **Only copy and kept-file rule.** The kept `transcript.jsonl` is the only
+  copy that survives removal of the engine HOME. The driver and the engine are
+  two processes, so the driver can only keep nothing in the cases it can see.
+  Those are: a probe (unchanged from main: nothing kept, no notice, answer
+  untouched); a refusal to start (judged by the one pure `refusal_to_start`
+  predicate over a single observation of `result_path` made in `agy::concluded`
+  immediately after `agy` exits and passed along on `Invocation` to
+  `run_seat_with`); no `init` with a conversation; an id that is not a UUID; a
+  source that is not a regular file reached without a symbolic link; a file
+  over the bound; a reference the reader's rule rejects; a row the turn's
+  masking would change (checked by building the exact `Emitted::transcript`
+  row and passing it through the shared path's `probe::seat_row`, keeping
+  nothing with a typed notice naming no value if any byte differs from the
+  unmasked row); and an undeclared kind. What the driver cannot see is the
+  engine refusing the row after the driver has returned. Then a kept file with
+  no record can remain; it is readable only by the operator, and the reaper of
+  issue `#1323` removes kept files that no journal names.
+- **Same-user directory limit.** The stated limit is the class of processes
+  running as the operator's own user that create, rename, move, replace or
+  remove entries under the operator's `agy-conversations` directory while a
+  keep is in progress (operator ruling of 2026-11-25 on `#1227`). The keeper
+  runs as that same user: everything such a process can make the keeper do —
+  write a file into a directory it controls, set a directory it owns to mode
+  0700, remove an entry it owns — that process can already do itself with the
+  same system calls, crossing no privilege boundary and reaching nothing of
+  another user's. Against that class the keeper promises no outcome (for
+  example, not where the transcript ends up if that process moves the
+  directory, not which entry is removed if that process swaps one in between
+  `statat` and `unlinkat`, and not what the record's home names if that
+  process renames a parent). What the code holds are four testable mechanisms:
+  (m1) every open for the kept place is an `openat` relative to a held handle
+  with `O_NOFOLLOW` on the final component, so it never traverses a symbolic
+  link placed at a name it opens; (m2) no system call changes a mode by
+  pathname, only `fchmod` on a handle; (m3) the transcript file is created
+  with `O_CREAT | O_EXCL | O_NOFOLLOW` relative to the conversation
+  directory's handle, so an existing entry at that name is never opened or
+  truncated; (m4) every `unlinkat` is preceded by a `statat` through the same
+  parent handle whose `(st_dev, st_ino)` equals the recorded identity, and is
+  skipped when they differ. When no such process acts on the tree during a
+  keep, the kept place, modes, refusals and rollback guarantees above hold.
+- **Reaping.** Nothing reaps `~/.local/state/brokkr/agy-conversations/` in
+  this story, as nothing reaps `~/.local/state/brokkr/dsh-homes/`; a shared
+  reaper is tracked as `#1323`.
+- **At-rest secrecy and masking.** As measured in
+  `l2b-printed-value.transcript.ndjson`, a bound secret printed by a tool lands
+  in `transcript.jsonl` in clear. Like Claude Code's session files, the kept
+  file at rest is **not** masked; only the operator's UID can read it (private
+  owner-only parent, 0700 conversation directory, 0600 file). Every run-view
+  surface (`brokkr runs transcript`, the TUI and the browser) reads the kept
+  file through the shared `read_local` and `mask_secrets` path against
+  `secrets.env` beside the journal; `mask_secrets` visits `Turn.ts` as well as
+  every block's text, for every transcript kind. The agy reader never re-parses
+  and never re-serializes what a row holds as a string: each member of
+  `tool_calls[].args` is rendered as `name=value` with string values verbatim
+  (already JSON-encoded once by agy, matching claude and codex) and non-string
+  values as compact JSON, so `mask_secrets` covers every raw or once-escaped
+  bound value including bound JSON text. `created_at` admits only exact
+  20-byte `YYYY-MM-DDTHH:MM:SSZ` timestamps; any other present value
+  (including JSON `null`) becomes an empty timestamp and is counted in a
+  notice while keeping the row shown, while only an absent member is not
+  counted.
+- **Follow-ups.** Rejoin (`--conversation`, serialized per conversation) is the
+  next story; applied effort from per-row model slugs is `#1324`; the shared
+  reaper is `#1323`.
