@@ -593,10 +593,9 @@ fn held_rounds(
     if !cool_downs_writable(conn)? {
         return Ok(BTreeMap::new());
     }
-    let mut statement = conn.prepare(
-        "SELECT rounds, max_seconds FROM provider_cooldowns
-         WHERE run_id = ?1 AND event_seq = ?2 AND site = ?3 AND held = 1",
-    )?;
+    const HELD_ROUNDS: &str = "SELECT rounds, max_seconds FROM provider_cooldowns
+         WHERE run_id = ?1 AND event_seq = ?2 AND site = ?3 AND held = 1";
+    let mut statement = conn.prepare(HELD_ROUNDS)?;
     let kinds = statement.query_map(params![run_id, event_seq as i64, site], |row| {
         Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
     })?;
