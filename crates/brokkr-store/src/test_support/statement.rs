@@ -33,7 +33,10 @@ pub fn before_statement<T>(
     let guard = Cleared;
     store
         .conn
-        .trace_v2(TraceEventCodes::SQLITE_TRACE_STMT, Some(begun))
+        .trace_v2(
+            TraceEventCodes::SQLITE_TRACE_STMT | TraceEventCodes::SQLITE_TRACE_PROFILE,
+            Some(begun),
+        )
         .expect("a statement trace installs");
     let read = read(store);
     let ran = BETWEEN.with(|slot| slot.borrow().is_none());
