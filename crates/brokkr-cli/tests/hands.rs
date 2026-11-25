@@ -85,6 +85,8 @@ fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
         root_arg,
         "--reach",
         &reach(&work),
+        "--spec",
+        "\"workspace\"",
     ])
     .stdin(Stdio::piped())
     .stdout(Stdio::piped())
@@ -138,6 +140,8 @@ fn serving(tmp: &Path) -> (std::process::Child, PathBuf) {
         root_arg,
         "--reach",
         &reach(tmp),
+        "--spec",
+        "\"workspace\"",
     ])
     .env("TMPDIR", tmp)
     .stdin(Stdio::piped())
@@ -1030,4 +1034,701 @@ fn boxed_exec_settles_under_load() {
         cores * 2
     );
     assert_eq!(failed, Vec::<(usize, &str)>::new());
+}
+
+struct HandsFixture {
+    tmp: tempfile::TempDir,
+    work_arg: String,
+    root_arg: String,
+    reach_json: String,
+}
+
+impl HandsFixture {
+    fn new() -> Self {
+        let tmp = tempfile::tempdir().unwrap();
+        let artifacts = artifact_root(&tmp.path().join("state"));
+        let work_arg = tmp.path().to_str().unwrap().to_string();
+        let root_arg = artifacts.to_str().unwrap().to_string();
+        let reach_json = reach(tmp.path());
+        Self {
+            tmp,
+            work_arg,
+            root_arg,
+            reach_json,
+        }
+    }
+
+    fn argv<'a>(&'a self, verb: &'a str, extra: &[&'a str]) -> Vec<&'a str> {
+        let mut args = vec![
+            "hands",
+            verb,
+            "--workdir",
+            &self.work_arg,
+            "--artifacts",
+            &self.root_arg,
+        ];
+        args.extend_from_slice(extra);
+        args
+    }
+
+    fn assert_refused(&self, verb: &str, extra: &[&str], expected_stderr: &str) {
+        let out = crate::built::brokkr(self.argv(verb, extra))
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "expected exit 1, stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&out.stderr), expected_stderr);
+    }
+
+    fn assert_serve_refused(&self, extra: &[&str], expected_stderr: &str) {
+        self.assert_refused("serve", extra, expected_stderr);
+    }
+
+    fn ping_serve(&self, extra_args: &[&str]) {
+        let mut child = crate::built::brokkr(self.argv("serve", extra_args))
+            .env("TMPDIR", self.tmp.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(
+            child.stdin.as_mut().unwrap(),
+            r#"{{"jsonrpc":"2.0","id":1,"method":"ping"}}"#
+        )
+        .unwrap();
+        drop(child.stdin.take());
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "{\"id\":1,\"jsonrpc\":\"2.0\",\"result\":{}}\n"
+        );
+    }
+}
+
+#[test]
+fn hands_serve_accepts_base64url_documents_and_refuses_invalid_spellings() {
+    let fx = HandsFixture::new();
+    let spec_json = r#"{"binds":[],"kind":"workspace","network":false}"#;
+    let reach_b64 = brokkr_protocol::hands::encode_base64url(fx.reach_json.as_bytes());
+    let spec_b64 = brokkr_protocol::hands::encode_base64url(spec_json.as_bytes());
+
+    // Encoded reach and spec answer ping cleanly.
+    fx.ping_serve(&[
+        "--reach-base64url",
+        &reach_b64,
+        "--spec-base64url",
+        &spec_b64,
+    ]);
+
+    // R1: omitting `--spec` defaults to `"workspace"`, and `--help` shows the default.
+    fx.ping_serve(&["--reach", &fx.reach_json]);
+    let help = crate::built::brokkr(["hands", "serve", "--help"])
+        .output()
+        .unwrap();
+    assert!(help.status.success());
+    assert!(
+        String::from_utf8_lossy(&help.stdout).contains("[default: \"workspace\"]"),
+        "{}",
+        String::from_utf8_lossy(&help.stdout)
+    );
+
+    // R5: passing both spellings or padded base64url refuses with exact stderr and exit code 1.
+    let padded = format!("{reach_b64}=");
+    let refusal_cases: &[(&[&str], &str, &str)] = &[
+        (
+            &[
+                "--reach",
+                &fx.reach_json,
+                "--reach-base64url",
+                &reach_b64,
+                "--spec",
+                spec_json,
+            ],
+            "error: --reach: both --reach and --reach-base64url were given; pass only one\n",
+            &reach_b64,
+        ),
+        (
+            &[
+                "--reach",
+                &fx.reach_json,
+                "--spec",
+                spec_json,
+                "--spec-base64url",
+                &spec_b64,
+            ],
+            "error: --spec: both --spec and --spec-base64url were given; pass only one\n",
+            &spec_b64,
+        ),
+        (
+            &["--reach-base64url", &padded, "--spec-base64url", &spec_b64],
+            "error: --reach-base64url: contains '=' padding, which unpadded base64url forbids\n",
+            &padded,
+        ),
+    ];
+    for &(extra, expected_stderr, secret_needle) in refusal_cases {
+        fx.assert_serve_refused(extra, expected_stderr);
+        assert!(!expected_stderr.contains(secret_needle));
+    }
+}
+
+/// #1277 R2: leading-hyphen encoded values (both space-separated and `=`
+/// forms) reach the typed decoder and never echo the argument value.
+#[test]
+fn hands_serve_passes_leading_hyphen_encoded_values_to_typed_decoder() {
+    let fx = HandsFixture::new();
+    let hyphen = "-wNotADoc123";
+    let reach_eq = format!("--reach-base64url={hyphen}");
+    let spec_eq = format!("--spec-base64url={hyphen}");
+
+    let reach_stderr = "error: --reach-base64url: decoded bytes are not valid UTF-8\n";
+    let spec_stderr = "error: --spec-base64url: decoded bytes are not valid UTF-8\n";
+    assert!(!reach_stderr.contains(hyphen));
+    assert!(!spec_stderr.contains(hyphen));
+
+    let cases: &[(&[&str], &str)] = &[
+        (&["--reach-base64url", hyphen], reach_stderr),
+        (&[&reach_eq], reach_stderr),
+        (
+            &["--reach", &fx.reach_json, "--spec-base64url", hyphen],
+            spec_stderr,
+        ),
+        (&["--reach", &fx.reach_json, &spec_eq], spec_stderr),
+    ];
+    for &(extra, expected_stderr) in cases {
+        fx.assert_serve_refused(extra, expected_stderr);
+    }
+}
+
+/// #1277 R3: an encoded document that fails JSON parse or a document check
+/// names the argument and failure class and never discloses any marker from
+/// a decoded wrong field or wrong value.
+#[test]
+fn hands_serve_encoded_refusals_never_disclose_decoded_document() {
+    let fx = HandsFixture::new();
+    let marker = "SECRET_DECODED_MARKER_1277";
+    let b64 = |text: String| brokkr_protocol::hands::encode_base64url(text.as_bytes());
+    let assert_refused = |extra: &[&str], expected: &str| {
+        assert!(!expected.contains(marker));
+        fx.assert_serve_refused(extra, expected);
+    };
+
+    let reach_not_json = b64(format!("{{{marker}"));
+    let reach_surrogate_known = b64(r#"{"home":"\uD800"}"#.to_string());
+    let reach_surrogate_unknown = b64(format!(r#"{{"{marker}":"\uD800"}}"#));
+    let reach_bad_doc = b64(format!(r#"{{"{marker}_FIELD":"{marker}_VALUE"}}"#));
+    let reach_dup = b64(fx
+        .reach_json
+        .replacen(r#""home":"#, r#""home":"/dup","home":"#, 1));
+    let spec_not_json = b64(format!("{{{marker}"));
+    let spec_wrong_field = b64(format!(
+        r#"{{"kind":"workspace","{marker}_FIELD":"{marker}_VALUE"}}"#
+    ));
+    let spec_wrong_value = b64(format!(
+        r#"{{"kind":"workspace","network":"{marker}_VALUE"}}"#
+    ));
+
+    let bad_reach_syntax = format!(
+        "error: --reach-base64url: {}: decoded document is not a valid sealed reach (Syntax)\n",
+        brokkr_protocol::broker::Refusal::Identity
+    );
+    let bad_reach_data = format!(
+        "error: --reach-base64url: {}: decoded document is not a valid sealed reach (Data)\n",
+        brokkr_protocol::broker::Refusal::Identity
+    );
+    assert_refused(&["--reach-base64url", &reach_not_json], &bad_reach_syntax);
+    assert_refused(
+        &["--reach-base64url", &reach_surrogate_known],
+        &bad_reach_syntax,
+    );
+    assert_refused(
+        &["--reach-base64url", &reach_surrogate_unknown],
+        &bad_reach_data,
+    );
+    assert_refused(&["--reach-base64url", &reach_bad_doc], &bad_reach_data);
+    assert_refused(&["--reach-base64url", &reach_dup], &bad_reach_data);
+    assert_refused(
+        &[
+            "--reach",
+            &fx.reach_json,
+            "--spec-base64url",
+            &spec_not_json,
+        ],
+        "error: --spec-base64url: decoded document is not valid JSON (Syntax)\n",
+    );
+    assert_refused(
+        &[
+            "--reach",
+            &fx.reach_json,
+            "--spec-base64url",
+            &spec_wrong_field,
+        ],
+        "error: --spec-base64url: decoded document is not a valid hands spec (UnknownKey)\n",
+    );
+    assert_refused(
+        &[
+            "--reach",
+            &fx.reach_json,
+            "--spec-base64url",
+            &spec_wrong_value,
+        ],
+        "error: --spec-base64url: decoded document is not a valid hands spec (Network)\n",
+    );
+}
+
+/// #1277 R4: plain JSON refusals on `hands serve` and `hands exec` print
+/// main's exact diagnostics byte for byte.
+#[test]
+fn hands_serve_and_exec_plain_json_refusals_match_main() {
+    let fx = HandsFixture::new();
+
+    let bad_reach_expected = format!(
+        "error: --reach: {}: missing field `worktree` at line 1 column 13\n",
+        brokkr_protocol::broker::Refusal::Identity
+    );
+    let cases = [
+        (
+            "{",
+            fx.reach_json.as_str(),
+            "error: EOF while parsing an object at line 1 column 1\n",
+        ),
+        (
+            r#"{"kind":"mitten"}"#,
+            fx.reach_json.as_str(),
+            "error: --spec: hands.kind must be \"workspace\"\n",
+        ),
+        (
+            r#""workspace""#,
+            r#"{"home":"/h"}"#,
+            bad_reach_expected.as_str(),
+        ),
+    ];
+
+    for (spec_arg, reach_arg, expected) in cases {
+        fx.assert_serve_refused(&["--reach", reach_arg, "--spec", spec_arg], expected);
+        fx.assert_refused(
+            "exec",
+            &["--reach", reach_arg, "--spec", spec_arg, "--", "true"],
+            expected,
+        );
+    }
+}
+
+/// #1277 V3: omitting `--reach` (even alongside malformed plain `--spec`) exits
+/// with clap's 2 and main's exact missing `--reach <REACH>` diagnostic and
+/// usage order (`--reach <REACH>` before `--spec <SPEC>`) on both `serve` and
+/// `exec`.
+#[test]
+fn hands_serve_and_exec_missing_reach_usage_matches_main() {
+    let tmp = tempfile::tempdir().unwrap();
+    let artifacts = artifact_root(&tmp.path().join("state"));
+    let (work_arg, root_arg) = (tmp.path().to_str().unwrap(), artifacts.to_str().unwrap());
+
+    for (args, expected_usage) in [
+        (
+            &[
+                "hands",
+                "serve",
+                "--workdir",
+                work_arg,
+                "--artifacts",
+                root_arg,
+            ][..],
+            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH>",
+        ),
+        (
+            &[
+                "hands",
+                "serve",
+                "--workdir",
+                work_arg,
+                "--artifacts",
+                root_arg,
+                "--spec",
+                "{",
+            ][..],
+            "Usage: brokkr hands serve --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> --spec <SPEC>",
+        ),
+        (
+            &[
+                "hands",
+                "exec",
+                "--workdir",
+                work_arg,
+                "--artifacts",
+                root_arg,
+                "--",
+                "true",
+            ][..],
+            "Usage: brokkr hands exec --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> <COMMAND>...",
+        ),
+        (
+            &[
+                "hands",
+                "exec",
+                "--workdir",
+                work_arg,
+                "--artifacts",
+                root_arg,
+                "--spec",
+                "{",
+                "--",
+                "true",
+            ][..],
+            "Usage: brokkr hands exec --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> --spec <SPEC> <COMMAND>...",
+        ),
+    ] {
+        let expected_missing_reach = format!(
+            "error: the following required arguments were not provided:\n  --reach <REACH>\n\n{expected_usage}\n\nFor more information, try '--help'.\n"
+        );
+        let out = crate::built::brokkr(args).output().unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "expected clap exit 2, stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&out.stderr), expected_missing_reach);
+    }
+}
+
+fn assert_serve_clap_redacted(argv: &[&str], label: &str, expected_kind: &str, forbidden: &[&str]) {
+    let out = crate::built::brokkr(argv).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{label}: stderr={stderr}");
+    assert!(stderr.contains(expected_kind), "{label}: stderr={stderr}");
+    assert!(
+        stderr.contains("Usage: brokkr hands serve"),
+        "{label}: stderr={stderr}"
+    );
+    for needle in forbidden {
+        assert!(
+            !stderr.contains(needle),
+            "{label}: leaked {needle} in {stderr}"
+        );
+    }
+}
+
+struct EncodedClapFixture {
+    fx: HandsFixture,
+    reach_doc: String,
+    spec_doc: String,
+    reach_marker: &'static str,
+    spec_marker: &'static str,
+}
+
+impl EncodedClapFixture {
+    fn new() -> Self {
+        let fx = HandsFixture::new();
+        let reach_marker = "SECRET_CLAP_MARKER_1277_REACH";
+        let spec_marker = "SECRET_CLAP_MARKER_1277_SPEC";
+        let reach_doc = brokkr_protocol::hands::encode_base64url(
+            format!(r#"{{"secret":"{reach_marker}"}}"#).as_bytes(),
+        );
+        let spec_doc = brokkr_protocol::hands::encode_base64url(
+            format!(r#"{{"kind":"workspace","{spec_marker}":"v"}}"#).as_bytes(),
+        );
+        Self {
+            fx,
+            reach_doc,
+            spec_doc,
+            reach_marker,
+            spec_marker,
+        }
+    }
+
+    fn forbidden(&self) -> [&str; 4] {
+        [
+            self.reach_doc.as_str(),
+            self.spec_doc.as_str(),
+            self.reach_marker,
+            self.spec_marker,
+        ]
+    }
+}
+
+/// #1277 V3 (proposed decision 0127 ruling 4): missing values on encoded
+/// options (beside the other encoded option, beside their plain twin, or last
+/// with no value) exit with code 2 and omit all values and decoded markers.
+#[test]
+fn hands_serve_encoded_clap_missing_value_errors_omit_documents() {
+    let e = EncodedClapFixture::new();
+    let spec_eq = format!("--spec-base64url={}", e.spec_doc);
+    let forbidden = e.forbidden();
+
+    let cases: &[(&str, &[&str])] = &[
+        (
+            "--reach-base64url --spec-base64url <doc>",
+            &["--reach-base64url", "--spec-base64url", &e.spec_doc],
+        ),
+        (
+            "--spec-base64url --reach-base64url <doc>",
+            &["--spec-base64url", "--reach-base64url", &e.reach_doc],
+        ),
+        (
+            "--reach-base64url last with no value",
+            &["--reach-base64url"],
+        ),
+        (
+            "--spec-base64url last with no value",
+            &["--reach", &e.fx.reach_json, "--spec-base64url"],
+        ),
+        (
+            "--reach-base64url beside plain --reach",
+            &["--reach-base64url", "--reach", &e.reach_doc],
+        ),
+        (
+            "plain --reach beside --reach-base64url",
+            &["--reach", "--reach-base64url", &e.reach_doc],
+        ),
+        (
+            "--spec-base64url beside plain --spec",
+            &[
+                "--reach",
+                &e.fx.reach_json,
+                "--spec-base64url",
+                "--spec",
+                &e.spec_doc,
+            ],
+        ),
+        (
+            "plain --spec beside --spec-base64url",
+            &[
+                "--reach",
+                &e.fx.reach_json,
+                "--spec",
+                "--spec-base64url",
+                &e.spec_doc,
+            ],
+        ),
+        (
+            "--reach-base64url --spec-base64url without trailing doc",
+            &["--reach-base64url", "--spec-base64url"],
+        ),
+        (
+            "--reach-base64url followed by --spec-base64url=<doc>",
+            &["--reach-base64url", &spec_eq],
+        ),
+    ];
+
+    for &(label, extra) in cases {
+        let argv = e.fx.argv("serve", extra);
+        assert_serve_clap_redacted(&argv, label, "InvalidValue", &forbidden);
+    }
+}
+
+/// #1277 V3: unexpected arguments, repeated encoded options, unknown options,
+/// and missing required flags beside an encoded option all exit with code 2
+/// without printing any raw token or decoded marker, while `-h`-prefixed valid
+/// base64url values still reach the typed decoder.
+#[test]
+fn hands_serve_encoded_clap_other_errors_omit_documents_and_hyphen_values_work() {
+    let e = EncodedClapFixture::new();
+    let reach_eq = format!("--reach-base64url={}", e.reach_doc);
+    let spec_eq = format!("--spec-base64url={}", e.spec_doc);
+    let forbidden = e.forbidden();
+
+    let cases: &[(&str, &[&str], &str)] = &[
+        (
+            "--reach-base64url=<doc> <doc2>",
+            &[&reach_eq, &e.spec_doc],
+            "UnknownArgument",
+        ),
+        (
+            "--spec-base64url=<doc> <doc2>",
+            &["--reach", &e.fx.reach_json, &spec_eq, &e.reach_doc],
+            "UnknownArgument",
+        ),
+        (
+            "repeated --reach-base64url",
+            &[
+                "--reach-base64url",
+                &e.reach_doc,
+                "--reach-base64url",
+                &e.spec_doc,
+            ],
+            "ArgumentConflict",
+        ),
+        (
+            "repeated --spec-base64url",
+            &[
+                "--reach",
+                &e.fx.reach_json,
+                "--spec-base64url",
+                &e.spec_doc,
+                "--spec-base64url",
+                &e.reach_doc,
+            ],
+            "ArgumentConflict",
+        ),
+        (
+            "unknown option after encoded option",
+            &["--reach-base64url", &e.reach_doc, "--unknown-flag"],
+            "UnknownArgument",
+        ),
+        (
+            "unknown option with value after encoded option",
+            &[
+                "--reach-base64url",
+                &e.reach_doc,
+                "--unknown-flag",
+                &e.spec_doc,
+            ],
+            "UnknownArgument",
+        ),
+        (
+            "unexpected positional after --",
+            &["--reach-base64url", &e.reach_doc, "--", &e.spec_doc],
+            "UnknownArgument",
+        ),
+    ];
+
+    for &(label, extra, expected_kind) in cases {
+        let argv = e.fx.argv("serve", extra);
+        assert_serve_clap_redacted(&argv, label, expected_kind, &forbidden);
+    }
+
+    assert_serve_clap_redacted(
+        &[
+            "hands",
+            "serve",
+            "--workdir",
+            &e.fx.work_arg,
+            "--reach-base64url",
+            &e.reach_doc,
+        ],
+        "missing --artifacts with --reach-base64url",
+        "MissingRequiredArgument",
+        &forbidden,
+    );
+
+    let hyphen_h = "-hNotADoc123";
+    let reach_h_eq = format!("--reach-base64url={hyphen_h}");
+    let spec_h_eq = format!("--spec-base64url={hyphen_h}");
+    let reach_err = "error: --reach-base64url: decoded bytes are not valid UTF-8\n";
+    let spec_err = "error: --spec-base64url: decoded bytes are not valid UTF-8\n";
+    for &(extra, expected) in &[
+        (&["--reach-base64url", hyphen_h][..], reach_err),
+        (&[reach_h_eq.as_str()][..], reach_err),
+        (
+            &["--reach", &e.fx.reach_json, "--spec-base64url", hyphen_h][..],
+            spec_err,
+        ),
+        (
+            &["--reach", &e.fx.reach_json, spec_h_eq.as_str()][..],
+            spec_err,
+        ),
+    ] {
+        e.fx.assert_serve_refused(extra, expected);
+    }
+}
+
+struct BothSpellingsCase<'a> {
+    prefix: &'a [&'a str],
+    plain: (&'a str, &'a str),
+    encoded: (&'a str, &'a str),
+    markers: &'a [&'a str],
+    expected_stderr: &'a str,
+}
+
+fn assert_both_spellings_refused(fx: &HandsFixture, case: &BothSpellingsCase<'_>) {
+    let (plain_flag, plain_val) = case.plain;
+    let (encoded_flag, encoded_decoded) = case.encoded;
+    let encoded_val = brokkr_protocol::hands::encode_base64url(encoded_decoded.as_bytes());
+    let mut forbidden = vec![plain_val, encoded_val.as_str()];
+    forbidden.extend_from_slice(case.markers);
+    for pair in [
+        [plain_flag, plain_val, encoded_flag, encoded_val.as_str()],
+        [encoded_flag, encoded_val.as_str(), plain_flag, plain_val],
+    ] {
+        let mut extra = case.prefix.to_vec();
+        extra.extend_from_slice(&pair);
+        let out = crate::built::brokkr(fx.argv("serve", &extra))
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "stderr={stderr}");
+        assert_eq!(stderr, case.expected_stderr);
+        for needle in &forbidden {
+            assert!(!stderr.contains(needle), "leaked {needle} in {stderr}");
+        }
+    }
+}
+
+/// #1277 X1 (proposed decision 0127 rulings 2 and 4): passing both `--reach`
+/// and `--reach-base64url` with values exits with code 1 and
+/// `DocumentError::BothSpellings`, showing neither raw value nor any marker.
+#[test]
+fn hands_serve_both_reach_spellings_with_values_exit_1_without_values() {
+    let fx = HandsFixture::new();
+    let plain_marker = "SECRET_BOTH_REACH_PLAIN_1277";
+    let encoded_marker = "SECRET_BOTH_REACH_ENCODED_1277";
+    let plain_val = format!(r#"{{"secret":"{plain_marker}"}}"#);
+    let encoded_decoded = format!(r#"{{"secret":"{encoded_marker}"}}"#);
+    assert_both_spellings_refused(
+        &fx,
+        &BothSpellingsCase {
+            prefix: &[],
+            plain: ("--reach", &plain_val),
+            encoded: ("--reach-base64url", &encoded_decoded),
+            markers: &[plain_marker, encoded_marker],
+            expected_stderr:
+                "error: --reach: both --reach and --reach-base64url were given; pass only one\n",
+        },
+    );
+}
+
+/// #1277 X1 (proposed decision 0127 rulings 2 and 4): passing both `--spec`
+/// and `--spec-base64url` with values exits with code 1 and
+/// `DocumentError::BothSpellings`, showing neither raw value nor any marker.
+#[test]
+fn hands_serve_both_spec_spellings_with_values_exit_1_without_values() {
+    let fx = HandsFixture::new();
+    let plain_marker = "SECRET_BOTH_SPEC_PLAIN_1277";
+    let encoded_marker = "SECRET_BOTH_SPEC_ENCODED_1277";
+    let plain_val = format!(r#"{{"kind":"workspace","{plain_marker}":"v"}}"#);
+    let encoded_decoded = format!(r#"{{"kind":"workspace","{encoded_marker}":"v"}}"#);
+    assert_both_spellings_refused(
+        &fx,
+        &BothSpellingsCase {
+            prefix: &["--reach", &fx.reach_json],
+            plain: ("--spec", &plain_val),
+            encoded: ("--spec-base64url", &encoded_decoded),
+            markers: &[plain_marker, encoded_marker],
+            expected_stderr:
+                "error: --spec: both --spec and --spec-base64url were given; pass only one\n",
+        },
+    );
+}
+
+/// #1277 F4 (proposed decision 0127 ruling 2): when more than one thing is
+/// wrong, `hands serve` reports the first refusal it reaches — a spec that is
+/// not a hands spec (`--spec '{}'`) is refused before the reach spellings are
+/// compared, showing neither reach value nor any marker.
+#[test]
+fn hands_serve_refuses_invalid_spec_before_both_reach_spellings() {
+    let fx = HandsFixture::new();
+    let plain_marker = "SECRET_SPEC_BEFORE_REACH_PLAIN_1277";
+    let encoded_marker = "SECRET_SPEC_BEFORE_REACH_ENCODED_1277";
+    let plain_val = format!(r#"{{"secret":"{plain_marker}"}}"#);
+    let encoded_decoded = format!(r#"{{"secret":"{encoded_marker}"}}"#);
+    assert_both_spellings_refused(
+        &fx,
+        &BothSpellingsCase {
+            prefix: &["--spec", "{}"],
+            plain: ("--reach", &plain_val),
+            encoded: ("--reach-base64url", &encoded_decoded),
+            markers: &[plain_marker, encoded_marker],
+            expected_stderr: "error: --spec: hands.kind must be \"workspace\"\n",
+        },
+    );
 }

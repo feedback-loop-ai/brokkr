@@ -128,3 +128,40 @@ Changes merged since v0.15.2 that the next release's notes carry.
   is known to be gate-class) and put each finding in `notes` with its
   severity, file and line, and one concrete failing case, and state
   ruling 2's `security: true` binding for their declared result sets.
+- **A boxed dsh seat's `brokkr-hands` overlay row passes the composed-tree
+  line rule** ([#1277](https://github.com/feedback-loop-ai/brokkr/issues/1277)).
+  dsh's `--dump-config` folds long JSON `--reach` and `--spec` values onto
+  `>-` block-scalar content lines starting with `{`, which the driver's
+  line-property closure refuses as `Unreadable`. The dsh overlay now carries
+  those exact JSON bytes as unpadded base64url under `--reach-base64url` and
+  `--spec-base64url`, while `--workdir` and `--artifacts` stay plain paths
+  (fail closed if folded onto a refused line). `brokkr hands serve` accepts
+  either the plain JSON or unpadded base64url spelling for each document:
+  `--reach` requires exactly one spelling, `--spec` refuses both spellings
+  and keeps main's `"workspace"` default when omitted, and both encoded
+  flags accept leading-hyphen values so they reach the typed decoder.
+  After base64url decoding, each document goes through the exact same
+  parse as its plain JSON spelling (`serde_json::from_str::<Sealed>` for
+  reach, with no intermediate `Value` or map; `serde_json::from_str::<Value>`
+  plus `HandsSpec::checked` for spec), so both spellings admit and refuse
+  the same documents. Encoded refusals take two exit codes and never echo raw
+  values or decoded text: clap argument errors when an encoded option is
+  present exit with code 2 and print only the payload-free error kind and usage
+  line, while a refused encoded document or passing both spellings of one
+  document with values exits with code 1 and its typed refusal
+  (`Base64UrlError`, serde `Category`, `SpecRefusalKind`, or
+  `DocumentError::BothSpellings`). When more than one thing is wrong, the
+  command reports the first refusal it reaches, so a spec that is not a hands
+  spec is refused before the reach spellings are compared. On `hands serve` and
+  `hands exec`, refusals about a document given in the plain spelling (not
+  JSON, not the reach, or not a hands spec) — even when the other document is
+  given in its encoded spelling — and the missing-reach diagnostic preserve
+  main's diagnostics byte for byte (still never showing an encoded document's
+  value), while
+  the usage synopsis inside any other clap error on `hands serve` (such as
+  repeated `--reach`) is clap's for the present argument set and is not
+  promised to match main's. Other
+  harnesses' JSON MCP configurations and the dsh line rule itself are
+  unchanged (see the [hands argument reference](../reference/hands.md) and
+  proposed decision
+  [0127](../decisions/0127-a-dsh-hands-row-carries-its-documents-as-unpadded-base64url.md)).

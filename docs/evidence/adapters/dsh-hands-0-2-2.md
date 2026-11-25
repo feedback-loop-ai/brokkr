@@ -939,8 +939,77 @@ adapters::dsh_hands`, which gave 103 passed. The new tests are in
   on 0.2.2-rc.1 (`Overlay::HandsRow("tool-agent-team")`), each matched by
   variant.
 
+## The boxed `brokkr-hands` row under `--dump-config` (#1277, 2026-11-24)
+
+Every boxed dsh seat was refused before its first turn with `Unreadable`
+("the composed dsh tree cannot be read as the one sequence of id and package
+rows dsh writes"). The driver's `brokkr-hands` overlay row carried
+`hands serve --workdir <path> --artifacts <path> --reach <JSON> --spec <JSON>`,
+and dsh's `--dump-config` (js-yaml) folds long string scalars onto a `>-`
+block scalar whose content line begins with `{`. Round 1052g8's line-property
+closure (`crates/brokkr-protocol/src/adapters/dsh_hands/composition/rows/carriers.rs`)
+reads every line as a structure line at its own position and refuses any line
+that opens a non-empty flow collection. Because a sealed reach always holds
+four absolute paths, `--reach` was always folded. The controller's captures
+are recorded in [dsh-hands-1277/README.md](dsh-hands-1277/README.md).
+
+### Provenance (#1277)
+
+The implementing seat has no dsh and no API key. **No dsh capture below was
+re-run by that seat.** Every live capture is the controller's measurement of
+2026-11-24 on Linux with dsh 0.2.2-rc.1, quoted from
+[dsh-hands-1277/README.md](dsh-hands-1277/README.md). The offline bindings
+were run by this seat.
+
+| Figure | Source |
+| --- | --- |
+| `seat-overlay.yml` and `dump-folded-json.txt` (100 rows; lines 455 and 458 start with `{` and are refused by the line rule) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 (`2811aede`, `dashscope/qwen4-max`) |
+| `overlay-base64url.yml` and `dump-base64url.txt` (100 rows, no line refused by the line rule) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
+| `dump-file-paths.txt` and `dump-short-json.txt` (100 rows each, no line refused) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
+| Offline reader binding (runtime fixture read) on `dump-folded-json.txt` (`Unreadable`) and `dump-base64url.txt` (100 rows, `brokkr-hands` enabled on `@deepseek-ai/dsh-mcp-client`, admitted by `judge(Release::V0_2_2, …)` and `judge_mode(…, Mode::WorkspaceWrite)`) | offline tests, this change |
+| Keyed boxed Qwen4-Max chief seat turn (`ig-chief-dsh-qwen4-max-boxed-k4`) on round 4's change merged onto `main` at `4d51c363`: unkeyed run passed the reader and both judges and stopped at the missing credential (`eval-note-not-part-of-the-story--c8b73b47`); keyed run completed whole turn (`eval-note-not-part-of-the-story--be048762`: boundary `namespace`, 24 seat turns in 5m22s, 769,587 input tokens of which 713,216 cache reads, 19,344 output). Earlier keyed run on round 2's head: `eval-note-not-part-of-the-story--1ec99967`, 21 turns | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
+| Unkeyed boxed dsh seat launch on round 6's head (`fcddea103`, engine built from it): stopped at the same missing-credential point (`eval-note-not-part-of-the-story--f2b8935d`) and composed the equal seat overlay (the same four flags in the same order, and the same encoded reach of 689 JSON bytes and spec of 168 JSON bytes). No keyed turn was run on a head after round 4's | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
+| Writer binding: `--reach-base64url` and `--spec-base64url`, non-ASCII path and `-`/`_` bytes, exact round-trip decode, every emitted and folded line admitted by `rows::carriers::check`, and regenerated dump admitted by both judges | offline tests, this change |
+| `hands serve` CLI argument resolution (JSON or unpadded base64url through one deserialization per document; reach required in one spelling with main's usage order; spec defaults to `"workspace"` when omitted and refuses both spellings; leading-hyphen encoded values reach the decoder; encoded refusals disclose neither the raw value nor any decoded text; both spellings agree on every document including duplicate members; plain JSON refusals match main byte for byte on `hands serve` and `hands exec`) | offline tests, this change |
+
+### The fix
+
+- The line rule and row grammar (`composition/rows.rs` and
+  `composition/rows/carriers.rs`) did not change.
+- In a dsh seat's overlay only, the `brokkr-hands` row carries the exact
+  JSON bytes of the sealed reach and the hands spec encoded as RFC 4648
+  base64url without padding under `--reach-base64url` and `--spec-base64url`.
+  Harnesses that carry MCP configuration in JSON (`claude`, `codex`, `agy`,
+  `qoder`) keep `--reach` and `--spec` unchanged.
+- `brokkr hands serve` accepts each document in either its JSON spelling
+  (`--reach`, `--spec`) or its unpadded base64url spelling
+  (`--reach-base64url`, `--spec-base64url`), documented in
+  [hands.md](../../reference/hands.md) and proposed decision
+  [0127](../../decisions/0127-a-dsh-hands-row-carries-its-documents-as-unpadded-base64url.md).
+  For `--reach`, exactly one spelling is required (omitting both fails at clap
+  with exit code 2 before `--spec` is parsed, printing main's exact usage order
+  with `--reach` before `--spec`, selected from structured parser state); for `--spec`, both spellings refuse and omitting both uses
+  main's default `"workspace"` (shown in `brokkr hands serve --help` and
+  parsed by the same check). Both encoded arguments accept leading-hyphen
+  values so they reach the typed decoder. After decoding, both spellings of
+  each document go through the exact same parse (`serde_json::from_str::<Sealed>`
+  directly for reach, with no intermediate `Value` or map, so duplicate
+  members refuse identically in both spellings; `serde_json::from_str::<Value>`
+  plus `HandsSpec::checked` for spec, matching main). Encoded refusals meet
+  redaction at error reduction by keeping only the serde `Category` or
+  payload-free `SpecRefusalKind` (no raw value or decoded text in `Display`
+  or `Debug`), while plain JSON refusals on `hands serve` and `hands exec`
+  keep main's diagnostics byte for byte. One
+  codec in `crates/brokkr-protocol/src/base64.rs` (extracted from
+  `secret.rs`'s existing RFC 4648 encoder) serves both the overlay writer and
+  `hands serve`.
+- `--workdir` and `--artifacts` stay plain paths and are not encoded: a path
+  dsh folds onto a line the line rule refuses (for example starting with a
+  YAML flow indicator or a quote) stays refused, fail closed.
+
 ## Pending
 
+- Re-running a live keyed boxed dsh seat turn on a head after round 4's (#1277, #953): the controller measured a complete keyed turn on round 4's change merged onto `main` at `4d51c363` (`eval-note-not-part-of-the-story--be048762`, 24 seat turns in 5m22s, boundary `namespace`, 769,587 input tokens of which 713,216 cache reads, 19,344 output; unkeyed run `eval-note-not-part-of-the-story--c8b73b47`; earlier keyed run on round 2's head `eval-note-not-part-of-the-story--1ec99967`, 21 turns), and checked round 6's head (`fcddea103`) by the no-key run (`eval-note-not-part-of-the-story--f2b8935d`) and equal composed seat overlay (the same four flags in the same order, 689 JSON bytes of reach, 168 JSON bytes of spec); no keyed turn was run on a head after round 4's.
 - Exact coverage and `quality/ratchet.sh crap`: this seat's box has no
   LCOV output, so the crap ratchet refuses with "no LCOV at
   target/coverage/lcov.info: run scripts/coverage-exact.sh first". Every

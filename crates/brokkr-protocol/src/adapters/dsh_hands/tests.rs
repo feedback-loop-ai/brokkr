@@ -18,6 +18,7 @@ mod composed;
 mod composed_carriers;
 mod composed_controls;
 mod composed_rows;
+mod encoded_row;
 mod launch_order;
 mod releases;
 
@@ -98,7 +99,7 @@ fn sealed(stands: SealedBoundary, access: Option<&str>) -> Value {
 /// in `workdir`, for the inputs [`sealed`] writes.
 fn bound(workdir: &str) -> Vec<String> {
     let spec = HandsSpec::default();
-    crate::hands::serve_args(Path::new(workdir), Path::new("/a"), &reach(), &spec)
+    crate::hands::serve_args_encoded(Path::new(workdir), Path::new("/a"), &reach(), &spec)
 }
 
 fn refused(rows: &str) -> String {
