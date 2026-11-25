@@ -6,8 +6,7 @@ use thiserror::Error;
 
 use super::grants::GrantError;
 use super::{
-    BoundaryError, SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7,
-    SCHEMA_V8,
+    BoundaryError, SCHEMAS, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7,
 };
 
 /// A per-realm word a version introduced, held to the version that
@@ -65,6 +64,11 @@ fn unnamed(realm: &Option<String>) -> &str {
     realm.as_deref().unwrap_or("?")
 }
 
+fn readable_schemas() -> String {
+    let (earlier, last) = SCHEMAS.split_at(SCHEMAS.len() - 1);
+    format!("{} and {}", earlier.join(", "), last[0])
+}
+
 /// Why a realms map is refused once it parses: its version, its realms,
 /// their crossings and grants, and the world's provisional offices.
 #[derive(Debug, PartialEq, Eq, Error)]
@@ -77,8 +81,7 @@ pub enum Unusable {
         error: BoundaryError,
     },
     #[error(
-        "it calls itself '{0}'; this build reads {SCHEMA_V1}, {SCHEMA_V2}, {SCHEMA_V3}, \
-         {SCHEMA_V4}, {SCHEMA_V5}, {SCHEMA_V6}, {SCHEMA_V7} and {SCHEMA_V8}"
+        "it calls itself '{0}'; this build reads {schemas}", schemas = readable_schemas()
     )]
     UnknownSchema(String),
     #[error(

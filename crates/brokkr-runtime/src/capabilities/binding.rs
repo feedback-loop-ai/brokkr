@@ -11,6 +11,7 @@
 //! [`Admitted`] facts (U7c0).
 
 use brokkr_core::canonical::{sha256_bytes, to_bytes};
+use brokkr_core::realms::GrantDialect;
 use brokkr_core::realms::{CapabilityGrant, GrantRetention};
 use brokkr_protocol::broker::{Clearance, Network};
 use serde_json::{Map, Value};
@@ -509,9 +510,18 @@ impl Authority {
     /// one place a holding gets it (U7c0).
     pub(super) fn sealed(&self, site: &SiteAsks, capability: &str) -> Result<Holding, Unheld> {
         let grant = self.reaching(site, capability)?;
+        let name = match &grant.dialect {
+            GrantDialect::Single(name) => name,
+            GrantDialect::PerProvider(_) => {
+                return Err(Cause::Ungranted(
+                    "per-provider tool dialects are not yet supported".into(),
+                )
+                .into())
+            }
+        };
         let dialect = self
             .dialect(capability)
-            .map_err(|missing| Cause::incompatible(&grant.dialect, missing.to_string()))?;
+            .map_err(|missing| Cause::incompatible(name, missing.to_string()))?;
         let tools = grant.tools.clone().unwrap_or_else(|| dialect.tools.clone());
         if tools.is_empty() {
             let none = "the realm's grant admits no tool".to_string();

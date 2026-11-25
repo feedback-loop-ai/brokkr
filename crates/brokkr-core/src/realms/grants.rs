@@ -5,21 +5,24 @@
 //! value is `false`: the realm may veto a dialect's retention, never require
 //! it (slice two, SC2 and CR1). Which keys are reserved follows the version,
 //! so an older map's restriction is never read as the newer veto by spelling
-//! alone.
+//! alone. Under v9, per-provider dialects share only offices and retention.
 
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-use super::{is_name, older_than, SCHEMA_V8};
+use super::{is_name, older_than, SCHEMA_V8, SCHEMA_V9};
 
 /// The keys of a grant the engine owns under `forge.realms/v6` and `v7`;
 /// every other key is the dialect's.
 pub const GRANT_KEYS: [&str; 3] = ["dialect", "tools", "offices"];
 
-/// The keys of a grant the engine owns from `forge.realms/v8`.
+/// The keys of a single-dialect grant the engine owns from `forge.realms/v8`.
 const VETO_GRANT_KEYS: [&str; 4] = ["dialect", "tools", "offices", "retain"];
+
+/// The entire vocabulary of a per-provider grant under v9.
+const PROVIDER_GRANT_KEYS: [&str; 3] = ["dialects", "offices", "retain"];
 
 /// What a grant says about retaining the responses of the capability it
 /// grants, which is a fact of the map version that wrote it.
@@ -47,6 +50,21 @@ impl GrantRetention {
     }
 }
 
+/// The tool dialects under `dialects/tools/` a grant names (decision 0126).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GrantDialect {
+    /// One dialect to judge for every provider.
+    Single(String),
+    /// Each provider may use only the dialect named under its own key.
+    PerProvider(BTreeMap<String, String>),
+}
+
+impl From<&str> for GrantDialect {
+    fn from(dialect: &str) -> Self {
+        Self::Single(dialect.into())
+    }
+}
+
 /// One capability a realm grants (decision 0065 ruling 3): the tool
 /// dialect that serves it here, and how the grant is narrowed. The two
 /// lists keep absence apart from emptiness, because they mean opposite
@@ -54,8 +72,7 @@ impl GrantRetention {
 /// none; no `tools` admits the dialect's whole set and `[]` admits none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapabilityGrant {
-    /// A tool dialect's name under `dialects/tools/`.
-    pub dialect: String,
+    pub dialect: GrantDialect,
     pub tools: Option<Vec<String>>,
     pub offices: Option<Vec<String>>,
     /// The retention veto, or that this map version cannot write one.
@@ -70,7 +87,11 @@ impl CapabilityGrant {
     /// restriction schema is asked about.
     pub fn value(&self) -> Value {
         let mut grant = self.restrictions.clone();
-        grant.insert("dialect".into(), Value::String(self.dialect.clone()));
+        let (key, dialect) = match &self.dialect {
+            GrantDialect::Single(name) => ("dialect", Value::String(name.clone())),
+            GrantDialect::PerProvider(names) => ("dialects", serde_json::json!(names)),
+        };
+        grant.insert(key.into(), dialect);
         for (key, list) in [("tools", &self.tools), ("offices", &self.offices)] {
             if let Some(list) = list {
                 grant.insert(key.into(), serde_json::json!(list));
@@ -138,6 +159,48 @@ pub enum GrantError {
     )]
     Dialect { realm: String, capability: String },
     #[error(
+        "realm '{realm}' grants capability '{capability}' with both 'dialect' and 'dialects'; \
+         write exactly one"
+    )]
+    BothDialects { realm: String, capability: String },
+    #[error(
+        "realm '{realm}' grants capability '{capability}' with neither 'dialect' nor 'dialects'; \
+         write exactly one"
+    )]
+    NoDialect { realm: String, capability: String },
+    #[error(
+        "realm '{realm}' grants capability '{capability}' with malformed 'dialects'; \
+         write a non-empty object from provider name to tool dialect name"
+    )]
+    Dialects { realm: String, capability: String },
+    #[error(
+        "realm '{realm}' grants capability '{capability}' with invalid provider name \
+         '{provider}' in 'dialects'; use the realm-name grammar"
+    )]
+    DialectProvider {
+        realm: String,
+        capability: String,
+        provider: String,
+    },
+    #[error(
+        "realm '{realm}' grants capability '{capability}' with an invalid tool dialect name \
+         for provider '{provider}'; use the realm-name grammar"
+    )]
+    ProviderDialect {
+        realm: String,
+        capability: String,
+        provider: String,
+    },
+    #[error(
+        "realm '{realm}' grants capability '{capability}' with '{key}' beside 'dialects'; \
+         only 'offices' and 'retain' may accompany 'dialects'"
+    )]
+    ProviderGrantKey {
+        realm: String,
+        capability: String,
+        key: String,
+    },
+    #[error(
         "realm '{realm}' grants capability '{capability}' with a malformed '{}'; it \
          is a list of distinct non-empty strings, and leaving it out is how a \
          grant says all",
@@ -183,21 +246,100 @@ pub(super) fn parse_grants(
             written: written.to_string(),
         });
     };
-    let reserving = !older_than(schema, SCHEMA_V8);
     map.iter()
         .map(|(name, grant)| {
-            parse_grant(realm, name, grant, reserving).map(|grant| (name.clone(), grant))
+            parse_grant(realm, name, grant, schema).map(|grant| (name.clone(), grant))
         })
         .collect()
 }
 
-/// Judge one grant. `reserving` is whether the map's version reserves
-/// `retain`.
+fn parse_dialect(
+    realm: &str,
+    capability: &str,
+    fields: &Map<String, Value>,
+    schema: &str,
+) -> Result<GrantDialect, GrantError> {
+    let single = fields.get("dialect");
+    let names = if older_than(schema, SCHEMA_V9) {
+        None
+    } else {
+        fields.get("dialects")
+    };
+    if let Some(names) = names {
+        if single.is_some() {
+            return Err(GrantError::BothDialects {
+                realm: realm.into(),
+                capability: capability.into(),
+            });
+        }
+        return parse_provider_dialects(realm, capability, fields, names);
+    }
+    if schema == SCHEMA_V9 && single.is_none() {
+        return Err(GrantError::NoDialect {
+            realm: realm.into(),
+            capability: capability.into(),
+        });
+    }
+    single
+        .and_then(Value::as_str)
+        .filter(|dialect| is_name(dialect))
+        .map(GrantDialect::from)
+        .ok_or_else(|| GrantError::Dialect {
+            realm: realm.into(),
+            capability: capability.into(),
+        })
+}
+
+fn parse_provider_dialects(
+    realm: &str,
+    capability: &str,
+    fields: &Map<String, Value>,
+    names: &Value,
+) -> Result<GrantDialect, GrantError> {
+    if let Some(key) = fields
+        .keys()
+        .find(|key| !PROVIDER_GRANT_KEYS.contains(&key.as_str()))
+    {
+        return Err(GrantError::ProviderGrantKey {
+            realm: realm.into(),
+            capability: capability.into(),
+            key: key.clone(),
+        });
+    }
+    let Some(names) = names.as_object().filter(|names| !names.is_empty()) else {
+        return Err(GrantError::Dialects {
+            realm: realm.into(),
+            capability: capability.into(),
+        });
+    };
+    let mut dialects = BTreeMap::new();
+    for (provider, dialect) in names {
+        if !is_name(provider) {
+            return Err(GrantError::DialectProvider {
+                realm: realm.into(),
+                capability: capability.into(),
+                provider: provider.clone(),
+            });
+        }
+        let name = dialect
+            .as_str()
+            .filter(|name| is_name(name))
+            .ok_or_else(|| GrantError::ProviderDialect {
+                realm: realm.into(),
+                capability: capability.into(),
+                provider: provider.clone(),
+            })?;
+        dialects.insert(provider.clone(), name.into());
+    }
+    Ok(GrantDialect::PerProvider(dialects))
+}
+
+/// Judge one grant by the version that wrote it.
 fn parse_grant(
     realm: &str,
     name: &str,
     grant: &Value,
-    reserving: bool,
+    schema: &str,
 ) -> Result<CapabilityGrant, GrantError> {
     let (realm, capability) = (realm.to_string(), name.to_string());
     if !is_name(name) {
@@ -210,13 +352,7 @@ fn parse_grant(
             grant: grant.to_string(),
         });
     };
-    let Some(dialect) = fields
-        .get("dialect")
-        .and_then(Value::as_str)
-        .filter(|dialect| is_name(dialect))
-    else {
-        return Err(GrantError::Dialect { realm, capability });
-    };
+    let dialect = parse_dialect(&realm, &capability, fields, schema)?;
     let mut lists = [None, None];
     for (slot, list) in lists.iter_mut().zip([GrantList::Tools, GrantList::Offices]) {
         let Some(names) = distinct_names(fields.get(list.field())) else {
@@ -229,15 +365,18 @@ fn parse_grant(
         *slot = names;
     }
     let [tools, offices] = lists;
-    let retention = match (reserving, fields.get("retain")) {
+    let retention = match (!older_than(schema, SCHEMA_V8), fields.get("retain")) {
         (false, _) => GrantRetention::Unreserved,
         (true, None) => GrantRetention::Inherit,
         (true, Some(Value::Bool(false))) => GrantRetention::Veto,
         (true, Some(_)) => return Err(GrantError::Retain { realm, capability }),
     };
-    let reserved = retention.reserved_keys();
+    let reserved = match &dialect {
+        GrantDialect::Single(_) => retention.reserved_keys(),
+        GrantDialect::PerProvider(_) => &PROVIDER_GRANT_KEYS,
+    };
     Ok(CapabilityGrant {
-        dialect: dialect.to_string(),
+        dialect,
         tools,
         offices,
         retention,

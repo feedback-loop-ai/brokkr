@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use brokkr_core::realms::{Boundary, CapabilityGrant};
+use brokkr_core::realms::{Boundary, CapabilityGrant, GrantDialect};
 use brokkr_protocol::native_controls::bounded_line;
 use brokkr_runtime::agents::Adapter;
 use brokkr_runtime::bundle::survey;
@@ -472,14 +472,17 @@ fn report_native(
             provider: bound,
             key: bound_key,
         } if bound == provider && bound_key == key => {
+            let dialect = match &grant.dialect {
+                GrantDialect::Single(name) => name.as_str(),
+                GrantDialect::PerProvider(names) => names.get(provider).map_or("", String::as_str),
+            };
             let office = grant_office(grant);
             let (wanting, on) = wanted(realm.plan, adapter, &office, capability);
             let detail = safe(&format!(
-                "granted to {} through dialect '{}'; the adapter-level plan of a \
+                "granted to {} through dialect '{dialect}'; the adapter-level plan of a \
                  seat of office '{office}' that wants it {wanting}; for a seat that \
                  does not hold it, {off} · {evidence}",
                 scope_words(grant),
-                grant.dialect
             ));
             match on && admitted {
                 true => report.ok(&line, detail),

@@ -1060,10 +1060,25 @@ pub fn brokkr_core::realms::CrossingList<T>::is_null(&self) -> bool
 pub fn brokkr_core::realms::CrossingList<T>::is_written(&self) -> bool
 impl<'de, T: serde_core::de::Deserialize<'de>> serde_core::de::Deserialize<'de> for brokkr_core::realms::CrossingList<T>
 pub fn brokkr_core::realms::CrossingList<T>::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub enum brokkr_core::realms::GrantDialect
+pub brokkr_core::realms::GrantDialect::PerProvider(alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>)
+pub brokkr_core::realms::GrantDialect::Single(alloc::string::String)
+impl core::convert::From<&str> for brokkr_core::realms::GrantDialect
+pub fn brokkr_core::realms::GrantDialect::from(&str) -> Self
 pub enum brokkr_core::realms::GrantError
+pub brokkr_core::realms::GrantError::BothDialects
+pub brokkr_core::realms::GrantError::BothDialects::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::BothDialects::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::Dialect
 pub brokkr_core::realms::GrantError::Dialect::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::Dialect::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::DialectProvider
+pub brokkr_core::realms::GrantError::DialectProvider::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::DialectProvider::provider: alloc::string::String
+pub brokkr_core::realms::GrantError::DialectProvider::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::Dialects
+pub brokkr_core::realms::GrantError::Dialects::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::Dialects::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::List
 pub brokkr_core::realms::GrantError::List::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::List::list: brokkr_core::realms::GrantList
@@ -1071,6 +1086,9 @@ pub brokkr_core::realms::GrantError::List::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::Name
 pub brokkr_core::realms::GrantError::Name::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::Name::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::NoDialect
+pub brokkr_core::realms::GrantError::NoDialect::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::NoDialect::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::NotAGrant
 pub brokkr_core::realms::GrantError::NotAGrant::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::NotAGrant::grant: alloc::string::String
@@ -1078,6 +1096,14 @@ pub brokkr_core::realms::GrantError::NotAGrant::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::NotAMap
 pub brokkr_core::realms::GrantError::NotAMap::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::NotAMap::written: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderDialect
+pub brokkr_core::realms::GrantError::ProviderDialect::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderDialect::provider: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderDialect::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderGrantKey
+pub brokkr_core::realms::GrantError::ProviderGrantKey::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderGrantKey::key: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderGrantKey::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::Retain
 pub brokkr_core::realms::GrantError::Retain::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::Retain::realm: alloc::string::String
@@ -1166,7 +1192,7 @@ pub brokkr_core::realms::Word::Journal
 pub brokkr_core::realms::Word::Publishes
 pub struct brokkr_core::realms::BoundaryError(pub alloc::string::String)
 pub struct brokkr_core::realms::CapabilityGrant
-pub brokkr_core::realms::CapabilityGrant::dialect: alloc::string::String
+pub brokkr_core::realms::CapabilityGrant::dialect: brokkr_core::realms::GrantDialect
 pub brokkr_core::realms::CapabilityGrant::offices: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub brokkr_core::realms::CapabilityGrant::restrictions: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub brokkr_core::realms::CapabilityGrant::retention: brokkr_core::realms::GrantRetention
@@ -1211,7 +1237,7 @@ pub const brokkr_core::realms::DEFAULT_MAP_FILE: &str
 pub const brokkr_core::realms::GRANT_KEYS: [&str; 3]
 pub const brokkr_core::realms::LEGACY_REALM_KEY: &str
 pub const brokkr_core::realms::NOT_APPLICABLE: &str
-pub const brokkr_core::realms::SCHEMAS: [&str; 8]
+pub const brokkr_core::realms::SCHEMAS: [&str; 9]
 pub const brokkr_core::realms::SCHEMA_V1: &str
 pub const brokkr_core::realms::SCHEMA_V2: &str
 pub const brokkr_core::realms::SCHEMA_V3: &str
@@ -1220,6 +1246,7 @@ pub const brokkr_core::realms::SCHEMA_V5: &str
 pub const brokkr_core::realms::SCHEMA_V6: &str
 pub const brokkr_core::realms::SCHEMA_V7: &str
 pub const brokkr_core::realms::SCHEMA_V8: &str
+pub const brokkr_core::realms::SCHEMA_V9: &str
 pub fn brokkr_core::realms::is_name(&str) -> bool
 pub mod brokkr_core::residual
 pub enum brokkr_core::residual::Claim
