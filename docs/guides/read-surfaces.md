@@ -411,8 +411,9 @@ measured every entry the capacity checks would judge waits as
 forge.host/v4 declares `runs.ceiling` ``) until the file declares one, and
 `brokkr doctor` warns of it. Neither latches.
 
-Decision 0125 sizes an entry by what its recipe used. On Linux
-every pass that judges an entry's room measures `MemAvailable` and the
+Decision 0125 sizes an entry by what its recipe used. Every pass that
+judges an entry's room measures the memory available (on Linux
+`MemAvailable`, on macOS the free, inactive and purgeable pages) and the
 idle cores over 500 ms, reads the last 20 runs of the entry's recipe that
 carry `effect-usage/v1` across every journal of the realms map, and takes
 the largest of its phases' average peaks plus a 25% margin as its demand.
@@ -420,7 +421,9 @@ Every running run reserves what its remaining phases may still need beyond
 what its driver's tree uses now, and each entry the pass admits reserves
 its own before the next is judged. After every check above, an entry whose
 demand plus the reservations does not fit waits as `memory_short` or
-`cpu_short`, naming the demand, what is available and what is reserved; a
+`cpu_short`, naming the demand, what is available and what is reserved.
+While macOS's kernel reports memory pressure at warn or critical, every
+entry the rule would judge waits as `memory_pressure`, naming the level. A
 recipe with no measured profile (no completed run in its window) and no
 declared demand starts only when nothing else runs, and waits as `demand_unknown` otherwise. On such a
 machine no run ceiling need be declared. `forge.host/v5` makes `runs` and
@@ -428,7 +431,7 @@ machine no run ceiling need be declared. `forge.host/v5` makes `runs` and
 `margin_percent` and `recipes.<name>` override the window, the margin and
 declare a recipe's demand. `queue list --json` carries each sized entry's
 `demand`, and names each journal of the map it cannot read. A machine whose
-availability is not measured (macOS, for now) judges as above, unchanged.
+availability cannot be measured judges as above, unchanged.
 
 A seat on `spark-glm` is judged by that route's ceiling in place of
 `dsh`'s, because the hardware, not the account, is the limit; a `cloud`
