@@ -967,6 +967,39 @@ fn a_round_without_its_own_wait_is_refused() {
     );
 }
 
+#[test]
+fn a_held_round_on_a_version_three_journal_refuses_by_name() {
+    let (dir, mut engine, _) = waited_round_fixture();
+    let wait = wait();
+    let round = stated_probe_round(&mut engine, &wait, 5);
+    alter_journal(
+        &dir.path().join("forge.db"),
+        "DROP TABLE provider_cooldowns;
+         DROP TABLE probe_holds;
+         UPDATE meta SET value = '3' WHERE key = 'queue_schema';",
+    );
+    let maxima = [Some(super::super::held::SiteMax {
+        max: 2,
+        ordinary: true,
+    })];
+    let error = engine
+        .record_extension(&[wait], &maxima, &round, 0)
+        .err()
+        .expect("a version 3 queue cannot write a held round");
+    let super::super::CooldownError::RoundNoTable {
+        provider,
+        route,
+        words,
+    } = error
+    else {
+        panic!("an unwritten held round must name the absent table: {error:?}");
+    };
+    assert_eq!(
+        (provider, route, words),
+        (round.provider, round.route, round.words)
+    );
+}
+
 /// The later rounds' two unreadable inputs park by name: a store that loses
 /// the table between rounds, and bounds that stop reading; the probe rows'
 /// own recorded instants make the episode unreadable too.
