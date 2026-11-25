@@ -324,6 +324,39 @@ fn no_second_hold_is_written_while_a_hold_or_a_row_holds_the_route() {
     assert_eq!(unended_holds(&store.conn), ["run-b", "run-b", "run-a"]);
 }
 
+fn retry_start() -> crate::CooldownAppend<'static> {
+    crate::CooldownAppend {
+        run_id: "run-a",
+        fenced: None,
+        event_type: EventType::EffectStarted,
+        payload: json!({"effect_id": "effect", "attempt_id": "retry"}),
+        causation_id: None,
+        attempt_id: Some("retry".into()),
+    }
+}
+
+#[test]
+fn a_start_on_a_version_three_queue_lands_without_checking_routes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    store
+        .conn
+        .execute_batch(
+            "DROP TABLE probe_holds;
+             DROP TABLE provider_cooldowns;
+             UPDATE meta SET value = '3' WHERE key = 'queue_schema';",
+        )
+        .unwrap();
+
+    let landed = store
+        .append_clear(retry_start(), &[("claude", "first")], at(10))
+        .unwrap();
+    assert_eq!(landed.envelope.event_type, EventType::EffectStarted);
+    let events = store.load("run-a").unwrap();
+    let start = events.last().expect("the journal includes the start");
+    assert_eq!(start.event_hash, landed.envelope.event_hash);
+}
+
 /// Fix round 0106b1r14, R1: a retry's start is journaled only where none of
 /// its routes stands, read in the start's own transaction. A hold on any of
 /// them refuses it by name and writes nothing; once the hold ends, the
@@ -337,17 +370,11 @@ fn a_start_over_a_held_route_refuses_by_name_and_writes_nothing() {
     let hold = store
         .hold_probe(&probe_hold("run-b", at(30)), at(0))
         .unwrap();
-    let start = || crate::CooldownAppend {
-        run_id: "run-a",
-        fenced: None,
-        event_type: EventType::EffectStarted,
-        payload: json!({"effect_id": "effect", "attempt_id": "retry"}),
-        causation_id: None,
-        attempt_id: Some("retry".into()),
-    };
     let routes = [("codex", "second"), ("claude", "first")];
     let before = store.load("run-a").unwrap().len();
-    let refused = store.append_clear(start(), &routes, at(10)).unwrap_err();
+    let refused = store
+        .append_clear(retry_start(), &routes, at(10))
+        .unwrap_err();
     let StoreError::Queue(QueueRefusal::StartHeld(held)) = &refused else {
         panic!("a held start was not refused by name: {refused:?}");
     };
@@ -362,7 +389,7 @@ fn a_start_over_a_held_route_refuses_by_name_and_writes_nothing() {
     );
     assert_eq!(store.load("run-a").unwrap().len(), before);
     store.end_probe_hold(Some(hold), at(11)).unwrap();
-    let landed = store.append_clear(start(), &routes, at(12)).unwrap();
+    let landed = store.append_clear(retry_start(), &routes, at(12)).unwrap();
     assert_eq!(landed.envelope.event_type, EventType::EffectStarted);
     assert_eq!(store.load("run-a").unwrap().len(), before + 1);
 }
