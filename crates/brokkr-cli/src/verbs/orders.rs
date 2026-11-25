@@ -48,10 +48,15 @@ fn tracker_paths(directory: &Path) -> Result<Vec<PathBuf>, TrackerError> {
         Ok(entries) => entries,
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
             // A dangling directory link stands here and should be refused.
-            return if directory.is_symlink() {
-                Err(read_error(source))
-            } else {
+            let absent = directory
+                .symlink_metadata()
+                .err()
+                .map(|missing| missing.kind())
+                == Some(io::ErrorKind::NotFound);
+            return if absent {
                 Ok(Vec::new())
+            } else {
+                Err(read_error(source))
             };
         }
         Err(source) => return Err(read_error(source)),
