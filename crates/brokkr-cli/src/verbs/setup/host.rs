@@ -66,12 +66,18 @@ impl fmt::Display for UpgradeError {
     }
 }
 
+/// Each Display above already names its I/O cause, so only the loader's
+/// own chain is a source: a cause named twice reads twice under `{:#}`
+/// (1193c's review, INFO).
 impl std::error::Error for UpgradeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Invalid(error) => std::error::Error::source(error),
-            Self::Read(_, error) | Self::Write(_, error) | Self::Output(error) => Some(error),
-            Self::Missing(_) | Self::Link(_) => None,
+            Self::Read(..)
+            | Self::Write(..)
+            | Self::Output(_)
+            | Self::Missing(_)
+            | Self::Link(_) => None,
         }
     }
 }

@@ -141,7 +141,8 @@ fn host_upgrade_with_a_failed_rename_leaves_the_original_and_removes_the_temp_fi
         persist(staged, &dir.path().join("missing/host.json"))
     })
     .unwrap_err();
-    assert!(error.source().is_some());
+    // The Display names the I/O cause, so it is not also a source.
+    assert!(error.source().is_none());
     assert!(error.to_string().starts_with(&format!(
         "cannot write the host configuration at {}: ",
         path.display()
