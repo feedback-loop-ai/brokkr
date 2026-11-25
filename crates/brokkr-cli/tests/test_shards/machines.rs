@@ -285,23 +285,31 @@ fn the_test_jobs_machines_are_the_layouts() {
             .any(|line| line.trim() == format!("machine: [{}]", coverage.join(", "))),
         "coverage-machines lists {coverage:?}"
     );
-    let body = job(&workflow, "engine-machines");
-    let lines: Vec<&str> = body.lines().map(str::trim).collect();
-    let listed: Vec<(&str, &str)> = lines
-        .windows(2)
-        .filter_map(|pair| {
-            let os = pair[0].strip_prefix("- os: ")?;
-            Some((os, pair[1].strip_prefix("machine: ")?))
-        })
-        .collect();
-    let laid_out: Vec<(&str, &str)> = MACHINES
+    let linux: Vec<&str> = MACHINES
         .iter()
-        .map(|(machine, _)| match machine.starts_with("linux/") {
-            true => ("ubuntu-latest", *machine),
-            false => ("macos-latest", *machine),
-        })
+        .map(|(machine, _)| *machine)
+        .filter(|machine| machine.starts_with("linux/"))
         .collect();
-    assert_eq!(listed, laid_out);
+    assert!(
+        job(&workflow, "engine-machines")
+            .lines()
+            .any(|line| line.trim() == format!("machine: [{}]", linux.join(", "))),
+        "ci.yml's engine-machines lists {linux:?}"
+    );
+    let macos_workflow =
+        std::fs::read_to_string(workspace().join(".github/workflows/macos-test-shards.yml"))
+            .expect("macos-test-shards.yml");
+    let macos_machines: Vec<&str> = MACHINES
+        .iter()
+        .map(|(machine, _)| *machine)
+        .filter(|machine| machine.starts_with("macos/"))
+        .collect();
+    assert!(
+        job(&macos_workflow, "macos-machines")
+            .lines()
+            .any(|line| line.trim() == format!("machine: [{}]", macos_machines.join(", "))),
+        "macos-test-shards.yml's macos-machines lists {macos_machines:?}"
+    );
 }
 
 /// A run on a macOS host, naming no machine, runs every shard but the
