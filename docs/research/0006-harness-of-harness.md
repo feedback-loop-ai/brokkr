@@ -50,7 +50,7 @@ regression.
 
 The operator ruled this erratum on 2026-11-25, "approve all the fact and
 wording fixes" for row 3 and the summary; "approve all that move to
-planned as well" for rows 1 and 2
+planned as well" for rows 1 and 2; "0006-row 6 - approved" for row 6
 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
 every row of this entry was checked three ways: against the article,
 against main at `4912e583e`, and against the open issues and pull
@@ -104,6 +104,13 @@ word.
   the engine never repairs or retries it (`docs/guides/quickstart.md`);
   decision 0001 does permit an executor's own bounded structured-output
   retry with the validation error fed back to the same seat
+- **Row 6** keeps `alternative`. Finding: "Compare configurations at
+  equal pass budgets on score and token cost, by dominance, and by issue
+  close and reopen counts". Citation: `crates/brokkr-cli/src/compare.rs`
+  folds two journals to their first divergence with per-seat cost;
+  outcome economics stay in the ledger (decision 0021); #436 and #224
+  would compare configurations at comparable spend by accepted results,
+  cost per accepted result and later defects
 
 ## Candidates
 
