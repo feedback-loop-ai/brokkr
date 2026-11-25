@@ -28,19 +28,19 @@ percent, Sonnet 46 to 90, Fable 45 to 93; pooled 39 to 84. Alone, the
 largest model did not beat the middle one, and it removed the feature
 rather than repairing it in 44 of 125 runs (Sonnet 31, Haiku 13); a
 metric that counts only "defect gone" scores Fable 80 percent and
-reverses the order. With findings, removals fall to 0 (Fable), 2 (Sonnet) and 7 (Haiku). With
-the deletion check off they rise from 9 to 65 of 375 runs and repair
-falls by 8 to 21 points. Of 851 claimed repairs, 75 failed the build
-check: 50 did not compile, all in Rust and C++, 21 deleted a Python
-validator in place and kept its file, and 4 were stubs. Cost per
-change, alone and with findings: Haiku $0.18 and $0.42, Sonnet $0.06
-and $0.17, Fable $0.91 and $1.73, so Sonnet with findings (90 percent)
-costs about a fifth of Fable alone (45 percent), and the smallest model
-with findings costs more than the middle one and also takes more
-steps. Copilot review, run on Haiku and Sonnet only, did not change
-repair rates significantly. On
-clean pull requests, agents alone edited correct code in 64 to 100
-percent of runs; with the checker, in 0 of 75.
+reverses the order. With findings, removals fall to 0 (Fable), 2
+(Sonnet) and 7 (Haiku). With the deletion check off they rise from 9 to
+65 of 375 runs and repair falls by 8 to 21 points. Of 851 runs the
+scorer labelled repaired, 75 failed the build check: 50 did not compile,
+all in Rust and C++, 21 deleted a Python validator in place and kept its
+file, and 4 were stubs. Cost per change, alone and with findings: Haiku
+$0.18 and $0.42, Sonnet $0.06 and $0.17, Fable $0.91 and $1.73, so
+Sonnet with findings (90 percent) costs about a fifth of Fable alone (45
+percent), and the smallest model with findings costs more than the
+middle one and also takes more steps. Copilot review, run on Haiku and
+Sonnet only, did not change repair rates significantly. On clean pull
+requests, agents alone edited correct code in 64 to 100 percent of runs;
+with the checker, in 0 of 75.
 
 Limits stated: one model family and one harness; 25 defective pull
 requests with large variance between them; project tests were not run;

@@ -42,14 +42,15 @@ faked implementations and 2 from conversion errors.
 Limits stated: the Oracle judges returned values, not how they were
 computed; weak tests are inherited; regression tests in 87 of 112
 DeepSWE conversions keep upstream grading; the agent review loop
-accepted two broken conversions, so the authors recommend that a person
-review each conversion before use.
+accepted two broken conversions, so the authors recommend that a
+benchmark adopting SplitBench without an adversarial campaign have a
+person review each conversion before use.
 
 ## Findings
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Carry only a digested manifest of in-scope changed files from the agent's environment to grading, and replay it onto a clean baseline | alternative | decision 0043 and decision 0038; `docs/security-model.md`: a boxed exec gate runs in an empty-root box holding only the worktree, with the git directory's hooks and config masked, and the ship anchor records the per-file patch identity; the gate still runs in the worktree as the implementer left it, test configuration included |
+| 1 | Carry only a digested manifest of in-scope changed files from the agent's environment to grading, and replay it onto a clean baseline | alternative | decision 0043 and decision 0038; `docs/security-model.md`: a boxed exec gate runs in an empty-root box holding the worktree and the repository's common git directory read-write, with that directory's hooks behind an empty tmpfs and its config read-only (#851), and the ship anchor records the per-file patch identity; the gate still runs in the worktree as the implementer left it, test configuration included |
 | 2 | Build a fresh evaluation environment for every test case and destroy it afterwards, so no state carries between cases | alternative | decision 0043: a boxed command runs in an empty-root namespace with toolchain caches as overlays; the box is built for a seat's commands, never per test case, and the worktree persists across them |
 | 3 | Split the grader in two: an adapter inside that only reports what it observed, and a trusted judge outside that holds the expected answers and decides deterministically | alternative | decision 0002 and decision 0007; `recipes/brokkr-fast/scripts/verify-seat.sh`: the engine's pure table decides the route from typed inputs, but the verify script inside the box decides its own pass or fail; decision 0117 (accepted, unbuilt) is this split exactly, a seat-owned observation judged by a pure core function into one engine-owned flag |
 | 4 | Treat everything the evaluation environment emits as adversarial: one strict value within a size limit, validated against a schema, with a crash or a timeout never read as a pass | implemented | decision 0001, decision 0006 and decision 0079; `docs/security-model.md`: a result that does not parse or match its schema parks with the raw evidence, the transport bounds every line and result, and an end without a read result is indeterminate and parks |
@@ -59,14 +60,14 @@ review each conversion before use.
 ## Candidates
 
 Finding 5 is the no-op screen the commission's first topic asks about,
-and entry 0010 finding 2 flagged the same idea for fixtures. Here it
-has a concrete, cheap form for a delivery: an exec gate that checks out
-the tests the branch added or changed onto the merge-base's production
-code and requires at least one to fail. A delivery whose new tests pass
+and entry 0010 finding 2 flagged the same idea for fixtures. Here it has
+a concrete, cheap form for a delivery: an exec gate that checks out the
+tests the branch added or changed onto the merge-base's production code
+and requires at least one to fail. A delivery whose new tests pass
 against the code without the change has proved nothing, and today only
 the implementer's own word in `notes` and a reviewer's eye say
-otherwise. The paper's count is the argument: graders that had passed
-review accepted 230 of 429 attacks.
+otherwise. The paper's count is the argument: the benchmarks' native
+graders accepted 230 of the 429 tamper attacks.
 
 Findings 1 and 3 together describe the residual the security model
 already half-states ("a green gate is not independent acceptance"). The

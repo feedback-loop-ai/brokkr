@@ -49,6 +49,23 @@ original sweep parked at verify and never shipped, so even a successful
 preflight would not by itself satisfy the delivery-evidence gate for
 this PR. Finding 2 remains a candidate, not an implemented screen.
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all the fact and
+wording fixes" for row 4
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 4** keeps `implemented`. Citation: decision 0035;
+  `recipes/research-dsh/bundle.json` and
+  `contracts/seat-record.v8.schema.json`: model hires carry configured
+  effort; reasoning-token measurements are recorded only when reported,
+  separately from that setting
+
 ## Candidates
 
 Finding 2 is the paper's gift to the sweep's first topic: the

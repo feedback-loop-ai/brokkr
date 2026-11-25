@@ -53,7 +53,8 @@ used by PTA-IRT.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all that move to
+The operator ruled this erratum on 2026-11-25, "approve all the fact and
+wording fixes" for row 2 and the summary; "approve all that move to
 planned as well" for row 4
 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
 every row of this entry was checked three ways: against the article,
@@ -62,6 +63,31 @@ requests. The text above stands as ruled on 2026-11-24 and stays
 readable; where this section differs, this section is the product's
 word.
 
+- **Summary.** For "On four SWE benchmarks under low calibration
+  budgets, PTA-IRT achieves the lowest score error and the highest
+  Kendall and Spearman ranking agreement against classical IRT, neural
+  IRT and agent-driven item-selection baselines, and stays the best
+  method across the full budget range; a small budget already yields
+  practically useful ranking agreement." read "On four SWE benchmarks
+  under low calibration budgets, PTA-IRT achieves the lowest score error
+  and the highest Kendall and Spearman ranking agreement against
+  classical IRT, neural IRT and agent-driven item-selection baselines,
+  and in the budget study on SWE-bench Lite it stays the best method
+  across the full 5 to 25 percent range; a small budget already yields
+  practically useful ranking agreement."
+- **Summary.** For "Ablations show the trajectory features carry the
+  gains: removing the trajectory scorer or the privileged supervision
+  weakens recovery, and corrupted trajectory summaries weaken it too."
+  read "Ablations show that each component contributes: removing the
+  trajectory scorer or the privileged supervision weakens recovery,
+  replacing stratified selection costs the most, and corrupted
+  trajectory summaries weaken it too."
+- **Row 2** keeps `alternative`. Citation: decision 0034;
+  `contracts/seat-record.v8.schema.json` and
+  `crates/brokkr-cli/src/compare.rs`: bounded tool/target metadata,
+  verdicts and accounting support process comparison; the record
+  excludes full trajectories and Brokkr has no trajectory-aware
+  estimator
 - **Row 4** now reads `planned`, not `alternative`. Finding: "Price the
   evaluation itself: report what each evaluation cost, per model and per
   task, as a first-class result (Brokkr's extension of the paper's cost

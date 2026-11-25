@@ -41,15 +41,16 @@ Limits the author states: a run-script error put the gate in front of
 the no-file and rules-file arms, so their ungated crossing rates were
 never measured; 15 runs per arm, not the registered 20, left four
 hypotheses without a verdict; one adjudicator; toy repositories; Gemini
-CLI lost 84 chains to exhausted credit. The paper's own closing line:
-a file tells an agent what you want, a gate decides what it gets.
+CLI lost 84 chains, 83 to exhausted credit and one to the time cap. The
+paper's own closing line: a file tells an agent what you want, a gate
+decides what it gets.
 
 ## Findings
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
 | 1 | Enforce a boundary in a gate the runtime owns, never in an instructions file | implemented | decision 0043 and decision 0046; `docs/security-model.md`: where a realm declares boxed hands a seat's commands run in the box its boundary builds, a boundary the machine cannot build refuses rather than degrading, every effect records which boundary stood, and the security model says in terms that a prompt is not a control |
-| 2 | Score the outcome from tests the agent cannot reach, and read its final report as a claim: an agent's own passing suite is not the task's contract | alternative | decision 0041; `recipes/brokkr-fast/scripts/verify-seat.sh` and `agents/charters/verify-reviewer.md`: a verify gate and then judging seats stand between the implementer's result and ship, and none of them reads the report as evidence; the suite verify runs is the branch's own, with no test held outside the implementer's reach |
+| 2 | Score the outcome from tests the agent cannot reach, and read its final report as a claim: an agent's own passing suite is not the task's contract | alternative | decision 0041; `recipes/brokkr-fast/scripts/verify-seat.sh` and `agents/charters/reviewer.md`: a verify gate and then judging seats stand between the implementer's result and ship, and none of them reads the report as evidence; the suite verify runs is the branch's own, with no test held outside the implementer's reach |
 | 3 | Test a rules file for rules that conflict with each other, and measure it against a same-length neutral file before trusting it to help | not-planned | |
 | 4 | Pin the model, and record the served model per run from the harness's own output rather than from the configuration | implemented | decision 0031 and decision 0075: every model seat is compile-refused unless pinned, and drivers record the provider-reported served model, never a configured guess |
 | 5 | Keep credentials the task does not need out of the agent's environment | implemented | decision 0012 and decision 0043: secrets are bound by name and resolved only by the runner, and a boxed seat's commands run in an empty root with no credential and no network; the harness process still holds its own provider credential until decision 0072 is built (#644) |

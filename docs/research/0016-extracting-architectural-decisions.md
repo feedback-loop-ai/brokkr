@@ -60,6 +60,31 @@ and the candidates' "#231 already tracks". Row 1 stays `implemented`,
 because it rests on the decision record, not on the links. No class
 changes.
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all the fact and
+wording fixes" for row 2 and the summary
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Summary.** For "The surface scores flatter: the generated decisions
+  are too long, implementation-focused, and miss the rationale behind
+  the decision, the part that makes a decision a decision." read "The
+  surface scores flatter: the generated decisions are often too long,
+  implementation-focused, and miss the rationale behind the decision,
+  the part that makes a decision a decision."
+- **Row 2** keeps `implemented`. Finding: "Model-generated decision
+  summaries often miss the rationale even when surface-similarity scores
+  are high, so acceptance is a read, not a score". Citation:
+  `docs/decisions/README.md` (only the operator accepts a decision) and
+  decision 0044 (research classification is the operator's; its status
+  is still proposed); grammar tests check structure and citations, not
+  the quality or truth of the rationale
+
 ## Candidates
 
 No new uptake proposed. The study supports recording rationale while

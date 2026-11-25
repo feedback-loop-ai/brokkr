@@ -56,7 +56,8 @@ are built; seatbelt and container remain refused.
 ## Erratum — 2026-11-25
 
 The operator ruled this erratum on 2026-11-25, "approve all that move to
-planned as well" for rows 1 and 4
+planned as well" for rows 1 and 4; "approve all the fact and wording
+fixes" for row 3, the header and the summary
 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
 every row of this entry was checked three ways: against the article,
 against main at `4912e583e`, and against the open issues and pull
@@ -64,12 +65,28 @@ requests. The text above stands as ruled on 2026-11-24 and stays
 readable; where this section differs, this section is the product's
 word.
 
+- **Authors.** For "Ihor Stepanov, Mykhailo Shtopko, Dmytro
+  Vodianytskyi, Oleksandr Lukashov (Knowledgator); Aleksandr Smechov
+  (SCX.ai Holdings)" read "Ihor Stepanov, Aleksandr Smechov, Mykhailo
+  Shtopko, Dmytro Vodianytskyi, Oleksandr Lukashov (Stepanov, Shtopko,
+  Vodianytskyi and Lukashov: Knowledgator; Smechov: SCX.ai Holdings
+  Limited)".
+- **Summary.** For "Label-decision metrics read F1 0.9241, precision
+  0.9238, recall 0.9273, but the authors note many negative labels
+  dominate such metrics and point to routing-family and downstream
+  results as the relevant evidence." read "Label-decision metrics read
+  F1 0.9241, precision 0.9238, recall 0.9273, but the authors note many
+  negative labels can dominate such metrics and point to routing-family
+  and downstream results as the relevant evidence."
 - **Row 1** now reads `planned`, not `alternative`. Citation: #224
   proposes choosing the implementation hire by remaining ambiguity,
   checks, integration risk, size and measured lane capability, with
   deterministic routing and pinned hires (not a learned router); today
   `recipes/triage/bundle.json` and `crates/brokkr-runtime/src/agents.rs`
   select a declared office by strategy and resolve its pinned chain
+- **Row 3** keeps `alternative`. Finding: "Distinguish released,
+  implemented and proposed compositions in a routing claim, as the paper
+  does for each of its own routing paths".
 - **Row 4** now reads `planned`, not `alternative`. Finding: "Evaluate
   routing on downstream task outcomes, because label-level classifier
   metrics can be dominated by negative labels". Citation: #224 proposes

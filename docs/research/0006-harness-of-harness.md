@@ -48,7 +48,8 @@ regression.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all that move to
+The operator ruled this erratum on 2026-11-25, "approve all the fact and
+wording fixes" for row 3 and the summary; "approve all that move to
 planned as well" for rows 1 and 2
 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
 every row of this entry was checked three ways: against the article,
@@ -57,6 +58,33 @@ requests. The text above stands as ruled on 2026-11-24 and stays
 readable; where this section differs, this section is the product's
 word.
 
+- **Summary.** For "Long-horizon autonomous development is a
+  loop-structure problem, not a model problem." read "The paper's
+  framing is that in long-horizon autonomous development the real
+  challenge is sustaining coherent and effective progress over time."
+- **Summary.** For "Wrapping an existing coding-agent harness in
+  repeated planning, implementation and independent quality-assurance
+  loops with persistent state beats single-pass and repeated-baseline
+  runs at a matched token budget." read "Wrapping an existing
+  coding-agent harness in repeated planning, implementation and
+  independent quality-assurance loops with persistent state beats
+  single-pass and repeated-baseline runs at matched pass budgets, with a
+  comparable inference budget."
+- **Summary.** For "Over three iterations on a game-development
+  benchmark, scores rose from 49.6 to 71.5 for one harness and model
+  pair, 26.9 to 49.0 and 42.2 to 58.8 for two others; on a frontier
+  software-engineering set, dominance rose from 44 to 71 percent, 72.7
+  at ten iterations." read "Over three iterations on a game-development
+  benchmark, scores rose from 49.6 to 71.5 for one harness and model
+  pair, 26.9 to 49.0 and 42.2 to 58.8 for two others; on a frontier
+  software-engineering set, dominance rose from 44 to 71 percent over
+  three iterations, and in a separate ten-loop comparison pool from 39.3
+  percent at three loops to 72.7 at ten."
+- **Summary.** For "Ablations: a frozen plan costs 8.1 points; no
+  evidence feedback 6.3; a cold start every iteration 7.9 points and 30
+  percent more tokens." read "Ablations: a frozen plan costs 8.1 points;
+  no evidence feedback 6.3; a cold start every iteration 7.9 points and
+  about 32 percent more tokens (8.41 to 11.12 million per task)."
 - **Row 1** now reads `planned`, not `alternative`. Citation: #1260 and
   #564: the engine would compare the tracked tree after every gate, not
   only the head, and fence every read-only review position; today
@@ -71,6 +99,11 @@ word.
   still stand, so verified evidence carries between iterations inside a
   run; nothing is carried into the next run's planning (decisions 0028
   and 0029 keep each run's evidence)
+- **Row 3** keeps `alternative`. Citation: decision 0001: a seat result
+  that fails schema validation parks the run with the raw evidence, and
+  the engine never repairs or retries it (`docs/guides/quickstart.md`);
+  decision 0001 does permit an executor's own bounded structured-output
+  retry with the validation error fed back to the same seat
 
 ## Candidates
 

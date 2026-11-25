@@ -51,6 +51,34 @@ payload hash. Decision 0047 adds explicit, cited residual closure without
 changing the historical outcome. Neither it nor an accepted executor
 decision supplies signed-grant enforcement.
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all the fact and
+wording fixes" for rows 2 and 3
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 2** keeps `alternative`. Finding: "Separate the evidence
+  properties: hash anchoring alone gives temporal existence and
+  integrity, while ordering, capture authenticity, authorized anchoring
+  and causal traceability each need their own control". Citation:
+  decision 0002 and decision 0034; `crates/brokkr-store/src/lib.rs`: the
+  journal hash chain, sequence and causation links preserve recorded
+  order and integrity, and append validates seat-record shape; they do
+  not prove capture truth or the signed authorization described in
+  decision 0025; #602 proposes operator-key signed checkpoints
+  (authorized anchoring), unbuilt
+- **Row 3** keeps `alternative`. Citation: decision 0012, decision 0032
+  and decision 0034; bindings use names (decision 0012);
+  `crates/brokkr-protocol/src/secret/mask.rs` masks known secret
+  encodings in captured streams; `contracts/seat-record.v8.schema.json`:
+  accounting carries a transcript locator, never transcript content; the
+  separate result/inputs/notes report can still carry prose
+
 ## Candidates
 
 An evidence-property matrix could document what the journal proves and

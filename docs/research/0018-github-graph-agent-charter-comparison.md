@@ -41,6 +41,34 @@ and recording this survey does not approve adopting another framework.
 | 7 | Measure independent delivery outcomes and the scope of real maintenance changes | planned | #436 owns independent delivery and usability evaluation; #437 owns structural change and maintenance evidence; #439 owns independent qualification |
 | 8 | Prototype equivalent recipes on Amplifier, Kilroy, BMAD Loop and Squad to compare their guarantees directly | not-planned | |
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all the fact and
+wording fixes" for the summary
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Summary.** For
+  "[Overview](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/README.md)
+  and [formula
+  composition](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/docs/design/formula-resolution.md)."
+  read
+  "[Overview](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/README.md)
+  and [formula
+  resolution](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/docs/design/formula-resolution.md)
+  (partially implemented)."
+- **Summary.** For "It records declaration-order execution with advisory
+  `depends_on`, optional aggressive JSON extraction, and configurable
+  error handling that can continue or finish early." read "It records
+  declaration-order execution with advisory `depends_on`, aggressive
+  JSON extraction (opt-in through `parse_json` for agent steps, an
+  automatic fallback for bash steps), and configurable error handling
+  that can continue or finish early."
+
 ## Candidates
 
 Finding 8 is the concrete follow-up proposed by this survey. The experiment

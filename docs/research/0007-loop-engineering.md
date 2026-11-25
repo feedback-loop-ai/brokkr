@@ -46,6 +46,42 @@ and scheduled loops on throughput, correctness, cost and human effort.
 | 5 | Track agent-authored edits to the loop's own configuration as a distinct signal | not-planned | |
 | 6 | Evaluate autonomy levels against each other on throughput, correctness, cost and human effort | not-planned | |
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all the fact and
+wording fixes" for row 5 and the summary
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Summary.** For "Source: https://arxiv.org/abs/2608.21884" read
+  "Source: https://arxiv.org/abs/2608.21884v1"
+- **Summary.** For "The paper consolidates a definition from eleven
+  gray-literature sources, measures real adoption by mining
+  repositories, and pre-registers a controlled experiment." read "The
+  paper consolidates a definition from eleven gray-literature sources,
+  measures real adoption by mining repositories, and outlines a planned
+  controlled experiment."
+- **Summary.** For "Thirty repositories have agent-majority commits on
+  their own loop configuration; twelve loops are disabled but still
+  present." read "Thirty repositories pair an agent-majority context
+  file (AGENTS.md or CLAUDE.md) with a committed loop artifact; twelve
+  loops are disabled but still present."
+- **Summary.** For "The sharpest finding is that the practice's
+  rhetoric, budgets, verifiers, state and stop conditions, is nearly
+  absent from its artifacts." read "The sharpest finding is that the
+  practice's rhetoric is barely visible in its artifacts: fixed-phrase
+  heuristics found no stop conditions, budgets or verifiers, manual
+  annotation found a goal or stop-condition mechanism in 55 of 256
+  inspected repositories, and almost none commits its state files."
+- **Row 5** keeps `not-planned`. Finding: "Track agent-authored edits to
+  the loop's own configuration as a distinct signal (the paper measures
+  agent-majority context files beside loop artifacts; tracking edits to
+  the loop's configuration is the analogous signal for Brokkr)".
+
 ## Candidates
 
 Brokkr is a positive example the paper's detectors would have missed:

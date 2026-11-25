@@ -24,33 +24,34 @@ blind and the author checked the final labels (kappa 0.80 on mechanism
 levels).
 
 Recovery is exercised almost everywhere: 11 of 12 runtimes and 25 of 26
-harnesses have at least one real-run report. It rarely completes. Of
-128 such reports, 19 recovered, 54 were partial, 45 failed and 10 are
+harnesses have at least one real-run report. It rarely completes. Of 128
+such reports, 19 recovered, 54 were partial, 45 failed and 10 are
 unclear. Checkpoint and resume, the most exercised mechanism, recovered
-in 1 of 27 reports and failed in 13; typical failures are a session
-that needs stale locks deleted by hand, or that resumes without its
-settings. Rollback recovered in 1 of 15, with several failures
-discarding the user's uncommitted work and one undo that reverted the
-main agent's edits but not its sub-agents'. Human approval recovered 7
-times and failed 9, one "allow always" having authorised destruction.
-Trace logs recovered 7 of 25 and failed outright in none. On the
-research side 11 of 12 research runtimes are evidenced only on benchmarks, and
-none of 56 stated guarantees is shown in operation. No harness exposes
-compensation; of 38 practice systems 2 show it, both as infrastructure
-clean-up. No harness measures its own recovery.
+in 1 of 27 reports and failed in 13; typical failures are a session that
+needs stale locks deleted by hand, or that resumes without its settings.
+Rollback recovered in 1 of 15; one undo discarded the user's uncommitted
+work (Aider), and one reverted the main agent's edits but not its
+sub-agents' (Kilo Code). Human approval recovered 7 times and failed 9,
+one "allow always" having authorised destruction. Trace logs recovered 7
+of 25 and failed outright in none. On the research side 11 of 12
+research runtimes are evidenced only on benchmarks, and none of 56
+stated guarantees is shown in operation. No harness exposes
+compensation; of 38 practice systems 2 show it (Langflow and Letta),
+both as framework clean-up of their own writes. No harness measures its
+own recovery.
 
-Limits stated: one author, LLM coders with no second human coder, a
-bounded search where absence means not found, 98 of the 128 reports
-resting on GitHub issues alone, and counts that are not failure rates.
-One of the research runtimes is co-authored by the author.
+Limits stated: LLM coders with no second human coder, a bounded search
+where absence means not found, 98 of the 128 reports resting on GitHub
+issues alone, and counts that are not failure rates. The paper has one
+author. One of the research runtimes is co-authored by the author.
 
 ## Findings
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Hold resume to the testing that gates and sandboxes get: it is the mechanism most relied on and the one that most often fails in the field | implemented | decision 0002 and decision 0029; `crates/brokkr-runtime/src/engine/tests.rs`: state is the fold of an append-only journal, a resume folds it again and commits only onto the head it folded, and the engine's suite drives a moved head and a stale fold |
+| 1 | Hold resume and rollback to the testing that gates and sandboxes get: they are the mechanisms users rely on and report failing | implemented | decision 0002 and decision 0029; `crates/brokkr-runtime/src/engine/tests.rs`: state is the fold of an append-only journal, a resume folds it again and commits only onto the head it folded, and the engine's suite drives a moved head and a stale fold; one carve-out is open, a quiet attempt holder's own settlement is not fenced against a resumer's (#609) |
 | 2 | Scope an undo so it cannot destroy work it did not make | alternative | decision 0022 and decision 0028: there is no rollback verb; a seat works on a branch in a worktree, a finding returns the run to the implementer instead of reverting it, and every commit the journal cites is kept under a ref only the operator deletes |
-| 3 | Persist an event log before acting, so a failed run can be diagnosed and repaired from it | implemented | decision 0002; `docs/guides/journal-and-verification.md`: every effect is requested in the hash-chained journal before it is dispatched, and decision 0108 repairs a broken run by a journaled record naming its late tail |
+| 3 | Persist an event log, so a failed run can be diagnosed and repaired from it | implemented | decision 0002; `docs/guides/journal-and-verification.md`: every effect is requested in the hash-chained journal before it is dispatched, and decision 0108 repairs a broken run by a journaled record naming its late tail; parallel runs on one shared journal can corrupt it (#1000) |
 | 4 | Make a resume restore the session's full state and clear a dead holder's lock without hand work | planned | #226 (session resumption for Claude and dsh; rests on decision 0056, still proposed); decision 0108: a run is held by an operating-system lock that dies with its driver, so no lock is deleted by hand |
 | 5 | Do not rely on prevention alone for side effects: harnesses prevent them and none compensates them; make an external effect compensable or safe to repeat (the second is this entry's extension) | planned | #434 (decision 0006's 2026-10-11 addendum, rulings 3 and 4: a site's pinned "deduplicates" declaration and a stable effect identity, unbuilt); today an attempt that ends after start with no result read parks and is never replayed, and no compensation is offered |
 | 6 | Scope an approval narrowly: a standing "allow always" is how an approval authorised destruction | alternative | decision 0043 and decision 0065: there is no interactive approval to widen; a seat's reach is the box its realm's boundary builds and the capabilities the realm lists, pinned in the manifest for the run |
