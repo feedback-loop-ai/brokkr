@@ -49,17 +49,18 @@ and scheduled loops on throughput, correctness, cost and human effort.
 ## Erratum — 2026-11-25
 
 The operator ruled this erratum on 2026-11-25, "approve all the fact and
-wording fixes" for row 5 and the summary; "0007 - row 6 - approved, but
-only if this can be done in an automated way" for row 6
-([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
-every row of this entry was checked three ways: against the article,
-against main at `4912e583e`, and against the open issues and pull
-requests. The text above stands as ruled on 2026-11-24 and stays
+wording fixes" for row 5 and the summary; "0007-1 approved" for row 1;
+"0007 - row 6 - approved, but only if this can be done in an automated
+way", then "that's not use case for us" and "the rest can be done" for
+row 6 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)),
+after every row of this entry was checked three ways: against the
+article, against main at `4912e583e`, and against the open issues and
+pull requests. The text above stands as ruled on 2026-11-24 and stays
 readable; where this section differs, this section is the product's
 word.
 
-- **Summary.** For "Source: https://arxiv.org/abs/2608.21884" read
-  "Source: https://arxiv.org/abs/2608.21884v1"
+- **Source.** For "https://arxiv.org/abs/2608.21884" read
+  "https://arxiv.org/abs/2608.21884v1".
 - **Summary.** For "The paper consolidates a definition from eleven
   gray-literature sources, measures real adoption by mining
   repositories, and pre-registers a controlled experiment." read "The
@@ -78,22 +79,28 @@ word.
   heuristics found no stop conditions, budgets or verifiers, manual
   annotation found a goal or stop-condition mechanism in 55 of 256
   inspected repositories, and almost none commits its state files."
+- **Row 1** keeps `implemented`. Citation: decision 0006: bounded
+  attempts and deadlines; decision 0002: the journal is the state and
+  the table is the stop condition; decision 0043: the box, around a seat
+  that declares hands in a namespace realm and nowhere else; decision
+  0021: the checker is a gate seat; decision 0001: escalation is a park;
+  the budget is attempts and deadlines only: decision 0067's enforced
+  visit budgets are unbuilt (#463), and cost, stagnation and
+  elapsed-time budgets are #604
 - **Row 5** keeps `not-planned`. Finding: "Track agent-authored edits to
   the loop's own configuration as a distinct signal (the paper measures
   agent-majority context files beside loop artifacts; tracking edits to
   the loop's configuration is the analogous signal for Brokkr)".
-- **Row 6** keeps `not-planned`, and the operator takes it up only in an
-  automated form. Brokkr's own autonomy levels are recipe variants that
-  differ only in where a run stops for the operator. Each is run on the
-  same commission through the wager pattern
-  (`recipes/wager-harness/README.md`) and read with `brokkr runs
+- **Row 6** now reads `planned`, not `not-planned`, taken up only in an
+  automated form. Citation: #1386, under #436. Brokkr's own autonomy
+  levels are recipe variants that differ only in where a run stops for
+  the operator. Each is run on the same commission through the wager
+  pattern (`recipes/wager-harness/README.md`) and read with `brokkr runs
   compare`, on four axes: elapsed time, accepted results, cost (Claude
   seats only until #765), and the operator commands each run's journal
   records. Interactive prompting is not one of the levels: Brokkr has no
   workflow for it, since every seat runs headless, and it is not a use
-  case for Brokkr (operator, 2026-11-25). #436's repeated trials measure
-  the same axes against an existing workflow and a simpler baseline, but
-  they do not vary autonomy, so no issue plans this yet.
+  case for Brokkr.
 
 ## Candidates
 
