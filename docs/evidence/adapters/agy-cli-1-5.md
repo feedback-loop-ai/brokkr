@@ -24,7 +24,7 @@ No implementing seat can re-run these figures, because none has a signed-in
 | Item | Value |
 | --- | --- |
 | Host | Linux x86-64, Ubuntu, `kernel.apparmor_restrict_unprivileged_userns = 1`. macOS: pending |
-| Antigravity CLI | 1.5.13 (`version.txt`) for everything but the fifth and sixth measurements, which ran on 1.5.14; one native binary of 270,103,240 bytes that Google's installer (`https://antigravity.google/cli/install.sh`, SHA-512 checked against its manifest) put at `~/.local/bin/agy` |
+| Antigravity CLI | 1.5.13 (`version.txt`) for everything but the fifth, sixth and seventh measurements, which ran on 1.5.14; one native binary of 270,103,240 bytes that Google's installer (`https://antigravity.google/cli/install.sh`, SHA-512 checked against its manifest) put at `~/.local/bin/agy` |
 | Account | a personal Google account on the Google AI Ultra plan, signed in through the browser; the login is one file, `~/.gemini/antigravity-cli/antigravity-oauth-token`, mode 0600 |
 | Working directory | a scratch directory under `/var/tmp/probe-agy/` for each turn |
 | Model | `--model gemini-3.8-flash-low` for every turn, except the named-model and model-refusal turns |
@@ -542,6 +542,82 @@ This cost one arm of the #1200 wager three attempts: `cargo test` reached a
 `brokkr-cli` test that reads the process's stdin (#1245) and stayed there
 for the seat's two-hour limit each time.
 
+## Seventh measurement, on 1.5.14: level 2 (rejoin, transcript, isolation on rejoin, printed secrets, concurrent rejoins) (2026-11-22 and 2026-11-24)
+
+Two passes measured by the controller on Antigravity CLI 1.5.14 on Linux (#1227,
+decision 0075 level 2): the first on 2026-11-22 (15 turns `l2-*`, scripts
+`ctl/l2.sh`, recordings `rec/l2/`), and the second on 2026-11-24 (10 turns
+`l2b-*` on `gemini-3.8-flash-low`, scripts `ctl/l2b.sh` and `ctl/l2b-b.sh`,
+recordings `rec/l2b/`). Each HOME held only the login link, the driver's one
+gate hook and the turn's MCP set, and nothing else of the operator's.
+
+### Provenance
+
+| Figure | Source |
+| --- | --- |
+| First pass (`l2-01` through `l2-15`, `l2-turns.log`) | controller, 2026-11-22, Linux workstation, Antigravity CLI 1.5.14 |
+| Second pass (`l2b-01` through `l2b-09`, `l2b-turns.log`, `l2b-facts.log`, `l2b-sentinel-cold.log`, `l2b-sentinel-rejoin.log`) | controller, 2026-11-24, Linux workstation, Antigravity CLI 1.5.14 |
+| Six transcripts copied byte for byte from `brain/<id>/.system_generated/logs/transcript.jsonl` | controller (`l2-rejoins.transcript.ndjson`, `l2-neon-effort.transcript.ndjson`, `l2-box.transcript.ndjson`, `l2-killed.transcript.ndjson`, `l2b-two-rejoins.transcript.ndjson`, `l2b-printed-value.transcript.ndjson`) |
+
+| Transcript file | From |
+| --- | --- |
+| `l2-rejoins.transcript.ndjson` | `l2-01` to `l2-04`: a cold turn and three rejoins, one on another model |
+| `l2-neon-effort.transcript.ndjson` | `l2-12`, `l2-13`: `--effort high`, then the rejoin with `--effort low` |
+| `l2-box.transcript.ndjson` | `l2-10`, `l2-11`: a boxed seat and its rejoin, with one denied native tool |
+| `l2-killed.transcript.ndjson` | `l2-08`, `l2-09`: a turn killed while a command ran, and its rejoin |
+| `l2b-two-rejoins.transcript.ndjson` | `l2b-05` to `l2b-08`: two rejoins at once, and a turn after |
+| `l2b-printed-value.transcript.ndjson` | `l2b-09`: a command printed the made-up sentinel value `l2b-sentinel-value-7f3a9c2e41d8` (no credential) |
+
+### First pass: rejoin, transcript layout and kill behaviour (2026-11-22)
+
+| Turn | What was done | What happened |
+| --- | --- | --- |
+| `l2-01-cold`, `l2-02-rejoin` | a code word, then `--conversation <id>` in the same HOME and directory | same `conversation_id` in `init` and `result`, `num_turns` 1 then 2, the word came back |
+| `l2-03-rejoin-other-model` | the rejoin naming `gemini-4-neon` where the conversation began on another model | it rejoined; `init.model` is the model the invocation named, and the transcript row says `gemini-4-neon-high` |
+| `l2-04-rejoin-other-cwd` | the rejoin from another working directory | it rejoined |
+| `l2-05-unknown-id`, `l2-06-malformed-id` | an id the HOME does not hold; a word that is no id | exit 0, a **new** conversation under a new id, and one stderr line `warning: conversation "<id>" not found` |
+| `l2-07-rejoin-moved-files` | a fresh HOME given only `conversations/<id>.db` and `brain/<id>/` | it rejoined, with the word |
+| `l2-10-box-cold`, `l2-11-box-rejoin` | a boxed seat (gate lists `call_mcp_tool`, the hands server as the one MCP server), then its rejoin | both turns ran the workspace tool; the rejoin kept the word; a native `read_file` the model tried first was denied by the gate and is in the transcript as an `ERROR` row |
+| `l2-12-neon-cold`, `l2-13-neon-rejoin` | `--effort high`, then the rejoin with `--effort low` | the rows' `model` reads `gemini-4-neon-high`, then `gemini-4-neon-low` |
+| `l2-08-killed`, `l2-09-rejoin-killed` | SIGKILL while a command ran, then a rejoin | the transcript is whole JSON lines; the command's row stays `RUNNING` for good; the rejoin answered with the word and said the command did not finish |
+| `l2-14-kill-group` | SIGKILL to agy's process group while `sleep` ran | agy died; **the command lived on**, reparented to init |
+| `l2-15-term-agy` | SIGTERM to agy alone | agy exited 1 and the command was gone |
+
+Facts established by the first pass:
+
+- A conversation `<id>` under `.gemini/antigravity-cli/` is `conversations/<id>.db` (mode 0600) and `brain/<id>/`. Its transcript is `brain/<id>/.system_generated/logs/transcript.jsonl` (mode 0644; `transcript_full.jsonl` beside it), one JSON row per step (`step_index`, `source`, `type`, `status`, `created_at`, and by type `content`, `error`, `thinking`, `tool_calls`, `model`, token counts).
+- A rejoin works under the engine's HOME, boxed and unboxed, and is confirmed by `init.conversation_id` (an unknown id exits 0 with a new id). The model served is the invocation's, not the conversation's.
+- A killed turn leaves whole JSON lines with its last tool row `RUNNING` for good.
+- **Level 1 finding (#1245's family):** an unboxed agy seat's command runs in its own session and process group on a pseudo-terminal, so SIGKILL of agy or agy's process group leaves the command alive as an orphan, while SIGTERM to agy ends the command and exits 1. A boxed seat's commands run through the hands server and are not affected.
+
+### Second pass: MCP isolation on rejoin, printed secrets and concurrent rejoins (2026-11-24)
+
+**A. MCP isolation on a rejoin holds:**
+
+| Turn | What was done | What happened |
+| --- | --- | --- |
+| `l2b-01-iso-cold` | a HOME whose MCP set declares one sentinel server, and a prompt that calls its tool | the server started and was called once |
+| `l2b-02-iso-rejoin-fresh-home` | a rejoin in a fresh HOME holding only `conversations/<id>.db` and `brain/<id>/`, whose MCP set declares a different sentinel | the cold turn's server did **not** start; the rejoin's own server started; asked for the cold server's tool, the model answered `NO SENTINEL TOOL` |
+| `l2b-03-iso-rejoin-same-home-empty-set` | a rejoin in the cold turn's own HOME after its MCP set was rewritten to none | the cold turn's server did not start |
+
+A stored conversation carries no MCP server into a later turn; the turn's own HOME decides its servers.
+
+**B. A value a tool printed is in the conversation's files in clear:**
+
+In `l2b-09-printed-value-allowed` (`l2b-04` was refused by agy's own permission check), a command printed `l2b-sentinel-value-7f3a9c2e41d8` from its environment. That value appeared in clear in:
+
+- the stream, in one `step_update` row (masked by level 1);
+- `brain/<id>/.system_generated/logs/transcript.jsonl` and `transcript_full.jsonl` (mode 0644);
+- `brain/<id>/.system_generated/logs/chunks/transcript/00000000.jsonl` and `chunks/transcript_full/00000000.jsonl` (mode 0644);
+- `brain/<id>/.system_generated/steps/2/output.txt` (mode 0644);
+- `conversations/<id>.db` (mode 0600).
+
+So whatever the engine keeps of a conversation holds bound secrets unmasked, in files agy creates world-readable (0644). Keeping `transcript.jsonl` therefore requires an owner-only parent (no group or other access), conversation directory (0700) and file (0600), and the run view must mask what it reads through `mask_secrets` (visiting `Turn.ts` alongside block text). Because agy already stores each member of `tool_calls[].args` as JSON text written once (`"sleep 90"`, `{"command":"cat seed.txt"}`), rendering each string member verbatim without re-parsing or re-serializing keeps every character raw or escaped once — the exact two forms `mask_secrets` covers — and every measured `created_at` is exact 20-byte `YYYY-MM-DDTHH:MM:SSZ`, which the reader enforces before copying into `Turn.ts` (counting any other present value, including `null`, in a notice, while only an absent member is uncounted).
+
+**C. Two rejoins of one conversation at once do not stay apart:**
+
+`l2b-06` (ALPHA) and `l2b-07` (BETA) rejoined one conversation in one HOME concurrently (`l2b-05` cold, `l2b-08` after). Both exited 0 with `SUCCESS` and empty stderr despite `presence/<id>.lock`; BETA's response held both `ALPHA LIME-8802` and `BETA LIME-8802` (`num_turns` 3); `l2b-two-rejoins.transcript.ndjson` carries two rows with `step_index` 4, one after row 6; and `l2b-08` listed only three of the four sent messages. Therefore `step_index` is neither unique nor ordered, and a future rejoin must serialize access per conversation.
+
 ## Not measured
 
 - macOS.
@@ -559,7 +635,6 @@ for the seat's two-hour limit each time.
   measurement, on 1.5.14.
 - The `claude-*`, `gpt-oss-*` and orchestrator slugs.
 - `agy acp`, the Agent Client Protocol server.
-- The format of `transcript.jsonl` beyond its first rows.
 - Rules files (`AGENTS.md`, `GEMINI.md`) above the working directory, and any
   switch for them.
 

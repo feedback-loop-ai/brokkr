@@ -756,21 +756,22 @@ pub(super) fn start_context(
     originating: Option<&OriginatingRoot>,
     target: Option<&ResumeTarget>,
     route_overlay: Option<&RouteOverlay>,
+    declared_transcript_kind: Option<&brokkr_protocol::DeclaredTranscriptKind>,
 ) -> Value {
     let mut context = Map::new();
     context.insert("assessment".into(), assessment);
+    if let Some(kind) = declared_transcript_kind {
+        kind.write_into(&mut context);
+    }
+    let mut put = |k: &str, v: &str| {
+        context.insert(k.into(), Value::String(v.to_string()));
+    };
     if let Some(originating) = originating {
-        if let Some(version) = &originating.harness_version {
-            context.insert(
-                "originating_harness_version".into(),
-                Value::String(version.clone()),
-            );
+        if let Some(v) = &originating.harness_version {
+            put("originating_harness_version", v);
         }
-        if let Some(digest) = &originating.wrapper_digest {
-            context.insert(
-                "originating_wrapper_digest".into(),
-                Value::String(digest.clone()),
-            );
+        if let Some(d) = &originating.wrapper_digest {
+            put("originating_wrapper_digest", d);
         }
     }
     if let Some(target) = target {

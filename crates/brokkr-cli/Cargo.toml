@@ -160,6 +160,9 @@ name = "heap_codex"
 [[test]]
 name = "heap_dsh"
 
+[[test]]
+name = "heap_agy"
+
 # The fleet page's (decision 0089 ruling 9): dhat's peak beside SQLite's own
 # high-water, for the console's first page at two journal sizes.
 [[test]]

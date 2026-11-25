@@ -1,0 +1,147 @@
+agy 1.5.14 before the pass, 2026-11-24T03:40:04Z
+l2b-01-iso-cold exit=0 conv=41e59ffe-3e04-430c-8027-3293bf01c52b status=SUCCESS turns=1 answer=Created At: 2026-11-24T05:40:08+02:00 stderr_lines=0
+A after cold: sentinel-cold.log lines=2
+l2b-02-iso-rejoin-fresh-home exit=0 conv=41e59ffe-3e04-430c-8027-3293bf01c52b status=SUCCESS turns=2 answer=NO SENTINEL TOOL stderr_lines=0
+A1 after the rejoin in a fresh HOME: sentinel-cold.log lines=2 sentinel-rejoin.log lines=1
+l2b-03-iso-rejoin-same-home-empty-set exit=0 conv=41e59ffe-3e04-430c-8027-3293bf01c52b status=SUCCESS turns=2 answer=NO SENTINEL TOOL stderr_lines=0
+A2 after the rejoin in the same HOME with an empty set: sentinel-cold.log lines=2
+l2b-04-printed-value exit=0 conv=ab4a25a5-06ac-4182-b342-92734f806aa6 status=SUCCESS turns=1 answer=DONE stderr_lines=0
+B the value in the stream: 0 line(s)
+B conversation file: ./brain/<id>/.system_generated/logs/chunks/transcript/00000000.jsonl
+B conversation file: ./brain/<id>/.system_generated/logs/chunks/transcript_full/00000000.jsonl
+B conversation file: ./brain/<id>/.system_generated/logs/transcript_full.jsonl
+B conversation file: ./brain/<id>/.system_generated/logs/transcript.jsonl
+B conversation file: ./builtin/.checksum
+B conversation file: ./builtin/keep.txt
+B conversation file: ./builtin/.manifest
+B conversation file: ./builtin/plugins/swarm/assets/logo.svg
+B conversation file: ./builtin/plugins/swarm/plugin.json
+B conversation file: ./builtin/plugins/swarm/README.md
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/app.js
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/board_cache.mjs
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/channels.mjs
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/gif.js
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/hive.css
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/hive.js
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/index.html
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/main.mjs
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/narrator_bootstrap.js
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/package.json
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/README.md
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/sidecar.json
+B conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/styles.css
+B conversation file: ./builtin/skills/agy-customizations/docs/hooks.md
+B conversation file: ./builtin/skills/agy-customizations/docs/json_configs.md
+B conversation file: ./builtin/skills/agy-customizations/docs/mcp_servers.md
+B conversation file: ./builtin/skills/agy-customizations/docs/plugins.md
+B conversation file: ./builtin/skills/agy-customizations/docs/rules.md
+B conversation file: ./builtin/skills/agy-customizations/docs/skills.md
+B conversation file: ./builtin/skills/agy-customizations/SKILL.md
+B conversation file: ./builtin/skills/antigravity_guide/references/app.md
+B conversation file: ./builtin/skills/antigravity_guide/references/cli.md
+B conversation file: ./builtin/skills/antigravity_guide/references/ide.md
+B conversation file: ./builtin/skills/antigravity_guide/references/sdk.md
+B conversation file: ./builtin/skills/antigravity_guide/SKILL.md
+B conversation file: ./builtin/skills/automation/SKILL.md
+B conversation file: ./builtin/skills/conversations/SKILL.md
+B conversation file: ./builtin/skills/generative_ui/SKILL.md
+B conversation file: ./builtin/skills/mcp-app-development/SKILL.md
+B conversation file: ./builtin/skills/migrate-agent-settings/SKILL.md
+B conversation file: ./builtin/skills/migrate-workflows/SKILL.md
+B conversation file: ./builtin/skills/native_swarm/logo.svg
+B conversation file: ./builtin/skills/native_swarm/SKILL.md
+B conversation file: ./builtin/skills/permissioned-github/SKILL.md
+B conversation file: ./builtin/skills/plugin/SKILL.md
+B conversation file: ./builtin/skills/run-workflow/SKILL.md
+B conversation file: ./builtin/skills/swarm_monitor/SKILL.md
+B conversation file: ./builtin/skills/swarm_narrator/SKILL.md
+B conversation file: ./builtin/skills/swarm_pane/SKILL.md
+B conversation file: ./builtin/skills/ui-plugin-navigation/SKILL.md
+B conversation file: ./cache/default_project_id.txt
+B conversation file: ./cache/last_conversations.json
+B conversation file: ./cache/onboarding.json
+B conversation file: ./conversations/<id>.db
+B conversation file: ./conversation_summaries.db
+B conversation file: ./implicit/fd5be362-6554-498e-9de4-9cb2b68c0d77.pb
+B conversation file: ./installation_id
+B conversation file: ./jetbox_summaries_proto.pb
+B conversation file: ./jetski_state.pbtxt
+B conversation file: ./log/cli-20261124_054026.log
+B conversation file: ./presence/<id>.lock
+l2b-05-par-cold exit=0 conv=6a69b22b-d75e-4d9a-9e93-0531317dc476 status=SUCCESS turns=1 answer=STORED stderr_lines=0
+l2b-07-par-rejoin-beta exit=0 conv=6a69b22b-d75e-4d9a-9e93-0531317dc476 status=SUCCESS turns=3 answer=ALPHA LIME-8802 stderr_lines=0
+l2b-06-par-rejoin-alpha exit=0 conv=6a69b22b-d75e-4d9a-9e93-0531317dc476 status=SUCCESS turns=2 answer=ALPHA LIME-8802 stderr_lines=0
+C transcript after both: lines=8 rows that are not JSON=0 step indexes=0 1 2 3 4 5 6 4  user inputs=<USER_REQUEST>|Remember this code word: LIME-8802. Repl|</USER_REQUEST>|<ADDITIONAL_METADATA>|The current local time is: 2026-11-24T05|</ADDITIONAL_METADATA>|<USER_SETTINGS_CHANGE>|The user changed setting `Model Selectio|</USER_SETTINGS_CHANGE>|<USER_REQUEST>|Reply with exactly: ALPHA and then the c|</USER_REQUEST>|<ADDITIONAL_METADATA>|The current local time is: 2026-11-24T05|</ADDITIONAL_METADATA>|<USER_REQUEST>|Reply with exactly: BETA and then the co|</USER_REQUEST>|<ADDITIONAL_METADATA>|The current local time is: 2026-11-24T05|</ADDITIONAL_METADATA>|
+l2b-08-par-after exit=0 conv=6a69b22b-d75e-4d9a-9e93-0531317dc476 status=SUCCESS turns=3 answer=Remember this code stderr_lines=0
+agy 1.5.14 after the pass, 2026-11-24T03:40:47Z
+l2b-09-printed-value-allowed exit=0 conv=5ca7618a-9b3f-4eb5-9863-d4bdae9eb945 status=SUCCESS answer=DONE
+B2 the value in the stream: 1 line(s), in events:       1 step_update
+B2 the value is in: ./brain/<id>/.system_generated/logs/chunks/transcript/00000000.jsonl (mode 644, 1 line(s))
+B2 the value is in: ./brain/<id>/.system_generated/logs/chunks/transcript_full/00000000.jsonl (mode 644, 1 line(s))
+B2 the value is in: ./brain/<id>/.system_generated/logs/transcript_full.jsonl (mode 644, 1 line(s))
+B2 the value is in: ./brain/<id>/.system_generated/logs/transcript.jsonl (mode 644, 1 line(s))
+B2 the value is in: ./brain/<id>/.system_generated/steps/2/output.txt (mode 644, 1 line(s))
+B2 the value is in: ./conversations/<id>.db (mode 600, 3 line(s))
+B2 conversation file: ./bin/agentapi (mode 755)
+B2 conversation file: ./brain/<id>/.system_generated/logs/chunks/transcript/00000000.jsonl (mode 644)
+B2 conversation file: ./brain/<id>/.system_generated/logs/chunks/transcript_full/00000000.jsonl (mode 644)
+B2 conversation file: ./brain/<id>/.system_generated/logs/transcript_full.jsonl (mode 644)
+B2 conversation file: ./brain/<id>/.system_generated/logs/transcript.jsonl (mode 644)
+B2 conversation file: ./brain/<id>/.system_generated/steps/2/output.txt (mode 644)
+B2 conversation file: ./builtin/.checksum (mode 644)
+B2 conversation file: ./builtin/keep.txt (mode 644)
+B2 conversation file: ./builtin/.manifest (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/assets/logo.svg (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/plugin.json (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/README.md (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/app.js (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/board_cache.mjs (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/channels.mjs (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/gif.js (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/hive.css (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/hive.js (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/index.html (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/main.mjs (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/narrator_bootstrap.js (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/package.json (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/README.md (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/sidecar.json (mode 644)
+B2 conversation file: ./builtin/plugins/swarm/sidecars/swarm_board/styles.css (mode 644)
+B2 conversation file: ./builtin/skills/agy-customizations/docs/hooks.md (mode 644)
+B2 conversation file: ./builtin/skills/agy-customizations/docs/json_configs.md (mode 644)
+B2 conversation file: ./builtin/skills/agy-customizations/docs/mcp_servers.md (mode 644)
+B2 conversation file: ./builtin/skills/agy-customizations/docs/plugins.md (mode 644)
+B2 conversation file: ./builtin/skills/agy-customizations/docs/rules.md (mode 644)
+B2 conversation file: ./builtin/skills/agy-customizations/docs/skills.md (mode 644)
+B2 conversation file: ./builtin/skills/agy-customizations/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/antigravity_guide/references/app.md (mode 644)
+B2 conversation file: ./builtin/skills/antigravity_guide/references/cli.md (mode 644)
+B2 conversation file: ./builtin/skills/antigravity_guide/references/ide.md (mode 644)
+B2 conversation file: ./builtin/skills/antigravity_guide/references/sdk.md (mode 644)
+B2 conversation file: ./builtin/skills/antigravity_guide/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/automation/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/conversations/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/generative_ui/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/mcp-app-development/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/migrate-agent-settings/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/migrate-workflows/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/native_swarm/logo.svg (mode 644)
+B2 conversation file: ./builtin/skills/native_swarm/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/permissioned-github/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/plugin/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/run-workflow/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/swarm_monitor/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/swarm_narrator/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/swarm_pane/SKILL.md (mode 644)
+B2 conversation file: ./builtin/skills/ui-plugin-navigation/SKILL.md (mode 644)
+B2 conversation file: ./cache/default_project_id.txt (mode 644)
+B2 conversation file: ./cache/last_conversations.json (mode 600)
+B2 conversation file: ./cache/onboarding.json (mode 600)
+B2 conversation file: ./conversations/<id>.db (mode 600)
+B2 conversation file: ./conversation_summaries.db (mode 644)
+B2 conversation file: ./implicit/74bb0d82-c236-4035-969f-f7d74a5b6a83.pb (mode 644)
+B2 conversation file: ./installation_id (mode 644)
+B2 conversation file: ./jetbox_summaries_proto.pb (mode 600)
+B2 conversation file: ./jetski_state.pbtxt (mode 600)
+B2 conversation file: ./log/cli-20261124_054117.log (mode 644)
+B2 conversation file: ./presence/<id>.lock (mode 600)

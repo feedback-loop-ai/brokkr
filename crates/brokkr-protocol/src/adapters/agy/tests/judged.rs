@@ -53,7 +53,7 @@ pub(super) fn driven_with(
     let mut rows = Vec::new();
     let turn = drive(
         pinned,
-        false,
+        StartMode::default(),
         "prompt",
         &input,
         bindings,
@@ -105,7 +105,7 @@ fn a_seat_that_binds_an_owned_name_is_refused_and_its_child_keeps_the_engines() 
         std::fs::create_dir(&empty).unwrap();
         world.env.set("HOME", &empty);
         let start = pinned_on(&bin, |pinned| {
-            turn(pinned, "p", &input, &bindings, &mut |_| {}).map(drop)
+            turn(pinned, false, "p", &input, &bindings, &mut |_| {}).map(drop)
         });
         assert!(
             matches!(&start, Err(Ended::Launch(LaunchError::Owned(owned))) if *owned == name),
@@ -120,7 +120,7 @@ fn a_seat_that_binds_an_owned_name_is_refused_and_its_child_keeps_the_engines() 
             operator: Some(&operator),
         };
         let prepared = prepared(&binary, &extra, &input, homes, Path::new("/b")).unwrap();
-        let invoked = invoke(&prepared, &input, "prompt", &bindings, &mut |_| {});
+        let invoked = invoke(&prepared, false, &input, "prompt", &bindings, &mut |_| {});
         assert!(invoked.is_ok(), "{:?}", invoked.map(drop));
         assert_eq!(world.recorded("home"), prepared.home.path());
         assert_eq!(Path::new(&world.recorded("pwd")), world.seat());
@@ -324,7 +324,15 @@ fn a_success_behind_a_denial_fails_naming_the_denial() {
 /// under `bindings`.
 fn drive_on(bin: &Path, input: &Value, bindings: &[secret::BoundSecret]) -> Result<(), String> {
     pinned_on(bin, |pinned| {
-        drive(pinned, false, "p", input, bindings, &mut |_| {}).map(drop)
+        drive(
+            pinned,
+            StartMode::default(),
+            "p",
+            input,
+            bindings,
+            &mut |_| {},
+        )
+        .map(drop)
     })
 }
 
@@ -562,12 +570,7 @@ fn a_working_directory_that_is_not_utf8_is_refused_naming_nothing_of_it() {
         let mut input = world.input(None);
         input["workdir"] = json!(link);
         let bindings = [bound("AT", value)];
-        let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", FLASH]));
-        let pinned = super::super::super::Pinned {
-            binary: &binary,
-            extra: &extra,
-        };
-        let turn = drive(pinned, false, "prompt", &input, &bindings, &mut |_| {});
+        let turn = super::drive_flash(&bin, StartMode::default(), &input, &bindings);
         let words = turn.map(drop).unwrap_err();
         let escaped = [
             value.escape_debug().to_string(),

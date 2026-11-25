@@ -1218,6 +1218,10 @@ impl World {
     /// created, whatever stood in it and whatever another seat makes or
     /// reaps beside it in the shared parent. The HOME the fake ran under,
     /// where it started, is one of them.
+    fn operator_home(&self) -> PathBuf {
+        self.path("operator")
+    }
+
     fn homes_gone(&self) -> bool {
         let made = made_here().split_off(self.before);
         let ran = std::fs::read_to_string(self.seat().join("home")).ok();
@@ -1527,6 +1531,20 @@ const SECRET: &str = "tok9z";
 /// One turn of a fake `agy` pinned to [`FLASH`] printing `stdout` and a
 /// stderr that carries [`SECRET`], exiting `code`, run by [`drive`] with
 /// the secret bound; beside it, the secret as masked.
+pub(super) fn drive_flash(
+    bin: &Path,
+    mode: StartMode,
+    input: &Value,
+    bindings: &[secret::BoundSecret],
+) -> Result<Invocation, String> {
+    let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", FLASH]));
+    let pinned = super::super::Pinned {
+        binary: &binary,
+        extra: &extra,
+    };
+    drive(pinned, mode, "prompt", input, bindings, &mut |_| {})
+}
+
 fn bound_turn(stdout: &str, delivers: bool, code: i32) -> (Result<Invocation, String>, String) {
     let mut world = World::new();
     let stderr = format!("\u{1b}[31merror: token tok\u{1b}[0m9z expired at https://x/{SECRET}\n");
@@ -1535,12 +1553,7 @@ fn bound_turn(stdout: &str, delivers: bool, code: i32) -> (Result<Invocation, St
     let masked = secret::mask_text(SECRET.as_bytes(), &bindings);
     world.set(&bin);
     let input = world.input(None);
-    let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", FLASH]));
-    let pinned = super::super::Pinned {
-        binary: &binary,
-        extra: &extra,
-    };
-    let turn = drive(pinned, false, "prompt", &input, &bindings, &mut |_| {});
+    let turn = drive_flash(&bin, StartMode::default(), &input, &bindings);
     assert!(world.homes_gone());
     (turn, masked)
 }
@@ -1598,6 +1611,7 @@ fn a_bound_secret_in_agys_stderr_or_error_text_reaches_no_word() {
 
 mod boxed;
 mod judged;
+mod keep;
 mod last;
 mod resolved;
 mod whole;

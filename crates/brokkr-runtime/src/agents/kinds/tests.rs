@@ -461,3 +461,342 @@ fn named_reads_masked_keys_at_the_record_and_result_only() {
         outside(Member::Transcript)
     );
 }
+
+/// An agy seat declares `agy-conversation` for its transcript and no root
+/// session kind (#1227, T1 & T2): it admits `agy-conversation` and `none`
+/// as transcript kinds, refuses every other transcript kind and every root
+/// session kind (including `agy-conversation`), and never rejoins.
+#[test]
+fn an_agy_seat_records_agy_conversation_and_none_and_no_root_session() {
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let shipped = workspace.join("docs/examples/adapters/agy.json");
+    let shipped = serde_json::from_str(&std::fs::read_to_string(shipped).unwrap()).unwrap();
+    let driver = argv(&["{brokkr}", "driver", "agy", "--"]);
+    let agy = loaded_from(&[shipped]).seat(Some("agy"), &driver);
+    assert!(agy.declares_its_kinds());
+    assert!(!agy.rejoins_by_legacy());
+    let standing = Some(Standing {
+        boundary: "namespace",
+        hands: "none",
+    });
+    assert!(!agy.rejoins("agy-conversation", standing));
+    for allowed in ["agy-conversation", "none"] {
+        let transcript = json!({"step": "s", "transcript": {"kind": allowed}});
+        assert_eq!(agy.admit(&transcript, "work"), Ok(()), "{allowed}");
+    }
+    for kind in BUILT_IN {
+        let transcript = json!({"step": "s", "transcript": {"kind": kind}});
+        assert_eq!(
+            agy.admit(&transcript, "work"),
+            refused(Member::Transcript, kind),
+            "{kind}"
+        );
+    }
+    for kind in BUILT_IN.into_iter().chain(["agy-conversation"]) {
+        let root = json!({"step": "s", "root_session": {"kind": kind}});
+        assert_eq!(
+            agy.admit(&root, "work"),
+            refused(Member::RootSession, kind),
+            "root {kind}"
+        );
+    }
+}
+
+/// #1227 U2(a) & U2(c): `agy-conversation` is admitted ONLY where the seat's
+/// loaded adapter declares it in `record_kinds`. An adapterless inline
+/// `{brokkr} driver agy` seat and an agy adapter without `record_kinds` both
+/// refuse `agy-conversation` (and every `root_session` kind of agy's), while a
+/// declaring adapter admits `agy-conversation` and refuses `claude-session` and
+/// every `root_session` kind.
+#[test]
+fn agy_conversation_requires_declaring_adapter_and_adapterless_seat_keeps_v7_rule() {
+    let driver = argv(&[
+        "{brokkr}",
+        "driver",
+        "agy",
+        "--",
+        "--model",
+        "gemini-4-neon",
+    ]);
+    let agy_transcript = json!({"step": "s", "transcript": {"kind": "agy-conversation"}});
+    let none_transcript = json!({"step": "s", "transcript": {"kind": "none"}});
+    let agy_root = json!({"step": "s", "root_session": {"kind": "agy-conversation"}});
+
+    // 1. Adapterless inline `{brokkr} driver agy` seat: refuses `agy-conversation`,
+    //    admits `none`, and preserves main's adapter-absent v7 rule untouched.
+    let adapterless = loaded_from(&[]).seat(None, &driver);
+    assert!(!adapterless.declares_its_kinds());
+    assert_eq!(adapterless.declared_transcript_kind(), None);
+    assert_eq!(
+        adapterless.admit(&agy_transcript, "work"),
+        refused(Member::Transcript, "agy-conversation")
+    );
+    assert_eq!(
+        adapterless.admit(&agy_root, "work"),
+        refused(Member::RootSession, "agy-conversation")
+    );
+    assert_eq!(adapterless.admit(&none_transcript, "work"), Ok(()));
+
+    // 2. Loaded `agy` adapter WITHOUT `record_kinds`: refuses `agy-conversation`
+    //    and every built-in kind; admits `none` alone.
+    let bare_agy = adapter_file("agy", &["{brokkr}", "driver", "agy", "--"], json!({}));
+    let undeclared = loaded_from(&[bare_agy]).seat(Some("agy"), &driver);
+    assert!(!undeclared.declares_its_kinds());
+    assert_eq!(undeclared.declared_transcript_kind(), None);
+    assert_eq!(undeclared.admit(&none_transcript, "work"), Ok(()));
+    assert_eq!(
+        undeclared.admit(&agy_transcript, "work"),
+        refused(Member::Transcript, "agy-conversation")
+    );
+    assert_eq!(
+        undeclared.admit(&agy_root, "work"),
+        refused(Member::RootSession, "agy-conversation")
+    );
+    for kind in BUILT_IN {
+        let t = json!({"step": "s", "transcript": {"kind": kind}});
+        assert_eq!(
+            undeclared.admit(&t, "work"),
+            refused(Member::Transcript, kind)
+        );
+        let r = json!({"step": "s", "root_session": {"kind": kind}});
+        assert_eq!(
+            undeclared.admit(&r, "work"),
+            refused(Member::RootSession, kind)
+        );
+    }
+
+    // 3. Declaring `agy` adapter carries `declared_transcript_kind == Some("agy-conversation")`.
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let shipped = workspace.join("docs/examples/adapters/agy.json");
+    let shipped = serde_json::from_str(&std::fs::read_to_string(shipped).unwrap()).unwrap();
+    let declared = loaded_from(&[shipped]).seat(Some("agy"), &driver);
+    assert_eq!(
+        declared.declared_transcript_kind(),
+        Some(brokkr_protocol::DeclaredTranscriptKind::AgyConversation)
+    );
+}
+
+#[cfg(unix)]
+const SERVE_AGY_KINDS: &str = "BROKKR_KINDS_SERVE_AGY";
+
+/// Not a test of its own: serves production's `agy` driver when re-entered by
+/// [`agy_seat_masked_record_agrees_with_kind_admission`] so the agreement test
+/// drives the real keeper and masking path without widening any crate's public
+/// visibility (#1227 Q3).
+#[cfg(unix)]
+#[test]
+fn agy_driver_child() {
+    let Ok(model) = std::env::var(SERVE_AGY_KINDS) else {
+        return;
+    };
+    let served = brokkr_protocol::adapters::serve(
+        brokkr_protocol::adapters::AdapterKind::Agy,
+        vec!["--model".into(), model],
+        || Ok(()),
+    );
+    std::process::exit(if served.is_ok() { 0 } else { 70 });
+}
+
+/// Run the real `brokkr-protocol` agy driver keep path with one bound secret
+/// value, returning whether the kept transcript file exists on disk and every
+/// driver-masked checkpoint row emitted over the protocol (#1227 Q3).
+#[cfg(unix)]
+fn install_fake_agy(
+    dir: &std::path::Path,
+    uuid: &str,
+    model: &str,
+    result_path: &std::path::Path,
+) -> std::path::PathBuf {
+    let script_src = dir.join("fake-agy.sh");
+    let script = format!(
+        "#!/bin/sh\ncat >/dev/null\n\
+         mkdir -p \"$HOME/.gemini/antigravity-cli/brain/{uuid}/.system_generated/logs\"\n\
+         printf '{{\"step_index\":0,\"role\":\"USER\",\"text\":\"hi\",\"created_at\":\"2026-11-24T00:00:00Z\"}}\\n' \
+         > \"$HOME/.gemini/antigravity-cli/brain/{uuid}/.system_generated/logs/transcript.jsonl\"\n\
+         printf '{{\"result\":\"complete\"}}' > '{}'\n\
+         printf '{{\"event\":\"init\",\"conversation_id\":\"{uuid}\",\"init\":{{\"model\":\"{model}\"}}}}\\n'\n\
+         printf '{{\"event\":\"result\",\"result\":{{\"status\":\"SUCCESS\",\"response\":\"DONE\",\"num_turns\":1}}}}\\n'\n",
+        result_path.display(),
+    );
+    std::fs::write(&script_src, script).unwrap();
+    let fake_agy = dir.join("fake-agy");
+    let copy_status = std::process::Command::new("sh")
+        .args(["-c", "cp \"$1\" \"$2\" && chmod 755 \"$2\"", "sh"])
+        .arg(&script_src)
+        .arg(&fake_agy)
+        .status()
+        .unwrap();
+    assert!(copy_status.success());
+    fake_agy
+}
+
+#[cfg(unix)]
+fn drive_agy_keep_with_secret(secret_value: &str) -> (bool, Vec<Value>) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    const UUID: &str = "11111111-2222-3333-4444-555555555555";
+    const MODEL: &str = "gemini-3.8-flash-low";
+
+    let dir = tempfile::tempdir().unwrap();
+    let op_home = dir.path().join("operator");
+    let seat_dir = dir.path().join("seat");
+    std::fs::create_dir_all(op_home.join(".gemini/antigravity-cli")).unwrap();
+    std::fs::create_dir_all(&seat_dir).unwrap();
+    std::fs::write(
+        op_home.join(".gemini/antigravity-cli/antigravity-oauth-token"),
+        b"login",
+    )
+    .unwrap();
+    let store = dir.path().join("secrets.env");
+    brokkr_protocol::secret::store_set(&store, "K", secret_value).unwrap();
+    let result_path = seat_dir.join("result.json");
+    let fake_agy = install_fake_agy(dir.path(), UUID, MODEL, &result_path);
+
+    let start = json!({
+        "type": "start",
+        "effect_id": "e1",
+        "attempt_id": "a1",
+        "input": {
+            "role_path": "/dev/null",
+            "phase": "work",
+            "feature": "f",
+            "allowed_results": ["complete"],
+            "result_path": result_path,
+            "workdir": seat_dir,
+            "secrets": ["K"],
+            "secrets_file": store,
+            "resume_context": {
+                "assessment": Value::Null,
+                "declared_transcript_kind": "agy-conversation",
+            },
+        },
+    });
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "agents::kinds::tests::agy_driver_child",
+            "--nocapture",
+            "--test-threads=1",
+            "-q",
+        ])
+        .env(SERVE_AGY_KINDS, MODEL)
+        .env("HOME", &op_home)
+        .env("BROKKR_AGY_BIN", &fake_agy)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut stdin = child.stdin.take().unwrap();
+        writeln!(stdin, "{{\"type\":\"hello\"}}").unwrap();
+        writeln!(stdin, "{start}").unwrap();
+        writeln!(stdin, "{{\"type\":\"shutdown\"}}").unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "agy driver child failed: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let mut checkpoints = Vec::new();
+    let mut saw_result = false;
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Ok(msg) = serde_json::from_str::<brokkr_protocol::Message>(line) else {
+            continue;
+        };
+        match msg.body {
+            brokkr_protocol::Body::Checkpoint { data, .. } => checkpoints.push(data),
+            brokkr_protocol::Body::Result {
+                status: brokkr_protocol::ResultStatus::Succeeded,
+                ..
+            } => saw_result = true,
+            _ => {}
+        }
+    }
+    assert!(saw_result, "driver did not complete: {checkpoints:?}");
+
+    let kept_file = op_home
+        .join(".local/state/brokkr/agy-conversations")
+        .join(UUID)
+        .join("transcript.jsonl");
+    (kept_file.exists(), checkpoints)
+}
+
+/// #1227 A2, Q3: the real `agy` driver keep path and `SeatKinds::admit` agree
+/// for bound values `transcript`, `kind`, and `agy-conversation`: each refuses
+/// to keep a file and emits the fallback `none` transcript row (masked as the
+/// driver masks it), and passing that emitted row to `admit` yields
+/// `UndeclaredKind::Masked` for `transcript`, `outside(Member::Transcript)`
+/// for `kind`, and `Ok(())` for `agy-conversation`. A control binding proves
+/// the same harness keeps and admits `agy-conversation`.
+#[cfg(unix)]
+#[test]
+fn agy_seat_masked_record_agrees_with_kind_admission() {
+    let agy_adapter = adapter_file(
+        "agy",
+        &["{brokkr}", "driver", "agy", "--"],
+        json!({"record_kinds": {"transcript": "agy-conversation"}}),
+    );
+    let agy =
+        loaded_from(&[agy_adapter]).seat(Some("agy"), &argv(&["{brokkr}", "driver", "agy", "--"]));
+
+    // Control: unrelated secret keeps the transcript and admits `agy-conversation`.
+    let (kept_control, control_rows) = drive_agy_keep_with_secret("unrelated-secret-value");
+    assert!(kept_control, "control run must keep the transcript file");
+    let control_row = control_rows
+        .iter()
+        .find(|row| row["step"] == "transcript")
+        .expect("control transcript checkpoint");
+    assert_eq!(control_row["transcript"]["kind"], "agy-conversation");
+    assert_eq!(agy.admit(control_row, "work"), Ok(()));
+
+    // Bound `transcript`: nothing kept, fallback `none` emitted under the
+    // masked record key, refused by `admit` as `UndeclaredKind::Masked`.
+    let (kept_transcript, rows_transcript) = drive_agy_keep_with_secret("transcript");
+    assert!(!kept_transcript, "transcript binding must keep no file");
+    let row_transcript = rows_transcript
+        .iter()
+        .find(|row| row["step"] == "[secret:K]")
+        .expect("masked transcript checkpoint");
+    assert_eq!(
+        row_transcript["[secret:K]"],
+        json!({"kind": "none", "locator": "", "home": ""})
+    );
+    assert_eq!(
+        agy.admit(row_transcript, "work"),
+        Err(UndeclaredKind::Masked {
+            seat: "work".into(),
+        })
+    );
+
+    // Bound `kind`: nothing kept, fallback `none` emitted under the masked
+    // `kind` key, refused by `admit` as outside seat-record v8's grammar.
+    let (kept_kind, rows_kind) = drive_agy_keep_with_secret("kind");
+    assert!(!kept_kind, "kind binding must keep no file");
+    let row_kind = rows_kind
+        .iter()
+        .find(|row| row["step"] == "transcript")
+        .expect("kind-masked transcript checkpoint");
+    assert_eq!(
+        row_kind["transcript"],
+        json!({"[secret:K]": "none", "locator": "", "home": ""})
+    );
+    assert_eq!(agy.admit(row_kind, "work"), outside(Member::Transcript));
+
+    // Bound `agy-conversation`: nothing kept, fallback `none` emitted intact,
+    // admitted by `admit`.
+    let (kept_kind_val, rows_kind_val) = drive_agy_keep_with_secret("agy-conversation");
+    assert!(!kept_kind_val, "agy-conversation binding must keep no file");
+    let row_kind_val = rows_kind_val
+        .iter()
+        .find(|row| row["step"] == "transcript")
+        .expect("agy-conversation-masked transcript checkpoint");
+    assert_eq!(
+        row_kind_val["transcript"],
+        json!({"kind": "none", "locator": "", "home": ""})
+    );
+    assert_eq!(agy.admit(row_kind_val, "work"), Ok(()));
+}

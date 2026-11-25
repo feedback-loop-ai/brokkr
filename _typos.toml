@@ -70,3 +70,5 @@ INSERTs = "INSERTs"
 DaaC = "DaaC"
 # A node in the console's graph layout (ui.html).
 nd = "nd"
+# POSIX/rustix write-only open flag (`OFlags::WRONLY`).
+WRONLY = "WRONLY"

@@ -157,7 +157,10 @@ fn concluded_after(
     let unread = turn.unread;
     let input = json!({ "result_path": result });
     let concluded = concluded(fold, turn, record, &input, &[]);
-    (unread, concluded.map(|invocation| invocation.answer))
+    (
+        unread,
+        concluded.outcome.map(|invocation| invocation.answer),
+    )
 }
 
 /// A turn stopped at a substituted init after agy had exited 0 on its own,

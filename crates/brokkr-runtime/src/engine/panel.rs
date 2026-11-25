@@ -235,12 +235,7 @@ impl Engine {
                 // decision 0056 ruling 1).
                 let plan = selection.plan(&site);
                 if let Some(plan) = plan {
-                    input["resume_context"] = resume::start_context(
-                        plan.assessment.clone(),
-                        plan.originating.as_ref(),
-                        plan.offer.as_ref(),
-                        plan.route_overlay.as_ref(),
-                    );
+                    plan.attach_resume_context(&mut input);
                 }
                 MemberRun {
                     name: member.name.clone(),
@@ -635,5 +630,17 @@ pub(super) fn outcome_over(
     }
     AttemptOutcome::Succeeded {
         result: join.aggregate_results(&member_results),
+    }
+}
+
+impl super::SitePlan {
+    pub(super) fn attach_resume_context(&self, input: &mut Value) {
+        input["resume_context"] = resume::start_context(
+            self.assessment.clone(),
+            self.originating.as_ref(),
+            self.offer.as_ref(),
+            self.route_overlay.as_ref(),
+            self.context.kinds.declared_transcript_kind().as_ref(),
+        );
     }
 }

@@ -30,11 +30,11 @@ use super::mcp::{self, McpRefusal};
 use super::spawn::{spawn_fed_in, Unstarted};
 use super::stream_turn::{streamed_lines, Turn, Unconcluded};
 use super::{secret, Emitted, Invocation, LaunchTerminal};
-use crate::transcript::{Kind as TranscriptKind, Transcript};
 
 mod fold;
 mod gate;
 mod home;
+mod keep;
 
 use super::stream_turn::{plain, Line, Observed, PLAIN_ID_LIMIT};
 use crate::native_controls::SealedBoundary;
@@ -288,6 +288,10 @@ pub(super) enum LaunchError {
     /// driver states it with ([`McpRefusal::at_launch`]).
     #[error("{}", .0.at_launch())]
     Mcp(#[from] McpRefusal),
+    /// `resume_context.declared_transcript_kind` was present with a value the
+    /// driver cannot read as [`crate::DeclaredTranscriptKind`] (#1227 W6).
+    #[error("refusing to invoke the agent CLI: {0}")]
+    DeclaredTranscriptKind(#[source] crate::InvalidDeclaredTranscriptKind),
 }
 
 /// How a seat ended with no invocation, typed until [`drive`] renders it
@@ -456,17 +460,25 @@ fn stdin_line(prompt: &str) -> String {
 /// inside it was masked once already, whole, before it was cut (K3); this
 /// second pass is the only one over the seat's own words and the shared
 /// helpers' errors, and over what joining words could rejoin (K10).
+/// How the caller started this agy seat: whether a resume offer was made and
+/// whether this is a one-turn probe whose checkpoints are discarded (#1227 U4).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct StartMode {
+    pub(super) offered: bool,
+    pub(super) probe: bool,
+}
+
 pub(super) fn drive(
     pinned: super::Pinned<'_>,
-    offered: bool,
+    mode: StartMode,
     prompt: &str,
     input: &Value,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
-    let ended = match offered {
+    let ended = match mode.offered {
         true => Err(Ended::Launch(LaunchError::Resumed)),
-        false => turn(pinned, prompt, input, bindings, emit),
+        false => turn(pinned, mode.probe, prompt, input, bindings, emit),
     };
     ended.map_err(|ended| rendered(&ended, bindings))
 }
@@ -483,6 +495,7 @@ fn rendered(ended: &Ended, bindings: &[secret::BoundSecret]) -> String {
 /// by the name, before anything else. Every launch is admitted cold.
 fn turn(
     pinned: super::Pinned<'_>,
+    probe: bool,
     prompt: &str,
     input: &Value,
     bindings: &[secret::BoundSecret],
@@ -501,7 +514,7 @@ fn turn(
     let brokkr = mcp::engine_executable();
     // The HOME lives until the turn ends.
     let prepared = prepared(pinned.binary, &composed.extra, input, homes, &brokkr)?;
-    invoke(&prepared, input, prompt, bindings, emit)
+    invoke(&prepared, probe, input, prompt, bindings, emit)
 }
 
 /// What one launch runs with: the engine's HOME, the launch, and the
@@ -509,6 +522,8 @@ fn turn(
 /// (L2) and the workspace check reads directly before the spawn (M1).
 struct Prepared {
     home: Home,
+    operator_home: Option<PathBuf>,
+    declared: bool,
     launch: Launch,
     workdir: String,
 }
@@ -558,9 +573,15 @@ fn prepared_with(
         mcp: &served.document,
         hooks: &hooks,
     };
+    let declared = crate::DeclaredTranscriptKind::read_from(input)
+        .map_err(LaunchError::DeclaredTranscriptKind)?
+        .is_some_and(|kind| kind.is_agy_conversation());
+    let operator_home = homes.operator.map(Path::to_path_buf);
     let home = made(homes, written)?;
     Ok(Prepared {
         home,
+        operator_home,
+        declared,
         launch,
         workdir,
     })
@@ -579,6 +600,7 @@ fn prepared_with(
 /// bindings in [`drive`], and carry no stderr (K8).
 fn invoke(
     prepared: &Prepared,
+    probe: bool,
     input: &Value,
     prompt: &str,
     bindings: &[secret::BoundSecret],
@@ -586,11 +608,12 @@ fn invoke(
 ) -> Result<Invocation, Ended> {
     let Prepared {
         home,
+        operator_home,
+        declared,
         launch,
         workdir,
     } = prepared;
     let mut fold = AgyFold::new(&launch.pin, bindings);
-    let mut transcript = Transcript::resolve(TranscriptKind::None).map_err(String::from)?;
     // The engine's HOME, PWD and update switch, set on the child last, after
     // the bindings and over the engine's own environment (J1, L2); the child
     // runs in the directory its PWD names.
@@ -612,20 +635,62 @@ fn invoke(
             Err(refused) => Line::Stopped(refused),
         }
     })?;
-    transcript.finish(&mut session_meta, &mut *emit);
-    concluded(fold, ended, session_meta, input, bindings)
+    let conversation = fold.take_conversation();
+    let Concluded {
+        mut outcome,
+        began_work,
+        result_exists,
+    } = concluded(fold, ended, session_meta, input, bindings);
+    let refused_to_start = outcome.as_ref().is_ok_and(|inv| {
+        super::lost::refusal_to_start(
+            inv.refusal.clone(),
+            began_work,
+            || result_exists,
+            inv.exit_code,
+            inv.launch,
+        )
+        .is_some()
+    });
+    let mut fallback_meta = Map::new();
+    let target_meta = match &mut outcome {
+        Ok(invocation) => &mut invocation.session_meta,
+        Err(_) => &mut fallback_meta,
+    };
+    let notice = keep::publish_transcript(
+        keep::KeepContext {
+            declared: *declared,
+            probe,
+            refused_to_start,
+            conversation: &conversation,
+            engine_home: Path::new(home.path()),
+            operator_home: operator_home.as_deref(),
+            bindings,
+        },
+        target_meta,
+        emit,
+    );
+    if let Some(notice) = notice {
+        keep::report_notice(&mut outcome, &notice);
+    }
+    outcome
 }
 
-/// The invocation of a turn read to `ended`, judged by `fold`: a stdout
-/// that could not be read to its end is the turn's fault (L3), and the
-/// verdict is read once.
+struct Concluded {
+    outcome: Result<Invocation, Ended>,
+    began_work: bool,
+    result_exists: bool,
+}
+
+/// The invocation of a turn read to `ended`, judged by `fold`, beside whether
+/// the turn performed or delivered work: a stdout that could not be read to its
+/// end is the turn's fault (L3), and the verdict is read once.
 fn concluded(
     mut fold: AgyFold<'_>,
     ended: Turn,
     session_meta: Map<String, Value>,
     input: &Value,
     bindings: &[secret::BoundSecret],
-) -> Result<Invocation, Ended> {
+) -> Concluded {
     let Turn {
         exit_code,
         clean,
@@ -636,10 +701,26 @@ fn concluded(
     // Read unmasked so no binding erases the marker, and only matched (J4).
     let signed_out = fold.signed_out() || Observed::of(captured.bytes()).said(fold::SIGNED_OUT);
     let verdict = fold.verdict(exit_code, signed_out);
-    // Delivery is read from agy's real status, never the stop's reported
-    // code: it exited 0 on its own and its result file exists (#1178 H3).
-    let delivered = clean && super::delivered_result(input);
-    let (refusal, answer) = judged(verdict, fold.worked() || delivered, bindings)?;
+    // Observe `result_path` once here through the shared `lost::ResultFile`
+    // immediately after agy exits (the same point main's `concluded` already
+    // read its metadata, before any transcript copy). `delivered` shares
+    // `adapters::delivered_result`'s non-empty rule for `judged`, while
+    // `result_exists` rides `Invocation` to `run_seat_with` so both sides judge
+    // `refusal_to_start` on that one observation (#1178 H3, #1227 Y5).
+    let result_file = super::lost::ResultFile::observe(input);
+    let result_exists = result_file.exists();
+    let delivered = clean && result_file.delivered();
+    let began_work = fold.worked();
+    let (refusal, answer) = match judged(verdict, began_work || delivered, bindings) {
+        Ok(judged) => judged,
+        Err(ended) => {
+            return Concluded {
+                outcome: Err(ended),
+                began_work,
+                result_exists,
+            };
+        }
+    };
     // Evidence: agy's stderr, stripped and then masked, which the shared
     // driver journals by evidence alone, as it does every driver's (#1199);
     // a signed-out agy's is its sign-in block, which is not evidence (J4).
@@ -647,16 +728,21 @@ fn concluded(
         true => SIGN_IN_WITHHELD.to_string(),
         false => captured.evidence(|raw| plain_evidence(raw, bindings)),
     };
-    Ok(Invocation {
-        exit_code,
-        session_meta,
-        notes: String::new(),
-        stderr,
-        state: None,
-        refusal,
-        answer,
-        launch: LaunchTerminal::Cold,
-    })
+    Concluded {
+        outcome: Ok(Invocation {
+            exit_code,
+            session_meta,
+            notes: String::new(),
+            stderr,
+            state: None,
+            refusal,
+            answer,
+            launch: LaunchTerminal::Cold,
+            result_exists: Some(result_exists),
+        }),
+        began_work,
+        result_exists,
+    }
 }
 
 /// The turn's refusal and answer from its `verdict`, or how it ended with

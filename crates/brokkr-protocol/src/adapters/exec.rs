@@ -91,6 +91,7 @@ pub(super) fn invoke_exec(
         // there is no fallback for a refusal to reach.
         refusal: None,
         launch: LaunchTerminal::Cold,
+        result_exists: None,
     })
 }
 

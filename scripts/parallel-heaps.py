@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Run only the three heap-budget binaries together, joining every child.
+"""Run only the four heap-budget binaries together, joining every child.
 
 Cargo resolves the executables with the suite's complete feature selection.
 Coverage uses the gate's current target and profile names; no parallel Cargo
-commands, cleans, or reports can race with the three instrumented processes.
+commands, cleans, or reports can race with the four instrumented processes.
 """
 
 import argparse
@@ -19,8 +19,8 @@ import sys
 import tempfile
 import time
 
-NAMES = ("heap_claude", "heap_codex", "heap_dsh")
-KINDS = dict(zip(NAMES, ("claude-session", "codex-thread", "dsh-session")))
+NAMES = ("heap_claude", "heap_codex", "heap_dsh", "heap_agy")
+KINDS = dict(zip(NAMES, ("claude-session", "codex-thread", "dsh-session", "agy-conversation")))
 
 
 def prepare(nightly):
@@ -57,7 +57,7 @@ def prepare(nightly):
                "--no-fail-fast", "--message-format=json"]
     # Literal selectors also let the repository's command scanner verify
     # that this launcher never selects the filtered integration binary.
-    command += "--test=heap_claude --test=heap_codex --test=heap_dsh --no-run".split()
+    command += "--test=heap_claude --test=heap_codex --test=heap_dsh --test=heap_agy --no-run".split()
     output = subprocess.check_output(command, env=env, text=True)
     binaries = {}
     for line in output.splitlines():
@@ -70,7 +70,7 @@ def prepare(nightly):
             raise RuntimeError(f"unexpected or duplicate heap test executable: {name}")
         binaries[name] = entry["executable"]
     if set(binaries) != set(NAMES):
-        raise RuntimeError("Cargo did not report all three heap test executables")
+        raise RuntimeError("Cargo did not report all four heap test executables")
     sysroot = subprocess.check_output(["rustc", *toolchain, "--print", "sysroot"], text=True).strip()
     version = subprocess.check_output(["rustc", *toolchain, "-vV"], text=True)
     host = re.search(r"^host: (.+)$", version, re.MULTILINE)
@@ -169,7 +169,7 @@ def run(binaries, env, timeout, bound_record=None):
                 if process.returncode != 0 or not valid_output(name, output):
                     print(f"parallel heaps: {name} did not pass exactly one heap measurement", file=sys.stderr)
                     valid = False
-    print(f"parallel heaps: joined all three in {time.monotonic() - started:.2f}s", flush=True)
+    print(f"parallel heaps: joined all four in {time.monotonic() - started:.2f}s", flush=True)
     return 0 if valid else 1
 
 

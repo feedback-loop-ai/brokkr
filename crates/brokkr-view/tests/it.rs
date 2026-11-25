@@ -14,6 +14,7 @@ mod journals;
 #[path = "../../../tests/support/seat_steps.rs"]
 mod seat_steps;
 
+mod agy_transcript;
 mod composed_view;
 mod seat_items;
 mod seat_rows;

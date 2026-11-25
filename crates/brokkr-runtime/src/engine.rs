@@ -1568,12 +1568,7 @@ impl Engine {
         // from the rendered `context` and the phase inputs, and never
         // reaches the prompt.
         if let Some(plan) = plan {
-            input["resume_context"] = resume::start_context(
-                plan.assessment.clone(),
-                plan.originating.as_ref(),
-                plan.offer.as_ref(),
-                plan.route_overlay.as_ref(),
-            );
+            plan.attach_resume_context(&mut input);
         }
         let stamp = plan.map(|plan| plan.context.clone());
         // The door returns the very input the driver is sent, its verified charter text in it.
