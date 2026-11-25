@@ -367,3 +367,23 @@ still builds, and which tags carry release archives, was not checked.
 Whether any third-party driver or Looper deployment reads a specific
 version was not checked either. Decision 0082's Ruled section names all
 three.
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Row 2** keeps `planned`. Citation: After "#361" add "(decision 0082
+  ruling 3: `FROZEN` held equal to `contracts/*.schema.json`)". (ruled:
+  "approve all the fact and wording fixes")
+- **Row 7** now reads `implemented`, not `planned`. Citation: For "#361"
+  read "decision 0082 ruling 1,
+  `crates/brokkr-cli/tests/decisions_index/minting.rs`". (ruled:
+  "approve all that move their state to implemented")
+- **Row 8** now reads `implemented`, not `planned`. Citation: For "#361"
+  read "decision 0082 ruling 4, `docs/guides/versioning.md`,
+  `crates/brokkr-cli/tests/contract_lifecycle.rs`". (ruled: "approve all
+  that move their state to implemented")
+- **Rows 2, 3, 5, 6 and 11** are this entry's own measurement of the
+  code at `3ad0f66c`, not findings stated in issue #361, its source;
+  their classes stand as ruled. (ruled: "approve all the fact and
+  wording fixes")

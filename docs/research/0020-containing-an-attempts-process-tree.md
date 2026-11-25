@@ -264,3 +264,38 @@ cannot reach a cgroup tree or nest the namespaces.
 | 7 | Polling the process table cannot close the table-read race or the read-to-fork instant, and stays the fallback where no containment is offered | implemented | decision 0006, `crates/brokkr-protocol/src/process/tree.rs` |
 | 8 | macOS offers no cgroup; whether a launchd job's coalition holds an escape tree is unmeasured | not-planned | |
 | 9 | The user manager answers a unit never made exactly as a finished scope (no control group, `inactive`), so a unit's state cannot settle an attempt; the cgroup path must be read, and a launch must not outlive the cleanup that reads it | planned | #472 |
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** For "Decision 0080 proposes the rulings this entry argues
+  for." read "Decision 0080, accepted by the operator on 2026-10-12,
+  rules what this entry argues for; it is unbuilt (#472)." (ruled: "0020
+  - approved")
+- **Row 1** keeps `planned`. Finding: After "ms to start" add "(five
+  runs on the operator's host)". Citation: For "#472" read "#472;
+  decision 0080 (accepted, unbuilt); the start cost is the controller's
+  measurement on the operator's host, not part of run 38057456223".
+  (ruled: "0020 - approved")
+- **Row 4** now reads `planned`, not `not-planned`. Citation: #472;
+  decision 0080 ruling 2 rules re-execution out of the containment
+  ladder (accepted 2026-10-12, unbuilt) (ruled: "0020 - approved")
+- **Row 5** keeps `implemented`. Citation: After "decision 0043,
+  `crates/brokkr-protocol/src/hands/namespace.rs`" add "and
+  `crates/brokkr-protocol/src/hands/namespace/isolation.rs`
+  (`--unshare-pid`, `--die-with-parent`); the escape-tree result was
+  measured on the operator's host only; on both GitHub Linux runners
+  bwrap refused to start ("setting up uid map: Permission denied", runs
+  38057456223 and 38077308914)". (ruled: "0020 - approved")
+- **Row 6** now reads `planned`, not `not-planned`. Finding: For "the
+  harnesses' own sandboxes and unavailable in Docker" read "the
+  harnesses' own sandboxes, unavailable in Docker, and refused by bwrap
+  on both GitHub Linux runners measured". Citation: #472; decision 0080
+  ruling 9 names the per-harness PID-namespace study (each harness under
+  `bwrap --unshare-pid`, measuring whether its own sandbox still starts)
+  (ruled: "0020 - approved")
+- **Row 8** now reads `planned`, not `not-planned`. Citation: decision
+  0080 ruling 9 names the launchd-coalition study on macos-latest and an
+  operator's Mac; #472 is decision 0080's build issue (no issue of its
+  own for the study) (ruled: "approve all that move to planned as well")
