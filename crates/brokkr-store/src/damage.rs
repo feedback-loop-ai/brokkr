@@ -87,7 +87,8 @@ pub(crate) fn classified(journal: &Path, error: StoreError) -> StoreError {
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::Queue(_)
         | StoreError::SeatTree(_)
-        | StoreError::ProjectionLag { .. } => return error,
+        | StoreError::ProjectionLag { .. }
+        | StoreError::DivergentEventLog { .. } => return error,
     };
     StoreError::Damaged {
         journal: journal.to_path_buf(),

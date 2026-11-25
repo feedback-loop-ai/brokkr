@@ -20,7 +20,7 @@ use crate::damage::Damage;
 use crate::ports::{EventLog, Journal, ProjectionStore, SqlitePorts};
 use crate::{ImportError, Store, StoreError, VerifyError};
 
-fn sealed_event(
+pub(super) fn sealed_event(
     run_id: &str,
     seq: u64,
     event_type: EventType,
@@ -45,14 +45,14 @@ fn sealed_event(
     .sealed()
 }
 
-fn single_ndjson(event: &EventEnvelope) -> String {
+pub(super) fn single_ndjson(event: &EventEnvelope) -> String {
     format!(
         "{}\n",
         serde_json::to_string(&serde_json::to_value(event).unwrap()).unwrap()
     )
 }
 
-fn sqlite_table_count(path: &std::path::Path, table: &str) -> i64 {
+pub(super) fn sqlite_table_count(path: &std::path::Path, table: &str) -> i64 {
     let conn = Connection::open(path).unwrap();
     conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
         row.get(0)
@@ -208,14 +208,21 @@ fn import_run_stream_is_atomic_on_failure_and_allows_retry() {
         "2026-11-25T11:10:00Z",
     );
 
+    assert!(matches!(
+        ports.import_run_stream("atomic-1", &manifest, &[e1.clone(), e1.clone()]),
+        Err(StoreError::Chain(ChainError::SeqGap {
+            seq: 1,
+            expected: 2
+        }))
+    ));
+    assert!(matches!(
+        mem.import_run_stream("atomic-1", &manifest, &[e1.clone(), e1.clone()]),
+        Err(StoreError::AppendConflict { seq: 1 })
+    ));
     for log in [&ports as &dyn EventLog, &mem as &dyn EventLog] {
         assert!(matches!(
             log.import_run_stream("atomic-1", &manifest, std::slice::from_ref(&foreign)),
             Err(StoreError::Chain(ChainError::ForeignRun { seq: 1 }))
-        ));
-        assert!(matches!(
-            log.import_run_stream("atomic-1", &manifest, &[e1.clone(), e1.clone()]),
-            Err(StoreError::AppendConflict { seq: 1 })
         ));
         assert!(log.list_run_ids().unwrap().is_empty());
         assert!(matches!(

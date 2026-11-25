@@ -110,6 +110,12 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
     /// persist the run and its verified envelopes atomically using the
     /// hash-attested manifest from `run/started`, and apply them to
     /// projections. Returns the number of imported events.
+    ///
+    /// If the [`EventLog`] commits the verified import and updating projections
+    /// then fails, this returns `ImportError::Store(StoreError::ProjectionLag { .. })`.
+    /// That error means the import is already durable in the [`EventLog`];
+    /// recover with [`Journal::reindex`] rather than retrying `import_ndjson`
+    /// (a retry would be refused with [`ImportError::Collision`]).
     pub fn import_ndjson(
         &self,
         run_id: &str,
@@ -166,7 +172,8 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
             .ok_or(ChainError::SeqOverflow {
                 after: expected_head.0,
             })?;
-        let events = self.event_log.read_stream(run_id, 1)?;
+        let mut events = self.event_log.read_stream(run_id, 1)?;
+        verify_chain_after(run_id, 0, ZERO_HASH, &events)?;
         let (found_seq, found_hash) = events
             .last()
             .map_or((0, ZERO_HASH), |last| (last.seq, last.event_hash.as_str()));
@@ -195,7 +202,8 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
         .sealed();
         self.event_log
             .append_envelopes(run_id, expected_head, std::slice::from_ref(&envelope))?;
-        self.apply_projections(run_id, std::slice::from_ref(&envelope))?;
+        events.push(envelope.clone());
+        self.apply_projections(run_id, &events)?;
         Ok(envelope)
     }
 

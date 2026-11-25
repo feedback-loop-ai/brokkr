@@ -406,6 +406,7 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::Chain(_)
         | StoreError::Clock { .. }
         | StoreError::Damaged { .. }
+        | StoreError::DivergentEventLog { .. }
         | StoreError::HeadMoved { .. }
         | StoreError::Json(_)
         | StoreError::ProjectionLag { .. }

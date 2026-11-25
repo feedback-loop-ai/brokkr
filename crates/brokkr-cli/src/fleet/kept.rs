@@ -461,7 +461,8 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         | StoreError::TokenCountOutOfRange(..)
         | StoreError::Clock { .. }
         | StoreError::Contended { .. }
-        | StoreError::ProjectionLag { .. } => false,
+        | StoreError::ProjectionLag { .. }
+        | StoreError::DivergentEventLog { .. } => false,
     }
 }
 

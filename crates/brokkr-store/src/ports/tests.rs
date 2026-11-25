@@ -156,28 +156,28 @@ impl EventLog for MemEventLog {
 #[derive(Default)]
 struct MemProjectionStore {
     runs: RefCell<BTreeMap<String, (String, String)>>,
-    applied_counts: RefCell<BTreeMap<String, usize>>,
+    applied_seqs: RefCell<BTreeMap<String, BTreeSet<u64>>>,
 }
 
 impl MemProjectionStore {
     fn clear(&self) {
         self.runs.borrow_mut().clear();
-        self.applied_counts.borrow_mut().clear();
+        self.applied_seqs.borrow_mut().clear();
     }
 
     fn applied_count(&self, run_id: &str) -> usize {
-        self.applied_counts
+        self.applied_seqs
             .borrow()
             .get(run_id)
-            .copied()
-            .unwrap_or(0)
+            .map_or(0, BTreeSet::len)
     }
 }
 
 impl ProjectionStore for MemProjectionStore {
     fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
         let mut runs = self.runs.borrow_mut();
-        let mut counts = self.applied_counts.borrow_mut();
+        let mut seqs = self.applied_seqs.borrow_mut();
+        let seen = seqs.entry(run_id.to_string()).or_default();
         for event in envelopes {
             if event.event_type == EventType::RunStarted {
                 let feature = event
@@ -188,8 +188,8 @@ impl ProjectionStore for MemProjectionStore {
                     .to_string();
                 runs.insert(run_id.to_string(), (feature, event.recorded_at.clone()));
             }
+            seen.insert(event.seq);
         }
-        *counts.entry(run_id.to_string()).or_insert(0) += envelopes.len();
         Ok(())
     }
 
@@ -208,6 +208,9 @@ impl ProjectionStore for MemProjectionStore {
         for run_id in log.list_run_ids()? {
             let manifest = log.manifest(&run_id)?;
             let events = log.read_stream(&run_id, 1)?;
+            if events.is_empty() {
+                continue;
+            }
             let feature = manifest
                 .get("feature")
                 .and_then(Value::as_str)
@@ -853,7 +856,10 @@ fn sqlite_store_satisfies_event_log_and_projection_ports() {
     ));
     assert!(matches!(
         ports.append_envelopes("sql-1", (0, ZERO_HASH), &[e1.clone(), e1.clone()]),
-        Err(StoreError::AppendConflict { seq: 1 })
+        Err(StoreError::Chain(ChainError::SeqGap {
+            seq: 1,
+            expected: 2
+        }))
     ));
 
     ports
@@ -1069,3 +1075,4 @@ fn journal_end_to_end_over_sqlite_references() {
 }
 
 mod regressions;
+mod round3;

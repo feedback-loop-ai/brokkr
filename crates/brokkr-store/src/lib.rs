@@ -270,6 +270,11 @@ pub enum StoreError {
         "projection lag for run '{run_id}': event log committed, but projection update failed ({reason})"
     )]
     ProjectionLag { run_id: String, reason: String },
+    /// `ProjectionStore::rebuild_from` was handed an event log that diverges
+    /// from this store's own `events` table; refusing keeps local projections
+    /// aligned with local events (including terminal fences).
+    #[error("divergent event log for run '{run_id}': rebuild source does not match local events")]
+    DivergentEventLog { run_id: String },
 }
 
 impl StoreError {

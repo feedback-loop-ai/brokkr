@@ -5,6 +5,8 @@
 //! [`Store`] so importing `brokkr_store::ports::*` never shadows inherent
 //! [`Store`] methods (`create_run`, `list_runs`, `manifest`).
 
+use std::collections::BTreeMap;
+
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope, EventType};
 use brokkr_core::event_index::Indexed;
@@ -21,7 +23,7 @@ use crate::damage::envelope as parse_envelope;
 use crate::start::Row;
 use crate::summary::Listed;
 use crate::{
-    chain, event_index, head_of, import, now_rfc3339, origin, patiently, queue, refuse_existing,
+    event_index, head_of, import, now_rfc3339, origin, patiently, queue, refuse_existing,
     seat_summary, start, summary, terminal, Attribution, Cooldown, EntryId, NewEntry, QueueEntry,
     Store, StoreError,
 };
@@ -43,6 +45,29 @@ impl<'a> SqlitePorts<'a> {
 const INSERT_EVENT_INDEX: &str = "INSERT OR IGNORE INTO event_index
          (run_id, seq, type, attempt_id, member, recorded_at, event_id)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+
+// Plain `INSERT` (not `INSERT OR IGNORE`) so a duplicate `(run_id, seq)` can
+// never be silently ignored; `verify_chain_for_sqlite` inside the immediate
+// transaction already rules out duplicate or non-contiguous sequence numbers
+// (pinned by `sqlite_append_envelopes_enforces_chain_integrity`), so a
+// redundant `inserted == 0` guard would be unreachable under exact coverage.
+const INSERT_VERIFIED_EVENT: &str =
+    "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)";
+const UPDATE_CREATED_AT: &str = "UPDATE runs SET created_at = ?2 WHERE run_id = ?1";
+const PRIOR_EVENTS: &str =
+    "SELECT envelope, seq FROM events WHERE run_id = ?1 AND seq < ?2 ORDER BY seq";
+const SEED_SUMMARY: &str =
+    "INSERT OR IGNORE INTO run_summary (run_id, head_seq, head_hash) VALUES (?1, 0, ?2)";
+const ADVANCE_SUMMARY: &str = "UPDATE run_summary
+     SET head_seq = ?2, head_hash = ?3, last_recorded_at = ?4, last_recorded_at_whole = ?5
+     WHERE run_id = ?1 AND ?2 > head_seq";
+const SET_SUMMARY_PHASE: &str =
+    "UPDATE run_summary SET phase = ?2, phase_whole = ?3 WHERE run_id = ?1";
+const SET_SUMMARY_STATUS: &str = "UPDATE run_summary SET status = ?2 WHERE run_id = ?1";
+const LIST_RUNS_SUMMARY: &str =
+    "SELECT run_id, COALESCE(feature, ''), COALESCE(created_at_whole, created_at, '')
+     FROM run_summary
+     ORDER BY COALESCE(created_at_whole, created_at, ''), run_id";
 
 fn manifest_meta(manifest: &Value) -> (&str, &str) {
     let feature = manifest
@@ -75,8 +100,8 @@ fn listing_from(manifest: Option<&Value>, events: &[EventEnvelope]) -> Listed {
         })
         .or_else(|| manifest.and_then(|value| value.get("feature").and_then(Value::as_str)))
         .unwrap_or_default();
-    let created_at = started
-        .or_else(|| events.first())
+    let created_at = events
+        .first()
         .map(|event| event.recorded_at.as_str())
         .unwrap_or_default();
     Listed::new(feature, created_at)
@@ -99,6 +124,18 @@ fn verify_batch_envelopes(run_id: &str, envelopes: &[EventEnvelope]) -> Result<(
         }
         let _ = checked_seq(envelope.seq)?;
     }
+    Ok(())
+}
+
+fn verify_chain_for_sqlite(
+    run_id: &str,
+    expected_head: (u64, &str),
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    for envelope in envelopes {
+        let _ = checked_seq(envelope.seq)?;
+    }
+    verify_chain_after(run_id, expected_head.0, expected_head.1, envelopes)?;
     Ok(())
 }
 
@@ -152,16 +189,16 @@ fn insert_events(
     envelopes: &[EventEnvelope],
     check_terminal: bool,
 ) -> Result<(), StoreError> {
-    let mut insert = tx.prepare_cached(chain::INSERT_EVENT)?;
+    let mut insert = tx.prepare_cached(INSERT_VERIFIED_EVENT)?;
     for envelope in envelopes {
         if check_terminal {
             terminal::refuse(tx, run_id, envelope.event_type, *head_seq)?;
         }
         let seq = checked_seq(envelope.seq)?;
         let serialized = serde_json::to_string(envelope)?;
-        let inserted = insert.execute(params![run_id, seq, envelope.event_hash, serialized])?;
-        if inserted == 0 {
-            return Err(StoreError::AppendConflict { seq: envelope.seq });
+        insert.execute(params![run_id, seq, envelope.event_hash, serialized])?;
+        if envelope.seq == 1 {
+            tx.execute(UPDATE_CREATED_AT, params![run_id, envelope.recorded_at])?;
         }
         *head_seq = envelope.seq;
     }
@@ -221,9 +258,7 @@ fn combined_with_prior(
 ) -> Result<Option<Vec<EventEnvelope>>, StoreError> {
     let first_seq = checked_seq(envelopes[0].seq)?;
     let texts: Vec<(String, i64)> = tx
-        .prepare_cached(
-            "SELECT envelope, seq FROM events WHERE run_id = ?1 AND seq < ?2 ORDER BY seq",
-        )?
+        .prepare_cached(PRIOR_EVENTS)?
         .query_map(params![run_id, first_seq], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?
@@ -269,71 +304,84 @@ fn apply_incremental_projection(
             event_index::write_checkpoint(tx, run_id, event.seq, checkpoint.as_ref())?;
         }
     }
-    tx.execute(
-        "INSERT OR IGNORE INTO run_summary (run_id, head_seq, head_hash)
-         VALUES (?1, 0, ?2)",
-        params![run_id, ZERO_HASH],
-    )?;
+    tx.execute(SEED_SUMMARY, params![run_id, ZERO_HASH])?;
     let last = envelopes.last().expect("envelopes is non-empty");
     let last_seq = checked_seq(last.seq)?;
     let stamped = Bounded::within(&last.recorded_at, STAMP_BYTES);
-    tx.execute(
-        "UPDATE run_summary
-         SET head_seq = ?2, head_hash = ?3,
-             last_recorded_at = ?4, last_recorded_at_whole = ?5
-         WHERE run_id = ?1 AND ?2 > head_seq",
-        params![
-            run_id,
-            last_seq,
-            last.event_hash,
-            stamped.cut,
-            stamped.whole,
-        ],
-    )?;
+    let args = params![
+        run_id,
+        last_seq,
+        last.event_hash,
+        stamped.cut,
+        stamped.whole
+    ];
+    tx.execute(ADVANCE_SUMMARY, args)?;
     if let Some(phase_text) = updated_phase {
         let bounded = Bounded::within(&phase_text, NAME_BYTES);
-        tx.execute(
-            "UPDATE run_summary SET phase = ?2, phase_whole = ?3 WHERE run_id = ?1",
-            params![run_id, bounded.cut, bounded.whole],
-        )?;
+        let args = params![run_id, bounded.cut, bounded.whole];
+        tx.execute(SET_SUMMARY_PHASE, args)?;
     }
     if let Some(status) = terminal {
-        tx.execute(
-            "UPDATE run_summary SET status = ?2 WHERE run_id = ?1",
-            params![run_id, status.as_str()],
-        )?;
+        tx.execute(SET_SUMMARY_STATUS, params![run_id, status.as_str()])?;
     }
     Ok(())
 }
 
-fn listed_for_apply(
+fn is_projection_current(
     tx: &Connection,
     run_id: &str,
-    envelopes: &[EventEnvelope],
-) -> Result<Listed, StoreError> {
-    if has_run(tx, run_id)? {
-        Listed::of(tx, run_id)
-    } else {
-        Ok(listing_from(None, envelopes))
-    }
+    incoming_max: i64,
+) -> Result<bool, StoreError> {
+    let progress: Option<(i64, Option<i64>)> = tx
+        .query_row(
+            "SELECT head_seq, folded_seq FROM run_summary WHERE run_id = ?1",
+            params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    Ok(match progress {
+        Some((head_seq, folded_seq)) => {
+            head_seq > incoming_max
+                || (head_seq == incoming_max && folded_seq == Some(incoming_max))
+        }
+        None => false,
+    })
 }
 
-fn listed_for_rebuild(
+fn verify_local_events_match(
     tx: &Connection,
-    run_id: &str,
-    events: &[EventEnvelope],
-    fallback: &Listed,
-) -> Result<Listed, StoreError> {
-    let own_head = events
-        .last()
-        .map_or((0, ZERO_HASH), |last| (last.seq, last.event_hash.as_str()));
-    if has_run(tx, run_id)? {
-        let (seq, hash) = head_of(tx, run_id)?;
-        if (seq, hash.as_str()) == own_head {
-            return Listed::of(tx, run_id);
+    verified: &[(String, Vec<EventEnvelope>, Account, Listed)],
+) -> Result<(), StoreError> {
+    let local_runs: Vec<String> = tx
+        .prepare("SELECT DISTINCT run_id FROM events ORDER BY run_id")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if local_runs.is_empty() {
+        return Ok(());
+    }
+    let mut expected: BTreeMap<&str, (u64, &str)> = verified
+        .iter()
+        .map(|(run_id, events, _, _)| {
+            let last = events.last().expect("empty runs are skipped");
+            (run_id.as_str(), (last.seq, last.event_hash.as_str()))
+        })
+        .collect();
+    for run_id in local_runs {
+        refuse_row_before_chain(tx, &run_id)?;
+        let (local_seq, local_hash) = head_of(tx, &run_id)?;
+        let matches = expected
+            .remove(run_id.as_str())
+            .is_some_and(|head| head == (local_seq, local_hash.as_str()));
+        if !matches {
+            return Err(StoreError::DivergentEventLog { run_id });
         }
     }
-    Ok(fallback.clone())
+    if let Some((extra, _)) = expected.into_iter().next() {
+        return Err(StoreError::DivergentEventLog {
+            run_id: extra.to_string(),
+        });
+    }
+    Ok(())
 }
 
 impl EventLog for SqlitePorts<'_> {
@@ -363,10 +411,10 @@ impl EventLog for SqlitePorts<'_> {
         expected_head: (u64, &str),
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
-        verify_batch_envelopes(run_id, envelopes)?;
         patiently("append", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
             ensure_run_exists(&tx, run_id)?;
+            refuse_row_before_chain(&tx, run_id)?;
             let (mut head_seq, found_hash) = head_of(&tx, run_id)?;
             if head_seq != expected_head.0 || found_hash != expected_head.1 {
                 return Err(StoreError::HeadMoved {
@@ -374,6 +422,7 @@ impl EventLog for SqlitePorts<'_> {
                     found_seq: head_seq,
                 });
             }
+            verify_chain_for_sqlite(run_id, expected_head, envelopes)?;
             insert_events(&tx, run_id, &mut head_seq, envelopes, true)?;
             tx.commit()?;
             Ok(())
@@ -387,7 +436,7 @@ impl EventLog for SqlitePorts<'_> {
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
         import::recordable(run_id)?;
-        verify_batch_envelopes(run_id, envelopes)?;
+        verify_chain_for_sqlite(run_id, (0, ZERO_HASH), envelopes)?;
         let listed = listing_from(Some(manifest), envelopes);
         let (_, bundle_name) = manifest_meta(manifest);
         let manifest_json = serde_json::to_string(manifest)?;
@@ -415,6 +464,7 @@ impl EventLog for SqlitePorts<'_> {
     fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {
         patiently("head", self.0.patience, &self.0.path, || {
             ensure_run_exists(&self.0.conn, run_id)?;
+            refuse_row_before_chain(&self.0.conn, run_id)?;
             head_of(&self.0.conn, run_id)
         })
     }
@@ -456,14 +506,23 @@ impl ProjectionStore for SqlitePorts<'_> {
         if envelopes.is_empty() {
             return Ok(());
         }
+        let max_seq = envelopes
+            .iter()
+            .map(|envelope| envelope.seq)
+            .max()
+            .expect("envelopes is non-empty");
+        let incoming_max = checked_seq(max_seq)?;
         patiently("apply_envelopes", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
+            if is_projection_current(&tx, run_id, incoming_max)? {
+                return Ok(());
+            }
             if envelopes[0].seq == 1 {
-                let listed = listed_for_apply(&tx, run_id, envelopes)?;
+                let listed = listing_from(None, envelopes);
                 let account = Account::whole(run_id, envelopes);
                 write_full_projection(&tx, run_id, envelopes, &account, &listed)?;
             } else if let Some(combined) = combined_with_prior(&tx, run_id, envelopes)? {
-                let listed = listed_for_apply(&tx, run_id, &combined)?;
+                let listed = listing_from(None, &combined);
                 let account = Account::whole(run_id, &combined);
                 write_full_projection(&tx, run_id, &combined, &account, &listed)?;
             } else {
@@ -479,11 +538,7 @@ impl ProjectionStore for SqlitePorts<'_> {
             Ok(self
                 .0
                 .conn
-                .prepare(
-                    "SELECT run_id, COALESCE(feature, ''), COALESCE(created_at_whole, created_at, '')
-                     FROM run_summary
-                     ORDER BY COALESCE(created_at_whole, created_at, ''), run_id",
-                )?
+                .prepare(LIST_RUNS_SUMMARY)?
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
                 .collect::<Result<Vec<_>, _>>()?)
         })
@@ -497,17 +552,20 @@ impl ProjectionStore for SqlitePorts<'_> {
             let manifest = log.manifest(&run_id)?;
             let events = log.read_stream(&run_id, 1)?;
             verify_chain_after(&run_id, 0, ZERO_HASH, &events)?;
+            if events.is_empty() {
+                continue;
+            }
             let account = Account::whole(&run_id, &events);
-            let fallback = listing_from(Some(&manifest), &events);
+            let listed = listing_from(Some(&manifest), &events);
             total += events.len() as u64;
-            verified.push((run_id, events, account, fallback));
+            verified.push((run_id, events, account, listed));
         }
         patiently("rebuild", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
+            verify_local_events_match(&tx, &verified)?;
             clear_projections(&tx)?;
-            for (run_id, events, account, fallback) in &verified {
-                let listed = listed_for_rebuild(&tx, run_id, events, fallback)?;
-                write_full_projection(&tx, run_id, events, account, &listed)?;
+            for (run_id, events, account, listed) in &verified {
+                write_full_projection(&tx, run_id, events, account, listed)?;
             }
             tx.commit()?;
             Ok(())

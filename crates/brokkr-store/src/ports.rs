@@ -81,7 +81,12 @@ pub trait EventLog {
 /// Every row managed behind this trait is disposable and can be
 /// reconstructed from any [`EventLog`] via [`ProjectionStore::rebuild_from`].
 pub trait ProjectionStore {
-    /// Project newly committed `envelopes` for `run_id` into read models.
+    /// Project committed `envelopes` for `run_id` into read models.
+    ///
+    /// Callers may supply either the full verified stream from sequence 1 or
+    /// a newly committed suffix; implementations must remain monotonic and
+    /// never regress a run whose projection is already at or past the batch's
+    /// highest sequence number.
     fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError>;
 
     /// List known runs as `(run_id, feature, created_at)` triples.
