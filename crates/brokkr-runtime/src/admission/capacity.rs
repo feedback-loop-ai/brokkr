@@ -2,22 +2,15 @@
 //! entry nothing else stops starts only when the machine has room for it,
 //! as its host configuration ([`super::host`]) declares that room.
 //!
-//! What a run seats is read from its manifest, one derivation for both
-//! sides: the entry's, compiled as its start would compile it, and each
-//! running run's, as the journal pinned it. A seat is each candidate the
-//! manifest's capability records name, fallbacks included, since any of
-//! them may be seated: its provider, and the route its compile pinned for
-//! each concrete model id it may be served (`run-manifest/v14`): the one
-//! its driver serves the id on, the id's own prefix before the first `/`
-//! (decision 0036 ruling 2) or the driver's default route, as dsh serves a
-//! bare id on `deepseek-official`. Nothing is resolved again through
-//! anyone's adapters, so a run is counted by what its own compile seated
-//! whichever workspace admits beside it; a manifest that does not pin what
-//! it seats, or pins it unreadably, cannot be measured. A run counts once
-//! against each provider and route it seats; a seat on a `shared-local`
-//! route counts against that route alone, in place of its provider (ruling
-//! 5). A run builds in a box when any of its hands sites stands behind a
-//! boxed boundary.
+//! One manifest reader measures both the entry, compiled as it would be at start, and
+//! each running run, as pinned in the journal. Each candidate, including a fallback, names
+//! its provider and the route pinned for each concrete model id (`run-manifest/v14`).
+//! That route is the id's prefix before the first `/` (decision 0036 ruling 2) or the
+//! driver's default, as dsh serves a bare id on `deepseek-official`. The admitting
+//! workspace uses those pins directly. Missing or unreadable pins refuse measurement.
+//! A run counts once against each provider and route it seats. A `shared-local` seat
+//! counts only against its route (ruling 5). A run builds in a box when any hands site
+//! has a boxed boundary.
 //!
 //! The checks run in a fixed order, and the first unmet one is the reason
 //! recorded: the host configuration is declared and readable; the entry's

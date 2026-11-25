@@ -505,13 +505,10 @@ pub struct Engine {
     /// sleep the wait reads (decision 0071 ruling 1), and the probe's
     /// answer the retry journals (decision 0103 rulings 3 and 5).
     pub(crate) cooldown: cooldown::Seam,
-    /// The checked spans of the effect this process is executing: the
-    /// head each armed span began on, compared at the end of the span
-    /// that armed it, where only a mismatch is journaled, as the raw
-    /// evidence on the resulting park, and the observations the matches
-    /// kept (heads.rs). A span that ends through an `Err`, appending no
-    /// terminal event, is abandoned rather than left for the next effect
-    /// to spend.
+    /// The running effect's checked spans and their observations (`heads.rs`).
+    /// Each armed span compares its start and end heads, keeps a match as an
+    /// observation, or journals a mismatch as evidence on the resulting park.
+    /// An `Err` with no terminal event abandons the span before the next effect.
     spans: heads::Spans,
     /// What the dispatched gate effect's success records as `covered`
     /// (decision 0109 ruling 7), spent by its terminal event.

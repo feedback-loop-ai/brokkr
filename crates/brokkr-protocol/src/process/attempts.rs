@@ -1,19 +1,13 @@
-//! The engine's live attempts (#403): each attempt's process group and
-//! the descendants recorded under it while its tree is alive, so both
-//! the attempt's own end and the engine's stop reach all of it.
+//! The engine records each live attempt's process group and descendants (#403) so both
+//! the attempt's own end and the engine's stop reach its whole tree.
 //!
-//! Starting the first attempt makes the engine a child subreaper on
-//! Linux, starts the thread that records every live attempt's
-//! descendants and attributes the orphans the engine adopts, and installs
-//! the stop handler: SIGINT, SIGTERM, SIGHUP and SIGQUIT end every live
-//! attempt before the engine exits. The driver leads a session of its
-//! own, so a signal to the engine's group, a terminal's Ctrl-C, Ctrl-\ or
-//! hangup, no longer reaches it; the handler is what does. Nor does a
-//! SIGKILL to the engine's group, which no handler sees.
+//! The first attempt makes the engine a child subreaper on Linux, starts the thread that
+//! records descendants and attributes adopted orphans, and installs the stop handler.
+//! SIGINT, SIGTERM, SIGHUP and SIGQUIT then end every attempt before the engine exits.
+//! Drivers lead their own sessions, so only the handler relays the engine group's signals.
+//! SIGKILL cannot be caught or relayed.
 //!
-//! Every read of the table is taken under the registry's lock, so reads
-//! are observed in the order they were taken, and "the read before" names
-//! one read.
+//! The registry lock serializes table reads, so "the read before" names one read.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::{Child, Command};
@@ -36,8 +30,7 @@ use crate::AttemptUsage;
 /// read the full table (#918).
 const TRACK: Duration = Duration::from_millis(100);
 
-/// The engine's exit status when its stop could not prove every live
-/// attempt over; 128 plus the signal says it could.
+/// Exit status for an unproven stop. A proven stop exits with 128 plus the signal.
 const UNPROVEN_STOP: i32 = 125;
 
 struct Live {
@@ -70,8 +63,7 @@ struct Registry {
     /// Orphans the engine adopted that no attempt could have left: the
     /// engine's own.
     unowned: BTreeSet<Identity>,
-    /// The last read, which every caller that asked for one before it
-    /// began may take instead of reading again.
+    /// The last read, reusable by every caller that asked for one before it began.
     latest: Option<Read>,
     /// The last tick's walk, compared by identity and state. It is the
     /// tick's own memory, never an attribution: nothing here reaches
@@ -82,9 +74,8 @@ struct Registry {
     /// table.
     #[cfg(target_os = "linux")]
     walk: Option<table::Sighted>,
-    /// A changed walk that the full snapshot did not answer still owes
-    /// one. It stays owed until a full read succeeds, so a quiet walk in
-    /// between cannot make the tick forget it.
+    /// A changed walk still owes a snapshot until a full read succeeds, even if
+    /// a walk in between is quiet.
     #[cfg(target_os = "linux")]
     owed: bool,
 }

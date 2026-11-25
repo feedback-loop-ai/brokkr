@@ -1,7 +1,5 @@
-//! Subprocess transport for `forge-driver/v1`: spawn the driver command,
-//! handshake, offer the seat's prior session to a driver that declared
-//! it can rejoin one, send `start`, and drive the attempt to a terminal
-//! outcome.
+//! Subprocess transport for `forge-driver/v1`: spawn and handshake with the driver,
+//! offer the prior session if it can rejoin, send `start`, and drive to a terminal outcome.
 //! A protocol violation in the handshake, before `start`, degrades to
 //! `Failed` (the executor never began, so a retry is a new attempt).
 //! Every end after `start` with no result read degrades to
@@ -16,11 +14,9 @@
 //! ruling 3). It is read once stdout is closed, so the refusal of
 //! anything the driver wrote before its tree ended is never missed.
 //!
-//! The attempt is the driver's whole process tree (#403, `tree`): no
-//! report is returned until the tree is proven gone, so a retry the
-//! engine starts on the report cannot overlap it. An end that cannot be
-//! proven is carried as an unresolved `Cleanup` beside the outcome the
-//! driver reached, and parks.
+//! The attempt is the driver's whole process tree (#403, `tree`). A report waits for proof
+//! that the tree is gone so retries cannot overlap. An unproven end carries unresolved
+//! `Cleanup` beside the outcome and parks.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
