@@ -10,22 +10,47 @@ use brokkr_core::fold::Status;
 use super::super::tests::{bundle, single_body};
 use super::super::*;
 
+struct Peer {
+    event: Option<EventType>,
+    run: Box<dyn FnOnce()>,
+}
+
 thread_local! {
-    /// The peer a test puts between the engine's fold and its next append.
-    static PEER: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+    /// The peer a test puts between the engine's fold and its chosen append.
+    static PEER: RefCell<Option<Peer>> = const { RefCell::new(None) };
 }
 
 /// Run the peer a test put here, once, at the instant decision 0029's
 /// fence exists for: the fold is taken and the append not yet made.
-pub(super) fn peer_between() {
-    if let Some(peer) = PEER.with(|peer| peer.borrow_mut().take()) {
-        peer();
+pub(super) fn peer_between(event: EventType) {
+    let peer = PEER.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let ready = slot
+            .as_ref()
+            .is_some_and(|peer| peer.event.is_none_or(|wanted| wanted == event));
+        if ready {
+            slot.take()
+        } else {
+            None
+        }
+    });
+    if let Some(peer) = peer {
+        (peer.run)();
     }
 }
 
 /// Put `peer` between the engine's next fold and its next append.
 pub(in crate::engine) fn after_the_fold(peer: Box<dyn FnOnce()>) {
-    PEER.with(|slot| *slot.borrow_mut() = Some(peer));
+    set_peer(None, peer);
+}
+
+/// Put `peer` before the engine appends the first event of this type.
+pub(in crate::engine) fn after_the_fold_on(event: EventType, peer: Box<dyn FnOnce()>) {
+    set_peer(Some(event), peer);
+}
+
+fn set_peer(event: Option<EventType>, run: Box<dyn FnOnce()>) {
+    PEER.with(|slot| *slot.borrow_mut() = Some(Peer { event, run }));
 }
 
 fn db(dir: &Path) -> PathBuf {

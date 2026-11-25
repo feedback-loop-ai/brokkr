@@ -2,6 +2,8 @@
 //! and tell their masked tails after the terminal event and any park due
 //! (#1199). A drive that returns with a tail queued tells it after
 //! releasing the run (#1248).
+//! An attempt whose non-terminal append contends keeps its stderr for
+//! the indeterminate the lawful end settles it with.
 
 use brokkr_core::envelope::EventType;
 use brokkr_protocol::process::DriverStderr;
@@ -10,14 +12,32 @@ use serde_json::Value;
 use super::{Engine, EngineError};
 
 /// One driver is settled at a time. Its retained stderr is either still
-/// with the active settlement, carried by a held outcome, or ready to tell.
+/// with the active settlement, kept for the lawful end, carried by a held
+/// outcome, or ready to tell.
 #[derive(Default)]
 pub(super) struct AttemptStderr {
     pub(super) active: Option<String>,
+    contended: Option<(String, String)>,
     ready: Vec<(String, String)>,
 }
 
 impl AttemptStderr {
+    pub(super) fn keep_contended(&mut self, attempt_id: Option<String>) {
+        if let Some(attempt_id) = attempt_id {
+            self.contended = self.active.take().map(|stderr| (attempt_id, stderr));
+        }
+    }
+
+    pub(super) fn take_contended(&mut self) -> Option<(String, String)> {
+        self.contended.take()
+    }
+
+    pub(super) fn restore_contended(&mut self, kept: Option<(String, String)>, attempt_id: &str) {
+        self.active = kept
+            .filter(|(id, _)| id == attempt_id)
+            .map(|(_, stderr)| stderr);
+    }
+
     pub(super) fn name(&self, event: EventType, payload: &mut Value) {
         let Some(stderr) = &self.active else { return };
         let field = match event {
