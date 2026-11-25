@@ -278,10 +278,8 @@ fn validate_record(
         .find(|event| event.event_type == EventType::RunStarted)
         .and_then(|event| event.payload.pointer("/manifest/engine"))
         .and_then(Value::as_str);
-    let version = match started_engine {
-        Some(engine) => manifest_version.stricter(SeatRecordVersion::of_engine(engine)),
-        None => manifest_version,
-    };
+    let started_version = SeatRecordVersion::of_manifest(started_engine);
+    let version = manifest_version.stricter(started_version);
     if let Some(record) = record {
         seat_record::validate_seat_record(record, seq, version)?;
     }

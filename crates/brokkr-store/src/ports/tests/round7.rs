@@ -33,7 +33,7 @@ fn v8_only_succeeded_payload() -> Value {
     })
 }
 
-fn v8_succeeded_event() -> NewEvent<'static> {
+pub(super) fn v8_succeeded_event() -> NewEvent<'static> {
     NewEvent {
         event_type: EventType::EffectSucceeded,
         payload: v8_only_succeeded_payload(),
@@ -43,7 +43,7 @@ fn v8_succeeded_event() -> NewEvent<'static> {
     }
 }
 
-fn projection_hash_rows(path: &Path, run_id: &str) -> Vec<(i64, String)> {
+pub(super) fn projection_hash_rows(path: &Path, run_id: &str) -> Vec<(i64, String)> {
     query_run_pairs(
         path,
         "SELECT seq, event_hash FROM projection_hashes WHERE run_id = ?1 ORDER BY seq",
@@ -51,12 +51,31 @@ fn projection_hash_rows(path: &Path, run_id: &str) -> Vec<(i64, String)> {
     )
 }
 
-fn sqlite_journal(store: &Store) -> Journal<SqlitePorts<'_>, SqlitePorts<'_>, SqlitePorts<'_>> {
+pub(super) fn sqlite_journal(
+    store: &Store,
+) -> Journal<SqlitePorts<'_>, SqlitePorts<'_>, SqlitePorts<'_>> {
     Journal::new(
         SqlitePorts::new(store),
         SqlitePorts::new(store),
         SqlitePorts::new(store),
     )
+}
+
+pub(super) fn exec_raw_sql(path: &Path, sql: &str) {
+    Connection::open(path).unwrap().execute_batch(sql).unwrap();
+}
+
+pub(super) fn assert_v8_refused_under_v1(
+    journal: &Journal<SqlitePorts<'_>, SqlitePorts<'_>, SqlitePorts<'_>>,
+    run_id: &str,
+) {
+    let err = journal
+        .append_event(run_id, v8_succeeded_event())
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        StoreError::SeatRecord(ref e) if e.contract == SeatRecordVersion::V1.contract()
+    ));
 }
 
 fn assert_tampered_chain(
@@ -160,10 +179,7 @@ fn decoupled_apply_refuses_fork_after_trigger_drop_reopen_resets_head_seq() {
         .unwrap();
     drop(store);
 
-    let raw = Connection::open(&path).unwrap();
-    raw.execute_batch("DROP TRIGGER run_summary_of_an_event;")
-        .unwrap();
-    drop(raw);
+    exec_raw_sql(&path, "DROP TRIGGER run_summary_of_an_event;");
 
     let reopened = Store::open(&path).unwrap();
     assert_eq!(summary_snapshot(&path, "r-trig").0, 0);
@@ -303,23 +319,17 @@ fn journal_resolves_seat_record_version_from_persisted_manifest() {
                 ),
             )
             .unwrap();
-        let err = journal
-            .append_event(run_id, v8_succeeded_event())
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            StoreError::SeatRecord(ref e) if e.contract == SeatRecordVersion::V1.contract()
-        ));
+        assert_v8_refused_under_v1(&journal, run_id);
     }
 
-    // 3) Persisted 0.15.0 manifest with RunStarted carrying no nested manifest -> admits V8.
+    // 3) Persisted 0.15.0 manifest with RunStarted naming 0.15.0 -> admits V8 and exports cleanly.
     journal.create_run("port-v8-ok", &v8_manifest).unwrap();
     journal
         .append_event(
             "port-v8-ok",
             plain_event(
                 EventType::RunStarted,
-                json!({"feature": "v8-ok"}),
+                json!({"feature": "v8-ok", "manifest": v8_manifest}),
                 None,
                 "2026-11-25T10:00:00Z",
             ),
@@ -329,6 +339,7 @@ fn journal_resolves_seat_record_version_from_persisted_manifest() {
         .append_event("port-v8-ok", v8_succeeded_event())
         .unwrap();
     assert_eq!(ok.seq, 2);
+    assert!(journal.export_ndjson("port-v8-ok").is_ok());
 }
 
 #[test]
@@ -466,15 +477,15 @@ fn colocated_sqlite_syncs_runs_feature_from_run_started_payload() {
         )
         .unwrap()
     };
-    let expected = vec![("r-v14".to_string(), "real-goal".to_string(), ts.to_string())];
-    assert_eq!(ports.list_runs().unwrap(), expected);
-    assert_eq!(store.list_runs().unwrap(), expected);
-    assert_eq!(summary_feature(&path).as_deref(), Some("real-goal"));
-
+    let assert_feature = || {
+        let expected = vec![("r-v14".to_string(), "real-goal".to_string(), ts.to_string())];
+        assert_eq!(ports.list_runs().unwrap(), expected);
+        assert_eq!(store.list_runs().unwrap(), expected);
+        assert_eq!(summary_feature(&path).as_deref(), Some("real-goal"));
+    };
+    assert_feature();
     assert_eq!(journal.reindex().unwrap(), 1);
-    assert_eq!(ports.list_runs().unwrap(), expected);
-    assert_eq!(store.list_runs().unwrap(), expected);
-    assert_eq!(summary_feature(&path).as_deref(), Some("real-goal"));
+    assert_feature();
 }
 
 #[test]

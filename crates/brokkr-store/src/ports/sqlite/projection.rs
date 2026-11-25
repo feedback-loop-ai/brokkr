@@ -15,7 +15,7 @@ use crate::{event_index, schema, seat_summary, summary, StoreError};
 
 use super::{
     checked_seq, divergent, has_local_runs_or_events, load_verified_local, query_strings,
-    verify_chain_for_sqlite,
+    started_feature_of, verify_chain_for_sqlite,
 };
 
 const INSERT_EVENT_INDEX: &str = "INSERT OR IGNORE INTO event_index
@@ -30,7 +30,7 @@ const PROJECTION_HASHES_DDL: &str = "CREATE TABLE IF NOT EXISTS projection_hashe
     event_hash TEXT NOT NULL,
     PRIMARY KEY (run_id, seq)
 );";
-const PROJECTION_TABLES: [&str; 6] = [
+pub(super) const PROJECTION_TABLES: [&str; 6] = [
     "run_summary",
     "seat_summary",
     "seat_head",
@@ -53,8 +53,8 @@ const LOCAL_RUNS: &str = "SELECT run_id FROM runs
      ORDER BY run_id";
 const DECOUPLED_PREFIX_HASHES: &str = "SELECT seq, event_hash FROM projection_hashes
      WHERE run_id = ?1 AND seq >= 1 AND seq <= ?2 ORDER BY seq";
-const PROJECTION_HASH_AT_SEQ: &str =
-    "SELECT event_hash FROM projection_hashes WHERE run_id = ?1 AND seq = ?2";
+const MAX_PROJECTION_HASH_SEQ: &str =
+    "SELECT COALESCE(MAX(seq), 0) FROM projection_hashes WHERE run_id = ?1";
 const CURRENT_SUMMARY_HEAD: &str =
     "SELECT COALESCE(MAX(head_seq), 0) FROM run_summary WHERE run_id = ?1";
 
@@ -163,6 +163,7 @@ fn insert_projection_hashes(
 fn listed_for_projection(
     tx: &Connection,
     run_id: &str,
+    events: &[EventEnvelope],
     fallback: &Listed,
 ) -> Result<Listed, StoreError> {
     let row: Option<(String, String)> = tx
@@ -173,6 +174,15 @@ fn listed_for_projection(
         )
         .optional()?;
     if let Some((feature, created_at)) = row {
+        if feature.is_empty() {
+            if let Some(started) = started_feature_of(events) {
+                tx.execute(
+                    "UPDATE runs SET feature = ?2 WHERE run_id = ?1 AND feature = ''",
+                    params![run_id, started],
+                )?;
+                return Ok(Listed::new(started, &created_at));
+            }
+        }
         return Ok(Listed::new(&feature, &created_at));
     }
     if fallback.listing().feature.is_empty() {
@@ -198,7 +208,7 @@ pub(super) fn write_full_projection(
     account: &Account,
     fallback_listed: &Listed,
 ) -> Result<(), StoreError> {
-    let listed = listed_for_projection(tx, run_id, fallback_listed)?;
+    let listed = listed_for_projection(tx, run_id, events, fallback_listed)?;
     summary::upsert(tx, run_id, &Summary::of(account, listed.listing()))?;
     seat_summary::write(tx, account, None)?;
     insert_event_index_rows(tx, run_id, events)?;
@@ -255,16 +265,18 @@ fn clear_stale_projections(
 fn summary_progress(
     tx: &Connection,
     run_id: &str,
-    min_head: i64,
 ) -> Result<Option<(i64, Option<i64>, String)>, StoreError> {
     Ok(tx
         .query_row(
-            "SELECT head_seq, folded_seq, head_hash
-             FROM run_summary WHERE run_id = ?1 AND head_seq >= ?2",
-            params![run_id, min_head],
+            "SELECT head_seq, folded_seq, head_hash FROM run_summary WHERE run_id = ?1",
+            params![run_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?)
+}
+
+fn max_projection_hash_seq(tx: &Connection, run_id: &str) -> Result<i64, StoreError> {
+    Ok(tx.query_row(MAX_PROJECTION_HASH_SEQ, params![run_id], |row| row.get(0))?)
 }
 
 fn is_colocated_projection_current(
@@ -272,7 +284,7 @@ fn is_colocated_projection_current(
     run_id: &str,
     (expected_seq, expected_hash): (i64, &str),
 ) -> Result<bool, StoreError> {
-    let progress = summary_progress(tx, run_id, 0)?;
+    let progress = summary_progress(tx, run_id)?;
     Ok(progress.is_some_and(|(head_seq, folded_seq, head_hash)| {
         folded_seq == Some(head_seq) && head_seq == expected_seq && head_hash == expected_hash
     }))
@@ -298,23 +310,6 @@ fn verify_overlapping_hashes(
     Ok(stored.len())
 }
 
-fn verify_projection_hash(
-    tx: &Connection,
-    run_id: &str,
-    seq: i64,
-    expected_hash: &str,
-) -> Result<(), StoreError> {
-    let stored: Option<String> = tx
-        .query_row(PROJECTION_HASH_AT_SEQ, params![run_id, seq], |row| {
-            row.get(0)
-        })
-        .optional()?;
-    if stored.as_deref() != Some(expected_hash) {
-        return Err(divergent(run_id));
-    }
-    Ok(())
-}
-
 fn plan_decoupled_apply(
     tx: &Connection,
     run_id: &str,
@@ -322,26 +317,28 @@ fn plan_decoupled_apply(
 ) -> Result<DecoupledAction, StoreError> {
     let incoming_max = checked_seq(envelopes.len() as u64)?;
     let stored_count = verify_overlapping_hashes(tx, run_id, envelopes, incoming_max)?;
-    let Some((existing_head_seq, existing_folded_seq, existing_head_hash)) =
-        summary_progress(tx, run_id, 1)?
-    else {
-        return Ok(DecoupledAction::Project);
+    let hash_max = max_projection_hash_seq(tx, run_id)?;
+    let (head_seq, folded_seq, head_hash) = match summary_progress(tx, run_id)? {
+        Some((head, folded, hash)) => (head, folded, Some(hash)),
+        None => (0, None, None),
     };
-    if incoming_max < existing_head_seq {
+    let max_known = head_seq.max(folded_seq.unwrap_or(0)).max(hash_max);
+    if incoming_max < max_known {
         if stored_count != envelopes.len() {
             return Err(divergent(run_id));
         }
         return Ok(DecoupledAction::Skip);
     }
-    let at_head = &envelopes[(existing_head_seq - 1) as usize];
-    if at_head.event_hash != existing_head_hash {
-        return Err(divergent(run_id));
-    }
-    if incoming_max == existing_head_seq
-        && existing_folded_seq == Some(existing_head_seq)
-        && stored_count == envelopes.len()
-    {
-        return Ok(DecoupledAction::Skip);
+    if let Some(expected_hash) = head_hash.filter(|_| head_seq >= 1) {
+        if envelopes[(head_seq - 1) as usize].event_hash != expected_hash {
+            return Err(divergent(run_id));
+        }
+        if incoming_max == head_seq
+            && folded_seq == Some(head_seq)
+            && stored_count == envelopes.len()
+        {
+            return Ok(DecoupledAction::Skip);
+        }
     }
     Ok(DecoupledAction::Project)
 }
@@ -434,15 +431,12 @@ pub(super) fn rebuild_decoupled(
             continue;
         };
         let scanned_head = checked_seq(last.seq)?;
-        let current: Option<(i64, Option<i64>)> = tx
-            .query_row(
-                "SELECT head_seq, folded_seq FROM run_summary WHERE run_id = ?1",
-                params![run.run_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        if current.is_some_and(|(head, folded)| head > scanned_head && folded == Some(head)) {
-            verify_projection_hash(tx, &run.run_id, scanned_head, &last.event_hash)?;
+        let stored_count = verify_overlapping_hashes(tx, &run.run_id, &run.events, scanned_head)?;
+        let current = summary_progress(tx, &run.run_id)?;
+        if current.is_some_and(|(head, folded, _)| head > scanned_head && folded == Some(head)) {
+            if stored_count != run.events.len() {
+                return Err(divergent(&run.run_id));
+            }
             continue;
         }
         clear_run_projections(tx, &run.run_id)?;

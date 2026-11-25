@@ -29,7 +29,7 @@ pub(crate) use projection::{migrate_projection_hashes, projection_hashes_intact}
 use projection::{
     rebuild_colocated, rebuild_decoupled, resolve_projection_plan, verify_local_events_match,
     write_decoupled_projection, write_full_projection, ProjectionPlan, VerifiedRun,
-    EXISTING_PROJECTED_RUNS,
+    EXISTING_PROJECTED_RUNS, PROJECTION_TABLES,
 };
 
 /// Thin adapter exposing a SQLite [`Store`] through the [`EventLog`],
@@ -65,8 +65,6 @@ const LIST_RUNS_SUMMARY: &str =
      ORDER BY COALESCE(created_at_whole, created_at, ''), run_id";
 const HAS_LOCAL_RUNS_OR_EVENTS: &str =
     "SELECT EXISTS(SELECT 1 FROM runs) OR EXISTS(SELECT 1 FROM events)";
-const HAS_RUNLESS_SUMMARY: &str =
-    "SELECT EXISTS(SELECT 1 FROM run_summary WHERE run_id NOT IN (SELECT run_id FROM runs))";
 
 fn manifest_meta(manifest: &Value) -> (&str, &str) {
     let feature = manifest
@@ -80,24 +78,25 @@ fn manifest_meta(manifest: &Value) -> (&str, &str) {
     (feature, bundle_name)
 }
 
-fn listing_from(manifest: Option<&Value>, events: &[EventEnvelope]) -> Listed {
-    let started = events
+fn non_empty_str(value: Option<&Value>) -> Option<&str> {
+    value.and_then(Value::as_str).filter(|s| !s.is_empty())
+}
+
+pub(super) fn started_feature(payload: &Value) -> Option<&str> {
+    non_empty_str(payload.get("feature"))
+        .or_else(|| non_empty_str(payload.pointer("/manifest/feature")))
+}
+
+pub(super) fn started_feature_of(events: &[EventEnvelope]) -> Option<&str> {
+    events
         .iter()
-        .find(|event| event.event_type == EventType::RunStarted);
-    let feature = started
-        .and_then(|event| {
-            event
-                .payload
-                .get("feature")
-                .and_then(Value::as_str)
-                .or_else(|| {
-                    event
-                        .payload
-                        .pointer("/manifest/feature")
-                        .and_then(Value::as_str)
-                })
-        })
-        .or_else(|| manifest.and_then(|value| value.get("feature").and_then(Value::as_str)))
+        .find(|event| event.event_type == EventType::RunStarted)
+        .and_then(|event| started_feature(&event.payload))
+}
+
+fn listing_from(manifest: Option<&Value>, events: &[EventEnvelope]) -> Listed {
+    let feature = started_feature_of(events)
+        .or_else(|| manifest.and_then(|value| non_empty_str(value.get("feature"))))
         .unwrap_or_default();
     let created_at = events
         .first()
@@ -174,14 +173,21 @@ fn has_local_runs_or_events(tx: &Connection) -> Result<bool, StoreError> {
 }
 
 /// Refuse authoritative `runs`/`events` writes into a SQLite database already
-/// carrying decoupled projections (runs in `run_summary` absent from `runs`).
+/// carrying decoupled projections (empty `runs` and `events` with any row in a
+/// projection table).
 pub(crate) fn refuse_if_decoupled_projection_db(
     tx: &Connection,
     run_id: &str,
 ) -> Result<(), StoreError> {
-    let has_runless: i64 = tx.query_row(HAS_RUNLESS_SUMMARY, [], |row| row.get(0))?;
-    if has_runless != 0 {
-        return Err(divergent(run_id));
+    if has_local_runs_or_events(tx)? {
+        return Ok(());
+    }
+    for table in PROJECTION_TABLES {
+        let sql = format!("SELECT EXISTS(SELECT 1 FROM {table})");
+        let has_rows: i64 = tx.query_row(&sql, [], |row| row.get(0))?;
+        if has_rows != 0 {
+            return Err(divergent(run_id));
+        }
     }
     Ok(())
 }
@@ -286,7 +292,7 @@ fn insert_events(
         insert.execute(params![run_id, seq, envelope.event_hash, serialized])?;
         if envelope.seq == 1 {
             let feature = (envelope.event_type == EventType::RunStarted)
-                .then(|| envelope.payload.get("feature").and_then(Value::as_str))
+                .then(|| started_feature(&envelope.payload))
                 .flatten()
                 .unwrap_or_default();
             let args = params![run_id, envelope.recorded_at, feature];
