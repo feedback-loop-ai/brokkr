@@ -988,8 +988,15 @@ fn dot_git(dir: &Path, between: Option<&str>) {
 /// directory, refuses, naming it, with no `.git` between and with a `.git`
 /// directory or file between; a clean chain is admitted. No git is on the
 /// PATH, so none is asked (L1).
+/// This test empties `PATH`, which every sibling that starts a tool by name
+/// or re-executes this binary reads, so it runs in an engine of its own (#1368).
 #[test]
 fn a_workspace_carrying_agys_configuration_anywhere_above_is_refused_with_no_git() {
+    if !crate::process::in_its_own_engine(
+        "adapters::agy::tests::a_workspace_carrying_agys_configuration_anywhere_above_is_refused_with_no_git",
+    ) {
+        return;
+    }
     let mut env = crate::env_guard::EnvGuard::lock();
     let empty = tempfile::tempdir().unwrap();
     env.set("PATH", empty.path());

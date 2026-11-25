@@ -142,3 +142,92 @@ fn a_rerun_that_ends_with_its_output_held_fails_within_grace_showing_it() {
     let shown = "the rerun's output ends within 5s of its end; it printed:\nearly\n";
     assert_eq!(failed, shown);
 }
+
+/// Every process-wide PATH write must happen in a rerun so sibling tests
+/// and the children they spawn keep the parent test binary's PATH (#1368).
+#[test]
+fn every_lib_test_that_writes_path_runs_in_an_engine_of_its_own() {
+    use std::{fs, path::Path};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut directories = vec![root.clone()];
+    let mut read_own_engine = false;
+    let mut writes = Vec::new();
+    while let Some(dir) = directories.pop() {
+        for entry in fs::read_dir(&dir).unwrap_or_else(|error| panic!("{}: {error}", dir.display()))
+        {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                directories.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                let source = fs::read_to_string(&path)
+                    .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+                let relative = path.strip_prefix(&root).unwrap();
+                read_own_engine |= relative == Path::new("process/own_engine.rs");
+                writes.extend(
+                    path_writes(&source).into_iter().map(|(line, isolated)| {
+                        (format!("{}:{line}", relative.display()), isolated)
+                    }),
+                );
+            }
+        }
+    }
+
+    assert!(read_own_engine, "process/own_engine.rs unread");
+    writes.sort_unstable();
+    assert_eq!(
+        writes
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "adapters/agy/tests.rs:1002",
+            "adapters/dsh_hands/tests.rs:1445",
+            "probe/tests.rs:951",
+            "probe/tests.rs:954",
+        ],
+        "the walk must name every PATH write"
+    );
+    let offenders: Vec<_> = writes
+        .iter()
+        .filter_map(|(path, isolated)| (!isolated).then_some(path.as_str()))
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "PATH writes without an engine of their own: {offenders:?}"
+    );
+}
+
+/// Find guard calls with PATH on the same line or the next non-blank line,
+/// and record whether the enclosing function has already called the rerun.
+fn path_writes(source: &str) -> Vec<(usize, bool)> {
+    let mut lines = source
+        .lines()
+        .enumerate()
+        .map(|(index, line)| (index + 1, line.trim()))
+        .filter(|(_, line)| !line.is_empty())
+        .peekable();
+    let mut writes = Vec::new();
+    let mut isolated = false;
+    while let Some((number, line)) = lines.next() {
+        if line.starts_with("//") {
+            continue;
+        }
+        if line.split_whitespace().any(|word| word == "fn") {
+            isolated = false;
+        }
+        let next = lines.peek().map_or("", |(_, line)| *line);
+        let path = "\"PATH\"";
+        if [".set(", ".remove("].iter().any(|method| {
+            line.match_indices(method).any(|(index, _)| {
+                let argument = &line[index + method.len()..];
+                argument.starts_with(path) || (argument.is_empty() && next.starts_with(path))
+            })
+        }) {
+            writes.push((number, isolated));
+        }
+        isolated |= line.contains("in_its_own_engine(");
+    }
+    writes
+}
