@@ -228,6 +228,8 @@ impl Engine {
     /// 0106b1r4, F2). The maxima are the ones the round's wait read before
     /// the probes; a site the wait found no declaration for judges nothing,
     /// so the round parks rather than writing unjudged (finding 1).
+    /// Each probe plans its round from one of these waits and copies its
+    /// site. Keep the typed refusal if a caller breaks that invariant.
     pub(super) fn judge_round(
         &self,
         waits: &[ProviderWait],

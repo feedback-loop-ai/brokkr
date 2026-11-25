@@ -939,6 +939,34 @@ fn an_earlier_held_round_keeps_the_later_held_end() {
     );
 }
 
+#[test]
+fn a_round_without_its_own_wait_is_refused() {
+    let (_dir, mut engine, _) = waited_round_fixture();
+    let wait = wait();
+    let round = stated_probe_round(&mut engine, &wait, 5);
+    let other_wait = brokkr_core::ProviderWait {
+        site: Some("other".into()),
+        ..wait
+    };
+    let maxima = [Some(super::super::held::SiteMax {
+        max: 2,
+        ordinary: true,
+    })];
+    let result = engine.judge_round(&[other_wait], &maxima, &round, 0);
+    let Err(super::super::CooldownError::RoundUnbounded {
+        provider,
+        route,
+        words,
+    }) = result
+    else {
+        panic!("a round without its own wait must be unbounded: {result:?}");
+    };
+    assert_eq!(
+        (provider, route, words),
+        (round.provider, round.route, round.words)
+    );
+}
+
 /// The later rounds' two unreadable inputs park by name: a store that loses
 /// the table between rounds, and bounds that stop reading; the probe rows'
 /// own recorded instants make the episode unreadable too.
