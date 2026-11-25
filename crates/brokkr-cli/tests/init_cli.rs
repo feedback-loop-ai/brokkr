@@ -237,3 +237,43 @@ fn init_seeds_exactly_the_installed_providers_and_leaves_a_legacy_host_unchanged
         "{output}"
     );
 }
+
+/// `brokkr system host upgrade` through the binary, on a host file under
+/// its own XDG_CONFIG_HOME: `--check` prints the change and exits 1,
+/// writing nothing; the upgrade writes v5; a second run says it is current.
+#[test]
+fn system_host_upgrade_checks_writes_and_then_reads_current() {
+    let aside = tempfile::tempdir().unwrap();
+    let config = aside.path().join("config");
+    let host = config.join("brokkr/host.json");
+    std::fs::create_dir_all(host.parent().unwrap()).unwrap();
+    let old = r#"{"schema":"forge.host/v1","providers":{"exec":{"ceiling":2}},"floors":[{"place":"temp","floor_bytes":1}],"boxed_builds":{"ceiling":5}}"#;
+    std::fs::write(&host, old).unwrap();
+    let upgrade = |extra: &[&str]| {
+        let args: Vec<&str> = ["system", "host", "upgrade"]
+            .iter()
+            .chain(extra)
+            .copied()
+            .collect();
+        brokkr_with(&args, aside.path(), |command| {
+            command
+                .env("HOME", aside.path())
+                .env("XDG_CONFIG_HOME", &config);
+        })
+    };
+    let (code, stdout, stderr) = upgrade(&["--check"]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(
+        stdout.contains("+{\"schema\":\"forge.host/v5\""),
+        "{stdout}"
+    );
+    assert_eq!(std::fs::read_to_string(&host).unwrap(), old);
+    let (code, _, stderr) = upgrade(&[]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let upgraded = old.replace("forge.host/v1", "forge.host/v5");
+    assert_eq!(std::fs::read_to_string(&host).unwrap(), upgraded);
+    let (code, stdout, stderr) = upgrade(&[]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let current = format!("{} is current (forge.host/v5)\n", host.display());
+    assert_eq!(stdout, current);
+}
