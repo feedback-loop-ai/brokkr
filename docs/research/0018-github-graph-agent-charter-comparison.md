@@ -43,8 +43,8 @@ and recording this survey does not approve adopting another framework.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "approve all the fact and
-wording fixes" for the summary
+The operator ruled this erratum on 2026-11-25, "0018-4 approved" for row
+4; "approve all the fact and wording fixes" for the summary
 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
 every row of this entry was checked three ways: against the article,
 against main at `4912e583e`, and against the open issues and pull
@@ -68,6 +68,12 @@ word.
   JSON extraction (opt-in through `parse_json` for agent steps, an
   automatic fallback for bash steps), and configurable error handling
   that can continue or finish early."
+- **Row 4** keeps `implemented`. Citation: decision 0016 and decision
+  0017; `crates/brokkr-runtime/src/bundle.rs` resolves and pins
+  configuration into the manifest; this is configuration identity, not
+  proof of agent-output correctness, and the installed harness version
+  is not yet checked against the version its adapter record measured
+  (#1240)
 
 ## Candidates
 
