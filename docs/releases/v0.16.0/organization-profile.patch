@@ -1,0 +1,31 @@
+diff --git a/profile/README.md b/profile/README.md
+index 692ac8b..d4e1f53 100644
+--- a/profile/README.md
++++ b/profile/README.md
+@@ -26,7 +26,7 @@ Three kinds of piece so far. An **engine** runs the cycle and keeps the record.
+ 
+ | Project | What it is | Licence | State |
+ |---|---|---|---|
+-| [**brokkr**](https://github.com/feedback-loop-ai/brokkr) | **Engine.** Deterministic delivery engine for autonomous multi-agent software delivery. An event-sourced phase machine is the outermost layer; agent sessions are leaf effects inside it. Runs you can replay, releases you can prove. | MIT OR Apache-2.0 | [v0.15.2](https://github.com/feedback-loop-ai/brokkr/releases/tag/v0.15.2) · Rust |
++| [**brokkr**](https://github.com/feedback-loop-ai/brokkr) | **Engine.** Deterministic delivery engine for autonomous multi-agent software delivery. An event-sourced phase machine is the outermost layer; agent sessions are leaf effects inside it. Runs you can replay, releases you can prove. | MIT OR Apache-2.0 | [v0.16.0](https://github.com/feedback-loop-ai/brokkr/releases/tag/v0.16.0) · Rust |
+ | [**homebrew-tap**](https://github.com/feedback-loop-ai/homebrew-tap) | **Channel.** Homebrew formulas for Brokkr, rendered from attested releases. | MIT | `brew install feedback-loop-ai/tap/brokkr` |
+ | [**scoop-bucket**](https://github.com/feedback-loop-ai/scoop-bucket) | **Channel, retired.** Scoop manifests for Brokkr up to v0.10.0. Windows is not a host from v0.11.0; use WSL2 and a Linux channel. | MIT | retired at v0.10.0 |
+ | [**mcp-scaleway**](https://github.com/feedback-loop-ai/mcp-scaleway) | **Hands.** An MCP server for the Scaleway APIs — compute, storage, networking, an agent can reach through a tool call. | MIT | TypeScript |
+@@ -37,7 +37,7 @@ Three kinds of piece so far. An **engine** runs the cycle and keeps the record.
+ To see a whole loop close, end to end, run one delivery through Brokkr — one shell line, and its proof on screen:
+ 
+ ```console
+-brokkr run --recipe fast --repo . --feature "add one visible improvement" && brokkr inspect --run latest
++brokkr run --recipe fast --repo . --feature "add one visible improvement" && brokkr runs inspect --run latest
+ ```
+ 
+ The [quickstart](https://github.com/feedback-loop-ai/brokkr/blob/main/docs/guides/quickstart.md) takes it from install to a shipped run in sixty seconds; the [decision record](https://github.com/feedback-loop-ai/brokkr/tree/main/docs/decisions) is where the engine's rules come from and why. To give an agent hands on your own infrastructure instead, start from one of the MCP servers: each is a small TypeScript project that maps one API onto tools, and the pattern transfers.
+@@ -47,7 +47,7 @@ The [quickstart](https://github.com/feedback-loop-ai/brokkr/blob/main/docs/guide
+ A feedback loop is only as honest as the principles it runs on. These are ours — each one is a constraint on what we build, not a slogan.
+ 
+ - **Open source, permissively.** What we publish, you can use, ship, fork, and outgrow. Software that closes a loop for you should never be the thing that locks you in.
+-- **Vendor agnostic.** Which model, which cloud, which identity store is a parameter of the loop, not its foundation. Brokkr drives `claude`, `codex`, or `dsh` through the same recipe — an Anthropic, an OpenAI, or a DeepSeek/Qwen model, one line apart; an MCP server maps an API, whoever the agent behind the tool call is. When a vendor changes its terms, you change a line, not a system.
++- **Vendor agnostic.** Which model, which cloud, which identity store is a parameter of the loop, not its foundation. Brokkr drives `claude`, `codex`, `dsh`, or `agy` through the same recipe — an Anthropic, an OpenAI, a DeepSeek/Qwen, or a Google Gemini model, one line apart; an MCP server maps an API, whoever the agent behind the tool call is. When a vendor changes its terms, you change a line, not a system.
+ - **Open data.** The journal a run produces, the evidence a release carries, the numbers a decision rests on — documented formats, readable without our tools, yours to publish. Data you can't take with you isn't yours.
+ - **Transparency.** Decisions are written down with their reasons, numbered, and kept — including the ones that turned out wrong. The reasoning is public even when the code is the smaller part.
+ - **Provenance.** Every artefact says where it came from: a release is attested and checksummed, a pull request names the run that produced it, a result names the ruling it rests on. If you can't trace it, you can't trust it — and neither can we.

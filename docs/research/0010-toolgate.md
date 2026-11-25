@@ -49,6 +49,22 @@ original sweep parked at verify and never shipped, so even a successful
 preflight would not by itself satisfy the delivery-evidence gate for
 this PR. Finding 2 remains a candidate, not an implemented screen.
 
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Row 3** keeps `alternative`. Citation: For "cannot replace delivery
+  evidence" read "cannot replace delivery evidence; open: #286 reports
+  that the boxed preflight verify seat cannot meet the exact coverage
+  gate, so the docs tier may have no reachable path". (ruled: "0010 - 3
+  approved")
+- **Row 4** keeps `implemented`. Citation: For "0035;
+  `recipes/research-dsh/bundle.json` and
+  `crates/brokkr-store/src/seat-record.v4.schema.json`: model hires
+  carry" read "0035; `recipes/research-dsh/bundle.json` and
+  `contracts/seat-record.v8.schema.json`: model hires carry". (ruled:
+  "approve all the fact and wording fixes")
+
 ## Candidates
 
 Finding 2 is the paper's gift to the sweep's first topic: the

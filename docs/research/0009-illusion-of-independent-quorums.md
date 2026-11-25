@@ -57,6 +57,20 @@ preserve it among the models actually served. Decision 0046 also records
 the boundary each seat used; isolation does not establish that judges
 read independent evidence. Finding 2 remains not-planned.
 
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** For "Simulated with 8,400 reviewer calls per
+  configuration: under shared evidence" read "Simulated with 8,400 calls
+  per configuration to stylized Bernoulli reviewers (no real-model
+  results): under shared evidence"; for "shared evidence a model-diverse
+  2-of-3 quorum commits" read "shared evidence a 2-of-3 quorum commits";
+  for "unsafe actions in 96.8 to 97.3 percent of cases, while separating
+  the" read "unsafe actions in 97.3 percent of cases when replicated and
+  96.8 percent when model-diverse, while separating the". (ruled:
+  "approve all the fact and wording fixes")
+
 ## Candidates
 
 Finding 2 remains the main open question: panel judges share the tree,

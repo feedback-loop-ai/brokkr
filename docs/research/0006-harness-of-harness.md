@@ -46,6 +46,67 @@ regression.
 | 5 | Warm-start each iteration and re-plan every time; both ablate hard | alternative | decision 0030: a retry rejoins its own session with the harness's own sandbox class re-imposed; decision 0022: a finding returns to implement as declared input |
 | 6 | Compare configurations budget-matched (score per token at equal passes), by dominance, and by issue close and reopen counts | alternative | `crates/brokkr-cli/src/compare.rs` folds two journals to their first divergence with per-seat cost; outcome economics stay in the ledger (decision 0021) |
 
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** For "Long-horizon autonomous development is a
+  loop-structure problem, not a model problem." read "The paper's
+  framing is that in long-horizon autonomous development the real
+  challenge is sustaining coherent and effective progress over time."
+  (ruled: "approve all the fact and wording fixes")
+- **Summary.** For "repeated-baseline runs at a matched token budget."
+  read "repeated-baseline runs at matched pass budgets, with a
+  comparable inference budget." (ruled: "approve all the fact and
+  wording fixes")
+- **Summary.** For "44 to 71 percent, 72.7 at ten iterations." read "44
+  to 71 percent over three iterations, and in a separate ten-loop
+  comparison pool from 39.3 percent at three loops to 72.7 at ten."
+  (ruled: "approve all the fact and wording fixes")
+- **Summary.** For "7.9 points and 30 percent more tokens." read "7.9
+  points and about 32 percent more tokens (8.41 to 11.12 million per
+  task)." (ruled: "approve all the fact and wording fixes")
+- **Row 1** now reads `planned`, not `alternative`. Citation: For
+  "decision 0041: a gate is chartered to change nothing, and the engine
+  parks a gate" read "#1260 and #564: the engine would compare the
+  tracked tree after every gate, not only the head, and fence every
+  read-only review position; today decision 0041 parks a gate"; for
+  "gate that moves HEAD; the reviewed head" read "gate that moves HEAD
+  (`crates/brokkr-runtime/src/engine/heads.rs`) and the reviewed head";
+  for "is recorded and a moved head returns to review
+  (`crates/brokkr-runtime/src/engine.rs`); no control freezes" read "is
+  recorded and compared (`crates/brokkr-runtime/src/engine/decide.rs`),
+  while an uncommitted write passes and no control freezes"; for
+  "freezes the judge's snapshot, because the default delivery's review
+  gate runs unboxed under acceptEdits and an uncommitted write passes
+  the HEAD check (`docs/security-model.md`)" read "freezes the judge's
+  snapshot (`docs/security-model.md`)". (ruled: "approve all that move
+  to planned as well")
+- **Row 2** now reads `planned`, not `alternative`. Citation: For
+  "decision 0028 and decision 0029: the journal is the evidence and
+  every cited commit is kept, per run; nothing is" read "#1088 (decision
+  0109, accepted 2026-11-17): a gate's re-visit reads the delta since
+  the head its last verdict covered, with the findings that still stand,
+  so verified evidence carries between iterations inside a run; nothing
+  is"; after "next run's planning" add "(decisions 0028 and 0029 keep
+  each run's evidence)". (ruled: "approve all that move to planned as
+  well")
+- **Row 3** keeps `alternative`. Citation: For "decision 0001: a schema
+  mismatch parks with the raw evidence and is never repaired or retried"
+  read "decision 0001: a seat result that fails schema validation parks
+  the run with the raw evidence, and the engine never repairs or retries
+  it (`docs/guides/quickstart.md`); decision 0001 does permit an
+  executor's own bounded structured-output retry with the validation
+  error fed back to the same seat". (ruled: "approve all the fact and
+  wording fixes")
+- **Row 6** keeps `alternative`. Finding: For "Compare configurations
+  budget-matched (score per token at equal passes), by dominance, and"
+  read "Compare configurations at equal pass budgets on score and token
+  cost, by dominance, and". Citation: For "the ledger (decision 0021)"
+  read "the ledger (decision 0021); #436 and #224 would compare
+  configurations at comparable spend by accepted results, cost per
+  accepted result and later defects". (ruled: "0006-row 6 - approved")
+
 ## Candidates
 
 Finding 2 is the one to weigh. Every run here starts cold, and the
