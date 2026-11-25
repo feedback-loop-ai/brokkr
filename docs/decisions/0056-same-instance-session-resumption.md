@@ -193,6 +193,10 @@ Alternatives weighed, each rejected on evidence rather than taste:
    assignment, mismatch and kill-window tests in
    `crates/brokkr-protocol/src/adapters/tests.rs` and `resume_tests.rs`.
 
+   *Amended 2026-11-21 by decision 0075's addendum of that date:* from
+   seat-record v8 the root's `kind` is open, a kind its harness's adapter
+   declares and never `none`; nothing else of the root object changes.
+
 4. **The offer is negotiated, correlated and used once.** The handle
    travels on the protocol's existing `resume` message, before the start
    it belongs to, and never in the prompt, the rendered context or a

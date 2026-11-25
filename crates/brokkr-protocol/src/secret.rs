@@ -460,42 +460,17 @@ fn enc_raw(bytes: &[u8]) -> Vec<u8> {
     bytes.to_vec()
 }
 
-const B64_STD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-const B64_URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-fn b64(bytes: &[u8], alphabet: &[u8; 64], pad: bool) -> Vec<u8> {
-    let mut out = Vec::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let n = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        out.push(alphabet[(n >> 18) as usize & 63]);
-        out.push(alphabet[(n >> 12) as usize & 63]);
-        if chunk.len() > 1 {
-            out.push(alphabet[(n >> 6) as usize & 63]);
-        } else if pad {
-            out.push(b'=');
-        }
-        if chunk.len() > 2 {
-            out.push(alphabet[n as usize & 63]);
-        } else if pad {
-            out.push(b'=');
-        }
-    }
-    out
-}
-
 fn enc_b64_std(bytes: &[u8]) -> Vec<u8> {
-    b64(bytes, B64_STD, true)
+    crate::base64::encode_std(bytes)
 }
 fn enc_b64_std_nopad(bytes: &[u8]) -> Vec<u8> {
-    b64(bytes, B64_STD, false)
+    crate::base64::encode_std_nopad(bytes)
 }
 fn enc_b64_url(bytes: &[u8]) -> Vec<u8> {
-    b64(bytes, B64_URL, true)
+    crate::base64::encode_url(bytes)
 }
 fn enc_b64_url_nopad(bytes: &[u8]) -> Vec<u8> {
-    b64(bytes, B64_URL, false)
+    crate::base64::encode_base64url(bytes).into_bytes()
 }
 
 fn hex(bytes: &[u8], digits: &[u8; 16]) -> Vec<u8> {
@@ -598,22 +573,6 @@ fn needles<'b>(
     }
     needles.sort_by_key(|needle| std::cmp::Reverse(needle.0.len()));
     needles
-}
-
-fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Encoder)]) -> Vec<u8> {
-    if bindings.is_empty() {
-        return bytes.to_vec();
-    }
-    let needles = needles(bindings, encodings);
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut clear = 0;
-    for (start, end, name) in covered(bytes, &needles) {
-        out.extend_from_slice(&bytes[clear..start]);
-        out.extend_from_slice(format!("[secret:{name}]").as_bytes());
-        clear = end;
-    }
-    out.extend_from_slice(&bytes[clear..]);
-    out
 }
 
 /// Every run of `bytes` that occurrences of `needles` cover, in order, as
@@ -789,9 +748,12 @@ pub use handoff::{exec_confined, send_environment};
 
 mod guard;
 pub(crate) mod handoff;
+mod mask;
 mod refusal;
 mod store;
 
+use mask::mask_needles;
+pub(crate) use mask::{mask_intersects, mask_split, MaskedSplit};
 use refusal::{NameRefusal, ReferenceRefusal, ValueRefusal};
 
 #[cfg(test)]

@@ -1,0 +1,1 @@
+{"brokkr-gate": {"PreToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "'/var/tmp/probe-agy/eval/bin/brokkr-agy-1acdeeaa' 'driver' 'agy' '--' '--gate' 'call_mcp_tool'", "timeout": 10}]}]}}

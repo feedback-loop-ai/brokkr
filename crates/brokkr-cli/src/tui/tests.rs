@@ -1120,7 +1120,7 @@ fn every_startup_refusal_names_both_of_the_other_readouts() {
 
 /// `set_hook`/`take_hook` and the recorders below are process-global, so every
 /// test that touches them takes this first; hook counters are per panicking thread.
-pub(super) static TERMINAL: Mutex<()> = Mutex::new(());
+pub(crate) static TERMINAL: Mutex<()> = Mutex::new(());
 pub(super) static SCRIPT: Mutex<Vec<Event>> = Mutex::new(Vec::new());
 static ENTERED: AtomicUsize = AtomicUsize::new(0);
 static LEFT: AtomicUsize = AtomicUsize::new(0);

@@ -3,7 +3,7 @@
 //! the run's read surfaces still read it.
 
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use brokkr_core::envelope::EventType;
 
@@ -16,9 +16,8 @@ use brokkr_core::fold::Status;
 use serde_json::json;
 
 fn brokkr(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_brokkr"))
+    crate::built::brokkr(args)
         .current_dir(dir)
-        .args(args)
         .output()
         .unwrap()
 }
@@ -250,14 +249,13 @@ fn planted(db: &Path, events: &[(EventType, serde_json::Value)]) {
 /// `brokkr runs operator repair` on run `late`, as the operator types it, with
 /// `USER` pinned so the annotation's author is the test's.
 fn repair_as(dir: &Path, db: &str, user: &str, reason: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .current_dir(dir)
-        .env("USER", user)
-        .args([
-            "runs", "operator", "repair", "--run", "late", "--reason", reason, "--db", db,
-        ])
-        .output()
-        .unwrap()
+    crate::built::brokkr([
+        "runs", "operator", "repair", "--run", "late", "--reason", reason, "--db", db,
+    ])
+    .current_dir(dir)
+    .env("USER", user)
+    .output()
+    .unwrap()
 }
 
 /// The repair succeeded at `seq`, and the verb's words say so.

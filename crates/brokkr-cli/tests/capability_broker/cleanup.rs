@@ -438,11 +438,8 @@ pub(super) fn left_for_the_next_start(scratch: &Path) -> (Vec<(String, Vec<Strin
     let run = tempfile::tempdir().unwrap();
     let dir = run.path();
     let bundle = crate::hands::reap_bundle(dir);
-    let mut start = crate::engine::brokkr_in(dir);
-    start
-        .env("TMPDIR", scratch)
-        .args(["run", "--bundle"])
-        .arg(&bundle);
+    let mut start = crate::engine::brokkr_in(dir, &["run", "--bundle"]);
+    start.env("TMPDIR", scratch).arg(&bundle);
     start
         .args(["--feature", "reap", "--db"])
         .arg(dir.join("j.db"));

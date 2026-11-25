@@ -613,5 +613,32 @@ pub(crate) fn tui_source(
     }
 }
 
+/// Drive the TUI's own transcript acquisition and masking path (`tui_source` ->
+/// `read_views` -> `resolve_subject` -> `local_transcript::mask_secrets`) for
+/// one participant in `db` (#1227 U6).
+pub fn tui_transcript_for_test(
+    db: &Path,
+    run_id: &str,
+    subject: &tui::Subject,
+) -> Option<TranscriptRead> {
+    let mut source = tui_source(vec![Hearth {
+        realms: vec!["default".to_string()],
+        journal: db.to_path_buf(),
+    }]);
+    let ask = tui::Ask {
+        tab: 0,
+        run: Some(run_id),
+        run_level: false,
+        fleet: true,
+        live_rows: 100,
+        live_offset: 0,
+        window: Default::default(),
+        subject: Some(subject.clone()),
+        force: true,
+    };
+    let refreshed = source(ask).expect("tui_source reads test journal");
+    refreshed.and_then(|frame| frame.transcript)
+}
+
 #[cfg(test)]
 mod read_tests;

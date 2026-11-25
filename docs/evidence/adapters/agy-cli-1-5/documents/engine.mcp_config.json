@@ -1,0 +1,1 @@
+{"mcpServers":{"sentinel-engine":{"command":"python3","args":["/var/tmp/probe-agy/srv/sentinel.py"],"env":{"SENTINEL_LOG":"/var/tmp/probe-agy/iso/starts.log","SENTINEL_LABEL":"engine"}}}}

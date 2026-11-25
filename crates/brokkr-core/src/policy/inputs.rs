@@ -9,6 +9,11 @@ use super::{DRIFT_PHASES, REALM_FACTS, REVIEWED_HEADS, STRATEGIES};
 /// and the one counter the table's `_gte` conditions name by itself.
 pub const CONSECUTIVE_FAILURES: &str = "consecutive_failures";
 
+/// The seat-declared identifier of the change a sequence carries on
+/// (#1221): the input's one name, which the bundle compiler and decide
+/// read too.
+pub const CHANGE: &str = "change";
+
 /// The journal-computed strategy input shared by policy and the fold.
 pub(crate) const STRATEGY: &str = "strategy";
 
@@ -83,7 +88,7 @@ pub(crate) const INPUTS: [Input; 17] = [
     // tree at the protected phase's ruling.
     input("fixes_docs_only", InputKind::Flag, Owner::Engine),
     input("max_residual_severity", InputKind::Severity, Owner::Seat),
-    input("change", InputKind::Identifier, Owner::Seat),
+    input(CHANGE, InputKind::Identifier, Owner::Seat),
     // The fold remembers the last successful triage result. A seat may
     // neither declare nor overwrite the class that governs its run.
     input(

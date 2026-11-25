@@ -1325,7 +1325,7 @@ fn bubblewrap_is_built_once_from_a_tarball_verified_by_digest() {
     assert_eq!(
         sites,
         [
-            (".github/workflows/ci.yml".to_string(), 3),
+            (".github/workflows/ci.yml".to_string(), 4),
             (".github/workflows/mutants.yml".to_string(), 2),
             (".github/workflows/release.yml".to_string(), 2),
             (".github/workflows/research-weekly.yml".to_string(), 1),
@@ -1463,7 +1463,7 @@ fn the_lint_tools_are_installed_from_releases_verified_by_digest() {
             "JSCPD_SHA256",
             "kucherenko/jscpd/releases/download",
             r#"tar xzf "$tarball""#,
-            vec![(".github/workflows/ci.yml", 1)],
+            vec![(".github/workflows/pr-gates.yml", 1)],
         ),
         (
             ".github/actions/setup-lychee/action.yml",
@@ -1578,7 +1578,11 @@ fn run_steps(job: &str) -> Vec<String> {
 /// request's run or the push of the commit it lands (#451).
 #[test]
 fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
-    for file in [".github/workflows/ci.yml", ".github/workflows/mutants.yml"] {
+    for file in [
+        ".github/workflows/pr-gates.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/mutants.yml",
+    ] {
         assert!(
             read(file).contains(
                 "concurrency:\n  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
@@ -1587,30 +1591,39 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
         );
     }
 
+    // The pull request's metadata gates, apart from the suite (#1295).
+    let gates = workflow::jobs(&read(".github/workflows/pr-gates.yml"));
+    let ids: Vec<&str> = gates.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, ["delivered-by-brokkr", "ratchets"]);
+    for (id, body) in &gates {
+        assert!(body.contains("    timeout-minutes: "), "{id} is unbounded");
+    }
+
     let jobs = ci_jobs();
     let ids: Vec<&str> = jobs.iter().map(|(id, _)| id.as_str()).collect();
     assert_eq!(
         ids,
         [
-            "delivered-by-brokkr",
             "msrv",
             "quality",
             "plugin-tests",
+            "classify",
+            "docs-lane",
             "engine-machines",
             "engine",
             "seatbelt-lifetime",
             "coverage-machines",
             "coverage",
+            "coverage-gate",
             "license-compliance",
             "lint-non-rust",
-            "ratchets",
             "dependency-audit",
             "bootstrap-budgets",
             "bootstrap-budgets-macos",
             "packaging",
             "flake",
             "release-binary",
-            "cpu-budgets",
+            "pr-caches",
         ]
     );
     for (id, body) in &jobs {
@@ -1623,7 +1636,12 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
         .filter(|(_, body)| body.contains("cargo build --release"))
         .map(|(id, _)| id.as_str())
         .collect();
-    assert_eq!(builders, ["bootstrap-budgets-macos", "release-binary"]);
+    // pr-caches builds on macOS, on the push to main alone, to save the
+    // macOS bootstrap job's cache (#1295); Linux still builds once.
+    assert_eq!(
+        builders,
+        ["bootstrap-budgets-macos", "release-binary", "pr-caches"]
+    );
     for consumer in ["bootstrap-budgets", "packaging"] {
         let body = job(consumer);
         assert!(body.contains("    needs: release-binary\n"), "{consumer}");

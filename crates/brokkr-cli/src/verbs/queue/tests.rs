@@ -55,7 +55,7 @@ fn queue_in(workspace: &Path, db: &Path, words: &[&str]) -> Result<ExitCode> {
     queue(workspace, parsed(db, words))
 }
 
-/// What `brokkr queue list`, `judge`, `repin` or `move`, run in
+/// What `brokkr queue list`, `judge`, `repin`, `move` or `merged`, run in
 /// `workspace` against `db`, prints on stderr.
 fn stderr_of(workspace: &Path, db: &Path, words: &[&str]) -> String {
     let mut stderr = Vec::new();
@@ -67,7 +67,8 @@ fn stderr_of(workspace: &Path, db: &Path, words: &[&str]) -> String {
             let command = QueueCommand::Move { to: args.to };
             change(workspace, args.entry, command, &mut stderr)
         }
-        _ => unreachable!("only list, judge, repin and move are read on stderr here"),
+        QueueCmd::Merged(args) => change(workspace, args, QueueCommand::Merged, &mut stderr),
+        _ => unreachable!("only list, judge, repin, move and merged are read on stderr here"),
     };
     assert_eq!(exit.unwrap(), completed());
     String::from_utf8(stderr).unwrap()
@@ -198,7 +199,8 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
     // run-3 holds no event, so the pass names it beside the queue, and
     // `list` says it on stderr.
     let store = Store::open(&db).unwrap();
-    let (_, unstarted) = on_this_host(|host| Ok(admission::pass_within(&store, host)?)).unwrap();
+    let (_, unstarted) =
+        on_this_host(&[], |host| Ok(admission::pass_within(&store, host)?)).unwrap();
     assert_eq!(
         named(&unstarted),
         "unstarted_run: run 'run-3' was never started, a row an older brokkr left with no \
@@ -450,6 +452,41 @@ fn an_empty_queue_says_so() {
     assert_eq!(serde_json::to_value(rows(&[])).unwrap(), json!([]));
 }
 
+/// `brokkr queue merged` (#1192) records a merge of an entry that started
+/// a run and says so; of one that started none it is refused in its own
+/// words.
+#[test]
+fn a_merge_is_recorded_of_a_started_entry_and_refused_of_an_unstarted_one() {
+    let (dir, _host) = (tempfile::tempdir().unwrap(), own_host());
+    let (ws, db) = library(&dir);
+    for feature in ["merges", "waits"] {
+        let add = [
+            "add",
+            "--bundle",
+            "b",
+            "--feature",
+            feature,
+            "--reason",
+            "r",
+        ];
+        queue_in(ws, &db, &add).unwrap();
+    }
+    let mut store = Store::open(&db).unwrap();
+    let manifest = json!({"schema": "run-manifest/v1"});
+    (store.create_run("run-1", "f", "b", &manifest)).unwrap();
+    brokkr_store::test_support::linked(&mut store, EntryId(1), "run-1");
+    drop(store);
+    let merged = ["merged", "1", "--reason", "PR #2 merged as abc123"];
+    assert_eq!(
+        stderr_of(ws, &db, &merged),
+        "recorded queue entry 1 merged\n"
+    );
+    assert_eq!(
+        refused_in(ws, &db, &["merged", "2", "--reason", "r"]),
+        failed("error: queue entry 2 has started no run, so no merge of its work can be recorded")
+    );
+}
+
 #[test]
 fn each_refusal_leaves_with_its_own_words() {
     let _host = own_host();
@@ -529,7 +566,9 @@ fn each_refusal_leaves_with_its_own_words() {
     assert_eq!(
         unknown.err().unwrap().to_string(),
         "error: invalid value '1:named' for '--after <ENTRY:CONDITION>': '1:named' is not \
-         ENTRY:CONDITION, with CONDITION one of completed, ended\n\n\
+         ENTRY:CONDITION, with CONDITION one of completed, ended, shipped, shipped-flagged, \
+         refused, failed, blocked, exhausted, superseded, infrastructure, delivered-elsewhere, \
+         withdrawn, operator-stopped, merged\n\n\
          For more information, try '--help'.\n"
     );
 
@@ -544,10 +583,105 @@ fn each_refusal_leaves_with_its_own_words() {
 #[test]
 fn a_host_configuration_no_directory_places_refuses_the_pass() {
     let home = Some("relative/home".into());
-    let error = on_the_host_at(None, home, Path::new("/t"), |_| Ok(())).unwrap_err();
+    let error = on_the_host_at(None, home, Path::new("/t"), None, |_| Ok(())).unwrap_err();
     assert_eq!(
         error.to_string(),
         "no host configuration can be found: neither XDG_CONFIG_HOME nor HOME names an absolute \
          directory"
     );
+}
+
+/// A named map supplies the same invocation's journal and every other
+/// hearth, even when --db overrides the first. An unreadable map refuses.
+#[test]
+fn admission_uses_the_named_map_for_its_registry_even_with_an_explicit_db() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path().canonicalize().unwrap();
+    std::fs::create_dir(ws.join("other")).unwrap();
+    let map = ws.join("world.json");
+    let db = ws.join("selected.db");
+    let resolve = |realms, db| admission_target(&ws, JournalArgs { realms, db });
+    assert_eq!(
+        resolve(None, Some(db.clone())).unwrap(),
+        (db.clone(), vec![])
+    );
+
+    let realm = |name: &str, path: &str| json!({"name": name, "path": path, "default_branch": "main", "boundary": "open"});
+    let mut there = realm("there", "other");
+    there["journal"] = json!("there.db");
+    let config = json!({"schema": "forge.realms/v4", "journal": "forge.db",
+                       "realms": [realm("here", "."), there, realm("also", "other")]});
+    std::fs::write(&map, config.to_string()).unwrap();
+    let world = Some(map.clone());
+    let journals = vec![ws.join("forge.db"), ws.join("there.db")];
+    assert_eq!(
+        resolve(world.clone(), None).unwrap(),
+        (ws.join("forge.db"), journals.clone())
+    );
+    assert_eq!(
+        resolve(world.clone(), Some(db.clone())).unwrap(),
+        (db.clone(), journals)
+    );
+
+    std::fs::remove_file(&map).unwrap();
+    let error = resolve(world, Some(db)).unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<brokkr_runtime::realms::WorldError>(),
+        Some(brokkr_runtime::realms::WorldError::Missing(path)) if path == map.to_str().unwrap()
+    ));
+}
+
+/// Decision 0125 ruling 8: `--json` carries what a measured pass sized an
+/// entry by, its demand as average and margin, what is available and what
+/// is reserved; an entry the pass sized nothing for carries no `demand`.
+#[test]
+fn the_listing_carries_what_an_entry_was_sized_by() {
+    let _host = own_host();
+    let dir = tempfile::tempdir().unwrap();
+    let (ws, db) = library(&dir);
+    for _ in 0..2 {
+        queue_in(
+            ws,
+            &db,
+            &["add", "--bundle", "b", "--feature", "f", "--reason", "r"],
+        )
+        .unwrap();
+    }
+    let mut entries = listed(&db);
+    let need = |average: u64, margin: u64| admission::Need {
+        average,
+        margin,
+        demand: average + margin,
+    };
+    entries[0].demand = Some(Sized {
+        recipe: "b".into(),
+        source: admission::Source::Measured { runs: 3 },
+        memory_bytes: need(400, 100),
+        load_millicores: need(800, 200),
+        available: admission::Available {
+            memory_bytes: 450,
+            memory_total: 1000,
+            idle_millicores: 4000,
+            cores_millicores: 8000,
+        },
+        reserved: admission::Reserved {
+            memory_bytes: 50,
+            load_millicores: 10,
+            runs: 1,
+            whole: 1,
+            admitted: 0,
+        },
+    });
+    let listed = serde_json::to_value(rows(&entries)).unwrap();
+    assert_eq!(
+        listed[0]["demand"],
+        json!({"recipe": "b", "source": {"kind": "measured", "runs": 3},
+               "memory_bytes": {"average": 400, "margin": 100, "demand": 500},
+               "load_millicores": {"average": 800, "margin": 200, "demand": 1000},
+               "available": {"memory_bytes": 450, "memory_total": 1000,
+                             "idle_millicores": 4000, "cores_millicores": 8000},
+               "reserved": {"memory_bytes": 50, "load_millicores": 10, "runs": 1, "whole": 1,
+                            "admitted": 0}})
+    );
+    assert_eq!(listed[1].get("demand"), None);
 }

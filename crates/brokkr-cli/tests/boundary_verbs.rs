@@ -11,13 +11,7 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
-fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+use crate::workspace_root::workspace as workspace_root;
 
 const POLICY: &str = r#"{
   "schema": "forge.phase-machine/v1",
@@ -162,8 +156,7 @@ impl Workspace {
 
     /// `brokkr <args>` in the workspace as it stands, with no library mark.
     fn unmarked(&self, args: &[&str]) -> (Option<i32>, String, String) {
-        let out = Command::new(brokkr_bin())
-            .args(args)
+        let out = crate::built::brokkr(args)
             .env("GH_TOKEN", FIXTURE_GH_TOKEN)
             .env("HOME", self.home.path())
             .current_dir(self.path())
@@ -762,8 +755,7 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
         "no second copy beside the manifest"
     );
     let root = workspace_root();
-    let out = Command::new(brokkr_bin())
-        .args(["library", "compile", "--bundle", "recipes/self"])
+    let out = crate::built::brokkr(["library", "compile", "--bundle", "recipes/self"])
         .current_dir(&root)
         .output()
         .unwrap();
@@ -785,6 +777,9 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
 /// bundle's hands line stays healthy.
 #[test]
 fn doctor_reads_the_realms_boundary_from_the_workspace_map() {
+    let Some(alone) = crate::isolated::alone() else {
+        return;
+    };
     let ws = Workspace::new("harness");
     let empty = ws.path().join("empty-path");
     std::fs::create_dir_all(&empty).unwrap();
@@ -792,13 +787,12 @@ fn doctor_reads_the_realms_boundary_from_the_workspace_map() {
     // PATH exists to hide bwrap, sandbox-exec and docker alone.
     crate::brokkr_folder::plant_git(&empty);
     let bundle = ws.bundle_dir();
-    let out = Command::new(brokkr_bin())
-        .args(["doctor", "--bundle", bundle.to_str().unwrap()])
-        .env("PATH", &empty)
-        .current_dir(ws.path())
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
+    let doctor = || {
+        let mut doctor = alone.brokkr(["doctor", "--bundle", bundle.to_str().unwrap()]);
+        let out = doctor.env("PATH", &empty).current_dir(ws.path()).output();
+        String::from_utf8_lossy(&out.unwrap().stdout).into_owned()
+    };
+    let stdout = doctor();
     assert!(
         stdout.contains(
             "boundaries: harness · open offered; namespace needs bwrap on PATH (not found)"
@@ -812,13 +806,7 @@ fn doctor_reads_the_realms_boundary_from_the_workspace_map() {
         "{stdout}"
     );
     ws.map("container");
-    let out = Command::new(brokkr_bin())
-        .args(["doctor", "--bundle", bundle.to_str().unwrap()])
-        .env("PATH", &empty)
-        .current_dir(ws.path())
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stdout = doctor();
     assert!(
         stdout.contains(
             "warn     hands: seats [\"review\", \"verify\"] declare hands and will refuse to \

@@ -550,7 +550,7 @@ mod words;
 
 pub use errors::{Malformed, Place, RuleKey, TableKey, Unreadable};
 use inputs::{choice_keyed, count, names, vocabulary, Pick};
-pub use inputs::{is_declarable, CONSECUTIVE_FAILURES};
+pub use inputs::{is_declarable, CHANGE, CONSECUTIVE_FAILURES};
 
 #[cfg(test)]
 mod tests;

@@ -24,7 +24,7 @@ fn validator(version: SeatRecordVersion) -> &'static jsonschema::Validator {
 }
 
 /// Each contract's result branch alone, compiled once, by version.
-static RESULT_BRANCH: [OnceLock<jsonschema::Validator>; 7] = [const { OnceLock::new() }; 7];
+static RESULT_BRANCH: [OnceLock<jsonschema::Validator>; 8] = [const { OnceLock::new() }; 8];
 
 /// `version`'s contract with its top-level `oneOf` narrowed to the result
 /// branch (fix round 0109a1r7, X3): every published seat-record contract
@@ -111,7 +111,7 @@ fn validated_by(
 /// nested result is (fix round 0109a1r4, K5), so every row a released
 /// engine wrote is judged exactly as before.
 fn results_of(record: &Value, version: SeatRecordVersion) -> Vec<(&'static str, &Value)> {
-    let nested = (version == SeatRecordVersion::V7 && record.get(AUTHORED).is_some())
+    let nested = (version.carries_gate_report() && record.get(AUTHORED).is_some())
         .then(|| record.get("result"))
         .flatten();
     let nested = nested.map(|result| ("/result", result));
@@ -128,7 +128,7 @@ fn results_of(record: &Value, version: SeatRecordVersion) -> Vec<(&'static str, 
 /// round 0109a1r4, K5), so no v6-era row is read here. Earlier versions
 /// carry no gate report, so there is nothing to read.
 fn gate_report_reads(record: &Value, version: SeatRecordVersion) -> bool {
-    if version != SeatRecordVersion::V7 {
+    if !version.carries_gate_report() {
         return true;
     }
     let report = match record.get(AUTHORED) {

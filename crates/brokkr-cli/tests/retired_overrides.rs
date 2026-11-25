@@ -11,7 +11,7 @@ use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde_json::{json, Value};
 
@@ -57,8 +57,7 @@ fn drive_pinned(
     let input = json!({"feature": "f", "phase": "p", "seat": "s", "role_path": charter,
         "workdir": dir.path(), "result_path": dir.path().join("result.json"),
         "allowed_results": ["complete"], "context": {}});
-    let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    command.args(["driver", kind]);
+    let mut command = crate::built::brokkr(["driver", kind]);
     if kind == "exec" {
         command.args(["--", builtin]);
     }

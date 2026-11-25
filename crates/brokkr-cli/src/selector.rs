@@ -144,7 +144,22 @@ pub(crate) fn candidates(store: &Store, requested: &str) -> Result<Vec<(String, 
 /// The store-facing form every command that takes `--run` calls: read
 /// the few run rows the rules need, apply the rules above. Read-only.
 pub(crate) fn resolve_run(store: &Store, requested: &str) -> Result<String> {
-    let runs = candidates(store, requested)?;
+    resolved(&candidates(store, requested)?, requested)
+}
+
+/// [`resolve_run`] reading at most two of a prefix's matches: enough to
+/// tell one run from several, so it costs one page however many runs the
+/// prefix names (decision 0119 ruling 4). The completer's form; its
+/// ambiguous refusal counts no further than two, and is never shown.
+pub(crate) fn resolve_run_within(store: &Store, requested: &str) -> Result<String> {
+    let runs = match requested {
+        LATEST => store.latest_run()?.into_iter().collect(),
+        _ => store.run_candidates_within(requested, 2)?,
+    };
+    resolved(&runs, requested)
+}
+
+fn resolved(runs: &[(String, String)], requested: &str) -> Result<String> {
     let refs: Vec<RunRef<'_>> = runs
         .iter()
         .map(|(run_id, created_at)| RunRef { run_id, created_at })

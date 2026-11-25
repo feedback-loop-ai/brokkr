@@ -3,7 +3,7 @@
 Source: https://github.com/feedback-loop-ai/brokkr/actions/runs/38057456223
 Authors: Brokkr's controller and the #472 design seat (probe branch `probe/472-containment`, its containment.sh script at 92e85605, and its outside-scope case at 167085b4, run 38077308914)
 Read: 2026-10-10
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: design story #472, run design-story-472-contain-each-at-fc590cbc, on the operator's ruling of 2026-10-10
 
 ## Summary

@@ -57,8 +57,8 @@ fn a_multiply_linked_bootstrap_refuses_before_its_harness() {
     std::fs::hard_link(&engine, own.join("brokkr.again")).unwrap();
     let run = || {
         let args = world.run_args();
-        let mut command = world.in_world(std::process::Command::new(&engine));
-        super::ended(command.args(&args).output().unwrap())
+        let mut command = world.in_world(crate::built::brokkr_at(&engine, &args));
+        super::ended(command.output().unwrap())
     };
     assert_eq!(refusal(&world, run), (linked(), 0, false));
 }

@@ -58,6 +58,14 @@ type Provision<'a> = dyn FnOnce(
     ) -> Result<bool, EngineError>
     + 'a;
 
+/// The label a seat's attempt is composed under, and so its probe, its
+/// carry's judgment and a cleanup refusal's match: the seat, or
+/// `<seat>:<case>` where the selector chose a case (the one derivation,
+/// decision 0071 ruling 5).
+pub(super) fn site_name(seat: &str, case: Option<&str>) -> String {
+    case.map_or_else(|| seat.to_owned(), |case| format!("{seat}:{case}"))
+}
+
 impl Engine {
     pub(super) fn execute(
         &mut self,
@@ -143,9 +151,7 @@ impl Engine {
             .body
             .selected(state.strategy.as_deref())
             .expect("seat input resolved the selector");
-        let site_name = selected_case
-            .map(|case| format!("{seat_name}:{case}"))
-            .unwrap_or_else(|| seat_name.to_string());
+        let site_name = site_name(seat_name, selected_case);
         let attempt_id = Uuid::new_v4().to_string();
         let at = Dispatch {
             effect_id,

@@ -11,7 +11,6 @@
 //! that authority is `brokkr-runtime/tests/capability_launch.rs`.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::{json, Value};
 
@@ -141,9 +140,9 @@ impl Workspace {
         crate::engine::library(self.path());
         // The operated repository is `repo/`, so the HOME beside it is no
         // tree a run operates.
-        let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+        let mut command = crate::built::brokkr(args);
         command.env("HOME", crate::engine::home_in(self.path()));
-        let out = command.args(args).current_dir(self.path()).output();
+        let out = command.current_dir(self.path()).output();
         let out = out.unwrap();
         (
             out.status.code(),

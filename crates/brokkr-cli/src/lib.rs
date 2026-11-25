@@ -15,6 +15,7 @@ mod broker;
 mod budget_frame;
 mod cli_args;
 mod compare;
+mod completion;
 mod doctor;
 mod dsh_key;
 mod exit;
@@ -51,6 +52,8 @@ pub use crate::budget_frame::{
 };
 #[doc(hidden)]
 pub use crate::tui::transcript_surfaces_for_test;
+#[doc(hidden)]
+pub use crate::tui_read::tui_transcript_for_test;
 #[doc(hidden)]
 pub use local_transcript::read_local;
 #[doc(hidden)]
@@ -704,8 +707,10 @@ pub(crate) fn safe_lines(text: &str) -> String {
 /// appears in `--help`.
 ///
 /// An old flat spelling is respelled before the parse and says its new
-/// one on stderr first (decision 0113 ruling 4).
+/// one on stderr first (decision 0113 ruling 4). A shell's completion
+/// request is answered before either, and exits (decision 0119 ruling 2).
 pub fn main() -> ExitCode {
+    completion::answer_if_asked();
     if let Some(args) = dsh_sandbox_runner_args() {
         return dsh_sandbox_runner(args);
     }
@@ -1375,9 +1380,12 @@ fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode>
         GroupedCmd::Recipes { command } => setup::recipes(workspace, command),
         GroupedCmd::Agents { command } => setup::agents(workspace, command),
         GroupedCmd::Muninn { command } => setup::muninn(workspace, command),
-        GroupedCmd::Secrets { command } => setup::secrets(workspace, command),
+        GroupedCmd::Configuration(command) => setup::configuration(workspace, command),
         GroupedCmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
         GroupedCmd::Dispatch(args) => dispatch::dispatch(workspace, args, &mut std::io::stdout()),
+        GroupedCmd::Completions(args) => {
+            Ok(completion::script(args, &mut std::io::stdout().lock()))
+        }
     }
 }
 

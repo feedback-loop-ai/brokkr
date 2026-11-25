@@ -67,14 +67,13 @@ impl Engine {
         seat: &str,
         failed_attempts: u64,
     ) -> Result<(), EngineError> {
-        let max_attempts = self.seat_limits(Some(seat)).max_attempts;
-        let (wait_effect, waits) = match self.park_on_record(
-            events,
-            effect_id,
-            failed_attempts,
-            max_attempts,
-            state.strategy.as_deref(),
-        )? {
+        let recorded = self.park_before_attempt(events, state, effect_id, seat, failed_attempts)?;
+        // A held failure can have landed in the lawful end. With no park
+        // due, tell its tail before this turn waits, probes or retries.
+        if !matches!(recorded, Recorded::Parked) {
+            self.stderr.tell(&mut self.told);
+        }
+        let (wait_effect, waits) = match recorded {
             Recorded::Wait { effect_id, waits } => (effect_id, waits),
             Recorded::Attempt => {
                 return self.run_attempt(events, state, effect_id, seat, Vec::new())
@@ -100,6 +99,25 @@ impl Engine {
             Waited::Stopped => Ok(()),
             Waited::Parked(park) => self.park(&park),
         }
+    }
+
+    /// Derive an effect cursor's park before any wait or attempt using its seat's cap.
+    fn park_before_attempt(
+        &mut self,
+        events: &[EventEnvelope],
+        state: &RunState,
+        effect_id: &str,
+        seat: &str,
+        failed_attempts: u64,
+    ) -> Result<Recorded, EngineError> {
+        let max_attempts = self.seat_limits(Some(seat)).max_attempts;
+        self.park_on_record(
+            events,
+            effect_id,
+            failed_attempts,
+            max_attempts,
+            state.strategy.as_deref(),
+        )
     }
 
     /// The record's parks before any wait or attempt: the 0006 cap first,
@@ -348,7 +366,9 @@ impl Engine {
     }
 
     /// Append any park the terminal record already requires before stderr
-    /// can stall the engine. A retry itself belongs to the next turn.
+    /// can stall the engine. This shares [`Engine::park_at_cursor`] and
+    /// [`Engine::park_before_attempt`] with the drive. A retry itself belongs
+    /// to the next turn.
     pub(super) fn park_after_terminal(&mut self) -> Result<(), EngineError> {
         let mut replay = std::mem::take(&mut self.replay);
         let state = replay.caught_up(&mut self.store, &self.run_id)?;
@@ -361,17 +381,9 @@ impl Engine {
                 effect_id,
                 seat,
                 failed_attempts,
-            }) => {
-                let max = self.seat_limits(Some(seat)).max_attempts;
-                self.park_on_record(
-                    &replay.events,
-                    effect_id,
-                    *failed_attempts,
-                    max,
-                    state.strategy.as_deref(),
-                )
-                .map(drop)
-            }
+            }) => self
+                .park_before_attempt(&replay.events, &state, effect_id, seat, *failed_attempts)
+                .map(drop),
             _ => Ok(()),
         };
         self.replay = replay;

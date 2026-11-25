@@ -193,5 +193,100 @@ pub fn stamp_of(record: &Value) -> Option<String> {
     Some(word.to_string())
 }
 
+// ------------------------------------------------------------- transcript
+
+/// Maximum source bytes admitted for a local transcript snapshot (32 MiB):
+/// the one shared cap used by `brokkr-view`'s bounded reader and `brokkr-protocol`'s
+/// `agy` transcript keeper (#1227, decision 0071 ruling 5).
+pub const TRANSCRIPT_SOURCE_CAP: u64 = 33_554_432;
+
+/// Wire kind label for an Antigravity CLI retained conversation transcript:
+/// one home shared by `brokkr-protocol` and `brokkr-view` (#1227, decision
+/// 0071 ruling 5).
+pub const AGY_TRANSCRIPT_KIND: &str = "agy-conversation";
+
+/// Basename of a kept Antigravity CLI conversation transcript file under
+/// `<home>/<uuid>/`: one home shared by `brokkr-protocol`'s keeper and
+/// `brokkr-cli`'s local-transcript discovery (#1227, decision 0071 ruling 5).
+pub const AGY_TRANSCRIPT_FILE: &str = "transcript.jsonl";
+
+/// Maximum byte length of a seat-record v8 kind word.
+const RECORD_KIND_LIMIT: usize = 40;
+
+/// Whether `text` is one kind of seat-record v8's grammar,
+/// `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`, of at most 40 bytes. One home shared by
+/// the runtime, the adapter loader and the declared-transcript carrier
+/// (#1227 Y2, decision 0071 ruling 5); held to the contract's pattern by
+/// `brokkr_runtime::agents::kinds::tests::the_kind_grammar_is_the_contracts`.
+pub fn is_record_kind_word(text: &str) -> bool {
+    let lower = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    text.len() <= RECORD_KIND_LIMIT
+        && text.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && text
+            .split('-')
+            .all(|part| !part.is_empty() && part.bytes().all(lower))
+}
+
+/// Whether `text` is a valid declared `record_kinds` kind: one word of
+/// [`is_record_kind_word`] and never the reserved word `"none"` (#1227 Y2).
+pub fn is_declared_record_kind(text: &str) -> bool {
+    is_record_kind_word(text) && text != "none"
+}
+
+/// True when every character is legal in a transcript path input: no ASCII
+/// control character and no NUL. One home shared by `brokkr-view` and
+/// `brokkr-protocol` (#1227 Y3, decision 0071 ruling 5).
+pub fn is_clean_transcript_path(text: &str) -> bool {
+    !text.chars().any(char::is_control)
+}
+
+/// Whether `home` is a valid recorded transcript home: non-empty, free of
+/// control characters and NUL, and absolute. Unix roots begin with `/`;
+/// drive-absolute (`C:\` or `C:/`) and UNC (`\\server\share`) spellings
+/// are also recognized so recorded homes remain readable without widening
+/// relative paths. One home shared by `brokkr-view` and `brokkr-protocol`
+/// (#1227 Y3, decision 0071 ruling 5).
+pub fn is_valid_transcript_home(home: &str) -> bool {
+    if home.is_empty() || !is_clean_transcript_path(home) {
+        return false;
+    }
+    if home.starts_with('/') {
+        return true;
+    }
+    let bytes = home.as_bytes();
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+    {
+        return true;
+    }
+    home.starts_with("\\\\") && home.len() > 2
+}
+
+/// Whether `home` uses the supported host's native absolute syntax (leading
+/// `/`, Linux and macOS per decision 0063), so a foreign-platform drive or UNC
+/// spelling is refused before any filesystem call rather than reinterpreted as
+/// a host-relative path. One home shared by `brokkr-cli`'s transcript discovery
+/// and `brokkr-protocol`'s `agy` keeper (#1227 Y3, decision 0071 ruling 5).
+pub fn is_native_transcript_home(home: &str) -> bool {
+    home.starts_with('/')
+}
+
+/// Whether `id` is an exact lowercase UUID in Antigravity CLI's 8-4-4-4-12
+/// form (36 ASCII bytes: lowercase hex digits with hyphens at 8, 13, 18 and
+/// 23). One home shared by the driver's path gate and the view's locator
+/// validator (#1227, decision 0071 ruling 5).
+pub fn is_agy_uuid(id: &str) -> bool {
+    let bytes = id.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    bytes.iter().enumerate().all(|(index, &byte)| match index {
+        8 | 13 | 18 | 23 => byte == b'-',
+        _ => byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'),
+    })
+}
+
 #[cfg(test)]
 mod tests;

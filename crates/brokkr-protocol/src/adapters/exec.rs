@@ -10,7 +10,7 @@ pub(super) fn invoke_exec(
     workdir: &str,
     input: &Value,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
     mut stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
 ) -> Result<Invocation, String> {
     if extra.is_empty() {
@@ -21,7 +21,7 @@ pub(super) fn invoke_exec(
     // bundle manifest; no command-shaped prose enters a checkpoint.
     let mut session_meta = Map::new();
     Transcript::resolve(TranscriptKind::None)?.finish(&mut session_meta, emit);
-    emit(&json!({"step": "exec-started"}));
+    emit(&Emitted::new(Step::ExecStarted, json!({})));
     let mut prompt_file: Option<tempfile::NamedTempFile> = None;
     if extra.iter().any(|part| part.contains("{prompt_file}")) {
         prompt_file = Some(stage(prompt)?);
@@ -91,6 +91,7 @@ pub(super) fn invoke_exec(
         // there is no fallback for a refusal to reach.
         refusal: None,
         launch: LaunchTerminal::Cold,
+        result_exists: None,
     })
 }
 

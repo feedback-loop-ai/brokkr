@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::findings::ResidualPair;
+use brokkr_core::policy::CHANGE;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::hands::HandsSpec;
 use serde_json::{Map, Value};
@@ -59,7 +60,7 @@ pub(super) struct SeatScope<'s> {
 /// Whether a compiled input set declares `change`, the seat's own
 /// identifier of the change a sequence carries on.
 pub(super) fn declares_change(inputs: &[String]) -> bool {
-    inputs.iter().any(|input| input == "change")
+    inputs.iter().any(|input| input == CHANGE)
 }
 
 impl<'a> SiteCompiler<'a> {

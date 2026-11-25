@@ -1,0 +1,1 @@
+error: invalid model selection (--model "gemini-4-neon" --effort "max"): gemini-4-neon has no "max" effort (available: low, medium, high, xhigh)
