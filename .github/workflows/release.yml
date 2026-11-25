@@ -111,6 +111,9 @@ jobs:
     name: test (macos-latest) shards
     uses: ./.github/workflows/macos-test-shards.yml
 
+  # GitHub Actions prefixes job names inside a reusable workflow with the caller
+  # job's name, so `ci.yml`, `macos-tests.yml` and `release.yml` each keep this
+  # verdict job to preserve the exact `test (macos-latest)` check name.
   macos-tests:
     name: test (macos-latest)
     needs: macos-machines
@@ -216,10 +219,27 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      # Download only the four artifacts the `build` matrix uploads, by exact
+      # name, never "all artifacts of the run": diagnostics uploaded by other
+      # jobs or called workflows (such as `r3-native-diagnostics` from
+      # `macos-test-shards.yml`) cannot reach `dist`, `SHA256SUMS`, the
+      # attestation, or the published release assets.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
+          name: brokkr-linux-x86_64
           path: dist
-          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: brokkr-linux-aarch64
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: brokkr-macos-arm64
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: brokkr-macos-x86_64
+          path: dist
       - name: aggregate checksums
         run: |
           cd dist
@@ -303,10 +323,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      # Download only the Linux `build` artifacts that carry .deb and .rpm
+      # packages, by exact name, never "all artifacts of the run".
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
+          name: brokkr-linux-x86_64
           path: dist
-          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: brokkr-linux-aarch64
+          path: dist
       - name: repository tooling
         run: |
           sudo apt-get update

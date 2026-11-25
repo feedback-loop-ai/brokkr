@@ -100,9 +100,11 @@ run as `test (macos-latest)` nightly against `main` in
 [`../../.github/workflows/macos-tests.yml`](../../.github/workflows/macos-tests.yml),
 on `workflow_dispatch`, and in
 [`../../.github/workflows/release.yml`](../../.github/workflows/release.yml)
-before publication (operator ruling 2026-11-25, #1383). They run on
-every pull request, and again in [the merge queue](#the-merge-queue) on
-the commit that lands; a pull request that changes only documentation
+before publication (operator ruling 2026-11-25, #1383). Those twelve
+required checks run on every pull request, and again in
+[the merge queue](#the-merge-queue) on the commit that lands (the macOS
+test shards and Gate A are not among them); a pull request that changes
+only documentation
 runs [the docs lane](#the-docs-lane) in place of the test and coverage
 machines. This is the full list, in the workflows' own order;
 each local command is the job's own, and the sections below explain them:

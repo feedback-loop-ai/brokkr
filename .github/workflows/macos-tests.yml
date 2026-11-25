@@ -13,8 +13,11 @@ on:
 permissions:
   contents: read
 
+# Serialise runs of this workflow across commits without cancelling a run in
+# progress so two scheduled runs on different commits cannot race in
+# `notify-failure` and both open a `macos-nightly` issue.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.sha }}
+  group: macos-tests
   cancel-in-progress: false
 
 jobs:
@@ -24,6 +27,9 @@ jobs:
     with:
       use-cache: true
 
+  # GitHub Actions prefixes job names inside a reusable workflow with the caller
+  # job's name, so `ci.yml`, `macos-tests.yml` and `release.yml` each keep this
+  # verdict job to preserve the exact `test (macos-latest)` check name.
   macos-tests:
     name: test (macos-latest)
     needs: macos-machines

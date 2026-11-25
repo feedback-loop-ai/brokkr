@@ -67,11 +67,13 @@ library charter may (#360).
 
 The RustSec advisory audit runs in CI against its own database, and CI
 tests on Linux and compiles everything on macOS without running tests
-(`build (macos-latest)`), while macOS tests run nightly, on dispatch and at
-release (decision 0063 keeps both hosts; #1383 splits macOS tests off the
-pull-request path). A preflight run has one
-machine and no advisory database of CI's vintage. The verifier script
-names both as unrun rather than imply they passed.
+(`build (macos-latest)`, one of the twelve required checks on `main` as
+it stands once #1383 has landed and the operator's controller has added
+`build (macos-latest)`), while macOS tests run nightly, on dispatch and
+at release (decision 0063 keeps both hosts; #1383 splits macOS tests off
+the pull-request path). A preflight run has one machine and no advisory
+database of CI's vintage. The verifier script names both as unrun rather
+than imply they passed.
 
 Of the twelve checks main requires, a preflight runs no part of
 `delivered by brokkr`, `non-Rust lints`, `baseline ratchets` or

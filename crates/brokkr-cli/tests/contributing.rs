@@ -1651,9 +1651,10 @@ fn pr_caches_unbound(ci: &str, shards: &str) -> Vec<String> {
     let arms: BTreeMap<&str, &str> = lines
         .iter()
         .filter_map(|line| {
-            let (key, command) = line.strip_suffix(" ;;")?.split_once(") ")?;
-            (key != "*").then_some((key, command))
+            let (keys, command) = line.strip_suffix(" ;;")?.split_once(") ")?;
+            (keys != "*").then_some((keys, command))
         })
+        .flat_map(|(keys, command)| keys.split('|').map(move |key| (key.trim(), command)))
         .collect();
     let toolchain = |text: &str| -> Vec<String> {
         text.lines()

@@ -326,6 +326,9 @@ jobs:
     with:
       use-cache: true
 
+  # GitHub Actions prefixes job names inside a reusable workflow with the caller
+  # job's name, so `ci.yml`, `macos-tests.yml` and `release.yml` each keep this
+  # verdict job to preserve the exact `test (macos-latest)` check name.
   macos-tests:
     name: test (macos-latest)
     needs: macos-machines
@@ -913,8 +916,7 @@ jobs:
           KEY: ${{ matrix.key }}
         run: |
           case "$KEY" in
-            engine-machines) cargo test --workspace --all-features --locked --no-run ;;
-            build-macos) cargo test --workspace --all-features --locked --no-run ;;
+            engine-machines | build-macos) cargo test --workspace --all-features --locked --no-run ;;
             seatbelt-lifetime) cargo test --locked -p brokkr-seatbelt-probe --test seatbelt_lifetime_probe --no-run ;;
             bootstrap-budgets-macos) cargo build --release --locked -p brokkr-cli ;;
             packaging) cargo test --locked -p brokkr-cli --no-run ;;

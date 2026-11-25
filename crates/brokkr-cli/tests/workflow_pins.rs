@@ -1636,6 +1636,65 @@ fn run_steps(job: &str) -> Vec<String> {
     steps
 }
 
+/// True when a job itself calls a reusable workflow (a job-level `uses:` at
+/// four-space indentation and no job-level `runs-on:`). A step-level
+/// `        uses:` is indented eight spaces and never exempts a job.
+fn is_reusable_workflow_caller(body: &str) -> bool {
+    let has_job_uses = body.lines().any(|line| line.starts_with("    uses: "));
+    let has_runs_on = body.lines().any(|line| line.starts_with("    runs-on: "));
+    has_job_uses && !has_runs_on
+}
+
+/// Every job in `text` that runs on a runner of its own (not a
+/// reusable-workflow caller) and lacks a job-level `timeout-minutes:`.
+fn unbounded_jobs(file: &str, text: &str) -> Vec<String> {
+    workflow::jobs(text)
+        .into_iter()
+        .filter(|(_, body)| !is_reusable_workflow_caller(body))
+        .filter(|(_, body)| {
+            !body
+                .lines()
+                .any(|line| line.starts_with("    timeout-minutes: "))
+        })
+        .map(|(id, _)| format!("{file}'s {id} is unbounded"))
+        .collect()
+}
+
+/// Removing `timeout-minutes` from a runner job fails even when its steps
+/// carry an indented `uses:` line (decision 0071 ruling 9, #1383).
+#[test]
+fn timeout_rule_exempts_only_reusable_workflow_callers() {
+    let shards = read(".github/workflows/macos-test-shards.yml");
+    let no_shard_timeout = shards.replacen(
+        "    timeout-minutes: 60
+",
+        "",
+        1,
+    );
+    assert_ne!(no_shard_timeout, shards);
+    assert_eq!(
+        unbounded_jobs(".github/workflows/macos-test-shards.yml", &no_shard_timeout),
+        [".github/workflows/macos-test-shards.yml's macos-machines is unbounded"]
+    );
+
+    let ci = read(".github/workflows/ci.yml");
+    // `seatbelt-lifetime` has a step-level `        uses: actions/upload-artifact@...`
+    // and must still fail when its job-level timeout is removed.
+    let no_ci_timeout = ci.replacen(
+        "    runs-on: macos-latest
+    timeout-minutes: 20
+",
+        "    runs-on: macos-latest
+",
+        1,
+    );
+    assert_ne!(no_ci_timeout, ci);
+    assert_eq!(
+        unbounded_jobs(".github/workflows/ci.yml", &no_ci_timeout),
+        [".github/workflows/ci.yml's seatbelt-lifetime is unbounded"]
+    );
+}
+
 /// The rest of issue #340's CI shape: superseded pull request runs are
 /// cancelled, every job is bounded, the Linux release binary is built
 /// once and shared, and the reporting Gate B probe is off the required
@@ -1695,27 +1754,18 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "pr-caches",
         ]
     );
-    for (id, body) in &jobs {
-        // A reusable-workflow caller cannot set `timeout-minutes:`; the
-        // called workflow's own jobs hold their bounds (checked below).
-        if body.contains("    uses: ") {
-            continue;
-        }
-        assert!(body.contains("    timeout-minutes: "), "{id} is unbounded");
-    }
+    assert_eq!(
+        unbounded_jobs(
+            ".github/workflows/ci.yml",
+            &read(".github/workflows/ci.yml")
+        ),
+        Vec::<String>::new()
+    );
     for file in [
         ".github/workflows/macos-test-shards.yml",
         ".github/workflows/macos-tests.yml",
     ] {
-        for (id, body) in workflow::jobs(&read(file)) {
-            if body.contains("    uses: ") {
-                continue;
-            }
-            assert!(
-                body.contains("    timeout-minutes: "),
-                "{file}'s {id} is unbounded"
-            );
-        }
+        assert_eq!(unbounded_jobs(file, &read(file)), Vec::<String>::new());
     }
 
     let job = |wanted: &str| ci_job(&jobs, wanted);

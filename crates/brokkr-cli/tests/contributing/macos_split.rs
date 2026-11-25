@@ -2,15 +2,36 @@
 //! pull-request path for nightly, manual dispatch and release runs, replaced
 //! on pull requests and merge groups by `build (macos-latest)`.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use super::{events, needs_of, workspace};
 use crate::workflow;
 
-/// Owned body of job `id` in `text`, or a diagnostic naming `file`.
-fn job_of(text: &str, file: &str, id: &str) -> Result<String, String> {
+/// Missing workflow job lookup error (decision 0071 ruling 8).
+#[derive(Debug, PartialEq, Eq)]
+enum JobLookupError {
+    Missing { file: String, id: String },
+}
+
+impl std::fmt::Display for JobLookupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Missing { file, id } => write!(f, "{file} has no {id} job"),
+        }
+    }
+}
+
+impl std::error::Error for JobLookupError {}
+
+/// Owned body of job `id` in `text`, or a typed missing-job error naming `file`.
+fn job_of(text: &str, file: &str, id: &str) -> Result<String, JobLookupError> {
     workflow::jobs(text)
         .into_iter()
         .find_map(|(seen, body)| (seen == id).then_some(body))
-        .ok_or_else(|| format!("{file} has no {id} job"))
+        .ok_or_else(|| JobLookupError::Missing {
+            file: file.to_string(),
+            id: id.to_string(),
+        })
 }
 
 /// Push each message whose `needle` is missing from `body`.
@@ -39,7 +60,7 @@ fn ci_macos_split_problems(ci: &str) -> Vec<String> {
             problems.push("engine-machines still mentions macOS".to_string());
         }
         Ok(_) => {}
-        Err(err) => problems.push(err),
+        Err(err) => problems.push(err.to_string()),
     }
     match job_of(ci, "ci.yml", "engine") {
         Ok(body) => {
@@ -55,7 +76,7 @@ fn ci_macos_split_problems(ci: &str) -> Vec<String> {
                 problems.push("engine still mentions macOS".to_string());
             }
         }
-        Err(err) => problems.push(err),
+        Err(err) => problems.push(err.to_string()),
     }
     match job_of(ci, "ci.yml", "build-macos") {
         Ok(body) => {
@@ -89,7 +110,7 @@ fn ci_macos_split_problems(ci: &str) -> Vec<String> {
                 problems.push("build-macos runs test-shards.sh".to_string());
             }
         }
-        Err(err) => problems.push(err),
+        Err(err) => problems.push(err.to_string()),
     }
     for (id, cond) in [
         (
@@ -108,7 +129,7 @@ fn ci_macos_split_problems(ci: &str) -> Vec<String> {
                 ));
             }
             Ok(_) => {}
-            Err(err) => problems.push(err),
+            Err(err) => problems.push(err.to_string()),
         }
     }
     if ci.contains("issues: write") {
@@ -138,6 +159,10 @@ fn check_reusable_shards(shards: &str, problems: &mut Vec<String>) {
                     "macos-test-shards.yml lost scripts/test-shards.sh",
                 ),
                 (
+                    "      - run: bash scripts/test-shards.sh test --parallel-heaps\n        env:\n          BROKKR_TEST_MACHINE: ${{ matrix.machine }}\n",
+                    "macos-test-shards.yml shard step lost BROKKR_TEST_MACHINE: ${{ matrix.machine }}",
+                ),
+                (
                     "seatbelt_probe::native::native_startup_feasibility_probe",
                     "macos-test-shards.yml lost Gate A (startup probe)",
                 ),
@@ -160,7 +185,7 @@ fn check_reusable_shards(shards: &str, problems: &mut Vec<String>) {
             ],
             problems,
         ),
-        Err(err) => problems.push(err),
+        Err(err) => problems.push(err.to_string()),
     }
 }
 
@@ -183,7 +208,7 @@ fn check_shard_caller(file: &str, text: &str, wants_cache: bool, problems: &mut 
                 ));
             }
         }
-        Err(err) => problems.push(err),
+        Err(err) => problems.push(err.to_string()),
     }
     match job_of(text, file, "macos-tests") {
         Ok(body) => {
@@ -205,18 +230,56 @@ fn check_shard_caller(file: &str, text: &str, wants_cache: bool, problems: &mut 
                 problems.push(format!("{file}'s macos-tests does not need macos-machines"));
             }
         }
-        Err(err) => problems.push(err),
+        Err(err) => problems.push(err.to_string()),
     }
 }
 
 /// Check C4 on `macos-tests.yml`: schedule + dispatch share the same test jobs,
 /// and `notify-failure` opens/updates one issue on a failing nightly only.
+/// Top-level `concurrency:` block keys (`group`, `cancel-in-progress`).
+fn workflow_concurrency(text: &str) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    let Some((_, rest)) = text.split_once("\nconcurrency:\n") else {
+        return map;
+    };
+    for line in rest.lines() {
+        if !line.starts_with("  ") {
+            break;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some((k, v)) = trimmed.split_once(':') {
+            map.insert(k.trim().to_string(), v.trim().to_string());
+        }
+    }
+    map
+}
+
 fn check_nightly_workflow(nightly: &str, problems: &mut Vec<String>) {
     if events(nightly) != ["schedule", "workflow_dispatch"] {
         problems.push(format!(
             "macos-tests.yml events are {:?}, not [schedule, workflow_dispatch]",
             events(nightly)
         ));
+    }
+    let conc = workflow_concurrency(nightly);
+    match conc.get("group") {
+        None => problems.push("macos-tests.yml has no workflow concurrency group".to_string()),
+        Some(group)
+            if group.contains("github.sha")
+                || group.contains("github.ref")
+                || group.contains("github.run_id") =>
+        {
+            problems.push(format!(
+                "macos-tests.yml concurrency group `{group}` varies per commit/ref and lets two scheduled runs race"
+            ));
+        }
+        Some(_) => {}
+    }
+    if conc.get("cancel-in-progress").map(String::as_str) != Some("false") {
+        problems.push("macos-tests.yml concurrency must set cancel-in-progress: false".to_string());
     }
     match job_of(nightly, "macos-tests.yml", "notify-failure") {
         Ok(body) => {
@@ -261,8 +324,14 @@ fn check_nightly_workflow(nightly: &str, problems: &mut Vec<String>) {
             if body.contains("contents: write") {
                 problems.push("notify-failure asks for contents: write".to_string());
             }
+            let lookup =
+                body.find("existing=\"$(gh api \"repos/${REPO}/issues?labels=${LABEL}&state=open");
+            let create = body.find("gh api -X POST \"repos/${REPO}/issues\"");
+            if !matches!((lookup, create), (Some(l), Some(c)) if l < c) {
+                problems.push("notify-failure does not look up the open issue immediately before creating one".to_string());
+            }
         }
-        Err(err) => problems.push(err),
+        Err(err) => problems.push(err.to_string()),
     }
 }
 
@@ -294,7 +363,7 @@ fn macos_shards_and_nightly_problems(
                 problems.push(format!("release.yml's {id} does not wait on macos-tests"));
             }
             Ok(_) => {}
-            Err(err) => problems.push(err),
+            Err(err) => problems.push(err.to_string()),
         }
     }
     problems
@@ -344,6 +413,42 @@ fn macos_test_shards_run_nightly_on_dispatch_and_in_release_with_failure_issue()
         !macos_shards_and_nightly_problems(&shards, &mut_nightly_cond, &ci, &release).is_empty(),
         "notify-failure running on a passing nightly must fail"
     );
+
+    let mut_no_machine = shards.replacen(
+        "        env:\n          BROKKR_TEST_MACHINE: ${{ matrix.machine }}\n",
+        "",
+        1,
+    );
+    assert_ne!(mut_no_machine, shards);
+    let machine_problems =
+        macos_shards_and_nightly_problems(&mut_no_machine, &nightly, &ci, &release);
+    assert!(
+        machine_problems
+            .iter()
+            .any(|p| p.contains("BROKKR_TEST_MACHINE")),
+        "removing BROKKR_TEST_MACHINE must fail naming it: {machine_problems:?}"
+    );
+
+    let mut_sha_group = nightly.replacen(
+        "  group: macos-tests\n",
+        "  group: macos-tests-${{ github.sha }}\n",
+        1,
+    );
+    assert_ne!(mut_sha_group, nightly);
+    assert!(
+        !macos_shards_and_nightly_problems(&shards, &mut_sha_group, &ci, &release).is_empty(),
+        "per-commit concurrency group on macos-tests.yml must fail"
+    );
+
+    let missing = job_of(&ci, "ci.yml", "no-such-job").unwrap_err();
+    assert_eq!(
+        missing,
+        JobLookupError::Missing {
+            file: "ci.yml".to_string(),
+            id: "no-such-job".to_string(),
+        }
+    );
+    assert_eq!(missing.to_string(), "ci.yml has no no-such-job job");
 }
 
 #[test]
@@ -364,4 +469,337 @@ fn contributing_records_macos_build_handoff_and_shard_schedule() {
             "CONTRIBUTING.md does not record {required}"
         );
     }
+}
+
+/// Parse the `build` matrix in `release.yml`, returning `(all_names, linux_pkg_names)`.
+fn build_matrix_artifact_names(build_body: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut all = BTreeSet::new();
+    let mut linux_pkg = BTreeSet::new();
+    for line in build_body.lines().map(str::trim) {
+        let Some(entry) = line.strip_prefix("- {").and_then(|l| l.strip_suffix('}')) else {
+            continue;
+        };
+        let mut name = None;
+        let mut has_nfpm = false;
+        for pair in entry.split(',') {
+            let Some((k, v)) = pair.split_once(':') else {
+                continue;
+            };
+            match k.trim() {
+                "name" => name = Some(v.trim().to_string()),
+                "nfpm_arch" => has_nfpm = true,
+                _ => {}
+            }
+        }
+        if let Some(name) = name {
+            if has_nfpm {
+                linux_pkg.insert(name.clone());
+            }
+            all.insert(name);
+        }
+    }
+    (all, linux_pkg)
+}
+
+/// Extract the `with:` key-value pairs of every step in `job_body` that uses
+/// `action_prefix@<ref>`.
+fn step_action_with_blocks(job_body: &str, action_prefix: &str) -> Vec<BTreeMap<String, String>> {
+    let Some((_, steps_section)) = job_body.split_once("    steps:\n") else {
+        return Vec::new();
+    };
+    let mut steps: Vec<Vec<&str>> = Vec::new();
+    for line in steps_section.lines() {
+        if line.starts_with("      - ") {
+            steps.push(vec![line]);
+        } else if let Some(current) = steps.last_mut() {
+            current.push(line);
+        }
+    }
+    let needle = format!("uses: {action_prefix}@");
+    steps
+        .into_iter()
+        .filter(|step| {
+            step.iter().any(|line| {
+                let trimmed = line.trim_start();
+                trimmed
+                    .strip_prefix("- ")
+                    .unwrap_or(trimmed)
+                    .starts_with(&needle)
+            })
+        })
+        .map(|step| parse_with_map(&step))
+        .collect()
+}
+
+/// Parse the top-level `key: value` pairs inside a step's `with:` block.
+fn parse_with_map(step: &[&str]) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    let mut with_indent: Option<usize> = None;
+    let mut entry_indent: Option<usize> = None;
+    for &line in step {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        let Some(wi) = with_indent else {
+            if trimmed == "with:" {
+                with_indent = Some(indent);
+            }
+            continue;
+        };
+        if indent <= wi {
+            break;
+        }
+        if indent == *entry_indent.get_or_insert(indent) {
+            if let Some((k, v)) = trimmed.split_once(':') {
+                map.insert(k.trim().to_string(), v.trim().to_string());
+            }
+        }
+    }
+    map
+}
+
+/// Local reusable workflows called at job level (`    uses: ./.github/workflows/...`).
+fn called_local_workflows(workflow_text: &str) -> Vec<String> {
+    workflow_text
+        .lines()
+        .filter_map(|line| line.strip_prefix("    uses: ./"))
+        .map(|rest| rest.split('#').next().unwrap_or(rest).trim().to_string())
+        .filter(|path| path.starts_with(".github/workflows/"))
+        .collect()
+}
+
+/// Check that every `actions/download-artifact` step in `job_id` selects an
+/// exact literal artifact name (no bare "all artifacts", no `merge-multiple`,
+/// no `pattern`, no wildcards) and matches `expected` when required.
+fn check_job_downloads(
+    job_id: &str,
+    body: &str,
+    expected: Option<&BTreeSet<String>>,
+    allowed: &BTreeSet<String>,
+    problems: &mut Vec<String>,
+) {
+    let mut seen = BTreeSet::new();
+    for with in step_action_with_blocks(body, "actions/download-artifact") {
+        if with.contains_key("pattern") {
+            problems.push(format!(
+                "release.yml's {job_id} downloads artifacts by pattern instead of exact build name"
+            ));
+        }
+        if with.get("merge-multiple").map(String::as_str) == Some("true") {
+            problems.push(format!(
+                "release.yml's {job_id} uses merge-multiple instead of exact build artifact names"
+            ));
+        }
+        match with.get("name") {
+            None => problems.push(format!(
+                "release.yml's {job_id} downloads all artifacts of the run without an exact name"
+            )),
+            Some(name)
+                if name.contains('*')
+                    || name.contains('?')
+                    || name.contains('[')
+                    || name.contains("${{") =>
+            {
+                problems.push(format!(
+                    "release.yml's {job_id} download name `{name}` is not an exact literal name"
+                ));
+            }
+            Some(name) => {
+                if !allowed.contains(name) {
+                    problems.push(format!(
+                        "release.yml's {job_id} downloads `{name}`, which is not a build matrix artifact"
+                    ));
+                }
+                seen.insert(name.clone());
+            }
+        }
+    }
+    if let Some(expected) = expected {
+        if &seen != expected {
+            problems.push(format!(
+                "release.yml's {job_id} downloads {seen:?}, expected {expected:?}"
+            ));
+        }
+    }
+}
+
+/// Check that no `actions/upload-artifact` step in `body` collides with any
+/// `build` artifact name downloaded by the release publisher or pages job.
+fn check_non_build_uploads(
+    source: &str,
+    job_id: &str,
+    body: &str,
+    build_names: &BTreeSet<String>,
+    problems: &mut Vec<String>,
+) {
+    for with in step_action_with_blocks(body, "actions/upload-artifact") {
+        match with.get("name") {
+            None => problems.push(format!("{source}'s {job_id} uploads an unnamed artifact")),
+            Some(name) if build_names.contains(name) => problems.push(format!(
+                "{source}'s {job_id} uploads `{name}`, which collides with a build artifact"
+            )),
+            Some(_) => {}
+        }
+    }
+}
+
+/// H1 (release provenance): `release.yml`'s `publish` job downloads exactly
+/// the artifacts `build` uploads by exact matrix name, `pages` downloads only
+/// the Linux package build artifacts by exact name, no job downloads "all
+/// artifacts of the run" or uses a wildcard pattern, and no upload in another
+/// job of `release.yml` or any reusable workflow it calls can match the
+/// publisher's selection.
+fn release_artifact_provenance_problems(
+    release: &str,
+    called_workflows: &BTreeMap<String, String>,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    let build_body = match job_of(release, "release.yml", "build") {
+        Ok(body) => body,
+        Err(err) => return vec![err.to_string()],
+    };
+    let build_uploads: Vec<Option<String>> =
+        step_action_with_blocks(&build_body, "actions/upload-artifact")
+            .into_iter()
+            .map(|w| w.get("name").cloned())
+            .collect();
+    if build_uploads != [Some("${{ matrix.name }}".to_string())] {
+        problems.push(format!(
+            "release.yml's build upload names are {build_uploads:?}, expected [Some(\"${{{{ matrix.name }}}}\")]"
+        ));
+    }
+    let (build_names, linux_pkg_names) = build_matrix_artifact_names(&build_body);
+    if build_names.is_empty() || linux_pkg_names.is_empty() {
+        problems.push("release.yml's build matrix yielded no artifact names".to_string());
+    }
+    let (mut saw_publish, mut saw_pages) = (false, false);
+    for (id, body) in workflow::jobs(release) {
+        if id == "build" {
+            continue;
+        }
+        check_non_build_uploads("release.yml", &id, &body, &build_names, &mut problems);
+        match id.as_str() {
+            "publish" => {
+                saw_publish = true;
+                check_job_downloads(
+                    "publish",
+                    &body,
+                    Some(&build_names),
+                    &build_names,
+                    &mut problems,
+                );
+            }
+            "pages" => {
+                saw_pages = true;
+                check_job_downloads(
+                    "pages",
+                    &body,
+                    Some(&linux_pkg_names),
+                    &build_names,
+                    &mut problems,
+                );
+            }
+            other => check_job_downloads(other, &body, None, &build_names, &mut problems),
+        }
+    }
+    if !saw_publish {
+        problems.push("release.yml has no publish job".to_string());
+    }
+    if !saw_pages {
+        problems.push("release.yml has no pages job".to_string());
+    }
+    for path in called_local_workflows(release) {
+        let Some(text) = called_workflows.get(&path) else {
+            problems.push(format!("release.yml calls {path}, which was not checked"));
+            continue;
+        };
+        for (job_id, body) in workflow::jobs(text) {
+            check_non_build_uploads(&path, &job_id, &body, &build_names, &mut problems);
+        }
+    }
+    problems
+}
+
+#[test]
+fn release_publishes_only_build_matrix_artifacts() {
+    let root = workspace();
+    let release = std::fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
+    let called: BTreeMap<String, String> = called_local_workflows(&release)
+        .into_iter()
+        .map(|path| {
+            let text = std::fs::read_to_string(root.join(&path)).unwrap();
+            (path, text)
+        })
+        .collect();
+    assert!(
+        called.contains_key(".github/workflows/macos-test-shards.yml"),
+        "release.yml must call macos-test-shards.yml"
+    );
+    assert_eq!(
+        release_artifact_provenance_problems(&release, &called),
+        Vec::<String>::new()
+    );
+
+    let dl = "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        with:\n";
+    let widened_publish = release.replacen(
+        &format!("{dl}          name: brokkr-linux-x86_64\n          path: dist\n"),
+        &format!("{dl}          path: dist\n          merge-multiple: true\n"),
+        1,
+    );
+    assert_ne!(widened_publish, release);
+    assert!(
+        !release_artifact_provenance_problems(&widened_publish, &called).is_empty(),
+        "widening publish to all artifacts must fail"
+    );
+
+    let pattern_publish = release.replacen(
+        "          name: brokkr-linux-x86_64\n",
+        "          pattern: brokkr-*\n",
+        1,
+    );
+    assert_ne!(pattern_publish, release);
+    assert!(
+        !release_artifact_provenance_problems(&pattern_publish, &called).is_empty(),
+        "using a wildcard pattern in publish must fail"
+    );
+
+    let widened_pages = release.replacen(
+        &format!("{dl}          name: brokkr-linux-aarch64\n          path: dist\n      - name: repository tooling"),
+        &format!("{dl}          path: dist\n          merge-multiple: true\n      - name: repository tooling"),
+        1,
+    );
+    assert_ne!(widened_pages, release);
+    assert!(
+        !release_artifact_provenance_problems(&widened_pages, &called).is_empty(),
+        "widening pages to all artifacts must fail"
+    );
+
+    let mut called_extra = called.clone();
+    called_extra
+        .get_mut(".github/workflows/macos-test-shards.yml")
+        .unwrap()
+        .push_str(
+            "      - name: extra diagnostics\n        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2\n        with:\n          name: extra-macos-diagnostics\n          path: target/extra.log\n",
+        );
+    assert_eq!(
+        release_artifact_provenance_problems(&release, &called_extra),
+        Vec::<String>::new(),
+        "an extra non-build upload in macos-test-shards.yml cannot reach publish"
+    );
+
+    let mut called_collide = called.clone();
+    let shards_collide = called_collide
+        .get_mut(".github/workflows/macos-test-shards.yml")
+        .unwrap();
+    *shards_collide = shards_collide.replacen(
+        "          name: r3-native-diagnostics\n",
+        "          name: brokkr-macos-arm64\n",
+        1,
+    );
+    assert!(
+        !release_artifact_provenance_problems(&release, &called_collide).is_empty(),
+        "a called workflow uploading a build artifact name must fail"
+    );
 }
