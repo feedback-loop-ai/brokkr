@@ -340,7 +340,7 @@ const VERDICT_LINES: [Line; 2] = [
 /// Every line each of the twelve checks' legs runs, in order: a skipped
 /// line such as an early `exit 0`, or a command moved into a branch that
 /// never runs, fails the test like a command the row left out.
-const LEG_LINES: [(&str, &[Line]); 11] = [
+const LEG_LINES: [(&str, &[Line]); 12] = [
     (
         "delivered by brokkr",
         &[
@@ -388,6 +388,7 @@ const LEG_LINES: [(&str, &[Line]); 11] = [
             VERDICT_LINES[1],
         ],
     ),
+    ("build (macos-latest)", &[Line::Written]),
     (
         "exact coverage gate",
         &[
@@ -845,7 +846,7 @@ struct CheckRow {
 
 fn check_rows(guide: &str) -> Vec<CheckRow> {
     let section = guide
-        .split_once("\n## The eleven checks\n")
+        .split_once("\n## The twelve checks\n")
         .expect("the guide has its checks section")
         .1
         .split_once("\n## ")
@@ -886,12 +887,13 @@ const REQUIRED_WORKFLOWS: [&str; 3] = ["pr-gates.yml", "ci.yml", "mutants.yml"];
 /// `.github/branch-protection.json`, holds these contexts, and
 /// `contributing_lists_the_checks_branch_protection_requires` holds this
 /// list to it.
-const MAIN_REQUIRES: [(&str, &str, &str); 11] = [
+const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
     ("delivered by brokkr", "delivered-by-brokkr", "pr-gates.yml"),
     ("baseline ratchets", "ratchets", "pr-gates.yml"),
     ("MSRV (1.89)", "msrv", "ci.yml"),
     ("format, clippy, contracts", "quality", "ci.yml"),
     ("test (ubuntu-latest)", "engine", "ci.yml"),
+    ("build (macos-latest)", "build-macos", "ci.yml"),
     ("exact coverage gate", "coverage-gate", "ci.yml"),
     (
         "dependency licenses (cargo-deny)",
@@ -928,7 +930,7 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         .collect();
     assert_eq!(
         listed, required,
-        "the guide lists the eleven checks main requires"
+        "the guide lists the twelve checks main requires"
     );
     let legs: Vec<WorkflowLeg> = REQUIRED_WORKFLOWS
         .into_iter()
@@ -991,8 +993,8 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         );
     }
     let contributing = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
-    assert!(contributing.contains("preserves the eleven exact checks"));
-    assert!(guide.contains("eleven required checks"));
+    assert!(contributing.contains("preserves the twelve exact checks"));
+    assert!(guide.contains("twelve required checks"));
 }
 
 /// `.github/branch-protection.json`: the checked-in snapshot of what
@@ -1032,9 +1034,11 @@ fn required_checks_paragraph(snapshot: &Protection, ordered: &[&str]) -> String 
     let (last, rest) = ordered.split_last().expect("main requires a check");
     let rest: Vec<String> = rest.iter().map(|check| format!("`{check}`")).collect();
     format!(
-        "`{branch}`'s branch protection, as observed on {observed} \
-         ([snapshot](.github/branch-protection.json)), requires {count} checks: {rest}, and \
-         `{last}`. It {signatures}, {strict}, {review}, and {admins} administrators.\n",
+        "`{branch}`'s branch protection ([snapshot](.github/branch-protection.json), \
+         the setting as it stands once #1383 has landed and the operator's controller \
+         has added `build (macos-latest)`, dated {observed}) requires {count} checks: \
+         {rest}, and `{last}`. It {signatures}, {strict}, {review}, and {admins} \
+         administrators.\n",
         branch = snapshot.branch,
         observed = snapshot.observed,
         count = ordered.len(),

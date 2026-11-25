@@ -350,8 +350,10 @@ fn macos_test_shards_run_nightly_on_dispatch_and_in_release_with_failure_issue()
 fn contributing_records_macos_build_handoff_and_shard_schedule() {
     let contributing = std::fs::read_to_string(workspace().join("CONTRIBUTING.md")).unwrap();
     for required in [
+        "requires 12 checks:",
         "`build (macos-latest)`",
-        "controller adds `build (macos-latest)`",
+        "once #1383 has landed and the operator's controller has added `build (macos-latest)`",
+        "without running tests",
         "`test (macos-latest)`",
         "nightly against `main`",
         "`workflow_dispatch`",

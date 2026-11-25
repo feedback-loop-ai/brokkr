@@ -99,10 +99,11 @@ Changes merged since v0.15.2 that the next release's notes carry.
   ([#1383](https://github.com/feedback-loop-ai/brokkr/issues/1383), operator
   ruling 2026-11-25). Contributors and the merge queue now run Linux test
   shards alone under `test (ubuntu-latest)` (so a macOS test failure can no
-  longer fail a Linux verdict or block a pull request) plus one macOS compile
-  check, `build (macos-latest)`, which compiles the workspace and every test
-  target with `--all-features --locked --no-run` without executing tests (and
-  becomes a required status check once added to branch protection after merge).
+  longer fail a Linux verdict or block a pull request) plus the required macOS
+  compile check `build (macos-latest)`, which takes `test (macos-latest)`'s
+  place among `main`'s twelve required status checks and compiles the workspace
+  and every test target with `--all-features --locked --no-run` without running
+  tests.
   Releasers and maintainers keep the unchanged five macOS test shards and
   Seatbelt Gate A under `test (macos-latest)` in one shared reusable workflow
   (`.github/workflows/macos-test-shards.yml`), called nightly against `main`

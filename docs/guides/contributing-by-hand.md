@@ -2,7 +2,7 @@
 
 This repository's engine forges its own changes and reviews them
 adversarially. The bar for a human contribution is the bar the machine
-is already held to — eleven required checks, none of them a percentage you
+is already held to — twelve required checks, none of them a percentage you
 can nudge. This document is the whole walk from `git clone` to a green
 pull request, with every command written out.
 
@@ -14,7 +14,7 @@ ever looks at it.
 
 - [What you need installed](#what-you-need-installed)
 - [Fork, clone, branch](#fork-clone-branch)
-- [The eleven checks](#the-eleven-checks)
+- [The twelve checks](#the-twelve-checks)
 - [The pre-flight: let the machine review you first](#the-pre-flight-let-the-machine-review-you-first)
 - [The coverage gate, practically](#the-coverage-gate-practically)
 - [Commits, signing, and how your PR actually lands](#commits-signing-and-how-your-pr-actually-lands)
@@ -86,25 +86,21 @@ Two habits from the house flow that transfer directly:
   that adds behaviour and no test fails the coverage gate anyway (see
   below), so this is not a style preference.
 
-## The eleven checks
+## The twelve checks
 
-All eleven are required status checks on `main` (operator ruling
-2026-11-25, #1383, dropped `test (macos-latest)` from the pull-request
-path; once this lands, the controller adds `build (macos-latest)` —
-`build-macos` in `ci.yml`, which compiles the workspace and every test
-target on macOS without running tests — to `main`'s required status
-checks, while the five macOS test shards and
-[the macOS startup gate](#the-macos-startup-gate) run as
-`test (macos-latest)` nightly against `main` in
+All twelve are required status checks on `main` (as it stands once #1383
+has landed and the operator's controller has added `build (macos-latest)`).
+Two read the pull request's own labels and body and come from
+[`../../.github/workflows/pr-gates.yml`](../../.github/workflows/pr-gates.yml), which also
+re-runs them when a label or the body changes (#1295). Nine come from
+nine jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml), and one is in
+[`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml).
+The five macOS test shards and [the macOS startup gate](#the-macos-startup-gate)
+run as `test (macos-latest)` nightly against `main` in
 [`../../.github/workflows/macos-tests.yml`](../../.github/workflows/macos-tests.yml),
 on `workflow_dispatch`, and in
 [`../../.github/workflows/release.yml`](../../.github/workflows/release.yml)
-before publication). Two read the pull
-request's own labels and body and come from
-[`../../.github/workflows/pr-gates.yml`](../../.github/workflows/pr-gates.yml), which also
-re-runs them when a label or the body changes (#1295). Eight come from
-eight jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml), and one is in
-[`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml). They run on
+before publication (operator ruling 2026-11-25, #1383). They run on
 every pull request, and again in [the merge queue](#the-merge-queue) on
 the commit that lands; a pull request that changes only documentation
 runs [the docs lane](#the-docs-lane) in place of the test and coverage
@@ -118,12 +114,13 @@ each local command is the job's own, and the sections below explain them:
 | 3 | `MSRV (1.89)` | `msrv` | [`cargo +1.89.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
 | 4 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
 | 5 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test --parallel-heaps`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
-| 6 | `exact coverage gate` | `coverage-gate` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
-| 7 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
-| 8 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
-| 9 | `RustSec dependency audit` | `dependency-audit` | [`cargo audit`](#the-rustsec-advisory-audit), whose verdict moves with the advisory database |
-| 10 | `release binary artifact` | `release-binary` | [`cargo build --release --locked -p brokkr-cli`](#the-release-binary), then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
-| 11 | `mutants in the diff: brokkr-core` | `core-gate` (mutants.yml) | `bash scripts/mutants.sh gate origin/main brokkr-core` |
+| 6 | `build (macos-latest)` | `build-macos` | on a Mac, `cargo test --workspace --all-features --locked --no-run` (compiles the workspace and every test target on macOS without running tests) |
+| 7 | `exact coverage gate` | `coverage-gate` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
+| 8 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
+| 9 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
+| 10 | `RustSec dependency audit` | `dependency-audit` | [`cargo audit`](#the-rustsec-advisory-audit), whose verdict moves with the advisory database |
+| 11 | `release binary artifact` | `release-binary` | [`cargo build --release --locked -p brokkr-cli`](#the-release-binary), then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
+| 12 | `mutants in the diff: brokkr-core` | `core-gate` (mutants.yml) | `bash scripts/mutants.sh gate origin/main brokkr-core` |
 
 The four checks the list above adds to the older eight:
 
@@ -157,7 +154,7 @@ The four checks the list above adds to the older eight:
   LCOV and its pinned nightly.
 - **`mutants in the diff: brokkr-core`** (#289) fails a pull request that
   adds a mutant no test catches to brokkr-core. Reproduce it with the
-  command in row 11 (cargo-mutants 27.1.0). A miss that shares a
+  command in row 12 (cargo-mutants 27.1.0). A miss that shares a
   committed miss's file and mutation, in
   `quality/mutants/brokkr-core.missed.txt`, is accounted for once; any
   other miss fails, and the fix is a test that catches it.
@@ -540,12 +537,12 @@ if you think they are at risk:
 - **`delivered by brokkr`** has no local command: it reads a run that
   shipped your head, or the operator's `by-hand` label. See
   [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand).
-- **The two-OS checks.** Pull requests and merge groups run the workspace
-  suite on Ubuntu (`test (ubuntu-latest)`) and a workspace-and-tests compile
-  on macOS (`build (macos-latest)`, to be required once #1383 lands), while
-  the five macOS test shards and [the startup gate](#the-macos-startup-gate)
-  (`test (macos-latest)`) run nightly against `main`, on `workflow_dispatch`,
-  and in `release.yml` before publication (operator ruling 2026-11-25, #1383).
+- **The two-OS checks.** Checks 5–6 run the workspace suite on Ubuntu
+  (`test (ubuntu-latest)`) and a workspace-and-tests compile without running
+  tests on macOS (`build (macos-latest)`), while the five macOS test shards
+  and [the startup gate](#the-macos-startup-gate) (`test (macos-latest)`)
+  run nightly against `main`, on `workflow_dispatch`, and in `release.yml`
+  before publication (operator ruling 2026-11-25, #1383).
   You ran one host. Anything touching the filesystem or the
   platform's process lookup is where this bites. Windows is not a host
   (decision [0063](../decisions/0063-windows-is-not-a-host.md)); WSL2 is Linux. Note that
@@ -628,7 +625,7 @@ compile --bundle recipes/self`, in that order
 (`recipes/brokkr-fast/scripts/verify-seat.sh`, #427), in the box with no
 network because this repository's realm declares no boundary and so
 reads `namespace`; under `harness` the same script would run unboxed.
-The rest of the eleven
+The rest of the twelve
 stay CI's to prove: the suite in CI's own form
 (`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, `--all-features`, `--locked` and
 `--no-fail-fast`; inside the `namespace` box a boundary proof cannot

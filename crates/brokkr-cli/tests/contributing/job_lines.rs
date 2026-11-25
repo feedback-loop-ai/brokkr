@@ -18,7 +18,7 @@ use crate::workflow;
 /// `env:` line added, dropped or changed fails the test. A line changed
 /// here is a line to re-read in the guide's row and the sections it links.
 /// A line that is a key of `SHARED_STEPS` stands for that step's lines.
-const JOB_LINES: [(&str, &str); 16] = [
+const JOB_LINES: [(&str, &str); 17] = [
     (
         "delivered-by-brokkr",
         r#"
@@ -214,6 +214,21 @@ const JOB_LINES: [(&str, &str); 16] = [
           LANE: ${{ needs.classify.outputs.lane }}
           DOCS: ${{ needs.docs-lane.result }}
           MACHINES: ${{ needs.engine-machines.result }}
+        run:
+"#,
+    ),
+    (
+        "build-macos",
+        r#"
+    name: build (macos-latest)
+    if: github.event_name != 'push'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+<checkout>
+<stable toolchain>
+<rust-cache>
+      - name: workspace and test targets compile on macOS
         run:
 "#,
     ),

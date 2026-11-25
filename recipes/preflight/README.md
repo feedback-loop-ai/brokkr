@@ -66,11 +66,14 @@ library charter may (#360).
 ## What a preflight cannot give you
 
 The RustSec advisory audit runs in CI against its own database, and CI
-tests on Linux and compiles on macOS (`build (macos-latest)`), while macOS tests run nightly, on dispatch and at release (decision 0063 keeps both hosts; #1383 splits macOS tests off the pull-request path). A preflight run has one
+tests on Linux and compiles everything on macOS without running tests
+(`build (macos-latest)`), while macOS tests run nightly, on dispatch and at
+release (decision 0063 keeps both hosts; #1383 splits macOS tests off the
+pull-request path). A preflight run has one
 machine and no advisory database of CI's vintage. The verifier script
 names both as unrun rather than imply they passed.
 
-Of the eleven checks main requires, a preflight runs no part of
+Of the twelve checks main requires, a preflight runs no part of
 `delivered by brokkr`, `non-Rust lints`, `baseline ratchets` or
 `mutants in the diff: brokkr-core`, and of the rest it leaves out the
 suppression check, the complexity and public-API ratchets and the
@@ -79,8 +82,8 @@ MSRV check omits `--all-targets --all-features`, the licence check is
 `cargo deny check licenses` without `bans sources`, the suite omits
 `--no-fail-fast`, and the suite and the coverage script run without
 `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, so a boundary proof that cannot
-open a namespace skips. [The by-hand guide's eleven
-checks](../../docs/guides/contributing-by-hand.md#the-eleven-checks) name
+open a namespace skips. [The by-hand guide's twelve
+checks](../../docs/guides/contributing-by-hand.md#the-twelve-checks) name
 each one's CI form.
 
 Of the checks #427 brought into `fast`'s verifier, this one runs
