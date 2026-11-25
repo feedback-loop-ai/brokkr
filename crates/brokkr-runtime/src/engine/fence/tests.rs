@@ -363,3 +363,43 @@ fn a_settlement_reads_its_terminals_effect_typed() {
         "{refused:?}"
     );
 }
+
+/// A peer hold refuses a start after gate observation has been armed.
+/// With no terminal to spend it, the refused start must discard that state.
+#[test]
+fn a_refused_start_discards_its_gate_observation() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_id = journaled(dir.path(), requested());
+    let mut engine = resumed(dir.path(), &run_id);
+    let (provider, route) = ("claude", "first");
+    let now = engine.now();
+    let hold = brokkr_store::ProbeHold {
+        run_id: &run_id,
+        attempt_id: "peer-probe",
+        site: "",
+        provider,
+        route,
+        deadline: now + time::Duration::minutes(1),
+    };
+    engine.store.hold_probe(&hold, now).unwrap();
+    engine.heads = heads::HeadReads::scripted(&["gate-head"]);
+    engine.begin_effect_span(true, false);
+    engine.covering = Some(verdict::Covering::of(false));
+
+    let effect_id = "effect-1";
+    let attempt_id = "attempt-1";
+    let started = json!({"effect_id": effect_id, "attempt_id": attempt_id});
+    let launched = [(provider.to_string(), route.to_string())];
+    assert!(!engine
+        .start_admitted(started, attempt_id, &launched)
+        .unwrap());
+    assert_eq!(engine.covering, None, "the refused start kept covering");
+    engine
+        .finish_gate_head_check(heads::Span::Effect, effect_id, None)
+        .unwrap();
+    assert_eq!(
+        engine.observed_head_of(effect_id),
+        None,
+        "the refused start left the effect span armed"
+    );
+}
