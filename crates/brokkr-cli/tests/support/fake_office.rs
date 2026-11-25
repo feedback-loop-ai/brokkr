@@ -22,14 +22,13 @@ pub(crate) const OFFICE: &str = "fake-office";
 
 /// The fake driver's argv, reading `script` and keeping `state`.
 pub(crate) fn fake_driver(script: &Path, state: &Path) -> Value {
-    json!([
-        crate::built::BIN,
+    json!(crate::built_argv!([
         "fake-driver",
         "--script",
-        script.to_string_lossy(),
+        script.to_string_lossy().as_ref(),
         "--state",
-        state.to_string_lossy()
-    ])
+        state.to_string_lossy().as_ref(),
+    ]))
 }
 
 /// The office a review-panel member of [`of`] hires: the fake
@@ -55,7 +54,7 @@ pub(crate) fn hire(root: &Path, script: &Path, state: &Path) {
 pub(crate) fn fake_adapter(provider: &str, models: Value, script: &Path, state: &Path) -> Value {
     json!({
         "provider": provider,
-        "binary": crate::built::BIN,
+        "binary": crate::built::bare_path(),
         "driver": fake_driver(script, state),
         "models": models,
         "model_flag": "--model",
@@ -106,8 +105,8 @@ pub(crate) fn inline(root: &Path, script: &Path, state: &Path) -> Value {
     use std::os::unix::fs::PermissionsExt;
     let wrapper = root.join(INLINE);
     let body = format!(
-        "#!/bin/sh\nshift 2\nexec '{}' fake-driver \"$@\"\n",
-        crate::built::BIN
+        "#!/bin/sh\nshift 2\nexec {} \"$@\"\n",
+        crate::built_shell_line!(["fake-driver"])
     );
     std::fs::write(&wrapper, body).unwrap();
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();

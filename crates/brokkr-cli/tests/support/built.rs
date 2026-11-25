@@ -1,7 +1,7 @@
-//! The one way these tests spawn the built `brokkr` (#1137i, Z1): every
-//! command that runs it is made here or by `crate::isolated` beside it,
-//! and `choke_point` refuses a test source that names the binary anywhere
-//! else.
+//! The compiler keeps the built `brokkr` path private to this builder
+//! (#1137i, Z1). The command, argv and shell doors refuse probing verbs.
+//! Tests can stage an executable copy. The scan pins the bare path and
+//! the isolated door to their callers.
 //!
 //! `brokkr doctor` probes tools for their versions, and its probe delivers
 //! real kills to the process group it started, so doctor runs only alone
@@ -13,9 +13,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::Command;
 
-/// The built binary, for a test that hands its path on as data: a
-/// driver's argv, a staged copy, a symlink or a script that runs it.
-pub(crate) const BIN: &str = env!("CARGO_BIN_EXE_brokkr");
+const BIN: &str = env!("CARGO_BIN_EXE_brokkr");
 
 /// The verbs whose run reaches doctor's version probe.
 pub(crate) const PROBING: [&str; 1] = ["doctor"];
@@ -27,7 +25,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    brokkr_at(Path::new(BIN), argv)
+    brokkr_at(Path::new(bare_path()), argv)
 }
 
 /// [`brokkr`], the binary at `program`: a copy of the built one.
@@ -46,6 +44,67 @@ where
     let mut command = Command::new(program);
     command.args(argv);
     command
+}
+
+/// The built path for a product field or fixture pinned by the scan.
+pub(crate) fn bare_path() -> &'static str {
+    BIN
+}
+
+// The shared builder also compiles in standalone test targets. The data
+// doors expand only in the targets that use them.
+
+/// The built binary and its checked arguments, as owned strings.
+#[macro_export]
+macro_rules! built_argv {
+    ($args:expr) => {{
+        let command = $crate::built::brokkr($args);
+        std::iter::once(command.get_program())
+            .chain(command.get_args())
+            .map(|word| word.to_str().expect("UTF-8 command words").to_owned())
+            .collect::<Vec<String>>()
+    }};
+}
+
+/// The checked command words, each single-quoted for sh.
+#[macro_export]
+macro_rules! built_shell_line {
+    ($args:expr) => {
+        $crate::built_argv!($args)
+            .into_iter()
+            .map(|word| format!("'{}'", word.replace('\'', "'\\''")))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+}
+
+/// Copy the executable and its mode in a child that closes its write
+/// descriptor before the test can run the copy.
+#[macro_export]
+macro_rules! stage_brokkr {
+    ($path:expr) => {
+        std::process::Command::new("/bin/cp")
+            .args(["-p", $crate::built::bare_path()])
+            .arg($path)
+            .status()
+            .and_then(|status| {
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::other(format!(
+                        "copying the binary: {status}"
+                    )))
+                }
+            })
+    };
+}
+
+/// The built path for the isolated runner, pinned to its source.
+#[macro_export]
+macro_rules! isolated_brokkr_path {
+    () => {
+        $crate::built::bare_path()
+    };
 }
 
 /// `argv` owned, refused when it names no verb: a verb added after the

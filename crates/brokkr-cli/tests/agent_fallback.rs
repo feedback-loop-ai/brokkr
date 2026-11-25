@@ -458,10 +458,9 @@ fn a_sequence_reports_its_agent_step_and_its_inline_step_separately() {
             "sequence": [
                 {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},
                 {"name": "check", "role": "roles/work.md",
-                 "driver": {"command": [
-                     crate::built::BIN, "driver", "exec", "--",
-                     "sh", "./check.sh", "{result_path}",
-                 ]}},
+                 "driver": {"command": crate::built_argv!([
+                     "driver", "exec", "--", "sh", "./check.sh", "{result_path}",
+                 ])}},
             ],
         },
         "review": ws.inline_review(),
@@ -494,11 +493,13 @@ fn a_seat_whose_charter_is_gone_is_journaled_as_a_failure_to_start() {
         "adapters/claude.json",
         json!({
             "provider": "claude",
-            "binary": crate::built::BIN,
-            "driver": [
+            "binary": crate::built::bare_path(),
+            "driver": IntoIterator::into_iter([
                 "env", "BROKKR_CLAUDE_BIN=brokkr-claude-that-is-not-installed",
-                crate::built::BIN, "driver", "claude", "--",
-            ],
+            ])
+                .map(str::to_owned)
+                .chain(crate::built_argv!(["driver", "claude", "--"]))
+                .collect::<Vec<_>>(),
             "models": {"reviewer-model": "claude/reviewer"},
             "model_flag": "--model",
             "efforts": ["low", "medium", "high"],
@@ -524,10 +525,10 @@ fn a_seat_whose_charter_is_gone_is_journaled_as_a_failure_to_start() {
     )
     .unwrap();
     ws.bundle(json!({
-        "implement": {"results": ["complete"], "driver": {"command": [
-            crate::built::BIN, "driver", "exec", "--",
-            "sh", "./unlink.sh", charter.to_string_lossy(), "{prompt_file}",
-        ]}},
+        "implement": {"results": ["complete"], "driver": {"command": crate::built_argv!([
+            "driver", "exec", "--", "sh", "./unlink.sh",
+            charter.to_string_lossy().as_ref(), "{prompt_file}",
+        ])}},
         "review": {"results": ["clean"], "agent": "reviewer"},
     }));
     let run_id = ws.run();

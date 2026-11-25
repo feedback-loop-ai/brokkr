@@ -96,11 +96,7 @@ pub(crate) fn brokkr() -> &'static Path {
         assert!(lock(&live));
         std::fs::rename(dir.join("lock.new"), dir.join("lock")).unwrap();
         let (staged, copy) = (dir.join("brokkr.staged"), dir.join("brokkr"));
-        let cp = Command::new("/bin/cp")
-            .arg(crate::built::BIN)
-            .arg(&staged)
-            .status();
-        assert_eq!(cp.unwrap().code(), Some(0), "copying the binary");
+        crate::stage_brokkr!(&staged).expect("copying the binary");
         chmod(&staged, 0o755);
         std::fs::rename(&staged, &copy).unwrap();
         (std::fs::canonicalize(copy).unwrap(), live)

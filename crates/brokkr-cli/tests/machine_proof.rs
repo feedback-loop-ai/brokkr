@@ -2195,7 +2195,7 @@ fn compile_rejects_provenance_violations() {
         config["seats"]["review"] = json!({"role": "roles/role.md", "inputs": declaration,
             "results": ["clean", "residual", "security-hold"],
             // An office's seat declares no inputs; an inline exec review does.
-            "driver": {"command": [crate::built::BIN, "driver", "exec", "--", "true"]}});
+            "driver": {"command": crate::built_argv!(["driver", "exec", "--", "true"])}});
         std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
         let (code, _, stderr) = ws.compile(&bundle);
         assert_eq!(code, Some(1), "declaration {declaration} must be rejected");
@@ -2928,10 +2928,9 @@ mod journal_invariant {
             "role": "roles/role.md",
             "results": results,
             "secrets": ["API_TOKEN"],
-            "driver": {"command": [
-                crate::built::BIN, "driver", "exec", "--",
-                script.to_string_lossy(), "{{secret:API_TOKEN}}",
-            ]},
+            "driver": {"command": crate::built_argv!([
+                "driver", "exec", "--", script.to_string_lossy().as_ref(), "{{secret:API_TOKEN}}",
+            ])},
         });
         std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
     }

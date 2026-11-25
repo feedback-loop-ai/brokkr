@@ -416,9 +416,11 @@ fn hands_exec_runs_the_command_whole_and_returns_its_code() {
     assert!(!bad.status.success());
     assert!(String::from_utf8_lossy(&bad.stderr).contains("--spec"));
     // And the boxed binary can call itself: the exec driver dispatch shape.
-    let selfcall = exec(&["--", crate::built::BIN, "--version"])
-        .output()
-        .unwrap();
+    let version = crate::built_argv!(["--version"]);
+    let child: Vec<_> = std::iter::once("--")
+        .chain(version.iter().map(String::as_str))
+        .collect();
+    let selfcall = exec(&child).output().unwrap();
     assert!(
         selfcall.status.success(),
         "{}",
@@ -472,9 +474,12 @@ fn the_box_private_tmp_and_home_are_owner_only_under_umask_002() {
     let seen = Command::new("sh")
         .args([
             "-c",
-            "umask 002; exec \"$0\" hands exec --workdir \"$1\" --artifacts \"$2\" \
-             --reach \"$3\" -- stat -c '%a %n' /tmp /runtime/home",
-            crate::built::BIN,
+            &format!(
+                "umask 002; exec {} --workdir \"$1\" --artifacts \"$2\" \
+                 --reach \"$3\" -- stat -c '%a %n' /tmp /runtime/home",
+                crate::built_shell_line!(["hands", "exec"])
+            ),
+            "sh",
             work.to_str().unwrap(),
             artifact_root(dir.path()).to_str().unwrap(),
             &reach(&work),
