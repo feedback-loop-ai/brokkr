@@ -213,7 +213,9 @@ pub struct SweepRefused {
 /// An entry admission judged waiting, with that judgment's reasons.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Waiting {
+    /// The entry the pass left waiting.
     pub entry: EntryId,
+    /// The reasons admission gave for the wait.
     pub reasons: Vec<Reason>,
 }
 
@@ -236,6 +238,7 @@ pub struct Passed {
     /// Entries admission still judged waiting, and held, when the pass read
     /// the queue.
     pub waiting: usize,
+    /// The entries left waiting and their reasons, in queue order.
     pub waits: Vec<Waiting>,
     pub held_entries: usize,
 }
