@@ -4,6 +4,7 @@
 //! (seat-record v6; decision 0035 ruling 4), and a resumed process's cost
 //! is its own, less what `--resume` restored.
 
+use super::super::claude_fold::Source::Claude;
 use super::super::*;
 
 /// The session record after Claude's `result` events, each as
@@ -16,7 +17,14 @@ fn folded(results: &[(u64, u64)]) -> (Option<Value>, Option<Value>) {
     for (output, thinking) in results {
         let event = json!({"type": "result", "num_turns": 92, "usage": {"input_tokens": 4,
             "output_tokens": output, "output_tokens_details": {"thinking_tokens": thinking}}});
-        fold_stream_event(&event, &mut fold, &mut meta, &mut transcript, &mut |_| {});
+        fold_stream_event(
+            &Row::new(&event, &[]),
+            Claude,
+            &mut fold,
+            &mut meta,
+            &mut transcript,
+            &mut |_| {},
+        );
     }
     (
         meta.get("output_tokens").cloned(),
@@ -89,7 +97,14 @@ fn a_queued_query_journals_beside_the_first_not_over_it() {
     let mut meta = Map::new();
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
     let mut fold_into = |event: &Value, meta: &mut Map<String, Value>| {
-        fold_stream_event(event, &mut fold, meta, &mut transcript, &mut |_| {});
+        fold_stream_event(
+            &Row::new(event, &[]),
+            Claude,
+            &mut fold,
+            meta,
+            &mut transcript,
+            &mut |_| {},
+        );
     };
     for event in &stream {
         fold_into(event, &mut meta);
@@ -127,8 +142,15 @@ fn a_message_streamed_line_by_block_is_one_turn_counted_once() {
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
     let mut rows = Vec::new();
     for event in &stream {
-        let mut emit = |row: &Value| rows.push(row.clone());
-        fold_stream_event(event, &mut fold, &mut meta, &mut transcript, &mut emit);
+        let mut emit = |row: &Emitted| rows.push(row.row.clone());
+        fold_stream_event(
+            &Row::new(event, &[]),
+            Claude,
+            &mut fold,
+            &mut meta,
+            &mut transcript,
+            &mut emit,
+        );
     }
     let turns: Vec<_> = rows
         .iter()
@@ -163,7 +185,7 @@ fn resumed_cost(home: &Path, session: &str, total: f64) -> Option<Value> {
     let mut fold = ClaudeFold::rejoining(home, Some(session));
     let mut meta = Map::new();
     fold.settle(
-        &json!({"type": "result", "total_cost_usd": total}),
+        &Row::new(&json!({"type": "result", "total_cost_usd": total}), &[]),
         &mut meta,
     );
     meta.get("total_cost_usd").cloned()

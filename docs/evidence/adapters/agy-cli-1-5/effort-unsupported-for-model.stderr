@@ -1,0 +1,1 @@
+error: invalid model selection (--model "gemini-4-carbon" --effort "xhigh"): gemini-4-carbon has no "xhigh" effort (available: low, medium, high)

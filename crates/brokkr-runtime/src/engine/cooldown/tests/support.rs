@@ -1,8 +1,39 @@
 //! The cool-down tests' support for #1110, apart from `tests.rs` so that
 //! file stays within ruling 4's 2,000-line test ceiling: the seat limits a
-//! fixture gives, and the test of the witness a failed assertion prints.
+//! fixture gives, the test of the witness a failed assertion prints, and
+//! the guard that gives a process-launching test its own engine.
 
 use super::*;
+
+/// Re-execute the test alone before it can launch a driver. The nested
+/// item's type name includes the test function; libtest drops the crate
+/// prefix and ends at the test function itself.
+macro_rules! own_engine {
+    () => {
+        if !$crate::engine::tests::in_its_own_engine(own_engine!(path)) {
+            return;
+        }
+    };
+    (path) => {{
+        fn test_marker() {}
+        std::any::type_name_of_val(&test_marker)
+            .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+            .unwrap()
+            .strip_suffix("::test_marker")
+            .unwrap()
+    }};
+}
+
+pub(super) use own_engine;
+
+#[test]
+fn the_own_engine_guard_derives_its_libtest_path() {
+    own_engine!();
+    assert_eq!(
+        own_engine!(path),
+        "engine::cooldown::tests::support::the_own_engine_guard_derives_its_libtest_path"
+    );
+}
 
 /// The seat's limits where its deadline is not what the test proves: far
 /// past any load, so only the clock the test drives decides the rounds
@@ -95,18 +126,31 @@ pub(super) fn stopped_at_barrier(mut engine: Engine, dir: &Path, tag: &str) -> E
 /// answers, so it never writes the marker) fails the wait at once with
 /// what it journaled and what its shims did, not at the wait's end.
 #[test]
-#[should_panic(expected = "the engine ended before the probe started:\njournal:")]
 fn a_barrier_wait_whose_engine_ends_first_says_what_it_did() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     let driver = std::thread::spawn(move || {
         engine.drive().unwrap();
         engine
     });
-    barrier_awaited(
-        &dir.path().join("work.started"),
-        driver,
-        dir.path(),
-        "the probe",
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        barrier_awaited(
+            &dir.path().join("work.started"),
+            driver,
+            dir.path(),
+            "the probe",
+        )
+    }))
+    .expect_err("the barrier wait must panic");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied());
+    assert!(
+        message.is_some_and(
+            |text| text.contains("the engine ended before the probe started:\njournal:")
+        ),
+        "unexpected barrier panic: {message:?}"
     );
 }
 
@@ -115,6 +159,7 @@ fn a_barrier_wait_whose_engine_ends_first_says_what_it_did() {
 /// the deadline the seat's attempt and probe were given.
 #[test]
 fn the_witness_names_the_journal_the_shims_and_the_deadlines() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     engine.drive().unwrap();
     let seen = witness(&engine, dir.path());

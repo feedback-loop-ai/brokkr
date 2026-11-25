@@ -366,3 +366,79 @@ fn once_meters_each_message_of_a_seats_turns_once() {
         [Some(100), None, None, Some(100), Some(140), Some(100)]
     );
 }
+
+/// #1227 U8: the one shared transcript cap and lowercase UUID rule live in
+/// `brokkr-core` and are consumed by both `brokkr-protocol` and `brokkr-view`.
+#[test]
+fn transcript_source_cap_and_agy_uuid_rule_bind() {
+    assert_eq!(TRANSCRIPT_SOURCE_CAP, 33_554_432);
+    assert_eq!(AGY_TRANSCRIPT_KIND, "agy-conversation");
+    assert_eq!(AGY_TRANSCRIPT_FILE, "transcript.jsonl");
+    let uuid = "32786eb8-d649-4c35-9110-c8c87a1cdb7d";
+    assert!(is_agy_uuid(uuid));
+    assert!(is_clean_transcript_path(uuid));
+    assert!(!is_clean_transcript_path("a\0b"));
+    for bad in [
+        "",
+        "32786EB8-d649-4c35-9110-c8c87a1cdb7d",
+        "../32786eb8-d649-4c35-9110-c8c87a1cdb7d",
+        "32786eb8-d649-4c35-9110-c8c87a1cdb7",
+        "32786eb8-d649-4c35-9110-c8c87a1cdb7de",
+        "32786eb8_d649-4c35-9110-c8c87a1cdb7d",
+        "zzzzzzzz-d649-4c35-9110-c8c87a1cdb7d",
+    ] {
+        assert!(!is_agy_uuid(bad), "rejected {bad}");
+    }
+}
+
+/// #1227 Y2 & Y3: one seat-record v8 kind grammar (rejecting `none` for
+/// declared kinds) and one transcript-home rule shared across crates.
+#[test]
+fn shared_record_kind_grammar_and_transcript_home_rule_bind() {
+    let at_bound = "a".repeat(40);
+    let over_bound = "a".repeat(41);
+    assert!(is_record_kind_word("none"));
+    assert!(!is_declared_record_kind("none"));
+    for good in ["agy-conversation", "a", "a1-b2", at_bound.as_str()] {
+        assert!(is_record_kind_word(good), "kind word {good}");
+        assert!(is_declared_record_kind(good), "declared kind {good}");
+    }
+    for bad in [
+        "",
+        "Agy",
+        "AGY-CONVERSATION",
+        "9a",
+        "a--b",
+        "a-",
+        "a_b",
+        "aB",
+        over_bound.as_str(),
+    ] {
+        assert!(!is_record_kind_word(bad), "rejected word {bad}");
+        assert!(!is_declared_record_kind(bad), "rejected declared {bad}");
+    }
+    assert!(is_valid_transcript_home("/home/operator"));
+    assert!(is_native_transcript_home("/home/operator"));
+    for foreign_home in [r"C:\Users\operator", "C:/Users/operator", r"\\server\share"] {
+        assert!(
+            is_valid_transcript_home(foreign_home),
+            "lexically valid {foreign_home:?}"
+        );
+        assert!(
+            !is_native_transcript_home(foreign_home),
+            "non-native {foreign_home:?}"
+        );
+    }
+    for bad_home in [
+        "",
+        "C:",
+        r"1:\foo",
+        "C:rel",
+        r"\\",
+        "relative/home",
+        "/home/bad\nline",
+        "/home/bad\x07bell",
+    ] {
+        assert!(!is_valid_transcript_home(bad_home), "rejected {bad_home:?}");
+    }
+}

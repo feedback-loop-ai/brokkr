@@ -52,7 +52,7 @@ mod refusal;
 pub(crate) mod spawned;
 mod table;
 mod tree;
-mod usage;
+pub mod usage;
 
 use attempts::{Attempt, Unspawned};
 pub use evidence::DriverStderr;

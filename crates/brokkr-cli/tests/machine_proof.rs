@@ -9,11 +9,7 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
-const POLICY: &str = r#"{
+pub(crate) const POLICY: &str = r#"{
   "schema": "forge.phase-machine/v1",
   "phases": ["intake", "implement", "verify", "review", "ship", "done", "stop"],
   "initial": "intake",
@@ -428,8 +424,8 @@ impl Workspace {
         if realms.exists() {
             args.extend(["--realms", realms.to_str().unwrap()]);
         }
-        let mut command = crate::engine::brokkr_in(self.path());
-        let out = command.env("HOME", home).args(&args).output().unwrap();
+        let mut command = crate::engine::brokkr_in(self.path(), &args);
+        let out = command.env("HOME", home).output().unwrap();
         let summary = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
         let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
         (out.status.code(), summary, stderr)
@@ -2199,7 +2195,7 @@ fn compile_rejects_provenance_violations() {
         config["seats"]["review"] = json!({"role": "roles/role.md", "inputs": declaration,
             "results": ["clean", "residual", "security-hold"],
             // An office's seat declares no inputs; an inline exec review does.
-            "driver": {"command": [brokkr_bin(), "driver", "exec", "--", "true"]}});
+            "driver": {"command": crate::built_argv!(["driver", "exec", "--", "true"])}});
         std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
         let (code, _, stderr) = ws.compile(&bundle);
         assert_eq!(code, Some(1), "declaration {declaration} must be rejected");
@@ -2802,8 +2798,7 @@ fn gate_park_resets_consecutive_failures() {
 /// from stdin, never argv).
 fn brokkr_stdin(cwd: &Path, args: &[&str], payload: &str) -> (Option<i32>, String, String) {
     use std::io::Write;
-    let mut child = Command::new(brokkr_bin())
-        .args(args)
+    let mut child = crate::built::brokkr(args)
         .current_dir(cwd)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -2933,10 +2928,9 @@ mod journal_invariant {
             "role": "roles/role.md",
             "results": results,
             "secrets": ["API_TOKEN"],
-            "driver": {"command": [
-                brokkr_bin(), "driver", "exec", "--",
-                script.to_string_lossy(), "{{secret:API_TOKEN}}",
-            ]},
+            "driver": {"command": crate::built_argv!([
+                "driver", "exec", "--", script.to_string_lossy().as_ref(), "{{secret:API_TOKEN}}",
+            ])},
         });
         std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
     }

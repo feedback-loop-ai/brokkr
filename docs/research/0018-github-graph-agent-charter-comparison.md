@@ -3,7 +3,7 @@
 Source: https://github.com/microsoft/amplifier-foundation (multi-repository survey; pinned sources below)
 Authors: repository maintainers cited below; comparison synthesized by Codex
 Read: 2026-09-26
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: operator-requested GitHub research, 2026-09-26; scope corrected and repository intake requested, 2026-09-27
 
 

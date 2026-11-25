@@ -97,6 +97,7 @@ rule
 say 'MOCKED, so the numbers are not read as more than they are:'
 say '  · the download is a file:// read from a local staging dir,'
 say '    NOT a GitHub transfer. Network time is not in the 60s.'
+# shellcheck disable=SC2016 # the backticks are literal text the banner prints
 say '  · the run is driven by a stub standing in for the `claude`'
 say '    binary (BROKKR_CLAUDE_BIN). No agent session is spawned and'
 say '    nothing is billed. The bundle, compile, gate-class trust'

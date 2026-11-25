@@ -11,7 +11,7 @@
 use clap::{ArgGroup, Parser, Subcommand};
 
 use super::*;
-use crate::verbs::{analytics, backup, evidence, graph};
+use crate::verbs::{analytics, backup, evidence, graph, setup};
 use crate::{AgentsCmd, Cli, Cmd, KeepRefsCmd, MuninnCmd, RecipesCmd};
 
 /// The command line as typed. Its exit codes are [`crate::exit::Exit`]'s.
@@ -53,6 +53,12 @@ enum Root {
     /// Verify tools, drivers, the workspace database, and optionally a
     /// bundle, without executing any agent.
     Doctor(DoctorArgs),
+    /// Print the shell completion script for bash, zsh, fish, powershell
+    /// or elvish: every visible verb, flag and fixed value. `source
+    /// <(COMPLETE=bash brokkr)` registers the live completer instead, which
+    /// also offers run ids, phases, seats, recipes, agents, realms and
+    /// queue entries.
+    Completions(crate::completion::CompletionsArgs),
     /// The runs in the journal: list them (the default), read one,
     /// compare two, re-run, close or command one, and the overseer that
     /// reads them all.
@@ -262,13 +268,8 @@ enum SystemCmd {
     /// branch and current HEAD, and the journal the world writes.
     /// Read-only, like every other readout.
     Realms(RealmsArgs),
-    /// Manage the operator-side secrets store: bundles
-    /// and journals carry NAMES only; values live in this env-format
-    /// file outside version control. There is no value-printing verb.
-    Secrets {
-        #[command(subcommand)]
-        command: SecretsCmd,
-    },
+    #[command(flatten)]
+    Configuration(setup::ConfigurationCmd),
     /// Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI.
     Probe {
         #[command(subcommand)]
@@ -283,7 +284,7 @@ enum SystemCmd {
 /// every bundle, adapter and running engine keeps reaching them.
 #[derive(Subcommand)]
 enum EngineCmd {
-    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | exec).
+    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | agy | exec).
     /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
     #[command(hide = true)]
     Driver(DriverArgs),
@@ -320,6 +321,7 @@ impl From<Root> for Cmd {
             Root::Watch(args) => Cmd::Watch(args),
             Root::Tui(args) => Cmd::Tui(args),
             Root::Doctor(args) => Cmd::Doctor(args),
+            Root::Completions(args) => Cmd::Grouped(GroupedCmd::Completions(args)),
             Root::Runs(family) => {
                 let RunsFamily { list, command } = *family;
                 command.map_or(Cmd::Runs(list), Cmd::from)
@@ -401,7 +403,7 @@ impl From<SystemCmd> for Cmd {
     fn from(command: SystemCmd) -> Cmd {
         match command {
             SystemCmd::Realms(args) => Cmd::Realms(args),
-            SystemCmd::Secrets { command } => Cmd::Grouped(GroupedCmd::Secrets { command }),
+            SystemCmd::Configuration(command) => Cmd::Grouped(GroupedCmd::Configuration(command)),
             SystemCmd::Probe { command } => Cmd::Probe { command },
             SystemCmd::Ui(args) => Cmd::Ui(args),
         }
@@ -445,7 +447,33 @@ impl clap::FromArgMatches for Cli {
     }
 }
 
-impl Parser for Cli {}
+impl Parser for Cli {
+    fn try_parse_from<I, T>(itr: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        let argv: Vec<std::ffi::OsString> = itr.into_iter().map(Into::into).collect();
+        if let Some(err) = crate::hands::refuse_encoded_option_as_value(
+            &argv,
+            <Self as clap::CommandFactory>::command,
+        ) {
+            return Err(err);
+        }
+        <Self as clap::CommandFactory>::command()
+            .try_get_matches_from(&argv)
+            .and_then(|mut matches| {
+                <Self as clap::FromArgMatches>::from_arg_matches_mut(&mut matches)
+            })
+            .map_err(|err| {
+                crate::hands::reformat_serve_clap_error(
+                    err,
+                    &argv,
+                    <Self as clap::CommandFactory>::command,
+                )
+            })
+    }
+}
 
 #[cfg(test)]
 mod tests;

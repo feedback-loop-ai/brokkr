@@ -1,0 +1,191 @@
+# The CPU budgets (#342), measured nightly on main (#1295): instruction
+# counts under Callgrind for the fold, the run view, a compile of
+# recipes/self, one TUI frame, startup and `inspect`. Counts do not move
+# with the runner's load the way wall clock does, so main's head is
+# measured against a base in this one job, and a rise over 2% on any bench
+# fails it (gungraun exits 3). No pull request or merge group runs it: it
+# took about 40 minutes of every pull request's run, and it was never a
+# required check. The nightly's red status is the signal, and its job
+# summary names the base, the head, the commits between them and each bench
+# over its limit. Valgrind runs on Linux only.
+#
+# The base is the head of the newest scheduled run whose counts reached a
+# verdict, within 2% or over it, while that commit is still an ancestor of
+# main's head; where there is none, the newest commit on main's
+# first-parent line at least 24 hours older than the head. So a rise turns
+# the one nightly whose commits hold it red, and the next measures from the
+# risen head: a rise is ruled on once, not re-reported every night. A run
+# that failed before its counts measured nothing and is never a base. By
+# hand, `ref` measures a branch or commit against its merge-base with main.
+name: cpu budgets
+
+on:
+  schedule:
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: A branch, tag or commit to measure, against its merge-base with main; empty measures main against the previous nightly
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cpu-budgets:
+    name: CPU budgets (Callgrind, against the base)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # Reading the previous nightly's run, never writing: the token reads
+    # the repository and the workflow's runs, nothing else.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # The runner must be the library's own version, so it is read from
+      # Cargo.lock rather than pinned a second time here: brokkr-cli's
+      # `gungraun = "=X.Y.Z"` is its one home, moved by hand like every
+      # Cargo.toml requirement.
+      - name: valgrind, and the gungraun runner at the library's version
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q valgrind
+          version="$(awk '$0 == "name = \"gungraun\"" { getline; gsub(/^version = "|"$/, ""); print }' Cargo.lock)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Cargo.lock holds no single gungraun version" >&2; exit 1; }
+          cargo install --locked gungraun-runner --version "$version"
+          echo "GUNGRAUN_VERSION=$version" >> "$GITHUB_ENV"
+      # The base, found the same way every night: the head of the newest
+      # scheduled run whose counts step reached a verdict, success or
+      # failure, while main still holds it, else the newest first-parent
+      # commit at least 24 hours older than the head.
+      - name: the base, the previous nightly's head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ inputs.ref }}
+          COUNTS: "the head's counts, 2% over the base at most"
+        run: |
+          head="$(git rev-parse HEAD)"
+          if [ -n "$REF" ]; then
+            base="$(git merge-base origin/main "$head")"
+            how="the merge-base of $REF with main"
+          else
+            base=""
+            how="the head the previous nightly measured"
+            runs="$(gh api "repos/$REPO/actions/workflows/cpu-budgets.yml/runs?branch=main&event=schedule&status=completed&per_page=20" --jq '.workflow_runs[] | "\(.id) \(.head_sha)"')"
+            while read -r id sha; do
+              [ -n "$id" ] || continue
+              verdict="$(gh api "repos/$REPO/actions/runs/$id/jobs" --jq "[.jobs[].steps[] | select(.name == \"$COUNTS\") | .conclusion] | first // empty")"
+              if [ "$verdict" = success ] || [ "$verdict" = failure ]; then
+                base="$sha"
+                break
+              fi
+            done <<< "$runs"
+            if [ -z "$base" ] || ! git merge-base --is-ancestor "$base" "$head"; then
+              cutoff=$(( $(git log -1 --format=%ct "$head") - 86400 ))
+              base="$(git rev-list -1 --first-parent --before="@$cutoff" "$head")"
+              how="the newest commit on main at least 24 hours older than the head"
+            fi
+          fi
+          [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "no base was found for $head" >&2; exit 1; }
+          printf 'BASE_SHA=%s\nHEAD_SHA=%s\nBASE_HOW=%s\n' "$base" "$head" "$how" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/record"
+          printf 'head %s\nbase %s\nfound as %s\ngungraun %s\n' "$head" "$base" "$how" "$GUNGRAUN_VERSION" > "$RUNNER_TEMP/record/measured.txt"
+      # The head's benches build in a step of their own, so a build that
+      # fails ends the run before its counts step, and the run is never a
+      # base. The build's `--timings` report is an artifact, never a gate.
+      - name: the head's benches, built
+        run: |
+          if [ "$BASE_SHA" = "$HEAD_SHA" ]; then
+            echo "the head is the base: nothing to build"
+            exit 0
+          fi
+          cargo bench --locked --no-run --timings -p brokkr-cli --bench budgets_lib --bench budgets_bin
+      - name: the base's counts
+        run: |
+          export GUNGRAUN_HOME="$RUNNER_TEMP/gungraun"
+          if [ "$BASE_SHA" = "$HEAD_SHA" ]; then
+            echo "the head is the base: nothing landed since the last measure"
+            exit 0
+          fi
+          git worktree add "$RUNNER_TEMP/base" "$BASE_SHA"
+          cd "$RUNNER_TEMP/base"
+          base="$(awk '$0 == "name = \"gungraun\"" { getline; gsub(/^version = "|"$/, ""); print }' Cargo.lock)"
+          if [ ! -f crates/brokkr-cli/benches/budgets_lib.rs ]; then
+            echo "the base carries no CPU budgets yet; this run records the first counts"
+          elif [ "$base" != "$GUNGRAUN_VERSION" ]; then
+            echo "the base measures with gungraun $base, the head with $GUNGRAUN_VERSION; this run records the first counts"
+          else
+            cargo bench --locked -p brokkr-cli --bench budgets_lib --bench budgets_bin -- --save-baseline=base
+          fi
+      # A rise over 2% fails the run, and the summary names the base, the
+      # head, the commits between them and every bench over its limit.
+      - name: the head's counts, 2% over the base at most
+        run: |
+          export GUNGRAUN_HOME="$RUNNER_TEMP/gungraun"
+          log="$RUNNER_TEMP/record/bench.log"
+          {
+            echo "## CPU budgets"
+            echo
+            echo "- head: \`$HEAD_SHA\`"
+            echo "- base: \`$BASE_SHA\`, $BASE_HOW"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$BASE_SHA" = "$HEAD_SHA" ]; then
+            echo "- nothing landed since the base: not measured" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          set -- --locked -p brokkr-cli --bench budgets_lib --bench budgets_bin
+          set +e
+          if [ -d "$GUNGRAUN_HOME" ]; then
+            NO_COLOR=1 cargo bench "$@" -- --baseline=base --callgrind-limits='ir=2%' 2>&1 | tee "$log"
+          else
+            NO_COLOR=1 cargo bench "$@" 2>&1 | tee "$log"
+          fi
+          status="${PIPESTATUS[0]}"
+          set -e
+          if [ "$status" = 0 ]; then
+            echo "- every bench within 2% of the base" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            if [ "$status" = 3 ]; then
+              echo "- **a bench rose over 2%** between these commits:"
+            else
+              echo "- **the benches failed** (exit $status) between these commits:"
+            fi
+            echo
+            echo '```'
+            git log --oneline "$BASE_SHA..$HEAD_SHA"
+            echo '```'
+            echo
+            echo "The benches over their limit, each under the last bench it named:"
+            echo
+            echo '```'
+            sed 's/\x1b\[[0-9;]*m//g' "$log" | awk '/^[^ \t].*::/ { bench = $0 } tolower($0) ~ /regress|exceed/ { print bench ": " $0 }'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: cpu-budgets
+          path: |
+            ${{ runner.temp }}/record/
+            ${{ runner.temp }}/gungraun/
+            target/gungraun/
+            target/cargo-timings/
+          if-no-files-found: ignore

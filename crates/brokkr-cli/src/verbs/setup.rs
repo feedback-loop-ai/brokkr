@@ -2,6 +2,7 @@
 //! `init`, `doctor`, `library compile`, `library recipes`, `library agents`,
 //! `runs muninn`, `system secrets`, `driver` and the hidden `fake-driver`.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -19,6 +20,31 @@ use crate::{agents, doctor, init, muninn, recipes};
 use crate::{compiled_view, driver_payload, now_rfc3339};
 use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCmd};
 
+pub(crate) mod host;
+
+#[derive(clap::Subcommand)]
+pub(crate) enum ConfigurationCmd {
+    /// Manage the operator-side secrets store: bundles
+    /// and journals carry NAMES only; values live in this env-format
+    /// file outside version control. There is no value-printing verb.
+    Secrets {
+        #[command(subcommand)]
+        command: SecretsCmd,
+    },
+    /// Manage the machine's host configuration.
+    Host {
+        #[command(subcommand)]
+        command: host::HostCmd,
+    },
+}
+
+pub(crate) fn configuration(workspace: &Path, command: ConfigurationCmd) -> Result<ExitCode> {
+    match command {
+        ConfigurationCmd::Secrets { command } => secrets(workspace, command),
+        ConfigurationCmd::Host { command } => host::run(command),
+    }
+}
+
 /// `brokkr init`: write the `.brokkr/` folder at the repository root
 /// `dir`, read for its own manifests so the implement and verify seats
 /// are told commands that would actually run there (decision 0083 ruling
@@ -28,7 +54,7 @@ pub(crate) fn init(InitArgs { dir, cli }: InitArgs) -> Result<ExitCode> {
     let root = crate::folder::admit::root(&dir)?;
     let home = std::env::var_os("HOME").unwrap_or_default();
     let os = std::env::consts::OS;
-    let scaffold = init::init(&root, &path, os, Path::new(&home), cli)?;
+    let scaffold = scaffold_with_host(&root, &path, os, &home, cli)?;
     let folder = root.join(FOLDER);
     eprintln!(
         "initialized {} (digest {}), writing:",
@@ -71,6 +97,44 @@ pub(crate) fn init(InitArgs { dir, cli }: InitArgs) -> Result<ExitCode> {
         eprintln!("{}: {}", line.what(), line.detail());
     }
     Ok(Exit::Completed.into())
+}
+
+fn scaffold_with_host(
+    root: &Path,
+    path: &OsStr,
+    os: &str,
+    home: &OsStr,
+    cli: Option<init::Cli>,
+) -> Result<init::Scaffold> {
+    let mut scaffold = init::init(root, path, os, Path::new(home), cli)?;
+    let host_file = brokkr_runtime::admission::host_file(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        Some(home.to_owned()),
+    );
+    let bundle = &scaffold.bundle;
+    let notes = seeded(host_file, |file| host::seed(file, bundle));
+    scaffold.notes.extend(notes);
+    Ok(scaffold)
+}
+
+/// Ask E's host file, seeded after the folder is written. Seeding never
+/// refuses `init`: a host file that cannot be placed or written is a note
+/// saying why, beside the folder `init` already made (1193c's review,
+/// finding 3).
+fn seeded(
+    file: Result<std::path::PathBuf, brokkr_runtime::admission::HostError>,
+    seed: impl FnOnce(&Path) -> Result<Vec<String>>,
+) -> Vec<String> {
+    match file
+        .map_err(anyhow::Error::from)
+        .and_then(|file| seed(&file))
+    {
+        Ok(notes) => notes,
+        Err(error) => vec![format!(
+            "No host file was seeded: {error:#}. The .brokkr folder is written; \
+             declare a host file by hand (contracts/host.v5.schema.json)."
+        )],
+    }
 }
 
 /// `brokkr doctor`: tools, drivers, the database and optionally a bundle.
@@ -294,7 +358,7 @@ pub(crate) fn secrets(workspace: &Path, command: SecretsCmd) -> Result<ExitCode>
 pub(crate) fn driver(DriverArgs { kind, args }: DriverArgs) -> Result<ExitCode> {
     let kind = brokkr_protocol::adapters::AdapterKind::parse(&kind).ok_or_else(|| {
         anyhow::anyhow!(
-            "unknown driver '{kind}'; known: claude, lanetally, codex, dsh, qoder, exec"
+            "unknown driver '{kind}'; known: claude, lanetally, codex, dsh, qoder, agy, exec"
         )
     })?;
     let extra = driver_payload(kind, args);
@@ -331,3 +395,6 @@ pub(crate) fn fake_driver(
     brokkr_protocol::fake::run_fake_driver(&script, &state, model.as_deref(), effort.as_deref())?;
     Ok(Exit::Completed.into())
 }
+
+#[cfg(test)]
+mod tests;

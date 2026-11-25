@@ -31,9 +31,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
-use bind_refusal::BindRefusal;
+pub use bind_refusal::BindRefusal;
 use call_refusal::CallRefusal;
-use spec_refusal::SpecRefusal;
+pub use spec_refusal::SpecRefusal;
 
 mod bind_refusal;
 mod call_refusal;
@@ -43,6 +43,7 @@ mod git;
 mod namespace;
 mod overlay;
 mod sealed;
+mod serve_args;
 mod session;
 mod spec_refusal;
 pub use evidence::UNPROTECTED_EVIDENCE;
@@ -51,12 +52,18 @@ use git::parse_git_dirs;
 use git::{git_dirs, git_identity};
 pub use git::{git_facts, GitFacts};
 #[rustfmt::skip] pub use namespace::{entry::ServerEntry, namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
+pub use crate::base64::{decode_base64url, encode_base64url, Base64UrlError};
 use namespace::namespace_path;
 use namespace::workspace::Workspace;
 #[cfg(test)]
 use namespace::{workspace::Boxed, Namespace, Profile};
 pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use sealed::{drifted, seal, sealed_store, store_place, Sealed, SEALED_REACH, UNHIDDEN_STORE};
+pub(crate) use serve_args::serve_args_encoded;
+pub use serve_args::{
+    serve_args, REACH_BASE64URL_OPTION, REACH_OPTION, SPEC_BASE64URL_OPTION, SPEC_OPTION,
+};
+pub(crate) use session::reap_dead_sessions_under;
 pub use session::{
     list_reapable_under, reap_dead_sessions, Listed, Listing, Reaped, Session, SessionError,
 };
@@ -171,18 +178,20 @@ impl HandsSpec {
     }
 
     /// The string-or-object read: a string is the kind, an object is
-    /// checked whole.
-    fn checked(raw: &Value) -> Result<HandsSpec, SpecRefusal<'_>> {
+    /// checked whole, refusing in its typed [`SpecRefusal`].
+    pub fn checked(raw: &Value) -> Result<HandsSpec, SpecRefusal> {
         match raw {
             Value::String(kind) if kind == "workspace" => Ok(HandsSpec::default()),
-            Value::String(kind) => Err(SpecRefusal::UnknownKind { kind }),
+            Value::String(kind) => Err(SpecRefusal::UnknownKind { kind: kind.clone() }),
             Value::Object(object) => HandsSpec::checked_object(object),
-            got => Err(SpecRefusal::NotKindOrObject { got }),
+            got => Err(SpecRefusal::NotKindOrObject {
+                got: got.to_string(),
+            }),
         }
     }
 
     /// The object's checks, in order, each refusing in its own variant.
-    fn checked_object(object: &Map<String, Value>) -> Result<HandsSpec, SpecRefusal<'_>> {
+    fn checked_object(object: &Map<String, Value>) -> Result<HandsSpec, SpecRefusal> {
         // Named as a misplaced field, never as an unknown key: the author
         // is told where the word lives (decision 0046 ruling 1).
         if object.contains_key("boundary") {
@@ -190,7 +199,7 @@ impl HandsSpec {
         }
         let known = ["kind", "network", "binds"];
         if let Some(key) = object.keys().find(|key| !known.contains(&key.as_str())) {
-            return Err(SpecRefusal::UnknownKey { key });
+            return Err(SpecRefusal::UnknownKey { key: key.clone() });
         }
         if object.get("kind").and_then(Value::as_str) != Some("workspace") {
             return Err(SpecRefusal::Kind);
@@ -198,7 +207,11 @@ impl HandsSpec {
         let network = match object.get("network") {
             None => false,
             Some(Value::Bool(flag)) => *flag,
-            Some(got) => return Err(SpecRefusal::Network { got }),
+            Some(got) => {
+                return Err(SpecRefusal::Network {
+                    got: got.to_string(),
+                });
+            }
         };
         let mut binds = Vec::new();
         if let Some(raw_binds) = object.get("binds") {
@@ -229,18 +242,19 @@ impl HandsSpec {
 
 impl Bind {
     /// The bind's checks, in order, each refusing in its own variant.
-    fn checked(raw: &Value) -> Result<Bind, BindRefusal<'_>> {
+    fn checked(raw: &Value) -> Result<Bind, BindRefusal> {
         let Some(object) = raw.as_object() else {
             return Err(BindRefusal::NotObject);
         };
         let known = ["path", "mode", "mask"];
         if let Some(key) = object.keys().find(|key| !known.contains(&key.as_str())) {
-            return Err(BindRefusal::UnknownKey { key });
+            return Err(BindRefusal::UnknownKey { key: key.clone() });
         }
         let present = object.get("path").and_then(Value::as_str);
         let Some(path) = present.filter(|path| !path.is_empty()) else {
             return Err(BindRefusal::NoPath);
         };
+        let path = path.to_string();
         let mode = match object.get("mode").and_then(Value::as_str) {
             Some("ro") => BindMode::Ro,
             Some("rw") => BindMode::Rw,
@@ -262,7 +276,6 @@ impl Bind {
                 }
             }
         }
-        let path = path.to_string();
         Ok(Bind { path, mode, mask })
     }
 }
@@ -809,28 +822,6 @@ pub fn mcp_config(
         spec,
     };
     transport.document()
-}
-
-/// The `brokkr hands serve …` argument vector a harness spawns. A sealed
-/// reach that is not UTF-8 is carried empty, which no hands server reads.
-pub fn serve_args(
-    workdir: &Path,
-    artifacts: &Path,
-    sealed: &Sealed,
-    spec: &HandsSpec,
-) -> Vec<String> {
-    vec![
-        "hands".to_string(),
-        "serve".to_string(),
-        "--workdir".to_string(),
-        workdir.to_string_lossy().into_owned(),
-        "--artifacts".to_string(),
-        artifacts.to_string_lossy().into_owned(),
-        "--reach".to_string(),
-        serde_json::to_string(sealed).unwrap_or_default(),
-        "--spec".to_string(),
-        spec.to_value().to_string(),
-    ]
 }
 
 /// One JSON-RPC exchange of the MCP stdio transport: newline-delimited

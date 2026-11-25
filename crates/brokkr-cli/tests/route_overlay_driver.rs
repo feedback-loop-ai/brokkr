@@ -35,10 +35,6 @@ fn own_engine(test: &str) -> bool {
     brokkr_protocol::process::in_its_own_engine(&format!("route_overlay_driver::{test}"))
 }
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
 fn write(path: &Path, body: &[u8]) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, body).unwrap();
@@ -239,7 +235,7 @@ fn real_fixture() -> (tempfile::TempDir, PathBuf, Bundle) {
     let home = tempfile::tempdir().unwrap();
     let root = home.path().canonicalize().unwrap();
     let recipe = tree(&root);
-    let bundle = compile(&root, &recipe, brokkr_bin());
+    let bundle = compile(&root, &recipe, crate::built::bare_path());
     (home, root, bundle)
 }
 
@@ -347,7 +343,7 @@ fn a_library_outside_the_run_tree_refuses_the_start_with_patch_unbound() {
     let (run_root, library) = (root.join("run"), root.join("library"));
     std::fs::create_dir_all(&run_root).unwrap();
     let recipe = tree(&library);
-    let bundle = compile(&library, &recipe, brokkr_bin());
+    let bundle = compile(&library, &recipe, crate::built::bare_path());
     let said = failure(&run(&run_root, bundle));
     assert!(
         said.contains("a `--patch` with no bound route overlay"),

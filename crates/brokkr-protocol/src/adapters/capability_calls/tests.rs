@@ -1,7 +1,11 @@
+use super::super::tests::decision_0114d::dsh_call;
 use serde_json::{json, Map, Value};
 
-use super::super::{fold_codex_event, fold_dsh_event, fold_stream_event, CodexThreadEcho};
+use super::super::claude_fold::{fold_stream_event, Source::Claude};
+use super::super::tests::fold_codex_into;
+use super::super::{dsh_effort, fold_dsh_event, seat_row, AdapterKind, CodexThreadEcho, Row};
 use super::{Format, Observation, Tool, OBSERVATION_KEY};
+use crate::secret::{self, BoundSecret};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 
 /// An MCP tool name that, under its `mcp__engine__` prefix, runs past the
@@ -44,9 +48,33 @@ fn codex_item(item: Value) -> Value {
     json!({"type": "item.completed", "item": item})
 }
 
-fn dsh_call(call: &str, name: &str) -> Value {
-    json!({"type": "tool/call", "seq": 7,
-           "data": {"turn": 1, "step": 1, "callId": call, "name": name, "arguments": "{}"}})
+fn codex_observation(item: Value) -> Observation {
+    Observation::codex(&Row::new(&codex_item(item), &[]))
+}
+
+#[test]
+fn codex_classifies_raw_mcp_and_masks_each_quoted_field() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("bindings");
+    crate::secret::store_set(&store, "S", "tool").unwrap();
+    let bindings = crate::secret::resolve_bindings(&store, &["S".into()]).unwrap();
+    let event = codex_item(json!({
+        "id": "tool_1", "type": "mcp_tool_call", "server": "toolbox", "tool": "read_tool"
+    }));
+    let row = Row::new(&event, &bindings);
+    let call = Observation::codex(&row);
+    assert_eq!(
+        call,
+        seen(
+            Format::Codex,
+            Some("[secret:S]_1"),
+            mcp("[secret:S]box", "read_[secret:S]")
+        )
+    );
+    assert_eq!(
+        call.onto_codex(&row, json!({}))["tool"],
+        "mcp_[secret:S]_call"
+    );
 }
 
 /// U0's measured shapes, read whole: the concrete tool, the MCP server and
@@ -58,11 +86,14 @@ fn each_format_reads_the_measured_call_identity_whole() {
     let long = format!("mcp__engine__{LONG_TOOL}");
     let cases = [
         (
-            Observation::claude(&claude_block("toolu_01", "WebSearch")),
+            Observation::claude(&Row::new(&claude_block("toolu_01", "WebSearch"), &[])),
             seen(Format::Claude, Some("toolu_01"), named("WebSearch")),
         ),
         (
-            Observation::claude(&claude_block("toolu_02", "mcp__plugin_docs_srv__lookup")),
+            Observation::claude(&Row::new(
+                &claude_block("toolu_02", "mcp__plugin_docs_srv__lookup"),
+                &[],
+            )),
             seen(
                 Format::Claude,
                 Some("toolu_02"),
@@ -70,11 +101,11 @@ fn each_format_reads_the_measured_call_identity_whole() {
             ),
         ),
         (
-            Observation::claude(&claude_block("toolu_03", &long)),
+            Observation::claude(&Row::new(&claude_block("toolu_03", &long), &[])),
             seen(Format::Claude, Some("toolu_03"), mcp("engine", LONG_TOOL)),
         ),
         (
-            Observation::claude(&claude_block("toolu_04", "mcp__engine")),
+            Observation::claude(&Row::new(&claude_block("toolu_04", "mcp__engine"), &[])),
             seen(
                 Format::Claude,
                 Some("toolu_04"),
@@ -82,45 +113,46 @@ fn each_format_reads_the_measured_call_identity_whole() {
             ),
         ),
         (
-            Observation::claude(&json!({"type": "tool_use", "name": 7})),
+            Observation::claude(&Row::new(&json!({"type": "tool_use", "name": 7}), &[])),
             seen(Format::Claude, None, Tool::Missing),
         ),
         (
-            Observation::codex(&codex_item(json!({"id": "item_0",
-                "type": "command_execution", "command": "ls", "exit_code": 0}))),
+            codex_observation(json!({"id": "item_0",
+                "type": "command_execution", "command": "ls", "exit_code": 0})),
             seen(Format::Codex, Some("item_0"), named("command_execution")),
         ),
         (
-            Observation::codex(&codex_item(json!({"id": "item_1", "type": "mcp_tool_call",
-                "server": "engine", "tool": LONG_TOOL, "status": "completed"}))),
+            codex_observation(json!({"id": "item_1", "type": "mcp_tool_call",
+                "server": "engine", "tool": LONG_TOOL, "status": "completed"})),
             seen(Format::Codex, Some("item_1"), mcp("engine", LONG_TOOL)),
         ),
         (
-            Observation::codex(&codex_item(json!({"id": "item_2", "type": "mcp_tool_call",
-                "server": "", "tool": "probe"}))),
+            codex_observation(json!({"id": "item_2", "type": "mcp_tool_call",
+                "server": "", "tool": "probe"})),
             seen(Format::Codex, Some("item_2"), unidentified("mcp_tool_call")),
         ),
         (
-            Observation::codex(&codex_item(json!({"id": "item_3", "type": "mcp_tool_call",
-                "server": "s", "tool": ""}))),
+            codex_observation(json!({"id": "item_3", "type": "mcp_tool_call",
+                "server": "s", "tool": ""})),
             seen(Format::Codex, Some("item_3"), unidentified("mcp_tool_call")),
         ),
         (
-            Observation::codex(&codex_item(
-                json!({"type": "mcp_tool_call", "server": "engine"}),
-            )),
+            codex_observation(json!({"type": "mcp_tool_call", "server": "engine"})),
             seen(Format::Codex, None, unidentified("mcp_tool_call")),
         ),
         (
-            Observation::codex(&codex_item(json!({}))),
+            codex_observation(json!({})),
             seen(Format::Codex, None, Tool::Missing),
         ),
         (
-            Observation::dsh(&dsh_call("call_1", "bash")),
+            Observation::dsh(&Row::new(&dsh_call("call_1", "bash"), &[])),
             seen(Format::Dsh, Some("call_1"), named("bash")),
         ),
         (
-            Observation::dsh(&dsh_call("call_2", "mcp__engine__u0_engine_probe")),
+            Observation::dsh(&Row::new(
+                &dsh_call("call_2", "mcp__engine__u0_engine_probe"),
+                &[],
+            )),
             seen(
                 Format::Dsh,
                 Some("call_2"),
@@ -128,11 +160,11 @@ fn each_format_reads_the_measured_call_identity_whole() {
             ),
         ),
         (
-            Observation::dsh(&dsh_call("call_3", "mcp____probe")),
+            Observation::dsh(&Row::new(&dsh_call("call_3", "mcp____probe"), &[])),
             seen(Format::Dsh, Some("call_3"), unidentified("mcp____probe")),
         ),
         (
-            Observation::dsh(&dsh_call("call_4", "mcp__server__")),
+            Observation::dsh(&Row::new(&dsh_call("call_4", "mcp__server__"), &[])),
             seen(Format::Dsh, Some("call_4"), unidentified("mcp__server__")),
         ),
     ];
@@ -148,23 +180,23 @@ fn each_format_reads_the_measured_call_identity_whole() {
 fn each_reading_has_one_encoding_and_decodes_back() {
     let cases = [
         (
-            Observation::claude(&claude_block("toolu_01", "WebSearch")),
+            Observation::claude(&Row::new(&claude_block("toolu_01", "WebSearch"), &[])),
             json!({"format": "claude", "call": "toolu_01",
                    "tool": {"kind": "named", "name": "WebSearch"}}),
         ),
         (
-            Observation::codex(&codex_item(json!({"id": "item_1", "type": "mcp_tool_call",
-                "server": "engine", "tool": "probe"}))),
+            codex_observation(json!({"id": "item_1", "type": "mcp_tool_call",
+                "server": "engine", "tool": "probe"})),
             json!({"format": "codex", "call": "item_1",
                    "tool": {"kind": "mcp", "server": "engine", "tool": "probe"}}),
         ),
         (
-            Observation::dsh(&dsh_call("call_3", "mcp____probe")),
+            Observation::dsh(&Row::new(&dsh_call("call_3", "mcp____probe"), &[])),
             json!({"format": "dsh", "call": "call_3",
                    "tool": {"kind": "mcp_unidentified", "reported": "mcp____probe"}}),
         ),
         (
-            Observation::codex(&codex_item(json!({}))),
+            codex_observation(json!({})),
             json!({"format": "codex", "call": null, "tool": {"kind": "missing"}}),
         ),
     ];
@@ -181,12 +213,13 @@ fn claude_rows(blocks: Vec<Value>) -> Vec<Value> {
     let event = json!({"type": "assistant", "message": {"model": "claude-opus-5-5",
         "usage": {"input_tokens": 13, "output_tokens": 2}, "content": blocks}});
     let refused = fold_stream_event(
-        &event,
+        &Row::new(&event, &[]),
+        Claude,
         &mut super::super::ClaudeFold::default(),
         &mut Map::new(),
         &mut transcript,
         &mut |row| {
-            rows.push(row.clone());
+            rows.push(row.row.clone());
         },
     );
     assert_eq!(refused, None);
@@ -199,26 +232,27 @@ fn codex_rows(events: &[Value]) -> Vec<Value> {
     let mut echo = CodexThreadEcho::default();
     let (mut turn, mut meta) = (1, Map::new());
     for event in events {
-        let mut emit = |row: &Value| rows.push(row.clone());
-        let refused = fold_codex_event(
-            event,
+        let refused = fold_codex_into(
+            &Row::new(event, &[]),
             &mut turn,
             &mut meta,
             &mut transcript,
             &mut echo,
-            &mut emit,
+            &mut rows,
         );
         assert_eq!(refused, None);
     }
     rows
 }
 
-fn dsh_rows(turns: u64, events: &[Value]) -> Vec<Value> {
+fn dsh_rows(turns: u64, events: &[Value], bindings: &[BoundSecret]) -> Vec<Value> {
     let mut rows = Vec::new();
     let (mut turns, mut meta) = (turns, Map::new());
+    let mut effort = dsh_effort::Echo::default();
     for event in events {
-        fold_dsh_event(event, None, &mut turns, &mut meta, &mut |row| {
-            rows.push(row.clone());
+        let raw = Row::new(event, bindings);
+        fold_dsh_event(&raw, &mut effort, None, &mut turns, &mut meta, &mut |row| {
+            rows.push(row.row.clone());
         });
     }
     rows
@@ -331,11 +365,33 @@ fn the_folds_write_each_calls_shown_tool_and_its_observation() {
         carrying(row, seen(Format::Dsh, Some(call), seen_tool))
     };
     assert_eq!(
-        dsh_rows(1, &calls),
+        dsh_rows(1, &calls, &[]),
         vec![
             row("bash", "call_1", named("bash")),
             row(&shown, "call_2", mcp("engine", LONG_TOOL)),
         ]
     );
-    assert_eq!(dsh_rows(0, &calls), Vec::<Value>::new());
+    assert_eq!(dsh_rows(0, &calls, &[]), Vec::<Value>::new());
+}
+
+#[test]
+fn bound_name_across_separator() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("bindings");
+    secret::store_set(&store, "S", "v__t").unwrap();
+    let bindings = secret::resolve_bindings(&store, &["S".into()]).unwrap();
+    let call = dsh_call("call_1", "mcp__srv__tool");
+    let reported = "mcp__sr[secret:S]ool";
+    let rows = dsh_rows(1, &[call], &bindings);
+    let [projected] = rows.as_slice() else {
+        panic!("expected one dsh tool checkpoint: {rows:?}");
+    };
+    let expected = json!({
+            "step": "seat-turn", "turn": 1, "harness": "deepseek",
+            "model": "not reported", "effort": "not reported", "tool": reported,
+            "observation": {"format": "dsh", "call": "call_1",
+                            "tool": {"kind": "mcp_unidentified", "reported": reported}},
+    });
+    assert_eq!(projected, &expected);
+    assert_eq!(seat_row(AdapterKind::Dsh, &bindings, projected), expected);
 }

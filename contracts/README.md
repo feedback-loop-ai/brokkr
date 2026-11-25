@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v7.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v8.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -1058,6 +1058,33 @@ reads, and every entry the capacity checks would judge waits as
 `runs_undeclared` until the operator declares one, which `brokkr doctor`
 names. This amends decision 0068 ruling 3.
 
+Decision 0125 ruling 7 (#1193) adds `forge.host/v5` beside the
+frozen v4, whose bytes did not move. It is v4 with `runs` and
+`boxed_builds` each OPTIONAL, and one OPTIONAL object, `demand`:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The machine's host configuration sized by demand | `host.v5.schema.json` | brokkr-runtime (`admission/host.rs`, the loader, and `admission/host/demand.rs`; held to this file by test), `brokkr queue list` and `judge`, `brokkr queue dispatch`, `brokkr doctor` |
+
+`demand` is closed, and every key in it is optional: `window_runs`, from 1
+to 1000 (20 when absent), how many of a recipe's latest runs that carry
+`effect-usage/v1` its demand averages; `margin_percent`, from 0 to 1000
+(25 when absent), the margin added over that average; and `recipes`, a
+recipe name to its declared `peak_memory_bytes` and
+`peak_load_millicores`, each at least 1, read only while the recipe's
+window supplies no measured profile, which takes a completed run
+(decision 0125 ruling 3). An absent `boxed_builds` declares no boxed-build
+ceiling. Where the machine's availability is measured (Linux), an absent
+`runs` holds nothing; where it is not, every entry the capacity checks
+would judge waits as `runs_undeclared`, as under v1 to v3. The loader
+refuses a v1 to v4 file that writes `demand` or leaves out
+`boxed_builds`, each naming its version, and a window or margin out of
+range; every v1 to v4 file reads with the defaults.
+
+Run `brokkr system host upgrade --check` to preview the change to v5.
+Run `brokkr system host upgrade` to change the schema while preserving
+every declared value.
+
 The same slice adds one more file and changes none of the bytes above —
 `run-manifest.v12`'s included, which is now pinned by digest beside the
 frozen files:
@@ -1221,4 +1248,49 @@ and 0.13 lines to v6, at append, export, import verification and offline
 verification alike. The tagged 0.14.0 and 0.15.0 engines are v6-era
 writers in that line: they wrote none of the five fields, and every new
 refusal is scoped on `authored`, so every row they wrote reads under v7
-exactly as it did under v6.
+exactly as it did under v6. Since seat-record v8 (below) stands at this
+same line, dispatch chooses v8 for these lines and v7 for none.
+
+## Seat record with open kinds (decision 0075 ruling 2)
+
+Decision 0075 ruling 2, with its addendum of 2026-11-21, adds one file and
+changes none of the bytes above — `seat-record.v7`'s included, which is
+now pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record whose transcript and root session kinds its harness's adapter declares | `seat-record.v8.schema.json` | brokkr-store append/export/verify (an embedded copy held byte-equal by test), every seat readout |
+
+`seat-record.v8` is `v7` with two members opened and nothing else:
+`transcript.kind` and `root_session.kind` are each one lowercase word of
+letters, digits and single inner hyphens, `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`,
+at most 40 characters, where v7 listed `claude-session`, `codex-thread`,
+`dsh-session` (and, for a transcript, `none`). Every listed kind fits the
+grammar, so every valid v7 record is a valid v8 record. `none` keeps its
+meaning for a transcript, whose `locator` and `home` are then empty, and
+is refused as a root session kind, as v7's list already refused it: a
+root session is a confirmed provider session or it is absent.
+
+The schema admits the grammar; the engine's writer narrows it. Where the
+engine appends a driver's checkpoint or successful result, it refuses a
+kind, at any place the record names one, that the seat's own harness
+does not declare — its adapter's or its built-in driver's, never
+another adapter's — naming the kind and the seat, and the attempt fails
+on that refusal. An adapter declares
+its kinds in the optional `record_kinds` member, a `transcript` kind and,
+where the harness confirms one, a `root_session` kind. Beside a
+`root_session` kind, and only there, `resume_shape` names the one shape
+of the adapter's `resume` its seats rejoin by. The built-in
+drivers declare the kinds they write, so no shipped adapter carries the
+member, and `none` needs no declaration. Verifiers — export, import
+verification and offline verification — judge a record by this schema
+alone, so an exported journal verifies without the adapters that wrote
+it. A reader acts on a kind only at one of the three places v8 defines (a
+checkpoint's `transcript` and `root_session`, and a result's
+`transcript`) and only where the kind was judged, as item 3 of decision
+0075's 2026-11-21 addendum states: a seat readout renders a kind it does
+not know as its kind, locator and home, and acts on nothing of it.
+
+v8 stands at v7's own engine line: the store dispatches the 0.14 line
+and later to v8, and the 0.12 and 0.13 lines to v6. As with v2, no engine
+string selects v7; it stays published, pinned and nameable.

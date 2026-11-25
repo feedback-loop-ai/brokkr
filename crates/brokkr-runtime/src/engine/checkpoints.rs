@@ -86,6 +86,7 @@ use serde_json::{json, Value};
 use super::capability_calls::{self, BrokerCheckpoint, SettledEvent, Stamp};
 use super::resume::SiteContext;
 use super::EngineError;
+use crate::agents::kinds::{SeatKinds, UndeclaredKind};
 
 /// How many of the store's patiences an attempt's settlement gets — its
 /// terminal event, the evidence journaled with it, and the checkpoints
@@ -185,6 +186,18 @@ enum Refused {
     /// 0109a1r4, K1).
     #[error(transparent)]
     Live(LiveRefusal),
+    /// A driver's checkpoint named a kind its seat's harness does not
+    /// declare (decision 0075 ruling 2).
+    #[error(transparent)]
+    Kind(UndeclaredKind),
+}
+
+/// The kinds a sink's writer admits — the seat's own harness's — and the
+/// seat whose driver it reads.
+#[derive(Clone, Copy)]
+pub(super) struct Declared<'k> {
+    pub(super) kinds: &'k SeatKinds,
+    pub(super) seat: &'k str,
 }
 
 /// The outcome of an attempt whose checkpoint the journal refused
@@ -423,18 +436,30 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
     /// field or a work site's findings, is refused as a refused call is
     /// and fails the attempt, and so is one whose nested result reports a
     /// finding at all, since findings belong only to verdicts (fix round
-    /// 0109a1r5, V4). Then it is offered as any other.
+    /// 0109a1r5, V4). A checkpoint that admission admits and that names a
+    /// kind `declared` does not admit is refused the same way (decision
+    /// 0075 ruling 2). Then it is offered as any other.
     pub(super) fn offer_live(
         &mut self,
         owner: &str,
         mut checkpoint: Value,
         call: Result<Option<Stamp>, capability_calls::Refusal>,
         site: Option<&SiteContext>,
+        declared: Declared<'_>,
     ) {
         let reporter = site.map(SiteContext::reporter);
-        match admit_live(&mut checkpoint, reporter) {
+        // Decision 0109's refusal stays 0109's: the kind is judged only on
+        // a checkpoint its admission admits (the controller's ruling R7).
+        let admitted = admit_live(&mut checkpoint, reporter)
+            .map_err(Refused::Live)
+            .and_then(|()| {
+                (declared.kinds)
+                    .admit(&checkpoint, declared.seat)
+                    .map_err(Refused::Kind)
+            });
+        match admitted {
             Err(refusal) if self.failure.is_none() && self.refusal.is_none() => {
-                self.refusal = Some(Latched::new(owner, Refused::Live(refusal)));
+                self.refusal = Some(Latched::new(owner, refusal));
             }
             _ => self.offer(owner, checkpoint, call),
         }

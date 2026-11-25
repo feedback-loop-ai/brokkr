@@ -18,32 +18,37 @@ fn entry(extra: Value) -> Value {
 
 #[test]
 fn each_bind_check_refuses_in_its_own_variant() {
-    let refused = |raw: &Value, refusal: BindRefusal<'_>| {
+    let refused = |raw: &Value, refusal: BindRefusal| {
         assert_eq!(Bind::checked(raw), Err(refusal), "{raw}");
     };
     refused(&json!(["/opt/tool"]), BindRefusal::NotObject);
     refused(
         &entry(json!({"size": 3})),
-        BindRefusal::UnknownKey { key: "size" },
+        BindRefusal::UnknownKey {
+            key: "size".to_string(),
+        },
     );
     refused(&entry(json!({"path": null})), BindRefusal::NoPath);
     refused(&entry(json!({"path": ""})), BindRefusal::NoPath);
-    let path = "/opt/tool";
-    refused(&entry(json!({"mode": "RO"})), BindRefusal::Mode { path });
+    let path = "/opt/tool".to_string();
+    refused(
+        &entry(json!({"mode": "RO"})),
+        BindRefusal::Mode { path: path.clone() },
+    );
     refused(
         &entry(json!({"mask": "token"})),
-        BindRefusal::MaskNotArray { path },
+        BindRefusal::MaskNotArray { path: path.clone() },
     );
     for name in [json!(""), json!("conf/token"), json!(4)] {
         refused(
             &entry(json!({"mask": ["ok", name]})),
-            BindRefusal::MaskName { path },
+            BindRefusal::MaskName { path: path.clone() },
         );
     }
     assert_eq!(
         Bind::checked(&entry(json!({"mode": "overlay", "mask": ["token"]}))),
         Ok(Bind {
-            path: path.to_string(),
+            path,
             mode: BindMode::Overlay,
             mask: vec!["token".to_string()],
         })
@@ -52,14 +57,16 @@ fn each_bind_check_refuses_in_its_own_variant() {
 
 #[test]
 fn every_bind_refusal_reads_as_it_always_has() {
-    let path = "~/.cargo";
+    let path = "~/.cargo".to_string();
     for (refusal, text) in [
         (
             BindRefusal::NotObject,
             "hands.binds entry must be an object",
         ),
         (
-            BindRefusal::UnknownKey { key: "size" },
+            BindRefusal::UnknownKey {
+                key: "size".to_string(),
+            },
             "hands.binds entry has unknown key 'size'; known: path, mode, mask",
         ),
         (
@@ -67,11 +74,11 @@ fn every_bind_refusal_reads_as_it_always_has() {
             "hands.binds entry needs a non-empty 'path'",
         ),
         (
-            BindRefusal::Mode { path },
+            BindRefusal::Mode { path: path.clone() },
             "hands.binds entry '~/.cargo' needs mode \"ro\", \"rw\" or \"overlay\"",
         ),
         (
-            BindRefusal::MaskNotArray { path },
+            BindRefusal::MaskNotArray { path: path.clone() },
             "hands.binds entry '~/.cargo' mask must be an array",
         ),
         (

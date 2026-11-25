@@ -1,12 +1,16 @@
 {
-  "schema": "forge.realms/v3",
+  "schema": "forge.realms/v6",
   "realms": [
     {
       "name": "brokkr",
       "path": ".",
       "default_branch": "main",
       "house": "docs/house-rules.md",
-      "dialect": "openspec"
+      "dialect": "openspec",
+      "capabilities": {
+        "web-fetch": { "dialect": "claude-native-fetch", "offices": ["researcher"] },
+        "web-search": { "dialect": "claude-native-search", "offices": ["researcher"] }
+      }
     }
   ],
   "journal": ".forge/forge.db"

@@ -13,10 +13,6 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
 /// The companion effort every fixture candidate is hired at (decision
 /// 0035 ruling 5). One level across the chain on purpose: what these
 /// readouts are asked to explain is a fallback between MODELS, and an
@@ -79,21 +75,12 @@ impl Workspace {
         for (provider, model) in [("fake", "second"), ("other", "third")] {
             ws.write(
                 &format!("adapters/{provider}.json"),
-                json!({
-                    "provider": provider,
-                    "binary": brokkr_bin(),
-                    "driver": [
-                        brokkr_bin(), "fake-driver",
-                        "--script", ws.path().join("script.json").to_string_lossy(),
-                        "--state", ws.path().join("state").to_string_lossy(),
-                    ],
-                    "models": {model: format!("{provider}/{model}")},
-                    "model_flag": "--model",
-                    "efforts": ["low", "medium", "high"],
-                    "effort_flag": "--effort",
-                    "tool_permissions": "unsupported",
-                    "mcp": "unsupported",
-                }),
+                crate::fake_office::fake_adapter(
+                    provider,
+                    json!({model: format!("{provider}/{model}")}),
+                    &ws.path().join("script.json"),
+                    &ws.path().join("state"),
+                ),
             );
         }
         ws.write(
@@ -345,21 +332,12 @@ fn compare_reports_a_resolution_divergence_even_when_the_recipe_matches() {
     std::fs::remove_file(ws.path().join("adapters/absent.json")).unwrap();
     ws.write(
         "adapters/absent.json",
-        json!({
-            "provider": "absent",
-            "binary": brokkr_bin(),
-            "driver": [
-                brokkr_bin(), "fake-driver",
-                "--script", ws.path().join("script.json").to_string_lossy(),
-                "--state", ws.path().join("state2").to_string_lossy(),
-            ],
-            "models": {"first": "absent/first"},
-            "model_flag": "--model",
-            "efforts": ["low", "medium", "high"],
-            "effort_flag": "--effort",
-            "tool_permissions": "unsupported",
-            "mcp": "unsupported",
-        }),
+        crate::fake_office::fake_adapter(
+            "absent",
+            json!({"first": "absent/first"}),
+            &ws.path().join("script.json"),
+            &ws.path().join("state2"),
+        ),
     );
     let first_choice = ws.run();
 

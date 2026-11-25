@@ -105,16 +105,18 @@ fn an_offered_roots_history_is_its_own_attempts_calls_at_its_own_site() {
         provider_id: "r".into(),
         persistence_locator: None,
         persistence_home: None,
+        root_kind: None,
     };
     let context = SiteContext::new(site, "b".repeat(64), SeatClass::Work);
     let history = RootHistory {
         attempts: BTreeSet::from(["first".into(), "second".into()]),
         calls: BTreeSet::from(["n-first".into(), "n-second".into()]),
     };
-    let offered = context.clone().offered(&events, Some(&offer));
+    let key = SiteKey::single("work", None);
+    let offered = context.clone().offered(&events, &key, Some(&offer));
     assert_eq!(offered.history, history);
     assert_eq!(
-        context.offered(&events, None).history,
+        context.offered(&events, &key, None).history,
         RootHistory::default()
     );
 }
@@ -135,11 +137,13 @@ fn the_private_context_carries_the_owned_target_and_originating_digest() {
         provider_id: "session-1".into(),
         persistence_locator: Some("sessions/brokkr/seat-1".into()),
         persistence_home: Some("/home/operator/.dsh".into()),
+        root_kind: Some("dsh-session".into()),
     };
     let context = start_context(
         json!({"headless-work": {"status": "supported"}}),
         Some(&originating),
         Some(&target),
+        None,
         None,
     );
     assert_eq!(context["originating_harness_version"], "0.1.5-rc.1");
@@ -163,6 +167,7 @@ fn the_private_context_carries_the_owned_target_and_originating_digest() {
         None,
         None,
         None,
+        None,
     );
     assert_eq!(cold["assessment"]["headless-work"]["status"], "unmeasured");
     assert!(cold.get("owned_target").is_none());
@@ -180,6 +185,7 @@ fn the_private_context_carries_the_owned_target_and_originating_digest() {
     let context = start_context(
         json!({"headless-work": {"status": "supported"}}),
         Some(&versionless),
+        None,
         None,
         None,
     );
@@ -204,6 +210,7 @@ fn the_private_context_carries_a_supplied_route_overlay_binding() {
         None,
         None,
         Some(&binding),
+        None,
     );
     assert_eq!(
         context["route_overlay"]["value"],
@@ -220,6 +227,35 @@ fn the_private_context_carries_a_supplied_route_overlay_binding() {
         None,
         None,
         None,
+        None,
     );
     assert!(none.get("route_overlay").is_none());
+}
+
+/// #1227 W6: `start_context` writes `DeclaredTranscriptKind` through the one
+/// shared type in `brokkr-protocol` that the driver reads back; if either side
+/// disagrees on the key or shape, this round-trip fails.
+#[test]
+fn start_context_carries_declared_transcript_kind_through_the_shared_type() {
+    use brokkr_protocol::DeclaredTranscriptKind;
+
+    let agy = DeclaredTranscriptKind::AgyConversation;
+    let with_kind = start_context(json!(null), None, None, None, Some(&agy));
+    assert_eq!(
+        DeclaredTranscriptKind::read_from(&json!({"resume_context": with_kind})),
+        Ok(Some(DeclaredTranscriptKind::AgyConversation))
+    );
+
+    let custom = DeclaredTranscriptKind::parse("custom-transcript").unwrap();
+    let with_custom = start_context(json!(null), None, None, None, Some(&custom));
+    assert_eq!(
+        DeclaredTranscriptKind::read_from(&json!({"resume_context": with_custom})),
+        Ok(Some(custom))
+    );
+
+    let without_kind = start_context(json!(null), None, None, None, None);
+    assert_eq!(
+        DeclaredTranscriptKind::read_from(&json!({"resume_context": without_kind})),
+        Ok(None)
+    );
 }

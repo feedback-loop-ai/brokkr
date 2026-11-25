@@ -10,7 +10,7 @@ judges it, sends findings back to a smith, and ships it, so the pull
 request names a run all the same (decision 0051).
 
 <!-- required-checks:start -->
-`main`'s branch protection, as observed on 2026-09-26 ([snapshot](.github/branch-protection.json)), requires 12 checks: `delivered by brokkr`, `MSRV (1.89)`, `format, clippy, contracts`, `test (ubuntu-latest)`, `test (macos-latest)`, `exact coverage gate`, `dependency licenses (cargo-deny)`, `non-Rust lints`, `baseline ratchets`, `RustSec dependency audit`, `release binary artifact`, and `mutants in the diff: brokkr-core`. It requires signed commits, does not require a branch to be up to date with `main`, does not require an approving review, and does not apply to administrators.
+`main`'s branch protection, as observed on 2026-09-26 ([snapshot](.github/branch-protection.json)), requires 12 checks: `delivered by brokkr`, `baseline ratchets`, `MSRV (1.89)`, `format, clippy, contracts`, `test (ubuntu-latest)`, `test (macos-latest)`, `exact coverage gate`, `dependency licenses (cargo-deny)`, `non-Rust lints`, `RustSec dependency audit`, `release binary artifact`, and `mutants in the diff: brokkr-core`. It requires signed commits, does not require a branch to be up to date with `main`, does not require an approving review, and does not apply to administrators.
 <!-- required-checks:end -->
 
 `delivered by brokkr` is the check that enforces the run: it passes a pull request that names a completed run, or one the operator has given the visible `by-hand` label, which the gate itself reads. Because administrators are exempt, an administrator can still merge past it.
@@ -95,7 +95,7 @@ preflight` on the new head, named as `Brokkr-Preflight: <run-id>`; a code
 delta needs a new run. Only the operator may apply the visible `by-hand`
 escape-hatch label, and only where no landing can stand (decision 0051).
 
-Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit.
+Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit. A pull request that changes only documentation, `.md` pages under `docs/` or at the top level that no code names, runs [the docs lane](docs/guides/contributing-by-hand.md#the-docs-lane): the tests that read documentation, in minutes, in place of the test and coverage machines, and the three suite checks pass on that lane's own result. It still lands through the merge queue's full run (#1295).
 
 ## 6. Dependency admission
 

@@ -216,6 +216,22 @@ pub(crate) fn safe(run_id: &str) -> bool {
     }
 }
 
+/// The holder `run_id`'s lock beside `journal` records, read without
+/// taking the lock, making the directory or following a link, for
+/// admission's read of a running run's driver (decision 0125 ruling 1):
+/// `None` where nothing is recorded or it does not read. The facts are the
+/// last driver's, and a pid in them may since be another process's.
+pub(crate) fn recorded_at(journal: &Path, run_id: &str) -> Option<Holder> {
+    if !safe(run_id) {
+        return None;
+    }
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let file = openat(CWD, beside(journal, run_id), flags, Mode::empty()).ok()?;
+    let kind = fstat(&file).ok()?;
+    let regular = FileType::from_raw_mode(kind.st_mode) == FileType::RegularFile;
+    regular.then(|| recorded(file)).flatten()
+}
+
 /// The lock's path, for the operator's refusal.
 fn beside(journal: &Path, run_id: &str) -> PathBuf {
     directory_path(journal).join(format!("{run_id}{SUFFIX}"))

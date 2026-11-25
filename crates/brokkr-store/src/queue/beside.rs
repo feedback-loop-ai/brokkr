@@ -53,7 +53,7 @@ impl Beside {
 fn left_the_queue(entry: EntryId, state: EntryState) -> Option<QueueRefusal> {
     match state {
         EntryState::Dropped => Some(QueueRefusal::Dropped(entry)),
-        EntryState::Claimed { run } => Some(QueueRefusal::Claimed { entry, run }),
+        EntryState::Claimed { run, .. } => Some(QueueRefusal::Claimed { entry, run }),
         EntryState::Launching => Some(QueueRefusal::Launching(entry)),
         EntryState::Queued | EntryState::Held => None,
     }

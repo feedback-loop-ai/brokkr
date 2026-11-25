@@ -5,7 +5,7 @@
 //! review phase, model-backed work and review offices, deterministic
 //! verify and ship offices, and the bundled headless Claude Code and exec
 //! drivers. Everything written is ordinary text meant to be reviewed and
-//! edited in git, and nothing is written outside the folder.
+//! edited in git. The CLI also seeds an absent machine host file (decision 0125).
 //!
 //! The scaffold is a WORKSPACE, not only a bundle: it carries its own
 //! `adapters/` and `agents/` trees, because since decision 0021 the tier

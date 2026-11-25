@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2608.21884
 Authors: Lulla, Treude (Singapore Management University); Nersesyan, Mohsenimofidi, Baltes (Heidelberg University)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: chat session, operator-fed, 2026-09-04
 
 ## Summary

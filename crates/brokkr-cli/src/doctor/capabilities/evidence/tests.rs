@@ -21,18 +21,19 @@ fn reported(home: Option<&Path>) -> Report {
 
 /// S9/R6: doctor reports a host that names no HOME in its evidence lines,
 /// the arm a call site conditional on HOME would leave unreachable.
+/// `doctor()` itself reaches the real probe, so the re-run is alone in its
+/// PID namespace (#1137h, I4).
+#[cfg(target_os = "linux")]
 #[test]
 fn doctor_names_a_host_that_names_no_home_in_its_evidence_lines() {
+    if crate::doctor::hermetic_tests::rerun_alone(&[]) {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let mut env = crate::tests::env_guard::EnvGuard::lock();
     env.remove("HOME");
     env.remove("XDG_STATE_HOME");
-    let report = crate::doctor::doctor(
-        None,
-        Some(&dir.path().join("forge.db")),
-        &crate::folder::DoctorDefaults::of(dir.path().into(), None),
-        None,
-    );
+    let report = crate::doctor::hermetic_tests::doctored_in(dir.path());
     let rendered = report.render();
     assert!(rendered.contains("names no HOME"), "{rendered}");
 }

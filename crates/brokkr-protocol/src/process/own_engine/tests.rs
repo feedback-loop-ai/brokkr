@@ -48,16 +48,28 @@ fn overrun(stuck: Command, bound: Duration) -> String {
     *rerun.join().unwrap_err().downcast::<String>().unwrap()
 }
 
-/// How a stuck rerun fails, before what it printed.
-const KILLED: &str = "the rerun ends within 2s; killed, reaped by signal 9, it printed:\n";
+/// How a rerun stuck past `bound` fails, before what it printed.
+fn killed(bound: Duration) -> String {
+    format!("the rerun ends within {bound:?}; killed, reaped by signal 9, it printed:\n")
+}
+
+/// How long a stuck rerun runs before it is killed.
+const STUCK: Duration = Duration::from_secs(2);
+
+/// How long a rerun that writes without pause runs before it is killed:
+/// long enough that [`ended`] drains more than [`KEPT`] from it on a loaded
+/// host (#1310). [`ended`] reads a [`CHUNK`] a poll, every 20 ms, so the
+/// tail fills only after 16 full polls; one loaded lane read 827,392 bytes
+/// in 2 s, and ten seconds is five times that margin.
+const WRITING: Duration = Duration::from_secs(10);
 
 #[test]
 fn a_rerun_whose_child_never_exits_fails_within_patience_and_leaves_no_child() {
     let dir = tempfile::tempdir().unwrap();
     let pid = dir.path().join("pid");
     let stuck = shell(&pid, "echo stuck; exec sleep 600");
-    let failed = overrun(stuck, Duration::from_secs(2));
-    assert_eq!(failed, format!("{KILLED}stuck\n"));
+    let failed = overrun(stuck, STUCK);
+    assert_eq!(failed, format!("{}stuck\n", killed(STUCK)));
     assert_eq!(test_kill_process(written(&pid)), Err(Errno::SRCH));
 }
 
@@ -67,8 +79,8 @@ fn a_rerun_whose_child_never_exits_fails_within_patience_and_leaves_no_child() {
 fn a_rerun_that_never_stops_writing_fails_within_patience_keeping_its_tail() {
     let dir = tempfile::tempdir().unwrap();
     let pid = dir.path().join("pid");
-    let failed = overrun(shell(&pid, "exec yes"), Duration::from_secs(2));
-    let tail = failed.strip_prefix(KILLED).unwrap();
+    let failed = overrun(shell(&pid, "exec yes"), WRITING);
+    let tail = failed.strip_prefix(&killed(WRITING)).unwrap();
     assert_eq!(tail.len(), KEPT);
     assert!(tail.bytes().all(|byte| b"y\n".contains(&byte)));
     assert_eq!(test_kill_process(written(&pid)), Err(Errno::SRCH));
@@ -107,9 +119,9 @@ fn a_rerun_whose_descendant_holds_its_output_fails_within_patience_showing_it() 
     let held = dir.path().join("held");
     let mut stuck = shell(&pid, "echo stuck; sleep 600 & echo $! > \"$1\"; wait");
     stuck.arg(&held);
-    let failed = overrun(stuck, Duration::from_secs(2));
+    let failed = overrun(stuck, STUCK);
     kill_holder(&held);
-    assert_eq!(failed, format!("{KILLED}stuck\n"));
+    assert_eq!(failed, format!("{}stuck\n", killed(STUCK)));
     assert_eq!(test_kill_process(written(&pid)), Err(Errno::SRCH));
 }
 

@@ -84,12 +84,59 @@ pub(super) fn exited_non_zero(exit_code: i32) -> bool {
 /// exited with a code of its own from a settled launch. A command a
 /// signal ended, or a rejoin nobody confirmed, left no result whatever
 /// its stream said, so it ends lost and is never retried as a refusal.
+/// Delivery is `exit_code == 0` with an observed existing result file (even
+/// 0 bytes: main's `run_seat_with` rule, so decision 0001 parks on an
+/// unparseable file rather than discarding the attempt as a refusal to start).
+/// One filesystem observation of `input["result_path"]` (#1178 H3, #1227 Y5),
+/// shared by `adapters::delivered_result` and `agy::concluded` so the path
+/// lookup and non-empty delivery rule have one home (decision 0071 ruling 5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ResultFile {
+    Absent,
+    Empty,
+    NonEmpty,
+}
+
+impl ResultFile {
+    /// Observe `input["result_path"]` once.
+    pub(super) fn observe(input: &serde_json::Value) -> Self {
+        let Some(meta) = input
+            .get("result_path")
+            .and_then(serde_json::Value::as_str)
+            .filter(|path| !path.is_empty())
+            .and_then(|path| std::fs::metadata(path).ok())
+        else {
+            return Self::Absent;
+        };
+        if meta.len() > 0 {
+            Self::NonEmpty
+        } else {
+            Self::Empty
+        }
+    }
+
+    pub(super) fn exists(self) -> bool {
+        !matches!(self, Self::Absent)
+    }
+
+    pub(super) fn delivered(self) -> bool {
+        matches!(self, Self::NonEmpty)
+    }
+}
+
+/// Predicate over the one observation shared by `run_seat_with` and
+/// `agy::invoke` (#1227 W7, Y5). `result_exists` is queried only when
+/// `exit_code == 0`, preserving the exit-code short circuit so a nonzero exit
+/// never performs a filesystem metadata lookup.
 pub(super) fn refusal_to_start(
     refusal: Option<crate::PreSessionRefusal>,
-    worked: bool,
+    began_work: bool,
+    result_exists: impl FnOnce() -> bool,
     exit_code: i32,
     launch: LaunchTerminal,
 ) -> Option<crate::PreSessionRefusal> {
+    let delivered = exit_code == 0 && result_exists();
+    let worked = began_work || delivered;
     refusal.filter(|_| !worked && exit_code != SIGNALLED && !launch.is_unsettled())
 }
 
