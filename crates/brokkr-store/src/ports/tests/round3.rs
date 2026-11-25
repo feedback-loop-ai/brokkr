@@ -16,8 +16,8 @@ use tempfile::tempdir;
 
 use super::regressions::{sealed_event, sqlite_table_count};
 use super::{
-    open_split_journal, sample_manifest, started_payload, MemCoordinationStore, MemEventLog,
-    MemProjectionStore,
+    open_split_journal, plain_event, sample_manifest, started_payload, MemCoordinationStore,
+    MemEventLog, MemProjectionStore,
 };
 use crate::ports::{EventLog, Journal, ProjectionStore, SqlitePorts};
 use crate::{ImportError, Store, StoreError};
@@ -84,10 +84,12 @@ fn journal_append_refuses_tampered_prefix_and_foreign_run_stream() {
     let e1 = journal
         .append_event(
             "run-a",
-            EventType::RunStarted,
-            started_payload("alpha"),
-            None,
-            "2026-11-25T10:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("alpha"),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
         )
         .unwrap();
 
@@ -96,10 +98,12 @@ fn journal_append_refuses_tampered_prefix_and_foreign_run_stream() {
     assert!(matches!(
         journal.append_event(
             "run-a",
-            EventType::PhaseEntered,
-            json!({"phase": "implement"}),
-            None,
-            "2026-11-25T10:00:01Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "implement"}),
+                None,
+                "2026-11-25T10:00:01Z"
+            )
         ),
         Err(StoreError::Chain(ChainError::BadHash { seq: 1 }))
     ));
@@ -107,10 +111,12 @@ fn journal_append_refuses_tampered_prefix_and_foreign_run_stream() {
         journal.append_if_head(
             "run-a",
             (1, &e1.event_hash),
-            EventType::PhaseEntered,
-            json!({"phase": "implement"}),
-            None,
-            "2026-11-25T10:00:02Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "implement"}),
+                None,
+                "2026-11-25T10:00:02Z"
+            )
         ),
         Err(StoreError::Chain(ChainError::BadHash { seq: 1 }))
     ));
@@ -122,10 +128,12 @@ fn journal_append_refuses_tampered_prefix_and_foreign_run_stream() {
     assert!(matches!(
         journal.append_event(
             "run-b",
-            EventType::PhaseEntered,
-            json!({"phase": "verify"}),
-            None,
-            "2026-11-25T10:00:03Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "verify"}),
+                None,
+                "2026-11-25T10:00:03Z"
+            )
         ),
         Err(StoreError::Chain(ChainError::ForeignRun { seq: 1 }))
     ));
@@ -133,10 +141,12 @@ fn journal_append_refuses_tampered_prefix_and_foreign_run_stream() {
         journal.append_if_head(
             "run-b",
             (1, &foreign_e1.event_hash),
-            EventType::PhaseEntered,
-            json!({"phase": "verify"}),
-            None,
-            "2026-11-25T10:00:04Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "verify"}),
+                None,
+                "2026-11-25T10:00:04Z"
+            )
         ),
         Err(StoreError::Chain(ChainError::ForeignRun { seq: 1 }))
     ));
@@ -444,10 +454,7 @@ fn append_parked_session_flow<
             journal
                 .append_event(
                     run_id,
-                    ty,
-                    payload,
-                    None,
-                    &format!("2026-11-25T09:00:{sec}Z"),
+                    plain_event(ty, payload, None, &format!("2026-11-25T09:00:{sec}Z")),
                 )
                 .unwrap()
         })
@@ -795,19 +802,23 @@ fn import_ndjson_projection_lag_heals_via_reindex() {
     src_journal
         .append_event(
             "heal-1",
-            EventType::RunStarted,
-            started_payload("heal-feat"),
-            None,
-            "2026-11-25T11:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("heal-feat"),
+                None,
+                "2026-11-25T11:00:00Z",
+            ),
         )
         .unwrap();
     src_journal
         .append_event(
             "heal-1",
-            EventType::PhaseEntered,
-            json!({"phase": "verify"}),
-            None,
-            "2026-11-25T11:00:05Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "verify"}),
+                None,
+                "2026-11-25T11:00:05Z",
+            ),
         )
         .unwrap();
     let ndjson = src_journal.export_ndjson("heal-1").unwrap();

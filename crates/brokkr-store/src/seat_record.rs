@@ -186,6 +186,15 @@ impl SeatRecordVersion {
         engine.map_or(SeatRecordVersion::V1, SeatRecordVersion::of_engine)
     }
 
+    /// The stricter (older) of two seat-record contract versions.
+    pub(crate) fn stricter(self, other: Self) -> Self {
+        if (self as u8) <= (other as u8) {
+            self
+        } else {
+            other
+        }
+    }
+
     /// The published file this version validates against, named in the
     /// refusal so a reader knows which contract was applied.
     pub fn contract(self) -> &'static str {

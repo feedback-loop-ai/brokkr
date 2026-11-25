@@ -43,14 +43,22 @@ impl<'a> SqlitePorts<'a> {
         Self(store)
     }
 
-    fn projected_runs(&self) -> Result<Vec<String>, StoreError> {
+    fn projected_runs(&self) -> Result<Vec<(String, i64)>, StoreError> {
         patiently("rebuild", self.0.patience, &self.0.path, || {
-            query_strings(&self.0.conn, EXISTING_PROJECTED_RUNS)
+            Ok(self
+                .0
+                .conn
+                .prepare(EXISTING_PROJECTED_RUNS)?
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?)
         })
     }
 }
 
-const UPDATE_CREATED_AT: &str = "UPDATE runs SET created_at = ?2 WHERE run_id = ?1";
+const UPDATE_STARTED_META: &str = "UPDATE runs
+     SET created_at = ?2,
+         feature = CASE WHEN feature = '' AND ?3 != '' THEN ?3 ELSE feature END
+     WHERE run_id = ?1";
 const LIST_RUNS_SUMMARY: &str =
     "SELECT run_id, COALESCE(feature, ''), COALESCE(created_at_whole, created_at, '')
      FROM run_summary
@@ -208,20 +216,51 @@ fn read_local_event(r: &rusqlite::Row<'_>) -> rusqlite::Result<(i64, String, Str
     Ok((r.get(0)?, r.get(1)?, r.get(2)?))
 }
 
-fn load_verified_local(tx: &Connection, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
-    refuse_row_before_chain(tx, run_id)?;
-    let rows = tx
-        .prepare("SELECT seq, event_hash, envelope FROM events WHERE run_id = ?1 ORDER BY seq")?
-        .query_map(params![run_id], read_local_event)?
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut local = Vec::with_capacity(rows.len());
+fn read_verified_rows(
+    conn: &Connection,
+    run_id: &str,
+    after: Option<i64>,
+    on_mismatch: &dyn Fn(ChainError) -> StoreError,
+) -> Result<Vec<EventEnvelope>, StoreError> {
+    const ALL: &str = "SELECT seq, event_hash, envelope FROM events WHERE run_id = ?1 ORDER BY seq";
+    const AFTER: &str =
+        "SELECT seq, event_hash, envelope FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq";
+    let rows = match after {
+        None => conn
+            .prepare(ALL)?
+            .query_map(params![run_id], read_local_event)?
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(seq) => conn
+            .prepare(AFTER)?
+            .query_map(params![run_id, seq], read_local_event)?
+            .collect::<Result<Vec<_>, _>>()?,
+    };
+    let mut events = Vec::with_capacity(rows.len());
     for (sql_seq, sql_hash, raw) in rows {
         let envelope = damage::envelope(run_id, sql_seq, &raw)?;
-        if sql_seq as u64 != envelope.seq || sql_hash != envelope.event_hash {
-            return Err(divergent(run_id));
+        if sql_seq < 1 {
+            return Err(StoreError::RowBeforeChain {
+                run_id: run_id.to_string(),
+                seq: sql_seq,
+            });
         }
-        local.push(envelope);
+        if sql_seq as u64 != envelope.seq {
+            return Err(on_mismatch(ChainError::SeqGap {
+                seq: envelope.seq,
+                expected: sql_seq as u64,
+            }));
+        }
+        if sql_hash != envelope.event_hash {
+            return Err(on_mismatch(ChainError::BadHash { seq: envelope.seq }));
+        }
+        events.push(envelope);
     }
+    Ok(events)
+}
+
+fn load_verified_local(tx: &Connection, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
+    refuse_row_before_chain(tx, run_id)?;
+    let local = read_verified_rows(tx, run_id, None, &|_| divergent(run_id))?;
     verify_chain_after(run_id, 0, ZERO_HASH, &local)?;
     Ok(local)
 }
@@ -246,7 +285,12 @@ fn insert_events(
         let serialized = serde_json::to_string(envelope)?;
         insert.execute(params![run_id, seq, envelope.event_hash, serialized])?;
         if envelope.seq == 1 {
-            tx.execute(UPDATE_CREATED_AT, params![run_id, envelope.recorded_at])?;
+            let feature = (envelope.event_type == EventType::RunStarted)
+                .then(|| envelope.payload.get("feature").and_then(Value::as_str))
+                .flatten()
+                .unwrap_or_default();
+            let args = params![run_id, envelope.recorded_at, feature];
+            tx.execute(UPDATE_STARTED_META, args)?;
         }
         *head_seq = envelope.seq;
     }
@@ -350,9 +394,9 @@ impl EventLog for SqlitePorts<'_> {
         patiently("load", self.0.patience, &self.0.path, || {
             ensure_run_exists(&self.0.conn, run_id)?;
             let rows = if from_seq <= 1 {
-                self.0.rows(run_id, None)?
+                read_verified_rows(&self.0.conn, run_id, None, &StoreError::Chain)?
             } else if let Ok(after) = i64::try_from(from_seq - 1) {
-                self.0.rows(run_id, Some(after))?
+                read_verified_rows(&self.0.conn, run_id, Some(after), &StoreError::Chain)?
             } else {
                 Vec::new()
             };

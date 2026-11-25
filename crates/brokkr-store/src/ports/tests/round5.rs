@@ -4,18 +4,12 @@
 //! concurrent decoupled `rebuild_from` preservation, decoupled feature
 //! preservation, and co-located `list_runs` tie-breaking parity.
 
-use brokkr_core::canonical::ZERO_HASH;
-use brokkr_core::envelope::{EventEnvelope, EventType};
 use rusqlite::{params, Connection};
-use serde_json::json;
-use tempfile::tempdir;
 
 use super::regressions::{sealed_event, sqlite_table_count};
 use super::round3::{started_event, summary_snapshot};
 use super::round4::completed_vs_phase_pair;
-use super::{query_run_pairs, sample_manifest, InterceptingMemLog, MemEventLog};
-use crate::ports::{EventLog, ProjectionStore, SqlitePorts};
-use crate::{Store, StoreError};
+use super::*;
 
 fn summary_hash(path: &std::path::Path, run_id: &str) -> String {
     let conn = Connection::open(path).unwrap();
@@ -37,6 +31,7 @@ fn event_index_types(path: &std::path::Path, run_id: &str) -> Vec<(i64, String)>
 
 fn assert_colocated_divergent(
     ports: &SqlitePorts<'_>,
+    external: &dyn EventLog,
     expected_run_id: &str,
     batch: &[EventEnvelope],
 ) {
@@ -45,7 +40,7 @@ fn assert_colocated_divergent(
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == expected_run_id
     ));
     assert!(matches!(
-        ports.rebuild_from(ports),
+        ports.rebuild_from(external),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == expected_run_id
     ));
 }
@@ -248,6 +243,10 @@ fn colocated_apply_envelopes_and_rebuild_refuse_tampered_sql_event_columns() {
     ports
         .apply_envelopes("t1", &[e1.clone(), e2_completed.clone()])
         .unwrap();
+    let clean = MemEventLog::default();
+    clean
+        .import_run_stream("t1", &manifest, &[e1.clone(), e2_completed.clone()])
+        .unwrap();
 
     let raw = Connection::open(&path).unwrap();
     raw.execute_batch("DROP TRIGGER events_append_only_update;")
@@ -257,7 +256,11 @@ fn colocated_apply_envelopes_and_rebuild_refuse_tampered_sql_event_columns() {
         [],
     )
     .unwrap();
-    assert_colocated_divergent(&ports, "t1", &[e1.clone(), e2_completed.clone()]);
+    assert_colocated_divergent(&ports, &clean, "t1", &[e1.clone(), e2_completed.clone()]);
+    assert!(matches!(
+        ports.rebuild_from(&ports),
+        Err(StoreError::Chain(ChainError::BadHash { seq: 2 }))
+    ));
 
     raw.execute(
         "UPDATE events SET event_hash = ?1, seq = 99 WHERE run_id = 't1' AND seq = 2",
@@ -265,7 +268,14 @@ fn colocated_apply_envelopes_and_rebuild_refuse_tampered_sql_event_columns() {
     )
     .unwrap();
     drop(raw);
-    assert_colocated_divergent(&ports, "t1", &[e1, e2_completed]);
+    assert_colocated_divergent(&ports, &clean, "t1", &[e1, e2_completed]);
+    assert!(matches!(
+        ports.rebuild_from(&ports),
+        Err(StoreError::Chain(ChainError::SeqGap {
+            seq: 2,
+            expected: 99
+        }))
+    ));
 }
 
 #[test]

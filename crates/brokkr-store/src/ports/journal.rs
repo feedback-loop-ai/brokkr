@@ -20,6 +20,16 @@ use crate::{
 
 use super::{CoordinationStore, EventLog, ProjectionStore};
 
+/// Event fields sealed by [`Journal::append_event`] and
+/// [`Journal::append_if_head`].
+pub struct NewEvent<'a> {
+    pub event_type: EventType,
+    pub payload: Value,
+    pub causation_id: Option<&'a str>,
+    pub attempt_id: Option<&'a str>,
+    pub ts: &'a str,
+}
+
 /// Backend-agnostic journal facade composing an [`EventLog`], a
 /// [`ProjectionStore`], and a [`CoordinationStore`] (decision 0126 ruling 2).
 pub struct Journal<E, P, C> {
@@ -67,13 +77,10 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
     pub fn append_event(
         &self,
         run_id: &str,
-        event_type: EventType,
-        payload: Value,
-        causation_id: Option<&str>,
-        ts: &str,
+        event: NewEvent<'_>,
     ) -> Result<EventEnvelope, StoreError> {
         let (seq, hash) = self.event_log.head(run_id)?;
-        self.append_checked(run_id, (seq, &hash), event_type, payload, causation_id, ts)
+        self.append_checked(run_id, (seq, &hash), event)
     }
 
     /// Seal and append an event onto `run_id` only while its head matches
@@ -82,12 +89,9 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
         &self,
         run_id: &str,
         expected_head: (u64, &str),
-        event_type: EventType,
-        payload: Value,
-        causation_id: Option<&str>,
-        ts: &str,
+        event: NewEvent<'_>,
     ) -> Result<EventEnvelope, StoreError> {
-        self.append_checked(run_id, expected_head, event_type, payload, causation_id, ts)
+        self.append_checked(run_id, expected_head, event)
     }
 
     /// Load `run_id`'s full event stream from sequence 1 and verify hash-chain
@@ -161,10 +165,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
         &self,
         run_id: &str,
         expected_head: (u64, &str),
-        event_type: EventType,
-        payload: Value,
-        causation_id: Option<&str>,
-        ts: &str,
+        event: NewEvent<'_>,
     ) -> Result<EventEnvelope, StoreError> {
         let seq = expected_head
             .0
@@ -183,19 +184,26 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
                 found_seq,
             });
         }
-        refuse_after_terminal(run_id, &events, event_type)?;
-        validate_record(&events, seq, event_type, &payload)?;
+        refuse_after_terminal(run_id, &events, event.event_type)?;
+        validate_record(
+            &self.event_log,
+            run_id,
+            &events,
+            seq,
+            event.event_type,
+            &event.payload,
+        )?;
         let envelope = EventEnvelope {
             run_id: run_id.to_string(),
             seq,
             event_id: uuid::Uuid::new_v4().to_string(),
             event_schema_version: EVENT_SCHEMA_VERSION,
-            event_type,
-            payload,
-            causation_id: causation_id.map(str::to_owned),
+            event_type: event.event_type,
+            payload: event.payload,
+            causation_id: event.causation_id.map(str::to_owned),
             correlation_id: run_id.to_string(),
-            attempt_id: None,
-            recorded_at: ts.to_string(),
+            attempt_id: event.attempt_id.map(str::to_owned),
+            recorded_at: event.ts.to_string(),
             previous_hash: expected_head.1.to_string(),
             event_hash: String::new(),
         }
@@ -248,6 +256,8 @@ fn refuse_after_terminal(
 }
 
 fn validate_record(
+    event_log: &dyn EventLog,
+    run_id: &str,
     events: &[EventEnvelope],
     seq: u64,
     event_type: EventType,
@@ -260,12 +270,18 @@ fn validate_record(
     if record.is_none() && !has_settled {
         return Ok(());
     }
-    let engine = events
+    let manifest = event_log.manifest(run_id)?;
+    let manifest_version =
+        SeatRecordVersion::of_manifest(manifest.get("engine").and_then(Value::as_str));
+    let started_engine = events
         .iter()
         .find(|event| event.event_type == EventType::RunStarted)
         .and_then(|event| event.payload.pointer("/manifest/engine"))
         .and_then(Value::as_str);
-    let version = SeatRecordVersion::of_manifest(engine);
+    let version = match started_engine {
+        Some(engine) => manifest_version.stricter(SeatRecordVersion::of_engine(engine)),
+        None => manifest_version,
+    };
     if let Some(record) = record {
         seat_record::validate_seat_record(record, seq, version)?;
     }

@@ -38,19 +38,25 @@ const PROJECTION_TABLES: [&str; 6] = [
     "event_index",
     "projection_hashes",
 ];
-pub(super) const EXISTING_PROJECTED_RUNS: &str = "SELECT run_id FROM run_summary
-     UNION SELECT DISTINCT run_id FROM seat_summary
-     UNION SELECT run_id FROM seat_head
-     UNION SELECT run_id FROM seat_lag
-     UNION SELECT DISTINCT run_id FROM event_index
-     UNION SELECT DISTINCT run_id FROM projection_hashes";
+pub(super) const EXISTING_PROJECTED_RUNS: &str = "SELECT p.run_id, COALESCE(s.head_seq, 0)
+     FROM (
+         SELECT run_id FROM run_summary
+         UNION SELECT DISTINCT run_id FROM seat_summary
+         UNION SELECT run_id FROM seat_head
+         UNION SELECT run_id FROM seat_lag
+         UNION SELECT DISTINCT run_id FROM event_index
+         UNION SELECT DISTINCT run_id FROM projection_hashes
+     ) AS p
+     LEFT JOIN run_summary AS s ON s.run_id = p.run_id";
 const LOCAL_RUNS: &str = "SELECT run_id FROM runs
      UNION SELECT DISTINCT run_id FROM events
      ORDER BY run_id";
 const DECOUPLED_PREFIX_HASHES: &str = "SELECT seq, event_hash FROM projection_hashes
-     WHERE run_id = ?1 AND seq <= ?2 ORDER BY seq";
+     WHERE run_id = ?1 AND seq >= 1 AND seq <= ?2 ORDER BY seq";
 const PROJECTION_HASH_AT_SEQ: &str =
     "SELECT event_hash FROM projection_hashes WHERE run_id = ?1 AND seq = ?2";
+const CURRENT_SUMMARY_HEAD: &str =
+    "SELECT COALESCE(MAX(head_seq), 0) FROM run_summary WHERE run_id = ?1";
 
 pub(super) struct VerifiedRun {
     pub(super) run_id: String,
@@ -230,11 +236,16 @@ fn clear_run_projections(tx: &Connection, run_id: &str) -> Result<(), StoreError
 
 fn clear_stale_projections(
     tx: &Connection,
-    pre_existing: &[String],
+    pre_existing: &[(String, i64)],
     keep: &BTreeSet<&str>,
 ) -> Result<(), StoreError> {
-    for run_id in pre_existing {
-        if !keep.contains(run_id.as_str()) {
+    for (run_id, pre_head_seq) in pre_existing {
+        if keep.contains(run_id.as_str()) {
+            continue;
+        }
+        let current_head: i64 =
+            tx.query_row(CURRENT_SUMMARY_HEAD, params![run_id], |row| row.get(0))?;
+        if current_head <= *pre_head_seq {
             clear_run_projections(tx, run_id)?;
         }
     }
@@ -267,26 +278,24 @@ fn is_colocated_projection_current(
     }))
 }
 
-fn verify_decoupled_prefix(
+fn verify_overlapping_hashes(
     tx: &Connection,
     run_id: &str,
     envelopes: &[EventEnvelope],
-) -> Result<(), StoreError> {
-    let incoming_max = checked_seq(envelopes.len() as u64)?;
+    incoming_max: i64,
+) -> Result<usize, StoreError> {
     let stored: Vec<(i64, String)> = tx
         .prepare(DECOUPLED_PREFIX_HASHES)?
         .query_map(params![run_id, incoming_max], |row| {
             Ok((row.get(0)?, row.get(1)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    let incoming: Vec<(i64, String)> = envelopes
-        .iter()
-        .map(|envelope| (envelope.seq as i64, envelope.event_hash.clone()))
-        .collect();
-    if stored != incoming {
-        return Err(divergent(run_id));
+    for (seq, stored_hash) in &stored {
+        if envelopes[(*seq - 1) as usize].event_hash != *stored_hash {
+            return Err(divergent(run_id));
+        }
     }
-    Ok(())
+    Ok(stored.len())
 }
 
 fn verify_projection_hash(
@@ -311,21 +320,27 @@ fn plan_decoupled_apply(
     run_id: &str,
     envelopes: &[EventEnvelope],
 ) -> Result<DecoupledAction, StoreError> {
+    let incoming_max = checked_seq(envelopes.len() as u64)?;
+    let stored_count = verify_overlapping_hashes(tx, run_id, envelopes, incoming_max)?;
     let Some((existing_head_seq, existing_folded_seq, existing_head_hash)) =
         summary_progress(tx, run_id, 1)?
     else {
         return Ok(DecoupledAction::Project);
     };
-    let incoming_max = checked_seq(envelopes.len() as u64)?;
     if incoming_max < existing_head_seq {
-        verify_decoupled_prefix(tx, run_id, envelopes)?;
+        if stored_count != envelopes.len() {
+            return Err(divergent(run_id));
+        }
         return Ok(DecoupledAction::Skip);
     }
     let at_head = &envelopes[(existing_head_seq - 1) as usize];
     if at_head.event_hash != existing_head_hash {
         return Err(divergent(run_id));
     }
-    if incoming_max == existing_head_seq && existing_folded_seq == Some(existing_head_seq) {
+    if incoming_max == existing_head_seq
+        && existing_folded_seq == Some(existing_head_seq)
+        && stored_count == envelopes.len()
+    {
         return Ok(DecoupledAction::Skip);
     }
     Ok(DecoupledAction::Project)
@@ -405,7 +420,7 @@ pub(super) fn rebuild_colocated(
 pub(super) fn rebuild_decoupled(
     tx: &Connection,
     verified: &[VerifiedRun],
-    pre_existing: &[String],
+    pre_existing: &[(String, i64)],
 ) -> Result<u64, StoreError> {
     let keep: BTreeSet<&str> = verified
         .iter()

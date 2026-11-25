@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use tempfile::tempdir;
 
 use super::{
-    open_split_journal, sample_manifest, started_payload, valid_checkpoint_payload,
+    open_split_journal, plain_event, sample_manifest, started_payload, valid_checkpoint_payload,
     InterceptingMemLog, MemCoordinationStore, MemEventLog, MemProjectionStore,
 };
 use crate::damage::Damage;
@@ -262,29 +262,22 @@ fn post_terminal_refusal_on_journal() {
         mem_journal
             .append_event(
                 run_id,
-                EventType::RunStarted,
-                started_payload("term"),
-                None,
-                "2026-11-25T10:00:00Z",
+                plain_event(
+                    EventType::RunStarted,
+                    started_payload("term"),
+                    None,
+                    "2026-11-25T10:00:00Z",
+                ),
             )
             .unwrap();
         mem_journal
             .append_event(
                 run_id,
-                terminal_type,
-                json!({}),
-                None,
-                "2026-11-25T10:00:05Z",
+                plain_event(terminal_type, json!({}), None, "2026-11-25T10:00:05Z"),
             )
             .unwrap();
         assert!(matches!(
-            mem_journal.append_event(
-                run_id,
-                EventType::PhaseEntered,
-                json!({"phase": "late"}),
-                None,
-                "2026-11-25T10:00:06Z",
-            ),
+            mem_journal.append_event(run_id, plain_event(EventType::PhaseEntered, json!({"phase": "late"}), None, "2026-11-25T10:00:06Z")),
             Err(StoreError::AfterTerminal {
                 status,
                 event_type: EventType::PhaseEntered,
@@ -295,10 +288,12 @@ fn post_terminal_refusal_on_journal() {
         let note = mem_journal
             .append_event(
                 run_id,
-                EventType::OperatorRejected,
-                json!({"reason": "post-mortem"}),
-                None,
-                "2026-11-25T10:00:07Z",
+                plain_event(
+                    EventType::OperatorRejected,
+                    json!({"reason": "post-mortem"}),
+                    None,
+                    "2026-11-25T10:00:07Z",
+                ),
             )
             .unwrap();
         assert_eq!(note.seq, 3);
@@ -397,23 +392,19 @@ fn run_started_engine_version_overrides_sidecar_manifest() {
     journal
         .append_event(
             "v1-run",
-            EventType::RunStarted,
-            json!({
-                "feature": "engine-mismatch",
-                "manifest": {"engine": "0.7.0", "feature": "engine-mismatch"},
-            }),
-            None,
-            "2026-11-25T10:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                json!({
+                    "feature": "engine-mismatch",
+                    "manifest": {"engine": "0.7.0", "feature": "engine-mismatch"},
+                }),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
         )
         .unwrap();
     assert!(matches!(
-        journal.append_event(
-            "v1-run",
-            EventType::EffectCheckpointed,
-            panel_member_checkpoint(),
-            None,
-            "2026-11-25T10:00:01Z",
-        ),
+        journal.append_event("v1-run", plain_event(EventType::EffectCheckpointed, panel_member_checkpoint(), None, "2026-11-25T10:00:01Z")),
         Err(StoreError::SeatRecord(ref err))
             if err.seq == 2 && err.contract == "contracts/seat-record.v1.schema.json"
     ));
@@ -432,19 +423,23 @@ fn settled_members_validation_on_effect_failed_and_indeterminate() {
     journal
         .append_event(
             "v8-panel",
-            EventType::RunStarted,
-            started_payload("v8-panel"),
-            None,
-            "2026-11-25T10:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("v8-panel"),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
         )
         .unwrap();
     journal
         .append_event(
             "v8-panel",
-            EventType::EffectCheckpointed,
-            panel_member_checkpoint(),
-            None,
-            "2026-11-25T10:00:01Z",
+            plain_event(
+                EventType::EffectCheckpointed,
+                panel_member_checkpoint(),
+                None,
+                "2026-11-25T10:00:01Z",
+            ),
         )
         .unwrap();
     let bad_settled = json!({
@@ -457,13 +452,7 @@ fn settled_members_validation_on_effect_failed_and_indeterminate() {
     });
     for event_type in [EventType::EffectFailed, EventType::EffectIndeterminate] {
         assert!(matches!(
-            journal.append_event(
-                "v8-panel",
-                event_type,
-                bad_settled.clone(),
-                None,
-                "2026-11-25T10:00:02Z",
-            ),
+            journal.append_event("v8-panel", plain_event(event_type, bad_settled.clone(), None, "2026-11-25T10:00:02Z")),
             Err(StoreError::SeatRecord(ref err))
                 if err.seq == 3 && err.settled_member.as_deref().map(String::as_str) == Some("alpha")
         ));
@@ -479,10 +468,12 @@ fn settled_members_validation_on_effect_failed_and_indeterminate() {
     let appended = journal
         .append_event(
             "v8-panel",
-            EventType::EffectFailed,
-            good_settled,
-            None,
-            "2026-11-25T10:00:03Z",
+            plain_event(
+                EventType::EffectFailed,
+                good_settled,
+                None,
+                "2026-11-25T10:00:03Z",
+            ),
         )
         .unwrap();
     assert_eq!(appended.seq, 3);
@@ -508,10 +499,12 @@ fn seq_overflow_and_single_head_call_in_append_event() {
     let e1 = journal
         .append_event(
             "cnt-1",
-            EventType::RunStarted,
-            started_payload("cnt"),
-            None,
-            "2026-11-25T10:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("cnt"),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
         )
         .unwrap();
     assert_eq!(head_calls.get(), 1);
@@ -520,24 +513,19 @@ fn seq_overflow_and_single_head_call_in_append_event() {
         .append_if_head(
             "cnt-1",
             (1, &e1.event_hash),
-            EventType::PhaseEntered,
-            json!({"phase": "verify"}),
-            None,
-            "2026-11-25T10:00:01Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "verify"}),
+                None,
+                "2026-11-25T10:00:01Z",
+            ),
         )
         .unwrap();
     assert_eq!(e2.seq, 2);
     assert_eq!(head_calls.get(), 1);
 
     assert!(matches!(
-        journal.append_if_head(
-            "cnt-1",
-            (u64::MAX, ZERO_HASH),
-            EventType::PhaseEntered,
-            json!({"phase": "overflow"}),
-            None,
-            "2026-11-25T10:00:02Z",
-        ),
+        journal.append_if_head("cnt-1", (u64::MAX, ZERO_HASH), plain_event(EventType::PhaseEntered, json!({"phase": "overflow"}), None, "2026-11-25T10:00:02Z")),
         Err(StoreError::Chain(ChainError::SeqOverflow { after })) if after == u64::MAX
     ));
 
@@ -673,37 +661,45 @@ fn split_journal_mem_log_sqlite_projections_end_to_end() {
     journal
         .append_event(
             "split-1",
-            EventType::RunStarted,
-            started_payload("split-feat"),
-            None,
-            "2026-11-25T09:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("split-feat"),
+                None,
+                "2026-11-25T09:00:00Z",
+            ),
         )
         .unwrap();
     journal
         .append_event(
             "split-1",
-            EventType::PhaseEntered,
-            json!({"phase": "implement"}),
-            None,
-            "2026-11-25T09:00:02Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "implement"}),
+                None,
+                "2026-11-25T09:00:02Z",
+            ),
         )
         .unwrap();
     journal
         .append_event(
             "split-1",
-            EventType::EffectCheckpointed,
-            valid_checkpoint_payload(),
-            None,
-            "2026-11-25T09:00:05Z",
+            plain_event(
+                EventType::EffectCheckpointed,
+                valid_checkpoint_payload(),
+                None,
+                "2026-11-25T09:00:05Z",
+            ),
         )
         .unwrap();
     journal
         .append_event(
             "split-1",
-            EventType::RunCompleted,
-            json!({}),
-            None,
-            "2026-11-25T09:00:10Z",
+            plain_event(
+                EventType::RunCompleted,
+                json!({}),
+                None,
+                "2026-11-25T09:00:10Z",
+            ),
         )
         .unwrap();
 
@@ -745,19 +741,23 @@ fn split_two_file_sqlite_journal_works_without_copying_events() {
     journal
         .append_event(
             "two-1",
-            EventType::RunStarted,
-            started_payload("two-file"),
-            None,
-            "2026-11-25T08:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("two-file"),
+                None,
+                "2026-11-25T08:00:00Z",
+            ),
         )
         .unwrap();
     journal
         .append_event(
             "two-1",
-            EventType::EffectCheckpointed,
-            valid_checkpoint_payload(),
-            None,
-            "2026-11-25T08:00:05Z",
+            plain_event(
+                EventType::EffectCheckpointed,
+                valid_checkpoint_payload(),
+                None,
+                "2026-11-25T08:00:05Z",
+            ),
         )
         .unwrap();
 
@@ -819,19 +819,23 @@ fn sqlite_projection_propagates_token_count_out_of_range() {
     split
         .append_event(
             "tok-lag",
-            EventType::RunStarted,
-            started_payload("tok"),
-            None,
-            "2026-11-25T10:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("tok"),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
         )
         .unwrap();
     let lag_err = split
         .append_event(
             "tok-lag",
-            EventType::EffectCheckpointed,
-            e2.payload.clone(),
-            None,
-            "2026-11-25T10:00:05Z",
+            plain_event(
+                EventType::EffectCheckpointed,
+                e2.payload.clone(),
+                None,
+                "2026-11-25T10:00:05Z",
+            ),
         )
         .unwrap_err();
     assert!(!lag_err.is_contention());
@@ -893,10 +897,12 @@ fn post_commit_projection_failure_returns_non_contention_projection_lag() {
     let err = journal
         .append_event(
             "lag-1",
-            EventType::RunStarted,
-            started_payload("lag"),
-            None,
-            "2026-11-25T10:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("lag"),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
         )
         .unwrap_err();
     assert!(!err.is_contention());

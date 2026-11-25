@@ -15,7 +15,7 @@ use tempfile::tempdir;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::ports::{CoordinationStore, EventLog, Journal, ProjectionStore, SqlitePorts};
+use crate::ports::{CoordinationStore, EventLog, Journal, NewEvent, ProjectionStore, SqlitePorts};
 use crate::test_support::every_run_reads_as_its_fold;
 use crate::{
     Cooldown, CooldownAppend, Cooling, EntryId, EntryState, ImportError, NewEntry, QueueEntry,
@@ -293,6 +293,21 @@ impl CoordinationStore for MemCoordinationStore {
 // Fixtures
 // ---------------------------------------------------------------------------
 
+fn plain_event<'a>(
+    event_type: EventType,
+    payload: Value,
+    causation_id: Option<&'a str>,
+    ts: &'a str,
+) -> NewEvent<'a> {
+    NewEvent {
+        event_type,
+        payload,
+        causation_id,
+        attempt_id: None,
+        ts,
+    }
+}
+
 fn sample_manifest(feature: &str) -> Value {
     json!({
         "engine": "0.15.0",
@@ -337,47 +352,57 @@ fn append_valid_checkpoint_flow<E: EventLog, P: ProjectionStore, C: Coordination
     let e1 = journal
         .append_event(
             run_id,
-            EventType::RunStarted,
-            started_payload(feature),
-            None,
-            "2026-11-25T10:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload(feature),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
         )
         .unwrap();
     let e2 = journal
         .append_event(
             run_id,
-            EventType::PhaseEntered,
-            json!({"phase": "implement"}),
-            Some(&e1.event_id),
-            "2026-11-25T10:00:01Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "implement"}),
+                Some(&e1.event_id),
+                "2026-11-25T10:00:01Z",
+            ),
         )
         .unwrap();
     let e3 = journal
         .append_event(
             run_id,
-            EventType::EffectRequested,
-            json!({"effect_id": "eff-1", "seat": "implement"}),
-            Some(&e2.event_id),
-            "2026-11-25T10:00:02Z",
+            plain_event(
+                EventType::EffectRequested,
+                json!({"effect_id": "eff-1", "seat": "implement"}),
+                Some(&e2.event_id),
+                "2026-11-25T10:00:02Z",
+            ),
         )
         .unwrap();
     let e4 = journal
         .append_event(
             run_id,
-            EventType::EffectStarted,
-            json!({"effect_id": "eff-1", "attempt_id": "att-1"}),
-            Some(&e3.event_id),
-            "2026-11-25T10:00:03Z",
+            plain_event(
+                EventType::EffectStarted,
+                json!({"effect_id": "eff-1", "attempt_id": "att-1"}),
+                Some(&e3.event_id),
+                "2026-11-25T10:00:03Z",
+            ),
         )
         .unwrap();
     journal
         .append_if_head(
             run_id,
             (4, &e4.event_hash),
-            EventType::EffectCheckpointed,
-            valid_checkpoint_payload(),
-            Some(&e4.event_id),
-            "2026-11-25T10:00:05Z",
+            plain_event(
+                EventType::EffectCheckpointed,
+                valid_checkpoint_payload(),
+                Some(&e4.event_id),
+                "2026-11-25T10:00:05Z",
+            ),
         )
         .unwrap()
 }
@@ -432,10 +457,12 @@ fn memory_journal_chains_events_verifies_and_detects_tampering() {
     let e1 = journal
         .append_event(
             "run-chain",
-            EventType::RunStarted,
-            started_payload("chain-test"),
-            None,
-            "2026-11-25T10:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("chain-test"),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
         )
         .unwrap();
     assert_eq!(e1.seq, 1);
@@ -446,10 +473,12 @@ fn memory_journal_chains_events_verifies_and_detects_tampering() {
     let e2 = journal
         .append_event(
             "run-chain",
-            EventType::PhaseEntered,
-            json!({"phase": "implement"}),
-            Some(&e1.event_id),
-            "2026-11-25T10:00:05Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "implement"}),
+                Some(&e1.event_id),
+                "2026-11-25T10:00:05Z",
+            ),
         )
         .unwrap();
     assert_eq!(e2.seq, 2);
@@ -472,10 +501,12 @@ fn memory_journal_chains_events_verifies_and_detects_tampering() {
 
     let missing = journal.append_event(
         "no-such-run",
-        EventType::RunStarted,
-        started_payload("missing"),
-        None,
-        "2026-11-25T10:00:00Z",
+        plain_event(
+            EventType::RunStarted,
+            started_payload("missing"),
+            None,
+            "2026-11-25T10:00:00Z",
+        ),
     );
     assert!(matches!(missing, Err(StoreError::RunNotFound(id)) if id == "no-such-run"));
 }
@@ -495,20 +526,24 @@ fn memory_journal_append_if_head_fences_seq_and_hash() {
         .append_if_head(
             "run-fence",
             (0, ZERO_HASH),
-            EventType::RunStarted,
-            started_payload("fence"),
-            None,
-            "2026-11-25T10:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("fence"),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
         )
         .unwrap();
 
     let wrong_seq = journal.append_if_head(
         "run-fence",
         (0, ZERO_HASH),
-        EventType::PhaseEntered,
-        json!({"phase": "implement"}),
-        None,
-        "2026-11-25T10:00:01Z",
+        plain_event(
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            None,
+            "2026-11-25T10:00:01Z",
+        ),
     );
     assert!(matches!(
         wrong_seq,
@@ -521,10 +556,12 @@ fn memory_journal_append_if_head_fences_seq_and_hash() {
     let wrong_hash = journal.append_if_head(
         "run-fence",
         (1, ZERO_HASH),
-        EventType::PhaseEntered,
-        json!({"phase": "implement"}),
-        None,
-        "2026-11-25T10:00:02Z",
+        plain_event(
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            None,
+            "2026-11-25T10:00:02Z",
+        ),
     );
     assert!(matches!(
         wrong_hash,
@@ -538,10 +575,12 @@ fn memory_journal_append_if_head_fences_seq_and_hash() {
         .append_if_head(
             "run-fence",
             (1, &e1.event_hash),
-            EventType::PhaseEntered,
-            json!({"phase": "implement"}),
-            Some(&e1.event_id),
-            "2026-11-25T10:00:03Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "implement"}),
+                Some(&e1.event_id),
+                "2026-11-25T10:00:03Z",
+            ),
         )
         .unwrap();
     assert_eq!(e2.seq, 2);
@@ -564,19 +603,23 @@ fn memory_journal_validates_seat_record_checkpoints() {
     journal
         .append_event(
             "run-seat",
-            EventType::RunStarted,
-            started_payload("seat-check"),
-            None,
-            "2026-11-25T10:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("seat-check"),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
         )
         .unwrap();
 
     let refused = journal.append_event(
         "run-seat",
-        EventType::EffectCheckpointed,
-        invalid_checkpoint_payload(),
-        None,
-        "2026-11-25T10:00:01Z",
+        plain_event(
+            EventType::EffectCheckpointed,
+            invalid_checkpoint_payload(),
+            None,
+            "2026-11-25T10:00:01Z",
+        ),
     );
     assert!(matches!(
         refused,
@@ -587,10 +630,12 @@ fn memory_journal_validates_seat_record_checkpoints() {
     let accepted = journal
         .append_event(
             "run-seat",
-            EventType::EffectCheckpointed,
-            valid_checkpoint_payload(),
-            None,
-            "2026-11-25T10:00:02Z",
+            plain_event(
+                EventType::EffectCheckpointed,
+                valid_checkpoint_payload(),
+                None,
+                "2026-11-25T10:00:02Z",
+            ),
         )
         .unwrap();
     assert_eq!(accepted.seq, 2);
@@ -665,10 +710,12 @@ fn memory_journal_reindex_rebuilds_projections_from_event_log() {
     journal
         .append_event(
             "run-1",
-            EventType::RunStarted,
-            started_payload("feat-1"),
-            None,
-            "2026-11-25T11:00:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("feat-1"),
+                None,
+                "2026-11-25T11:00:00Z",
+            ),
         )
         .unwrap();
     journal
@@ -677,19 +724,23 @@ fn memory_journal_reindex_rebuilds_projections_from_event_log() {
     journal
         .append_event(
             "run-2",
-            EventType::RunStarted,
-            started_payload("feat-2"),
-            None,
-            "2026-11-25T11:01:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("feat-2"),
+                None,
+                "2026-11-25T11:01:00Z",
+            ),
         )
         .unwrap();
     journal
         .append_event(
             "run-2",
-            EventType::PhaseEntered,
-            json!({"phase": "verify"}),
-            None,
-            "2026-11-25T11:02:00Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "verify"}),
+                None,
+                "2026-11-25T11:02:00Z",
+            ),
         )
         .unwrap();
 
@@ -889,10 +940,12 @@ fn sqlite_projection_rebuilds_from_external_memory_event_log() {
     mem_journal
         .append_event(
             "from-mem",
-            EventType::RunStarted,
-            started_payload("external"),
-            None,
-            "2026-11-25T13:10:00Z",
+            plain_event(
+                EventType::RunStarted,
+                started_payload("external"),
+                None,
+                "2026-11-25T13:10:00Z",
+            ),
         )
         .unwrap();
     let fresh_sql = Store::open(&dir.path().join("rebuilt.db")).unwrap();
@@ -1012,13 +1065,7 @@ fn journal_end_to_end_over_sqlite_references() {
     assert_eq!(e5.seq, 5);
 
     assert!(matches!(
-        journal.append_event(
-            "e2e-1",
-            EventType::EffectCheckpointed,
-            invalid_checkpoint_payload(),
-            None,
-            "2026-11-25T15:00:15Z",
-        ),
+        journal.append_event("e2e-1", plain_event(EventType::EffectCheckpointed, invalid_checkpoint_payload(), None, "2026-11-25T15:00:15Z")),
         Err(StoreError::SeatRecord(ref err)) if err.seq == 6
     ));
 
@@ -1026,10 +1073,12 @@ fn journal_end_to_end_over_sqlite_references() {
         journal.append_if_head(
             "e2e-1",
             (1, &e5.previous_hash),
-            EventType::PhaseEntered,
-            json!({"phase": "verify"}),
-            None,
-            "2026-11-25T15:00:20Z",
+            plain_event(
+                EventType::PhaseEntered,
+                json!({"phase": "verify"}),
+                None,
+                "2026-11-25T15:00:20Z"
+            )
         ),
         Err(StoreError::HeadMoved {
             expected_seq: 1,
@@ -1164,3 +1213,4 @@ mod round3;
 mod round4;
 mod round5;
 mod round6;
+mod round7;

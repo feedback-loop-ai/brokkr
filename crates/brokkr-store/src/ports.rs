@@ -21,7 +21,7 @@ use crate::{Cooldown, EntryId, NewEntry, QueueEntry, StoreError};
 mod journal;
 mod sqlite;
 
-pub use journal::Journal;
+pub use journal::{Journal, NewEvent};
 pub use sqlite::SqlitePorts;
 pub(crate) use sqlite::{
     migrate_projection_hashes, projection_hashes_intact, refuse_if_decoupled_projection_db,
