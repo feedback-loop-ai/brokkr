@@ -594,6 +594,17 @@ fn malformed_tracker_definitions_refuse_before_every_verb_and_name_the_file() {
 }
 
 #[test]
+fn malformed_tracker_before_a_valid_file_is_named_before_every_verb() {
+    let scratch = Scratch::new();
+    let first = scratch.tracker("trackers/a.json", "{");
+    scratch.tracker("trackers/b.json", CUSTOM_TRACKER);
+    scratch.refused_definition(
+        &first,
+        "the tracker definition is invalid: EOF while parsing an object at line 1 column 1",
+    );
+}
+
+#[test]
 fn unreadable_tracker_paths_refuse_before_every_verb_and_name_the_path() {
     let directory = Scratch::new();
     let not_dir = directory.tracker("trackers", "");

@@ -111,6 +111,26 @@ fn canonical_documents_round_trip() {
 }
 
 #[test]
+fn equality_compares_document_fields_and_ignores_the_source_digest() {
+    let trackers = trackers();
+    let parse = |text: &str| WorkOrder::parse(text, &trackers).unwrap();
+    let base = parse(DRAFT);
+    for (field, original, replacement) in [
+        ("header", "Work order draft", "Revised work order"),
+        ("intent", "Keep the work clear.", "Explain the work."),
+        ("acceptance", "Read the work order.", "Review it."),
+    ] {
+        let changed = parse(&DRAFT.replacen(original, replacement, 1));
+        assert_ne!(base, changed, "{field} must affect equality");
+    }
+
+    let spaced_header = DRAFT.replacen("\"title\":", "\"title\" :", 1);
+    let same_fields = parse(&spaced_header);
+    assert_ne!(base.digest(), same_fields.digest());
+    assert_eq!(base, same_fields);
+}
+
+#[test]
 fn noncanonical_document_renders_in_contract_order() {
     let trackers = trackers();
     let order = WorkOrder::parse(NONCANONICAL, &trackers).unwrap();
