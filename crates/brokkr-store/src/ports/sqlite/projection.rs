@@ -30,7 +30,7 @@ const PROJECTION_HASHES_DDL: &str = "CREATE TABLE IF NOT EXISTS projection_hashe
     event_hash TEXT NOT NULL,
     PRIMARY KEY (run_id, seq)
 );";
-pub(super) const PROJECTION_TABLES: [&str; 6] = [
+const PROJECTION_TABLES: [&str; 6] = [
     "run_summary",
     "seat_summary",
     "seat_head",
@@ -57,6 +57,18 @@ const MAX_PROJECTION_HASH_SEQ: &str =
     "SELECT COALESCE(MAX(seq), 0) FROM projection_hashes WHERE run_id = ?1";
 const CURRENT_SUMMARY_HEAD: &str =
     "SELECT COALESCE(MAX(head_seq), 0) FROM run_summary WHERE run_id = ?1";
+const SECONDARY_PROJECTIONS_INTACT: &str = "SELECT
+        (SELECT COUNT(*) FROM event_index WHERE run_id = ?1) = ?2
+    AND NOT EXISTS(
+        SELECT 1 FROM event_index
+        WHERE run_id = ?1
+          AND type IN ('effect/checkpointed', 'run/parked')
+          AND facts_seq IS NULL
+    )
+    AND EXISTS(
+        SELECT 1 FROM seat_head
+        WHERE run_id = ?1 AND folded_seq = ?2 AND folded_hash = ?3 AND shape = ?4
+    )";
 
 pub(super) struct VerifiedRun {
     pub(super) run_id: String,
@@ -71,8 +83,9 @@ pub(super) enum ProjectionPlan {
     Decoupled(Vec<EventEnvelope>),
 }
 
-enum DecoupledAction {
-    Skip,
+enum DecoupledPlan {
+    Ahead,
+    Current,
     Project,
 }
 
@@ -174,14 +187,14 @@ fn listed_for_projection(
         )
         .optional()?;
     if let Some((feature, created_at)) = row {
-        if feature.is_empty() {
-            if let Some(started) = started_feature_of(events) {
+        if let Some(started) = started_feature_of(events) {
+            if feature != started {
                 tx.execute(
-                    "UPDATE runs SET feature = ?2 WHERE run_id = ?1 AND feature = ''",
+                    "UPDATE runs SET feature = ?2 WHERE run_id = ?1",
                     params![run_id, started],
                 )?;
-                return Ok(Listed::new(started, &created_at));
             }
+            return Ok(Listed::new(started, &created_at));
         }
         return Ok(Listed::new(&feature, &created_at));
     }
@@ -262,15 +275,27 @@ fn clear_stale_projections(
     Ok(())
 }
 
-fn summary_progress(
-    tx: &Connection,
-    run_id: &str,
-) -> Result<Option<(i64, Option<i64>, String)>, StoreError> {
+struct SummaryProgress {
+    head_seq: i64,
+    head_hash: String,
+    folded_seq: Option<i64>,
+    folded_hash: Option<String>,
+}
+
+fn summary_progress(tx: &Connection, run_id: &str) -> Result<Option<SummaryProgress>, StoreError> {
     Ok(tx
         .query_row(
-            "SELECT head_seq, folded_seq, head_hash FROM run_summary WHERE run_id = ?1",
+            "SELECT head_seq, head_hash, folded_seq, folded_hash
+             FROM run_summary WHERE run_id = ?1",
             params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| {
+                Ok(SummaryProgress {
+                    head_seq: row.get(0)?,
+                    head_hash: row.get(1)?,
+                    folded_seq: row.get(2)?,
+                    folded_hash: row.get(3)?,
+                })
+            },
         )
         .optional()?)
 }
@@ -285,8 +310,10 @@ fn is_colocated_projection_current(
     (expected_seq, expected_hash): (i64, &str),
 ) -> Result<bool, StoreError> {
     let progress = summary_progress(tx, run_id)?;
-    Ok(progress.is_some_and(|(head_seq, folded_seq, head_hash)| {
-        folded_seq == Some(head_seq) && head_seq == expected_seq && head_hash == expected_hash
+    Ok(progress.is_some_and(|p| {
+        p.folded_seq == Some(p.head_seq)
+            && p.head_seq == expected_seq
+            && p.head_hash == expected_hash
     }))
 }
 
@@ -310,37 +337,91 @@ fn verify_overlapping_hashes(
     Ok(stored.len())
 }
 
-fn plan_decoupled_apply(
+fn verify_anchor(
+    run_id: &str,
+    envelopes: &[EventEnvelope],
+    incoming_max: i64,
+    seq: i64,
+    expected_hash: Option<&str>,
+) -> Result<(), StoreError> {
+    if seq > 0 && seq <= incoming_max {
+        let actual = envelopes[(seq - 1) as usize].event_hash.as_str();
+        if expected_hash != Some(actual) {
+            return Err(divergent(run_id));
+        }
+    }
+    Ok(())
+}
+
+fn secondary_projections_intact(
+    tx: &Connection,
+    run_id: &str,
+    incoming_max: i64,
+    head_hash: &str,
+) -> Result<bool, StoreError> {
+    let intact: i64 = tx.query_row(
+        SECONDARY_PROJECTIONS_INTACT,
+        params![
+            run_id,
+            incoming_max,
+            head_hash,
+            seat_summary::SHAPE.as_str()
+        ],
+        |row| row.get(0),
+    )?;
+    Ok(intact != 0)
+}
+
+fn plan_decoupled_projection(
     tx: &Connection,
     run_id: &str,
     envelopes: &[EventEnvelope],
-) -> Result<DecoupledAction, StoreError> {
+) -> Result<DecoupledPlan, StoreError> {
     let incoming_max = checked_seq(envelopes.len() as u64)?;
     let stored_count = verify_overlapping_hashes(tx, run_id, envelopes, incoming_max)?;
-    let hash_max = max_projection_hash_seq(tx, run_id)?;
-    let (head_seq, folded_seq, head_hash) = match summary_progress(tx, run_id)? {
-        Some((head, folded, hash)) => (head, folded, Some(hash)),
-        None => (0, None, None),
+    let max_hash_seq = max_projection_hash_seq(tx, run_id)?;
+    let progress = summary_progress(tx, run_id)?;
+    let (head_seq, folded_seq) = match &progress {
+        Some(p) => {
+            verify_anchor(
+                run_id,
+                envelopes,
+                incoming_max,
+                p.head_seq,
+                Some(&p.head_hash),
+            )?;
+            verify_anchor(
+                run_id,
+                envelopes,
+                incoming_max,
+                p.folded_seq.unwrap_or(0),
+                p.folded_hash.as_deref(),
+            )?;
+            (p.head_seq, p.folded_seq)
+        }
+        None => (0, None),
     };
-    let max_known = head_seq.max(folded_seq.unwrap_or(0)).max(hash_max);
+    let max_known = head_seq.max(folded_seq.unwrap_or(0)).max(max_hash_seq);
     if incoming_max < max_known {
         if stored_count != envelopes.len() {
             return Err(divergent(run_id));
         }
-        return Ok(DecoupledAction::Skip);
+        return Ok(DecoupledPlan::Ahead);
     }
-    if let Some(expected_hash) = head_hash.filter(|_| head_seq >= 1) {
-        if envelopes[(head_seq - 1) as usize].event_hash != expected_hash {
-            return Err(divergent(run_id));
-        }
-        if incoming_max == head_seq
-            && folded_seq == Some(head_seq)
-            && stored_count == envelopes.len()
-        {
-            return Ok(DecoupledAction::Skip);
-        }
+    if incoming_max == max_known
+        && head_seq == incoming_max
+        && folded_seq == Some(incoming_max)
+        && stored_count == envelopes.len()
+        && secondary_projections_intact(
+            tx,
+            run_id,
+            incoming_max,
+            &envelopes[envelopes.len() - 1].event_hash,
+        )?
+    {
+        return Ok(DecoupledPlan::Current);
     }
-    Ok(DecoupledAction::Project)
+    Ok(DecoupledPlan::Project)
 }
 
 pub(super) fn resolve_projection_plan(
@@ -367,9 +448,9 @@ pub(super) fn resolve_projection_plan(
         Ok(ProjectionPlan::Colocated(local))
     } else {
         verify_chain_for_sqlite(run_id, (0, ZERO_HASH), envelopes)?;
-        match plan_decoupled_apply(tx, run_id, envelopes)? {
-            DecoupledAction::Skip => Ok(ProjectionPlan::Skip),
-            DecoupledAction::Project => Ok(ProjectionPlan::Decoupled(envelopes.to_vec())),
+        match plan_decoupled_projection(tx, run_id, envelopes)? {
+            DecoupledPlan::Ahead | DecoupledPlan::Current => Ok(ProjectionPlan::Skip),
+            DecoupledPlan::Project => Ok(ProjectionPlan::Decoupled(envelopes.to_vec())),
         }
     }
 }
@@ -427,21 +508,23 @@ pub(super) fn rebuild_decoupled(
     clear_stale_projections(tx, pre_existing, &keep)?;
     let mut total = 0u64;
     for run in verified {
-        let Some(last) = run.events.last() else {
-            continue;
-        };
-        let scanned_head = checked_seq(last.seq)?;
-        let stored_count = verify_overlapping_hashes(tx, &run.run_id, &run.events, scanned_head)?;
-        let current = summary_progress(tx, &run.run_id)?;
-        if current.is_some_and(|(head, folded, _)| head > scanned_head && folded == Some(head)) {
-            if stored_count != run.events.len() {
-                return Err(divergent(&run.run_id));
-            }
+        if run.events.is_empty() {
             continue;
         }
-        clear_run_projections(tx, &run.run_id)?;
-        write_decoupled_projection(tx, &run.run_id, &run.events, &run.account, &run.listed)?;
-        total += run.events.len() as u64;
+        match plan_decoupled_projection(tx, &run.run_id, &run.events)? {
+            DecoupledPlan::Ahead => continue,
+            DecoupledPlan::Current | DecoupledPlan::Project => {
+                clear_run_projections(tx, &run.run_id)?;
+                write_decoupled_projection(
+                    tx,
+                    &run.run_id,
+                    &run.events,
+                    &run.account,
+                    &run.listed,
+                )?;
+                total += run.events.len() as u64;
+            }
+        }
     }
     Ok(total)
 }

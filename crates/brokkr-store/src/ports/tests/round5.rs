@@ -212,7 +212,9 @@ fn colocated_apply_envelopes_folds_unfolded_summary_and_repairs_stale_head_hash(
     let dec_store = Store::open(&dec_path).unwrap();
     let dec_ports = SqlitePorts::new(&dec_store);
     let (d1, d2, _) = completed_vs_phase_pair("d1", "dec-unfolded");
-    dec_ports.apply_envelopes("d1", &[d1.clone(), d2]).unwrap();
+    dec_ports
+        .apply_envelopes("d1", &[d1.clone(), d2.clone()])
+        .unwrap();
     let dec_raw = Connection::open(&dec_path).unwrap();
     dec_raw
         .execute(
@@ -222,10 +224,15 @@ fn colocated_apply_envelopes_folds_unfolded_summary_and_repairs_stale_head_hash(
         .unwrap();
     drop(dec_raw);
     let mem = MemEventLog::default();
-    mem.import_run_stream("d1", &manifest, &[d1]).unwrap();
-    assert_eq!(dec_ports.rebuild_from(&mem).unwrap(), 1);
-    assert_eq!(summary_snapshot(&dec_path, "d1").0, 1);
-    assert_eq!(summary_snapshot(&dec_path, "d1").1, Some(1));
+    mem.import_run_stream("d1", &manifest, std::slice::from_ref(&d1))
+        .unwrap();
+    assert_eq!(dec_ports.rebuild_from(&mem).unwrap(), 0);
+    assert_eq!(summary_snapshot(&dec_path, "d1").0, 2);
+    mem.append_envelopes("d1", (1, &d1.event_hash), &[d2])
+        .unwrap();
+    assert_eq!(dec_ports.rebuild_from(&mem).unwrap(), 2);
+    assert_eq!(summary_snapshot(&dec_path, "d1").0, 2);
+    assert_eq!(summary_snapshot(&dec_path, "d1").1, Some(2));
 }
 
 #[test]

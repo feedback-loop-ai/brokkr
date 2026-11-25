@@ -147,16 +147,11 @@ fn trigger_dropped_decoupled_db_keeps_progress_on_shorter_prefix_and_refuses_for
     ));
 }
 
-#[test]
-fn decoupled_store_reopens_cleanly_after_checkpoint_behind_trigger_drop() {
-    let dir = tempdir().unwrap();
-    let path = dir.path().join("decoupled-cp-trigger.db");
-    let store = Store::open(&path).unwrap();
-    let e1 = started_event("r-cp", "cp-trigger", "2026-11-25T10:00:00Z");
-    let e2 = EventEnvelope {
-        run_id: "r-cp".to_string(),
-        seq: 2,
-        event_id: "r-cp-evt-2".to_string(),
+pub(super) fn checkpoint_event(run_id: &str, seq: u64, prev: &EventEnvelope) -> EventEnvelope {
+    EventEnvelope {
+        run_id: run_id.to_string(),
+        seq,
+        event_id: format!("{run_id}-evt-{seq}"),
         event_schema_version: 1,
         event_type: EventType::EffectCheckpointed,
         payload: json!({
@@ -164,14 +159,23 @@ fn decoupled_store_reopens_cleanly_after_checkpoint_behind_trigger_drop() {
             "attempt_id": "att-1",
             "checkpoint": {"step": "claude-session-finished"}
         }),
-        causation_id: Some(e1.event_id.clone()),
-        correlation_id: "r-cp".to_string(),
+        causation_id: Some(prev.event_id.clone()),
+        correlation_id: run_id.to_string(),
         attempt_id: Some("att-1".to_string()),
         recorded_at: "2026-11-25T10:00:05Z".to_string(),
-        previous_hash: e1.event_hash.clone(),
+        previous_hash: prev.event_hash.clone(),
         event_hash: String::new(),
     }
-    .sealed();
+    .sealed()
+}
+
+#[test]
+fn decoupled_store_reopens_cleanly_after_checkpoint_behind_trigger_drop() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("decoupled-cp-trigger.db");
+    let store = Store::open(&path).unwrap();
+    let e1 = started_event("r-cp", "cp-trigger", "2026-11-25T10:00:00Z");
+    let e2 = checkpoint_event("r-cp", 2, &e1);
     SqlitePorts::new(&store)
         .apply_envelopes("r-cp", &[e1, e2])
         .unwrap();

@@ -29,7 +29,7 @@ pub(crate) use projection::{migrate_projection_hashes, projection_hashes_intact}
 use projection::{
     rebuild_colocated, rebuild_decoupled, resolve_projection_plan, verify_local_events_match,
     write_decoupled_projection, write_full_projection, ProjectionPlan, VerifiedRun,
-    EXISTING_PROJECTED_RUNS, PROJECTION_TABLES,
+    EXISTING_PROJECTED_RUNS,
 };
 
 /// Thin adapter exposing a SQLite [`Store`] through the [`EventLog`],
@@ -57,7 +57,7 @@ impl<'a> SqlitePorts<'a> {
 
 const UPDATE_STARTED_META: &str = "UPDATE runs
      SET created_at = ?2,
-         feature = CASE WHEN feature = '' AND ?3 != '' THEN ?3 ELSE feature END
+         feature = CASE WHEN ?3 != '' THEN ?3 ELSE feature END
      WHERE run_id = ?1";
 const LIST_RUNS_SUMMARY: &str =
     "SELECT run_id, COALESCE(feature, ''), COALESCE(created_at_whole, created_at, '')
@@ -172,22 +172,29 @@ fn has_local_runs_or_events(tx: &Connection) -> Result<bool, StoreError> {
     Ok(found != 0)
 }
 
-/// Refuse authoritative `runs`/`events` writes into a SQLite database already
-/// carrying decoupled projections (empty `runs` and `events` with any row in a
-/// projection table).
+const HAS_RUNLESS_PROJECTION: &str = "SELECT
+        EXISTS(SELECT 1 FROM run_summary WHERE run_id NOT IN (SELECT run_id FROM runs))
+    OR  EXISTS(SELECT 1 FROM projection_hashes WHERE run_id NOT IN (SELECT run_id FROM runs))";
+const HAS_SECONDARY_PROJECTION: &str = "SELECT
+        EXISTS(SELECT 1 FROM seat_summary)
+    OR  EXISTS(SELECT 1 FROM seat_head)
+    OR  EXISTS(SELECT 1 FROM seat_lag)
+    OR  EXISTS(SELECT 1 FROM event_index)";
+
+/// Refuse authoritative `runs`/`events` writes into a SQLite database carrying
+/// decoupled projections: always refuse when `run_summary` or
+/// `projection_hashes` holds a run absent from `runs`, and when `runs` and
+/// `events` are empty also check the remaining projection tables.
 pub(crate) fn refuse_if_decoupled_projection_db(
     tx: &Connection,
     run_id: &str,
 ) -> Result<(), StoreError> {
-    if has_local_runs_or_events(tx)? {
-        return Ok(());
-    }
-    for table in PROJECTION_TABLES {
-        let sql = format!("SELECT EXISTS(SELECT 1 FROM {table})");
-        let has_rows: i64 = tx.query_row(&sql, [], |row| row.get(0))?;
-        if has_rows != 0 {
-            return Err(divergent(run_id));
-        }
+    let has_runless: i64 = tx.query_row(HAS_RUNLESS_PROJECTION, [], |row| row.get(0))?;
+    if has_runless != 0
+        || (!has_local_runs_or_events(tx)?
+            && tx.query_row(HAS_SECONDARY_PROJECTION, [], |row| row.get::<_, i64>(0))? != 0)
+    {
+        return Err(divergent(run_id));
     }
     Ok(())
 }
