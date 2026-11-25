@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-16, "accept 0106 as recommended" (https://github.com/feedback-loop-ai/brokkr/issues/1035#issuecomment-6909503279)
 Date: 2026-11-08
 
-Built: unbuilt (#1035)
+Built: partial (#1035) — slice 0106a built the park's typed cause (#1116); 0106b's held wait, 0106c's operator lift, 0106d's infrastructure budget and 0106e's dsh classes are unbuilt
 Amends: 0068, 0103
 
 This decision acts on 0068's rulings 4 and 7 and on 0103's rulings 2, 3, 4, 5, 6 and 7. The exact
