@@ -106,7 +106,7 @@ fn in_flight() -> Vec<(EventType, Value)> {
 
 /// The attempt's live driver, journaling one more checkpoint from its
 /// own process.
-fn live_driver(dir: &Path, run_id: &str) -> Box<dyn FnOnce()> {
+pub(in crate::engine) fn live_driver(dir: &Path, run_id: &str) -> Box<dyn FnOnce()> {
     let (db, run_id) = (db(dir), run_id.to_string());
     Box::new(move || {
         let checkpoint = json!({"effect_id": "effect-1", "attempt_id": "attempt-1"});

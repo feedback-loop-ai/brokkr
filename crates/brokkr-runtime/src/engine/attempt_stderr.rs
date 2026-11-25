@@ -32,7 +32,7 @@ impl AttemptStderr {
         self.contended.take()
     }
 
-    pub(super) fn restore_contended(&mut self, kept: Option<(String, String)>, attempt_id: &str) {
+    fn restore_contended(&mut self, kept: Option<(String, String)>, attempt_id: &str) {
         self.active = kept
             .filter(|(id, _)| id == attempt_id)
             .map(|(_, stderr)| stderr);
@@ -69,6 +69,20 @@ impl AttemptStderr {
 }
 
 impl Engine {
+    /// No stderr stays active after the lawful end's indeterminate,
+    /// whether the append landed, was held, or was refused.
+    pub(super) fn settle_contended_attempt(
+        &mut self,
+        kept_stderr: Option<(String, String)>,
+        settled: Value,
+        attempt_id: String,
+    ) -> Result<(), EngineError> {
+        self.stderr.restore_contended(kept_stderr, &attempt_id);
+        let landed = self.append(EventType::EffectIndeterminate, settled, Some(attempt_id));
+        self.stderr.active = None;
+        landed.map(drop)
+    }
+
     /// Tell queued tails after the turn's appends, including any park it owes.
     /// An outcome landed by the lawful end gets any park it owes at the next
     /// turn's cursor. With no park due, [`Engine::execute_effect`] tells the

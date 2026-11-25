@@ -141,3 +141,26 @@ fn kept_stderr_names_only_its_own_attempt_and_is_spent_by_the_lawful_end() {
         .is_none());
     assert_eq!(engine.stderr.take_contended(), None);
 }
+
+#[test]
+fn a_refused_indeterminate_clears_the_restored_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = in_flight(dir.path());
+    keep_stderr_for(&mut engine, "attempt-1");
+    fence::tests::after_the_fold_on(
+        EventType::EffectIndeterminate,
+        fence::tests::live_driver(dir.path(), &engine.run_id),
+    );
+    // The peer appends without updating the run summary.
+    brokkr_store::test_support::lags(&mut engine.store, &[&engine.run_id]);
+
+    assert!(matches!(
+        engine.lawful_end_under_contention(contended("append")),
+        Err(EngineError::JournalMoved { .. })
+    ));
+    assert_eq!(engine.stderr.active, None);
+    assert_eq!(engine.stderr.take_contended(), None);
+    let mut told = Vec::new();
+    engine.stderr.tell(&mut told);
+    assert_eq!(told, b"");
+}

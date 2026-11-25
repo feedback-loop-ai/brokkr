@@ -909,8 +909,7 @@ impl Engine {
             }
             let settled =
                 json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
-            self.stderr.restore_contended(kept_stderr, &attempt_id);
-            self.append(EventType::EffectIndeterminate, settled, Some(attempt_id))?;
+            self.settle_contended_attempt(kept_stderr, settled, attempt_id)?;
             state = self.replay.caught_up(&mut self.store, &self.run_id)?;
         }
         if !matches!(
