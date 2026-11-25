@@ -9,8 +9,10 @@
 //! terminal, `\x1b[2J` clears the frame that was supposed to be
 //! evidence, and `\r` plus spaces overwrites the line above — so a
 //! hostile result token can forge a ruling line, continuously under
-//! `watch`. Every journal string reaching stdout goes through [`Safe`],
-//! whose only constructor strips control characters **and** the bidi and
+//! `watch`. Every human surface passes journal strings through [`Safe`].
+//! The `--json` view models for `queue` and `orders list` write strings as
+//! journaled, JSON-escaped and unsanitized, for scripts. The only
+//! constructor of [`Safe`] strips control characters **and** the bidi and
 //! zero-width formatting characters that `char::is_control()` does not
 //! cover — U+202E RIGHT-TO-LEFT OVERRIDE and its neighbours visually
 //! reorder the rest of a rendered line, which forges the same ruling

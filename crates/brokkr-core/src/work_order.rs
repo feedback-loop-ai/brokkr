@@ -6,6 +6,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::{Digest, Sha256};
 use time::{format_description::well_known::Iso8601, Date};
 use url::{Host, Url};
 
@@ -87,12 +88,32 @@ pub struct Reference {
     pub link: String,
 }
 
+/// SHA-256 of the exact work-order text, in lowercase hexadecimal.
+pub fn text_digest(text: &str) -> String {
+    hex::encode(Sha256::digest(text.as_bytes()))
+}
+
 /// A work order parsed from its version 1 Markdown form.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkOrder {
+    parsed: ParsedWorkOrder,
+}
+
+#[derive(Debug, Clone, Eq)]
+struct ParsedWorkOrder {
     header: Header<WorkOrderId, Condition>,
     intent: String,
     acceptance: Vec<String>,
+    digest: String,
+}
+
+// The digest describes the source bytes. Equality compares the document's fields.
+impl PartialEq for ParsedWorkOrder {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header
+            && self.intent == other.intent
+            && self.acceptance == other.acceptance
+    }
 }
 
 impl WorkOrder {
@@ -116,50 +137,60 @@ impl WorkOrder {
         check_references(&header.references)?;
         let (intent, acceptance) = read_body(body)?;
         Ok(Self {
-            header,
-            intent,
-            acceptance,
+            parsed: ParsedWorkOrder {
+                header,
+                intent,
+                acceptance,
+                digest: text_digest(text),
+            },
         })
+    }
+
+    /// The digest of the source text, before any changes to the parsed fields.
+    pub fn digest(&self) -> &str {
+        &self.parsed.digest
     }
 
     /// Write the canonical Markdown document, retaining the text of each field.
     pub fn render(&self) -> String {
-        let header = serde_json::to_string_pretty(&self.header).expect("the header serializes");
-        let intent = &self.intent;
-        let acceptance = self.acceptance.join("\n- ");
+        let header =
+            serde_json::to_string_pretty(&self.parsed.header).expect("the header serializes");
+        let intent = &self.parsed.intent;
+        let acceptance = self.parsed.acceptance.join("\n- ");
         format!("{HEADER_START}\n{header}\n{HEADER_END}\n\n{INTENT}\n\n{intent}\n\n{ACCEPTANCE}\n\n- {acceptance}\n")
     }
 
     /// The id, once assigned.
     pub fn id(&self) -> Option<&WorkOrderId> {
-        self.header.id.as_ref()
+        self.parsed.header.id.as_ref()
     }
 
     /// Set the id while retaining every other field.
     pub fn with_id(mut self, id: WorkOrderId) -> Self {
-        self.header.id = Some(id);
+        self.parsed.header.id = Some(id);
         self
     }
 
     /// The document's title.
     pub fn title(&self) -> &str {
-        &self.header.title
+        &self.parsed.header.title
     }
 
     /// The state named in the header.
     pub fn state(&self) -> WorkOrderState {
-        self.header.state
+        self.parsed.header.state
     }
 
     /// Set the state while retaining every other field.
     pub fn with_state(mut self, state: WorkOrderState) -> Self {
-        self.header.state = state;
+        self.parsed.header.state = state;
         self
     }
 
     /// Count asks that have no closing ruling.
     pub fn open_asks(&self) -> usize {
-        self.header
+        self.parsed
+            .header
             .asks
             .iter()
             .filter(|ask| ask.ruling.is_none())
@@ -175,17 +206,17 @@ impl WorkOrder {
 
     /// The cited external items, as written.
     pub fn references(&self) -> &[Reference] {
-        &self.header.references
+        &self.parsed.header.references
     }
 
     /// The distilled statement of the work.
     pub fn intent(&self) -> &str {
-        &self.intent
+        &self.parsed.intent
     }
 
     /// The checkable statements, in document order.
     pub fn acceptance(&self) -> &[String] {
-        &self.acceptance
+        &self.parsed.acceptance
     }
 }
 

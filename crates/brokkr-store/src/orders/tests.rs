@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Error as SqlError, ErrorCode};
+use rusqlite::Error as SqlError;
 use tempfile::TempDir;
 
 use super::*;
@@ -34,6 +34,11 @@ fn trackers() -> Trackers {
 
 fn id(number: u32) -> WorkOrderId {
     WorkOrderId::from_number(number).unwrap()
+}
+
+fn rule_current(store: &mut Store, id: &WorkOrderId) -> Result<(), StoreError> {
+    let latest = current(&store.conn, id)?;
+    store.order_rule(id, &latest.digest, BY)
 }
 
 fn draft() -> WorkOrder {
@@ -98,10 +103,44 @@ fn missing_guards_are_repaired_but_lost_history_refuses_open() {
         .execute_batch("DROP TABLE work_order_events")
         .unwrap();
     drop(store);
-    assert!(
-        matches!(Store::open(&path), Err(StoreError::Sqlite(SqlError::SqliteFailure(failure, Some(text))))
-        if failure.code == ErrorCode::Unknown && text == "no such table: work_order_events")
-    );
+    assert!(matches!(
+        Store::open(&path),
+        Err(StoreError::Damaged { journal, damage: Damage::Orders }) if journal == path
+    ));
+}
+
+#[test]
+fn damaged_work_order_storage_refuses_every_read_and_write() {
+    for sql in [
+        "UPDATE meta SET value = 'damaged' WHERE key = 'orders_schema'",
+        "UPDATE meta SET value = '0' WHERE key = 'orders_schema'",
+        "UPDATE meta SET value = X'FF' WHERE key = 'orders_schema'",
+        "DROP TABLE work_order_events",
+    ] {
+        let (_dir, path, mut writer) = scratch();
+        let work = writer.order_add(draft(), BY).unwrap();
+        writer.conn.execute_batch(sql).unwrap();
+        let reader = Store::open_read_only(&path).unwrap();
+        let trackers = trackers();
+        for error in [
+            reader.orders(&trackers).unwrap_err(),
+            reader.order(&work, &trackers).unwrap_err(),
+            writer.order_add(draft(), BY).unwrap_err(),
+            writer.order_edit(&work, draft(), BY).unwrap_err(),
+            writer.order_rule(&work, "", BY).unwrap_err(),
+            Store::open(&path)
+                .err()
+                .expect("writable open refuses damage"),
+        ] {
+            assert!(
+                matches!(
+                    error,
+                    StoreError::Damaged { ref journal, damage: Damage::Orders } if *journal == path
+                ),
+                "{sql}: {error:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -109,7 +148,7 @@ fn an_unknown_schema_is_left_untouched_and_every_method_refuses_it() {
     let (_dir, path, store) = scratch();
     store
         .conn
-        .execute_batch("UPDATE meta SET value = '9' WHERE key = 'orders_schema'; DROP TABLE work_order_events;")
+        .execute_batch("UPDATE meta SET value = '9' WHERE key = 'orders_schema'; DROP INDEX work_order_events_proposed;")
         .unwrap();
     drop(store);
     let mut store = Store::open(&path).unwrap();
@@ -121,13 +160,13 @@ fn an_unknown_schema_is_left_untouched_and_every_method_refuses_it() {
     migrate_orders(&tx).unwrap();
     tx.commit().unwrap();
     assert_eq!(orders_schema(&store.conn).unwrap(), Some(9));
-    assert!(!all_present(&store.conn, "table", &["work_order_events"]).unwrap());
+    assert!(!all_present(&store.conn, "index", &[PROPOSED_INDEX]).unwrap());
     let work = id(1);
     let trackers = trackers();
     let errors = [
         store.order_add(draft(), BY).unwrap_err(),
         store.order_edit(&work, draft(), BY).unwrap_err(),
-        store.order_rule(&work, BY).unwrap_err(),
+        store.order_rule(&work, "", BY).unwrap_err(),
         store.orders(&trackers).unwrap_err(),
         store.order(&work, &trackers).unwrap_err(),
     ];
@@ -210,7 +249,7 @@ fn commands_and_reads_refuse_unknown_orders_and_edits_refuse_other_ids() {
     let unknown = id(2);
     for result in [
         store.order_edit(&unknown, draft(), BY),
-        store.order_rule(&unknown, BY),
+        store.order_rule(&unknown, "", BY),
         store.order(&unknown, &trackers()).map(drop),
     ] {
         assert!(matches!(
@@ -232,8 +271,9 @@ fn editing_returns_to_proposed_and_a_later_ruling_of_old_text_does_not_stand() {
     let trackers = trackers();
     let first = draft();
     let id = store.order_add(first.clone(), BY).unwrap();
-    let digest = current(&store.conn, &id).unwrap().digest;
-    store.order_rule(&id, BY).unwrap();
+    let first_read = store.order(&id, &trackers).unwrap();
+    let digest = first_read.digest();
+    store.order_rule(&id, digest, BY).unwrap();
     assert_eq!(
         store.order(&id, &trackers).unwrap(),
         first
@@ -260,11 +300,21 @@ fn editing_returns_to_proposed_and_a_later_ruling_of_old_text_does_not_stand() {
         .unwrap();
     assert_eq!(current(&store.conn, &id).unwrap().text, edited.render());
     assert_eq!(store.order(&id, &trackers).unwrap(), edited);
+    let events = history(&store).len();
+    assert!(matches!(
+        refusal(
+            store.order_rule(&id, digest, BY),
+            "the text of WO-1 changed since that digest was read; show it again and rule the digest it prints",
+        ),
+        OrderRefusal::StaleDigest(work) if work == id
+    ));
+    assert_eq!(history(&store).len(), events);
+
     // Plant a stale ruling after the edit to exercise the digest comparison
     // independently of the sequence comparison.
-    record(&store.conn, &id, Event::Ruled(&digest), BY).unwrap();
+    record(&store.conn, &id, Event::Ruled(digest), BY).unwrap();
     assert_eq!(store.order(&id, &trackers).unwrap(), edited);
-    store.order_rule(&id, BY).unwrap();
+    rule_current(&mut store, &id).unwrap();
     assert_eq!(
         store.order(&id, &trackers).unwrap(),
         edited.with_state(WorkOrderState::Ruled)
@@ -279,7 +329,7 @@ fn ruling_waits_for_the_open_ask_and_can_only_be_recorded_once_per_text() {
     let open = WorkOrder::parse(&text, &trackers).unwrap();
     let id = store.order_add(open, BY).unwrap();
     assert!(matches!(
-        refusal(store.order_rule(&id, BY), "WO-12 has an open ask; close its asks before ruling it"),
+        refusal(rule_current(&mut store, &id), "WO-12 has an open ask; close its asks before ruling it"),
         OrderRefusal::OpenAsk(work) if work == id
     ));
     assert_eq!(
@@ -288,10 +338,10 @@ fn ruling_waits_for_the_open_ask_and_can_only_be_recorded_once_per_text() {
     );
     let closed = WorkOrder::parse(&fixture(COMPLETE), &trackers).unwrap();
     store.order_edit(&id, closed.clone(), BY).unwrap();
-    store.order_rule(&id, BY).unwrap();
+    rule_current(&mut store, &id).unwrap();
     assert_eq!(store.order(&id, &trackers).unwrap(), closed);
     assert!(matches!(
-        refusal(store.order_rule(&id, BY), "WO-12 is already ruled at its current text"),
+        refusal(rule_current(&mut store, &id), "WO-12 is already ruled at its current text"),
         OrderRefusal::AlreadyRuled(work) if work == id
     ));
 }
@@ -339,7 +389,7 @@ fn every_version_is_replayable_and_events_are_append_only() {
     let changed = fixture(DRAFT).replace("Keep the work clear.", "Record each version.");
     let edited = WorkOrder::parse(&changed, &trackers()).unwrap();
     store.order_edit(&id, edited.clone(), BY).unwrap();
-    store.order_rule(&id, BY).unwrap();
+    rule_current(&mut store, &id).unwrap();
 
     let rows = history(&store);
     let proposed = order.with_id(id.clone()).render();
@@ -436,7 +486,7 @@ fn unreadable_text_is_reported_by_reads_and_cannot_be_ruled_if_malformed() {
     }
     record(&store.conn, &id, Event::Edited("unreadable"), BY).unwrap();
     assert!(matches!(
-        refusal(store.order_rule(&id, BY), "the journal's text for WO-12 cannot be read: a work order must start with a fenced JSON header"),
+        refusal(rule_current(&mut store, &id), "the journal's text for WO-12 cannot be read: a work order must start with a fenced JSON header"),
         OrderRefusal::Unreadable(work, _) if work == id
     ));
 }

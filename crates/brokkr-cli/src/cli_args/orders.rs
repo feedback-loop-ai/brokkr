@@ -21,13 +21,13 @@ pub(crate) enum OrdersCmd {
     /// List work orders by number, with state, open ask count and title.
     /// Use `--json` for the view model.
     List(OrderListArgs),
-    /// Print a work order's canonical Markdown and journaled state.
+    /// Print a work order's canonical Markdown, journaled state and text digest.
     Show(OrderShowArgs),
     /// Propose a work order from a Markdown file.
     Add(OrderAddArgs),
     /// Replace a work order's text and return it to proposed.
     Edit(OrderEditArgs),
-    /// Record the operator's ruling after every ask is closed.
+    /// Rule the text identified by the digest from show, after every ask is closed.
     Rule(OrderRuleArgs),
 }
 
@@ -63,10 +63,12 @@ pub(crate) struct OrderAddArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(crate) struct OrderEditArgs {
-    #[command(flatten)]
-    pub(crate) order: OrderRuleArgs,
+    /// The work order's id (WO-<n>).
+    pub(crate) id: WorkOrderId,
     /// The Markdown file holding the replacement text.
     pub(crate) file: PathBuf,
+    #[command(flatten)]
+    pub(crate) write: OrderWriteArgs,
 }
 
 #[derive(clap::Args)]
@@ -75,8 +77,34 @@ pub(crate) struct OrderRuleArgs {
     /// The work order's id.
     #[arg(value_name = "WO-<n>")]
     pub(crate) id: WorkOrderId,
+    /// The 64 lowercase hexadecimal characters printed by orders show.
+    #[arg(long, value_name = "HEX", value_parser = read_digest)]
+    pub(crate) digest: String,
     #[command(flatten)]
     pub(crate) write: OrderWriteArgs,
+}
+
+#[derive(Debug)]
+struct InvalidDigest;
+
+impl std::fmt::Display for InvalidDigest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("expected a digest of 64 lowercase hexadecimal characters")
+    }
+}
+
+impl std::error::Error for InvalidDigest {}
+
+fn read_digest(value: &str) -> Result<String, InvalidDigest> {
+    if value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        Ok(value.to_owned())
+    } else {
+        Err(InvalidDigest)
+    }
 }
 
 #[derive(clap::Args)]

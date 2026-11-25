@@ -227,6 +227,12 @@ and the release window in that ruling's slice 2.
 | `brokkr.evidence-archive/v1` | `contracts/evidence-archive.v1.schema.json` | input | 0105 | operator | load brokkr_runtime::engine::evidence::read_archive | current | | decision |
 | `work-order/v1` | `contracts/work-order.v1.schema.json` | input | 0116 | engine crates/brokkr-core/src/work_order.rs | load brokkr_core::work_order::Header::read | current | | decision |
 
+Journal backups write `brokkr.journal-backup.v2`. Its closed inventory
+adds `schemas.orders`, the work-order schema recorded in the snapshot or
+`null` when no marker is recorded. Restore reads v1 and v2 inventories
+and checks the v2 field against the snapshot.
+[Decision 0100](../decisions/0100-a-journals-backup-is-one-consistent-snapshot-with-a-versioned-inventory.md)
+
 `fixtures/evaluator/corpus.ndjson` is frozen contract data, never
 regenerated, only versioned; it is not a file under `contracts/` and so
 has no row here.

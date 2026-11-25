@@ -108,6 +108,7 @@ fn show(
     for line in order.render().lines() {
         writeln!(out, "{}", Safe::new(line).as_str())?;
     }
+    writeln!(out, "digest {}", order.digest())?;
     Ok(())
 }
 
@@ -138,15 +139,15 @@ fn add(
 
 fn edit(
     workspace: &Path,
-    OrderEditArgs { order, file }: OrderEditArgs,
+    OrderEditArgs {
+        id,
+        file,
+        write: OrderWriteArgs { journal, reason },
+    }: OrderEditArgs,
     trackers: &Trackers,
     out: &mut impl Write,
 ) -> Result<()> {
     let text = read_file(&file, trackers)?;
-    let OrderRuleArgs {
-        id,
-        write: OrderWriteArgs { journal, reason },
-    } = order;
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
     attributed(&reason, |by| store.order_edit(&id, text, by))?;
     writeln!(out, "edited {id}, proposed until ruled again")?;
@@ -157,6 +158,7 @@ fn rule(
     workspace: &Path,
     OrderRuleArgs {
         id,
+        digest,
         write: OrderWriteArgs { journal, reason },
     }: OrderRuleArgs,
     trackers: &Trackers,
@@ -166,7 +168,7 @@ fn rule(
     // The journal's ask count assumes the references were checked at
     // admission. A ruling also needs text this CLI can show.
     store.order(&id, trackers)?;
-    attributed(&reason, |by| store.order_rule(&id, by))?;
+    attributed(&reason, |by| store.order_rule(&id, &digest, by))?;
     writeln!(out, "ruled {id}")?;
     Ok(())
 }

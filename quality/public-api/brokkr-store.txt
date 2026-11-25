@@ -154,6 +154,7 @@ pub brokkr_store::Damage::Envelope::seq: i64
 pub brokkr_store::Damage::Malformed
 pub brokkr_store::Damage::NoSchema
 pub brokkr_store::Damage::NotADatabase
+pub brokkr_store::Damage::Orders
 impl core::fmt::Display for brokkr_store::Damage
 pub fn brokkr_store::Damage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_store::Disagreement
@@ -209,6 +210,7 @@ pub brokkr_store::OrderRefusal::Exists(brokkr_core::work_order::WorkOrderId)
 pub brokkr_store::OrderRefusal::OpenAsk(brokkr_core::work_order::WorkOrderId)
 pub brokkr_store::OrderRefusal::OtherId(brokkr_core::work_order::WorkOrderId)
 pub brokkr_store::OrderRefusal::SchemaMismatch(u32)
+pub brokkr_store::OrderRefusal::StaleDigest(brokkr_core::work_order::WorkOrderId)
 pub brokkr_store::OrderRefusal::Unknown(brokkr_core::work_order::WorkOrderId)
 pub brokkr_store::OrderRefusal::Unreadable(brokkr_core::work_order::WorkOrderId, brokkr_core::work_order::WorkOrderError)
 pub enum brokkr_store::QueueCommand
@@ -638,7 +640,7 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::order(&self, &brokkr_core::work_order::WorkOrderId, &brokkr_core::work_order::Trackers) -> core::result::Result<brokkr_core::work_order::WorkOrder, brokkr_store::StoreError>
 pub fn brokkr_store::Store::order_add(&mut self, brokkr_core::work_order::WorkOrder, brokkr_store::Attribution<'_>) -> core::result::Result<brokkr_core::work_order::WorkOrderId, brokkr_store::StoreError>
 pub fn brokkr_store::Store::order_edit(&mut self, &brokkr_core::work_order::WorkOrderId, brokkr_core::work_order::WorkOrder, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
-pub fn brokkr_store::Store::order_rule(&mut self, &brokkr_core::work_order::WorkOrderId, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::order_rule(&mut self, &brokkr_core::work_order::WorkOrderId, &str, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::orders(&self, &brokkr_core::work_order::Trackers) -> core::result::Result<alloc::vec::Vec<brokkr_core::work_order::WorkOrder>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::queue_add(&mut self, brokkr_store::NewEntry<'_>, brokkr_store::Attribution<'_>) -> core::result::Result<brokkr_store::EntryId, brokkr_store::StoreError>

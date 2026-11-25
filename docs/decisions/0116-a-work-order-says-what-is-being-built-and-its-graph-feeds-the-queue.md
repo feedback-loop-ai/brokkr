@@ -119,3 +119,26 @@ None is open. The record asked three questions, and the operator ruled all three
 - the id, in rulings 1 and 7;
 - the file form, in ruling 2;
 - the verbs' root, in ruling 9.
+
+On 2026-11-24 the operator answered #1327's eight asks verbatim:
+
+> 1. extend now, 2. digest, 3. mark them visibly now 4. +16. 5 doc .6-8 yes
+
+[Operator ruling on #1272](https://github.com/feedback-loop-ai/brokkr/issues/1272#issuecomment-7143427836)
+
+1. Extend the six shipped tracker definitions with adopter data now (story 1272h).
+2. A ruling binds the digest of the text the operator read. The store checks it in the transaction that records the ruling.
+3. Mark every invisible format character visibly now, including the bidi, zero-width and Unicode tag characters. The marks name their code points. C0, C1 and ESC remain stripped (story 1272h).
+4. A damaged work-order marker or lost table is a typed refusal. The follow-up supersedes "+16" with "+17", one extra store API line each for asks 2 and 4.
+5. Document that the `--json` view models emit journal strings as journaled with JSON escaping. Human surfaces use `Safe`.
+6. Confirm the fourteenth root in ruling 9.
+7. Confirm all six asks carried from 1272b, including recording the work-order schema in the backup inventory under decision 0100.
+8. Use the file-size gate's baseline as the authority for `lib.rs`.
+
+The follow-up recorded two choices:
+
+> **Store API: +17.** Asks 2 and 4 each take one brokkr-store public API line, so slice 1 ends at +17 (it had +15)
+
+> **Ask 3's scope: every invisible format character.** One rule covers all of them.
+
+[Operator follow-up on #1272](https://github.com/feedback-loop-ai/brokkr/issues/1272#issuecomment-7145424588)

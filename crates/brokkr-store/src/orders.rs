@@ -1,12 +1,15 @@
 //! The realm's append-only work-order journal (decision 0116 rulings 2, 5 and 10).
 
-use brokkr_core::work_order::{Trackers, WorkOrder, WorkOrderError, WorkOrderId, WorkOrderState};
+use std::num::NonZeroU32;
+
+use brokkr_core::work_order::{
+    text_digest, Trackers, WorkOrder, WorkOrderError, WorkOrderId, WorkOrderState,
+};
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
-use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::schema::all_present;
-use crate::{now_rfc3339, patiently, Attribution, Store, StoreError};
+use crate::{now_rfc3339, patiently, Attribution, Damage, Store, StoreError};
 
 const ORDERS_SCHEMA_KEY: &str = "orders_schema";
 const ORDERS_SCHEMA: u32 = 1;
@@ -51,6 +54,8 @@ pub enum OrderRefusal {
     OpenAsk(WorkOrderId),
     #[error("{0} is already ruled at its current text")]
     AlreadyRuled(WorkOrderId),
+    #[error("the text of {0} changed since that digest was read; show it again and rule the digest it prints")]
+    StaleDigest(WorkOrderId),
     #[error("the journal's text for {0} cannot be read: {1}")]
     Unreadable(WorkOrderId, #[source] WorkOrderError),
 }
@@ -60,13 +65,8 @@ pub enum OrderRefusal {
 pub(crate) fn orders_intact(conn: &Connection) -> Result<bool, StoreError> {
     match orders_schema(conn)? {
         None => Ok(false),
-        Some(ORDERS_SCHEMA) => {
-            // A recorded table that has gone missing took its history with
-            // it. Preparing a read refuses the open rather than reseeding it.
-            conn.prepare("SELECT seq FROM work_order_events LIMIT 0")?;
-            Ok(all_present(conn, "trigger", &[UPDATE_GUARD, DELETE_GUARD])?
-                && all_present(conn, "index", &[PROPOSED_INDEX])?)
-        }
+        Some(ORDERS_SCHEMA) => Ok(all_present(conn, "trigger", &[UPDATE_GUARD, DELETE_GUARD])?
+            && all_present(conn, "index", &[PROPOSED_INDEX])?),
         Some(_) => Ok(true),
     }
 }
@@ -83,15 +83,28 @@ pub(crate) fn migrate_orders(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn orders_schema(conn: &Connection) -> Result<Option<u32>, StoreError> {
-    let recorded: Option<String> = conn
+/// Read the recorded version and check that its table still holds the history.
+pub(crate) fn orders_schema(conn: &Connection) -> Result<Option<u32>, StoreError> {
+    let recorded = conn
         .query_row(
             "SELECT value FROM meta WHERE key = ?1",
             [ORDERS_SCHEMA_KEY],
-            |row| row.get(0),
+            |row| Ok(row.get::<_, String>(0)),
         )
         .optional()?;
-    Ok(recorded.map(|value| value.parse().unwrap_or(0)))
+    let Some(recorded) = recorded else {
+        return Ok(None);
+    };
+    let damaged = || StoreError::Damaged {
+        journal: conn.path().unwrap_or_default().into(),
+        damage: Damage::Orders,
+    };
+    let recorded = recorded.map_err(|_| damaged())?;
+    let version = recorded.parse::<NonZeroU32>().map_err(|_| damaged())?;
+    if !all_present(conn, "table", &["work_order_events"])? {
+        return Err(damaged());
+    }
+    Ok(Some(version.get()))
 }
 
 fn orders_stored(conn: &Connection) -> Result<(), StoreError> {
@@ -205,10 +218,6 @@ fn record(
     Ok(())
 }
 
-fn text_digest(text: &str) -> String {
-    hex::encode(Sha256::digest(text.as_bytes()))
-}
-
 fn proposed_text(order: &WorkOrder, id: &WorkOrderId) -> String {
     order
         .clone()
@@ -258,10 +267,18 @@ impl Store {
         })
     }
 
-    /// Record the operator's ruling at the current text, once all asks are closed.
-    pub fn order_rule(&mut self, id: &WorkOrderId, by: Attribution<'_>) -> Result<(), StoreError> {
+    /// Record a ruling if the operator read the current digest and all asks are closed.
+    pub fn order_rule(
+        &mut self,
+        id: &WorkOrderId,
+        digest: &str,
+        by: Attribution<'_>,
+    ) -> Result<(), StoreError> {
         self.write_order("order_rule", |tx| {
             let latest = current(tx, id)?;
+            if digest != latest.digest {
+                return Err(OrderRefusal::StaleDigest(id.clone()).into());
+            }
             if latest.ruled {
                 return Err(OrderRefusal::AlreadyRuled(id.clone()).into());
             }

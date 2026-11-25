@@ -116,7 +116,10 @@ fn noncanonical_document_renders_in_contract_order() {
     let order = WorkOrder::parse(NONCANONICAL, &trackers).unwrap();
     assert_eq!(order.render(), DRAFT);
     let crlf = NONCANONICAL.replace('\n', "\r\n");
-    assert_eq!(WorkOrder::parse(&crlf, &trackers).unwrap(), order);
+    let reread = WorkOrder::parse(&crlf, &trackers).unwrap();
+    assert_eq!(reread, order);
+    assert_eq!(reread.digest(), text_digest(&crlf));
+    assert_ne!(reread.digest(), order.digest());
 }
 
 #[test]
@@ -343,7 +346,7 @@ fn ids_states_and_conditions_are_closed() {
     for (word, condition) in builtins.into_iter().chain(endings) {
         let draft = draft_with("edges", json!([{"awaits": "WO-1", "condition": word}]));
         let order = WorkOrder::parse(&draft, &trackers).unwrap();
-        assert_eq!(order.header.edges.0[0].condition, condition);
+        assert_eq!(order.parsed.header.edges.0[0].condition, condition);
         assert_eq!(serde_json::to_value(condition).unwrap(), word);
     }
 }
@@ -424,7 +427,11 @@ fn header_shapes_are_checked() {
     }
     let cap = draft_with("caps", json!({"x2_max-limit": u32::MAX as f64, "zero":0.0}));
     assert_eq!(
-        WorkOrder::parse(&cap, &trackers).unwrap().header.caps,
+        WorkOrder::parse(&cap, &trackers)
+            .unwrap()
+            .parsed
+            .header
+            .caps,
         BTreeMap::from([
             ("x2_max-limit".into(), Count(u32::MAX)),
             ("zero".into(), Count(0))

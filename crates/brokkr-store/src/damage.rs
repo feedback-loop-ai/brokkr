@@ -30,6 +30,8 @@ pub enum Damage {
     /// damaged page read as before SQLite 3.51.3, and what 0.12.0 printed
     /// as "Query returned no rows".
     NoSchema,
+    /// The work-order schema marker is invalid or its table is missing.
+    Orders,
     /// A stored envelope that is not JSON, at the run and the row's seq,
     /// both read from the row since the envelope cannot be.
     Envelope { run_id: String, seq: i64 },
@@ -41,6 +43,7 @@ impl std::fmt::Display for Damage {
             Damage::Malformed => f.write_str("SQLite reads its disk image as malformed"),
             Damage::NotADatabase => f.write_str("SQLite reads it as no database"),
             Damage::NoSchema => f.write_str("it records no database schema"),
+            Damage::Orders => f.write_str("its work-order storage is damaged"),
             Damage::Envelope { run_id, seq } => write!(
                 f,
                 "run '{}' holds an envelope at seq {seq} that is not JSON",
@@ -51,8 +54,8 @@ impl std::fmt::Display for Damage {
 }
 
 /// `error`, named [`StoreError::Damaged`] in `journal` where it says the
-/// journal is damaged, and untouched otherwise. Damage already named
-/// passes as it is.
+/// journal is damaged, and untouched otherwise. Work-order damage is
+/// detected on a connection and takes the path the operation received.
 pub(crate) fn classified(journal: &Path, error: StoreError) -> StoreError {
     let damage = match &error {
         StoreError::Sqlite(sqlite) => match sqlite.sqlite_error_code() {
@@ -64,6 +67,10 @@ pub(crate) fn classified(journal: &Path, error: StoreError) -> StoreError {
             run_id: run_id.clone(),
             seq: *seq,
         },
+        StoreError::Damaged {
+            damage: Damage::Orders,
+            ..
+        } => Damage::Orders,
         // Not damage: each keeps its own words (a peer's lock, tamper
         // evidence, a schema this build does not read, JSON that is no
         // envelope, and every refusal about content or a name).

@@ -38,10 +38,20 @@ impl Scratch {
         file
     }
 
-    fn parsed(&self, words: &[&str]) -> Cli {
+    fn parse(&self, words: &[&str]) -> Result<Cli, clap::Error> {
         let tail = ["--db", self.db.to_str().unwrap()];
         let argv = ["brokkr", "orders"].iter().chain(words).chain(&tail);
-        Cli::try_parse_from(argv).unwrap()
+        Cli::try_parse_from(argv)
+    }
+
+    fn parsed(&self, words: &[&str]) -> Cli {
+        self.parse(words).unwrap()
+    }
+
+    fn shown_digest(&self, id: &str) -> String {
+        let shown = self.stdout(&["show", id]);
+        let (_, digest) = shown.trim_end().rsplit_once("\ndigest ").unwrap();
+        digest.to_owned()
     }
 
     fn invoke(&self, words: &[&str]) -> (Result<ExitCode>, String) {
@@ -82,6 +92,14 @@ impl Scratch {
     }
 }
 
+fn rule_words<'a>(id: &'a str, digest: &'a str) -> [&'a str; 6] {
+    ["rule", id, "--digest", digest, "--reason", REASON]
+}
+
+fn shown(text: &str, digest: &str) -> String {
+    format!("{text}digest {digest}\n")
+}
+
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/work-order")
@@ -101,7 +119,12 @@ fn add_assigns_an_id_lists_it_and_refuses_a_second_proposal() {
         "WO-1  proposed  0  Work order draft\n"
     );
     let recorded = scratch.stdout(&["show", "WO-1"]);
-    let duplicate = scratch.file(&recorded);
+    let (document, digest) = recorded.rsplit_once("digest ").unwrap();
+    assert_eq!(
+        digest,
+        "167afdc611b69fc43f54e9c13f4e5aba53d2b99e52f7114125217225b32659ae\n"
+    );
+    let duplicate = scratch.file(document);
     let (error, stderr) =
         scratch.refused(&["add", duplicate.to_str().unwrap(), "--reason", REASON]);
     assert!(matches!(
@@ -140,7 +163,11 @@ fn add_explains_that_a_ruled_header_is_only_proposed() {
         .unwrap()
         .with_state(WorkOrderState::Proposed)
         .render();
-    assert_eq!(scratch.stdout(&["show", "WO-12"]), expected);
+    let digest = brokkr_core::work_order::text_digest(&expected);
+    assert_eq!(
+        scratch.stdout(&["show", "WO-12"]),
+        shown(&expected, &digest)
+    );
 }
 
 #[test]
@@ -150,8 +177,9 @@ fn ruling_waits_for_closed_asks_and_an_edit_returns_the_order_to_proposed() {
     let open = complete.replacen(",\n      \"ruling\": 1", "", 1);
     let file = scratch.file(&open);
     scratch.add(&file);
-    let rule = ["rule", "WO-12", "--reason", REASON];
-    let (refusal, stderr) = scratch.refused_order(&rule);
+    let stale = scratch.shown_digest("WO-12");
+    let stale_rule = rule_words("WO-12", &stale);
+    let (refusal, stderr) = scratch.refused_order(&stale_rule);
     assert!(matches!(refusal, OrderRefusal::OpenAsk(id) if id.number() == 12));
     assert_eq!(
         stderr,
@@ -162,12 +190,27 @@ fn ruling_waits_for_closed_asks_and_an_edit_returns_the_order_to_proposed() {
     let expected_edit = "edited WO-12, proposed until ruled again\n";
     assert_eq!(scratch.file(&complete), file);
     assert_eq!(scratch.stdout(&edit), expected_edit);
-    assert_eq!(scratch.stdout(&rule), "ruled WO-12\n");
-    assert_eq!(scratch.stdout(&["show", "WO-12"]), complete);
-    assert_eq!(scratch.stdout(&edit), expected_edit);
+    let (refusal, stderr) = scratch.refused_order(&stale_rule);
+    assert!(matches!(refusal, OrderRefusal::StaleDigest(id) if id.number() == 12));
+    assert_eq!(
+        stderr,
+        "error: the text of WO-12 changed since that digest was read; show it again and rule the digest it prints\n"
+    );
+
+    let digest = scratch.shown_digest("WO-12");
+    assert_eq!(
+        scratch.stdout(&rule_words("WO-12", &digest)),
+        "ruled WO-12\n"
+    );
     assert_eq!(
         scratch.stdout(&["show", "WO-12"]),
-        complete.replace("\"state\": \"ruled\"", "\"state\": \"proposed\"")
+        shown(&complete, &digest)
+    );
+    assert_eq!(scratch.stdout(&edit), expected_edit);
+    let proposed = complete.replace("\"state\": \"ruled\"", "\"state\": \"proposed\"");
+    assert_eq!(
+        scratch.stdout(&["show", "WO-12"]),
+        shown(&proposed, &digest)
     );
 
     let connection = scratch.sql();
@@ -205,7 +248,8 @@ fn ruling_an_order_the_cli_cannot_show_journals_no_ruling() {
         .order_add(order, by)
         .unwrap();
 
-    let (refusal, stderr) = scratch.refused_order(&["rule", "WO-12", "--reason", REASON]);
+    let digest = "0".repeat(64);
+    let (refusal, stderr) = scratch.refused_order(&rule_words("WO-12", &digest));
     assert!(matches!(refusal, OrderRefusal::Unreadable(id, _) if id.number() == 12));
     assert!(stderr.starts_with(
         "error: the journal's text for WO-12 cannot be read: the work order cites unknown tracker 'custom'"
@@ -240,7 +284,12 @@ fn show_prints_each_line_without_controls_or_directional_overrides() {
     .unwrap()
     .with_id("WO-1".parse().unwrap())
     .render();
-    assert_eq!(scratch.stdout(&["show", "WO-1"]), expected);
+    let canonical = WorkOrder::parse(&text, &shipped_trackers())
+        .unwrap()
+        .with_id("WO-1".parse().unwrap())
+        .render();
+    let digest = brokkr_core::work_order::text_digest(&canonical);
+    assert_eq!(scratch.stdout(&["show", "WO-1"]), shown(&expected, &digest));
 }
 
 #[test]
@@ -348,7 +397,8 @@ fn json_lists_the_view_model_in_numeric_order() {
             "\"asks\": [{\"number\": 1, \"question\": \"When?\"}]",
         );
     scratch.add(&scratch.file(&open));
-    scratch.stdout(&["rule", "WO-12", "--reason", REASON]);
+    let digest = scratch.shown_digest("WO-12");
+    scratch.stdout(&rule_words("WO-12", &digest));
     let rows: Value = serde_json::from_str(&scratch.stdout(&["list", "--json"])).unwrap();
     assert_eq!(
         rows,
@@ -357,6 +407,56 @@ fn json_lists_the_view_model_in_numeric_order() {
             {"id": "WO-12", "state": "ruled", "open_asks": 0, "title": "Render the work order"}
         ])
     );
+}
+
+#[test]
+fn rule_requires_a_lowercase_digest_and_edit_names_its_id() {
+    use clap::error::ErrorKind;
+
+    let scratch = Scratch::new();
+    let error = scratch
+        .parse(&["rule", "WO-1", "--reason", REASON])
+        .err()
+        .unwrap();
+    assert_eq!(error.kind(), ErrorKind::MissingRequiredArgument);
+    assert!(error.to_string().contains("--digest <HEX>"));
+
+    for digest in ["a".repeat(63), "A".repeat(64), "g".repeat(64)] {
+        let error = scratch.parse(&rule_words("WO-1", &digest)).err().unwrap();
+        assert_eq!(error.kind(), ErrorKind::ValueValidation);
+        assert!(error
+            .to_string()
+            .contains("expected a digest of 64 lowercase hexadecimal characters"));
+    }
+
+    let help = scratch.parse(&["edit", "--help"]).err().unwrap();
+    assert_eq!(help.kind(), ErrorKind::DisplayHelp);
+    assert!(help
+        .to_string()
+        .contains("Usage: brokkr orders edit [OPTIONS] --reason <WHY> <ID> <FILE>"));
+}
+
+#[test]
+fn list_and_show_refuse_damaged_work_order_storage() {
+    for sql in [
+        "UPDATE meta SET value = 'damaged' WHERE key = 'orders_schema'",
+        "DROP TABLE work_order_events",
+    ] {
+        let scratch = Scratch::new();
+        scratch.add(&fixture(DRAFT));
+        scratch.sql().execute_batch(sql).unwrap();
+        for words in [&["list"][..], &["show", "WO-1"]] {
+            let (error, stderr) = scratch.refused(words);
+            assert!(matches!(
+                error.downcast_ref::<StoreError>(),
+                Some(StoreError::Damaged { journal, damage: brokkr_store::Damage::Orders }) if *journal == scratch.db
+            ));
+            assert!(stderr.starts_with(&format!(
+                "error: the journal '{}' is damaged (its work-order storage is damaged);",
+                scratch.db.display()
+            )));
+        }
+    }
 }
 
 #[test]

@@ -1533,6 +1533,7 @@ pub fn brokkr_core::work_order::Trackers::from_definitions<'a>(impl core::iter::
 pub struct brokkr_core::work_order::WorkOrder
 impl brokkr_core::work_order::WorkOrder
 pub fn brokkr_core::work_order::WorkOrder::acceptance(&self) -> &[alloc::string::String]
+pub fn brokkr_core::work_order::WorkOrder::digest(&self) -> &str
 pub fn brokkr_core::work_order::WorkOrder::id(&self) -> core::option::Option<&brokkr_core::work_order::WorkOrderId>
 pub fn brokkr_core::work_order::WorkOrder::intent(&self) -> &str
 pub fn brokkr_core::work_order::WorkOrder::journaled_open_asks(&str) -> core::result::Result<usize, brokkr_core::work_order::WorkOrderError>
@@ -1556,6 +1557,7 @@ pub type brokkr_core::work_order::WorkOrderId::Err = brokkr_core::work_order::Wo
 pub fn brokkr_core::work_order::WorkOrderId::from_str(&str) -> core::result::Result<Self, Self::Err>
 impl serde_core::ser::Serialize for brokkr_core::work_order::WorkOrderId
 pub fn brokkr_core::work_order::WorkOrderId::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+pub fn brokkr_core::work_order::text_digest(&str) -> alloc::string::String
 pub enum brokkr_core::CauseRead
 pub brokkr_core::CauseRead::Refused(alloc::string::String)
 pub brokkr_core::CauseRead::Stated(brokkr_core::park::ParkCause)

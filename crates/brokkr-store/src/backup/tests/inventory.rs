@@ -319,3 +319,103 @@ fn an_inventory_whose_bytes_cannot_be_read_is_refused_by_name() {
     assert_eq!(source.raw_os_error(), Some(5), "{source}");
     assert_absent(&destination);
 }
+
+#[test]
+fn a_journal_before_work_orders_backs_up_with_null_and_restores() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    seed(&mut store, "alpha", 1);
+    store
+        .conn
+        .execute_batch(
+            "DELETE FROM meta WHERE key = 'orders_schema'; DROP TABLE work_order_events;",
+        )
+        .unwrap();
+
+    let taken = snapshot_of(&store, &dir.path().join("backup"));
+    let inventory = inventory_of(&taken);
+    assert!(matches!(
+        inventory.schemas.orders,
+        OrdersSchema::Recorded(None)
+    ));
+    let destination = absent_destination(dir.path());
+    assert_eq!(restore_counts(&taken, &destination), (1, 1));
+}
+
+#[test]
+fn v1_inventory_restores_with_no_work_order_schema_field() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, taken) = completed(dir.path());
+    let mut inventory = inventory_of(&taken);
+    inventory.format = "brokkr.journal-backup.v1".into();
+    inventory.schemas.orders = OrdersSchema::Legacy;
+    rewrite_inventory(&taken, &inventory);
+
+    let destination = absent_destination(dir.path());
+    assert_eq!(restore_counts(&taken, &destination), (3, 9));
+}
+
+#[test]
+fn v2_requires_orders_and_checks_it_against_the_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, taken) = completed(dir.path());
+    let mut inventory = inventory_of(&taken);
+    let destination = absent_destination(dir.path());
+    for (orders, reason) in [
+        (OrdersSchema::Legacy, "schemas.orders is required in v2"),
+        (
+            OrdersSchema::Recorded(None),
+            "the snapshot's work-order schema is 1; schemas.orders says null",
+        ),
+        (
+            OrdersSchema::Recorded(Some(2)),
+            "the snapshot's work-order schema is 1; schemas.orders says 2",
+        ),
+    ] {
+        inventory.schemas.orders = orders;
+        rewrite_inventory(&taken, &inventory);
+        let refused = restore(&taken.to, &destination).unwrap_err();
+        let BackupError::InvalidInventory { source } = refused else {
+            panic!("expected an invalid inventory: {refused:?}");
+        };
+        assert_eq!(source.to_string(), reason);
+        assert_absent(&destination);
+    }
+    inventory.format = "brokkr.journal-backup.v1".into();
+    rewrite_inventory(&taken, &inventory);
+    let refused = restore(&taken.to, &destination).unwrap_err();
+    let BackupError::InvalidInventory { source } = refused else {
+        panic!("expected v1 to refuse the v2 field: {refused:?}");
+    };
+    assert_eq!(source.to_string(), "schemas.orders is absent in v1");
+    assert_absent(&destination);
+}
+
+#[test]
+fn backup_refuses_damaged_work_order_storage_before_publication() {
+    for sql in [
+        "UPDATE meta SET value = 'damaged' WHERE key = 'orders_schema'",
+        "DROP TABLE work_order_events",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = journal(dir.path());
+        let to = dir.path().join("backup");
+        store.conn.execute_batch(sql).unwrap();
+        let refused = backup(
+            &store,
+            BackupOptions {
+                to: &to,
+                now: TAKEN_AT,
+                projection: PROJECTION,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(
+            refused,
+            BackupError::Store(StoreError::Damaged { journal, damage: crate::Damage::Orders })
+                if journal == store.path()
+        ));
+        assert!(!to.join(INVENTORY_FILE).exists());
+        assert!(!to.join(SNAPSHOT_FILE).exists());
+    }
+}
