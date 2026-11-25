@@ -18,7 +18,9 @@ use super::{
     string_array, trust_tier, EgressClass, HarnessHands, LibraryError, McpSupport, ToolPermissions,
     TrustTier, ROUTE_GRAMMAR,
 };
-use crate::agents::kinds::{kind_word, RecordKinds, RootKind, RootShapeUnmet};
+use brokkr_core::seat::is_declared_record_kind;
+
+use crate::agents::kinds::{RecordKinds, RootKind, RootShapeUnmet};
 use crate::agents::mcp::McpDecoded;
 use crate::agents::ResumeAssessment;
 
@@ -100,7 +102,7 @@ fn declared_kinds<'a>(
 /// The kind `raw` writes at `key`: one kind word, never `none`.
 fn one_kind(raw: &Map<String, Value>, key: &str, what: &str) -> Result<String, LibraryError> {
     let kind = string(raw, key, what)?;
-    match kind_word(&kind) && kind != "none" {
+    match is_declared_record_kind(&kind) {
         true => Ok(kind),
         false => invalid(format!(
             "{what} '{key}' must be one kind of at most 40 bytes matching \

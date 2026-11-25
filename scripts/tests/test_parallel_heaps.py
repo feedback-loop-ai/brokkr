@@ -31,7 +31,7 @@ if 'show-env' in args:
     sys.exit(0)
 (root / 'cargo-args').write_text(json.dumps(args))
 (root / 'cargo-env').write_text(json.dumps(dict(os.environ)))
-names = ['heap_claude', 'heap_codex', 'heap_dsh']
+names = ['heap_claude', 'heap_codex', 'heap_dsh', 'heap_agy']
 mode = os.environ.get('ARTIFACTS')
 if mode == 'missing': names.pop()
 if mode == 'duplicate': names.append('heap_claude')
@@ -54,7 +54,7 @@ if os.environ.get('IGNORE_TERM') == name: signal.signal(signal.SIGTERM, signal.S
 # 30 s, not 5: a loaded host can take longer than 5 s to start all three,
 # and a serial launcher still never lets the first see the third (#1054).
 deadline = time.monotonic() + 30
-while len(list(root.glob('*.started'))) != 3:
+while len(list(root.glob('*.started'))) != 4:
     if time.monotonic() > deadline: sys.exit(90)
     time.sleep(.01)
 if os.environ.get('HANG'):
@@ -69,7 +69,7 @@ if name == 'heap_claude':
         sys.exit(0)
     if mode == 'duplicate':
         print('test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s')
-kind = {'heap_claude':'claude-session', 'heap_codex':'codex-thread', 'heap_dsh':'dsh-session'}[name]
+kind = {'heap_claude':'claude-session', 'heap_codex':'codex-thread', 'heap_dsh':'dsh-session', 'heap_agy':'agy-conversation'}[name]
 if os.environ.get('RESULT') == 'wrong-kind' and name == 'heap_claude': kind = 'wrong'
 print('test heap_budget ... heap\t' + kind + '\t123')
 print('ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s')
@@ -112,12 +112,12 @@ class Launcher(unittest.TestCase):
     def test_overlap_join_feature_selection_and_cargo_artifacts(self):
         result = self.launch()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(list(self.root.glob('*.finished'))), 3)
+        self.assertEqual(len(list(self.root.glob('*.finished'))), 4)
         self.assert_reaped()
         self.assertEqual(json.loads((self.root / 'cargo-args').read_text()), (
             'test --workspace --all-features --locked --no-fail-fast --message-format=json '
-            '--test=heap_claude --test=heap_codex --test=heap_dsh --no-run').split())
-        self.assertEqual(result.stdout.count('test result: ok.'), 3)
+            '--test=heap_claude --test=heap_codex --test=heap_dsh --test=heap_agy --no-run').split())
+        self.assertEqual(result.stdout.count('test result: ok.'), 4)
         for name in heaps.NAMES:
             self.assertEqual(json.loads((self.root / (name + '.args')).read_text()),
                              ['--nocapture', '--test-threads=1'])
@@ -158,7 +158,7 @@ class Launcher(unittest.TestCase):
                 self.env['RESULT'] = mode
                 result = self.launch()
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                for name in ('heap_codex', 'heap_dsh'):
+                for name in ('heap_codex', 'heap_dsh', 'heap_agy'):
                     self.assertTrue((self.root / (name + '.finished')).exists())
                 self.assert_reaped()
 
@@ -171,7 +171,7 @@ class Launcher(unittest.TestCase):
                 process = subprocess.Popen(self.command('--binary-bound', '1800'), env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 try:
                     deadline = time.monotonic() + 30
-                    while len(list(self.root.glob('*.started'))) != 3:
+                    while len(list(self.root.glob('*.started'))) != 4:
                         self.assertIsNone(process.poll())
                         self.assertLess(time.monotonic(), deadline)
                         time.sleep(.01)
@@ -195,7 +195,7 @@ class Launcher(unittest.TestCase):
         binaries = {name: str(self.root / name) for name in heaps.NAMES}
         with self.assertRaises(subprocess.TimeoutExpired):
             heaps.run(binaries, self.env, 1)
-        self.assertEqual(len(list(self.root.glob('*.started'))), 3)
+        self.assertEqual(len(list(self.root.glob('*.started'))), 4)
         self.assert_reaped()
 
 

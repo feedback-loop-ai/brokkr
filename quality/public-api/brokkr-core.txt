@@ -1348,10 +1348,19 @@ pub struct brokkr_core::seat::Transcript
 pub brokkr_core::seat::Transcript::home: alloc::string::String
 pub brokkr_core::seat::Transcript::kind: alloc::string::String
 pub brokkr_core::seat::Transcript::locator: alloc::string::String
+pub const brokkr_core::seat::AGY_TRANSCRIPT_FILE: &str
+pub const brokkr_core::seat::AGY_TRANSCRIPT_KIND: &str
+pub const brokkr_core::seat::TRANSCRIPT_SOURCE_CAP: u64
 pub fn brokkr_core::seat::add_token(&mut core::option::Option<u64>, core::option::Option<u64>)
 pub fn brokkr_core::seat::boundary_entries(&serde_json::value::Value) -> alloc::vec::Vec<brokkr_core::seat::BoundaryEntry>
 pub fn brokkr_core::seat::count_item(&mut core::option::Option<u64>, core::option::Option<&str>)
 pub fn brokkr_core::seat::finish_usage(brokkr_core::seat::TokenUsage) -> core::option::Option<brokkr_core::seat::TokenUsage>
+pub fn brokkr_core::seat::is_agy_uuid(&str) -> bool
+pub fn brokkr_core::seat::is_clean_transcript_path(&str) -> bool
+pub fn brokkr_core::seat::is_declared_record_kind(&str) -> bool
+pub fn brokkr_core::seat::is_native_transcript_home(&str) -> bool
+pub fn brokkr_core::seat::is_record_kind_word(&str) -> bool
+pub fn brokkr_core::seat::is_valid_transcript_home(&str) -> bool
 pub fn brokkr_core::seat::reported_cost(&serde_json::value::Value) -> core::option::Option<f64>
 pub fn brokkr_core::seat::seat_costs(&[brokkr_core::envelope::EventEnvelope]) -> (alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::seat::SeatCost>, f64)
 pub fn brokkr_core::seat::stamp_of(&serde_json::value::Value) -> core::option::Option<alloc::string::String>

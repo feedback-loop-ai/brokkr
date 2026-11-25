@@ -84,7 +84,9 @@ fn project_message(
             "type": "response_item",
             "payload": {"type": "message", "role": role, "content": parts("output_text")},
         }),
-        TranscriptKind::DshSession | TranscriptKind::None => panic!("unexpected reader {kind:?}"),
+        TranscriptKind::DshSession | TranscriptKind::AgyConversation | TranscriptKind::None => {
+            panic!("unexpected reader {kind:?}")
+        }
     };
     if let Some(timestamp) = timestamp {
         row["timestamp"] = timestamp;

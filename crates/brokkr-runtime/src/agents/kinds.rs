@@ -38,22 +38,13 @@ pub(crate) fn masked(name: &str) -> bool {
     })
 }
 
-/// The longest kind seat-record v8 admits.
-const KIND_LIMIT: usize = 40;
-
 /// The transcript kind that locates nothing, and needs no declaration.
 const NONE: &str = "none";
 
-/// Whether `text` is one kind of seat-record v8's grammar,
-/// `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`, of at most [`KIND_LIMIT`] bytes. A byte
-/// check, held to the contract's pattern by
-/// `kinds::tests::the_kind_grammar_is_the_contracts`.
-pub(crate) fn kind_word(text: &str) -> bool {
-    let lower = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
-    text.len() <= KIND_LIMIT
-        && text.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
-        && (text.split('-')).all(|part| !part.is_empty() && part.bytes().all(lower))
-}
+/// The one seat-record v8 kind grammar in `brokkr-core`, held to the
+/// contract's pattern by `kinds::tests::the_kind_grammar_is_the_contracts`
+/// (#1227 Y2).
+pub(crate) use brokkr_core::seat::is_record_kind_word as kind_word;
 
 /// Whether `kind` is one of v7's closed vocabulary: a kind a built-in
 /// driver writes, or `none`. A reader acts on these as it did before v8.
@@ -200,6 +191,21 @@ impl SeatKinds {
             false => (declared.root_session.as_ref()).map(|root| root.kind.as_str()),
         });
         named == Some(kind) || self.driver.and_then(driver_kind) == Some(kind)
+    }
+
+    /// The transcript kind this seat's loaded adapter declares in
+    /// `record_kinds`, if any (#1227 W6). Carried to the driver through
+    /// [`brokkr_protocol::DeclaredTranscriptKind`] so a built-in driver writes
+    /// a v8 adapter-declared transcript kind only when the seat's adapter
+    /// declares it.
+    pub(crate) fn declared_transcript_kind(
+        &self,
+    ) -> Option<brokkr_protocol::DeclaredTranscriptKind> {
+        (self.adapter.as_ref())
+            .and_then(|adapter| adapter.declared.as_ref())
+            .and_then(|declared| {
+                brokkr_protocol::DeclaredTranscriptKind::parse(&declared.transcript).ok()
+            })
     }
 
     /// Whether this harness's adapter declares its kinds (`record_kinds`),

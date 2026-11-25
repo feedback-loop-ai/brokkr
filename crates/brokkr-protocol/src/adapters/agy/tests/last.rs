@@ -26,7 +26,7 @@ fn prepared_by(
 
 /// The path `invoke` refuses `prepared` for, matched as the typed value.
 fn refused_for(prepared: &Prepared, input: &Value) -> std::path::PathBuf {
-    let invoked = invoke(prepared, input, "prompt", &[], &mut |_| {});
+    let invoked = invoke(prepared, false, input, "prompt", &[], &mut |_| {});
     let Err(Ended::Launch(LaunchError::Configured(path))) = invoked.map(drop) else {
         panic!("the planted path was admitted or ended otherwise")
     };

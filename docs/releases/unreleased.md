@@ -57,6 +57,40 @@ Changes merged since v0.15.2 that the next release's notes carry.
   is unchanged ([provider
   adapters](../guides/provider-adapters.md#a-boxed-agy-seat)).
 - **An agy seat never starts agy's self-updater** (#1224): every agy child carries `AGY_CLI_DISABLE_AUTO_UPDATE=true`, and a seat that binds that name is refused.
+- **Antigravity CLI transcripts are kept and readable in the run view** (#1227,
+  decision 0075 level 2, proposed addendum of 2026-11-24).
+  `docs/examples/adapters/agy.json` declares
+  `record_kinds: {"transcript": "agy-conversation"}` (rejoin remains
+  unsupported, with no `root_session` kind or `resume_shape`); the declaration
+  crosses from the engine to the driver through one shared type
+  (`DeclaredTranscriptKind`, validated by the one declared-kind grammar in
+  `brokkr-core` shared with the adapter loader and runtime, refusing `"none"`
+  and invalid spellings at launch), and seats without a declaring adapter keep
+  nothing and record `none`. When declared, `brokkr driver agy` keeps nothing
+  in every case the driver can see — probes (unchanged from main), refusals to
+  start (judged by one pure `refusal_to_start` predicate over a single
+  `result_path` observation carried on `Invocation`), missing `init`, non-UUID
+  id, symlinked or non-regular source, source over 32 MiB, a reference the
+  run view's shared home/path rule rejects (relative `HOME`, non-native drive
+  or UNC spelling, or control characters such as a newline), or a row that `probe::seat_row` masking would
+  alter — and otherwise copies
+  `brain/<id>/.system_generated/logs/transcript.jsonl` before removing the
+  engine HOME into
+  `~/.local/state/brokkr/agy-conversations/<id>/transcript.jsonl` (owner-only
+  parent with no group/other access, 0700 conversation directory, 0600 file,
+  bounded at 32 MiB, exact single lowercase UUID read beside the fold, and
+  no-symlink regular-file traversal) and records `agy-conversation` (an engine
+  refusal of the row after the driver returns can leave an operator-only file
+  for `#1323`'s reaper). `brokkr runs transcript`, the TUI and the browser read
+  the kept file in file order (showing `SYSTEM_MESSAGE` turns, `RUNNING` rows
+  as unfinished, counting a malformed newline-less final line as skipped,
+  admitting only exact 20-byte `YYYY-MM-DDTHH:MM:SSZ` timestamps with a counted
+  notice for any other present value including `null`, and rendering
+  `tool_calls[].args` members verbatim without re-parsing or re-serializing
+  string values) and mask both `Turn.ts` and block text through the shared
+  `mask_secrets` path for every transcript kind; the kept file at rest is
+  unmasked and readable only by the operator's UID. Nothing reaps kept
+  conversations yet (#1323, alongside `dsh-homes`).
 
 ## Changed
 

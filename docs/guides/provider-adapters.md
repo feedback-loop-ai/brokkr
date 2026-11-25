@@ -526,8 +526,9 @@ onboarded under decision
 controller's ruling of 2026-11-20. Level 1 is an adapter and a driver,
 `brokkr driver agy`, and nothing else. The seat is unboxed, except where
 its site boxes its hands: there it is boxed at level 3 (#1224), as
-[below](#a-boxed-agy-seat). It is never resumed, because the HOME it runs
-under is the engine's for one turn. Its trust tier is `trusted` and every
+[below](#a-boxed-agy-seat). It is never resumed yet, because the HOME it runs
+under is the engine's for one turn (only its transcript file is kept
+past the turn for the run view, #1227). Its trust tier is `trusted` and every
 model it serves is promoted, so no agy model is held to
 `provisional_offices` any longer; which offices a seat holds is still
 ruled by its gates, realms and capabilities. `agy-neon` and
@@ -824,6 +825,132 @@ A signed-out CLI waits 60 seconds and then fails "authentication failed
 or timed out", which refuses the seat with the same instruction. The record
 names six environment variables in the binary and exercised none.
 
+
+**Kept transcripts (`agy-conversation`).** Agy's example adapter declares
+`record_kinds: {"transcript": "agy-conversation"}` (with no `root_session`
+kind and no `resume_shape`, because rejoin is not built yet). `agy-conversation`
+is admitted only where the seat's loaded adapter declares it in `record_kinds`,
+carried from the engine to the driver through one shared type
+(`DeclaredTranscriptKind` under `resume_context.declared_transcript_kind`,
+validated by the one declared-kind grammar in `brokkr-core` shared with the
+adapter loader and runtime, which refuses `"none"`, over-long words and
+upper-case letters; a refused or unreadable value refuses the launch naming
+`resume_context.declared_transcript_kind` rather than recording `none`). An
+inline `{brokkr} driver agy` seat with no adapter, or an adapter without
+`record_kinds`, keeps nothing and records `none` with no notice. When
+declared, on every ending that records a transcript — clean, failed after
+`init`, or a late refusal after work — after `agy` exits and before the engine
+HOME is removed, `brokkr driver agy` copies only
+`<HOME>/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`
+out of the engine HOME into
+`<operator HOME>/.local/state/brokkr/agy-conversations/<id>/transcript.jsonl`
+and records `transcript: {"kind": "agy-conversation", "locator": "<id>", "home": "<operator HOME>/.local/state/brokkr/agy-conversations"}`
+(beside `~/.local/state/brokkr/dsh-homes/`, dsh's precedent). The database,
+the full transcript log, `chunks/` and `steps/` are not kept.
+
+Because the driver and the engine are two processes, the driver can only keep
+nothing in the cases it can see. Those are: a probe (unchanged from main:
+nothing kept, no notice, answer untouched); a refusal to start (judged by the
+one pure `refusal_to_start` predicate over a single `result_path` observation
+made immediately after `agy` exits and passed on `Invocation` to
+`run_seat_with`); no `init` with a conversation; an id that is not a UUID; a
+source that is not a regular file reached without a symbolic link; a file over
+the bound; a reference the reader's rule rejects (relative operator `HOME`, or
+a `HOME` containing a control character such as a newline); a row the turn's
+masking would change (checked by building the exact emitted transcript row and
+passing it through the shared path's `probe::seat_row`, keeping nothing and
+recording `none` with a typed notice naming no value if any byte differs from
+the unmasked row); and an undeclared kind. What the driver cannot see is the
+engine refusing the row after the driver has returned. Then a kept file with
+no record can remain; it is readable only by the operator, and the reaper of
+issue #1323 removes kept files that no journal names.
+
+**Same-user directory limit.** A process running as the operator's own user
+that creates, renames, moves, replaces or removes entries under
+`agy-conversations` while a keep is in progress is a stated limit (operator
+ruling of 2026-11-25 on #1227): the keeper runs as that same user, so
+everything it can be made to do — write into a controlled directory, set an
+owned directory to 0700, remove an owned entry — that process can do itself
+with the same system calls, crossing no privilege boundary and reaching nothing
+of another user's. Against that class the keeper promises no outcome (examples:
+where the transcript lands if the directory is moved, which entry is removed if
+one is swapped between `statat` and `unlinkat`, or what the record's home names
+if a parent is renamed). Instead the code holds four mechanisms: (m1) every
+open for the kept place is `openat` relative to a held handle with `O_NOFOLLOW`
+on the final component; (m2) modes change only through `fchmod` on a handle,
+never by pathname; (m3) the transcript is created with `O_CREAT | O_EXCL |
+O_NOFOLLOW` relative to the conversation directory's handle; and (m4) every
+`unlinkat` is preceded by `statat` through the same parent handle matching
+recorded `(st_dev, st_ino)` and skipped when they differ. When no such process
+acts during a keep, all guarantees above hold.
+
+Because an unboxed seat's own commands can write inside the engine HOME, the
+driver treats the source as untrusted: `<id>` is read beside the fold without
+changing the fold's `init` type and must be a single exact 36-character
+lowercase UUID (`8-4-4-4-12`) before it names any path; an absent, non-string,
+repeated, or non-UUID `conversation_id` yields the `InvalidId` notice and
+`none` without affecting model-pin confirmation or the turn's verdict. Before
+publishing, the driver applies the same home and path rule the run view uses
+(`brokkr-core`'s shared `is_valid_transcript_home` and
+`is_clean_transcript_path`), so a relative `HOME` or a `HOME` with a newline
+or other control character keeps nothing with a typed notice. Every component
+from the engine HOME down to the transcript file is opened without following a
+symbolic link and the leaf must be a regular file; and the copy is bounded at
+32 MiB (the shared `TRANSCRIPT_SOURCE_CAP`). Ancestors above `agy-conversations` (`~/.local/state/brokkr` and up) are
+traversed and, if missing, created with `create_dir_all`, asking nothing of an
+existing ancestor that the operating system does not ask to traverse it and
+create an entry in it (so a keep under an existing ancestor of mode 0300
+succeeds). Before anything is written, no mode is changed by pathname:
+`agy-conversations` and each conversation directory that the keeper creates is
+created with `mkdirat` at mode 0700, opened with `O_NOFOLLOW`, verified by
+`(st_dev, st_ino)` against the identity recorded right after `mkdirat`, and set
+to mode 0700 through that verified handle with `fchmod`, while an existing
+directory's mode is never changed. When the umask makes a directory the keeper
+has just created impossible for its owner to open, no transcript is kept and
+that directory is removed (through `unlink_if_same` so nothing of the attempt
+remains; a umask that leaves a newly created directory openable, such as 0100
+leaving mode 0600, is opened, set to 0700 through the verified handle, and
+keeps the transcript), and a replaced entry is left untouched with nothing
+kept. The `agy-conversations` parent is verified to
+be a real directory (never a symlink) owned by the effective UID with no group
+or other access (`mode & 0o077 == 0`); a parent the owner cannot write fails
+keeping with a typed notice and leaves the turn unchanged. The kept file is set
+to mode 0600 through `fchmod`, tightening agy's measured 0644 mode. A launch that never produced an `init` row keeps nothing
+and records `none`. If keeping fails or is skipped after `init` (outside a
+probe), the record says `none`, the turn's own outcome is unchanged, and a
+typed notice is joined onto stderr (including beside the withheld sign-in
+notice on a signed-out turn) without echoing any path, id, or bound value.
+
+**At-rest secrecy and masking.** As the seventh measurement recorded
+(`l2b-printed-value.transcript.ndjson`), a value a tool prints lands in
+the transcript file in clear. Like Claude Code's session files, the kept file
+at rest is **not** masked; only the operator's user account can read it
+(owner-only parent, 0700 directory, 0600 file). Every run-view surface
+(`brokkr runs transcript`, the TUI and the browser) reads the kept file
+through the shared `read_local` and `mask_secrets` path against `secrets.env`
+beside the journal; `mask_secrets` visits `Turn.ts` as well as every block's
+text, for every transcript kind. The reader projects rows in file order
+without sorting by `step_index`, showing `RUNNING` rows as unfinished, keeping
+`SYSTEM_MESSAGE` turns, and counting a malformed newline-less final line as
+skipped (the kept file is complete). The agy reader never re-parses and never
+re-serializes string values: each member of `tool_calls[].args` is shown as
+`name=value` with string values verbatim (already JSON text written once by
+agy, matching claude and codex) and non-string values as compact JSON, so
+`mask_secrets` covers every raw or once-escaped bound value including bound
+JSON text. `created_at` admits only exact 20-byte `YYYY-MM-DDTHH:MM:SSZ`
+timestamps; any other present value (including JSON `null`) yields an empty
+timestamp and a counted notice while keeping the row shown, while only an
+absent member is not counted. Nothing reaps
+`~/.local/state/brokkr/agy-conversations/` in this story, as nothing reaps
+`~/.local/state/brokkr/dsh-homes/`; a shared reaper is tracked as #1323
+(decision 0075 addendum of 2026-11-24, proposed).
+
+**Out of scope for level 2 transcripts (follow-ups).** Rejoin
+(`--conversation`), reporting applied effort from a transcript row's `model`
+slug (#1324), a shared reaper for kept conversations and dsh homes (#1323), and
+an unboxed seat's command that outlives a hard kill (`l2-14-kill-group`,
+#1245's family).
+
 **MCP isolation.** Agy's cold and replacement shapes, without hands on
 1.5.13 and boxed on 1.5.14, are measured on Linux
 ([below](#measured-mcp-isolation)), so an agy seat compiles there, boxed
@@ -842,6 +969,7 @@ turn. Each shape names the version its recordings are from:
 | A gate that crashes or hangs denies (`hook-crash-v14`, `hook-timeout-v14`) | 1.5.14 |
 | The self-update, and `AGY_CLI_DISABLE_AUTO_UPDATE=true` stopping it | 1.5.14 |
 | A command without a box runs on a terminal (`command-stdin-v14`) | 1.5.14 |
+| Level 2 transcript layout, `RUNNING` rows on kill, duplicate `step_index` on concurrent rejoins, clear-text printed values in 0644 files, and rejoin MCP isolation (`l2-*`, `l2b-*`, seventh measurement) | 1.5.14 |
 | The shapes without hands, whose ambient axis also rests on where agy's walk up ends (`git-root-linked-worktree`), which was not run again; of their `iso-*` turns, `iso-01`, `iso-02`, `iso-05` and `iso-06` were run again and gave the same on 1.5.14 | 1.5.13 |
 | The login and the six names of `harness_auth`, the native tool inventory, the launch grammar and its refusals, the stream's shape and the models and efforts | 1.5.13 |
 

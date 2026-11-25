@@ -190,7 +190,7 @@ shard 'every library, run_pages and fleet::kept_tests skipped' 1 3 1 lib skip:ru
 shard "the libraries' run_pages tests" 8 5 2 lib only:run_pages::
 shard "the libraries' fleet::kept_tests tests" 5 2 4 lib only:fleet::kept_tests::
 shard "the it binaries, capability_broker skipped" 7 8 2 test:it skip:capability_broker::
-shard 'the heap measurements' 7 8 1 test:heap_claude test:heap_codex test:heap_dsh
+shard 'the heap measurements' 7 8 1 test:heap_claude test:heap_codex test:heap_dsh test:heap_agy
 shard 'the other own-process binaries' 6 6 3 bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
   test:seatbelt_lifetime_probe test:summary_heap test:heap_open test:heap_costs

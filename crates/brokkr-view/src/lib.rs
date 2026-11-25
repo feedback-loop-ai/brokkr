@@ -1290,9 +1290,13 @@ fn session_id(transcript: Option<&Transcript>, told: Option<&String>) -> Option<
     match Kind::parse(&read.kind) {
         None => None,
         Some(Kind::ClaudeSession) if !read.locator.is_empty() => Some(read.locator.clone()),
-        Some(Kind::ClaudeSession | Kind::CodexThread | Kind::DshSession | Kind::None) => {
-            told.cloned()
-        }
+        Some(
+            Kind::ClaudeSession
+            | Kind::CodexThread
+            | Kind::DshSession
+            | Kind::AgyConversation
+            | Kind::None,
+        ) => told.cloned(),
     }
 }
 

@@ -548,6 +548,12 @@ struct Invocation {
     /// to accept a successful seat from an unsettled rejoin even when the
     /// child exited clean and wrote a result file.
     launch: LaunchTerminal,
+    /// Single observation of whether `result_path` existed right after the
+    /// harness exited, carried out of `agy::invoke` before its transcript copy
+    /// so `agy::invoke` and `run_seat_with` never observe `result_path` twice
+    /// (#1227 Y5). `None` for every other adapter, which observes `result_path`
+    /// once in `run_seat_with` as on main.
+    result_exists: Option<bool>,
 }
 
 /// Provider-reported model ids are journal data, so admit only the
@@ -1372,12 +1378,7 @@ fn qualify(gate: &ResumeGate, probe: &[String], originating: Option<&str>) -> Qu
 /// discarded and re-run because something else about the invocation
 /// looked like a refusal.
 fn delivered_result(input: &Value) -> bool {
-    input
-        .get("result_path")
-        .and_then(Value::as_str)
-        .filter(|path| !path.is_empty())
-        .and_then(|path| std::fs::metadata(path).ok())
-        .is_some_and(|meta| meta.len() > 0)
+    lost::ResultFile::observe(input).delivered()
 }
 
 /// The harness version the offered root was opened under, as the engine
@@ -2234,6 +2235,7 @@ fn invoke_stream_json(
         refusal,
         answer: probe.take(),
         launch: LaunchTerminal::Cold,
+        result_exists: None,
     })
 }
 
@@ -3431,6 +3433,7 @@ fn invoke_codex(
         refusal,
         answer: probe_bound.take(),
         launch: LaunchTerminal::Cold,
+        result_exists: None,
     })
 }
 
@@ -5075,6 +5078,7 @@ fn finish_dsh(
             state: None,
             refusal,
             launch: LaunchTerminal::Cold,
+            result_exists: None,
         },
         startup,
     })
@@ -5206,7 +5210,17 @@ fn invoke_with_stager(
         AdapterKind::Qoder => {
             qoder::drive(bin, extra, session.is_some(), prompt, input, bindings, emit)
         }
-        AdapterKind::Agy => agy::drive(pinned, session.is_some(), prompt, input, bindings, emit),
+        AdapterKind::Agy => agy::drive(
+            pinned,
+            agy::StartMode {
+                offered: session.is_some(),
+                probe: probe.requested(),
+            },
+            prompt,
+            input,
+            bindings,
+            emit,
+        ),
         AdapterKind::Exec => {
             exec::invoke_exec(extra, prompt, &workdir, input, bindings, emit, stage)
         }
@@ -6225,6 +6239,7 @@ fn run_seat_with(
         refusal,
         answer: _,
         launch,
+        result_exists,
     } = invocation;
     // The same choke point for what the folds kept aside: the session
     // record and a provider's refusal prose both come from the child's
@@ -6257,9 +6272,13 @@ fn run_seat_with(
     //
     // A signal or an unsettled launch is read before any refusal is: either
     // leaves no result, whatever the stream classified (`lost`).
-    let delivered = exit_code == 0 && std::fs::metadata(&result_path).is_ok();
-    let worked = began_work || delivered;
-    if let Some(reason) = lost::refusal_to_start(refusal, worked, exit_code, launch) {
+    if let Some(reason) = lost::refusal_to_start(
+        refusal,
+        began_work,
+        || result_exists.unwrap_or_else(|| std::fs::metadata(&result_path).is_ok()),
+        exit_code,
+        launch,
+    ) {
         let stderr_tail_start = stderr_tail_start(&stderr);
         eprint!("{}", &stderr[stderr_tail_start..]);
         let error = match transcript_locator(&session_meta) {

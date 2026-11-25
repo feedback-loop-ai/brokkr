@@ -22,6 +22,7 @@ pub(crate) enum Kind {
     ClaudeSession,
     CodexThread,
     DshSession,
+    AgyConversation,
     None,
 }
 
@@ -31,6 +32,7 @@ impl Kind {
             Kind::ClaudeSession => "claude-session",
             Kind::CodexThread => "codex-thread",
             Kind::DshSession => "dsh-session",
+            Kind::AgyConversation => brokkr_core::seat::AGY_TRANSCRIPT_KIND,
             Kind::None => "none",
         }
     }
@@ -45,9 +47,10 @@ pub fn driver_kinds() -> [&'static str; 3] {
 
 /// The one kind `driver` writes, as its transcript's and its confirmed
 /// root session's (decision 0075 ruling 2): LaneTally wraps claude, so it
-/// writes claude's, and `exec`, `qoder` and `agy` write none: Qoder's
-/// level 1 runs `--no-session-persistence`, and agy's declares no resume
-/// (#1200), so neither confirms a session to rejoin.
+/// writes claude's, and `exec`, `qoder` and `agy` write none by driver alone:
+/// Qoder's level 1 runs `--no-session-persistence`, and `agy-conversation` is
+/// admitted only where the seat's loaded adapter declares it in `record_kinds`
+/// (#1227 U2).
 pub fn driver_kind(driver: crate::adapters::AdapterKind) -> Option<&'static str> {
     use crate::adapters::AdapterKind;
     match driver {
@@ -60,6 +63,7 @@ pub fn driver_kind(driver: crate::adapters::AdapterKind) -> Option<&'static str>
 
 /// One invocation's transcript identity. The locator may arrive after the
 /// harness starts, so the value is mutable while the home and kind are not.
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Transcript {
     kind: Kind,
     home: PathBuf,
@@ -82,6 +86,7 @@ impl Transcript {
                 Kind::ClaudeSession => claude_home_from(operator_home),
                 Kind::CodexThread => codex_home_from(std::env::var_os("CODEX_HOME"), operator_home),
                 Kind::DshSession => dsh_home(),
+                Kind::AgyConversation => None,
                 Kind::None => Some(PathBuf::new()),
             },
         )
@@ -92,9 +97,34 @@ impl Transcript {
         Transcript::at(Kind::DshSession, home.path().to_path_buf())
     }
 
+    /// An agy launch's kept transcript under the kept-conversations parent,
+    /// carrying its clamped retained locator so mask preflight and final
+    /// publication serialize the exact same address and checkpoint row
+    /// (#1227 Y4).
+    pub(crate) fn agy(home: PathBuf, locator: &str) -> Self {
+        let mut transcript = Transcript::at(Kind::AgyConversation, home);
+        transcript.locator = locator.chars().take(LOCATOR_LIMIT).collect();
+        transcript
+    }
+
+    pub(crate) fn none() -> Self {
+        Transcript::at(Kind::None, PathBuf::new())
+    }
+
+    /// The exact checkpoint row [`Self::finish`] publishes for a retained
+    /// transcript (no captured session identity).
+    pub(crate) fn emitted(&self) -> Emitted {
+        Emitted::transcript(&self.value(), None)
+    }
+
     /// The resolved home is also where dsh stages its retained seat root.
     pub(crate) fn home(&self) -> &Path {
         &self.home
+    }
+
+    #[cfg(test)]
+    pub(crate) fn locator(&self) -> &str {
+        &self.locator
     }
 
     /// Record a harness locator. Repeated reports replace the earlier one:
@@ -244,6 +274,10 @@ fn fresh_under(base: &Path, prefix: &str) -> std::io::Result<tempfile::TempDir> 
 /// home, so no directory dsh's Node lookup walks above a staged profile is
 /// the operator's dsh tree, and none is a shared, world-writable one.
 const ENGINE_HOMES: [&str; 4] = [".local", "state", "brokkr", "dsh-homes"];
+
+/// Where kept agy conversation transcripts live below the operator's `HOME`,
+/// beside [`ENGINE_HOMES`] (#1227).
+pub(crate) const AGY_CONVERSATIONS: [&str; 4] = [".local", "state", "brokkr", "agy-conversations"];
 
 /// The dsh home one launch is served from (decision 0065 slice two, U1c2;
 /// requirements SI2 and MB1). A launch without the engine's isolation

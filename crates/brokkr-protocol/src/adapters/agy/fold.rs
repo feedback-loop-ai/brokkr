@@ -78,9 +78,7 @@ impl Event {
     /// at any depth, is no row (K1).
     fn typed(self, text: &str) -> Option<Row> {
         match self {
-            Event::Init => {
-                (serde_json::from_str(text).ok()).map(|row: InitRow| Row::Init(row.init))
-            }
+            Event::Init => (serde_json::from_str(text).ok()).map(Row::Init),
             Event::StepUpdate => {
                 (serde_json::from_str(text).ok()).map(|row: StepRow| Row::Step(row.step_update))
             }
@@ -142,9 +140,81 @@ impl<'de> Visitor<'de> for TagsVisitor {
 
 /// One known row of agy's stream, as far as the fold reads it.
 enum Row {
-    Init(Init),
+    Init(InitRow),
     Step(Step),
     Result(Ending),
+}
+
+/// What the turn's `init` row said of its conversation id (#1227 W5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Conversation {
+    /// No `init` row arrived in this turn.
+    None,
+    /// An `init` row arrived with a single lowercase-UUID string
+    /// `conversation_id` member.
+    Named(String),
+    /// An `init` row arrived whose `conversation_id` was absent, not a string,
+    /// repeated, or not a lowercase UUID.
+    Invalid,
+}
+
+/// Read `conversation_id` from an `init` line beside the fold (#1227 W5).
+/// Never fails a turn: absent, non-string, repeated, or non-UUID values each
+/// yield [`Conversation::Invalid`], leaving model confirmation and the turn's
+/// verdict identical to main.
+pub(super) fn read_conversation_id(text: &str) -> Conversation {
+    enum IdValue {
+        Text(String),
+        Other,
+    }
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum RawValue {
+        Text(String),
+        Other(IgnoredAny),
+    }
+    struct IdVisitor;
+    impl<'de> Visitor<'de> for IdVisitor {
+        type Value = Conversation;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("an init JSON object")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Conversation, A::Error> {
+            let mut count = 0usize;
+            let mut first = None;
+            while let Some(key) = map.next_key::<String>()? {
+                if key != "conversation_id" {
+                    map.next_value::<IgnoredAny>()?;
+                    continue;
+                }
+                count += 1;
+                let value = match map.next_value::<RawValue>()? {
+                    RawValue::Text(id) => IdValue::Text(id),
+                    RawValue::Other(_) => IdValue::Other,
+                };
+                if count == 1 {
+                    first = Some(value);
+                }
+            }
+            match (count, first) {
+                (1, Some(IdValue::Text(id))) if brokkr_core::seat::is_agy_uuid(&id) => {
+                    Ok(Conversation::Named(id))
+                }
+                _ => Ok(Conversation::Invalid),
+            }
+        }
+    }
+    struct Wrapper(Conversation);
+    impl<'de> Deserialize<'de> for Wrapper {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            deserializer.deserialize_map(IdVisitor).map(Wrapper)
+        }
+    }
+    serde_json::from_str::<Wrapper>(text)
+        .map(|w| w.0)
+        .unwrap_or(Conversation::Invalid)
 }
 
 #[derive(Deserialize)]
@@ -344,6 +414,10 @@ pub(super) struct AgyFold<'a> {
     /// What every word of agy's the driver names is masked through first.
     bindings: &'a [secret::BoundSecret],
     served: Served,
+    /// What the turn's first `init` row named as its conversation id, kept raw
+    /// until `keep` validates it as a lowercase UUID before naming any path
+    /// (#1227 U5).
+    conversation: Conversation,
     /// The model responses folded as turns.
     turns: u64,
     /// Whether any known row arrived.
@@ -362,6 +436,7 @@ impl<'a> AgyFold<'a> {
             pin: pin.to_string(),
             bindings,
             served: Served::Awaited,
+            conversation: Conversation::None,
             turns: 0,
             rows: false,
             signed_out: false,
@@ -374,6 +449,11 @@ impl<'a> AgyFold<'a> {
     /// Whether a model response has been folded as a turn of the seat's.
     pub(super) fn worked(&self) -> bool {
         self.turns > 0
+    }
+
+    /// Take what the turn's `init` row named as its conversation id.
+    pub(super) fn take_conversation(&mut self) -> Conversation {
+        std::mem::replace(&mut self.conversation, Conversation::None)
     }
 
     /// Whether init named the pin.
@@ -430,7 +510,7 @@ impl<'a> AgyFold<'a> {
                 self.fault = Some(Fault::Failed(Failure::Behind(event)));
                 Ok(())
             }
-            (None, None) => self.fold(row, session_meta, emit),
+            (None, None) => self.fold(row, text, session_meta, emit),
         }
     }
 
@@ -438,6 +518,7 @@ impl<'a> AgyFold<'a> {
     fn fold(
         &mut self,
         row: Row,
+        text: &str,
         session_meta: &mut Map<String, Value>,
         emit: &mut impl FnMut(&Emitted),
     ) -> Result<(), PreSessionRefusal> {
@@ -445,7 +526,7 @@ impl<'a> AgyFold<'a> {
             Row::Init(_) if self.served != Served::Awaited => {
                 self.fault = Some(Fault::Failed(Failure::Reinitialized))
             }
-            Row::Init(init) => return self.initialized(init, session_meta),
+            Row::Init(init) => return self.initialized(init, text, session_meta),
             Row::Step(_) if !self.pinned() => {
                 let refused = unconfirmed(&self.pin, self.bindings, &Seen::default());
                 return Err(self.stopped(refused));
@@ -462,15 +543,17 @@ impl<'a> AgyFold<'a> {
         refused
     }
 
-    /// The one init: the pin confirmed, another model refused, and an init
-    /// that names none confirming nothing.
+    /// The one init: record the conversation id first so even a model-pin
+    /// refusal keeps its transcript (#1227), then confirm or refuse the pin.
     fn initialized(
         &mut self,
-        init: Init,
+        row: InitRow,
+        text: &str,
         session_meta: &mut Map<String, Value>,
     ) -> Result<(), PreSessionRefusal> {
         self.served = Served::Unnamed;
-        match init.model {
+        self.conversation = read_conversation_id(text);
+        match row.init.model {
             Some(model) if model == self.pin => {
                 self.served = Served::Pinned;
                 session_meta.insert("model".into(), Value::String(model));
