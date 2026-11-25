@@ -890,6 +890,55 @@ fn waited_round_fixture() -> (tempfile::TempDir, Engine, Vec<brokkr_core::EventE
     (dir, engine, events)
 }
 
+/// Plan the next round from a probe's provider-stated reset.
+fn stated_probe_round(
+    engine: &mut Engine,
+    wait: &brokkr_core::ProviderWait,
+    seconds: u64,
+) -> super::super::probe::NextRound {
+    let refusal = serde_json::from_value(json!({
+        "class": "rate_limit",
+        "provider": wait.provider,
+        "route": wait.route,
+        "words": wait.words,
+        "retry_after_seconds": seconds,
+    }))
+    .unwrap();
+    let report = report(Some(Box::new(refusal)), Cleanup::Settled, Vec::new());
+    let super::super::Probe::Extended(round) = engine.probe_end("effect", wait, report) else {
+        panic!("the probe's refusal must plan a round");
+    };
+    round
+}
+
+#[test]
+fn an_earlier_held_round_keeps_the_later_held_end() {
+    let (_dir, mut engine, events) = waited_round_fixture();
+    engine.cooldown.clock = Clock::advancing(base()).0;
+    let wait = wait();
+    let maxima = [Some(super::super::held::SiteMax {
+        max: 2,
+        ordinary: true,
+    })];
+    for seconds in [5, 3] {
+        let round = stated_probe_round(&mut engine, &wait, seconds);
+        engine
+            .record_extension(std::slice::from_ref(&wait), &maxima, &round, 0)
+            .unwrap();
+    }
+    let episode =
+        super::super::episode_by_site(&engine.store, &engine.run_id, &events, "effect").unwrap();
+    assert_eq!(
+        episode.held,
+        Some(super::super::HeldEnd {
+            until: base() + Duration::seconds(5),
+            provider: wait.provider,
+            route: wait.route,
+            held: brokkr_core::Held { max_seconds: 2 },
+        })
+    );
+}
+
 /// The later rounds' two unreadable inputs park by name: a store that loses
 /// the table between rounds, and bounds that stop reading; the probe rows'
 /// own recorded instants make the episode unreadable too.
