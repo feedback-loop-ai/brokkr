@@ -442,10 +442,9 @@ fn an_ordinary_resume_at_the_cap_parks() {
 fn a_held_row_that_expires_before_its_terminals_stamp_is_not_marked_written() {
     own_engine!();
     let (_dir, mut engine, now) = held_seat(&["refuse", "succeed"], 2);
-    // The fixture's clock starts LONG_WAIT past the journal's real instant
-    // (#857): an hour before that real instant puts the row's end before
-    // the terminal's wall-clock stamp.
-    *now.lock().unwrap() -= super::LONG_WAIT + time::Duration::hours(1);
+    // Move from LONG_WAIT after the journal's real instant to LONG_WAIT
+    // before it, so the row ends before the terminal's wall-clock stamp.
+    *now.lock().unwrap() -= LONG_WAIT * 2;
     let refused = engine.drive().unwrap_err();
     assert!(
         matches!(refused, crate::engine::EngineError::HeldWait(_)),

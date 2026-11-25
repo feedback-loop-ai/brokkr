@@ -419,10 +419,10 @@ fn drove(engine: &mut Engine, dir: &Path, expected: &[&str]) {
     assert_eq!(logs(dir, "work"), expected);
 }
 
-/// Start on a whole second ahead of the journal's wall clock so a terminal
-/// event stamped under load still writes the simulated wait's row.
+/// Start on a whole-second boundary, `LONG_WAIT` ahead of the wall clock,
+/// so a terminal stamped under load still writes the simulated wait's row.
 fn live_row_clock_start() -> OffsetDateTime {
-    OffsetDateTime::now_utc().replace_nanosecond(0).unwrap() + time::Duration::hours(1)
+    ahead_of(OffsetDateTime::now_utc().replace_nanosecond(0).unwrap())
 }
 
 fn with_clock_at(mut engine: Engine, at: OffsetDateTime) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
