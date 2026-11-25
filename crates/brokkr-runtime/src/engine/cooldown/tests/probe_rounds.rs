@@ -830,10 +830,10 @@ fn a_non_empty_sites_refusal_extends_and_reprobes_the_answered_member() {
 
     let dir = tempfile::tempdir().unwrap();
     let body = retried_two_route_panel(dir.path(), Probed::Answer, Probed::RefuseThenAnswer);
-    let mut engine = started(dir.path(), body, work(2));
+    let mut engine = started(dir.path(), body, patient(2));
     engine.cooldown.host = Some(route_host(dir.path(), (2, 20), (3, 20)));
-    let (mut engine, now) = with_clock(engine);
-    let start = *now.lock().unwrap();
+    let start = live_row_clock_start();
+    let (mut engine, _) = with_clock_at(engine, start);
     engine.drive().unwrap();
     let event = failed(&engine).remove(0);
     assert_eq!(rounds(&engine, event.seq, "a"), [1]);
