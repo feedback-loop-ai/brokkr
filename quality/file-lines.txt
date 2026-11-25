@@ -494,6 +494,8 @@
   1948 crates/brokkr-cli/tests/decisions_index.rs
   1305 crates/brokkr-cli/tests/delivered_by_brokkr.rs
    568 crates/brokkr-cli/tests/diagrams.rs
+   887 crates/brokkr-cli/tests/dispatch.rs
+   216 crates/brokkr-cli/tests/dispatch/pass_report.rs
   1240 crates/brokkr-cli/tests/doc_samples.rs
    349 crates/brokkr-cli/tests/doc_truth.rs
    517 crates/brokkr-cli/tests/doc_truth/citations.rs
@@ -855,9 +857,9 @@
    209 tests/support/env_guard.rs
    137 tests/support/envelope.rs
     26 tests/support/executable.rs
-    35 tests/support/hired_office.rs
     43 tests/support/run_state.rs
    146 tests/support/seat_facts.rs
     45 tests/support/seat_journal.rs
    520 tests/support/seat_rows.rs
+    35 tests/support/hired_office.rs
     51 tests/support/synthetic_mcp.rs
