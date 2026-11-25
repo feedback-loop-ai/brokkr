@@ -165,8 +165,11 @@ pub(crate) fn scaffold_with(configure: impl Fn(&mut Command)) -> Scaffold {
     .unwrap();
 
     // Step 2 of the spine, into the repository root itself.
+    // The host file `init` seeds stands beside the stubs, never the
+    // invoking user's.
     let mut init = crate::built::brokkr(["init", "."]);
     init.env("PATH", &path).current_dir(repo);
+    init.env("XDG_CONFIG_HOME", stubs.path().join("config"));
     configure(&mut init);
     let init = init.output().unwrap();
     assert_eq!(
