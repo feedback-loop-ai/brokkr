@@ -158,6 +158,7 @@ fn held_then_ended(
 /// the hold ends once the settlement reaps it, and the effect is retried.
 #[test]
 fn a_probe_that_answers_and_lingers_through_its_grace_holds_its_route_until_it_is_reaped() {
+    own_engine!();
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::AnswerThenLinger);
     let graced = deadline_of(probe_at) + time::Duration::seconds(3);
     let files = (
@@ -189,6 +190,7 @@ fn a_probe_that_answers_and_lingers_through_its_grace_holds_its_route_until_it_i
 /// seat's two-second timeout puts the target behind the fork.
 #[test]
 fn a_probe_whose_kill_target_passed_before_the_fork_is_never_spawned() {
+    own_engine!();
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::Hang);
     let (journal, reads) = (engine.store.path().to_path_buf(), AtomicUsize::new(0));
     let (shared, stalled) = (Arc::clone(&now), Arc::new(Mutex::new(None)));
@@ -247,6 +249,7 @@ fn a_probe_whose_clock_moves_in_flight_by(step: time::Duration) {
 /// seconds, against the monotonic clock its watchdog waits on.
 #[test]
 fn a_forward_wall_clock_step_while_the_probe_runs_finds_the_route_still_held() {
+    own_engine!();
     a_probe_whose_clock_moves_in_flight_by(time::Duration::seconds(30));
 }
 
@@ -256,6 +259,7 @@ fn a_forward_wall_clock_step_while_the_probe_runs_finds_the_route_still_held() {
 /// down while the driver lives; the settlement then ends the hold.
 #[test]
 fn a_wall_clock_step_past_the_stored_end_while_the_probe_runs_finds_the_route_still_held() {
+    own_engine!();
     let epoch = OffsetDateTime::UNIX_EPOCH;
     a_probe_whose_clock_moves_in_flight_by(
         hold_end_of(epoch) - epoch + time::Duration::seconds(10),
@@ -270,6 +274,7 @@ fn a_wall_clock_step_past_the_stored_end_while_the_probe_runs_finds_the_route_st
 #[cfg(target_os = "linux")]
 #[test]
 fn a_descendant_outside_the_group_keeps_the_route_held_until_settlement_ends_it() {
+    own_engine!();
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::DescendantThenLinger);
     let graced = deadline_of(probe_at) + time::Duration::seconds(3);
     let descendant = dir.path().join("work.descendant");

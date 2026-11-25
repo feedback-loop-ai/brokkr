@@ -114,6 +114,7 @@ fn parked_after(
 /// sleeps ten slices, fifteen seconds, before it parks.
 #[test]
 fn a_sleep_that_overruns_its_slice_is_charged_what_it_took() {
+    own_engine!();
     let (dir, mut engine, now, _) = held_ten();
     let at = *now.lock().unwrap();
     let (clock, slept) = sleeping(&now, TimeDuration::milliseconds(1500), |_, _| {});
@@ -132,6 +133,7 @@ fn a_sleep_that_overruns_its_slice_is_charged_what_it_took() {
 /// sleeps fourteen slices before it parks.
 #[test]
 fn a_start_a_hold_refused_keeps_the_time_already_waited() {
+    own_engine!();
     let (dir, mut engine, now, first) = held_ten();
     let at = *now.lock().unwrap();
     let journal = engine.store.path().to_path_buf();
@@ -157,6 +159,7 @@ fn a_start_a_hold_refused_keeps_the_time_already_waited() {
 /// seconds are lost, the run sleeping ten slices before it parks.
 #[test]
 fn a_probe_holds_contention_between_polls_is_charged() {
+    own_engine!();
     let (dir, mut engine, now, first) = held_ten();
     let at = *now.lock().unwrap();
     let journal = engine.store.path().to_path_buf();
@@ -187,6 +190,7 @@ fn a_probe_holds_contention_between_polls_is_charged() {
 /// that round parks at the original ten-second maximum.
 #[test]
 fn a_probe_that_writes_an_extension_still_charges_its_elapsed_time() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::RefuseThenAnswer, None, 2);
     engine.bundle.seats.get_mut("work").unwrap().limits = super::support::work(2);
     let at = live_row_clock_start();
@@ -235,6 +239,7 @@ fn a_probe_that_writes_an_extension_still_charges_its_elapsed_time() {
 /// parks by name, never as no time waited.
 #[test]
 fn an_episode_unreadable_at_the_waits_end_parks_by_name() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let mut engine = bare_engine(dir.path(), 2);
     engine.cooldown.host = Some(host(dir.path(), 30, 1000));
@@ -272,6 +277,7 @@ fn an_episode_unreadable_at_the_waits_end_parks_by_name() {
 /// parks earlier, the first wait's seconds charged twice.
 #[test]
 fn a_retry_refused_again_charges_its_next_wait_afresh() {
+    own_engine!();
     let verdicts = &["refuse", "refuse", "succeed"];
     let (dir, mut engine, now) = seated!(verdicts, Probed::Answer, None, 3);
     let at = *now.lock().unwrap();

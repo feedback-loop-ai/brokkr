@@ -240,6 +240,7 @@ fn contended(lands: Before, b_ran: &[&str]) {
 /// without reading the route in its transaction, and two holds stand.
 #[test]
 fn no_admitted_run_dispatches_on_a_route_another_runs_probe_holds() {
+    own_engine!();
     contended(
         Before::Wait,
         &["attempt:refuse", "probe", "attempt:succeed"],
@@ -264,6 +265,7 @@ fn no_admitted_run_dispatches_on_a_route_another_runs_probe_holds() {
 /// dispatches its retry under `a`'s standing hold.
 #[test]
 fn a_hold_committed_between_the_retry_read_and_its_start_holds_the_retry() {
+    own_engine!();
     contended(
         Before::Start,
         &["attempt:refuse", "probe", "probe", "attempt:succeed"],

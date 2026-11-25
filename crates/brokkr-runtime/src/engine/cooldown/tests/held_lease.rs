@@ -83,6 +83,7 @@ fn held_at_its_end() -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>, 
 
 #[test]
 fn a_probes_renewed_hold_is_committed_before_its_lease_is_released() {
+    own_engine!();
     let (_dir, mut engine, now, root) = held_at_its_end();
     let probe_at = *now.lock().unwrap();
     let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
@@ -133,6 +134,7 @@ fn a_probes_renewed_hold_is_committed_before_its_lease_is_released() {
 /// standing: the release is not sealed over a round the table never took.
 #[test]
 fn a_probe_round_the_store_refuses_parks_and_leaves_its_lease_standing() {
+    own_engine!();
     let (_dir, mut engine, now, root) = held_at_its_end();
     let seq = failed(&engine)[0].seq;
     let (journal, run_id, started) = (

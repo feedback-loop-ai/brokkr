@@ -47,6 +47,7 @@ fn held_twice(engine: &mut Engine, now: &Arc<Mutex<OffsetDateTime>>) -> OffsetDa
 
 #[test]
 fn a_probes_provider_stated_reset_past_the_maximum_is_another_held_round() {
+    own_engine!();
     let (dir, mut engine, now) = probed_seat(&["refuse", "succeed"], 5, 2);
     let probe_at = held_twice(&mut engine, &now);
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
@@ -88,6 +89,7 @@ fn a_probes_provider_stated_reset_past_the_maximum_is_another_held_round() {
 /// round's end, and a resume refuses naming that end and the lift.
 #[test]
 fn a_route_a_probe_holds_again_admits_nothing_after_the_first_rows_end() {
+    own_engine!();
     let (dir, mut engine, now) = probed_seat(&["refuse", "succeed"], 5, 2);
     let probe_at = held_twice(&mut engine, &now);
     let between = probe_at + TimeDuration::seconds(2);
@@ -136,6 +138,7 @@ fn a_route_a_probe_holds_again_admits_nothing_after_the_first_rows_end() {
 /// The probe's held round adds a round but no remainder to the episode.
 #[test]
 fn a_probes_repeated_held_interval_is_not_counted_in_the_episode() {
+    own_engine!();
     let (_dir, mut engine, now) = probed_seat(&["refuse", "succeed"], 5, 2);
     held_twice(&mut engine, &now);
     let events = engine.store.load(&engine.run_id).unwrap();
@@ -153,6 +156,7 @@ fn a_probes_repeated_held_interval_is_not_counted_in_the_episode() {
 /// rows is 0106c's, and nothing here asserts it.
 #[test]
 fn a_probes_held_round_resumed_at_its_end_probes_once_on_the_same_effect() {
+    own_engine!();
     let (dir, mut engine, now) = probed_seat(&["refuse", "succeed"], 5, 2);
     let probe_at = held_twice(&mut engine, &now);
     let end = aggregate_at(&engine, probe_at).unwrap();
@@ -172,6 +176,7 @@ fn a_probes_held_round_resumed_at_its_end_probes_once_on_the_same_effect() {
 /// day later, past every row's end.
 #[test]
 fn a_probes_computed_doubling_past_the_maximum_still_parks_as_a_provider_limit() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::RefuseThenAnswer, None, 3);
     engine.cooldown.host = Some(host(dir.path(), 1, 1));
     let begun = *now.lock().unwrap();
@@ -209,6 +214,7 @@ fn a_probes_computed_doubling_past_the_maximum_still_parks_as_a_provider_limit()
 /// the retry it reaches parks `attempt-cap` with the provider's limit.
 #[test]
 fn a_probes_held_round_spends_no_attempt_and_the_cap_parks_attempt_cap() {
+    own_engine!();
     let (dir, mut engine, now) = probed_seat(&["refuse", "refuse"], 5, 2);
     let probe_at = held_twice(&mut engine, &now);
     assert_eq!(failed(&engine).len(), 1);
@@ -230,6 +236,7 @@ fn a_probes_held_round_spends_no_attempt_and_the_cap_parks_attempt_cap() {
 /// and r6's clamp dispatched it under a hold already out of force.
 #[test]
 fn a_probe_from_a_held_end_at_year_9999_is_refused_before_dispatch() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, compiled) = engine_probing(dir.path(), 2, Probed::Refuse, Some(2));
     let last = "9999-12-31T23:59:59Z";
@@ -274,6 +281,7 @@ fn a_probe_from_a_held_end_at_year_9999_is_refused_before_dispatch() {
 /// would pass 9999.
 #[test]
 fn a_probes_held_round_whose_end_cannot_be_spelled_parks_no_end() {
+    own_engine!();
     const FIVE_MILLENNIA: u64 = 157_788_000_000;
     let (dir, mut engine, now) = probed_seat(&["refuse", "succeed"], FIVE_MILLENNIA, 2);
     held_twice(&mut engine, &now);

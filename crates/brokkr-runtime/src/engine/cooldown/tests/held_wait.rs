@@ -42,6 +42,7 @@ pub(super) fn standing(engine: &Engine) -> (Status, usize) {
 
 #[test]
 fn a_provider_stated_reset_past_the_maximum_is_held_not_parked() {
+    own_engine!();
     let (dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
     let end = engine.drive().unwrap();
     assert_eq!(end.state.run.status(), Status::Running);
@@ -60,6 +61,7 @@ fn a_provider_stated_reset_past_the_maximum_is_held_not_parked() {
 
 #[test]
 fn a_held_wait_carries_no_refused() {
+    own_engine!();
     let (_dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
     engine.drive().unwrap();
     let payload = &failed(&engine)[0].payload;
@@ -74,6 +76,7 @@ fn a_held_wait_carries_no_refused() {
 /// that slice's test, not this one (fix round 0106b1r3, R4).
 #[test]
 fn the_engine_reads_the_held_wait_back_from_its_terminal_event() {
+    own_engine!();
     let (_dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
     engine.drive().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
@@ -91,6 +94,7 @@ fn the_engine_reads_the_held_wait_back_from_its_terminal_event() {
 /// stated-reset park that ruling 2 turns into a held wait.
 #[test]
 fn a_computed_wait_past_the_maximum_still_parks_as_a_provider_limit() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "refuse"], Probed::Answer, None, 3);
     engine.cooldown.host = Some(host(dir.path(), 2, 3));
     engine.drive().unwrap();
@@ -118,6 +122,7 @@ fn a_computed_wait_past_the_maximum_still_parks_as_a_provider_limit() {
 /// accumulate past it, and the second parks as the provider's limit.
 #[test]
 fn an_accumulated_stated_reset_past_the_maximum_still_parks_as_a_provider_limit() {
+    own_engine!();
     let (dir, mut engine, _now) =
         seated!(&["refuse", "refuse", "succeed"], Probed::Answer, Some(2), 3);
     engine.cooldown.host = Some(host(dir.path(), 1, 3));
@@ -151,6 +156,7 @@ fn an_accumulated_stated_reset_past_the_maximum_still_parks_as_a_provider_limit(
 /// the run parks on it, never Running with no park.
 #[test]
 fn a_held_wait_the_table_does_not_write_is_not_journaled_and_parks() {
+    own_engine!();
     let (dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
     super::held_route::driven_raising(&mut engine, "provider_cooldowns", "IGNORE");
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
@@ -205,6 +211,7 @@ fn parked_unwritten(engine: &Engine) {
 /// reason as its detail, never `infrastructure`.
 #[test]
 fn an_unwritten_wait_stopped_before_its_park_parks_ruled_on_replay() {
+    own_engine!();
     let (dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
     let journal = rusqlite::Connection::open(engine.store.path()).unwrap();
     journal
@@ -247,6 +254,7 @@ fn an_unwritten_wait_stopped_before_its_park_parks_ruled_on_replay() {
 /// rather than ending its drive Running as if the wait were held.
 #[test]
 fn a_held_wait_on_a_queue_this_binary_does_not_write_is_not_journaled_and_parks() {
+    own_engine!();
     let (dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
     rusqlite::Connection::open(engine.store.path())
         .unwrap()
@@ -265,6 +273,7 @@ fn a_held_wait_on_a_queue_this_binary_does_not_write_is_not_journaled_and_parks(
 /// with the provider's limit as its failure class.
 #[test]
 fn a_held_wait_at_the_cap_parks_attempt_cap() {
+    own_engine!();
     let (dir, mut engine, _now) = held_seat(&["refuse"], 1);
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
@@ -343,11 +352,13 @@ fn resumed_after_the_held_end(after: i64) {
 
 #[test]
 fn a_provider_stated_held_interval_is_not_counted_in_the_episode() {
+    own_engine!();
     resumed_after_the_held_end(0);
 }
 
 #[test]
 fn a_resume_after_the_held_until_probes() {
+    own_engine!();
     resumed_after_the_held_end(30);
 }
 
@@ -355,6 +366,7 @@ fn a_resume_after_the_held_until_probes() {
 /// by name, naming the end and the lift.
 #[test]
 fn a_resume_before_the_held_until_refuses_and_names_the_lift() {
+    own_engine!();
     let (dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
     engine.drive().unwrap();
     let before = engine.store.load(&engine.run_id).unwrap().len();
@@ -385,6 +397,7 @@ fn a_resume_before_the_held_until_refuses_and_names_the_lift() {
 /// resume sleeps nothing.
 #[test]
 fn an_ordinary_wait_resumed_at_or_after_its_until_probes() {
+    own_engine!();
     let until = base() + time::Duration::seconds(3);
     for at in [until, until + time::Duration::seconds(10)] {
         let (dir, mut engine, now) = resumed_at(&["succeed"], until, 3, at, false);
@@ -399,6 +412,7 @@ fn an_ordinary_wait_resumed_at_or_after_its_until_probes() {
 /// probes nothing.
 #[test]
 fn an_ordinary_resume_at_the_cap_parks() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let waits = wait_value(base() + time::Duration::seconds(3), 3);
     let payload = json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused",
@@ -426,8 +440,12 @@ fn an_ordinary_resume_at_the_cap_parks() {
 /// ending the drive as though the store held the route.
 #[test]
 fn a_held_row_that_expires_before_its_terminals_stamp_is_not_marked_written() {
+    own_engine!();
     let (_dir, mut engine, now) = held_seat(&["refuse", "succeed"], 2);
-    *now.lock().unwrap() -= time::Duration::hours(1);
+    // The fixture's clock starts LONG_WAIT past the journal's real instant
+    // (#857): an hour before that real instant puts the row's end before
+    // the terminal's wall-clock stamp.
+    *now.lock().unwrap() -= super::LONG_WAIT + time::Duration::hours(1);
     let refused = engine.drive().unwrap_err();
     assert!(
         matches!(refused, crate::engine::EngineError::HeldWait(_)),

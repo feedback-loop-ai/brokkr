@@ -33,6 +33,7 @@ fn unended_attempts(path: &std::path::Path) -> Vec<String> {
 /// past its stored end, naming its attempt.
 #[test]
 fn a_resume_never_ends_or_adopts_a_crashed_instances_hold() {
+    own_engine!();
     let (dir, mut crashed, now, probe_at, gates) = probing(Probed::Answer);
     let home = dir.path().join("unrooted");
     let _unrooted = crate::engine::broker::admission::tests::Coordinated::unrooted(&home);
@@ -85,6 +86,7 @@ fn in_force_words(store: &brokkr_store::Store) -> Vec<String> {
 /// It runs in an engine of its own, as the crash test it extends does.
 #[test]
 fn the_restarted_engines_reaper_ends_the_hold_of_a_crashed_probe_its_records_prove() {
+    own_engine!();
     let test = "engine::cooldown::tests::held_instance::the_restarted_engines_reaper_ends_the_hold_of_a_crashed_probe_its_records_prove";
     let Some(crashed) = Crashed::in_its_own_engine(test) else {
         return;
@@ -122,6 +124,7 @@ fn the_restarted_engines_reaper_ends_the_hold_of_a_crashed_probe_its_records_pro
 /// store's words before any probe, and the hold stands.
 #[test]
 fn a_hold_the_reaper_cannot_end_parks_the_resume_and_stands() {
+    own_engine!();
     let test = "engine::cooldown::tests::held_instance::a_hold_the_reaper_cannot_end_parks_the_resume_and_stands";
     let Some(crashed) = Crashed::in_its_own_engine(test) else {
         return;
@@ -156,6 +159,7 @@ fn a_hold_the_reaper_cannot_end_parks_the_resume_and_stands() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_probe_whose_admission_is_refused_writes_no_hold() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     let home = super::lease::home(dir.path());
     let worktree = dir.path().join("work");
@@ -181,6 +185,7 @@ fn a_probe_whose_admission_is_refused_writes_no_hold() {
 /// the route open.
 #[test]
 fn a_resume_that_stops_before_any_wait_still_reaps_the_crashed_probes_hold() {
+    own_engine!();
     let test = "engine::cooldown::tests::held_instance::a_resume_that_stops_before_any_wait_still_reaps_the_crashed_probes_hold";
     let Some(crashed) = Crashed::in_its_own_engine(test) else {
         return;

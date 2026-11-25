@@ -717,6 +717,9 @@ fn the_failed_steps_tail_is_told_after_its_park() {
     let dir = tempfile::tempdir().unwrap();
     let body = past_maximum_saying(dir.path(), "drafting\n");
     let mut engine = sequence_engine(dir.path(), body, 2);
+    // A host that does not read parks the step at its terminal; the stated
+    // reset past the maximum alone is held (decision 0106 ruling 2).
+    invalid_host(dir.path(), &mut engine);
     let watch = crate::engine::tests::driver_stderr::Watch::on(dir.path(), &mut engine);
     request_effect(&mut engine);
     engine.drive_once().unwrap();

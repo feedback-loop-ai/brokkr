@@ -66,6 +66,7 @@ fn moving(at: OffsetDateTime, reads: u32) -> (Clock, Arc<Mutex<u32>>) {
 /// reading kept to the fraction, and it parks a slice late.
 #[test]
 fn a_hold_that_never_ends_parks_the_wait_at_its_maximum_within_one_slice() {
+    own_engine!();
     let (dir, mut engine, at, _) = held_forever();
     let (clock, slept) = moving(at, 500);
     engine.cooldown.clock = clock;
@@ -87,6 +88,7 @@ fn a_hold_that_never_ends_parks_the_wait_at_its_maximum_within_one_slice() {
 /// judged a second at a time and parks only after two slices.
 #[test]
 fn a_longer_ordinary_row_beside_a_hold_parks_at_its_own_end() {
+    own_engine!();
     let (dir, mut engine, at, _) = held_forever();
     let other = second_run(dir.path());
     let journal = dir.path().join("forge.db");
@@ -113,6 +115,7 @@ fn a_longer_ordinary_row_beside_a_hold_parks_at_its_own_end() {
 /// control: add the slice unchecked, and the read panics.
 #[test]
 fn a_hold_read_at_the_clocks_last_instant_refuses_its_next_slice() {
+    own_engine!();
     let (_dir, engine, at, _) = held_forever();
     let wait = brokkr_core::ProviderWait {
         site: None,

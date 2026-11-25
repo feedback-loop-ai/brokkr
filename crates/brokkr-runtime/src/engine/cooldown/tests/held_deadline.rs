@@ -90,6 +90,7 @@ fn a_probe_paused_past_its_deadline_at(read: usize) {
 /// Paused before its spawn begins, the probe composes no spawn.
 #[test]
 fn a_probe_whose_deadline_passes_before_its_spawn_is_not_spawned_and_ends_its_hold() {
+    own_engine!();
     a_probe_paused_past_its_deadline_at(SAMPLE);
 }
 
@@ -99,6 +100,7 @@ fn a_probe_whose_deadline_passes_before_its_spawn_is_not_spawned_and_ends_its_ho
 /// finds the deadline passed and spawns nothing.
 #[test]
 fn a_probe_whose_deadline_passes_under_the_registry_lock_is_not_spawned_and_ends_its_hold() {
+    own_engine!();
     a_probe_paused_past_its_deadline_at(FORK);
 }
 
@@ -111,6 +113,7 @@ fn a_probe_whose_deadline_passes_under_the_registry_lock_is_not_spawned_and_ends
 /// probe ran.
 #[test]
 fn a_probe_paused_after_its_sample_is_killed_at_its_deadline() {
+    own_engine!();
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::Hang);
     let pause = (FORK, time::Duration::seconds(1));
     engine.cooldown.clock = pausing_at(&now, engine.store.path().into(), pause);
@@ -133,6 +136,7 @@ fn a_probe_paused_after_its_sample_is_killed_at_its_deadline() {
 /// is written, nothing is spawned, and the run parks naming it.
 #[test]
 fn a_probe_whose_deadline_the_clock_cannot_represent_is_refused_before_any_hold() {
+    own_engine!();
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::Answer);
     engine
         .bundle

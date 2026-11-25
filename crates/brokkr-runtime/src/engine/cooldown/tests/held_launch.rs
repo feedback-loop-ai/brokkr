@@ -98,6 +98,7 @@ fn inline_capabilities() -> SiteCapabilities {
 /// while the peer holds its route, the panel never waiting.
 #[test]
 fn a_mixed_panels_retry_waits_on_the_route_of_the_member_no_wait_refused() {
+    own_engine!();
     mixed_panel_retry_waits_for_the_peer(false);
 }
 
@@ -105,6 +106,7 @@ fn a_mixed_panels_retry_waits_on_the_route_of_the_member_no_wait_refused() {
 /// Its compiled route still needs to be clear before the panel retries.
 #[test]
 fn a_mixed_panels_retry_waits_on_the_route_of_the_inline_member() {
+    own_engine!();
     mixed_panel_retry_waits_for_the_peer(true);
 }
 
@@ -176,6 +178,7 @@ fn with_peer_row_on_a(
 
 #[test]
 fn a_mixed_panels_retry_parks_on_the_route_whose_ordinary_row_exceeds_its_maximum() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, now, until) = with_peer_row_on_a(dir.path(), (4, 10), true, || {});
     engine.drive().unwrap();
@@ -202,6 +205,7 @@ fn a_mixed_panels_retry_parks_on_the_route_whose_ordinary_row_exceeds_its_maximu
 
 #[test]
 fn a_mixed_panels_retry_waits_under_the_fenced_routes_own_maximum() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, now, until) = with_peer_row_on_a(dir.path(), (10, 4), false, || {});
     engine.drive().unwrap();
@@ -218,6 +222,7 @@ fn a_mixed_panels_retry_waits_under_the_fenced_routes_own_maximum() {
 
 #[test]
 fn a_mixed_panels_retry_charges_a_standing_hold_to_its_own_route() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, now) = mixed_panel(dir.path(), false);
     engine.cooldown.host = Some(route_host(dir.path(), (1, 3), (1, 10)));
@@ -254,6 +259,7 @@ fn a_mixed_panels_retry_charges_a_standing_hold_to_its_own_route() {
 
 #[test]
 fn a_mixed_panels_retry_names_the_fenced_route_when_its_bounds_stop_reading() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let host = dir.path().join("panel-host.json");
     let corrupt_after_resume = move || {
@@ -306,6 +312,7 @@ fn holding_after_the_retry_start(
 /// launches.
 #[test]
 fn a_retry_admitted_before_a_hold_on_its_route_launches() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     let held = holding_after_the_retry_start(&engine, now, &ROUTES[..1]);
     engine.drive().unwrap();
@@ -327,6 +334,7 @@ fn a_retry_admitted_before_a_hold_on_its_route_launches() {
 /// after the commit, and neither member launches again.
 #[test]
 fn a_panels_retry_admitted_before_holds_on_both_its_routes_launches() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, now) = retried_panel_engine(dir.path());
     let held = holding_after_the_retry_start(&engine, now, &ROUTES);

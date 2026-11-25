@@ -120,6 +120,7 @@ fn probed_at_held_end(
 /// 2s and parked past the maximum before any probe.
 #[test]
 fn a_held_members_maximum_never_judges_an_ordinary_members_seconds_at_resume() {
+    own_engine!();
     held_again_at_a_end(&stated(5, 5, 2), &stated(3, 3, 10), 3);
 }
 
@@ -150,6 +151,7 @@ fn held_again_at_a_end(a: &Stated, b: &Stated, episode: u64) {
 /// refused attempt, and claude/first had no row.
 #[test]
 fn a_resumed_held_wait_probes_where_an_ordinary_members_seconds_pass_its_maximum() {
+    own_engine!();
     held_again_at_a_end(&stated(10, 10, 2), &stated(5, 5, 10), 5);
 }
 
@@ -161,6 +163,7 @@ fn a_resumed_held_wait_probes_where_an_ordinary_members_seconds_pass_its_maximum
 /// HEAD b's 2s maximum parked the resume on a's 3s.
 #[test]
 fn an_ordinary_members_rounds_are_never_judged_by_a_held_members_maximum() {
+    own_engine!();
     let a = Stated {
         attempt: 3,
         probe: 3,
@@ -236,6 +239,7 @@ fn assert_a_held_again(engine: &Engine, probe_at: OffsetDateTime, stated: u64, m
 /// as 7s of episode and parked, leaving claude/first with no row.
 #[test]
 fn a_probes_stated_reset_is_held_by_its_own_maximum_not_an_ordinary_members() {
+    own_engine!();
     held_again_at_a_end(&stated(5, 5, 2), &stated(2, 2, 6), 2);
 }
 
@@ -245,6 +249,7 @@ fn a_probes_stated_reset_is_held_by_its_own_maximum_not_an_ordinary_members() {
 /// parked before the append.
 #[test]
 fn a_larger_members_maximum_never_parks_a_held_probe_round() {
+    own_engine!();
     let a = Stated {
         attempt: 10,
         probe: 10,
@@ -269,6 +274,7 @@ fn a_larger_members_maximum_never_parks_a_held_probe_round() {
 /// held and the run stayed running.
 #[test]
 fn a_smaller_members_maximum_never_holds_an_ordinary_probe_round() {
+    own_engine!();
     let a = Stated {
         attempt: 1,
         probe: 5,

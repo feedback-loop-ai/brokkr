@@ -15,6 +15,7 @@ use super::*;
 
 #[test]
 fn a_probe_parked_with_its_tree_unsettled_keeps_its_hold_until_settlement() {
+    own_engine!();
     let (_dir, mut engine, _now, probe_at, gates) = probing(Probed::Answer);
     let run = engine.run_id.clone();
     let hold = brokkr_store::ProbeHold {

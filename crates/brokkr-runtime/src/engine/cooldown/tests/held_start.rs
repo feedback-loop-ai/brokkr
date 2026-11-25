@@ -106,6 +106,7 @@ pub(super) fn retried_panel_engine(dir: &Path) -> (Engine, Arc<Mutex<OffsetDateT
 /// the plain append, and the panel retries while the peer holds X.
 #[test]
 fn a_panels_retry_starts_only_once_both_its_routes_read_clear_in_one_snapshot() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, now) = retried_panel_engine(dir.path());
     let journal = engine.store.path().to_path_buf();

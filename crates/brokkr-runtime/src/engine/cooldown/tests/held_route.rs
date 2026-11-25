@@ -76,6 +76,7 @@ pub(super) fn held_at_its_end(
     drive: impl FnOnce(&Path, &mut Engine),
 ) -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>) {
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], probed, Some(5), 2);
+    (engine.bundle.seats.get_mut("work").unwrap().limits).timeout_seconds = HELD_TIMEOUT_SECONDS;
     engine.cooldown.host = Some(host(dir.path(), 1, 2));
     drive(dir.path(), &mut engine);
     assert_eq!(standing(&engine), (Status::Running, 0));
@@ -121,10 +122,16 @@ pub(super) fn legs(gates: &Shared, at: OffsetDateTime) -> Legs {
     gates.lock().unwrap().legs(at)
 }
 
+/// The seat timeout every held-probe fixture runs under ([`held_at_its_end`]),
+/// which [`deadline_of`] reads: two seconds, as these tests were written
+/// against. support's `work` and `late` give the seats of the tests that do
+/// not judge a deadline 60 and 10 (#1110).
+pub(super) const HELD_TIMEOUT_SECONDS: u64 = 2;
+
 /// The probe's deadline, the instant its driver is killed by: the seat's
-/// two-second timeout past the instant it was dispatched.
+/// [`HELD_TIMEOUT_SECONDS`] past the instant it was dispatched.
 pub(super) fn deadline_of(probe_at: OffsetDateTime) -> OffsetDateTime {
-    probe_at + time::Duration::seconds(2)
+    probe_at + time::Duration::seconds(HELD_TIMEOUT_SECONDS as i64)
 }
 
 /// The probe's hold's end as the store shows it, a readout: the first
@@ -166,6 +173,7 @@ fn in_flight(
 /// the commit, then the renewed row.
 #[test]
 fn a_probe_holds_its_route_from_dispatch_until_its_refusals_row_commits() {
+    own_engine!();
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::BarrierRefuse);
     let journal = engine.store.path().to_path_buf();
     let flight = in_flight(dir.path(), &gates, journal.clone(), probe_at);
@@ -275,6 +283,7 @@ pub(super) fn driven_raising(engine: &mut Engine, table: &str, raise: &str) {
 /// a settlement ends it (fix round 0106b1r12, S1).
 #[test]
 fn a_probe_round_the_store_cannot_take_leaves_its_route_held_until_it_is_settled() {
+    own_engine!();
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
     std::fs::write(dir.path().join("work.release"), "").unwrap();
     driven_failing(&mut engine, "provider_cooldowns");
@@ -288,6 +297,7 @@ fn a_probe_round_the_store_cannot_take_leaves_its_route_held_until_it_is_settled
 /// reads cooling down until a settlement ends the hold.
 #[test]
 fn a_probe_round_the_table_does_not_write_ends_no_hold() {
+    own_engine!();
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
     std::fs::write(dir.path().join("work.release"), "").unwrap();
     driven_raising(&mut engine, "provider_cooldowns", "IGNORE");
@@ -329,6 +339,7 @@ pub(super) fn held_until_settled(engine: &Engine, gates: &Shared, probe_at: Offs
 /// the lock is taken, and only a settlement ends the hold.
 #[test]
 fn no_lock_state_and_no_journal_name_ends_a_hold() {
+    own_engine!();
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
     let alias = dir.path().join("alias.db");
     std::os::unix::fs::symlink(engine.store.path(), &alias).unwrap();
@@ -365,6 +376,7 @@ fn no_lock_state_and_no_journal_name_ends_a_hold() {
 /// instant, long before the hold's stored end.
 #[test]
 fn a_settled_refusal_that_parks_without_a_renewal_ends_its_hold() {
+    own_engine!();
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::OtherRefusal);
     engine.drive().unwrap();
     assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
@@ -387,6 +399,7 @@ pub(super) fn its_one_hold_ended(engine: &Engine, gates: &Shared, at: OffsetDate
 /// on it at once after the answer, well before the probe's deadline.
 #[test]
 fn an_answered_probe_opens_its_route_at_once() {
+    own_engine!();
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::Barrier);
     let flight = in_flight(
         dir.path(),
@@ -413,6 +426,7 @@ fn an_answered_probe_opens_its_route_at_once() {
 /// held until a settlement ends it.
 #[test]
 fn an_answers_hold_end_the_table_does_not_write_parks_and_the_hold_stands() {
+    own_engine!();
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::Answer);
     rusqlite::Connection::open(engine.store.path())
         .unwrap()
@@ -437,6 +451,7 @@ fn an_answers_hold_end_the_table_does_not_write_parks_and_the_hold_stands() {
 /// probe: the run parks naming the unwritten hold, and nothing is probed.
 #[test]
 fn a_hold_the_store_refuses_parks_before_any_probe() {
+    own_engine!();
     let (dir, mut engine, _now, _probe_at, _gates) = probing(Probed::BarrierRefuse);
     driven_failing(&mut engine, "probe_holds");
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
@@ -463,6 +478,7 @@ fn a_hold_the_store_refuses_parks_before_any_probe() {
 /// and the route is as the store holds it, open.
 #[test]
 fn a_hold_the_table_does_not_write_parks_before_any_probe_and_ends_no_other() {
+    own_engine!();
     let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
     let run_id = engine.run_id.clone();
     let other = brokkr_store::ProbeHold {
@@ -508,6 +524,7 @@ fn a_hold_the_table_does_not_write_parks_before_any_probe_and_ends_no_other() {
 /// parks with them.
 #[test]
 fn a_hold_on_a_queue_this_binary_does_not_write_parks_before_any_probe() {
+    own_engine!();
     let (dir, mut engine, _now, _probe_at, _gates) = probing(Probed::BarrierRefuse);
     rusqlite::Connection::open(engine.store.path())
         .unwrap()
