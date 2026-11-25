@@ -210,6 +210,13 @@ pub struct SweepRefused {
     pub cause: String,
 }
 
+/// An entry admission judged waiting, with that judgment's reasons.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Waiting {
+    pub entry: EntryId,
+    pub reasons: Vec<Reason>,
+}
+
 /// What one pass did. Nothing here is printed: the verb paints it (slice
 /// 6b), and the next pass judges everything the report names again.
 #[derive(Debug, Default)]
@@ -229,6 +236,7 @@ pub struct Passed {
     /// Entries admission still judged waiting, and held, when the pass read
     /// the queue.
     pub waiting: usize,
+    pub waits: Vec<Waiting>,
     pub held_entries: usize,
 }
 
@@ -337,18 +345,23 @@ where
         return Ok(());
     };
     observe(Stage::Judge);
-    let Some((judged, unstarted)) = judge_queue(store, dispatcher, host, passed)? else {
+    let Some((mut judged, unstarted)) = judge_queue(store, dispatcher, host, passed)? else {
         return Ok(());
     };
     passed.unstarted = unstarted;
-    passed.waiting = judged
-        .iter()
-        .filter(|judged| standing(judged) == Some(Standing::Waiting))
-        .count();
-    passed.held_entries = judged
-        .iter()
-        .filter(|judged| standing(judged) == Some(Standing::Held))
-        .count();
+    for judged in &mut judged {
+        if let Some(verdict) = judged.verdict.take() {
+            match verdict.standing() {
+                Standing::Waiting => passed.waits.push(Waiting {
+                    entry: judged.entry.id,
+                    reasons: verdict.reasons,
+                }),
+                Standing::Held => passed.held_entries += 1,
+                Standing::Admissible => {}
+            }
+        }
+    }
+    passed.waiting = passed.waits.len();
     let shared = start::Shared {
         bound,
         host_path: &host_path,
@@ -601,12 +614,6 @@ fn store_refused(
         start::Refused::QueueStorage(refusal) => Err(Ending::QueueStorage(refusal)),
         start::Refused::Store(error) => Err(Ending::Store(error)),
     }
-}
-
-/// The standing admission found for `judged`, `None` once it is claimed or
-/// started.
-fn standing(judged: &Judged) -> Option<Standing> {
-    judged.verdict.as_ref().map(|verdict| verdict.standing())
 }
 
 #[cfg(test)]

@@ -31,7 +31,7 @@ mod start;
 pub use lock::{dispatched, take_dispatch, Dispatcher};
 pub use pass::{
     pass, BoundOutcome, Contended, Ended, Ending, Held, Left, Passed, Reclaimed, Seams, Spawning,
-    Stage, Started, Subject, SweepOutcome, SweepRefused,
+    Stage, Started, Subject, SweepOutcome, SweepRefused, Waiting,
 };
 pub use reconcile::{reconcile, Settled};
 pub use spawn::{driven, driver_log, driver_log_path, workspace, Binary, DriverError};

@@ -56,6 +56,16 @@ pub(super) fn passed(passed: &Passed, journal: &Path) -> String {
         line(&mut lines, &format!("unstarted: {reason}"));
     }
     entries(&mut lines, passed, journal);
+    for wait in &passed.waits {
+        let entry = wait.entry;
+        let reasons = wait
+            .reasons
+            .iter()
+            .map(|reason| format!("{}: {reason}", reason.kind()))
+            .collect::<Vec<_>>()
+            .join("; ");
+        line(&mut lines, &format!("waiting: entry {entry}: {reasons}"));
+    }
     let (waiting, held) = (passed.waiting, passed.held_entries);
     line(
         &mut lines,

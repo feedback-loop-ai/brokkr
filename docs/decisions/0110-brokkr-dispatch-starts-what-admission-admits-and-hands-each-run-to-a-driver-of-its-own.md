@@ -631,3 +631,19 @@ else that comes up").
   that fix.
 - **The lane scripts and their units** are the controller's.
 - **Every file and line cited** was read at fb7b775c1, main on 2026-11-16.
+
+## Addendum — 2026-11-25, proposed for #1374
+
+Status: proposed
+
+A machine can report memory pressure during a dispatch pass and clear it
+before the next command. The pass's own report can explain the wait
+using the verdict it already received from admission.
+
+1. A pass retains the entry ID and the ordered reasons from each waiting
+   verdict. The waiting count is the length of that list. The runtime
+   dispatch tests bind the report to the verdict's typed reasons.
+2. The pass prints one safe line per waiting entry in the form
+   `waiting: entry <id>: <kind>: <words>`. It joins reasons with a
+   semicolon and a space. The queue counts still end the pass report.
+   The CLI dispatch report tests bind the exact lines and their order.

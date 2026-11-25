@@ -1570,8 +1570,15 @@ fn an_entry_waiting_on_shipped_starts_when_it_ships_and_is_held_when_it_ships_fl
             run: run.clone(),
         };
         let waiting = one_pass(&mut fixture.store, &dispatcher, &file).0;
-        let reasons = reasons_of(&fixture, &file, b);
-        assert_eq!((waiting.started.len(), reasons), (0, Some(vec![unended])));
+        assert_eq!(waiting.started.len(), 0);
+        assert_eq!(waiting.waiting, waiting.waits.len());
+        assert_eq!(
+            waiting.waits,
+            [Waiting {
+                entry: b,
+                reasons: vec![unended],
+            }]
+        );
 
         reviewed(&mut fixture.store, &run, severity);
         let passed = one_pass(&mut fixture.store, &dispatcher, &file).0;
