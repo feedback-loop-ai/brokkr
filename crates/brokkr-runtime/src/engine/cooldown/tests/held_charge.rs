@@ -182,6 +182,53 @@ fn a_probe_holds_contention_between_polls_is_charged() {
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
 }
 
+/// A three-second probe refuses and writes its next round. Its elapsed
+/// time is outside either recorded round, so the permanent hold after
+/// that round parks at the original ten-second maximum.
+#[test]
+fn a_probe_that_writes_an_extension_still_charges_its_elapsed_time() {
+    let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::RefuseThenAnswer, None, 2);
+    engine.bundle.seats.get_mut("work").unwrap().limits = super::probe_rounds::patient(2);
+    let at = *now.lock().unwrap();
+    let (journal, run) = (engine.store.path().to_path_buf(), engine.run_id.clone());
+    let (clock, slept) = sleeping(&now, TimeDuration::seconds(1), move |slept, at| {
+        if slept == 3 {
+            hold_on(&journal, &run, "after-renewal", at);
+        }
+    });
+    engine.cooldown.clock = clock;
+    let mut read = Some(Arc::clone(&now));
+    super::super::probe::before_hold_here(Some(Box::new(move || {
+        if let Some(now) = read.take() {
+            *now.lock().unwrap() += TimeDuration::seconds(3);
+        }
+    })));
+    let driven = engine.drive();
+    super::super::probe::before_hold_here(None);
+    driven.unwrap();
+    let terminal = failed(&engine).remove(0);
+    let rounds = engine
+        .store
+        .cooldown_rounds(&engine.run_id, terminal.seq, "")
+        .unwrap();
+    let reason = park_reason(&engine);
+    assert_eq!(
+        rounds.iter().map(|row| row.rounds).collect::<Vec<_>>(),
+        [1, 2],
+        "{reason}"
+    );
+    assert_eq!(
+        (*slept.lock().unwrap(), *now.lock().unwrap() - at),
+        (7, TimeDuration::seconds(10))
+    );
+    assert_eq!(
+        reason,
+        "cool-down for claude/first would wait 8s in round 2 (episode 11s), past the declared \
+         10s maximum: rate_limit: slow down"
+    );
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
+}
+
 /// The sample that finds a wait's end passed charges the wait's last time
 /// from the episode's own rows; an episode that stops reading by then
 /// parks by name, never as no time waited.

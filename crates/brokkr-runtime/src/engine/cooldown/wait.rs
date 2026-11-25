@@ -165,12 +165,15 @@ impl Engine {
         seat: &str,
     ) -> Result<ProbedRound, EngineError> {
         let waits = round.waits;
-        let unrecorded = whole(round.charge.unrecorded);
         match self.probe_each(events, state, effect_id, seat, waits)? {
             ProbeRound::Stopped => Ok(ProbedRound::Stopped),
             ProbeRound::Parked(reason) => Ok(ProbedRound::Parked(reason)),
             ProbeRound::Held => Ok(ProbedRound::Again),
             ProbeRound::Extended(extension) => {
+                // The probe ran after the wait's last sample and before the
+                // new row began. Charge that gap before moving the counted end.
+                round.charge = round.charge.to_uncovered(self.now());
+                let unrecorded = whole(round.charge.unrecorded);
                 match self.hold_extension(waits, &round.maxima, &extension, unrecorded)? {
                     Extension::Stopped => Ok(ProbedRound::Stopped),
                     Extension::Parked(reason) => Ok(ProbedRound::Parked(reason)),
