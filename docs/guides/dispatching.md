@@ -46,6 +46,25 @@ covers an unreadable host file, an entry that does not read, a contended
 write and a refused claim: nothing latches. The dispatcher never resumes,
 adopts, stops or concludes a run.
 
+An entry queued with `--after ENTRY:CONDITION` starts only once its wait
+holds. `completed` waits for the awaited run to complete, and `ended` for
+it to end at all. A named ending of decision 0064, such as `3:shipped`
+or `3:delivered-elsewhere`, waits for the run to be over and to have
+ended exactly so; `unclassified` is not one. While the run is live or
+parked the entry waits. Once it is over and ended otherwise, the entry
+is held as `ended_otherwise`, and the reason names the ending it found.
+Each pass reads the ending afresh, so a `classify` that names the awaited
+ending lets the entry start; otherwise drop it or queue it again.
+
+`merged`, as `3:merged`, waits for the awaited entry's work to merge,
+which Brokkr learns only from the operator: `brokkr queue merged 3
+--reason TEXT` records it, journaled with the reason (name the pull
+request and its merge commit). Brokkr reads no code host. The record meets the
+wait whatever the run came to. Without one, the entry waits while the run
+is live or parked, and once the run is over it is held as `unmerged` until
+the merge is recorded. Only an entry that started a run can be recorded
+merged, and the record moves no entry's place or standing.
+
 ## Stopping it
 
 The first SIGINT or SIGTERM:

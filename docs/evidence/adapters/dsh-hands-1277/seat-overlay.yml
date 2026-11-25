@@ -1,0 +1,104 @@
+# The dashscope route for Qwen 4.0 Max (Model Studio's qwen4-max-preview) on the
+# Token Plan, as the operator ruled on 2026-11-16. The provider is stated here and
+# keyed from the environment (DASHSCOPE_API_KEY), never holding a value.
+# Reasoning levels were measured on 2026-11-16 against this endpoint. The API
+# accepts none, off, minimal, low, medium, high, xhigh and max, and refuses any
+# other value with 400 invalid_parameter_error. The four below are pinned.
+# v18 (controller, 2026-11-19): v14-v17's `thinkingFormat: deepseek` sent no
+# reasoning_effort at all (pi-ai sends it only with compat.supportsReasoningEffort),
+# so every pinned level merely enabled thinking. `qwen` sends enable_thinking and
+# reasoning_effort. Measured 2026-11-19 on a counting prompt: low/medium/high 190-306
+# reasoning chars (not separable), xhigh 758, max 804; off 0.
+# Qwen 4.0 has three real levels: low, high (the default) and xhigh. Model Studio's
+# qwen4-max page maps minimal to low, medium to high and max to xhigh, which the
+# measurement matches, so only the three are declared. Both qwen4-max (GA) and
+# qwen4-max-preview answered on the Token Plan on 2026-11-19; this overlay names GA
+# alone, since the preview is reported retired after 2026-11-25 (UTC+8) and the
+# engine's route-overlay grammar admits exactly one model per seat's entry.
+- id: llm-pi-ai
+  config:
+    providers:
+      dashscope:
+        displayName: Model Studio (Token Plan)
+        apiKeyEnv: DASHSCOPE_API_KEY
+        api: openai-completions
+        baseURL: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
+        compat:
+          thinkingFormat: qwen
+          supportsDeveloperRole: false
+          supportsReasoningEffort: true
+        models:
+          - id: qwen4-max
+            reasoningEfforts:
+              low: low
+              high: high
+              xhigh: xhigh
+# Written by `brokkr driver dsh` for one seat: the pinned model, as the
+# overlay dsh's launcher composes last. A patch replaces the targeted
+# row's whole config, so the provider is restated beside the model.
+- id: agent-default-model
+  config:
+    provider: dashscope
+    model: qwen4-max
+    reasoningEffort: 'high'
+# Written by `brokkr driver dsh` for one seat: this seat's session
+# transcript, raw and line-readable, under a root only this seat
+# writes — so the driver follows the right session by construction
+# and never by scanning a shared directory for the newest file.
+- id: session-persistence-jsonl
+  config:
+    root: '/home/valentin/.local/state/brokkr/dsh-homes/engine-home-GXA0uk/sessions/brokkr/seat-v9Jr7P'
+    compression: none
+    packChunks: false
+# Written by `brokkr driver dsh` for one seat: the settings document
+# carrying this seat's effort, as the settings row's whole config.
+- id: settings
+  config:
+    path: '/tmp/brokkr-dsh-seat-settings-X7xUtg.yaml'
+# Written by `brokkr driver dsh` for one seat whose office declares hands:
+# every effectful tool row disabled, dsh's own sandbox under the box,
+# and Brokkr's workspace server as the seat's only effectful tool.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: sandbox-policy
+  config:
+    mode: workspace-write
+- id: tool-executor-ptc
+  disabled: true
+- insert:
+    - id: brokkr-hands
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: brokkr
+        transport: stdio
+        failOnStartupError: true
+        command: '/home/valentin/.cache/forge-fires/bin/brokkr-agy-2811aede'
+        args:
+          - 'hands'
+          - 'serve'
+          - '--workdir'
+          - '/home/valentin/source/feedback-loop-ai/brokkr-wt-igeval-k4'
+          - '--artifacts'
+          - '/home/valentin/source/feedback-loop-ai/brokkr-wt-igeval-k4/.forge/artifacts'
+          - '--reach'
+          - '{"home":"/home/valentin","worktree":{"path":"/home/valentin/source/feedback-loop-ai/brokkr-wt-igeval-k4","identity":[64513,62663252]},"git":{"dir":{"path":"/home/valentin/source/feedback-loop-ai/brokkr/.git/worktrees/brokkr-wt-igeval-k4","identity":[64513,26088239]},"common":{"path":"/home/valentin/source/feedback-loop-ai/brokkr/.git","identity":[64513,24263584]}},"binds":[{"path":"/home/valentin/.cargo","identity":[64513,24379398]},{"path":"/home/valentin/.rustup","identity":[64513,24379415]}],"store":{"place":"/home/valentin/source/feedback-loop-ai/brokkr-wt-igeval-k4/.forge/secrets.env","spelling":"/home/valentin/source/feedback-loop-ai/brokkr-wt-igeval-k4/.forge/secrets.env"}}'
+          - '--spec'
+          - '{"binds":[{"mask":["credentials.toml","credentials"],"mode":"overlay","path":"~/.cargo"},{"mask":[],"mode":"ro","path":"~/.rustup"}],"kind":"workspace","network":false}'

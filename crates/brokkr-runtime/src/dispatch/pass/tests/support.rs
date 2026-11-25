@@ -19,6 +19,7 @@ pub(crate) fn host(file: &Path) -> Host<'_> {
         file,
         temp: Path::new("/brokkr-test-temp"),
         free: &|_: &Path| Ok(1 << 40),
+        machine: None,
     }
 }
 

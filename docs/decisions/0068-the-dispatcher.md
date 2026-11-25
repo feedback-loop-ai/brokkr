@@ -4,7 +4,7 @@ Status: accepted (operator ruled in chat, 2026-09-24)
 Date: 2026-09-23
 
 Built: built
-Amended by: 0095, 0106, 0110
+Amended by: 0095, 0106, 0110, 0125
 
 ## Context
 
@@ -56,6 +56,14 @@ rule. The operator ruled on 2026-09-23 that it is a separate decision from
    as an operator command with its reason. A run started from the queue
    carries its entry id in its manifest.
 
+   *Note 2026-11-23 (#1192):* `brokkr queue merged ENTRY --reason TEXT`
+   joins these commands. It records that the work of an entry that started
+   a run merged, journaled with its operator and reason like the others,
+   and moves no entry's place or standing. The operator ruled it on
+   2026-11-22 (#1192, issuecomment-7076292901): "yes, journaled operator
+   command sounds good." Brokkr reads no forge: the record is the merge's
+   one witness.
+
 2. **Order is declared, not implied.** Each entry has a priority and may name
    entries it waits for, with the condition it waits on: `completed`, `ended`
    (any terminal status), or, once decision 0064 is built, a named ending.
@@ -64,6 +72,15 @@ rule. The operator ruled on 2026-09-23 that it is a separate decision from
    A waiting condition that can no longer be met — the awaited run ended
    `stopped` when the entry waits for `completed` — holds the entry and says
    so; it never waits forever in silence.
+
+   *Note 2026-11-23 (#1192):* `merged` joins the conditions, as
+   `--after 3:merged`: the awaited entry started a run and the operator
+   recorded its work merged with `brokkr queue merged`. The operator ruled
+   it on 2026-11-22 (#1192, issuecomment-7076292901): "yes, journaled
+   operator command sounds good." The record meets the wait whatever the
+   run came to. With none, a run that is over holds the entry as
+   `unmerged` until the record is made, and admission reads nothing from
+   the forge.
 
 3. **Admission is deterministic and checked before dispatch.** An entry starts
    only when all of these hold, and the dispatcher records which one did not:

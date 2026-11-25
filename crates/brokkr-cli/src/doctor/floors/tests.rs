@@ -125,7 +125,13 @@ fn an_invalid_host_file_is_one_warning_and_no_mismatch() {
 fn an_unplaced_host_file_is_one_warning_and_an_unreadable_adapters_root_is_silent() {
     let dir = with_dsh_adapters();
     let mut unplaced = reporting();
-    report_from(&mut unplaced, &dir.path().join("adapters"), None, None);
+    report_from(
+        &mut unplaced,
+        &dir.path().join("adapters"),
+        None,
+        None,
+        Ok(()),
+    );
     assert!(unplaced.healthy);
     assert_eq!(
         unplaced.render(),
@@ -157,8 +163,14 @@ fn a_route_that_is_not_egress_local_gets_no_mismatch() {
 
 /// The report of a machine whose configuration directory is `config`, its
 /// host file `brokkr/host.json` written as `v3()` writes it, with its
-/// schema `schema` and, where given, a run ceiling.
-fn under_config(config: &std::path::Path, schema: &str, runs: bool) -> Report {
+/// schema `schema` and, where given, a run ceiling, its availability
+/// `measured` or not.
+fn under_config(
+    config: &std::path::Path,
+    schema: &str,
+    runs: bool,
+    measured: Result<(), Unmeasured>,
+) -> Report {
     let dir = with_dsh_adapters();
     std::fs::create_dir_all(config.join("brokkr")).unwrap();
     let text = std::fs::read_to_string(v3(dir.path())).unwrap();
@@ -170,34 +182,77 @@ fn under_config(config: &std::path::Path, schema: &str, runs: bool) -> Report {
     std::fs::write(config.join("brokkr/host.json"), host.to_string()).unwrap();
     let mut report = reporting();
     let adapters = dir.path().join("adapters");
-    report_from(&mut report, &adapters, Some(config.into()), None);
+    report_from(&mut report, &adapters, Some(config.into()), None, measured);
     report
 }
 
-/// Decision 0110 ruling 7: a v3 host gives one warning naming its version
-/// and the one that declares the ceiling, and refuses nothing; a v4 host
-/// gives none.
+/// The lines the floors and egress report every host here gives.
+fn floor_and_mismatch() -> String {
+    format!(
+        "ok       floor: dsh/spark-glm 7200 seconds on shared-local hardware — seats on this \
+         route run under at least this deadline\n{MISMATCH}"
+    )
+}
+
+/// Decision 0110 ruling 7 as decision 0125 amends it: on an unmeasured
+/// machine a declared host says so, and a v3 host gives the warning naming
+/// its version and the one that declares the ceiling; a v4 host gives no
+/// more. Nothing refuses.
 #[test]
-fn a_host_file_without_a_run_ceiling_is_one_warning_and_a_v4_one_none() {
+fn an_unmeasured_machine_says_so_and_a_host_file_without_a_run_ceiling_is_one_warning() {
     let config = tempfile::tempdir().unwrap();
-    let v3 = under_config(config.path(), "forge.host/v3", false);
+    let unmeasured = || Err(Unmeasured::Platform);
+    let v3 = under_config(config.path(), "forge.host/v3", false, unmeasured());
     assert!(v3.healthy, "{}", v3.render());
     let file = config.path().join("brokkr/host.json");
+    let said = "warn     host: this machine's availability is not measured (this host's \
+                availability is not measured), so admission \
+                keeps its count ceilings and the run ceiling stays required (decision 0125)";
     assert_eq!(
-        v3.render().lines().last().unwrap(),
+        v3.render(),
         format!(
-            "warn     host: the host file {} is forge.host/v3 and declares no run ceiling, so \
-             every queued entry waits as runs_undeclared; forge.host/v4 declares runs.ceiling",
+            "{}\n{said}\nwarn     host: the host file {} is forge.host/v3 and declares no run \
+             ceiling, so every queued entry waits as runs_undeclared; run `brokkr system host upgrade` \
+             to upgrade the host file; declare runs.ceiling",
+            floor_and_mismatch(),
             file.display()
         )
     );
-    let v4 = under_config(config.path(), "forge.host/v4", true);
+    let v4 = under_config(config.path(), "forge.host/v4", true, unmeasured());
     assert!(v4.healthy, "{}", v4.render());
+    assert_eq!(v4.render(), format!("{}\n{said}", floor_and_mismatch()));
+}
+
+/// Decision 0125 ruling 7: on a measured machine a host file without a run
+/// ceiling is one line saying entries are judged by demand, and a v4 host
+/// gives none.
+#[test]
+fn a_measured_machine_judges_a_host_file_without_a_run_ceiling_by_demand() {
+    let config = tempfile::tempdir().unwrap();
+    let v3 = under_config(config.path(), "forge.host/v3", false, Ok(()));
+    let file = config.path().join("brokkr/host.json");
     assert_eq!(
-        v4.render(),
+        v3.render(),
         format!(
-            "ok       floor: dsh/spark-glm 7200 seconds on shared-local hardware — seats on this \
-             route run under at least this deadline\n{MISMATCH}"
+            "{}\nok       host: the host file {} is forge.host/v3 and declares no run ceiling; \
+             this machine's availability is measured, so queued entries are judged by their \
+             recipes' measured demand (decision 0125); run `brokkr system host upgrade` to upgrade \
+             the host file",
+            floor_and_mismatch(),
+            file.display()
+        )
+    );
+    let v4 = under_config(config.path(), "forge.host/v4", true, Ok(()));
+    assert_eq!(v4.render(), floor_and_mismatch());
+    let v5 = under_config(config.path(), "forge.host/v5", false, Ok(()));
+    assert_eq!(
+        v5.render(),
+        format!(
+            "{}\nok       host: the host file {} is forge.host/v5 and declares no run ceiling; \
+             this machine's availability is measured, so queued entries are judged by their \
+             recipes' measured demand (decision 0125)",
+            floor_and_mismatch(),
+            file.display()
         )
     );
 }

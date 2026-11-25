@@ -452,9 +452,10 @@ impl World {
 
     /// `brokkr` with `args`.
     fn brokkr(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(crate::capability_broker::brokkr());
-        command.args(args);
-        self.in_world(command)
+        self.in_world(crate::built::brokkr_at(
+            crate::capability_broker::brokkr(),
+            args,
+        ))
     }
 
     /// The `NoNewPrivs` line of the harness's last start.

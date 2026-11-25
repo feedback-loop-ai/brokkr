@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use crate::brokkr_folder::{completes, digest, git, started, Ran, Repo};
+use crate::isolated::alone;
 
 mod selected;
 
@@ -76,8 +77,7 @@ fn list_and_show_read_the_shelf() {
         at.display()
     );
     // Where this machine places no personal shelf, the project's alone.
-    let mut unplaced = repo.command("");
-    unplaced.args(["library", "recipes", "list"]);
+    let mut unplaced = repo.command("", &["library", "recipes", "list"]);
     unplaced.env_remove("XDG_CONFIG_HOME").env_remove("HOME");
     let ran = Ran::of(unplaced.output().unwrap());
     assert_eq!((ran.code, &ran.stdout, &*ran.stderr), (Some(0), &line, ""));
@@ -322,7 +322,8 @@ fn every_recipe_verb_names_the_digest_show_prints() {
     assert_eq!(first(&added.stderr), added_line);
     let listed = repo.brokkr("", &["library", "recipes", "list"]);
     assert_eq!(listed.stdout.split('\t').nth(1), Some(digest));
-    let doctor = repo.brokkr("", &["doctor"]);
+    let Some(alone) = alone() else { return };
+    let doctor = repo.doctored(&alone, "", &["doctor"]);
     let line = format!("ok       recipe fast: {digest} at {}/fast", shelf.display());
     assert!(
         doctor.stdout.lines().any(|l| l == line),
@@ -676,8 +677,8 @@ fn occupied(at: &Path) -> String {
 /// `limit`: the child is polled against a deadline and killed there.
 fn within(repo: &Repo, args: &[&str], limit: Duration) -> Ran {
     use std::process::Stdio;
-    let mut command = repo.command("");
-    command.args(args).stdin(Stdio::null());
+    let mut command = repo.command("", args);
+    command.stdin(Stdio::null());
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -922,7 +923,8 @@ fn a_library_named_like_the_folder_gives_its_own_definitions() {
 #[test]
 fn doctor_reads_the_shelf() {
     let repo = shelved();
-    let doctor = |repo: &Repo| repo.brokkr("", &["doctor"]);
+    let Some(alone) = alone() else { return };
+    let doctor = |repo: &Repo| repo.doctored(&alone, "", &["doctor"]);
     let healthy = doctor(&repo).code;
     let digest = &digest(&repo, ".brokkr/recipes/x")[..12];
     repo.write(".brokkr/recipes/broken/bundle.json", "not json");
@@ -945,11 +947,8 @@ fn doctor_reads_the_shelf() {
     );
 }
 
-/// `brokkr <args>` from `repo`'s root, each variable in `env` set to its
-/// value, or unset where it has none.
-fn under(repo: &Repo, env: &[(&str, Option<&Path>)], args: &[&str]) -> Ran {
-    let mut command = repo.command("");
-    command.args(args);
+/// `command` run with each variable in `env` set to its value, or unset where it has none.
+fn under(command: &mut std::process::Command, env: &[(&str, Option<&Path>)]) -> Ran {
     for (variable, value) in env {
         match value {
             Some(value) => command.env(variable, value),
@@ -969,7 +968,7 @@ fn add_named(repo: &Repo, source: &Path, name: &str, env: &[(&str, Option<&Path>
         "--personal",
         source.to_str().unwrap(),
     ];
-    under(repo, env, &[&add[..], &["--name", name]].concat())
+    under(repo.command("", &add).args(["--name", name]), env)
 }
 
 /// [`add_named`] `mine`.
@@ -1021,16 +1020,18 @@ fn add_personal_installs_beside_the_host_file() {
 /// compiled against the folder's agents, which lack them, so it refuses,
 /// the repository byte for byte as it was, and makes nothing on the
 /// shelf, not even the configuration directory it would have stood in.
+/// The install gets its own empty config path because init seeds the host file.
 #[test]
 fn a_personal_install_copies_no_agent_into_the_repository() {
     let (repo, fast) = library_of_fast();
     let before = repo.files();
-    let ran = add_personal(&repo, &fast, &[]);
+    let config = repo.config().with_file_name("install-config");
+    let ran = add_personal(&repo, &fast, &[("XDG_CONFIG_HOME", Some(&config))]);
     let refused = "error: recipe 'mine' does not compile (removed): bundle: seat 'implement': \
                    agent 'fast-implementer' is not in the library; known agents: implementer, \
                    intake, reviewer\n";
     assert_eq!((ran.code, &*ran.stderr), (Some(1), refused));
-    assert!(!repo.config().exists());
+    assert!(!config.exists());
     assert_eq!(repo.files(), before);
 }
 
@@ -1066,18 +1067,20 @@ fn run_recipe_reads_the_project_shelf_then_the_personal_one() {
     let listed = repo.brokkr("", &["library", "recipes", "list"]);
     let both = line("x", "project", &project) + &line("mine", "personal", &mine);
     assert_eq!((listed.code, listed.stdout), (Some(0), both));
-    let doctor = repo.brokkr("", &["doctor"]);
-    let compiled = digest(&repo, mine.to_str().unwrap());
-    let shown = format!(
-        "ok       personal recipe mine: {} at {}",
-        &compiled[..12],
-        mine.display()
-    );
-    assert!(
-        doctor.stdout.lines().any(|l| l == shown),
-        "{}",
-        doctor.stdout
-    );
+    if let Some(alone) = alone() {
+        let doctor = repo.doctored(&alone, "", &["doctor"]);
+        let compiled = digest(&repo, mine.to_str().unwrap());
+        let shown = format!(
+            "ok       personal recipe mine: {} at {}",
+            &compiled[..12],
+            mine.display()
+        );
+        assert!(
+            doctor.stdout.lines().any(|l| l == shown),
+            "{}",
+            doctor.stdout
+        );
+    }
 
     let before = (repo.files(), digest(&repo, ".brokkr"));
     std::fs::write(mine.join("roles/role.md"), "# edited\n").unwrap();
@@ -1434,7 +1437,7 @@ fn a_project_shelf_refuses_with_no_personal_shelf_placed() {
         ),
     ];
     for (args, refused) in cases {
-        let ran = under(&repo, &unplaced, &args);
+        let ran = under(&mut repo.command("", &args), &unplaced);
         assert_eq!((ran.code, ran.stderr), (Some(1), refused), "{args:?}");
         assert_eq!((repo.files(), kept(&repo, "x")), (before.clone(), state));
     }
@@ -1471,7 +1474,8 @@ fn an_unreadable_project_shelf_refuses_with_no_personal_shelf_placed() {
     let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
     std::fs::set_permissions(&shelf, mode(0o000)).unwrap();
     let readable = std::fs::symlink_metadata(shelf.join("x")).is_ok();
-    let ran = verbs.clone().map(|args| under(&repo, &unplaced, &args));
+    let plain = |args: Vec<&str>| under(&mut repo.command("", &args), &unplaced);
+    let ran = verbs.clone().map(plain);
     std::fs::set_permissions(&shelf, mode(0o755)).unwrap();
     if readable {
         eprintln!("skipped: this process reads a mode-000 directory, as root does");
@@ -1509,7 +1513,8 @@ fn a_personal_shelf_climbing_out_of_what_does_not_stand_refuses() {
             completes(),
         );
     }
-    let healthy = repo.brokkr("", &["doctor"]).code;
+    let Some(alone) = alone() else { return };
+    let healthy = repo.doctored(&alone, "", &["doctor"]).code;
     let project = repo.path(".brokkr/recipes/x");
     let digest = &digest(&repo, project.to_str().unwrap())[..12];
     let line = format!(
@@ -1538,9 +1543,8 @@ fn a_personal_shelf_climbing_out_of_what_does_not_stand_refuses() {
     for (env, placed, at) in spellings {
         let shelf = placed.join("recipes");
         let ran = under(
-            &repo,
+            &mut repo.command("", &["run", "--recipe", "x", "--feature", "f", "--no-view"]),
             &env,
-            &["run", "--recipe", "x", "--feature", "f", "--no-view"],
         );
         let refused = climbing("personal", &shelf, at);
         assert_eq!(
@@ -1556,10 +1560,10 @@ fn a_personal_shelf_climbing_out_of_what_does_not_stand_refuses() {
             "{}: No such file or directory (os error 2)",
             shelf.display()
         );
-        let listed = under(&repo, &env, &["library", "recipes", "list"]);
+        let listed = under(&mut repo.command("", &["library", "recipes", "list"]), &env);
         let warned = format!("{line}warning: recipes dir {absent}\n");
         assert_eq!((listed.code, listed.stdout), (Some(0), warned), "{env:?}");
-        let doctor = under(&repo, &env, &["doctor"]);
+        let doctor = under(&mut repo.doctor(&alone, "", &["doctor"]), &env);
         let warn = format!("warn     personal shelf: {absent}");
         let warns = doctor.stdout.lines().any(|l| l == warn);
         assert_eq!((doctor.code, warns), (healthy, true), "{}", doctor.stdout);

@@ -6,38 +6,36 @@
 //! travels inside it typed. Its `Display` is the operator's text byte for
 //! byte; `HandsSpec::parse` is the one place it becomes text (#353).
 
-use serde_json::Value;
-
 use super::bind_refusal::BindRefusal;
 use super::BOUNDARY_IS_THE_REALMS;
 
-/// Why a `hands` value was refused, each field borrowed from the value.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub(super) enum SpecRefusal<'a> {
+/// Why a `hands` value was refused.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SpecRefusal {
     /// The value is a string other than `workspace`.
     #[error("hands '{kind}' is not a known kind; the vocabulary is: workspace")]
-    UnknownKind { kind: &'a str },
+    UnknownKind { kind: String },
     /// The value is neither a string nor an object.
     #[error("hands must be \"workspace\" or an object, got {got}")]
-    NotKindOrObject { got: &'a Value },
+    NotKindOrObject { got: String },
     /// The object names `boundary`, which only a realm declares.
     #[error("hands names 'boundary'; {BOUNDARY_IS_THE_REALMS}")]
     Boundary,
     /// The object names a key outside `kind`, `network` and `binds`.
     #[error("hands has unknown key '{key}'; known: kind, network, binds")]
-    UnknownKey { key: &'a str },
+    UnknownKey { key: String },
     /// The object's `kind` is absent, not a string, or not `workspace`.
     #[error("hands.kind must be \"workspace\"")]
     Kind,
     /// The object's `network` is present and not a boolean.
     #[error("hands.network must be a boolean, got {got}")]
-    Network { got: &'a Value },
+    Network { got: String },
     /// The object's `binds` is present and not an array.
     #[error("hands.binds must be an array")]
     BindsNotArray,
     /// A `binds` entry refused in its own cause.
     #[error(transparent)]
-    Bind(BindRefusal<'a>),
+    Bind(BindRefusal),
 }
 
 #[cfg(test)]

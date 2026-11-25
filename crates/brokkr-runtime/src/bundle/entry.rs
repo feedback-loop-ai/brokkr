@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use super::{bounded_site, Bundle, GateAssessment, SeatBody, StepBody, WorkSite};
 use crate::phase_name::{CHANGE_SOURCES, TRIAGE};
+use brokkr_core::policy::CHANGE;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("cannot enter '{phase}': {refusal}; admitted entries: {}", .admitted.join(", "))]
@@ -273,7 +274,7 @@ fn change(bundle: &Bundle, entry: &str) -> Option<EntryRefusal> {
         let SeatBody::Sequence { steps } = &seat.body else {
             continue;
         };
-        let declares = seat.inputs.iter().any(|input| input == "change");
+        let declares = seat.inputs.iter().any(|input| input == CHANGE);
         for (step_index, step) in steps.iter().enumerate() {
             let StepBody::Dialect { execution } = &step.body else {
                 continue;
@@ -288,7 +289,7 @@ fn change(bundle: &Bundle, entry: &str) -> Option<EntryRefusal> {
                     bundle
                         .seats
                         .get(*name)
-                        .is_some_and(|seat| seat.inputs.iter().any(|input| input == "change"))
+                        .is_some_and(|seat| seat.inputs.iter().any(|input| input == CHANGE))
                 })
                 .map(String::as_str)
                 .collect();

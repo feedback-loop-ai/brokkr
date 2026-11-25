@@ -63,17 +63,21 @@ use crate::realms::WorldError;
 mod awaited;
 pub(crate) mod capacity;
 mod cooling;
+mod demand;
 mod governing;
 mod host;
 
-use awaited::{awaiting, came_to, observe};
+use awaited::{awaiting, came_to, observe, otherwise, unmerged, unstarted};
+pub use demand::{
+    measurable, Available, Machine, Need, Reserved, Sized, Source, Unfit, Unmeasured,
+};
 
 pub(crate) use capacity::Unclaimed;
 pub use capacity::{Capacity, Host, Measured, Room, Shared, Unmeasurable};
 pub(crate) use host::config_dir;
 pub use host::{
-    declared_routes, free_bytes, host_file, runs_undeclared, HostError, HostRoutes, Place,
-    RouteClass, RouteDecl,
+    declared_routes, free_bytes, host_file, host_upgrade, runs_undeclared, HostError, HostRoutes,
+    Place, RouteClass, RouteDecl, Undeclared, CURRENT_HOST_SCHEMA,
 };
 // The engine's cool-down read (decision 0103 slice 4c1): the same one
 // loader and bounds admission reads, at the host file the launch names.
@@ -92,6 +96,14 @@ pub enum Reason {
     Dropped(Wait),
     /// It waits for a run to complete, and that run stopped.
     Stopped { wait: Wait, run: String },
+    /// It waits for a named ending, and its run is over and ended another.
+    EndedOtherwise {
+        wait: Wait,
+        run: String,
+        ending: brokkr_core::ending::Ending,
+    },
+    /// It waits on a merge, and its run is over with no merge recorded.
+    Unmerged { wait: Wait, run: String },
     /// The governing facts of its realm in the map it was queued with
     /// differ from the map on disk, and no latch records it yet.
     RealmChanged {
@@ -116,6 +128,9 @@ pub enum Reason {
     DispatchEnvelope,
     /// The machine has no room for it now.
     Capacity(Capacity),
+    /// Decision 0125's rule: its demand does not fit the machine now, or a
+    /// journal the rule reads is unreadable. Each waits and clears by itself.
+    Demand(Unfit),
 }
 
 impl Reason {
@@ -123,10 +138,12 @@ impl Reason {
     pub(crate) fn holds(&self) -> bool {
         match self {
             Reason::Capacity(capacity) => capacity.holds(),
-            Reason::NotStarted(_) | Reason::Unended { .. } => false,
+            Reason::NotStarted(_) | Reason::Unended { .. } | Reason::Demand(_) => false,
             Reason::OperatorHold
             | Reason::Dropped(_)
             | Reason::Stopped { .. }
+            | Reason::EndedOtherwise { .. }
+            | Reason::Unmerged { .. }
             | Reason::RealmChanged { .. }
             | Reason::RealmLatched { .. }
             | Reason::MapUnreadable(_)
@@ -143,12 +160,15 @@ impl Reason {
             Reason::Unended { .. } => "unended",
             Reason::Dropped(_) => "dropped",
             Reason::Stopped { .. } => "stopped",
+            Reason::EndedOtherwise { .. } => "ended_otherwise",
+            Reason::Unmerged { .. } => "unmerged",
             Reason::RealmChanged { .. } => "realm_changed",
             Reason::RealmLatched { .. } => "realm_latched",
             Reason::MapUnreadable(_) => "map_unreadable",
             Reason::UnstartedRun { .. } => "unstarted_run",
             Reason::DispatchEnvelope => "dispatch_envelope",
             Reason::Capacity(capacity) => capacity.kind(),
+            Reason::Demand(unfit) => unfit.kind(),
         }
     }
 }
@@ -178,6 +198,8 @@ impl fmt::Display for Reason {
             Reason::Stopped { wait, run } => {
                 write!(f, "waits on {wait}, {never}: its run '{run}' stopped")
             }
+            Reason::EndedOtherwise { wait, run, ending } => otherwise(f, never, wait, run, ending),
+            Reason::Unmerged { wait, run } => unmerged(f, wait, run),
             Reason::RealmChanged { realm, differences } => {
                 write!(
                     f,
@@ -189,46 +211,42 @@ impl fmt::Display for Reason {
                 realm,
                 differences,
                 moved,
-            } => {
-                let since = match moved {
-                    true => {
-                        "; the map on disk has changed since, and `brokkr queue judge` latches \
-                         what it finds now"
-                    }
-                    false => "",
-                };
-                write!(
-                    f,
-                    "realm {realm} changed since queued, latched until the operator re-pins, \
-                     re-queues or drops it: {}{since}",
-                    found(differences)
-                )
-            }
+            } => latched(f, realm, differences, *moved),
             Reason::MapUnreadable(detail) => write!(
                 f,
                 "the realms map it was queued under cannot be read now: {detail}"
             ),
-            Reason::UnstartedRun {
-                wait: Some(wait),
-                run,
-            } => write!(
-                f,
-                "waits on {wait}: its run '{run}' was never started, a row an older brokkr left \
-                 with no run/started"
-            ),
-            Reason::UnstartedRun { wait: None, run } => write!(
-                f,
-                "run '{run}' was never started, a row an older brokkr left with no run/started: \
-                 it spawned nothing, and counts against no ceiling"
-            ),
+            Reason::UnstartedRun { wait, run } => unstarted(f, wait.as_ref(), run),
             Reason::DispatchEnvelope => write!(
                 f,
                 "queued with --dispatch: its run would be a run-manifest/v2, which carries no \
                  queue entry, so the dispatcher never starts it"
             ),
             Reason::Capacity(capacity) => write!(f, "{capacity}"),
+            Reason::Demand(unfit) => write!(f, "{unfit}"),
         }
     }
+}
+
+fn latched(
+    f: &mut fmt::Formatter<'_>,
+    realm: &str,
+    differences: &[Difference],
+    moved: bool,
+) -> fmt::Result {
+    let since = match moved {
+        true => {
+            "; the map on disk has changed since, and `brokkr queue judge` latches \
+             what it finds now"
+        }
+        false => "",
+    };
+    write!(
+        f,
+        "realm {realm} changed since queued, latched until the operator re-pins, \
+         re-queues or drops it: {}{since}",
+        found(differences)
+    )
 }
 
 /// Each difference, as an operator reads them in a line.
@@ -401,6 +419,9 @@ pub struct Judged {
     pub launch: QueuedLaunch,
     pub verdict: Option<Verdict>,
     pub room: Option<Room>,
+    /// What a measured pass sized it by, where it reached the demand rule
+    /// (decision 0125).
+    pub demand: Option<Sized>,
 }
 
 /// Why the pass could not judge the queue at all. Nothing is admitted.
@@ -664,6 +685,7 @@ fn read(store: &Store) -> Result<Vec<(Judged, Option<Finding>)>, AdmissionError>
                 launch,
                 verdict,
                 room: None,
+                demand: None,
             };
             Ok((judged, finding))
         })

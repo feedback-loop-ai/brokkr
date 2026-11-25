@@ -1331,7 +1331,7 @@ impl SealedBoundary {
             .find(|boundary| boundary.word() == word)
     }
 
-    fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             SealedBoundary::Namespace => "namespace",
             SealedBoundary::Seatbelt => "seatbelt",

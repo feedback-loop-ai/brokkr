@@ -16,23 +16,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::Transcript;
+use recorded::Role;
 
-/// The public document version the command serializes. Structural
-/// changes to this unpublished document require a new identifier.
+/// The public document version the command serializes.
 pub const TRANSCRIPT_SCHEMA: &str = "brokkr.transcript/v1";
 
 /// Source bytes read from a selected file, plus one overflow probe byte.
-pub const SOURCE_CAP: u64 = 33_554_432;
+pub const SOURCE_CAP: u64 = brokkr_core::seat::TRANSCRIPT_SOURCE_CAP;
 
-/// The display budget: display accounting bytes every returned projection
-/// of every kind shares. See [`DISPLAY_EVENT_COST`] and [`display_cost`].
+/// Display accounting bytes every returned projection shares.
 pub const DISPLAY_CAP: usize = 4_000_000;
 
-/// The fixed structural charge one final content-bearing event/turn adds to
-/// the display accounting budget, beside its emitted block text's UTF-8
-/// bytes. 512 conservatively rounds above the approximately 330-byte
-/// per-event audit estimate in issue #277; it is a portable accounting
-/// allowance, not a measured allocator or whole-process RSS size.
+/// Fixed per-turn display accounting charge (issue #277).
 pub const DISPLAY_EVENT_COST: usize = 512;
 
 /// The bounded first-record budget for a DSH candidate header.
@@ -48,18 +43,18 @@ pub enum TranscriptKind {
     ClaudeSession,
     CodexThread,
     DshSession,
+    AgyConversation,
     None,
 }
 
 impl TranscriptKind {
-    /// The kind a recorded `kind` string names, or `None` when the
-    /// vocabulary does not include it. A present common reference with
-    /// an unlisted kind is `unsupported-kind`, never a silent absence.
+    /// The kind a recorded `kind` string names, or `None` when unlisted.
     pub fn parse(word: &str) -> Option<TranscriptKind> {
         match word {
             "claude-session" => Some(TranscriptKind::ClaudeSession),
             "codex-thread" => Some(TranscriptKind::CodexThread),
             "dsh-session" => Some(TranscriptKind::DshSession),
+            brokkr_core::seat::AGY_TRANSCRIPT_KIND => Some(TranscriptKind::AgyConversation),
             "none" => Some(TranscriptKind::None),
             _ => None,
         }
@@ -70,6 +65,7 @@ impl TranscriptKind {
             TranscriptKind::ClaudeSession => "claude-session",
             TranscriptKind::CodexThread => "codex-thread",
             TranscriptKind::DshSession => "dsh-session",
+            TranscriptKind::AgyConversation => brokkr_core::seat::AGY_TRANSCRIPT_KIND,
             TranscriptKind::None => "none",
         }
     }
@@ -229,11 +225,9 @@ impl Selection {
     }
 }
 
-/// True when every character is legal in a path input: no ASCII control
-/// character and no NUL.
-fn clean_path(text: &str) -> bool {
-    !text.chars().any(|c| c.is_control() || c == '\0')
-}
+use brokkr_core::seat::{
+    is_clean_transcript_path as clean_path, is_valid_transcript_home as valid_home,
+};
 
 /// Claude: 1-64 ASCII hexadecimal-or-hyphen characters, first a
 /// hexadecimal character. Leading hyphens are now invalid everywhere.
@@ -274,32 +268,6 @@ pub fn valid_dsh_locator(locator: &str) -> bool {
     })
 }
 
-/// A home is valid when it is absolute on either supported platform,
-/// carries no control character or NUL, and is not empty. Unix roots
-/// begin with `/`; Windows homes are drive-absolute (`C:\` or `C:/`) or
-/// UNC (`\\server\share`). Validating both spellings keeps a recorded
-/// Windows home readable by the Windows-built reader without widening
-/// Unix behavior into relative paths.
-fn valid_home(home: &str) -> bool {
-    if home.is_empty() || !clean_path(home) {
-        return false;
-    }
-    if home.starts_with('/') {
-        return true;
-    }
-    let bytes = home.as_bytes();
-    if bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && (bytes[2] == b'\\' || bytes[2] == b'/')
-    {
-        return true;
-    }
-    // A Unix root (`/`) already returned above, so only the Windows UNC
-    // spelling (`\\server\share`) remains here.
-    home.starts_with("\\\\") && home.len() > 2
-}
-
 /// Validate one present common reference under the reading delta's
 /// precedence: `none`, unsupported kind, empty locator, missing home,
 /// then a malformed locator or home.
@@ -336,6 +304,7 @@ fn locator_matches_kind(kind: TranscriptKind, locator: &str) -> bool {
         TranscriptKind::ClaudeSession => valid_claude_id(locator),
         TranscriptKind::CodexThread => valid_codex_id(locator),
         TranscriptKind::DshSession => valid_dsh_locator(locator),
+        TranscriptKind::AgyConversation => brokkr_core::seat::is_agy_uuid(locator),
         TranscriptKind::None => false,
     }
 }
@@ -453,7 +422,7 @@ pub fn full_session(reference: &ValidReference, path: Option<&str>) -> Option<St
                 reference.locator
             ))
         }
-        TranscriptKind::DshSession => {
+        TranscriptKind::DshSession | TranscriptKind::AgyConversation => {
             path.map(|path| format!("full session: path {}", portable_display_literal(path)))
         }
         TranscriptKind::None => None,
@@ -743,6 +712,7 @@ pub struct Projection {
     pub unrecognized_records: u64,
     pub truncated: bool,
     pub unavailable: Option<Unavailable>,
+    pub notices: Vec<String>,
 }
 
 impl Projection {
@@ -757,19 +727,18 @@ impl Projection {
     }
 }
 
-/// Parse the complete physical rows of an admitted snapshot one at a
-/// time, handing each decoded value and its raw recorded text to `visit`
-/// and releasing it before the next row is parsed. Neither the row text
-/// nor its decoded JSON is retained for the whole file (design D4). The
-/// raw text preserves the recorded numeric spelling that `serde_json`'s
-/// `f64` collapse would otherwise lose (`1e-400` parses as `0.0`). A
-/// newline-less final fragment that does not parse is provisional and
-/// uncounted; any other complete row that does not parse is malformed
-/// and counted. Returns the malformed count.
-fn for_each_parsed_row<F>(admitted: &Admitted<'_>, mut visit: F) -> u64
-where
-    F: FnMut(usize, Value, &str),
-{
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tail {
+    Live,
+    Complete,
+}
+
+/// Parse rows of `admitted` one at a time (design D4); `Complete` counts a bad tail (#1227 U7).
+fn parsed_rows(
+    admitted: &Admitted<'_>,
+    tail: Tail,
+    mut visit: impl FnMut(usize, Value, &str),
+) -> u64 {
     let text = admitted.text;
     let bytes = text.as_bytes();
     let mut skipped = 0u64;
@@ -787,10 +756,10 @@ where
         start = end + 1;
     }
     if start < text.len() && !admitted.overflow {
-        // A newline-less tail at true EOF is provisional: it participates
-        // only when it parses, and an unparseable tail is never counted.
-        if let Ok(value) = serde_json::from_str::<Value>(&text[start..]) {
-            visit(index, value, &text[start..]);
+        match serde_json::from_str::<Value>(&text[start..]) {
+            Ok(value) => visit(index, value, &text[start..]),
+            Err(_) if tail == Tail::Complete => skipped += 1,
+            Err(_) => {}
         }
     }
     skipped
@@ -815,39 +784,6 @@ fn display_cost(blocks: &[Block]) -> Option<usize> {
     Some(cost)
 }
 
-/// Who speaks a turn: the three roles the classifiers name, or a role a
-/// record names outside them, kept as written (empty when a row supplies
-/// no turn).
-#[derive(Clone, PartialEq, Eq, Debug)]
-enum Role {
-    User,
-    Assistant,
-    Tool,
-    Recorded(String),
-}
-
-impl Role {
-    /// The role a record names: one of the three, or kept as written.
-    fn recorded(word: &str) -> Role {
-        match word {
-            "user" => Role::User,
-            "assistant" => Role::Assistant,
-            "tool" => Role::Tool,
-            other => Role::Recorded(other.to_string()),
-        }
-    }
-
-    /// The spelling every surface shows.
-    fn into_wire(self) -> String {
-        match self {
-            Role::User => "user".to_string(),
-            Role::Assistant => "assistant".to_string(),
-            Role::Tool => "tool".to_string(),
-            Role::Recorded(word) => word,
-        }
-    }
-}
-
 /// What one classified record contributes (#352): its blocks, who speaks
 /// them, its recorded timestamp, and whether it named anything its kind's
 /// table does not recognize. An outcome with no blocks supplies no turn.
@@ -863,7 +799,7 @@ impl<B> RowOutcome<B> {
     fn nothing(unrecognized: bool) -> RowOutcome<B> {
         RowOutcome {
             blocks: Vec::new(),
-            role: Role::Recorded(String::new()),
+            role: Role::NoTurn,
             ts: String::new(),
             unrecognized,
         }
@@ -883,9 +819,17 @@ impl<B> RowOutcome<B> {
         RowOutcome::of(vec![block], role)
     }
 
-    /// The same outcome at its record's recorded timestamp.
-    fn at(mut self, ts: String) -> RowOutcome<B> {
-        self.ts = ts;
+    /// Admit metadata for records with blocks and combine their diagnostics.
+    fn at(mut self, row: &Value) -> RowOutcome<B> {
+        if self.blocks.is_empty() {
+            return self;
+        }
+        match row.get("timestamp").and_then(Value::as_str) {
+            Some(ts) if recorded::timestamp(ts) => self.ts = ts.to_string(),
+            Some(_) => self.unrecognized = true,
+            None => {}
+        }
+        self.unrecognized |= matches!(self.role, Role::InvalidRecorded);
         self
     }
 }
@@ -1004,6 +948,7 @@ pub fn project(kind: TranscriptKind, snapshot: &Snapshot<'_>) -> Projection {
         TranscriptKind::ClaudeSession => project_claude(&admitted, &mut projection),
         TranscriptKind::CodexThread => project_codex(&admitted, &mut projection),
         TranscriptKind::DshSession => project_dsh(&admitted, &mut projection),
+        TranscriptKind::AgyConversation => agy::project(&admitted, &mut projection),
         TranscriptKind::None => {}
     }
     projection
@@ -1013,7 +958,7 @@ pub fn project(kind: TranscriptKind, snapshot: &Snapshot<'_>) -> Projection {
 
 fn project_claude(admitted: &Admitted<'_>, projection: &mut Projection) {
     let mut collector = TurnCollector::new(projection.truncated);
-    projection.skipped_lines = for_each_parsed_row(admitted, |_, value, _| {
+    projection.skipped_lines = parsed_rows(admitted, Tail::Live, |_, value, _| {
         let outcome = claude_row(&value);
         if outcome.unrecognized {
             projection.unrecognized_records += 1;
@@ -1037,11 +982,6 @@ fn claude_row(value: &Value) -> RowOutcome<Block> {
     if kind != "user" && kind != "assistant" {
         return RowOutcome::nothing(true);
     }
-    let ts = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
     let message = value.get("message");
     let role = Role::recorded(
         message
@@ -1060,7 +1000,7 @@ fn claude_row(value: &Value) -> RowOutcome<Block> {
             ..RowOutcome::of(Vec::new(), role)
         },
     };
-    outcome.at(ts)
+    outcome.at(value)
 }
 
 /// One Claude content member: nonblank prose, or a tool marker naming its
@@ -1355,26 +1295,29 @@ fn compose(parts: &[&str]) -> String {
 
 /// Project a Codex rollout in two passes over the same bounded prefix, as
 /// DSH does (design D1, D4; #352). The fact pass classifies every row,
-/// counts its diagnostics and association keys, and releases it: no
-/// record is retained, so a 32 MiB source of two-byte rows cannot amplify
-/// into records. The projection pass classifies each row again, removes
-/// what association proved mirrored, and feeds the one collector.
+/// counts association keys, and releases it: no record is retained, so a
+/// 32 MiB source of two-byte rows cannot amplify into records. The projection
+/// pass removes proved mirrors and counts diagnostics for surviving records,
+/// including those that had no blocks to begin with, before display admission.
 fn project_codex(admitted: &Admitted<'_>, projection: &mut Projection) {
     let mut association = CodexAssociation::default();
-    projection.skipped_lines = for_each_parsed_row(admitted, |_, value, _| {
-        let record = codex_row(&value);
-        if record.outcome.unrecognized {
-            projection.unrecognized_records += 1;
-        }
-        association.count(&record, |_, _, _| {});
+    projection.skipped_lines = parsed_rows(admitted, Tail::Live, |_, value, _| {
+        association.count(&codex_row(&value), |_, _, _| {});
     });
     let mut collector = TurnCollector::new(projection.truncated);
-    for_each_parsed_row(admitted, |_, value, _| {
+    parsed_rows(admitted, Tail::Live, |_, value, _| {
         let mut record = codex_row(&value);
+        let was_blockless = record.outcome.blocks.is_empty();
         association.retain(&mut record, |_, _, _| {});
         let RowOutcome {
-            blocks, role, ts, ..
+            blocks,
+            role,
+            ts,
+            unrecognized,
         } = record.outcome;
+        if unrecognized && (was_blockless || !blocks.is_empty()) {
+            projection.unrecognized_records += 1;
+        }
         collector.admit(
             role,
             ts,
@@ -1460,11 +1403,6 @@ impl CodexAssociation {
 
 /// Project one Codex record into its blocks and recorded metadata.
 fn codex_row(value: &Value) -> CodexRecord {
-    let ts = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
     let payload = value.get("payload");
     let (outcome, canonical) = match value.get("type").and_then(Value::as_str) {
         Some("response_item") => (payload.map(codex_response_item), true),
@@ -1473,7 +1411,7 @@ fn codex_row(value: &Value) -> CodexRecord {
         None => (None, false),
     };
     CodexRecord {
-        outcome: outcome.unwrap_or_else(|| RowOutcome::nothing(true)).at(ts),
+        outcome: outcome.map_or_else(|| RowOutcome::nothing(true), |row| row.at(value)),
         canonical,
     }
 }
@@ -1731,7 +1669,9 @@ fn codex_completed_item(item: &Value) -> RowOutcome<CodexBlock> {
 
 // ----------------------------------------------------------------- DSH
 
+mod agy;
 mod dsh_versions;
+mod recorded;
 use dsh_versions::DshVersion;
 
 /// The version-zero recognized quiet vocabulary: the captured 0.1.2-rc.1
@@ -2482,7 +2422,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     let mut refused = false;
     let mut unrecognized = 0u64;
     let mut retained: Vec<DshEvent> = Vec::new();
-    let skipped = for_each_parsed_row(admitted, |index, value, raw| {
+    let skipped = parsed_rows(admitted, Tail::Live, |index, value, raw| {
         // The admitted opening header is quiet.
         if index == 0 {
             return;
@@ -2556,7 +2496,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // accounting budget. Classification, diagnostics and association
     // ordering were completed by the fact pass. ----
     let mut collector = TurnCollector::new(projection.truncated);
-    for_each_parsed_row(admitted, |index, value, raw| {
+    parsed_rows(admitted, Tail::Live, |index, value, raw| {
         if index == 0 || collector.sealed {
             return;
         }
@@ -3341,5 +3281,7 @@ fn validate_packed<'a>(
     })
 }
 
+#[cfg(test)]
+mod agy_tests;
 #[cfg(test)]
 mod tests;

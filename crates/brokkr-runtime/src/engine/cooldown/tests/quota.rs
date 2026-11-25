@@ -214,6 +214,7 @@ fn codex_served(bundle: &mut crate::bundle::Bundle, label: &str, link: &Candidat
 #[test]
 fn a_codex_usage_limit_record_waits_for_the_probe_then_retries() {
     serve_codex_when_spawned();
+    own_engine!();
 
     let dir = tempfile::tempdir().unwrap();
     // The bundle's layer is bound by its canonical path: macOS's temporary

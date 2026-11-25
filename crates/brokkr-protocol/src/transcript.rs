@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
+use crate::adapters::{CapturedId, Emitted};
+
 /// The existing checkpoint target bound also governs a transcript locator.
 const LOCATOR_LIMIT: usize = 80;
 
@@ -20,27 +22,58 @@ pub(crate) enum Kind {
     ClaudeSession,
     CodexThread,
     DshSession,
+    AgyConversation,
     None,
 }
 
 impl Kind {
-    fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> &'static str {
         match self {
             Kind::ClaudeSession => "claude-session",
             Kind::CodexThread => "codex-thread",
             Kind::DshSession => "dsh-session",
+            Kind::AgyConversation => brokkr_core::seat::AGY_TRANSCRIPT_KIND,
             Kind::None => "none",
         }
     }
 }
 
+/// The kinds the built-in drivers declare by writing them (decision 0075
+/// ruling 2): each harness's transcript kind, which is also the kind of
+/// the root session its driver confirms. `none` needs no declaration.
+pub fn driver_kinds() -> [&'static str; 3] {
+    [Kind::ClaudeSession, Kind::CodexThread, Kind::DshSession].map(Kind::label)
+}
+
+/// The one kind `driver` writes, as its transcript's and its confirmed
+/// root session's (decision 0075 ruling 2): LaneTally wraps claude, so it
+/// writes claude's, and `exec`, `qoder` and `agy` write none by driver alone:
+/// Qoder's level 1 runs `--no-session-persistence`, and `agy-conversation` is
+/// admitted only where the seat's loaded adapter declares it in `record_kinds`
+/// (#1227 U2).
+pub fn driver_kind(driver: crate::adapters::AdapterKind) -> Option<&'static str> {
+    use crate::adapters::AdapterKind;
+    match driver {
+        AdapterKind::Claude | AdapterKind::Lanetally => Some(Kind::ClaudeSession.label()),
+        AdapterKind::Codex => Some(Kind::CodexThread.label()),
+        AdapterKind::Dsh => Some(Kind::DshSession.label()),
+        AdapterKind::Exec | AdapterKind::Qoder | AdapterKind::Agy => None,
+    }
+}
+
 /// One invocation's transcript identity. The locator may arrive after the
 /// harness starts, so the value is mutable while the home and kind are not.
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Transcript {
     kind: Kind,
     home: PathBuf,
     locator: String,
     journaled: bool,
+}
+
+pub(crate) enum Locator<'a> {
+    Session(CapturedId),
+    Retained(&'a str),
 }
 
 impl Transcript {
@@ -53,6 +86,7 @@ impl Transcript {
                 Kind::ClaudeSession => claude_home_from(operator_home),
                 Kind::CodexThread => codex_home_from(std::env::var_os("CODEX_HOME"), operator_home),
                 Kind::DshSession => dsh_home(),
+                Kind::AgyConversation => None,
                 Kind::None => Some(PathBuf::new()),
             },
         )
@@ -63,21 +97,54 @@ impl Transcript {
         Transcript::at(Kind::DshSession, home.path().to_path_buf())
     }
 
+    /// An agy launch's kept transcript under the kept-conversations parent,
+    /// carrying its clamped retained locator so mask preflight and final
+    /// publication serialize the exact same address and checkpoint row
+    /// (#1227 Y4).
+    pub(crate) fn agy(home: PathBuf, locator: &str) -> Self {
+        let mut transcript = Transcript::at(Kind::AgyConversation, home);
+        transcript.locator = locator.chars().take(LOCATOR_LIMIT).collect();
+        transcript
+    }
+
+    pub(crate) fn none() -> Self {
+        Transcript::at(Kind::None, PathBuf::new())
+    }
+
+    /// The exact checkpoint row [`Self::finish`] publishes for a retained
+    /// transcript (no captured session identity).
+    pub(crate) fn emitted(&self) -> Emitted {
+        Emitted::transcript(&self.value(), None)
+    }
+
     /// The resolved home is also where dsh stages its retained seat root.
     pub(crate) fn home(&self) -> &Path {
         &self.home
+    }
+
+    #[cfg(test)]
+    pub(crate) fn locator(&self) -> &str {
+        &self.locator
     }
 
     /// Record a harness locator. Repeated reports replace the earlier one:
     /// a retry or a harness final event may reveal a newer authoritative id.
     pub(crate) fn record(
         &mut self,
-        locator: &str,
+        locator: Locator<'_>,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) -> Value {
-        self.locator = locator.chars().take(LOCATOR_LIMIT).collect();
-        self.publish(session_meta, emit)
+        let display = match &locator {
+            Locator::Session(identity) => identity.display.as_str(),
+            Locator::Retained(display) => *display,
+        };
+        self.locator = display.chars().take(LOCATOR_LIMIT).collect();
+        let captured = match locator {
+            Locator::Session(identity) => Some(identity),
+            Locator::Retained(_) => None,
+        };
+        self.publish(captured, session_meta, emit)
     }
 
     /// Every invocation reports the row, including `none` and a harness
@@ -86,10 +153,10 @@ impl Transcript {
     pub(crate) fn finish(
         &mut self,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) {
         if !self.journaled {
-            self.publish(session_meta, emit);
+            self.publish(None, session_meta, emit);
         }
     }
 
@@ -127,12 +194,13 @@ impl Transcript {
     /// out of `session_meta` through a lookup that cannot miss.
     fn publish(
         &mut self,
+        identity: Option<CapturedId>,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) -> Value {
         let transcript = self.value();
         session_meta.insert("transcript".into(), transcript.clone());
-        emit(&json!({"step": "transcript", "transcript": transcript}));
+        emit(&Emitted::transcript(&transcript, identity));
         self.journaled = true;
         transcript
     }
@@ -206,6 +274,10 @@ fn fresh_under(base: &Path, prefix: &str) -> std::io::Result<tempfile::TempDir> 
 /// home, so no directory dsh's Node lookup walks above a staged profile is
 /// the operator's dsh tree, and none is a shared, world-writable one.
 const ENGINE_HOMES: [&str; 4] = [".local", "state", "brokkr", "dsh-homes"];
+
+/// Where kept agy conversation transcripts live below the operator's `HOME`,
+/// beside [`ENGINE_HOMES`] (#1227).
+pub(crate) const AGY_CONVERSATIONS: [&str; 4] = [".local", "state", "brokkr", "agy-conversations"];
 
 /// The dsh home one launch is served from (decision 0065 slice two, U1c2;
 /// requirements SI2 and MB1). A launch without the engine's isolation
@@ -394,8 +466,8 @@ mod tests {
         let mut transcript = Transcript::at(Kind::ClaudeSession, PathBuf::from("/h/projects"));
         let mut meta = Map::new();
         let mut emitted = Vec::new();
-        let mut capture = |row: &Value| emitted.push(row.clone());
-        transcript.record(&"x".repeat(81), &mut meta, &mut capture);
+        let mut capture = |row: &Emitted| emitted.push(row.row.clone());
+        transcript.record(Locator::Retained(&"x".repeat(81)), &mut meta, &mut capture);
         transcript.finish(&mut meta, &mut capture);
         assert_eq!(emitted.len(), 1, "finish does not duplicate a recorded row");
         assert_eq!(emitted[0]["step"], "transcript");
@@ -720,7 +792,7 @@ mod tests {
             let mut transcript = Transcript::at(kind, home);
             let mut meta = Map::new();
             let mut row = Value::Null;
-            transcript.finish(&mut meta, &mut |value| row = value.clone());
+            transcript.finish(&mut meta, &mut |value| row = value.row.clone());
             assert_eq!(row["transcript"]["kind"], label);
             assert_eq!(row["transcript"]["locator"], "");
         }

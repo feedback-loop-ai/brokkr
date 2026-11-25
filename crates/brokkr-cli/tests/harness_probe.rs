@@ -4,7 +4,7 @@
 //! that speaks one Claude-shaped turn; no test reaches a provider.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use serde_json::{json, Value};
 
@@ -64,8 +64,7 @@ impl Host {
 
     /// `brokkr system probe harness`, given `--cli` when `cli` names one.
     fn launch(&self, cli: Option<&Path>, adapters: &Path, extra: &[&str]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-        command.args(["system", "probe", "harness"]);
+        let mut command = crate::built::brokkr(["system", "probe", "harness"]);
         if let Some(cli) = cli {
             command.arg("--cli").arg(cli);
         }
@@ -534,8 +533,7 @@ fn what_the_verb_cannot_probe_is_refused_by_name() {
 
 /// `brokkr system probe harness` with `HOME` set to `home`, given `extra`.
 fn probe_with_home(host: &Host, cli: &Path, home: &Path, extra: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(["system", "probe", "harness", "--cli"])
+    crate::built::brokkr(["system", "probe", "harness", "--cli"])
         .arg(cli)
         .arg("--secrets-file")
         .arg(&host.store)

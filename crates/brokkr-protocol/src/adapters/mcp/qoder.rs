@@ -6,9 +6,8 @@
 
 use std::path::Path;
 
-use super::{engine_executable, hands_transport, sealed_reach, Edge, Isolated, McpRefusal};
+use super::{engine_executable, sealed_reach, Edge, Isolated, McpRefusal};
 use crate::native_controls::mcp::qoder::{served, Served};
-use crate::native_controls::SealedServers;
 
 /// What the engine's set gives a qoder launch in `workdir`, once
 /// `isolated` admitted it from `edge`'s sealed inputs: the box's hands
@@ -35,15 +34,6 @@ pub(super) fn qoder_set_at(
     brokkr: &Path,
 ) -> Result<Served, McpRefusal> {
     let reach = sealed_reach(edge.input);
-    let admitted = isolated
-        .isolation
-        .as_ref()
-        .map(|isolation| &isolation.servers);
-    let hands = match (edge.sealed(), admitted) {
-        (Some(Ok(sealed)), Some(SealedServers::Hands)) => {
-            hands_transport(sealed, (brokkr, workdir), edge.input, &reach)
-        }
-        _ => None,
-    };
+    let hands = isolated.admitted_hands(edge, (brokkr, workdir), &reach);
     served(hands).ok_or(McpRefusal::NotSealed { provider: "qoder" })
 }

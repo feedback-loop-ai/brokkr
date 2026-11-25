@@ -6,12 +6,18 @@
 
 // Support shared by several files, declared once: a file reaches it as
 // `crate::<name>`.
+#[path = "support/built.rs"]
+mod built;
 #[path = "support/engine.rs"]
 mod engine;
 #[path = "support/fake_office.rs"]
 mod fake_office;
+#[path = "support/isolated.rs"]
+mod isolated;
 #[path = "support/numbered.rs"]
 mod numbered;
+#[path = "support/pidns.rs"]
+mod pidns;
 #[path = "support/records.rs"]
 mod records;
 #[path = "support/rust_source.rs"]
@@ -31,6 +37,7 @@ mod acknowledge;
 mod after_terminal;
 mod agent_fallback;
 mod agent_readouts;
+mod agy_driver;
 mod analytics;
 mod binary_names;
 mod bootstrap_bench;
@@ -41,6 +48,7 @@ mod budget_frame;
 mod capability_artifacts;
 mod capability_broker;
 mod capability_verbs;
+mod choke_point;
 mod cli_aliases;
 mod composed_view;
 mod contract_lifecycle;
@@ -57,6 +65,7 @@ mod doctor_dsh_selection;
 mod dsh_key;
 mod dsh_sandbox_runner;
 mod effect_replay;
+mod fake_driver;
 mod folder_seats;
 mod gate_readouts;
 mod hands;
@@ -95,6 +104,7 @@ mod seat_items;
 mod seat_rows;
 mod seat_view;
 mod shelf;
+mod shell_completion;
 mod status_pages;
 mod suppressions;
 mod test_shards;

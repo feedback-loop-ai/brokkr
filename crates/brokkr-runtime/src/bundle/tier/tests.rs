@@ -5,9 +5,10 @@
 //! read only to prove it declares nothing provisional.
 
 use super::*;
-use crate::agents::LibraryError;
+use crate::agents::{LibraryError, TrustTier};
 use crate::bundle::{Bundle, Invocation, SeatBody};
 use crate::places::places_tests::clean_git_config;
+use brokkr_protocol::adapters::StrictCause;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -969,6 +970,26 @@ fn si2_refusal(workspace: &Workspace) -> String {
     }
 }
 
+/// The typed SI2 cause the survey keeps for the `work` seat of the bundle
+/// [`si2_refusal`] refused, read before the compile renders it to words
+/// (#1224): the survey records every serving's verdict past the fence.
+fn si2_cause(workspace: &Workspace) -> Option<StrictCause> {
+    use crate::capabilities::{CapabilityContext, UNMAPPED};
+    let shelves = crate::places::Shelves::default();
+    let (_, resolved) =
+        super::super::survey::composed(&workspace.path("bundle"), &shelves).unwrap();
+    let law = RealmLaw {
+        boundary: Boundary::Namespace,
+        provisional_offices: vec!["researcher".into()],
+    };
+    let context = CapabilityContext::no_grants(UNMAPPED, workspace.dir.path());
+    let roots = (workspace.path("agents"), workspace.path("adapters"));
+    let at = (roots.0.as_path(), roots.1.as_path());
+    let law = (None, None, law);
+    let survey = super::super::survey::surveyed_for_tests(&resolved, at, law, &context);
+    survey.unwrap().strict["work"][0].clone()
+}
+
 /// SI2 past the lifted fence on Linux (#1178), the one host the record
 /// measured: the example's measured cold and replacement shapes without
 /// hands admit a work seat, and each is needed; the same office boxing its
@@ -1019,6 +1040,229 @@ fn si2_refuses_a_qoder_seat_on_macos_where_nothing_is_measured() {
         "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider 'qoder' has \
          no measured strict MCP configuration for 'cold'"
     );
+}
+
+/// A workspace that loads Agy's example adapter as the guide tells an
+/// operator to copy it in (#1200), with a `researcher` office hiring
+/// `agy-neon` at `xhigh` with two grants.
+fn agy_workspace() -> Workspace {
+    let workspace = Workspace::new();
+    let adapter = "adapters/agy.json";
+    let example = shipped().join("docs/examples").join(adapter);
+    std::fs::copy(example, workspace.path(adapter)).unwrap();
+    let charter = workspace.path("agents/charters/researcher.md");
+    std::fs::write(charter, "# an agy charter\n").unwrap();
+    let office = json!({
+        "description": "an agy office", "charter": "charters/researcher.md",
+        "models": ["agy-neon"], "efforts": {"agy-neon": "xhigh"},
+        "tools": {"allow": ["git", "gh-pr-view"]},
+    });
+    let path = workspace.path("agents/researcher.json");
+    std::fs::write(path, office.to_string()).unwrap();
+    workspace
+}
+
+#[test]
+fn an_agy_seat_in_a_listed_office_launches_its_pin_effort_and_rules() {
+    let workspace = agy_workspace();
+    let compiled = workspace.compile(seat("researcher", "work"), &["researcher"]);
+    let tail = ["--allow", "command(git),command(gh pr view)"];
+    assert_agy_neon_launch(&compiled.unwrap(), &tail);
+}
+
+/// `bundle`'s one `work` seat is `agy-neon` alone, launched as the driver
+/// with its pin, its effort and `tail`.
+fn assert_agy_neon_launch(bundle: &Bundle, tail: &[&str]) {
+    assert_eq!(chain(bundle), ["agy-neon"]);
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = &bundle.seats["work"].body
+    else {
+        panic!("one agy seat");
+    };
+    let head = [
+        "driver",
+        "agy",
+        "--",
+        "--model",
+        "gemini-4-neon",
+        "--effort",
+        "xhigh",
+    ];
+    assert_eq!(candidates[0].argv[1..], [&head[..], tail].concat());
+}
+
+/// [`agy_workspace`] with its `researcher` office hiring `model` alone, at
+/// `high`, an effort all four models take.
+fn agy_office(model: &str) -> Workspace {
+    let workspace = agy_workspace();
+    let office = workspace.path("agents/researcher.json");
+    let mut hired: Value = serde_json::from_slice(&std::fs::read(&office).unwrap()).unwrap();
+    hired["models"] = json!([model]);
+    hired["efforts"] = json!({ model: "high" });
+    std::fs::write(office, hired.to_string()).unwrap();
+    workspace
+}
+
+/// Decision 0021's addendum of 2026-11-22 (#1252): every agy model is
+/// promoted, so each holds a work office the realm does not list.
+#[test]
+fn every_agy_model_holds_an_office_no_provisional_list_names() {
+    for model in ["agy-argon", "agy-carbon", "agy-hydrogen", "agy-neon"] {
+        let workspace = agy_office(model);
+        let compiled = workspace.compile(seat("researcher", "work"), &[]);
+        assert_eq!(chain(&compiled.unwrap()), [model]);
+    }
+}
+
+/// The same addendum: Neon and Carbon are agy's judges, so a gate seats
+/// either, and Hydrogen and Argon draw the refusal of a model outside
+/// `judges` (decision 0041 ruling 3), no longer the provisional one.
+#[test]
+fn an_agy_gate_seats_neon_and_carbon_and_refuses_hydrogen_and_argon_as_no_judge() {
+    for judge in ["agy-neon", "agy-carbon"] {
+        let workspace = agy_office(judge);
+        let compiled = workspace.compile(seat("researcher", "gate"), &[]);
+        assert_eq!(chain(&compiled.unwrap()), [judge]);
+    }
+    for model in ["agy-hydrogen", "agy-argon"] {
+        let workspace = agy_office(model);
+        let refused = workspace.compile(seat("researcher", "gate"), &[]);
+        let Err(CompileError::Invalid(words)) = refused else {
+            panic!("not a judges refusal: {:?}", refused.map(drop));
+        };
+        assert_eq!(
+            words,
+            format!(
+                "seat 'work' gate link 1 names model '{model}', which driver 'agy' does not \
+                 declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
+            )
+        );
+    }
+}
+
+/// Agy's example maps its four Gemini 4 models to their base slugs, each
+/// promoted, Carbon and Neon its judges, and declares hands that ride no
+/// argument (#1224): the engine HOME's document carries the server.
+#[test]
+fn the_agy_example_declares_four_promoted_models_two_judges_and_argumentless_hands() {
+    let workspace = agy_workspace();
+    let loaded = Adapters::load(&workspace.path("adapters")).unwrap();
+    let agy = loaded.adapter("agy").unwrap();
+    let slugs: Vec<(&str, &str)> = (agy.models.iter())
+        .map(|(alias, slug)| (alias.as_str(), slug.as_str()))
+        .collect();
+    let expected = [
+        ("agy-argon", "gemini-4-argon"),
+        ("agy-carbon", "gemini-4-carbon"),
+        ("agy-hydrogen", "gemini-4-hydrogen"),
+        ("agy-neon", "gemini-4-neon"),
+    ];
+    assert_eq!(slugs, expected);
+    assert!(agy.provisional.is_empty(), "{:?}", agy.provisional);
+    assert_eq!(agy.trust_tier, TrustTier::Trusted);
+    assert_eq!(agy.judges, ["agy-carbon", "agy-neon"]);
+    assert_eq!(agy.hands, Some(Vec::new()));
+    assert_eq!(agy.hands_notice, None);
+}
+
+/// `workspace`'s copy of Agy's example with the `mcp` shapes of `hands`
+/// for `missing` taken out.
+#[cfg(target_os = "linux")]
+fn agy_without_shape<'w>(workspace: &'w Workspace, missing: &str, hands: &str) -> &'w Workspace {
+    let path = workspace.path("adapters/agy.json");
+    let mut example: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let declared = example["mcp"]["shapes"].as_array_mut().unwrap();
+    declared.retain(|declared| declared["invocation"] != missing || declared["hands"] != hands);
+    std::fs::write(path, example.to_string()).unwrap();
+    workspace
+}
+
+/// SI2 past the lifted fence on Linux (#1200), the one host the record
+/// measured: the example's cold and replacement shapes without hands admit
+/// a work seat, and each is needed.
+#[cfg(target_os = "linux")]
+#[test]
+fn si2_admits_an_agy_seat_without_hands_on_its_measured_shapes() {
+    assert_eq!(chain(&si2(&agy_workspace()).unwrap()), ["agy-neon"]);
+    for missing in ["cold", "replacement"] {
+        let workspace = agy_workspace();
+        let refused = si2_refusal(agy_without_shape(&workspace, missing, "none"));
+        let cause = agy_unmeasured(missing);
+        assert_eq!(si2_cause(&workspace), Some(cause.clone()), "{missing}");
+        assert_eq!(refused, format!("{SI2_WORK_SEAT}: {cause}"));
+    }
+}
+
+/// Who an SI2 refusal of the `researcher` work seat names.
+const SI2_WORK_SEAT: &str = "bundle: seat 'work' (office 'researcher') in realm '<unmapped>'";
+
+/// The SI2 cause of agy's `shape` left unmeasured.
+fn agy_unmeasured(shape: &str) -> StrictCause {
+    StrictCause::Unmeasured {
+        provider: "agy".into(),
+        shape: shape.into(),
+    }
+}
+
+/// The operator's words for agy's unmeasured shape, pinned once for every
+/// agy SI2 test here, on both hosts.
+#[test]
+fn an_unmeasured_agy_shape_names_its_provider_and_shape() {
+    assert_eq!(
+        agy_unmeasured("cold").to_string(),
+        "provider 'agy' has no measured strict MCP configuration for 'cold'"
+    );
+}
+
+/// [`agy_workspace`] with its `researcher` office, which grants two tools,
+/// boxing its hands (#1224).
+fn boxed_agy_workspace() -> Workspace {
+    let workspace = agy_workspace();
+    let office = workspace.path("agents/researcher.json");
+    let mut hired: Value = serde_json::from_slice(&std::fs::read(&office).unwrap()).unwrap();
+    hired["hands"] = json!("workspace");
+    std::fs::write(office, hired.to_string()).unwrap();
+    workspace
+}
+
+/// B7 of #1224 on Linux, past the lifted fence: an agy seat at a site that
+/// boxes its hands compiles for a work office the realm lists, carrying its
+/// pin and effort and none of the office's grants, which brokkr driver agy
+/// would refuse beside boxed hands; the hands ride no argument.
+#[cfg(target_os = "linux")]
+#[test]
+fn si2_admits_a_boxed_agy_work_seat_in_a_listed_office() {
+    assert_agy_neon_launch(&si2(&boxed_agy_workspace()).unwrap(), &[]);
+}
+
+/// A boxed agy seat on Neon, a judge since decision 0021's addendum of
+/// 2026-11-22, holds a gate, and is refused where the adapter does not
+/// declare the boxed shape measured.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_boxed_agy_seat_holds_a_gate_and_is_refused_on_an_undeclared_shape() {
+    let workspace = boxed_agy_workspace();
+    let gate = workspace.compile(seat("researcher", "gate"), &[]);
+    assert_eq!(chain(&gate.unwrap()), ["agy-neon"]);
+    for missing in ["cold", "replacement"] {
+        let workspace = boxed_agy_workspace();
+        let refused = si2_refusal(agy_without_shape(&workspace, missing, "boxed"));
+        let cause = agy_unmeasured(missing);
+        assert_eq!(si2_cause(&workspace), Some(cause.clone()), "{missing}");
+        assert_eq!(refused, format!("{SI2_WORK_SEAT}: {cause}"));
+    }
+}
+
+/// SI2 past the lifted fence on macOS (#1200; decision 0063): the record
+/// measured Linux only, so the seat's cold shape is unmeasured there, and
+/// it is a capability refusal.
+#[cfg(target_os = "macos")]
+#[test]
+fn si2_refuses_an_agy_seat_on_macos_where_nothing_is_measured() {
+    let workspace = agy_workspace();
+    let refused = si2_refusal(&workspace);
+    let cause = agy_unmeasured("cold");
+    assert_eq!(si2_cause(&workspace), Some(cause.clone()));
+    assert_eq!(refused, format!("{SI2_WORK_SEAT}: {cause}"));
 }
 
 /// The adapter fixture as every load refusal names it.

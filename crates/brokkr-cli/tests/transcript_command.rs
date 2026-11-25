@@ -3,28 +3,23 @@
 //! and synthetic test-owned homes; no real operator session is copied.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use brokkr_core::envelope::EventType;
 use brokkr_store::Store;
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
-struct World {
-    dir: tempfile::TempDir,
-    db: PathBuf,
-    home: PathBuf,
+pub(crate) struct World {
+    pub(crate) dir: tempfile::TempDir,
+    pub(crate) db: PathBuf,
+    pub(crate) home: PathBuf,
 }
 
 impl World {
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         self.dir.path()
     }
 
-    fn projects(&self) -> PathBuf {
+    pub(crate) fn projects(&self) -> PathBuf {
         self.home.join(".claude").join("projects")
     }
 
@@ -87,15 +82,27 @@ fn record(world: &World, transcript: Value) {
         .unwrap();
 }
 
+/// `brokkr runs <args> --db <db>` in `world`: every read here is the runs family's.
 fn run(world: &World, args: &[&str]) -> std::process::Output {
-    Command::new(brokkr_bin())
-        .args(["runs"].iter().chain(args))
+    let argv = [&["runs"][..], args].concat();
+    in_world(&argv, &world.db, &world.home, world.path())
+}
+
+/// `brokkr <args> --db <db>` under `home`, from `cwd`.
+pub(crate) fn in_world(args: &[&str], db: &Path, home: &Path, cwd: &Path) -> std::process::Output {
+    crate::built::brokkr(args)
         .arg("--db")
-        .arg(&world.db)
-        .env("HOME", &world.home)
-        .current_dir(world.path())
+        .arg(db)
+        .env("HOME", home)
+        .current_dir(cwd)
         .output()
         .unwrap()
+}
+
+/// The one seat's transcript as JSON from `db`, under `home`, from `cwd`.
+pub(crate) fn seat_json(db: &Path, home: &Path, cwd: &Path) -> std::process::Output {
+    let seat = ["transcript", "--run", "r222", "--seat", "eff1", "--json"];
+    in_world(&[&["runs"][..], &seat].concat(), db, home, cwd)
 }
 
 /// A run whose effects are the given `(effect_id, seat, provider)`
@@ -221,6 +228,16 @@ fn read_document(output: &std::process::Output) -> Value {
     })
 }
 
+fn read_available_seat_transcript(world: &World, path: &str) -> Value {
+    let output = seat_json(&world.db, &world.home, world.path());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    let document = read_document(&output);
+    assert_eq!(document["unavailable"], Value::Null);
+    assert_eq!(document["path"], path);
+    document
+}
+
 /// Materialize one Claude transcript under an immediate project directory.
 fn write_claude(world: &World, id: &str, body: &str) -> String {
     let project = world.projects().join("project");
@@ -268,20 +285,9 @@ fn a_readable_claude_source_serializes_its_turns() {
     let path = write_claude(
         &world,
         "abcd-1234",
-        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hello\"},\"timestamp\":\"T\"}\n",
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hello\"},\"timestamp\":\"2026-01-01T00:00:01Z\"}\n",
     );
-    let output = run(
-        &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
-    );
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(document["unavailable"], Value::Null);
-    assert_eq!(document["path"], path);
+    let document = read_available_seat_transcript(&world, &path);
     assert_eq!(document["turns"][0]["role"], "assistant");
     assert_eq!(document["turns"][0]["blocks"][0]["text"], "hello");
     assert_eq!(
@@ -448,18 +454,7 @@ fn a_headerless_codex_rollout_is_readable() {
         json!({"kind": "codex-thread", "locator": "0199mine",
                "home": world.home.to_str().unwrap()}),
     );
-    let output = run(
-        &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
-    );
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(document["unavailable"], Value::Null);
-    assert_eq!(document["path"], path);
+    let document = read_available_seat_transcript(&world, &path);
     assert!(document["turns"].as_array().unwrap().is_empty());
     assert_eq!(
         document["full_session"],
@@ -911,12 +906,12 @@ fn a_panel_parent_has_no_reference_while_its_member_reads() {
 fn turn_selection_skips_metadata_and_selects_the_tool_result() {
     let world = world_effects(&[("eff1", "review", None)]);
     let body = concat!(
-        "{\"timestamp\":\"t0\",\"type\":\"turn_context\",\"payload\":{\"model\":\"m\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"turn_context\",\"payload\":{\"model\":\"m\"}}\n",
         "not json\n",
-        "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n",
-        "{\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"think\"}]}}\n",
-        "{\"timestamp\":\"t3\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"Read\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
-        "{\"timestamp\":\"t4\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"c1\",\"output\":\"ok\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"think\"}]}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"Read\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
+        "{\"timestamp\":\"2026-01-01T00:00:04Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"c1\",\"output\":\"ok\"}}\n",
     );
     let path = write_codex(&world, "0199mine", body);
     checkpoint(
@@ -2260,15 +2255,8 @@ fn a_missing_journal_gains_no_file() {
     let db = dir.path().join("missing").join("forge.db");
     let home = dir.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let world = World {
-        dir,
-        db: db.clone(),
-        home,
-    };
-    let output = run(
-        &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
-    );
+
+    let output = seat_json(&db, &home, dir.path());
     assert!(
         !output.status.success(),
         "a missing journal is a refusal, not an initialized store"

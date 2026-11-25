@@ -38,6 +38,12 @@ pub(crate) enum QueueCmd {
     Repin(QueueEntryArgs),
     /// Take an entry out of the queue. One that started a run cannot be.
     Drop(QueueEntryArgs),
+    /// Record that an entry's work merged, journaled with the reason (name
+    /// the pull request and its merge commit): an entry waiting on
+    /// ENTRY:merged may start from then on. Brokkr reads no code host, so this
+    /// record is the merge's one witness. Only an entry that started a run
+    /// can be recorded merged.
+    Merged(QueueEntryArgs),
 }
 
 #[derive(clap::Args)]
@@ -51,8 +57,14 @@ pub(crate) struct QueueAddArgs {
     #[arg(long, default_value_t = 0, allow_negative_numbers = true)]
     pub(crate) priority: i64,
     /// An earlier entry this one waits for, and on what: `3:completed`
-    /// (its run completed) or `3:ended` (its run ended at all).
-    /// Repeatable.
+    /// (its run completed), `3:ended` (its run ended at all), or a named
+    /// ending, as `3:shipped` (its run is over and ended so; one that
+    /// ended otherwise holds this entry). The named endings are shipped,
+    /// shipped-flagged, refused, failed, blocked, exhausted, superseded,
+    /// infrastructure, delivered-elsewhere, withdrawn and
+    /// operator-stopped. Or `3:merged` (the operator recorded its work
+    /// merged with `brokkr queue merged`; a run over with no such record
+    /// holds this entry). Repeatable.
     #[arg(long, value_name = "ENTRY:CONDITION")]
     pub(crate) after: Vec<brokkr_store::Wait>,
     /// Why, journaled with the command.

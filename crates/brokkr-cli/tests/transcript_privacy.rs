@@ -3,34 +3,15 @@
 //! retained evidence keeps its bytes, and no provider process is started.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use brokkr_core::envelope::EventType;
 use brokkr_store::Store;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::transcript_command::{in_world, seat_json, World};
+
 const SENTINEL: &str = "SENTINEL-TRANSCRIPT-PROSE-222";
-
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
-struct World {
-    dir: tempfile::TempDir,
-    db: PathBuf,
-    home: PathBuf,
-}
-
-impl World {
-    fn path(&self) -> &Path {
-        self.dir.path()
-    }
-
-    fn projects(&self) -> PathBuf {
-        self.home.join(".claude/projects")
-    }
-}
 
 fn world() -> World {
     let dir = tempfile::tempdir().unwrap();
@@ -87,7 +68,7 @@ fn write_transcript(world: &World) -> PathBuf {
          \"content\":[{{\"type\":\"text\",\"text\":\"{SENTINEL}-output\"}},\
          {{\"type\":\"thinking\",\"text\":\"{SENTINEL}-reasoning\"}},\
          {{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{{\"file_path\":\"{SENTINEL}-arg\"}}}}]}},\
-         \"timestamp\":\"T\"}}\n"
+         \"timestamp\":\"2026-01-01T00:00:01Z\"}}\n"
     );
     std::fs::write(&file, body).unwrap();
     file
@@ -127,15 +108,9 @@ fn snapshot_tree(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     out
 }
 
+/// `brokkr <args> --db <db>` in `world`, its verb spelled in full.
 fn run(world: &World, args: &[&str]) -> std::process::Output {
-    Command::new(brokkr_bin())
-        .args(args)
-        .arg("--db")
-        .arg(&world.db)
-        .env("HOME", &world.home)
-        .current_dir(world.path())
-        .output()
-        .unwrap()
+    in_world(args, &world.db, &world.home, world.path())
 }
 
 fn digest(path: &Path) -> [u8; 32] {
@@ -413,23 +388,22 @@ fn the_reader_starts_no_provider_process() {
         bin.display(),
         std::env::var("PATH").unwrap_or_default()
     );
-    let output = Command::new(brokkr_bin())
-        .args([
-            "runs",
-            "transcript",
-            "--run",
-            "r222",
-            "--seat",
-            "eff1",
-            "--json",
-        ])
-        .arg("--db")
-        .arg(&world.db)
-        .env("HOME", &world.home)
-        .env("PATH", path)
-        .current_dir(world.path())
-        .output()
-        .unwrap();
+    let output = crate::built::brokkr([
+        "runs",
+        "transcript",
+        "--run",
+        "r222",
+        "--seat",
+        "eff1",
+        "--json",
+    ])
+    .arg("--db")
+    .arg(&world.db)
+    .env("HOME", &world.home)
+    .env("PATH", path)
+    .current_dir(world.path())
+    .output()
+    .unwrap();
     assert!(output.status.success());
     assert!(!marker.exists(), "a provider process was started");
 }
@@ -481,22 +455,7 @@ fn hostile_paths_are_portable_and_retained_inert() {
     let before_journal = digest(&db);
     let before_file = digest(&file);
     let before_tree = snapshot_tree(&home);
-    let output = Command::new(brokkr_bin())
-        .args([
-            "runs",
-            "transcript",
-            "--run",
-            "r222",
-            "--seat",
-            "eff1",
-            "--json",
-        ])
-        .arg("--db")
-        .arg(&db)
-        .env("HOME", &home)
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    let output = seat_json(&db, &home, dir.path());
     assert!(
         output.status.success(),
         "{}",
@@ -573,22 +532,21 @@ fn every_hearth_and_wal_sidecar_stay_inert() {
     let before_config = digest(&config);
     let before_tree = snapshot_tree(&world.home);
 
-    let output = Command::new(brokkr_bin())
-        .args([
-            "runs",
-            "transcript",
-            "--run",
-            "r222",
-            "--seat",
-            "eff1",
-            "--json",
-        ])
-        .arg("--realms")
-        .arg(&map)
-        .env("HOME", &world.home)
-        .current_dir(world.path())
-        .output()
-        .unwrap();
+    let output = crate::built::brokkr([
+        "runs",
+        "transcript",
+        "--run",
+        "r222",
+        "--seat",
+        "eff1",
+        "--json",
+    ])
+    .arg("--realms")
+    .arg(&map)
+    .env("HOME", &world.home)
+    .current_dir(world.path())
+    .output()
+    .unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -790,9 +748,9 @@ fn growth_reads_keep_the_tree_config_and_journal_inert() {
     }
 }
 
-/// Terminal controls in prompt, tool argument and stamp survive only as
-/// JSON data; the text face and every refusal are sanitized, and the
-/// journal is untouched.
+/// The readers refuse a stamp with a terminal control. Controls in the
+/// prompt and tool argument survive only as JSON data. The text face and
+/// every refusal are sanitized, and the journal is untouched.
 #[test]
 fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
     let world = world();
@@ -826,6 +784,14 @@ fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
         rendered.contains(SENTINEL),
         "the explicit read still carries its requested prose"
     );
+    assert!(
+        rendered.lines().any(|line| line == "turn 1 · assistant ·"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("notice unrecognized transcript records: 1\n"),
+        "{rendered}"
+    );
 
     let json = run(
         &world,
@@ -841,6 +807,8 @@ fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
     );
     assert!(json.status.success());
     let document: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(document["turns"][0]["ts"], "");
+    assert_eq!(document["unrecognized_records"], 1);
     assert_eq!(
         document["turns"][0]["blocks"][0]["text"],
         format!("\u{1b}[2J{SENTINEL}-output")
@@ -952,16 +920,7 @@ fn a_read_leaves_an_existing_frame_bearing_wal_as_it_found() {
     let before_db = digest(&db);
     let before_wal = wal_digest(&db).expect("the frame-bearing -wal exists");
 
-    let read = |args: &[&str]| {
-        Command::new(brokkr_bin())
-            .args(args)
-            .arg("--db")
-            .arg(&db)
-            .env("HOME", &home)
-            .current_dir(dir.path())
-            .output()
-            .unwrap()
-    };
+    let read = |args: &[&str]| in_world(args, &db, &home, dir.path());
 
     // A successful read resolves the reference only by reading the frames.
     let success = read(&[

@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::{claude_restriction_control, last_message_door, placed, ResumeGate, ServingShape};
-use crate::hands::{Sealed, SEALED_REACH};
+use crate::hands::{serve_args_encoded, Sealed, SEALED_REACH};
 use crate::native_controls::{
     SealedAssessment, SealedBoundary, SealedBroker, SealedFence, SealedIsolation, SealedServers,
     SealedServing, Transport, ARTIFACT_ROOT, SERVING_INPUTS,
@@ -44,7 +44,9 @@ use crate::served_home::{dsh_served, DshCause, DshRefusal, DshServed, RouteRefus
 use crate::transcript::{DshHome, DshHomeError};
 
 mod admit;
+mod agy;
 mod qoder;
+pub(super) use agy::{agy_boxing, agy_set};
 pub(super) use qoder::qoder_set;
 
 /// The MCP document of the empty server set, exactly as U0 measured it
@@ -158,8 +160,15 @@ pub(super) fn unbind(builder: &mut std::process::Command) {
 }
 
 /// The engine's own executable, which a harness spawns as `brokkr hands
-/// serve`: the one place a launch reads it.
-fn engine_executable() -> PathBuf {
+/// serve`, and an agy launch's gate hook as `brokkr driver agy`: the one
+/// place a launch reads it.
+/// The engine's MCP `document` written at `path`, as the qoder launch's
+/// private file and the agy launch's HOME hold it: its one writer (#1200).
+pub(super) fn written(path: &Path, document: &Value) -> std::io::Result<()> {
+    std::fs::write(path, document.to_string())
+}
+
+pub(super) fn engine_executable() -> PathBuf {
     std::env::current_exe().unwrap_or_default()
 }
 
@@ -226,7 +235,7 @@ fn dsh_hands_at(
     let hands = hands_transport(sealed, (brokkr, workdir), input, &reach)
         .filter(|hands| hands.expand(&[]).is_some())
         .ok_or(McpRefusal::Unbindable)?;
-    let args = crate::hands::serve_args(hands.workdir, hands.artifacts, hands.sealed, hands.spec);
+    let args = serve_args_encoded(hands.workdir, hands.artifacts, hands.sealed, hands.spec);
     Ok(Some((brokkr.to_string_lossy().into_owned(), args)))
 }
 

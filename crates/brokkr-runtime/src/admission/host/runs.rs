@@ -5,7 +5,8 @@
 //! reader's, as `boxed_builds` is. Which version may write it is judged
 //! here: a v4 file that leaves it out, and a v1, v2 or v3 file that writes
 //! it, each refuse by their own line. Every v1, v2 and v3 file that leaves
-//! it out still reads, and declares no run ceiling.
+//! it out still reads, and declares no run ceiling. A `forge.host/v5`
+//! file may write it or leave it out (decision 0125 ruling 7).
 
 use std::num::NonZeroU32;
 use std::path::Path;
@@ -13,6 +14,9 @@ use std::path::Path;
 use thiserror::Error;
 
 use super::{read as read_host, Ceiling, Hosting, Schema};
+
+mod upgrade;
+pub use upgrade::{host_upgrade, CURRENT_HOST_SCHEMA};
 
 /// Why a file's run ceiling is not one the loader can obey.
 #[derive(Debug, Error)]
@@ -38,24 +42,27 @@ impl Problem {
 
 impl Schema {
     /// The version's name, as the file writes it.
-    pub(super) fn contract(self) -> &'static str {
+    pub(super) const fn contract(self) -> &'static str {
         match self {
             Schema::V1 => "forge.host/v1",
             Schema::V2 => "forge.host/v2",
             Schema::V3 => "forge.host/v3",
             Schema::V4 => "forge.host/v4",
+            Schema::V5 => "forge.host/v5",
         }
     }
 }
 
 /// The run ceiling a file of `schema` declares in `written`: v4's, which
-/// it must write, and none for an earlier version, which must not.
+/// it must write, v5's, which it may, and none for an earlier version,
+/// which must not.
 pub(super) fn read(
     schema: Schema,
     written: Option<Ceiling>,
 ) -> Result<Option<NonZeroU32>, Problem> {
     match (schema, written) {
-        (Schema::V4, Some(runs)) => Ok(Some(runs.ceiling)),
+        (Schema::V4 | Schema::V5, Some(runs)) => Ok(Some(runs.ceiling)),
+        (Schema::V5, None) => Ok(None),
         (Schema::V4, None) => Err(Problem::Missing),
         (Schema::V1 | Schema::V2 | Schema::V3, None) => Ok(None),
         (older @ (Schema::V1 | Schema::V2 | Schema::V3), Some(_)) => {
@@ -69,11 +76,24 @@ pub(super) fn read(
 /// every entry the capacity checks would judge waits as `runs_undeclared`.
 /// `None` for a file that declares one, and for one absent, unreadable or
 /// invalid, which other lines name.
-pub fn runs_undeclared(file: &Path) -> Option<&'static str> {
+pub fn runs_undeclared(file: &Path) -> Option<Undeclared> {
     match read_host(file) {
-        Ok(Hosting::Declared(config)) if config.runs.is_none() => Some(config.schema.contract()),
+        Ok(Hosting::Declared(config)) if config.runs.is_none() => Some(Undeclared {
+            version: config.schema.contract(),
+            upgradable: config.schema != Schema::V5,
+        }),
         Ok(Hosting::Declared(_) | Hosting::Absent | Hosting::Unreadable(_)) | Err(_) => None,
     }
+}
+
+/// A host file that declares no run ceiling, as [`runs_undeclared`] reads
+/// it: its version, and whether `brokkr system host upgrade` would bring
+/// it up, which is the version's to say, never a compared string (1193c's
+/// review, finding 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Undeclared {
+    pub version: &'static str,
+    pub upgradable: bool,
 }
 
 #[cfg(test)]
