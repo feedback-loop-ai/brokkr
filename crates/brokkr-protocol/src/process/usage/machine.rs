@@ -37,8 +37,13 @@ fn pressure(level: u32) -> std::io::Result<MemoryPressure> {
     }
 }
 
+/// Free, inactive and purgeable pages, in bytes. The kernel's free count
+/// already holds the speculative pages: `vm_stat` prints "Pages free" as
+/// `free_count - speculative_count`. So adding them again would count
+/// them twice, in the admitting direction, and ask A's speculative pages
+/// are counted once, inside free (1193c's review, finding 7).
 #[cfg(any(test, target_os = "macos"))]
-fn available_bytes(reclaimable: [u32; 4], page_size: u64) -> u64 {
+fn available_bytes(reclaimable: [u32; 3], page_size: u64) -> u64 {
     reclaimable.into_iter().map(u64::from).sum::<u64>() * page_size
 }
 
@@ -55,8 +60,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reclaimable_pages_include_all_four_kernel_counts() {
-        assert_eq!(available_bytes([3, 5, 7, 11], 16_384), 425_984);
+    fn reclaimable_pages_are_free_inactive_and_purgeable_with_speculative_inside_free() {
+        assert_eq!(available_bytes([3, 5, 7], 16_384), 245_760);
     }
 
     #[test]

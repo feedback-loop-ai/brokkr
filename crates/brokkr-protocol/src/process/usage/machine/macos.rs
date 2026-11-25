@@ -93,12 +93,8 @@ pub fn memory() -> io::Result<Memory> {
     // SAFETY: The successful call initialized the prefix through
     // speculative_count. The struct was zeroed and all its fields are integers.
     let vm = unsafe { vm.assume_init() };
-    let reclaimable = [
-        vm.free_count,
-        vm.inactive_count,
-        vm.purgeable_count,
-        vm.speculative_count,
-    ];
+    // free_count already holds speculative_count (see `available_bytes`).
+    let reclaimable = [vm.free_count, vm.inactive_count, vm.purgeable_count];
     Ok(Memory {
         available_bytes: available_bytes(reclaimable, rustix::param::page_size() as u64),
         total_bytes: u64::from_ne_bytes(sysctl(c"hw.memsize")?),
