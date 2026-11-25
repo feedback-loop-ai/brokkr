@@ -40,18 +40,22 @@ struct Realm {
 
 /// How a realm's grant of one capability was read, each grant validated
 /// ALONE (SC5): the realm declares no grant of it, its grant did not
-/// validate, or its grant binds one provider's native adapter key.
+/// validate, or its grant names native bindings by provider.
 enum Binding<'a> {
     /// No grant of the capability was read: the realm declares none.
     Unread,
     /// The realm's grant of it did not validate; its failing line is above.
     Failed,
-    /// The grant, bound to the native `(provider, key)` it names.
-    Native {
+    /// The validated grant and its native adapter keys, if any.
+    Read {
         grant: &'a CapabilityGrant,
-        provider: String,
-        key: String,
+        native: BTreeMap<String, NativeBinding>,
     },
+}
+
+struct NativeBinding {
+    key: String,
+    dialect: String,
 }
 
 /// What one realm's native lines are read under: the realm's line prefix,
@@ -364,13 +368,26 @@ fn report_realm(
             root: root.to_path_buf(),
         };
         let alone = Authority::load(context.clone());
-        let binding = match report_grant(report, &what, (capability, grant), &alone, known, &plan) {
-            Some((provider, key)) => Binding::Native {
-                grant,
-                provider,
-                key,
-            },
-            None => Binding::Failed,
+        let binding = match &grant.dialect {
+            GrantDialect::Single(dialect) => {
+                match report_grant(report, &what, (capability, grant), &alone, known, &plan) {
+                    Some((provider, key)) => Binding::Read {
+                        grant,
+                        native: [(
+                            provider,
+                            NativeBinding {
+                                key,
+                                dialect: dialect.clone(),
+                            },
+                        )]
+                        .into(),
+                    },
+                    None => Binding::Failed,
+                }
+            }
+            GrantDialect::PerProvider(dialects) => {
+                report_provider_grant(report, &what, (capability, grant), dialects, &alone)
+            }
         };
         read.insert(capability.as_str(), binding);
         let surveyed = Authority::survey(context);
@@ -467,43 +484,41 @@ fn report_native(
         // A seat that holds it: the plan of a seat the grant
         // reaches that wants it, submitted whole — held with
         // every other power OFF, dropped, or refused.
-        Binding::Native {
-            grant,
-            provider: bound,
-            key: bound_key,
-        } if bound == provider && bound_key == key => {
-            let dialect = match &grant.dialect {
-                GrantDialect::Single(name) => name.as_str(),
-                GrantDialect::PerProvider(names) => names.get(provider).map_or("", String::as_str),
-            };
-            let office = grant_office(grant);
-            let (wanting, on) = wanted(realm.plan, adapter, &office, capability);
-            let detail = safe(&format!(
-                "granted to {} through dialect '{dialect}'; the adapter-level plan of a \
-                 seat of office '{office}' that wants it {wanting}; for a seat that \
-                 does not hold it, {off} · {evidence}",
-                scope_words(grant),
-            ));
-            match on && admitted {
-                true => report.ok(&line, detail),
-                false => report.warn(&line, detail),
+        Binding::Read { grant, native } => {
+            if let Some(bound) = native.get(provider).filter(|bound| bound.key == *key) {
+                let office = grant_office(grant);
+                let (wanting, on) = wanted(realm.plan, adapter, &office, capability);
+                let detail = safe(&format!(
+                    "granted to {} through dialect '{}'; the adapter-level plan of a \
+                     seat of office '{office}' that wants it {wanting}; for a seat that \
+                     does not hold it, {off} · {evidence}",
+                    scope_words(grant),
+                    bound.dialect,
+                ));
+                match on && admitted {
+                    true => report.ok(&line, detail),
+                    false => report.warn(&line, detail),
+                }
+                return;
             }
         }
         // The realm DECLARES a grant of this name and doctor
         // could not read it: neither half may be asserted.
-        Binding::Failed => report.warn(
-            &line,
-            format!(
-                "UNKNOWN here: this realm's grant of '{capability}' did not \
-                 validate (its failing line is above), so neither a grant nor a \
-                 denial is claimed, and no seat compiles in this realm until it is \
-                 repaired · {evidence}"
-            ),
-        ),
-        Binding::Unread | Binding::Native { .. } => {
-            report.warn(&line, format!("NOT granted here: {off} · {evidence}"))
+        Binding::Failed => {
+            report.warn(
+                &line,
+                format!(
+                    "UNKNOWN here: this realm's grant of '{capability}' did not \
+                     validate (its failing line is above), so neither a grant nor a \
+                     denial is claimed, and no seat compiles in this realm until it is \
+                     repaired · {evidence}"
+                ),
+            );
+            return;
         }
+        Binding::Unread => {}
     }
+    report.warn(&line, format!("NOT granted here: {off} · {evidence}"));
 }
 
 /// What the adapter-level plan of a seat of `office` that wants
@@ -532,6 +547,46 @@ fn wants(capability: &str) -> Requests {
 fn grant_office(grant: &CapabilityGrant) -> String {
     let first = grant.offices.as_deref().and_then(<[String]>::first);
     first.map_or(ADAPTER_SEAT, String::as_str).to_string()
+}
+
+/// One per-provider grant's line and its native bindings from the same authority.
+fn report_provider_grant<'a>(
+    report: &mut Report,
+    what: &str,
+    (capability, grant): (&str, &'a CapabilityGrant),
+    dialects: &BTreeMap<String, String>,
+    alone: &Result<Authority, String>,
+) -> Binding<'a> {
+    let line = format!("{what} '{capability}'");
+    let names = dialects
+        .iter()
+        .map(|(provider, dialect)| format!("provider '{provider}' through dialect '{dialect}'"))
+        .collect::<Vec<_>>();
+    let detail = format!("{} · {}", names.join(", "), scope_words(grant));
+    let authority = match alone {
+        Ok(authority) => authority,
+        Err(problem) => {
+            report.missing(
+                &line,
+                format!("{} · {}", safe(&detail), bounded_line(problem)),
+            );
+            return Binding::Failed;
+        }
+    };
+    report.ok(&line, safe(&detail));
+    let native = authority
+        .provider_native_bindings(capability)
+        .map(|bound| {
+            (
+                bound.provider.into(),
+                NativeBinding {
+                    key: bound.adapter_key.into(),
+                    dialect: bound.dialect.name.clone(),
+                },
+            )
+        })
+        .collect();
+    Binding::Read { grant, native }
 }
 
 /// One grant's line, from its authority loaded ALONE and read through its

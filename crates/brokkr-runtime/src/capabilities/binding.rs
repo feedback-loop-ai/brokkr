@@ -572,7 +572,7 @@ impl Authority {
             })
     }
 
-    /// The native binding of a granted capability — what `brokkr doctor`
+    /// The native binding of a single-dialect grant — what `brokkr doctor`
     /// compares an installed harness's native declarations against — or
     /// the typed reason it has none. A same-name grant bound to another
     /// provider covers nothing of this one's.
@@ -584,5 +584,26 @@ impl Authority {
             provider,
             adapter_key,
         })
+    }
+
+    /// The native bindings a per-provider grant names, for the doctor's
+    /// comparison with each installed adapter. MCP bindings carry no native power.
+    pub fn provider_native_bindings<'a>(
+        &'a self,
+        capability: &'a str,
+    ) -> impl Iterator<Item = Native<'a>> {
+        self.provider_dialects
+            .get(capability)
+            .into_iter()
+            .flat_map(|dialects| dialects.values())
+            .filter_map(move |dialect| {
+                let (provider, adapter_key) =
+                    native(&self.context.realm, capability, dialect).ok()?;
+                Some(Native {
+                    dialect,
+                    provider,
+                    adapter_key,
+                })
+            })
     }
 }
