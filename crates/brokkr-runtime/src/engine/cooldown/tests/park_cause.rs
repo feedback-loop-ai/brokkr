@@ -8,6 +8,25 @@ use brokkr_core::{ParkCause, ProviderLimitRefusal};
 use super::park_cause_of as cause_of;
 use super::*;
 
+#[test]
+fn a_round_with_no_end_names_where_its_length_stands_against_the_maximum() {
+    for (seconds, side) in [(2, "within"), (3, "past")] {
+        let error = super::super::CooldownError::RoundNoEnd {
+            provider: "claude".into(),
+            route: "first".into(),
+            seconds,
+            max_seconds: 2,
+        };
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "the cool-down probe for claude/first was refused again with a wait of {seconds}s, \
+                 {side} the declared 2s maximum, whose end the journal cannot spell"
+            )
+        );
+    }
+}
+
 /// A probe that spawned a process and ended with no answer may have run, so
 /// a budget retry as a new effect would evade the original wait and probe:
 /// the cause is `infrastructure`, never retryable (rulings 1 and 4). Before
