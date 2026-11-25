@@ -68,6 +68,11 @@ pub(in crate::engine) struct Charge {
 }
 
 impl Charge {
+    /// Charge an interval outside the episode's recorded waits.
+    pub(super) fn to_uncovered(self, now: OffsetDateTime) -> Charge {
+        self.to(self.last.unwrap_or(now), now)
+    }
+
     /// This charge carried to the sample `now`: the time from its last
     /// sample to `now` that lies past what the episode already counts
     /// (`counted`, the latest end of its own rows) is added, and `now` is

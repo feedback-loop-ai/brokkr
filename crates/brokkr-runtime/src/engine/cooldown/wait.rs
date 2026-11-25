@@ -7,7 +7,7 @@
 use brokkr_core::fold::{fold, Cursor, Run, RunState};
 use brokkr_core::park::{Park, ParkCause, ProviderLimitRefusal};
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
-use brokkr_store::{CooldownAggregate, CooldownRound, RoundAppend};
+use brokkr_store::{CooldownRound, RoundAppend};
 use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::held::{bound, judged_episode, Bound, SiteMax};
@@ -21,6 +21,9 @@ use charge::{beyond_the_record, whole};
 pub(super) use charge::{Charge, Span, WaitBudget};
 
 mod charge;
+mod fenced;
+pub(crate) use fenced::FencedCharges;
+use fenced::WaitEnds;
 
 impl Engine {
     /// Wait the recorded remainder in bounded slices, honouring an operator
@@ -251,7 +254,7 @@ impl Engine {
             return Ok(WaitRound::Stopped);
         }
         let mut now = self.now();
-        let mut end = match self.cool_down_end(waits, now) {
+        let mut ends = match self.cool_down_ends(waits, now) {
             Ok(end) => end,
             Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
         };
@@ -259,11 +262,16 @@ impl Engine {
             // The maximum is judged before every wait this round takes,
             // including a re-wait to an end another run moved during the
             // slices.
-            let span = Span { end, counted, now };
-            let budget = match self.extension_park_reason(events, effect_id, waits, span, *charge) {
-                Ok(budget) => budget,
-                Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
+            let span = Span {
+                end: ends.recorded,
+                counted,
+                now,
             };
+            let (end, budget) =
+                match self.judge_wait(events, effect_id, waits, span, &ends, *charge) {
+                    Ok(judged) => judged,
+                    Err(park) => return Ok(WaitRound::Parked(*park)),
+                };
             *charge = budget.charged;
             *maxima = budget.maxima;
             if self.wait_in_slices(end)? {
@@ -273,17 +281,40 @@ impl Engine {
             // probe: a row recorded during the slices can hold every
             // cooled site past the end sampled before them.
             now = self.now();
-            end = match self.cool_down_end(waits, now) {
+            ends = match self.cool_down_ends(waits, now) {
                 Ok(end) => end,
                 Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
             };
-            if end <= now {
+            if ends.clear_at(now) {
                 break;
             }
         }
         // The sample that found the end passed charges the last wait's
         // time, which the round's judge then counts; it judges nothing.
+        self.cooldown.fenced_charge.sample(now);
         Ok(self.finish_wait(events, effect_id, waits, (counted, now), charge))
+    }
+
+    /// Judge recorded waits and additional retry routes independently. When
+    /// only an additional route holds the retry, suspend the recorded wait's
+    /// charge until the next sample.
+    fn judge_wait(
+        &mut self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        waits: &[ProviderWait],
+        span: Span,
+        ends: &WaitEnds,
+        charge: Charge,
+    ) -> Result<(OffsetDateTime, WaitBudget), Box<Park>> {
+        let end = self.fenced_wait_end(ends, span.now)?;
+        let mut budget = self
+            .extension_park_reason(events, effect_id, waits, span, charge)
+            .map_err(|error| Box::new(park_of(&error)))?;
+        if end > span.now && ends.recorded <= span.now {
+            budget.charged.last = None;
+        }
+        Ok((end, budget))
     }
 
     /// Does any cooled site still stand in an aggregate at `now`, a row or
@@ -314,8 +345,8 @@ impl Engine {
                 return Ok(ProbeRound::Stopped);
             }
             let now = self.now();
-            match self.cool_down_end(waits, now) {
-                Ok(end) if end <= now => {}
+            match self.cool_down_ends(waits, now) {
+                Ok(ends) if ends.clear_at(now) => {}
                 Ok(_) => return Ok(ProbeRound::Held),
                 Err(error) => return Ok(ProbeRound::Parked(park_of(&error))),
             }
@@ -483,78 +514,6 @@ impl Engine {
                 source: Box::new(source),
             }),
         }
-    }
-
-    /// The wait's end at `now`: the latest of every recorded wait's own
-    /// `until` and the store's aggregate for its provider and route. A
-    /// standing probe hold has no end a clock reaches, and its stored end is
-    /// a readout, so its route is held one slice past `now` and read again
-    /// then, each slice waited counted as the episode's: it never reads open
-    /// at `now`, whatever its stored end (fix round 0106b1r13, H1). An
-    /// ordinary row beside the hold keeps its own end, so a longer one is
-    /// waited and judged to that end; a slice the clock cannot name past
-    /// `now` refuses ([`CooldownError::HeldPastTheClock`]), never wraps
-    /// (fix round 0106b1r14, M1). A store refusal parks by its own words,
-    /// never as an absent aggregate (decision 0103 ruling 2(a)); a version
-    /// 1, 2 or 3 journal answers none, so the event's own `until` stands.
-    pub(super) fn cool_down_end(
-        &self,
-        waits: &[ProviderWait],
-        now: OffsetDateTime,
-    ) -> Result<OffsetDateTime, CooldownError> {
-        let mut end = waits
-            .iter()
-            .map(|wait| wait.until)
-            .max()
-            .expect("a wait to take");
-        for ((provider, route), aggregate) in self.cool_down_aggregates(waits, now)? {
-            if aggregate.probe().is_some() {
-                let held = slice_past(now).ok_or_else(|| CooldownError::HeldPastTheClock {
-                    provider: provider.to_string(),
-                    route: route.to_string(),
-                })?;
-                end = end.max(held);
-            }
-            if let Some(ordinary) = aggregate.ordinary() {
-                end = end.max(ordinary.until);
-            }
-        }
-        Ok(end)
-    }
-
-    /// Every aggregate the cooled sites stand at, at `now`, through the
-    /// gates' own in-force read: every unexpired row and every standing
-    /// probe hold, another run's or an earlier drive's of this run alike.
-    /// The routes a refused start of this effect found held are read with
-    /// the waits' own, so the wait waits on them too, charged as any other
-    /// (fix round 0106b1r15, R1). This drive's own probe never stands while
-    /// its wait reads: its answer or settled end ends its hold, its renewed
-    /// round's commit ends it, and any other end parks. A store refusal
-    /// gives the park reason.
-    fn cool_down_aggregates<'w>(
-        &'w self,
-        waits: &'w [ProviderWait],
-        now: OffsetDateTime,
-    ) -> Result<Vec<(Route<'w>, CooldownAggregate)>, CooldownError> {
-        let waited = (waits.iter()).map(|wait| (wait.provider.as_str(), wait.route.as_str()));
-        let fenced = (self.cooldown.fenced.iter()).map(|(p, r)| (p.as_str(), r.as_str()));
-        let mut aggregates = Vec::new();
-        for (provider, route) in waited.chain(fenced) {
-            #[cfg(test)]
-            super::tests::held_start::before_route(provider, route);
-            match self.store.cooldown(provider, route, now) {
-                Ok(Some(aggregate)) => aggregates.push(((provider, route), aggregate)),
-                Ok(None) => {}
-                Err(source) => {
-                    return Err(CooldownError::AggregateUnreadable {
-                        provider: provider.to_string(),
-                        route: route.to_string(),
-                        source: Box::new(source),
-                    })
-                }
-            }
-        }
-        Ok(aggregates)
     }
 
     /// The bounds and episode the resume reads before it sleeps: the reason
@@ -748,16 +707,6 @@ enum ProbeRound {
     Held,
     Stopped,
     Parked(Park),
-}
-
-/// A provider and route a wait reads.
-type Route<'a> = (&'a str, &'a str);
-
-/// The instant one [`SLICE`] past `now`, where the clock can name it.
-fn slice_past(now: OffsetDateTime) -> Option<OffsetDateTime> {
-    TimeDuration::try_from(SLICE)
-        .ok()
-        .and_then(|slice| now.checked_add(slice))
 }
 
 /// Did the store not take a probe's judged round: no table this binary may

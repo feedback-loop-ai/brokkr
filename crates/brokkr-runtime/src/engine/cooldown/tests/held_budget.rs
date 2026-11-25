@@ -126,7 +126,7 @@ fn a_hold_read_at_the_clocks_last_instant_refuses_its_next_slice() {
         held: None,
     };
     let last = time::PrimitiveDateTime::MAX.assume_utc();
-    let refused = engine.cool_down_end(&[wait], last).unwrap_err();
+    let refused = engine.cool_down_ends(&[wait], last).unwrap_err();
     assert!(
         matches!(&refused, CooldownError::HeldPastTheClock { provider, route }
             if provider == "claude" && route == "first"),

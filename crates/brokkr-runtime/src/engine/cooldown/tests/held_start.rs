@@ -32,7 +32,7 @@ pub(in crate::engine::cooldown) fn before_route(provider: &str, route: &str) {
 }
 
 /// Set, or with `None` lift, this thread's act before each route's read.
-fn before_route_here(act: Option<Act>) {
+pub(super) fn before_route_here(act: Option<Act>) {
     BEFORE_ROUTE.with(|before| *before.borrow_mut() = act);
 }
 

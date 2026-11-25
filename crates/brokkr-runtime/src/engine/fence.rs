@@ -137,6 +137,7 @@ impl Engine {
                 #[cfg(test)]
                 tests::after_start();
                 self.cooldown.fenced.clear();
+                self.cooldown.fenced_charge = Default::default();
                 Ok(true)
             }
             Err(EngineError::Store(StoreError::Queue(QueueRefusal::StartHeld(_)))) => {

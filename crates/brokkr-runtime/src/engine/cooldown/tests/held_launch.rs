@@ -5,14 +5,16 @@
 //! its route keeps the retry waiting. A retry whose start was admitted
 //! before a hold existed launches.
 
+use brokkr_core::park::{ParkCause, ProviderLimitRefusal};
 use brokkr_store::{ProbeHoldId, Store};
 use time::Duration as TimeDuration;
 
 use super::held_charge::{hold_route, sleeping};
-use super::held_start::retried_panel_engine;
+use super::held_start::{before_route_here, retried_panel_engine};
 use super::panel::{
-    b_only_panel, plain_engine, shared_log, two_candidate_panel, two_route_drivers,
+    b_only_panel, plain_engine, route_host, shared_log, two_candidate_panel, two_route_drivers,
 };
+use super::probe_rounds::{append_second_row_on, second_run};
 use super::*;
 use crate::bundle::{McpIntent, SeatClass, SiteFacts};
 use crate::capabilities::manifest::{ModelPins, Served};
@@ -144,6 +146,135 @@ fn mixed_panel_retry_waits_for_the_peer(inline: bool) {
     assert_eq!(
         logs(dir.path(), "b"),
         ["attempt:refuse", "probe", "probe", "attempt:succeed"]
+    );
+}
+
+/// Put a peer's ordinary row on the successful member's route after the
+/// refused member's probe, just before the retry's admission.
+fn with_peer_row_on_a(
+    dir: &Path,
+    (a_max, b_max): (u64, u64),
+    also_held: bool,
+    after_append: impl FnOnce() + 'static,
+) -> (Engine, Arc<Mutex<OffsetDateTime>>, OffsetDateTime) {
+    let (mut engine, now) = mixed_panel(dir, false);
+    engine.cooldown.host = Some(route_host(dir, (1, a_max), (1, b_max)));
+    let peer = second_run(dir);
+    let journal = engine.store.path().to_path_buf();
+    // The initial refusal waits one second before its probe.
+    let held_at = *now.lock().unwrap() + TimeDuration::seconds(1);
+    let until = held_at + TimeDuration::seconds(6);
+    before_the_retry_start(Box::new(move || {
+        if also_held {
+            hold_route(&journal, (&peer, "peer-on-a"), ROUTES[0], held_at);
+        }
+        append_second_row_on(&journal, &peer, ROUTES[0].0, ROUTES[0].1, until);
+        after_append();
+    }));
+    (engine, now, until)
+}
+
+#[test]
+fn a_mixed_panels_retry_parks_on_the_route_whose_ordinary_row_exceeds_its_maximum() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, now, until) = with_peer_row_on_a(dir.path(), (4, 10), true, || {});
+    engine.drive().unwrap();
+    assert_eq!(*now.lock().unwrap(), until - TimeDuration::seconds(6));
+    assert_eq!(
+        park_cause_of(&engine),
+        ParkCause::refusal(
+            "claude",
+            ProviderLimitRefusal::PastMaximum {
+                route: "first".into(),
+                until,
+                seconds: 6,
+                max_seconds: 4,
+            },
+        )
+    );
+    assert_eq!(
+        park_reason(&engine),
+        "cool-down for claude/first would wait 6s, past the declared 4s maximum: run-b refused"
+    );
+    assert_eq!(logs(dir.path(), "a"), ["attempt:succeed"]);
+    assert_eq!(logs(dir.path(), "b"), ["attempt:refuse", "probe"]);
+}
+
+#[test]
+fn a_mixed_panels_retry_waits_under_the_fenced_routes_own_maximum() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, now, until) = with_peer_row_on_a(dir.path(), (10, 4), false, || {});
+    engine.drive().unwrap();
+    assert_eq!(*now.lock().unwrap(), until);
+    assert_eq!(
+        logs(dir.path(), "a"),
+        ["attempt:succeed", "attempt:succeed"]
+    );
+    assert_eq!(
+        logs(dir.path(), "b"),
+        ["attempt:refuse", "probe", "probe", "attempt:succeed"]
+    );
+}
+
+#[test]
+fn a_mixed_panels_retry_charges_a_standing_hold_to_its_own_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, now) = mixed_panel(dir.path(), false);
+    engine.cooldown.host = Some(route_host(dir.path(), (1, 3), (1, 10)));
+    let (journal, run) = (engine.store.path().to_path_buf(), second_run(dir.path()));
+    let start = *now.lock().unwrap();
+    let held_at = start + TimeDuration::seconds(1);
+    let read = Arc::clone(&now);
+    before_the_retry_start(Box::new(move || {
+        hold_route(&journal, (&run, "peer-on-a"), ROUTES[0], held_at);
+        let until = held_at + TimeDuration::seconds(1);
+        append_second_row_on(&journal, &run, ROUTES[0].0, ROUTES[0].1, until);
+        // The ordinary row ends before the probe hold's next poll.
+        *read.lock().unwrap() += TimeDuration::milliseconds(500);
+    }));
+    engine.drive().unwrap();
+    assert_eq!(
+        *now.lock().unwrap(),
+        held_at + TimeDuration::milliseconds(3500)
+    );
+    assert_eq!(
+        park_cause_of(&engine),
+        ParkCause::refusal(
+            "claude",
+            ProviderLimitRefusal::PastMaximum {
+                route: "first".into(),
+                until: held_at + TimeDuration::seconds(61),
+                seconds: 4,
+                max_seconds: 3,
+            },
+        )
+    );
+    assert_eq!(logs(dir.path(), "a"), ["attempt:succeed"]);
+}
+
+#[test]
+fn a_mixed_panels_retry_names_the_fenced_route_when_its_bounds_stop_reading() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = dir.path().join("panel-host.json");
+    let corrupt_after_resume = move || {
+        before_route_here(Some(Box::new(move |provider, route| {
+            if (provider, route) == ROUTES[0] {
+                std::fs::write(&host, "{").unwrap();
+            }
+        })));
+    };
+    let (mut engine, _, _) = with_peer_row_on_a(dir.path(), (10, 4), false, corrupt_after_resume);
+    let driven = engine.drive();
+    before_route_here(None);
+    driven.unwrap();
+    assert_eq!(
+        park_cause_of(&engine),
+        ParkCause::refusal(
+            "claude",
+            ProviderLimitRefusal::HostUnreadable {
+                route: "first".into()
+            },
+        )
     );
 }
 

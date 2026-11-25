@@ -83,6 +83,7 @@ pub(crate) struct Seam {
     /// wait reads with its own (fix round 0106b1r15, R1).
     pub(crate) refused: Vec<(String, String)>,
     pub(crate) fenced: Vec<(String, String)>,
+    pub(crate) fenced_charge: wait::FencedCharges,
 }
 
 impl Default for Seam {
@@ -97,6 +98,7 @@ impl Default for Seam {
             charged: None,
             refused: Vec::new(),
             fenced: Vec::new(),
+            fenced_charge: wait::FencedCharges::default(),
         }
     }
 }
