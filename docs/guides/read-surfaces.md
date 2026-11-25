@@ -432,6 +432,10 @@ machine no run ceiling need be declared. `forge.host/v5` makes `runs` and
 declare a recipe's demand. `queue list --json` carries each sized entry's
 `demand`, and names each journal of the map it cannot read. A machine whose
 availability cannot be measured judges as above, unchanged.
+`brokkr system host upgrade` moves an older host file to `forge.host/v5`
+by its schema token alone, keeping every other byte, and `--check` prints
+the diff and fails where an upgrade is due. `brokkr init` writes a v5 file
+with placeholder ceilings only where the machine has none.
 
 A seat on `spark-glm` is judged by that route's ceiling in place of
 `dsh`'s, because the hardware, not the account, is the limit; a `cloud`
