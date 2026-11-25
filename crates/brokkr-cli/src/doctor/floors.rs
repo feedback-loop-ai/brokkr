@@ -13,7 +13,7 @@ use std::path::Path;
 
 use brokkr_runtime::admission::{
     declared_routes, host_file, measurable, runs_undeclared, HostRoutes, RouteClass, RouteDecl,
-    Unmeasured, CURRENT_HOST_SCHEMA,
+    Undeclared, Unmeasured,
 };
 use brokkr_runtime::agents::EgressClass;
 use brokkr_runtime::Adapters;
@@ -60,7 +60,7 @@ pub(super) fn report_from(
 /// ceiling the warning it has been. Neither refuses.
 fn runs(report: &mut Report, file: &Path, measured: Result<(), Unmeasured>) {
     let shown = safe(&file.display().to_string());
-    let undeclared = runs_undeclared(file).map(|version| (version, upgrade_hint(version)));
+    let undeclared = runs_undeclared(file).map(|found| (found.version, upgrade_hint(found)));
     match measured {
         Ok(()) => {
             if let Some((version, upgrade)) = undeclared {
@@ -97,11 +97,10 @@ fn runs(report: &mut Report, file: &Path, measured: Result<(), Unmeasured>) {
     }
 }
 
-fn upgrade_hint(version: &str) -> String {
-    if version == CURRENT_HOST_SCHEMA {
-        String::new()
-    } else {
-        format!("; run `{UPGRADE_COMMAND}` to upgrade the host file")
+fn upgrade_hint(found: Undeclared) -> String {
+    match found.upgradable {
+        true => format!("; run `{UPGRADE_COMMAND}` to upgrade the host file"),
+        false => String::new(),
     }
 }
 
