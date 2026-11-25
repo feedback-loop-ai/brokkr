@@ -276,4 +276,14 @@ fn system_host_upgrade_checks_writes_and_then_reads_current() {
     assert_eq!(code, Some(0), "{stderr}");
     let current = format!("{} is current (forge.host/v5)\n", host.display());
     assert_eq!(stdout, current);
+
+    // With no absolute HOME or XDG_CONFIG_HOME, there is no host file to name.
+    let (code, _, stderr) = brokkr_with(&["system", "host", "upgrade"], aside.path(), |command| {
+        command.env("HOME", "relative-home");
+    });
+    assert_ne!(code, Some(0), "{stderr}");
+    assert!(
+        stderr.contains("no host configuration can be found"),
+        "{stderr}"
+    );
 }
