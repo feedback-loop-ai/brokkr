@@ -3,14 +3,45 @@
 //! baseline, when both verbs gained the reach sealed at admission
 //! (decision 0065 slice two, U8a2c).
 
+use std::fmt;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use brokkr_protocol::broker::Refusal;
-use brokkr_protocol::hands::{self, Sealed, Session, SessionError};
+use brokkr_protocol::hands::{
+    self, Base64UrlError, BindRefusal, HandsSpec, Sealed, Session, SessionError, SpecRefusal,
+    REACH_BASE64URL_OPTION, REACH_OPTION, SPEC_BASE64URL_OPTION, SPEC_OPTION,
+};
+use clap::builder::ArgPredicate;
 use clap::Subcommand;
 
 use crate::Exit;
+
+const DEFAULT_SPEC: &str = "\"workspace\"";
+
+fn reach_help() -> String {
+    format!(
+        "The reach sealed at admission as JSON, which every box is built from (U8a2c). Pass either `--{REACH_OPTION}` or `--{REACH_BASE64URL_OPTION}`"
+    )
+}
+
+fn reach_base64url_help() -> String {
+    format!(
+        "The reach sealed at admission as unpadded base64url of its JSON bytes. Pass either `--{REACH_OPTION}` or `--{REACH_BASE64URL_OPTION}`"
+    )
+}
+
+fn spec_help() -> String {
+    format!(
+        "The box spec as JSON: {{\"kind\":\"workspace\",\"network\":…,\"binds\":[…]}}. Pass either `--{SPEC_OPTION}` or `--{SPEC_BASE64URL_OPTION}`; omitting both uses `{DEFAULT_SPEC}`"
+    )
+}
+
+fn spec_base64url_help() -> String {
+    format!(
+        "The box spec as unpadded base64url of its JSON bytes. Pass either `--{SPEC_OPTION}` or `--{SPEC_BASE64URL_OPTION}`"
+    )
+}
 
 #[derive(Subcommand, Debug)]
 pub enum HandsCommand {
@@ -23,13 +54,31 @@ pub enum HandsCommand {
         /// The engine's artifact root, which the box never writes (U8a).
         #[arg(long)]
         artifacts: PathBuf,
-        /// The reach sealed at admission as JSON, which every box is built
-        /// from (U8a2c).
-        #[arg(long)]
-        reach: String,
-        /// The box spec as JSON: {"kind":"workspace","network":…,"binds":[…]}.
-        #[arg(long, default_value = "\"workspace\"")]
-        spec: String,
+        #[arg(
+            long = REACH_OPTION,
+            required_unless_present = "reach_base64url",
+            help = reach_help()
+        )]
+        reach: Option<String>,
+        #[arg(
+            long = REACH_BASE64URL_OPTION,
+            allow_hyphen_values = true,
+            help = reach_base64url_help()
+        )]
+        reach_base64url: Option<String>,
+        #[arg(
+            long = SPEC_OPTION,
+            default_value = DEFAULT_SPEC,
+            default_value_if("spec_base64url", ArgPredicate::IsPresent, None),
+            help = spec_help()
+        )]
+        spec: Option<String>,
+        #[arg(
+            long = SPEC_BASE64URL_OPTION,
+            allow_hyphen_values = true,
+            help = spec_base64url_help()
+        )]
+        spec_base64url: Option<String>,
     },
     /// Run one command whole inside the box with stdio passed through —
     /// how a deterministic `exec` seat holds a gate. Exits with the
@@ -42,13 +91,13 @@ pub enum HandsCommand {
         #[arg(long)]
         artifacts: PathBuf,
         /// The reach sealed at admission, as `serve` takes it.
-        #[arg(long)]
+        #[arg(long = REACH_OPTION)]
         reach: String,
         /// Strategy root, bound read-only at /runtime/bundle.
         #[arg(long)]
         bundle_root: Option<PathBuf>,
         /// The box spec as JSON, as `serve` takes it.
-        #[arg(long, default_value = "\"workspace\"")]
+        #[arg(long = SPEC_OPTION, default_value = DEFAULT_SPEC)]
         spec: String,
         /// The command and its arguments, run inside the box.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
@@ -56,15 +105,470 @@ pub enum HandsCommand {
     },
 }
 
+/// Payload-free variant of [`BindRefusal`]: holds no key or path taken from a
+/// decoded `--spec-base64url` document in either `Display` or `Debug` (#1277).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BindRefusalKind {
+    NotObject,
+    UnknownKey,
+    NoPath,
+    Mode,
+    MaskNotArray,
+    MaskName,
+}
+
+impl From<BindRefusal> for BindRefusalKind {
+    fn from(refusal: BindRefusal) -> Self {
+        match refusal {
+            BindRefusal::NotObject => Self::NotObject,
+            BindRefusal::UnknownKey { .. } => Self::UnknownKey,
+            BindRefusal::NoPath => Self::NoPath,
+            BindRefusal::Mode { .. } => Self::Mode,
+            BindRefusal::MaskNotArray { .. } => Self::MaskNotArray,
+            BindRefusal::MaskName { .. } => Self::MaskName,
+        }
+    }
+}
+
+impl fmt::Display for BindRefusalKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::NotObject => "Bind::NotObject",
+            Self::UnknownKey => "Bind::UnknownKey",
+            Self::NoPath => "Bind::NoPath",
+            Self::Mode => "Bind::Mode",
+            Self::MaskNotArray => "Bind::MaskNotArray",
+            Self::MaskName => "Bind::MaskName",
+        })
+    }
+}
+
+/// Payload-free variant of [`SpecRefusal`] carried by
+/// [`DocumentError::EncodedSpec`]: drops every field name, value and fragment
+/// taken from a decoded `--spec-base64url` document so neither `Display` nor
+/// `Debug` retains decoded text (#1277).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SpecRefusalKind {
+    UnknownKind,
+    NotKindOrObject,
+    Boundary,
+    UnknownKey,
+    Kind,
+    Network,
+    BindsNotArray,
+    Bind(BindRefusalKind),
+}
+
+impl From<SpecRefusal> for SpecRefusalKind {
+    fn from(refusal: SpecRefusal) -> Self {
+        match refusal {
+            SpecRefusal::UnknownKind { .. } => Self::UnknownKind,
+            SpecRefusal::NotKindOrObject { .. } => Self::NotKindOrObject,
+            SpecRefusal::Boundary => Self::Boundary,
+            SpecRefusal::UnknownKey { .. } => Self::UnknownKey,
+            SpecRefusal::Kind => Self::Kind,
+            SpecRefusal::Network { .. } => Self::Network,
+            SpecRefusal::BindsNotArray => Self::BindsNotArray,
+            SpecRefusal::Bind(bind) => Self::Bind(bind.into()),
+        }
+    }
+}
+
+impl fmt::Display for SpecRefusalKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownKind => f.write_str("UnknownKind"),
+            Self::NotKindOrObject => f.write_str("NotKindOrObject"),
+            Self::Boundary => f.write_str("Boundary"),
+            Self::UnknownKey => f.write_str("UnknownKey"),
+            Self::Kind => f.write_str("Kind"),
+            Self::Network => f.write_str("Network"),
+            Self::BindsNotArray => f.write_str("BindsNotArray"),
+            Self::Bind(bind) => write!(f, "{bind}"),
+        }
+    }
+}
+
+/// Why a `--reach` / `--reach-base64url` or `--spec` / `--spec-base64url`
+/// argument was refused. Plain JSON spellings keep main's diagnostics byte
+/// for byte; encoded spellings name the argument and failure class and hold
+/// neither the raw argument value nor any decoded field, value, or serde
+/// fragment in `Display` or `Debug`.
+#[derive(Debug)]
+pub(crate) enum DocumentError {
+    MissingReach,
+    BothSpellings {
+        plain: &'static str,
+        encoded: &'static str,
+    },
+    Encoded {
+        flag: &'static str,
+        cause: Base64UrlError,
+    },
+    PlainReach {
+        cause: serde_json::Error,
+    },
+    PlainSpecJson {
+        cause: serde_json::Error,
+    },
+    PlainSpec {
+        cause: SpecRefusal,
+    },
+    EncodedReach {
+        category: serde_json::error::Category,
+    },
+    EncodedSpecJson {
+        category: serde_json::error::Category,
+    },
+    EncodedSpec {
+        cause: SpecRefusalKind,
+    },
+}
+
+fn json_category_name(category: serde_json::error::Category) -> &'static str {
+    match category {
+        serde_json::error::Category::Io => "Io",
+        serde_json::error::Category::Syntax => "Syntax",
+        serde_json::error::Category::Data => "Data",
+        serde_json::error::Category::Eof => "Eof",
+    }
+}
+
+impl fmt::Display for DocumentError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingReach => write!(
+                f,
+                "--{REACH_OPTION}: missing; pass either --{REACH_OPTION} or --{REACH_BASE64URL_OPTION}"
+            ),
+            Self::BothSpellings { plain, encoded } => write!(
+                f,
+                "--{plain}: both --{plain} and --{encoded} were given; pass only one"
+            ),
+            Self::Encoded { flag, cause } => write!(f, "--{flag}: {cause}"),
+            Self::PlainReach { cause } => {
+                write!(f, "--{REACH_OPTION}: {}: {cause}", Refusal::Identity)
+            }
+            Self::PlainSpecJson { cause } => write!(f, "{cause}"),
+            Self::PlainSpec { cause } => write!(f, "--{SPEC_OPTION}: {cause}"),
+            Self::EncodedReach { category } => write!(
+                f,
+                "--{REACH_BASE64URL_OPTION}: {}: decoded document is not a valid sealed reach ({})",
+                Refusal::Identity,
+                json_category_name(*category),
+            ),
+            Self::EncodedSpecJson { category } => write!(
+                f,
+                "--{SPEC_BASE64URL_OPTION}: decoded document is not valid JSON ({})",
+                json_category_name(*category),
+            ),
+            Self::EncodedSpec { cause } => write!(
+                f,
+                "--{SPEC_BASE64URL_OPTION}: decoded document is not a valid hands spec ({cause})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DocumentError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::PlainReach { cause } | Self::PlainSpecJson { cause } => Some(cause),
+            Self::PlainSpec { cause } => Some(cause),
+            Self::MissingReach
+            | Self::BothSpellings { .. }
+            | Self::Encoded { .. }
+            | Self::EncodedReach { .. }
+            | Self::EncodedSpecJson { .. }
+            | Self::EncodedSpec { .. } => None,
+        }
+    }
+}
+
+/// Whether `argv` invokes `hands serve` with neither `reach` nor
+/// `reach_base64url` supplied, checked from clap's structured `ArgMatches`
+/// state rather than rendered diagnostic text (#1277 V3, proposed decision
+/// 0127 ruling 2).
+fn is_missing_serve_reach(argv: &[std::ffi::OsString], command: &clap::Command) -> bool {
+    let matches = command
+        .clone()
+        .ignore_errors(true)
+        .mut_subcommand("hands", |hands| {
+            hands
+                .ignore_errors(true)
+                .mut_subcommand("serve", |serve| serve.ignore_errors(true))
+        })
+        .try_get_matches_from(argv);
+    matches.ok().is_some_and(|matches| {
+        matches
+            .subcommand_matches("hands")
+            .and_then(|hands| hands.subcommand_matches("serve"))
+            .is_some_and(|serve| {
+                serve.value_source("reach").is_none()
+                    && serve.value_source("reach_base64url").is_none()
+            })
+    })
+}
+
+fn serve_args_slice(argv: &[std::ffi::OsString]) -> Option<&[std::ffi::OsString]> {
+    let [_, hands, serve, rest @ ..] = argv else {
+        return None;
+    };
+    (hands == "hands" && serve == "serve").then_some(rest)
+}
+
+fn matches_long_option(arg: &std::ffi::OsStr, name: &str) -> bool {
+    let Some(rest) = arg
+        .as_encoded_bytes()
+        .strip_prefix(b"--")
+        .and_then(|bytes| bytes.strip_prefix(name.as_bytes()))
+    else {
+        return false;
+    };
+    rest.is_empty() || rest.starts_with(b"=")
+}
+
+fn is_bare_encoded_option(arg: &std::ffi::OsStr) -> bool {
+    arg.as_encoded_bytes()
+        .strip_prefix(b"--")
+        .is_some_and(|name| {
+            name == REACH_BASE64URL_OPTION.as_bytes() || name == SPEC_BASE64URL_OPTION.as_bytes()
+        })
+}
+
+fn has_encoded_serve_option(args: &[std::ffi::OsString]) -> bool {
+    args.iter().any(|arg| {
+        matches_long_option(arg, REACH_BASE64URL_OPTION)
+            || matches_long_option(arg, SPEC_BASE64URL_OPTION)
+    })
+}
+
+fn is_serve_option_token(arg: &std::ffi::OsStr, serve: &clap::Command) -> bool {
+    serve.get_arguments().any(|opt| {
+        opt.get_long()
+            .is_some_and(|long| matches_long_option(arg, long))
+            || opt
+                .get_short()
+                .is_some_and(|short| arg.as_encoded_bytes() == [b'-', short as u8])
+    })
+}
+
+/// Build a payload-free `clap::Error` for `hands serve` naming only the error
+/// kind and usage synopsis, so neither raw argument tokens nor decoded text
+/// ever appear on stderr when an encoded option is present (#1277 V1, proposed
+/// decision 0127 ruling 4).
+fn redacted_serve_error(mut cmd: clap::Command, kind: clap::error::ErrorKind) -> clap::Error {
+    cmd.build();
+    let serve = cmd
+        .find_subcommand_mut("hands")
+        .and_then(|hands| hands.find_subcommand_mut("serve"))
+        .expect("hands serve subcommand");
+    serve.error(
+        kind,
+        format!(
+            "argument error ({kind:?}); argument values are omitted when an encoded document option is present"
+        ),
+    )
+}
+
+/// Refuse `hands serve` before clap parses when a bare encoded option is
+/// immediately followed by another `hands serve` option token, instead of
+/// letting `allow_hyphen_values = true` swallow that option name as a value
+/// (#1277 V1, proposed decision 0127 ruling 4).
+pub(crate) fn refuse_encoded_option_as_value(
+    argv: &[std::ffi::OsString],
+    command: impl FnOnce() -> clap::Command,
+) -> Option<clap::Error> {
+    let args = serve_args_slice(argv)?;
+    if !has_encoded_serve_option(args) {
+        return None;
+    }
+    let mut cmd = command();
+    cmd.build();
+    let serve = cmd
+        .find_subcommand("hands")
+        .and_then(|hands| hands.find_subcommand("serve"))
+        .expect("hands serve subcommand");
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == "--" {
+            break;
+        }
+        if is_bare_encoded_option(arg)
+            && iter
+                .next()
+                .is_some_and(|next| is_serve_option_token(next, serve))
+        {
+            return Some(redacted_serve_error(
+                cmd,
+                clap::error::ErrorKind::InvalidValue,
+            ));
+        }
+    }
+    None
+}
+
+/// Rewrite clap errors for `hands serve`: whenever an encoded option appears
+/// anywhere in `hands serve`'s arguments, every refusal (`use_stderr()`) is
+/// replaced with a payload-free error naming the error kind and usage (#1277
+/// V1, proposed decision 0127 ruling 4). When no encoded option is present,
+/// plain-spelling diagnostics pass through unchanged (keeping main's exact
+/// missing-reach usage order).
+pub(crate) fn reformat_serve_clap_error(
+    err: clap::Error,
+    argv: &[std::ffi::OsString],
+    command: impl FnOnce() -> clap::Command,
+) -> clap::Error {
+    if err.use_stderr() && serve_args_slice(argv).is_some_and(has_encoded_serve_option) {
+        return redacted_serve_error(command(), err.kind());
+    }
+    reformat_missing_serve_reach(err, argv, command)
+}
+
+/// When `hands serve` fails clap validation because neither `--reach` nor
+/// `--reach-base64url` was given, re-render the error with `--reach` marked
+/// unconditionally required so clap emits main's exact usage order
+/// (`--reach <REACH>` before `--spec <SPEC>`, #1277 V3, proposed decision
+/// 0127 ruling 2).
+fn reformat_missing_serve_reach(
+    err: clap::Error,
+    argv: &[std::ffi::OsString],
+    command: impl FnOnce() -> clap::Command,
+) -> clap::Error {
+    if err.kind() != clap::error::ErrorKind::MissingRequiredArgument {
+        return err;
+    }
+    let cmd = command();
+    if !is_missing_serve_reach(argv, &cmd) {
+        return err;
+    }
+    cmd.mut_subcommand("hands", |hands| {
+        hands.mut_subcommand("serve", |serve| {
+            serve.mut_arg("reach", |reach| {
+                reach
+                    .required(true)
+                    .required_unless_present(clap::builder::Resettable::<clap::Id>::Reset)
+            })
+        })
+    })
+    .try_get_matches_from(argv)
+    .unwrap_err()
+}
+
 pub(crate) fn run(command: HandsCommand) -> anyhow::Result<ExitCode> {
     run_with(command, Session::create)
 }
 
-/// The reach `--reach` carries, read as the type it is: one that does not
-/// read refuses with MB3's identity cause, and no box is built.
-fn parse_reach(reach: &str) -> anyhow::Result<Sealed> {
-    let read = serde_json::from_str(reach);
-    read.map_err(|problem| anyhow::anyhow!("--reach: {}: {problem}", Refusal::Identity))
+/// Parse a sealed reach JSON document directly into [`Sealed`] with no
+/// intermediate `Value` or map: shared by both `--reach` and
+/// `--reach-base64url` (#1277 V1).
+fn parse_reach_doc(reach: &str) -> Result<Sealed, serde_json::Error> {
+    serde_json::from_str(reach)
+}
+
+/// The reach `--reach` carries as plain JSON: one that does not read refuses
+/// with MB3's identity cause, and no box is built.
+fn parse_reach_plain(reach: &str) -> Result<Sealed, DocumentError> {
+    parse_reach_doc(reach).map_err(|cause| DocumentError::PlainReach { cause })
+}
+
+/// The reach `--reach-base64url` carries after decoding: runs the exact same
+/// `serde_json::from_str::<Sealed>` parse as `--reach`, then reduces any error
+/// to its [`serde_json::error::Category`] so nothing decoded survives in
+/// `Display` or `Debug` (#1277 V1, R3).
+fn parse_reach_encoded(reach: &str) -> Result<Sealed, DocumentError> {
+    parse_reach_doc(reach).map_err(|cause| DocumentError::EncodedReach {
+        category: cause.classify(),
+    })
+}
+
+enum SpecDocError {
+    Json(serde_json::Error),
+    Spec(SpecRefusal),
+}
+
+/// Parse a box spec JSON document through main's `serde_json::from_str::<Value>`
+/// and [`HandsSpec::checked`] path: shared by both `--spec` and
+/// `--spec-base64url` (#1277 V1).
+fn parse_spec_doc(spec: &str) -> Result<HandsSpec, SpecDocError> {
+    let raw: serde_json::Value = serde_json::from_str(spec).map_err(SpecDocError::Json)?;
+    HandsSpec::checked(&raw).map_err(SpecDocError::Spec)
+}
+
+/// The box spec `--spec` carries as plain JSON, keeping main's diagnostics
+/// byte for byte.
+fn parse_spec_plain(spec: &str) -> Result<HandsSpec, DocumentError> {
+    parse_spec_doc(spec).map_err(|cause| match cause {
+        SpecDocError::Json(cause) => DocumentError::PlainSpecJson { cause },
+        SpecDocError::Spec(cause) => DocumentError::PlainSpec { cause },
+    })
+}
+
+/// The box spec `--spec-base64url` carries after decoding: runs the exact same
+/// parse as `--spec`, then reduces any error to its serde category or
+/// payload-free [`SpecRefusalKind`] so no decoded text survives in `Display`
+/// or `Debug` (#1277 V1, R3).
+fn parse_spec_encoded(spec: &str) -> Result<HandsSpec, DocumentError> {
+    parse_spec_doc(spec).map_err(|cause| match cause {
+        SpecDocError::Json(err) => DocumentError::EncodedSpecJson {
+            category: err.classify(),
+        },
+        SpecDocError::Spec(refusal) => DocumentError::EncodedSpec {
+            cause: SpecRefusalKind::from(refusal),
+        },
+    })
+}
+
+fn resolve_serve_spec(
+    spec: Option<String>,
+    spec_base64url: Option<String>,
+) -> Result<HandsSpec, DocumentError> {
+    match (spec, spec_base64url) {
+        (Some(_), Some(_)) => Err(DocumentError::BothSpellings {
+            plain: SPEC_OPTION,
+            encoded: SPEC_BASE64URL_OPTION,
+        }),
+        (plain, None) => parse_spec_plain(plain.as_deref().unwrap_or(DEFAULT_SPEC)),
+        (None, Some(raw)) => {
+            let json = hands::decode_base64url(&raw).map_err(|cause| DocumentError::Encoded {
+                flag: SPEC_BASE64URL_OPTION,
+                cause,
+            })?;
+            parse_spec_encoded(&json)
+        }
+    }
+}
+
+fn resolve_serve_reach(
+    reach: Option<String>,
+    reach_base64url: Option<String>,
+) -> Result<Sealed, DocumentError> {
+    match (reach, reach_base64url) {
+        (Some(_), Some(_)) => Err(DocumentError::BothSpellings {
+            plain: REACH_OPTION,
+            encoded: REACH_BASE64URL_OPTION,
+        }),
+        (None, None) => Err(DocumentError::MissingReach),
+        (Some(json), None) => parse_reach_plain(&json),
+        (None, Some(raw)) => {
+            let json = hands::decode_base64url(&raw).map_err(|cause| DocumentError::Encoded {
+                flag: REACH_BASE64URL_OPTION,
+                cause,
+            })?;
+            parse_reach_encoded(&json)
+        }
+    }
+}
+
+fn resolve_serve_documents(
+    reach: Option<String>,
+    reach_base64url: Option<String>,
+    spec: Option<String>,
+    spec_base64url: Option<String>,
+) -> Result<(HandsSpec, Sealed), DocumentError> {
+    let spec = resolve_serve_spec(spec, spec_base64url)?;
+    let sealed = resolve_serve_reach(reach, reach_base64url)?;
+    Ok((spec, sealed))
 }
 
 /// `run`, with the server's session made by `session`: the seam a test
@@ -73,18 +577,22 @@ fn run_with(
     command: HandsCommand,
     session: impl FnOnce(&str) -> Result<Session, SessionError>,
 ) -> anyhow::Result<ExitCode> {
-    let parse_spec = |spec: &str| -> anyhow::Result<hands::HandsSpec> {
-        let raw: serde_json::Value = serde_json::from_str(spec)?;
-        hands::HandsSpec::parse(&raw).map_err(|problem| anyhow::anyhow!("--spec: {problem}"))
-    };
     match command {
         HandsCommand::Serve {
             workdir,
             artifacts,
             reach,
+            reach_base64url,
             spec,
+            spec_base64url,
         } => {
-            let (spec, sealed) = (parse_spec(&spec)?, parse_reach(&reach)?);
+            // `DocumentError::Display` already carries the plain cause to keep
+            // main's stderr text byte for byte while `Error::source` exposes
+            // it to typed callers; `Error::msg` stops `lib.rs`'s `{error:#}`
+            // from printing the cause a second time.
+            let (spec, sealed) =
+                resolve_serve_documents(reach, reach_base64url, spec, spec_base64url)
+                    .map_err(anyhow::Error::msg)?;
             // The session outlives every call: overlay upper layers live
             // here until the harness closes the server's stdin, or a
             // termination signal ends the server (#415).
@@ -109,7 +617,10 @@ fn run_with(
             spec,
             command,
         } => {
-            let (spec, sealed) = (parse_spec(&spec)?, parse_reach(&reach)?);
+            let (spec, sealed) = (
+                parse_spec_plain(&spec).map_err(anyhow::Error::msg)?,
+                parse_reach_plain(&reach).map_err(anyhow::Error::msg)?,
+            );
             // Only the leading separator is ours; a command may carry
             // its own `--`.
             let command: Vec<String> = match command.first().map(String::as_str) {
