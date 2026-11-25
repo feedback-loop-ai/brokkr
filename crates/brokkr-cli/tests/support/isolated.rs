@@ -176,6 +176,7 @@ impl Apart {
 /// the deadline's KILL. It does not use `timeout -s KILL`: Ubuntu's
 /// rust-coreutils `timeout` 0.2.2 never sends that KILL, waiting out the
 /// program and then answering 124 (#1332).
+/// The deadline's program reads the guard's own stdin.
 #[cfg(target_os = "linux")]
 pub(crate) const GUARD: &str = r#"refuse() { printf '%s\n' "$1" > "$0"; exit 125; }
     unparsable() { refuse "unparsable $own"; }
@@ -200,8 +201,13 @@ pub(crate) const GUARD: &str = r#"refuse() { printf '%s\n' "$1" > "$0"; exit 125
     [ "$own" != "pid:[$1]" ] || refuse "shared $1"; shift 2
     limit=${BOUNDED_SECONDS-}; unset BOUNDED_SECONDS
     [ -z "$limit" ] || {
-        "$@" <&0 & program=$!
-        { /usr/bin/sleep "$limit"; kill -KILL "$program" 2>/dev/null; } & sleeper=$!
+        if { true 3<&0; } 2>/dev/null; then
+            exec 3<&0
+        else
+            exec 3</dev/null
+        fi
+        "$@" <&3 3<&- & program=$!
+        { /usr/bin/sleep "$limit"; kill -KILL "$program" 2>/dev/null; } 3<&- & sleeper=$!
         wait "$program"; status=$?; kill "$sleeper" 2>/dev/null; exit "$status"
     }
     exec "$@""#;

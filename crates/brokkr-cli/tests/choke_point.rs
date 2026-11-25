@@ -185,14 +185,23 @@ fn the_shell_line_keeps_an_apostrophe_in_one_word() {
 /// inert seam that only records the delivery it stands for.
 #[cfg(target_os = "linux")]
 mod guard {
-    use std::path::Path;
-    use std::process::Command;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
 
-    use crate::isolated::{seconds, Guard};
+    use crate::isolated::{seconds, Guard, LIMIT};
     use crate::pidns::{identity_at, Isolation};
 
     /// The namespace the guard is told is its parent's.
     const OUTER: u64 = 4026531836;
+
+    fn planted_guard(link: &Path, target: Option<&str>) -> Guard {
+        if let Some(target) = target {
+            std::os::unix::fs::symlink(target, link).unwrap();
+        }
+        Guard::of(OUTER, link)
+    }
 
     /// What the guard did, given a link that reads `target` (or none at
     /// all): its exit code, its refusal, and whether the seam ran.
@@ -207,10 +216,7 @@ mod guard {
     ) -> (Option<i32>, Option<Isolation>, bool) {
         let dir = tempfile::tempdir().unwrap();
         let (link, delivered) = (dir.path().join("ns-pid"), dir.path().join("delivered"));
-        if let Some(target) = target {
-            std::os::unix::fs::symlink(target, &link).unwrap();
-        }
-        let guard = Guard::of(OUTER, &link);
+        let guard = planted_guard(&link, target);
         let mut launcher = Command::new("/usr/bin/env");
         guard.wrap(&mut launcher);
         launcher
@@ -304,6 +310,55 @@ mod guard {
     fn a_deadline_is_rounded_up_to_whole_seconds() {
         let limits = [0, 1, 500, 1000, 2100].map(std::time::Duration::from_millis);
         assert_eq!(limits.map(seconds), ["1", "1", "1", "1", "3"]);
+    }
+
+    fn guarded_reader(launcher: &mut Command, dir: &Path) -> (Guard, PathBuf) {
+        let apart = format!("pid:[{}]", OUTER + 1);
+        let guard = planted_guard(&dir.join("ns-pid"), Some(&apart));
+        let delivered = dir.join("delivered");
+        guard.wrap(launcher);
+        launcher
+            .env(LIMIT, seconds(Duration::from_secs(5)))
+            .args([
+                "/bin/sh",
+                "-c",
+                r#"IFS= read -r line; printf %s "$line" > "$0""#,
+            ])
+            .arg(&delivered);
+        (guard, delivered)
+    }
+
+    #[test]
+    fn a_program_under_a_deadline_reads_the_guards_stdin() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut launcher = Command::new("/usr/bin/env");
+        let (guard, delivered) = guarded_reader(&mut launcher, dir.path());
+        let mut child = launcher.stdin(Stdio::piped()).spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"one line for the guard\n")
+            .unwrap();
+
+        assert_eq!(child.wait().unwrap().code(), Some(0));
+        assert_eq!(guard.refused(), None);
+        assert_eq!(
+            std::fs::read_to_string(delivered).unwrap(),
+            "one line for the guard"
+        );
+    }
+
+    #[test]
+    fn a_program_under_a_deadline_runs_with_closed_stdin() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut launcher = Command::new("/bin/sh");
+        launcher.args(["-c", r#""$@" 0<&-"#, "sh"]);
+        let (guard, delivered) = guarded_reader(&mut launcher, dir.path());
+
+        assert_eq!(launcher.status().unwrap().code(), Some(0));
+        assert_eq!(guard.refused(), None);
+        assert_eq!(std::fs::read_to_string(delivered).unwrap(), "");
     }
 
     /// The guard's record of a refusal is read in its own words only.
