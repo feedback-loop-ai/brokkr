@@ -133,14 +133,16 @@ is the mistake to avoid.
   bundle that does, and the comparison refuses the difference rather
   than restoring a harness's old default. Historical runs are not
   rewritten.
-- Realm maps now reach `forge.realms/v8`: v3 added house and dialect
+- Realm maps now reach `forge.realms/v9`: v3 added house and dialect
   declarations, v4 adds the realm's boundary, v5 adds the crossings a
   realm publishes and the ones it consumes, each pinned by a sha256 over
   the published file's raw bytes (decision 0057), and v6 adds the
   capabilities a realm grants (decision 0065), v7 adds the provisional
   tier (decision 0075), and v8 adds the retention veto (decision 0065
-  slice two). House content and its digest are pinned in the run's realms
-  record. Every older version keeps loading and grants nothing.
+  slice two). v9 lets a grant name a tool dialect for each provider under
+  `dialects` (decision 0126). House content and its digest are pinned in
+  the run's realms record. Every older version keeps loading. Maps before
+  v6 grant nothing.
 
 **The Looper-bound lineage: `run-manifest.v2`, unchanged.** Its
 round-trip reconstructs a bundle manifest from six named keys and drops
@@ -195,7 +197,8 @@ and the release window in that ruling's slice 2.
 | `forge.realms/v5` | `contracts/realms.v5.schema.json` | input | 0057, enacted, pending acceptance | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v6` | `contracts/realms.v6.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v7` | `contracts/realms.v7.schema.json` | input | 0075 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
-| `forge.realms/v8` | `contracts/realms.v8.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | current | | decision |
+| `forge.realms/v8` | `contracts/realms.v8.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
+| `forge.realms/v9` | `contracts/realms.v9.schema.json` | input | 0126 | operator | set brokkr_core::realms::SCHEMAS | current | | decision |
 | `brokkr.dialect/v1` | `contracts/dialect.v1.schema.json` | journal | 0042 | none | set brokkr_runtime::dialect::SCHEMAS | reader | 0.8 | 0.12 |
 | `brokkr.dialect/v2` | `contracts/dialect.v2.schema.json` | journal | 0042 (2026-09-04 addendum) | none | set brokkr_runtime::dialect::SCHEMAS | reader | 0.10 | 0.13 |
 | `brokkr.dialect/v3` | `contracts/dialect.v3.schema.json` | journal | 0042 (2026-09-06 addendum) | shipped dialects/openspec.json | set brokkr_runtime::dialect::SCHEMAS | current | | |
