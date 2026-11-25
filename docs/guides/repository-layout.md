@@ -41,7 +41,7 @@ shelf: `$XDG_CONFIG_HOME/brokkr/realms/<name>.json`, else
 ruling 1). Nothing finds it by lookup. `--realms <path>` names it on
 every verb that opens a journal or a world, and the named map is read
 alone: never merged with this repository's map, never a fallback, and
-missing or malformed refuses. `compile` and `recipes show` do not take
+missing or malformed refuses. `library compile` and `library recipes show` do not take
 the flag yet.
 
 Its paths are read relative to the map file, so a map moved out of this

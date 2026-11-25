@@ -9,8 +9,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use super::panel::{
-    b_only_panel, indeterminate_once, last_terminal, panel_engine, route_host, two_route_engine,
-    wait_entries,
+    b_only_panel, indeterminate_once, last_terminal, route_host, two_route_engine, wait_entries,
 };
 use super::*;
 use crate::engine::contention_tests::{in_flight, write_lock_on};
@@ -27,6 +26,7 @@ fn rows_of(engine: &Engine, event: &brokkr_core::EventEnvelope) -> Vec<brokkr_st
 /// codex/second — writes two rows, each at its own site and route.
 #[test]
 fn a_two_route_panel_writes_a_row_per_refused_site() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let mut engine = two_route_engine(
         dir.path(),
@@ -36,9 +36,9 @@ fn a_two_route_panel_writes_a_row_per_refused_site() {
         Probed::Answer,
         2,
     );
-    // Bounds long enough that the failed event records while both waits
-    // still run, however loaded the host is: the table holds what is in
-    // force when the event records it.
+    // The fixture's clock starts `LONG_WAIT` ahead of the journal, so the
+    // failed event records while both waits still run, however loaded the
+    // host is (#857): the table holds what is in force when it records.
     engine.cooldown.host = Some(route_host(dir.path(), (30, 60), (40, 60)));
     engine.drive().unwrap();
 
@@ -66,11 +66,17 @@ fn assert_row(row: &brokkr_store::Cooldown, site: &str, provider: &str, route: &
 /// site's row, and retries nothing: the retry behaviour is unchanged.
 #[test]
 fn an_indeterminate_panel_records_the_refused_site() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let a = indeterminate_once(dir.path(), "a");
     let body = b_only_panel(dir.path(), a);
-    let host = route_host(dir.path(), (10, 20), (10, 20));
-    let mut engine = panel_engine(dir.path(), body, 2, host);
+    // Nothing waits b's wait out, so it is `LONG_WAIT` on a clock at real
+    // time, with no lead: the wait alone keeps the row in force however
+    // long the host stalls before the indeterminate event records (#857).
+    let long = (LONG_WAIT_SECONDS, LONG_WAIT_SECONDS);
+    let mut engine = started(dir.path(), body, work(2));
+    engine.cooldown.host = Some(route_host(dir.path(), long, long));
+    let (mut engine, _now) = with_clock_at(engine, OffsetDateTime::now_utc());
     engine.drive().unwrap();
 
     let terminal = last_terminal(&engine);
@@ -94,8 +100,8 @@ fn a_held_terminal_event_lands_with_its_rows() {
     let mut engine = in_flight(dir.path());
     let holder = write_lock_on(&dir.path().join("realm.db"));
     // An end no loaded host reaches while the lock is held and the held
-    // outcome lands, so the row is still in force when it records.
-    let until = OffsetDateTime::now_utc() + time::Duration::seconds(60);
+    // outcome lands, so the row is still in force when it records (#857).
+    let until = OffsetDateTime::now_utc() + LONG_WAIT;
     let payload = json!({
         "effect_id": "effect-1",
         "attempt_id": "attempt-1",

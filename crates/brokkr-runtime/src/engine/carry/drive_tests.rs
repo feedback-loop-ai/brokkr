@@ -213,7 +213,10 @@ fn a_head_moved_after_acceptance_parks_at_the_drive_and_the_acceptance_stands() 
         reason.starts_with("reviewed head moved: source: "),
         "{reason}"
     );
-    assert!(reason.ends_with("; use plain operator retry"), "{reason}");
+    assert!(
+        reason.ends_with("; use plain runs operator retry"),
+        "{reason}"
+    );
     assert_eq!(accepted_count(&runtime), 1);
 }
 
@@ -227,7 +230,7 @@ fn an_old_journal_refuses_at_the_drive_and_empty_args_run_every_member() {
     accept(&mut runtime, json!({"members":["b"]}));
     assert_eq!(
         refused_at_drive(&mut runtime),
-        "phase 'work' visit 1 holds no attempt its panel ended; use plain operator retry"
+        "phase 'work' visit 1 holds no attempt its panel ended; use plain runs operator retry"
     );
     accept(&mut runtime, json!({}));
     drives_a_fresh_panel(&mut runtime);
@@ -256,13 +259,13 @@ fn an_unreadable_record_and_a_missing_panel_park_at_the_drive_with_no_member_spa
     accept(&mut runtime, json!({"members":["a"]}));
     assert_eq!(
         refused_at_drive(&mut runtime),
-        "phase 'work' runs no panel; use plain operator retry"
+        "phase 'work' runs no panel; use plain runs operator retry"
     );
     let (_dir, mut runtime) = parked(panel_after_chief(), false);
     accept(&mut runtime, json!({"members":["positions:b"]}));
     assert_eq!(
         refused_at_drive(&mut runtime),
-        "panel step 'positions' follows first step 'chief'; use plain operator retry"
+        "panel step 'positions' follows first step 'chief'; use plain runs operator retry"
     );
 }
 
@@ -386,6 +389,45 @@ fn sequence_tags_carry_into_the_chief_and_only_the_panel_stamps_its_own_terminal
             retry_accepted(&mut runtime, &["positions:b", "positions:a"]);
         }
     }
+}
+
+/// A sequence step's carry is judged as a seat panel's is (the
+/// controller's ruling R18 of 2026-11-22): a released engine's unmarked
+/// settled result for `positions:a`, naming a transcript kind outside the
+/// grammar beside a word the join would refuse, is no verdict to carry,
+/// so the accepted retry of `positions:b` alone parks at the drive as a
+/// member with no settled result does, and no later event holds the kind.
+#[test]
+fn a_sequence_steps_carried_result_is_judged_for_its_kinds_at_the_drive() {
+    let stray = json!({"result":"maybe", "transcript":{"kind":"trellis--stray", "locator":"t-1"}});
+    let (_dir, mut runtime) = parked_record(sequence(clean(), None), false, |record| {
+        record["settled_members"] = json!({"positions:a": stray});
+    });
+    let parked = events(&runtime).len();
+    accept(&mut runtime, json!({"members":["positions:b"]}));
+    let reason = refused_at_drive(&mut runtime);
+    let journaled = serde_json::to_string(&events(&runtime)[parked..]).unwrap();
+    assert!(!journaled.contains("trellis--stray"), "{journaled}");
+    assert_eq!(
+        reason,
+        "members positions:a have no settled verdict to carry; name them or use plain runs operator retry"
+    );
+}
+
+#[test]
+fn carry_refuses_a_settled_result_with_a_masked_nested_kind_place() {
+    use crate::agents::kinds::tests::masked_by;
+
+    let result = json!({"result": {"transcript": {"kind": "trellis--stray"}}});
+    let masked = masked_by(result, "transcript");
+    let (_dir, mut runtime) = parked_record(sequence(clean(), None), false, |record| {
+        record["settled_members"] = json!({"positions:a": masked});
+    });
+    accept(&mut runtime, json!({"members":["positions:b"]}));
+    assert_eq!(
+        refused_at_drive(&mut runtime),
+        "members positions:a have no settled verdict to carry; name them or use plain runs operator retry"
+    );
 }
 
 fn moving_body(action: &str, gate: bool) -> SeatBody {

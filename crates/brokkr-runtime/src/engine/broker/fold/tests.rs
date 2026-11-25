@@ -993,7 +993,7 @@ fn a_checkpoint_the_fence_refuses_fails_the_attempt_after_the_calls_before_it() 
         ledger.close().unwrap();
     });
     let settled = site.fold(succeeded());
-    let cause = "seat record at journal seq 3 violates contracts/seat-record.v6.schema.json at /";
+    let cause = "seat record at journal seq 3 violates contracts/seat-record.v8.schema.json at /";
     assert_eq!(settled.settled_outcome(), failed(cause));
     assert_eq!(site.rows(), [row(1, "lookup", "succeeded")]);
 }
@@ -1073,7 +1073,7 @@ fn a_dispatched_driver_is_settled_by_its_broker_calls_before_its_result_is_admit
         assert_eq!(rows.len(), attributed + 1, "{ended:?}: the telemetry row");
         if ended == EventType::EffectFailed {
             let error = last.payload["error"].as_str().unwrap();
-            let cause = format!("{}; stderr tail: ", Refusal::Exec);
+            let cause = format!("{}; driver stderr: empty", Refusal::Exec);
             assert!(error.starts_with(&cause), "{error}");
         }
     }

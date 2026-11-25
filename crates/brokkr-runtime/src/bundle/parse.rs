@@ -6,6 +6,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use brokkr_core::findings::ResidualPair;
+use brokkr_core::policy::CHANGE;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::hands::HandsSpec;
 use serde_json::{Map, Value};
@@ -14,8 +16,9 @@ use super::site_form::{classify, CaseShape, MemberShape, SeatShape, CASE, MEMBER
 use super::{
     built_in_model_driver, command_parts, enforce_model_policy, parse_class, parse_command,
     parse_role, parse_sequence, record_hands, record_inline_tools, refuse_class_without_a_driver,
-    resolve_reference, Aggregate, Candidate, Charters, CompileError, Dialect, Invocation, Opened,
-    PanelMember, ResolvedSeat, SeatBody, SeatClass, SiteFacts, SiteLaw, SELECT_STRATEGIES,
+    resolve_reference, Aggregate, Candidate, Charters, CompileError, Dialect, Invocation,
+    MemberLaw, Opened, PanelMember, ResolvedSeat, SeatBody, SeatClass, SiteFacts, SiteLaw,
+    SELECT_STRATEGIES,
 };
 use crate::argv::Executable;
 
@@ -41,12 +44,23 @@ pub(super) struct SiteCompiler<'a> {
 
 /// What a body inherits from its seat: the layer that wrote it, and the
 /// seat's results and bindings. A select case is written by its own
-/// layer, and a panel step declares its own results.
+/// layer, and a panel step declares its own results. Every review-panel
+/// member's word is bound to the seat's `residual` pair (decision 0109
+/// ruling 2), whatever contains the member, and every sequence step knows
+/// whether the seat declares `change`, a select case's included (#1221 E).
 #[derive(Clone, Copy)]
 pub(super) struct SeatScope<'s> {
     pub(super) dir: &'s Path,
     pub(super) results: &'s [String],
     pub(super) secrets: &'s [String],
+    pub(super) residual: ResidualPair,
+    pub(super) declares_change: bool,
+}
+
+/// Whether a compiled input set declares `change`, the seat's own
+/// identifier of the change a sequence carries on.
+pub(super) fn declares_change(inputs: &[String]) -> bool {
+    inputs.iter().any(|input| input == CHANGE)
 }
 
 impl<'a> SiteCompiler<'a> {
@@ -114,6 +128,7 @@ impl<'a> SiteCompiler<'a> {
             SeatShape::Agent => {
                 let agent_seat =
                     resolve_reference(self, at.dir, phase, raw, at.secrets, SEAT.role)?;
+                refuse_results_beyond_agent(phase, at.results, &agent_seat)?;
                 let body = SeatBody::Invocation(Invocation::Single {
                     role_path: agent_seat.role_path.clone(),
                     command: agent_seat.command.clone(),
@@ -163,7 +178,7 @@ impl<'a> SiteCompiler<'a> {
         phase: &str,
         raw: &Value,
     ) -> Result<SeatBody, CompileError> {
-        let (cases_raw, default_raw) = select_cases(phase, raw)?;
+        let (cases_raw, default_raw) = select_cases(phase, raw).map_err(select_refused)?;
         let roots = self.roots;
         let mut cases = BTreeMap::new();
         for (case, body) in cases_raw {
@@ -217,6 +232,7 @@ impl<'a> SiteCompiler<'a> {
         raw: &Value,
     ) -> Result<SeatBody, CompileError> {
         let resolved = resolve_reference(self, at.dir, what, raw, at.secrets, CASE.role)?;
+        refuse_results_beyond_agent(what, at.results, &resolved)?;
         let class = self.judge(at, what, raw, &resolved.candidates, resolved.hands)?;
         Ok(SeatBody::Invocation(Invocation::Single {
             role_path: resolved.role_path,
@@ -280,6 +296,7 @@ impl<'a> SiteCompiler<'a> {
                 Aggregate::known()
             ))
         })?;
+        (aggregate.refuse_unbindable(what, at.residual)).map_err(CompileError::Body)?;
         for required in aggregate.required_results() {
             if !at.results.iter().any(|r| r == required) {
                 return Err(CompileError::Invalid(format!(
@@ -290,22 +307,25 @@ impl<'a> SiteCompiler<'a> {
         }
         let mut members = Vec::with_capacity(members_raw.len());
         for (name, member_raw) in members_raw {
-            members.push(self.parse_member(at, what, name, member_raw)?);
+            members.push(self.parse_member(at, (what, aggregate), name, member_raw)?);
         }
         Ok((members, aggregate))
     }
 
-    /// One panel member, `<what>:<name>`, judged at its own site.
+    /// One panel member, `<what>:<name>`, judged at its own site, with the
+    /// result set its hired agent declares under the panel's `aggregate`
+    /// (decision 0109 ruling 11): read from the agent, never from a key
+    /// of the member's own, which [`MEMBER`] refuses.
     fn parse_member(
         &mut self,
         at: SeatScope<'_>,
-        what: &str,
+        (what, aggregate): (&str, Aggregate),
         name: &str,
         raw: &Value,
     ) -> Result<PanelMember, CompileError> {
         let site = format!("{what}:{name}");
         let shape = classify(&site, raw, &MEMBER)?;
-        let (role_path, command, candidates, agent_hands, written) = match shape {
+        let (role_path, command, candidates, agent_hands, written, declared) = match shape {
             MemberShape::Inline => {
                 let written = self.inline_written(at, &site, raw, false)?;
                 (
@@ -314,6 +334,7 @@ impl<'a> SiteCompiler<'a> {
                     Vec::new(),
                     None,
                     written,
+                    None,
                 )
             }
             MemberShape::Agent => {
@@ -325,6 +346,7 @@ impl<'a> SiteCompiler<'a> {
                     resolved.candidates,
                     resolved.hands,
                     command_parts(raw),
+                    resolved.results,
                 )
             }
         };
@@ -336,6 +358,10 @@ impl<'a> SiteCompiler<'a> {
             candidates,
             written,
             class,
+            law: MemberLaw {
+                results: aggregate.member_results(declared),
+                residual: at.residual,
+            },
         })
     }
 
@@ -394,51 +420,85 @@ impl<'a> SiteCompiler<'a> {
 /// A select's closed vocabulary, judged before any case is parsed: its
 /// keys, its `on`, its strategy cases, and a body for every strategy.
 /// Returns the cases and the default.
-fn select_cases<'v>(
-    phase: &str,
+fn select_cases<'v, 'a>(
+    phase: &'a str,
     raw: &'v Value,
-) -> Result<(&'v Map<String, Value>, Option<&'v Value>), CompileError> {
+) -> Result<(&'v Map<String, Value>, Option<&'v Value>), SelectRefusal<'a, 'v>> {
     let select = raw
         .get("select")
         .and_then(Value::as_object)
-        .ok_or_else(|| CompileError::Invalid(format!("seat '{phase}' select must be an object")))?;
+        .ok_or(SelectRefusal::NotObject { phase })?;
     for key in select.keys() {
         if !["on", "cases", "default"].contains(&key.as_str()) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{phase}' select has unknown key '{key}'; known: on, cases, default"
-            )));
+            return Err(SelectRefusal::UnknownKey { phase, key });
         }
     }
     match select.get("on").and_then(Value::as_str) {
         Some("strategy") => {}
-        other => return Err(CompileError::Invalid(format!(
-            "seat '{phase}' select has unknown 'on' {}; known: strategy — the selection vocabulary is closed",
-            other.unwrap_or("<missing>")
-        ))),
+        other => {
+            let on = other.unwrap_or("<missing>");
+            return Err(SelectRefusal::UnknownOn { phase, on });
+        }
     }
     let cases_raw = select
         .get("cases")
         .and_then(Value::as_object)
-        .ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{phase}' select.cases must be an object"))
-        })?;
+        .ok_or(SelectRefusal::CasesNotObject { phase })?;
     for case in cases_raw.keys() {
         if !SELECT_STRATEGIES.contains(&case.as_str()) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{phase}' select has unknown strategy case '{case}'; known: {}",
-                SELECT_STRATEGIES.join(", ")
-            )));
+            return Err(SelectRefusal::UnknownCase { phase, case });
         }
     }
     let has_default = select.get("default").is_some();
     for strategy in SELECT_STRATEGIES {
         if !cases_raw.contains_key(strategy) && !has_default {
-            return Err(CompileError::Invalid(format!(
-                "strategy class '{strategy}' resolves to nothing in seat '{phase}'; add that case or a default"
-            )));
+            return Err(SelectRefusal::Unresolved { phase, strategy });
         }
     }
     Ok((cases_raw, select.get("default")))
+}
+
+/// Why a select seat's closed vocabulary was refused, one variant per
+/// check of [`select_cases`], in its order. `phase` borrows the seat's
+/// name and every other field the select itself; the `Display` is the
+/// operator's text byte for byte, and [`select_refused`] is the one place
+/// it becomes a [`CompileError`] (#353).
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum SelectRefusal<'a, 'v> {
+    /// `select` is absent or not an object.
+    #[error("seat '{phase}' select must be an object")]
+    NotObject { phase: &'a str },
+    /// The first key outside `on`, `cases` and `default`, in map order.
+    #[error("seat '{phase}' select has unknown key '{key}'; known: on, cases, default")]
+    UnknownKey { phase: &'a str, key: &'v str },
+    /// `on` is not `strategy`; `<missing>` when absent or not a string.
+    #[error(
+        "seat '{phase}' select has unknown 'on' {on}; known: strategy — the selection vocabulary is closed"
+    )]
+    UnknownOn { phase: &'a str, on: &'v str },
+    /// `cases` is absent or not an object.
+    #[error("seat '{phase}' select.cases must be an object")]
+    CasesNotObject { phase: &'a str },
+    /// The first case outside [`SELECT_STRATEGIES`], in map order.
+    #[error(
+        "seat '{phase}' select has unknown strategy case '{case}'; known: {}",
+        SELECT_STRATEGIES.join(", ")
+    )]
+    UnknownCase { phase: &'a str, case: &'v str },
+    /// The first strategy, in [`SELECT_STRATEGIES`]'s order, with no case
+    /// and no default.
+    #[error(
+        "strategy class '{strategy}' resolves to nothing in seat '{phase}'; add that case or a default"
+    )]
+    Unresolved {
+        phase: &'a str,
+        strategy: &'static str,
+    },
+}
+
+/// A select's refusal as the compile reports it.
+fn select_refused(refusal: SelectRefusal<'_, '_>) -> CompileError {
+    CompileError::Invalid(refusal.to_string())
 }
 
 /// A panel may judge or work, never do both: its members' written classes
@@ -464,3 +524,29 @@ fn refuse_mixed_panel(what: &str, members_raw: &Map<String, Value>) -> Result<()
     }
     Ok(())
 }
+
+/// A single seat's declared `results` lie within its hired agent's list
+/// where the agent declares one (decision 0109 ruling 11): the list is a
+/// ceiling, never a floor, and an agent that declares none leaves the
+/// seat as it is.
+fn refuse_results_beyond_agent(
+    what: &str,
+    results: &[String],
+    hired: &ResolvedSeat,
+) -> Result<(), CompileError> {
+    let Some(ceiling) = &hired.results else {
+        return Ok(());
+    };
+    match results.iter().find(|word| !ceiling.contains(word)) {
+        None => Ok(()),
+        Some(word) => Err(CompileError::Invalid(format!(
+            "seat '{what}' declares result '{word}', which its hired agent's results [{}] \
+             do not admit; an agent's results are the ceiling of every seat that hires it \
+             (decision 0109 ruling 11)",
+            ceiling.join(", ")
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod tests;

@@ -20,7 +20,7 @@ pub(crate) const FILELESS: &str = "none (decision 0082 ruling 5)";
 
 /// A reader private to its crate, with the row its file names. The owning
 /// crate's tests drive it; this module only admits the name.
-pub(crate) const PRIVATE: [(&str, &str); 10] = [
+pub(crate) const PRIVATE: [(&str, &str); 11] = [
     (
         "contracts/operator-ending.v1.schema.json",
         "load brokkr_core::ending::operator_ending",
@@ -47,6 +47,10 @@ pub(crate) const PRIVATE: [(&str, &str); 10] = [
     ),
     (
         "contracts/host.v4.schema.json",
+        "load brokkr_runtime::admission::host::read",
+    ),
+    (
+        "contracts/host.v5.schema.json",
         "load brokkr_runtime::admission::host::read",
     ),
     (
@@ -758,6 +762,8 @@ fn seat_variant(number: u16) -> Option<brokkr_store::SeatRecordVersion> {
         4 => brokkr_store::SeatRecordVersion::V4,
         5 => brokkr_store::SeatRecordVersion::V5,
         6 => brokkr_store::SeatRecordVersion::V6,
+        7 => brokkr_store::SeatRecordVersion::V7,
+        8 => brokkr_store::SeatRecordVersion::V8,
         _ => return None,
     })
 }
@@ -929,6 +935,42 @@ fn drive_park_cause(row: &Row) -> Vec<String> {
     Vec::new()
 }
 
+/// Drive the effect-usage extension's one reader: a panel's `usage` on an
+/// ending loads as one measured driver per member, and the row's own
+/// schema admits the instance first (decision 0112 ruling 4).
+fn drive_usage(row: &Row) -> Vec<String> {
+    let measures = serde_json::json!({
+        "peak_memory_bytes": 4096, "mean_memory_bytes": 2048,
+        "peak_load_millicores": 1500, "mean_load_millicores": 700,
+        "cpu_ms": 1400, "wall_ms": 2000
+    });
+    let usage = serde_json::json!({"usage": {"members": {"a": measures, "b": measures}}});
+    if let Some(finding) = instance_satisfies_row(row, &usage) {
+        return vec![finding];
+    }
+    let mut ending = usage;
+    ending["effect_id"] = "e".into();
+    ending["attempt_id"] = "a".into();
+    ending["error"] = "x".into();
+    let run = vec![
+        envelope(
+            brokkr_core::EventType::RunStarted,
+            serde_json::json!({"feature": "f", "manifest": {"bundle_name": "self"}}),
+            1,
+        ),
+        envelope(
+            brokkr_core::EventType::PhaseEntered,
+            serde_json::json!({"phase": "implement"}),
+            2,
+        ),
+        envelope(brokkr_core::EventType::EffectFailed, ending, 3),
+    ];
+    let rows = brokkr_view::recipe_usage(&[run], None);
+    assert_eq!(rows.len(), 1, "one phase of one recipe loads");
+    assert_eq!((rows[0].measured, rows[0].unmeasured), (2, 0));
+    Vec::new()
+}
+
 /// Drive the evidence archive's one reader: a valid inventory loads, and
 /// the row's own schema admits the instance first (decision 0105 ruling 2).
 fn drive_archive(row: &Row) -> Vec<String> {
@@ -1089,6 +1131,7 @@ fn drive_load(row: &Row, item: &str) -> Vec<String> {
         }
         "brokkr_core::provider_waits" => drive_provider_waits(row),
         "brokkr_core::ParkCause::read" => drive_park_cause(row),
+        "brokkr_view::recipe_usage" => drive_usage(row),
         "brokkr_runtime::engine::evidence::read_archive" => drive_archive(row),
         other => panic!("{other} is not a public loader this check knows"),
     }

@@ -1,15 +1,19 @@
 //! The dispatcher (decision 0068, as decisions 0095 and 0110 amend it): the
-//! one process a journal admits to start its queue's entries. Built so far:
+//! one process a journal admits to start its queue's entries. Built here:
 //! how it takes the journal (0095 ruling 2), by its lock and its holder row,
 //! whose generation every step it takes is fenced by in the store; its
 //! reconciliation of what a dispatcher left mid-start (0095 ruling 3); its
 //! one pass under that lock (0110 ruling 1), which reconciles, sweeps, reads
 //! the bound, judges and starts each admitted entry through its claim,
-//! start, link and `spawn` row; and one entry's start with the start's
-//! disposal by variant (0110 ruling 2). The spawn seam stands in for the
-//! process. The `brokkr dispatch` verb, the process that seam starts and the
-//! standing loop are #430's later slices; this pass starts no process and
-//! prints nothing.
+//! start, link and `spawn` row; one entry's start with the start's disposal
+//! by variant (0110 ruling 2); in safe code, what the driver each run
+//! is handed to needs (0110 rulings 3 and 4): the binary's identity, the
+//! driver's log and the driver's own checks; and the standing loop that
+//! repeats the pass while it stands, reaping the drivers it spawned
+//! (0110 ruling 5), over seams for its clock, its stop and its drivers.
+//! `brokkr queue dispatch`, its `drive`, `set-bound` and `status` are built in
+//! brokkr-cli, which starts the driver's process and holds the signals.
+//! Nothing here prints.
 
 use std::path::PathBuf;
 
@@ -20,14 +24,18 @@ use uuid::Uuid;
 mod lock;
 mod pass;
 mod reconcile;
+mod spawn;
+mod standing;
 mod start;
 
-pub use lock::{take_dispatch, Dispatcher};
+pub use lock::{dispatched, take_dispatch, Dispatcher};
 pub use pass::{
-    pass, BoundOutcome, Contended, Ended, Ending, Held, Passed, Reclaimed, Seams, Spawning, Stage,
-    Started, Subject, SweepOutcome, SweepRefused,
+    pass, BoundOutcome, Contended, Ended, Ending, Held, Left, Passed, Reclaimed, Seams, Spawning,
+    Stage, Started, Subject, SweepOutcome, SweepRefused,
 };
 pub use reconcile::{reconcile, Settled};
+pub use spawn::{driven, driver_log, driver_log_path, workspace, Binary, DriverError};
+pub use standing::{stand, Exited, Reaped, Stand, Stopped, Tick};
 pub use start::{ClaimRefused, Spawn, SpawnFailed, Spawned};
 
 /// Why this process could not take a journal as its dispatcher, or, as

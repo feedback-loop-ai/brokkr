@@ -20,7 +20,8 @@
 //! entry is re-pinned after it: nothing else clears one, and a latch or a
 //! re-pin is written only over the pin and the latch its caller read
 //! ([`Seen`]). Priority and
-//! waits are operator data, stored and listed here; admission weighs them.
+//! waits are operator data, stored and listed here; the queue's order
+//! reads priority first, and admission weighs the waits.
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
@@ -29,6 +30,7 @@ use crate::{now_rfc3339, patiently, Store, StoreError};
 mod beside;
 mod claim;
 mod cooldown;
+mod driven;
 mod entry;
 mod holder;
 mod refusal;
@@ -36,7 +38,7 @@ pub(crate) mod storage;
 
 pub use beside::Seen;
 use beside::{beside_once, Beside};
-pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Generation, StartRefusal};
+pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Disposal, Generation, StartRefusal};
 pub(crate) use cooldown::insert as insert_cooldowns;
 pub use cooldown::{
     Cooldown, CooldownAggregate, CooldownRound, Cooling, ProbeHold, ProbeHoldId, RoundAppend,
@@ -146,17 +148,22 @@ pub struct Attribution<'a> {
     pub reason: &'a str,
 }
 
+/// Whether a `merged` record of a `queue_entries` row stands, read in the
+/// statement that reads its standing, the command's word bound as `?2`.
+const MERGED: &str = "EXISTS (SELECT 1 FROM queue_commands
+    WHERE queue_commands.entry_id = queue_entries.entry_id AND command = ?2)";
+
 /// The standing of one entry, read inside the transaction that acts on it.
 fn standing(tx: &Transaction<'_>, entry: EntryId) -> Result<EntryState, StoreError> {
-    let row: Option<(Standing, Option<String>)> = tx
+    let row: Option<(Standing, Option<String>, bool)> = tx
         .query_row(
-            "SELECT state, run_id FROM queue_entries WHERE entry_id = ?1",
-            params![entry.0],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            &format!("SELECT state, run_id, {MERGED} FROM queue_entries WHERE entry_id = ?1"),
+            params![entry.0, QueueCommand::Merged.word()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?;
-    let (standing, run) = row.ok_or(QueueRefusal::UnknownEntry(entry))?;
-    Ok(EntryState::of(standing, run))
+    let (standing, run, merged) = row.ok_or(QueueRefusal::UnknownEntry(entry))?;
+    Ok(EntryState::of(standing, run, merged))
 }
 
 /// Does the table hold a row with this key?
@@ -168,18 +175,38 @@ fn exists(
     Ok(tx.query_row(query, [key], |_| Ok(())).optional()?.is_some())
 }
 
-/// The entries in the queue's order: queued, held and launching, by
-/// place, since a claimed entry keeps its place until it is linked. Every
-/// unclaimed entry's state is read as a [`Standing`], so one this brokkr
-/// does not know refuses the command rather than being placed.
-fn waiting(tx: &Transaction<'_>) -> Result<Vec<EntryId>, StoreError> {
-    let unclaimed = tx
-        .prepare(
-            "SELECT entry_id, state FROM queue_entries
-             WHERE run_id IS NULL ORDER BY position",
-        )?
-        .query_map([], |row| Ok((EntryId(row.get(0)?), row.get(1)?)))?
-        .collect::<Result<Vec<(EntryId, Standing)>, _>>()?;
+/// The queue's one order (decision 0068 ruling 2, and the operator's
+/// ruling on #1191: "`queue move` orders entries within one priority, and
+/// priority always wins"): priority, higher first, then place, then id.
+/// Every read of the queue sorts by it, every write of the places writes
+/// them in it, and every read gives each waiting entry its place in it,
+/// so a queue journaled before this order, its places still arrival's,
+/// lists and moves by the same places.
+const ORDER: &str = "priority DESC, position, entry_id";
+
+/// The completer's page of waiting entries ([`Store::queue_waiting`]):
+/// unclaimed rows in either waiting standing, newest first, within a limit.
+const WAITING_SQL: &str = "SELECT entry_id, state FROM queue_entries
+     WHERE run_id IS NULL AND state IN (?1, ?2)
+     ORDER BY entry_id DESC LIMIT ?3";
+
+/// A waiting entry and the priority that orders it first.
+type Waiting = (EntryId, i64);
+
+/// The entries in the queue's order: queued, held and launching, since a
+/// claimed entry keeps its place until it is linked. Every unclaimed
+/// entry's state is read as a [`Standing`], so one this brokkr does not
+/// know refuses the command rather than being placed.
+fn waiting(conn: &Connection) -> Result<Vec<Waiting>, StoreError> {
+    let query = format!(
+        "SELECT entry_id, state, priority FROM queue_entries
+         WHERE run_id IS NULL ORDER BY {ORDER}"
+    );
+    let read = |row: &rusqlite::Row<'_>| -> rusqlite::Result<(Waiting, Standing)> {
+        Ok(((EntryId(row.get(0)?), row.get(2)?), row.get(1)?))
+    };
+    let mut statement = conn.prepare(&query)?;
+    let unclaimed = (statement.query_map([], read)?).collect::<Result<Vec<_>, _>>()?;
     Ok(unclaimed
         .into_iter()
         .filter(|(_, standing)| *standing != Standing::Dropped)
@@ -187,9 +214,14 @@ fn waiting(tx: &Transaction<'_>) -> Result<Vec<EntryId>, StoreError> {
         .collect())
 }
 
+/// The place `entry` holds in `order`, from 1.
+fn place_in(order: &[Waiting], entry: EntryId) -> u32 {
+    order.iter().take_while(|(id, _)| *id != entry).count() as u32 + 1
+}
+
 /// Write the queue's order back as places from 1.
-fn renumber(tx: &Transaction<'_>, order: &[EntryId]) -> Result<(), StoreError> {
-    for (place, entry) in (1u32..).zip(order) {
+fn renumber(tx: &Transaction<'_>, order: &[Waiting]) -> Result<(), StoreError> {
+    for (place, (entry, _)) in (1u32..).zip(order) {
         tx.execute(
             "UPDATE queue_entries SET position = ?1 WHERE entry_id = ?2",
             params![place, entry.0],
@@ -243,13 +275,17 @@ fn record(
     Ok(tx.last_insert_rowid())
 }
 
-/// Refuse a command the entry's standing cannot take.
+/// Refuse a command the entry's standing cannot take: a `merged` record
+/// only of an entry that started a run, every other command only of one
+/// that waits.
 fn admit(entry: EntryId, state: EntryState, command: QueueCommand) -> Result<(), QueueRefusal> {
-    use QueueCommand::{Drop, Hold, Move, Release};
+    use QueueCommand::{Drop, Hold, Merged, Move, Release};
     match (state, command) {
         (EntryState::Dropped, _) => Err(QueueRefusal::Dropped(entry)),
-        (EntryState::Claimed { run }, _) => Err(QueueRefusal::Claimed { entry, run }),
+        (EntryState::Claimed { .. }, Merged) => Ok(()),
+        (EntryState::Claimed { run, .. }, _) => Err(QueueRefusal::Claimed { entry, run }),
         (EntryState::Launching, _) => Err(QueueRefusal::Launching(entry)),
+        (EntryState::Queued | EntryState::Held, Merged) => Err(QueueRefusal::Unstarted(entry)),
         (EntryState::Held, Hold) => Err(QueueRefusal::AlreadyHeld(entry)),
         (EntryState::Queued, Release) => Err(QueueRefusal::NotHeld(entry)),
         (EntryState::Queued, Move { .. } | Hold | Drop)
@@ -257,11 +293,16 @@ fn admit(entry: EntryId, state: EntryState, command: QueueCommand) -> Result<(),
     }
 }
 
-/// Refuse waits that name an entry twice or one the queue never held.
-/// Checked before the new entry exists, so no wait can name it, and every
-/// entry waited for is older than it: waits never close a cycle.
+/// Refuse waits on a condition the column's reader would refuse, such as
+/// `unclassified`, and waits that name an entry twice or one the queue
+/// never held. Checked before the new entry exists, so no wait can name
+/// it, and every entry waited for is older than it: waits never close a
+/// cycle.
 fn admit_waits(tx: &Transaction<'_>, waits: &[Wait]) -> Result<(), StoreError> {
     for (index, wait) in waits.iter().enumerate() {
+        if !WaitOn::ALL.contains(&wait.on) {
+            return Err(QueueRefusal::NotACondition(*wait).into());
+        }
         if waits[..index].iter().any(|seen| seen.entry == wait.entry) {
             return Err(QueueRefusal::DuplicateWait(wait.entry).into());
         }
@@ -281,7 +322,7 @@ fn add_once(
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     queue_stored(&tx)?;
     admit_waits(&tx, new.waits)?;
-    let place = waiting(&tx)?.len() as u32 + 1;
+    let end = waiting(&tx)?.len() as u32 + 1;
     tx.execute(
         "INSERT INTO queue_entries (payload, priority, added_at, state, position)
          VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -290,10 +331,15 @@ fn add_once(
             new.priority,
             now_rfc3339(),
             Standing::Queued.word(),
-            place
+            end
         ],
     )?;
     let entry = EntryId(tx.last_insert_rowid());
+    // Added at the end, it stands last among its own priority; the
+    // renumber writes that place.
+    let order = waiting(&tx)?;
+    renumber(&tx, &order)?;
+    let place = place_in(&order, entry);
     for wait in new.waits {
         tx.execute(
             "INSERT INTO queue_waits (entry_id, awaits, condition) VALUES (?1, ?2, ?3)",
@@ -310,14 +356,14 @@ fn command_once(
     entry: EntryId,
     command: QueueCommand,
     by: Attribution<'_>,
-) -> Result<(), StoreError> {
+) -> Result<Option<u32>, StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     queue_stored(&tx)?;
     admit(entry, standing(&tx, entry)?, command)?;
     let position = apply(&tx, entry, command)?;
     record(&tx, entry, command.word(), position, by)?;
     tx.commit()?;
-    Ok(())
+    Ok(position)
 }
 
 /// Carry out an admitted command on `entry`, and say the place a move
@@ -336,31 +382,44 @@ fn apply(
             leave_order(tx, entry)?;
             Ok(None)
         }
+        QueueCommand::Merged => Ok(None),
     }
 }
 
-/// Move `entry` to place `to` among the waiting entries, refusing a place
-/// past either end.
+/// Move `entry` toward place `to` among the waiting entries, refusing a
+/// place past either end, and say the place it holds after. Priority
+/// still orders first: the entry moves only among those of its own
+/// priority, so a place across a priority's edge leaves it at that edge.
 fn move_entry(tx: &Transaction<'_>, entry: EntryId, to: u32) -> Result<u32, StoreError> {
-    let mut order = waiting(tx)?;
+    let order = waiting(tx)?;
     let last = order.len() as u32;
     if to == 0 || to > last {
         return Err(QueueRefusal::PastTheEnds { entry, to, last }.into());
     }
-    order.retain(|id| *id != entry);
-    order.insert(to as usize - 1, entry);
+    let (moved, mut order): (Vec<Waiting>, Vec<Waiting>) =
+        order.into_iter().partition(|(id, _)| *id == entry);
+    let at = to as usize - 1;
+    order.splice(at..at, moved);
+    // Stable, so the move's order within each priority stands.
+    order.sort_by_key(|(_, priority)| std::cmp::Reverse(*priority));
     renumber(tx, &order)?;
-    Ok(to)
+    Ok(place_in(&order, entry))
 }
 
 /// The entries `filter` selects with `key`, in the queue's order, each
 /// with its waits, the launch it stands for and the latch that stands on
-/// it. A version 1 queue holds no pins and no latches.
+/// it. A waiting entry's place is read as its place in the queue's order,
+/// not as stored. A version 1 queue holds no pins and no latches. The
+/// caller reads it under one snapshot, so the order the rows list in and
+/// the places read for them are one state's. `between` runs after the
+/// rows are read and before their places are: the instant a peer's
+/// command lands, which the tests stage.
 fn entries(
     conn: &Connection,
     stored: Stored,
     filter: &str,
     key: &dyn rusqlite::ToSql,
+    between: &mut dyn FnMut(),
 ) -> Result<Vec<QueueEntry>, StoreError> {
     let (payload, pin, latched) = match stored {
         Stored::V2 | Stored::V3 | Stored::V4 | Stored::V5 | Stored::V6 | Stored::V7 => {
@@ -369,16 +428,16 @@ fn entries(
         Stored::V1 => ("payload", "NULL", false),
     };
     let mut entries = conn.prepare(&format!(
-        "SELECT entry_id, position, state, run_id, priority, {payload}, added_at, {pin}
+        "SELECT entry_id, position, state, run_id, priority, {payload}, added_at, {pin}, {MERGED}
          FROM queue_entries WHERE {filter}
-         ORDER BY position IS NULL, position, entry_id"
+         ORDER BY position IS NULL, {ORDER}"
     ))?;
     let mut listed = entries
-        .query_map([key], |row| {
+        .query_map(params![key, QueueCommand::Merged.word()], |row| {
             Ok(QueueEntry {
                 id: EntryId(row.get(0)?),
                 position: row.get(1)?,
-                state: EntryState::of(row.get(2)?, row.get(3)?),
+                state: EntryState::of(row.get(2)?, row.get(3)?, row.get(8)?),
                 priority: row.get(4)?,
                 payload: row.get(5)?,
                 added_at: row.get(6)?,
@@ -388,9 +447,12 @@ fn entries(
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
+    between();
     let mut waits = conn.prepare(WAITS)?;
     let mut latches = latched.then(|| conn.prepare(STANDING_LATCH)).transpose()?;
+    let order = waiting(conn)?;
     for entry in &mut listed {
+        entry.position = entry.position.map(|_| place_in(&order, entry.id));
         if let Some(latches) = &mut latches {
             entry.latch = latches.query_row([entry.id.0], latch_row).optional()?;
         }
@@ -399,21 +461,38 @@ fn entries(
     Ok(listed)
 }
 
-fn list_once(conn: &Connection) -> Result<Vec<QueueEntry>, StoreError> {
+/// The queue under one read snapshot, `between` run inside it as
+/// [`entries`] says.
+fn list_once(conn: &Connection, between: &mut dyn FnMut()) -> Result<Vec<QueueEntry>, StoreError> {
+    let _snapshot = conn.unchecked_transaction()?;
     match queue_stored(conn)? {
-        Some(stored) => entries(conn, stored, "state != ?1", &Standing::Dropped.word()),
+        Some(stored) => entries(
+            conn,
+            stored,
+            "state != ?1",
+            &Standing::Dropped.word(),
+            between,
+        ),
         None => Ok(Vec::new()),
     }
 }
 
-fn entry_once(conn: &Connection, entry: EntryId) -> Result<QueueEntry, StoreError> {
+/// One entry under one read snapshot, its place read in the same state as
+/// its row, `between` run inside it as [`entries`] says.
+fn entry_once(
+    conn: &Connection,
+    entry: EntryId,
+    between: &mut dyn FnMut(),
+) -> Result<QueueEntry, StoreError> {
+    let _snapshot = conn.unchecked_transaction()?;
     let stored = queue_stored(conn)?.ok_or(QueueRefusal::UnknownEntry(entry))?;
-    let mut found = entries(conn, stored, "entry_id = ?1", &entry.0)?;
+    let mut found = entries(conn, stored, "entry_id = ?1", &entry.0, between)?;
     found.pop().ok_or(QueueRefusal::UnknownEntry(entry).into())
 }
 
 impl Store {
-    /// Queue a new entry at the end of the queue, journaling the `add`.
+    /// Queue a new entry last among those of its own priority, journaling
+    /// the `add` with the place it takes.
     /// Every entry it waits for must already be in the queue.
     pub fn queue_add(
         &mut self,
@@ -421,35 +500,68 @@ impl Store {
         by: Attribution<'_>,
     ) -> Result<EntryId, StoreError> {
         let conn = &mut self.conn;
-        patiently("queue_add", self.patience, || add_once(conn, new, by))
+        patiently("queue_add", self.patience, &self.path, || {
+            add_once(conn, new, by)
+        })
     }
 
     /// Move, hold, release or drop an entry, journaling the command. The
     /// check and the write are one `Immediate` transaction, so a peer's
     /// command between them cannot slip past the refusal.
+    ///
+    /// Returns the place the command journaled: `Some` with the place a
+    /// move left the entry holding, which priority can make other than
+    /// the place asked, and `None` for a hold, a release, a drop or a
+    /// `merged` record, which moves no standing and no place. It is
+    /// the same transaction's, so a caller never reads it back after a
+    /// peer's command may have moved it.
     pub fn queue_command(
         &mut self,
         entry: EntryId,
         command: QueueCommand,
         by: Attribution<'_>,
-    ) -> Result<(), StoreError> {
+    ) -> Result<Option<u32>, StoreError> {
         let conn = &mut self.conn;
-        patiently("queue_command", self.patience, || {
+        patiently("queue_command", self.patience, &self.path, || {
             command_once(conn, entry, command, by)
         })
     }
 
-    /// The queue: waiting entries in order, then the claimed ones by id.
+    /// The queue: waiting entries in the queue's order (priority, higher
+    /// first, then place, then id), then the claimed ones in the same
+    /// order less the place they gave up.
     /// Dropped entries are not listed. A journal from before the queue
     /// has an empty one.
     pub fn queue_list(&self) -> Result<Vec<QueueEntry>, StoreError> {
-        patiently("queue_list", self.patience, || list_once(&self.conn))
+        patiently("queue_list", self.patience, &self.path, || {
+            list_once(&self.conn, &mut || {})
+        })
+    }
+
+    /// The newest `limit` entries still waiting to start, queued or held,
+    /// each with its standing's word: the entries an operator command
+    /// names, read as one page from the unclaimed rows and never decoded
+    /// (decision 0119 ruling 4). A journal from before the queue has none.
+    pub fn queue_waiting(&self, limit: u32) -> Result<Vec<(EntryId, String)>, StoreError> {
+        patiently("queue_waiting", self.patience, &self.path, || {
+            if queue_stored(&self.conn)?.is_none() {
+                return Ok(Vec::new());
+            }
+            let waiting = [Standing::Queued.word(), Standing::Held.word()];
+            let mut statement = self.conn.prepare(WAITING_SQL)?;
+            let found = statement
+                .query_map(params![waiting[0], waiting[1], limit], |row| {
+                    Ok((EntryId(row.get(0)?), row.get(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(found)
+        })
     }
 
     /// One entry, whatever its standing, dropped included.
     pub fn queue_entry(&self, entry: EntryId) -> Result<QueueEntry, StoreError> {
-        patiently("queue_entry", self.patience, || {
-            entry_once(&self.conn, entry)
+        patiently("queue_entry", self.patience, &self.path, || {
+            entry_once(&self.conn, entry, &mut || {})
         })
     }
 
@@ -470,7 +582,7 @@ impl Store {
         by: Attribution<'_>,
     ) -> Result<(), StoreError> {
         let conn = &mut self.conn;
-        patiently("queue_repin", self.patience, || {
+        patiently("queue_repin", self.patience, &self.path, || {
             beside_once(conn, entry, Beside::Pin, seen, payload, by)
         })
     }
@@ -490,7 +602,7 @@ impl Store {
         by: Attribution<'_>,
     ) -> Result<(), StoreError> {
         let conn = &mut self.conn;
-        patiently("queue_latch", self.patience, || {
+        patiently("queue_latch", self.patience, &self.path, || {
             beside_once(conn, entry, Beside::Latch, seen, finding, by)
         })
     }

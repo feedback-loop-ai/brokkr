@@ -84,7 +84,11 @@ fn fake_codex(root: &Path, tag: &str, items: &str) -> PathBuf {
 /// `driver codex --`, hands the rest to [`codex_driver_child`] with
 /// `tag`'s harness, and passes on only protocol lines.
 fn wrapper(root: &Path, tag: &str, items: &str) -> String {
-    let codex = fake_codex(root, tag, items);
+    serving(root, tag, &fake_codex(root, tag, items))
+}
+
+/// The engine token of one `driver codex` command whose harness is `codex`.
+fn serving(root: &Path, tag: &str, codex: &Path) -> String {
     let path = root.join(format!("bin/driver-codex-{tag}"));
     script(
         &path,
@@ -106,16 +110,16 @@ fn wrapper(root: &Path, tag: &str, items: &str) -> String {
 /// An inline Codex site on `tag`'s wrapper, wanting `web-search`, whose
 /// harness writes `items`.
 fn inline(root: &Path, tag: &str, items: &str) -> Value {
+    pinned(wrapper(root, tag, items), "gpt-6-astra")
+}
+
+/// An inline Codex site on the wrapper `driver`, pinned to `model` and
+/// wanting `web-search`.
+fn pinned(driver: String, model: &str) -> Value {
     let command = [
-        "driver",
-        "codex",
-        "--",
-        "--model",
-        "gpt-6-astra",
-        "--effort",
-        "high",
+        "driver", "codex", "--", "--model", model, "--effort", "high",
     ];
-    let mut argv = vec![wrapper(root, tag, items)];
+    let mut argv = vec![driver];
     argv.extend(command.map(str::to_string));
     json!({"role": "roles/role.md", "driver": {"command": argv},
            "capabilities": {"web-search": "wants"}})
@@ -395,7 +399,74 @@ fn an_unheld_or_unattributable_native_call_fails_its_attempt_through_the_shipped
             .iter()
             .rfind(|event| event.event_type == EventType::EffectFailed)
             .unwrap();
-        assert_eq!(failed.payload["error"], format!("{cause}; stderr tail: "));
+        assert_eq!(
+            failed.payload["error"],
+            format!("{cause}; driver stderr: empty")
+        );
         settles(&engine, &events, Status::AwaitingOperator);
+    }
+}
+
+/// What a fake Codex prints that no seat binds, so no driver masks it.
+const SENTINEL: &str = "UNBOUND-SENTINEL-1199";
+
+/// A `codex` whose stream and rollout name no model: it opens a thread and
+/// a turn, names `header` as its model on stderr beside the sentinel, and
+/// exits 3 without a result.
+fn header_codex(root: &Path, tag: &str, header: &str) -> PathBuf {
+    let path = root.join(format!("bin/codex-{tag}"));
+    script(
+        &path,
+        &format!(
+            "#!/bin/sh\n\
+             [ \"$1\" = --version ] && {{ printf 'codex-cli {VERSION}\\n'; exit 0; }}\n\
+             cat >/dev/null\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{tag}-thread\"}}\\n'\n\
+             printf '{{\"type\":\"turn.started\"}}\\n'\n\
+             printf 'model: {header}\\nsaid {SENTINEL}\\n' >&2\n\
+             exit 3\n"
+        ),
+    );
+    path
+}
+
+/// HIGH B of #1199's round two, through the shipped Codex driver: a model
+/// Codex names only on its stderr is journaled only when it is the seat's
+/// own pin, and no envelope of the run holds a byte of that stderr.
+#[test]
+fn a_codex_model_on_stderr_is_journaled_only_as_the_seats_pin() {
+    let test = "legacy_journal::codex::a_codex_model_on_stderr_is_journaled_only_as_the_seats_pin";
+    if !super::own_home::in_own_home(test) {
+        return;
+    }
+    // No unpinned Codex seat reaches this driver: the compiler refuses
+    // one (decision 0031 ruling 2), and a wrapper that drops the pin is
+    // refused before launch because the argv no longer reassembles the
+    // engine's record (decision 0066 ruling 4). The driver's unpinned rule
+    // is `codex_uses_its_own_model_header_only_when_it_is_the_seats_pin`'s.
+    for (pin, header, journaled) in [
+        ("gpt-6-astra", SENTINEL, "not reported"),
+        ("gpt-x", "gpt-x", "gpt-x"),
+        ("gpt-x", "gpt-y", "not reported"),
+    ] {
+        let site = |root: &Path| {
+            let codex = header_codex(root, "said", header);
+            vec![("said", pinned(serving(root, "said", &codex), pin))]
+        };
+        let (_dir, _root, engine, status) = driven(site);
+        assert_eq!(status, Status::AwaitingOperator, "{pin} {header}");
+        let events = engine.store.load(&engine.run_id).unwrap();
+        let journal = serde_json::to_string(&events).unwrap();
+        assert!(!journal.contains(SENTINEL), "{pin} {header}: {journal}");
+        let finished = events
+            .iter()
+            .find(|event| event.payload["checkpoint"]["step"] == "codex-session-finished")
+            .unwrap_or_else(|| panic!("{pin} {header}: a finished checkpoint"));
+        let checkpoint = &finished.payload["checkpoint"];
+        assert_eq!(
+            checkpoint["model"], journaled,
+            "{pin} {header}: {checkpoint}"
+        );
+        assert_eq!(checkpoint["exit_code"], 3, "{checkpoint}");
     }
 }

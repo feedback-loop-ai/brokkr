@@ -109,6 +109,7 @@ fn a_park_that_cannot_journal_propagates_the_store_error() {
 /// already the attempt's record. Both propagate out of `drive()`.
 #[test]
 fn a_journal_append_that_cannot_journal_propagates_the_store_error() {
+    own_engine!();
     for (event_type, journaled) in [("effect/failed", 0usize), ("run/parked", 1)] {
         // A host that does not read parks at the terminal (a stated reset
         // past the maximum is held, decision 0106 ruling 2).
@@ -134,6 +135,7 @@ fn a_journal_append_that_cannot_journal_propagates_the_store_error() {
 /// `waits` entry is invented, the park names no end, and nothing retries.
 #[test]
 fn a_wait_with_no_representable_end_inside_the_maximum_is_no_end() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     // The 1s wait is the host's; the attempt deadline is generous so a
     // loaded host cannot make this fixture's shell driver go indeterminate.
@@ -175,6 +177,7 @@ fn a_wait_with_no_representable_end_inside_the_maximum_is_no_end() {
 /// the wait goes on and probes.
 #[test]
 fn a_second_runs_append_does_not_stop_the_wait() {
+    own_engine!();
     let (dir, mut engine, now) = resumed(&["succeed"], base() + time::Duration::seconds(2), 2);
     let second = second_run(dir.path());
     let db = dir.path().join("forge.db");
@@ -217,6 +220,7 @@ fn a_second_runs_append_does_not_stop_the_wait() {
 /// or retries and the stop's own arm writes the ending.
 #[test]
 fn a_stop_after_the_last_slice_is_seen_before_the_probe() {
+    own_engine!();
     let (dir, mut engine, now, db, run_id) = stop_fixture();
     // The wait's own end: the terminal formed it from this clock, so the
     // stop lands on the loop's exit read, never on the terminal's.
@@ -252,6 +256,7 @@ fn chore_engine(dir: &Path) -> Engine {
 /// attempt, so the probe's invocation is labelled as the retried one.
 #[test]
 fn the_probe_names_a_cased_site_as_the_attempt_does() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let mut engine = chore_engine(dir.path());
     let mut current = state(

@@ -3,11 +3,12 @@
 //! line of each required job, and of each job it needs, is held here, and a
 //! changed one fails until the guide's row is re-read.
 
-use super::{workspace, MAIN_REQUIRES};
+use super::{needs_of, workspace, MAIN_REQUIRES};
 use crate::workflow;
 
 /// Every line of each job behind the twelve checks, in `MAIN_REQUIRES`'s
-/// order, each job a required job `needs:` held just before it, as its
+/// order, each job a required job `needs:`, and each job that one needs,
+/// held once, before the first job that needs it, as its
 /// workflow writes it, but for comments, blank lines and the
 /// value of a `run:` or `command:` key, whose lines `LEG_LINES` holds. A
 /// skipped step or job reports success, which satisfies a required check,
@@ -17,7 +18,7 @@ use crate::workflow;
 /// `env:` line added, dropped or changed fails the test. A line changed
 /// here is a line to re-read in the guide's row and the sections it links.
 /// A line that is a key of `SHARED_STEPS` stands for that step's lines.
-const JOB_LINES: [(&str, &str); 13] = [
+const JOB_LINES: [(&str, &str); 16] = [
     (
         "delivered-by-brokkr",
         r#"
@@ -55,6 +56,36 @@ const JOB_LINES: [(&str, &str); 13] = [
           VERIFIER: base-verifier/target/debug/brokkr
           CLASSES: base-verifier/.github/delivery-classes.json
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run:
+"#,
+    ),
+    (
+        "ratchets",
+        r#"
+    name: baseline ratchets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+<checkout>
+          fetch-depth: 2
+<stable toolchain>
+      - uses: ./.github/actions/setup-jscpd
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-shear@1.14.0
+          fallback: none
+      - name: file-size ratchet (quality/file-lines.txt)
+        run:
+      - name: duplication ratchet (quality/jscpd-baseline-*.json)
+        run:
+      - name: no unused dependency (cargo-shear)
+        run:
+      - name: a raised baseline names its ruling (quality/)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run:
 "#,
     ),
@@ -98,9 +129,57 @@ const JOB_LINES: [(&str, &str); 13] = [
 "#,
     ),
     (
+        "classify",
+        r#"
+    name: docs lane or full (scripts/docs-lane.sh)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      lane: ${{ steps.lane.outputs.lane }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: a pull request's change, documentation alone or not
+        id: lane
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run:
+"#,
+    ),
+    (
+        "docs-lane",
+        r#"
+    name: docs lane (the tests that read documentation)
+    needs: classify
+    if: needs.classify.outputs.lane == 'docs'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+<checkout>
+<stable toolchain>
+<rust-cache>
+      - name: bubblewrap for the boxed samples
+        uses: ./.github/actions/setup-bubblewrap
+        with:
+          cache-build: 'true'
+      - name: the tests that read documentation (scripts/docs-lane-tests.txt)
+        run:
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+          BROKKR_REQUIRE_PIDNS: '1'
+"#,
+    ),
+    (
         "engine-machines",
         r#"
     name: test (${{ matrix.os }}) on ${{ matrix.machine }}
+    needs: classify
+    if: github.event_name != 'push' && needs.classify.outputs.lane != 'docs'
     strategy:
       fail-fast: false
       matrix:
@@ -115,6 +194,12 @@ const JOB_LINES: [(&str, &str); 13] = [
             machine: linux/4
           - os: ubuntu-latest
             machine: linux/5
+          - os: ubuntu-latest
+            machine: linux/6
+          - os: ubuntu-latest
+            machine: linux/7
+          - os: ubuntu-latest
+            machine: linux/8
           - os: macos-latest
             machine: macos/1
           - os: macos-latest
@@ -123,6 +208,8 @@ const JOB_LINES: [(&str, &str); 13] = [
             machine: macos/3
           - os: macos-latest
             machine: macos/4
+          - os: macos-latest
+            machine: macos/5
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os)) }}
     timeout-minutes: ${{ matrix.os == 'macos-latest' && 60 || 45 }}
     steps:
@@ -142,6 +229,7 @@ const JOB_LINES: [(&str, &str); 13] = [
           BROKKR_TEST_MACHINE: ${{ matrix.machine }}
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
+          BROKKR_REQUIRE_PIDNS: ${{ runner.os == 'Linux' && '1' || '' }}
       - name: R3 native startup gate
         if: runner.os == 'macOS' && matrix.machine == 'macos/1'
         run:
@@ -162,8 +250,8 @@ const JOB_LINES: [(&str, &str); 13] = [
         "engine",
         r#"
     name: test (${{ matrix.os }})
-    needs: engine-machines
-    if: always()
+    needs: [classify, docs-lane, engine-machines]
+    if: always() && github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -171,8 +259,11 @@ const JOB_LINES: [(&str, &str); 13] = [
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: every machine ran its shards and passed
+      - name: the docs lane passed on a docs change, and every machine on any other
         env:
+          CLASSIFIED: ${{ needs.classify.result }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          DOCS: ${{ needs.docs-lane.result }}
           MACHINES: ${{ needs.engine-machines.result }}
         run:
 "#,
@@ -181,10 +272,12 @@ const JOB_LINES: [(&str, &str); 13] = [
         "coverage-machines",
         r#"
     name: exact coverage on ${{ matrix.machine }}
+    needs: classify
+    if: needs.classify.outputs.lane != 'docs'
     strategy:
       fail-fast: false
       matrix:
-        machine: [linux/1, linux/2, linux/3, linux/4, linux/5]
+        machine: [linux/1, linux/2, linux/3, linux/4, linux/5, linux/6, linux/7, linux/8]
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     timeout-minutes: 45
     steps:
@@ -204,6 +297,7 @@ const JOB_LINES: [(&str, &str); 13] = [
           BROKKR_COVERAGE_PROFILES: target/coverage-machine
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+          BROKKR_REQUIRE_PIDNS: '1'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-machine-${{ strategy.job-index }}
@@ -215,16 +309,11 @@ const JOB_LINES: [(&str, &str); 13] = [
     (
         "coverage",
         r#"
-    name: exact coverage gate
+    name: exact coverage report
     needs: coverage-machines
-    if: always()
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     timeout-minutes: 30
     steps:
-      - name: every machine measured its shards
-        env:
-          MACHINES: ${{ needs.coverage-machines.result }}
-        run:
 <local checkout>
 <coverage toolchain>
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -251,6 +340,24 @@ const JOB_LINES: [(&str, &str); 13] = [
         with:
           name: coverage-exact
           path: target/coverage/
+"#,
+    ),
+    (
+        "coverage-gate",
+        r#"
+    name: exact coverage gate
+    needs: [classify, docs-lane, coverage]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: the docs lane passed on a docs change, and the report on any other
+        env:
+          CLASSIFIED: ${{ needs.classify.result }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          DOCS: ${{ needs.docs-lane.result }}
+          REPORT: ${{ needs.coverage.result }}
+        run:
 "#,
     ),
     (
@@ -298,36 +405,6 @@ const JOB_LINES: [(&str, &str); 13] = [
 "#,
     ),
     (
-        "ratchets",
-        r#"
-    name: baseline ratchets
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-<checkout>
-          fetch-depth: 2
-<stable toolchain>
-      - uses: ./.github/actions/setup-jscpd
-      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
-        with:
-          tool: cargo-shear@1.14.0
-          fallback: none
-      - name: file-size ratchet (quality/file-lines.txt)
-        run:
-      - name: duplication ratchet (quality/jscpd-baseline-*.json)
-        run:
-      - name: no unused dependency (cargo-shear)
-        run:
-      - name: a raised baseline names its ruling (quality/)
-        if: github.event_name == 'pull_request'
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run:
-"#,
-    ),
-    (
         "dependency-audit",
         r#"
     name: RustSec dependency audit
@@ -335,15 +412,12 @@ const JOB_LINES: [(&str, &str); 13] = [
     timeout-minutes: 20
     permissions:
       contents: read
-      checks: write
-      issues: write
     steps:
 <checkout>
       - name: cargo-audit, pinned by digest
         uses: ./.github/actions/setup-cargo-audit
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: RustSec advisory audit
+        run:
 "#,
     ),
     (
@@ -408,6 +482,15 @@ fn keys_at<'a>(lines: &[&'a str], indent: &str) -> Vec<(&'a str, &'a str)> {
             let (key, value) = line.split_once(':').unwrap_or((line, ""));
             (key, value.trim())
         })
+        .collect()
+}
+
+/// A workflow's top-level keys, in order: a workflow-wide `defaults:` or
+/// `env:` would reach every step.
+fn top_level_keys(workflow: &str) -> Vec<&str> {
+    keys_at(&workflow.lines().collect::<Vec<_>>(), "")
+        .into_iter()
+        .map(|(key, _)| key)
         .collect()
 }
 
@@ -510,6 +593,74 @@ fn held_lines(body: &str) -> Vec<&str> {
     held
 }
 
+/// Every line of the nightly CPU budgets' one job (#1295), held as
+/// `JOB_LINES` holds a required job's: it is no required check, but its
+/// red status is the only signal a regression raises, so a softened step,
+/// a write permission or another runner fails until it is re-read.
+const CPU_BUDGETS_LINES: &str = r#"
+    name: CPU budgets (Callgrind, against the base)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+<stable toolchain>
+<rust-cache>
+      - name: valgrind, and the gungraun runner at the library's version
+        run:
+      - name: the base, the previous nightly's head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ inputs.ref }}
+          COUNTS: "the head's counts, 2% over the base at most"
+        run:
+      - name: the head's benches, built
+        run:
+      - name: the base's counts
+        run:
+      - name: the head's counts, 2% over the base at most
+        run:
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: cpu-budgets
+          path: |
+            ${{ runner.temp }}/record/
+            ${{ runner.temp }}/gungraun/
+            target/gungraun/
+            target/cargo-timings/
+          if-no-files-found: ignore
+"#;
+
+/// The nightly CPU budgets (#1295) are held whole like the required jobs:
+/// cpu-budgets.yml's top-level keys, its one job, and every line of that
+/// job as `CPU_BUDGETS_LINES` holds it.
+#[test]
+fn the_nightly_cpu_budgets_run_every_step_unsoftened() {
+    let text =
+        std::fs::read_to_string(workspace().join(".github/workflows/cpu-budgets.yml")).unwrap();
+    assert_eq!(
+        top_level_keys(&text),
+        ["name", "on", "permissions", "concurrency", "jobs"],
+        "cpu-budgets.yml's top-level keys"
+    );
+    let jobs = workflow::jobs(&text);
+    let ids: Vec<&str> = jobs.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, ["cpu-budgets"], "cpu-budgets.yml's jobs");
+    assert_eq!(
+        held_lines(&jobs[0].1),
+        expected_lines(CPU_BUDGETS_LINES),
+        "a line of cpu-budgets.yml's job changed: re-read what its red status signals"
+    );
+}
+
 /// A skipped step or job reports success, which satisfies a required
 /// check, so the jobs behind the twelve are held whole: each workflow's
 /// top-level keys (a workflow-wide `defaults:` or `env:` would reach every
@@ -522,6 +673,10 @@ fn the_required_jobs_run_every_step_unsoftened() {
         |file: &str| std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
     for (file, top) in [
         (
+            "pr-gates.yml",
+            ["name", "on", "concurrency", "permissions", "jobs"],
+        ),
+        (
             "ci.yml",
             ["name", "on", "concurrency", "permissions", "jobs"],
         ),
@@ -530,12 +685,7 @@ fn the_required_jobs_run_every_step_unsoftened() {
             ["name", "on", "permissions", "concurrency", "jobs"],
         ),
     ] {
-        let text = read(file);
-        let keys: Vec<&str> = keys_at(&text.lines().collect::<Vec<_>>(), "")
-            .into_iter()
-            .map(|(key, _)| key)
-            .collect();
-        assert_eq!(keys, top, "{file}'s top-level keys");
+        assert_eq!(top_level_keys(&read(file)), top, "{file}'s top-level keys");
     }
     let body_of = |id: &str, file: &str| {
         workflow::jobs(&read(file))
@@ -543,18 +693,25 @@ fn the_required_jobs_run_every_step_unsoftened() {
             .find_map(|(job, body)| (job == id).then_some(body))
             .unwrap_or_else(|| panic!("{file} has no {id} job"))
     };
+    // Each required job after every job it needs, and each of those after
+    // its own, each once: a verdict judges what its needs ran (#1295).
+    fn hold<'f>(
+        id: &str,
+        file: &'f str,
+        body_of: &dyn Fn(&str, &str) -> String,
+        required: &mut Vec<(String, &'f str)>,
+    ) {
+        if required.iter().any(|(held, _)| held == id) {
+            return;
+        }
+        for needed in needs_of(&body_of(id, file), id) {
+            hold(&needed, file, body_of, required);
+        }
+        required.push((id.to_string(), file));
+    }
     let mut required: Vec<(String, &str)> = Vec::new();
     for &(_, id, file) in &MAIN_REQUIRES {
-        if required.last().is_some_and(|(last, _)| last == id) {
-            continue;
-        }
-        let body = body_of(id, file);
-        let needed = body
-            .lines()
-            .find_map(|line| line.strip_prefix("    needs: "))
-            .map(str::to_string);
-        required.extend(needed.map(|needed| (needed, file)));
-        required.push((id.to_string(), file));
+        hold(id, file, &body_of, &mut required);
     }
     let held: Vec<&str> = JOB_LINES.iter().map(|(id, _)| *id).collect();
     let ids: Vec<&str> = required.iter().map(|(id, _)| id.as_str()).collect();

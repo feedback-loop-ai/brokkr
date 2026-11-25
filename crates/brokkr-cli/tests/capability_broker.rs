@@ -96,11 +96,7 @@ pub(crate) fn brokkr() -> &'static Path {
         assert!(lock(&live));
         std::fs::rename(dir.join("lock.new"), dir.join("lock")).unwrap();
         let (staged, copy) = (dir.join("brokkr.staged"), dir.join("brokkr"));
-        let cp = Command::new("/bin/cp")
-            .arg(env!("CARGO_BIN_EXE_brokkr"))
-            .arg(&staged)
-            .status();
-        assert_eq!(cp.unwrap().code(), Some(0), "copying the binary");
+        crate::stage_brokkr!(&staged).expect("copying the binary");
         chmod(&staged, 0o755);
         std::fs::rename(&staged, &copy).unwrap();
         (std::fs::canonicalize(copy).unwrap(), live)
@@ -165,8 +161,8 @@ impl Root {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = confined();
-        command.args(args).current_dir(&self.path);
+        let mut command = confined(args);
+        command.current_dir(&self.path);
         command
     }
 
@@ -179,12 +175,12 @@ impl Root {
             true => {
                 let mut command = Command::new(setpriv());
                 command.args(["--no-new-privs", "/bin/sh", "-c", HARNESS]);
-                command.arg(brokkr());
+                command.arg(brokkr()).args(args);
                 command
             }
-            false => Command::new(brokkr()),
+            false => crate::built::brokkr_at(brokkr(), args),
         };
-        command.args(args).current_dir(&self.path);
+        command.current_dir(&self.path);
         command
     }
 
@@ -199,10 +195,16 @@ impl Root {
     }
 }
 
-/// How long a test waits for a broker it started, and for its output: past
-/// the startup's thirty seconds and the thirty-one one test idles for, with
-/// room on a loaded host.
-const TALK_MAX: Duration = Duration::from_secs(90);
+/// MB3's startup deadline, `src/broker/session.rs`'s private `STARTUP`,
+/// pinned by `observer::the_suites_startup_is_the_brokers_own`.
+const STARTUP: Duration = Duration::from_secs(30);
+
+/// Past [`STARTUP`], for an instrumented, loaded runner to reap (#1008).
+const SETTLE: Duration = Duration::from_secs(60);
+
+/// How long a test waits for a broker it started, and for its output: its
+/// deadline and [`SETTLE`], past the thirty-one seconds one test idles for.
+const TALK_MAX: Duration = STARTUP.saturating_add(SETTLE);
 
 /// One of a child's standard streams, read on a thread of its own from its
 /// start, so that it never fills: what it has said so far, and word of its
@@ -311,14 +313,14 @@ fn killed(pid: u32) {
 /// under `no_new_privs`, without which its observer refuses a host's
 /// multiply-linked system file (MB3). Setting it here would bind every
 /// later test in this process, so `setpriv` sets it for the child alone.
-fn confined() -> Command {
+fn confined(args: &[&str]) -> Command {
     match cfg!(target_os = "linux") {
         true => {
             let mut command = Command::new("setpriv");
-            command.arg("--no-new-privs").arg(brokkr());
+            command.arg("--no-new-privs").arg(brokkr()).args(args);
             command
         }
-        false => Command::new(brokkr()),
+        false => crate::built::brokkr_at(brokkr(), args),
     }
 }
 
@@ -565,16 +567,18 @@ fn the_grouped_library_verbs_still_dispatch() {
     let store = root.write("secrets.env", "DOCS_TOKEN=value\n");
     let private = std::os::unix::fs::PermissionsExt::from_mode(0o600);
     std::fs::set_permissions(&store, private).unwrap();
-    let ran = root.brokkr(&["secrets", "list", "--secrets-file", "secrets.env"]);
+    let ran = root.brokkr(&["system", "secrets", "list", "--secrets-file", "secrets.env"]);
     assert_eq!((ran.code, ran.stdout.as_str()), (Some(0), "DOCS_TOKEN\n"));
 }
 
-/// `brokkr init`'s folder, in a repository of its own whatever checkout
-/// the root sits in, whose map grants its one realm `library-docs`
-/// through an MCP dialect that no seat asks for.
+/// `brokkr init`'s folder, in a repository of its own whatever checkout the
+/// root sits in, its host file under `.git`; its map grants its one realm
+/// `library-docs` through an MCP dialect that no seat asks for.
 fn granting_mcp(root: &Root) {
     crate::brokkr_folder::git(&root.path, &["init", "-q"]);
-    assert_eq!(root.brokkr(&["init", "."]).code, Some(0));
+    let mut init = root.command(&["init", "."]);
+    init.env("XDG_CONFIG_HOME", root.path.join(".git/brokkr-config"));
+    assert_eq!(root.ran(init).code, Some(0));
     let map = root.path.join(".brokkr/realms.json");
     let mut realms: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&map).unwrap()).unwrap();
@@ -604,7 +608,7 @@ fn granting_mcp(root: &Root) {
 fn the_compile_fence_refuses_an_unused_mcp_grant_only_where_it_stands() {
     let root = Root::new();
     granting_mcp(&root);
-    let ran = root.brokkr(&["compile", "--bundle", ".brokkr"]);
+    let ran = root.brokkr(&["library", "compile", "--bundle", ".brokkr"]);
     if cfg!(target_os = "linux") {
         let compiled: serde_json::Value = serde_json::from_str(&ran.stdout).unwrap();
         return assert_eq!(

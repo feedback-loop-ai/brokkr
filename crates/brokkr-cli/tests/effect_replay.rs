@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+use brokkr_protocol::process::DriverStderr;
 use serde_json::{json, Value};
 
 /// Implement, then the review the house requires, which a run that parks
@@ -64,7 +65,9 @@ fn journal(dir: &Path, driver: &[String], feature: &str) -> Vec<Value> {
     let db = dir.join("forge.db").to_string_lossy().into_owned();
     let (run, _) = crate::engine::run_in(dir, feature, Path::new(&db));
     let out = dir.join("journal").to_string_lossy().into_owned();
-    let export = ["export", "--run", &run, "--out", &out, "--db", &db];
+    let export = [
+        "journal", "export", "--run", &run, "--out", &out, "--db", &db,
+    ];
     crate::engine::printed_in(dir, &export);
     let ndjson = std::fs::read_to_string(Path::new(&out).join(format!("{run}.ndjson"))).unwrap();
     ndjson
@@ -79,7 +82,7 @@ fn count(events: &[Value], kind: &str) -> usize {
 }
 
 /// The run parked on one attempt, ended indeterminate for `reason`, with
-/// the driver's stderr `tail` the engine journals beside it. A failure
+/// the driver's stderr `tail` named beside it by evidence alone (#1199). A failure
 /// prints each event with its payload, so an attempt that failed says why.
 fn parked_after_one_attempt(events: &[Value], reason: &str, tail: &str) {
     let journaled: Vec<String> = (events.iter())
@@ -93,16 +96,13 @@ fn parked_after_one_attempt(events: &[Value], reason: &str, tail: &str) {
         .iter()
         .find(|event| event["type"] == "effect/indeterminate")
         .unwrap_or_else(|| panic!("an indeterminate end: {journaled}"));
-    let journaled = format!("{reason}; stderr tail: {tail}");
+    let journaled = format!("{reason}; {}", DriverStderr::of(tail));
     assert_eq!(ended["payload"]["reason"], journaled, "{ended}");
 }
 
 /// `script` as an exec seat's command.
 fn exec(script: &str) -> Vec<String> {
-    let brokkr = env!("CARGO_BIN_EXE_brokkr");
-    [brokkr, "driver", "exec", "--", "sh", "-c", script]
-        .map(str::to_string)
-        .to_vec()
+    crate::built_argv!(["driver", "exec", "--", "sh", "-c", script])
 }
 
 /// A hung seat is killed at its deadline. Its tree is gone, but what it
@@ -120,15 +120,13 @@ fn a_deadline_kill_with_attempts_left_parks_after_one_attempt() {
     )
     .unwrap();
     let state = dir.path().join("state");
-    let driver = [
-        env!("CARGO_BIN_EXE_brokkr"),
+    let driver = crate::built_argv!([
         "fake-driver",
         "--script",
         script.to_str().unwrap(),
         "--state",
         state.to_str().unwrap(),
-    ];
-    let driver: Vec<String> = driver.map(str::to_string).to_vec();
+    ]);
     let events = journal(dir.path(), &driver, "replay");
     parked_after_one_attempt(&events, &killed(), "");
 }

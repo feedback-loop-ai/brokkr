@@ -188,7 +188,7 @@ fn a_probe_holds_contention_between_polls_is_charged() {
 #[test]
 fn a_probe_that_writes_an_extension_still_charges_its_elapsed_time() {
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::RefuseThenAnswer, None, 2);
-    engine.bundle.seats.get_mut("work").unwrap().limits = super::probe_rounds::patient(2);
+    engine.bundle.seats.get_mut("work").unwrap().limits = super::support::work(2);
     let at = live_row_clock_start();
     *now.lock().unwrap() = at;
     let (journal, run) = (engine.store.path().to_path_buf(), engine.run_id.clone());

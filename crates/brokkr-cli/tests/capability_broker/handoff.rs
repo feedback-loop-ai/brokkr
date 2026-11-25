@@ -22,7 +22,7 @@ use super::ledger::{failed_with, sealed_ledger};
 use super::observer::NO_TRACER;
 use super::observer::{awaited, processes, started_to, status, traced, tracer, within, Starter};
 use super::readiness::{bootstraps, boxed, Reads};
-use super::{ended, refused, skip, unservable, Refusal, Sealed, SPEAKS, TOKEN};
+use super::{ended, refused, skip, unservable, Refusal, Sealed, SPEAKS, STARTUP, TOKEN};
 
 /// A sealed fixture whose server is `script`, its store holding `store`
 /// and its plan declaring `names` and retaining nothing, so that a server
@@ -334,7 +334,7 @@ fn a_handoff_that_fails_after_the_lookup_starts_no_server() {
     assert!(shortest >= Some(CHANCE_FREE), "{shortest:?}");
     let cause = |case: &str, sealed: &Sealed| match case {
         "missing" => Refusal::Name(format!(
-            "secret 'DOCS_TOKEN' is not in the store at {} (brokkr secrets set DOCS_TOKEN)",
+            "secret 'DOCS_TOKEN' is not in the store at {} (brokkr system secrets set DOCS_TOKEN)",
             sealed.path("store/secrets.env").display()
         )),
         "not UTF-8" => Refusal::Name("secret 'DOCS_TOKEN' is not valid UTF-8".into()),
@@ -829,7 +829,7 @@ fn a_store_read_held_past_the_deadline_is_refused_at_the_deadline() {
     };
     let ended = returned(&handing, pids, handing.begun);
     let released = Duration::from_secs(u64::from(held));
-    let bounded = (ended >= Duration::from_secs(30)) & (ended < released);
+    let bounded = (ended >= STARTUP) & (ended < released);
     assert!(bounded, "{ended:?}");
     assert_eq!(refused_handoff(handing), refused(Refusal::Handoff).0);
 }
@@ -887,7 +887,7 @@ fn a_status_pipe_open_after_the_whole_frame_is_the_handoffs_cause_at_the_deadlin
     let (answer, reads, settled) = handing.ended();
     assert_eq!(answer, refused(Refusal::Handoff));
     let released = Duration::from_secs(u64::from(held));
-    let bounded = (ended >= Duration::from_secs(30)) & (ended < released);
+    let bounded = (ended >= STARTUP) & (ended < released);
     assert!(bounded, "{ended:?}");
     assert_eq!(reads, (1, 0));
     assert!(settled);

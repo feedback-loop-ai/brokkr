@@ -11,7 +11,7 @@ use brokkr_store::Generation;
 use serde_json::json;
 
 use super::{host, route, Fixture, PLENTY, TEMP};
-use crate::admission::capacity::{Capacity, Room};
+use crate::admission::capacity::{Capacity, Room, Unclaimed};
 use crate::admission::{pass_within_at, Host, Judged, Reason};
 
 /// The pass's and the claim's reading of claude/first at one instant.
@@ -68,13 +68,17 @@ impl Gates {
             (None, Some([Reason::Capacity(unmet)])) => Err(unmet.clone()),
             (None, other) => panic!("the pass stopped the entry otherwise: {other:?}"),
         };
-        let claimed = self
-            .room
-            .claim_at(&mut self.fixture.store, Generation(1), "admitted", at);
+        let claimed = self.room.claim_at(
+            &mut self.fixture.store,
+            Generation(1),
+            "admitted",
+            &mut || true,
+            at,
+        );
         let claim = match claimed.unwrap() {
             Ok(_) => Ok(()),
-            Err(Reason::Capacity(unmet)) => Err(unmet),
-            Err(other) => panic!("the claim refused otherwise: {other}"),
+            Err(Unclaimed::Refused(Reason::Capacity(unmet))) => Err(unmet),
+            Err(other) => panic!("the claim refused otherwise: {other:?}"),
         };
         [pass, claim]
     }
@@ -87,6 +91,7 @@ fn judged(fixture: &Fixture, file: &Path, now: time::OffsetDateTime) -> Judged {
         file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     pass_within_at(&fixture.store, &host, now)
         .unwrap()

@@ -13,7 +13,10 @@
 //! Measured again on 2026-11-11 on dsh 0.2.2-rc.1 (npm `latest`): with the
 //! same ten rows disabled the list is eight bookkeeping tools, and that
 //! release adds a disabled programmatic executor the overlay also pins
-//! (docs/evidence/adapters/dsh-hands-0-2-2.md). Each measured release has
+//! (docs/evidence/adapters/dsh-hands-0-2-2.md). Measured on 2026-11-19 on
+//! dsh 0.2.2-rc.5 (npm `latest` and `next`): eight bookkeeping tools again,
+//! `wait_agent` in place of `interrupt_agent`, and that release adds an
+//! agent-team tool row the overlay also pins. Each measured release has
 //! its own row set and composed tree, so a seat on any other release is
 //! refused before it starts rather than served a tool row nobody measured.
 //!
@@ -62,11 +65,12 @@ pub const ACCESS: &str = "seat_access";
 const V0_2_1_RC_2: &str = "0.2.1-rc.2";
 const V0_2_1_RC_3: &str = "0.2.1-rc.3";
 const V0_2_2_RC_1: &str = "0.2.2-rc.1";
+const V0_2_2_RC_5: &str = "0.2.2-rc.5";
 
 /// The dsh releases the hands rows were measured on: 0.2.1-rc.2 and
-/// 0.2.1-rc.3 on 2026-10-26, and 0.2.2-rc.1 on 2026-11-11
-/// (docs/evidence/adapters/dsh-hands-0-2-2.md).
-const MEASURED_VERSIONS: [&str; 3] = [V0_2_1_RC_2, V0_2_1_RC_3, V0_2_2_RC_1];
+/// 0.2.1-rc.3 on 2026-10-26, 0.2.2-rc.1 on 2026-11-11 and 0.2.2-rc.5 on
+/// 2026-11-19 (docs/evidence/adapters/dsh-hands-0-2-2.md).
+const MEASURED_VERSIONS: [&str; 4] = [V0_2_1_RC_2, V0_2_1_RC_3, V0_2_2_RC_1, V0_2_2_RC_5];
 
 /// One measured dsh release family. The set is closed: a version the
 /// controller did not measure is refused by name, never matched by prefix
@@ -77,11 +81,13 @@ pub(super) enum Release {
     V0_2_1,
     /// 0.2.2-rc.1, measured on 2026-11-11 (npm `latest`).
     V0_2_2,
+    /// 0.2.2-rc.5, measured on 2026-11-19 (npm `latest` and `next`).
+    V0_2_2Rc5,
 }
 
 impl Release {
     /// Every measured release, in the order the refusal names them.
-    const ALL: [Release; 2] = [Release::V0_2_1, Release::V0_2_2];
+    const ALL: [Release; 3] = [Release::V0_2_1, Release::V0_2_2, Release::V0_2_2Rc5];
 
     /// The exact versions this release family covers, each matched whole.
     /// Each variant names its own versions, so a version appended to
@@ -92,6 +98,7 @@ impl Release {
         match self {
             Release::V0_2_1 => &[V0_2_1_RC_2, V0_2_1_RC_3],
             Release::V0_2_2 => &[V0_2_2_RC_1],
+            Release::V0_2_2Rc5 => &[V0_2_2_RC_5],
         }
     }
 
@@ -108,6 +115,7 @@ impl Release {
         match self {
             Release::V0_2_1 => V0_2_1_RC_2,
             Release::V0_2_2 => V0_2_2_RC_1,
+            Release::V0_2_2Rc5 => V0_2_2_RC_5,
         }
     }
 
@@ -120,6 +128,7 @@ impl Release {
         match self {
             Release::V0_2_1 => V0_2_1_PINNED,
             Release::V0_2_2 => V0_2_2_PINNED,
+            Release::V0_2_2Rc5 => V0_2_2_RC5_PINNED,
         }
     }
 }
@@ -147,6 +156,13 @@ const DISABLED_ROWS: [&str; 10] = [
 /// that enables it cannot give a hands seat a code-running executor. It
 /// is not a 0.2.1 row, so 0.2.1's overlay does not name it.
 pub(super) const PTC_ROW: &str = "tool-executor-ptc";
+
+/// The agent-team tool row 0.2.2-rc.5 adds, enabled by default there. It
+/// offered no tool in either measured list, but nobody measured what it
+/// serves when a team is formed, so the hands overlay pins it disabled and
+/// the judge refuses a tree that enables it (fail closed). Its host row,
+/// `agent-team`, adds no tool to either list and stays as composed.
+pub(super) const TEAM_TOOL_ROW: &str = "tool-agent-team";
 
 /// The rows one release's hands overlay pins disabled, split where dsh's
 /// sandbox row sits: `before` it and `after` it. The bounded reader and
@@ -185,9 +201,17 @@ const V0_2_2_PINNED: PinnedRows = PinnedRows {
     after: &[PTC_ROW],
 };
 
+/// 0.2.2-rc.5's overlay pins what 0.2.2-rc.1's does, then the agent-team
+/// tool row that release adds.
+const V0_2_2_RC5_PINNED: PinnedRows = PinnedRows {
+    before: &DISABLED_ROWS,
+    after: &[PTC_ROW, TEAM_TOOL_ROW],
+};
+
 /// Whether `id` is one of the effectful rows `release`'s hands overlay
 /// disables, read from that release's one pinned table. 0.2.1 is the ten
-/// common rows; 0.2.2-rc.1 adds the programmatic executor. Its native
+/// common rows; 0.2.2-rc.1 adds the programmatic executor, and 0.2.2-rc.5
+/// the agent-team tool row as well. The native
 /// executor is the tool calling the model is still offered, so it stays
 /// enabled.
 pub(super) fn disabled(release: Release, id: &str) -> bool {
@@ -402,7 +426,12 @@ fn measured(observed: Option<String>) -> Result<Release, Refusal> {
 /// the WHOLE pinned block, 0.2.2-rc.1's programmatic executor included, so
 /// no pinned row Brokkr writes goes unread; 0.2.1 names no such row. The
 /// `- insert:` row appended after that check is Brokkr's workspace server
-/// and is outside the reader, as it was before the mode was read.
+/// and is outside the reader, as it was before the mode was read. Its
+/// `--reach-base64url` and `--spec-base64url` arguments carry the sealed
+/// reach and hands spec as unpadded base64url so dsh's `--dump-config`
+/// never folds a `{`-led JSON scalar onto a line the line rule refuses
+/// (#1277); `--workdir` and `--artifacts` stay plain paths, so a path dsh
+/// folds onto a refused line stays refused (fail closed).
 fn hands_rows(
     release: Release,
     mode: Mode,
@@ -465,7 +494,7 @@ pub(crate) fn composition_gate(
     release: Release,
     mode: Mode,
 ) -> Result<(), Composition> {
-    composition::composed_with(command, release, mode, |command| command.output())
+    composition::composed_with(command, release, mode, crate::process::spawned::output)
 }
 
 /// dsh's startup outcome, classified once from the RAW captured stderr

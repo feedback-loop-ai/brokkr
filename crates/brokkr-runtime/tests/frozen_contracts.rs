@@ -27,7 +27,19 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 39] = [
+const FROZEN: [(&str, &str); 43] = [
+    // Decision 0075 ruling 2 lands seat-record v8 beside v7, frozen here.
+    (
+        "contracts/seat-record.v7.schema.json",
+        "aef8dacddbb10b272dd7008425299467fde452b6ee92302b273b9c7d5b67f80f",
+    ),
+    // Decision 0109 slice 0109a1 lands seat-record v7 beside v6, which was
+    // the new file when decision 0065 slice two landed and is frozen from
+    // here.
+    (
+        "contracts/seat-record.v6.schema.json",
+        "aae18b7ff691cd70bd7c47392a2bb5578dfb1aca3622a097c15ef7b11a6a6749",
+    ),
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -185,9 +197,8 @@ const FROZEN: [(&str, &str); 39] = [
         "contracts/run-manifest.v9.schema.json",
         "c046add105f94efccba9a4d688016eadc8f2933bdbfe70a9f625991e46878a71",
     ),
-    // Decision 0103 ruling 3 mints `forge.host/v2` beside v1; both
-    // versions' bytes are pinned from birth, so neither shape can move
-    // silently and the loader keeps reading both.
+    // Decision 0103 ruling 3 mints `forge.host/v2` beside v1; both are pinned
+    // from birth, so neither shape moves silently and the loader reads both.
     (
         "contracts/host.v1.schema.json",
         "81eadfe6d066be359f1eb2d38b9a4d5ba94c42b7c6a9929fb31a31af6fa6a2d0",
@@ -202,19 +213,22 @@ const FROZEN: [(&str, &str); 39] = [
         "contracts/evidence-archive.v1.schema.json",
         "bdb387c0324937c1fffe97c6f50699163fddd083a63d2393102dd25ab800dddf",
     ),
-    // Decision 0104 ruling 1(a) mints `forge.host/v3` beside v2, whose
-    // bytes did not move: v3 is v2 plus one optional shared-local floor on
-    // a route, and all three versions stay readable.
+    // Decision 0104 ruling 1(a) mints `forge.host/v3` beside v2, whose bytes
+    // did not move: v2 plus one optional shared-local floor on a route.
     (
         "contracts/host.v3.schema.json",
         "efdc12e47030eee6ea9d9d187d1b15581807d1169f8a2b6bb5660b1630ee4cf6",
     ),
-    // Decision 0110 ruling 7 mints `forge.host/v4` beside v3, whose bytes
-    // did not move: v4 is v3 plus a required run ceiling, pinned from
-    // birth, and all four versions stay readable.
+    // Decision 0110 ruling 7 mints `forge.host/v4` (a required run ceiling)
+    // and decision 0125 ruling 7 `forge.host/v5` (optional ceilings and a
+    // demand block), each beside the last and pinned from birth.
     (
         "contracts/host.v4.schema.json",
         "87db9ec8fd5833a07c3e70a79fa60726c50f9060390618e480e072ff915d76d6",
+    ),
+    (
+        "contracts/host.v5.schema.json",
+        "63a2028865e4253774fdd843c3428c1ac842b19cfc496106a6686686f19ffeec",
     ),
     // Decision 0103 ruling 2(a) mints the provider-wait extension beside
     // the frozen event vocabulary; its bytes are pinned from birth. Fix
@@ -237,6 +251,14 @@ const FROZEN: [(&str, &str); 39] = [
     (
         "contracts/park-cause.v1.schema.json",
         "f31f194fef4cbe1973207ee1dc171b8045a671c120b13def89ba14a2734574ec",
+    ),
+    // Decision 0112 ruling 3 mints `effect-usage/v1` as an additive
+    // extension at event_schema 1; its bytes are pinned from birth. Fix
+    // round 1193a-r1 re-pins the unreleased file after its `members`
+    // description names a sequence's step drivers.
+    (
+        "contracts/effect-usage.v1.schema.json",
+        "a585411f40c8b3546c6cdb6ed5faf3acbbcdabc6b3e5335ec9230d6cd329ea1b",
     ),
 ];
 
@@ -298,6 +320,10 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "Forge provider wait v2",
         ),
         ("contracts/park-cause.v1.schema.json", "Forge park cause v1"),
+        (
+            "contracts/effect-usage.v1.schema.json",
+            "Forge effect usage v1",
+        ),
         (
             "contracts/panel-carry.v1.schema.json",
             "Forge panel carry v1",
@@ -804,15 +830,17 @@ fn the_capability_contracts_land_beside_their_frozen_predecessors() {
     }
 }
 
-/// Decision 0065 slice two (CC3/SC4): the capability-call attribution
-/// group arrives as seat-record v6, a new file beside v5, whose bytes
-/// `FROZEN` pins and which did not move.
+/// Each seat record lands as a new file beside its predecessor, whose bytes
+/// `FROZEN` pins and which did not move: v6, the capability-call
+/// attribution group (decision 0065 slice two, CC3/SC4); v7, a gate's
+/// findings, follow-ups and covered identity (decision 0109 slice 0109a1);
+/// v8, the open transcript and root session kinds (decision 0075 ruling 2).
 #[test]
-fn the_v6_seat_record_lands_beside_its_frozen_predecessor() {
-    assert_eq!(
-        titled("contracts/seat-record.v6.schema.json"),
-        "Forge seat record v6"
-    );
+fn each_seat_record_lands_beside_its_frozen_predecessor() {
+    for version in [6, 7, 8] {
+        let file = format!("contracts/seat-record.v{version}.schema.json");
+        assert_eq!(titled(&file), format!("Forge seat record v{version}"));
+    }
 }
 
 /// `forge.realms/v6` is v5 plus one optional per-realm `capabilities` map

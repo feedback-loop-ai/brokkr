@@ -7,7 +7,6 @@
 //! presentation transport is asserted prose-free.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use brokkr_core::envelope::EventType;
 use brokkr_store::Store;
@@ -19,6 +18,9 @@ use serde_json::{json, Value};
 /// home, so every test in this file holds the binary's environment guard.
 #[path = "../../../tests/support/env_guard.rs"]
 mod env_guard;
+
+#[path = "support/built.rs"]
+mod built;
 use env_guard::EnvGuard;
 
 struct World {
@@ -27,10 +29,6 @@ struct World {
     home: PathBuf,
     reference: brokkr_view::Transcript,
     path: String,
-}
-
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
 }
 
 /// Materialize one synthetic source of `kind` under `home` and return the
@@ -89,6 +87,24 @@ fn source(home: &Path, kind: &str, locator: &str, body: &str) -> (brokkr_view::T
                 ),
             )
         }
+        "agy-conversation" => {
+            let root = home.join(".local/state/brokkr/agy-conversations");
+            let dir = root.join(locator);
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = dir.join("transcript.jsonl");
+            std::fs::write(&file, body).unwrap();
+            (
+                brokkr_view::Transcript {
+                    kind: kind.to_string(),
+                    locator: locator.to_string(),
+                    home: root.to_str().unwrap().to_string(),
+                },
+                format!(
+                    "{}/{locator}/transcript.jsonl",
+                    root.canonicalize().unwrap().display()
+                ),
+            )
+        }
         other => panic!("unknown kind {other}"),
     }
 }
@@ -100,13 +116,25 @@ fn make_world(kind: &str, locator: &str, body: &str) -> World {
 
 /// The same world under a chosen (possibly hostile) home directory name.
 fn make_world_named(kind: &str, locator: &str, body: &str, home_name: &str) -> World {
+    make_world_with_manifest(kind, locator, body, home_name, json!({"files": {}}))
+}
+
+fn make_world_with_manifest(
+    kind: &str,
+    locator: &str,
+    body: &str,
+    home_name: &str,
+    manifest: Value,
+) -> World {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     let home = dir.path().join(home_name);
     std::fs::create_dir_all(&home).unwrap();
     let (reference, path) = source(&home, kind, locator, body);
-    journal(
+    journal_with_manifest(
         &db,
+        manifest,
+        json!({"effect_id": "eff1", "attempt_id": "att0"}),
         json!({"step": "session-finished", "transcript": reference}),
     );
     World {
@@ -131,22 +159,27 @@ fn journal(db: &Path, checkpoint: Value) {
 /// The one-participant run at `db`, its seat started by `started` and its
 /// last checkpoint being `checkpoint`.
 fn journal_started(db: &Path, started: Value, checkpoint: Value) {
+    journal_with_manifest(db, json!({"files": {}}), started, checkpoint);
+}
+
+fn journal_with_manifest(db: &Path, manifest: Value, started: Value, checkpoint: Value) {
     let mut store = Store::open(db).unwrap();
-    store
-        .create_run("r222", "feat", "self", &json!({"files": {}}))
-        .unwrap();
+    store.create_run("r222", "feat", "self", &manifest).unwrap();
     let opening = [
-        (EventType::RunStarted, r#"{"feature":"feat","manifest":{}}"#),
         (EventType::PhaseEntered, r#"{"phase":"intake"}"#),
         (
             EventType::EffectRequested,
             r#"{"effect_id":"eff1","seat":"review","phase":"intake"}"#,
         ),
     ];
+    let run_started = (
+        EventType::RunStarted,
+        json!({"feature": "feat", "manifest": manifest}),
+    );
     let checkpointed = json!({"effect_id": "eff1", "attempt_id": "att0", "checkpoint": checkpoint});
     let opening =
         opening.map(|(event_type, payload)| (event_type, serde_json::from_str(payload).unwrap()));
-    for (event_type, payload) in opening.into_iter().chain([
+    for (event_type, payload) in std::iter::once(run_started).chain(opening).chain([
         (EventType::EffectStarted, started),
         (EventType::EffectCheckpointed, checkpointed),
     ]) {
@@ -158,8 +191,8 @@ fn journal_started(db: &Path, started: Value, checkpoint: Value) {
 
 /// The shared reader's result for `world`'s recorded reference. A
 /// recorded reference needs no projects home, so the shell passes none.
-fn shared_read(world: &World) -> TranscriptRead {
-    let subject = brokkr_view::Subject {
+fn world_subject(world: &World) -> brokkr_view::Subject {
+    brokkr_view::Subject {
         run: "r222".to_string(),
         key: "eff1".to_string(),
         reference: Some(world.reference.clone()),
@@ -168,8 +201,11 @@ fn shared_read(world: &World) -> TranscriptRead {
         working: false,
         tab: 0,
         realm: None,
-    };
-    brokkr_cli::read_local(&subject, None)
+    }
+}
+
+fn shared_read(world: &World) -> TranscriptRead {
+    brokkr_cli::read_local(&world_subject(world), None)
 }
 
 fn command(world: &World, extra: &[&str]) -> std::process::Output {
@@ -178,10 +214,9 @@ fn command(world: &World, extra: &[&str]) -> std::process::Output {
 
 /// The command run with `home` as its `HOME`.
 fn command_under(world: &World, home: &Path, extra: &[&str]) -> std::process::Output {
-    let mut args = vec!["transcript", "--run", "r222", "--seat", "eff1"];
+    let mut args = vec!["runs", "transcript", "--run", "r222", "--seat", "eff1"];
     args.extend_from_slice(extra);
-    Command::new(brokkr_bin())
-        .args(args)
+    crate::built::brokkr(args)
         .arg("--db")
         .arg(&world.db)
         .env("HOME", home)
@@ -199,7 +234,7 @@ fn parse(output: &std::process::Output) -> Value {
     })
 }
 
-/// The browser's transcript route serves `brokkr transcript --json`'s
+/// The browser's transcript route serves `brokkr runs transcript --json`'s
 /// document byte for byte, for every kind (#352): the command prints the
 /// same bytes and a newline. A refused read keeps its document under a 404.
 fn same_bytes_in_the_browser(world: &World, command: &std::process::Output, status: &str) {
@@ -213,7 +248,7 @@ fn same_bytes_in_the_browser(world: &World, command: &std::process::Output, stat
     );
 }
 
-/// A `brokkr ui` child serving `world`'s journal on an ephemeral port. It is
+/// A `brokkr system ui` child serving `world`'s journal on an ephemeral port. It is
 /// killed when dropped, so a failed assertion leaves no server behind; its
 /// stderr stays open for the child's lifetime.
 struct Server {
@@ -232,8 +267,7 @@ impl Drop for Server {
 impl Server {
     fn start(world: &World) -> Self {
         use std::io::BufRead;
-        let mut child = Command::new(brokkr_bin())
-            .args(["ui", "--port", "0", "--db"])
+        let mut child = crate::built::brokkr(["system", "ui", "--port", "0", "--db"])
             .arg(&world.db)
             .env("HOME", &world.home)
             .current_dir(world.dir.path())
@@ -242,7 +276,7 @@ impl Server {
             .spawn()
             .unwrap();
         let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
-        // "brokkr ui: http://127.0.0.1:<port>/ (read-only; Ctrl-C to stop)"
+        // "brokkr system ui: http://127.0.0.1:<port>/ (read-only; Ctrl-C to stop)"
         let mut line = String::new();
         let _ = stderr.read_line(&mut line);
         let port = line
@@ -275,7 +309,7 @@ impl Server {
 }
 
 /// Decision 0073 ruling 1 on the wire: `/api/transcript/<run>/<key>`,
-/// served by `brokkr ui` over TCP, carries exactly the document `brokkr
+/// served by `brokkr system ui` over TCP, carries exactly the document `brokkr
 /// transcript --json` prints, which ends in the one newline the command
 /// adds, readable (Claude, 200) or refused (non-UTF-8 Codex, 404).
 #[test]
@@ -557,8 +591,8 @@ fn one_derivation_reaches_every_surface() {
         (
             "codex-thread",
             "0199mine",
-            "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"codex asks\"}]}}\n\
-             {\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"codex answers\"}]}}\n",
+            "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"codex asks\"}]}}\n\
+             {\"timestamp\":\"2026-01-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"codex answers\"}]}}\n",
         ),
         (
             "dsh-session",
@@ -729,7 +763,7 @@ fn a_legacy_id_under_a_missing_projects_home_reads_the_same_bytes_in_the_browser
     same_bytes_in_the_browser(&world, &whole, "404 Not Found");
 }
 
-/// `brokkr transcript` reads its participant through the pages (decision
+/// `brokkr runs transcript` reads its participant through the pages (decision
 /// 0089 slice 3), and the browser serves the same bytes: a seat a Codex
 /// plan started, recording the legacy Claude session `abcd-1234`, selects
 /// no reference while the run read whole and its pages agree; once the
@@ -935,10 +969,10 @@ fn recorded_tool_identity_and_context_reach_every_surface() {
             "codex-thread",
             "0199mine",
             concat!(
-                "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
-                "{\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c2\",\"arguments\":\"{}\"}}\n",
-                "{\"timestamp\":\"t3\",\"type\":\"event_msg\",\"payload\":{\"type\":\"mcp_tool_call_begin\",\"call_id\":\"m1\",\"invocation\":{\"server\":\"srv\",\"tool\":\"search\",\"arguments\":\"{}\"}}}\n",
-                "{\"timestamp\":\"t4\",\"type\":\"event_msg\",\"payload\":{\"type\":\"dynamic_tool_call_response\",\"call_id\":\"d1\",\"content_items\":[{\"type\":\"inputText\",\"text\":\"done\"}],\"error\":\"boom\"}}\n",
+                "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
+                "{\"timestamp\":\"2026-01-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c2\",\"arguments\":\"{}\"}}\n",
+                "{\"timestamp\":\"2026-01-01T00:00:03Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"mcp_tool_call_begin\",\"call_id\":\"m1\",\"invocation\":{\"server\":\"srv\",\"tool\":\"search\",\"arguments\":\"{}\"}}}\n",
+                "{\"timestamp\":\"2026-01-01T00:00:04Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"dynamic_tool_call_response\",\"call_id\":\"d1\",\"content_items\":[{\"type\":\"inputText\",\"text\":\"done\"}],\"error\":\"boom\"}}\n",
             ),
             vec!["[c1]", "[c2]", "srv", "search", "[m1]", "[d1]", "done", "boom"],
         ),
@@ -1096,13 +1130,13 @@ fn r25_portable_hint_is_identical_across_every_surface() {
 }
 
 /// #380: a value the model echoed into its Codex rollout reaches
-/// `brokkr transcript` as `[secret:NAME]`, masked against the store beside
+/// `brokkr runs transcript` as `[secret:NAME]`, masked against the store beside
 /// the journal. A value rotated away since the run is no longer in the
 /// store and stays as written, and the command says that masking covers
 /// only the store's current values rather than passing it silently.
 #[test]
 fn the_command_masks_a_bound_value_and_states_what_a_rotation_leaves() {
-    let body = "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"now ghp-bound-7f3a9c, before ghp-rotated-0c11\"}]}}\n";
+    let body = "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"now ghp-bound-7f3a9c, before ghp-rotated-0c11\"}]}}\n";
     let world = make_world("codex-thread", "0199mine", body);
     brokkr_protocol::secret::store_set(
         &world.dir.path().join("secrets.env"),
@@ -1135,7 +1169,7 @@ fn the_command_masks_a_bound_value_and_states_what_a_rotation_leaves() {
 
 /// #380: a projector renders a Codex shell action and a DSH tool call's
 /// arguments as serialised JSON, so a bound value holding a quote and a
-/// backslash reaches the text re-escaped. `brokkr transcript` masks that
+/// backslash reaches the text re-escaped. `brokkr runs transcript` masks that
 /// escaped form too, never printing the value in either spelling.
 #[test]
 fn the_command_masks_a_bound_value_a_structured_call_reserialised() {
@@ -1144,7 +1178,7 @@ fn the_command_masks_a_bound_value_a_structured_call_reserialised() {
     let arguments = json!({"command": ["curl", "-H", value], "type": "exec"});
     let codex = format!(
         "{}\n",
-        json!({"timestamp": "t1", "type": "response_item", "payload": {
+        json!({"timestamp": "2026-01-01T00:00:01Z", "type": "response_item", "payload": {
             "type": "local_shell_call", "call_id": "c1", "action": arguments}})
     );
     let dsh = format!(
@@ -1183,4 +1217,377 @@ fn the_command_masks_a_bound_value_a_structured_call_reserialised() {
         assert!(rendered.contains(&format!("  tool: {text}")), "{rendered}");
         assert!(!rendered.contains("7f3a9c"), "{rendered}");
     }
+}
+
+#[test]
+fn claude_surfaces_drop_a_bound_value_from_recorded_metadata() {
+    assert_metadata_stays_out_of_surfaces("claude-session", "abcd-1234", |stamp, role| {
+        json!({
+            "timestamp": stamp,
+            "type": "assistant",
+            "message": {"role": role, "content": "visible"},
+        })
+    });
+}
+
+#[test]
+fn codex_surfaces_drop_a_bound_value_from_recorded_metadata() {
+    assert_metadata_stays_out_of_surfaces("codex-thread", "0199mine", |stamp, role| {
+        json!({
+            "timestamp": stamp,
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": role,
+                "content": [{"type": "output_text", "text": "visible"}],
+            },
+        })
+    });
+}
+
+fn assert_metadata_stays_out_of_surfaces(
+    kind: &str,
+    locator: &str,
+    row: impl FnOnce(&str, &str) -> Value,
+) {
+    const BOUND_VALUE: &str = "ghp-bound-7f3a9c";
+    let mut env = EnvGuard::lock();
+    let body = format!("{}\n", row(BOUND_VALUE, BOUND_VALUE));
+    let world = make_world(kind, locator, &body);
+    env.set("HOME", &world.home);
+    let read = shared_read(&world);
+    compare(&world, &read, Some(0));
+
+    brokkr_protocol::secret::store_set(
+        &world.dir.path().join("secrets.env"),
+        "GH_TOKEN",
+        BOUND_VALUE,
+    )
+    .unwrap();
+    let text_face = command(&world, &[]);
+    let json_face = command(&world, &["--json"]);
+    let browser = brokkr_cli::handle(&world.db, "/api/transcript/r222/eff1");
+    assert!(text_face.status.success(), "{kind}: text");
+    assert!(json_face.status.success(), "{kind}: JSON");
+    assert_eq!(browser.status, "200 OK");
+
+    let exposed: Vec<_> = [
+        ("text stdout", text_face.stdout.as_slice()),
+        ("text stderr", text_face.stderr.as_slice()),
+        ("JSON stdout", json_face.stdout.as_slice()),
+        ("JSON stderr", json_face.stderr.as_slice()),
+        ("browser body", browser.body.as_bytes()),
+    ]
+    .into_iter()
+    .filter_map(|(surface, bytes)| {
+        bytes
+            .windows(BOUND_VALUE.len())
+            .any(|window| window == BOUND_VALUE.as_bytes())
+            .then_some(surface)
+    })
+    .collect();
+    assert_eq!(exposed, Vec::<&str>::new(), "{kind}: bound value exposure");
+
+    let notice = "unrecognized transcript records: 1";
+    assert_eq!(read.unrecognized_records, 1, "{kind}: count");
+    assert_eq!(read.notices, [notice]);
+    let rendered = String::from_utf8_lossy(&text_face.stdout);
+    assert!(
+        rendered.lines().any(|line| line == "turn 1 · unknown ·"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(&format!("notice {notice}\n")),
+        "{rendered}"
+    );
+    let document = parse(&json_face);
+    assert_eq!(document["turns"][0]["role"], "unknown", "{kind}: role");
+    assert_eq!(document["turns"][0]["ts"], "", "{kind}: timestamp");
+    assert_eq!(document["unrecognized_records"], 1, "{kind}: JSON count");
+    assert_eq!(format!("{}\n", browser.body).as_bytes(), json_face.stdout);
+    assert_eq!(
+        document["notices"],
+        json!([
+            notice,
+            "secrets masked against the store's current values for GH_TOKEN; a value \
+             rotated or removed since the run is not masked"
+        ])
+    );
+}
+
+/// #1227 (T8): `l2b-printed-value.transcript.ndjson` holds the sentinel value
+/// in clear at rest. With the sentinel in `secrets.env` beside the journal,
+/// every surface — `brokkr runs transcript` (text and JSON), the browser
+/// `/api/transcript/...` route, and the TUI pane/doors — masks it through the
+/// one `mask_secrets` path and never emits the sentinel.
+#[test]
+fn agy_printed_sentinel_is_masked_on_all_three_surfaces() {
+    let _env = EnvGuard::lock();
+    const PRINTED: &str = include_str!(
+        "../../../docs/evidence/adapters/agy-cli-1-5/l2b-printed-value.transcript.ndjson"
+    );
+    const SENTINEL: &str = "l2b-sentinel-value-7f3a9c2e41d8";
+
+    let world = agy_surface_world_body(PRINTED, &[("L2B_SENTINEL", SENTINEL)]);
+    assert!(std::fs::read_to_string(&world.path)
+        .unwrap()
+        .contains(SENTINEL));
+
+    let doc = check_all_surfaces(&world, 2, &[SENTINEL], &["[secret:L2B_SENTINEL]"]);
+    assert_eq!(doc["turns"].as_array().map(Vec::len), Some(4));
+    let text_face = command(&world, &[]);
+    assert!(text_face.status.success(), "{text_face:?}");
+    let rendered = String::from_utf8_lossy(&text_face.stdout);
+    assert!(rendered.contains("kind  agy-conversation"), "{rendered}");
+}
+
+fn agy_surface_world_body(body: &str, secrets: &[(&str, &str)]) -> World {
+    const UUID: &str = "5ca7618a-9b3f-4eb5-9863-d4bdae9eb945";
+    let manifest = json!({"engine": env!("CARGO_PKG_VERSION"), "files": {}});
+    let world = make_world_with_manifest("agy-conversation", UUID, body, "home", manifest);
+    for (name, value) in secrets {
+        brokkr_protocol::secret::store_set(&world.dir.path().join("secrets.env"), name, value)
+            .unwrap();
+    }
+    world
+}
+
+fn agy_surface_world(rows: &[serde_json::Value], secrets: &[(&str, &str)]) -> World {
+    let body: String = rows.iter().map(|row| format!("{row}\n")).collect();
+    agy_surface_world_body(&body, secrets)
+}
+
+fn check_all_surfaces(
+    world: &World,
+    selected: usize,
+    forbidden: &[&str],
+    required: &[&str],
+) -> serde_json::Value {
+    let assert_surface = |surface: &str, text: &str| {
+        for needle in forbidden {
+            assert!(
+                !text.contains(needle),
+                "{surface} leaked {needle:?}: {text}"
+            );
+        }
+        for needle in required {
+            assert!(
+                text.contains(needle),
+                "{surface} missing {needle:?}: {text}"
+            );
+        }
+    };
+
+    // 1. CLI JSON face.
+    let json_face = command(world, &["--json"]);
+    assert!(json_face.status.success(), "{json_face:?}");
+    let json_text = String::from_utf8_lossy(&json_face.stdout);
+    assert_surface("cli-json", &json_text);
+    let doc = parse(&json_face);
+
+    // 2. CLI text face.
+    let text_face = command(world, &[]);
+    assert!(text_face.status.success(), "{text_face:?}");
+    assert_surface("cli-text", &String::from_utf8_lossy(&text_face.stdout));
+
+    // 3. Browser `/api/transcript/...` path (`ui.rs` -> `mask_secrets`).
+    same_bytes_in_the_browser(world, &json_face, "200 OK");
+    let browser = brokkr_cli::handle(&world.db, "/api/transcript/r222/eff1");
+    assert_surface("browser", &browser.body);
+
+    // 4. TUI's own acquisition (`tui_read.rs` -> `mask_secrets`) + renderer.
+    let subject = world_subject(world);
+    let tui_read = brokkr_cli::tui_transcript_for_test(&world.db, "r222", &subject)
+        .expect("TUI acquisition returns transcript");
+    let (_, selected_door, whole_door) =
+        brokkr_cli::transcript_surfaces_for_test(&tui_read, Some(selected));
+    assert_surface("tui-selected", &selected_door);
+    assert_surface("tui-whole", &whole_door);
+    doc
+}
+
+/// #1227 W1, W2 & U6: with #380's vector `tok"en\7f3a9c` bound in `secrets.env`,
+/// every surface (CLI JSON, CLI text, browser `/api/transcript/...`, and TUI
+/// `tui_read.rs`) masks it in `run_command` `CommandLine`, boxed `call_mcp_tool`
+/// `Arguments`, `content`, `thinking`, `error`, and tool results, and omits it
+/// from `created_at` with a counted timestamp notice.
+#[test]
+fn agy_masks_escaped_secret_vector_on_all_three_surfaces() {
+    let _env = EnvGuard::lock();
+    let secret = "tok\"en\\7f3a9c";
+    let cmd_once = serde_json::to_string(&format!("echo {secret}")).unwrap();
+    let mcp_inner = json!({"command": format!("cat {secret}")}).to_string();
+    let rows = [
+        json!({
+            "step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "status": "DONE",
+            "created_at": secret,
+            "content": format!("prompt {secret}")
+        }),
+        json!({
+            "step_index": 1, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE",
+            "created_at": "2026-11-24T03:41:19Z",
+            "thinking": format!("plan {secret}"),
+            "content": format!("say {secret}"),
+            "tool_calls": [
+                {
+                    "name": "run_command",
+                    "args": {
+                        "CommandLine": cmd_once,
+                        "WaitMsBeforeAsync": "500",
+                        "toolSummary": "\"run\""
+                    }
+                },
+                {
+                    "name": "call_mcp_tool",
+                    "args": {
+                        "Arguments": mcp_inner,
+                        "ServerName": "\"brokkr\"",
+                        "ToolName": "\"workspace\""
+                    }
+                }
+            ]
+        }),
+        json!({
+            "step_index": 2, "source": "MODEL", "type": "GENERIC", "status": "DONE",
+            "created_at": "2026-11-24T03:41:21Z",
+            "content": format!("output {secret}")
+        }),
+        json!({
+            "step_index": 3, "source": "MODEL", "type": "GENERIC", "status": "ERROR",
+            "error": format!("err {secret}")
+        }),
+    ];
+    let world = agy_surface_world(&rows, &[("GH_TOKEN", secret)]);
+    let ts_notice = "agy timestamps omitted (not YYYY-MM-DDTHH:MM:SSZ): 1";
+    let doc = check_all_surfaces(&world, 1, &["7f3a9c"], &["[secret:GH_TOKEN]"]);
+
+    let notices: Vec<&str> = doc["notices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    assert!(notices.contains(&ts_notice), "{notices:?}");
+    assert_eq!(doc["turns"][0]["ts"], "");
+    assert_eq!(doc["turns"][1]["ts"], "2026-11-24T03:41:19Z");
+    assert_eq!(
+        doc["turns"][0]["blocks"][0]["text"],
+        "prompt [secret:GH_TOKEN]"
+    );
+    assert_eq!(
+        doc["turns"][1]["blocks"][0]["text"],
+        "plan [secret:GH_TOKEN]"
+    );
+    assert_eq!(
+        doc["turns"][1]["blocks"][1]["text"],
+        "say [secret:GH_TOKEN]"
+    );
+    assert_eq!(
+        doc["turns"][1]["blocks"][2]["text"],
+        r#"run_command CommandLine="echo [secret:GH_TOKEN]", WaitMsBeforeAsync=500, toolSummary="run""#
+    );
+    assert_eq!(
+        doc["turns"][1]["blocks"][3]["text"],
+        r#"call_mcp_tool Arguments={"command":"cat [secret:GH_TOKEN]"}, ServerName="brokkr", ToolName="workspace""#
+    );
+    assert_eq!(
+        doc["turns"][2]["blocks"][0]["text"],
+        "output [secret:GH_TOKEN]"
+    );
+    assert_eq!(
+        doc["turns"][3]["blocks"][0]["text"],
+        "err [secret:GH_TOKEN]"
+    );
+}
+
+/// #1227 W1 review case: a bound secret that is itself JSON text with
+/// non-alphabetical key order and spaces (`{"z": 1, "secret": "tok\"en\\7f3a9c"}`)
+/// standing in a `run_command` `CommandLine` is masked across all three
+/// surfaces because the agy reader never re-parses or re-serializes string args.
+#[test]
+fn agy_masks_json_text_secret_in_command_line_on_all_three_surfaces() {
+    let _env = EnvGuard::lock();
+    let json_secret = r#"{"z": 1, "secret": "tok\"en\\7f3a9c"}"#;
+    let cmd_verbatim = serde_json::to_string(json_secret).unwrap();
+    let cmd_echo = serde_json::to_string(&format!("echo {json_secret}")).unwrap();
+    let rows = [json!({
+        "step_index": 0, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE",
+        "created_at": "2026-11-24T03:41:19Z",
+        "tool_calls": [
+            {
+                "name": "run_command",
+                "args": { "CommandLine": cmd_verbatim }
+            },
+            {
+                "name": "run_command",
+                "args": { "CommandLine": cmd_echo }
+            }
+        ]
+    })];
+    let world = agy_surface_world(&rows, &[("JSON_SECRET", json_secret)]);
+    let doc = check_all_surfaces(
+        &world,
+        0,
+        &["7f3a9c", "\"z\":", "\"secret\":"],
+        &["[secret:JSON_SECRET]"],
+    );
+    assert_eq!(
+        doc["turns"][0]["blocks"][0]["text"],
+        r#"run_command CommandLine="[secret:JSON_SECRET]""#
+    );
+    assert_eq!(
+        doc["turns"][0]["blocks"][1]["text"],
+        r#"run_command CommandLine="echo [secret:JSON_SECRET]""#
+    );
+}
+
+/// #1227 Y1: `local_transcript::mask_secrets` visits `Turn.ts` alongside block
+/// text across every kind and all three surfaces (CLI JSON, CLI text, browser,
+/// TUI): binding `2026-11-24T03:41:19Z` masks `Turn.ts` on kept agy, Claude and
+/// Codex fixtures alike.
+#[test]
+fn mask_secrets_masks_turn_timestamp_across_all_surfaces_for_agy_claude_and_codex() {
+    let _env = EnvGuard::lock();
+    const TS: &str = "2026-11-24T03:41:19Z";
+
+    // 1. Agy kept transcript row with `created_at` equal to the bound secret.
+    let agy_rows = [json!({
+        "step_index": 0,
+        "source": "USER_EXPLICIT",
+        "type": "USER_INPUT",
+        "status": "DONE",
+        "created_at": TS,
+        "content": "hello agy"
+    })];
+    let agy_world = agy_surface_world(&agy_rows, &[("TS_SECRET", TS)]);
+    let agy_doc = check_all_surfaces(&agy_world, 0, &[TS], &["hello agy"]);
+    assert_eq!(agy_doc["turns"][0]["ts"], "[secret:TS_SECRET]");
+
+    // 2. Claude fixture with `timestamp` equal to the bound secret.
+    let claude_body = format!(
+        "{{\"type\":\"assistant\",\"timestamp\":\"{TS}\",\"message\":{{\"role\":\"assistant\",\"content\":\"hello claude\"}}}}\n"
+    );
+    let claude_world = make_world("claude-session", "abcd-1234", &claude_body);
+    brokkr_protocol::secret::store_set(
+        &claude_world.dir.path().join("secrets.env"),
+        "TS_SECRET",
+        TS,
+    )
+    .unwrap();
+    let claude_doc = check_all_surfaces(&claude_world, 0, &[TS], &["hello claude"]);
+    assert_eq!(claude_doc["turns"][0]["ts"], "[secret:TS_SECRET]");
+
+    // 3. Codex fixture with `timestamp` equal to the bound secret.
+    let codex_body = format!(
+        "{{\"timestamp\":\"{TS}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"hello codex\"}}]}}}}\n"
+    );
+    let codex_world = make_world("codex-thread", "0199tsmask", &codex_body);
+    brokkr_protocol::secret::store_set(
+        &codex_world.dir.path().join("secrets.env"),
+        "TS_SECRET",
+        TS,
+    )
+    .unwrap();
+    let codex_doc = check_all_surfaces(&codex_world, 0, &[TS], &["hello codex"]);
+    assert_eq!(codex_doc["turns"][0]["ts"], "[secret:TS_SECRET]");
 }

@@ -1,8 +1,16 @@
 use super::record::{PanelRecord, RetryArgs};
 use super::*;
+use crate::bundle::{Aggregate, MemberLaw};
 use crate::engine::tests::{engine, git_commit, member, report, state};
 use crate::engine::{Cursor, SeatBody};
+
+/// The fixture panel's two members, `a` and `b`, joined under `aggregate`.
+fn two_members(aggregate: Aggregate) -> PanelJoin {
+    PanelJoin::open(aggregate, &["a", "b"])
+}
 use crate::envelope_builder::EnvelopeBuilder;
+use brokkr_core::findings::EngineMarker;
+use brokkr_protocol::AttemptReport;
 use serde_json::json;
 
 fn event(seq: u64, kind: brokkr_core::EventType, payload: Value) -> EventEnvelope {
@@ -36,6 +44,60 @@ fn subject(runtime: &Engine, state: &RunState, result: Value) -> Vec<EventEnvelo
         ),
         event(4, brokkr_core::EventType::EffectIndeterminate, terminal),
     ]
+}
+
+/// `events` with the engine's own marker settling member `a` of attempt
+/// `settled` before its terminal, as the current writer journals it; a
+/// [`subject`] alone is a released engine's row, which carries none.
+fn marked(mut events: Vec<EventEnvelope>) -> Vec<EventEnvelope> {
+    let terminal = events.pop().unwrap();
+    let marker = EngineMarker::MemberFinished.record(json!({"member":"a", "outcome":"succeeded"}));
+    let payload = json!({"effect_id":"source", "attempt_id":"settled", "checkpoint":marker});
+    let checkpointed = brokkr_core::EventType::EffectCheckpointed;
+    events.push(event(terminal.seq, checkpointed, payload));
+    events.push(event(
+        terminal.seq + 1,
+        terminal.event_type,
+        terminal.payload,
+    ));
+    events
+}
+
+/// Fix round 0109a1r6, W2: a partial retry carries a settled member's
+/// findings as the new aggregate's keyed findings only beside the engine's
+/// mark for its source attempt and member. A same-manifest released row,
+/// unmarked, keeps its result word; its `covered` and stamped-looking
+/// finding stay unverified and never key the new aggregate. The current
+/// writer's marked member carries its finding as a verdict.
+#[test]
+fn a_carried_members_findings_key_the_aggregate_only_beside_the_engines_mark() {
+    let (_dir, runtime, initial) = panel_fixture();
+    let finding = json!({"site":"a".repeat(64), "id":"planted", "file":"a.rs", "summary":"s",
+                         "severity":"low", "security":false});
+    let covered = json!({"kind":"head", "head":"c".repeat(40), "dirty":false});
+    let settled = json!({"result":"residual", "covered":covered, "findings":[finding]});
+    for (mark, keyed) in [(false, None), (true, Some(json!([finding])))] {
+        let events = subject(&runtime, &initial, settled.clone());
+        let events = if mark { marked(events) } else { events };
+        let facts = observed(&runtime, &initial, &events, u64::MAX);
+        let plan = carry_plan(&facts, &[Tag("b".into())]).unwrap();
+        let span = PanelSpan::open(&runtime.repo);
+        let fresh = vec![("b".into(), success(json!({"result":"clean"})))];
+        let members = (fresh, Stamped::new());
+        let carried = outcome_under(
+            &two_members(Aggregate::ReviewPanel),
+            Some(&plan),
+            members,
+            &span,
+            "retry",
+        );
+        let AttemptOutcome::Succeeded { result } = carried.unwrap().outcome() else {
+            panic!("the carried panel succeeds");
+        };
+        assert_eq!(result["result"], "residual", "{mark}: {result}");
+        assert_eq!(result.get("findings"), keyed.as_ref(), "{mark}: {result}");
+        assert_eq!(result.get("covered"), None, "{mark}: {result}");
+    }
 }
 
 fn panel_fixture() -> (tempfile::TempDir, Engine, RunState) {
@@ -96,17 +158,24 @@ fn the_rule_preserves_the_aggregate_and_checks_identity_and_selection() {
     ];
     let span = PanelSpan::open(&runtime.repo);
     let joined = outcome_under(
-        Aggregate::ReviewPanel,
+        &two_members(Aggregate::ReviewPanel),
         Some(&plan),
-        fresh(),
+        (fresh(), Stamped::new()),
         &span,
         "carrying",
     )
     .unwrap()
     .outcome();
-    let complete = outcome_under(Aggregate::ReviewPanel, None, full, &span, "full")
-        .unwrap()
-        .outcome();
+    let full = (full, Stamped::new());
+    let complete = outcome_under(
+        &two_members(Aggregate::ReviewPanel),
+        None,
+        full,
+        &span,
+        "full",
+    )
+    .unwrap()
+    .outcome();
     assert_eq!(
         serde_json::to_value(joined).unwrap(),
         serde_json::to_value(complete).unwrap()
@@ -138,10 +207,10 @@ fn the_rule_preserves_the_aggregate_and_checks_identity_and_selection() {
     let mut moved = span.clone();
     moved.tree.at_end = TreeReading::Dirty;
     assert!(
-        matches!(outcome_under(Aggregate::ReviewPanel, Some(&plan), fresh(), &moved, "carrying").unwrap(), Panelled::Refused(AttemptOutcome::Indeterminate { reason }) if reason.contains("carrying attempt 'carrying' changed its reviewed subject"))
+        matches!(outcome_under(&two_members(Aggregate::ReviewPanel), Some(&plan), (fresh(), Stamped::new()), &moved, "carrying").unwrap(), Panelled::Refused(AttemptOutcome::Indeterminate { reason }) if reason.contains("carrying attempt 'carrying' changed its reviewed subject"))
     );
     assert!(
-        matches!(plan.join(vec![]), Err(EngineError::Invariant("complete carry plan", detail)) if detail == "missing fresh report")
+        matches!(plan.join((vec![], Stamped::new())), Err(EngineError::Invariant("complete carry plan", detail)) if detail == "missing fresh report")
     );
 }
 
@@ -280,6 +349,27 @@ fn success(result: Value) -> AttemptReport {
     report(AttemptOutcome::Succeeded { result }, "")
 }
 
+/// Fix round 0109a1r3, L1: the panel's record journals each settled
+/// member with the findings it was admitted with, written back at the
+/// journal's boundary, so a later attempt carries them.
+#[test]
+fn the_panel_record_journals_each_member_with_its_typed_findings() {
+    let journaled = json!({"result":"residual", "findings":[{"site":"a".repeat(64), "id":"x",
+                           "file":"a.rs", "summary":"s", "severity":"low", "security":false}]});
+    let mut admitted = journaled.clone();
+    let stamped = [("a".into(), MemberFindings::taken_from(&mut admitted))].into();
+    let reports = [
+        ("a".into(), success(admitted)),
+        ("b".into(), success(json!({"result":"clean"}))),
+    ];
+    let settled = record::settled_members((&reports, &stamped), Some("p"));
+    let expected = [
+        (Tag("p:a".into()), journaled),
+        (Tag("p:b".into()), json!({"result":"clean"})),
+    ];
+    assert_eq!(settled, expected.into_iter().collect());
+}
+
 #[test]
 fn plan_construction_and_join_refuse_incomplete_sets() {
     let tags = [Tag("a".into()), Tag("b".into())];
@@ -317,8 +407,9 @@ fn plan_construction_and_join_refuse_incomplete_sets() {
         ]
     };
     assert_eq!(
-        plan.join(reports())
+        plan.join((reports(), Stamped::new()))
             .unwrap()
+            .0
             .into_iter()
             .map(|(name, _)| name)
             .collect::<Vec<_>>(),
@@ -343,7 +434,7 @@ fn plan_construction_and_join_refuse_incomplete_sets() {
         ),
     ] {
         assert!(
-            matches!(plan.join(reports), Err(EngineError::Invariant("complete carry plan", detail)) if detail == expected)
+            matches!(plan.join((reports, Stamped::new())), Err(EngineError::Invariant("complete carry plan", detail)) if detail == expected)
         );
     }
 }
@@ -367,30 +458,51 @@ fn both_aggregates_keep_opaque_and_settled_verdicts_in_declared_order() {
             json!("opaque"),
             "__member-schema-invalid__",
         ),
+        (
+            Aggregate::ReviewPanel,
+            json!({"result":"residual", "findings":[{"site":"a".repeat(64), "id":"x",
+                   "file":"a.rs", "summary":"s", "severity":"low", "security":false}]}),
+            "residual",
+        ),
     ] {
-        let events = subject(&runtime, &initial, verdict.clone());
+        let events = marked(subject(&runtime, &initial, verdict.clone()));
         let facts = observed(&runtime, &initial, &events, u64::MAX);
         let plan = carry_plan(&facts, &[Tag("b".into())]).unwrap();
         let fresh = json!({"result":if matches!(aggregate, Aggregate::ReviewPanel) {"clean"} else {"pass"}});
         let span = PanelSpan::open(&runtime.repo);
         let carried = outcome_under(
-            aggregate,
+            &two_members(aggregate),
             Some(&plan),
-            vec![("b".into(), success(fresh.clone()))],
+            (vec![("b".into(), success(fresh.clone()))], Stamped::new()),
             &span,
             "two",
         )
         .unwrap()
         .outcome();
+        // The full panel's member `a` as admission hands it on: its
+        // findings typed beside a payload that no longer carries them.
+        let mut admitted = verdict.clone();
+        let stamped = [("a".into(), MemberFindings::taken_from(&mut admitted))].into();
         let full = outcome_under(
-            aggregate,
+            &two_members(aggregate),
             None,
-            vec![("a".into(), success(verdict)), ("b".into(), success(fresh))],
+            (
+                vec![
+                    ("a".into(), success(admitted)),
+                    ("b".into(), success(fresh)),
+                ],
+                stamped,
+            ),
             &span,
             "one",
         )
         .unwrap()
         .outcome();
+        if let Some(findings) = verdict.get("findings") {
+            assert!(
+                matches!(&carried, AttemptOutcome::Succeeded { result } if result["findings"] == *findings)
+            );
+        }
         assert_eq!(
             serde_json::to_value(&carried).unwrap(),
             serde_json::to_value(full).unwrap()
@@ -426,20 +538,27 @@ fn the_span_is_checked_before_join_only_when_a_verdict_is_carried() {
         }
         .to_string();
         assert!(
-            matches!(outcome_under(Aggregate::ReviewPanel, Some(&carried), vec![], &span, "two").unwrap(),
+            matches!(outcome_under(&two_members(Aggregate::ReviewPanel), Some(&carried), (vec![], Stamped::new()), &span, "two").unwrap(),
             Panelled::Refused(AttemptOutcome::Indeterminate { reason }) if reason == expected)
         );
         let reports = || {
-            vec![
-                ("a".into(), success(json!({"result":"clean"}))),
-                ("b".into(), success(json!({"result":"clean"}))),
-            ]
+            let clean = || success(json!({"result":"clean"}));
+            (
+                vec![("a".into(), clean()), ("b".into(), clean())],
+                Stamped::new(),
+            )
         };
-        let plain = outcome_under(Aggregate::ReviewPanel, None, reports(), &span, "two")
-            .unwrap()
-            .outcome();
+        let plain = outcome_under(
+            &two_members(Aggregate::ReviewPanel),
+            None,
+            reports(),
+            &span,
+            "two",
+        )
+        .unwrap()
+        .outcome();
         let all_named = outcome_under(
-            Aggregate::ReviewPanel,
+            &two_members(Aggregate::ReviewPanel),
             Some(&fresh),
             reports(),
             &span,
@@ -529,13 +648,15 @@ fn exact_step_tags_and_all_named_retries_obey_declared_order_before_identity() {
     facts.shape = PanelShape::Panel {
         step: Some("p".into()),
         tags: tags.clone(),
+        laws: [("p:x", MemberLaw::open()), ("x", MemberLaw::open())]
+            .map(|(name, law)| (name.to_string(), law))
+            .into(),
     };
     let plan = carry_plan(&facts, &[Tag("p:x".into())]).unwrap();
     assert_eq!(plan.fresh(), [Tag("p:x".into())]);
     assert_eq!(plan.carried()[0].member, Tag("p:p:x".into()));
-    let pairs = plan
-        .join(vec![("x".into(), success(json!({"result":"clean"})))])
-        .unwrap();
+    let fresh = vec![("x".into(), success(json!({"result":"clean"})))];
+    let (pairs, _) = plan.join((fresh, Stamped::new())).unwrap();
     assert_eq!(
         pairs.into_iter().map(|(tag, _)| tag).collect::<Vec<_>>(),
         ["p:x", "x"]
@@ -589,6 +710,7 @@ fn the_three_way_search_passes_over_restarts_but_not_a_finished_panel_step() {
     facts.shape = PanelShape::Panel {
         step: Some("p".into()),
         tags: vec![Tag("p:a".into()), Tag("p:b".into())],
+        laws: Default::default(),
     };
     assert!(
         matches!(carry_plan(&facts, &[Tag("p:b".into())]).unwrap_err().0,
@@ -640,7 +762,9 @@ fn narrow_reaches_the_first_step_or_the_selected_case_and_leaves_other_bodies_wh
             Contribution::Carried {
                 tag: tags[1].clone(),
                 result: json!({"result":"clean"}),
+                findings: MemberFindings::Read(Vec::new()),
                 source: "settled".into(),
+                site: None,
             },
         ],
         None,
@@ -778,7 +902,7 @@ fn the_visit_reader_places_only_what_the_journal_names_and_stamps_only_known_hea
         event(
             8,
             EffectCheckpointed,
-            json!({"attempt_id":"settled","checkpoint":{"step":"sequence-step-finished"}}),
+            json!({"attempt_id":"settled","checkpoint":{"step":"sequence-step-finished","authored":"engine"}}),
         ),
         event(
             9,
@@ -827,6 +951,52 @@ fn the_visit_reader_places_only_what_the_journal_names_and_stamps_only_known_hea
         payload["head"],
         json!({"at_start": Head::observe(&runtime.repo).unwrap()})
     );
+}
+
+/// #1212: the carry reads a sequence step's record by the engine's
+/// authorship (fix round 0109a1r4, K1), never by its word. A checkpoint of
+/// attempt `settled` naming `sequence-step-finished` and step `p` adds the
+/// step only where the engine authored it; a driver's live checkpoint,
+/// with no `authored` or another author's, adds none.
+#[test]
+fn the_carry_reads_a_step_record_by_its_authorship_never_by_its_word() {
+    let (_dir, _runtime, initial, events) = clean_visit();
+    let steps = |authored: Option<&str>| {
+        let mut checkpoint = json!({"step": "sequence-step-finished", "step_name": "p"});
+        if let Some(author) = authored {
+            checkpoint["authored"] = json!(author);
+        }
+        let payload = json!({"attempt_id": "settled", "checkpoint": checkpoint});
+        let mut events = events.clone();
+        let (seq, kind) = (
+            events.len() as u64 + 1,
+            brokkr_core::EventType::EffectCheckpointed,
+        );
+        events.push(event(seq, kind, payload));
+        let attempts = facts::read_visit(&events, &initial, u64::MAX).unwrap();
+        attempts[0].steps.clone()
+    };
+    assert_eq!(steps(None), Vec::<String>::new());
+    assert_eq!(steps(Some("driver")), Vec::<String>::new());
+    assert_eq!(steps(Some("engine")), ["p"]);
+}
+
+/// A visit at a phase whose seat now selects no body for the run's
+/// strategy (a select with no case for it and no default) still reads its
+/// attempts, resolves no writer for their members, and is refused as no
+/// panel at that phase.
+#[test]
+fn a_visit_whose_seat_selects_no_body_reads_its_attempts_and_is_no_panel() {
+    let (_dir, _runtime, initial, events) = clean_visit();
+    let (_unselected_dir, unselected) = engine(SeatBody::Select {
+        cases: BTreeMap::new(),
+        default: None,
+    });
+    let facts = observed(&unselected, &initial, &events, u64::MAX);
+    let read: Vec<_> = (facts.attempts.iter()).map(|at| at.id.as_str()).collect();
+    assert_eq!(read, ["settled"]);
+    let refusal = carry_plan(&facts, &[Tag("b".into())]).unwrap_err().0;
+    assert!(matches!(&refusal, Refusal::NoPanel { phase } if phase == "work"));
 }
 
 fn observed(

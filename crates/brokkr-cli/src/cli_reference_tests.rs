@@ -32,6 +32,8 @@ use clap::{Arg, ArgAction, Command, CommandFactory, Parser};
 use crate::exit::Exit;
 use crate::Cli;
 
+mod flat;
+mod hands_tests;
 #[path = "../tests/support/records.rs"]
 mod records;
 #[path = "../tests/support/tracked.rs"]
@@ -62,30 +64,38 @@ enum Selector {
 /// resolver last. An entry that names no argument, and an argument whose
 /// id names a run with no entry, fail `every_selector_names_an_argument`.
 const SELECTORS: [(&str, &str, Selector); 24] = [
-    ("brokkr costs", "run", Selector::Always),
+    ("brokkr stats costs", "run", Selector::Always),
     ("brokkr run", "continues", Selector::Always),
-    ("brokkr ledger", "run", Selector::Always),
-    ("brokkr anchor", "run", Selector::Always),
-    ("brokkr keep-refs plant", "run", Selector::Always),
-    ("brokkr keep-refs list", "run", Selector::WithJournal),
-    ("brokkr keep-refs delete", "run", Selector::WithJournal),
+    ("brokkr stats ledger", "run", Selector::Always),
+    ("brokkr journal anchor", "run", Selector::Always),
+    ("brokkr journal keep-refs plant", "run", Selector::Always),
+    (
+        "brokkr journal keep-refs list",
+        "run",
+        Selector::WithJournal,
+    ),
+    (
+        "brokkr journal keep-refs delete",
+        "run",
+        Selector::WithJournal,
+    ),
     ("brokkr tui", "run", Selector::Always),
     ("brokkr resume", "run", Selector::Always),
-    ("brokkr rerun", "run", Selector::Always),
-    ("brokkr compare", "run_a", Selector::Always),
-    ("brokkr compare", "run_b", Selector::Always),
-    ("brokkr conclude", "run", Selector::Always),
-    ("brokkr conclude", "by_run", Selector::Literal),
-    ("brokkr operator", "run", Selector::Always),
-    ("brokkr operator", "by_run", Selector::Literal),
-    ("brokkr inspect", "run", Selector::Always),
+    ("brokkr runs rerun", "run", Selector::Always),
+    ("brokkr runs compare", "run_a", Selector::Always),
+    ("brokkr runs compare", "run_b", Selector::Always),
+    ("brokkr runs conclude", "run", Selector::Always),
+    ("brokkr runs conclude", "by_run", Selector::Literal),
+    ("brokkr runs operator", "run", Selector::Always),
+    ("brokkr runs operator", "by_run", Selector::Literal),
+    ("brokkr runs inspect", "run", Selector::Always),
     ("brokkr runs", "run", Selector::Literal),
-    ("brokkr transcript", "run", Selector::Always),
-    ("brokkr seats", "run", Selector::Always),
+    ("brokkr runs list", "run", Selector::Literal),
+    ("brokkr runs transcript", "run", Selector::Always),
+    ("brokkr runs seats", "run", Selector::Always),
     ("brokkr watch", "run", Selector::Always),
-    ("brokkr replay", "run", Selector::Always),
-    ("brokkr export", "run", Selector::Always),
-    ("brokkr bridge", "run", Selector::Always),
+    ("brokkr runs replay", "run", Selector::Always),
+    ("brokkr journal export", "run", Selector::Always),
 ];
 
 /// How `verb`'s argument reads a run, when it names one.
@@ -204,9 +214,9 @@ fn description(arg: &Arg) -> String {
         .unwrap_or_default()
 }
 
-/// One argument's table row, in the verb at `path`.
-fn argument_row(path: &str, arg: &Arg) -> String {
-    let default = if arg.get_action().takes_values() {
+/// An argument's default values, formatted for a reference table cell.
+fn default_values(arg: &Arg) -> String {
+    if arg.get_action().takes_values() {
         arg.get_default_values()
             .iter()
             .map(|value| format!("`{}`", value.to_string_lossy()))
@@ -214,7 +224,12 @@ fn argument_row(path: &str, arg: &Arg) -> String {
             .join(", ")
     } else {
         String::new()
-    };
+    }
+}
+
+/// One argument's table row, in the verb at `path`.
+fn argument_row(path: &str, arg: &Arg) -> String {
+    let default = default_values(arg);
     let selector = match selector(path, arg) {
         Some(Selector::Always) => "yes",
         Some(Selector::WithJournal) => "with a journal",
@@ -233,10 +248,10 @@ fn listed(verb: &Command) -> Vec<&Arg> {
         .collect()
 }
 
-/// Every listed argument with no description, as `verb argument`: a row
-/// the page would print with its Description cell empty.
-fn undescribed(cli: &Command) -> Vec<String> {
-    verbs(cli)
+/// Every listed argument in `selected` with no description, as `verb argument`:
+/// a row the page would print with its Description cell empty.
+fn undescribed_in<'a>(selected: impl IntoIterator<Item = &'a Command>) -> Vec<String> {
+    selected
         .into_iter()
         .flat_map(|verb| {
             let path = verb.get_bin_name().expect("a built command names its path");
@@ -246,6 +261,12 @@ fn undescribed(cli: &Command) -> Vec<String> {
                 .map(move |arg| format!("{path} {}", spelled(arg)))
         })
         .collect()
+}
+
+/// Every listed argument with no description, as `verb argument`: a row
+/// the page would print with its Description cell empty.
+fn undescribed(cli: &Command) -> Vec<String> {
+    undescribed_in(verbs(cli))
 }
 
 /// One verb's section: its heading, its description, its usage and a
@@ -307,7 +328,15 @@ fn reference() -> String {
          2026-09-28 addendum); one marked **with a journal** does so only \
          when the workspace journal is there, and otherwise takes the id \
          literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, \
-         and `brokkr` itself `-V`/`--version`; the tables leave them out.\n\n"
+         and `brokkr` itself `-V`/`--version`; the tables leave them out.\n\n\
+         The verbs nest under thirteen roots: decision 0113's twelve and \
+         decision 0119's `completions`. Every old flat name, such as \
+         `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for \
+         `brokkr journal verify`, still parses as a hidden alias until 0.17, \
+         and says its new spelling on stderr. Internal engine verbs (`driver`, \
+         `hands`, `bridge`, `broker`, `fake-driver`) are hidden from this page; \
+         the `brokkr hands` argument contract is documented in \
+         [hands.md](hands.md).\n\n"
     );
     for verb in verbs(&cli) {
         let path = verb.get_bin_name().expect("a built command names its path");
@@ -395,21 +424,138 @@ fn every_selector_names_an_argument() {
     }
     let keep_refs_list = verbs
         .iter()
-        .find(|verb| verb.get_bin_name() == Some("brokkr keep-refs list"))
+        .find(|verb| verb.get_bin_name() == Some("brokkr journal keep-refs list"))
         .unwrap();
     let run = listed(keep_refs_list)
         .into_iter()
         .find(|arg| arg.get_id() == "run")
         .unwrap();
     assert_eq!(
-        selector("brokkr keep-refs list", run),
+        selector("brokkr journal keep-refs list", run),
         Some(Selector::WithJournal)
     );
     assert_eq!(
-        selector("brokkr keep-refs plant", run),
+        selector("brokkr journal keep-refs plant", run),
         Some(Selector::Always)
     );
     assert_eq!(selector("brokkr runs", run), Some(Selector::Literal));
+}
+
+/// Every citation in `text` a code reader would make and an operator
+/// cannot use (#1170): `decision 0016`, `ruling 4`, `R5` or `#511`.
+fn citations(text: &str) -> Vec<String> {
+    // A word is a run of letters and digits, so punctuation such as
+    // `selection—decision` cannot hide a citation. Each word keeps the gap
+    // before it: a lead and its number are parted by spaces or a hyphen
+    // alone, so `a ruling, 4` cites nothing.
+    let words: Vec<(&str, &str)> = text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .scan(0, |end, word| {
+            let start = word.as_ptr() as usize - text.as_ptr() as usize;
+            let gap = &text[*end..start];
+            *end = start + word.len();
+            Some((gap, word))
+        })
+        .collect();
+    let number = |word: &str| {
+        (!word.is_empty() && word.bytes().all(|b| b.is_ascii_digit())).then(|| word.to_string())
+    };
+    let leads = ["decision", "decisions", "ruling", "rulings"];
+    let cites = |pair: &[(&str, &str)]| {
+        let [(_, lead), (gap, n)] = pair else {
+            unreachable!("windows(2) yields pairs")
+        };
+        let parted = gap.chars().all(|c| c.is_whitespace() || c == '-');
+        let lead_word = leads.contains(&lead.to_ascii_lowercase().as_str());
+        number(n)
+            .filter(|_| parted && lead_word)
+            .map(|n| format!("{lead} {n}"))
+    };
+    let alone = |&(_, word): &(&str, &str)| {
+        let (tag, rest) = word.split_at_checked(1)?;
+        number(rest)
+            .filter(|_| tag == "R")
+            .map(|n| format!("{tag}{n}"))
+    };
+    // An issue is `#` and digits wherever the `#` stands, so `issue#511` and
+    // `owner/repo#511` cite one too; digits running on into letters, as in
+    // `#5a5a5a`, are no issue.
+    let issues = text.match_indices('#').filter_map(|(at, _)| {
+        let rest = &text[at + 1..];
+        let digits = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        let ends = !rest[digits..].starts_with(char::is_alphanumeric);
+        (digits > 0 && ends).then(|| format!("#{}", &rest[..digits]))
+    });
+    words
+        .windows(2)
+        .filter_map(cites)
+        .chain(words.iter().filter_map(alone))
+        .chain(issues)
+        .collect()
+}
+
+/// Every text clap prints for `command` and every command below it,
+/// hidden ones included, as `path: text`.
+fn help_texts(command: &Command, path: &str) -> Vec<String> {
+    let path = format!("{path} {}", command.get_name()).trim().to_string();
+    let own = [command.get_about(), command.get_long_about()]
+        .into_iter()
+        .chain([command.get_before_help(), command.get_after_help()])
+        .flatten()
+        .map(|text| format!("{path}: {text}"));
+    let args = command.get_arguments().flat_map(|arg| {
+        let values = arg.get_possible_values();
+        [arg.get_help(), arg.get_long_help()]
+            .into_iter()
+            .flatten()
+            .map(ToString::to_string)
+            .chain(
+                values
+                    .iter()
+                    .filter_map(|value| value.get_help().map(ToString::to_string)),
+            )
+            .map(|text| format!("{path} {}: {text}", arg.get_id()))
+            .collect::<Vec<_>>()
+    });
+    own.chain(args)
+        .chain(
+            command
+                .get_subcommands()
+                .flat_map(|sub| help_texts(sub, &path)),
+        )
+        .collect()
+}
+
+#[test]
+fn the_help_cites_no_decision_ruling_or_issue() {
+    assert_eq!(
+        citations("(decision 0064 ruling 4), R5, #511 and decisions 0004 and 0005"),
+        ["decision 0064", "ruling 4", "decisions 0004", "R5", "#511"]
+    );
+    // Punctuation glued to either side hides none of the four forms.
+    assert_eq!(
+        citations("selection—decision 0016/ruling 4 (see:R5) tracked in issue(#511)."),
+        ["decision 0016", "ruling 4", "R5", "#511"]
+    );
+    // An issue glued to a word or a repository is still an issue.
+    assert_eq!(
+        citations("issue#511, feedback-loop-ai/brokkr#512 and brokkr#513"),
+        ["#511", "#512", "#513"]
+    );
+    assert!(citations("a ruling, 4 Ruby lines, issue C#, #5a5a5a and 0064's R2D2").is_empty());
+    let cited: Vec<String> = help_texts(&Cli::command(), "")
+        .into_iter()
+        .filter(|text| !citations(text).is_empty())
+        .collect();
+    assert!(
+        cited.is_empty(),
+        "help text an operator reads cites decisions, rulings or issues; say in plain \
+         words what each meant:\n{}",
+        cited.join("\n")
+    );
 }
 
 #[test]
@@ -1034,10 +1180,12 @@ fn refusal(line: &str) -> Option<String> {
 const NO_SUBCOMMAND: &str = "a `brokkr` with no subcommand, which prints its help and fails";
 
 /// Why clap refuses one `brokkr` command, or nothing when it parses.
-/// `--help` and `--version` stop clap's parse but are valid lines.
+/// `--help` and `--version` stop clap's parse but are valid lines. An old
+/// flat spelling is respelled first, as the binary respells it, so a doc
+/// still written in one parses until 0.17 (decision 0113 ruling 4).
 fn clap_refusal(argv: &[String]) -> Option<String> {
     use clap::error::ErrorKind;
-    match Cli::try_parse_from(argv) {
+    match Cli::try_parse_from(crate::cli_args::respelled(argv).0) {
         Ok(_) => None,
         Err(error)
             if matches!(
@@ -1118,14 +1266,14 @@ fn every_fenced_brokkr_command_in_a_living_doc_parses() {
 
 #[test]
 fn the_fence_reader_joins_continuations_and_reads_only_prompted_lines_beside_a_prompt() {
-    let doc = "```sh\nbrokkr inspect \\\n  --run latest # the newest\n```\n\
+    let doc = "```sh\nbrokkr runs inspect \\\n  --run latest # the newest\n```\n\
                ```console\n$ brokkr runs\nRUN  STATUS  # output\n```\n";
     assert_eq!(
         fenced_commands(doc).unwrap(),
         [
             Fenced {
                 line: 2,
-                text: "brokkr inspect   --run latest # the newest".to_string(),
+                text: "brokkr runs inspect   --run latest # the newest".to_string(),
             },
             Fenced {
                 line: 6,
@@ -1242,10 +1390,10 @@ fn the_fence_reader_sees_brokkr_past_tabs_assignments_and_wrappers() {
         (3, UNPROMPTED.to_string())
     );
     assert_eq!(
-        refusal("brokkr inspect --run $RUN"),
+        refusal("brokkr runs inspect --run $RUN"),
         Some("an unquoted $ expansion".to_string())
     );
-    assert_eq!(refusal("brokkr inspect --run \"$RUN\""), None);
+    assert_eq!(refusal("brokkr runs inspect --run \"$RUN\""), None);
 }
 
 /// A path to `brokkr` as the program word runs it, and `cargo run -p
@@ -1285,7 +1433,7 @@ fn the_fence_reader_parses_a_path_to_brokkr_and_what_cargo_run_runs() {
 fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
     let wacth = "error: unrecognized subcommand 'wacth'";
     let doc = "```sh\nif brokkr wacth; then :; fi\nfor x in a; do brokkr wacth; done\n\
-               'brokkr' wacth\nRUN=$(brokkr costs --run latest)\nsudo \\\n  brokkr runs\n\
+               'brokkr' wacth\nRUN=$(brokkr stats costs --run latest)\nsudo \\\n  brokkr runs\n\
                cd repo && git commit -m \"brokkr starter\"\n```\n";
     assert_eq!(
         refusals_in("doc.md", doc),
@@ -1293,7 +1441,7 @@ fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
             format!("doc.md:2: `if brokkr wacth; then :; fi`: {wacth}"),
             format!("doc.md:3: `for x in a; do brokkr wacth; done`: {wacth}"),
             format!("doc.md:4: `'brokkr' wacth`: {wacth}"),
-            "doc.md:5: `RUN=$(brokkr costs --run latest)`: a $( substitution".to_string(),
+            "doc.md:5: `RUN=$(brokkr stats costs --run latest)`: a $( substitution".to_string(),
             format!("doc.md:6: `sudo   brokkr runs`: {}", unparsed("brokkr")),
             format!(
                 "doc.md:8: `cd repo && git commit -m \"brokkr starter\"`: {}",
@@ -1308,7 +1456,10 @@ fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
 /// a redirect's target.
 #[test]
 fn the_fence_reader_refuses_an_unsplittable_brokkr_line_and_a_process_substitution() {
-    for line in ["brokkr inspect --run $RUN", "brokkr inspect --run `cat id`"] {
+    for line in [
+        "brokkr runs inspect --run $RUN",
+        "brokkr runs inspect --run `cat id`",
+    ] {
         assert_eq!(
             fenced_commands(&format!("```console\n$ brokkr runs\n{line}\n```\n")).unwrap_err(),
             (3, UNPROMPTED.to_string()),
@@ -1568,15 +1719,18 @@ fn the_fence_reader_reads_cargo_run_only_beside_options_that_keep_its_binary() {
 fn the_word_splitter_reads_placeholders_quotes_and_the_end_of_a_command() {
     let split = |command: &str| words(command).unwrap();
     assert_eq!(
-        split("brokkr operator --run <run id> stop --reason 'a b' | jq ."),
+        split("brokkr runs operator --run <run id> stop --reason 'a b' | jq ."),
         [
-            vec!["brokkr", "operator", "--run", "<run id>", "stop", "--reason", "a b"],
+            vec!["brokkr", "runs", "operator", "--run", "<run id>", "stop", "--reason", "a b"],
             vec!["jq", "."]
         ]
     );
     assert_eq!(
-        split("brokkr runs --json > runs.json && brokkr seats --json 2>&1 # both"),
-        [["brokkr", "runs", "--json"], ["brokkr", "seats", "--json"]]
+        split("brokkr runs --json > runs.json && brokkr runs seats --json 2>&1 # both"),
+        [
+            vec!["brokkr", "runs", "--json"],
+            vec!["brokkr", "runs", "seats", "--json"]
+        ]
     );
     assert_eq!(
         split("brokkr runs 2>/dev/null; brokkr doctor || echo \"no\""),
@@ -1588,19 +1742,25 @@ fn the_word_splitter_reads_placeholders_quotes_and_the_end_of_a_command() {
     );
     assert_eq!(split("brokkr a\\ b"), [["brokkr", "a b"]]);
     for (command, problem) in [
-        ("brokkr inspect --run $(cat id)", "a $( substitution"),
-        ("brokkr inspect --run `cat id`", "a backtick substitution"),
+        ("brokkr runs inspect --run $(cat id)", "a $( substitution"),
         (
-            "brokkr inspect --run \"`cat id`\"",
+            "brokkr runs inspect --run `cat id`",
             "a backtick substitution",
         ),
         (
-            "brokkr inspect --run \"$(cat id\"",
+            "brokkr runs inspect --run \"`cat id`\"",
+            "a backtick substitution",
+        ),
+        (
+            "brokkr runs inspect --run \"$(cat id\"",
             "a $( substitution that never closes",
         ),
-        ("brokkr inspect --run 'open", "a ' quote that never closes"),
-        ("brokkr inspect < file", "a `<` that no `>` closes"),
-        ("brokkr inspect \\", "a trailing backslash"),
+        (
+            "brokkr runs inspect --run 'open",
+            "a ' quote that never closes",
+        ),
+        ("brokkr runs inspect < file", "a `<` that no `>` closes"),
+        ("brokkr runs inspect \\", "a trailing backslash"),
         ("brokkr runs >", "a redirect with no target"),
     ] {
         assert_eq!(words(command).unwrap_err(), problem, "{command}");
@@ -1613,11 +1773,11 @@ fn a_documented_command_that_clap_refuses_is_named() {
     assert_eq!(refusal("brokkr run --help"), None);
     assert_eq!(refusal("brokkr --version"), None);
     assert_eq!(
-        refusal("brokkr operator --action supersede --run r --reason why"),
+        refusal("brokkr runs operator --action supersede --run r --reason why"),
         Some("error: unexpected argument '--action' found".to_string())
     );
     assert_eq!(
-        refusal("brokkr inspect --run $(x)"),
+        refusal("brokkr runs inspect --run $(x)"),
         Some("a $( substitution".to_string())
     );
     assert_eq!(
@@ -1625,11 +1785,11 @@ fn a_documented_command_that_clap_refuses_is_named() {
         ["doc.md:2: `brokkr watch --json --run latest`: error: unexpected argument '--json' found"]
     );
     assert_eq!(
-        refusal("cd repo && brokkr runs && brokkr inspect --bogus"),
+        refusal("cd repo && brokkr runs && brokkr runs inspect --bogus"),
         Some("error: unexpected argument '--bogus' found".to_string())
     );
     assert_eq!(
-        refusals_in("doc.md", "```sh\ncd repo && brokkr inspect --bogus\n```\n"),
-        ["doc.md:2: `cd repo && brokkr inspect --bogus`: error: unexpected argument '--bogus' found"]
+        refusals_in("doc.md", "```sh\ncd repo && brokkr runs inspect --bogus\n```\n"),
+        ["doc.md:2: `cd repo && brokkr runs inspect --bogus`: error: unexpected argument '--bogus' found"]
     );
 }

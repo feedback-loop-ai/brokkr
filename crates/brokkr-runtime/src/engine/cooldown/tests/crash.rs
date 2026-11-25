@@ -99,6 +99,11 @@ pub(super) fn wait_for_probe(child: &mut std::process::Child, done: &Path, pid: 
 }
 
 /// Spawn this test binary for the live-probe child under the two env keys.
+/// This test's own engine first becomes a child subreaper, as an engine
+/// does at its first attempt, which this one has not made yet: the child's
+/// hanging probe, orphaned by its kill, is then this process's, not the
+/// shared test binary's, where it ran as a stray of every in-process
+/// attempt then live (#1110). `left_probe` asserts where it went.
 pub(super) fn spawn_live(
     test: &str,
     dir: &Path,
@@ -106,6 +111,7 @@ pub(super) fn spawn_live(
     dir_key: &str,
     run_key: &str,
 ) -> std::process::Child {
+    rustix::process::set_child_subreaper(Some(rustix::process::getpid())).unwrap();
     Command::new(std::env::current_exe().unwrap())
         .args(["--exact", test])
         .env(dir_key, dir)
@@ -319,16 +325,7 @@ fn a_live_probe_crash_parks_the_resume_before_a_second_probe() {
     wait_for_probe(&mut child, &log, &pid, "the probe");
     child.kill().unwrap();
     child.wait().unwrap();
-    let driver = std::fs::read_to_string(&pid)
-        .unwrap()
-        .trim()
-        .parse::<i32>()
-        .expect("the probe's pid");
-    let driver = rustix::process::Pid::from_raw(driver).unwrap();
-    assert!(
-        rustix::process::test_kill_process(driver).is_ok(),
-        "the crashed engine's probe was not left live"
-    );
+    let _probe = left_probe(&pid, "probe");
 
     let at = reservation_path(&home, &dir.path().join("work"), &run);
     let sealed: Value = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
@@ -369,17 +366,57 @@ fn a_live_probe_crash_parks_the_resume_before_a_second_probe() {
     );
     assert_eq!(starts(&resumed).len(), 1, "the effect attempted again");
     assert_eq!(failed(&resumed).len(), 1, "an effect attempt was spent");
-    kill_probe(driver);
 }
 
-/// End the live probe's whole group and reap it if this process adopted it.
-pub(super) fn kill_probe(driver: rustix::process::Pid) {
+/// The hanging probe a killed engine child left, whose pid `pid` holds:
+/// still running, and adopted by this test's own engine (`spawn_live`),
+/// not by the shared test binary. Ended with its group when the test ends,
+/// passed or failed.
+pub(super) fn left_probe(pid: &Path, what: &str) -> LiveProbe {
+    let driver = std::fs::read_to_string(pid)
+        .unwrap()
+        .trim()
+        .parse::<i32>()
+        .unwrap_or_else(|_| panic!("the {what}'s pid"));
+    let probe = LiveProbe(rustix::process::Pid::from_raw(driver).unwrap());
+    assert!(
+        rustix::process::test_kill_process(probe.0).is_ok(),
+        "the crashed engine's {what} was not left live"
+    );
+    let stat = std::fs::read_to_string(format!("/proc/{driver}/stat")).unwrap();
+    let parent = stat
+        .rsplit_once(") ")
+        .and_then(|(_, rest)| rest.split(' ').nth(1));
+    assert_eq!(
+        parent,
+        Some(std::process::id().to_string().as_str()),
+        "the crashed engine's {what} was orphaned past this test's own engine"
+    );
+    probe
+}
+
+/// A live probe this test ends with its whole group when it is dropped, so
+/// a failed assertion does not leave it running to the shared test binary
+/// once this process exits (#1110).
+pub(super) struct LiveProbe(rustix::process::Pid);
+
+impl Drop for LiveProbe {
+    fn drop(&mut self) {
+        kill_probe(self.0);
+    }
+}
+
+/// End the live probe's whole group and reap every member this process
+/// adopted: the probe, then what it forked, reparented here as it died.
+fn kill_probe(driver: rustix::process::Pid) {
+    use rustix::process::WaitOptions;
     rustix::process::kill_process_group(driver, rustix::process::Signal::KILL).ok();
     let until = Instant::now() + StdDuration::from_secs(5);
     while Instant::now() < until {
-        match rustix::process::waitpid(Some(driver), rustix::process::WaitOptions::NOHANG) {
-            Ok(Some(_)) | Err(_) => return,
+        match rustix::process::waitpgid(driver, WaitOptions::NOHANG) {
+            Ok(Some(_)) => {}
             Ok(None) => std::thread::sleep(StdDuration::from_millis(10)),
+            Err(_) => return,
         }
     }
 }

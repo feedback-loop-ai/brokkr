@@ -61,14 +61,14 @@ pub enum SettleRefusal {
     NoTerminal { run: String },
     #[error(
         "run '{run}' is not acknowledged, so it is not quarantined; answer it with \
-         `brokkr operator acknowledge --run {run} --reason <why>` first"
+         `brokkr runs operator acknowledge --run {run} --reason <why>` first"
     )]
     Unacknowledged { run: String },
     #[error("this host names no protected coordination root, so no reservation can be read")]
     NoRoot,
 }
 
-/// What `brokkr operator settle` says, as the operator typed it: why the
+/// What `brokkr runs operator settle` says, as the operator typed it: why the
 /// release is recorded, and who recorded it.
 pub struct Settle<'a> {
     pub reason: &'a str,

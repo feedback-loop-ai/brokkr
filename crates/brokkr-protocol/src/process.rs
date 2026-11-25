@@ -47,13 +47,19 @@ mod limits;
 mod outcome;
 mod own_engine;
 mod queue;
+#[cfg(target_os = "linux")]
+pub(crate) mod reaper;
 mod refusal;
+pub(crate) mod spawned;
 mod table;
 mod tree;
+pub mod usage;
 
 use attempts::{Attempt, Unspawned};
 pub use deadline::By;
 use deadline::{Arm, Deadline};
+pub use evidence::DriverStderr;
+pub(crate) use evidence::Evidence;
 pub(crate) use launched::Launched;
 use limits::{Exceeded, Frame, Limits, Retained, STDOUT_LINES};
 use outcome::{reached, refuse_foreign, unread};
@@ -501,6 +507,7 @@ impl DriverProcess {
             // Read after the watchdog is joined and the tree ended, so
             // the bit is the one that decided this attempt's end.
             deadline_killed: self.timed_out.load(Ordering::SeqCst),
+            usage: self.attempt.usage().map(Box::new),
         }
     }
 

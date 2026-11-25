@@ -35,7 +35,6 @@ pub use bundle::{
     Aggregate, Bundle, CompileError, Invocation, PanelMember, Seat, SeatBody, SeatClass,
     SequenceStep, StepBody, ENGINE_VERSION,
 };
-pub use dispatch::{take_dispatch, DispatcherError};
 pub use engine::{
     apply_fenced_operator_command, conclude, git_head, named_cause, operator_classify,
     operator_command, operator_repair, operator_settle, operator_stop, operator_supersede,
@@ -67,8 +66,14 @@ mod envelope_builder;
 #[path = "../../../tests/support/late.rs"]
 mod late;
 #[cfg(test)]
+#[path = "../../../tests/support/reaped.rs"]
+mod reaped;
+#[cfg(test)]
 #[path = "../../../tests/support/run_state.rs"]
 mod run_state;
+#[cfg(test)]
+#[path = "../../../tests/support/witness.rs"]
+mod witness;
 
 #[cfg(test)]
 #[path = "../../../tests/support/entry_records.rs"]

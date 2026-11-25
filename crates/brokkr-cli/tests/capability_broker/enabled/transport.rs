@@ -33,8 +33,8 @@ fn parked_by(world: &World, cause: String) {
     assert_eq!(
         notes
             .as_str()
-            .and_then(|notes| notes.split_once("; stderr tail")),
-        ended.cause.as_deref().map(|cause| (cause, ": ")),
+            .and_then(|notes| notes.split_once("; driver stderr")),
+        ended.cause.as_deref().map(|cause| (cause, ": empty")),
     );
     assert_eq!(world.starts(), 1, "looking again executes nothing");
 }

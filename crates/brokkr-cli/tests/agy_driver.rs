@@ -1,0 +1,632 @@
+#![cfg(unix)]
+
+//! `brokkr driver agy`, end to end (#1200): Agy's example adapter in a
+//! world that lists its office, a compiled seat hiring `agy-neon`, the
+//! engine's own start, and the real driver over a fake `agy` that prints one
+//! of Antigravity CLI 1.5's recorded turns; and the driver's gate mode as
+//! the engine HOME's hook runs it.
+
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use brokkr_core::realms::Boundary;
+use brokkr_protocol::process::DriverStderr;
+use brokkr_runtime::bundle::RealmLaw;
+use brokkr_runtime::{Bundle, Engine};
+use brokkr_store::Store;
+use serde_json::{json, Value};
+
+use crate::qoder_driver::env_guard::EnvGuard;
+use crate::qoder_driver::{checkpoints, patch, root, write, write_mode};
+
+const NEON: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/named-model-neon-base.ndjson");
+const TOOL_LESS: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/tool-less-turn.ndjson");
+
+const SIGNED_OUT: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/signed-out.ndjson");
+const SIGNED_OUT_STDERR: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/signed-out.stderr");
+const PRINT_TIMEOUT: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/print-timeout.ndjson");
+const PRINT_TIMEOUT_STDERR: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/print-timeout.stderr");
+
+/// How the fake `agy` ends a turn: its stdout, its stderr, its exit, and
+/// whether it `delivers` the seat's result.
+struct Ending<'a> {
+    stdout: &'a str,
+    stderr: &'a str,
+    code: i32,
+    delivers: bool,
+}
+
+/// A fake `agy` that logs its argv, its HOME and the engine's two
+/// configuration files there, writes the seat's result where the prompt's
+/// one stdin line names it if `ending` delivers, prints its stdout and
+/// stderr, and exits its code. A seat stopped after its CLI delivered and
+/// exited on its own ends late, not refused (#1178 H3), so a stream the
+/// driver stops delivers nothing.
+fn fake_agy(root: &Path, ending: &Ending<'_>) -> PathBuf {
+    write(&root.join("turn.ndjson"), ending.stdout.as_bytes());
+    write(&root.join("turn.stderr"), ending.stderr.as_bytes());
+    let undelivered = if ending.delivers { "" } else { "target=\n" };
+    let script = format!(
+        r#"#!/bin/sh
+printf '%s\n' "$@" > '{root}/argv.log'
+printf '%s' "$HOME" > '{root}/home.log'
+cat "$HOME/.gemini/config/mcp_config.json" > '{root}/mcp.log'
+cat "$HOME/.gemini/config/hooks.json" > '{root}/hooks.log'
+line=$(cat)
+target=$(printf '%s' "$line" | sed -n 's/.*\\n    \(\/[^\\"]*\.json\)\\n.*/\1/p' | head -1)
+{undelivered}[ -n "$target" ] && printf '{{"result":"complete"}}' > "$target"
+cat '{root}/turn.stderr' >&2
+cat '{root}/turn.ndjson'
+exit {code}
+"#,
+        root = root.display(),
+        code = ending.code
+    );
+    // Written before the engine starts, in a process that runs this test
+    // alone, so no forked child holds it open for writing when it runs.
+    let path = root.join("agy");
+    write_mode(&path, script.as_bytes(), 0o755);
+    path
+}
+
+/// Agy's example adapter copied as the guide ships it, its own `mcp` block
+/// included, a `scout` office hiring `agy-neon` at `low` with one grant,
+/// a recipe whose work seat it holds, and the operator's login under
+/// `root`, which is the operator's HOME.
+fn world(root: &Path) -> PathBuf {
+    let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (from, to) in [
+        ("docs/examples/adapters/agy.json", "adapters/agy.json"),
+        ("adapters/exec.json", "adapters/exec.json"),
+    ] {
+        write(&root.join(to), &std::fs::read(shipped.join(from)).unwrap());
+    }
+    let login = ".gemini/antigravity-cli/antigravity-oauth-token";
+    write_mode(&root.join(login), b"the operator's login", 0o600);
+    write_scout_agent(root);
+    let recipe = root.join("recipe");
+    let (policy, bundle) = standard_policy_and_bundle("agy");
+    write(&recipe.join("policy.json"), policy.to_string().as_bytes());
+    write(&recipe.join("bundle.json"), bundle.to_string().as_bytes());
+    recipe
+}
+
+fn write_scout_agent(root: &Path) {
+    write(&root.join("agents/charters/scout.md"), b"# scout\n");
+    let office = json!({
+        "description": "the agy scout", "charter": "charters/scout.md",
+        "models": ["agy-neon"], "efforts": {"agy-neon": "low"},
+        "tools": {"allow": ["git"]},
+        "limits": {"max_attempts": 1, "timeout_seconds": 20},
+    });
+    write(
+        &root.join("agents/scout.json"),
+        office.to_string().as_bytes(),
+    );
+}
+
+fn standard_policy_and_bundle(name: &str) -> (Value, Value) {
+    let policy = json!({
+        "phases": ["scout", "review", "done"], "initial": "scout", "terminal": ["done"],
+        "rules": [
+            {"id": "scouted", "from": "scout", "result": "complete", "next": "review", "reason": "s"},
+            {"id": "reviewed", "from": "review", "result": "complete", "next": "done", "reason": "r"},
+        ],
+    });
+    // A provisional model holds no gate: the review is a command.
+    let review = json!({"command": ["{brokkr}", "driver", "exec", "--", "true"]});
+    let bundle = json!({
+        "name": name, "policy": "policy.json",
+        "seats": {
+            "scout": {"results": ["complete"], "agent": "scout"},
+            "review": {"results": ["complete"], "driver": review},
+        },
+    });
+    (policy, bundle)
+}
+
+fn fake_agy_with_kept_transcript(root: &Path, uuid: &str, log_home: bool) -> PathBuf {
+    write(&root.join("turn.ndjson"), NEON.as_bytes());
+    write(&root.join("transcript.src"), PRINTED_TRANSCRIPT.as_bytes());
+    let home_log = if log_home {
+        format!("printf '%s' \"$HOME\" > '{}/home.log'\n", root.display())
+    } else {
+        String::new()
+    };
+    let script = format!(
+        r#"#!/bin/sh
+{home_log}logs="$HOME/.gemini/antigravity-cli/brain/{uuid}/.system_generated/logs"
+mkdir -p "$logs"
+cp '{root}/transcript.src' "$logs/transcript.jsonl"
+chmod 0644 "$logs/transcript.jsonl"
+line=$(cat)
+target=$(printf '%s' "$line" | sed -n 's/.*\\n    \(\/[^\\"]*\.json\)\\n.*/\1/p' | head -1)
+[ -n "$target" ] && printf '{{"result":"complete"}}' > "$target"
+cat '{root}/turn.ndjson'
+exit 0
+"#,
+        root = root.display(),
+    );
+    let bin = root.join("agy");
+    write_mode(&bin, script.as_bytes(), 0o755);
+    bin
+}
+
+fn drive_recipe(
+    root: &Path,
+    recipe: &Path,
+    bin: &Path,
+    feature: &str,
+) -> (
+    String,
+    Result<brokkr_runtime::DriveEnd, brokkr_runtime::EngineError>,
+    Vec<Value>,
+) {
+    let law = RealmLaw {
+        boundary: Boundary::Namespace,
+        provisional_offices: vec!["scout".to_string()],
+    };
+    let (agents, adapters) = (root.join("agents"), root.join("adapters"));
+    let mut bundle = Bundle::compile_under(recipe, &agents, &adapters, law)
+        .unwrap_or_else(|e| panic!("{feature}: bundle compiles: {e}"));
+    patch(&mut bundle);
+    let mut env = EnvGuard::lock();
+    env.set("BROKKR_AGY_BIN", bin);
+    env.set("HOME", root);
+    std::fs::create_dir_all(root.join("work")).unwrap();
+    let store = Store::open(&root.join("forge.db")).unwrap();
+    let mut engine = Engine::start(store, bundle, feature, Some(root.join("work"))).unwrap();
+    let run_id = engine.run_id.clone();
+    let outcome = engine.drive();
+    let events = engine
+        .store
+        .load(&run_id)
+        .unwrap()
+        .iter()
+        .map(|event| serde_json::to_value(event).unwrap())
+        .collect();
+    (run_id, outcome, events)
+}
+
+/// The recipe compiled where the world lists `scout`, run once over a fake
+/// `agy` that prints `stdout`, delivers where it `delivers`, and exits 0:
+/// the journal's events.
+fn engine_run(root: &Path, stdout: &str, delivers: bool) -> Vec<Value> {
+    let ending = Ending {
+        stdout,
+        stderr: "",
+        code: 0,
+        delivers,
+    };
+    engine_run_ending(root, &ending)
+}
+
+/// [`engine_run`] over a fake `agy` that ends as `ending` says.
+fn engine_run_ending(root: &Path, ending: &Ending<'_>) -> Vec<Value> {
+    let recipe = world(root);
+    let bin = fake_agy(root, ending);
+    let (_run_id, outcome, events) = drive_recipe(root, &recipe, &bin, "agy");
+    eprintln!("the drive ended {outcome:?}");
+    for event in &events {
+        eprintln!("{event}");
+    }
+    events
+}
+
+fn logged(root: &Path, name: &str) -> String {
+    std::fs::read_to_string(root.join(name)).unwrap()
+}
+
+#[test]
+fn an_engine_run_of_an_agy_seat_answers_on_its_pin_under_an_engine_home() {
+    // In an engine of its own (#403): an engine is its attempts' subreaper.
+    let test = "agy_driver::an_engine_run_of_an_agy_seat_answers_on_its_pin_under_an_engine_home";
+    if !brokkr_protocol::process::in_its_own_engine(test) {
+        return;
+    }
+    let (_home, root) = root();
+    let events = engine_run(&root, NEON, true);
+    let settings = r#"{"permissions":{"allow":["command(git)"]}}"#;
+    assert_eq!(
+        logged(&root, "argv.log").lines().collect::<Vec<_>>(),
+        [
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--mode",
+            "accept-edits",
+            "--model",
+            "gemini-4-neon",
+            "--effort",
+            "low",
+            "--settings",
+            settings,
+        ]
+    );
+    // The engine's HOME held the empty set and the gate, and is gone.
+    assert_eq!(logged(&root, "mcp.log"), r#"{"mcpServers":{}}"#);
+    let hooks: Value = serde_json::from_str(&logged(&root, "hooks.log")).unwrap();
+    let hook = &hooks["brokkr-gate"]["PreToolUse"][0]["hooks"][0];
+    let gate = crate::built_shell_line!([
+        "driver",
+        "agy",
+        "--",
+        "--gate",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "manage_task",
+    ]);
+    assert_eq!(hook["command"], gate);
+    let home = logged(&root, "home.log");
+    assert_ne!(Path::new(&home), root);
+    assert!(!Path::new(&home).exists(), "{home}");
+    let finished = checkpoints(&events)
+        .into_iter()
+        .find(|row| row["step"] == "agy-cli-session-finished")
+        .expect("the seat finished");
+    let figures = [
+        "model",
+        "effort",
+        "input_tokens",
+        "output_tokens",
+        "reasoning_output_tokens",
+    ];
+    assert_eq!(
+        figures.map(|key| finished[key].clone()),
+        [
+            json!("gemini-4-neon"),
+            json!("not reported"),
+            json!(8875),
+            json!(21),
+            json!(19)
+        ]
+    );
+    let none = json!({"kind": "none", "locator": "", "home": ""});
+    assert_eq!(finished["transcript"], none);
+    for absent in [
+        "total_cost_usd",
+        "cache_write_tokens",
+        "root_session",
+        "capture",
+    ] {
+        assert_eq!(finished.get(absent), None, "{absent}");
+    }
+    let succeeded = events
+        .iter()
+        .any(|event| event["type"] == "effect/succeeded");
+    assert!(succeeded, "the seat's effect succeeded");
+}
+
+#[test]
+fn an_engine_run_of_an_agy_seat_served_another_model_journals_no_turn() {
+    let test = "agy_driver::an_engine_run_of_an_agy_seat_served_another_model_journals_no_turn";
+    if !brokkr_protocol::process::in_its_own_engine(test) {
+        return;
+    }
+    let (_home, root) = root();
+    // The driver stops the stream at its init, so the fake delivers nothing.
+    let events = engine_run(&root, TOOL_LESS, false);
+    assert_eq!(checkpoints(&events), Vec::<&Value>::new());
+    let failures: Vec<&Value> = (events.iter())
+        .filter(|event| event["type"] == "effect/failed")
+        .collect();
+    let [failed] = failures[..] else {
+        panic!("not one failed effect: {failures:?}");
+    };
+    let error = failed["payload"]["error"].as_str().unwrap();
+    let words = "model_substituted: the seat pinned \"gemini-4-neon\" and agy served \
+                 \"gemini-3.8-flash-low\"";
+    assert!(error.contains(words), "{error}");
+    assert_eq!(failed["payload"]["start_failure"], true);
+}
+
+/// A signed-out agy, end to end: the driver process's own output, which
+/// the engine journals as the attempt's stderr by evidence (#1199), is the
+/// driver's words in place of agy's sign-in block, and the journal holds no
+/// piece of its URL (#1200 K8).
+#[test]
+fn an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url() {
+    let test = "agy_driver::an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url";
+    if !brokkr_protocol::process::in_its_own_engine(test) {
+        return;
+    }
+    let (_home, root) = root();
+    // The recorded sign-in line, its link built from pieces no journal
+    // holds otherwise: its host, each path segment and each query value.
+    let host = "qz7signin.brokkr-host.test";
+    let segments = ["o7kpath", "zq4auth"];
+    let values = ["xq7offline", "qv81client", "wz3challenge", "kq5state"];
+    let query = ["access_type", "client_id", "code_challenge", "state"]
+        .iter()
+        .zip(values)
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    let built = format!("https://{host}/{}?{query}", segments.join("/"));
+    let recorded = SIGNED_OUT_STDERR
+        .lines()
+        .find(|line| line.contains("https://"));
+    let link = recorded.unwrap().trim();
+    let stderr = SIGNED_OUT_STDERR.replace(link, &built);
+    assert!(stderr.contains(&built) && !stderr.contains(link));
+    let ending = Ending {
+        stdout: SIGNED_OUT,
+        stderr: &stderr,
+        code: 1,
+        delivers: true,
+    };
+    let journal = serde_json::to_string(&engine_run_ending(&root, &ending)).unwrap();
+    // The journal names the driver's printed stderr by its evidence alone
+    // (#1199): these are the evidence of the driver's own words.
+    let printed = "agy wrote its sign-in request on stderr, which brokkr does not keep: it holds \
+                   a link made for one attempt (#1200)\n";
+    let named = DriverStderr::of(printed).to_string();
+    assert!(
+        journal.contains(&named),
+        "the driver's printed stderr is journaled as {named}: {journal}"
+    );
+    assert!(
+        journal.contains(
+            "not_logged_in: agy's result had status ERROR; Antigravity CLI is signed out"
+        ),
+        "{journal}"
+    );
+    let scheme_and_host = format!("https://{host}");
+    let pieces = [host, scheme_and_host.as_str()].into_iter();
+    let pieces = pieces.chain(segments).chain(values);
+    let journaled: Vec<&str> = pieces.filter(|piece| journal.contains(piece)).collect();
+    assert_eq!(journaled, Vec::<&str>::new());
+}
+
+/// A print timeout behind work, end to end: the attempt ends with no
+/// result, and what the driver prints for it is the print-timeout refusal's
+/// words, which the engine journals by evidence (#1200 K9, #1199).
+#[test]
+fn an_engine_run_of_an_agy_print_timeout_journals_its_words() {
+    let test = "agy_driver::an_engine_run_of_an_agy_print_timeout_journals_its_words";
+    if !brokkr_protocol::process::in_its_own_engine(test) {
+        return;
+    }
+    let (_home, root) = root();
+    let stdout = PRINT_TIMEOUT.replace("gemini-3.8-flash-low", "gemini-4-neon");
+    let ending = Ending {
+        stdout: &stdout,
+        stderr: PRINT_TIMEOUT_STDERR,
+        code: 3,
+        delivers: true,
+    };
+    let events = engine_run_ending(&root, &ending);
+    let journal = serde_json::to_string(&events).unwrap();
+    let words = "print_timeout: agy's result had status ERROR; agy exited 3 at its own print \
+                 timeout, which this launch never asks for";
+    // The journal names what the driver printed by its evidence alone
+    // (#1199): these are the evidence of the refusal's words.
+    let printed = format!("agy transcript not kept: transcript file is absent\n{words}; ")
+        + "the command was spawned, so no result is sent\n";
+    let named = DriverStderr::of(&printed).to_string();
+    assert!(journal.contains(&named), "{named}: {journal}");
+    let succeeded = (events.iter()).any(|event| event["type"] == "effect/succeeded");
+    assert!(!succeeded, "{journal}");
+}
+
+/// The gate mode `brokkr driver agy -- --gate <name>...` answers one hook
+/// call: a listed tool is left to agy's rules, another is denied by name.
+#[test]
+fn the_gate_mode_answers_one_hook_call_by_the_tools_own_name() {
+    let answer = |name: &str| {
+        let mut gate =
+            crate::built::brokkr(["driver", "agy", "--", "--gate", "read_file", "run_command"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+        let call = json!({"hookEventName": "PreToolUse", "toolCall": {"name": name}});
+        let mut stdin = gate.stdin.take().unwrap();
+        stdin.write_all(call.to_string().as_bytes()).unwrap();
+        drop(stdin);
+        let output = gate.wait_with_output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    assert_eq!(
+        answer("run_command"),
+        "{\"decision\":\"deny_unless_prior_grant\"}\n"
+    );
+    assert_eq!(
+        answer("search_web"),
+        "{\"decision\":\"deny\",\"reason\":\"the engine's gate does not offer the tool \
+         search_web\"}\n"
+    );
+}
+
+const PRINTED_TRANSCRIPT: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/l2b-printed-value.transcript.ndjson");
+const PRINTED_SENTINEL: &str = "l2b-sentinel-value-7f3a9c2e41d8";
+
+/// End to end (#1227): an agy turn writes `transcript.jsonl` (mode 0644) into
+/// its engine HOME, completes, removes the engine HOME, keeps `transcript.jsonl`
+/// at mode 0600 inside a mode 0700 directory under
+/// `<HOME>/.local/state/brokkr/agy-conversations/<uuid>`, records
+/// `agy-conversation` in the journal, and `brokkr runs transcript` reads and
+/// masks the sentinel value against `secrets.env` beside `forge.db`.
+#[test]
+fn an_engine_run_keeps_the_agy_transcript_and_runs_transcript_masks_it() {
+    let test = "agy_driver::an_engine_run_keeps_the_agy_transcript_and_runs_transcript_masks_it";
+    if !brokkr_protocol::process::in_its_own_engine(test) {
+        return;
+    }
+    use std::os::unix::fs::MetadataExt;
+    let (_home, root) = root();
+    let uuid = "466b4fc2-eae8-497b-8306-5c8958fac45f";
+    let bin = fake_agy_with_kept_transcript(&root, uuid, true);
+    let recipe = world(&root);
+    let db = root.join("forge.db");
+    let (run_id, outcome, events) = drive_recipe(&root, &recipe, &bin, "agy");
+    outcome.unwrap();
+
+    // Engine HOME was removed; kept transcript survives with 0700/0600 modes.
+    let engine_home = logged(&root, "home.log");
+    assert!(!Path::new(&engine_home).exists(), "{engine_home}");
+    let kept_parent = root.join(".local/state/brokkr/agy-conversations");
+    let kept_dir = kept_parent.join(uuid);
+    let kept_file = kept_dir.join("transcript.jsonl");
+    assert!(kept_file.exists(), "kept transcript missing");
+    assert_eq!(
+        std::fs::metadata(&kept_parent).unwrap().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(std::fs::metadata(&kept_dir).unwrap().mode() & 0o777, 0o700);
+    assert_eq!(std::fs::metadata(&kept_file).unwrap().mode() & 0o777, 0o600);
+
+    let finished = checkpoints(&events)
+        .into_iter()
+        .find(|row| row["step"] == "agy-cli-session-finished")
+        .expect("finished checkpoint");
+    assert_eq!(
+        finished["transcript"],
+        json!({
+            "kind": "agy-conversation",
+            "locator": uuid,
+            "home": kept_parent.to_string_lossy(),
+        })
+    );
+
+    // Secrets store beside forge.db masks the sentinel on `brokkr runs transcript`.
+    brokkr_protocol::secret::store_set(&root.join("secrets.env"), "L2B_SENTINEL", PRINTED_SENTINEL)
+        .unwrap();
+    let out = crate::built::brokkr([
+        "runs",
+        "transcript",
+        "--run",
+        &run_id,
+        "--seat",
+        "scout",
+        "--db",
+    ])
+    .arg(&db)
+    .env("HOME", &root)
+    .output()
+    .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("kind  agy-conversation"), "{text}");
+    assert!(text.contains("[secret:L2B_SENTINEL]"), "{text}");
+    assert!(!text.contains(PRINTED_SENTINEL), "{text}");
+}
+
+fn write_undeclared_agy_fixture(root: &Path, case: &str, uuid: &str) -> (PathBuf, PathBuf) {
+    let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let login = ".gemini/antigravity-cli/antigravity-oauth-token";
+    write_mode(&root.join(login), b"the operator's login", 0o600);
+    let bin = fake_agy_with_kept_transcript(root, uuid, false);
+
+    let mut agy_adapter: Value = serde_json::from_slice(
+        &std::fs::read(shipped.join("docs/examples/adapters/agy.json")).unwrap(),
+    )
+    .unwrap();
+    if case == "adapter-without-record-kinds" {
+        agy_adapter.as_object_mut().unwrap().remove("record_kinds");
+    }
+    write(
+        &root.join("adapters/agy.json"),
+        agy_adapter.to_string().as_bytes(),
+    );
+    write(
+        &root.join("adapters/exec.json"),
+        &std::fs::read(shipped.join("adapters/exec.json")).unwrap(),
+    );
+    write_scout_agent(root);
+
+    let recipe = root.join("recipe");
+    write(&recipe.join("scout.md"), b"# inline agy scout\n");
+    let review = json!({"command": ["{brokkr}", "driver", "exec", "--", "true"]});
+    let (policy, bundle_json) = if case == "inline-adapterless" {
+        (
+            json!({
+                "phases": ["scout", "helper", "review", "done"], "initial": "scout", "terminal": ["done"],
+                "rules": [
+                    {"id": "scouted", "from": "scout", "result": "complete", "next": "review", "reason": "s"},
+                    {"id": "scout-retry", "from": "scout", "result": "retry", "next": "helper", "reason": "sr"},
+                    {"id": "helped", "from": "helper", "result": "complete", "next": "review", "reason": "h"},
+                    {"id": "reviewed", "from": "review", "result": "complete", "next": "done", "reason": "r"},
+                ],
+            }),
+            json!({
+                "name": "inline-agy", "policy": "policy.json",
+                "seats": {
+                    "scout": {
+                        "results": ["complete", "retry"],
+                        "role": "scout.md",
+                        "driver": {
+                            "command": ["{brokkr}", "driver", "agy", "--", "--model", "gemini-4-neon"]
+                        }
+                    },
+                    "review": {"results": ["complete"], "driver": review},
+                    "helper": {"results": ["complete"], "agent": "scout"},
+                }
+            }),
+        )
+    } else {
+        standard_policy_and_bundle("bare-agy")
+    };
+    write(&recipe.join("policy.json"), policy.to_string().as_bytes());
+    write(
+        &recipe.join("bundle.json"),
+        bundle_json.to_string().as_bytes(),
+    );
+    (bin, recipe)
+}
+
+/// #1227 U2(b): both an inline adapterless `{brokkr} driver agy` seat and an
+/// agent-backed `agy` seat whose adapter omits `record_kinds` complete cleanly,
+/// record `transcript.kind: "none"`, and keep no file under
+/// `~/.local/state/brokkr/agy-conversations/`, matching main.
+#[test]
+fn undeclared_agy_seats_complete_record_none_and_keep_nothing() {
+    let test = "agy_driver::undeclared_agy_seats_complete_record_none_and_keep_nothing";
+    if !brokkr_protocol::process::in_its_own_engine(test) {
+        return;
+    }
+    let uuid = "466b4fc2-eae8-497b-8306-5c8958fac45f";
+    for case in ["inline-adapterless", "adapter-without-record-kinds"] {
+        let (_home, root) = root();
+        let (bin, recipe) = write_undeclared_agy_fixture(&root, case, uuid);
+        let (_run_id, outcome, events) = drive_recipe(&root, &recipe, &bin, case);
+        outcome.unwrap_or_else(|e| panic!("{case}: completes cleanly: {e}"));
+        let succeeded = events
+            .iter()
+            .find(|e| e["type"] == "effect/succeeded")
+            .unwrap_or_else(|| panic!("{case}: scout succeeded: {events:?}"));
+        assert_eq!(
+            succeeded["payload"]["result"]["result"], "complete",
+            "{case}"
+        );
+        assert_eq!(
+            succeeded["payload"]["result"]["transcript"],
+            json!({"kind": "none", "locator": "", "home": ""}),
+            "{case}"
+        );
+        let finished = checkpoints(&events)
+            .into_iter()
+            .find(|row| row["step"] == "agy-cli-session-finished")
+            .unwrap_or_else(|| panic!("{case}: missing finished checkpoint"));
+        assert_eq!(
+            finished["transcript"],
+            json!({"kind": "none", "locator": "", "home": ""}),
+            "{case}"
+        );
+        assert!(
+            !root.join(".local/state/brokkr/agy-conversations").exists(),
+            "{case}: must keep no file"
+        );
+    }
+}

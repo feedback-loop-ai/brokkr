@@ -27,6 +27,7 @@ use brokkr_runtime::{Bundle, Invocation, SeatBody};
 use serde_json::Value;
 
 use crate::brokkr_folder::{repository, Repo};
+use crate::isolated::Alone;
 
 /// Fixture, the name the charters call the stack, then build, test, lint.
 /// The same shape as the table in `init.rs`, written out again rather
@@ -241,6 +242,34 @@ pub(crate) fn brokkr_with(
     cwd: &Path,
     configure: impl Fn(&mut Command),
 ) -> (Option<i32>, String, String) {
+    stood(&mut crate::built::brokkr(args), args, cwd, configure)
+}
+
+/// [`brokkr`] for `brokkr doctor`, alone in a PID namespace of its own
+/// (#1137i).
+pub(crate) fn doctored(alone: &Alone, args: &[&str], cwd: &Path) -> (Option<i32>, String, String) {
+    doctored_with(alone, args, cwd, |_| {})
+}
+
+/// [`brokkr_with`] for `brokkr doctor`, alone in a PID namespace of its
+/// own (#1137i).
+pub(crate) fn doctored_with(
+    alone: &Alone,
+    args: &[&str],
+    cwd: &Path,
+    configure: impl Fn(&mut Command),
+) -> (Option<i32>, String, String) {
+    stood(&mut alone.brokkr(args), args, cwd, configure)
+}
+
+/// `command`, the built brokkr given `args`, run as [`brokkr_with`] runs
+/// it.
+fn stood(
+    command: &mut Command,
+    args: &[&str],
+    cwd: &Path,
+    configure: impl Fn(&mut Command),
+) -> (Option<i32>, String, String) {
     let stubs = tempfile::tempdir().unwrap();
     // Canonical once, at creation: the coordination root's walk follows no
     // link from `/`, so a HOME below macOS's `/var -> /private/var` reads
@@ -256,10 +285,9 @@ pub(crate) fn brokkr_with(
     // A HOME of its own, beside the stubs, unless `configure` gives it
     // another (decision 0065 slice two, U8a2a).
     let home = crate::engine::toolchain_home_in(&dir);
-    let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    command.args(args).env("PATH", path).env("HOME", home);
+    command.env("PATH", path).env("HOME", home);
     command.current_dir(cwd);
-    configure(&mut command);
+    configure(command);
     let out = command.output().unwrap();
     let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
     (out.status.code(), text(&out.stdout), text(&out.stderr))
@@ -1327,7 +1355,7 @@ fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
         for provider in ["claude", "exec"] {
             crate::init_doctor::assert_shipped_mcp_facts(&bundle, provider);
         }
-        let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
+        let (code, stdout, stderr) = brokkr(&["library", "compile", "--bundle", "."], &bundle);
         assert_eq!(code, Some(0), "{fixture}: {stderr}");
         assert!(stdout.contains("\"starter\""), "{fixture}: {stdout}");
         assert_eq!(
@@ -1381,7 +1409,7 @@ fn a_stack_aware_scaffolds_gates_refuse_an_untrusted_driver() {
     )
     .unwrap();
 
-    let (code, _, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
+    let (code, _, stderr) = brokkr(&["library", "compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(1), "stderr: {stderr}");
     assert!(
         stderr.contains("gate class") && stderr.contains("claude"),
@@ -1410,7 +1438,7 @@ fn an_allowance_the_adapter_cannot_express_refuses_the_scaffolds_compile() {
     )
     .unwrap();
 
-    let (code, _, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
+    let (code, _, stderr) = brokkr(&["library", "compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(1), "stderr: {stderr}");
     assert!(
         stderr.contains("no tool permission named 'bun'"),

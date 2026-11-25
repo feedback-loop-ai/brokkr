@@ -118,7 +118,7 @@ impl Store {
             origin: origin.as_deref(),
         };
         let conn = &mut self.conn;
-        let (envelope, settled) = patiently("start_run", self.patience, || {
+        let (envelope, settled) = patiently("start_run", self.patience, &self.path, || {
             start_once(conn, &row, &started, &mut fence)
         })?;
         #[cfg(any(test, feature = "test-support"))]

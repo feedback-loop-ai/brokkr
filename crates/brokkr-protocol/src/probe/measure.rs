@@ -19,6 +19,7 @@ use read::{Block, Counted, Harness, Said};
 mod answer;
 mod claude;
 mod claude_log;
+mod claude_mcp_log;
 mod claude_message;
 mod codex;
 mod codex_log;
@@ -105,6 +106,8 @@ impl fmt::Display for Fault {
 enum Lines {
     Events,
     Transcript,
+    /// Claude's MCP client log, one file per server it starts (2.1.326).
+    McpLog,
     /// Text, from the turn's own answer, dsh's stdout, or an aside (#484).
     Text(Origin),
 }
@@ -296,10 +299,11 @@ enum Line {
 fn read_line(line: &str, reader: Reader, block: &mut Block) -> Result<Line, Fault> {
     match (strict::object(line), reader.lines) {
         (Some(fields), Lines::Transcript) => reader.harness.row(fields).map(Line::Event),
+        (Some(fields), Lines::McpLog) => claude_mcp_log::row(fields).map(Line::Event),
         (Some(fields), Lines::Events | Lines::Text(_)) => {
             reader.harness.event(fields).map(Line::Event)
         }
-        (None, Lines::Events | Lines::Transcript) => Err(Fault::NotOneObject),
+        (None, Lines::Events | Lines::Transcript | Lines::McpLog) => Err(Fault::NotOneObject),
         (None, Lines::Text(origin)) => reader
             .harness
             .text_in(line, origin, block)
@@ -354,11 +358,10 @@ fn transcript_stream(transcript: &Transcript, harness: Harness) -> Stream {
         Written::Appended { from_line } => (transcript.path.clone(), from_line),
         Written::Rewritten => (format!("{}, which the turn rewrote,", transcript.path), 1),
     };
-    let reader = Reader {
-        harness,
-        lines: Lines::Transcript,
-    };
-    parse_lines(&transcript.text, &source, first, reader)
+    let (lines, server) = claude_mcp_log::reading(harness, &transcript.path);
+    let mut stream = parse_lines(&transcript.text, &source, first, Reader { harness, lines });
+    claude_mcp_log::list_in(&mut stream, server, first);
+    stream
 }
 
 /// Every stream a launch captured, read whatever its exit by `harness`'s

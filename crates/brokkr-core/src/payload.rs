@@ -348,6 +348,25 @@ impl<'a> EffectIndeterminate<'a> {
     }
 }
 
+/// `effect/succeeded`'s effect, read as the fold reads the whole event, for
+/// a reader beside the fold that needs nothing else (the sweep, decision
+/// 0104). Only the effect is given; the remainder is not carried.
+pub fn succeeded_effect(event: &EventEnvelope) -> Result<&str, FoldError> {
+    Ok(EffectSucceeded::read(event, |_| Ok(()))?.effect_id)
+}
+
+/// `operator/commanded`'s command id and word, in that order, read as the
+/// fold reads them.
+pub fn operator_command(event: &EventEnvelope) -> Result<(&str, &str), FoldError> {
+    let commanded = OperatorCommanded::read(event)?;
+    Ok((commanded.command_id, commanded.command))
+}
+
+/// `operator/accepted`'s command id, read as the fold reads it.
+pub fn accepted_command(event: &EventEnvelope) -> Result<&str, FoldError> {
+    Ok(OperatorAccepted::read(event)?.command_id)
+}
+
 /// `transition/decided`: its `from` and `result`, each refused by name,
 /// then the whole closed [`Decision`], refused as a decision that does
 /// not read.

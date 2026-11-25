@@ -20,15 +20,29 @@ use std::ffi::OsString;
 use std::num::NonZeroU32;
 
 use brokkr_store::{
-    Claim, EntryId, Generation, QueueEntry, QueueRefusal, StartRefusal, Store, StoreError,
+    Claim, Disposal, EntryId, Generation, QueueEntry, QueueRefusal, StartRefusal, Store, StoreError,
 };
 
-use super::pass::{Contended, Ending, Held, Reclaimed, Seams, Stage, Started, Subject};
+use super::pass::{Contended, Ending, Held, Left, PassSeams, Reclaimed, Stage, Started, Subject};
 use super::Dispatcher;
-use crate::admission::{AdmissionError, Reason, Room};
-use crate::launch::{self, LaunchError, QueuedLaunch};
+use crate::admission::{AdmissionError, Reason, Room, Unclaimed};
+use crate::launch::{LaunchError, LaunchRequest, NewRun, QueuedLaunch};
 use crate::realms::WorldError;
-use crate::EngineError;
+use crate::{Engine, EngineError};
+
+/// What starts a run from its rebuilt request: [`crate::launch::start`],
+/// or a test's fault in its place (a closure seam, decision 0071 ruling 2).
+pub(crate) type Launch =
+    fn(LaunchRequest, NewRun, &mut dyn FnMut(&str)) -> Result<Engine, LaunchError>;
+
+/// What every start of one pass shares: the journal's bound as the pass
+/// read it, the boundary tool's search path and the launch. A parameter
+/// object, as decision 0071 ruling 10 asks.
+pub(crate) struct Shared<'a> {
+    pub(crate) bound: NonZeroU32,
+    pub(crate) host_path: &'a OsString,
+    pub(crate) launch: Launch,
+}
 
 /// The run, under its claim, that a spawn seam is handed once its `spawn`
 /// row has landed: the entry, the claim, the generation that wrote the row
@@ -76,6 +90,9 @@ pub(crate) enum Outcome {
     /// A claim could not be judged: reported, and no further entry is
     /// claimed this pass.
     Admission(AdmissionError),
+    /// A stop was asked before the claim wrote (decision 0110 ruling 5): nothing
+    /// was written, and no further entry is claimed this pass.
+    Stopped,
 }
 
 /// A claim a re-check refused: the entry and the reason, with nothing
@@ -97,14 +114,15 @@ pub(crate) struct Admitted {
 }
 
 /// Start one admitted entry: claim it, rebuild and start its run, drop the
-/// engine so its lock goes, then link, `spawn` and hand it to the seam.
+/// engine so its lock goes, then link, `spawn` and hand it to the seam. A
+/// run started and not handed to the seam is pushed to `left`.
 pub(crate) fn start<S, P>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     admitted: Admitted,
-    bound: NonZeroU32,
-    host_path: OsString,
-    seams: &mut Seams<S, P>,
+    shared: &Shared<'_>,
+    seams: &mut PassSeams<'_, S, P>,
+    left: &mut Vec<Left>,
 ) -> Result<Outcome, Ending>
 where
     S: FnMut() -> Result<(), Ending>,
@@ -118,9 +136,17 @@ where
     let id = entry.id;
     let generation = dispatcher.generation;
     (seams.stands)()?;
-    let claim = match room.claim(store, generation, &claim_reason(id, generation)) {
+    // A stop claims nothing more (decision 0110 ruling 5). It is read after
+    // the binary check, inside the claim's transaction once it holds the
+    // write lock, so a stop asked during the check or while the claim
+    // waited on another writer is honoured.
+    let reason = claim_reason(id, generation);
+    let claim = match room.claim(store, generation, &reason, &mut *seams.claims) {
         Ok(Ok(claim)) => claim,
-        Ok(Err(reason)) => return Ok(Outcome::ClaimRefused(ClaimRefused { entry: id, reason })),
+        Ok(Err(Unclaimed::Stopped)) => return Ok(Outcome::Stopped),
+        Ok(Err(Unclaimed::Refused(reason))) => {
+            return Ok(Outcome::ClaimRefused(ClaimRefused { entry: id, reason }))
+        }
         Err(error) => match admission_refused(error) {
             AdmissionRefused::Store(error) => {
                 return contend(error, Subject::Entry(id), Stage::Claim)
@@ -128,49 +154,51 @@ where
             AdmissionRefused::Other(error) => return Ok(Outcome::Admission(error)),
         },
     };
-    let remeasure = launch.clone();
+    let bound = shared.bound;
+    let host_path = shared.host_path.clone();
     let (request, mut run) = match launch.rebuild(store.path().to_path_buf(), host_path) {
         Ok(built) => built,
-        Err(error) => return dispose(store, claim, generation, bound, class(error), &remeasure),
+        Err(error) => return dispose(store, claim, generation, bound, class(error)),
     };
     run.claim = Some((claim, generation));
-    let engine = match launch::start(request, run, &mut silent) {
+    let engine = match (shared.launch)(request, run, &mut silent) {
         Ok(engine) => engine,
-        Err(error) => return dispose(store, claim, generation, bound, class(error), &remeasure),
+        Err(error) => return dispose(store, claim, generation, bound, class(error)),
     };
     let run = engine.run_id.clone();
     // Decision 0108 ruling 1 and 0110 ruling 3: the engine holds the run's
     // lock until it is dropped, and the link waits for it to go.
     drop(engine);
-    link_and_spawn(
-        store,
-        dispatcher,
-        claim,
-        &run,
-        &mut seams.stands,
-        &mut seams.spawn,
-    )
+    let steps: Steps<'_> = (&mut seams.stands, &mut seams.spawn);
+    link_and_spawn(store, dispatcher, claim, &run, steps, left)
 }
+
+/// The two seams the steps after a run exists call: `stands` before the
+/// `spawn` row, and `spawn` once it has landed.
+pub(crate) type Steps<'a> = (
+    &'a mut dyn FnMut() -> Result<(), Ending>,
+    &'a mut dyn FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+);
 
 /// Link `claim` to `run`, write its `spawn` row and hand it to the seam:
 /// the steps after the run exists, kept apart so a test can stand a
-/// contended `link` or `spawn` at its own step.
+/// contended `link` or `spawn` at its own step. A run whose link or `spawn`
+/// row does not land, or whose dispatcher ends between them, is pushed to
+/// `left`, so the report names it beside the claim.
 pub(crate) fn link_and_spawn(
     store: &mut Store,
     dispatcher: &Dispatcher,
     claim: Claim,
     run: &str,
-    stands: &mut dyn FnMut() -> Result<(), Ending>,
-    spawn: &mut dyn FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    (stands, spawn): Steps<'_>,
+    left: &mut Vec<Left>,
 ) -> Result<Outcome, Ending> {
     let generation = dispatcher.generation;
     let entry = claim.parts().0;
-    if let Err(error) = store.queue_link(claim, generation, run, &link_reason(claim, run)) {
-        return contend(error, Subject::Claim(entry, claim), Stage::Link);
-    }
-    stands()?;
-    if let Err(error) = store.queue_spawn(claim, generation, &spawn_reason(claim, run)) {
-        return contend(error, Subject::Claim(entry, claim), Stage::Spawn);
+    if let Some(stopped) = rows(store, generation, claim, run, stands).transpose() {
+        let run = run.to_string();
+        left.push(Left { claim, run });
+        return stopped;
     }
     let spawned = spawn(&Spawn {
         entry,
@@ -184,6 +212,26 @@ pub(crate) fn link_and_spawn(
         run: run.to_string(),
         spawned,
     }))
+}
+
+/// The `link` and the `spawn` row, with the stand between them: `None`
+/// once both landed, or the contention that stopped them.
+fn rows(
+    store: &mut Store,
+    generation: Generation,
+    claim: Claim,
+    run: &str,
+    stands: &mut dyn FnMut() -> Result<(), Ending>,
+) -> Result<Option<Outcome>, Ending> {
+    let subject = Subject::Claim(claim.parts().0, claim);
+    if let Err(error) = store.queue_link(claim, generation, run, &link_reason(claim, run)) {
+        return contend(error, subject, Stage::Link).map(Some);
+    }
+    stands()?;
+    if let Err(error) = store.queue_spawn(claim, generation, &spawn_reason(claim, run)) {
+        return contend(error, subject, Stage::Spawn).map(Some);
+    }
+    Ok(None)
 }
 
 /// The reasons the dispatcher writes on each step, naming the generation,
@@ -220,12 +268,14 @@ fn contend(error: StoreError, subject: Subject, stage: Stage) -> Result<Outcome,
 
 /// How a start's outcome is disposed of (decision 0110 ruling 2).
 enum Class {
-    /// The bundle moved: return it uncounted, naming the claim's digest.
-    BundleMoved(String),
+    /// The bundle moved: return it uncounted, naming the claim's digest and
+    /// the one the start compiled, as its refusal carried them.
+    BundleMoved(Box<(String, String)>),
     /// The start was `Contended`: return it uncounted.
     Contended,
-    /// A refusal that may recur on the same bytes: count it.
-    Counted(StartRefusal),
+    /// A refusal that may recur on the same bytes: count it, with the
+    /// start's own words.
+    Counted(StartRefusal, String),
     /// A newer dispatcher holds the journal: write nothing and end.
     Fenced(Generation),
     /// The queue storage is not one this binary writes.
@@ -244,15 +294,11 @@ fn dispose(
     generation: Generation,
     bound: NonZeroU32,
     class: Class,
-    remeasure: &QueuedLaunch,
 ) -> Result<Outcome, Ending> {
     let (entry, seq) = claim.parts();
     match class {
-        Class::BundleMoved(measured) => {
-            let started = match remeasure.compiled() {
-                Ok(bundle) => bundle.manifest_digest(),
-                Err(_) => "unreadable".into(),
-            };
+        Class::BundleMoved(digests) => {
+            let (measured, started) = *digests;
             let reason = format!(
                 "start refused: claim {seq} of entry {entry} measured bundle {measured}, and this \
                  start compiled {started}"
@@ -263,14 +309,10 @@ fn dispose(
             let reason = format!("start contended: claim {seq} of entry {entry} wrote no run");
             reclaim(store, claim, generation, bound, None, reason)
         }
-        Class::Counted(refusal) => reclaim(
-            store,
-            claim,
-            generation,
-            bound,
-            Some(refusal),
-            refusal.word().to_string(),
-        ),
+        Class::Counted(refusal, words) => {
+            let reason = format!("{}: {words}", refusal.word());
+            reclaim(store, claim, generation, bound, Some(refusal), reason)
+        }
         Class::Fenced(fenced) => Err(Ending::Fenced(fenced)),
         Class::QueueStorage(refusal) => Err(Ending::QueueStorage(refusal)),
         Class::Store(error) => Err(Ending::Store(error)),
@@ -278,8 +320,10 @@ fn dispose(
     }
 }
 
-/// Return the entry to its place, retrying a `Contended` disposal until it
-/// lands under the store's own patience, with no other claim in between.
+/// Return the entry to its place, or hold it where the store says the
+/// bound is reached, retrying a `Contended` disposal until it lands under
+/// the store's own patience, with no other claim in between. The report
+/// carries the reason journaled.
 fn reclaim(
     store: &mut Store,
     claim: Claim,
@@ -290,19 +334,21 @@ fn reclaim(
 ) -> Result<Outcome, Ending> {
     loop {
         match store.queue_reclaim(claim, generation, refused, bound, &reason) {
-            Ok(count) => {
-                return Ok(match refused {
-                    Some(refusal) if count >= bound.get() => Outcome::Held(Held {
-                        claim,
-                        refusal,
-                        count,
-                    }),
-                    _ => Outcome::Reclaimed(Reclaimed {
-                        claim,
-                        refused,
-                        count,
-                    }),
-                });
+            Ok(Disposal::Held(refusal, count)) => {
+                return Ok(Outcome::Held(Held {
+                    claim,
+                    refusal,
+                    count,
+                    reason,
+                }));
+            }
+            Ok(Disposal::Reclaimed(count)) => {
+                return Ok(Outcome::Reclaimed(Reclaimed {
+                    claim,
+                    refused,
+                    count,
+                    reason,
+                }));
             }
             Err(error) if error.is_contention() => continue,
             Err(error) => return Err(ended(error)),
@@ -359,6 +405,7 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::Chain(_)
         | StoreError::Clock { .. }
+        | StoreError::Damaged { .. }
         | StoreError::HeadMoved { .. }
         | StoreError::Json(_)
         | StoreError::RowBeforeChain { .. }
@@ -371,7 +418,8 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::SeatTree(_)
         | StoreError::Sqlite(_)
         | StoreError::TokenCountOutOfRange(..)
-        | StoreError::UnknownHead { .. }) => Refused::Store(other),
+        | StoreError::UnknownHead { .. }
+        | StoreError::Unparsed { .. }) => Refused::Store(other),
     }
 }
 
@@ -391,12 +439,14 @@ fn queue_refusal(refusal: QueueRefusal) -> Queue {
         other @ (QueueRefusal::UnknownEntry(_)
         | QueueRefusal::UnknownWait(_)
         | QueueRefusal::DuplicateWait(_)
+        | QueueRefusal::NotACondition(_)
         | QueueRefusal::PastTheEnds { .. }
         | QueueRefusal::AlreadyHeld(_)
         | QueueRefusal::NotHeld(_)
         | QueueRefusal::Held(_)
         | QueueRefusal::Claimed { .. }
         | QueueRefusal::Dropped(_)
+        | QueueRefusal::Unstarted(_)
         | QueueRefusal::RunTaken { .. }
         | QueueRefusal::LatchMoved { .. }
         | QueueRefusal::PinMoved { .. }
@@ -440,22 +490,22 @@ fn ended(error: StoreError) -> Ending {
 /// A `LaunchError`'s disposal class (decision 0110 ruling 2's table).
 fn class(error: LaunchError) -> Class {
     match error {
-        LaunchError::Unboxable(_) => Class::Counted(StartRefusal::Unboxable),
-        LaunchError::Compile(_)
+        error @ LaunchError::Unboxable(_) => counted(StartRefusal::Unboxable, &error),
+        error @ (LaunchError::Compile(_)
         | LaunchError::RecipeNotFound { .. }
         | LaunchError::QueuedWorkspaceRelative(_)
         | LaunchError::QueuedShelf { .. }
         | LaunchError::QueuedShelfUnplaced { .. }
-        | LaunchError::Places(_) => Class::Counted(StartRefusal::Compile),
+        | LaunchError::Places(_)) => counted(StartRefusal::Compile, &error),
         LaunchError::World(world) => world_class(world),
-        LaunchError::Store(StoreError::Queue(QueueRefusal::BundleMoved(_, measured))) => {
-            Class::BundleMoved(measured)
+        LaunchError::Store(StoreError::Queue(QueueRefusal::BundleMoved(_, digests))) => {
+            Class::BundleMoved(digests)
         }
         LaunchError::Store(error) => store_class(error),
         LaunchError::Engine(EngineError::Store(StoreError::Queue(QueueRefusal::BundleMoved(
             _,
-            measured,
-        )))) => Class::BundleMoved(measured),
+            digests,
+        )))) => Class::BundleMoved(digests),
         LaunchError::Engine(error) => engine_class(error),
         error @ (LaunchError::EntryWithDispatch
         | LaunchError::ClaimWithDispatch
@@ -477,12 +527,17 @@ fn class(error: LaunchError) -> Class {
     }
 }
 
+/// A counted class, carrying the start's own words beside its class word.
+fn counted(refusal: StartRefusal, error: &dyn std::fmt::Display) -> Class {
+    Class::Counted(refusal, error.to_string())
+}
+
 /// The world's crossing fence counts as a crossing; any other world
 /// refusal is a compile.
 fn world_class(error: WorldError) -> Class {
     match error {
         WorldError::Crossing { .. } | WorldError::CrossingMoved(_) => {
-            Class::Counted(StartRefusal::Crossing)
+            counted(StartRefusal::Crossing, &error)
         }
         WorldError::Missing(_)
         | WorldError::Unreadable { .. }
@@ -490,7 +545,7 @@ fn world_class(error: WorldError) -> Class {
         | WorldError::Places(_)
         | WorldError::Unpinned(_)
         | WorldError::RealmText { .. }
-        | WorldError::RealmDialect { .. } => Class::Counted(StartRefusal::Compile),
+        | WorldError::RealmDialect { .. } => counted(StartRefusal::Compile, &error),
     }
 }
 
@@ -511,11 +566,11 @@ fn engine_class(error: EngineError) -> Class {
     match error {
         EngineError::Store(error) => store_class(error),
         EngineError::World(world) => world_class(world),
-        EngineError::BoundaryMismatch { .. }
+        error @ (EngineError::BoundaryMismatch { .. }
         | EngineError::CapabilityMismatch { .. }
         | EngineError::CapabilityInputMoved { .. }
         | EngineError::CharterMoved { .. }
-        | EngineError::UnbuiltBoundary { .. } => Class::Counted(StartRefusal::Compile),
+        | EngineError::UnbuiltBoundary { .. }) => counted(StartRefusal::Compile, &error),
         error @ (EngineError::Entry(_)
         | EngineError::EntryRecord(_)
         | EngineError::RunLock(_)

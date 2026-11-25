@@ -1,4 +1,4 @@
-//! `brokkr operator acknowledge` (#511; decision 0076 item 11): the
+//! `brokkr runs operator acknowledge` (#511; decision 0076 item 11): the
 //! operator's word that a quarantined run, one whose journal does not
 //! load or loads and does not fold, has been looked at.
 //!
@@ -37,7 +37,7 @@ pub(super) fn acknowledge(
     let Some(refusal) = quarantine(store.load(&run))? else {
         anyhow::bail!(
             "run {run} folds, so it is not quarantined and there is nothing to acknowledge; \
-             nothing was recorded. A run that folds is closed with brokkr conclude --run {run} \
+             nothing was recorded. A run that folds is closed with brokkr runs conclude --run {run} \
              --cause <cause> --reason <why>"
         );
     };

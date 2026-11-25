@@ -157,6 +157,7 @@ fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
         harness_auth: _,
         hands_notice: _,
         digest: _,
+        record_kinds: _, // the writer's to admit (decision 0075 ruling 2)
     } = adapter;
     let mut gaps = Vec::new();
     let trust = match trust_tier {

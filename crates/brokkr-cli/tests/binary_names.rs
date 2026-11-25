@@ -5,13 +5,10 @@
 //! names the binary `forge`.
 
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::Output;
 
 fn brokkr(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(args)
-        .output()
-        .unwrap()
+    crate::built::brokkr(args).output().unwrap()
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -84,8 +81,40 @@ fn no_user_facing_help_text_names_the_binary_forge() {
     let top = text(&brokkr(&["--help"]).stdout);
     assert_eq!(binary_named_forge(&top), Vec::<String>::new());
 
-    let commands: Vec<String> = top
-        .lines()
+    // Every verb a help lists, each family's own verbs walked in turn.
+    let mut paths: Vec<Vec<String>> = listed(&top).into_iter().map(|verb| vec![verb]).collect();
+    // Decision 0113's twelve roots and decision 0119's `completions`.
+    assert_eq!(paths.len(), 13, "{paths:?}");
+    let mut at = 0;
+    while let Some(path) = paths.get(at).cloned() {
+        at += 1;
+        let mut asked: Vec<&str> = path.iter().map(String::as_str).collect();
+        asked.push("--help");
+        // Doctor runs only alone in a PID namespace of its own (#1137i),
+        // its help too; where none can be built, its help is not read.
+        let help = match crate::built::PROBING.contains(&asked[0]) {
+            false => brokkr(&asked),
+            true => match crate::isolated::alone() {
+                Some(alone) => alone.brokkr(&asked).output().unwrap(),
+                None => continue,
+            },
+        };
+        let help = text(&help.stdout);
+        let usage = format!("Usage: brokkr {}", path.join(" "));
+        assert!(help.contains(&usage), "{help}");
+        assert_eq!(binary_named_forge(&help), Vec::<String>::new(), "{path:?}");
+        paths.extend(
+            listed(&help)
+                .into_iter()
+                .map(|verb| [path.clone(), vec![verb]].concat()),
+        );
+    }
+    assert!(paths.len() > 40, "{paths:?}");
+}
+
+/// The verbs one `--help` lists under `Commands:`, clap's `help` aside.
+fn listed(help: &str) -> Vec<String> {
+    help.lines()
         .skip_while(|line| !line.starts_with("Commands:"))
         .skip(1)
         .take_while(|line| !line.trim().is_empty())
@@ -93,14 +122,7 @@ fn no_user_facing_help_text_names_the_binary_forge() {
         .filter_map(|line| line.split_whitespace().next())
         .filter(|name| *name != "help")
         .map(str::to_string)
-        .collect();
-    assert!(commands.len() > 20, "{commands:?}");
-
-    for command in &commands {
-        let help = text(&brokkr(&[command, "--help"]).stdout);
-        assert!(help.contains(&format!("Usage: brokkr {command}")), "{help}");
-        assert_eq!(binary_named_forge(&help), Vec::<String>::new(), "{command}");
-    }
+        .collect()
 }
 
 /// Every `Cargo.toml` in the tree, walked rather than listed, so a crate

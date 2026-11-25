@@ -6,12 +6,12 @@ use brokkr_view::resolutions_at;
 mod seat_journal;
 use seat_journal::boxed_seat;
 
-/// The view's divergence as `brokkr compare` prints it.
+/// The view's divergence as `brokkr runs compare` prints it.
 fn printed_divergence(a: &BTreeMap<String, Resolution>, b: &BTreeMap<String, Resolution>) -> Value {
     serde_json::to_value(resolution_divergence(a, b)).unwrap()
 }
 
-/// A run's resolution map as `brokkr compare` prints it.
+/// A run's resolution map as `brokkr runs compare` prints it.
 fn printed(resolution: &BTreeMap<String, Resolution>) -> Value {
     serde_json::to_value(resolution).unwrap()
 }
@@ -219,7 +219,7 @@ fn run_facts_ignores_missing_display_only_phase_join() {
 }
 
 /// #376's two-attempt fixture: attempt one finished at $0.25 and was
-/// retried, attempt two finished at $0.50. `brokkr costs --run latest`
+/// retried, attempt two finished at $0.50. `brokkr stats costs --run latest`
 /// resolves, and it and the view every other surface reads report the
 /// same spend — every attempt's, summed.
 #[test]
@@ -305,7 +305,7 @@ fn stamped(store: &Store, text: &str, runs: &[&str]) -> String {
     text
 }
 
-/// The exact bytes `brokkr costs` prints (#346), LaneTally's join
+/// The exact bytes `brokkr stats costs` prints (#346), LaneTally's join
 /// surface: a value comparison ignores key order, so it is pinned as a
 /// string.
 #[test]
@@ -465,7 +465,7 @@ fn one_seat_run(store: &mut Store, run: &str, cost: f64, rule: Value, ending: (E
     }
 }
 
-/// The exact bytes `brokkr compare` prints (#346), both runs' summaries
+/// The exact bytes `brokkr runs compare` prints (#346), both runs' summaries
 /// keyed by run id and the comparison: one run parked by a decision with
 /// no rule, the other completed by a rule.
 #[test]

@@ -1,4 +1,4 @@
-//! `brokkr recipes` — the recipe library. A recipe is a bundle directory
+//! `brokkr library recipes` — the recipe library. A recipe is a bundle directory
 //! (policy.json + bundle.json + roles/) treated as a named, swappable
 //! delivery strategy: list what is installed, install one from a local
 //! path or a git URL. Validation is the ordinary compile, unmodified — a
@@ -26,6 +26,7 @@ use brokkr_runtime::{Bundle, Invocation, SeatBody};
 mod agents;
 pub(crate) mod personal;
 mod sources;
+pub(crate) mod verb;
 use personal::{Onto, Origin, ShelfPath};
 
 /// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`
@@ -430,8 +431,8 @@ impl std::fmt::Display for InFolder {
         let (root, place) = (self.root.display(), self.place.display());
         write!(
             formatter,
-            "recipes add would install into {place}, inside the folder repository {root} but \
-             not its shelf {root}/{FOLDER}/recipes/ (decision 0083; #675, #696): a folder \
+            "library recipes add would install into {place}, inside the folder repository \
+             {root} but not its shelf {root}/{FOLDER}/recipes/ (decision 0083; #675, #696): a folder \
              repository keeps its named recipes on its shelf, so nothing was written"
         )
     }
@@ -453,8 +454,8 @@ impl std::fmt::Display for Within {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "recipes add would copy {} into {}, which lies inside it (#696): install a bundle \
-             directory that does not hold the shelf; nothing was written",
+            "library recipes add would copy {} into {}, which lies inside it (#696): install \
+             a bundle directory that does not hold the shelf; nothing was written",
             self.source.display(),
             self.place.display()
         )
@@ -487,8 +488,8 @@ impl std::fmt::Display for Unplain {
             ),
             Unplain::Path { path } => write!(
                 formatter,
-                "--path '{path}' is not a relative path of plain names, so recipes add cannot \
-                 judge where in the clone it leads (#695); nothing was cloned or written"
+                "--path '{path}' is not a relative path of plain names, so library recipes add \
+                 cannot judge where in the clone it leads (#695); nothing was cloned or written"
             ),
         }
     }

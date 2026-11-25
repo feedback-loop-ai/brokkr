@@ -402,7 +402,7 @@ impl Store {
         seat: Seat<'_>,
         mut read: impl FnMut(&Store, &[Span]) -> Result<Option<T>, StoreError>,
     ) -> Result<Option<T>, StoreError> {
-        patiently("load", self.patience, || {
+        patiently("load", self.patience, &self.path, || {
             let _snapshot = self.conn.unchecked_transaction()?;
             if !self.headed_at(run_id, opened)? {
                 return Ok(None);

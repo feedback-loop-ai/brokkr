@@ -55,8 +55,9 @@ fn held(dialect: &ToolDialect, grant: &CapabilityGrant) -> Holding {
     }
 }
 
-/// One candidate holding `holding`, its adapter declaration `declaration`.
-fn holding_outcome(holding: Holding, declaration: &str) -> Outcome {
+/// One candidate holding `holding` as `library-docs`, its adapter
+/// declaration `declaration`; the bundle's MCP site tests build on it.
+pub(crate) fn holding_outcome(holding: Holding, declaration: &str) -> Outcome {
     Outcome {
         provider: "test-native".into(),
         harness: OPAQUE_HARNESS.into(),

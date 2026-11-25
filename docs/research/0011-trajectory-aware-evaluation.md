@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.01603
 Authors: Kefeng Duan, Dewu Zheng, Yanlin Wang, Xiwen Wang, Ensheng Shi, Xilin Liu, Yuchi Ma, Jiachi Chen, Mingwei Liu, Zibin Zheng (Sun Yat-sen University; Huawei Cloud Computing Technologies; Zhejiang University)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: research sweep, run weekly-research-sweep-registry-d-2012cc4d, 2026-09-04
 
 ## Summary
@@ -50,6 +50,40 @@ Neither feature calibrates agent ability or validates the truth of
 model-authored summaries. The privacy-bounded record carries tool and
 file identifiers, not the full exploration, edits or reasoning traces
 used by PTA-IRT.
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** After "item-selection baselines, and" add "in the budget
+  study on SWE-bench Lite it"; for "across the full budget range; a
+  small" read "across the full 5 to 25 percent range; a small". (ruled:
+  "approve all the fact and wording fixes")
+- **Summary.** For "Ablations show the trajectory features carry the
+  gains: removing the trajectory" read "Ablations show that each
+  component contributes: removing the trajectory"; after "supervision
+  weakens recovery," add "replacing stratified selection costs the
+  most,". (ruled: "approve all the fact and wording fixes")
+- **Row 2** keeps `alternative`. Citation: For "decision 0034;
+  `crates/brokkr-store/src/seat-record.v4.schema.json` and
+  `crates/brokkr-cli/src/compare.rs`: bounded" read "decision 0034;
+  `contracts/seat-record.v8.schema.json` and
+  `crates/brokkr-cli/src/compare.rs`: bounded". (ruled: "approve all the
+  fact and wording fixes")
+- **Row 4** now reads `planned`, not `alternative`. Finding: For
+  "evaluation itself: report per-task and calibration costs as
+  first-class results" read "evaluation itself: report what each
+  evaluation cost, per model and per task, as a first-class result
+  (Brokkr's extension of the paper's cost motivation; the paper does not
+  price its own calibration)". Citation: For "decision 0034;
+  `crates/brokkr-cli/src/compare.rs`: comparisons report per-seat
+  accounting, cost and attempt" read "#1268: no eval seats a harness
+  whose turn cost is not observed, and each eval report carries a cost
+  table per model and office; today `crates/brokkr-cli/src/compare.rs`
+  reports per-seat cost and attempt"; for "attempt deltas between runs;
+  no calibration-subset cost or estimate of unrun tasks is produced"
+  read "attempt deltas between two runs; no calibration subset is
+  priced". (ruled: "approve all that move to planned as well")
 
 ## Candidates
 

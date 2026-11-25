@@ -1,4 +1,4 @@
-//! `brokkr muninn` — the standing overseer (decision 0020, whose
+//! `brokkr runs muninn` — the standing overseer (decision 0020, whose
 //! evidence-source and citation rulings are amended for the world's
 //! crossings by decision 0059).
 //!
@@ -28,6 +28,7 @@
 mod document;
 mod queue;
 mod record;
+mod refusal;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -49,6 +50,7 @@ use document::{
     Agent, Cite, CrossingCite, CrossingEntry, CrossingFinding, DossierDoc, DossierPin, Fleet,
     Parked, QuarantinedRow, Queued, RecordLine, Row, RunRow, SeatRow, Usage,
 };
+use refusal::Unusable;
 
 /// The agent definition this command invokes.
 pub(crate) const AGENT: &str = "muninn";
@@ -163,7 +165,7 @@ impl Dossier {
 /// world that never drew one hands the seat the exact dossier it always
 /// handed it.
 ///
-/// The entries ARE the shared readout entries `brokkr realms` prints —
+/// The entries ARE the shared readout entries `brokkr system realms` prints —
 /// the same [`crate::realms::crossings_of`] derivation over the one
 /// `World::crossings_report` — so the two surfaces cannot state a
 /// crossing two ways. A publication keeps its declared
@@ -191,7 +193,7 @@ pub(crate) struct RealmCrossings {
 type CitedCrossing = (String, String);
 
 /// Every realm of this world that draws a crossing, read off the same
-/// report `brokkr realms` and `brokkr doctor` read, through the same
+/// report `brokkr system realms` and `brokkr doctor` read, through the same
 /// derivation (`crate::realms::crossings_of`). Nothing is resolved,
 /// hashed or compared here: a second computation is a second answer
 /// waiting to disagree with the one the loader already gave.
@@ -430,7 +432,7 @@ fn seats_of(view: &brokkr_view::RunView) -> (Vec<SeatRow>, Option<f64>) {
 /// stated in the per-realm entries and is not a finding; an unchecked pin
 /// is stated beside it and is nobody's fault here (the publisher's line
 /// carries it, `ca0c765`). The entries are the shared readout entries
-/// `brokkr realms` prints, through the one [`ConsumedView::of`], so the
+/// `brokkr system realms` prints, through the one [`ConsumedView::of`], so the
 /// dossier and that readout render one derivation.
 fn crossing_section<'a>(
     crossings: &'a [RealmCrossings],
@@ -555,18 +557,18 @@ pub(crate) struct Report {
     pub crossing_citations: Vec<CitedCrossing>,
 }
 
-fn string_field(what: &str, object: &Value, key: &str) -> Result<String, String> {
+fn string_field(what: &'static str, object: &Value, key: &'static str) -> Result<String, Unusable> {
     match object.get(key).and_then(Value::as_str) {
         Some(text) if !text.is_empty() => Ok(text.to_string()),
-        _ => Err(format!("{what} is missing a non-empty '{key}'")),
+        _ => Err(Unusable::NoText { what, key }),
     }
 }
 
-fn array_field<'a>(value: &'a Value, key: &str) -> Result<&'a Vec<Value>, String> {
+fn array_field<'a>(value: &'a Value, key: &'static str) -> Result<&'a Vec<Value>, Unusable> {
     value
         .get(key)
         .and_then(Value::as_array)
-        .ok_or_else(|| format!("the report is missing the '{key}' array"))
+        .ok_or(Unusable::NoArray { key })
 }
 
 /// The citation check: a proposal may only name a run and a sequence
@@ -579,27 +581,24 @@ fn array_field<'a>(value: &'a Value, key: &str) -> Result<&'a Vec<Value>, String
 /// quietly corrected.
 type Cited = (Option<String>, String, u64);
 
-fn citation(what: &str, dossier: &Dossier, entry: &Value) -> Result<Cited, String> {
+fn citation(what: &'static str, dossier: &Dossier, entry: &Value) -> Result<Cited, Unusable> {
     let run_id = string_field(what, entry, "run_id")?;
     let seq = entry
         .get("seq")
         .and_then(Value::as_u64)
-        .ok_or_else(|| format!("{what} is missing a numeric 'seq'"))?;
+        .ok_or(Unusable::NoSeq { what })?;
     let Some(realm) = dossier.realm_of(&run_id, seq) else {
-        return Err(format!(
-            "{what} cites {run_id} seq {seq}, which the dossier does not state"
-        ));
+        return Err(Unusable::Unstated { what, run_id, seq });
     };
     if let Some(claimed) = entry.get("realm").and_then(Value::as_str) {
         if Some(claimed) != realm {
-            return Err(format!(
-                "{what} cites {run_id} seq {seq} in realm '{claimed}'; the dossier states \
-                 that fact in {}",
-                match realm {
-                    Some(realm) => format!("realm '{realm}'"),
-                    None => "no realm".to_string(),
-                }
-            ));
+            return Err(Unusable::OtherRealm {
+                what,
+                run_id,
+                seq,
+                claimed: claimed.to_string(),
+                stated: realm.map(str::to_string),
+            });
         }
     }
     Ok((realm.map(str::to_string), run_id, seq))
@@ -614,32 +613,34 @@ fn citation(what: &str, dossier: &Dossier, entry: &Value) -> Result<Cited, Strin
 /// sequence, so this is its own citation shape and never a borrowed run
 /// citation (decision 0026 ruling 3's realm key, unchanged).
 fn crossing_citation(
-    what: &str,
+    what: &'static str,
     dossier: &Dossier,
     entry: &Value,
-) -> Result<CitedCrossing, String> {
+) -> Result<CitedCrossing, Unusable> {
     let realm = string_field(what, entry, "realm")?;
     let crossing = string_field(what, entry, "crossing")?;
     if !dossier.states_crossing(&realm, &crossing) {
-        return Err(format!(
-            "{what} cites crossing '{crossing}' in realm '{realm}', which the dossier \
-             does not state as a finding"
-        ));
+        return Err(Unusable::UnstatedCrossing {
+            what,
+            realm,
+            crossing,
+        });
     }
     Ok((realm, crossing))
 }
 
 /// One parked-run proposal: a stated fact, and an operator command the
 /// dossier states that run admits.
-fn parked(dossier: &Dossier, entry: &Value) -> Result<(Cited, Parked), String> {
+fn parked(dossier: &Dossier, entry: &Value) -> Result<(Cited, Parked), Unusable> {
     let what = "a parked-run proposal";
     let (realm, run_id, seq) = citation(what, dossier, entry)?;
     let command = string_field(what, entry, "command")?;
     if !dossier.admits(&run_id, &command) {
-        return Err(format!(
-            "{what} suggests '{command}' for {run_id}, which is not an operator \
-             command the dossier states for it"
-        ));
+        return Err(Unusable::NotAdmitted {
+            what,
+            command,
+            run_id,
+        });
     }
     let reasoning = string_field(what, entry, "reasoning")?;
     let proposal = Parked {
@@ -655,17 +656,14 @@ fn parked(dossier: &Dossier, entry: &Value) -> Result<(Cited, Parked), String> {
 /// Read the seat's result into a report, or say exactly what is wrong
 /// with it. Nothing is repaired and nothing is partially accepted
 /// (decision 0001): a report with one bad entry is a bad report.
-pub(crate) fn validate(dossier: &Dossier, result: &Value) -> Result<Report, String> {
+pub(crate) fn validate(dossier: &Dossier, result: &Value) -> Result<Report, Unusable> {
     let reached = result.get("result").and_then(Value::as_str);
     if reached != Some(PROPOSED) {
-        return Err(format!(
-            "the seat reached '{}', not '{PROPOSED}'",
-            reached.unwrap_or(brokkr_view::ABSENT)
-        ));
+        return Err(Unusable::Unreached {
+            reached: reached.unwrap_or(brokkr_view::ABSENT).to_string(),
+        });
     }
-    let inputs = result
-        .get("inputs")
-        .ok_or_else(|| "the report carries no 'inputs' object".to_string())?;
+    let inputs = result.get("inputs").ok_or(Unusable::NoInputs)?;
     let fleet_summary = string_field("the report", inputs, "fleet_summary")?;
     let mut citations: Vec<Cited> = Vec::new();
     let mut parked_runs = Vec::new();
@@ -882,7 +880,7 @@ fn render(entry: &Value) -> String {
 
 // -------------------------------------------------------- commands
 
-/// `brokkr muninn run`. A refused invocation and an unusable report both
+/// `brokkr runs muninn run`. A refused invocation and an unusable report both
 /// record nothing, print one plain line, and exit nonzero: the record is
 /// evidence, and evidence nobody can check is not evidence.
 pub(crate) fn run(
@@ -986,7 +984,7 @@ pub(crate) fn run(
         Err(problem) => {
             eprintln!(
                 "muninn's report was not usable and was not recorded: {}",
-                Safe::new(&problem).as_str()
+                Safe::new(&problem.to_string()).as_str()
             );
             return Ok(crate::Exit::Failed.into());
         }
@@ -1001,7 +999,7 @@ pub(crate) fn run(
     Ok(crate::Exit::Completed.into())
 }
 
-/// `brokkr muninn list`. Reads the record back, citations included.
+/// `brokkr runs muninn list`. Reads the record back, citations included.
 pub(crate) fn list(record_path: &Path, json: bool) -> Result<()> {
     let entries = record::read(record_path)?;
     if json {

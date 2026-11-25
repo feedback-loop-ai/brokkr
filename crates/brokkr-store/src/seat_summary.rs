@@ -669,7 +669,7 @@ impl Store {
         }
         if !finished(&self.conn, BACKFILLED)? {
             let conn = &self.conn;
-            patiently("seat", self.patience, || mark_seated(conn))?;
+            patiently("seat", self.patience, &self.path, || mark_seated(conn))?;
         }
         Ok(())
     }
@@ -686,7 +686,9 @@ impl Store {
             let account = Account::whole(run_id, &events);
             between(&self.conn);
             let conn = &mut self.conn;
-            patiently("catch_up", self.patience, || refold_once(conn, &account))?;
+            patiently("catch_up", self.patience, &self.path, || {
+                refold_once(conn, &account)
+            })?;
         }
         Ok(())
     }
@@ -727,7 +729,7 @@ impl Store {
         run_id: &str,
         mut between: impl FnMut(),
     ) -> Result<SeatRows, StoreError> {
-        patiently("seat_rows", self.patience, || {
+        patiently("seat_rows", self.patience, &self.path, || {
             let _snapshot = self.conn.unchecked_transaction()?;
             let (seq, hash) = head_of(&self.conn, run_id)?;
             between();

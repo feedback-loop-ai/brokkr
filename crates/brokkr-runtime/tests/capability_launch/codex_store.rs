@@ -22,7 +22,7 @@ pub(super) const ISOLATING: [&str; 5] = [
 ];
 
 /// The model and effort most launches here are pinned to.
-pub(super) const ASTRA: (&str, &str) = ("gpt-6-astra", "high");
+pub(super) const ASTRA: (&str, &str) = ("gpt-6.2-astra", "high");
 
 /// `parts`, owned.
 pub(super) fn owned(parts: &[&str]) -> Vec<String> {
@@ -46,7 +46,7 @@ pub(super) fn profiled_cold(
     [lead, profile(class).to_vec(), pins, rest].concat()
 }
 
-/// The rejoin of an unboxed `workspace-write` Codex seat on `gpt-6-astra`
+/// The rejoin of an unboxed `workspace-write` Codex seat on `gpt-6.2-astra`
 /// at `high`, on `program`: the profile re-imposed where `sandbox_mode` was,
 /// the pins, the isolation options, web search switched off where `off`,
 /// then the offered thread and the stdin positional.
@@ -57,7 +57,7 @@ pub(super) fn profiled_rejoin(program: &str, off: bool) -> Vec<String> {
         "-c",
         "model_reasoning_effort=\"high\"",
         "--model",
-        "gpt-6-astra",
+        "gpt-6.2-astra",
     ];
     argv.extend(owned(&[&pins[..], &ISOLATING].concat()));
     if off {

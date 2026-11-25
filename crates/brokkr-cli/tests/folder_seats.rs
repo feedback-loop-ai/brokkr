@@ -76,7 +76,12 @@ const RUN: [&str; 6] = [
 ];
 
 /// The fixture's compile, as each test asks for it.
-const COMPILE: [&str; 3] = ["compile", "--bundle", ".brokkr/recipes/folder-seat"];
+const COMPILE: [&str; 4] = [
+    "library",
+    "compile",
+    "--bundle",
+    ".brokkr/recipes/folder-seat",
+];
 
 /// A fresh folder `init` scaffolded for codex, the home `brokkr` runs
 /// under, and the fixture written beside them, not yet added.
@@ -107,7 +112,8 @@ impl Scratch {
     /// Add the fixture to the folder's shelf as `folder-seat`.
     fn add(&self) {
         let source = self.source.path().to_str().unwrap();
-        let (code, _, stderr) = self.brokkr(&["recipes", "add", source, "--name", "folder-seat"]);
+        let (code, _, stderr) =
+            self.brokkr(&["library", "recipes", "add", source, "--name", "folder-seat"]);
         assert_eq!(code, Some(0), "{stderr}");
     }
 
@@ -128,6 +134,8 @@ impl Scratch {
         for identity in [["user.name", "t"], ["user.email", "t@example.invalid"]] {
             git(repo, &[&["config"][..], &identity[..]].concat());
         }
+        // The run's review is checked on a head (fix round 0109a1r3, H1).
+        git(repo, &crate::brokkr_folder::BASE_COMMIT);
         let (code, _, stderr) = self.brokkr(run);
         assert_eq!(code, Some(3), "{stderr}");
         let run = stderr
@@ -178,7 +186,7 @@ fn shelf_fasts_verify_in_a_folder_with_no_stack_fails_closed_with_inits_text() {
     let (repo, aside) = (scratch.repo.path(), scratch.aside.path());
     let fast = crate::workspace_root::workspace().join("recipes/fast");
     let fast = fast.to_str().unwrap();
-    let (code, _, stderr) = scratch.brokkr(&["recipes", "add", fast, "--name", "fast"]);
+    let (code, _, stderr) = scratch.brokkr(&["library", "recipes", "add", fast, "--name", "fast"]);
     assert_eq!(code, Some(0), "{stderr}");
     let overlay = repo.join(".brokkr/recipes/fast-verify");
     std::fs::create_dir_all(overlay.join("roles")).unwrap();

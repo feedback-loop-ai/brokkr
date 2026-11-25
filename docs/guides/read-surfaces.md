@@ -3,16 +3,16 @@
 Every readout shares ONE derivation (decision 0013): `brokkr-view` turns
 a journal into view models, and each surface only renders them — so
 "what did this seat cost" has a single answer, tested once. `runs`,
-`inspect`, `seats` and `analytics` each take `--json` to emit that model
-verbatim — `seats --json` is `inspect --json`'s own view model, byte for
+`runs inspect`, `runs seats` and `stats analytics` each take `--json` to emit that model
+verbatim — `runs seats --json` is `runs inspect --json`'s own view model, byte for
 byte, under the same `view_version`.
 
 `--run` takes a **selector**, not only the 41-character id: any unique
 run-id prefix, or `latest` for the newest run in the workspace database
 — one resolver, shared by every verb that takes `--run` and by
-`compare`'s two runs. Decision 0015 ruled it for the readouts; its
+`runs compare`'s two runs. Decision 0015 ruled it for the readouts; its
 proposed 2026-09-28 addendum extends it to the write paths (`resume`,
-`rerun`, `conclude`, `operator`, `bridge`) and awaits the operator's
+`runs rerun`, `runs conclude`, `runs operator`, `bridge`) and awaits the operator's
 ruling. The [CLI reference](../reference/cli.md) marks each selector
 argument.
 
@@ -40,11 +40,11 @@ does, so a v1 map loads and reads exactly as it always has. Where a world
 holds more than one journal, the fleet readers show it grouped: `runs`
 prints one section per realm, `tui` grows a tab bar in the runs pane
 (`[`, `]` and the number keys switch; each tab keeps its own selection,
-filter and cursor), and `muninn run` reads every hearth and cites the
+filter and cursor), and `runs muninn run` reads every hearth and cites the
 realm behind every fact. A realm the map names before its first run has
 no journal yet, and that is an empty hearth rather than a fault: `runs`
 lists it with no runs and says why, the console's tab shows an empty
-fleet and says the same, and `muninn run` states the realm and reads the
+fleet and says the same, and `runs muninn run` states the realm and reads the
 rest of the world. Journals never merge: nothing folds across a journal
 boundary, and no fleet read creates or writes one. Single-run verbs are
 unchanged — a run id lives in exactly one journal, so naming it is a
@@ -53,19 +53,19 @@ realms is refused by name rather than answered with the first (`latest`
 means the newest run in the world, and the recorded stamp decides it).
 
 Phase 1 wires the flag into `run` and the read surfaces the ruling names
-— `runs`, `realms`, `tui`, `watch`, `inspect`, `export`, `muninn run` —
-and, since decision 0047, `operator supersede`, whose citation may name a
+— `runs`, `system realms`, `tui`, `watch`, `runs inspect`, `journal export`, `runs muninn run` —
+and, since decision 0047, `runs operator supersede`, whose citation may name a
 run in another hearth. Since #374 every other verb that opens a journal
-— `resume`, `rerun`, `conclude`, `operator retry`/`stop`, `costs`,
-`replay`, `ledger`, `anchor`, `keep-refs`, `compare`, `bridge`, `ui` and
+— `resume`, `runs rerun`, `runs conclude`, `runs operator retry`/`stop`, `stats costs`,
+`runs replay`, `stats ledger`, `journal anchor`, `journal keep-refs`, `runs compare`, `bridge`, `system ui` and
 `doctor`'s database line — opens the journal the map names too, on the
 same three rules: `--db` outranks it, and with neither the journal is
 `.brokkr/state/forge.db`, or a library's `.forge/forge.db`. A run started in a mapped world is resumed, concluded
-or stopped with no `--db`. `ui` reads the fleet `tui` reads; because it
+or stopped with no `--db`. `system ui` reads the fleet `tui` reads; because it
 serves one journal, a world whose realms name several hearths is refused
 by name until `--db` picks one.
 
-### `brokkr realms` — the world
+### `brokkr system realms` — the world
 
 Every realm with its path, default branch and current HEAD, and the
 journal the world writes. Read-only, like every other readout, and
@@ -74,7 +74,7 @@ Brokkr's own repository, a recipe library, so its map and journal stand
 at the library's places.
 
 ```text
-$ brokkr realms
+$ brokkr system realms
 map      ./realms.json
 journal  ./.forge/forge.db
 realm    brokkr  .  main  …
@@ -88,9 +88,9 @@ consumes — naming the publishing realm and whether the pin still
 matches. The readout opens no crossing file and hashes nothing: every
 state comes off the one report the loader already built, so it and the
 run-time refusal can never disagree. A pin that moved is a line, not the
-end of the reading; `realms` reports, it does not refuse. In an
+end of the reading; `system realms` reports, it does not refuse. In an
 illustrative world of two realms, one publishing a contract the other
-consumes, `realms` prints:
+consumes, `system realms` prints:
 
 ```text
 map      ./realms.json
@@ -139,7 +139,7 @@ beside the active map, or — with no map at all — under the operated
 repository, which is what `--repo` names. Never the recipe's own
 directory: a definition copied into a recipe defines nothing. A
 repository the map does not name stands in no realm and is granted
-nothing, whatever its neighbours hold. `run` and `rerun` authorise
+nothing, whatever its neighbours hold. `run` and `runs rerun` authorise
 against the map as it stands; a run is not started over a definition or a
 dialect that has moved since its bundle compiled. `resume` stands on what
 the run pinned — a grant added to the map since is not borrowed — and one
@@ -152,7 +152,8 @@ realm has not granted — so the day a harness loses a power it used without
 anyone's permission is loud, not discovered later:
 
 ```text
-ok       capabilities brokkr: grants nothing; every native capability is governed by the no-grant default — switched off, or the seat is refused
+ok       capabilities brokkr 'web-fetch': dialect 'claude-native-fetch' (provider-native, provider 'claude') · tools [WebFetch] · offices [researcher] only · restrictions none
+ok       capabilities brokkr 'web-search': dialect 'claude-native-search' (provider-native, provider 'claude') · tools [WebSearch] · offices [researcher] only · restrictions none
 ok       capabilities brokkr plan codex: adapter-level scope: … · a seat on codex that holds none of its native capabilities is admitted, each of them switched off by the composed command; that is composition, not a live measurement
 warn     capabilities brokkr native codex 'web-search': NOT granted here: the adapter-level plan above switches it off · evidence: codex-cli 0.154.0, cold `codex exec` only … · still unmeasured: whether the OFF switch holds on a RESUMED codex session is unmeasured; …
 warn     capabilities brokkr native dsh: native inventory unmeasured: … Nothing is granted through it and no native denial is claimed
@@ -189,7 +190,7 @@ is still assessed from its adapter — its tools, how ON and OFF are
 declared, the evidence scope and what stays unmeasured. Adapter
 declarations or capability definitions that cannot be read are failing
 lines of their own, so a report with no native line is never read as a
-harness with no native power. `brokkr agents list` and `brokkr agents
+harness with no native power. `brokkr library agents list` and `brokkr library agents
 show` lint the library the same way: a capability an agent asks for that
 the operator's `capabilities/` does not define is a warning on `list` and
 a refusal on `show`, wherever `--agents-dir` points the library.
@@ -210,7 +211,7 @@ and the command for the next, which repeats the listing's filters,
 `--after` takes a page's cursor, and `--json` states it as `next`. A page reads at
 most a hundred runs whose summary lags their journal and counts the rest,
 which its `--json` states as `behind`. The samples from here to
-`seats` read the run the [quickstart's Step 3](quickstart.md#step-3--brokkr-run)
+`runs seats` read the run the [quickstart's Step 3](quickstart.md#step-3--brokkr-run)
 drives, the `claude` CLI stubbed, with its id's hash, its duration and
 your host's places elided.
 
@@ -228,7 +229,7 @@ probe's later round included) and the provider's own words, `(ended)`
 once that instant has passed. After it passes, only the ordinary
 three-hour staleness bound still holds the run: a silent run past both
 reads "needs you" like any other stale one. The same line is under
-`inspect`'s header and in the console's row, derived once in brokkr-view.
+`runs inspect`'s header and in the console's row, derived once in brokkr-view.
 
 A finished run's status cell names how it ended (decision 0064), and the
 colour says what the row waits on, never whether the run was good: yellow
@@ -258,7 +259,7 @@ beta · 1 run · 0 want a ruling · 0 want an action · ./b/.brokkr/state/forge.
 endings  1 shipped
 ```
 
-### `brokkr analytics` — what the runs did
+### `brokkr stats analytics` — what the runs did
 
 The figures across every hearth the map names, for `--range` `24h`, `7d`
 (the default) or `30d` ending now, and for one realm with `--realm`
@@ -340,29 +341,31 @@ v13 included, makes every entry wait until it ends.
 
 **The host configuration** belongs to the machine, not to a realm
 (`forge.host/v1`, `forge.host/v2` with cool-down bounds and containment,
-`forge.host/v3` with a shared-local deadline floor, or `forge.host/v4`
-with a run ceiling; [the v1
+`forge.host/v3` with a shared-local deadline floor, `forge.host/v4`
+with a run ceiling, or `forge.host/v5` sized by demand; [the v1
 contract](../../contracts/host.v1.schema.json), [the v2
 contract](../../contracts/host.v2.schema.json), [the v3
 contract](../../contracts/host.v3.schema.json), [the v4
-contract](../../contracts/host.v4.schema.json)):
+contract](../../contracts/host.v4.schema.json), [the v5
+contract](../../contracts/host.v5.schema.json)):
 `$XDG_CONFIG_HOME/brokkr/host.json`, else `$HOME/.config/brokkr/host.json`,
 on Linux and macOS alike. Nothing there and every measured entry waits
 (`no host configuration at <path> declares capacity`); a path that holds
 something unreadable — a link that loops or dangles, a directory, a FIFO
 or a device, never waited on — holds it, naming the error; a file that is
-not a valid `forge.host/v1`, `forge.host/v2`, `forge.host/v3` or
-`forge.host/v4` refuses the listing, naming the problem and, where one version's rules own it, that
+not a valid `forge.host/v1`, `forge.host/v2`, `forge.host/v3`,
+`forge.host/v4` or `forge.host/v5` refuses the listing, naming the problem and, where one version's rules own it, that
 version, and so does a provider or route written twice, naming the key. A provider or
 route the file does not name waits as undeclared, and every ceiling is at
 least one: there is no unlimited.
 
 A machine with two cloud providers and the shared-local Spark route,
-where verification scripts (`exec`) also count:
+where verification scripts (`exec`) also count, and whose journal drives
+at most three runs at once:
 
 ```json
 {
-  "schema": "forge.host/v1",
+  "schema": "forge.host/v4",
   "providers": {
     "claude": {"ceiling": 3},
     "codex": {"ceiling": 2},
@@ -373,7 +376,8 @@ where verification scripts (`exec`) also count:
     {"place": "seat-scratch", "floor_bytes": 21474836480},
     {"place": "temp", "floor_bytes": 4294967296}
   ],
-  "boxed_builds": {"ceiling": 2}
+  "boxed_builds": {"ceiling": 2},
+  "runs": {"ceiling": 3}
 }
 ```
 
@@ -396,15 +400,38 @@ recipe drops it.
 `"runs": {"ceiling": n}` with n at least 1: the most runs that may read
 running in the journal the pass judges, direct `brokkr run` runs among
 them and a run that never started counted against nothing. The sample
-above, written as v4 with `"runs": {"ceiling": 3}`, admits a third run
-and holds a fourth. An entry at the ceiling waits as `runs_full`
+above, with `"runs": {"ceiling": 3}`, admits a third run and holds a
+fourth. An entry at the ceiling waits as `runs_full`
 (``the journal drives <n> runs, at its ceiling of <c> (forge.host/v4
 `runs.ceiling`)``), and a claim's re-check counts the runs started since
 the pass against the same ceiling. A v1, v2 or v3 file declares no run
-ceiling: it still reads, but every entry the capacity checks would judge
-waits as `runs_undeclared` (``the host file <path> declares no run
-ceiling; forge.host/v4 declares `runs.ceiling` ``) until the file is v4, and
+ceiling: it still reads, and on a machine whose availability is not
+measured every entry the capacity checks would judge waits as
+`runs_undeclared` (``the host file <path> declares no run ceiling;
+forge.host/v4 declares `runs.ceiling` ``) until the file declares one, and
 `brokkr doctor` warns of it. Neither latches.
+
+Decision 0125 sizes an entry by what its recipe used. Every pass that
+judges an entry's room measures the memory available (on Linux
+`MemAvailable`, on macOS the free, inactive and purgeable pages) and the
+idle cores over 500 ms, reads the last 20 runs of the entry's recipe that
+carry `effect-usage/v1` across every journal of the realms map, and takes
+the largest of its phases' average peaks plus a 25% margin as its demand.
+Every running run reserves what its remaining phases may still need beyond
+what its driver's tree uses now, and each entry the pass admits reserves
+its own before the next is judged. After every check above, an entry whose
+demand plus the reservations does not fit waits as `memory_short` or
+`cpu_short`, naming the demand, what is available and what is reserved.
+While macOS's kernel reports memory pressure at warn or critical, every
+entry the rule would judge waits as `memory_pressure`, naming the level. A
+recipe with no measured profile (no completed run in its window) and no
+declared demand starts only when nothing else runs, and waits as `demand_unknown` otherwise. On such a
+machine no run ceiling need be declared. `forge.host/v5` makes `runs` and
+`boxed_builds` optional and adds `demand`, whose `window_runs`,
+`margin_percent` and `recipes.<name>` override the window, the margin and
+declare a recipe's demand. `queue list --json` carries each sized entry's
+`demand`, and names each journal of the map it cannot read. A machine whose
+availability cannot be measured judges as above, unchanged.
 
 A seat on `spark-glm` is judged by that route's ceiling in place of
 `dsh`'s, because the hardware, not the account, is the limit; a `cloud`
@@ -418,14 +445,15 @@ directory, where boxed seats' private `/tmp` and `HOME` are made; and a
 floor may name an absolute `path` in place of a `place`. Here the temp
 directory is a separate, RAM-backed tmpfs, so both floors matter.
 
-### `brokkr inspect` — one run, explained
+### `brokkr runs inspect` — one run, explained
 
-Header, ruling, seats, decision trail, and the phase graph as a tree.
+Header, ruling, seats, decision trail, the phase graph as a tree, and
+what each gate verdict recorded.
 `--phase` and `--seat` are the scoping verbs the console's clicks
 became.
 
 ```
-$ brokkr inspect --run latest
+$ brokkr runs inspect --run latest
 run  prefix-selectors-for-the-read-su-…
      status completed · ending shipped · phase done · seq 51
      boundary …
@@ -458,19 +486,28 @@ trail
 
 graph
   intake ×1
-    → intake · finished
+    → ⏺ intake · finished
   implement ×1
-    → implement · finished
+    → ⏺ implement · finished
   verify ×1
-    → verify · finished
+    → ⏺ verify · finished
   review ×1
-    → review · finished
+    → ⏺ review · finished
   ship ×2
-    → ship · finished
-  done ×1  ←current
+    → ⏺ ship · finished
+  · done ×1  ←current
+…
 ```
 
-The seats block is `seats`' own readout, shown whole below. The ship
+The seats block is `runs seats`' own readout, shown whole below. After the
+graph, a `verdicts` block, elided here, says what each gate's result
+recorded beside its word (decision 0109), one line each: the head it
+covered, such as `verify · covered head <commit> · dirty`, with the
+protected review's as `covered head sha256 <digest>` of the heads
+decided on, and each finding it reported, keyed by its id and its site.
+`dirty` stays on every line until the engine checks the worktree clean;
+a run older than seat-record v7, or one whose head did not read,
+prints no such block. The ship
 gate runs twice: its first visit writes the run's ledger and answers
 `ready`, which `SHIP-READY` sends back to ship to confirm the close-out,
 and the second answers `shipped`.
@@ -490,19 +527,19 @@ only the rendered line carries the adjective. A journal written before
 the boundary was named shows `—` with the note *no boundary recorded*,
 never a default. A run that boxes nothing prints no line at all. The
 same pair appears wherever a model is named: a trail row that prints
-`· model <x>` prints `· boundary <y>` beside it, and `brokkr costs` and
-`brokkr compare` carry `boundary` beside `model` in every per-seat
-record (`not recorded` when no record names one), `compare` reporting a
+`· model <x>` prints `· boundary <y>` beside it, and `brokkr stats costs` and
+`brokkr runs compare` carry `boundary` beside `model` in every per-seat
+record (`not recorded` when no record names one), `runs compare` reporting a
 boundary difference between two runs as a divergence exactly as it
 reports a model difference.
 
-`inspect --json` also names the operator's choices for the run as folded
+`runs inspect --json` also names the operator's choices for the run as folded
 (#568), so a client offers only what Brokkr would take:
 
 - `commands`: `retry` (with the phase it re-runs), `stop`, `resume` and
-  `conclude`, each `admitted` or `refused` with the refusal's word and
+  `runs conclude`, each `admitted` or `refused` with the refusal's word and
   the words its verb gives. A parked run admits `retry`, `stop` and
-  `conclude`, and refuses `resume` until a command is accepted; a running
+  `runs conclude`, and refuses `resume` until a command is accepted; a running
   run refuses `retry` and admits the other three; a finished run refuses
   all four.
 - `unavailable`: the actions a console shows disabled, each with its
@@ -529,17 +566,17 @@ not returns. Each
 participant's `visit` says which visit to its phase it was asked in, from
 1, or `null` when it names no phase the journal had entered (#568).
 
-### `brokkr seats` — the seats, alone
+### `brokkr runs seats` — the seats, alone
 
-The seats block `inspect` prints — the same table, the same view, the
+The seats block `runs inspect` prints — the same table, the same view, the
 `boundary` column beside `model` — and nothing else. `--run` takes the
-same selector, `--realms` and `--db` mean what they mean for `inspect`,
-and `--json` prints `inspect`'s own view model verbatim: no wire object
+same selector, `--realms` and `--db` mean what they mean for `runs inspect`,
+and `--json` prints `runs inspect`'s own view model verbatim: no wire object
 is versioned for the verb, so a script that wants the seats reads
-`.participants` and `.boundary` from it as it would from `inspect`.
+`.participants` and `.boundary` from it as it would from `runs inspect`.
 
 ```
-$ brokkr seats --run latest
+$ brokkr runs seats --run latest
 seats
   model is the provider's claim, not proof · effort is configuration
   participant status    attempts turns cost tokens model          boundary       effort         activity
@@ -577,24 +614,24 @@ lawfully stopped by its own third review):
 
 ```
 graph
-  intake ×1
-  implement ×3
-  verify ×3
-  review ×3
-  stop ×1  ←current
+  ⏺ intake ×1
+  ⏺ implement ×3
+  ⏺ verify ×3
+  ⏺ review ×3
+  · stop ×1  ←current
 ```
 
 In `brokkr tui` the same journal draws the return as a solid arc under
 the span with a mirrored arrowhead (`╰ᐸ╯`) at the landing phase —
 drawn only when a return was actually taken, never as decoration.
 
-### `brokkr transcript` — one participant's retained prose
+### `brokkr runs transcript` — one participant's retained prose
 
 Every driver records one retained, harness-owned transcript reference
 (decision 0032): Claude a session id, Codex a thread and rollout, DSH its
 session file, of format version zero, three or four, and for version four
 plain or in DSH's compressed `.jsonl.zstd` encoding, which is decompressed
-within the plain file's bounds (decision 0086). `brokkr transcript` reads
+within the plain file's bounds (decision 0086). `brokkr runs transcript` reads
 that local file through the same bounded derivation the TUI pane uses, for
 every kind, and writes nothing:
 no provider process is started and the journal is opened read-only. The
@@ -612,13 +649,13 @@ was recorded under, and a run whose journal does not fold is refused on
 every participant route, as the command refuses it (decision 0073).
 
 ```
-$ brokkr transcript --run latest --seat review:chief
-$ brokkr transcript --run latest --seat review:chief --turn 4
-$ brokkr transcript --run latest --seat review:chief --json
+$ brokkr runs transcript --run latest --seat review:chief
+$ brokkr runs transcript --run latest --seat review:chief --turn 4
+$ brokkr runs transcript --run latest --seat review:chief --json
 ```
 
 `--run` takes the same full-id, unique-prefix and `latest` selector as
-`inspect`, `--seat` an exact participant key or a label that is unique in
+`runs inspect`, `--seat` an exact participant key or a label that is unique in
 the run, and `--turn` a one-based position in the same displayed
 sequence the TUI numbers — not a durable message id and not a raw JSONL
 line. Selecting a turn after the projection completes keeps that turn's
@@ -668,7 +705,7 @@ costs are proposed in decision 0055, which only the operator accepts. The
 remediation is the operator's: inspect the original file independently,
 place a duplicate deliberately, fit the recorded scope within the bound,
 or use real owned entries instead of below-home symlinks. The guide's
-`brokkr tui` pane and the `brokkr ui` Claude drill read the same result,
+`brokkr tui` pane and the `brokkr system ui` Claude drill read the same result,
 so a seat the command refuses is refused in all three. The TUI, the
 command and the browser present the exact same completed
 portable-display hint without independently quoting a path or home
@@ -701,16 +738,16 @@ seats
 
 graph
   intake ×1
-    → intake · finished
+    → ⏺ intake · finished
   implement ×1
-    → implement · finished
+    → ⏺ implement · finished
   verify ×1
-    → verify · finished
+    → ⏺ verify · finished
   review ×1
-    → review · finished
+    → ⏺ review · finished
   ship ×1
-    → ship · finished
-  done ×1  ←current
+    → ⏺ ship · finished
+  · done ×1  ←current
 ```
 
 ### `brokkr tui` — the readouts made explorable
@@ -727,7 +764,7 @@ quarantined because the journal does not fold, or stale: folding to
 running with no event for longer than an attempt's two-hour deadline
 and an hour's margin), then the running ones, then those that finished
 in the last 24 hours, dated by when their journal last moved. A
-quarantined run the operator answered with `brokkr operator acknowledge`
+quarantined run the operator answered with `brokkr runs operator acknowledge`
 lists under *older* instead, keeping its `?` and its refusal with who
 acknowledged it under them, until its journal moves (decision 0076 item
 11); `brokkr runs` prints the same line under the refusal. Each row
@@ -808,26 +845,26 @@ runs · run prefix-selectors-for-the-read-su-8bf6d692
 ←→ rail · ↑↓ lanes · Enter scope phase · Tab pane · Esc back · / filter · r refresh · ? help · q
 ```
 
-### `brokkr ui` — the browser console
+### `brokkr system ui` — the browser console
 
-`brokkr ui` serves an embedded, loopback-only, read-only surface on port
+`brokkr system ui` serves an embedded, loopback-only, read-only surface on port
 8383: runs, live seat activity, the causal event timeline. Same
 derivation, same answers, a mouse instead of a keyboard.
 
 ```
-$ brokkr ui --port 8383 --open
+$ brokkr system ui --port 8383 --open
 ```
 
-The Claude drill reads the same bounded result as `brokkr transcript` and
+The Claude drill reads the same bounded result as `brokkr runs transcript` and
 the TUI pane, so decision 0055's Claude compatibility costs apply here
 too: leading-hyphen ids are refused, duplicate candidates are ambiguous,
 below-home symlinks and the discovery bound are enforced, and the 32 MiB
 source cap holds. The operator-owned remediation is in the
-`brokkr transcript` section above.
+`brokkr runs transcript` section above.
 
-### `brokkr muninn` — the fleet, read and advised on
+### `brokkr runs muninn` — the fleet, read and advised on
 
-The read surfaces above show you the fleet. `brokkr muninn` reads it for
+The read surfaces above show you the fleet. `brokkr runs muninn` reads it for
 you and writes down what it would suggest — and then stops there.
 
 One invocation opens the workspace database **read-only**, derives a
@@ -863,7 +900,7 @@ carry is refused and recorded nowhere. The record snapshots the crossing
 evidence the proposal stood on — the published paths, publishing realms
 and pin states, never the host locations behind them — so a later reader
 can still see what the proposal saw after the map changes. Acting on any
-of it stays the operator's own `brokkr operator` command (decision 0020,
+of it stays the operator's own `brokkr runs operator` command (decision 0020,
 as amended by decision 0059).
 
 A finding the operator has superseded (below) is still derived, still
@@ -873,7 +910,7 @@ supersede: a run that has already finished admits no operator command,
 and closing the record is the operator's act.
 
 ```
-$ brokkr muninn run
+$ brokkr runs muninn run
 2026-08-31T14:26:48Z · 1 proposals for parked runs · 2 findings queued
   summary: four runs; one is parked on a flaky verify, two are green
   parked prefix-selectors-8bf6d692 seq 41 · suggest 'retry' · the park
@@ -882,12 +919,12 @@ $ brokkr muninn run
     · the only high residual in the fleet
   cites: prefix-selectors-8bf6d692 seq 41, review-the-lane-cursor-1f0a seq 33
 
-$ brokkr muninn list          # every past invocation, citations included
+$ brokkr runs muninn list          # every past invocation, citations included
 ```
 
-### `brokkr operator` — the commands that write
+### `brokkr runs operator` — the commands that write
 
-Everything above reads. `brokkr operator` is where an operator writes,
+Everything above reads. `brokkr runs operator` is where an operator writes,
 and it admits these commands. `retry` re-runs a parked run's phase and
 `stop` ends a run where it stands. `retry --member <tag>` on a parked panel
 runs only the named members and names the carried verdicts and their source
@@ -905,7 +942,7 @@ and the ruling that closed them. Nothing derives that; only the operator
 knows it, and only the operator may say it.
 
 ```
-$ brokkr operator --run decision-0040-the-model-s-hands--96398324 supersede \
+$ brokkr runs operator --run decision-0040-the-model-s-hands--96398324 supersede \
     --findings 190 \
     --by-run decision-0040-the-model-s-hands--415a7840 --by-seq 214 \
     --reason "both residuals fixed and shipped at 77c3099"
@@ -932,7 +969,7 @@ its ruling are exactly what they were, and the finding stays in the
 journal and in every readout, marked:
 
 ```
-$ brokkr inspect --run decision-0040-the-model-s-hands--96398324
+$ brokkr runs inspect --run decision-0040-the-model-s-hands--96398324
 run  decision-0040-the-model-s-hands--96398324
      unclassified · phase review · seq 191
 ruling  REVIEW-SECURITY-HOLD  review → ?
@@ -946,25 +983,25 @@ run, or by a run that re-reviews the tree — and both stay on the record,
 with a name on them.
 
 `repair` is the way back for a run an event after its terminal one
-stopped folding: a driver's settlement that landed after a `conclude`, or
+stopped folding: a driver's settlement that landed after a `runs conclude`, or
 a `stop` an older binary journaled after the conclusion. Nothing reads
-such a run — not `inspect`, not `runs`, not `release`, and every later
+such a run — not `runs inspect`, not `runs`, not `release`, and every later
 dispatch in its worktree refuses while the broker still counts its
 attempts as standing. `repair` reads the run's events, finds its terminal
 event, and names the late tail exactly: from the event after the terminal
 one to the head as it now stands.
 
 ```console
-$ brokkr operator repair --run spec--8bf6d692 --reason "0.12.0 left a stop after the conclusion"
+$ brokkr runs operator repair --run spec--8bf6d692 --reason "0.12.0 left a stop after the conclusion"
 recorded repair at seq 48 on spec--8bf6d692; the late tail is kept, shown, and never
 applied, and the run folds as it ended.
 ```
 
-The run then folds as the status its terminal event states, and `inspect`
+The run then folds as the status its terminal event states, and `runs inspect`
 and `runs` show the tail it keeps:
 
 ```console
-$ brokkr inspect --run spec--8bf6d692
+$ brokkr runs inspect --run spec--8bf6d692
 run  spec--8bf6d692
      status stopped · ending unclassified · phase implement · seq 48
 late  a late tail of 2 events, repaired by operator
@@ -993,10 +1030,10 @@ released is the broker's proof from its own records, not the run's fold
 A run that stopped folding holds its worktree until its writers are proven
 ended: every later dispatch there refuses with "run '…' holds this
 worktree, its writers not proven settled". The way back is three operator
-acts, and none of them edits the journal. First `brokkr operator
+acts, and none of them edits the journal. First `brokkr runs operator
 acknowledge --run <id> --reason <why>`, which records that the run was
 looked at beside its chain; acknowledgement alone releases nothing. Then,
-optionally and only for the history, `brokkr operator repair --run <id>
+optionally and only for the history, `brokkr runs operator repair --run <id>
 --reason <why>`, so the run folds again with its late tail kept and never
 applied. A repair moves the head past the acknowledgement and lapses it
 (#511), but the repair record is itself the operator's word that the run was
@@ -1008,7 +1045,7 @@ admits once the run's lock is free and every attempt the broker's own
 reservation names is proven ended by the broker's settlement records — each
 driver sealed Settled. A driver the records do not prove settled is not the
 records' proof: where its own recorded process group is gone from the host,
-`brokkr operator settle --run <id> --reason <why>` re-checks that fact and
+`brokkr runs operator settle --run <id> --reason <why>` re-checks that fact and
 journals it, and the next dispatch admits. `settle` refuses and writes
 nothing while a lock holder, a live process group or an unproven attempt
 still stands. A group recorded for a driver already sealed Settled is not
@@ -1016,12 +1053,12 @@ asked: the seal is the settlement proof, and a reused group id names an
 unrelated process, so it does not hold the worktree. If an engine failed
 its seal, its driver stays Settling, so a later `settle` proves only the
 process group that driver recorded ended — not what the attempt's cleanup
-witnessed — and `brokkr operator release` is the route where that
+witnessed — and `brokkr runs operator release` is the route where that
 distinction matters.
 
 A reservation written before this release records its drivers but no group
 (v0.13.0's shape), so `settle` cannot prove one of its drivers: repair the
-run first, then `brokkr operator release --run <id> --reason <why>`, the
+run first, then `brokkr runs operator release --run <id> --reason <why>`, the
 operator's attestation that every process those attempts owned has ended.
 Release asks the host about every group recorded for a driver the records do
 not seal Settled, and about an attempt's one older single-group slot where a
@@ -1031,7 +1068,7 @@ drivers did not, is not asked.
 It refuses an attempt that ended a success or a failure, and one with no
 journaled ending; it is the route only where the attempt ended
 indeterminate. A spawn that failed before its process group was recorded
-leaves the same choice: repair the run, then `brokkr operator release` where
+leaves the same choice: repair the run, then `brokkr runs operator release` where
 the attempt ended indeterminate. A recorded group id the host reuses for an
 unrelated process, or one still alive when the last driver ended, keeps the
 worktree held, and no verb will release it: archive the journal, re-provision
@@ -1042,7 +1079,7 @@ An attempt whose cleanup was witnessed unresolved is never released by the
 broker's proof or by `settle`, even when every recorded process group is gone:
 the witness saw a stray, a descendant, or a process still holding the
 driver's output, which no group question can disprove. That attempt is the
-operator's to attest: repair the run, then `brokkr operator release --run <id>
+operator's to attest: repair the run, then `brokkr runs operator release --run <id>
 --reason <why>`, where the attempt ended indeterminate.
 
 A shape (B) journal from an older engine, such as the stop after a

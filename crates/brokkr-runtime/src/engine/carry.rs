@@ -3,14 +3,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::fold::RunState;
 use brokkr_core::EventEnvelope;
-use brokkr_protocol::{AttemptOutcome, AttemptReport};
+use brokkr_protocol::AttemptOutcome;
 use serde_json::Value;
 use thiserror::Error;
 
-use super::panel::{outcome_over, panel_outcome};
+use super::panel::{outcome_over, panel_outcome, Members, Stamped};
 use super::worktree::TreeReading;
 use super::{Engine, EngineError};
-use crate::bundle::{Aggregate, ExecutableBody, Invocation, SeatBody, StepBody};
+use crate::bundle::{
+    ExecutableBody, Invocation, MemberFindings, MemberLaws, PanelJoin, SeatBody, StepBody,
+};
 
 pub(crate) mod facts;
 pub(crate) mod record;
@@ -47,9 +49,9 @@ pub(crate) enum Shape {
 
 #[derive(Debug, Error)]
 pub(crate) enum Refusal {
-    #[error("phase '{phase}' runs no panel; use plain operator retry")]
+    #[error("phase '{phase}' runs no panel; use plain runs operator retry")]
     NoPanel { phase: String },
-    #[error("panel step '{step}' follows first step '{first}'; use plain operator retry")]
+    #[error("panel step '{step}' follows first step '{first}'; use plain runs operator retry")]
     PanelStepFollows { step: String, first: String },
     #[error("'{name}' is no panel member; the panel's tags are {tags}")]
     UnknownMember { name: String, tags: String },
@@ -61,19 +63,19 @@ pub(crate) enum Refusal {
         field: String,
         error: String,
     },
-    #[error("{why}; use plain operator retry")]
+    #[error("{why}; use plain runs operator retry")]
     Shape { why: Shape },
     #[error(
-        "members {members} have no settled verdict to carry; name them or use plain operator retry"
+        "members {members} have no settled verdict to carry; name them or use plain runs operator retry"
     )]
     Unsettled { members: String },
-    #[error("repository '{}' has no readable reviewed head; use plain operator retry", .repo.display())]
+    #[error("repository '{}' has no readable reviewed head; use plain runs operator retry", .repo.display())]
     NoHead { repo: std::path::PathBuf },
-    #[error("reviewed head moved: {observations}; use plain operator retry")]
+    #[error("reviewed head moved: {observations}; use plain runs operator retry")]
     HeadMoved { observations: String },
-    #[error("working tree is not clean: {observations}; use plain operator retry")]
+    #[error("working tree is not clean: {observations}; use plain runs operator retry")]
     TreeNotClean { observations: String },
-    #[error("inputs moved for effects {effects}; use plain operator retry")]
+    #[error("inputs moved for effects {effects}; use plain runs operator retry")]
     InputMoved { effects: String },
     #[error("carrying attempt '{attempt}' changed its reviewed subject: {observations}")]
     SubjectMoved {
@@ -94,7 +96,11 @@ enum Contribution {
     Carried {
         tag: Tag,
         result: Value,
+        findings: MemberFindings,
         source: String,
+        /// The site the engine's own marker named for the member in its
+        /// source attempt, where it marked one (fix round 0109a1r7, X2).
+        site: Option<String>,
     },
 }
 
@@ -103,6 +109,10 @@ pub(crate) struct CarryPlan {
     entries: Vec<Contribution>,
     step: Option<String>,
     subject: Option<Head>,
+    /// Every declared member's compiled law, by bare name: the attempt
+    /// runs only the fresh ones, and a carried member's word is joined
+    /// under its own law all the same (decision 0109 ruling 11).
+    laws: MemberLaws,
 }
 
 impl Contribution {
@@ -132,7 +142,14 @@ impl CarryPlan {
             entries,
             step,
             subject,
+            laws: MemberLaws::new(),
         })
+    }
+
+    /// The plan with every declared member's compiled `laws`.
+    fn under(self, laws: &MemberLaws) -> Self {
+        let laws = laws.clone();
+        Self { laws, ..self }
     }
 
     fn all_fresh(tags: &[Tag], step: Option<String>) -> Self {
@@ -159,9 +176,12 @@ impl CarryPlan {
         self.entries
             .iter()
             .filter_map(|entry| match entry {
-                Contribution::Carried { tag, source, .. } => Some(CarriedEntry {
+                Contribution::Carried {
+                    tag, source, site, ..
+                } => Some(CarriedEntry {
                     member: tag.clone(),
                     attempt_id: source.clone(),
+                    site_ref: site.clone(),
                 }),
                 Contribution::Fresh(_) => None,
             })
@@ -198,8 +218,8 @@ impl CarryPlan {
 
     fn join(
         &self,
-        reports: Vec<(String, AttemptReport)>,
-    ) -> Result<Vec<(String, AttemptOutcome)>, EngineError> {
+        (reports, mut stamped): Members,
+    ) -> Result<(Vec<(String, AttemptOutcome)>, Stamped), EngineError> {
         let mut fresh = BTreeMap::new();
         for (name, report) in reports {
             if fresh.insert(name, report.settled_outcome()).is_some() {
@@ -208,26 +228,26 @@ impl CarryPlan {
         }
         let mut joined = Vec::new();
         for entry in &self.entries {
-            let (tag, outcome) = match entry {
-                Contribution::Fresh(tag) => (
-                    tag,
-                    fresh
-                        .remove(tag.bare(self.step.as_deref()))
-                        .ok_or_else(|| join_defect("missing fresh report"))?,
-                ),
-                Contribution::Carried { tag, result, .. } => (
-                    tag,
+            let bare = entry.tag().bare(self.step.as_deref()).to_owned();
+            let outcome = match entry {
+                Contribution::Fresh(_) => fresh
+                    .remove(&bare)
+                    .ok_or_else(|| join_defect("missing fresh report"))?,
+                Contribution::Carried {
+                    result, findings, ..
+                } => {
+                    stamped.insert(bare.clone(), findings.clone());
                     AttemptOutcome::Succeeded {
                         result: result.clone(),
-                    },
-                ),
+                    }
+                }
             };
-            joined.push((tag.bare(self.step.as_deref()).to_owned(), outcome));
+            joined.push((bare, outcome));
         }
         if !fresh.is_empty() {
             return Err(join_defect("foreign fresh report"));
         }
-        Ok(joined)
+        Ok((joined, stamped))
     }
 }
 
@@ -255,14 +275,14 @@ impl Panelled {
 }
 
 pub(crate) fn outcome_under(
-    aggregate: Aggregate,
+    join: &PanelJoin,
     plan: Option<&CarryPlan>,
-    reports: Vec<(String, AttemptReport)>,
+    (reports, stamped): Members,
     span: &PanelSpan,
     attempt: &str,
 ) -> Result<Panelled, EngineError> {
     let Some(plan) = plan else {
-        return Ok(Panelled::Joined(panel_outcome(aggregate, reports)));
+        return Ok(Panelled::Joined(panel_outcome(join, reports, stamped)));
     };
     if let Some(subject) = &plan.subject {
         if !span.holds(subject) {
@@ -277,15 +297,14 @@ pub(crate) fn outcome_under(
             }));
         }
     }
-    Ok(Panelled::Joined(outcome_over(
-        aggregate,
-        plan.join(reports)?,
-    )))
+    let (joined, stamped) = plan.join((reports, stamped))?;
+    let join = join.carrying(&plan.laws);
+    Ok(Panelled::Joined(outcome_over(&join, joined, stamped)))
 }
 
 pub(crate) fn carry_plan(facts: &CarryFacts, names: &[Tag]) -> Result<CarryPlan, CarryRefusal> {
-    let (step, tags) = match &facts.shape {
-        PanelShape::Panel { step, tags } => (step, tags),
+    let (step, tags, laws) = match &facts.shape {
+        PanelShape::Panel { step, tags, laws } => (step, tags, laws),
         PanelShape::NoPanel { phase } => {
             return Err(Refusal::NoPanel {
                 phase: phase.clone(),
@@ -326,7 +345,8 @@ pub(crate) fn carry_plan(facts: &CarryFacts, names: &[Tag]) -> Result<CarryPlan,
     // controls that invariant without adding a recoverable operator refusal for an engine defect.
     Ok(
         CarryPlan::new(tags, entries, step.clone(), facts.head.clone())
-            .expect("contributions cover declared members"),
+            .expect("contributions cover declared members")
+            .under(laws),
     )
 }
 
@@ -422,12 +442,32 @@ fn contributions<'a>(
                 .and_then(|record| record.settled_members.get(tag))
                 .map(|result| (source, result))
         });
+        // A carried member is no copy but a contribution to a new verdict
+        // (item 2 of decision 0075's addendum of 2026-11-21), so one its
+        // writer's kind check refuses is no settled verdict and is not
+        // carried (the controller's rulings R18 and R23 of 2026-11-22).
+        let verdict = verdict.filter(|(source, result)| source.admits(tag, result));
         match verdict {
             Some((source, result)) => {
+                // The carried member's findings, read once, here, where
+                // the plan reads its journaled result, and only beside the
+                // engine's mark for its source attempt and member (fix
+                // round 0109a1r6, W2): an unmarked payload, a released
+                // engine's raw copy, keeps its result word, and its
+                // findings and `covered` stay in it as unverified legacy
+                // evidence, never the new aggregate's keyed findings.
+                let mut result = result.clone();
+                let mark = source.marked.get(tag);
+                let findings = match mark.is_some() {
+                    true => MemberFindings::taken_from(&mut result),
+                    false => MemberFindings::Read(Vec::new()),
+                };
                 entries.push(Contribution::Carried {
                     tag: tag.clone(),
-                    result: result.clone(),
+                    result,
+                    findings,
                     source: source.id.clone(),
+                    site: mark.cloned().flatten(),
                 });
                 if !sources.iter().any(|at: &&PanelAttempt| at.id == source.id) {
                     sources.push(source);

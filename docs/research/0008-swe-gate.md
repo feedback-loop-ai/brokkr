@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.04167
 Authors: Xin He, Yanlin Wang, Mingwei Liu, Jiachi Chen, Hongyu Zhang, Guanbin Li (Sun Yat-sen University; Zhejiang University; Chongqing University)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: research sweep, run weekly-research-sweep-registry-d-2012cc4d, 2026-09-04
 
 ## Summary
@@ -53,6 +53,33 @@ path; it is not a promise that every recipe writes a spec. The journal
 carries the change identifier and validation state, while the artifacts
 live in the repository. Findings 3 and 4 remain gaps: no constraint-category
 report or hidden-failure-rate calculation is implemented.
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** For "while functional success does not improve." read
+  "while functional success falls slightly (0.7 points for GPT-5.5, 3.3
+  to 9.9 points for the others)." (ruled: "approve all the fact and
+  wording fixes")
+- **Summary.** For "Eleven constraint categories are" read "Ten
+  constraint categories are"; for "the most common, and
+  ordering/argument preservation and idempotence carry the lowest" read
+  "the most common, idempotence and scope generalization carry the
+  lowest"; for "lowest joint success rates." read "lowest joint success
+  rates, and ordering/argument preservation is among the categories
+  satisfied most often." (ruled: "approve all the fact and wording
+  fixes")
+- **Row 2** keeps `implemented`. Finding: For "constraint guidance
+  raises compliance without hurting functional success" read "constraint
+  guidance raises constraint compliance and joint success, at a small
+  cost in functional success (0.7 to 9.9 points)". (ruled: "approve all
+  the fact and wording fixes")
+- **Row 4** now reads `planned`, not `not-planned`. Citation: #436:
+  independent acceptance (checks authored apart from the implementation,
+  and a second reviewer) and a qualification report of escaped defects
+  and false approvals; no standing hidden-failure metric over runs
+  exists today (ruled: "approve all that move to planned as well")
 
 ## Candidates
 

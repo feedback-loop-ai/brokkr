@@ -25,8 +25,10 @@
 
 #![forbid(unsafe_code)]
 
+mod buckets;
 mod entry;
 mod rail;
+use buckets::{bucket, Buckets};
 pub use entry::{entry_sentence, ContinuedView, EntryView};
 
 mod analytics;
@@ -55,7 +57,7 @@ pub use analytics::{
     AnalyticsHearth, AnalyticsRun, FactSource, FactUnion, ParkFact, QuarantinedHearth, Query,
     Reviews, RunFacts, RunOrder, SiteFact, SiteOrder, SpendFact, WholeRead, Window,
 };
-pub use analytics::{Ledger, Range};
+pub use analytics::{recipe_usage, Ledger, PhaseUsage, Range, Spread};
 pub use brokkr_core::policy::RuleSeverity;
 use brokkr_core::seat::meter;
 use brokkr_core::seat::{
@@ -74,7 +76,10 @@ mod live;
 pub use live::applied_events;
 use live::derived;
 mod residual_findings;
-pub use residual_findings::residual_findings_at;
+pub use residual_findings::{
+    gate_records, gate_records_within, residual_findings_at, verdict_attempts_within, GateFinding,
+    GateRecord,
+};
 mod seat_view;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
@@ -83,7 +88,7 @@ pub use compare::{
 };
 pub use composed::{composed_view, composed_whole, seat_keys, Parts};
 use dashboard::dashboard;
-pub use dashboard::working_participants;
+pub use dashboard::{result_notes, working_participants, ResultNotes};
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
     at_work, behind_line, fleet_rows, late_line, need, page, ranges, run_row, run_rows,
@@ -97,7 +102,7 @@ pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
     GRAPH_VIEW_VERSION,
 };
-pub use participant::Subject;
+pub use participant::{label_of as participant_label, Subject};
 pub use run_summary::{summary, Summary};
 pub use scope::{
     keeps_participant, keeps_phase, keeps_row, lens_for, Lens, Membership, Scope, ScopeError,
@@ -414,7 +419,7 @@ pub struct Participant {
     pub turns_aggregated: bool,
     pub turns_cell: Cell,
     /// What the seat spent: every attempt's reported cost, summed (the
-    /// rule [`reported_cost`] states), the rule `brokkr costs` sums by.
+    /// rule [`reported_cost`] states), the rule `brokkr stats costs` sums by.
     pub cost: Option<f64>,
     /// The last attempt's finishing cost alone, beside the sum and never
     /// in its place.
@@ -629,13 +634,13 @@ fn type_tail(type_str: &str) -> &str {
 /// The three terminal effect events and the (status, badge class) pair
 /// each implies. Pairing them keeps the class total: a derived status
 /// always has a class, so no surface needs an unreachable fallback.
+/// Which events are terminal is [`Outcome::of`]'s one exhaustive reading.
 fn terminal_status(event_type: EventType) -> Option<(&'static str, &'static str)> {
-    match event_type {
-        EventType::EffectSucceeded => Some(SUCCEEDED),
-        EventType::EffectFailed => Some(FAILED),
-        EventType::EffectIndeterminate => Some(INDETERMINATE),
-        _ => None,
-    }
+    Outcome::of(event_type).map(|outcome| match outcome {
+        Outcome::Succeeded => SUCCEEDED,
+        Outcome::Failed => FAILED,
+        Outcome::Indeterminate => INDETERMINATE,
+    })
 }
 
 const WORKING: (&str, &str) = ("working", "running");
@@ -860,7 +865,7 @@ pub struct ResidualFinding {
 /// derived, still listed and still cited — it carries the annotation as
 /// its `superseded` mark and leaves only Muninn's queue. **The
 /// annotation is verified when it is WRITTEN and never re-verified
-/// here**: `brokkr operator supersede` refuses a citation that does not
+/// here**: `brokkr runs operator supersede` refuses a citation that does not
 /// resolve, and the journal it cites is append-only, so what was true at
 /// write time stays true. A superseding run concluded, stopped or ruled
 /// again afterwards changes nothing about a mark already written
@@ -992,11 +997,7 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
     if let Some(index) = scan.by_key.get(&key) {
         return *index;
     }
-    let seat = &scan.effects[slot].seat;
-    let label = match member {
-        Some(member) => format!("{seat}:{member}"),
-        None => seat.clone(),
-    };
+    let label = participant::label_of(&scan.effects[slot].seat, member);
     scan.parts.push(Build {
         carried: None,
         effect_index: slot,
@@ -1078,19 +1079,7 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                 // it does not clear `open`, set the status, or
                 // contribute a duration or a result token.
                 if field(payload, "attempt_id") == scan.effects[slot].open.as_deref() {
-                    if let Some(model) = payload.pointer("/result/model").and_then(Value::as_str) {
-                        let part = ensure(&mut scan, slot, effect_id, None);
-                        scan.parts[part].model = Some(model.to_string());
-                    }
-                    if let Some(word) = payload.get("result").and_then(stamp_of) {
-                        let part = ensure(&mut scan, slot, effect_id, None);
-                        scan.parts[part].stamp = Some(word);
-                    }
-                    if let Some(effort) = payload.pointer("/result/effort").and_then(Value::as_str)
-                    {
-                        let part = ensure(&mut scan, slot, effect_id, None);
-                        scan.parts[part].effort = Some(effort.to_string());
-                    }
+                    started::terminal(&mut scan, slot, effect_id, payload);
                     let effect = &mut scan.effects[slot];
                     effect.open = None;
                     effect.terminal = terminal_status(event.event_type);
@@ -1167,7 +1156,17 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                     scan.parts[part].member_finished_at = Some(event.recorded_at.clone());
                 }
             }
-            _ => {}
+            // A request reaches here only when it named no effect id.
+            EventType::PhaseEntered
+            | EventType::EffectRequested
+            | EventType::TransitionDecided
+            | EventType::RunStarted
+            | EventType::OperatorCommanded
+            | EventType::OperatorAccepted
+            | EventType::OperatorRejected
+            | EventType::RunParked
+            | EventType::RunCompleted
+            | EventType::RunStopped => {}
         }
     }
     for part in &mut scan.parts {
@@ -1278,6 +1277,28 @@ fn run_boundary(events: &[EventEnvelope]) -> RunBoundary {
 }
 
 // -------------------------------------------------------------- activity
+
+/// A participant's compatibility id: a Claude transcript's locator, or
+/// else the flat id it was told. A transcript of a kind the view does not
+/// know is no fallback to the flat id (the controller's rulings R29 and
+/// R36).
+fn session_id(transcript: Option<&Transcript>, told: Option<&String>) -> Option<String> {
+    use crate::transcript::TranscriptKind as Kind;
+    let Some(read) = transcript else {
+        return told.cloned();
+    };
+    match Kind::parse(&read.kind) {
+        None => None,
+        Some(Kind::ClaudeSession) if !read.locator.is_empty() => Some(read.locator.clone()),
+        Some(
+            Kind::ClaudeSession
+            | Kind::CodexThread
+            | Kind::DshSession
+            | Kind::AgyConversation
+            | Kind::None,
+        ) => told.cloned(),
+    }
+}
 
 fn transcript_cell(transcript: Option<&Transcript>) -> Cell {
     match transcript {
@@ -1631,12 +1652,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
         };
         let provenance = part.provenance.as_ref().map(provenance_of);
         let transcript = part.transcript.clone();
-        let session_id = transcript
-            .as_ref()
-            .filter(|transcript| transcript.kind == "claude-session")
-            .map(|transcript| transcript.locator.clone())
-            .filter(|locator| !locator.is_empty())
-            .or_else(|| part.told.session_id.clone());
+        let session_id = session_id(transcript.as_ref(), part.told.session_id.as_ref());
         let (usage_cell, tokens) = usage_cells(usage.as_ref(), usage_prefix);
         let carried_from = started::carried_from(events, scan, part);
         let activity = started::activity(events, scan, part, members.len(), carried_from.as_ref());
@@ -1872,67 +1888,6 @@ fn live_line(label: String, turn: Option<(String, String)>) -> LiveLine {
 }
 
 // ------------------------------------------------------- inner topology
-
-/// Events bucketed by effect once, so `watch` does not pay an
-/// O(phases × events) rescan on every redraw.
-struct Buckets<'a> {
-    /// Phase name -> the NEWEST effect requested in it, and its seat
-    /// (last write wins). The seat travels with the id because it is the
-    /// label a structureless phase draws, and reading it here keeps that
-    /// lookup total — a participant always exists for a requested effect,
-    /// so a "no participant" fallback would be an uncoverable branch.
-    newest: BTreeMap<&'a str, (&'a str, &'a str)>,
-    /// Effect id -> the sequence steps its checkpoints finished and the
-    /// member tags they carry, each once, in first order.
-    listed: BTreeMap<&'a str, (Vec<String>, Vec<String>)>,
-    /// Effect id -> every phase it was requested in (scope membership).
-    effect_phases: BTreeMap<&'a str, Vec<String>>,
-}
-
-/// A checkpoint's `payload` as its effect's lists read it: a finished
-/// step's name, or else the member it tags, each listed once.
-fn listed((finished, tags): &mut (Vec<String>, Vec<String>), payload: &Value) {
-    let checkpoint = payload.get("checkpoint").unwrap_or(&Value::Null);
-    let (list, name) = match field(checkpoint, "step") {
-        Some("sequence-step-finished") => (finished, field(checkpoint, "step_name")),
-        _ => (tags, field(checkpoint, "member")),
-    };
-    if let Some(name) = name.filter(|name| !list.iter().any(|known| known == name)) {
-        list.push(name.to_string());
-    }
-}
-
-fn bucket(events: &[EventEnvelope]) -> Buckets<'_> {
-    let mut buckets = Buckets {
-        newest: BTreeMap::new(),
-        listed: BTreeMap::new(),
-        effect_phases: BTreeMap::new(),
-    };
-    for event in events {
-        let payload = &event.payload;
-        match event.event_type {
-            EventType::EffectRequested => {
-                if let (Some(effect_id), Some(phase)) =
-                    (field(payload, "effect_id"), field(payload, "phase"))
-                {
-                    let seat = field(payload, "seat").unwrap_or("?");
-                    buckets.newest.insert(phase, (effect_id, seat));
-                    let names = buckets.effect_phases.entry(effect_id).or_default();
-                    if !names.iter().any(|name| name == phase) {
-                        names.push(phase.to_string());
-                    }
-                }
-            }
-            EventType::EffectCheckpointed => {
-                if let Some(effect_id) = field(payload, "effect_id") {
-                    listed(buckets.listed.entry(effect_id).or_default(), payload);
-                }
-            }
-            _ => {}
-        }
-    }
-    buckets
-}
 
 /// A participant's own `panel-member-finished` outcome rules first; a
 /// finished step is phosphor even though its participant inherits the
@@ -2409,6 +2364,8 @@ fn viewed(
     }
 }
 
+#[cfg(test)]
+mod kinds_tests;
 #[cfg(test)]
 mod late_tests;
 #[cfg(test)]

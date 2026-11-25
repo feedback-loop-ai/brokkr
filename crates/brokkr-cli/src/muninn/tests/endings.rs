@@ -19,7 +19,7 @@ fn head(dossier: &Dossier, realm: &str, run_id: &str) -> Cited {
 }
 
 /// What `validate` says of a report queueing `cited` alone.
-fn queued(dossier: &Dossier, cited: &Cited) -> Result<Report, String> {
+fn queued(dossier: &Dossier, cited: &Cited) -> Result<Report, Unusable> {
     let (realm, run_id, seq) = cited;
     let entry = json!({"realm": realm, "run_id": run_id, "seq": seq, "finding": "f",
                        "reasoning": "r"});
@@ -61,7 +61,10 @@ fn chief_settled_citation_uses_its_own_hearth_ending() {
     assert_eq!(cited, (Some("beta".into()), "shared-id".into(), 5));
     let refusal = settled("shared-id", Ending::Withdrawn);
     assert_eq!(offer(&dossier, &cited), Err(refusal.clone()));
-    assert_eq!(queued(&dossier, &cited).err(), Some(refusal.to_string()));
+    assert_eq!(
+        queued(&dossier, &cited).err(),
+        Some(Unusable::Settled(refusal))
+    );
     let shipped = head(&dossier, "alpha", "shared-id");
     assert_eq!(offer(&dossier, &shipped), Ok(None));
 }

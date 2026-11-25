@@ -6,11 +6,13 @@ use super::{JournalArgs, LaunchArgs};
 /// changes the queue is journaled with its reason.
 #[derive(clap::Subcommand)]
 pub(crate) enum QueueCmd {
-    /// Queue a new run, taking `brokkr run`'s arguments, at the end of
-    /// the queue. Nothing starts: the entry waits for the dispatcher.
+    /// Queue a new run, taking `brokkr run`'s arguments, last among the
+    /// entries of its priority. Nothing starts: the entry waits for the
+    /// dispatcher.
     #[command(group(clap::ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Add(QueueAddArgs),
-    /// The queue in order: each waiting entry's place, state, priority,
+    /// The queue in order (priority, higher first, then place): each
+    /// waiting entry's place, state, priority,
     /// waits, launch and admission (admissible, or why it waits or is
     /// held), then the entries that started a run, with it. `--json`
     /// emits the view model for scripts.
@@ -20,7 +22,10 @@ pub(crate) enum QueueCmd {
     /// operator re-pins, re-queues or drops it, whatever the map comes to.
     /// Each latch is journaled with the reason.
     Judge(QueueJudgeArgs),
-    /// Put an entry at another place in the queue.
+    /// Put an entry at another place in the queue, among the entries of
+    /// its own priority: priority always wins, so a place above a higher
+    /// priority or below a lower one leaves it first or last among its
+    /// own. Says the place it holds after.
     Move(QueueMoveArgs),
     /// Keep an entry in its place, not to be started until released.
     Hold(QueueEntryArgs),
@@ -33,6 +38,12 @@ pub(crate) enum QueueCmd {
     Repin(QueueEntryArgs),
     /// Take an entry out of the queue. One that started a run cannot be.
     Drop(QueueEntryArgs),
+    /// Record that an entry's work merged, journaled with the reason (name
+    /// the pull request and its merge commit): an entry waiting on
+    /// ENTRY:merged may start from then on. Brokkr reads no code host, so this
+    /// record is the merge's one witness. Only an entry that started a run
+    /// can be recorded merged.
+    Merged(QueueEntryArgs),
 }
 
 #[derive(clap::Args)]
@@ -40,12 +51,20 @@ pub(crate) enum QueueCmd {
 pub(crate) struct QueueAddArgs {
     #[command(flatten)]
     pub(crate) launch: LaunchArgs,
-    /// The entry's priority: operator data, weighed at admission.
+    /// The entry's priority, which orders the queue first: a higher
+    /// priority is judged and started first, and `move` orders an entry
+    /// only among those of its own priority.
     #[arg(long, default_value_t = 0, allow_negative_numbers = true)]
     pub(crate) priority: i64,
     /// An earlier entry this one waits for, and on what: `3:completed`
-    /// (its run completed) or `3:ended` (its run ended at all).
-    /// Repeatable.
+    /// (its run completed), `3:ended` (its run ended at all), or a named
+    /// ending, as `3:shipped` (its run is over and ended so; one that
+    /// ended otherwise holds this entry). The named endings are shipped,
+    /// shipped-flagged, refused, failed, blocked, exhausted, superseded,
+    /// infrastructure, delivered-elsewhere, withdrawn and
+    /// operator-stopped. Or `3:merged` (the operator recorded its work
+    /// merged with `brokkr queue merged`; a run over with no such record
+    /// holds this entry). Repeatable.
     #[arg(long, value_name = "ENTRY:CONDITION")]
     pub(crate) after: Vec<brokkr_store::Wait>,
     /// Why, journaled with the command.
@@ -78,7 +97,7 @@ pub(crate) struct QueueJudgeArgs {
 pub(crate) struct QueueMoveArgs {
     #[command(flatten)]
     pub(crate) entry: QueueEntryArgs,
-    /// The place to put it at, from 1.
+    /// The place to put it at, from 1, as `brokkr queue list` shows it.
     #[arg(long)]
     pub(crate) to: u32,
 }

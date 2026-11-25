@@ -15,6 +15,8 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Value};
 
+use crate::isolated::{alone, Alone, Isolated};
+
 /// The table every bundle here runs: implement, the protected review, done.
 fn policy() -> String {
     let rule = |id: &str, from: &str, result: &str, next: &str| {
@@ -55,6 +57,20 @@ impl Ran {
     }
 }
 
+/// `command` run with `stdin` written to it, as [`Repo::brokkr`] runs it.
+fn given(command: &mut Command, stdin: &str) -> Ran {
+    let pipes = [Command::stdin::<Stdio>, Command::stdout, Command::stderr];
+    for pipe in pipes {
+        pipe(command, Stdio::piped());
+    }
+    let mut child = command.spawn().unwrap();
+    let given = child.stdin.take().unwrap().write_all(stdin.as_bytes());
+    if let Err(error) = given {
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe, "{error}");
+    }
+    Ran::of(child.wait_with_output().unwrap())
+}
+
 /// A fresh repository, and a directory beside it that is in no
 /// repository: the fake driver's script and state, and every engine's
 /// TMPDIR, so nothing a run writes outside `.brokkr/state/` lands in the
@@ -73,6 +89,9 @@ impl Repo {
         let root = dir.path().canonicalize().unwrap().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         git(&root, &["init", "-q"]);
+        // Review is decided on the head its check accepted, so the
+        // repository has one (fix round 0109a1r3, H1).
+        git(&root, &BASE_COMMIT);
         Repo {
             root,
             aside: aside.path().canonicalize().unwrap(),
@@ -92,17 +111,30 @@ impl Repo {
         path
     }
 
-    /// `brokkr` standing in `dir`, relative to the root, created first,
-    /// with [`Repo::config`] for its configuration directory and a HOME of
-    /// its own beside the repository ([`crate::engine::home_in`]).
-    pub(crate) fn command(&self, dir: &str) -> Command {
+    /// `brokkr <argv>` standing in `dir`, relative to the root, created
+    /// first, with [`Repo::config`] for its configuration directory and a
+    /// HOME of its own beside the repository ([`crate::engine::home_in`]).
+    pub(crate) fn command(&self, dir: &str, argv: &[&str]) -> Command {
+        let mut command = crate::built::brokkr(argv);
+        self.standing(dir, &mut command);
+        command
+    }
+
+    /// [`Repo::command`] for `brokkr doctor`, alone in a PID namespace of
+    /// its own (#1137i).
+    pub(crate) fn doctor(&self, alone: &Alone, dir: &str, argv: &[&str]) -> Isolated {
+        let mut doctor = alone.brokkr(argv);
+        self.standing(dir, &mut doctor);
+        doctor
+    }
+
+    /// `command` standing in `dir`, as [`Repo::command`] stands it.
+    fn standing(&self, dir: &str, command: &mut Command) {
         let cwd = self.path(dir);
         std::fs::create_dir_all(&cwd).unwrap();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
         command.current_dir(cwd).env("TMPDIR", &self.aside);
         command.env("XDG_CONFIG_HOME", self.config());
         command.env("HOME", crate::engine::home_in(&self.aside));
-        command
     }
 
     /// The `XDG_CONFIG_HOME` every `brokkr` here reads, beside the
@@ -121,23 +153,17 @@ impl Repo {
     /// [`Ran`] judge. Any other failure to deliver the input is the
     /// test's.
     fn brokkr_with(&self, dir: &str, args: &[&str], stdin: &str) -> Ran {
-        let mut child = self
-            .command(dir)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let given = child.stdin.take().unwrap().write_all(stdin.as_bytes());
-        if let Err(error) = given {
-            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe, "{error}");
-        }
-        Ran::of(child.wait_with_output().unwrap())
+        given(&mut self.command(dir, args), stdin)
     }
 
     pub(crate) fn brokkr(&self, dir: &str, args: &[&str]) -> Ran {
         self.brokkr_with(dir, args, "")
+    }
+
+    /// [`Repo::brokkr`] for `brokkr doctor`, alone in a PID namespace of
+    /// its own (#1137i).
+    pub(crate) fn doctored(&self, alone: &Alone, dir: &str, args: &[&str]) -> Ran {
+        given(&mut self.doctor(alone, dir, args), "")
     }
 
     /// `brokkr init .` at the root under a PATH holding only the agent
@@ -145,8 +171,8 @@ impl Repo {
     /// first of them whatever this host carries.
     pub(crate) fn init_with_only(&self, present: &[&str]) -> Ran {
         let bins = bins_holding(&self.aside, present);
-        let mut init = self.command("");
-        init.args(["init", "."]).env("PATH", &bins);
+        let mut init = self.command("", &["init", "."]);
+        init.env("PATH", &bins);
         Ran::of(init.output().unwrap())
     }
 
@@ -238,6 +264,58 @@ impl Repo {
 
 pub(crate) fn completes() -> Value {
     json!([{"behavior": "succeed", "result": {"result": "complete"}}])
+}
+
+/// An empty commit with a fixed identity and no signature, so a fresh
+/// repository has a HEAD a run's review can be checked on (fix round
+/// 0109a1r3, H1).
+pub(crate) const BASE_COMMIT: [&str; 12] = [
+    "-c",
+    "user.name=Brokkr Test",
+    "-c",
+    "user.email=brokkr@test",
+    "-c",
+    "commit.gpgSign=false",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "--no-verify",
+    "-m",
+    "base",
+];
+
+/// A temporary directory that is a git repository with a clean head:
+/// everything it will hold is ignored, so a run's review is checked on its
+/// head and its ship reads the tree as clean (fix round 0109a1r3, H1).
+pub(crate) fn clean_repository() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    clean_head(dir.path());
+    dir
+}
+
+/// A [`clean_repository`] laid out for an inline `work` seat under
+/// `policy`: its bundle's roles, agent charters, adapters and state
+/// directories, the policy, and the work seat's role and charter, which an
+/// inline seat's file map pins inside its own bundle (decision 0066
+/// ruling 5).
+pub(crate) fn inline_work_seat(policy: &str) -> tempfile::TempDir {
+    let dir = clean_repository();
+    for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
+        std::fs::create_dir_all(dir.path().join(sub)).unwrap();
+    }
+    std::fs::write(dir.path().join("bundle/policy.json"), policy).unwrap();
+    std::fs::write(dir.path().join("bundle/roles/work.md"), "# work\n").unwrap();
+    std::fs::write(dir.path().join("agents/charters/work.md"), "# work\n").unwrap();
+    dir
+}
+
+/// `dir`, created when needed, made a git repository with a clean head as
+/// [`clean_repository`] makes one: the fixture a run operates in place.
+pub(crate) fn clean_head(dir: &Path) {
+    std::fs::create_dir_all(dir).unwrap();
+    git(dir, &["init", "-q"]);
+    std::fs::write(dir.join(".gitignore"), "*\n").unwrap();
+    git(dir, &BASE_COMMIT);
 }
 
 pub(crate) fn git(dir: &Path, args: &[&str]) -> String {
@@ -360,12 +438,12 @@ fn discovery_finds_the_folder_from_a_subdirectory() {
     assert_eq!(git(&repo.root, &["status", "--porcelain"]), "?? .brokkr/\n");
     let runs = repo.brokkr("src", &["runs", "--json"]);
     assert_eq!(listed(&runs), std::slice::from_ref(&run));
-    let ledger = repo.brokkr("src", &["ledger", "--run", &run, "--repo", "."]);
+    let ledger = repo.brokkr("src", &["stats", "ledger", "--run", &run, "--repo", "."]);
     let written = repo.path(&format!(".brokkr/state/ledger/{run}.md"));
     assert_eq!(ledger.stdout, format!("{}\n", written.display()));
     assert!(written.is_file() && !repo.path("src/.forge").exists());
     let record = repo.path(".brokkr/state/muninn.ndjson");
-    let ran = repo.brokkr("src/deep", &["muninn", "list"]);
+    let ran = repo.brokkr("src/deep", &["runs", "muninn", "list"]);
     let none = format!("no proposals recorded in {}\n", record.display());
     assert_eq!((ran.code, ran.stdout), (Some(0), none));
 
@@ -374,8 +452,9 @@ fn discovery_finds_the_folder_from_a_subdirectory() {
     // declares, set in the environment, is checked against the folder's
     // store, and, the folder being doctor's bundle (R5), against its
     // seats, none of which binds it.
-    let mut doctor = repo.command("src/deep");
-    doctor.arg("doctor").env("SPARK_API_KEY", "set");
+    let Some(alone) = alone() else { return };
+    let mut doctor = repo.doctor(&alone, "src/deep", &["doctor"]);
+    doctor.env("SPARK_API_KEY", "set");
     let printed = String::from_utf8(doctor.output().unwrap().stdout).unwrap();
     let state = repo.path(".brokkr/state");
     let lines = [
@@ -508,7 +587,11 @@ fn a_hand_moved_layout_runs() {
     std::fs::remove_file(repo.path("realms.json")).unwrap();
     repo.write(".brokkr/realms.json", &map("state/forge.db", ".."));
 
-    let doctor = repo.brokkr("", &["doctor"]);
+    let runs = repo.brokkr("src", &["runs", "--json"]);
+    assert_eq!(listed(&runs), [run], "{}", runs.stderr);
+
+    let Some(alone) = alone() else { return };
+    let doctor = repo.doctored(&alone, "", &["doctor"]);
     let root = repo.root.display();
     let clean = format!("ok       folder: {root}/.brokkr (found from {root})");
     assert_eq!(
@@ -517,8 +600,6 @@ fn a_hand_moved_layout_runs() {
         "{}",
         doctor.stdout
     );
-    let runs = repo.brokkr("src", &["runs", "--json"]);
-    assert_eq!(listed(&runs), [run], "{}", runs.stderr);
 }
 
 #[test]
@@ -583,14 +664,16 @@ fn no_folder_outside_a_library_names_init() {
     // `--db` supplies the journal alone: the ledger's run-local place
     // has none here, and doctor reports the journal's as `none`.
     refused_with_no_place(&repo, &ledger_of_a_library_run(&repo));
-    let ran = repo.brokkr("", &["doctor"]);
-    let none = no_place(&repo.root, &repo.root).replacen("error: ", "none: ", 1);
-    let line = format!("warn     database: {none}");
-    assert!(
-        ran.stdout.lines().any(|printed| printed == line),
-        "{line} in {}",
-        ran.stdout
-    );
+    if let Some(alone) = alone() {
+        let ran = repo.doctored(&alone, "", &["doctor"]);
+        let none = no_place(&repo.root, &repo.root).replacen("error: ", "none: ", 1);
+        let line = format!("warn     database: {none}");
+        assert!(
+            ran.stdout.lines().any(|printed| printed == line),
+            "{line} in {}",
+            ran.stdout
+        );
+    }
     assert!(!repo.path(".forge").exists() && !repo.path(".brokkr").exists());
 }
 
@@ -608,10 +691,17 @@ fn refused_with_no_place(repo: &Repo, ran: &Ran) {
 #[test]
 fn secrets_set_without_a_folder_refuses() {
     let repo = Repo::new();
-    let ran = repo.brokkr_with("", &["secrets", "set", "NAME"], "value\n");
+    let ran = repo.brokkr_with("", &["system", "secrets", "set", "NAME"], "value\n");
     refused_with_no_place(&repo, &ran);
 
-    let flagged = ["secrets", "set", "NAME", "--secrets-file", "named.env"];
+    let flagged = [
+        "system",
+        "secrets",
+        "set",
+        "NAME",
+        "--secrets-file",
+        "named.env",
+    ];
     let ran = repo.brokkr_with("", &flagged, "value\n");
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     assert_eq!(
@@ -787,7 +877,8 @@ fn a_named_map_is_read(repo: &Repo, bundled: &String) {
 /// `--agents-dir`, `--adapters-dir` and `--secrets-file` beside the
 /// folder's own: the named library, adapters and store are read.
 fn a_named_library_is_read(repo: &Repo) {
-    let agents = |extra: &[&str]| repo.brokkr("", &[&["agents", "list"][..], extra].concat());
+    let agents =
+        |extra: &[&str]| repo.brokkr("", &[&["library", "agents", "list"][..], extra].concat());
     let (named, folder) = (agents(&["--agents-dir", "own/agents"]), agents(&[]));
     let absent = |library: &str| {
         format!("error: agent library {library}: No such file or directory (os error 2)\n")
@@ -805,6 +896,7 @@ fn a_named_library_is_read(repo: &Repo) {
         "{offices:?}"
     );
     let probe = [
+        "system",
         "probe",
         "harness",
         "--adapter",
@@ -819,14 +911,24 @@ fn a_named_library_is_read(repo: &Repo) {
     // --secrets-file: the named store is the one listed.
     let named = repo.write("own/secrets.env", "OWN=1\n");
     std::fs::set_permissions(&named, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
-    let ran = repo.brokkr_with(".brokkr", &["secrets", "set", "FOLDER"], "value\n");
+    let ran = repo.brokkr_with(
+        ".brokkr",
+        &["system", "secrets", "set", "FOLDER"],
+        "value\n",
+    );
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let ran = repo.brokkr(
         "",
-        &["secrets", "list", "--secrets-file", "own/secrets.env"],
+        &[
+            "system",
+            "secrets",
+            "list",
+            "--secrets-file",
+            "own/secrets.env",
+        ],
     );
     assert_eq!((ran.code, ran.stdout.as_str()), (Some(0), "OWN\n"));
-    let ran = repo.brokkr("", &["secrets", "list"]);
+    let ran = repo.brokkr("", &["system", "secrets", "list"]);
     assert_eq!((ran.code, ran.stdout.as_str()), (Some(0), "FOLDER\n"));
 }
 
@@ -926,7 +1028,7 @@ fn secrets_only_layout_refuses() {
     let repo = Repo::new();
     let store = repo.write(".forge/secrets.env", "NAME=value\n");
     std::fs::set_permissions(&store, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
-    let ran = repo.brokkr("", &["secrets", "list"]);
+    let ran = repo.brokkr("", &["system", "secrets", "list"]);
     assert_eq!((ran.code, ran.first_line()), (Some(1), STATE_ONLY));
     assert!(!repo.path(".brokkr").exists());
 
@@ -945,7 +1047,7 @@ fn secrets_only_layout_refuses() {
     make(&repo, &moves);
     let ran = repo.brokkr("", &["init", "."]);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
-    let ran = repo.brokkr("", &["secrets", "list"]);
+    let ran = repo.brokkr("", &["system", "secrets", "list"]);
     assert_eq!(
         (ran.code, ran.stdout.as_str()),
         (Some(0), "NAME\n"),
@@ -976,8 +1078,8 @@ fn a_stop_or_conclusion_without_a_cause_is_a_usage_error() {
     let run = library_run(&repo);
     let journal = || std::fs::read(repo.path(".forge/forge.db")).unwrap();
     let before = journal();
-    let stop = ["operator", "stop", "--run", &run, "--reason", "x"];
-    let conclude = ["conclude", "--run", &run, "--reason", "x"];
+    let stop = ["runs", "operator", "stop", "--run", &run, "--reason", "x"];
+    let conclude = ["runs", "conclude", "--run", &run, "--reason", "x"];
     for (args, verb) in [(&stop[..], Verb::Stop), (&conclude[..], Verb::Conclude)] {
         let ran = repo.brokkr("", args);
         let usage = format!("error: {}", named_cause(verb, None).unwrap_err());
@@ -1022,14 +1124,21 @@ fn a_library_with_a_root_bundle_is_not_refused() {
     assert!(!repo.path(".brokkr/state").exists());
 }
 
-/// `brokkr ledger --repo .` in `repo`, of a run a library beside it
+/// `brokkr stats ledger --repo .` in `repo`, of a run a library beside it
 /// journaled, named by `--db`: a flag that supplies the journal alone.
 fn ledger_of_a_library_run(repo: &Repo) -> Ran {
     let library = Repo::new();
     library.library();
     let run = library_run(&library);
     let db = library.path(".forge/forge.db");
-    let ledger = ["ledger", "--run", &run, "--db", db.to_str().unwrap()];
+    let ledger = [
+        "stats",
+        "ledger",
+        "--run",
+        &run,
+        "--db",
+        db.to_str().unwrap(),
+    ];
     repo.brokkr("", &[&ledger[..], &["--repo", "."]].concat())
 }
 
@@ -1134,6 +1243,7 @@ fn an_explicit_db_reaches_the_old_journal() {
         ran.stderr
     );
     let conclude = [
+        "runs",
         "conclude",
         "--run",
         &run,
@@ -1150,7 +1260,7 @@ fn an_explicit_db_reaches_the_old_journal() {
     assert_eq!((ran.code, &summary["status"]), (Some(3), &json!("stopped")));
     // The ledger a ship seat writes before the move, in the layout's own
     // `.forge/`.
-    let ledger = [&["ledger", "--run", &run, "--repo", "."][..], &db].concat();
+    let ledger = [&["stats", "ledger", "--run", &run, "--repo", "."][..], &db].concat();
     let written = format!("./.forge/ledger/{run}.md");
     let ran = repo.brokkr("", &ledger);
     assert_eq!((ran.code, ran.stdout), (Some(0), format!("{written}\n")));
@@ -1163,7 +1273,7 @@ fn state_never_moves_the_bundle() {
     let repo = Repo::new();
     repo.folder();
     let digest = || {
-        let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+        let ran = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
         let compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
         compiled["digest"].as_str().unwrap().to_string()
     };
@@ -1194,9 +1304,9 @@ fn role_under_state(repo: &Repo, relative: &str) {
     std::fs::write(&path, bundle.to_string()).unwrap();
 }
 
-/// The digest `brokkr compile --bundle <relative>` prints.
+/// The digest `brokkr library compile --bundle <relative>` prints.
 pub(crate) fn digest(repo: &Repo, relative: &str) -> String {
-    let ran = repo.brokkr("", &["compile", "--bundle", relative]);
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", relative]);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
     compiled["digest"].as_str().unwrap().to_string()
@@ -1214,7 +1324,7 @@ fn a_library_recipe_pins_its_state() {
     repo.write("recipes/x/state/data.txt", "two\n");
     assert_ne!(digest(&repo, "recipes/x"), before);
     role_under_state(&repo, "recipes/x");
-    let ran = repo.brokkr("", &["compile", "--bundle", "recipes/x"]);
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", "recipes/x"]);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
 }
 
@@ -1232,7 +1342,7 @@ fn a_library_recipe_named_brokkr_is_an_ordinary_bundle() {
     assert_ne!(digest(&repo, "recipes/.brokkr"), before);
     let overlay = json!({"name": "dot", "extends": "x"});
     repo.write("recipes/.brokkr/bundle.json", &overlay.to_string());
-    let ran = repo.brokkr("", &["compile", "--bundle", "recipes/.brokkr"]);
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", "recipes/.brokkr"]);
     let compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
     let base = &compiled["composed_from"][0]["recipe"];
     assert_eq!(
@@ -1250,7 +1360,7 @@ fn a_folder_bundle_skips_its_state_by_its_own_reason() {
     let repo = Repo::new();
     repo.folder();
     role_under_state(&repo, ".brokkr");
-    let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
     assert_eq!(ran.code, Some(1));
     assert_eq!(
         ran.stderr,
@@ -1339,7 +1449,8 @@ fn an_unreadable_library_mark_refuses() {
         eprintln!("skipped: this process reads a mode-000 directory, as root does");
         return;
     }
-    let (runs, doctor) = (repo.brokkr("", &["runs"]), repo.brokkr("", &["doctor"]));
+    let runs = repo.brokkr("", &["runs"]);
+    let doctor = alone().map(|alone| repo.doctored(&alone, "", &["doctor"]));
     std::fs::set_permissions(&recipes, mode(0o755)).unwrap();
     let denied = format!(
         "reading {}: Permission denied (os error 13)",
@@ -1349,12 +1460,14 @@ fn an_unreadable_library_mark_refuses() {
         (runs.code, runs.stderr),
         (Some(1), format!("error: {denied}\n"))
     );
-    let database = doctor
-        .stdout
-        .lines()
-        .find(|line| line.contains(" database: "));
-    let reported = format!("warn     database: none: {denied}");
-    assert_eq!(database, Some(reported.as_str()), "{}", doctor.stdout);
+    if let Some(doctor) = doctor {
+        let database = doctor
+            .stdout
+            .lines()
+            .find(|line| line.contains(" database: "));
+        let reported = format!("warn     database: none: {denied}");
+        assert_eq!(database, Some(reported.as_str()), "{}", doctor.stdout);
+    }
     assert!(!repo.path(".brokkr/state").exists() && !repo.path(".forge").exists());
 }
 
@@ -1366,11 +1479,11 @@ fn the_library_verbs_refuse_an_old_layout() {
     let repo = Repo::new();
     old_root_layout(&repo);
     let verbs: [&[&str]; 5] = [
-        &["agents", "list"],
-        &["agents", "show", "implementer"],
-        &["compile", "--bundle", "."],
-        &["recipes", "list"],
-        &["recipes", "show", "x"],
+        &["library", "agents", "list"],
+        &["library", "agents", "show", "implementer"],
+        &["library", "compile", "--bundle", "."],
+        &["library", "recipes", "list"],
+        &["library", "recipes", "show", "x"],
     ];
     for verb in verbs {
         let ran = repo.brokkr("", verb);
@@ -1822,12 +1935,12 @@ fn a_folder_bundle_composes_from_its_shelf() {
     );
     let ran = repo.brokkr("src", &["run", "--feature", "x"]);
     assert_eq!((ran.code, ran.stderr.as_str()), (Some(1), refusal.as_str()));
-    let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
     assert_eq!((ran.code, ran.stderr.as_str()), (Some(1), refusal.as_str()));
     repo.bundle(".brokkr/recipes/shared", "shared", completes());
     let overlay = json!({"name": "folder", "extends": "shared"});
     std::fs::write(&path, overlay.to_string()).unwrap();
-    let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
     let compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
     let base = &compiled["composed_from"][0]["recipe"];
     let composed = (ran.code, base);

@@ -7,6 +7,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::process::spawned::output;
+
 /// What the host knows about the worktree's git that the box must be
 /// told, gathered OUTSIDE the box before it is built (decision 0043
 /// ruling 6): where the two git directories are, and who the seat
@@ -48,16 +50,12 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
 /// not a repository: what a box's sealed reach is observed again against
 /// (U8a2c).
 pub(super) fn git_dirs(workdir: &Path) -> (Option<PathBuf>, Option<PathBuf>) {
-    match Command::new("git")
-        .args([
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-dir",
-            "--git-common-dir",
-        ])
-        .current_dir(workdir)
-        .output()
-    {
+    match output(
+        Command::new("git")
+            .args(["rev-parse", "--path-format=absolute"])
+            .args(["--git-dir", "--git-common-dir"])
+            .current_dir(workdir),
+    ) {
         Ok(out) if out.status.success() => parse_git_dirs(&String::from_utf8_lossy(&out.stdout)),
         _ => (None, None),
     }
@@ -66,11 +64,7 @@ pub(super) fn git_dirs(workdir: &Path) -> (Option<PathBuf>, Option<PathBuf>) {
 /// Who the seat commits as in `workdir`, as the host resolves it.
 pub(super) fn git_identity(workdir: &Path) -> Vec<(String, String)> {
     let git = |args: &[&str]| -> Option<String> {
-        let out = Command::new("git")
-            .args(args)
-            .current_dir(workdir)
-            .output()
-            .ok()?;
+        let out = output(Command::new("git").args(args).current_dir(workdir)).ok()?;
         out.status
             .success()
             .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())

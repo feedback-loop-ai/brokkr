@@ -3,7 +3,7 @@
 //! the run's read surfaces still read it.
 
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use brokkr_core::envelope::EventType;
 
@@ -16,9 +16,8 @@ use brokkr_core::fold::Status;
 use serde_json::json;
 
 fn brokkr(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_brokkr"))
+    crate::built::brokkr(args)
         .current_dir(dir)
-        .args(args)
         .output()
         .unwrap()
 }
@@ -49,6 +48,7 @@ fn an_operator_stop_after_a_conclusion_refuses_and_writes_nothing() {
     let concluded = brokkr(
         dir.path(),
         &[
+            "runs",
             "conclude",
             "--run",
             "late",
@@ -77,6 +77,7 @@ fn an_operator_stop_after_a_conclusion_refuses_and_writes_nothing() {
     let late = brokkr(
         dir.path(),
         &[
+            "runs",
             "operator",
             "stop",
             "--run",
@@ -108,7 +109,7 @@ fn an_operator_stop_after_a_conclusion_refuses_and_writes_nothing() {
     assert!(String::from_utf8_lossy(&runs.stdout).contains("late"));
     let inspect = brokkr(
         dir.path(),
-        &["inspect", "--run", "late", "--json", "--db", db],
+        &["runs", "inspect", "--run", "late", "--json", "--db", db],
     );
     assert_eq!(inspect.status.code(), Some(0), "{inspect:?}");
     assert!(String::from_utf8_lossy(&inspect.stdout).contains("stopped"));
@@ -157,6 +158,7 @@ fn a_run_concluded_beneath_a_live_driver_reads_stopped() {
     let concluded = brokkr(
         dir.path(),
         &[
+            "runs",
             "conclude",
             "--run",
             "beneath",
@@ -206,7 +208,7 @@ fn a_run_concluded_beneath_a_live_driver_reads_stopped() {
     assert!(String::from_utf8_lossy(&runs.stdout).contains("beneath"));
     let inspect = brokkr(
         dir.path(),
-        &["inspect", "--run", "beneath", "--json", "--db", db],
+        &["runs", "inspect", "--run", "beneath", "--json", "--db", db],
     );
     assert_eq!(inspect.status.code(), Some(0), "{inspect:?}");
     assert!(String::from_utf8_lossy(&inspect.stdout).contains("stopped"));
@@ -244,17 +246,16 @@ fn planted(db: &Path, events: &[(EventType, serde_json::Value)]) {
     brokkr_store::test_support::plant_chained(&connection, "late", &head, events).unwrap();
 }
 
-/// `brokkr operator repair` on run `late`, as the operator types it, with
+/// `brokkr runs operator repair` on run `late`, as the operator types it, with
 /// `USER` pinned so the annotation's author is the test's.
 fn repair_as(dir: &Path, db: &str, user: &str, reason: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .current_dir(dir)
-        .env("USER", user)
-        .args([
-            "operator", "repair", "--run", "late", "--reason", reason, "--db", db,
-        ])
-        .output()
-        .unwrap()
+    crate::built::brokkr([
+        "runs", "operator", "repair", "--run", "late", "--reason", reason, "--db", db,
+    ])
+    .current_dir(dir)
+    .env("USER", user)
+    .output()
+    .unwrap()
 }
 
 /// The repair succeeded at `seq`, and the verb's words say so.
@@ -266,9 +267,9 @@ fn repaired_at(dir: &Path, db: &str, user: &str, reason: &str, seq: u64) {
     assert!(stderr.contains(&said), "{stderr}");
 }
 
-/// `brokkr inspect --run late` printed every `needle`.
+/// `brokkr runs inspect --run late` printed every `needle`.
 fn inspect_shows(dir: &Path, db: &str, needles: &[&str]) {
-    let inspect = brokkr(dir, &["inspect", "--run", "late", "--db", db]);
+    let inspect = brokkr(dir, &["runs", "inspect", "--run", "late", "--db", db]);
     assert_eq!(inspect.status.code(), Some(0), "{inspect:?}");
     let shown = String::from_utf8_lossy(&inspect.stdout);
     for needle in needles {
@@ -278,7 +279,10 @@ fn inspect_shows(dir: &Path, db: &str, needles: &[&str]) {
 
 /// `inspect --run late --json` over `db`, read back.
 fn inspect_json(dir: &Path, db: &str) -> serde_json::Value {
-    let inspect = brokkr(dir, &["inspect", "--run", "late", "--json", "--db", db]);
+    let inspect = brokkr(
+        dir,
+        &["runs", "inspect", "--run", "late", "--json", "--db", db],
+    );
     assert_eq!(inspect.status.code(), Some(0), "{inspect:?}");
     serde_json::from_slice(&inspect.stdout).unwrap()
 }
@@ -342,7 +346,7 @@ fn runs_shows_settlement_tail(dir: &Path, db: &str) {
     );
 }
 
-/// `brokkr operator repair` over shape (A), through the shipped binary:
+/// `brokkr runs operator repair` over shape (A), through the shipped binary:
 /// the settlement is named, the run folds as stopped, and `inspect` and
 /// `runs` show the late tail it kept.
 #[test]
@@ -511,7 +515,7 @@ fn an_operator_repair_or_settle_refuses_every_flag_another_verb_takes() {
             ["--by-ref", "ref"],
         ] {
             let mut args = vec![
-                "operator", verb, "--run", "late", "--reason", "why", "--db", &db,
+                "runs", "operator", verb, "--run", "late", "--reason", "why", "--db", &db,
             ];
             args.extend(flag);
             let refused = brokkr(dir.path(), &args);
@@ -534,7 +538,7 @@ fn an_operator_repair_on_a_live_run_refuses_and_writes_nothing() {
     let refused = brokkr(
         dir.path(),
         &[
-            "operator", "repair", "--run", "late", "--reason", "why", "--db", &db,
+            "runs", "operator", "repair", "--run", "late", "--reason", "why", "--db", &db,
         ],
     );
     assert_eq!(refused.status.code(), Some(1), "{refused:?}");
@@ -632,7 +636,10 @@ fn a_fold_refused_by_a_late_wait_is_not_painted_by_runs() {
 
     // `inspect` refuses the refused fold before it prints, and its read
     // never paints the late wait either.
-    let inspect = brokkr(dir.path(), &["inspect", "--run", "late", "--db", &db]);
+    let inspect = brokkr(
+        dir.path(),
+        &["runs", "inspect", "--run", "late", "--db", &db],
+    );
     assert_eq!(inspect.status.code(), Some(1), "{inspect:?}");
     assert_eq!(String::from_utf8_lossy(&inspect.stdout), "");
     assert!(
@@ -665,7 +672,7 @@ fn a_repair_names_only_the_annotation_that_folded_before_the_break() {
     );
 }
 
-/// `brokkr operator settle` on a run no acknowledgement stands on refuses,
+/// `brokkr runs operator settle` on a run no acknowledgement stands on refuses,
 /// writes nothing, and names the command that answers it (decision 0108
 /// ruling 3): the proof never runs against a journal the operator has not
 /// looked at.
@@ -677,6 +684,7 @@ fn an_operator_settle_of_an_unacknowledged_run_refuses_and_writes_nothing() {
     let concluded = brokkr(
         dir.path(),
         &[
+            "runs",
             "conclude",
             "--run",
             "late",
@@ -697,14 +705,14 @@ fn an_operator_settle_of_an_unacknowledged_run_refuses_and_writes_nothing() {
     let refused = brokkr(
         dir.path(),
         &[
-            "operator", "settle", "--run", "late", "--reason", "why", "--db", &db,
+            "runs", "operator", "settle", "--run", "late", "--reason", "why", "--db", &db,
         ],
     );
     assert_eq!(refused.status.code(), Some(1), "{refused:?}");
     let said = String::from_utf8_lossy(&refused.stderr);
     assert!(
         said.contains("settle refused, nothing was written: run 'late' is not acknowledged")
-            && said.contains("brokkr operator acknowledge --run late"),
+            && said.contains("brokkr runs operator acknowledge --run late"),
         "{said}"
     );
     let after = brokkr_store::Store::open_read_only(Path::new(&db))

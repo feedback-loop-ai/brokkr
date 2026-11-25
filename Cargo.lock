@@ -346,7 +346,7 @@ checksum = "dc0b364ead1874514c8c2855ab558056ebfeb775653e7ae45ff72f28f8f3166c"
 
 [[package]]
 name = "brokkr-bridge"
-version = "0.14.0"
+version = "0.15.2"
 dependencies = [
  "brokkr-core",
  "brokkr-runtime",
@@ -362,7 +362,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-cli"
-version = "0.14.0"
+version = "0.15.2"
 dependencies = [
  "anyhow",
  "boa_engine",
@@ -373,10 +373,12 @@ dependencies = [
  "brokkr-store",
  "brokkr-view",
  "clap",
+ "clap_complete",
  "dhat",
  "gungraun",
  "insta",
  "jsonschema",
+ "libc",
  "ratatui",
  "rusqlite",
  "rustix",
@@ -390,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-core"
-version = "0.14.0"
+version = "0.15.2"
 dependencies = [
  "hex",
  "serde",
@@ -403,7 +405,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-protocol"
-version = "0.14.0"
+version = "0.15.2"
 dependencies = [
  "brokkr-core",
  "hex",
@@ -421,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-runtime"
-version = "0.14.0"
+version = "0.15.2"
 dependencies = [
  "brokkr-core",
  "brokkr-protocol",
@@ -443,14 +445,14 @@ dependencies = [
 
 [[package]]
 name = "brokkr-seatbelt-probe"
-version = "0.14.0"
+version = "0.15.2"
 dependencies = [
  "brokkr-protocol",
 ]
 
 [[package]]
 name = "brokkr-store"
-version = "0.14.0"
+version = "0.15.2"
 dependencies = [
  "brokkr-core",
  "hex",
@@ -467,7 +469,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-view"
-version = "0.14.0"
+version = "0.15.2"
 dependencies = [
  "brokkr-core",
  "serde",
@@ -578,6 +580,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3be2ad0423bdbbb0e25bc89add796f3559706d4a95e1bc98e4d9662a957b6a19"
+dependencies = [
+ "clap",
+ "clap_lex",
+ "is_executable",
+ "shlex",
+]
+
+[[package]]
 name = "clap_derive"
 version = "4.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -637,9 +651,9 @@ dependencies = [
 
 [[package]]
 name = "cookie"
-version = "0.18.2"
+version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
+checksum = "d55f2d6c30eeec7d5c6f98bd4395d4abb1895629eab97ee6522d340623615f8a"
 dependencies = [
  "percent-encoding",
  "time",
@@ -943,7 +957,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1023,9 +1037,9 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -1427,6 +1441,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "189d0897e4cbe8c75efedf3502c18c887b05046e59d28404d4d8e46cbc4d1e86"
 dependencies = [
  "memoffset",
+]
+
+[[package]]
+name = "is_executable"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82cb6a9f675da968c63b6208c641b9dca58fc0133ae53375736b1767b0cab8bd"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2290,7 +2313,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2597,7 +2620,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2812,9 +2835,9 @@ dependencies = [
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

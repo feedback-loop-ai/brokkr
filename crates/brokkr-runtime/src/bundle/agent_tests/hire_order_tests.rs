@@ -42,3 +42,6 @@ fn a_candidate_failing_several_counts_names_the_model_pin_then_the_effort_then_t
         ]
     );
 }
+
+#[cfg(test)]
+mod results_tests;

@@ -67,15 +67,16 @@ fn the_probe_measures_free_bytes_and_says_why_it_cannot() {
     assert_eq!(kind(nowhere), ErrorKind::NotFound);
 }
 
-/// The sample host configuration the operator's guide shows.
-fn guide_sample() -> Value {
+/// The sample host configuration the operator's guide shows, a
+/// `forge.host/v4` file (6d L1).
+pub(crate) fn guide_sample() -> Value {
     let guide = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/guides/read-surfaces.md");
     let text = std::fs::read_to_string(guide).unwrap();
     let (_, after) = text
-        .split_once("```json\n{\n  \"schema\": \"forge.host/v1\"")
+        .split_once("```json\n{\n  \"schema\": \"forge.host/v4\"")
         .unwrap();
     let (rest, _) = after.split_once("```").unwrap();
-    serde_json::from_str(&format!("{{\n  \"schema\": \"forge.host/v1\"{rest}")).unwrap()
+    serde_json::from_str(&format!("{{\n  \"schema\": \"forge.host/v4\"{rest}")).unwrap()
 }
 
 /// The published contract `name`, judged by its own JSON Schema.
@@ -109,7 +110,6 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
     };
     let admitted = [
         minimal.clone(),
-        guide_sample(),
         route(json!({"ceiling": 4_294_967_295_u64, "class": "cloud"})),
         floor(json!({"path": "/var/tmp", "floor_bytes": u64::MAX})),
         floor(json!({"place": "seat-scratch", "floor_bytes": 1})),
@@ -151,7 +151,7 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
         let loaded = serde_json::from_slice::<HostConfig>(&bytes).is_ok();
         (validator.is_valid(host), loaded)
     };
-    assert_eq!(admitted.each_ref().map(judged), [(true, true); 6]);
+    assert_eq!(admitted.each_ref().map(judged), [(true, true); 5]);
     assert_eq!(refused.each_ref().map(judged), [(false, false); 27]);
 
     // JSON Schema cannot say a key is written once, nor that two floors
@@ -847,6 +847,14 @@ fn a_refusals_version_is_its_problems_own() {
             },
             "forge.host/v2",
         ),
+        (
+            Problem::Demand(super::demand::Problem::NotV5("forge.host/v4")),
+            "forge.host/v4",
+        ),
+        (
+            Problem::Demand(super::demand::Problem::Window(0)),
+            "forge.host/v5",
+        ),
     ];
     for (problem, contract) in cases {
         assert_eq!(problem.contract(), contract, "{problem:?}");
@@ -967,7 +975,7 @@ fn chief_capacity_integral_notation_reads_the_same_capacity() {
             "/boxed_builds/ceiling",
             json!(1.0),
             1,
-            |host| u64::from(host.boxed_builds.ceiling.get()),
+            |host| u64::from(host.boxed_builds.unwrap().ceiling.get()),
         ),
         (
             "floor bytes",
@@ -1105,7 +1113,7 @@ fn schema_valid_fractional_mantissa_with_exponent_reads_exactly() {
             "{schema} route ceiling"
         );
         assert_eq!(
-            u64::from(loaded.boxed_builds.ceiling.get()),
+            u64::from(loaded.boxed_builds.unwrap().ceiling.get()),
             5,
             "{schema} boxed ceiling"
         );
@@ -1584,4 +1592,43 @@ fn the_floor_cap_is_the_fleets_attempt_bound() {
         Some(&json!(7200))
     );
     assert_eq!(super::floor::MAX_FLOOR_SECONDS, 7200);
+}
+
+#[test]
+fn host_upgrade_changes_only_the_schema_token_and_loads_all_legacy_values() {
+    for version in ["v1", "v2", "v3", "v4"] {
+        let mut fixture = v3_route("shared-local", Some(json!(321)));
+        let schema = format!("forge.host/{version}");
+        fixture["schema"] = json!(schema);
+        if version == "v1" || version == "v2" {
+            fixture["providers"]["dsh"]["routes"]["s"] =
+                json!({"ceiling":2, "class":"shared-local"});
+        }
+        if version != "v1" {
+            fixture["containment"] = json!("best-effort");
+            fixture["cooldowns"] = json!({"default_seconds": 17, "max_seconds": 27});
+        }
+        if version == "v4" {
+            fixture["runs"] = json!({"ceiling": 7});
+        }
+        // Keep another occurrence of the version, the escaped schema key,
+        // the exponent spelling, and the original line endings.
+        fixture["providers"][&schema] = json!({"ceiling": 3});
+        let old = format!(r#""forge.host\u002f{version}""#);
+        let source = serde_json::to_string_pretty(&fixture)
+            .unwrap()
+            .replace(
+                &format!(r#""schema": "{schema}""#),
+                &format!(r#""sch\u0065ma": {old}"#),
+            )
+            .replace(r#""floor_bytes": 1"#, r#""floor_bytes": 1.00e0"#)
+            .replace('\n', "\r\n");
+        let path = Path::new("host.json");
+        let upgrade = host_upgrade(path, &source).unwrap().unwrap();
+        assert_eq!(upgrade, source.replace(&old, r#""forge.host/v5""#));
+        let mut unchanged = loaded(&source);
+        unchanged.schema = Schema::V5;
+        assert_eq!(loaded(&upgrade), unchanged);
+        assert_eq!(host_upgrade(path, &upgrade).unwrap(), None);
+    }
 }

@@ -265,6 +265,9 @@ impl World {
         chmod(&base.join("tmp"), 0o700);
         let repo = base.join("repo");
         crate::brokkr_folder::git(&repo, &["init", "-q"]);
+        // Review is decided on the head its check accepted, so the
+        // worktree has one (fix round 0109a1r3, H1).
+        crate::brokkr_folder::git(&repo, &crate::brokkr_folder::BASE_COMMIT);
         // One world at a time: each attempt surveys and reobserves the host's
         // whole system set, unpruned (SD4), within the shared 30 s startup
         // bound, and a loaded host's concurrent surveys outlast it.
@@ -449,9 +452,10 @@ impl World {
 
     /// `brokkr` with `args`.
     fn brokkr(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(crate::capability_broker::brokkr());
-        command.args(args);
-        self.in_world(command)
+        self.in_world(crate::built::brokkr_at(
+            crate::capability_broker::brokkr(),
+            args,
+        ))
     }
 
     /// The `NoNewPrivs` line of the harness's last start.
@@ -511,7 +515,7 @@ impl World {
 
     /// `inspect --json` of `run`.
     fn inspected(&self, run: &str) -> Value {
-        let args = ["inspect", "--run", run, "--json"];
+        let args = ["runs", "inspect", "--run", run, "--json"];
         let out = self.brokkr(&args).output().unwrap();
         assert_eq!(
             out.status.code(),
@@ -552,7 +556,15 @@ impl World {
     fn opened(&self, run: &str) -> Value {
         let rows = self.call_rows(run);
         let call = rows[0]["call_id"].as_str().unwrap();
-        let args = ["inspect", "--run", run, "--capability-call", call, "--json"];
+        let args = [
+            "runs",
+            "inspect",
+            "--run",
+            run,
+            "--capability-call",
+            call,
+            "--json",
+        ];
         let out = self.brokkr(&args).output().unwrap();
         let said = String::from_utf8_lossy(&out.stderr);
         assert_eq!(out.status.code(), Some(0), "{said}");
@@ -645,7 +657,7 @@ fn ended_view(view: &Value) -> Ended {
     let park = view["park_reason"].as_str();
     let cause = park.map(|park| {
         let (_, last) = park.split_once("last error: ").unwrap_or(("", park));
-        let (cause, _) = last.split_once("; stderr tail").unwrap_or((last, ""));
+        let (cause, _) = last.split_once("; driver stderr").unwrap_or((last, ""));
         cause.to_string()
     });
     Ended {

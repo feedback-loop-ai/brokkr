@@ -134,7 +134,7 @@ impl std::fmt::Display for Hiring {
         match self {
             Hiring::Unread { path, cause } => write!(
                 formatter,
-                "recipes add cannot read {}: {cause} (#696); nothing was written",
+                "library recipes add cannot read {}: {cause} (#696); nothing was written",
                 path.display()
             ),
             Hiring::Unnamed { path, name } => write!(
@@ -174,37 +174,37 @@ impl std::fmt::Display for Hiring {
             ),
             Hiring::Unplain { path } => write!(
                 formatter,
-                "{} is a link, or not the file or directory recipes add copies from the source's \
-                 agent library or capability definitions (#696); nothing was written",
+                "{} is a link, or not the file or directory library recipes add copies from the \
+                 source's agent library or capability definitions (#696); nothing was written",
                 path.display()
             ),
             Hiring::Occupied { path } => write!(
                 formatter,
-                "the workspace's {} is a link, or not a plain file, where recipes add would copy \
-                 one; recipes add neither reads through nor replaces it (#703): remove it; nothing \
-                 was written",
+                "the workspace's {} is a link, or not a plain file, where library recipes add \
+                 would copy one; library recipes add neither reads through nor replaces it \
+                 (#703): remove it; nothing was written",
                 path.display()
             ),
             Hiring::Linked { path } => write!(
                 formatter,
-                "the workspace's {} is a link, where recipes add would copy a file beneath it; \
-                 recipes add neither reads through nor replaces it (#735): remove it; nothing was \
-                 written",
+                "the workspace's {} is a link, where library recipes add would copy a file \
+                 beneath it; library recipes add neither reads through nor replaces it (#735): \
+                 remove it; nothing was written",
                 path.display()
             ),
             Hiring::Blocked { path } => write!(
                 formatter,
-                "the workspace's {} is not a directory, where recipes add would copy a file \
-                 beneath it; recipes add does not replace it (#779): remove it; nothing was \
-                 written",
+                "the workspace's {} is not a directory, where library recipes add would copy a \
+                 file beneath it; library recipes add does not replace it (#779): remove it; \
+                 nothing was written",
                 path.display()
             ),
             Hiring::Differs { paths } => {
                 let paths: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
                 write!(
                     formatter,
-                    "recipes add replaces no agent definition, charter or capability definition, \
-                     and the source's differ from what stands at {} (#696): reconcile or remove \
+                    "library recipes add replaces no agent definition, charter or capability \
+                     definition, and the source's differ from what stands at {} (#696): reconcile or remove \
                      each; nothing was written",
                     paths.join(", ")
                 )

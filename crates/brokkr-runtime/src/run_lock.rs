@@ -174,8 +174,8 @@ fn locked_at(journal: &Path, run_id: &str) -> Result<lock_file::Held, RunLockErr
 
 /// The run lock directory: made owner-only where it is missing, opened
 /// without following a link, and this user's own directory of mode 0700
-/// as it stands.
-fn directory(journal: &Path) -> Result<OwnedFd, RunLockError> {
+/// as it stands. A driver's log stands in it too (decision 0110 ruling 3).
+pub(crate) fn directory(journal: &Path) -> Result<OwnedFd, RunLockError> {
     let at = directory_path(journal);
     match mkdirat(CWD, &at, Mode::RWXU) {
         Ok(()) | Err(Errno::EXIST) => {}
@@ -205,7 +205,7 @@ pub(crate) fn directory_path(journal: &Path) -> PathBuf {
 
 /// Whether `run_id` is one plain file name: no separator, no `.` or `..`,
 /// no NUL, and the whole string.
-fn safe(run_id: &str) -> bool {
+pub(crate) fn safe(run_id: &str) -> bool {
     match Path::new(run_id)
         .components()
         .collect::<Vec<_>>()
@@ -214,6 +214,22 @@ fn safe(run_id: &str) -> bool {
         [Component::Normal(name)] => *name == OsStr::new(run_id) && !run_id.contains('\0'),
         _ => false,
     }
+}
+
+/// The holder `run_id`'s lock beside `journal` records, read without
+/// taking the lock, making the directory or following a link, for
+/// admission's read of a running run's driver (decision 0125 ruling 1):
+/// `None` where nothing is recorded or it does not read. The facts are the
+/// last driver's, and a pid in them may since be another process's.
+pub(crate) fn recorded_at(journal: &Path, run_id: &str) -> Option<Holder> {
+    if !safe(run_id) {
+        return None;
+    }
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let file = openat(CWD, beside(journal, run_id), flags, Mode::empty()).ok()?;
+    let kind = fstat(&file).ok()?;
+    let regular = FileType::from_raw_mode(kind.st_mode) == FileType::RegularFile;
+    regular.then(|| recorded(file)).flatten()
 }
 
 /// The lock's path, for the operator's refusal.

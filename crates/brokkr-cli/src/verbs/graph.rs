@@ -1,6 +1,6 @@
-//! `brokkr graph`: one recipe's state machine with the journal's traffic
+//! `brokkr stats graph`: one recipe's state machine with the journal's traffic
 //! on its rules and states (#568, the Library). The table resolves as
-//! `brokkr recipes show` resolves a name — the realm's shelf — or else from
+//! `brokkr library recipes show` resolves a name — the realm's shelf — or else from
 //! a bundle directory in the realm whose `bundle.json` names it, as `self`
 //! is in an adopter. With no recipe named it draws the realm's busiest, so
 //! the console reads a realm's known recipes before any has run. Every
@@ -23,11 +23,13 @@ use brokkr_runtime::{Bundle, CompileError};
 use brokkr_view::{GraphQuery, GraphResolution, GraphTable, GraphView, Query, Range, Table};
 use serde::Deserialize;
 
-use super::analytics::{printed, range, read_hearths};
+use super::analytics::{range, read_hearths, shown};
 use crate::folder::Layout;
 use crate::recipes::listed;
 use crate::recipes::personal::ShelfPath;
-use crate::{fleet_of, now_rfc3339, Invocation};
+use crate::render::table::{table, Column};
+use crate::render::{Safe, Style, Width};
+use crate::{fleet_of, now_rfc3339, Exit, Invocation};
 
 #[derive(clap::Args)]
 #[group(skip)]
@@ -169,7 +171,7 @@ fn bundles(dir: &Path, depth: usize) -> Vec<(String, PathBuf)> {
 }
 
 /// Every recipe the realm's `folder` resolves by name, in the order a name
-/// is looked up: its shelf as `recipes show` reads it, then the folder's
+/// is looked up: its shelf as `library recipes show` reads it, then the folder's
 /// implicit bundle (`.brokkr` itself, in an adopter), then its visible
 /// bundle directories.
 fn shelf(folder: &Path) -> Result<Vec<(String, PathBuf)>> {
@@ -224,7 +226,7 @@ fn within(dir: &Path, folder: &Path) -> String {
 }
 
 /// Each recipe on the shelf compiled where it resolves, on the one path
-/// `recipes show` compiles it on, the first directory of a name being the
+/// `library recipes show` compiles it on, the first directory of a name being the
 /// one it resolves to. A recipe that does not compile is named, never the
 /// graph's failure; any other failure to compile is.
 fn compiled(
@@ -331,8 +333,21 @@ fn chosen(
     Ok(recipe.clone())
 }
 
-/// `brokkr graph`: the recipe's graph for the range ending now.
+/// `brokkr stats graph`: the recipe's graph for the range ending now, in the
+/// style the terminal asks for.
 pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
+    print!("{}", graph_with(workspace, args, Style::detect_for)?);
+    Ok(Exit::Completed.into())
+}
+
+/// The text `brokkr stats graph` prints, painted in the style `style` reads
+/// for [`Width::Stdout`] (#1167): the one seam its colour and width come
+/// through, and the one readout sized by the stdout it writes to.
+fn graph_with(
+    workspace: &Path,
+    args: GraphArgs,
+    style: impl FnOnce(Width) -> Style,
+) -> Result<String> {
     let (world, hearths) = fleet_of(workspace, args.realms, args.db, Invocation::resolve)?;
     let (realm, folder) = place(world.as_ref(), args.realm.as_deref(), workspace)?;
     let shelf = shelf(&folder)?;
@@ -349,57 +364,112 @@ pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
         now: &now,
     };
     let view = derive(&hearths, &compiles, &shelf, &asked)?;
-    printed(&view, args.json, paint)
+    shown(&view, args.json, |view| paint(view, &style(Width::Stdout)))
 }
 
-/// One line per state and per rule, then the rest the view states,
-/// painted from the view's own text.
-fn paint(view: &GraphView) -> String {
+/// The states table's columns: the name, then its figures (#1167).
+const STATE_COLUMNS: [Column; 7] = [
+    Column::left("STATE"),
+    Column::right("ENTERED"),
+    Column::right("MEDIAN"),
+    Column::right("P90"),
+    Column::right("COST"),
+    Column::right("TOKENS"),
+    Column::right("CACHE"),
+];
+
+/// The rules table's columns: the rule, its firings and where it moves a
+/// run.
+const RULE_COLUMNS: [Column; 5] = [
+    Column::left("RULE"),
+    Column::right("COUNT"),
+    Column::left("FROM"),
+    Column::left("TO"),
+    Column::left("KIND"),
+];
+
+/// One row per state, in the view's order: tokens as the view reads them
+/// apart, total with ↑ in ↓ out, and the cache hit in its own column.
+fn states(view: &GraphView, style: &Style) -> String {
+    let rows: Vec<Vec<Safe>> = view
+        .states
+        .iter()
+        .map(|state| {
+            vec![
+                Safe::new(&state.name),
+                Safe::new(&state.entered.to_string()),
+                Safe::new(&state.median.text),
+                Safe::new(&state.p90.text),
+                Safe::new(&state.cost.text),
+                Safe::new(&state.tokens.arrows()),
+                Safe::new(&state.tokens.cache_hit.text),
+            ]
+        })
+        .collect();
+    table(&STATE_COLUMNS, &rows, style)
+}
+
+/// One row per rule, in the view's order: a park goes `park`.
+fn rules(view: &GraphView, style: &Style) -> String {
+    let rows: Vec<Vec<Safe>> = view
+        .rules
+        .iter()
+        .map(|rule| {
+            vec![
+                Safe::new(&rule.id),
+                Safe::new(&rule.count.to_string()),
+                Safe::new(&rule.from),
+                Safe::new(rule.next.as_deref().unwrap_or("park")),
+                Safe::new(rule.kind.word()),
+            ]
+        })
+        .collect();
+    table(&RULE_COLUMNS, &rows, style)
+}
+
+/// `text` from a recipe or a journal with its escapes stripped (#1167).
+fn safe(text: &str) -> String {
+    Safe::new(text).as_str().to_string()
+}
+
+/// The header and the table's notes, the states and the rules as two
+/// tables a blank line apart, each its header alone when it has no row,
+/// then the rest the view states as lines, painted from the view's own
+/// text.
+fn paint(view: &GraphView, style: &Style) -> String {
     let mut out = format!(
         "{} / {} · {} → {} · {} runs\n",
-        view.realm, view.recipe, view.from, view.to, view.runs
+        safe(&view.realm),
+        safe(&view.recipe),
+        safe(&view.from),
+        safe(&view.to),
+        view.runs
     );
     match &view.table {
         Table::Resolved => {}
-        Table::NotFound { text } => out += &format!("{text}\n"),
+        Table::NotFound { text } => out += &format!("{}\n", safe(text)),
         Table::Refused {
             text,
             reason,
             bundle,
-        } => out += &format!("{text}\n  {reason}\n  bundle {bundle}\n"),
+        } => {
+            let [text, reason, bundle] = [text, reason, bundle].map(|t| safe(t));
+            out += &format!("{text}\n  {reason}\n  bundle {bundle}\n");
+        }
     }
-    for state in &view.states {
-        out += &format!(
-            "state  {} · entered {} · median {} · p90 {} · {} · {}\n",
-            state.name,
-            state.entered,
-            state.median.text,
-            state.p90.text,
-            state.cost.text,
-            state.tokens.line()
-        );
-    }
-    for rule in &view.rules {
-        out += &format!(
-            "rule   {} · {} → {} · {}\n",
-            rule.text,
-            rule.from,
-            rule.next.as_deref().unwrap_or("park"),
-            rule.kind.word()
-        );
-    }
+    out += &[states(view, style), rules(view, style)].join("\n");
     for retired in &view.retired {
-        let id = retired.rule_id.as_deref().unwrap_or_default();
+        let id = safe(retired.rule_id.as_deref().unwrap_or_default());
         out += &format!("retired {id} · {}\n", retired.count);
     }
     if let Some(drift) = &view.drift_text {
-        out += &format!("drift  {drift}\n");
+        out += &format!("drift  {}\n", safe(drift));
     }
-    out += &format!("ends   {}\n", view.ends.text);
-    out += &format!("ledger {}\n", view.ends.ledger.text);
+    out += &format!("ends   {}\n", safe(&view.ends.text));
+    out += &format!("ledger {}\n", safe(&view.ends.ledger.text));
     for live in &view.live {
-        let state = live.state.as_deref().unwrap_or("—");
-        out += &format!("live   {} · {state}\n", live.label);
+        let state = safe(live.state.as_deref().unwrap_or("—"));
+        out += &format!("live   {} · {state}\n", safe(&live.label));
     }
     out
 }

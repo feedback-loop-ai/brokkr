@@ -50,6 +50,9 @@ pub(crate) enum KeptReason {
     NoTerminalEvent,
     RunCannotBeRead,
     RunDoesNotFold,
+    /// An `operator/commanded` annotation after the terminal event, which
+    /// the fold admits unread, whose command id or word does not read.
+    OperatorPayloadUnread,
     TmpdirRelative,
     TmpdirNotUtf8,
     /// The row's path is not the engine's shape (R5).
@@ -100,6 +103,7 @@ impl std::fmt::Display for KeptReason {
             KeptReason::NoTerminalEvent => "no terminal event names its attempt",
             KeptReason::RunCannotBeRead => "its run cannot be read",
             KeptReason::RunDoesNotFold => "its run does not fold",
+            KeptReason::OperatorPayloadUnread => "an operator command after its end does not read",
             KeptReason::TmpdirRelative => "its TMPDIR is not an absolute path",
             KeptReason::TmpdirNotUtf8 => "its TMPDIR is not UTF-8",
             KeptReason::Shape(reason) => return reason.fmt(f),
@@ -439,7 +443,7 @@ fn remove_present(
         Err(error) => {
             swept.failed.push(Failed {
                 path,
-                cause: FailedCause::Walk(cause(&error)),
+                cause: FailedCause::Walk(error.cause()),
             });
             return;
         }
@@ -506,7 +510,14 @@ fn pass_hands(
             refusal,
         );
     }
-    for (path, reason) in reaped.kept() {
+    keep_hands(reaped.kept(), swept);
+}
+
+/// Fold the hands trees the reaper kept, or would keep, into the report:
+/// one home for the kept hands line, so a pass and a dry run name a kept
+/// hands tree in the same words.
+fn keep_hands<'a>(kept: impl Iterator<Item = (&'a Path, String)>, swept: &mut Swept) {
+    for (path, reason) in kept {
         swept.kept.push(Kept {
             path: path.to_path_buf(),
             reason: KeptReason::Hands(reason),
@@ -514,10 +525,10 @@ fn pass_hands(
     }
 }
 
-/// What a pass would remove, with the bytes it would free and every seat
-/// tree it would keep with its reason, writing nothing (R3): no row, no
-/// holder and no migration. The hands half lists only the trees it would
-/// remove; a lockless hands tree it would keep is not on this listing.
+/// What a pass would remove, with the bytes it would free and every tree
+/// it would keep with its reason, writing nothing (R3): no row, no holder
+/// and no migration. The hands half reads the reaper's own listing, so a
+/// hands tree the reaper would keep is named as a pass names it.
 pub fn plan(store: &Store) -> Result<Swept, SweepError> {
     plan_with(store, hands_tmp(), same_device, tree::count_tree)
 }
@@ -553,7 +564,7 @@ fn plan_with(
                 Ok(counted) => swept.removed.push(removed(path, counted)),
                 Err(error) => swept.failed.push(Failed {
                     path,
-                    cause: FailedCause::Walk(cause(&error)),
+                    cause: FailedCause::Walk(error.cause()),
                 }),
             },
         }
@@ -581,9 +592,12 @@ fn removed(path: PathBuf, counted: Option<tree::Counted>) -> Removed {
     }
 }
 
-/// The trees the hands reaper would remove under `tmp`, with their sizes.
+/// The trees the hands reaper would remove under `tmp`, with their sizes,
+/// and the trees it would keep, with its reasons.
 fn plan_hands(tmp: &Path, swept: &mut Swept) {
-    plan_hands_with(hands::list_reapable_under(tmp).into_iter(), swept);
+    let listing = hands::list_reapable_under(tmp);
+    keep_hands(listing.kept(), swept);
+    plan_hands_with(listing.reapable.into_iter(), swept);
 }
 
 /// [`plan_hands`] over one listing, so a count that refuses is provable
@@ -594,7 +608,7 @@ fn plan_hands_with(listed: impl Iterator<Item = hands::Listed>, swept: &mut Swep
             Ok(counted) => swept.removed.push(removed(listed.tree, counted)),
             Err(error) => swept.failed.push(Failed {
                 path: listed.tree,
-                cause: FailedCause::Walk(cause(&error)),
+                cause: FailedCause::Walk(error.cause()),
             }),
         }
     }
@@ -664,19 +678,6 @@ fn record(
 /// against its root's.
 fn same_device(_: &Path, device: u64) -> u64 {
     device
-}
-
-/// The cause a walk refusal gives, without the path its `Display` names.
-/// 5c1's `TreeError::cause` is the purpose-built form, but it is `pub(crate)`
-/// to brokkr-protocol, so this matches the variants it already exposes.
-fn cause(error: &TreeError) -> String {
-    match error {
-        TreeError::Io { cause, .. } => cause.to_string(),
-        TreeError::Foreign { device, tree, .. } => format!(
-            "is on another filesystem (device {device}, not {tree}); a tree is removed on its own \
-             filesystem"
-        ),
-    }
 }
 
 #[cfg(test)]

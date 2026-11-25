@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2608.23564
 Authors: Hong, Chi, Li, Wang, Gao, Yang, He, Zheng, Xiao, Na (Navers Lab, Einsia.AI, Tsinghua University)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: chat session, operator-fed, 2026-09-04
 
 ## Summary
@@ -40,6 +40,33 @@ Build-toolchain tasks average 31.4 of 100, language rewrites 5.6.
 | 3 | After submission, spawn independent time-boxed agents whose only job is to write differential tests against the patch, and treat their findings as gate evidence | alternative | `agents/review-adversarial.json` seats an adversarial judge in the engine council; decision 0041: a gate is chartered to judge and to write nothing, so it writes no tests; the engine parks a gate that moves HEAD, and an uncommitted write passes that check |
 | 4 | Record run outcomes as a three-way classification (skipped, changed-but-broken, accepted) rather than pass or fail | not-planned | |
 | 5 | Stratify tallies by task class, since difficulty differs by six times between classes | alternative | decision 0041: triage rules a class per commission and the journal records it; tallies over classes are the ledger's, outside the engine (decision 0021) |
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Row 1** keeps `alternative`. Citation: For "does what its commits
+  claim; no structural intent" read "does what its task framing
+  (`.forge/tasks/`) says was intended, and whether the tests prove it;
+  no structural intent". (ruled: "0002, 0003, 0004 - approved")
+- **Row 2** keeps `implemented`. Citation: For "fixed command exits
+  zero" read "fixed command exits zero; open: #785 reports a possibly
+  stale coverage build on the workstation runners (one observation)".
+  (ruled: "0002, 0003, 0004 - approved")
+- **Row 4** now reads `alternative`, not `not-planned`. Finding: For
+  "Record run outcomes as a three-way classification (skipped,
+  changed-but-broken, accepted) rather than" read "Record run outcomes
+  by the stage at which each run stopped (not migrated, migrated but
+  broken, defeated by a verifying agent, accepted) rather than".
+  Citation: decision 0064: every terminal run carries a typed ending
+  from a closed vocabulary (`crates/brokkr-core/src/ending.rs`), not
+  pass or fail; no ending separates a skipped change from a
+  changed-but-broken one (ruled: "0002, 0003, 0004 - approved")
+- **Row 5** keeps `alternative`. Finding: For "task class, since
+  difficulty differs by six times between classes" read "task class,
+  since mean scores differ about 5.6 times between classes (31.4 for
+  build-toolchain tasks, 5.6 for language rewrites)". (ruled: "0002,
+  0003, 0004 - approved")
 
 ## Candidates
 

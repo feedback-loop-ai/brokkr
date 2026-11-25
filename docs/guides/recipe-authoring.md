@@ -29,7 +29,7 @@ each recipe's digest with `…`: a digest moves with every recipe, agent
 or adapter edit, and the witness tests are where digests are pinned.
 
 ```
-$ brokkr recipes list
+$ brokkr library recipes list
 brokkr-fast	…	6 phases	implement, review, ship, verify	medium	Brokkr's own fast: fast's table and scripts, with its two model seats hiring Brokkr's offices (decision 0087 ruling 4).	project	recipes/brokkr-fast
 fast	…	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	project	recipes/fast
 gpt-flash	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=gpt-flash-implementer;design=gpt-flash-implementer-sdd;engine=gpt-flash-implementer-engine;feature=gpt-flash-implementer}, review{chore=positions>chief;design=positions>chief;engine=positions>chief;feature=positions>chief}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	GPT Sol plans, DeepSeek Flash 4.1 implements, and Sol rules final review with Astra as its last fallback.	project	recipes/gpt-flash
@@ -57,7 +57,7 @@ wager-harness-muse	…	6 phases	implement, review, ship, verify	low	Driver evalu
 | [`landing`](../../recipes/landing/README.md) | Brokkr-only | a branch that already exists — yours, a session's, a ruling's — needs judging and shipping | `extends brokkr-fast` entered at a classify gate: prose goes to review, code to verify, no first implement; the smith is the remediation seat the returns reach (decision 0051) |
 | [`triage`](../../recipes/triage/README.md) | Brokkr-only | routing a commission by delivery class | `extends fast`: the triage result selects the later offices, with the five-phase SDD route included for the classes that need it |
 | [`night-shift`](../../recipes/night-shift/README.md) | Brokkr-only | an unattended overnight queue | `extends triage`: one-attempt limits and a dsh implementation lane, so anything unusual parks for morning instead of retrying. Its dsh lane pins GLM-5.3 Flash on the `spark-glm` route, so it runs only on a host serving that route |
-| [`standby`](../../recipes/standby/README.md) | Brokkr-only | delivering while one vendor's account is out of limit | `extends fast`: both model seats pinned inline to codex `sol` (`gpt-6.1-sol`), `fast`'s verify and ship gates unchanged (boxed under a `namespace` boundary, pinned scripts run unboxed under `harness`); a hedge forces its crew, so it takes no fallback |
+| [`standby`](../../recipes/standby/README.md) | Brokkr-only | delivering while one vendor's account is out of limit | `extends fast`: both model seats pinned inline to codex `sol` (`gpt-6.2-sol`), `fast`'s verify and ship gates unchanged (boxed under a `namespace` boundary, pinned scripts run unboxed under `harness`); a hedge forces its crew, so it takes no fallback |
 | [`wager-harness`](../../recipes/wager-harness/README.md) | Brokkr-only | weighing a new driver for a trust-tier promotion | `extends brokkr-fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
 | [`wager-harness-dsh`](../../recipes/wager-harness-dsh/README.md) | Brokkr-only | running the same driver wager through DSH | `extends brokkr-fast`: only the implement seat moves, so the judging seats stay comparable. Runs only on a host serving the `spark-glm` route, for the same GLM-5.3 Flash lane |
 | [`wager-harness-muse`](../../recipes/wager-harness-muse/README.md) | Brokkr-only | the same wager on Muse Spark 1.3, contributor terms, through dsh | `extends brokkr-fast`: only the implement seat moves, to a third vendor at `xhigh` |
@@ -89,8 +89,8 @@ walks a stranger from an unmodified repo to a first run.
 The `project` column is the recipe's origin. Your own recipes, kept out
 of every repository, stand on the personal shelf beside the machine's
 host configuration: `$XDG_CONFIG_HOME/brokkr/recipes/<name>/`, else
-`$HOME/.config/brokkr/recipes/<name>/`. `recipes add --personal`
-installs there. `recipes list` lists them after the project's, as
+`$HOME/.config/brokkr/recipes/<name>/`. `library recipes add --personal`
+installs there. `library recipes list` lists them after the project's, as
 `personal`. `--recipe <name>` reads the project's shelf first, then the
 personal one. A personal recipe compiles against the workspace's agents
 and adapters, as a tracked one does, and the install copies no agent or
@@ -101,7 +101,7 @@ on its own shelf; extending a project recipe is #432's next slice.
 Every shipped `verify` and `ship` seat is an inline gate-class `exec`
 site with workspace hands. No model reports evidence that a script can
 measure: the verifier writes `pass` only after every fixed command exits
-zero, and the shipper calls `brokkr ledger` and writes no commit. A
+zero, and the shipper calls `brokkr stats ledger` and writes no commit. A
 recipe with different gates, such as Node or preflight, keeps its own
 verifier script beside its roles under the same `pass`/`fail` contract.
 
@@ -133,8 +133,8 @@ run states what it was composed from.
 Swap a strategy and compare the outcomes:
 
 ```
-brokkr rerun --run <id> --recipe panel-review    # same feature, other strategy
-brokkr compare <a> <b>                           # trails, first divergence, per-seat costs
+brokkr runs rerun --run <id> --recipe panel-review    # same feature, other strategy
+brokkr runs compare <a> <b>                           # trails, first divergence, per-seat costs
 ```
 
 A rerun compiles the new recipe in the discovered realm exactly as `run`
@@ -186,7 +186,7 @@ Two worked shapes are in the tree:
 | Key | Required | Meaning |
 |---|---|---|
 | `name` | yes | The strategy's identity. For a composed recipe this is the leaf's name. |
-| `description` | shipped recipes | The one-line answer to "when should I use this?", rendered by `brokkr recipes list` and the contributing guide. |
+| `description` | shipped recipes | The one-line answer to "when should I use this?", rendered by `brokkr library recipes list` and the contributing guide. |
 | `cost` | shipped recipes | A relative cost band for choosing a strategy, never a provider quote. |
 | `forced_crew` | a recipe whose crew must not fall back | The decision that forces its crew, as a non-empty string — a wager's arm, a vendor hedge. Its forced seats hire agent overlays whose chain holds exactly the forced models (decision [0041](../decisions/0041-one-office-per-seat.md)'s addendum of 2026-10-07); the roster test refuses an inline model site in a shipped recipe that declares none. |
 | `policy` | in the layer that supplies a table | Path to this layer's phase-machine file, relative to this layer's directory. A layer that declares no `policy` contributes no table. |
@@ -222,7 +222,7 @@ so it cannot smuggle a route around review.
   "tools": { "allow": ["cargo", "git"] },
   "driver": {
     "command": ["{brokkr}", "driver", "claude", "--", "--model",
-                "claude-fable-5-1", "--effort", "high"]
+                "claude-fable-5-2", "--effort", "high"]
   }
 }
 ```
@@ -356,7 +356,25 @@ engine, never arbitrary code:
 | `review-panel` | `clean`, `residual`, `security-hold` | Worst member wins over `clean` < `residual` < `security-hold`; severity is the max, and the security and fixes flags are OR-ed. |
 
 A seat's declared `results` must cover its aggregate's vocabulary or
-compilation fails. Any indeterminate member makes the whole attempt
+compilation fails. A member declares no `results` of its own. A
+`review-panel` member reports only the words its hired agent's `results`
+list declares, `clean` and `residual` where it declares none. A panel's
+members must agree on one class — mixing `gate` and `work` members in
+one panel is refused at compile time ("a panel may judge or work, never
+do both") — and every member inherits its enclosing panel's compiled
+class (`gate` only when every member is `gate`, otherwise `work`). Only
+a member of a gate-class panel may write `findings`; from a work-class
+panel any `findings` key (even an empty `[]`) is refused (decision 0109
+ruling 1). Before the
+join, its word is bound to its findings and to the residual pair the
+seat compiles (decision 0109 ruling 2): any `security: true` finding
+requires `security-hold` (a lower security-relevant finding keeps
+`security: false` and sets `has_security_residual: true` under
+`residual`, and a member without `security-hold` reports a security
+smell in `notes` at its honest severity). A refused member poisons the
+aggregate. The aggregate writes `max_residual_severity` and
+`has_security_residual` on every result, `none` and `false` when no
+member reports one. Any indeterminate member makes the whole attempt
 indeterminate, which parks; otherwise any failed member fails the
 attempt.
 
@@ -402,7 +420,13 @@ as a deterministic exec with no model, and its `{change}` token comes from the
 nearest preceding typed result. The `clarify` and `analyze` loop sequences run
 their dialect check before the judge, a gate chartered not to write whose
 only enforced check is that it left HEAD where it found it, which receives
-that output as `prior_results`. A realm that does not declare a dialect cannot compile a
+that output as `prior_results`. A dialect check's `notes` are its
+validator's trimmed stdout; where the validator wrote to stderr, one last
+line, `validator stderr: <evidence>`, names that stderr by its length, the
+class of its first byte and a SHA-256 prefix, and no byte of it reaches the
+journal (decision 0012's addendum, #1199). A realm that wants its
+validator's diagnostics in the notes redirects them to stdout inside its
+own command, as `2>&1` does. A realm that does not declare a dialect cannot compile a
 bundle containing these dialect-owned steps. Nor can a realm whose
 boundary is `harness` or `open`: the step holds its gate by the box
 (decision 0042 ruling 4), and its argv is the dialect's tool, not the
@@ -414,7 +438,7 @@ seats remain first-class for work that is not dialect-owned.
 `brokkr doctor`, on the found `.brokkr/` folder or the bundle `--bundle`
 names, exercises that compile-time refusal in
 the discovered realm and reports its dialect, tool, and pinned
-tool version. Use `brokkr realms` to confirm realm selection; compilation
+tool version. Use `brokkr system realms` to confirm realm selection; compilation
 checks the dialect bindings, while the run executes the declared tool.
 
 **Select** — the engine chooses a complete single, panel, or sequence
@@ -456,23 +480,43 @@ older identities do not gain empty metadata.
 
 **The non-final-step rule has teeth, so read it before you use a
 sequence on a gate.** The `design` and `engine` review cases in
-`recipes/triage` put a positions panel before a single chief step. The
-panel's `review-panel` output is *not* the seat's result — it is a
-checkpoint, handed to the chief as `context.prior_results.positions` —
-so a `security-hold` from the panel reaches the rule table only if the
-chief reproduces it. The engine will accept a chief that rules lower.
+`recipes/triage` put a positions panel before a single chief step. An
+admitted `security-hold` from the panel is a compiled hard word of the
+`review` phase, so it ends the sequence at `positions` (with
+`why: "hard-word"`) before the chief runs and goes straight to the rule
+table. Any other verdict — `clean` or `residual` — is *not* the seat's
+result: it is a checkpoint, handed to the chief as
+`context.prior_results.positions`, so a `residual` from the panel
+reaches the rule table only if the chief carries it forward. The engine
+will accept a chief that rules lower than a non-hard panel verdict; in
+a recipe whose policy does not compile a panel's hold word as a hard
+stop (every arm `severity: "hard"` to terminal `stop`), that hold
+checkpoints to the chief only when a reachable later step can emit it (a
+later emitter behind a hard-stop-only step is unreachable), and reaches
+the rule table only if the chief carries it forward. A compiled
+`positions` step also ends the sequence before the chief runs (with
+`why: "ends-on"`) on a declared word that is not a hard word when no
+reachable later step can emit that word
+(`a_positions_panel_ends_on_a_non_hard_word_no_later_step_can_emit` in
+`crates/brokkr-runtime/tests/crucible_review_sequence.rs`, and
+`an_unreachable_later_step_does_not_hide_an_earlier_ending` in
+`crates/brokkr-runtime/src/bundle/sequence_tests.rs`).
 
-The same rule disables a fail-closed path you may not know you were
-relying on. A panel aggregate that cannot read a member's payload emits
+The same rule does not disable the fail-closed path for a malformed
+member. A panel aggregate that cannot read a member's payload emits
 `result: "__member-schema-invalid__"` — deliberately not in any
 vocabulary, so that the seat's declared-results check rejects it and the
-run parks with the member evidence attached. On a *non-final* step
-nothing performs that check, so the sentinel is handed to the next step
-as an ordinary string and the malformed-driver signal is lost unless
-that step's charter names it. Give the floor a branch for a result
-outside the vocabulary, not just for the worst result inside it.
+run parks with the member evidence attached. On a *non-final* step the
+step's own vocabulary check rejects it instead: the attempt fails with
+the panel's evidence stamped on it, and is retried within the seat's
+limits like any failed attempt (decision 0006). A non-final gate step's
+word, or a panel step's aggregate, that its binding to its findings and
+the seat's residual pair refuses (decision 0109 ruling 2) fails the
+attempt in the same place. Neither is ever handed to the next step as an
+ordinary string, so the floor a later step's charter needs is for the
+worst result inside the vocabulary.
 
-There is a third consequence, and it is the easiest to miss: a non-final
+There is a further consequence, and it is the easiest to miss: a non-final
 step's `notes` are copied **verbatim** into the next step's context. If
 the later step is a gate and an earlier one is a work seat — which
 admits any driver, trusted or not (decision 0021 ruling 7) — then
@@ -583,7 +627,7 @@ The rules:
   with `/`, independent of the host.
 
 **Composition resolves at compile time into one flat bundle.** There is
-no inheritance at run time and no dynamic lookup. `brokkr compile`
+no inheritance at run time and no dynamic lookup. `brokkr library compile`
 prints the resolved result plus a `composed_from` chain naming each
 ancestor and its digest, and that chain rides in the run manifest under
 the reserved `@compose/` prefix — so a run states not only what it ran
@@ -616,7 +660,7 @@ change.
 
 **A seat's id belongs to the pinned bundle.** Every seat has a stable id
 that the journal, the driver protocol's `start` and the cost ledger's
-joins share (`brokkr costs`). A cost ledger such as LaneTally owns cost
+joins share (`brokkr stats costs`). A cost ledger such as LaneTally owns cost
 truth, never orchestration identity.
 
 ## Digest identity
@@ -632,7 +676,7 @@ absolute directory, and the manifest's body: a sha256 per bundle file, the resol
 every selected case, a few thousand lines in all.
 
 ```
-$ brokkr compile --bundle recipes/night-shift
+$ brokkr library compile --bundle recipes/night-shift
 {
   "bundle": "night-shift",
   "composed_from": [
@@ -703,9 +747,9 @@ $ brokkr compile --bundle recipes/night-shift
 }
 ```
 
-`brokkr recipes show <name>` prints the same object from the same
+`brokkr library recipes show <name>` prints the same object from the same
 compile, in the workspace's realm as a run's is, so the two surfaces
-cannot drift. `brokkr recipes list` and `brokkr recipes add` print
+cannot drift. `brokkr library recipes list` and `brokkr library recipes add` print
 twelve hex characters of a digest per recipe from that same compile, so
 where the workspace's map names a realm they print that realm's digest
 too (#696).
@@ -764,7 +808,7 @@ Three consequences worth internalising:
    instead, `a charter of <owner> moved since the compile (unrecorded:
    <key>)` (operator ruling of 2026-09-29, point 1). There is no digest-only
    fallback. Close such a run with
-   `brokkr conclude --run <id> --cause <cause> --reason "…"` and fire it
+   `brokkr runs conclude --run <id> --cause <cause> --reason "…"` and fire it
    again.
 
 ## The policy table
@@ -1005,7 +1049,7 @@ A rule-driven park carries the parked seat's non-empty notes as its
 reason, so the operator reads the blocker itself:
 `IMPL-BLOCKED-ENVIRONMENT for (implement, blocked): <the seat's notes>`.
 A seat with no notes parks with the rule's reason. Once the environment
-is fixed, `brokkr operator retry --run <id>` and then
+is fixed, `brokkr runs operator retry --run <id>` and then
 `brokkr resume --run <id>` run that one seat again. The earlier phases'
 results reach it in `context.results` as before, and no earlier phase
 runs again. `blocked` is not a failure word, so the park spends none of
@@ -1016,14 +1060,14 @@ every table that reads it.
 ## Compile it
 
 ```
-brokkr compile --bundle recipes/my-recipe      # validate, print manifest + digest
+brokkr library compile --bundle recipes/my-recipe      # validate, print manifest + digest
 brokkr doctor --bundle recipes/my-recipe       # plus: are the drivers actually here
-brokkr recipes list                            # the library, one digest per recipe
-brokkr recipes show my-recipe                  # resolved bundle + composition chain
+brokkr library recipes list                            # the library, one digest per recipe
+brokkr library recipes show my-recipe                  # resolved bundle + composition chain
 ```
 
-`brokkr compile` takes `--bundle <path>` only — there is no `--recipe`
-form; use `brokkr recipes show` for a library name. Compilation is where
+`brokkr library compile` takes `--bundle <path>` only — there is no `--recipe`
+form; use `brokkr library recipes show` for a library name. Compilation is where
 every structural law above is enforced, so a bundle that compiles is a
 bundle whose review gate is unavoidable, whose aggregates match their
 declared results, whose conditions are all in the vocabulary, and whose

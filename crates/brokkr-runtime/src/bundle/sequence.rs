@@ -15,10 +15,11 @@ use super::parse::{SeatScope, SiteCompiler};
 use super::site_form::{classify, StepShape, STEP};
 use super::{
     command_parts, dialect_gate_site, dialect_results, parse_class, parse_command,
-    record_inline_tools, refuse_class_without_a_driver, resolve_reference, Aggregate, CompileError,
-    DialectExecution, Invocation, SeatBody, SeatClass, SequenceStep, StepBody,
+    record_inline_tools, refuse_class_without_a_driver, resolve_reference, Aggregate, BodyRefusal,
+    CompileError, DialectExecution, Invocation, SeatBody, SeatClass, SelectCase, SequenceStep,
+    StepBody,
 };
-use crate::dialect::DialectPhase;
+use crate::dialect::{Dialect, DialectPhase};
 
 /// One sequence step as its seat wrote it: the seat's phase, the step's
 /// name and `phase:name`, and its declaration.
@@ -38,19 +39,99 @@ pub(super) struct ParsedStep {
     pub(super) hands: Option<HandsSpec>,
 }
 
+/// The words the non-empty-`results` check and the no-vocabulary check
+/// share.
+const OWN_RESULTS: &str = "needs its own non-empty 'results' vocabulary";
+
+/// Why a seat's sequence, one of its steps' names or results, or a
+/// dialect step was refused: one variant per check, in the order the
+/// checks run, so a test can tell which fired even where two share their
+/// words. It becomes text only in [`refused`].
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub(super) enum SequenceRefusal<'a> {
+    #[error("seat '{phase}' sequence must be an array")]
+    NotArray { phase: &'a str },
+    #[error(
+        "seat '{phase}' sequence needs at least two steps; \
+         a one-step sequence is a single seat"
+    )]
+    TooFew { phase: &'a str },
+    #[error("seat '{phase}' sequence step {index} needs a non-empty 'name'")]
+    Nameless { phase: &'a str, index: usize },
+    #[error(
+        "seat '{phase}' sequence has duplicate step name '{name}' \
+         (step names are case-insensitive)"
+    )]
+    Duplicate { phase: &'a str, name: &'a str },
+    #[error(
+        "sequence step '{what}' is final and receives the seat's results; remove its ignored 'results'"
+    )]
+    FinalWritesResults { what: &'a str },
+    #[error("sequence step '{what}' {text}", text = OWN_RESULTS)]
+    EmptyResults { what: &'a str },
+    #[error("sequence step '{what}' {text}", text = OWN_RESULTS)]
+    NoVocabulary { what: &'a str },
+    #[error("sequence step '{what}' dialect must be 'validate' or 'check'")]
+    NoOperation { what: &'a str },
+    #[error(
+        "sequence step '{what}' uses dialect operation '{operation}'; phase '{phase}' needs '{expected}'"
+    )]
+    WrongOperation {
+        what: &'a str,
+        operation: &'a str,
+        phase: &'a str,
+        expected: &'a str,
+    },
+    #[error("phase '{phase}' needs a realm dialect to resolve step '{name}'")]
+    NoDialect { phase: &'a str, name: &'a str },
+    #[error(
+        "sequence step '{what}' declares 'tools' on a dialect step whose \
+         '{operation}' the dialect does not supply; no executable site \
+         exists to own the declaration, so it could only be discarded — \
+         refused (decision 0065 slice one, design D5)"
+    )]
+    ToolsWithoutSite { what: &'a str, operation: &'a str },
+    #[error("dialect '{dialect}' declares phase '{phase}' {operation} unsupported")]
+    Unsupported {
+        dialect: &'a str,
+        phase: &'a str,
+        operation: &'a str,
+    },
+}
+
+/// What [`step_results`] refuses with: this file's typed refusal, or the
+/// aggregate's member-marker refusal carried unchanged.
+#[derive(Debug)]
+pub(super) enum StepFault<'a> {
+    Refused(SequenceRefusal<'a>),
+    Compile(CompileError),
+}
+
+/// The one place a [`SequenceRefusal`] becomes the operator's text.
+fn refused(refusal: SequenceRefusal<'_>) -> CompileError {
+    CompileError::Invalid(refusal.to_string())
+}
+
+/// A [`StepFault`] at [`parse_sequence`]'s edge: the refusal as its text,
+/// the carried error unchanged.
+fn step_fault(fault: StepFault<'_>) -> CompileError {
+    match fault {
+        StepFault::Refused(refusal) => refused(refusal),
+        StepFault::Compile(error) => error,
+    }
+}
+
 /// The seat's `sequence`: an array of at least two steps.
-pub(super) fn sequence_steps<'v>(phase: &str, raw: &'v Value) -> Result<&'v [Value], CompileError> {
+pub(super) fn sequence_steps<'v>(
+    phase: &'v str,
+    raw: &'v Value,
+) -> Result<&'v [Value], SequenceRefusal<'v>> {
     let steps_raw = raw
         .get("sequence")
         .and_then(Value::as_array)
-        .ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{phase}' sequence must be an array"))
-        })?;
+        .ok_or(SequenceRefusal::NotArray { phase })?;
     if steps_raw.len() < 2 {
-        return Err(CompileError::Invalid(format!(
-            "seat '{phase}' sequence needs at least two steps; \
-             a one-step sequence is a single seat"
-        )));
+        return Err(SequenceRefusal::TooFew { phase });
     }
     Ok(steps_raw)
 }
@@ -58,25 +139,18 @@ pub(super) fn sequence_steps<'v>(phase: &str, raw: &'v Value) -> Result<&'v [Val
 /// Step `index`'s non-empty name, unique case-insensitively among the
 /// `steps` parsed before it.
 pub(super) fn step_name<'v>(
-    phase: &str,
+    phase: &'v str,
     index: usize,
     step_raw: &'v Value,
     steps: &[SequenceStep],
-) -> Result<&'v str, CompileError> {
+) -> Result<&'v str, SequenceRefusal<'v>> {
     let name = step_raw
         .get("name")
         .and_then(Value::as_str)
         .filter(|n| !n.is_empty())
-        .ok_or_else(|| {
-            CompileError::Invalid(format!(
-                "seat '{phase}' sequence step {index} needs a non-empty 'name'"
-            ))
-        })?;
+        .ok_or(SequenceRefusal::Nameless { phase, index })?;
     if steps.iter().any(|s| s.name.eq_ignore_ascii_case(name)) {
-        return Err(CompileError::Invalid(format!(
-            "seat '{phase}' sequence has duplicate step name '{name}' \
-             (step names are case-insensitive)"
-        )));
+        return Err(SequenceRefusal::Duplicate { phase, name });
     }
     Ok(name)
 }
@@ -84,20 +158,20 @@ pub(super) fn step_name<'v>(
 /// The step's results vocabulary: the final step receives the seat's, and
 /// writes none of its own; another step writes its own non-empty
 /// `results`, or takes what its declared aggregate requires.
-pub(super) fn step_results(
+pub(super) fn step_results<'s>(
     at: SeatScope<'_>,
-    step: StepAt<'_>,
+    step: StepAt<'s>,
     final_step: bool,
-) -> Result<Vec<String>, CompileError> {
+) -> Result<Vec<String>, StepFault<'s>> {
     let StepAt {
         what,
         raw: step_raw,
         ..
     } = step;
     if final_step && step_raw.get("results").is_some() {
-        return Err(CompileError::Invalid(format!(
-            "sequence step '{what}' is final and receives the seat's results; remove its ignored 'results'"
-        )));
+        return Err(StepFault::Refused(SequenceRefusal::FinalWritesResults {
+            what,
+        }));
     }
     if final_step {
         Ok(at.results.to_vec())
@@ -113,12 +187,9 @@ pub(super) fn step_results(
                     .collect::<Vec<_>>()
             })
             .filter(|values| !values.is_empty())
-            .ok_or_else(|| {
-                CompileError::Invalid(format!(
-                    "sequence step '{what}' needs its own non-empty 'results' vocabulary"
-                ))
-            })?;
-        Aggregate::refuse_member_marker(&values, &format!("sequence step '{what}'"))?;
+            .ok_or(StepFault::Refused(SequenceRefusal::EmptyResults { what }))?;
+        Aggregate::refuse_member_marker(&values, &format!("sequence step '{what}'"))
+            .map_err(StepFault::Compile)?;
         Ok(values)
     } else if let Some(aggregate) = step_raw
         .get("aggregate")
@@ -131,9 +202,7 @@ pub(super) fn step_results(
             .map(|result| (*result).to_string())
             .collect())
     } else {
-        Err(CompileError::Invalid(format!(
-            "sequence step '{what}' needs its own non-empty 'results' vocabulary"
-        )))
+        Err(StepFault::Refused(SequenceRefusal::NoVocabulary { what }))
     }
 }
 
@@ -194,6 +263,67 @@ pub(super) fn step_body(
     }))
 }
 
+/// A dialect step's operation and the realm dialect that resolves it: the
+/// step writes an operation, the one its phase needs (`check` for a loop
+/// phase, `validate` otherwise), and only then is a dialect required.
+fn dialect_operation<'a>(
+    step: StepAt<'a>,
+    dialect: Option<&'a Dialect>,
+) -> Result<(&'a str, &'a Dialect), SequenceRefusal<'a>> {
+    let StepAt {
+        phase,
+        name,
+        what,
+        raw,
+    } = step;
+    let operation = raw
+        .get("dialect")
+        .and_then(Value::as_str)
+        .ok_or(SequenceRefusal::NoOperation { what })?;
+    let expected = if DialectPhase::parse(phase).is_some_and(DialectPhase::is_loop) {
+        "check"
+    } else {
+        "validate"
+    };
+    if operation != expected {
+        return Err(SequenceRefusal::WrongOperation {
+            what,
+            operation,
+            phase,
+            expected,
+        });
+    }
+    let dialect = dialect.ok_or(SequenceRefusal::NoDialect { phase, name })?;
+    Ok((operation, dialect))
+}
+
+/// A dialect step whose operation its dialect does not supply: an
+/// unsupplied `check` that writes no `tools` is admitted and compiles to no
+/// step; an unsupplied `validate` is refused.
+fn unsupplied<'a>(
+    step: StepAt<'a>,
+    operation: &'a str,
+    dialect: &'a Dialect,
+) -> Result<(), SequenceRefusal<'a>> {
+    if operation == "check" {
+        // No executable site is compiled for an unsupported
+        // check, so a `tools` declaration here would have no
+        // owner and could only be discarded (design D5.2).
+        if step.raw.get("tools").is_some() {
+            return Err(SequenceRefusal::ToolsWithoutSite {
+                what: step.what,
+                operation,
+            });
+        }
+        return Ok(());
+    }
+    Err(SequenceRefusal::Unsupported {
+        dialect: &dialect.name,
+        phase: step.phase,
+        operation,
+    })
+}
+
 /// A dialect step: the operation its phase needs, resolved by the realm's
 /// dialect into an exec-generated check judged as a site; `None` for a
 /// `check` the dialect does not supply.
@@ -204,52 +334,15 @@ fn dialect_step(
 ) -> Result<Option<ParsedStep>, CompileError> {
     let StepAt {
         phase,
-        name,
         what,
         raw: step_raw,
+        ..
     } = step;
-    let operation = step_raw
-        .get("dialect")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            CompileError::Invalid(format!(
-                "sequence step '{what}' dialect must be 'validate' or 'check'"
-            ))
-        })?;
-    let expected = if DialectPhase::parse(phase).is_some_and(DialectPhase::is_loop) {
-        "check"
-    } else {
-        "validate"
-    };
-    if operation != expected {
-        return Err(CompileError::Invalid(format!(
-            "sequence step '{what}' uses dialect operation '{operation}'; phase '{phase}' needs '{expected}'"
-        )));
-    }
-    let dialect = compiler.dialect.ok_or_else(|| {
-        CompileError::Invalid(format!(
-            "phase '{phase}' needs a realm dialect to resolve step '{name}'"
-        ))
-    })?;
+    let (operation, dialect) = dialect_operation(step, compiler.dialect).map_err(refused)?;
     let Some(command) = dialect.validation(phase) else {
-        if operation == "check" {
-            // No executable site is compiled for an unsupported
-            // check, so a `tools` declaration here would have no
-            // owner and could only be discarded (design D5.2).
-            if step_raw.get("tools").is_some() {
-                return Err(CompileError::Invalid(format!(
-                    "sequence step '{what}' declares 'tools' on a dialect step whose \
-                     '{operation}' the dialect does not supply; no executable site \
-                     exists to own the declaration, so it could only be discarded — \
-                     refused (decision 0065 slice one, design D5)"
-                )));
-            }
-            return Ok(None);
-        }
-        return Err(CompileError::Invalid(format!(
-            "dialect '{}' declares phase '{phase}' {operation} unsupported",
-            dialect.name
-        )));
+        return unsupplied(step, operation, dialect)
+            .map(|()| None)
+            .map_err(refused);
     };
     let synthetic = dialect_gate_site(what, compiler.boundary)?;
     // The dialect's validator is an exec-generated check: it can
@@ -326,11 +419,11 @@ pub(super) fn parse_sequence(
     phase: &str,
     raw: &Value,
 ) -> Result<(Vec<SequenceStep>, GateAssessment), CompileError> {
-    let steps_raw = sequence_steps(phase, raw)?;
+    let steps_raw = sequence_steps(phase, raw).map_err(refused)?;
     let mut steps: Vec<SequenceStep> = Vec::with_capacity(steps_raw.len());
     let mut whole_gate = GateAssessment::AllGate;
     for (index, step_raw) in steps_raw.iter().enumerate() {
-        let name = step_name(phase, index, step_raw, &steps)?;
+        let name = step_name(phase, index, step_raw, &steps).map_err(refused)?;
         let what = format!("{phase}:{name}");
         let shape = classify(&what, step_raw, &STEP)?;
         let step = StepAt {
@@ -339,7 +432,8 @@ pub(super) fn parse_sequence(
             what: &what,
             raw: step_raw,
         };
-        let step_results = step_results(at, step, index + 1 == steps_raw.len())?;
+        let step_results =
+            step_results(at, step, index + 1 == steps_raw.len()).map_err(step_fault)?;
         let written = (shape == StepShape::Dialect)
             .then(|| parse_class(&what, step_raw).unwrap_or(SeatClass::Work));
         let parsed = step_body(compiler, at, step, shape, step_results)?;
@@ -365,6 +459,8 @@ pub(super) fn parse_sequence(
             body: parsed.body,
             ends_on: Vec::new(),
             hard_results: Vec::new(),
+            residual: at.residual,
+            declares_change: at.declares_change,
         });
     }
     Ok((steps, whole_gate))
@@ -372,26 +468,103 @@ pub(super) fn parse_sequence(
 
 /// Derive every sequence step's compiled endings, and refuse a table arm
 /// whose word no step of the sequence can emit (decision 0050, ruling 7).
+/// In the `protected` phase, refuse a pre-gate ending that is no stop.
 pub(super) fn stamp_endings(
     machine: &Machine,
     bundle: &str,
-    phase: &str,
+    at: (&str, bool),
     seat_results: &[String],
     body: &mut SeatBody,
 ) -> Result<(), CompileError> {
+    let case = &SelectCase::Default;
+    stamp_case(machine, bundle, at, seat_results, (case, body))
+}
+
+/// [`stamp_endings`] of `body`, read under `case` of its seat's body.
+fn stamp_case(
+    machine: &Machine,
+    bundle: &str,
+    (phase, protected): (&str, bool),
+    seat_results: &[String],
+    (case, body): (&SelectCase, &mut SeatBody),
+) -> Result<(), CompileError> {
     match body {
         SeatBody::Invocation(_) => Ok(()),
-        SeatBody::Sequence { steps } => stamp_sequence(machine, bundle, phase, seat_results, steps),
+        SeatBody::Sequence { steps } => {
+            stamp_sequence(machine, bundle, phase, seat_results, steps)?;
+            match protected {
+                true => refuse_pre_gate_ending((phase, case), seat_results, steps),
+                false => Ok(()),
+            }
+        }
         SeatBody::Select { cases, default } => {
-            for case in cases.values_mut() {
-                stamp_endings(machine, bundle, phase, seat_results, case)?;
+            let at = (phase, protected);
+            for (word, body) in cases.iter_mut() {
+                let case = &SelectCase::Strategy(word.as_str().into());
+                stamp_case(machine, bundle, at, seat_results, (case, body))?;
             }
             if let Some(default) = default.as_deref_mut() {
-                stamp_endings(machine, bundle, phase, seat_results, default)?;
+                let case = &SelectCase::Default;
+                stamp_case(machine, bundle, at, seat_results, (case, default))?;
             }
             Ok(())
         }
     }
+}
+
+/// Refuse a protected sequence whose step before its first gate step may
+/// end the sequence on a word the engine can never take there:
+/// - a word that is not one of its compiled hard words, which journals no
+///   gate record and stops nothing, so decide could only refuse it (#1212
+///   L1);
+/// - a hard word the seat's results do not declare, which decide refuses
+///   as outside the seat's results before it reads the stop (1221a2's
+///   review, L1).
+///
+/// A declared hard word there is a stop, which decide takes; a sequence
+/// with no gate step decides on its terminal. The refusal names `case`,
+/// the case of the seat's body the sequence was read under.
+pub(crate) fn refuse_pre_gate_ending(
+    (seat, case): (&str, &SelectCase),
+    seat_results: &[String],
+    steps: &[SequenceStep],
+) -> Result<(), CompileError> {
+    for step in before_every_gate(steps).unwrap_or_default() {
+        for word in &step.ends_on {
+            let hard = step.hard_results.contains(word);
+            if hard && seat_results.contains(word) {
+                continue;
+            }
+            let (seat, case) = (seat.to_string(), case.clone());
+            let (step, word) = (step.name.clone(), word.clone());
+            return Err(CompileError::Body(match hard {
+                false => BodyRefusal::PreGateEnding {
+                    seat,
+                    case,
+                    step,
+                    word,
+                },
+                true => BodyRefusal::PreGateUndeclared {
+                    seat,
+                    case,
+                    step,
+                    word,
+                },
+            }));
+        }
+    }
+    Ok(())
+}
+
+/// The steps of `steps` before its first gate step, or none when no step
+/// is a gate. A work step there, ended on a compiled hard word, is a stop:
+/// compile refuses any other ending there and decide takes that stop, so
+/// both read this one geometry (#1221, LOW 2).
+pub(crate) fn before_every_gate(steps: &[SequenceStep]) -> Option<&[SequenceStep]> {
+    let first_gate = steps
+        .iter()
+        .position(|step| step.class == SeatClass::Gate)?;
+    Some(&steps[..first_gate])
 }
 
 /// A sequence's compiled endings: each non-final step's ending words, and
@@ -569,3 +742,6 @@ fn refuse_unreachable(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

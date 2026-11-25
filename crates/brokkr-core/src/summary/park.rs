@@ -1,7 +1,7 @@
 //! A park as the journal records it (decision 0089 ruling 7): the phase it
 //! was entered from, its start, the operator's answer and the run's next
 //! move. Read here once, from the run's events, so the writer keeps on the
-//! park's `event_index` row what `brokkr analytics` derives from the run
+//! park's `event_index` row what `brokkr stats analytics` derives from the run
 //! read whole (decision 0071 ruling 5).
 //!
 //! A park waits on the operator until their next command, and stays parked

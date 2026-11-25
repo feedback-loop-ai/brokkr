@@ -7,9 +7,9 @@
 //! [`StepVerdict`] is that answer, matched at every stage.
 
 use brokkr_core::envelope::EventType;
+use brokkr_core::policy::CHANGE;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::AttemptOutcome;
-use brokkr_store::StoreError;
 use serde_json::{json, Map, Value};
 
 use super::carry::{
@@ -18,25 +18,29 @@ use super::carry::{
 };
 use super::cooldown::{refused_members, RefusedMember};
 use super::dispatch::deadline::AttemptBound;
+use super::heads::Span;
 use super::{
-    copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary, start_failure_fields,
+    copy_secret_binding_facts, failed_to_start, stamp_boundary, start_failure_fields,
     start_failure_sites, DriverRun, Engine, EngineError, Indeterminate, Selection, Site, Unproven,
 };
 use crate::bundle::{
-    dialect_results, Aggregate, Invocation, PanelMember, SeatClass, SequenceStep, StepBody,
+    dialect_results, Aggregate, Invocation, PanelJoin, PanelMember, SeatClass, SequenceStep,
+    StepBody,
 };
 use crate::dialect::DialectPhase;
 
 mod compose;
 mod contradiction;
 mod dialect;
+mod record;
 mod step_facts;
 mod success;
 
 pub(in crate::engine) use compose::StepComposition;
+pub(in crate::engine) use step_facts::binds_its_word;
 pub(crate) use step_facts::needs_change;
+use step_facts::{declares_change, retained_stderr, vocabulary_problem};
 pub(super) use step_facts::{dialect_attempt_outcome, expand_dialect_argv, nearest_change};
-use step_facts::{tailed_outcome, vocabulary_problem};
 
 /// Where a step leaves its attempt, at each stage of settling it.
 enum StepVerdict<T> {
@@ -127,6 +131,9 @@ struct StepRun {
     /// What the step's terminal event carries when its tree is not
     /// proven over (#403).
     unproven: Unproven,
+    /// A single or dialect step driver's retained stderr. A panel step
+    /// or a driver that never spawned has no single stream to name.
+    stderr: Option<String>,
 }
 
 /// The results a step may report: the seat's own for the final step, which
@@ -291,11 +298,7 @@ impl Engine {
             input: seq_input,
             bound,
             selection,
-            declares_change: self
-                .bundle
-                .seats
-                .get(at.seat_name)
-                .is_some_and(|seat| seat.inputs.iter().any(|input| input == "change")),
+            declares_change: declares_change(steps),
         };
         let mut carried = Carried {
             prior_results: Map::new(),
@@ -323,11 +326,14 @@ impl Engine {
         // compared and cleared at this step's own end below, before
         // any later step gets to move the tree lawfully (decision
         // 0042 reads an author as a work step). Nothing outer arms
-        // for a sequence, so this is the only observation taken.
-        if at.step.class == SeatClass::Gate {
-            self.active_gate_head = Some(git_head(&self.repo));
-        }
-        let ran = match &at.step.body {
+        // for a sequence with a gate step, so its gate steps are the
+        // only observations taken, and a later work step spends the
+        // step's own observation but not the effect's (heads::Spans).
+        // The class is the compiled step's: a dialect check is a gate
+        // (bundle::sequence::step_class) whether or not its recipe wrote
+        // one, and its span's observation stamps what it produced.
+        self.begin_step_span(at.step.class == SeatClass::Gate);
+        let mut ran = match &at.step.body {
             StepBody::Invocation(Invocation::Single { command, .. }) => {
                 self.single_step(run, at, command)?
             }
@@ -341,8 +347,22 @@ impl Engine {
                 }
             }
         };
+        self.stderr.active = ran.stderr.take();
+        let settled = self.settle_step_with_head(run, at, ran, carried);
+        self.stderr.active = None;
+        settled
+    }
+
+    fn settle_step_with_head(
+        &mut self,
+        run: &SequenceRun,
+        at: &StepAt,
+        ran: StepRun,
+        carried: &mut Carried,
+    ) -> Result<StepVerdict<()>, EngineError> {
+        let (span, attempt_id) = (Span::Step, Some(run.attempt_id.to_string()));
         if self
-            .finish_gate_head_check(run.effect_id, Some(run.attempt_id.to_string()))?
+            .finish_gate_head_check(span, run.effect_id, attempt_id)?
             .is_some()
         {
             return Ok(StepVerdict::Ended);
@@ -387,6 +407,8 @@ impl Engine {
             run.selection.plan(&site),
         )?;
         run.bound.deadline.name(&mut driven);
+        self.usage.step(run.attempt_id, &at.step.name, &driven);
+        let stderr = retained_stderr(&driven);
         Ok(match driven {
             DriverRun::SpawnFailed(error) => StepRun {
                 record: None,
@@ -394,6 +416,7 @@ impl Engine {
                 start_failures: vec![Some(at.step.name.clone())],
                 refused: Vec::new(),
                 unproven: Unproven::Proven,
+                stderr,
             },
             DriverRun::Ran(report) => {
                 let start_failures = if failed_to_start(&report) {
@@ -410,7 +433,8 @@ impl Engine {
                     start_failures,
                     refused,
                     unproven: Unproven::seat(&report),
-                    outcome: tailed_outcome(&report),
+                    outcome: report.settled_outcome(),
+                    stderr,
                 }
             }
         })
@@ -444,12 +468,14 @@ impl Engine {
         // One line, as panel.rs's callsites: the exact-coverage gate reads a
         // multi-line call's `?` edge as its own region.
         let remaining = run.bound.remaining;
-        let reports = self.run_panel(effect_id, attempt_id, &runs, remaining, &tag_prefix)?;
+        let (reports, stamped) =
+            self.run_panel(effect_id, attempt_id, &runs, remaining, &tag_prefix)?;
+        self.usage.panel_step(attempt_id, &tag_prefix, &reports);
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, &tag_prefix)?;
         span.close(&self.repo);
         let record = PanelRecord {
             span,
-            settled_members: settled_members(&reports, Some(&at.step.name)),
+            settled_members: settled_members((&reports, &stamped), Some(&at.step.name)),
         };
         let plan = (at.index == 0)
             .then_some(run.selection.carry.as_ref())
@@ -458,7 +484,8 @@ impl Engine {
         let refused = refused_members(&reports, &tag_prefix);
         let unproven = Unproven::panel(&reports);
         let name = run.bound.deadline.panel_namer(&reports);
-        let mut outcome = outcome_under(aggregate, plan, reports, &record.span, run.attempt_id)?;
+        let (join, members) = (PanelJoin::of(aggregate, members), (reports, stamped));
+        let mut outcome = outcome_under(&join, plan, members, &record.span, run.attempt_id)?;
         name(&mut outcome);
         Ok(StepRun {
             record: Some(record),
@@ -466,6 +493,7 @@ impl Engine {
             refused,
             unproven,
             outcome: outcome.outcome(),
+            stderr: None,
         })
     }
 
@@ -484,17 +512,8 @@ impl Engine {
         // names none and carries none.
         let boundary = self.site_boundary(&at.label);
         let start_failures = ran.start_failures.clone();
+        let record = ran.record.clone();
         let StepVerdict::Goes(result) = self.step_result(run, at, ran, boundary)? else {
-            return Ok(StepVerdict::Ended);
-        };
-        if !run.is_last(at) {
-            let StepVerdict::Goes(()) =
-                self.between_steps(run, at, &result, carried, &start_failures)?
-            else {
-                return Ok(StepVerdict::Ended);
-            };
-        }
-        let StepVerdict::Goes(()) = self.carry_change(run, at, &result, carried)? else {
             return Ok(StepVerdict::Ended);
         };
         // A step's result the fence refuses (decision 0034, ruling
@@ -503,6 +522,32 @@ impl Engine {
         let refused = |mut refusal: String| {
             run.bound.deadline.name_words(&mut refusal);
             run.failed_payload(at, &refusal, &start_failures)
+        };
+        let ran = (record.as_ref(), &refused);
+        self.settle_result(run, at, result, boundary, carried, ran)
+    }
+
+    /// A step's successful result, through the checks a step before the
+    /// last answers and the change it names, to the attempt's success or
+    /// the step's checkpoint; `record` is a panel step's evidence, and
+    /// `refused` builds the failure a fence turns that result into.
+    fn settle_result(
+        &mut self,
+        run: &SequenceRun,
+        at: &StepAt,
+        result: Value,
+        boundary: Option<Boundary>,
+        carried: &mut Carried,
+        (record, refused): (Option<&PanelRecord>, &impl Fn(String) -> Value),
+    ) -> Result<StepVerdict<()>, EngineError> {
+        if !run.is_last(at) {
+            let ran = (record, refused);
+            let StepVerdict::Goes(()) = self.between_steps(run, at, &result, carried, ran)? else {
+                return Ok(StepVerdict::Ended);
+            };
+        }
+        let StepVerdict::Goes(()) = self.carry_change(run, at, &result, carried)? else {
+            return Ok(StepVerdict::Ended);
         };
         if run.is_last(at) {
             self.finish_sequence(run, at, result, carried, refused)
@@ -548,30 +593,37 @@ impl Engine {
                     record.stamp(&mut payload);
                 }
                 let terminal = self.step_terminal(run.effect_id, payload, &ran.refused, false)?;
-                self.append(
-                    EventType::EffectIndeterminate,
-                    terminal.payload,
-                    Some(run.attempt_id.to_owned()),
-                )
-                .map(|_| StepVerdict::Ended)
+                let attempt = Some(run.attempt_id.to_owned());
+                self.append(EventType::EffectIndeterminate, terminal.payload, attempt)?;
+                Ok(StepVerdict::Ended)
             }
         }
     }
 
     /// The checks a step before the last answers: a result in its own
     /// vocabulary, which may end the sequence, and which a deterministic
-    /// dialect check's failure is remembered by.
+    /// dialect check's failure is remembered by. `ran` is what the step's
+    /// run left beside its result: a panel step's evidence, and `refused`,
+    /// the one builder of a failure that names the sites that failed to
+    /// start (#1199). A result outside the vocabulary fails the
+    /// attempt with that evidence, as a panel step's own failure does, so
+    /// a poisoned aggregate's settled members keep their admitted findings
+    /// as verdict evidence under each member (fix round 0109a1r7, X5).
     fn between_steps(
         &mut self,
         run: &SequenceRun,
         at: &StepAt,
         result: &Value,
         carried: &mut Carried,
-        start_failures: &[Site],
+        (record, refused): (Option<&PanelRecord>, &impl Fn(String) -> Value),
     ) -> Result<StepVerdict<()>, EngineError> {
         if let Some(mut problem) = vocabulary_problem(at.step, result) {
             run.bound.deadline.name_words(&mut problem);
-            return self.end_failed(run, run.failed_payload(at, &problem, &[]));
+            let mut payload = run.failed_payload(at, &problem, &[]);
+            if let Some(record) = record {
+                record.stamp(&mut payload);
+            }
+            return self.end_failed(run, payload);
         }
         // A deterministic dialect check's failure is recorded before any
         // ending is decided, so an early ending passes the same
@@ -593,7 +645,7 @@ impl Engine {
         // the step may report, or a hard word from the phase's table. The
         // journal names the step and why it ended.
         if let Some(why) = run.ends_sequence(at, result) {
-            return self.end_sequence_on(run, at, result, why, start_failures, carried);
+            return self.end_sequence_on(run, at, result, why, refused, carried);
         }
         Ok(StepVerdict::Goes(()))
     }
@@ -610,7 +662,7 @@ impl Engine {
         if !run.declares_change {
             return Ok(StepVerdict::Goes(()));
         }
-        let Some(value) = result.pointer("/inputs/change") else {
+        let Some(value) = (result.get("inputs")).and_then(|inputs| inputs.get(CHANGE)) else {
             return Ok(StepVerdict::Goes(()));
         };
         let change = value.as_str();
@@ -618,7 +670,9 @@ impl Engine {
             return self.end_indeterminate(
                 run,
                 at,
-                &format!("declared input 'change' must match ^[a-z0-9][a-z0-9._-]*$, got {value}"),
+                &format!(
+                    "declared input '{CHANGE}' must match ^[a-z0-9][a-z0-9._-]*$, got {value}"
+                ),
                 Unproven::Proven,
             );
         }
@@ -627,7 +681,9 @@ impl Engine {
     }
 
     /// The last step's result is the attempt's, unless it contradicts a
-    /// deterministic dialect check's failure, which parks.
+    /// deterministic dialect check's failure, which parks. The success
+    /// names the step that produced it, as an early ending's does, so a
+    /// reader files its verdict under that step (fix round 0109a1r4, K6).
     fn finish_sequence(
         &mut self,
         run: &SequenceRun,
@@ -639,7 +695,14 @@ impl Engine {
         if let StepVerdict::Ended = self.refuse_contradiction(run, at, &result, carried)? {
             return Ok(StepVerdict::Ended);
         }
-        self.append_succeeded(run.effect_id, run.attempt_id, result, refused)?;
+        let (effect_id, attempt_id) = (run.effect_id, run.attempt_id);
+        let refused = match self.record_ending_gate_step(run, at, &result)? {
+            Ok(()) => refused,
+            Err(refusal) => return self.end_failed(run, refused(refusal.to_string())),
+        };
+        let payload = json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result,
+                             "step": at.step.name});
+        self.append_succeeded_under_fence(payload, attempt_id, refused)?;
         Ok(StepVerdict::Ended)
     }
 
@@ -655,34 +718,9 @@ impl Engine {
         carried: &mut Carried,
         refused: impl FnOnce(String) -> Value,
     ) -> Result<StepVerdict<()>, EngineError> {
-        let model = result
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or("not reported")
-            .to_string();
-        let marker = stamp_boundary(
-            json!({
-                "step": "sequence-step-finished",
-                "step_name": at.step.name,
-                "model": model,
-                "result": result,
-            }),
-            boundary,
-        );
-        match self.append(
-            EventType::EffectCheckpointed,
-            json!({
-                "effect_id": run.effect_id,
-                "attempt_id": run.attempt_id,
-                "checkpoint": marker,
-            }),
-            Some(run.attempt_id.to_string()),
-        ) {
-            Ok(_) => {}
-            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
-                return self.end_failed(run, refused(refusal.to_string()));
-            }
-            Err(error) => return Err(error),
+        let result = self.stamp_step_covered(run.effect_id, result);
+        if let Err(refusal) = self.journal_step_record(run, at, &result, boundary)? {
+            return self.end_failed(run, refused(refusal.to_string()));
         }
         carried.prior_results.insert(at.step.name.clone(), result);
         Ok(StepVerdict::Goes(()))
@@ -699,11 +737,14 @@ impl Engine {
         at: &StepAt,
         result: &Value,
         why: &'static str,
-        start_failures: &[Site],
+        refused: &impl Fn(String) -> Value,
         carried: &Carried,
     ) -> Result<StepVerdict<()>, EngineError> {
         if let StepVerdict::Ended = self.refuse_contradiction(run, at, result, carried)? {
             return Ok(StepVerdict::Ended);
+        }
+        if let Err(refusal) = self.record_ending_gate_step(run, at, result)? {
+            return self.end_failed(run, refused(refusal.to_string()));
         }
         self.append_succeeded_under_fence(
             json!({
@@ -714,10 +755,7 @@ impl Engine {
                 "why": why,
             }),
             run.attempt_id,
-            |mut refusal| {
-                run.bound.deadline.name_words(&mut refusal);
-                run.failed_payload(at, &refusal, start_failures)
-            },
+            refused,
         )?;
         Ok(StepVerdict::Ended)
     }

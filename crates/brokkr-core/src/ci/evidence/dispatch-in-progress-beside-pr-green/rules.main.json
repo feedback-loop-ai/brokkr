@@ -1,0 +1,1 @@
+[{"type":"merge_queue","parameters":{"merge_method":"SQUASH","max_entries_to_build":4,"min_entries_to_merge":1,"max_entries_to_merge":4,"min_entries_to_merge_wait_minutes":0,"grouping_strategy":"ALLGREEN","check_response_timeout_minutes":100},"ruleset_source_type":"Repository","ruleset_source":"feedback-loop-ai/brokkr","ruleset_id":24071236}]

@@ -146,11 +146,11 @@ fn inputs(host: &Host, package: &Path) -> Vec<Served> {
     inputs
 }
 
-/// `held` extended to `serves` within five seconds: how its seals
+/// `held` extended to `serves` by an [`unhurried`] deadline: how its seals
 /// committed.
 fn extend(held: &Held, serves: Vec<Served>) -> Result<Commit, Unadmitted> {
     let commits = Cell::new(Commit::Synced);
-    extended(held, serves, soon(), &commits).map(|()| commits.get())
+    extended(held, serves, unhurried(), &commits).map(|()| commits.get())
 }
 
 /// The attempt `ids` of a zero-grant run on `worktree`, its one `work`
@@ -451,7 +451,7 @@ fn every_link_on_an_inputs_route_is_reserved() {
         Served::Entries(d.join("missing")),
         Served::Source(missing.clone()),
     ];
-    let budget = Budget::new(soon());
+    let budget = Budget::new(unhurried());
     assert_eq!(routed(&inputs, &budget), Ok(expected.clone()));
     let writer = boxed("work", &[&climbing]);
     let compared = kept(
@@ -486,7 +486,7 @@ fn a_route_past_its_bound_or_unread_refuses_and_reserves_nothing_less() {
         }
         Served::Source(d.join(format!("hops/{name}0")))
     };
-    let budget = Budget::new(soon());
+    let budget = Budget::new(unhurried());
     let bounded = routed(&[chain("a", HOPS_MAX)], &budget).unwrap();
     assert_eq!(bounded.len(), HOPS_MAX + 1, "forty links and the file");
     assert_eq!(bounded.last(), Some(&Served::Source(file.clone())));
@@ -594,7 +594,7 @@ fn a_bind_of_the_directory_a_link_lies_in_is_refused() {
             [("run-b", &Writing::from(&writer))],
             &serves,
             &host.root,
-            &Budget::new(soon()),
+            &Budget::new(unhurried()),
         );
         let expected = refused.then(|| exposing("work", "run-b", &links.join("server")));
         assert_eq!(compared.err(), expected, "{source:?}");
@@ -865,7 +865,7 @@ fn a_mount_table_that_proves_nothing_keeps_no_writer() {
             [("run-b", &Writing::from(&writer))],
             &serves,
             &host.root,
-            &Budget::new(soon()),
+            &Budget::new(unhurried()),
         )
     };
     let unmounted = |path: &Path| Err(Unknown::Unmounted(path.to_path_buf()));
@@ -902,7 +902,7 @@ fn a_mount_table_that_proves_nothing_keeps_no_writer() {
             [("run-b", &Writing::from(&writer))],
             &entries,
             &host.root,
-            &Budget::new(soon())
+            &Budget::new(unhurried())
         ),
         refused
     );
@@ -984,7 +984,8 @@ fn raced(
     let (admitted, extending) = std::thread::scope(|scope| {
         let (compared, told) = mpsc::channel();
         let root = &host.root;
-        let holding = scope.spawn(|| admit_with(root, &incoming, soon(), &held_open(compared)));
+        let holding =
+            scope.spawn(|| admit_with(root, &incoming, unhurried(), &held_open(compared)));
         let racing = told.recv().map(|()| extend(&held, serves()));
         (holding.join().unwrap(), racing)
     });
@@ -995,7 +996,7 @@ fn raced(
         let (compared, told) = mpsc::channel();
         let holding = scope.spawn(|| {
             let (open, commits) = (held_open(compared), Cell::new(Commit::Synced));
-            extended_with(&held, serves(), (soon(), &commits), &open)
+            extended_with(&held, serves(), (unhurried(), &commits), &open)
         });
         let incoming = writing(&b, ["run-b", "b2"], &[&b, writable]);
         let racing = told.recv().map(|()| host.admit(&incoming).map(drop));
@@ -1029,8 +1030,8 @@ fn a_free_lock_or_an_uncertain_settlement_releases_no_source() {
     };
     let ends: [&dyn Fn(Held); 4] = [
         &drop,
-        &|held| assert_eq!(proved(&held, soon()), Ok(Commit::Synced)),
-        &|held| witnessed_by(&mut Some(held), &unresolved, soon()),
+        &|held| assert_eq!(proved(&held, unhurried()), Ok(Commit::Synced)),
+        &|held| witnessed_by(&mut Some(held), &unresolved, unhurried()),
         &|held| freed(&held),
     ];
     for (index, end) in ends.into_iter().enumerate() {
@@ -1085,7 +1086,7 @@ pub(in crate::engine) fn proven_settled(home: &Path, worktree: &Path, run: &str)
         authored: Authored::default(),
         adopted: None,
     };
-    assert_eq!(proved(&held, soon()), Ok(Commit::Synced));
+    assert_eq!(proved(&held, unhurried()), Ok(Commit::Synced));
     attempt
 }
 
@@ -1108,7 +1109,7 @@ fn bound_engine() {
     let dir = PathBuf::from(dir);
     let root = Arc::new(opened(&dir.join("home")));
     let (a, b, docs) = (dir.join("a"), dir.join("b"), dir.join("opt/docs"));
-    let held = admit(&root, &writing(&a, ["run-a", "a1"], &[&a]), soon()).unwrap();
+    let held = admit(&root, &writing(&a, ["run-a", "a1"], &[&a]), unhurried()).unwrap();
     let mut serves = fixed(&dir.join("boot/brokkr"));
     serves.push(Served::Source(docs.clone()));
     assert_eq!(extend(&held, serves), Ok(Commit::Synced));
@@ -1116,13 +1117,13 @@ fn bound_engine() {
     for (index, writable) in [dir.join("bound/lib"), dir.join("nest")].iter().enumerate() {
         let incoming = writing(&b, ["run-b", &format!("b{index}")], &[&b, writable]);
         assert_eq!(
-            admit(&root, &incoming, soon()).err(),
+            admit(&root, &incoming, unhurried()).err(),
             refused,
             "{writable:?}"
         );
     }
     let apart = writing(&b, ["run-b", "b9"], &[&b, &dir.join("apart/lib")]);
-    assert_eq!(admit(&root, &apart, soon()).map(drop), Ok(()));
+    assert_eq!(admit(&root, &apart, unhurried()).map(drop), Ok(()));
     println!("bound: refused within a bind and beneath one, kept apart");
 }
 
@@ -1186,7 +1187,7 @@ fn real_binds_of_a_source_are_refused_by_the_mount_table() {
 pub(in crate::engine) fn standing_writer(home: &Path, worktree: &Path, writable: &Path) -> Held {
     let root = Arc::new(opened(home));
     let claim = writing(worktree, ["run-b", "b1"], &[worktree, writable]);
-    admit(&root, &claim, soon()).unwrap()
+    admit(&root, &claim, unhurried()).unwrap()
 }
 
 /// The lease of `engine`'s run on its worktree for the attempt `attempt`,
@@ -1196,7 +1197,7 @@ pub(in crate::engine) fn leased(engine: &mut Engine, home: &Path, attempt: &str)
     let worktree = std::fs::canonicalize(engine.workdir()).unwrap();
     let root = Arc::new(opened(home));
     let claim = writing(&worktree, [&engine.run_id.clone(), attempt], &[&worktree]);
-    engine.held = Some(admit(&root, &claim, soon()).unwrap());
+    engine.held = Some(admit(&root, &claim, unhurried()).unwrap());
 }
 
 /// `engine`'s lease ([`leased`]) as one admitted with evidence at stake,
@@ -1500,7 +1501,7 @@ fn a_link_is_guarded_as_its_own_entry_not_as_what_it_names() {
     let program = written(&host, "var/users/u/srv/bin/server");
     let beside = plain(&host, "var/users/u/other");
     linked(&host, &[("users", "var/users")]);
-    let budget = Budget::new(soon());
+    let budget = Budget::new(unhurried());
     let spelled = Served::Source(d.join("users/u/srv/bin/server"));
     let serves = routed(&[spelled], &budget).unwrap();
     let link = d.join("users");
@@ -1699,7 +1700,7 @@ fn admitted_under(engine: &mut Engine, home: &Path) -> bool {
     let ids = ["effect", "attempt", "work"];
     let coordination: Coordination<'_> = (home.to_path_buf(), &root);
     let selection = Selection::new();
-    let admitted = engine.admit_in(coordination, ids, body, &selection, soon());
+    let admitted = engine.admit_in(coordination, ids, body, &selection, unhurried());
     admitted.unwrap()
 }
 
@@ -1745,7 +1746,7 @@ fn a_boxed_writers_reach_of_an_unopened_root_that_cannot_be_proved_is_refused() 
     let work = host.worktree("work");
     let records = coordination(&host.dir.path().join("never/home"));
     let boxed_in = writing(&work, ["run-w", "w1"], &[&work]);
-    let budget = Budget::new(soon());
+    let budget = Budget::new(unhurried());
     let keep = |claim: &Claim, root: &Path| records_kept(claim, root, shown, &budget);
     assert_eq!(keep(&boxed_in, &records), Ok(()), "the table proves it");
     let _torn = Shown::text("not a mount table\n".into());
@@ -1812,13 +1813,13 @@ fn a_root_reaching_writer_refused_unopened_leaves_a_later_broker_alone() {
     let a = host.worktree("a");
     let docs = package(&host);
     let broker = writing(&a, ["run-a", "a1"], &[&a]);
-    let held = admit(&root, &broker, soon()).unwrap();
+    let held = admit(&root, &broker, unhurried()).unwrap();
     assert_eq!(extend(&held, inputs(&host, &docs)), Ok(Commit::Synced));
     let lease = records.join(&broker.repo).join("run-a").join(RESERVATION);
     let bytes = std::fs::read(&lease).unwrap();
     let later = writing(&a, ["run-a", "a2"], &[&a, &home]);
     assert_eq!(
-        admit(&root, &later, soon()),
+        admit(&root, &later, unhurried()),
         exposed("work", "run-a", &records)
     );
     assert_eq!(std::fs::read(&lease).unwrap(), bytes);
@@ -1836,7 +1837,7 @@ fn an_extension_never_writes_back_a_reservation_removed_at_its_seal() {
     let at = host.reservation(&a, "run-a");
     let commits = Cell::new(Commit::Synced);
     LATE.set(Some(Late::Remove));
-    let refused = extended(&held, inputs(&host, &docs), soon(), &commits);
+    let refused = extended(&held, inputs(&host, &docs), unhurried(), &commits);
     assert_eq!(refused, Err(Unknown::Unsealed.into()));
     assert!(!at.exists(), "the extension wrote nothing back");
 }

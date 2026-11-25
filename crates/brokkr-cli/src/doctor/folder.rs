@@ -121,7 +121,7 @@ impl Inspected {
 /// A map that could not be inspected is unknown authority (design D8):
 /// nothing is compiled under no map in its place, which would grant and
 /// refuse in a realm nobody declared. The compile is a run's, so its
-/// outcome is the map's refusal, as `brokkr compile` prints it (U9a2).
+/// outcome is the map's refusal, as `brokkr library compile` prints it (U9a2).
 pub(super) fn bundle(
     bundle: Option<&Path>,
     defaults: &DoctorDefaults,
@@ -163,7 +163,7 @@ fn default_folder(found: &Result<Found, FolderError>) -> Option<PathBuf> {
 
 /// `dir` compiled as a run would compile it, under the map a run loads
 /// (`realms`, else the folder's), so a map that will not load is the
-/// compile's refusal, as `brokkr compile` prints it, never a folder
+/// compile's refusal, as `brokkr library compile` prints it, never a folder
 /// compiled under no map.
 fn compile_folder(workspace: &Path, dir: &Path, realms: Option<&Path>) -> anyhow::Result<Bundle> {
     let world = World::discover(workspace, realms)?;

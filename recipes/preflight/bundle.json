@@ -67,7 +67,7 @@
           "claude",
           "--",
           "--model",
-          "claude-fable-5-1",
+          "claude-fable-5-2",
           "--effort",
           "high"
         ]

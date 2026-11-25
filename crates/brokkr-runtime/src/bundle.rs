@@ -29,6 +29,8 @@ macro_rules! uncompiled_sequence_step {
             $($field)*
             ends_on: Vec::new(),
             hard_results: Vec::new(),
+            residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
+            declares_change: false,
         }
     };
 }
@@ -49,6 +51,8 @@ mod opened;
 mod origins;
 mod parse;
 mod phases;
+mod pinned_refusal;
+use pinned_refusal::PinnedScriptRefusal;
 mod pins;
 mod reference;
 mod route_policy;
@@ -60,7 +64,10 @@ mod survey;
 mod tier;
 mod walk;
 
-pub use aggregate::Aggregate;
+pub(crate) use aggregate::{
+    laws_of, MemberFindings, MemberLaw, MemberLaws, MemberVerdict, PanelJoin,
+};
+pub use aggregate::{Aggregate, BodyRefusal, SelectCase};
 use capability_record::{record_capabilities, CapabilityWalk};
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
@@ -142,6 +149,9 @@ pub enum CompileError {
     /// A seat that cannot be the folder's own (decision 0091 ruling 1).
     #[error("bundle: {0}")]
     Folder(compose::FolderSeatRefusal),
+    /// A body the engine can never take (decision 0109 follow-ups, #1221).
+    #[error("bundle: {0}")]
+    Body(BodyRefusal),
 }
 /// How [`CompileError::Capability`] renders.
 fn capability_line(reason: &str) -> String {
@@ -286,6 +296,12 @@ pub struct SequenceStep {
     /// journal can say a hard word ended the sequence rather than an
     /// unreachable one.
     pub hard_results: Vec<String>,
+    /// The residual pair its seat compiles, which a gate step's or a panel
+    /// step's word is bound to before a later step runs (decision 0109).
+    pub residual: brokkr_core::findings::ResidualPair,
+    /// Whether its seat's compiled input set declares `change`, read at
+    /// compile from the seat scope, a select case's included (#1221 E).
+    pub declares_change: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -312,6 +328,8 @@ pub struct PanelMember {
     pub candidates: Vec<Candidate>,
     pub written: Vec<String>,
     pub class: SeatClass,
+    /// What its word answers to, compiled at its site (decision 0109).
+    pub(crate) law: MemberLaw,
 }
 
 /// Which side of decision 0021 ruling 1 a driver-bearing site sits on.
@@ -683,6 +701,8 @@ pub struct Bundle {
     /// phase whose office receives it. Review is supplied only to the
     /// spec-compliance member by the engine.
     pub dialect_prompts: BTreeMap<String, String>,
+    /// The kinds this compile's adapters let a seat write (decision 0075 ruling 2); never digested.
+    pub declared_kinds: crate::agents::DeclaredKinds,
 }
 
 /// The default library roots, resolved against the current working
@@ -740,6 +760,7 @@ struct ResolvedSeat {
     candidates: Vec<Candidate>,
     limits: Option<Limits>,
     inputs: Option<Vec<String>>,
+    results: Option<Vec<String>>,
     /// Decision 0043: the agent's hands, when it declared them.
     hands: Option<HandsSpec>,
 }
@@ -1026,10 +1047,11 @@ impl Bundle {
         // Every compiled step's endings, after the dialect wrapper has
         // written the synthetic verify sequence (decision 0050, ruling 7).
         for (phase, seat) in &mut seated.seats {
+            let protected = *phase == table.protected_phase;
             sequence::stamp_endings(
                 &table.machine,
                 &resolved.name,
-                phase,
+                (phase, protected),
                 &seat.results,
                 &mut seat.body,
             )?;
@@ -1048,6 +1070,7 @@ impl Bundle {
             ..
         } = table;
 
+        let declared_kinds = crate::agents::DeclaredKinds::of(agents.loaded());
         let capability_record = assemble::capability_record(&authority, &agents, &sites);
         let select_records = assemble::select_records(&seats);
         let projections = assemble::projections(&sites);
@@ -1069,6 +1092,7 @@ impl Bundle {
         resolved.check_leaf(manifest["files"].as_object().expect("manifest files"))?;
         let charters = assemble::charter_pins(&sites);
         Ok(Bundle {
+            declared_kinds,
             hands: projections.hands,
             inline_resume: projections.inline_resume,
             sites,
@@ -1368,6 +1392,7 @@ fn resolve_reference(
         candidates,
         limits: resolution.limits,
         inputs: resolution.inputs.clone(),
+        results: resolution.results.clone(),
         hands: resolution.hands.clone(),
     })
 }
@@ -2726,40 +2751,38 @@ fn measured(gap: &Option<String>) -> String {
 /// a careless bundle, not a hostile seat (decision 0049 ruling 3).
 ///
 /// Returns the manifest key the script is pinned under.
-fn pinned_script(dir: &Path, parts: &[String]) -> Result<String, String> {
+fn pinned_script<'a>(
+    dir: &'a Path,
+    parts: &'a [String],
+) -> Result<String, PinnedScriptRefusal<'a>> {
     let after = parts
         .iter()
         .position(|part| part == "--")
         .map(|index| &parts[index + 1..])
-        .ok_or_else(|| "the dispatch carries no `--` after `exec`".to_string())?;
+        .ok_or(PinnedScriptRefusal::NoSeparator)?;
     for token in after {
         if let Some(relative) = token.strip_prefix("./") {
             return pinned_key(dir, token, relative);
         }
         if token.starts_with('-') {
-            return Err(format!(
-                "'{token}' is an option token before the script; interpreters take no \
-                 options here (`bash -c` would run text, not pinned bytes)"
-            ));
+            return Err(PinnedScriptRefusal::OptionToken { token });
         }
         if token.contains(['/', '\\']) {
-            return Err(format!(
-                "'{token}' is spelled as a path that is not `./`-relative to the bundle; \
-                 only a `./` script the manifest walk pins is admitted unboxed"
-            ));
+            return Err(PinnedScriptRefusal::Spelled { token });
         }
         // A bare interpreter name (`bash`, `python3`, `true`): walked
         // past, until a script token or the end of the argv.
     }
-    Err(format!(
-        "the command names no `./`-relative script after its interpreters ({})",
-        after.join(" ")
-    ))
+    Err(PinnedScriptRefusal::NoScript { after })
 }
 
 /// The lookup half of [`pinned_script`]: the components of one `./`
 /// token, and the file they name under the declaring layer.
-fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String> {
+fn pinned_key<'a>(
+    dir: &'a Path,
+    token: &'a str,
+    relative: &'a str,
+) -> Result<String, PinnedScriptRefusal<'a>> {
     let components: Vec<&str> = relative.split('/').collect();
     // Closed against the interpreters measured in decision 0048 only:
     // * ? [ ] select glob matches; { } expand brace alternatives; ( )
@@ -2776,29 +2799,26 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
     // This changes admission only; walk_files and the canonical pin keep
     // the exact filename bytes. See 0048 for evidence and scope.
     const STARTUP_METACHARACTERS: &str = "*?[]{}()'\"\\~`\r\n";
-    for component in &components {
+    for &component in &components {
         if let Some(character) = component
             .chars()
             .find(|c| STARTUP_METACHARACTERS.contains(*c))
         {
-            return Err(format!(
-                "'{token}' has component {component:?} containing refused startup character \
-                 {character:?}; rename the component to meet the pinned-script admission \
-                 rule (decision 0048; decision 0046 ruling 4)"
-            ));
+            return Err(PinnedScriptRefusal::Startup {
+                token,
+                component,
+                character,
+            });
         }
     }
     let plain = |component: &&str| {
         !component.is_empty() && *component != "." && *component != ".." && !component.contains(':')
     };
     if !components.iter().all(plain) {
-        return Err(format!(
-            "'{token}' is not a plain `./`-relative path: every component is a plain name, \
-             never `..`, `.`, empty, a `\\` or a drive"
-        ));
+        return Err(PinnedScriptRefusal::NotPlain { token });
     }
     if let Some(skip) = crate::places::unpinned_reason(dir, Path::new(relative))
-        .map_err(|refused| refused.to_string())?
+        .map_err(PinnedScriptRefusal::Git)?
     {
         let holds = match skip {
             crate::places::Skip::Workspace
@@ -2810,9 +2830,11 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
                  the bundle's identity"
             }
         };
-        return Err(format!(
-            "'{token}' names a path the manifest walk does not pin ({relative} is {holds})"
-        ));
+        return Err(PinnedScriptRefusal::Unpinned {
+            token,
+            relative,
+            holds,
+        });
     }
     let mut path = dir.to_path_buf();
     for component in &components {
@@ -2820,10 +2842,7 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
     }
     match std::fs::metadata(&path) {
         Ok(meta) if meta.is_file() => Ok(components.join("/")),
-        _ => Err(format!(
-            "'{token}' names no regular file under the declaring layer {}",
-            dir.display()
-        )),
+        _ => Err(PinnedScriptRefusal::NotAFile { token, dir }),
     }
 }
 

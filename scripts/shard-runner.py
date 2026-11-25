@@ -24,14 +24,20 @@ A test binary is a member of argv's process group that is either
     (`target/<profile>/deps/<name>-<hash>`, a target-triple profile, and
     cargo-llvm-cov's `target/llvm-cov-target/...` alike), whose name is the
     executable's file name; or
+  * a coverage test binary in the pinned nightly's layout: its executable's
+    parent directory is named `out`, inside a `<hash>` folder inside a
+    `<package>` folder inside `build`
+    (`build/<package>/<hash>/out/<name>-<hash>`), and its file name ends in
+    that folder's `-<hash>`, whose name is the executable's file name; or
   * a doctest run: its executable's file name is `rustdoc` and its
     arguments hold the --test flag, whose name is `Doc-tests <crate>` from its
     `--crate-name` argument, or `Doc-tests <pid>` when that argument
     cannot be read.
 
-Nothing else is judged: cargo, rustc, linkers, build scripts and a test's
-helpers outside `deps` get no clock. A helper is inside its parent binary's
-life anyway.
+Nothing else is judged: cargo, rustc, linkers, build scripts
+(`build/<package>-<hash>/build-script-build`) and what their runs leave in
+`build/<package>-<hash>/out/`, and a test's helpers outside those layouts get
+no clock. A helper is inside its parent binary's life anyway.
 
 The runner copies every output byte to its own stdout unchanged and never
 decodes it, so nothing a test prints can start, restart, stop or delay a
@@ -366,19 +372,42 @@ def crate_name(args):
     return None
 
 
+def coverage_test_binary(exe):
+    """Whether `exe` is a test binary in the pinned nightly's coverage layout.
+
+    cargo-llvm-cov under `rust-nightly-version.txt` puts each test binary at
+    `build/<package>/<hash>/out/<name>-<hash>`, with no `deps` folder (#1129),
+    and the file's `-<hash>` suffix is its folder's hash. A build script sits
+    at `build/<package>-<hash>/build-script-build` and its output under
+    `build/<package>-<hash>/out/`, one folder shallower, so neither matches.
+    """
+    out = os.path.dirname(exe)
+    hash_dir = os.path.dirname(out)
+    package_dir = os.path.dirname(hash_dir)
+    digest = os.path.basename(hash_dir)
+    return (os.path.basename(out) == "out"
+            and digest != ""
+            and os.path.basename(package_dir) != ""
+            and os.path.basename(os.path.dirname(package_dir)) == "build"
+            and os.path.basename(exe).endswith("-" + digest))
+
+
 def test_binary_name(member, read=read_args):
     """The name `member` is judged by, or None when it is not a test binary.
 
-    A `deps` executable is a cargo test binary named by its file name. A
-    `rustdoc` whose arguments hold the --test flag is a doctest run named by its
-    `--crate-name` or, when that cannot be read, by its pid. A `rustdoc`
-    whose arguments cannot be read at all is still judged, the fail-closed
-    reading of a doctest whose arguments a test cannot hide.
+    A cargo test binary is named by its file name: a `deps` executable,
+    stable cargo's layout, or a coverage executable in the pinned nightly's
+    layout (`coverage_test_binary`). A `rustdoc` whose arguments hold the
+    --test flag is a doctest run named by its `--crate-name` or, when that
+    cannot be read, by its pid. A `rustdoc` whose arguments cannot be read
+    at all is still judged, the fail-closed reading of a doctest whose
+    arguments a test cannot hide.
     """
     if member.exe is None:
         return None
     base = os.path.basename(member.exe)
-    if os.path.basename(os.path.dirname(member.exe)) == "deps":
+    if (os.path.basename(os.path.dirname(member.exe)) == "deps"
+            or coverage_test_binary(member.exe)):
         return base[:NAME_LIMIT]
     if base != "rustdoc":
         return None

@@ -50,86 +50,35 @@ pub(super) const LABEL_MAX: usize = 14;
 /// A corrupt fold must not put twenty digits on the name baseline.
 pub(super) const VISITS_MAX: u64 = 99;
 
-/// The node vocabulary: `ui.html`'s `NODE_CLASS` allowlist plus its
-/// `phase.current × summary.status` branch, transliterated. Seven
-/// classes — deliverable 2's six, plus the one fallback arm Rust obliges.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub(super) enum Class {
-    Visited,
-    Current,
-    Park,
-    Failed,
-    Finished,
-    Active,
-    Unknown,
-}
+/// The node vocabulary, its classification and its colour choice live
+/// in `render::graph`, the one home the plain frame reads too (#1168).
+pub(super) use crate::render::graph::{class_for_node, class_for_phase, Class, LIVE_RAMP};
+use crate::render::graph::{Hue, Paint, Weight};
 
-/// One classification, one rendering of it: a **(colour, marker ramp)**
-/// pair per class. The ramp is the pulse's four frames; classes that do
-/// not pulse repeat one glyph, so the frame index is inert for them and
-/// costs no branch. `Active`'s still glyph differs from `Finished`'s in
-/// the GLYPH channel, so the distinction survives a terminal with no
-/// colour and an operator with no animation.
-///
-/// This is deliberately **not** `render::tone`: `tone` maps
-/// `awaiting_operator` to `Quiet`, while the graph needs **park** as a
-/// distinct yellow class, and widening `tone` would move `brokkr runs`'
-/// colour. One classification per question, not one table for two.
-/// Node glyphs are calibrated BY THE OPERATOR'S EYE, like the
-/// arrowhead: `⏺` (U+23FA) is the filled node whose centre sits on the
-/// dash axis in their font, and the math operators `⊗`/`⊙` share that
-/// axis by design. The geometric shapes `●○◉◎` do not — they are the
-/// reason this table exists. Every live class pulses on the SAME ramp,
-/// so all live nodes breathe in phase — and the ramp STARTS on `∙`, so
-/// a live node differs from a finished `⏺` in the glyph channel even
-/// with colour off and animation frozen (the property the vocabulary
-/// test pins).
-pub(super) const LIVE_RAMP: [&str; 4] = ["∙", "⏺", "∙", "·"];
-
+/// The console's rendering of the shared class table: the class's paint
+/// in ratatui, and its marker ramp. The ramp is the pulse's four frames;
+/// classes that do not pulse repeat one glyph, so the frame index is
+/// inert for them and costs no branch. `Active`'s still glyph differs
+/// from `Finished`'s in the GLYPH channel, so the distinction survives a
+/// terminal with no colour and an operator with no animation.
 pub(super) fn look(class: Class) -> (Style, [&'static str; 4]) {
-    match class {
-        Class::Visited => (
-            Style::new().fg(Color::Magenta).add_modifier(Modifier::DIM),
-            ["⏺", "⏺", "⏺", "⏺"],
-        ),
-        Class::Current => (Style::new().fg(Color::Green), LIVE_RAMP),
-        Class::Park => (Style::new().fg(Color::Yellow), ["⊙", "⊙", "⊙", "⊙"]),
-        Class::Failed => (Style::new().fg(Color::Red), ["⊗", "⊗", "⊗", "⊗"]),
-        Class::Finished => (Style::new().fg(Color::Green), ["⏺", "⏺", "⏺", "⏺"]),
-        Class::Active => (
-            Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
-            LIVE_RAMP,
-        ),
-        Class::Unknown => (
-            Style::new().add_modifier(Modifier::DIM),
-            ["·", "·", "·", "·"],
-        ),
-    }
+    let (paint, ramp) = crate::render::graph::mark(class);
+    (paint_style(paint), ramp)
 }
 
-/// A phase's own rail node. An unrecognised `summary.status` renders
-/// **quiet, never live** — a deliberate, named divergence from
-/// `ui.html`, which falls through to green. The terminal declines to
-/// guess, in the manner of `render::tone`'s own `_ => Tone::Quiet`.
-pub(super) fn class_for_phase(current: bool, status: &str) -> Class {
-    match (current, status) {
-        (false, _) => Class::Visited,
-        (true, "running" | "completed") => Class::Current,
-        (true, "awaiting_operator") => Class::Park,
-        (true, "stopped") => Class::Failed,
-        (true, _) => Class::Unknown,
-    }
-}
-
-/// A node inside a phase, from the model's closed-set key. **No journal
-/// string reaches this table**, and an unlisted key is the quiet arm.
-pub(super) fn class_for_node(state_class: &str) -> Class {
-    match state_class {
-        "on-phosphor" => Class::Finished,
-        "in-active" => Class::Active,
-        "on-park" => Class::Park,
-        "on-halt" => Class::Failed,
-        _ => Class::Unknown,
+/// The shared colour vocabulary in ratatui's terms.
+fn paint_style(paint: Paint) -> Style {
+    let style = match paint.hue {
+        Some(Hue::Magenta) => Style::new().fg(Color::Magenta),
+        Some(Hue::Green) => Style::new().fg(Color::Green),
+        Some(Hue::Yellow) => Style::new().fg(Color::Yellow),
+        Some(Hue::Red) => Style::new().fg(Color::Red),
+        None => Style::new(),
+    };
+    match paint.weight {
+        Weight::Normal => style,
+        Weight::Dim => style.add_modifier(Modifier::DIM),
+        Weight::Bold => style.add_modifier(Modifier::BOLD),
     }
 }
 
@@ -151,8 +100,9 @@ pub(super) fn pulse(tick: usize, live: bool, animate: bool) -> usize {
 /// reports 6 for `設計フェーズ` where the terminal draws 12; the rail is
 /// the first pane here that places its own x positions, so it is the
 /// first that can be lied to. **Every width in the graph comes from
-/// here**, so there is no second measurement to disagree with the first.
-pub(super) fn width_of(text: &str) -> usize {
+/// here**, so there is no second measurement to disagree with the first;
+/// `brokkr stats graph`'s tables measure their cells here too (#1167).
+pub(crate) fn width_of(text: &str) -> usize {
     span(text, plain()).width()
 }
 

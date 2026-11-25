@@ -9,9 +9,7 @@ use brokkr_core::realms::RealmMap;
 use brokkr_core::EventType;
 use serde_json::{json, Value};
 
-fn brokkr() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
+use crate::isolated::{alone, Alone};
 
 pub(crate) const POLICY: &str = r#"{
   "schema": "forge.phase-machine/v1",
@@ -38,7 +36,9 @@ impl Workspace {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
         };
-        std::fs::create_dir(ws.path()).unwrap();
+        // A run with no --repo operates the workspace, whose review is
+        // checked on a head (fix round 0109a1r3, H1).
+        crate::brokkr_folder::clean_head(&ws.path());
         let bundle = ws.path().join("bundle");
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
         std::fs::create_dir_all(ws.path().join("state")).unwrap();
@@ -87,9 +87,19 @@ impl Workspace {
     /// review): a coordination root inside it would be in its writers'
     /// reach.
     fn run(&self, args: &[&str]) -> (Option<i32>, String, String) {
+        self.ran(&mut crate::built::brokkr(args))
+    }
+
+    /// `brokkr doctor` as [`Workspace::run`] runs a verb, alone in a PID
+    /// namespace of its own (#1137i).
+    fn doctor(&self, alone: &Alone) -> (Option<i32>, String, String) {
+        self.ran(&mut alone.brokkr(["doctor"]))
+    }
+
+    /// `command`, run as [`Workspace::run`] runs it.
+    fn ran(&self, command: &mut Command) -> (Option<i32>, String, String) {
         crate::engine::library(&self.path());
-        let out = Command::new(brokkr())
-            .args(args)
+        let out = command
             .env("HOME", crate::engine::home_in(self.dir.path()))
             .current_dir(self.path())
             .output()
@@ -156,14 +166,14 @@ fn git_repo(repo: &Path, name: &str) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-/// `brokkr realms` lists the world: every realm with its path, default
+/// `brokkr system realms` lists the world: every realm with its path, default
 /// branch and current HEAD, and the journal the world writes.
 #[test]
 fn the_realms_verb_lists_the_world_and_writes_nothing() {
     let ws = Workspace::new(Some(map_over("realm")));
     let head = git_repo(&ws.path().join("realm"), "first");
 
-    let (code, out, stderr) = ws.run(&["realms"]);
+    let (code, out, stderr) = ws.run(&["system", "realms"]);
     assert_eq!(code, Some(0), "{stderr}");
     let lines: Vec<&str> = out.lines().collect();
     assert!(lines[0].starts_with("map      "), "{out}");
@@ -174,7 +184,7 @@ fn the_realms_verb_lists_the_world_and_writes_nothing() {
     assert_eq!(lines.len(), 3, "{out}");
 
     // `--json` is the same derivation, spelled for a script.
-    let (code, json, stderr) = ws.run(&["realms", "--json"]);
+    let (code, json, stderr) = ws.run(&["system", "realms", "--json"]);
     assert_eq!(code, Some(0), "{stderr}");
     let view: Value = serde_json::from_str(&json).unwrap();
     assert_eq!(
@@ -250,7 +260,7 @@ fn recorded_heads(db: &Path, run_id: &str) -> Value {
         .unwrap_or_else(|| panic!("run {run_id} recorded no heads in {}", db.display()))
 }
 
-/// Phase 2 slice (i), proof 2: `brokkr realms` over two REAL
+/// Phase 2 slice (i), proof 2: `brokkr system realms` over two REAL
 /// repositories prints each realm's OWN head — two different shas, not
 /// one repeated — with its own path, its own branch and, in this
 /// many-hearth world, its own journal (decision 0026 ruling 1).
@@ -264,7 +274,7 @@ fn the_realms_verb_lists_two_repositories_each_by_its_own_head() {
     let ws = Workspace::new(Some(two_repository_map()));
     let (alpha_head, beta_head) = two_repositories(&ws);
 
-    let (code, out, stderr) = ws.run(&["realms"]);
+    let (code, out, stderr) = ws.run(&["system", "realms"]);
     assert_eq!(code, Some(0), "{stderr}");
     // Paths print platform-native; columns are aligned by padding, so
     // the cells are read as cells rather than by counting spaces.
@@ -310,7 +320,7 @@ fn the_realms_verb_lists_two_repositories_each_by_its_own_head() {
     );
 
     // `--json` is the same derivation, and names each hearth distinctly.
-    let (code, listed, stderr) = ws.run(&["realms", "--json"]);
+    let (code, listed, stderr) = ws.run(&["system", "realms", "--json"]);
     assert_eq!(code, Some(0), "{stderr}");
     let view: Value = serde_json::from_str(&listed).unwrap();
     let journal = |index: usize| {
@@ -436,8 +446,8 @@ fn the_map_chooses_the_journal_for_the_run_and_for_every_read_surface() {
     assert!(announced(&stderr), "{stderr}");
 
     for surface in [
-        vec!["inspect", "--run", "latest", "--json"],
-        vec!["export", "--run", "latest", "--out", "exported"],
+        vec!["runs", "inspect", "--run", "latest", "--json"],
+        vec!["journal", "export", "--run", "latest", "--out", "exported"],
     ] {
         let (code, _, stderr) = ws.run(&surface);
         assert_eq!(code, Some(0), "{surface:?}: {stderr}");
@@ -494,7 +504,15 @@ fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
     let (code, _, stderr) = ws.run(&["resume", "--run", &run_id, "--bundle", "bundle"]);
     assert_eq!(code, Some(2), "resumed and still parked: {stderr}");
 
-    let stop = ["operator", "stop", "--run", &run_id, "--cause", "withdrawn"];
+    let stop = [
+        "runs",
+        "operator",
+        "stop",
+        "--run",
+        &run_id,
+        "--cause",
+        "withdrawn",
+    ];
     let (code, _, stderr) = ws.run(&[&stop[..], &["--reason", "done"]].concat());
     assert_eq!(code, Some(0), "{stderr}");
     assert!(
@@ -507,21 +525,21 @@ fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
 
     // The stop in force names the cause the conclusion names, so nothing
     // follows `run/stopped` (decision 0064 choice 4 (a)).
-    let conclude = ["conclude", "--run", &run_id, "--cause", "withdrawn"];
+    let conclude = ["runs", "conclude", "--run", &run_id, "--cause", "withdrawn"];
     let (code, _, stderr) = ws.run(&[&conclude[..], &["--reason", "closing"]].concat());
     assert_eq!(code, Some(3), "concluded as stopped: {stderr}");
     assert_eq!(last_event(), EventType::RunStopped);
 
     for verb in [
-        vec!["costs", "--run", &run_id],
-        vec!["replay", "--run", &run_id],
-        vec!["ledger", "--run", &run_id],
-        vec!["compare", &run_id, &run_id],
+        vec!["stats", "costs", "--run", &run_id],
+        vec!["runs", "replay", "--run", &run_id],
+        vec!["stats", "ledger", "--run", &run_id],
+        vec!["runs", "compare", &run_id, &run_id],
     ] {
         let (code, _, stderr) = ws.run(&verb);
         assert_eq!(code, Some(0), "{verb:?}: {stderr}");
     }
-    let (code, _, stderr) = ws.run(&["rerun", "--run", &run_id, "--bundle", "bundle"]);
+    let (code, _, stderr) = ws.run(&["runs", "rerun", "--run", &run_id, "--bundle", "bundle"]);
     assert_eq!(code, Some(2), "{stderr}");
     assert!(
         stderr.contains(&format!("rerun of {run_id} as ")),
@@ -532,11 +550,13 @@ fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
         .list_runs()
         .unwrap();
     assert_eq!(runs.len(), 2, "the rerun is in the map's journal: {runs:?}");
-    let (_, readout, _) = ws.run(&["doctor"]);
-    assert!(
-        readout.contains(&format!("{} opens", world.display())),
-        "{readout}"
-    );
+    if let Some(alone) = alone() {
+        let (_, readout, _) = ws.doctor(&alone);
+        assert!(
+            readout.contains(&format!("{} opens", world.display())),
+            "{readout}"
+        );
+    }
     assert!(!default.exists(), "no verb opened the default journal");
 }
 
@@ -629,8 +649,8 @@ fn a_many_hearth_world_lists_its_fleet_grouped_by_realm() {
         "a fleet read moved a byte of a journal it read"
     );
 
-    // And `brokkr realms` names each realm's own hearth.
-    let (code, world, stderr) = ws.run(&["realms", "--json"]);
+    // And `brokkr system realms` names each realm's own hearth.
+    let (code, world, stderr) = ws.run(&["system", "realms", "--json"]);
     assert_eq!(code, Some(0), "{stderr}");
     let world: Value = serde_json::from_str(&world).unwrap();
     assert!(world["realms"][0]["journal"]
@@ -846,7 +866,7 @@ fn the_run_manifest_pins_the_maps_hash_and_embeds_the_map() {
     let ws = Workspace::new(Some(map_over(".")));
     let (code, run_id, stderr) = ws.brokkr_run(&[]);
     assert_eq!(code, Some(0), "{stderr}");
-    let (code, _, stderr) = ws.run(&["export", "--run", &run_id, "--out", "exported"]);
+    let (code, _, stderr) = ws.run(&["journal", "export", "--run", &run_id, "--out", "exported"]);
     assert_eq!(code, Some(0), "{stderr}");
 
     let manifest: Value = serde_json::from_str(
@@ -867,7 +887,7 @@ fn the_run_manifest_pins_the_maps_hash_and_embeds_the_map() {
 
     // The map is workspace data, not bundle data: the bundle's own
     // pinned files are untouched by adopting one.
-    let (code, compiled, _) = ws.run(&["compile", "--bundle", "bundle"]);
+    let (code, compiled, _) = ws.run(&["library", "compile", "--bundle", "bundle"]);
     assert_eq!(code, Some(0));
     let compiled: Value = serde_json::from_str(&compiled).unwrap();
     assert_eq!(compiled["manifest"]["files"], manifest["files"]);
@@ -906,7 +926,7 @@ fn the_run_manifest_records_the_crossing_the_run_stood_on() {
 
     let (code, run_id, stderr) = ws.brokkr_run(&[]);
     assert_eq!(code, Some(0), "{stderr}");
-    let (code, _, stderr) = ws.run(&["export", "--run", &run_id, "--out", "exported"]);
+    let (code, _, stderr) = ws.run(&["journal", "export", "--run", &run_id, "--out", "exported"]);
     assert_eq!(code, Some(0), "{stderr}");
     let manifest: Value = serde_json::from_str(
         &std::fs::read_to_string(ws.path().join(format!("exported/{run_id}.manifest.json")))
@@ -933,7 +953,7 @@ fn the_run_manifest_records_the_crossing_the_run_stood_on() {
 
     // The export verifies offline: chain, envelopes and fold, over a
     // journal whose run/started carries the crossing inside its manifest.
-    let (code, out, stderr) = ws.run(&["verify-run", &format!("exported/{run_id}.ndjson")]);
+    let (code, out, stderr) = ws.run(&["journal", "verify", &format!("exported/{run_id}.ndjson")]);
     assert_eq!(code, Some(0), "{stderr}{out}");
     let journal =
         std::fs::read_to_string(ws.path().join(format!("exported/{run_id}.ndjson"))).unwrap();
@@ -1025,7 +1045,7 @@ fn a_moved_crossing_refuses_run_rerun_and_resume_before_any_seat_spawns() {
     let (code, run_id, stderr) = ws.brokkr_run(&[]);
     assert_eq!(code, Some(0), "{stderr}");
     let export = |out: &str| {
-        let (code, _, stderr) = ws.run(&["export", "--run", &run_id, "--out", out]);
+        let (code, _, stderr) = ws.run(&["journal", "export", "--run", &run_id, "--out", out]);
         assert_eq!(code, Some(0), "{stderr}");
         std::fs::read_to_string(ws.path().join(format!("{out}/{run_id}.ndjson"))).unwrap()
     };
@@ -1042,6 +1062,7 @@ fn a_moved_crossing_refuses_run_rerun_and_resume_before_any_seat_spawns() {
 
     // `rerun`: a new run stands where `run` stands, so it refuses there.
     let (code, _, stderr) = ws.run(&[
+        "runs",
         "rerun",
         "--run",
         &run_id,
@@ -1077,7 +1098,7 @@ fn a_moved_crossing_refuses_run_rerun_and_resume_before_any_seat_spawns() {
     assert_eq!(export("after"), before, "a refusal continued the run");
 }
 
-/// `brokkr compile` shows each realm's crossings and never writes one
+/// `brokkr library compile` shows each realm's crossings and never writes one
 /// into the bundle (decision 0046 ruling 1's shape, decision 0057 ruling
 /// 1's home): the printed view carries the publisher's file and observed
 /// digest and the consumer's pin, `bundle.manifest` carries neither, and
@@ -1091,7 +1112,7 @@ fn a_moved_crossing_refuses_run_rerun_and_resume_before_any_seat_spawns() {
 fn compile_shows_each_realms_crossings_and_refuses_one_that_moved() {
     let ws = Workspace::new(None);
     let (published, pin) = crossing_map(&ws);
-    let (code, out, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
+    let (code, out, stderr) = ws.run(&["library", "compile", "--bundle", "bundle"]);
     assert_eq!(code, Some(0), "{stderr}");
     let view: Value = serde_json::from_str(&out).unwrap();
 
@@ -1126,7 +1147,7 @@ fn compile_shows_each_realms_crossings_and_refuses_one_that_moved() {
 
     // A moved crossing refuses the compile, in the same words.
     let observed = move_the_crossing(&published);
-    let (code, _, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
+    let (code, _, stderr) = ws.run(&["library", "compile", "--bundle", "bundle"]);
     assert_eq!(code, Some(1), "{stderr}");
     names_what_moved(&stderr, &pin, &observed);
 
@@ -1137,7 +1158,7 @@ fn compile_shows_each_realms_crossings_and_refuses_one_that_moved() {
     // that names the realm and no map at all are different authorities —
     // which is what the last two lines hold, and not the crossing's doing.
     std::fs::write(ws.path().join("realms.json"), map_over(".").to_string()).unwrap();
-    let (code, out, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
+    let (code, out, stderr) = ws.run(&["library", "compile", "--bundle", "bundle"]);
     assert_eq!(code, Some(0), "{stderr}");
     let plain: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(plain["digest"], digest, "a crossing moved a bundle digest");
@@ -1145,7 +1166,7 @@ fn compile_shows_each_realms_crossings_and_refuses_one_that_moved() {
     assert_eq!(plain["manifest"]["capabilities"]["realm"], json!("brokkr"));
 
     std::fs::remove_file(ws.path().join("realms.json")).unwrap();
-    let (code, out, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
+    let (code, out, stderr) = ws.run(&["library", "compile", "--bundle", "bundle"]);
     assert_eq!(code, Some(0), "{stderr}");
     let unmapped: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(
@@ -1162,9 +1183,10 @@ fn compile_shows_each_realms_crossings_and_refuses_one_that_moved() {
 /// moved, and doctor says which.
 #[test]
 fn doctor_names_the_realm_and_the_crossing_that_moved_and_reports_everything_else() {
+    let Some(alone) = alone() else { return };
     let ws = Workspace::new(None);
     let (published, pin) = crossing_map(&ws);
-    let (code, sound, _) = ws.run(&["doctor"]);
+    let (code, sound, _) = ws.doctor(&alone);
     assert_eq!(code, Some(0), "{sound}");
     assert!(
         sound.contains("ok       crossings brokkr: 1 published file(s) present, 0 pin(s) matching"),
@@ -1176,7 +1198,7 @@ fn doctor_names_the_realm_and_the_crossing_that_moved_and_reports_everything_els
     );
 
     let observed = move_the_crossing(&published);
-    let (code, moved, _) = ws.run(&["doctor"]);
+    let (code, moved, _) = ws.doctor(&alone);
     assert_eq!(
         code,
         Some(1),
@@ -1205,7 +1227,7 @@ fn doctor_names_the_realm_and_the_crossing_that_moved_and_reports_everything_els
     // file is the publisher's line, the consumer's pin is a warn naming
     // who owes the bytes, and doctor claims no contract verified.
     std::fs::remove_file(&published).unwrap();
-    let (code, gone, _) = ws.run(&["doctor"]);
+    let (code, gone, _) = ws.doctor(&alone);
     assert_eq!(code, Some(1), "{gone}");
     assert!(
         gone.contains("MISSING  crossings brokkr 'orders.api': "),
@@ -1243,6 +1265,7 @@ fn a_world_with_no_crossing_behaves_at_every_verb_as_it_always_did() {
             "state/world.db",
         ],
         vec![
+            "runs",
             "rerun",
             "--run",
             &run_id,
@@ -1255,15 +1278,16 @@ fn a_world_with_no_crossing_behaves_at_every_verb_as_it_always_did() {
         let (code, _, stderr) = ws.run(&verb);
         assert_eq!(code, Some(0), "{verb:?}: {stderr}");
     }
-    let (code, compiled, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
+    let (code, compiled, stderr) = ws.run(&["library", "compile", "--bundle", "bundle"]);
     assert_eq!(code, Some(0), "{stderr}");
     let compiled: Value = serde_json::from_str(&compiled).unwrap();
     assert!(compiled.get("crossings").is_none(), "{compiled}");
-    let (_, readout, _) = ws.run(&["doctor"]);
+    let Some(alone) = alone() else { return };
+    let (_, readout, _) = ws.doctor(&alone);
     assert!(!readout.contains("crossings"), "{readout}");
 }
 
-/// Phase 2 slice (vi): `brokkr realms` reads out each realm's crossings —
+/// Phase 2 slice (vi): `brokkr system realms` reads out each realm's crossings —
 /// what it publishes, what it consumes, and each pin's state — and does
 /// so without refusing and without writing, because it is a read surface
 /// (decision 0023 ruling 6). A moved pin is a line, not the end of the
@@ -1276,7 +1300,7 @@ fn the_realms_verb_reads_out_the_crossings_each_realm_draws() {
 
     // Sound: the publisher's file and the consumer's matching pin, in
     // text and as values a script branches on.
-    let (code, out, stderr) = ws.run(&["realms"]);
+    let (code, out, stderr) = ws.run(&["system", "realms"]);
     assert_eq!(code, Some(0), "{stderr}");
     let out = out.replace('\\', "/");
     assert!(out.contains("  publishes  orders.api"), "{out}");
@@ -1284,7 +1308,7 @@ fn the_realms_verb_reads_out_the_crossings_each_realm_draws() {
     assert!(out.contains("  consumes   orders.api"), "{out}");
     assert!(out.contains("brokkr  matching"), "{out}");
 
-    let (code, listed, stderr) = ws.run(&["realms", "--json"]);
+    let (code, listed, stderr) = ws.run(&["system", "realms", "--json"]);
     assert_eq!(code, Some(0), "{stderr}");
     let view: Value = serde_json::from_str(&listed).unwrap();
     assert_eq!(view["realms"][0]["publishes"][0]["name"], "orders.api");
@@ -1301,7 +1325,7 @@ fn the_realms_verb_reads_out_the_crossings_each_realm_draws() {
     // Moved: one byte in the publishing tree, and the readout REPORTS it
     // rather than refusing or writing a journal.
     let observed = move_the_crossing(&published);
-    let (code, moved, stderr) = ws.run(&["realms"]);
+    let (code, moved, stderr) = ws.run(&["system", "realms"]);
     assert_eq!(code, Some(0), "a read surface refuses nothing: {stderr}");
     let moved = moved.replace('\\', "/");
     assert!(moved.contains("brokkr  moved"), "{moved}");
@@ -1312,7 +1336,7 @@ fn the_realms_verb_reads_out_the_crossings_each_realm_draws() {
     // declares its crossing, the consumer's pin is never called matching,
     // and the read still exits clean.
     std::fs::remove_file(&published).unwrap();
-    let (code, gone, stderr) = ws.run(&["realms"]);
+    let (code, gone, stderr) = ws.run(&["system", "realms"]);
     assert_eq!(code, Some(0), "{stderr}");
     let gone = gone.replace('\\', "/");
     assert!(gone.contains("brokkr  unchecked"), "{gone}");
@@ -1339,7 +1363,7 @@ fn a_workspace_with_no_map_runs_exactly_as_it_always_did() {
     let (code, run_id, stderr) = ws.brokkr_run(&[]);
     assert_eq!(code, Some(0), "{stderr}");
     assert!(ws.path().join(".forge/forge.db").is_file());
-    ws.run(&["export", "--run", &run_id, "--out", "exported"]);
+    ws.run(&["journal", "export", "--run", &run_id, "--out", "exported"]);
     let journal =
         std::fs::read_to_string(ws.path().join(format!("exported/{run_id}.ndjson"))).unwrap();
     for key in ["\"realms\"", "\"realm_facts\"", "\"crossings\""] {
@@ -1380,7 +1404,7 @@ fn a_missing_or_malformed_map_refuses_before_any_seat_spawns() {
     let mut future = map_over(".");
     future["schema"] = json!("forge.realms/v9");
     std::fs::write(ws.path().join("realms.json"), future.to_string()).unwrap();
-    let (code, _, stderr) = ws.run(&["realms"]);
+    let (code, _, stderr) = ws.run(&["system", "realms"]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("forge.realms/v9"), "{stderr}");
 
@@ -1389,7 +1413,7 @@ fn a_missing_or_malformed_map_refuses_before_any_seat_spawns() {
     let mut drifted = map_over(".");
     drifted["realms"][0]["journal"] = json!("other.db");
     std::fs::write(ws.path().join("realms.json"), drifted.to_string()).unwrap();
-    let (code, _, stderr) = ws.run(&["realms"]);
+    let (code, _, stderr) = ws.run(&["system", "realms"]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("names its own journal"), "{stderr}");
 }
@@ -1474,7 +1498,9 @@ fn the_head_helper_reads_the_committed_map() {
 
 /// This repository carries its own map (ruling 1), and it is the
 /// bootstrap world: one realm, this repository, the journal this
-/// repository has always written. The committed blob is read (decision
+/// repository has always written, and the one grant the operator ruled on
+/// 2026-11-24 (#1329): read-only web, `web-fetch` and `web-search`, to the
+/// `researcher` office and no other. The committed blob is read (decision
 /// 0101 ruling 5), so a developer's uncommitted edit to the working map
 /// cannot make this test pass or fail.
 #[test]
@@ -1491,13 +1517,19 @@ fn the_repository_carries_the_bootstrap_map() {
     assert_eq!(
         content,
         json!({
-            "schema": "forge.realms/v3",
+            "schema": "forge.realms/v6",
             "realms": [{"name": "brokkr", "path": ".", "default_branch": "main",
-                        "house": "docs/house-rules.md", "dialect": "openspec"}],
+                        "house": "docs/house-rules.md", "dialect": "openspec",
+                        "capabilities": {
+                            "web-fetch": {"dialect": "claude-native-fetch",
+                                          "offices": ["researcher"]},
+                            "web-search": {"dialect": "claude-native-search",
+                                           "offices": ["researcher"]},
+                        }}],
             "journal": ".forge/forge.db",
         })
     );
-    assert_eq!(map.schema, "forge.realms/v3");
+    assert_eq!(map.schema, "forge.realms/v6");
     assert_eq!(map.journal, ".forge/forge.db");
     assert_eq!(map.realms.len(), 1, "the bootstrap map names one realm");
     let realm = &map.realms[0];
@@ -1506,6 +1538,26 @@ fn the_repository_carries_the_bootstrap_map() {
     assert_eq!(realm.default_branch, "main");
     assert_eq!(realm.house.as_deref(), Some("docs/house-rules.md"));
     assert_eq!(realm.dialect.as_deref(), Some("openspec"));
+    let granted: Vec<(&str, &str, Option<&[String]>)> = realm
+        .grants
+        .iter()
+        .map(|(name, grant)| {
+            (
+                name.as_str(),
+                grant.dialect.as_str(),
+                grant.offices.as_deref(),
+            )
+        })
+        .collect();
+    let researcher = ["researcher".to_owned()];
+    assert_eq!(
+        granted,
+        [
+            ("web-fetch", "claude-native-fetch", Some(&researcher[..])),
+            ("web-search", "claude-native-search", Some(&researcher[..])),
+        ],
+        "the realm grants read-only web to the researcher office alone"
+    );
 
     // A `World` still answers the journal and realm lookups, from an
     // isolated copy of the very same HEAD bytes: the repository's `docs/`

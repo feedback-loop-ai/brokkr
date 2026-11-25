@@ -1,4 +1,4 @@
-//! `brokkr operator acknowledge` (#511): refused on a run that folds,
+//! `brokkr runs operator acknowledge` (#511): refused on a run that folds,
 //! answering either quarantine beside an untouched journal, and lapsing
 //! when the journal moves.
 
@@ -74,8 +74,8 @@ fn acknowledging_a_run_that_folds_is_refused_and_names_conclude() {
     assert_eq!(
         failure_line(&refused),
         "error: run healthy folds, so it is not quarantined and there is nothing to \
-         acknowledge; nothing was recorded. A run that folds is closed with brokkr conclude \
-         --run healthy --cause <cause> --reason <why>"
+         acknowledge; nothing was recorded. A run that folds is closed with brokkr runs \
+         conclude --run healthy --cause <cause> --reason <why>"
     );
     let store = Store::open_read_only(&db).unwrap();
     assert_eq!(store.acknowledgement("healthy").unwrap(), None);

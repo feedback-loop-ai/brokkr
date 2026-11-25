@@ -1,6 +1,6 @@
 //! The cross-run analytics readout (#568, `operator-console-analytics`):
 //! one pure aggregation over every hearth's runs, for a range and an
-//! optional realm, with `now` passed in. `brokkr analytics --json` emits
+//! optional realm, with `now` passed in. `brokkr stats analytics --json` emits
 //! it and the console paints it, so one figure is shown one way (decision
 //! 0013). What no journal records is listed in [`NOT_RECORDED`], never
 //! invented.
@@ -18,6 +18,7 @@ mod ledger;
 mod median;
 mod ranked;
 mod recipes;
+mod usage;
 mod words;
 
 pub(crate) use facts::{in_range, is_open, shipped, Finished};
@@ -26,6 +27,7 @@ pub use facts::{
     SiteOrder, SpendFact, WholeRead, Window,
 };
 pub use figures::{analytics, analytics_with};
+pub use usage::{recipe_usage, PhaseUsage, Spread};
 
 /// Today's whole read over `query` for `window`: the source the whole-read
 /// entry folds, and the fallback a migrated journal's reader falls back to

@@ -173,6 +173,8 @@ mod terminal;
 
 use self::columns::*;
 use self::footer::*;
+/// The cell width `brokkr stats graph`'s tables measure with (#1167).
+pub(crate) use self::glyphs::width_of;
 use self::glyphs::*;
 use self::keys::*;
 use self::layout::*;
@@ -338,6 +340,11 @@ mod source_tests;
 
 #[cfg(test)]
 mod tests;
+
+/// The lock every test that touches the process-global panic hook takes,
+/// the completer's among them.
+#[cfg(test)]
+pub(crate) use tests::TERMINAL;
 
 #[cfg(test)]
 mod view_tests;

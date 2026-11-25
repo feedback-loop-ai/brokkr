@@ -11,11 +11,13 @@ use brokkr_store::{
     CooldownAggregate, Cooling as Row, Generation, QueueRefusal, RowEnd, Store, StoreError,
 };
 use serde_json::json;
+
+use crate::admission::capacity::Unclaimed;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
 use crate::admission::capacity::tests::{
-    ceilings, refused_rows as refuse, route, started_run, verdicts, Fixture, PLENTY, TEMP,
+    ceilings, claimed, refused_rows as refuse, route, started_run, verdicts, Fixture, PLENTY, TEMP,
 };
 use crate::admission::capacity::{Capacity, Room};
 use crate::admission::{pass_within_at, AdmissionError, Host, Judged, Reason, Standing};
@@ -92,6 +94,7 @@ fn judged_in(store: &Store, file: &Path, now: OffsetDateTime) -> Vec<Judged> {
         file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     pass_within_at(store, &host, now).unwrap().0
 }
@@ -167,6 +170,9 @@ fn copy_bundle(fixture: &Fixture, name: &str) {
 
 #[test]
 fn a_cooling_entry_is_not_admitted_and_its_lane_never_latches() {
+    // A deliberate short end, not `LONG_WAIT` (#857): it is five minutes on
+    // the fixed injected clock, which lies decades past the journal's real
+    // recording, so no lock stall can lose the row.
     let until = at(300);
     let words = "the provider's words";
     let (fixture, file) = refused(&[row("beta", "cloud", until, words)]);
@@ -398,10 +404,13 @@ fn admission_holds_a_held_wait_to_its_stated_end_and_a_later_shorter_row_does_no
     refuse(&mut fixture.store, "run-held", &[long]);
     refuse(&mut fixture.store, "run-shorter", &[shorter]);
     match room
-        .claim(&mut fixture.store, Generation(1), "admitted")
+        .claim(&mut fixture.store, Generation(1), "admitted", &mut || true)
         .unwrap()
     {
-        Err(reason) => assert_eq!(reason, cooling("beta", "cloud", held, words)),
+        Err(Unclaimed::Refused(reason)) => {
+            assert_eq!(reason, cooling("beta", "cloud", held, words))
+        }
+        Err(Unclaimed::Stopped) => panic!("nothing asked the claim to stop"),
         Ok(claim) => panic!("the claim took {claim:?} over a held cool-down"),
     }
 }
@@ -432,10 +441,7 @@ fn the_latest_row_at_the_latest_end_speaks_for_the_lane() {
         "run-second",
         &[row("beta", "cloud", until, "second")],
     );
-    match room
-        .claim(&mut fixture.store, Generation(1), "admitted")
-        .unwrap()
-    {
+    match claimed(&mut fixture, &room) {
         Err(reason) => assert_eq!(reason, cooling("beta", "cloud", until, "second")),
         Ok(claim) => panic!("the claim took {claim:?} over a cool-down"),
     }
@@ -443,6 +449,9 @@ fn the_latest_row_at_the_latest_end_speaks_for_the_lane() {
 
 #[test]
 fn an_expired_row_never_holds() {
+    // A deliberate past end, not `LONG_WAIT` (#857): it is expired only on
+    // the fixed injected clock, and still decades past the journal's real
+    // recording, so the store keeps the row however long the append stalls.
     let (fixture, file) = refused(&[row("beta", "cloud", at(-60), "expired")]);
     assert_eq!(admitted_at(&fixture, &file, base()), vec![]);
     // The pass writes nothing: the expired row is history still.
@@ -487,6 +496,7 @@ fn an_unreadable_row_refuses_the_pass() {
         file: &file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     let refused = pass_within_at(&fixture.store, &host, base()).unwrap_err();
     match refused {
@@ -509,6 +519,7 @@ fn a_reason_for_an_end_no_rfc_3339_text_can_spell_still_refuses_and_never_panics
         file: &file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     match pass_within_at(&fixture.store, &host, base()) {
         Ok((judged, _)) => {
@@ -538,10 +549,7 @@ fn the_claim_refuses_a_row_recorded_after_the_pass_read() {
         &[row("beta", "cloud", until, "recorded in between")],
     );
 
-    match room
-        .claim(&mut fixture.store, Generation(1), "admitted")
-        .unwrap()
-    {
+    match claimed(&mut fixture, &room) {
         Err(reason) => assert_eq!(
             reason,
             cooling("beta", "cloud", until, "recorded in between")

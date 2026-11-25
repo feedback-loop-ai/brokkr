@@ -12,8 +12,8 @@ role charter and the policy table itself are `fast`'s, inherited:
 
 | Seat | `fast` | `standby` |
 |---|---|---|
-| implement | claude `fable` @ high | codex `sol` (`gpt-6.1-sol`) @ high, sandbox `workspace-write` |
-| review | claude `fable` @ high | codex `sol` (`gpt-6.1-sol`) @ high, sandbox `read-only` |
+| implement | claude `fable` @ high | codex `sol` (`gpt-6.2-sol`) @ high, sandbox `workspace-write` |
+| review | claude `fable` @ high | codex `sol` (`gpt-6.2-sol`) @ high, sandbox `read-only` |
 | verify, ship | exec scripts, boxed under `namespace` only | unchanged — no model, no vendor |
 
 `sol` is a judge in `adapters/codex.json`, which is what lets it hold

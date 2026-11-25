@@ -10,6 +10,7 @@ use serde_json::json;
 pub(crate) mod env_guard;
 #[path = "../../../tests/support/envelope.rs"]
 pub(crate) mod envelope_builder;
+pub(crate) mod plant;
 pub(crate) mod walk;
 use envelope_builder::EnvelopeBuilder;
 
@@ -892,9 +893,14 @@ fn exported_garbage_is_a_parse_refusal() {
 
 #[test]
 fn open_and_create_surface_sqlite_failures_at_exact_boundaries() {
-    // SQLite treats an empty filename as a private temporary database; this
-    // also exercises the path-without-parent initialization branch.
-    Store::open(Path::new("")).unwrap();
+    // SQLite cannot open a directory; an empty path is refused before it, by
+    // `literal::tests::an_empty_path_is_refused_by_both_opens` (#954).
+    let directory = tempfile::tempdir().unwrap();
+    let refused = Store::open(directory.path()).err();
+    let Some(StoreError::Sqlite(rusqlite::Error::SqliteFailure(failure, _))) = &refused else {
+        panic!("not refused by SQLite: {refused:?}");
+    };
+    assert_eq!(failure.code, rusqlite::ErrorCode::CannotOpen);
 
     let insert_dir = tempfile::tempdir().unwrap();
     let insert_db = insert_dir.path().join("insert.db");
@@ -1057,7 +1063,7 @@ fn one_redaction_scrubs_a_journal_and_the_manifest_beside_it_alike() {
 
 // ── import: the verb paired with export (decision 0027) ──────────────
 
-/// A native run in its own journal, exported the way `brokkr export`
+/// A native run in its own journal, exported the way `brokkr journal export`
 /// exports it: the canonical NDJSON and the pinned manifest beside it.
 fn exported_run(run_id: &str, phase: &str) -> (tempfile::TempDir, Store, String, Value) {
     let (dir, mut store) = store();
@@ -1254,7 +1260,7 @@ fn ensure_wal_retries_past_a_reader_that_eventually_leaves() {
             // No busy handler: every locked answer returns at once, so
             // the loop's own sleep-and-retry is the only patience there is.
             let conn = rusqlite::Connection::open(&path).unwrap();
-            ensure_wal(&conn)
+            ensure_wal(&conn, &path)
         }
     });
     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -1278,7 +1284,7 @@ fn a_lock_still_held_at_the_deadline_is_returned_not_slept_on() {
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     holder.execute_batch("INSERT INTO seed VALUES (1)").unwrap();
     let conn = rusqlite::Connection::open(&path).unwrap();
-    let refused = ensure_wal_by(&conn, std::time::Duration::ZERO).unwrap_err();
+    let refused = ensure_wal_by(&conn, std::time::Duration::ZERO, &path).unwrap_err();
     assert!(
         matches!(&refused, StoreError::Contended { operation, .. } if *operation == "ensure_wal"),
         "{refused:?}"
@@ -1891,7 +1897,7 @@ fn import_refuses_an_export_whose_chain_cannot_answer_for_the_runs_row() {
 /// A verified chain proves its bytes were not altered. It does not
 /// prove whoever sealed them was entitled to the name they sealed them
 /// under — the hashes are unkeyed, so a stranger's export can carry any
-/// run id at all. The id does not stay in the database: `brokkr export`
+/// run id at all. The id does not stay in the database: `brokkr journal export`
 /// composes `<out>/<run_id>.ndjson` from it and every readout prints it,
 /// so an adoption refuses a name it would never have minted itself.
 #[test]

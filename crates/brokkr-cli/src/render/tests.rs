@@ -2,7 +2,7 @@ use super::*;
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::run_state::{run_state, standing};
 use brokkr_core::{EventEnvelope, EventType, RunState, Status};
-use brokkr_view::{lens_for, Scope};
+use brokkr_view::{keeps_phase, lens_for, Scope};
 use serde_json::{json, Value};
 
 const T0: &str = "2026-01-01T00:00:00Z";
@@ -435,6 +435,8 @@ fn a_hostile_feature_and_result_token_render_as_inert_text() {
 
 // ------------------------------------------------------------- AC-23
 
+mod fit;
+
 #[test]
 fn width_and_colour_come_from_the_environment_through_pure_rules() {
     assert_eq!(width_from(None), 80);
@@ -492,6 +494,91 @@ fn width_and_colour_come_from_the_environment_through_pure_rules() {
     );
     assert!(plain.contains('⑂') && plain.contains('→'));
     assert!(!plain.contains('\x1b'));
+}
+
+/// #1168: the plain graph shows each node's still glyph — `·` unknown,
+/// `⏺` finished, `⊙` park, `⊗` failed, `∙` live — and, on a terminal that
+/// takes colour, paints it and the current phase's name in the console's
+/// colour. A `watch` frame is `inspect` without the trail, so the graph is
+/// proved there, in the frame's own style. With colour off (`NO_COLOR`)
+/// the glyphs stay and the bytes a piped frame writes hold no escape.
+#[test]
+fn the_plain_graph_shows_each_class_glyph_in_the_consoles_colour() {
+    let unknown = ("", "·", "\x1b[2m·\x1b[0m");
+    let finished = ("on-phosphor", "⏺", "\x1b[32m⏺\x1b[0m");
+    for (first, still, painted) in [unknown, finished] {
+        let mut view = view(None);
+        let classes = [first, "on-park", "on-halt", "in-active"];
+        let nodes = view
+            .phases
+            .iter_mut()
+            .flat_map(|phase| phase.columns.iter_mut())
+            .flat_map(|column| column.nodes.iter_mut());
+        for (node, class) in nodes.zip(classes) {
+            node.state_class = class.to_string();
+        }
+        let frame = |color| {
+            let style = Style { color, width: 80 };
+            inspect(&view, None, false, &crate::now_rfc3339(), &style)
+        };
+        let mut piped = Vec::new();
+        let no_color = frame(color_enabled(true, true, false));
+        crate::write_frame(&mut piped, &no_color, false, &mut || T0.to_string()).unwrap();
+        let piped = String::from_utf8(piped).unwrap();
+        assert!(!piped.contains('\x1b'), "{piped:?}");
+        let graph = format!(
+            "graph
+  intake ×1
+    → {still} intake · finished
+  design ×1  ←current
+    ⑂ positions
+      ⊙ simplicity · finished
+      ⊗ robustness · finished
+    → ∙ chief · active
+"
+        );
+        assert!(piped.ends_with(&graph), "{piped:?}");
+        let coloured = frame(true);
+        let graph = format!(
+            "graph
+  intake ×1
+    → {painted} intake · finished
+  \x1b[32mdesign\x1b[0m ×1  ←current
+    ⑂ positions
+      \x1b[33m⊙\x1b[0m simplicity · finished
+      \x1b[31m⊗\x1b[0m robustness · finished
+    → \x1b[35m\x1b[1m∙\x1b[0m chief · active
+"
+        );
+        assert!(coloured.ends_with(&graph), "{coloured:?}");
+    }
+}
+
+/// #1168: a phase without columns is the console's one rail node, so its
+/// heading leads with its phase class's still glyph — `⏺` visited, `∙`
+/// for the running current phase — in the console's colour, and with
+/// colour off the glyphs stay and no escape byte is written.
+#[test]
+fn a_phase_without_columns_shows_its_phase_class_glyph() {
+    let mut view = view(None);
+    for phase in &mut view.phases {
+        phase.columns.clear();
+    }
+    assert_eq!(
+        graph::graph_block(&view, None, &Style::plain(80)),
+        "graph\n  ⏺ intake ×1\n  ∙ design ×1  ←current\n"
+    );
+    let coloured = Style {
+        color: true,
+        width: 80,
+    };
+    assert_eq!(
+        graph::graph_block(&view, None, &coloured),
+        "graph
+  \x1b[35m\x1b[2m⏺\x1b[0m intake ×1
+  \x1b[32m∙\x1b[0m \x1b[32mdesign\x1b[0m ×1  ←current
+"
+    );
 }
 
 /// The phase predicate is one function, called by `graph_block` and by
@@ -735,12 +822,12 @@ trail
 
 graph
   intake ×1
-    → intake · finished
+    → ⏺ intake · finished
   design ×1  ←current
     ⑂ positions
-      simplicity · finished
-      robustness · finished
-    → chief · active
+      ⏺ simplicity · finished
+      ⏺ robustness · finished
+    → ∙ chief · active
 "
     );
 }
@@ -816,7 +903,7 @@ trail
 
 graph
   intake ×1
-    → intake · finished
+    → ⏺ intake · finished
 "
     );
 
@@ -1014,7 +1101,7 @@ fn a_phase_whose_only_traffic_is_its_entry_drops_the_seats_block() {
          \x20 2 phase/entered review\n\
          \n\
          graph\n\
-         \x20 review ×1  ←current\n"
+         \x20 · review ×1  ←current\n"
     );
 }
 
@@ -1098,7 +1185,7 @@ fn a_step_with_a_single_member_still_reads_as_the_step() {
     let at = crate::now_rfc3339();
     let out = inspect(&view, None, false, &at, &Style::plain(80));
     assert!(
-        out.contains("    → positions · finished\n"),
+        out.contains("    → ⏺ positions · finished\n"),
         "the column label wins over the lone node's own: {out}"
     );
 }
@@ -1304,7 +1391,7 @@ fn the_header_prints_the_word_alone_or_nothing_where_no_gate_was_unboxed() {
     assert_eq!(old.lines().nth(2), Some("     boundary not recorded"));
 }
 
-/// `brokkr seats` renders the seats block `inspect` renders, from the
+/// `brokkr runs seats` renders the seats block `inspect` renders, from the
 /// same view, unscoped (design DD11).
 #[test]
 fn the_seats_block_is_the_one_inspect_prints() {
@@ -1332,6 +1419,32 @@ fn the_seats_block_is_the_one_inspect_prints() {
         let end = whole[start..].find("\n\n").unwrap();
         format!("{}\n", &whole[start..start + end])
     });
+}
+
+/// The seats block pads in `char`s as it always has: the graph's tables
+/// moving to terminal cells (#1167) leaves a wide label where it was.
+#[test]
+fn the_seats_block_pads_a_wide_label_as_it_did_before_the_graph_tables() {
+    let mut boxed = boxed_view("harness", true);
+    boxed.participants[0].label = "界".repeat(20);
+    // Twenty `界` are twenty `char`s padded to the 27
+    // `design:positions:simplicity` takes, though the terminal draws them
+    // in forty cells.
+    assert_eq!(
+        seats(&boxed, &Style::plain(120)),
+        "seats\n  model is the provider's claim, not proof · effort is configuration\n  \
+         participant                 status    attempts turns cost    tokens model            boundary effort activity\n  \
+         界界界界界界界界界界界界界界界界界界界界        succeeded 1        3     $0.0313 —      claude-fable-5-1 harness  —      intook · 2m03s\n    \
+         transcript  claude-session · sess-a · home /home/operator/.claude/projects\n  \
+         design                      working   1        Σ 2   —       —      —                —        —      3 members ↓\n    \
+         transcript  —\n  \
+         design:positions:simplicity succeeded 1        —     —       —      —                —        —      0s\n    \
+         transcript  —\n  \
+         design:positions:robustness succeeded 1        —     —       —      —                —        —      0s\n    \
+         transcript  —\n  \
+         design:chief                working   1        2     —       —      —                —        —      Write\n    \
+         transcript  —\n"
+    );
 }
 
 /// The pair helper's text face carries both cells sanitized and whether
@@ -1575,7 +1688,7 @@ fn inspect_paints_a_caps_provider_words_once() {
     assert_eq!(painted.matches(MARKER).count(), 1, "{painted}");
 }
 
-/// The view's summary, `brokkr runs`' row and `brokkr inspect` paint one
+/// The view's summary, `brokkr runs`' row and `brokkr runs inspect` paint one
 /// typed cause from one read (decision 0106 ruling 1).
 #[test]
 fn the_view_runs_and_inspect_paint_the_same_park_cause() {
@@ -1628,4 +1741,66 @@ fn the_view_runs_and_inspect_paint_the_same_park_cause() {
         painted.contains(&format!("cause {line}")),
         "inspect painted no cause: {painted}"
     );
+}
+
+/// `inspect`'s transcript line for one seat whose attempt checkpointed
+/// `checkpoint` and succeeded with `result`.
+fn transcript_line(checkpoint: Value, result: Value) -> String {
+    let events = [
+        ev(1, EventType::RunStarted, json!({"feature": "f"}), T0),
+        ev(2, EventType::PhaseEntered, json!({"phase": "work"}), T0),
+        ev(
+            3,
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "work", "phase": "work"}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a"}),
+            T0,
+        ),
+        ev(
+            5,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": "a", "checkpoint": checkpoint}),
+            T1,
+        ),
+        ev(
+            6,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "e", "attempt_id": "a", "result": result}),
+            T2,
+        ),
+    ];
+    let view = brokkr_view::run_view(&events, Some(&state(Status::Running, None, None)));
+    let out = inspect(&view, None, false, NOW, &Style::plain(120));
+    let line = out
+        .lines()
+        .find(|line| line.starts_with("    transcript  "));
+    line.expect("inspect paints a transcript line").to_string()
+}
+
+/// Decision 0075 ruling 2, the controller's ruling Q4: `inspect` paints a
+/// transcript a checkpoint reports at its own coordinates, and one only
+/// the successful result reports as none recorded — today's reading, for
+/// a built-in driver's kind and a declared one alike.
+#[test]
+fn a_result_only_transcript_reads_as_none_recorded_for_every_kind() {
+    let transcript =
+        |kind: &str, locator: &str| json!({"kind": kind, "locator": locator, "home": "/h/.trail"});
+    let reported = json!({"step": "transcript", "model": "m",
+                          "transcript": transcript("trellis-trail", "t-1")});
+    let complete = json!({"result": "complete"});
+    assert_eq!(
+        transcript_line(reported, complete),
+        "    transcript  trellis-trail · t-1 · home /h/.trail"
+    );
+    for kind in ["claude-session", "trellis-trail"] {
+        let mut result = json!({"result": "complete"});
+        result["transcript"] = transcript(kind, "t-2");
+        let line = transcript_line(json!({"step": "seat-turn", "model": "m"}), result);
+        assert_eq!(line, "    transcript  —", "{kind}");
+    }
 }

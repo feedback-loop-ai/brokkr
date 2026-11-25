@@ -1,4 +1,4 @@
-//! `brokkr backup` and `brokkr restore` through their handlers (decision
+//! `brokkr journal backup` and `brokkr journal restore` through their handlers (decision
 //! 0100, the journal half of #431): a backup written from the journal the
 //! house's rule resolves, an inventory this build reads, a restore that
 //! keeps every run `inspect` reads and starts nothing, and each refusal by

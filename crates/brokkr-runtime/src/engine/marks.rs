@@ -10,6 +10,7 @@ use brokkr_protocol::adapters::{HandsNotice, ACCESS};
 use brokkr_protocol::native_controls::Access;
 use serde_json::{json, Value};
 
+use crate::agents::kinds::Standing;
 use crate::agents::{Candidate, ResultDoor};
 use crate::bundle::{Bundle, HandsState, McpContribution, McpIntent, SiteFacts};
 use crate::capabilities::{Holding, Implementation, Outcome};
@@ -124,28 +125,35 @@ impl<'a> SiteMarks<'a> {
     /// statement under `harness` or `open`, where no workspace tool is
     /// served. A site without hands is untouched.
     pub(super) fn hands(&self, label: &str, input: &mut Value) {
+        let standing = self.standing(label);
+        input["boundary"] = standing.map_or(Value::Null, |standing| json!(standing.boundary));
+        input["hands"] = standing.map_or(Value::Null, |standing| json!(standing.hands));
+    }
+
+    /// What stands at `label`, the one reading [`SiteMarks::hands`] writes
+    /// into the driver's input and the engine's offer of a root of a new
+    /// kind matches a resume shape against (the controller's ruling R4 of
+    /// 2026-11-21).
+    pub(super) fn standing(&self, label: &str) -> Option<Standing> {
         match self.bundle.sites.get(label).map(|facts| &facts.hands) {
-            Some(HandsState::Hands(_)) => {
-                input["boundary"] = json!(self.boundary.word());
-                input["hands"] = json!(if self.boundary.is_boxed() {
+            Some(HandsState::Hands(_)) => Some(Standing {
+                boundary: self.boundary.word(),
+                hands: if self.boundary.is_boxed() {
                     "boxed"
                 } else {
                     "none"
-                });
-            }
+                },
+            }),
             // A registered, resolved no-hands site is an affirmative
             // fact: the adapter gate requires it rather than reading the
             // absence as permission (design D10 F1).
-            Some(HandsState::NoHands) => {
-                input["boundary"] = json!("not applicable");
-                input["hands"] = json!("none");
-            }
+            Some(HandsState::NoHands) => Some(Standing {
+                boundary: "not applicable",
+                hands: "none",
+            }),
             // Unknown is not `none`. An unregistered or unresolved site
             // publishes no affirmative marker, so the adapter declines.
-            Some(HandsState::Unknown) | None => {
-                input["boundary"] = Value::Null;
-                input["hands"] = Value::Null;
-            }
+            Some(HandsState::Unknown) | None => None,
         }
     }
 

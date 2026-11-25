@@ -4,14 +4,19 @@
 //!
 //! A launch sees a scratch HOME and a scratch repository and nothing of
 //! the operator's: the environment is cleared, then given `PATH`, `HOME`
-//! and the credentials bound by name (decision 0012). Whatever the CLI
-//! needs beyond those is what config isolation (#467) measures.
+//! and the credentials bound by name (decision 0012). A CLI that keeps its
+//! login in a file is given that file alone, linked into the scratch HOME
+//! for each credentialed launch. Whatever the CLI needs beyond those is
+//! what config isolation (#467) measures. The one exception is
+//! `VOLTA_HOME`, which names where a volta-installed CLI is, not how it is
+//! configured: without it a volta shim on `PATH` recurses under the
+//! scratch `HOME` ([`crate::hands::environment::volta_home`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -20,6 +25,7 @@ use sha2::{Digest, Sha256};
 
 use super::plan::{Step, Transcripts, UserConfig, PROMPT};
 use super::ProbeError;
+use crate::hands::environment::volta_home;
 use crate::hands::{git_facts, mcp_config, seal, serve_args, HandsSpec, Sealed};
 use crate::process::Launched;
 use crate::secret::bind_environment;
@@ -213,12 +219,146 @@ fn lay_out(tmp: &Path) -> std::io::Result<tempfile::TempDir> {
     Ok(root)
 }
 
+/// A file under the operator's HOME a CLI reads its login from, named by
+/// its HOME-relative path, such as Codex's `.codex/auth.json`. Each
+/// credentialed launch finds it linked at the same place under the scratch
+/// HOME, and a launch without credentials finds nothing there. The link is
+/// how a login the CLI refreshes reaches the operator's file: a provider
+/// that rotates its refresh token on use would otherwise leave the
+/// operator holding a spent one when the scratch world is removed.
+#[derive(Debug)]
+pub struct CredentialFile {
+    relative: PathBuf,
+    source: PathBuf,
+}
+
+impl CredentialFile {
+    /// `relative` under `home`: plain names only, naming a regular file
+    /// that nobody but its owner can read or write.
+    pub fn bind(home: &Path, relative: &str) -> Result<CredentialFile, ProbeError> {
+        let refused =
+            |why: String| ProbeError::Credential(format!("credential file ~/{relative} {why}"));
+        let path = Path::new(relative);
+        let plain = path
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)));
+        if relative.is_empty() || !plain {
+            return Err(refused(
+                "is not a path of plain names under HOME".to_string(),
+            ));
+        }
+        let source = home.join(path);
+        let metadata =
+            fs::metadata(&source).map_err(|source| refused(format!("cannot be read: {source}")))?;
+        if !metadata.is_file() {
+            return Err(refused("is not a regular file".to_string()));
+        }
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(refused(
+                "can be read or written by others than its owner; give it mode 0600".to_string(),
+            ));
+        }
+        Ok(CredentialFile {
+            relative: path.to_path_buf(),
+            source,
+        })
+    }
+
+    /// Its name in a report: `~/` and its path. Never its content.
+    pub fn name(&self) -> String {
+        format!("~/{}", self.relative.display())
+    }
+}
+
+/// The credential files linked under a scratch HOME for one launch,
+/// unlinked when the launch is over, and on every path out of it.
+struct Linked<'a> {
+    home: &'a Path,
+    files: &'a [CredentialFile],
+}
+
+impl<'a> Linked<'a> {
+    /// Link each of `files` under `home`. A link that cannot be made
+    /// unlinks those made before it.
+    fn place(home: &'a Path, files: &'a [CredentialFile]) -> Result<Linked<'a>, ProbeError> {
+        const WHAT: &str = "could not link a credential file into the scratch HOME";
+        for (made, file) in files.iter().enumerate() {
+            let at = home.join(&file.relative);
+            let linked = fs::create_dir_all(at.parent().unwrap_or(home))
+                .and_then(|()| std::os::unix::fs::symlink(&file.source, &at));
+            if let Err(source) = linked {
+                drop(Linked {
+                    home,
+                    files: &files[..made],
+                });
+                return io(Err(source), WHAT);
+            }
+        }
+        Ok(Linked { home, files })
+    }
+
+    /// Unlink every file, first writing back to the operator's file one
+    /// the CLI replaced the link with: a CLI that saves its login by
+    /// renaming a new file into place leaves the refreshed login there.
+    fn release(mut self) -> Result<(), ProbeError> {
+        let files = std::mem::take(&mut self.files);
+        files.iter().try_for_each(|file| unlink(self.home, file))
+    }
+}
+
+impl Drop for Linked<'_> {
+    fn drop(&mut self) {
+        for file in self.files {
+            let _ = unlink(self.home, file);
+        }
+    }
+}
+
+fn unlink(home: &Path, file: &CredentialFile) -> Result<(), ProbeError> {
+    let at = home.join(&file.relative);
+    let what = format!("could not unlink the credential file {}", file.name());
+    match fs::symlink_metadata(&at) {
+        Err(gone) if gone.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(source) => io(Err(source), &what),
+        Ok(metadata) if metadata.is_symlink() => io(fs::remove_file(&at), &what),
+        Ok(metadata) if metadata.is_file() => {
+            io(
+                write_back(&at, &file.source),
+                &format!("could not write {} back", file.name()),
+            )?;
+            io(fs::remove_file(&at), &what)
+        }
+        Ok(_) => Err(ProbeError::Credential(format!(
+            "the launch left a directory where the credential file {} was linked",
+            file.name()
+        ))),
+    }
+}
+
+/// `from`'s bytes onto `to`, mode 0600, by a rename beside `to`, so the
+/// operator's file is never seen half written.
+fn write_back(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let bytes = fs::read(from)?;
+    let mut staged = tempfile::NamedTempFile::new_in(to.parent().unwrap_or(Path::new(".")))?;
+    staged
+        .as_file()
+        .set_permissions(fs::Permissions::from_mode(0o600))?;
+    staged.write_all(&bytes)?;
+    staged.as_file().sync_all()?;
+    staged.persist(to)?;
+    Ok(())
+}
+
 /// Runs launches in one scratch world.
 pub(crate) struct Runner<'a> {
     pub(crate) scratch: &'a Scratch,
     pub(crate) cli: &'a str,
     pub(crate) brokkr: &'a Path,
     pub(crate) bindings: &'a [BoundSecret],
+    pub(crate) files: &'a [CredentialFile],
     pub(crate) deadline: Duration,
     pub(crate) transcripts: Transcripts,
 }
@@ -267,18 +407,23 @@ impl Runner<'_> {
     ) -> Result<Observation, ProbeError> {
         let argv = self.argv(template);
         let bindings: &[BoundSecret] = if credentials { self.bindings } else { &[] };
+        let files: &[CredentialFile] = if credentials { self.files } else { &[] };
         let before: BTreeMap<PathBuf, Seen> =
             transcripts_under(&self.scratch.home, &self.transcripts)?
                 .into_iter()
                 .map(|(path, bytes)| (path, Seen::of(&bytes)))
                 .collect();
+        let (named, path) = (std::env::var_os("VOLTA_HOME"), std::env::var_os("PATH"));
+        let home = std::env::var_os("HOME").unwrap_or_default();
+        let volta = volta_home(named.as_deref(), path.as_deref(), Path::new(&home));
         let mut command = Command::new(&argv[0]);
         command
             .args(&argv[1..])
             .current_dir(&self.scratch.repo)
             .env_clear()
-            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("PATH", path.unwrap_or_default())
             .env("HOME", &self.scratch.home)
+            .envs(volta)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -286,6 +431,7 @@ impl Runner<'_> {
         // injector the adapters spawn with.
         bind_environment(&mut command, bindings)
             .map_err(|refused| ProbeError::Credential(refused.to_string()))?;
+        let linked = Linked::place(&self.scratch.home, files)?;
         // A session and group of its own, among the engine's attempts, so
         // the end reaches every descendant (#403).
         let what = format!("could not launch {}", self.cli);
@@ -293,6 +439,7 @@ impl Runner<'_> {
         let stdout = drain(launched.child.stdout.take().expect("piped"));
         let stderr = drain(launched.child.stderr.take().expect("piped"));
         let exit = wait(launched, self.deadline)?;
+        linked.release()?;
         Ok(Observation {
             exit,
             stdout: self.clean(&stdout.join().unwrap_or_default()),

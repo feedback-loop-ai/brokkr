@@ -6,8 +6,12 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::{codex_error, codex_rate_limit, parse_nanos, reset_windows, system_time_nanos, Now};
-use crate::PreSessionRefusal;
+use super::super::Ident;
+use super::{
+    codex_class, codex_error, exhausted_reset, reset_windows, system_time_nanos, Now, Row,
+};
+use crate::secret::BoundSecret;
+use crate::{PreSessionRefusal, RefusalClass};
 
 /// The closed list of non-work row kinds after this invocation's boundary
 /// (#1037, hold c-6761090419). Prompt ingestion is the measured
@@ -37,25 +41,60 @@ enum CodexRow {
     Work,
 }
 
-/// Classify one row by the envelope and payload codex writes.
-fn codex_row(row: &Value) -> CodexRow {
-    match row.get("type").and_then(Value::as_str) {
-        Some("session_meta") => CodexRow::SessionMeta,
-        Some("world_state" | "turn_context") => CodexRow::Context,
-        Some("error") => CodexRow::Error,
-        Some("response_item") => response_item_row(row),
-        Some("event_msg") => event_msg_row(row),
-        _ => CodexRow::Work,
+#[derive(Clone, Copy)]
+enum Envelope {
+    Header,
+    Context,
+    Error,
+    ResponseItem,
+    EventMsg,
+}
+
+const ENVELOPES: &[(&str, Envelope)] = &[
+    ("session_meta", Envelope::Header),
+    ("world_state", Envelope::Context),
+    ("turn_context", Envelope::Context),
+    ("error", Envelope::Error),
+    ("response_item", Envelope::ResponseItem),
+    ("event_msg", Envelope::EventMsg),
+];
+
+#[derive(Clone, Copy)]
+enum EventMsg {
+    TaskStarted,
+    TokenCount,
+    Error,
+    Complete,
+    Item,
+}
+
+const EVENT_MSGS: &[(&str, EventMsg)] = &[
+    ("task_started", EventMsg::TaskStarted),
+    ("token_count", EventMsg::TokenCount),
+    ("error", EventMsg::Error),
+    ("task_complete", EventMsg::Complete),
+    ("item_started", EventMsg::Item),
+    ("item_completed", EventMsg::Item),
+];
+
+/// Classify one row by the envelope and payload Codex writes.
+fn codex_row(row: &Row<'_>) -> CodexRow {
+    match row.kind("/type", ENVELOPES) {
+        Some(Envelope::Header) => CodexRow::SessionMeta,
+        Some(Envelope::Context) => CodexRow::Context,
+        Some(Envelope::Error) => CodexRow::Error,
+        Some(Envelope::ResponseItem) => response_item_row(row),
+        Some(Envelope::EventMsg) => row
+            .at("/payload")
+            .as_ref()
+            .map_or(CodexRow::Work, event_msg_row),
+        None => CodexRow::Work,
     }
 }
 
-fn response_item_row(row: &Value) -> CodexRow {
-    let payload = row.get("payload").unwrap_or(&Value::Null);
-    let prompt = payload.get("type").and_then(Value::as_str) == Some("message")
-        && matches!(
-            payload.get("role").and_then(Value::as_str),
-            Some("developer" | "user")
-        );
+fn response_item_row(row: &Row<'_>) -> CodexRow {
+    let prompt = row.is("/payload/type", "message")
+        && (row.is("/payload/role", "developer") || row.is("/payload/role", "user"));
     if prompt {
         CodexRow::PromptMessage
     } else {
@@ -63,34 +102,29 @@ fn response_item_row(row: &Value) -> CodexRow {
     }
 }
 
-fn event_msg_row(row: &Value) -> CodexRow {
-    match row.pointer("/payload/type").and_then(Value::as_str) {
-        Some("task_started") => CodexRow::TaskStarted,
-        Some("token_count") => CodexRow::TokenCount,
-        Some("error") => CodexRow::Error,
-        Some("task_complete") => complete_row(row),
-        Some("item_started" | "item_completed") => prompt_item_row(row),
-        _ => CodexRow::Work,
+fn event_msg_row(payload: &Row<'_>) -> CodexRow {
+    match payload.kind("/type", EVENT_MSGS) {
+        Some(EventMsg::TaskStarted) => CodexRow::TaskStarted,
+        Some(EventMsg::TokenCount) => CodexRow::TokenCount,
+        Some(EventMsg::Error) => CodexRow::Error,
+        Some(EventMsg::Complete) => complete_row(payload),
+        Some(EventMsg::Item) => prompt_item_row(payload),
+        None => CodexRow::Work,
     }
 }
 
 /// A completion with the error and no last message is the refusal; a
 /// last message as well is work, as the H1 case pins.
-fn complete_row(row: &Value) -> CodexRow {
-    let payload = row.get("payload").unwrap_or(&Value::Null);
-    let error = payload.get("error").is_some_and(|error| !error.is_null());
-    let message = payload
-        .get("last_agent_message")
-        .is_some_and(|message| !message.is_null());
-    if error && !message {
+fn complete_row(payload: &Row<'_>) -> CodexRow {
+    if payload.present("/error") && !payload.present("/last_agent_message") {
         CodexRow::ErrorComplete
     } else {
         CodexRow::Work
     }
 }
 
-fn prompt_item_row(row: &Value) -> CodexRow {
-    if row.pointer("/payload/item/type").and_then(Value::as_str) == Some("UserMessage") {
+fn prompt_item_row(payload: &Row<'_>) -> CodexRow {
+    if payload.is("/item/type", "UserMessage") {
         CodexRow::PromptItem
     } else {
         CodexRow::Work
@@ -104,18 +138,18 @@ fn prompt_item_row(row: &Value) -> CodexRow {
 /// refuses; any other error keeps the result lost. The two facts are kept
 /// apart (H3): "an error of any kind was seen" feeds the notice rule, while
 /// "a usage- or rate-limit error was seen" is the only one that may refuse.
-pub(crate) fn codex_thread_refusal(
+pub(in crate::adapters) fn codex_thread_refusal(
     body: &str,
     since_nanos: Option<i128>,
     now: Option<&Now>,
+    bindings: &[BoundSecret],
 ) -> Option<PreSessionRefusal> {
     let mut resets = Vec::new();
     let mut error_seen = false;
     let mut rate_limit_error = None;
     for line in body.lines() {
-        let Ok(row) = serde_json::from_str::<Value>(line) else {
-            return None; // An unreadable line may be truncated work, never history.
-        };
+        let raw = serde_json::from_str::<Value>(line).ok()?;
+        let row = Row::new(&raw, bindings);
         if !row_in_invocation(&row, since_nanos) {
             continue;
         }
@@ -134,82 +168,90 @@ pub(crate) fn codex_thread_refusal(
             return None;
         }
         if let Some(windows) = row
-            .pointer("/payload/rate_limits")
+            .at("/payload/rate_limits")
+            .as_ref()
             .map(reset_windows)
             .filter(|windows| !windows.is_empty())
         {
             resets = windows;
         }
-        if let Some(found) = thread_error(&row) {
-            if codex_rate_limit(&found) {
-                rate_limit_error = Some(found);
+        if let Some(found) = thread_error(row) {
+            let found = found.with_fallback("/error");
+            let class = codex_class(&found);
+            if class == RefusalClass::RateLimit {
+                rate_limit_error = Some(codex_error(&found, class, now));
             }
             error_seen = true;
         }
     }
-    Some(codex_error(&rate_limit_error?, now, &resets))
+    let mut refusal = rate_limit_error?;
+    // Windows can be reported after the error and take precedence over prose.
+    refusal.retry_after_seconds = now
+        .and_then(|now| exhausted_reset(now, &resets))
+        .or(refusal.retry_after_seconds);
+    Some(refusal)
 }
 
 /// Whether a row is at or after the start; an untimed row is read, never assumed history.
-fn row_in_invocation(row: &Value, since_nanos: Option<i128>) -> bool {
-    let Some(since_nanos) = since_nanos else {
-        return true;
-    };
-    row.get("timestamp")
-        .and_then(Value::as_str)
-        .and_then(parse_nanos)
-        .is_none_or(|at| at >= since_nanos)
+fn row_in_invocation(row: &Row<'_>, since_nanos: Option<i128>) -> bool {
+    since_nanos
+        .and_then(|since| row.since("/timestamp", since))
+        .unwrap_or(true)
 }
 
-/// The error a rollout row names, or nothing. The caller keeps the last
-/// usage- or rate-limit error it names as the refusal the early exit left
-/// behind; an error of any other kind is only the H3 notice.
-fn thread_error(row: &Value) -> Option<Value> {
-    let payload = match row.get("type").and_then(Value::as_str)? {
-        "error" => return Some(row.clone()),
-        "event_msg" => row.get("payload")?,
-        _ => return None,
-    };
-    match payload.get("type").and_then(Value::as_str)? {
-        "task_complete" => payload.get("error").cloned(),
-        "error" => Some(payload.clone()),
-        _ => None,
+/// Return the error at its own nesting level, including an explicit null
+/// on a completion. Such a row alone is not an error-only completion.
+fn thread_error(row: Row<'_>) -> Option<Row<'_>> {
+    match row.kind("/type", ENVELOPES)? {
+        Envelope::Error => Some(row),
+        Envelope::EventMsg => event_msg_error(row.at("/payload")?),
+        Envelope::Header | Envelope::Context | Envelope::ResponseItem => None,
+    }
+}
+
+fn event_msg_error(payload: Row<'_>) -> Option<Row<'_>> {
+    match payload.kind("/type", EVENT_MSGS)? {
+        EventMsg::Complete if payload.has("/error") => payload.at("/error"),
+        EventMsg::Error => Some(payload),
+        EventMsg::Complete | EventMsg::TaskStarted | EventMsg::TokenCount | EventMsg::Item => None,
     }
 }
 
 /// The same read where the CLI announced no thread, so the locator is
 /// empty: every candidate is first correlated by cwd and session start,
 /// singleton included, and exactly one correlated file is read.
-pub(crate) fn codex_thread_refusal_since(
+pub(in crate::adapters) fn codex_thread_refusal_since(
     root: &Path,
     since_nanos: i128,
     workdir: &str,
     now: Option<&Now>,
     depth: usize,
+    bindings: &[BoundSecret],
 ) -> Option<PreSessionRefusal> {
     let mut found = find_codex_threads_since(root, since_nanos, depth);
-    found.retain(|path| {
-        thread_header(path, None)
-            .is_some_and(|(cwd, started)| cwd == workdir && started >= since_nanos)
-    });
+    found.retain(|path| thread_header(path, None, workdir, since_nanos, bindings).is_some());
     let [path] = found.as_slice() else {
         return None;
     };
     let body = std::fs::read_to_string(path).ok()?;
-    codex_thread_refusal(&body, Some(since_nanos), now)
+    codex_thread_refusal(&body, Some(since_nanos), now, bindings)
 }
 
 /// The thread record whose file name carries `thread_id`, anywhere in a
 /// bounded walk below `root`. The id is codex's own announcement, never
 /// "the newest file": a concurrent seat's thread must not lend this one
 /// its effort (decision 0035).
-pub(crate) fn find_codex_thread(root: &Path, thread_id: &str, depth: usize) -> Option<PathBuf> {
+pub(in crate::adapters) fn find_codex_thread(
+    root: &Path,
+    thread_id: &Ident,
+    depth: usize,
+) -> Option<PathBuf> {
     let mut found = None;
     walk_codex_threads(root, depth, &mut |path| {
         let named = path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| names_codex_thread(name, thread_id));
+            .is_some_and(|name| thread_id.names_rollout(name));
         if named {
             found = Some(path.to_path_buf());
         }
@@ -268,44 +310,34 @@ fn walk_codex_threads(root: &Path, depth: usize, visit: &mut impl FnMut(&Path) -
         .any(|directory| walk_codex_threads(&directory, depth - 1, visit))
 }
 
-/// `name` carries `thread_id` as a WHOLE token, bounded at both ends by a
-/// non-alphanumeric or by the ends of the name, never as a fragment: a
-/// fragment is not an announcement, and a bare `contains` would lose the
-/// "never by the newest file" rule by another route.
-fn names_codex_thread(name: &str, thread_id: &str) -> bool {
-    name.match_indices(thread_id).any(|(at, _)| {
-        let before = name[..at].chars().next_back();
-        let after = name[at + thread_id.len()..].chars().next();
-        !before.is_some_and(|c| c.is_ascii_alphanumeric())
-            && !after.is_some_and(|c| c.is_ascii_alphanumeric())
-    })
-}
-
-/// The cwd and session start a rollout's header names, only when its first
-/// row is a `session_meta` with string `cwd`, `timestamp` and `id` in its
-/// payload, and the id is this record's own (F4): the announced thread when
-/// one is known, else the full id at the end of its `rollout-…-<id>.jsonl`
-/// file name.
-pub(crate) fn thread_header(path: &Path, announced: Option<&str>) -> Option<(String, i128)> {
+/// A rollout belongs to this invocation only when its first row names
+/// the workdir, a current start and the record's own id.
+pub(in crate::adapters) fn thread_header(
+    path: &Path,
+    announced: Option<&Ident>,
+    workdir: &str,
+    since_nanos: i128,
+    bindings: &[BoundSecret],
+) -> Option<()> {
     let body = std::fs::read_to_string(path).ok()?;
-    let first = body.lines().next()?;
-    let row = serde_json::from_str::<Value>(first).ok()?;
-    if row.get("type").and_then(Value::as_str) != Some("session_meta") {
+    let raw = serde_json::from_str::<Value>(body.lines().next()?).ok()?;
+    let row = Row::new(&raw, bindings);
+    if !matches!(row.kind("/type", ENVELOPES), Some(Envelope::Header)) {
         return None;
     }
-    let payload = row.get("payload")?;
-    let cwd = payload.get("cwd").and_then(Value::as_str)?.to_string();
-    let started = parse_nanos(payload.get("timestamp")?.as_str()?)?;
-    let id = payload.get("id").and_then(Value::as_str)?;
-    names_own_record(path, id, announced).then_some((cwd, started))
+    let payload = row.at("/payload")?;
+    let id = payload.ident("/id")?;
+    let started = payload.since("/timestamp", since_nanos)?;
+    (payload.equals("/cwd", workdir) && started && names_own_record(path, &id, announced))
+        .then_some(())
 }
 
 /// Whether `id` is the record's own: equal to the announced thread when
 /// one is known, else equal to the full id the file name carries. A
 /// mismatch, including an empty id or a fragment of the real id,
 /// correlates nothing.
-fn names_own_record(path: &Path, id: &str, announced: Option<&str>) -> bool {
-    if id.is_empty() {
+fn names_own_record(path: &Path, id: &Ident, announced: Option<&Ident>) -> bool {
+    if id.is_offered("") {
         return false;
     }
     announced.map_or_else(
@@ -313,7 +345,7 @@ fn names_own_record(path: &Path, id: &str, announced: Option<&str>) -> bool {
             path.file_name()
                 .and_then(|name| name.to_str())
                 .and_then(record_id_from_name)
-                .is_some_and(|own| own == id)
+                .is_some_and(|own| *id == Ident::from_offered(own))
         },
         |announced| announced == id,
     )
@@ -342,3 +374,6 @@ fn is_codex_thread_id(id: &str) -> bool {
         _ => c.is_ascii_digit() || matches!(c, 'a'..='f'),
     })
 }
+
+#[cfg(test)]
+mod tests;

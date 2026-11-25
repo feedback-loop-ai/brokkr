@@ -15,11 +15,17 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::fold::{fold, Run};
+use brokkr_core::fold::{fold, OperatorCommand, Run};
+use brokkr_core::{accepted_command, operator_command, succeeded_effect};
 use brokkr_store::{SeatTree, Store};
 use uuid::Uuid;
 
 use super::{HeldReason, KeptReason, ShapeReason, SCRATCH};
+
+// The payloads the sweep reads are read by brokkr-core's own readers, the
+// one home of their shapes (0071 rulings 3 and 5): a payload that does not
+// read keeps the run's rows, never a panic and never a removal, and an
+// array is refused as the fold refuses it.
 
 /// What the row decided: remove it, close it as gone, or keep it for one
 /// stated reason.
@@ -177,14 +183,15 @@ impl Facts {
     }
 }
 
-/// The facts a run's events state, or the reason the fold refused them.
+/// The facts a run's events state, or the reason the fold, or the sweep's
+/// own decode of a payload it reads, refused them.
 /// Only the events the fold applies are read: a repaired late tail is kept
 /// and shown and never applied, so it neither ends an attempt nor closes
 /// an effect, and an attempt it names keeps its tree.
 fn folded(events: &[EventEnvelope]) -> Result<Folded, KeptReason> {
     let state = fold(events).map_err(|_| KeptReason::RunDoesNotFold)?;
-    let stops = stop_acceptances(events);
-    let (effects, attempts) = applied(events, &state, &stops);
+    let stops = stop_acceptances(events, &state)?;
+    let (effects, attempts) = applied(events, &state, &stops)?;
     Ok(Folded {
         terminal: matches!(state.run, Run::Completed | Run::Stopped),
         effects,
@@ -199,7 +206,7 @@ fn applied(
     events: &[EventEnvelope],
     state: &brokkr_core::fold::RunState,
     stops: &HashSet<&str>,
-) -> (HashSet<String>, HashMap<String, Attempt>) {
+) -> Result<(HashSet<String>, HashMap<String, Attempt>), KeptReason> {
     let mut effects = HashSet::new();
     let mut attempts = HashMap::new();
     for event in events {
@@ -207,11 +214,11 @@ fn applied(
             continue;
         }
         if event.event_type == EventType::EffectSucceeded {
-            // The fold read the effect id as a string before this loop runs,
-            // so the read is an invariant, not a branch the pass can miss.
-            let effect = event.payload["effect_id"]
-                .as_str()
-                .expect("a folded effect/succeeded names its effect");
+            // The fold read the effect id as a string before this loop
+            // runs, so the refusal is a value, not a closure no test enters.
+            let effect = succeeded_effect(event)
+                .ok()
+                .ok_or(KeptReason::RunDoesNotFold)?;
             effects.insert(effect.to_string());
         }
         let Some(attempt) = event.attempt_id.as_deref() else {
@@ -247,7 +254,7 @@ fn applied(
             }
         }
     }
-    (effects, attempts)
+    Ok((effects, attempts))
 }
 
 /// The attempts a late event names: the fold keeps and shows such an event
@@ -263,24 +270,42 @@ fn late_attempts(events: &[EventEnvelope], state: &brokkr_core::fold::RunState) 
 /// The ids of the `operator/accepted` events that dispose of a stop
 /// command: a terminal caused by one of them closed its attempt under an
 /// accepted stop, whether a conclude or a resumed engine's restart wrote it.
-fn stop_acceptances(events: &[EventEnvelope]) -> HashSet<&str> {
-    let commands: HashSet<&str> = events
-        .iter()
-        .filter(|event| event.event_type == EventType::OperatorCommanded)
-        .filter(|event| event.payload.get("command").and_then(|word| word.as_str()) == Some("stop"))
-        .filter_map(command_id)
-        .collect();
-    events
-        .iter()
-        .filter(|event| event.event_type == EventType::OperatorAccepted)
-        .filter(|event| command_id(event).is_some_and(|id| commands.contains(id)))
-        .map(|event| event.event_id.as_str())
-        .collect()
-}
-
-/// The `command_id` an operator event carries.
-fn command_id(event: &EventEnvelope) -> Option<&str> {
-    event.payload.get("command_id").and_then(|id| id.as_str())
+/// Only the events the fold applies are read, as [`applied`] reads them: a
+/// repaired late tail is never applied, so its payloads decide nothing.
+/// Each applied operator payload is read once, here; one that does not
+/// read keeps the run's rows. An `operator/commanded` the fold admitted
+/// unread, an annotation after the terminal event, is the only one that
+/// can refuse here, and it keeps them for that reason of its own.
+fn stop_acceptances<'a>(
+    events: &'a [EventEnvelope],
+    state: &brokkr_core::fold::RunState,
+) -> Result<HashSet<&'a str>, KeptReason> {
+    let mut commands = HashSet::new();
+    let mut accepted = Vec::new();
+    for event in events.iter().filter(|event| state.applies(event.seq)) {
+        if event.event_type == EventType::OperatorCommanded {
+            let (command_id, command) = operator_command(event)
+                .ok()
+                .ok_or(KeptReason::OperatorPayloadUnread)?;
+            if command == OperatorCommand::Stop.as_str() {
+                commands.insert(command_id);
+            }
+        } else if event.event_type == EventType::OperatorAccepted {
+            // The fold read an applied acceptance's command id as a string
+            // before this loop runs, so the refusal is a value, not a
+            // closure no test enters; the fold's refusal is pinned by
+            // `an_operator_payload_that_does_not_decode_keeps_the_runs_tree`.
+            let command_id = accepted_command(event)
+                .ok()
+                .ok_or(KeptReason::RunDoesNotFold)?;
+            accepted.push((command_id, event.event_id.as_str()));
+        }
+    }
+    Ok(accepted
+        .into_iter()
+        .filter(|(command, _)| commands.contains(command))
+        .map(|(_, event_id)| event_id)
+        .collect())
 }
 
 /// Whether `cause` names one of `ids`.

@@ -28,7 +28,7 @@ pub(super) fn read_tree(repo: &Path) -> TreeReading {
 }
 
 /// The repository's observed HEAD, or nothing when there is no readable
-/// git tree there. Public because `brokkr realms` reads out the same
+/// git tree there. Public because `brokkr system realms` reads out the same
 /// fact the ship gate compares against — one reader, not two.
 pub fn git_head(repo: &std::path::Path) -> Option<String> {
     let out = Command::new("git")

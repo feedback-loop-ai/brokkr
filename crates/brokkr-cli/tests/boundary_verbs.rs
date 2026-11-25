@@ -11,13 +11,7 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
-fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+use crate::workspace_root::workspace as workspace_root;
 
 const POLICY: &str = r#"{
   "schema": "forge.phase-machine/v1",
@@ -85,9 +79,14 @@ struct Workspace {
 impl Workspace {
     /// A workspace holding a bundle whose one seat is an exec gate with
     /// hands running the bundle's own `./scripts/gate.sh`, and a v4 map
-    /// naming the workspace itself as a realm under `boundary`.
+    /// naming the workspace itself as a realm under `boundary`. The
+    /// workspace is a repository with a clean head, since review is
+    /// decided on the head its check accepted (fix round 0109a1r3, H1).
     fn new(boundary: &str) -> Workspace {
-        let ws = Workspace::fresh();
+        let ws = Workspace {
+            dir: crate::brokkr_folder::clean_repository(),
+            home: tempfile::tempdir().unwrap(),
+        };
         let bundle = ws.bundle_dir();
         std::fs::create_dir_all(bundle.join("scripts")).unwrap();
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
@@ -157,8 +156,7 @@ impl Workspace {
 
     /// `brokkr <args>` in the workspace as it stands, with no library mark.
     fn unmarked(&self, args: &[&str]) -> (Option<i32>, String, String) {
-        let out = Command::new(brokkr_bin())
-            .args(args)
+        let out = crate::built::brokkr(args)
             .env("GH_TOKEN", FIXTURE_GH_TOKEN)
             .env("HOME", self.home.path())
             .current_dir(self.path())
@@ -247,7 +245,7 @@ fn a_metacharacter_gate_and_its_mutable_matching_sibling_refuse_before_run() {
                 std::fs::read_to_string(selected.join("gate.sh")).unwrap(),
                 GATE
             );
-            let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", "bundle"]);
+            let (code, _, stderr) = ws.brokkr(&["library", "compile", "--bundle", "bundle"]);
             assert_ne!(code, Some(0), "{stderr}");
             for expected in [
                 "component \"scripts[1]\"",
@@ -417,7 +415,7 @@ fn a_plain_compile_has_no_boundary_map_and_resume_keeps_its_pinned_namespace() {
         seat["class"] = json!("work");
     }
     std::fs::write(path, config.to_string()).unwrap();
-    let (code, stdout, stderr) = ws.brokkr(&["compile", "--bundle", "bundle"]);
+    let (code, stdout, stderr) = ws.brokkr(&["library", "compile", "--bundle", "bundle"]);
     assert_eq!(code, Some(0), "{stderr}");
     let compiled: Value = serde_json::from_str(&stdout).unwrap();
     assert!(compiled["manifest"].get("hands").is_none());
@@ -522,7 +520,7 @@ fn run_resume_and_rerun_refuse_an_unbuilt_boundary_before_the_journal() {
     let config = std::fs::read(&config_path).unwrap();
     std::fs::write(&config_path, "{}").unwrap();
     let (code, _, stderr) = ws.brokkr(&[
-        "rerun", "--run", &first, "--bundle", bundle_arg, "--db", db_arg,
+        "runs", "rerun", "--run", &first, "--bundle", bundle_arg, "--db", db_arg,
     ]);
     assert_eq!(code, Some(1), "{stderr}");
     assert!(stderr.contains("bundle"), "{stderr}");
@@ -537,7 +535,7 @@ fn run_resume_and_rerun_refuse_an_unbuilt_boundary_before_the_journal() {
     std::fs::write(config_path, config).unwrap();
     ws.map("seatbelt");
     let (code, _, stderr) = ws.brokkr(&[
-        "rerun", "--run", &first, "--bundle", bundle_arg, "--db", db_arg,
+        "runs", "rerun", "--run", &first, "--bundle", bundle_arg, "--db", db_arg,
     ]);
     assert_eq!(code, Some(1), "{stderr}");
     assert!(
@@ -679,6 +677,7 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     let out = ws.path().join("export");
     let db = ws.db();
     let (code, _, stderr) = ws.brokkr(&[
+        "journal",
         "export",
         "--run",
         &id,
@@ -692,7 +691,7 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     let text = std::fs::read_to_string(&journal).unwrap();
     assert!(text.contains("\"boundary\":\"harness\""), "{text}");
     assert!(!text.contains("unboxed"), "the data carries the plain word");
-    let (code, stdout, stderr) = ws.brokkr(&["verify-run", journal.to_str().unwrap()]);
+    let (code, stdout, stderr) = ws.brokkr(&["journal", "verify", journal.to_str().unwrap()]);
     assert_eq!(code, Some(0), "{stderr}");
     let verified: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(verified["chain"], "verified");
@@ -702,6 +701,7 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     // run's manifest carries the realms pin and the boundary map.
     let bundle = ws.bundle_dir();
     let (code, _, stderr) = ws.brokkr(&[
+        "runs",
         "rerun",
         "--run",
         &id,
@@ -723,7 +723,8 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     // `compile` prints the manifest, whose `boundary` map sits under
     // `hands` with the same keys — and a bundle boxing nothing prints
     // neither key.
-    let (code, stdout, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    let (code, stdout, stderr) =
+        ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(0), "{stderr}");
     let view: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(
@@ -747,8 +748,7 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
         "no second copy beside the manifest"
     );
     let root = workspace_root();
-    let out = Command::new(brokkr_bin())
-        .args(["compile", "--bundle", "recipes/self"])
+    let out = crate::built::brokkr(["library", "compile", "--bundle", "recipes/self"])
         .current_dir(&root)
         .output()
         .unwrap();
@@ -770,6 +770,9 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
 /// bundle's hands line stays healthy.
 #[test]
 fn doctor_reads_the_realms_boundary_from_the_workspace_map() {
+    let Some(alone) = crate::isolated::alone() else {
+        return;
+    };
     let ws = Workspace::new("harness");
     let empty = ws.path().join("empty-path");
     std::fs::create_dir_all(&empty).unwrap();
@@ -777,13 +780,12 @@ fn doctor_reads_the_realms_boundary_from_the_workspace_map() {
     // PATH exists to hide bwrap, sandbox-exec and docker alone.
     crate::brokkr_folder::plant_git(&empty);
     let bundle = ws.bundle_dir();
-    let out = Command::new(brokkr_bin())
-        .args(["doctor", "--bundle", bundle.to_str().unwrap()])
-        .env("PATH", &empty)
-        .current_dir(ws.path())
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
+    let doctor = || {
+        let mut doctor = alone.brokkr(["doctor", "--bundle", bundle.to_str().unwrap()]);
+        let out = doctor.env("PATH", &empty).current_dir(ws.path()).output();
+        String::from_utf8_lossy(&out.unwrap().stdout).into_owned()
+    };
+    let stdout = doctor();
     assert!(
         stdout.contains(
             "boundaries: harness · open offered; namespace needs bwrap on PATH (not found)"
@@ -797,13 +799,7 @@ fn doctor_reads_the_realms_boundary_from_the_workspace_map() {
         "{stdout}"
     );
     ws.map("container");
-    let out = Command::new(brokkr_bin())
-        .args(["doctor", "--bundle", bundle.to_str().unwrap()])
-        .env("PATH", &empty)
-        .current_dir(ws.path())
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stdout = doctor();
     assert!(
         stdout.contains(
             "warn     hands: seats [\"review\", \"verify\"] declare hands and will refuse to \

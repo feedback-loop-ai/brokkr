@@ -282,7 +282,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             provider,
             "--",
             "--model",
-            "claude-fable-5-1",
+            "claude-fable-5-2",
             "--effort",
             "high"
         ]),
@@ -292,7 +292,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             provider,
             "--",
             "--model",
-            "gpt-6.1-sol",
+            "gpt-6.2-sol",
             "--effort",
             "medium"
         ]),
@@ -2216,7 +2216,9 @@ fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     // with a `codex exec` turn; the `gpt-6.0-*` spellings are refused for
     // a ChatGPT-account codex. On 2026-09-30 (codex-cli 0.159.0) `sol`
     // moved to `gpt-6.1-sol`, probed the same way; `gpt-6-1-sol` is
-    // refused. `terra` has no 6 release and stays. The
+    // refused. On 2026-11-19 the operator moved `sol`, `astra` and
+    // `terra` to `gpt-6.2-sol`, `gpt-6.2-astra` and `gpt-6.1-terra`, the
+    // latest in codex-cli 0.170.0's catalog; `luna` stays. The
     // pairs live once, in `adapters/codex.json` (#358); what holds here
     // is what each must satisfy: the id is a `gpt-` slug from codex's
     // own catalog, and the abstract names are codex's own family words —
@@ -2790,23 +2792,27 @@ fn pinned_script_components_reject_ambiguity_and_directories() {
         .into_iter()
         .map(str::to_string)
         .collect::<Vec<_>>();
-    assert!(pinned_script(&fixture.bundle_dir(), &no_separator)
-        .unwrap_err()
-        .contains("no `--` after `exec`"));
-    for script in [
-        "./scripts/./check.sh",
-        "./scripts/../check.sh",
-        "./scripts//check.sh",
-        "./scripts",
+    let dir = fixture.bundle_dir();
+    let refused = pinned_script(&dir, &no_separator);
+    assert_eq!(refused, Err(PinnedScriptRefusal::NoSeparator));
+    let not_plain = |token| PinnedScriptRefusal::NotPlain { token };
+    for (script, expected) in [
+        ("./scripts/./check.sh", not_plain("./scripts/./check.sh")),
+        ("./scripts/../check.sh", not_plain("./scripts/../check.sh")),
+        ("./scripts//check.sh", not_plain("./scripts//check.sh")),
+        (
+            "./scripts",
+            PinnedScriptRefusal::NotAFile {
+                token: "./scripts",
+                dir: &dir,
+            },
+        ),
     ] {
         let command: Vec<String> = ["engine", "driver", "exec", "--", "sh", script]
             .into_iter()
             .map(str::to_string)
             .collect();
-        assert!(
-            pinned_script(&fixture.bundle_dir(), &command).is_err(),
-            "{script}"
-        );
+        assert_eq!(pinned_script(&dir, &command), Err(expected), "{script}");
     }
 }
 

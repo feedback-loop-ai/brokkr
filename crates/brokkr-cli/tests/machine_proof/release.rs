@@ -1,7 +1,7 @@
 //! U8e3 through the binary (MB5, CR2; operator ruling 2026-10-21, "A"): a
 //! run whose engine was killed while its driver ran keeps its worktree, and
-//! a conflicting run is refused by its lease. `brokkr operator release`
-//! refuses while the attempt has not ended; once `brokkr conclude` ended
+//! a conflicting run is refused by its lease. `brokkr runs operator release`
+//! refuses while the attempt has not ended; once `brokkr runs conclude` ended
 //! it, the release is journaled with its reason, the reservation is gone,
 //! and the conflicting run admits. A second release finds nothing to
 //! release. Its seats are unboxed, so no namespace is needed; the HOME is
@@ -11,7 +11,7 @@
 #![cfg(target_os = "linux")]
 
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use serde_json::json;
 
@@ -22,8 +22,7 @@ const REASON: &str = "its engine was killed and every process its attempt owned 
 
 /// `brokkr` run with `args` under the host's HOME.
 fn brokkr(host: &Host, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(args)
+    crate::built::brokkr(args)
         .current_dir(&host.base)
         .env("HOME", host.base.join("home"))
         .output()
@@ -74,7 +73,7 @@ fn a_killed_engines_worktree_is_released_by_the_operator_and_a_conflicting_run_a
     let db = host.journal("held");
     let db = db.to_str().unwrap();
     let release = [
-        "operator", "--run", &run, "--reason", REASON, "release", "--db", db,
+        "runs", "operator", "--run", &run, "--reason", REASON, "release", "--db", db,
     ];
     let refused = |cause: String| {
         format!("error: the operator's release was refused, and the run's writer lease stands: {cause}\n")
@@ -89,6 +88,7 @@ fn a_killed_engines_worktree_is_released_by_the_operator_and_a_conflicting_run_a
     );
     assert_eq!(running, refused(not_ended));
     let conclude = [
+        "runs",
         "conclude",
         "--run",
         &run,

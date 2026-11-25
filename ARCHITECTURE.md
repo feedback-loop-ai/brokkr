@@ -122,7 +122,7 @@ never retries, because a retry could duplicate or re-pay for finished
 work. Exhaustion, schema violations, unmatched results and unknown
 anything park the run with the raw evidence attached — never repaired,
 coerced, or handed to a model to fix (decision 0001). Operator commands
-are journal events, not prose. `operator supersede` records the named
+are journal events, not prose. `runs operator supersede` records the named
 residual findings an operator closes, with the actor and optional closing-run
 citation (decision 0047); it does not rewrite a past verdict or resume a
 completed run.
@@ -179,7 +179,7 @@ stateDiagram-v2
   stop --> [*]
 ```
 
-`brokkr compile` rejects any table where the protected review phase can
+`brokkr library compile` rejects any table where the protected review phase can
 be skipped on a path to a non-stop terminal. The way back is bounded in
 the machine's own vocabulary (decision 0022): a rule may read
 `visits_<phase>_gte`, the same count the graph renders as `×N`, and a
@@ -211,7 +211,7 @@ A bundle is reviewable text: policy, one seat per phase, pinned by
 content digest. A seat is a single session or a **panel**: members fan
 out inside one effect, join as a barrier in declared order, and a
 closed-vocabulary aggregate produces the one typed result the machine
-sees. On a parked panel, `operator retry --member <tag>` re-runs the named
+sees. On a parked panel, `runs operator retry --member <tag>` re-runs the named
 members and carries settled verdicts from their original attempts only when
 the reviewed head, clean tree, pinned bundle and inputs still match, at both
 command and execution time (decision 0093). A sequence member uses
@@ -295,7 +295,8 @@ sequenceDiagram
 
 Drivers speak `forge-driver/v1`
 ([contracts/driver-protocol.v1.schema.json](contracts/driver-protocol.v1.schema.json)):
-NDJSON over stdio, stdout protocol-only, stderr captured as an artifact.
+NDJSON over stdio, stdout protocol-only, stderr captured and never
+journaled: the journal names it by content-free evidence alone.
 The adapters for Claude Code, Codex, dsh, LaneTally's Claude Code wrapper
 and any prompt-in/result-file-out harness (`exec`) are built in as
 `{brokkr} driver <kind>` (decision 0009), while the protocol stays
@@ -325,9 +326,9 @@ CLI, TUI and web readouts retain that fact.
 Every verb, flag and [exit code](docs/reference/cli.md#exit-codes) is
 in the [CLI reference](docs/reference/cli.md), rendered from the
 binary's own definitions.
-`brokkr ui`, `brokkr tui` and `brokkr inspect` are three renderers over
+`brokkr system ui`, `brokkr tui` and `brokkr runs inspect` are three renderers over
 the same `brokkr-view` models (decision 0014): read-only, no operator
-command, nothing written to the journal. `brokkr costs` reports per-seat
+command, nothing written to the journal. `brokkr stats costs` reports per-seat
 attempts, turns and USD from journal checkpoints, keyed by the stable
 seat ids a cost ledger can join on.
 

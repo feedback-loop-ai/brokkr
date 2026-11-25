@@ -11,7 +11,7 @@ use std::process::Command;
 use brokkr_core::dispatch::{bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError};
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, OperatorCommand, Run, RunState, Status};
-use brokkr_core::gate_moved_head::{self, MovedHead};
+use brokkr_core::gate_moved_head;
 use brokkr_core::park::{Park, ParkCause};
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventEnvelope;
@@ -28,6 +28,7 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::agents::kinds::{SeatKinds, UNDECLARED};
 use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::argv::Executable;
 use crate::bundle::{
@@ -51,6 +52,7 @@ pub use broker::evidence;
 // The test modules compare a box's argv through `use super::*`.
 #[cfg(test)]
 use boxed::hands_command;
+mod attempt_stderr;
 mod capability_calls;
 mod carry;
 mod checkpoints;
@@ -60,6 +62,7 @@ mod decide;
 mod dispatch;
 use dispatch::{spawn_site, Door};
 mod fence;
+mod heads;
 mod input;
 mod isolation;
 use capability_calls::Calls;
@@ -82,6 +85,8 @@ mod seat_tree;
 pub(crate) mod sequence;
 pub(in crate::engine) use seat_tree::AttemptIds;
 mod start;
+mod usage;
+mod verdict;
 use operator::operator_stop_reason;
 #[cfg(test)]
 use panel::panel_outcome;
@@ -112,11 +117,10 @@ use operator::{
     operator_supersede_racing, riding_attempt, stop_as, stop_racing_as, FENCE_ATTEMPTS,
 };
 
-/// What an `effect/indeterminate` carries of an attempt not proven over
-/// (#403), the fields `contracts/effect-cleanup.v1.schema.json` publishes:
-/// nothing once proven over, so the event keeps its v1 bytes; a seat's own
-/// evidence; or a panel's, by member. The member's own marker is a closed
-/// seat record and carries none.
+/// What an `effect/indeterminate` carries of an attempt not proven over (#403), the fields
+/// `contracts/effect-cleanup.v1.schema.json` publishes: nothing once proven over, so the event
+/// keeps its v1 bytes; a seat's own evidence; or a panel's, by member. The member's own marker
+/// is a closed seat record and carries none.
 #[derive(Debug, Default, Serialize)]
 #[serde(untagged)]
 enum Unproven {
@@ -477,21 +481,18 @@ pub struct Engine {
     /// The operated repository, resolved once by `operated_repo`: the
     /// tree seats work in and every git fact reads.
     pub repo: PathBuf,
-    /// The world this run was invoked into (decision 0023), when a map
-    /// was in effect. It is pinned into the run manifest at start, so
-    /// this field is the run's *live* copy of a fact the journal already
-    /// answers for; the facts a decision records are keyed by the realm
-    /// the repository is, when the map names one.
+    /// The world this run was invoked into (decision 0023), when a map was in effect. It is
+    /// pinned into the run manifest at start, so this field is the run's *live* copy of a fact
+    /// the journal already answers for; the facts a decision records are keyed by the realm the
+    /// repository is, when the map names one.
     pub world: Option<crate::realms::World>,
-    /// The event_id every append chains to as `causation_id` — refreshed
-    /// to the journal head each drive iteration, then to each event this
-    /// iteration appends, so causal links mirror the engine's actual
-    /// decision order (rendered by the UI timeline).
+    /// The event_id every append chains to as `causation_id` — refreshed to the journal head each
+    /// drive iteration, then to each event this iteration appends, so causal links mirror the
+    /// engine's actual decision order (rendered by the UI timeline).
     current_cause: Option<String>,
-    /// Operator-side secrets store override (decision 0012). Defaults to
-    /// `secrets.env` in the run-local directory. The engine only ever threads this
-    /// PATH (plus declared names) into the driver start input — values
-    /// are resolved by the exec driver at spawn time; no store read
+    /// Operator-side secrets store override (decision 0012). Defaults to `secrets.env` in the
+    /// run-local directory. The engine only ever threads this PATH (plus declared names) into the
+    /// driver start input — values are resolved by the exec driver at spawn time; no store read
     /// exists anywhere in brokkr-runtime.
     pub secrets_file: Option<PathBuf>,
     /// The store's place, resolved from its configured spelling once and
@@ -504,17 +505,19 @@ pub struct Engine {
     /// sleep the wait reads (decision 0071 ruling 1), and the probe's
     /// answer the retry journals (decision 0103 rulings 3 and 5).
     pub(crate) cooldown: cooldown::Seam,
-    /// Present only while this process is executing a gate-bearing site,
-    /// and it holds exactly one observation: the head as that site's own
-    /// span began. The span is the gate STEP inside a sequence and the
-    /// whole effect for a gate single seat or panel — never both at once,
-    /// so a sequence's steps are the only observation a sequence makes.
-    /// The observations are compared at the end of the span that armed
-    /// them; only a mismatch is journaled, as the raw evidence on the
-    /// resulting park. A span that ends through an `Err` — appending no
-    /// terminal event — clears it rather than leaving it for the next
-    /// effect to spend.
-    active_gate_head: Option<Option<String>>,
+    /// The checked spans of the effect this process is executing: the
+    /// head each armed span began on, compared at the end of the span
+    /// that armed it, where only a mismatch is journaled, as the raw
+    /// evidence on the resulting park, and the observations the matches
+    /// kept (heads.rs). A span that ends through an `Err`, appending no
+    /// terminal event, is abandoned rather than left for the next effect
+    /// to spend.
+    spans: heads::Spans,
+    /// What the dispatched gate effect's success records as `covered`
+    /// (decision 0109 ruling 7), spent by its terminal event.
+    covering: Option<verdict::Covering>,
+    /// Every HEAD read the engine takes (decision 0109 ruling 7).
+    heads: heads::HeadReads,
     /// The boundary every site with hands is composed from (decision
     /// 0046 ruling 1): the compiled bundle's word, set once at entry and
     /// never re-read from a map, so the pinned word and the world the run
@@ -528,6 +531,7 @@ pub struct Engine {
     /// The attempt's terminal event a peer's lock kept out, carried to
     /// the lawful end (#394). Never journaled as such.
     held_outcome: Option<checkpoints::HeldOutcome>,
+    usage: usage::Pending,
     /// The head the next append must still find, as [`fence::tip_of`]
     /// took it (decision 0029); `None` while an attempt is in flight.
     fence: Option<(u64, String)>,
@@ -538,6 +542,8 @@ pub struct Engine {
     /// The run's lock while this process drives it (decision 0108 ruling
     /// 1), taken before the first append and let go as the engine is.
     run_lock: Option<crate::run_lock::RunLock>,
+    stderr: attempt_stderr::AttemptStderr,
+    told: Box<dyn std::io::Write + Send>,
 }
 
 pub(crate) fn verify_dispatch_bundle_bounds(
@@ -611,13 +617,18 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         secrets_file: None,
         state: None,
         cooldown: Default::default(),
-        active_gate_head: None,
+        spans: Default::default(),
+        covering: None,
+        heads: Default::default(),
         network_prefix: None,
         replay: Default::default(),
         held_outcome: None,
+        usage: Default::default(),
         fence: None,
         held: None,
         run_lock: None,
+        stderr: Default::default(),
+        told: Box::new(std::io::stderr()),
     }
 }
 
@@ -774,15 +785,21 @@ impl Engine {
         // A drive that returns stops driving: let the run go so an operator
         // can conclude it while a view still paints (decision 0108 ruling
         // 1). A second drive here takes it again, as a new driver.
-        if self.run_lock.is_none() {
-            self.run_lock = Some(crate::run_lock::take(&self.store, &self.run_id)?);
-        }
-        let ended = self.drive_locked(before_lawful_end);
+        let ended = (|| {
+            if self.run_lock.is_none() {
+                self.run_lock = Some(crate::run_lock::take(&self.store, &self.run_id)?);
+            }
+            self.drive_locked(before_lawful_end)
+        })();
         self.run_lock = None;
+        self.stderr.tell(&mut self.told);
         ended
     }
 
-    /// [`Engine::drive_racing`]'s loop, with the run held.
+    /// [`Engine::drive_racing`]'s loop, with the run held. When the lawful end
+    /// lands a held outcome, the next turn writes any park it owes at the
+    /// cursor. Where no park is due, the tail is told before a wait or retry.
+    /// A drive returning with a tail queued tells it after releasing the run.
     fn drive_locked(
         &mut self,
         mut before_lawful_end: impl FnMut(&EngineError),
@@ -841,6 +858,7 @@ impl Engine {
             }
         }
         self.replay = replay;
+        self.finish_turn()?;
         Ok(None)
     }
 
@@ -918,28 +936,30 @@ impl Engine {
         }))
     }
 
-    /// Journal the attempt's held outcome. A result the seat-record fence
-    /// refuses now settles the attempt indeterminate with the refusal
-    /// named: the failure its seat would have built was not held, and a
-    /// park loses nothing.
+    /// Journal the attempt's held outcome through the per-member path a
+    /// terminal the lock never held takes (fix round 0109a1r8, M5). A
+    /// result the fence still refuses settles the attempt indeterminate,
+    /// the refusal named, and a park loses nothing.
     fn land_held_outcome(
         &mut self,
         held: checkpoints::HeldOutcome,
         effect_id: &str,
     ) -> Result<(), EngineError> {
         let attempt_id = held.attempt_id.clone();
-        match self.append_raw(held.event_type, held.payload, held.attempt_id) {
+        self.stderr.active = held.stderr;
+        let landed = match self.append_settled(held.event_type, held.payload, held.attempt_id) {
             Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
                 let reason = format!(
                     "the journal refused the result a peer's lock had held back: {refusal}"
                 );
                 let settled =
                     json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
-                self.append_raw(EventType::EffectIndeterminate, settled, attempt_id)
+                self.append(EventType::EffectIndeterminate, settled, attempt_id)
             }
             landed => landed,
-        }
-        .map(drop)
+        };
+        self.stderr.active = None;
+        landed.map(drop)
     }
 
     fn append(
@@ -966,42 +986,14 @@ impl Engine {
                 .get("effect_id")
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
-            if let Some(moved) = self.finish_gate_head_check(effect_id, attempt_id.clone())? {
+            let span = heads::Span::Effect;
+            if let Some(moved) = self.finish_gate_head_check(span, effect_id, attempt_id.clone())? {
                 return Ok(moved);
             }
         }
-        self.append_raw(event_type, payload, attempt_id)
-    }
-
-    fn finish_gate_head_check(
-        &mut self,
-        effect_id: &str,
-        attempt_id: Option<String>,
-    ) -> Result<Option<EventEnvelope>, EngineError> {
-        let Some(start) = self.active_gate_head.take() else {
-            return Ok(None);
-        };
-        let end = git_head(&self.repo);
-        if start == end {
-            return Ok(None);
-        }
-        let moved = MovedHead {
-            head_at_end: end,
-            head_at_start: start,
-        };
-        // EffectIndeterminate has only a reason string in the frozen event
-        // contract. Keep the evidence packed there and attach its structured
-        // copy to run/parked rather than widening that contract in this slice.
-        self.append_raw(
-            EventType::EffectIndeterminate,
-            json!({
-                "effect_id": effect_id,
-                "attempt_id": attempt_id,
-                "reason": gate_moved_head::encode(&moved),
-            }),
-            attempt_id,
-        )
-        .map(Some)
+        let mut payload = self.stamp_covered(event_type, payload);
+        self.stderr.name(event_type, &mut payload);
+        self.append_settled(event_type, payload, attempt_id)
     }
 
     fn request_or_finish(&mut self, state: &RunState) -> Result<(), EngineError> {
@@ -1276,6 +1268,10 @@ impl Engine {
                 )
                 .digest(),
                 entry.class,
+            )
+            .of_harness(
+                site_kinds(&self.bundle, selection, &entry.site, &entry.command),
+                self.marks().standing(&label),
             );
             let offer = offer_for_site(
                 events,
@@ -1323,7 +1319,7 @@ impl Engine {
             plans.insert(
                 entry.site,
                 SitePlan {
-                    context: context.offered(events, offer.as_ref()),
+                    context: context.offered(events, &entry.key, offer.as_ref()),
                     offer,
                     assessment,
                     originating,
@@ -1462,8 +1458,9 @@ impl Engine {
     }
 
     /// Conclude a single-driver attempt with its terminal effect event.
-    /// The stderr tail rides on failed/indeterminate outcomes; a spawn
-    /// failure has no stderr and carries none.
+    /// A failed or indeterminate outcome names the driver's stderr by
+    /// content-free evidence, its masked tail told to the engine's own
+    /// stderr (#1199); a spawn failure has no stderr and names none.
     fn conclude_single(
         &mut self,
         effect_id: &str,
@@ -1472,6 +1469,7 @@ impl Engine {
         selection: &Selection,
         boundary: Option<Boundary>,
     ) -> Result<(), EngineError> {
+        self.usage.seat(attempt_id, &run);
         let report = match run {
             DriverRun::SpawnFailed(error) => {
                 // A driver binary that is absent satisfies the structural
@@ -1493,24 +1491,21 @@ impl Engine {
             DriverRun::Ran(report) => report,
         };
         let start_failure = failed_to_start(&report);
-        let stderr_tail = stderr_tail(&report.stderr);
         let unproven = Unproven::seat(&report);
-        match report.settled_outcome() {
+        let outcome = report.settled_outcome();
+        self.stderr.active = Some(report.stderr);
+        match outcome {
             AttemptOutcome::Succeeded { result } => {
                 let result = stamp_boundary(result, boundary);
                 self.append_succeeded(effect_id, attempt_id, result, |refusal| {
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "error": format!("{refusal}; stderr tail: {stderr_tail}"),
-                    })
+                    json!({"effect_id": effect_id, "attempt_id": attempt_id, "error": refusal})
                 })?;
             }
             AttemptOutcome::Failed { error } => {
                 let mut payload = json!({
                     "effect_id": effect_id,
                     "attempt_id": attempt_id,
-                    "error": format!("{error}; stderr tail: {stderr_tail}"),
+                    "error": error,
                 });
                 if start_failure {
                     start_failure_fields(&mut payload, selection, vec![None]);
@@ -1533,7 +1528,7 @@ impl Engine {
                     json!(Indeterminate {
                         effect_id,
                         attempt_id,
-                        reason: format!("{reason}; stderr tail: {stderr_tail}"),
+                        reason,
                         unproven,
                     }),
                     Some(attempt_id.to_string()),
@@ -1581,12 +1576,7 @@ impl Engine {
         // from the rendered `context` and the phase inputs, and never
         // reaches the prompt.
         if let Some(plan) = plan {
-            input["resume_context"] = resume::start_context(
-                plan.assessment.clone(),
-                plan.originating.as_ref(),
-                plan.offer.as_ref(),
-                plan.route_overlay.as_ref(),
-            );
+            plan.attach_resume_context(&mut input);
         }
         let stamp = plan.map(|plan| plan.context.clone());
         // The door returns the very input the driver is sent, its verified charter text in it.
@@ -1606,11 +1596,18 @@ impl Engine {
             attempt_id,
         };
         let facts = self.bundle.sites.get(driver_seat);
+        // The seat's own harness judges its kinds; a site no plan covers
+        // spawns no driver of a harness, and keeps v7's vocabulary.
+        let kinds = (stamp.as_ref()).map_or(&UNDECLARED, |context| &context.kinds);
+        let declared = checkpoints::Declared {
+            kinds,
+            seat: driver_seat,
+        };
         let mut calls = Calls::of(facts, spawn, attempt_id, stamp.as_ref());
         let sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let report = sink.drive(
             |forward| {
-                process.run_attempt_resuming(
+                received(process.run_attempt_resuming(
                     ENGINE_VERSION,
                     effect_id,
                     attempt_id,
@@ -1618,7 +1615,7 @@ impl Engine {
                     input,
                     session_ref,
                     forward,
-                )
+                ))
             },
             |sink, mut checkpoint| {
                 let call = calls.consume(&mut checkpoint);
@@ -1637,18 +1634,19 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                sink.offer("", checkpoint, call);
+                sink.offer_live("", checkpoint, call, stamp.as_ref(), declared);
             },
         )?;
         let report = self.folded([effect_id, attempt_id, driver_seat], spawn, begun, report)?;
-        Ok(DriverRun::Ran(report))
+        let judged = verdict::judged(report, stamp.as_ref(), driver_seat);
+        Ok(DriverRun::Ran(judged.journaled()))
     }
 
     /// Append the attempt's successful result — or, when the journal
     /// refuses that result under the seat-record fence (decision 0034,
     /// ruling 6), the failure the refusal is. The failed payload is the
     /// caller's to build, because each seat shape carries its own facts
-    /// on a failed attempt (a stderr tail, the sites that failed to
+    /// on a failed attempt (its stderr's evidence, the sites that failed to
     /// start); the closure receives the refusal's text and nothing else.
     fn append_succeeded(
         &mut self,
@@ -1674,11 +1672,22 @@ pub const OPERATOR_STOP_RULE: &str = "OPERATOR-STOP";
 
 /// A driver invocation that got as far as running, or one that never
 /// spawned. Spawn failures carry no stderr, and their terminal error
-/// grows no stderr tail — the distinction keeps event payloads exactly
+/// names no stderr evidence — the distinction keeps event payloads exactly
 /// as they were before this enum existed.
 enum DriverRun {
     SpawnFailed(String),
     Ran(AttemptReport),
+}
+
+/// A driver's report as the engine receives it from its process, the one
+/// point a single seat's and a panel member's report both pass: as it
+/// came. Under test alone, a report its fake driver marked is received
+/// with its cleanup unresolved (`kinds_tests::unresolved_where_marked`;
+/// the controller's ruling R17 of 2026-11-22).
+fn received(report: AttemptReport) -> AttemptReport {
+    #[cfg(test)]
+    let report = kinds_tests::unresolved_where_marked(report);
+    report
 }
 
 /// The invocation-site tag an agent-resolved site is journaled under:
@@ -1935,6 +1944,13 @@ fn offer_for_site(
                 .is_some_and(|opened| resume::legacy_instance_holds(&opened.payload, started))
         },
     )
+}
+
+/// The harness `bundle` resolves for `site` under `chosen` (decision 0075
+/// ruling 2): its candidate's provider and argv, or its `inline` command's.
+fn site_kinds(bundle: &Bundle, chosen: &Selection, site: &Site, inline: &[String]) -> SeatKinds {
+    let provider = chosen.get(site).map(|link| link.provider.as_str());
+    (bundle.declared_kinds).seat(provider, argv_for(chosen, site, inline))
 }
 
 /// The argv to spawn for one invocation site: the selected candidate's,
@@ -2966,17 +2982,6 @@ fn tag_member(checkpoint: Value, member: &str) -> Value {
     }
 }
 
-fn stderr_tail(stderr: &str) -> String {
-    stderr
-        .chars()
-        .rev()
-        .take(2000)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect()
-}
-
 /// The first abstract definition or tool dialect a compiled `capabilities`
 /// section pins that `root` no longer reproduces: its relative source, and
 /// whether it is missing or changed. The digest is over the file's raw
@@ -3140,7 +3145,7 @@ impl Engine {
                 .unwrap_or(0)
                 > 0;
         if phase == self.bundle.protected_phase || returning_implement {
-            if let Some(head) = git_head(&self.repo) {
+            if let Some(head) = self.heads.read(&self.repo) {
                 payload["head"] = Value::String(head);
             }
         }
@@ -3294,6 +3299,8 @@ mod conclude_tests;
 mod contention_tests;
 #[cfg(test)]
 mod gate_head_tests;
+#[cfg(test)]
+mod kinds_tests;
 #[cfg(test)]
 mod notice_tests;
 #[cfg(test)]

@@ -6,6 +6,7 @@
 //! form, then tools beside a container. Each site dispatches on its own
 //! result enum, so no site holds an arm for a form it cannot write.
 
+use brokkr_protocol::hands::BOUNDARY_IS_THE_REALMS;
 use serde_json::Value;
 
 use super::{bounded_site, CompileError};
@@ -14,7 +15,7 @@ use super::{bounded_site, CompileError};
 /// 0007 declaration; a panel member or sequence step has neither — the
 /// seat above it does. So an agent carrying `limits` or `inputs` cannot
 /// be referenced from a member or a step: silently discarding them would
-/// make `brokkr agents show` a lie for that site.
+/// make `brokkr library agents show` a lie for that site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SiteRole {
     Seat,
@@ -178,6 +179,15 @@ pub(super) fn classify<S: Copy>(
     raw: &Value,
     form: &SiteForm<S>,
 ) -> Result<S, CompileError> {
+    read_form(what, raw, form).map_err(|refusal| CompileError::Invalid(refusal.to_string()))
+}
+
+/// [`classify`]'s reading, refused in the typed cause it converts once.
+fn read_form<'a, S: Copy>(
+    what: &'a str,
+    raw: &'a Value,
+    form: &SiteForm<S>,
+) -> Result<S, SiteRefusal<'a>> {
     admit(what, raw, form.keys)?;
     let shapes: Vec<Shape> = form.shapes.iter().map(|(shape, _)| *shape).collect();
     written_form(what, raw, form.noun, &shapes)?
@@ -186,8 +196,117 @@ pub(super) fn classify<S: Copy>(
         .ok_or_else(|| exactly_one(what, form.noun, &shapes))
 }
 
+/// The text [`SiteRefusal::Amends`] and [`SiteRefusal::AmendsDriver`]
+/// share after the key they name.
+const AMENDS_THE_AGENT: &str = "states what the agent IS, and a seat that could amend it would \
+    make `brokkr library agents show` a lie for that seat";
+
+/// The tail of [`SiteRefusal::DriverKey`] after its place sentence.
+const DRIVER_KEY_IS_UNREAD: &str = "A key the compiler does not read is a declaration that was \
+    never made — a capability placed there would compile, deliver nothing and run the seat at \
+    its harness default — so it is refused rather than ignored (decision 0004; decision 0065 \
+    slice one, rebuild unit 5e)";
+
+/// Why a site's shared form was refused: one variant per check, in the
+/// order the checks run, so a test can tell which fired. Each borrows
+/// what it names, and [`SiteRefusal::DriverKey`] bounds its site and its
+/// key as it prints. It becomes text only in [`classify`].
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub(super) enum SiteRefusal<'a> {
+    #[error("seat '{what}' declares boundary; {text}", text = BOUNDARY_IS_THE_REALMS)]
+    Boundary { what: &'a str },
+    #[error("seat '{what}' declares {key}; {text}", text = CROSSING_IS_THE_REALMS)]
+    Crossing { what: &'a str, key: &'a str },
+    #[error(
+        "seat '{what}' has unknown key '{key}'; known: {joined}. The site vocabulary is closed \
+         because a declaration this compiler cannot see is a declaration that was never made — \
+         a misspelled 'class' would leave a gate reading as work (decision 0021 ruling 1)",
+        joined = .known.join(", ")
+    )]
+    UnknownKey {
+        what: &'a str,
+        key: &'a str,
+        known: &'a [&'a str],
+    },
+    #[error(
+        "seat '{what}' declares driver.confine; decision 0008's container confinement retired \
+         into the `container` boundary a realm declares (realms.json, forge.realms/v4), and the \
+         field is refused until that boundary is measured in decision 0046's slice (iii) \
+         (decision 0046 ruling 5)"
+    )]
+    ConfineRetired { what: &'a str },
+    #[error(
+        "seat {site} driver has an unknown key, {named}; known: {known}.{place} {text}",
+        site = bounded_site(.what),
+        named = named_driver_key(.key),
+        known = DRIVER_KEYS.join(", "),
+        place = driver_key_place(.key),
+        text = DRIVER_KEY_IS_UNREAD
+    )]
+    DriverKey { what: &'a str, key: &'a str },
+    #[error(
+        "seat '{what}' combines 'agent' with '{key}'; an agent reference is total — '{key}' \
+         {text}",
+        text = AMENDS_THE_AGENT
+    )]
+    Amends { what: &'a str, key: &'a str },
+    #[error("seat '{what}' driver must be an object")]
+    DriverNotObject { what: &'a str },
+    #[error(
+        "seat '{what}' combines 'agent' with 'driver.{key}'; an agent reference is total — \
+         'driver.{key}' {text}",
+        text = AMENDS_THE_AGENT
+    )]
+    AmendsDriver { what: &'a str, key: &'a str },
+    #[error(
+        "{noun} '{what}' must be exactly one of {head}, or {last}",
+        head = .words[..words.len() - 1].join(", "),
+        last = .words[words.len() - 1]
+    )]
+    ExactlyOne {
+        what: &'a str,
+        noun: &'a str,
+        words: Vec<&'static str>,
+    },
+    #[error(
+        "seat '{what}' declares 'tools' beside a panel, sequence or select; a local declaration \
+         belongs to the site that executes — the member, step or case body — and a container \
+         cannot own one, even an empty object, because it would either become a shared grant \
+         or be ignored (decision 0065 slice one, design D5)"
+    )]
+    ToolsOnContainer { what: &'a str },
+}
+
+/// A driver key as [`SiteRefusal::DriverKey`] names it: quoted when it is
+/// a short name, described otherwise, so the reason stays bounded.
+fn named_driver_key(key: &str) -> String {
+    if key.len() <= 64
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
+    {
+        format!("'{key}'")
+    } else {
+        "one that is not a short name and is not echoed".to_string()
+    }
+}
+
+/// The place a capability key placed under `driver` belongs, as a
+/// sentence, or nothing for any other key.
+fn driver_key_place(key: &str) -> String {
+    match key {
+        "tools" | "hands" | "capabilities" => {
+            format!(" '{key}' is a site declaration, written on the seat beside its driver.")
+        }
+        "sandbox" => {
+            " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.".to_string()
+        }
+        _ => String::new(),
+    }
+}
+
 /// The refusals every site shares, before its form is read.
-fn admit(what: &str, raw: &Value, keys: &[&str]) -> Result<(), CompileError> {
+fn admit<'a>(what: &'a str, raw: &'a Value, keys: &'a [&'a str]) -> Result<(), SiteRefusal<'a>> {
     refuse_boundary_key(what, raw)?;
     refuse_crossing_keys(what, raw)?;
     refuse_unknown_keys(what, raw, keys)?;
@@ -202,12 +321,12 @@ fn admit(what: &str, raw: &Value, keys: &[&str]) -> Result<(), CompileError> {
 /// The index of the one form in `shapes` that `raw` writes, or `None`
 /// when it writes none. Two written are refused, and so is `tools` beside
 /// a container.
-fn written_form(
-    what: &str,
-    raw: &Value,
-    noun: &str,
+fn written_form<'a>(
+    what: &'a str,
+    raw: &'a Value,
+    noun: &'a str,
     shapes: &[Shape],
-) -> Result<Option<usize>, CompileError> {
+) -> Result<Option<usize>, SiteRefusal<'a>> {
     let written: Vec<usize> = (0..shapes.len())
         .filter(|index| shapes[*index].written_in(raw))
         .collect();
@@ -225,14 +344,9 @@ fn written_form(
 
 /// The refusal of a site that writes two forms, or none where it must
 /// write one: its forms, listed with ", " and ", or " before the last.
-fn exactly_one(what: &str, noun: &str, shapes: &[Shape]) -> CompileError {
-    let words: Vec<&str> = shapes.iter().map(|shape| shape.word()).collect();
-    let last = words.len() - 1;
-    CompileError::Invalid(format!(
-        "{noun} '{what}' must be exactly one of {}, or {}",
-        words[..last].join(", "),
-        words[last]
-    ))
+fn exactly_one<'a>(what: &'a str, noun: &'a str, shapes: &[Shape]) -> SiteRefusal<'a> {
+    let words = shapes.iter().map(|shape| shape.word()).collect();
+    SiteRefusal::ExactlyOne { what, noun, words }
 }
 
 /// An agent reference is TOTAL: a seat that could amend the agent it
@@ -240,7 +354,7 @@ fn exactly_one(what: &str, noun: &str, shapes: &[Shape]) -> CompileError {
 /// about what ran — inlining with extra steps, and drift with a name on
 /// it. `results`, `secrets` and `class` stay legal beside it, because
 /// they are bindings the SEAT provides rather than statements about what
-/// the agent is, and `brokkr agents show` never claims to show them.
+/// the agent is, and `brokkr library agents show` never claims to show them.
 /// `limits` is likewise a strategy bound on the invocation, not part of
 /// the office. `class` in particular is the seat's authority, never the
 /// agent's: one charter may sit in a work seat here and a gate seat
@@ -248,25 +362,18 @@ fn exactly_one(what: &str, noun: &str, shapes: &[Shape]) -> CompileError {
 /// data. `driver.confine` was the one `driver` key legal here until
 /// decision 0046 ruling 5 retired it; [`refuse_confine`] now refuses it
 /// by name before this lint reads the driver at all.
-pub(super) fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
-    let refuse = |key: &str| {
-        Err(CompileError::Invalid(format!(
-            "seat '{what}' combines 'agent' with '{key}'; an agent reference is \
-             total — '{key}' states what the agent IS, and a seat that could \
-             amend it would make `brokkr agents show` a lie for that seat"
-        )))
-    };
+pub(super) fn refuse_amendments<'a>(what: &'a str, raw: &'a Value) -> Result<(), SiteRefusal<'a>> {
     for key in ["role", "inputs", "hands"] {
         if raw.get(key).is_some() {
-            return refuse(key);
+            return Err(SiteRefusal::Amends { what, key });
         }
     }
     if let Some(driver) = raw.get("driver") {
-        let object = driver.as_object().ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{what}' driver must be an object"))
-        })?;
+        let object = driver
+            .as_object()
+            .ok_or(SiteRefusal::DriverNotObject { what })?;
         if let Some(key) = object.keys().next() {
-            return refuse(&format!("driver.{key}"));
+            return Err(SiteRefusal::AmendsDriver { what, key });
         }
     }
     Ok(())
@@ -278,16 +385,10 @@ pub(super) fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileEr
 /// in a bundle and beside `agent:` alike — so a bundle that still carries
 /// it fails loudly rather than running a wrapper nobody exercised. No
 /// shipped bundle declares it, so nothing shipped moves for this reason.
-pub(super) fn refuse_confine(what: &str, raw: &Value) -> Result<(), CompileError> {
+pub(super) fn refuse_confine<'a>(what: &'a str, raw: &Value) -> Result<(), SiteRefusal<'a>> {
     match raw.pointer("/driver/confine") {
         None => Ok(()),
-        Some(_) => Err(CompileError::Invalid(format!(
-            "seat '{what}' declares driver.confine; decision 0008's container \
-             confinement retired into the `container` boundary a realm declares \
-             (realms.json, forge.realms/v4), and the field is refused until that \
-             boundary is measured in decision 0046's slice (iii) (decision 0046 \
-             ruling 5)"
-        ))),
+        Some(_) => Err(SiteRefusal::ConfineRetired { what }),
     }
 }
 
@@ -305,7 +406,7 @@ const DRIVER_KEYS: &[&str] = &["command"];
 /// and the object, and never the value; a key that is not a short name is
 /// described rather than echoed, so the reason stays bounded. A
 /// capability key gets the place it belongs.
-fn refuse_driver_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
+fn refuse_driver_keys<'a>(what: &'a str, raw: &'a Value) -> Result<(), SiteRefusal<'a>> {
     let Some(driver) = raw.get("driver").and_then(Value::as_object) else {
         return Ok(());
     };
@@ -315,45 +416,17 @@ fn refuse_driver_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
     else {
         return Ok(());
     };
-    let named = if key.len() <= 64
-        && key
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
-    {
-        format!("'{key}'")
-    } else {
-        "one that is not a short name and is not echoed".to_string()
-    };
-    let place = match key.as_str() {
-        "tools" | "hands" | "capabilities" => {
-            format!(" '{key}' is a site declaration, written on the seat beside its driver.")
-        }
-        "sandbox" => {
-            " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.".to_string()
-        }
-        _ => String::new(),
-    };
-    Err(CompileError::Invalid(format!(
-        "seat {} driver has an unknown key, {named}; known: {}.{place} A key the compiler \
-         does not read is a declaration that was never made — a capability placed there would \
-         compile, deliver nothing and run the seat at its harness default — so it is refused \
-         rather than ignored (decision 0004; decision 0065 slice one, rebuild unit 5e)",
-        bounded_site(what),
-        DRIVER_KEYS.join(", ")
-    )))
+    Err(SiteRefusal::DriverKey { what, key })
 }
 
 /// Decision 0046 ruling 1: the boundary is the realm's fact, declared in
 /// `realms.json` under `forge.realms/v4`, and a bundle never names it. A
 /// site that writes the key is told where the word lives rather than
 /// that the key is unknown.
-pub(super) fn refuse_boundary_key(what: &str, raw: &Value) -> Result<(), CompileError> {
+pub(super) fn refuse_boundary_key<'a>(what: &'a str, raw: &Value) -> Result<(), SiteRefusal<'a>> {
     match raw.get("boundary") {
         None => Ok(()),
-        Some(_) => Err(CompileError::Invalid(format!(
-            "seat '{what}' declares boundary; {}",
-            brokkr_protocol::hands::BOUNDARY_IS_THE_REALMS
-        ))),
+        Some(_) => Err(SiteRefusal::Boundary { what }),
     }
 }
 
@@ -366,13 +439,11 @@ pub(super) fn refuse_boundary_key(what: &str, raw: &Value) -> Result<(), Compile
 /// word lives rather than that its key is unknown. Per seat, like
 /// `boundary`, because a seat is the site that would claim the fact;
 /// there is no root-level unknown-key check for either.
-fn refuse_crossing_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
+fn refuse_crossing_keys<'a>(what: &'a str, raw: &Value) -> Result<(), SiteRefusal<'a>> {
     let Some(key) = CROSSING_KEYS.iter().find(|key| raw.get(*key).is_some()) else {
         return Ok(());
     };
-    Err(CompileError::Invalid(format!(
-        "seat '{what}' declares {key}; {CROSSING_IS_THE_REALMS}"
-    )))
+    Err(SiteRefusal::Crossing { what, key })
 }
 
 /// The two words `forge.realms/v5` adds, refused wherever a bundle writes
@@ -456,15 +527,10 @@ const STEP_KEYS: &[&str] = &[
 /// (design D5.2): a local declaration belongs to the site that executes,
 /// and a container that carried one could only share it as a grant or
 /// drop it — so even an empty object is refused here.
-fn refuse_tools_on_container(what: &str, raw: &Value) -> Result<(), CompileError> {
+fn refuse_tools_on_container<'a>(what: &'a str, raw: &Value) -> Result<(), SiteRefusal<'a>> {
     match raw.get("tools") {
         None => Ok(()),
-        Some(_) => Err(CompileError::Invalid(format!(
-            "seat '{what}' declares 'tools' beside a panel, sequence or select; a local \
-             declaration belongs to the site that executes — the member, step or case body — \
-             and a container cannot own one, even an empty object, because it would either \
-             become a shared grant or be ignored (decision 0065 slice one, design D5)"
-        ))),
+        Some(_) => Err(SiteRefusal::ToolsOnContainer { what }),
     }
 }
 
@@ -477,20 +543,17 @@ fn refuse_tools_on_container(what: &str, raw: &Value) -> Result<(), CompileError
 /// where it is written, in the manner of an unknown class or an unknown
 /// aggregate: the fail-closed reading of an absent declaration is only
 /// honest if an absence cannot be manufactured by a typo.
-fn refuse_unknown_keys(what: &str, raw: &Value, known: &[&str]) -> Result<(), CompileError> {
+fn refuse_unknown_keys<'a>(
+    what: &'a str,
+    raw: &'a Value,
+    known: &'a [&'a str],
+) -> Result<(), SiteRefusal<'a>> {
     let Some(object) = raw.as_object() else {
         return Ok(());
     };
     for key in object.keys() {
         if !known.contains(&key.as_str()) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' has unknown key '{key}'; known: {}. The site \
-                 vocabulary is closed because a declaration this compiler \
-                 cannot see is a declaration that was never made — a \
-                 misspelled 'class' would leave a gate reading as work \
-                 (decision 0021 ruling 1)",
-                known.join(", ")
-            )));
+            return Err(SiteRefusal::UnknownKey { what, key, known });
         }
     }
     Ok(())

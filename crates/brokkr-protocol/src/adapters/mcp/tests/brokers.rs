@@ -553,7 +553,7 @@ fn attempt(holdings: &[Holding<'_>], session: Option<&str>) -> Vec<String> {
         binary: &bin,
         extra: &extra,
     };
-    let (prompt, emit) = ("prompt", &mut |_: &Value| {});
+    let (prompt, emit) = ("prompt", &mut |_: &crate::adapters::Emitted| {});
     let claude = AdapterKind::Claude;
     let invoked = invoke_with_stager(
         claude,

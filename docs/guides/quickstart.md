@@ -12,7 +12,7 @@ and nothing on this page repeats them:
 | 1 | [Install](#step-1--install) — verified release tarball | 60s |
 | 2 | [`brokkr init .`](#step-2--brokkr-init-) — scaffold a recipe you can read | — |
 | 3 | [`brokkr run`](#step-3--brokkr-run) — one slice | 5min to a first effect |
-| 4 | [Read the journal](#step-4--read-the-journal) — `brokkr inspect` | — |
+| 4 | [Read the journal](#step-4--read-the-journal) — `brokkr runs inspect` | — |
 
 Then three things extend the spine rather than restating it:
 
@@ -103,7 +103,7 @@ every model seat of the claude scaffold `brokkr init` writes — is
 launched with nothing of Brokkr's or its harness's added around it, an
 exec gate runs the bundle's
 own pinned script with the environment cleared, and every readout —
-the run header, `brokkr seats`, the TUI, the web console and the
+the run header, `brokkr runs seats`, the TUI, the web console and the
 delivery gate's check summary on the pull request — renders such a run
 *unboxed*. `open`, nothing at all, is the fifth word; `seatbelt` (the
 same box built by macOS's `sandbox-exec`) and `container` (a pinned
@@ -135,7 +135,7 @@ rest are Brokkr-only (decision 0087 ruling 5).
 
 ```text
 $ brokkr --version
-brokkr 0.14.0
+brokkr 0.15.2
 ```
 
 > **Building from a checkout** is a fallback, not a co-equal option: it
@@ -153,7 +153,7 @@ brokkr 0.14.0
 ```text
 $ brokkr doctor
 warn     folder: none from /home/you/my-app up to /home/you/my-app — brokkr init . writes one
-ok       contracts: engine 0.14.0, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.15.2, event_schema 1, database_schema 1, driver_protocol 1
 …
 warn     adapters: adapters: adapters adapters: No such file or directory (os error 2)
 …
@@ -323,7 +323,7 @@ opened, and Brokkr moves nothing`. Brokkr moves nothing itself; make
 the moves, by hand or with an agent, and `brokkr doctor` checks the
 result. A run that has not ended is ended first, through the one escape,
 a journal named on the command line, which reads the old layout whole:
-`brokkr conclude --run <id> --cause <cause> --reason "…" --db .forge/forge.db`.
+`brokkr runs conclude --run <id> --cause <cause> --reason "…" --db .forge/forge.db`.
 
 The table has five working phases — `intake`, `implement`, `verify`,
 `review`, `ship` — plus the two terminals `done` and `stop`. `review` is
@@ -332,7 +332,7 @@ non-`stop` terminal that skips it. Each seat declares its class — work
 or gate (decision 0021 ruling 1) — and its result vocabulary. Intake,
 implement and review name agents; verify and ship name exec scripts.
 Limits remain on every seat, while the model chain and tool grant belong
-only to agent-backed seats. `brokkr agents show <name>` reads an agent back.
+only to agent-backed seats. `brokkr library agents show <name>` reads an agent back.
 
 **The seats are granted the tools their charters name.** The same
 detection below decides what the seats are pre-approved to *run*: the
@@ -374,7 +374,7 @@ library keeps its own layout, with no `.brokkr/` folder, and from a
 checkout of it:
 
 ```
-$ brokkr recipes list
+$ brokkr library recipes list
 fast	e0c1eb0757cd	6 phases	implement, review, ship, verify	recipes/fast
 node	7abfe34bba48	6 phases	implement, review, ship, verify	recipes/node
 panel-review	1bf81bd7249f	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
@@ -449,13 +449,13 @@ and it is not a fallback when it is missing or malformed — that refuses.
 If both exist, only the named one is a candidate.
 
 `--realms` is on every verb that opens a journal or a world today: `run`
-and `queue add`; `resume` and `rerun`; `doctor`; `realms`; the readouts
-`runs`, `inspect`, `transcript`, `seats`, `watch`, `costs`, `ledger`,
-`compare`, `analytics` and `graph`; the operator verbs `anchor`, `replay`,
-`conclude`, `operator`, `export`, `import` and `bridge`; `keep-refs
-plant`, `keep-refs list` and `keep-refs delete`; `queue list`, `queue
+and `queue add`; `resume` and `runs rerun`; `doctor`; `system realms`; the readouts
+`runs`, `runs inspect`, `runs transcript`, `runs seats`, `watch`, `stats costs`, `stats ledger`,
+`runs compare`, `stats analytics` and `stats graph`; the operator verbs `journal anchor`, `runs replay`,
+`runs conclude`, `runs operator`, `journal export`, `journal import` and `bridge`; `journal keep-refs
+plant`, `journal keep-refs list` and `journal keep-refs delete`; `queue list`, `queue
 judge`, `queue move`, `queue hold`, `queue release`, `queue repin` and
-`queue drop`; `ui`, `tui` and `muninn run`. `compile` and `recipes show`
+`queue drop`; `system ui`, `tui` and `runs muninn run`. `library compile` and `library recipes show`
 do not take it yet.
 
 Moving a project map out of the repository is the migration 0101 rules.
@@ -488,7 +488,7 @@ and leaves the run driving. Watch it from a second terminal too:
 ```
 brokkr watch --run latest     # the same run view, live; frames off a terminal
 brokkr tui                    # the fleet, navigable with the keyboard
-brokkr ui --port 8383 --open  # loopback-only browser console
+brokkr system ui --port 8383 --open  # loopback-only browser console
 ```
 
 All three are read-only. None of them can issue an operator command or
@@ -504,7 +504,7 @@ them apart without parsing anything. The codes are
 Then ask the run what happened:
 
 ```
-$ brokkr inspect --run latest
+$ brokkr runs inspect --run latest
 run  prefix-selectors-for-the-read-su-…
      status completed · ending shipped · phase done · seq 51
      boundary …
@@ -526,17 +526,18 @@ trail
 
 graph
   intake ×1
-    → intake · finished
+    → ⏺ intake · finished
 …
-  done ×1  ←current
+  · done ×1  ←current
+…
 ```
 
 That is Step 3's run, read back, with its seats and the middles of its
-trail and graph elided, and the `boundary` line, which is your host's:
-[the read surfaces](read-surfaces.md#brokkr-inspect--one-run-explained)
+trail and graph and its verdicts elided, and the `boundary` line, which is your host's:
+[the read surfaces](read-surfaces.md#brokkr-runs-inspect--one-run-explained)
 show the whole readout.
 
-Five blocks, and each one answers a different question:
+Six blocks, and each one answers a different question:
 
 - **header** — the run id, its status (`running`, `awaiting_operator`,
   `completed`, `stopped`), the phase it is in, and the journal sequence
@@ -554,10 +555,16 @@ Five blocks, and each one answers a different question:
   typed results, the table produces rulings.
 - **graph** — phases with their visit counts (`×N`), and where the run
   currently is.
+- **verdicts** — what each gate's result recorded beside its word
+  (decision 0109): the head it covered, and each finding it reported,
+  keyed by its id and its site, one line each under `verdicts`. A run
+  whose results recorded neither, as every run before seat-record v7
+  is, prints no such block.
 
 `--run` takes a selector, not only the 41-character id: any unique
 run-id prefix, or `latest`. `--phase <name>` and `--seat <name>` narrow
-the readout; `--json` emits the same view model verbatim, which is what
+the readout, its `verdicts` block included: `--seat` on one review
+position prints that position's findings and none of its siblings'; `--json` emits the same view model verbatim, which is what
 scripts should read.
 
 **A run that ends at `stop` is a normal outcome, not a crash.** The
@@ -643,7 +650,7 @@ did not write. Steps 1, 3 and 4 are unchanged; after 2:
 > repository and the journal is `.brokkr/state/forge.db`. A single
 > project is the degenerate one-entry map and pays nothing for the
 > shape; rename the realm, or add the repositories it works beside.
-> Check what yours says with `brokkr realms`.
+> Check what yours says with `brokkr system realms`.
 
 Two things that are **not** deltas and must not be skipped when you
 adopt a repository you did not write:
@@ -653,7 +660,7 @@ adopt a repository you did not write:
   trusted tier, checked when the bundle compiles, before any prompt
   exists. `brokkr init` declares that tier in
   `.brokkr/adapters/claude.json`, yours to read and edit. A maintained
-  recipe brings no adapters with it: `brokkr recipes add` copies onto
+  recipe brings no adapters with it: `brokkr library recipes add` copies onto
   the folder the agents and charters a recipe names, never an adapter,
   and an install whose compile refuses is removed whole.
   [Try another recipe](#try-another-recipe) shows one that compiles.
@@ -693,7 +700,7 @@ Under the folder's `state/`, at the repository root:
 - `.brokkr/state/scratch/` — each seat's scratch directory.
 - `.brokkr/state/ledger/<run-id>.md` — the shipper's close-out, if the
   run got that far.
-- `.brokkr/state/secrets.env` — only if you used `brokkr secrets`.
+- `.brokkr/state/secrets.env` — only if you used `brokkr system secrets`.
 
 `.brokkr/.gitignore`, which `init` wrote, keeps all of it out of git: it
 is evidence, not source, and your own `.gitignore` needs no line. A
@@ -704,32 +711,32 @@ directory instead, and ignores that itself.
 
 The folder's `bundle.json` is the default recipe. Named recipes stand
 beside it on the folder's shelf, `.brokkr/recipes/<name>/`, which
-`recipes list`, `recipes show` and `run --recipe` read with no flag from
+`library recipes list`, `library recipes show` and `run --recipe` read with no flag from
 anywhere in the repository (decision 0083's addendum of 2026-10-16). A
 recipe is a bundle directory, so a variant of your own starts as a copy
 of the folder's bundle, its policy and its scripts, edited outside the
-folder; `brokkr recipes add` installs it onto the shelf, compiled
+folder; `brokkr library recipes add` installs it onto the shelf, compiled
 against the folder's agents and adapters first:
 
 ```
 $ mkdir -p ~/variants/careful
 $ cp .brokkr/bundle.json .brokkr/policy.json ~/variants/careful/
 $ cp -r .brokkr/scripts ~/variants/careful/
-$ brokkr recipes add ~/variants/careful --name careful
+$ brokkr library recipes add ~/variants/careful --name careful
 added recipe 'careful' (<digest>) at /home/you/src/app/.brokkr/recipes/careful
-$ brokkr recipes list
+$ brokkr library recipes list
 careful	<digest>	7 phases	implement, intake, review, ship, verify			/home/you/src/app/.brokkr/recipes/careful
 $ brokkr run --recipe careful --feature "prefix selectors for the read surfaces"
 run started: …
 ```
 
 Commit the shelf with the folder. The shelf never moves the folder
-bundle's digest, though an agent `recipes add` copies (below) does,
+bundle's digest, though an agent `library recipes add` copies (below) does,
 because the folder pins its agents. `brokkr doctor` prints one line per
 shelf recipe after its folder line, and `.brokkr/bundle.json` may itself
 extend a shelf recipe with `"extends": "careful"`.
 
-`recipes add` also copies, from the source's agent library, each agent
+`library recipes add` also copies, from the source's agent library, each agent
 definition the recipe names that `.brokkr/agents/` lacks and the
 charter that definition names, and the definition of each capability
 those agents request. Definitions go where a compile reads them,
@@ -746,7 +753,7 @@ write no chain, tools or hands of their own, so each model seat hires what
 fresh folder:
 
 ```
-$ brokkr recipes add ~/src/brokkr/recipes/fast --name fast
+$ brokkr library recipes add ~/src/brokkr/recipes/fast --name fast
 added recipe 'fast' (…) at /home/you/my-app/.brokkr/recipes/fast
 added charter charters/implementer-intakeless.md of agent 'fast-implementer' at /home/you/my-app/.brokkr/agents/charters/implementer-intakeless.md
 added agent 'fast-implementer' at /home/you/my-app/.brokkr/agents/fast-implementer.json
@@ -766,11 +773,11 @@ ruling 5 gives each recipe's class and its reason.
 #### Operator commands — `retry`, `stop`, `supersede` and `acknowledge`
 
 ```
-brokkr operator --run <id> retry --reason "the flaky test passes on re-run"
-brokkr operator --run <id> stop  --cause withdrawn --reason "requirements changed"
-brokkr operator --run <id> supersede --reason "fixed on main" \
+brokkr runs operator --run <id> retry --reason "the flaky test passes on re-run"
+brokkr runs operator --run <id> stop  --cause withdrawn --reason "requirements changed"
+brokkr runs operator --run <id> supersede --reason "fixed on main" \
   --findings 41 --by-run <other id> --by-seq 97
-brokkr operator --run <id> acknowledge --reason "history from an older engine"
+brokkr runs operator --run <id> acknowledge --reason "history from an older engine"
 ```
 
 The command is a **positional argument** and `--reason` is **required**;
@@ -790,14 +797,14 @@ fold, so the fleet lists it under *older* instead of *needs you*
 (decision 0076 item 11). `acknowledge` writes nothing to the run's
 journal: the store keeps who, when and why beside it, at the run's last
 event, and the acknowledgement lapses if the journal moves. It refuses a
-run that folds, which `brokkr conclude` closes, and it does not travel
-with `export` or `adopt`. `retry` and `stop` are
+run that folds, which `brokkr runs conclude` closes, and it does not travel
+with `journal export` or `adopt`. `retry` and `stop` are
 recorded as `operator/commanded` plus the engine's disposition —
 `operator/accepted` when it lands, `operator/rejected` when it does not.
 Approval is an entry in the record, not a prose convention, and so is a
 refusal.
 
-For a parked panel, `brokkr operator retry --member <tag>` runs only the
+For a parked panel, `brokkr runs operator retry --member <tag>` runs only the
 named members; repeat `--member` for several. A seat panel uses the member
 name; a sequence panel uses `<step>:<member>` (for example,
 `positions:correctness`). Settled verdicts are carried only when the reviewed
@@ -813,7 +820,7 @@ The command is **fenced**: the engine re-reads the run's state after the
 an engine process driving the same run can conclude it or un-park it in
 that window. A command the run can no longer take is refused — `retry`
 anywhere but `awaiting_operator`, either command on a run that has
-already finished — and `brokkr operator` then exits **1** and prints the
+already finished — and `brokkr runs operator` then exits **1** and prints the
 refusal, the journaled reason where the refusal was journaled. It never
 accepts a command the fold would refuse to read back. On a run that has
 already finished, `stop` and `retry` are judged before their first
@@ -871,11 +878,11 @@ started in the folder's world is resumed with no `--db`.
 #### Conclude — closing a run whose bundle no longer compiles
 
 ```
-brokkr conclude --run <id> --cause infrastructure --reason "the engine moved on without it"
+brokkr runs conclude --run <id> --cause infrastructure --reason "the engine moved on without it"
 ```
 
 `--cause` is required here too, with the same words and citations as
-`stop`'s. When `conclude` commands the stop itself, the cause rides in
+`stop`'s. When `runs conclude` commands the stop itself, the cause rides in
 that stop; when a stop is already in force naming the same cause,
 nothing more is written; and when it names another cause, or none, the
 conclusion is followed by one `classify` naming yours (decision 0064
@@ -884,7 +891,7 @@ choice 4 (a)).
 The refusal above is right for `resume`, which spends money against a
 pinned policy — but it also means a run journaled under an older engine,
 or against a recipe file that has since changed, can never reach a
-lawful ending at all. `brokkr conclude` is the other door: it opens the
+lawful ending at all. `brokkr runs conclude` is the other door: it opens the
 journal, verifies the chain, folds the state, and appends **only** the
 operator stop conclusion — the command and its acceptance, the
 indeterminate close of any attempt that was in flight, and
@@ -900,10 +907,10 @@ the usual mapping, so a concluded run exits 3.
 
 Every write it makes is **fenced**: the conclusion lands only on the
 exact head it folded, so a journal that moves beneath it — something
-still driving the run — makes `conclude` refuse with the look-first
+still driving the run — makes `runs conclude` refuse with the look-first
 instruction rather than close over live work. A refusal is evidence,
 not an inconvenience: a moved head means the run is not dead, and
-`conclude` is for a run believed dead. `resume` is fenced the same way
+`runs conclude` is for a run believed dead. `resume` is fenced the same way
 (decision 0029): what it decides on its fold, closing an attempt it
 finds open included, lands only on the head that fold read, and a
 moved journal ends it with the drift named. Either way, `brokkr runs`
@@ -924,8 +931,8 @@ append (decision 0029).
 Not an escape hatch so much as the next experiment:
 
 ```
-brokkr rerun --run <id> --recipe panel-review   # same feature, other strategy, new run id
-brokkr compare <a> <b>                          # trails, first divergence, per-seat costs
+brokkr runs rerun --run <id> --recipe panel-review   # same feature, other strategy, new run id
+brokkr runs compare <a> <b>                          # trails, first divergence, per-seat costs
 ```
 
 The rerun compiles the new recipe in the discovered realm exactly as
@@ -936,7 +943,7 @@ machine's `boundaries` line the same way.
 ### What it cost
 
 ```
-$ brokkr costs --run latest
+$ brokkr stats costs --run latest
 {
   "run_id": "prefix-selectors-for-the-read-su-…",
   "seats": {
@@ -973,7 +980,7 @@ Be clear-eyed about this:
   counts rather than a dollar figure.
 - **This repository publishes no per-run dollar figure**, and you should
   not infer one from the examples above — the numbers in them come from
-  test shims. Run one slice, read `brokkr costs`, and use your own
+  test shims. Run one slice, read `brokkr stats costs`, and use your own
   number.
 
 ### What the budgets do not cover
@@ -1001,6 +1008,63 @@ The script prints this every run, and so does this page:
 
 Neither number is a claim about your machine. Run the script.
 
+### Shell completion
+
+`brokkr completions <shell>` prints a completion script for bash, zsh,
+fish, powershell or elvish. It offers every verb, flag and fixed value,
+and none of the hidden engine verbs or the old flat spellings. Install
+it once, saving each shell's script where that shell looks:
+
+```sh
+brokkr completions bash
+brokkr completions zsh
+brokkr completions fish
+brokkr completions powershell
+brokkr completions elvish
+```
+
+- bash: save the output as `brokkr` in
+  `~/.local/share/bash-completion/completions/`.
+- zsh: save it as `_brokkr` in a directory on your `fpath`, such as
+  `~/.zfunc`, before `compinit` runs.
+- fish: save it as `brokkr.fish` in `~/.config/fish/completions/`.
+  clap_complete's fish script offers the flags of verbs one and two
+  words deep, so a three-word verb such as `library agents show`
+  completes its arguments' values live but not its flags.
+- powershell: add `brokkr completions powershell | Out-String |
+  Invoke-Expression` to your `$PROFILE`.
+- elvish: add `eval (brokkr completions elvish | slurp)` to
+  `~/.config/elvish/rc.elv`.
+
+The live completer completes values as well. Register it instead of the
+static script, with the one line for your shell in its startup file
+(`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`, `$PROFILE` or
+`~/.config/elvish/rc.elv`):
+
+```text
+source <(COMPLETE=bash brokkr)
+source <(COMPLETE=zsh brokkr)
+COMPLETE=fish brokkr | source
+$env:COMPLETE = "powershell"; brokkr | Out-String | Invoke-Expression; Remove-Item Env:\COMPLETE
+eval (E:COMPLETE=elvish brokkr | slurp)
+```
+
+A Homebrew install needs no `source` line. The formula installs the live
+completer's registration for bash, zsh and fish, which the shell reads
+from Homebrew's completion directories once Homebrew's shell setup is
+in place. Every other install, from the deb or rpm package, the release
+tarball, nix or cargo, still needs the line above or the saved script.
+
+It offers the 50 newest run ids for `--run`, `--by-run` and `runs
+compare`, newest first, and the phases and seats of the run a `--run`
+on the line names, read from that run's seat rows. It also offers recipe
+names from the project and personal shelves, agent names from the
+library, realm names from the map, and the waiting queue entries for
+the queue's commands. It reads the journal the completed command would
+read, and a `--db` or `--realms` on the line wins. It opens that journal
+read-only, creates no file beside it, and waits at most 50 ms on a busy
+one. Any failure completes nothing and prints nothing (decision 0119).
+
 ### Limits worth knowing
 
 - **One journal per world.** A realms map names a set of repositories
@@ -1020,9 +1084,9 @@ Neither number is a claim about your machine. Run the script.
   with the attempt open, and the next `resume` settles it as restarted
   and parks.
   Nothing caps writers until decision 0068's dispatcher is built (#430).
-- **`ui` serves one journal.** Every verb that opens a journal takes
+- **`system ui` serves one journal.** Every verb that opens a journal takes
   `--realms` and opens the journal the map names unless `--db` outranks
-  it (#374), but `ui` refuses a world whose realms name several hearths
+  it (#374), but `system ui` refuses a world whose realms name several hearths
   until `--db` picks one; `tui` and `runs` read them all.
 - **A Looper-dispatched run (`--dispatch`) cannot adopt agents and
   carries no realms map.** The v2 manifest lineage would silently drop

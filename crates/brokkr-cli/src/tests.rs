@@ -189,7 +189,7 @@ pub(crate) fn two_hearths(dir: &std::path::Path) {
     std::fs::write(dir.join("realms.json"), map.to_string()).unwrap();
 }
 
-/// `brokkr inspect r1` over the journal at `db`, as `json` asks.
+/// `brokkr runs inspect r1` over the journal at `db`, as `json` asks.
 fn inspect_r1(db: &std::path::Path, json: bool) -> Cmd {
     Cmd::Inspect(InspectArgs {
         run: "r1".into(),
@@ -293,7 +293,7 @@ pub(crate) fn stage_hands_free_fast(
         seat.entry("role").or_insert(json!("shipper.md"));
         let kept = keep_review_gate && phase == "review";
         let command = match kept {
-            true => "{brokkr} driver claude -- --model claude-fable-5-1 --effort high",
+            true => "{brokkr} driver claude -- --model claude-fable-5-2 --effort high",
             false => "{brokkr} driver exec -- true", // model-free past the fence (U9b1)
         };
         let command: Vec<&str> = command.split(' ').collect();
@@ -386,7 +386,7 @@ fn run_in(workspace: &std::path::Path, cli: Cli) -> Result<ExitCode> {
     run_with(cli, workspace, ui::serve, None, None, run_tui)
 }
 
-/// `brokkr operator <command>` as it was before decision 0047: one run,
+/// `brokkr runs operator <command>` as it was before decision 0047: one run,
 /// one word, one reason and one journal. The supersede-only arguments
 /// are absent, which is what any `retry` or `stop` invocation carries.
 fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd {
@@ -850,8 +850,8 @@ fn ui_refuses_a_world_of_two_hearths_that_tui_reads_whole() {
     assert_eq!(
         refused.to_string(),
         format!(
-            "brokkr ui serves one journal, and this world's realms name 2: {}, {}; --db names \
-             the one to serve (brokkr tui and brokkr runs read them all)",
+            "brokkr system ui serves one journal, and this world's realms name 2: {}, {}; --db \
+             names the one to serve (brokkr tui and brokkr runs read them all)",
             alpha.display(),
             beta.display()
         )
@@ -987,7 +987,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
         },
     ] {
         let refused = run(cli(Cmd::KeepRefs { command })).unwrap_err().to_string();
-        assert!(refused.contains("brokkr keep-refs list"), "{refused}");
+        assert!(refused.contains("journal keep-refs list"), "{refused}");
     }
     assert_eq!(
         brokkr_runtime::list_keep_refs(&repo).unwrap().get("r1"),
@@ -1612,8 +1612,8 @@ fn watch_redraws_on_seq_and_on_a_hash_only_change_and_leaves_the_journal_alone()
 fn watch_frames_a_transient_error_gives_up_on_a_persistent_one_and_reports_a_closed_pipe() {
     let dir = tempfile::tempdir().unwrap();
     let style = render::Style::plain(80);
-    let corrupt = dir.path().join("corrupt.db");
-    std::fs::write(&corrupt, "not sqlite").unwrap();
+    // A journal not there yet; one that is damaged is refused at once (#1000).
+    let corrupt = dir.path().join("not-yet.db");
 
     // A transient store error is a frame that says so, not an exit.
     let mut frames = Vec::new();
@@ -2887,7 +2887,7 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
         "two polls: the second one sleeps first"
     );
 
-    // The migration, as a checkable equality: `brokkr inspect --json`
+    // The migration, as a checkable equality: `brokkr runs inspect --json`
     // nests today's output under `summary`, all nine keys verbatim and
     // in the same order, so `| jq .summary` reproduces it byte for byte.
     let events = Store::open(&db_path).unwrap().load("r1").unwrap();
@@ -3419,37 +3419,6 @@ fn a_named_map_that_is_not_there_refuses_before_anything_opens() {
     assert!(!dir.path().join("mapped.db").exists());
 }
 
-/// The fake driver takes both halves of the hire and reports rather than
-/// panics when it cannot read its script. `--effort` rides the same argv
-/// as `--model` (decision 0035 ruling 5) so a proof can assert either
-/// pin reached the driver; a script that is not there is an error the
-/// verb returns, not one it swallows.
-#[test]
-fn the_fake_driver_takes_both_pins_and_reports_a_script_it_cannot_read() {
-    let dir = tempfile::tempdir().unwrap();
-    let refused = run(cli(Cmd::FakeDriver(FakeDriverArgs {
-        script: dir.path().join("no-such-script.json"),
-        state: dir.path().join("state"),
-        model: Some("model-x".into()),
-        effort: Some("xhigh".into()),
-    })))
-    .unwrap_err()
-    .to_string();
-    assert!(!refused.is_empty(), "{refused}");
-
-    // A script it CAN read, driven to EOF on empty stdin: both pins are
-    // accepted by the parser and the verb succeeds.
-    let script = dir.path().join("script.json");
-    std::fs::write(&script, serde_json::to_vec(&json!({"seats": {}})).unwrap()).unwrap();
-    assert!(run(cli(Cmd::FakeDriver(FakeDriverArgs {
-        script,
-        state: dir.path().join("state"),
-        model: Some("model-x".into()),
-        effort: Some("xhigh".into()),
-    })))
-    .is_ok());
-}
-
 /// The world reads out, and a workspace with no map says so plainly
 /// instead of inventing a degenerate world.
 #[test]
@@ -3698,7 +3667,7 @@ fn conclude_fixture_store(db: &std::path::Path, name: &str) {
     }
 }
 
-/// `brokkr conclude` at the console: it takes no bundle, exits 3 on the
+/// `brokkr runs conclude` at the console: it takes no bundle, exits 3 on the
 /// run it stops (`finish`'s one mapping, so a script reads a conclusion
 /// the same way whichever verb reached it), and refuses a run that is
 /// already concluded or one that is not there at all.
@@ -3709,7 +3678,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     let conclude = |run: &str, reason: &str| {
         let (cause, db) = ("operator-stopped", db.to_str().unwrap());
         let argv = [
-            "brokkr", "conclude", "--run", run, "--cause", cause, "--reason", reason,
+            "brokkr", "runs", "conclude", "--run", run, "--cause", cause, "--reason", reason,
         ];
         crate::run(Cli::try_parse_from(argv.into_iter().chain(["--db", db])).unwrap())
     };
@@ -3904,7 +3873,7 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     assert!(contention(&bare).is_some());
 
     // And out of an import, whose store variant is transparent too: a
-    // busy journal leaves `brokkr import` with the contended exit.
+    // busy journal leaves `brokkr journal import` with the contended exit.
     let import =
         anyhow::Error::from(brokkr_store::ImportError::Store(contended())).context("importing r1");
     assert_eq!(report(&import), ExitCode::from(Exit::Contended));
@@ -4076,7 +4045,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     )
     .is_err());
 }
-/// `brokkr seats` (decision 0046 ruling 3; design DD11): a thin verb
+/// `brokkr runs seats` (decision 0046 ruling 3; design DD11): a thin verb
 /// over `inspect`'s own view, opening the journal by the same route and
 /// resolving the run by the same selector, in both faces. The bytes it
 /// prints are proved against `inspect`'s in
@@ -4169,7 +4138,7 @@ fn held_and_shipped(db: &std::path::Path) {
         }
     }
 }
-/// `brokkr operator supersede` end to end (decision 0047 rulings 1 and
+/// `brokkr runs operator supersede` end to end (decision 0047 rulings 1 and
 /// 2): the verb writes one annotation, and every way of asking for it
 /// wrong is refused with nothing written.
 #[test]

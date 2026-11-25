@@ -30,7 +30,9 @@
 //! finds the free bytes of the filesystem it names at or above it, each
 //! judged by its own number though another on the same filesystem holds;
 //! and, for an entry that builds in a box, the boxed builds running are
-//! below their ceiling. Nothing latches: each pass measures afresh.
+//! below their ceiling. A measured pass needs no run ceiling and judges the
+//! entry's demand last (decision 0125, [`super::demand`]). Nothing
+//! latches: each pass measures afresh.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -49,6 +51,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
 
+use super::demand::{Judge, Machine};
 use super::host::{self, At, HostConfig, Hosting, Place, Provider, Route, RouteClass};
 use super::{awaiting, came_to, AdmissionError, Judged, Reason};
 use crate::capabilities::manifest::ModelPins;
@@ -65,11 +68,13 @@ use super::cooling;
 type Stamp = time::OffsetDateTime;
 /// The machine an admission pass measures, its effects injected: where
 /// its host configuration is, the temp directory a `temp` floor measures,
-/// and how the free bytes under a path are measured.
+/// how the free bytes under a path are measured, and, where the pass sizes
+/// entries by demand (decision 0125), the journals and measures it reads.
 pub struct Host<'a> {
     pub file: &'a Path,
     pub temp: &'a Path,
     pub free: &'a dyn Fn(&Path) -> io::Result<u64>,
+    pub machine: Option<&'a Machine<'a>>,
 }
 
 /// Why the machine has no room for an entry now: the limit, and what was
@@ -173,6 +178,12 @@ fn on_flags(flags: &[String]) -> String {
 #[derive(Debug)]
 pub struct Shared<E>(Arc<E>);
 
+impl<E> Shared<E> {
+    pub(crate) fn new(error: E) -> Shared<E> {
+        Shared(Arc::new(error))
+    }
+}
+
 impl<E> Clone for Shared<E> {
     fn clone(&self) -> Shared<E> {
         Shared(Arc::clone(&self.0))
@@ -213,16 +224,22 @@ pub(super) fn sized(
         return Ok((queue, census(store, false)?.unstarted));
     }
     let measure = Measure::take(store, host, now)?;
+    let mut demand = Judge::take(store, host, &measure.hosting)?;
     for judged in queue.iter_mut().filter(unstopped) {
-        match (
-            &mut judged.verdict,
-            measure.room(&judged.entry, &judged.launch),
-        ) {
-            (Some(verdict), Err(unmet)) => verdict.reasons.push(super::Reason::Capacity(unmet)),
+        let room = measure.room(&judged.entry, &judged.launch, demand.measured());
+        let room = room.map_err(Reason::Capacity).and_then(|room| {
+            let (sized, fits) = demand.admit(judged.entry.id, &room.recipe);
+            judged.demand = sized;
+            fits.map(|()| room).map_err(Reason::Demand)
+        });
+        match (&mut judged.verdict, room) {
+            (Some(verdict), Err(unmet)) => verdict.reasons.push(unmet),
             (_, room) => judged.room = room.ok(),
         }
     }
-    Ok((queue, measure.unstarted))
+    let unread = demand.unreadable().into_iter().map(Reason::Demand);
+    let named = measure.unstarted.into_iter().chain(unread);
+    Ok((queue, named.collect()))
 }
 
 /// What one pass measured of the machine.
@@ -259,12 +276,21 @@ impl<'h> Measure<'h> {
     }
 
     /// Each check in its order; the first unmet one, or the room found for
-    /// `read`, as the pass read it.
-    fn room(&self, read: &QueueEntry, launch: &QueuedLaunch) -> Result<Room, Capacity> {
+    /// `read`, as the pass read it. A `measured` pass needs no run ceiling
+    /// declared (decision 0125 ruling 7).
+    fn room(
+        &self,
+        read: &QueueEntry,
+        launch: &QueuedLaunch,
+        measured: bool,
+    ) -> Result<Room, Capacity> {
         let config = self.declared()?;
         let entry = Entry::measure(launch).map_err(Capacity::Unmeasured)?;
         let cooling = cooling::Leg::Held(&self.cooling);
-        let runs = runs::ceiling(config, self.host.file);
+        let runs = match runs::ceiling(config, self.host.file) {
+            Err(Capacity::RunsUndeclared(_)) if measured => Ok(None),
+            ceiling => ceiling.map(Some),
+        };
         let (running, runs) = ceilings(config, self.live.iter(), &entry.lanes, runs, cooling)?;
         floors(config, self.host, entry.scratch)?;
         boxed(config, &running, entry.boxed)?;
@@ -278,6 +304,7 @@ impl<'h> Measure<'h> {
             runs,
             config: config.clone(),
             census: Arc::clone(&self.live),
+            recipe: entry.recipe,
         })
     }
 
@@ -301,14 +328,14 @@ fn ceilings<'a>(
     config: &HostConfig,
     live: impl IntoIterator<Item = &'a Live>,
     lanes: &BTreeSet<Lane>,
-    runs: Result<NonZeroU32, Capacity>,
+    runs: Result<Option<NonZeroU32>, Capacity>,
     cooling: cooling::Leg<'_>,
-) -> Result<(Running, NonZeroU32), Capacity> {
+) -> Result<(Running, Option<NonZeroU32>), Capacity> {
     let running = Running::count(live, config)?;
     let bound = bind(config, lanes)?;
     let runs = runs?;
     cooling.room(lanes)?;
-    runs::below(running.runs, runs)?;
+    runs.map_or(Ok(()), |runs| runs::below(running.runs, runs))?;
     bound
         .iter()
         .filter(|bound| bound.class() == RouteClass::Cloud)
@@ -321,10 +348,13 @@ fn ceilings<'a>(
 }
 
 /// For an entry that builds in a box, the boxed builds running below
-/// their ceiling.
+/// their ceiling, where the host file declares one.
 fn boxed(config: &HostConfig, running: &Running, boxed: bool) -> Result<(), Capacity> {
-    match (boxed, config.boxed_builds.ceiling.get()) {
-        (true, ceiling) if running.boxed >= ceiling as usize => Err(Capacity::BoxedFull {
+    match (
+        boxed,
+        config.boxed_builds.map(|ceiling| ceiling.ceiling.get()),
+    ) {
+        (true, Some(ceiling)) if running.boxed >= ceiling as usize => Err(Capacity::BoxedFull {
             running: running.boxed,
             ceiling,
         }),
@@ -338,7 +368,8 @@ fn boxed(config: &HostConfig, running: &Running, boxed: bool) -> Result<(), Capa
 /// latch it was seen under; the events high-water the pass read before
 /// its census, the census, the manifest digest of the bundle it compiled
 /// and what that bundle seats, under the host configuration it read and
-/// the run ceiling that configuration declares.
+/// the run ceiling that configuration declares, none where a measured pass
+/// needs none; and the recipe it sized the entry by (decision 0125).
 #[derive(Debug)]
 pub struct Room {
     journal: Option<Journal>,
@@ -347,17 +378,30 @@ pub struct Room {
     digest: String,
     lanes: BTreeSet<Lane>,
     boxed: bool,
-    runs: NonZeroU32,
+    runs: Option<NonZeroU32>,
     config: HostConfig,
     census: Arc<Vec<Live>>,
+    recipe: String,
 }
 
 /// Why a claim's re-check refused it.
 enum Recheck {
     /// A wait no longer holds, or the entry has no room now.
     Refused(Reason),
+    /// The caller's `claims` answered no inside the transaction.
+    Stopped,
     /// A run read again does not fold.
     Failed(Box<AdmissionError>),
+}
+
+/// Why a claim took nothing, though nothing failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Unclaimed {
+    /// A wait no longer holds, or the entry has no room now.
+    Refused(Reason),
+    /// `claims` answered no once the claim held the journal's write lock:
+    /// a dispatcher's stop (decision 0110 ruling 5).
+    Stopped,
 }
 
 /// An awaited entry, as the claim's transaction reads it.
@@ -374,13 +418,18 @@ impl Room {
     /// entry's lanes and the boxed builds are judged again by their
     /// ceilings. An unmet wait or one
     /// at a ceiling now is the inner refusal, and nothing is claimed.
-    pub fn claim(
+    /// `claims` is asked last inside the transaction, once it holds the
+    /// write lock and the re-check passed, immediately before the claim is
+    /// written, so a stop asked while the claim waited on another writer
+    /// or was re-checked is honoured: a no claims nothing.
+    pub(crate) fn claim(
         &self,
         store: &mut Store,
         generation: Generation,
         reason: &str,
-    ) -> Result<Result<Claim, Reason>, AdmissionError> {
-        self.claim_at(store, generation, reason, Stamp::now_utc())
+        claims: &mut dyn FnMut() -> bool,
+    ) -> Result<Result<Claim, Unclaimed>, AdmissionError> {
+        self.claim_at(store, generation, reason, claims, Stamp::now_utc())
     }
 
     /// [`Room::claim`] at `now`, as [`super::pass_within_at`] holds the
@@ -391,8 +440,9 @@ impl Room {
         store: &mut Store,
         generation: Generation,
         reason: &str,
+        claims: &mut dyn FnMut() -> bool,
         now: Stamp,
-    ) -> Result<Result<Claim, Reason>, AdmissionError> {
+    ) -> Result<Result<Claim, Unclaimed>, AdmissionError> {
         let over = Claiming {
             entry: &self.entry,
             high_water: self.high_water,
@@ -400,10 +450,11 @@ impl Room {
             generation,
             now,
         };
-        let claimed = store.queue_claim_with(&over, reason, self.judge(store.path()));
+        let claimed = store.queue_claim_with(&over, reason, self.judge(store.path(), claims));
         match claimed? {
             Ok(claim) => Ok(Ok(claim)),
-            Err(Recheck::Refused(reason)) => Ok(Err(reason)),
+            Err(Recheck::Refused(reason)) => Ok(Err(Unclaimed::Refused(reason))),
+            Err(Recheck::Stopped) => Ok(Err(Unclaimed::Stopped)),
             Err(Recheck::Failed(error)) => Err(*error),
         }
     }
@@ -606,6 +657,7 @@ struct Entry {
     boxed: bool,
     scratch: PathBuf,
     digest: String,
+    recipe: String,
 }
 
 impl Entry {
@@ -620,6 +672,7 @@ impl Entry {
             boxed,
             scratch,
             digest,
+            recipe: bundle.name,
         })
     }
 }

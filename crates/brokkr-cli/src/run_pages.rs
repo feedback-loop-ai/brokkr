@@ -57,11 +57,25 @@ impl Shows {
     }
 }
 
-/// A run's view as its reader shows it, and the run's fold, or the fold's
-/// refusal, which `inspect` and `seats` refuse the run with.
+/// A run's view as its reader shows it, the run's fold, or the fold's
+/// refusal, which `inspect` and `seats` refuse the run with, and the
+/// journal rows the read already holds. A later reader of the same
+/// journal reads beside them, never the trail again.
 pub(crate) struct Viewed {
     pub(crate) view: RunView,
     pub(crate) folded: Result<RunState, FoldError>,
+    pub(crate) rows: Rows,
+}
+
+/// The journal rows a read already holds: a frame's trail, or the run
+/// whole where the frame's read was kept and fell back to it. Which one
+/// decides whether a later block bounds its read at all: the whole run is
+/// already held, the trail is not.
+pub(crate) enum Rows {
+    /// Every journal row of the run but a checkpoint.
+    Trail(Vec<EventEnvelope>),
+    /// The run whole, a checkpoint among its rows.
+    Whole(Vec<EventEnvelope>),
 }
 
 /// `run`'s view in `store` as a reader that `shows` it reads it: opened,
@@ -87,7 +101,7 @@ pub(crate) fn viewed(
     }
 }
 
-/// `run`'s participants as a seat reader reads them: `brokkr transcript`,
+/// `run`'s participants as a seat reader reads them: `brokkr runs transcript`,
 /// `/api/presentation/<run>/<key>`, `/api/transcript/<run>/<key>` and
 /// `/sse/transcript/<run>/<key>`, which each show one participant's row,
 /// its key, label, transcript reference, provenance, legacy id and whether
@@ -101,7 +115,11 @@ pub(crate) fn participants(
     run: &str,
     now: &str,
 ) -> Result<Result<Vec<Participant>, FoldError>, StoreError> {
-    let Viewed { view, folded } = viewed(store, run, Shows::Frame, now)?;
+    let Viewed {
+        view,
+        folded,
+        rows: _,
+    } = viewed(store, run, Shows::Frame, now)?;
     Ok(folded.map(|_| view.participants))
 }
 
@@ -111,7 +129,11 @@ fn whole(store: &Store, run: &str, now: &str) -> Result<Viewed, StoreError> {
     let folded = fold(&events);
     let cooling = crate::fleet::cooling(store, now)?;
     let view = brokkr_view::run_view_with(&events, folded.as_ref().ok(), &cooling);
-    Ok(Viewed { view, folded })
+    Ok(Viewed {
+        view,
+        folded,
+        rows: Rows::Whole(events),
+    })
 }
 
 /// What one read at an opening's head holds, asked past the head so it
@@ -180,9 +202,10 @@ impl Frame {
 
 /// `run`'s view composed once from one read at `opened` ([`Frame`]). With
 /// `journal`, every event the opening kept, it is the view whole, each
-/// participant's checkpoints made from it; without, the frame's. `None`
-/// where the read is kept, its summary row records the fold's refusal or
-/// the rows do not compose.
+/// participant's checkpoints made from it; without, the frame's. A frame
+/// read hands its trail over, the rows a later reader of the same run
+/// reads beside. `None` where the read is kept, its summary row records
+/// the fold's refusal or the rows do not compose.
 fn composed(
     store: &Store,
     run: &str,
@@ -200,8 +223,13 @@ fn composed(
         }
         None => frame.view(),
     };
-    let folded = Ok(*frame.state);
-    Ok(view.map(|view| Viewed { view, folded }))
+    let Frame { trail, state, .. } = frame;
+    let folded = Ok(*state);
+    Ok(view.map(|view| Viewed {
+        view,
+        folded,
+        rows: Rows::Trail(trail),
+    }))
 }
 
 /// Which of the console's run screens a frame paints, and so what it reads

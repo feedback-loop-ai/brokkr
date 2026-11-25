@@ -38,7 +38,7 @@ pub enum ImportError {
         "refused: '{0}' is not a run id this journal will carry — event hashes are \
          unkeyed, so a chain proves its bytes were not altered and never that whoever \
          sealed them was entitled to the name, and the name does not stay in the \
-         database: `brokkr export` composes '<out>/<run_id>.ndjson' from it and every \
+         database: `brokkr journal export` composes '<out>/<run_id>.ndjson' from it and every \
          readout prints it. An adoptable id is 1 to {RUN_ID_MAX} characters of ASCII \
          letters, digits, '-' and '_'"
     )]
@@ -89,7 +89,7 @@ pub const RUN_ID_MAX: usize = 128;
 /// excludes is what a *foreign* id could otherwise do here: `.` (and so
 /// `..`), the path separators, and every control and formatting
 /// character. Import is the first path by which a run id somebody else
-/// authored reaches the `runs` table, and from there `brokkr export`'s
+/// authored reaches the `runs` table, and from there `brokkr journal export`'s
 /// `<out>/<run_id>.ndjson` and the operator's terminal.
 fn adoptable(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '-' || character == '_'
@@ -303,7 +303,7 @@ impl Store {
             .unwrap_or(origin.as_os_str())
             .to_string_lossy()
             .to_string();
-        // Gate 1, twice — the two marks `export --redact` writes. The
+        // Gate 1, twice — the two marks `journal export --redact` writes. The
         // filename catches the pair as published; the manifest flag
         // catches a copy somebody renamed back.
         if named.contains(".redacted.") {
@@ -314,7 +314,7 @@ impl Store {
         }
 
         // Gates 2 and 3: parse, chain, fold — the same three checks
-        // `verify-run` makes offline, on the same bytes, before this
+        // `journal verify` makes offline, on the same bytes, before this
         // journal is touched.
         let (events, state) = verified_events(ndjson)?;
         let row = RunsRow::of(&events, state)?;
@@ -336,7 +336,7 @@ impl Store {
         let summary = Summary::of(&account, listing);
 
         let conn = &mut self.conn;
-        patiently("import_run", self.patience, || {
+        patiently("import_run", self.patience, &self.path, || {
             adopt_once(conn, &row, &arrival, &events, (&account, &summary))
         })
         .map_err(|refused| match refused {
@@ -360,7 +360,7 @@ impl Store {
     /// none to select; a read-write open migrates before anything asks.
     pub fn arrival(&self, run_id: &str) -> Result<Option<Arrival>, StoreError> {
         let row: Option<(Option<String>, Option<String>)> =
-            patiently("arrival", self.patience, || {
+            patiently("arrival", self.patience, &self.path, || {
                 Ok(self
                     .conn
                     .query_row(

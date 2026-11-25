@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.01736
 Authors: Haibo Jin, Xucheng Yu, Haohan Wang (School of Information Sciences, University of Illinois Urbana-Champaign); Suijin Wang, Haojing Luo (Starc Institute)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: research sweep, run weekly-research-sweep-registry-d-2012cc4d, 2026-09-04
 
 ## Summary
@@ -48,6 +48,32 @@ seat's namespace hands where the realm grants it no native power, not to
 a Codex seat, which keeps its native
 read-only shell, nor to every invocation on every boundary. Declared availability
 fallbacks also differ from substituting a cheaper model after a failure.
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Authors.** For "Wang, Haojing Luo (Starc Institute)" read "Wang,
+  Haojing Luo (Independent Researcher; Starc Institute)". (ruled: "0013
+  - approved")
+- **Row 4** now reads `implemented`, not `alternative`. Citation: For
+  "decision 0042; `recipes/triage/policy.json`: declared findings return
+  to implement, design or triage under phase-visit bounds, with bounded
+  clarify/analyze loops and per-seat attempt/deadline limits" read
+  "decision 0042; `recipes/triage/policy.json`: clarify, analyze and
+  review findings return to specify, design, tasks or triage, and each
+  return is capped by a declared visit bound (`visits_clarify_gte` 5,
+  `visits_analyze_gte` 5, `visits_specify_gte` 3, `visits_triage_gte` 2)
+  that parks for the operator; the cap counts visits, not tokens or cost
+  (#604 and #1048 propose cost and no-progress budgets)". (ruled: "0013
+  - approved")
+- **Row 5** keeps `alternative`. Finding: For "Cut API cost by routing
+  work to cheaper calls where quality allows" read "Run the
+  orchestration roles on a small, cheap model where it matches a
+  frontier one; HEART cuts API cost by up to 85 percent despite using
+  more tokens". Citation: For "scorer chooses the model" read "scorer
+  chooses the model; #224 proposes cheaper lanes for prepared work,
+  unruled". (ruled: "0013 - approved")
 
 ## Candidates
 

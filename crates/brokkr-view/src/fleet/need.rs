@@ -44,13 +44,13 @@ impl Need {
         match self {
             Need::Parked => None,
             Need::Quarantined(Quarantine::DoesNotFold) => {
-                Some("quarantined: export and inspect".to_string())
+                Some("quarantined: journal export and runs inspect".to_string())
             }
             Need::Quarantined(Quarantine::DoesNotLoad) => {
                 Some("quarantined: the journal does not load; inspect it by hand".to_string())
             }
             Need::Stale { silent } => Some(format!(
-                "stale: no event since {silent}; resume or conclude"
+                "stale: no event since {silent}; resume or runs conclude"
             )),
             Need::Stopping { detail } => Some(detail.clone()),
         }
@@ -58,14 +58,14 @@ impl Need {
 
     /// The commands that answer it for run `run_id`, each whole: a line
     /// `brokkr` parses once its `<placeholder>` words are filled. A stale
-    /// run still folds to running, and the fold admits `operator retry`
-    /// only on a parked run, so a stale run is answered by `resume`, which
-    /// drives it again under its pinned bundle, or by `conclude`, which
-    /// closes a run believed dead. `conclude` folds a journal before it
-    /// appends, so it refuses a quarantined one. `export` writes one that
-    /// loads and does not fold as it stands, and refuses one the store
-    /// does not load, as every verb that reads it does. `operator
-    /// acknowledge` answers either quarantine without folding or loading
+    /// run still folds to running, and the fold admits `runs operator
+    /// retry` only on a parked run, so a stale run is answered by `resume`,
+    /// which drives it again under its pinned bundle, or by `runs
+    /// conclude`, which closes a run believed dead. `runs conclude` folds a
+    /// journal before it appends, so it refuses a quarantined one. `journal
+    /// export` writes one that loads and does not fold as it stands, and
+    /// refuses one the store does not load, as every verb that reads it
+    /// does. `runs operator acknowledge` answers either quarantine without folding or loading
     /// past it (#511).
     pub fn commands(&self, run_id: &str) -> Vec<String> {
         match self {
@@ -114,7 +114,7 @@ impl Need {
 }
 
 fn acknowledge(run_id: &str) -> String {
-    format!("brokkr operator acknowledge --run {run_id} --reason <why>")
+    format!("brokkr runs operator acknowledge --run {run_id} --reason <why>")
 }
 
 /// The way-out line a quarantine ends on (#511).
@@ -126,11 +126,11 @@ fn acknowledged(run_id: &str) -> String {
 }
 
 fn conclude(run_id: &str) -> String {
-    format!("brokkr conclude --run {run_id} --cause <cause> --reason <why>")
+    format!("brokkr runs conclude --run {run_id} --cause <cause> --reason <why>")
 }
 
 fn export(run_id: &str) -> String {
-    format!("brokkr export --run {run_id}")
+    format!("brokkr journal export --run {run_id}")
 }
 
 fn resume(run_id: &str) -> String {

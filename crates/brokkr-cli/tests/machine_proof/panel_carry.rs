@@ -2,6 +2,12 @@ use super::*;
 use brokkr_core::EventType;
 use brokkr_store::Store;
 
+/// The residual pair every member charter's clean names (decision 0109
+/// ruling 2), which the review seat's compiled inputs bind.
+fn clear() -> Value {
+    json!({"max_residual_severity": "none", "has_security_residual": false})
+}
+
 fn git(ws: &Workspace, args: &[&str]) -> String {
     let output = Command::new("git")
         .args(args)
@@ -18,9 +24,8 @@ fn git(ws: &Workspace, args: &[&str]) -> String {
 
 fn panel(stuck: bool) -> Workspace {
     let mut script = happy_script();
-    script["seats"]["review:correctness"] =
-        json!([{"behavior":"succeed", "result":{"result":"clean", "notes":"settled"}}]);
-    let fresh = json!({"behavior":"succeed", "result":{"result":"clean", "notes":"retried"}});
+    script["seats"]["review:correctness"] = json!([{"behavior":"succeed", "result":{"result":"clean", "inputs":clear(), "notes":"settled"}}]);
+    let fresh = json!({"behavior":"succeed", "result":{"result":"clean", "inputs":clear(), "notes":"retried"}});
     script["seats"]["review:security"] = if stuck {
         json!([{"behavior":"vanish"}, fresh])
     } else {
@@ -68,6 +73,7 @@ fn retry_with(ws: &Workspace, run: &str, extra: &[&str]) -> (Option<i32>, Value,
     invoke(
         ws,
         &[
+            "runs",
             "operator",
             "retry",
             "--member",
@@ -129,6 +135,7 @@ fn a_plain_retry_starts_as_today_and_the_verb_prints_the_views_refusal_on_a_conc
     let run = parked(&ws);
     let db = ws.db();
     let (code, _, stderr) = ws.brokkr(&[
+        "runs",
         "operator",
         "retry",
         "--reason",
@@ -175,6 +182,17 @@ fn one_member_runs_and_the_aggregate_and_readouts_keep_the_settled_verdict() {
         .unwrap()
         .payload["attempt_id"]
         .clone();
+    let site = before
+        .iter()
+        .find(|event| {
+            event.payload["attempt_id"] == original
+                && event.payload["checkpoint"]["step"] == "panel-member-finished"
+                && event.payload["checkpoint"]["member"] == "correctness"
+        })
+        .unwrap()
+        .payload["checkpoint"]["site_ref"]
+        .clone();
+    assert!(site.is_string(), "{site}");
     recover(&ws, &run);
     let events = journal(&ws, &run);
     let start = events
@@ -183,7 +201,7 @@ fn one_member_runs_and_the_aggregate_and_readouts_keep_the_settled_verdict() {
         .unwrap();
     assert_eq!(
         start.payload["carried"],
-        json!([{"member":"correctness", "attempt_id":original}])
+        json!([{"member":"correctness", "attempt_id":original, "site_ref":site}])
     );
     let markers: Vec<_> = events
         .iter()
@@ -207,8 +225,14 @@ fn one_member_runs_and_the_aggregate_and_readouts_keep_the_settled_verdict() {
     );
     assert_eq!(carried.activity.text, "carried from review attempt 1");
     for verb in ["inspect", "seats"] {
-        let (code, stdout, stderr) =
-            ws.brokkr_raw(&[verb, "--run", &run, "--db", ws.db().to_str().unwrap()]);
+        let (code, stdout, stderr) = ws.brokkr_raw(&[
+            "runs",
+            verb,
+            "--run",
+            &run,
+            "--db",
+            ws.db().to_str().unwrap(),
+        ]);
         assert_eq!(code, Some(0), "{stderr}");
         assert!(stdout.contains("carried"), "{stdout}");
     }
@@ -216,9 +240,19 @@ fn one_member_runs_and_the_aggregate_and_readouts_keep_the_settled_verdict() {
     let (code, _, stderr) = full.run();
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(
-        aggregate(&events),
-        aggregate(&journal(&full, &Workspace::run_id(&stderr)))
+        checked_aggregate(&ws, &events),
+        checked_aggregate(&full, &journal(&full, &Workspace::run_id(&stderr)))
     );
+}
+
+/// The aggregate `events` journal, its `checked_head` first proved to be
+/// `ws`'s own head and then set aside, since each workspace commits its
+/// own (fix round 0109a1r3, H1).
+fn checked_aggregate(ws: &Workspace, events: &[brokkr_core::EventEnvelope]) -> Value {
+    let mut aggregate = aggregate(events);
+    let head = aggregate.as_object_mut().unwrap().remove("checked_head");
+    assert_eq!(head, Some(json!(git(ws, &["rev-parse", "HEAD"]))));
+    aggregate
 }
 
 #[test]
@@ -271,11 +305,11 @@ fn a_moved_head_refuses_at_the_command_and_again_at_the_drive() {
 fn a_retried_security_residual_returns_through_implement_verify_and_a_full_panel() {
     let mut script = happy_script();
     script["seats"]["review:correctness"] =
-        json!([{"behavior":"succeed","result":{"result":"clean"}}]);
+        json!([{"behavior":"succeed","result":{"result":"clean","inputs":clear()}}]);
     script["seats"]["review:security"] = json!([
         {"behavior":"vanish"},
         {"behavior":"succeed","result":{"result":"residual","inputs":{"has_security_residual":true,"max_residual_severity":"low"},"notes":"repair this"}},
-        {"behavior":"succeed","result":{"result":"clean"}},
+        {"behavior":"succeed","result":{"result":"clean","inputs":clear()}},
     ]);
     let ws = fixture(script, REFORGING_POLICY);
     let run = parked(&ws);

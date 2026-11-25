@@ -374,6 +374,60 @@ fn a_concluded_attempt_reports_what_it_wrote_and_a_stale_one_nothing() {
     assert_eq!(dashboard(&[]), Dashboard::default());
 }
 
+/// The one reader of `/result/notes`: a string as itself, a panel's
+/// members in name order with their verdicts and notes, a member who
+/// recorded only a verdict among them, any other shape as written, and
+/// absent or blank notes, a panel of no members among them, as none. It
+/// never falls back to an error.
+#[test]
+fn the_result_notes_reader_reads_every_shape_once() {
+    let notes = |notes: Value| result_notes(&json!({"result": {"notes": notes}}));
+    let text = |text: &str| Some(ResultNotes::Text(text.to_string()));
+    assert_eq!(notes(json!("12 tests passed")), text("12 tests passed"));
+    let lines = |lines: &[&str]| {
+        Some(ResultNotes::Panel(
+            lines.iter().map(|l| l.to_string()).collect(),
+        ))
+    };
+    assert_eq!(
+        notes(json!({
+            "members": {"bob": "one low\nsecond line", "alice": "fine"},
+            "verdicts": {"alice": "clean", "carol": "residual", "bob": 7}
+        })),
+        lines(&[
+            "alice (clean): fine",
+            "bob: one low\nsecond line",
+            "carol (residual)"
+        ])
+    );
+    assert_eq!(notes(json!({"why": 1})), text(r#"{"why":1}"#));
+    assert_eq!(notes(json!(["a", "b"])), text("a,b"));
+    assert_eq!(notes(json!(7)), text("7"));
+    assert_eq!(notes(json!(" \n ")), None);
+    assert_eq!(notes(json!({"members": {}})), None);
+    assert_eq!(
+        result_notes(&json!({"result": {}, "error": "exit 1"})),
+        None
+    );
+}
+
+/// The dashboard paints a panel's members who wrote a note and no member
+/// who recorded only a verdict, so a panel of verdicts alone is no notes.
+#[test]
+fn the_dashboard_paints_only_the_members_who_wrote_a_note() {
+    let notes = |notes: Value| notes_of(&json!({"result": {"notes": notes}, "error": "exit 1"}));
+    assert_eq!(
+        notes(json!({"members": {"alice": "fine"},
+                     "verdicts": {"alice": "clean", "bob": "residual"}}))
+        .as_deref(),
+        Some("alice (clean): fine")
+    );
+    assert_eq!(
+        notes(json!({"members": {}, "verdicts": {"bob": "residual"}})),
+        None
+    );
+}
+
 /// The live column's stream: the working seat's checkpoints and its
 /// working members', newest first, and no other seat's.
 #[test]

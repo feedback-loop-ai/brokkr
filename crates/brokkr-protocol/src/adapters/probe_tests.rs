@@ -3,7 +3,8 @@
 //! fake harness refuses and then answers, a probe ends only on the first
 //! model-output event, and dsh still classifies nothing.
 
-use super::tests::executable;
+use super::claude_fold::Source::Claude;
+use super::tests::{executable, fold_codex_into};
 use super::*;
 use crate::env_guard::EnvGuard;
 use crate::RefusalClass;
@@ -92,7 +93,7 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"a
             .to_string()
         }
         AdapterKind::Dsh => dsh_probe_answer_script(),
-        AdapterKind::Lanetally | AdapterKind::Exec => {
+        AdapterKind::Lanetally | AdapterKind::Qoder | AdapterKind::Agy | AdapterKind::Exec => {
             unreachable!("the probe answers on claude, codex and dsh")
         }
     };
@@ -165,7 +166,7 @@ fn a_probe_that_answers_then_hangs_reports_its_answer() {
                 env.set("DSH_HOME", dir.path());
                 Vec::new()
             }
-            AdapterKind::Lanetally | AdapterKind::Exec => {
+            AdapterKind::Lanetally | AdapterKind::Qoder | AdapterKind::Agy | AdapterKind::Exec => {
                 unreachable!("the probe answers on claude, codex and dsh")
             }
         };
@@ -222,7 +223,11 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"a
         match kind {
             AdapterKind::Claude => env.set("BROKKR_CLAUDE_BIN", &shim),
             AdapterKind::Codex => env.set("BROKKR_CODEX_BIN", &shim),
-            AdapterKind::Lanetally | AdapterKind::Dsh | AdapterKind::Exec => {
+            AdapterKind::Lanetally
+            | AdapterKind::Dsh
+            | AdapterKind::Qoder
+            | AdapterKind::Agy
+            | AdapterKind::Exec => {
                 unreachable!("the stop's stderr is proven on claude and codex")
             }
         }
@@ -316,10 +321,10 @@ printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You ha
     assert_eq!(error, "probe ended without an answer");
 }
 
-/// What a Claude seat pinned to `model` reports when its harness answers
-/// only a 429 `rate_limit_event`.
+/// What a Claude seat with this passthrough reports when its harness
+/// answers only a 429 `rate_limit_event`.
 #[cfg(unix)]
-fn rate_limited_claude_seat(model: &str) -> Vec<Body> {
+fn rate_limited_claude_seat(passthrough: &[&str]) -> Vec<Body> {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
@@ -331,7 +336,7 @@ printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You ha
 "#,
     );
     env.set("BROKKR_CLAUDE_BIN", &shim);
-    let extra = ["--model".to_string(), model.to_string()];
+    let extra: Vec<_> = passthrough.iter().map(|part| part.to_string()).collect();
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Claude,
@@ -352,7 +357,7 @@ printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You ha
 #[cfg(unix)]
 #[test]
 fn chief_review_attributed_refusal_must_roundtrip_its_own_reader() {
-    let messages = rate_limited_claude_seat("featherless:qwen/qwen3");
+    let messages = rate_limited_claude_seat(&["--model", "featherless:qwen/qwen3"]);
     let Body::Result {
         refusal: Some(refusal),
         ..
@@ -379,7 +384,7 @@ fn chief_review_attributed_refusal_must_roundtrip_its_own_reader() {
 #[cfg(unix)]
 #[test]
 fn a_refusal_whose_route_the_wire_cannot_carry_fails_the_invocation_by_name() {
-    let messages = rate_limited_claude_seat("bad!route/qwen3");
+    let messages = rate_limited_claude_seat(&["--model", "bad!route/qwen3"]);
     assert!(
         !messages
             .iter()
@@ -707,65 +712,75 @@ fn a_refusal_is_classified_only_before_the_first_counted_turn() {
     let mut turns = ClaudeFold::default();
     let mut meta = Map::new();
     let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
-    let mut emitted: Vec<Value> = Vec::new();
-    assert!(
-        fold_stream_event(&refusal, &mut turns, &mut meta, &mut transcript, &mut |c| {
-            emitted.push(c.clone())
-        })
-        .is_some()
+    let mut emitted = Vec::new();
+    let bound = [super::tests::binding("S", "assi")];
+    let refusal = Row::new(&refusal, &bound);
+    let mut fold = |row: &Row<'_>, turns: &mut ClaudeFold| {
+        fold_stream_event(
+            row,
+            Claude,
+            turns,
+            &mut meta,
+            &mut transcript,
+            &mut |item| {
+                emitted.push(item.step);
+            },
+        )
+    };
+    let rejected = fold(&refusal, &mut turns);
+    let reported = rejected
+        .as_ref()
+        .map(|refusal| (refusal.class(), refusal.words()));
+    assert_eq!(
+        reported,
+        Some((RefusalClass::RateLimit, "rate_limit: limit"))
     );
-    assert!(
-        emitted.is_empty(),
-        "a refusal emits no checkpoint: {emitted:?}"
-    );
-    fold_stream_event(
-        &json!({"type":"assistant","message":{"content":[]}}),
-        &mut turns,
-        &mut meta,
-        &mut transcript,
-        &mut |c| emitted.push(c.clone()),
-    );
+    let work = json!({"type":"assistant","message":{"content":[]}});
+    assert_eq!(fold(&Row::new(&work, &bound), &mut turns), None);
     assert_eq!(turns.turns, 1);
-    assert!(
-        fold_stream_event(&refusal, &mut turns, &mut meta, &mut transcript, &mut |c| {
-            emitted.push(c.clone())
-        })
-        .is_none()
-    );
+    assert_eq!(fold(&refusal, &mut turns), None);
+    assert_eq!(emitted, [Step::SeatTurn, Step::SeatTurn]);
 
     let mut turn = 0;
     let mut meta = Map::new();
     let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
     let mut echo = CodexThreadEcho::default();
     let mut emitted: Vec<Value> = Vec::new();
-    assert!(fold_codex_event(
-        &json!({"type":"error","message":"rate limit"}),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
-        &mut echo,
-        &mut |c| emitted.push(c.clone())
-    )
-    .is_some());
+    let error = json!({"type":"error","message":"rate limit"});
+    let row = Row::new(&error, &[]);
+    assert_eq!(
+        fold_codex_into(
+            &row,
+            &mut turn,
+            &mut meta,
+            &mut transcript,
+            &mut echo,
+            &mut emitted
+        )
+        .map(|refusal| refusal.class()),
+        Some(RefusalClass::Other)
+    );
     assert!(emitted.is_empty());
-    fold_codex_event(
-        &json!({"type":"turn.started"}),
+    fold_codex_into(
+        &Row::new(&json!({"type":"turn.started"}), &[]),
         &mut turn,
         &mut meta,
         &mut transcript,
         &mut echo,
-        &mut |c| emitted.push(c.clone()),
+        &mut emitted,
     );
     assert_eq!(turn, 1);
-    assert!(fold_codex_event(
-        &json!({"type":"error","message":"rate limit"}),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
-        &mut echo,
-        &mut |c| emitted.push(c.clone())
-    )
-    .is_none());
+    assert_eq!(
+        fold_codex_into(
+            &row,
+            &mut turn,
+            &mut meta,
+            &mut transcript,
+            &mut echo,
+            &mut emitted
+        ),
+        None
+    );
 }
 
 /// The valid session header and one `assistant/message` answer appended to
@@ -941,8 +956,10 @@ fn a_probe_admits_only_the_first_answer_and_exec_has_none() {
     });
     let row = json!({"step": "seat-turn", "turn": 1});
 
+    let answer = Row::new(&answer, &[]);
+    let is_answer = super::probe::is_answer(AdapterKind::Claude, &answer);
     let mut unrequested = ProbeAnswer::new(false);
-    unrequested.admit(AdapterKind::Claude, &answer, std::slice::from_ref(&row));
+    unrequested.admit(is_answer, std::slice::from_ref(&row));
     assert!(
         !unrequested.answered(),
         "an ordinary invocation admits no answer"
@@ -950,14 +967,16 @@ fn a_probe_admits_only_the_first_answer_and_exec_has_none() {
 
     let mut probe = ProbeAnswer::new(true);
     probe.admit(
-        AdapterKind::Claude,
-        &json!({"type": "system"}),
+        super::probe::is_answer(
+            AdapterKind::Claude,
+            &Row::new(&json!({"type": "system"}), &[]),
+        ),
         std::slice::from_ref(&row),
     );
     assert!(!probe.answered(), "a non-answer event admits nothing");
-    probe.admit(AdapterKind::Claude, &answer, std::slice::from_ref(&row));
+    probe.admit(is_answer, std::slice::from_ref(&row));
     assert!(probe.answered(), "the first answer is admitted");
-    probe.admit(AdapterKind::Claude, &answer, &[json!({"step": "second"})]);
+    probe.admit(is_answer, &[json!({"step": "second"})]);
     assert_eq!(
         probe.take(),
         Some(row),
@@ -986,5 +1005,30 @@ fn a_refusal_with_no_token_keeps_a_default_and_each_adapter_names_itself() {
         (AdapterKind::Exec, "exec"),
     ] {
         assert_eq!(kind.provider_name(), provider, "{kind:?}");
+    }
+}
+
+#[test]
+fn claude_refusal_attribution_reads_only_the_long_model_flag() {
+    for (extra, route) in [
+        (&["-mwrong/model"][..], None),
+        (
+            &["-mwrong/model", "--model=anthropic/claude-x"][..],
+            Some("anthropic"),
+        ),
+    ] {
+        let bodies = rate_limited_claude_seat(extra);
+        let Some(Body::Result {
+            status: ResultStatus::Failed,
+            refusal: Some(refusal),
+            ..
+        }) = bodies.last()
+        else {
+            panic!("Claude should report a typed refusal: {bodies:?}");
+        };
+        assert_eq!(
+            (refusal.class(), refusal.provider(), refusal.route()),
+            (RefusalClass::RateLimit, "claude", route)
+        );
     }
 }

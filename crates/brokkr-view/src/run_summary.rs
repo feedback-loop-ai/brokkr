@@ -1,4 +1,4 @@
-//! The run's summary as every surface summarizes it: `brokkr inspect`'s
+//! The run's summary as every surface summarizes it: `brokkr runs inspect`'s
 //! `state`, the run view's `summary`, and the readouts that embed either.
 //! The standing is the fleet's one derivation ([`crate::fleet::Facts`]),
 //! so a run whose accepted stop has no ending reads as stopping here too,
@@ -16,7 +16,7 @@ use serde::Serialize;
 use crate::fleet::{late_tail, said, stopping_detail, Facts, LateTail, Standing};
 
 /// The `summarize()` keys, verbatim and in the same order the
-/// existing `brokkr inspect` prints them, and the standing the fleet
+/// existing `brokkr runs inspect` prints them, and the standing the fleet
 /// derives beside its journal status.
 #[derive(Serialize)]
 pub struct Summary {

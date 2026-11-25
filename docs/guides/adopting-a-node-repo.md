@@ -74,7 +74,7 @@ hand.
 quickstart's step 2, keeps named recipes on the folder's shelf,
 `.brokkr/recipes/<name>/` (decision
 [0083](../decisions/0083-an-adopters-brokkr-lives-in-one-folder.md)'s
-addendum of 2026-10-16). `brokkr recipes add` installs there from
+addendum of 2026-10-16). `brokkr library recipes add` installs there from
 anywhere in the repository, with `fast`, the base `node` extends, and
 copies the agents both seat, with their charters, into the folder.
 `node` and `fast` are Brokkr's two portable recipes (decision
@@ -84,7 +84,7 @@ ruling 5): their agents extend the `implementer` and `reviewer` that
 and adapters:
 
 ```
-$ brokkr recipes add ~/src/brokkr/recipes/node --name node
+$ brokkr library recipes add ~/src/brokkr/recipes/node --name node
 added recipe 'node' (…) at /home/you/my-app/.brokkr/recipes/node
 added recipe 'fast' (…) at /home/you/my-app/.brokkr/recipes/fast
 added charter charters/implementer-intakeless.md of agent 'fast-implementer' at /home/you/my-app/.brokkr/agents/charters/implementer-intakeless.md
@@ -146,7 +146,7 @@ scaffold's.)
 **The agents and their capability definitions, second.** `node`'s and
 `fast`'s seats hire agents from the library in `agents/` (#360), and an
 agent that requests a capability needs its abstract definition at
-`capabilities/<name>.json` (decision 0065). `recipes add` copies the
+`capabilities/<name>.json` (decision 0065). `library recipes add` copies the
 agents a recipe's seats name from `~/src/brokkr/agents/`, their
 charters, and the definition of each capability they request from
 `~/src/brokkr/capabilities/`, but never an agent's own base, and
@@ -155,7 +155,7 @@ the compile refuses, and the install removes everything it copied,
 `recipes/` included:
 
 ```
-$ brokkr recipes add ~/src/brokkr/recipes/node --name node
+$ brokkr library recipes add ~/src/brokkr/recipes/node --name node
 error: recipe 'node' does not compile (removed): bundle: bundle: agent 'fast-implementer' (/home/you/my-app/agents/fast-implementer.json) extends 'implementer', which is not an agent in this library (composed: node -> fast)
 ```
 
@@ -171,20 +171,20 @@ every agent in it, and Brokkr's `researcher` requests `web-fetch` and
 missing:
 
 ```
-$ brokkr recipes add ~/src/brokkr/recipes/node --name node
+$ brokkr library recipes add ~/src/brokkr/recipes/node --name node
 error: recipe 'node' does not compile (removed): bundle: bundle: agent 'researcher': capability 'web-fetch' has no abstract definition at 'capabilities/web-fetch.json' in the operator configuration; declare its classes before requesting it; agent 'researcher': capability 'web-search' has no abstract definition at 'capabilities/web-search.json' in the operator configuration; declare its classes before requesting it (composed: node -> fast)
 ```
 
 **The recipe, third.** Install it from the local path:
 
 ```
-$ brokkr recipes add ~/src/brokkr/recipes/node --name node
+$ brokkr library recipes add ~/src/brokkr/recipes/node --name node
 added recipe 'node' (…) at /home/you/my-app/recipes/node
 added recipe 'fast' (…) at /home/you/my-app/recipes/fast
 ```
 
 `node` extends `fast`, and a base resolves from the library its recipe
-sits in, so `recipes add` copies `fast` into `recipes/` beside it, at
+sits in, so `library recipes add` copies `fast` into `recipes/` beside it, at
 your repository's root from any directory in it, unless your library
 already holds a `fast`. Every agent, charter and definition it would
 copy is already in your library, byte for byte, so it copies none of
@@ -241,7 +241,7 @@ renders its text between the portable charter and run context.
 is one. Check what yours says:
 
 ```
-$ brokkr realms
+$ brokkr system realms
 map      ./realms.json
 journal  ./.forge/forge.db
 realm    my-app  .  main  a1b2c3d

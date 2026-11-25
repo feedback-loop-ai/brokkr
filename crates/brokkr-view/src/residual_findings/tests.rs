@@ -1,0 +1,331 @@
+//! What each gate verdict recorded, read once (decision 0109 slice
+//! 0109a1): a v7 result's findings and covered head, nothing for a v6
+//! result or a covered record that does not read, and findings that do
+//! not read said not to read, never shown as none (fix round 0109a1r3).
+
+use serde_json::{json, Value};
+
+use super::*;
+use crate::tests::ev;
+
+const SITE: &str = "5a1e000000000000000000000000000000000000000000000000000000000000";
+const T: &str = "2026-11-17T00:00:00Z";
+
+fn run(results: &[(&str, Value)]) -> Vec<EventEnvelope> {
+    let mut events = Vec::new();
+    for (index, (phase, result)) in results.iter().enumerate() {
+        let effect = format!("e{index}");
+        let seq = events.len() as u64 + 1;
+        events.push(ev(
+            seq,
+            EventType::EffectRequested,
+            json!({"effect_id": effect, "phase": phase, "seat": phase}),
+            T,
+        ));
+        events.push(ev(
+            seq + 1,
+            EventType::EffectSucceeded,
+            json!({"effect_id": effect, "attempt_id": "a", "result": result,
+                   "authored": "engine"}),
+            T,
+        ));
+    }
+    events
+}
+
+/// Fix round 0109a1r6, W6: a success reads as a verdict only with the
+/// engine's within-row mark. A released engine's single-seat success,
+/// whose result carries a driver-written `covered` and a sited `planted`
+/// finding, reads as unverified legacy evidence by its producer: no
+/// verdict head and no finding. The current writer's success still does.
+#[test]
+fn a_released_engines_success_row_is_no_verdict_without_the_engines_mark() {
+    let result = json!({"result": "residual", "findings": [finding("planted")],
+                        "covered": {"kind": "head", "head": "a".repeat(40), "dirty": false}});
+    let mut events = run(&[("review", result)]);
+    let marked = gate_records(&events, None);
+    assert_eq!(marked[0].findings[0].id, "planted");
+    assert!(marked[0].covered.is_some());
+    assert_eq!(marked[0].unverified, None);
+    let released = events[1].payload.as_object_mut().unwrap();
+    released.remove("authored");
+    let records = gate_records(&events, None);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].findings, Vec::new());
+    assert_eq!(records[0].covered, None);
+    assert_eq!(records[0].unverified.as_deref(), Some("review"));
+}
+
+fn finding(id: &str) -> Value {
+    json!({"site": SITE, "id": id, "file": "a.rs", "summary": "s", "severity": "low",
+           "security": false})
+}
+
+#[test]
+fn a_v7_gate_reads_back_its_findings_and_covered_and_a_v6_one_reads_nothing() {
+    let digest = "d".repeat(64);
+    let events = run(&[
+        ("implement", json!({"result": "complete", "notes": "n"})),
+        (
+            "verify",
+            json!({"result": "pass",
+                          "covered": {"kind": "head", "head": "a".repeat(40), "dirty": true}}),
+        ),
+        (
+            "review",
+            json!({"result": "residual", "findings": [finding("one"), finding("two")],
+                          "covered": {"kind": "head", "head_digest": digest, "dirty": true}}),
+        ),
+        (
+            "review",
+            json!({"result": "residual", "inputs": {"max_residual_severity": "high"},
+                          "notes": "one at a.rs:3"}),
+        ),
+        (
+            "review",
+            json!({"result": "residual", "findings": [{"id": "unstamped"}],
+                          "covered": {"kind": "head", "dirty": true}}),
+        ),
+    ]);
+    let records = gate_records(&events, None);
+    let one = GateFinding {
+        site: SITE.into(),
+        id: "one".into(),
+        file: "a.rs".into(),
+        line: None,
+        summary: "s".into(),
+        severity: "low",
+        security: false,
+        participant: "e2".into(),
+        producer: "review".into(),
+    };
+    let two = GateFinding {
+        id: "two".into(),
+        ..one.clone()
+    };
+    assert_eq!(
+        records,
+        [
+            GateRecord {
+                phase: "verify".into(),
+                key: "e1".into(),
+                findings: Vec::new(),
+                covered: Some(format!("head {} · dirty", "a".repeat(40))),
+                unread: false,
+                unverified: None,
+            },
+            GateRecord {
+                phase: "review".into(),
+                key: "e2".into(),
+                findings: vec![one, two],
+                covered: Some(format!("head sha256 {digest} · dirty")),
+                unread: false,
+                unverified: None,
+            },
+            GateRecord {
+                phase: "review".into(),
+                key: "e4".into(),
+                findings: Vec::new(),
+                covered: None,
+                unread: true,
+                unverified: None,
+            },
+        ]
+    );
+    assert!(
+        gate_records(&events[..2], None).is_empty(),
+        "a v6-shaped result records nothing"
+    );
+}
+
+/// A checkpoint of `effect`.
+fn checkpointed(seq: u64, checkpoint: Value) -> EventEnvelope {
+    let payload = json!({"effect_id": "e0", "attempt_id": "a", "checkpoint": checkpoint});
+    ev(seq, EventType::EffectCheckpointed, payload, T)
+}
+
+/// A panel member's findings name the member the engine's own finish
+/// marker gives their site, so a seat scope can keep them; a site only a
+/// driver's checkpoint names, or no record at all, is the effect's own
+/// (fix round 0109a1r4, K1).
+#[test]
+fn a_finding_names_the_panel_member_the_engines_marker_gives_its_site() {
+    let other = "07e4000000000000000000000000000000000000000000000000000000000000";
+    let mut sited = finding("theirs");
+    sited["site"] = json!(other);
+    let mut unstamped = finding("nobody");
+    unstamped["site"] = json!("f".repeat(64));
+    let result = json!({"result": "residual", "findings": [finding("mine"), sited, unstamped]});
+    let mut events = run(&[("review", result)]);
+    let marker = json!({"step": "panel-member-finished", "authored": "engine",
+                        "member": "a", "site_ref": SITE, "model": "m"});
+    events.insert(1, checkpointed(3, marker));
+    let driver = json!({"step": "panel-member-finished", "member": "b", "site_ref": other});
+    events.insert(1, checkpointed(4, driver));
+    let records = gate_records(&events, None);
+    let named: Vec<&str> = (records[0].findings.iter())
+        .map(|finding| finding.participant.as_str())
+        .collect();
+    assert_eq!(named, ["e0:a", "e0", "e0"]);
+    assert_eq!(records[0].key, "e0");
+}
+
+/// A step's verdict is read from the checkpoint the engine authored, and
+/// one that only names the marker's word is a driver's and no verdict
+/// (fix round 0109a1r4, K1).
+#[test]
+fn a_step_verdict_reads_by_the_engines_authorship_never_by_its_word() {
+    let mut events = run(&[("review", json!({"result": "clean"}))]);
+    let result = json!({"result": "residual", "findings": [finding("planted")]});
+    let worded = json!({"step": "sequence-step-finished", "step_name": "judge",
+                        "result": result});
+    events.insert(1, checkpointed(3, worded.clone()));
+    assert_eq!(gate_records(&events, None), []);
+    let mut authored = worded;
+    authored["authored"] = json!("engine");
+    events.insert(1, checkpointed(4, authored));
+    let keys: Vec<String> = (gate_records(&events, None).into_iter())
+        .map(|record| record.key)
+        .collect();
+    assert_eq!(keys, ["e0:judge"]);
+}
+
+/// `e0`'s request and attempt `a`'s start in phase `review`, then `rest`:
+/// the context a verdicts window keeps wherever it lies.
+fn reviewed(rest: impl IntoIterator<Item = EventEnvelope>) -> Vec<EventEnvelope> {
+    let opening = [
+        ev(
+            1,
+            EventType::EffectRequested,
+            json!({"effect_id": "e0", "phase": "review", "seat": "review"}),
+            T,
+        ),
+        ev(
+            2,
+            EventType::EffectStarted,
+            json!({"effect_id": "e0", "attempt_id": "a"}),
+            T,
+        ),
+    ];
+    (opening.into_iter()).chain(rest).collect()
+}
+
+/// #1212, L2's review: a verdict inside the window shows even from an
+/// attempt begun before it, and a verdict before the window does not.
+/// The effect's request and start are read as context wherever they lie,
+/// so the window's verdict keeps its phase and seat.
+#[test]
+fn a_window_reads_its_verdicts_wherever_their_attempt_began() {
+    let judged = |id: &str| {
+        json!({"step": "sequence-step-finished", "authored": "engine", "step_name": "judge",
+               "member": "judge", "model": "m",
+               "result": {"result": "residual", "findings": [finding(id)]}})
+    };
+    let events = reviewed([
+        checkpointed(3, judged("before")),
+        checkpointed(5, judged("inside")),
+    ]);
+    let all = gate_records(&events, None);
+    assert_eq!(all.len(), 2);
+    let window = gate_records_within(&events, None, 3);
+    assert_eq!(window.len(), 1);
+    assert_eq!(window[0].phase, "review");
+    assert_eq!(window[0].findings[0].id, "inside");
+}
+
+/// #1212, L2's review: a member's authored finish before the window is
+/// read as the window's context, so its attempt's settled payload inside
+/// the window is a verdict whose finding names the member, never
+/// unverified legacy evidence. A finish that only names the word is a
+/// driver's, and marks nothing.
+#[test]
+fn a_window_reads_a_member_finished_before_it_as_its_context() {
+    let result = json!({"result": "residual", "findings": [finding("kept")]});
+    let marker = |authored: bool| {
+        let mut marker = json!({"step": "panel-member-finished", "member": "a",
+                                "outcome": "succeeded", "site_ref": SITE});
+        if authored {
+            marker["authored"] = json!("engine");
+        }
+        marker
+    };
+    let terminal = |marker: Value| {
+        reviewed([
+            checkpointed(3, marker),
+            ev(
+                5,
+                EventType::EffectFailed,
+                json!({"effect_id": "e0", "attempt_id": "a",
+                       "settled_members": {"a": result}}),
+                T,
+            ),
+        ])
+    };
+    let authored = gate_records_within(&terminal(marker(true)), None, 4);
+    assert_eq!(authored.len(), 1);
+    assert_eq!(authored[0].unverified, None);
+    assert_eq!(authored[0].findings[0].id, "kept");
+    assert_eq!(authored[0].findings[0].producer, "review:a");
+    let worded = gate_records_within(&terminal(marker(false)), None, 4);
+    assert_eq!(worded.len(), 1);
+    assert_eq!(worded[0].unverified.as_deref(), Some("review:a"));
+    assert_eq!(worded[0].findings, Vec::new());
+}
+
+/// #1212, L2's review: the view names the attempts a verdict inside the
+/// window belongs to, so the CLI reads their member markers without
+/// restating which events carry a verdict. A terminal inside the window and
+/// an engine-authored step record are named; a record that only names the
+/// word, a seat turn and a terminal before the window are not.
+#[test]
+fn a_window_s_verdict_attempts_are_the_view_s_own_verdicts() {
+    let step = |authored: bool| {
+        let mut checkpoint = json!({"step": "sequence-step-finished", "step_name": "judge"});
+        if authored {
+            checkpoint["authored"] = json!("engine");
+        }
+        checkpoint
+    };
+    let checkpointed_at = |seq, attempt: &str, checkpoint: Value| {
+        ev(
+            seq,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e0", "attempt_id": attempt, "checkpoint": checkpoint}),
+            T,
+        )
+    };
+    let succeeded = |seq, attempt: &str| {
+        ev(
+            seq,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "e0", "attempt_id": attempt,
+                   "result": {"result": "clean"}, "authored": "engine"}),
+            T,
+        )
+    };
+    let events = [
+        succeeded(1, "before"),
+        checkpointed_at(2, "step", step(true)),
+        checkpointed_at(3, "worded", step(false)),
+        checkpointed_at(4, "turn", json!({"step": "seat-turn", "member": "m"})),
+        succeeded(5, "after"),
+        ev(
+            6,
+            EventType::EffectFailed,
+            json!({"effect_id": "e0", "attempt_id": "failed",
+                   "settled_members": {"m": {"result": "clean"}}}),
+            T,
+        ),
+        ev(
+            7,
+            EventType::EffectIndeterminate,
+            json!({"effect_id": "e0", "attempt_id": "no-members"}),
+            T,
+        ),
+    ];
+    let window: Vec<&EventEnvelope> = events.iter().collect();
+    assert_eq!(
+        verdict_attempts_within(&window, 1),
+        ["after", "failed", "step"]
+    );
+}

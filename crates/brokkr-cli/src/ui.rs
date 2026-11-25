@@ -1,4 +1,4 @@
-//! `brokkr ui` — the embedded read-only surface (decision 0003): a static
+//! `brokkr system ui` — the embedded read-only surface (decision 0003): a static
 //! page compiled into the binary, served on loopback, reading
 //! projections only. No commands, no writes, no Node, no external
 //! assets; removing this module changes nothing about execution
@@ -203,7 +203,7 @@ pub fn handle(db: &Path, path: &str) -> Response {
 }
 
 /// The lowest drill level (#352): one participant's transcript, read by
-/// the one local read path `brokkr transcript` uses and masked against the
+/// the one local read path `brokkr runs transcript` uses and masked against the
 /// same secrets store beside the journal, served as that command's
 /// `--json` document byte for byte, for every kind. This is a
 /// loopback-only, operator-local surface — the same trust as the command
@@ -332,7 +332,7 @@ enum RouteRefusal {
     Unread(StoreError),
     /// The run's journal loads and does not fold. That is fatal to the
     /// run's own verbs (`fleet.rs`), so every participant route refuses it
-    /// in the fold's words, as `brokkr transcript` does, and reads nothing.
+    /// in the fold's words, as `brokkr runs transcript` does, and reads nothing.
     Unfoldable(brokkr_core::fold::FoldError),
 }
 
@@ -631,7 +631,7 @@ fn open_system_browser(url: &str) {
 fn open_browser_with(url: &str, spawn: impl FnOnce(&str, &str)) {
     match browser_program() {
         Ok(program) => spawn(&program, url),
-        Err(refused) => eprintln!("brokkr ui: no browser opened: {refused}"),
+        Err(refused) => eprintln!("brokkr system ui: no browser opened: {refused}"),
     }
 }
 
@@ -652,7 +652,7 @@ fn serve_listener_with(
 ) -> std::io::Result<()> {
     let bound = listener.local_addr()?.port();
     let url = format!("http://127.0.0.1:{bound}/");
-    eprintln!("brokkr ui: {url} (read-only; Ctrl-C to stop)");
+    eprintln!("brokkr system ui: {url} (read-only; Ctrl-C to stop)");
     if open_browser {
         opener(&url);
     }

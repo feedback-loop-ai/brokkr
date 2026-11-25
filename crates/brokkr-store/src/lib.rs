@@ -73,12 +73,16 @@ mod acknowledgement;
 pub mod aggregate;
 pub mod backup;
 mod chain;
+mod damage;
+mod demand;
 mod event_index;
 mod import;
+mod literal;
 pub mod metered;
 mod opening;
 mod origin;
 mod page;
+mod patience;
 mod queue;
 mod read;
 mod redact;
@@ -95,21 +99,25 @@ mod summary;
 mod terminal;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+mod untouched;
 pub use acknowledgement::Acknowledgement;
 pub use chain::{Chain, Landed, Rows};
+pub use damage::Damage;
+pub use demand::{Unended, UsageEvent, UsageRow};
 pub use event_index::IndexFault;
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
 pub use opening::Opened;
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
     claim_stands, Attribution, Claim, ClaimFacts, Claiming, Cooldown, CooldownAggregate,
-    CooldownDuplicate, CooldownRound, CooldownRoundMismatch, Cooling, EntryId, EntryState,
-    Generation, Latch, NewEntry, NotAWait, ProbeHold, ProbeHoldId, QueueCommand, QueueEntry,
-    QueueRefusal, RoundAppend, RowEnd, Seen, StartRefusal, UnsettledHold, UnwrittenHold,
-    UnwrittenRow, Wait, WaitOn,
+    CooldownDuplicate, CooldownRound, CooldownRoundMismatch, Cooling, Disposal, EntryId,
+    EntryState, Generation, Latch, NewEntry, NotAWait, ProbeHold, ProbeHoldId, QueueCommand,
+    QueueEntry, QueueRefusal, RoundAppend, RowEnd, Seen, StartRefusal, UnsettledHold,
+    UnwrittenHold, UnwrittenRow, Wait, WaitOn,
 };
 pub use redact::{redact_export, Redactor};
 pub use run_read::RunRead;
+pub use run_select::SeatNames;
 pub use schema::DATABASE_SCHEMA;
 pub use seat_read::SeatRead;
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
@@ -119,7 +127,8 @@ pub use summary::Disagreement;
 
 use brokkr_core::summary::Account;
 pub use import::RUN_ID_MAX;
-use schema::{ensure_wal, schema_supported, RECORDED_SCHEMA};
+use patience::patiently;
+use schema::ensure_wal;
 use start::Row;
 
 /// How long any statement waits for a peer's write lock before giving
@@ -165,6 +174,18 @@ pub enum StoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
+    /// A journal its own bytes say is damaged, the one refusal every read
+    /// surface prints (#1000); see [`damage`].
+    #[error(
+        "the journal '{}' is damaged ({damage}); nothing was read from it; restore it from a \
+         backup with `brokkr journal restore` and see the guide's \"A damaged journal\" (#1000)",
+        journal.display().to_string().escape_debug()
+    )]
+    Damaged { journal: PathBuf, damage: Damage },
+    /// A stored envelope that is not JSON, before [`damage`] names the
+    /// journal it is in as [`StoreError::Damaged`].
+    #[error("run '{run_id}' holds an envelope at seq {seq} that is not JSON")]
+    Unparsed { run_id: String, seq: i64 },
     #[error("run '{0}' not found")]
     RunNotFound(String),
     #[error("run '{0}' already exists")]
@@ -374,15 +395,29 @@ impl Store {
     ///   already in WAL, and retried when it is; see [`ensure_wal`].
     /// - The schema check is a *read* in the steady state; see
     ///   [`Store::migrate`] for why writing there starved.
+    ///
+    /// A file its bytes say is damaged refuses as [`StoreError::Damaged`]:
+    /// every error leaving the open passes through [`damage::classified`],
+    /// the catch-up's included, whose backfills read outside [`patiently`]
+    /// and end quietly only on a peer's lock. The WAL read is the first
+    /// (bound by
+    /// `damage::tests::a_file_that_is_no_database_is_refused_by_both_opens`),
+    /// the catch-up's the last (bound by
+    /// `damage::tests::a_corrupt_page_the_catch_up_reads_refuses_the_writable_open`).
     pub fn open(path: &Path) -> Result<Store, StoreError> {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let mut conn = Connection::open(path)?;
+        Store::open_writing(path).map_err(|error| damage::classified(path, error))
+    }
+
+    fn open_writing(path: &Path) -> Result<Store, StoreError> {
+        let bound = literal::journal(path)?;
+        // A bound path has a parent unless it is the root, which exists.
+        let _ = std::fs::create_dir_all(bound.parent().unwrap_or(&bound));
+        let mut conn =
+            Connection::open(&bound).map_err(|error| literal::as_given(error, path, &bound))?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
-        ensure_wal(&conn)?;
+        ensure_wal(&conn, path)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        patiently("migrate", BUSY_TIMEOUT, || Store::migrate(&mut conn))?;
+        patiently("migrate", BUSY_TIMEOUT, path, || Store::migrate(&mut conn))?;
         let mut store = Store::holding(conn, path);
         store.catch_up()?;
         Ok(store)
@@ -413,17 +448,21 @@ impl Store {
     /// `SQLITE_OPEN_READ_ONLY`, so every write refuses at the database
     /// rather than at a reviewer's memory: a read surface that opens
     /// this way is *unable* to append, which is what decision 0020 asks
-    /// of Muninn. No file is created and no migration runs — a missing
-    /// database is an error, never an empty fleet.
+    /// of Muninn. No database is created and no migration runs — a
+    /// missing database is an error, never an empty fleet. Beside a WAL
+    /// journal SQLite still creates its `-wal` and `-shm`, which this
+    /// connection cannot remove; [`Store::read_untouched`] is the read
+    /// that leaves none. A file its bytes say is damaged, a journal
+    /// recording no schema among them, refuses as [`StoreError::Damaged`].
     pub fn open_read_only(path: &Path) -> Result<Store, StoreError> {
-        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        conn.busy_timeout(BUSY_TIMEOUT)?;
-        conn.pragma_update(None, "cache_size", -READER_CACHE_KIB)?;
-        let found: String = patiently("open_read_only", BUSY_TIMEOUT, || {
-            Ok(conn.query_row(RECORDED_SCHEMA, [], |row| row.get(0))?)
-        })?;
-        schema_supported(found.parse().unwrap_or(0))?;
-        Ok(Store::holding(conn, path))
+        Store::open_reading(path).map_err(|error| damage::classified(path, error))
+    }
+
+    fn open_reading(path: &Path) -> Result<Store, StoreError> {
+        let bound = literal::journal(path)?;
+        let conn = Connection::open_with_flags(&bound, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|error| literal::as_given(error, path, &bound))?;
+        Store::reading(conn, path, BUSY_TIMEOUT)
     }
 
     /// A store on `conn`, which opened `path`.
@@ -490,7 +529,9 @@ impl Store {
             origin: origin.as_deref(),
         };
         let conn = &mut self.conn;
-        let listed = patiently("create_run", self.patience, || create_run_once(conn, &row))?;
+        let listed = patiently("create_run", self.patience, &self.path, || {
+            create_run_once(conn, &row)
+        })?;
         // Whoever creates a run holds its fold: the run with no event.
         self.carried = Some(summary::Carried {
             account: Account::empty(run_id),
@@ -533,7 +574,7 @@ impl Store {
         let Some(local) = local else {
             return Ok(false);
         };
-        let origin: Option<String> = patiently("started_here", self.patience, || {
+        let origin: Option<String> = patiently("started_here", self.patience, &self.path, || {
             Ok(self
                 .conn
                 .query_row(
@@ -548,7 +589,7 @@ impl Store {
     }
 
     pub fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
-        let raw: Option<String> = patiently("manifest", self.patience, || {
+        let raw: Option<String> = patiently("manifest", self.patience, &self.path, || {
             Ok(self
                 .conn
                 .query_row(
@@ -563,7 +604,7 @@ impl Store {
     }
 
     pub fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
-        patiently("list_runs", self.patience, || {
+        patiently("list_runs", self.patience, &self.path, || {
             Ok(self
                 .conn
                 .prepare("SELECT run_id, feature, created_at FROM runs ORDER BY created_at")?
@@ -573,7 +614,9 @@ impl Store {
     }
 
     fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {
-        patiently("head", self.patience, || head_of(&self.conn, run_id))
+        patiently("head", self.patience, &self.path, || {
+            head_of(&self.conn, run_id)
+        })
     }
 
     /// Build, seal, and durably append the next event in one transaction.
@@ -661,7 +704,7 @@ impl Store {
         cooldowns: &[Cooling],
     ) -> Result<Landed, StoreError> {
         let (conn, carried) = (&mut self.conn, self.carried.as_ref());
-        let (landed, settled) = patiently("append", self.patience, || {
+        let (landed, settled) = patiently("append", self.patience, &self.path, || {
             chain::append_once((conn, carried), &event, cooldowns, &|_| Ok(()))
         })?;
         self.settle((event.run_id, 1), settled);
@@ -677,7 +720,7 @@ impl Store {
     /// Load and verify the full journal of a run. A journal that fails
     /// chain verification is corrupt and is never partially returned.
     pub fn load(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
-        patiently("load", self.patience, || self.load_once(run_id))
+        patiently("load", self.patience, &self.path, || self.load_once(run_id))
     }
 
     fn load_once(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
@@ -707,77 +750,6 @@ impl Store {
     /// The journal head hash — cheap identity for fencing and anchors.
     pub fn head_hash(&self, run_id: &str) -> Result<(u64, String), StoreError> {
         self.head(run_id)
-    }
-}
-
-fn is_busy(error: &rusqlite::Error) -> bool {
-    matches!(
-        error.sqlite_error_code(),
-        Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
-    )
-}
-
-/// How long [`patiently`] waits between retries. Short enough that the
-/// case it exists for — a `SQLITE_BUSY` returned in microseconds,
-/// without the busy handler ever being asked — does not turn a
-/// millisecond of contention into a visible stall; long enough that
-/// losing a whole patience to a genuinely held lock costs a bounded
-/// number of wakeups rather than a spin.
-const CONTENTION_PAUSE: std::time::Duration = std::time::Duration::from_millis(5);
-
-/// The ONE place a `SQLITE_BUSY` is handled, and the only one. Every
-/// store operation an engine can reach runs inside it; no call site
-/// anywhere else in the workspace retries anything.
-///
-/// The connection's busy handler is the first line and covers almost
-/// everything, but it is not a promise SQLite always keeps. Its own
-/// documentation says so: *"If SQLite determines that invoking the busy
-/// handler could result in a deadlock, it will go ahead and return
-/// SQLITE_BUSY to the application instead of invoking the busy
-/// handler."* The btree layer's retry loop is guarded by
-/// `pBt->inTransaction==TRANS_NONE`, so a write that follows a read
-/// still open on the same connection is refused the handler outright and
-/// comes back busy in **microseconds** — measured here at 12µs against a
-/// peer's held write lock, versus the 30.03s the same contention costs a
-/// connection the handler does cover. That is the shape a bounded
-/// timeout cannot see: the budget was never spent, so nothing waited,
-/// and the caller met `database is locked` with 29.99 seconds of
-/// patience left in its pocket.
-///
-/// So patience is spent to a DEADLINE rather than counted in attempts:
-/// whichever line of defence does the waiting, the total is one
-/// [`Store::set_patience`] budget and never two. A handler that spends
-/// the whole budget lands on the deadline and reports
-/// [`StoreError::Contended`] at once; a busy the handler declined
-/// returns instantly and this loop spends the rest.
-///
-/// What it retries is exactly one thing: a raw `SQLITE_BUSY` /
-/// `SQLITE_LOCKED`. Every other error — including
-/// [`StoreError::HeadMoved`] and [`StoreError::AppendConflict`], which
-/// are refusals and not accidents — returns on the first attempt,
-/// untouched. `attempt` must therefore write nothing outside its own
-/// transaction, which is what makes re-running it the same call rather
-/// than a second one.
-fn patiently<T>(
-    operation: &'static str,
-    patience: std::time::Duration,
-    mut attempt: impl FnMut() -> Result<T, StoreError>,
-) -> Result<T, StoreError> {
-    let started = std::time::Instant::now();
-    let deadline = started + patience;
-    loop {
-        match attempt() {
-            Err(StoreError::Sqlite(error)) if is_busy(&error) => {
-                if std::time::Instant::now() >= deadline {
-                    return Err(StoreError::Contended {
-                        operation,
-                        waited_ms: started.elapsed().as_millis(),
-                    });
-                }
-                std::thread::sleep(CONTENTION_PAUSE);
-            }
-            settled => return settled,
-        }
     }
 }
 

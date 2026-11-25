@@ -358,6 +358,7 @@ fn killed(reason: &str) -> AttemptReport {
         stderr: String::new(),
         accepted: true,
         deadline_killed: true,
+        usage: None,
     }
 }
 
@@ -421,6 +422,7 @@ fn an_attempt_the_seat_or_another_end_ended_is_not_renamed() {
     // failure, read exactly as before.
     let mut finished = DriverRun::Ran(AttemptReport {
         deadline_killed: false,
+        usage: None,
         ..killed("driver exited before accepting the attempt")
     });
     raised.name(&mut finished);
@@ -550,14 +552,20 @@ fn an_unplaced_host_error_is_its_own_words_without_a_source() {
 
 /// The shell every test driver starts with: read the hello, declare the
 /// capabilities, read the start, take its ids as `$eid` and `$aid`, and
-/// accept. What the driver then does is the caller's tail.
-const DRIVER_PRELUDE: &str = r#"read -r hello
+/// accept. What the driver then does is the caller's tail. Each step, and
+/// the exit a kill does not reach, is logged beside the script as
+/// `<script>.log` for the witness (#1110), silently where it cannot be.
+const DRIVER_PRELUDE: &str = r#"say() { { printf '%s %s\n' "$$" "$1" >> "$0.log"; } 2>/dev/null; }
+trap 'say "exit $?"' EXIT
+read -r hello
 printf '%s\n' '{"proto":"forge-driver/v1","msg_id":"c","type":"capabilities","driver":"test","version":"1","supports":[]}'
 read -r start
+say start
 case "$start" in *'"type":"start"'*) ;; *) exit 0 ;; esac
 eid=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
 aid=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
 printf '%s,"type":"accepted","effect_id":"%s","attempt_id":"%s"}\n' '{"proto":"forge-driver/v1","msg_id":"a"' "$eid" "$aid"
+say accepted
 "#;
 
 /// A driver in `dir` named `name`, accepting and then running `tail`.
@@ -590,6 +598,25 @@ fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
     std::fs::create_dir_all(dir.join("work")).unwrap();
     Engine::start(store, compiled, "Feature", Some(dir.join("work"))).unwrap()
 }
+
+/// A seat limit far past any load (#1110): admission and provisioning
+/// spend the attempt's own deadline before its driver starts, so a case
+/// that does not test lateness never gives them a short one.
+const PATIENT: u64 = 60;
+
+/// A shared-local floor that raises [`PATIENT`] without the raised
+/// deadline ending the attempt.
+const PATIENT_FLOOR: u64 = 120;
+
+/// The deadline a case that tests lateness gives its attempt (#1110): the
+/// drivers' `sleep 30` outlives it, but admission and provisioning, which
+/// spend it first, cannot plausibly spend it under load as they could 1 or
+/// 2 seconds.
+const LATE: u64 = 10;
+
+/// The lesser number beside [`LATE`]: the seat's own limit a floor of
+/// `LATE` raises, or the floor below a seat limit of `LATE`.
+const LATE_SEAT: u64 = 5;
 
 /// The one `work` single seat running `script` under `timeout`, its
 /// launched candidate pinned to the shared-local Spark route and its host
@@ -632,25 +659,89 @@ fn attempt(dir: &Path, host: Option<PathBuf>, script: Vec<String>, timeout: u64)
     engine
 }
 
-/// The `field` of the first `event` the attempt journaled.
-fn terminal(engine: &Engine, event: EventType, field: &str) -> String {
-    engine
+/// A terminal's words, and the witness a failed assertion on them prints
+/// (#1110): `Display` and `Debug` show both, so an assertion that shows
+/// the words also says what the journal, each driver and the deadline did.
+struct Words {
+    text: String,
+    seen: String,
+}
+
+impl std::ops::Deref for Words {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.text
+    }
+}
+
+impl std::fmt::Display for Words {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.text, self.seen)
+    }
+}
+
+impl std::fmt::Debug for Words {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}{}", self.text, self.seen)
+    }
+}
+
+impl PartialEq<&str> for Words {
+    fn eq(&self, other: &&str) -> bool {
+        self.text == *other
+    }
+}
+
+/// The deadline the fixture's attempt was given: the seat's own limit,
+/// raised by the highest floor on a route its sites are pinned to (each
+/// fixture here pins every site it launches).
+fn given(engine: &Engine) -> String {
+    let mut selection = Selection::new();
+    for (label, facts) in &engine.bundle.sites {
+        let (Some(site), Some(candidate)) = (label.strip_prefix("work"), facts.chain.first())
+        else {
+            continue;
+        };
+        selection.insert(
+            site.strip_prefix(':').map(str::to_string),
+            candidate.clone(),
+        );
+    }
+    let limit = engine.bundle.seats["work"].limits.timeout_seconds;
+    let host = engine.cooldown.host.as_deref();
+    let read = deadline(host, &engine.bundle.sites, &selection, limit);
+    let why = read
+        .explanation()
+        .unwrap_or_else(|| "the seat's own".into());
+    format!("\n  the attempt's: {}s ({why})", read.seconds())
+}
+
+/// The `field` of the first `event` the attempt journaled, with the
+/// witness (#1110): the shared one, and the deadline the attempt was
+/// given. Where there is no such event, the panic is the witness.
+fn terminal(engine: &Engine, event: EventType, field: &str) -> Words {
+    // `started` seats the work tree at `<dir>/work`, beside the drivers.
+    let dir = engine.repo.parent().unwrap();
+    let seen = format!("{}{}", crate::witness::witness(engine, dir), given(engine));
+    let text = engine
         .store
         .load(&engine.run_id)
         .unwrap()
-        .iter()
+        .into_iter()
         .find(|envelope| envelope.event_type == event)
-        .unwrap_or_else(|| panic!("the attempt journaled no {event:?}"))
+        .unwrap_or_else(|| panic!("the attempt journaled no {}:{seen}", event.as_str()))
         .payload[field]
         .as_str()
         .unwrap()
-        .to_string()
+        .to_string();
+    Words { text, seen }
 }
 
-/// One slow-driver attempt against `floor`, end to end, and the reason
-/// its terminal event carries.
-fn slow_attempt(dir: &Path, floor: Option<u64>) -> String {
-    let mut engine = attempt(dir, Some(host(dir, floor)), silent_driver(dir), 1);
+/// One slow-driver attempt under the seat limit `seat` against `floor`,
+/// end to end, and the reason its terminal event carries.
+fn slow_attempt(dir: &Path, seat: u64, floor: Option<u64>) -> Words {
+    let mut engine = attempt(dir, Some(host(dir, floor)), silent_driver(dir), seat);
     engine.drive().unwrap();
     terminal(&engine, EventType::EffectIndeterminate, "reason")
 }
@@ -658,7 +749,7 @@ fn slow_attempt(dir: &Path, floor: Option<u64>) -> String {
 /// A slow-driver attempt whose provisioning spends `spent` seconds of its
 /// budget (a stand-in, so the test need not broker a real plan), and the
 /// protocol's words for the driver's deadline.
-fn spent_attempt(dir: &Path, timeout: u64, spent: u64) -> String {
+fn spent_attempt(dir: &Path, timeout: u64, spent: u64) -> Words {
     let mut engine = attempt(dir, None, silent_driver(dir), timeout);
     // The start turn enters the phase; the next requests the effect. The
     // turn after that would execute it, so stop at the request.
@@ -697,23 +788,56 @@ fn spent_attempt(dir: &Path, timeout: u64, spent: u64) -> String {
 
 /// One normally failing attempt against the host path `host`, and the
 /// error its terminal event carries.
-fn failed_attempt(dir: &Path, host: PathBuf) -> String {
+fn failed_attempt(dir: &Path, host: PathBuf) -> Words {
     let mut engine = attempt(dir, Some(host), failed_driver(dir), 3600);
     engine.drive().unwrap();
     terminal(&engine, EventType::EffectFailed, "error")
 }
 
+/// A terminal the attempt did not journal names what it journaled instead,
+/// and the deadline it was given (#1110).
+#[test]
+#[should_panic(expected = "effect/failed\n    error: \"driver failed")]
+fn a_missing_terminal_names_what_the_attempt_journaled() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = attempt(dir.path(), None, failed_driver(dir.path()), 3600);
+    engine.drive().unwrap();
+    terminal(&engine, EventType::EffectIndeterminate, "reason");
+}
+
+/// Words the attempt did not end with fail beside the witness: the words,
+/// the driver's own log, and the deadline the attempt was given (#1110).
+#[test]
+fn wrong_words_name_what_the_driver_did_and_its_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = attempt(dir.path(), None, failed_driver(dir.path()), PATIENT);
+    engine.drive().unwrap();
+    let error = terminal(&engine, EventType::EffectFailed, "error");
+    let failed = std::panic::catch_unwind(|| assert_eq!(error, "other words")).unwrap_err();
+    let message = failed.downcast_ref::<String>().unwrap();
+    for line in [
+        "\n  left: \"driver failed; driver stderr: empty\"\njournal:",
+        "\nshims:\n  failed-driver.sh: [\"",
+        " start\", \"",
+        " accepted\", \"",
+        " exit 0\"]\n",
+        "\n  the attempt's: 60s (the seat's own)\n right: \"other words\"",
+    ] {
+        assert!(message.contains(line), "{line:?} is not in:\n{message}");
+    }
+}
+
 #[test]
 fn a_fake_driver_that_outlives_a_raised_deadline_ends_with_both_numbers_and_the_source() {
     let dir = tempfile::tempdir().unwrap();
-    let reason = slow_attempt(dir.path(), Some(2));
-    assert!(reason.contains("the seat's 2-second deadline"), "{reason}");
+    let reason = slow_attempt(dir.path(), LATE_SEAT, Some(LATE));
+    assert!(reason.contains("the seat's 10-second deadline"), "{reason}");
     assert!(
         reason.contains("shared-local floor host.json declares for dsh/spark-glm"),
         "{reason}"
     );
     assert!(
-        reason.contains("the seat's own limit is 1 seconds"),
+        reason.contains("the seat's own limit is 5 seconds"),
         "{reason}"
     );
 }
@@ -722,10 +846,10 @@ fn a_fake_driver_that_outlives_a_raised_deadline_ends_with_both_numbers_and_the_
 fn a_single_seat_with_no_floor_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
     // The same driver, but the host declines to raise: the attempt stops
-    // at the seat's own one second and the protocol's own words stand.
-    let reason = slow_attempt(dir.path(), None);
+    // at the seat's own ten seconds and the protocol's own words stand.
+    let reason = slow_attempt(dir.path(), LATE, None);
     assert!(
-        reason.starts_with("attempt exceeded its 1s deadline and was killed"),
+        reason.starts_with("attempt exceeded its 10s deadline and was killed"),
         "{reason}"
     );
 }
@@ -733,17 +857,17 @@ fn a_single_seat_with_no_floor_keeps_todays_words() {
 #[test]
 fn the_driver_runs_on_what_provisioning_left_of_the_attempts_deadline() {
     let dir = tempfile::tempdir().unwrap();
-    // The six-second attempt began three seconds before its provisioning,
-    // so the driver gets about three seconds, not six. Truncation makes
+    // The twenty-second attempt began ten seconds before its provisioning,
+    // so the driver gets about ten seconds, not twenty. Truncation makes
     // the exact second vary; what binds is that the FULL bound is not
     // handed to the driver again.
-    let reason = spent_attempt(dir.path(), 6, 3);
+    let reason = spent_attempt(dir.path(), 2 * LATE, LATE);
     assert!(
         reason.contains("deadline and was killed"),
         "the driver outlived its remaining budget: {reason}"
     );
     assert!(
-        !reason.contains("its 6s deadline"),
+        !reason.contains("its 20s deadline"),
         "the driver was handed the whole attempt bound, not what provisioning left: {reason}"
     );
 }

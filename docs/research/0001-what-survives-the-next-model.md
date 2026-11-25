@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.00468
 Authors: Salsabil, Saha, Dristi, Phair, Mozumder, Dwyer, Elbaum (University of Virginia)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: chat session, operator-fed, 2026-09-04
 
 ## Summary
@@ -53,6 +53,52 @@ replicated.
 | 3 | Evaluate under a fixed budget and record the coverage that budget bought as a first-class field | alternative | decision 0034 and decision 0035: per-seat attempts, deadlines, cost and reasoning tokens are recorded in the seat record; no coverage field |
 | 4 | Treat a frontier model release as an event that re-runs every baseline and retires scaffolding that lost its margin | alternative | decision 0031: the served model is recorded per seat; `crates/brokkr-runtime/tests/witness_digests.rs` moves when a hire changes; no re-baselining |
 | 5 | Keep an evaluator per technique with a cross-review checklist (dataset, question alignment, metric match, example validity, evaluator correctness) | not-planned | |
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** For "while knowledge-grounding pipelines hold 7 of 8."
+  read "while knowledge-grounding pipelines lose only 1 of 8 (4 better
+  than the prompt, 3 mixed)." (ruled: "approve all the fact and wording
+  fixes")
+- **Summary.** For "The white-box prompt cost about 80 percent" read
+  "The white-box prompt itself averaged about 80 percent"; after "the
+  black-box one" add "(about $7.5 against $6.5 per paper in total
+  spend)". (ruled: "approve all the fact and wording fixes")
+- **Summary.** For "sequence is a signed table the engine" read
+  "sequence is a digest-pinned table the engine". (ruled: "approve all
+  the fact and wording fixes")
+- **Row 1** keeps `declined`. Finding: After "to beat it" add "(a gate
+  drawn from the paper's method; the paper itself recommends no such
+  gate)". Citation: For "table the engine evaluates, not a plan" read
+  "table the engine evaluates (`evaluate()` over an ordered
+  first-match-wins rule list), not a plan"; after "asked to keep;" add
+  "the operator's reading (2026-09-04) is that"; for "execution is not
+  guaranteed" read "execution is not guaranteed; #436 and #439 plan a
+  simpler-baseline comparison as qualification, not as a landing gate".
+  (ruled: "approve all the fact and wording fixes")
+- **Row 2** keeps `declined`. Citation: For "decision 0002: the method
+  here" read "decision 0002 and decision 0017: the method here"; for
+  "here is the signed table, and its value" read "here is the
+  digest-pinned table
+  (`crates/brokkr-runtime/tests/witness_digests.rs`), and its value".
+  (ruled: "approve all the fact and wording fixes")
+- **Row 3** keeps `alternative`. Citation: Before "decision 0034 and"
+  add "decision 0006: per-seat attempts and deadlines are bundle limits
+  (`seats.<phase>.limits`, e.g. `recipes/fast/bundle.json`), pinned in
+  the run manifest;"; for "and decision 0035: per-seat attempts,
+  deadlines, cost and reasoning tokens" read "and decision 0035: cost,
+  effort and reasoning tokens"; for "in the seat record; no coverage
+  field" read "in the seat record
+  (`contracts/seat-record.v8.schema.json`); no coverage field". (ruled:
+  "approve all the fact and wording fixes")
+- **Row 4** keeps `alternative`. Finding: After "lost its margin" add
+  "(a practice drawn from the paper's question, not its
+  recommendation)". Citation: For "hire changes; no re-baselining" read
+  "hire changes; no re-baselining; #439 would re-run qualification on
+  provider and tool upgrades, with no retirement of scaffolding".
+  (ruled: "approve all the fact and wording fixes")
 
 ## Candidates
 

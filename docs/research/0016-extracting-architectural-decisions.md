@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.03721
 Authors: Amey Karan, Rudra Dhar, Karthik Vaidhyanathan (International Institute of Information Technology Hyderabad); Mohamed Soliman (Paderborn University)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: research sweep, run weekly-research-sweep-registry-d-2012cc4d, 2026-09-04
 
 ## Summary
@@ -46,6 +46,34 @@ current dialect still invokes the framework's archive command without
 that added provenance mechanism. The decision index's accepted status
 records a ruling, not implementation. No extraction scorer or dedicated
 few-shot extraction workflow has been added.
+
+## Correction — 2026-11-24
+
+Against main at `56e4a2102`, before the operator's ruling. Decision
+0042's source-change links landed with
+[#247](https://github.com/feedback-loop-ai/brokkr/pull/247) on
+2026-09-09, which closed
+[#231](https://github.com/feedback-loop-ai/brokkr/issues/231). Three
+clauses above are therefore out of date: row 1's "still-unimplemented
+requirement of decision 0042", the reconciliation's "#231 remains open",
+and the candidates' "#231 already tracks". Row 1 stays `implemented`,
+because it rests on the decision record, not on the links. No class
+changes.
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** After "generated decisions are" add "often". (ruled:
+  "approve all the fact and wording fixes")
+- **Row 2** keeps `implemented`. Finding: After "Model-generated
+  decision summaries" add "often". Citation: For "decision 0044 and
+  `docs/decisions/README.md`: research classification and decision
+  acceptance belong to the operator; grammar tests check" read
+  "`docs/decisions/README.md` (only the operator accepts a decision) and
+  decision 0044 (research classification is the operator's; its status
+  is still proposed); grammar tests check". (ruled: "approve all the
+  fact and wording fixes")
 
 ## Candidates
 

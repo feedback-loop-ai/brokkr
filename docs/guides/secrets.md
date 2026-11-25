@@ -6,27 +6,27 @@ upstream of it — resolves that to the environment reference `$NAME`, and
 hands the value, read from an operator-side store that lives outside
 version control, to the child through its environment alone.
 
-`secrets set` reads the value from STDIN, never argv, and creates the
+`system secrets set` reads the value from STDIN, never argv, and creates the
 store 0600:
 
 ```
-$ brokkr secrets set GITHUB_TOKEN
+$ brokkr system secrets set GITHUB_TOKEN
 set GITHUB_TOKEN in /home/you/my-app/.brokkr/state/secrets.env
 ```
 
-`secrets list` prints the bound names, one per line: there is no
+`system secrets list` prints the bound names, one per line: there is no
 value-printing verb.
 
 ```
-$ brokkr secrets list
+$ brokkr system secrets list
 GITHUB_TOKEN
 ```
 
-`secrets remove` takes the name off the store and says where it
+`system secrets remove` takes the name off the store and says where it
 removed it from:
 
 ```
-$ brokkr secrets remove GITHUB_TOKEN
+$ brokkr system secrets remove GITHUB_TOKEN
 removed GITHUB_TOKEN from /home/you/my-app/.brokkr/state/secrets.env
 ```
 
@@ -63,8 +63,11 @@ exports reaches the harness undeclared and is not masked. The
 [security model](../security-model.md) states the whole flow.
 
 Whatever the child writes back is masked to `[secret:NAME]` before it
-reaches the journal: its stderr on raw bytes before the string ever
-exists; a harness's stream and transcript on each decoded event, before
+reaches the journal or the engine's log: its stderr on raw bytes before
+the string ever exists, which the journal never holds a byte of, naming
+it by length, first-byte class and a SHA-256 prefix alone (decision
+0012's addendum of 2026-11-20), while its masked tail goes to the
+engine's own stderr; a harness's stream and transcript on each decoded event, before
 any fold clamps a field to a length or rewrites a refusal into one line;
 and the result file after it is parsed, so a value JSON escaped on the
 way out is still found. A wholly numeric secret that a structured field
@@ -77,7 +80,7 @@ A harness's own session file is not one of those surfaces. A claude,
 codex or dsh harness writes its own transcript, and a value the model
 echoed is plaintext there; Brokkr does not rewrite that file, because it
 is the harness's resume record. The surfaces that read it instead —
-`brokkr transcript`, the TUI's transcript pane and the browser's session
+`brokkr runs transcript`, the TUI's transcript pane and the browser's session
 view — mask each block to `[secret:NAME]` before printing it, against
 every value held by the store beside the journal they read
 (`.brokkr/state/secrets.env` next to `.brokkr/state/forge.db`, or a
@@ -124,9 +127,9 @@ Codex launch whose store lies inside its root is refused (U8i,
 
 What that still leaves exposed, as U8h records:
 
-- a store that `brokkr secrets set` or `rm` renames over during one
+- a store that `brokkr system secrets set` or `rm` renames over during one
   running box is visible to that one call, and so are the sibling
-  `.secrets.env.*` files `secrets set` stages beside it during the
+  `.secrets.env.*` files `system secrets set` stages beside it during the
   update; every later box hides the store again;
 - a symbolic link on the configured store spelling that lies in
   writable reach, off the canonical place, is not pinned: a boxed call
@@ -141,7 +144,7 @@ The broker reads the dialect's declared secrets from the store, so a
 store the seat's hands can reach is refused before any lookup with "MCP
 secret store is reachable by workspace hands", and the default store
 inside the worktree is such a store (U9b1b's F2). Keep that run's store
-outside the worktree, and name it to both verbs: `brokkr secrets set
+outside the worktree, and name it to both verbs: `brokkr system secrets set
 --secrets-file ~/.config/brokkr/my-app.secrets.env DOCS_TOKEN`, with
 the value on stdin, writes it `0600`, and `brokkr run --secrets-file
 ~/.config/brokkr/my-app.secrets.env --feature …` reads it.

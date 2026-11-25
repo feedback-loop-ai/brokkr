@@ -11,16 +11,16 @@ shows. A command that reads the workspace adopts the map in
 that note is part of it.
 
 ```
-$ brokkr anchor --run latest
+$ brokkr journal anchor --run latest
 note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
 anchored prefix-selectors-for-the-read-su-… at …
 ```
 
-`anchor` records the journal head in `refs/forge/<run>`; `--check`
+`journal anchor` records the journal head in `refs/forge/<run>`; `--check`
 re-reads the journal and that ref, and reports the tamper evidence:
 
 ```
-$ brokkr anchor --run latest --check
+$ brokkr journal anchor --run latest --check
 {
   "anchor": "forge.journal-anchor/v3",
   "base": "…",
@@ -35,35 +35,35 @@ $ brokkr anchor --run latest --check
 }
 ```
 
-`export` writes the canonical NDJSON and its pinned manifest beside it.
+`journal export` writes the canonical NDJSON and its pinned manifest beside it.
 With `--redact` it also writes a marked publishable derivative,
 `<run>.redacted.ndjson`: paths and usernames become stable placeholders,
 hashes verify only on the verbatim pair, and the derivative's manifest
 says so.
 
 ```
-$ brokkr export --run latest --out ./out --redact
+$ brokkr journal export --run latest --out ./out --redact
 note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
 exported ./out/prefix-selectors-for-the-read-su-….ndjson
 exported ./out/prefix-selectors-for-the-read-su-….redacted.ndjson (redacted)
 ```
 
 ```
-$ brokkr export --run latest --out ./out
+$ brokkr journal export --run latest --out ./out
 note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
 exported ./out/prefix-selectors-for-the-read-su-….ndjson
 ```
 
-Each file is named after the run's full id, as `export` printed it. In
+Each file is named after the run's full id, as `journal export` printed it. In
 the commands below, `<run>` stands for that id: write your run's id in
 its place.
 
-`verify-run` reads the file `export` wrote and verifies the chain, the
-envelopes and the fold, offline. `replay` rebuilds the run twice and
+`journal verify` reads the file `journal export` wrote and verifies the chain, the
+envelopes and the fold, offline. `runs replay` rebuilds the run twice and
 compares:
 
 ```
-$ brokkr verify-run ./out/<run>.ndjson
+$ brokkr journal verify ./out/<run>.ndjson
 {
   "chain": "verified",
 …
@@ -71,7 +71,7 @@ $ brokkr verify-run ./out/<run>.ndjson
 ```
 
 ```
-$ brokkr replay --run latest
+$ brokkr runs replay --run latest
 {
   "chain": "verified",
   "events": 51,
@@ -80,11 +80,11 @@ $ brokkr replay --run latest
 }
 ```
 
-`import` adopts that export into another journal, `--db` naming the
+`journal import` adopts that export into another journal, `--db` naming the
 destination; the store makes its directory:
 
 ```
-$ brokkr import --from ./out/<run>.ndjson --db ./canonical/forge.db
+$ brokkr journal import --from ./out/<run>.ndjson --db ./canonical/forge.db
 {
   "adopted": "byte-identical",
   "chain": "verified",
@@ -100,7 +100,7 @@ The anchor commit's tree carries `<run>.ndjson`; publishing it as
 `refs/heads/brokkr-runs/<run>` gives pull-request CI a canonical export
 to verify offline and a `repo_head` to compare with the proposed head.
 
-`import` is the verb paired with `export`: **journals never merge, but
+`journal import` is the verb paired with `journal export`: **journals never merge, but
 one run can relocate.** Nothing lands until the whole chain re-verifies
 and the events fold — one broken link refuses the entire import, never a
 good prefix of it — and a run_id that already exists in the destination
@@ -115,10 +115,10 @@ the run_id itself must be one this journal would have minted — ASCII
 letters, digits, `-` and `_`: event hashes are unkeyed, so a verified
 chain proves its bytes were not altered and never that whoever sealed
 them was entitled to the name, and the name goes on to be a path
-component the next `export` writes.
+component the next `journal export` writes.
 
 The adopted events keep their exact bytes, hashes, seqs and `recorded_at`,
-so `brokkr runs`, `brokkr tui` and `brokkr inspect` render the run
+so `brokkr runs`, `brokkr tui` and `brokkr runs inspect` render the run
 indistinguishably from one driven there natively. Where it arrived from
 and when is store bookkeeping *beside* the chain — two columns on the
 `runs` table, invisible to `fold` — so `state = fold(events)` holds
@@ -129,11 +129,11 @@ A journal cites git SHAs — the head it reviewed, the head it shipped —
 and squash-merge, branch delete and `git gc` would collect them. Every
 run plants **keep-refs** at conclusion: `refs/forge/keep/<run>/<sha>`,
 one per cited object, so the exhibits outlive the branch that carried
-them ([decision 0028](../decisions/0028-keep-refs.md)). `keep-refs list`
+them ([decision 0028](../decisions/0028-keep-refs.md)). `journal keep-refs list`
 shows which runs hold which exhibits:
 
 ```
-$ brokkr keep-refs list
+$ brokkr journal keep-refs list
 {
   "keep": {
     "prefix-selectors-for-the-read-su-…": [
@@ -143,18 +143,18 @@ $ brokkr keep-refs list
 }
 ```
 
-`keep-refs plant` is idempotent, for runs that predate the mechanism:
+`journal keep-refs plant` is idempotent, for runs that predate the mechanism:
 
 ```
-$ brokkr keep-refs plant --run latest
+$ brokkr journal keep-refs plant --run latest
 note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
 kept 1 exhibit(s) for prefix-selectors-for-the-read-su-… in refs/forge/keep/prefix-selectors-for-the-read-su-…/
 ```
 
-`keep-refs delete` removes them — the operator's call alone:
+`journal keep-refs delete` removes them — the operator's call alone:
 
 ```
-$ brokkr keep-refs delete --run latest
+$ brokkr journal keep-refs delete --run latest
 note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
 released 1 exhibit(s) for prefix-selectors-for-the-read-su-…
 ```
@@ -173,7 +173,7 @@ both raw observations, `head_at_start` and `head_at_end`, and the effect
 ends `indeterminate`: what a gate did after it wrote is exactly what the
 engine will not guess at.
 
-`brokkr costs --run <id>` reports per-seat attempts, turns and USD — the
+`brokkr stats costs --run <id>` reports per-seat attempts, turns and USD — the
 LaneTally join surface, computed from journal checkpoints with stable
 seat ids.
 
@@ -253,9 +253,9 @@ The data carries the plain word; the screen carries the adjective. A
 run in which any gate-class site stood under `harness` or `open` is
 rendered **unboxed** wherever the run is summarised: the run header
 prints the word and the adjective together (`harness · unboxed`), the
-seats table of `brokkr inspect` and the `brokkr seats` verb show a
+seats table of `brokkr runs inspect` and the `brokkr runs seats` verb show a
 `boundary` column beside `model`, the TUI, the web console and
-`costs`/`compare` show the boundary beside the model, and the delivery
+`stats costs`/`runs compare` show the boundary beside the model, and the delivery
 gate's check summary on the pull request (decision 0038) appends
 ` · unboxed`. What *unboxed* states is exactly what the record can
 prove: nothing of Brokkr's stood there. It makes no claim about the
@@ -280,3 +280,35 @@ compilation, producer-bridge conformance, and a checksum-verified platform
 matrix. Release archives and `SHA256SUMS` carry GitHub Sigstore build-provenance
 attestations; verify an asset with
 `gh attestation verify <asset> -R feedback-loop-ai/brokkr`.
+
+## A damaged journal
+
+A journal's own bytes can say it is damaged: SQLite reads a page as
+corrupt or the file as no database, the `meta` table records no schema,
+or a stored envelope is not JSON. Either open, and a read of a run, its
+events or the fleet listing, refuses where it meets the damage, in one
+sentence, the same on every surface. It names the file and, for
+an envelope, the run and the row's seq:
+
+`` error: the journal '<path>' is damaged (<cause>); nothing was read from it; restore it from a backup with `brokkr journal restore` and see the guide's "A damaged journal" (#1000) ``
+
+Brokkr reports damage and never repairs it (decision 0001). A run whose
+rows still read and whose chain verifies is still inspected and
+exported, because its chain is the proof. A fleet listing quarantines a
+run whose envelope is damaged, with the same sentence, and lists the
+runs beside it; a many-hearth listing refuses a damaged hearth and lists
+the others.
+
+The way back is a backup. `brokkr journal backup --to <dir>` takes one
+consistent snapshot with its inventory. `brokkr journal restore --from <dir>
+--to <journal>` places it at a new path, which must not exist, only once
+the inventory, the snapshot's digest, SQLite's integrity, every chain
+and the counts pass. Take backups before you need them.
+
+SQLite's own `.recover` can salvage a copy of a damaged file, but
+passing SQLite's `integrity_check` does not make it whole: one recovered
+copy in #1000 lost two of its twenty runs and held an envelope that is
+not JSON. Before you point Brokkr at a recovered copy, check that every
+run in it passes `brokkr journal export` and `brokkr journal verify`, which verify
+its chain and not only SQLite's pages. Brokkr does not make that check
+for you yet: a supported recovery verb is a later slice of #1000.

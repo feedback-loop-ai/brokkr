@@ -1,4 +1,4 @@
-//! `brokkr sweep` (decision 0104 ruling 9, as R3 amends it): one pass
+//! `brokkr queue sweep` (decision 0104 ruling 9, as R3 amends it): one pass
 //! under the journal's dispatch lock, or a dry run that opens the journal
 //! read-only, takes no hold and writes nothing. The verdicts and their
 //! lines are brokkr-runtime's; this handler resolves the journal, takes
@@ -29,7 +29,7 @@ pub(crate) fn sweep(
         }
         false => {
             let mut store = open_journal(&db, Access::Append)?;
-            let held = match brokkr_runtime::take_dispatch(&mut store)? {
+            let held = match brokkr_runtime::dispatch::take_dispatch(&mut store)? {
                 Ok(held) => held,
                 Err(refused) => return Err(anyhow!(refused)),
             };

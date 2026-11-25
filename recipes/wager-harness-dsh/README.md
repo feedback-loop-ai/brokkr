@@ -34,7 +34,7 @@ results, class, the phase table, and every gate are `fast`'s, inherited.
   commission, judged by the same gates on the incumbent.
 - **Metering.** The dsh seat reports no usage to the driver, and this
   arm's model calls go to the host's own `spark-glm` server, a `local`
-  route, so no provider bills them and neither `brokkr costs` nor
+  route, so no provider bills them and neither `brokkr stats costs` nor
   LaneTally prices them. The incumbent's spend is journaled per seat as
   usual. An asymmetry of evidence, recorded here before the run.
 - **Key.** The route names `SPARK_API_KEY`. Its server checks no key,
@@ -44,15 +44,16 @@ results, class, the phase table, and every gate are `fast`'s, inherited.
 
 **Host requirement: the `spark-glm` route.** This arm runs only where
 the host's dsh profile serves that route; no CI runner does. Anywhere
-else the implement attempt fails at launch, and its journaled failure
-names the route: the dsh driver ends a failed seat's stderr tail with
+else the implement attempt fails at launch, and the engine's log names
+the route: the dsh driver ends a failed seat's stderr tail, which the
+engine prints under the attempt id and never journals, with
 `dsh driver: dsh exited <code> with the pinned model
 spark-glm/GLM-5.3-Flash-EXL3 on route spark-glm`. How dsh's own refusal
 is worded there has not been measured.
 
 Run as the harness README says: `brokkr run --recipe brokkr-fast` for the
-incumbent, `brokkr rerun --run <id> --recipe wager-harness-dsh` for
-this arm, `brokkr compare` for the trails, then judge the artifacts.
+incumbent, `brokkr runs rerun --run <id> --recipe wager-harness-dsh` for
+this arm, `brokkr runs compare` for the trails, then judge the artifacts.
 
 The harness inherits `fast`'s verifier and shipper by construction, boxed
 only where the realm's boundary is `namespace`.

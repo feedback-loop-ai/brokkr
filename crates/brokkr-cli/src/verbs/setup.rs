@@ -1,7 +1,8 @@
 //! The verbs that prepare the workspace, its libraries and its drivers:
-//! `init`, `doctor`, `compile`, `recipes`, `agents`, `muninn`, `secrets`,
-//! `driver` and the hidden `fake-driver`.
+//! `init`, `doctor`, `library compile`, `library recipes`, `library agents`,
+//! `runs muninn`, `system secrets`, `driver` and the hidden `fake-driver`.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -19,6 +20,31 @@ use crate::{agents, doctor, init, muninn, recipes};
 use crate::{compiled_view, driver_payload, now_rfc3339};
 use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCmd};
 
+pub(crate) mod host;
+
+#[derive(clap::Subcommand)]
+pub(crate) enum ConfigurationCmd {
+    /// Manage the operator-side secrets store: bundles
+    /// and journals carry NAMES only; values live in this env-format
+    /// file outside version control. There is no value-printing verb.
+    Secrets {
+        #[command(subcommand)]
+        command: SecretsCmd,
+    },
+    /// Manage the machine's host configuration.
+    Host {
+        #[command(subcommand)]
+        command: host::HostCmd,
+    },
+}
+
+pub(crate) fn configuration(workspace: &Path, command: ConfigurationCmd) -> Result<ExitCode> {
+    match command {
+        ConfigurationCmd::Secrets { command } => secrets(workspace, command),
+        ConfigurationCmd::Host { command } => host::run(command),
+    }
+}
+
 /// `brokkr init`: write the `.brokkr/` folder at the repository root
 /// `dir`, read for its own manifests so the implement and verify seats
 /// are told commands that would actually run there (decision 0083 ruling
@@ -28,7 +54,7 @@ pub(crate) fn init(InitArgs { dir, cli }: InitArgs) -> Result<ExitCode> {
     let root = crate::folder::admit::root(&dir)?;
     let home = std::env::var_os("HOME").unwrap_or_default();
     let os = std::env::consts::OS;
-    let scaffold = init::init(&root, &path, os, Path::new(&home), cli)?;
+    let scaffold = scaffold_with_host(&root, &path, os, &home, cli)?;
     let folder = root.join(FOLDER);
     eprintln!(
         "initialized {} (digest {}), writing:",
@@ -73,6 +99,44 @@ pub(crate) fn init(InitArgs { dir, cli }: InitArgs) -> Result<ExitCode> {
     Ok(Exit::Completed.into())
 }
 
+fn scaffold_with_host(
+    root: &Path,
+    path: &OsStr,
+    os: &str,
+    home: &OsStr,
+    cli: Option<init::Cli>,
+) -> Result<init::Scaffold> {
+    let mut scaffold = init::init(root, path, os, Path::new(home), cli)?;
+    let host_file = brokkr_runtime::admission::host_file(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        Some(home.to_owned()),
+    );
+    let bundle = &scaffold.bundle;
+    let notes = seeded(host_file, |file| host::seed(file, bundle));
+    scaffold.notes.extend(notes);
+    Ok(scaffold)
+}
+
+/// Ask E's host file, seeded after the folder is written. Seeding never
+/// refuses `init`: a host file that cannot be placed or written is a note
+/// saying why, beside the folder `init` already made (1193c's review,
+/// finding 3).
+fn seeded(
+    file: Result<std::path::PathBuf, brokkr_runtime::admission::HostError>,
+    seed: impl FnOnce(&Path) -> Result<Vec<String>>,
+) -> Vec<String> {
+    match file
+        .map_err(anyhow::Error::from)
+        .and_then(|file| seed(&file))
+    {
+        Ok(notes) => notes,
+        Err(error) => vec![format!(
+            "No host file was seeded: {error:#}. The .brokkr folder is written; \
+             declare a host file by hand (contracts/host.v5.schema.json)."
+        )],
+    }
+}
+
 /// `brokkr doctor`: tools, drivers, the database and optionally a bundle.
 pub(crate) fn doctor(
     DoctorArgs {
@@ -97,13 +161,13 @@ pub(crate) fn doctor(
     })
 }
 
-/// `brokkr compile`: validate a bundle and print its pinned manifest,
+/// `brokkr library compile`: validate a bundle and print its pinned manifest,
 /// and decision 0050's sweep of its table on stderr.
 pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> Result<ExitCode> {
     print_compiled(workspace, (&bundle, None))
 }
 
-/// What `compile` and `recipes show` both print: the bundle at `leaf`'s
+/// What `library compile` and `library recipes show` both print: the bundle at `leaf`'s
 /// directory compiled on the one path a run starts on, in the workspace's
 /// realm and across `leaf`'s project shelf, the one `--dir` selected, if
 /// any ([`launch::compile_on`]), so the two cannot drift apart (#350,
@@ -130,7 +194,7 @@ fn print_compiled(workspace: &Path, leaf: (&Path, Option<&Path>)) -> Result<Exit
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr recipes`: list, add or show a recipe.
+/// `brokkr library recipes`: list, add or show a recipe.
 pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode> {
     let layout = Layout::discover(workspace)?;
     layout.refuse_old()?;
@@ -145,17 +209,7 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
             name,
             path,
             personal,
-        } => {
-            let (root, shelf) = layout.install_shelf();
-            let path = path.as_deref();
-            match personal {
-                true => {
-                    let project = layout.recipes(None);
-                    recipes::personal::add(&root, &project, &source, &name, path)?
-                }
-                false => recipes::add(&root, &shelf, Project, &source, &name, path)?,
-            }
-        }
+        } => add_recipe(&layout, (&source, &name, path.as_deref()), personal)?,
         RecipesCmd::Show { name, dir } => {
             let (project, shelf) = layout.selecting(dir);
             let recipe = BundleSource::Recipe {
@@ -164,11 +218,33 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
             };
             return print_compiled(workspace, (&recipe.resolve()?, shelf.as_deref()));
         }
+        RecipesCmd::Usage {
+            name,
+            journal,
+            json,
+        } => recipes::verb::usage(workspace, name, journal, json)?,
     }
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr agents`: list the agent library or show one definition.
+/// `brokkr library recipes add`: install `source` as `name`, from `path` inside a
+/// clone, onto the repository's shelf, or onto the personal one.
+fn add_recipe(
+    layout: &Layout,
+    (source, name, path): (&str, &str, Option<&str>),
+    personal: bool,
+) -> Result<()> {
+    let (root, shelf) = layout.install_shelf();
+    match personal {
+        true => {
+            let project = layout.recipes(None);
+            recipes::personal::add(&root, &project, source, name, path)
+        }
+        false => recipes::add(&root, &shelf, Project, source, name, path),
+    }
+}
+
+/// `brokkr library agents`: list the agent library or show one definition.
 pub(crate) fn agents(workspace: &Path, command: AgentsCmd) -> Result<ExitCode> {
     // Semantic lint reads the OPERATOR's capability definitions
     // (decision 0065; design D2): beside the active map, else in
@@ -193,7 +269,7 @@ pub(crate) fn agents(workspace: &Path, command: AgentsCmd) -> Result<ExitCode> {
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr muninn`: read the fleet and record proposals, or list them.
+/// `brokkr runs muninn`: read the fleet and record proposals, or list them.
 pub(crate) fn muninn(workspace: &Path, command: MuninnCmd) -> Result<ExitCode> {
     match command {
         MuninnCmd::Run {
@@ -205,7 +281,7 @@ pub(crate) fn muninn(workspace: &Path, command: MuninnCmd) -> Result<ExitCode> {
         } => {
             // `world_and_hearths`, not `hearths_of`: the raven reports
             // a moved crossing as a finding, so it reads the world
-            // with `inspect` and keeps the resolved map beside the
+            // with `runs inspect` and keeps the resolved map beside the
             // journals it names (decision 0057).
             let escape = db.is_some();
             let (world, hearths) = world_and_hearths(workspace, realms, db)?;
@@ -234,7 +310,7 @@ fn record_of(layout: &Layout, escape: bool, flag: Option<PathBuf>) -> Result<Pat
     Ok(flag.map_or_else(place, Ok)?)
 }
 
-/// `brokkr secrets`: set, list or remove a name in the secrets store,
+/// `brokkr system secrets`: set, list or remove a name in the secrets store,
 /// the flag's, else the run-local state's (decision 0083).
 pub(crate) fn secrets(workspace: &Path, command: SecretsCmd) -> Result<ExitCode> {
     use brokkr_protocol::secret;
@@ -281,7 +357,9 @@ pub(crate) fn secrets(workspace: &Path, command: SecretsCmd) -> Result<ExitCode>
 /// `brokkr driver`: serve a built-in forge-driver/v1 adapter.
 pub(crate) fn driver(DriverArgs { kind, args }: DriverArgs) -> Result<ExitCode> {
     let kind = brokkr_protocol::adapters::AdapterKind::parse(&kind).ok_or_else(|| {
-        anyhow::anyhow!("unknown driver '{kind}'; known: claude, lanetally, codex, dsh, exec")
+        anyhow::anyhow!(
+            "unknown driver '{kind}'; known: claude, lanetally, codex, dsh, qoder, agy, exec"
+        )
     })?;
     let extra = driver_payload(kind, args);
     brokkr_protocol::adapters::serve(kind, extra, confine)?;
@@ -317,3 +395,6 @@ pub(crate) fn fake_driver(
     brokkr_protocol::fake::run_fake_driver(&script, &state, model.as_deref(), effort.as_deref())?;
     Ok(Exit::Completed.into())
 }
+
+#[cfg(test)]
+mod tests;

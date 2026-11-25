@@ -140,9 +140,10 @@ struct Init {
     /// Inert: an output style, which reaches nothing.
     #[serde(rename = "output_style")]
     _output_style: Given<String>,
-    /// Inert: where memory is kept.
+    /// Inert: where memory is kept, one path or, from 2.1.326, one per
+    /// scope; a path reaches nothing.
     #[serde(rename = "memory_paths")]
-    _memory_paths: Given<String>,
+    _memory_paths: Given<MemoryPaths>,
     /// Inert: the SDK's socket.
     #[serde(rename = "messaging_socket_path")]
     _messaging_socket_path: Given<String>,
@@ -183,6 +184,46 @@ struct Init {
     /// Inert: a preference.
     #[serde(rename = "view_mode")]
     _view_mode: Given<String>,
+    /// Inert: the directory the CLI started in, which the scratch
+    /// repository is.
+    #[serde(rename = "original_cwd")]
+    _original_cwd: Given<String>,
+    /// Inert: directories the turn may also work in, which list no tool
+    /// and reach no server.
+    #[serde(rename = "additional_directories")]
+    _additional_directories: Given<Vec<String>>,
+    /// Inert: a preference, like the one after it.
+    #[serde(rename = "ultrathink_available")]
+    _ultrathink_available: Given<bool>,
+    #[serde(rename = "ultrathink_typed_raises")]
+    _ultrathink_typed_raises: Given<bool>,
+}
+
+/// The memory scopes 2.1.326 names a path for; any other is not one the
+/// reader names.
+const MEMORY_SCOPES: [&str; 1] = ["auto"];
+
+/// Where memory is kept: a path, or, from 2.1.326, a path per scope.
+/// Inert, so only its shape is read: any other value is not one the
+/// reader names.
+struct MemoryPaths;
+
+impl<'de> Deserialize<'de> for MemoryPaths {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<MemoryPaths, D::Error> {
+        let paths = match Value::deserialize(deserializer)? {
+            Value::String(_) => true,
+            Value::Object(scopes) => scopes
+                .iter()
+                .all(|(scope, path)| MEMORY_SCOPES.contains(&scope.as_str()) && path.is_string()),
+            _ => false,
+        };
+        match paths {
+            true => Ok(MemoryPaths),
+            false => Err(serde::de::Error::custom(
+                "not a path or a path per known scope",
+            )),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -272,10 +313,15 @@ struct Quota {
     _resets_at: u64,
     #[serde(rename = "rateLimitType")]
     _kind: String,
-    #[serde(rename = "utilization")]
-    _utilization: f64,
+    /// Absent from 2.1.326, which gives it per window.
+    #[serde(default, rename = "utilization")]
+    _utilization: Given<f64>,
     #[serde(rename = "isUsingOverage")]
     _overage: bool,
+    #[serde(default, rename = "overageStatus")]
+    _overage_status: Given<String>,
+    #[serde(default, rename = "overageDisabledReason")]
+    _overage_disabled: Given<String>,
     #[serde(default, rename = "surpassedThreshold")]
     _threshold: Given<f64>,
     #[serde(default, rename = "unifiedWindows")]
@@ -298,6 +344,8 @@ struct Window {
     _utilization: f64,
     #[serde(rename = "resetsAt")]
     _resets_at: u64,
+    #[serde(default, rename = "status")]
+    _status: Given<String>,
 }
 
 #[derive(Deserialize)]
@@ -323,6 +371,9 @@ struct Finished {
     /// Each model's share of the turn: its searches are a tool run.
     #[serde(rename = "modelUsage")]
     model_usage: Given<BTreeMap<String, ModelUsage>>,
+    /// The same share since the previous result, from 2.1.326: its
+    /// searches are a tool run as well.
+    model_usage_since_last_result: Given<BTreeMap<String, ModelUsage>>,
     /// Why the turn ended: a tool use is a tool run.
     stop_reason: Given<Ending>,
     /// How the turn ended: an API error is a failure.
@@ -363,6 +414,11 @@ struct Finished {
     _queued_turn_count: Given<u64>,
     #[serde(rename = "result_index")]
     _result_index: Given<u64>,
+    #[serde(rename = "safety_stops")]
+    _safety_stops: Given<u64>,
+    /// Inert: when the bound credential expires.
+    #[serde(rename = "credential_expires_at")]
+    _credential_expires_at: Given<String>,
 }
 
 /// How a turn ended.
@@ -567,6 +623,8 @@ fn outcome_said(outcome: Outcome) -> Result<Decoded, Fault> {
     said.extend(stopped(outcome.stop_reason.0.as_ref(), IN_RESULT.stop));
     let models = outcome.model_usage.0.unwrap_or_default();
     said.extend(searched(&models));
+    let since = outcome.model_usage_since_last_result.0.unwrap_or_default();
+    said.extend(searched(&since));
     if outcome.total_cost_usd.0.is_some() {
         said.push(Said::Cost {
             at: "/total_cost_usd",

@@ -15,26 +15,26 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "0.14.0"; # brokkr-version
+      version = "0.15.2"; # brokkr-version
 
       # One entry per system nix can install: the release matrix's own
       # artifact names, and the digest that belongs to each.
       artifacts = {
         x86_64-linux = {
           file = "brokkr-linux-x86_64.tar.gz";
-          sha256 = "6a8f76db409112b857fb275fe166d25aa6fb4e1a10b680efbe8c0f597e192ab4"; # brokkr-linux-x86_64.tar.gz
+          sha256 = "ecce9b5acea9e07eb5b9f978b87272aa87273add34f1f215cdc400aeb2f52eb3"; # brokkr-linux-x86_64.tar.gz
         };
         aarch64-linux = {
           file = "brokkr-linux-aarch64.tar.gz";
-          sha256 = "c6104010447b621ecf01cf7daf3014b59f0642944cd3bf2a48533fb50f021346"; # brokkr-linux-aarch64.tar.gz
+          sha256 = "61f87b5a8449555748dfd3788ed1a62d7e4ad070a2099664c64f01c2aa67928c"; # brokkr-linux-aarch64.tar.gz
         };
         aarch64-darwin = {
           file = "brokkr-macos-arm64.tar.gz";
-          sha256 = "3e34012a5f9604860c013ae1f9830fd5d32b2af9a92bc6983169988e2c94f713"; # brokkr-macos-arm64.tar.gz
+          sha256 = "7b126f654f2c14f50f43b5999dc20b753d8b9f2e0d43200ee3764d1c61f88edc"; # brokkr-macos-arm64.tar.gz
         };
         x86_64-darwin = {
           file = "brokkr-macos-x86_64.tar.gz";
-          sha256 = "26e72f10889f751079e19fd21ab51a973d2315f84b1658881742705010fd226a"; # brokkr-macos-x86_64.tar.gz
+          sha256 = "213eb0e183c11df84c190041c59243b6fa8dd5264847a72fc0be1a9c821c53ab"; # brokkr-macos-x86_64.tar.gz
         };
       };
 

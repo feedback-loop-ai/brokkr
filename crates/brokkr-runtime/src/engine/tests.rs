@@ -1,13 +1,15 @@
 mod attempt_correlation;
+pub(in crate::engine) mod driver_stderr;
 mod early_ending;
 mod entry;
 mod park_cause;
 use super::boundary_tests::sealed_tests::{boxed, boxed_a, REACH_ARG};
 use super::conclude_tests::invariant;
 use super::sequence::{dialect_attempt_outcome, expand_dialect_argv, nearest_change, SequenceAt};
+use super::verdict::covered_tests::{reviewing, reviewing_on};
 use super::*;
 use crate::agents::HarnessHands;
-use crate::bundle::{Limits, Seat};
+use crate::bundle::{Limits, MemberLaw, MemberVerdict, PanelJoin, Seat};
 use crate::dispatch_fixture::dispatch_envelope;
 use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
 use crate::envelope_builder::EnvelopeBuilder;
@@ -16,6 +18,7 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::decision::{Decision, PhaseResult, ReviewedHeads};
 use brokkr_core::{fold::Status, policy::Machine};
 use entry::fixture_seat;
+use panel::Stamped;
 // A test whose sites get real hands plays in an engine of its own (#403),
 // so no other test's orphan reads as a stray of its attempt.
 pub(super) use brokkr_protocol::process::in_its_own_engine;
@@ -169,6 +172,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
     }
     Bundle {
         dialect_prompts: Default::default(),
+        declared_kinds: Default::default(),
         name: "test".into(),
         description: String::new(),
         cost: String::new(),
@@ -675,46 +679,41 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
             {"role_path":"", "result_path":"validate.json", "allowed_results":["drafted", "fail"]}
         ]
     });
-    let (_kept, mut runtime) = engine(single_body(vec!["driver".into()]));
-    runtime.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
     let outcome = AttemptOutcome::Succeeded {
         result: json!({"result":"drafted"}),
     };
     let selection = exec_selection("validate", driver_command("effect", "attempt", outcome));
-    let steps = [first, validate];
-    run_sequence(
-        &mut runtime,
-        &SequenceAt::new("effect", "attempt", "work"),
-        &steps,
-        &input,
-        2,
-        &selection,
-    )
-    .unwrap();
-
-    let events = runtime.store.load(&runtime.run_id).unwrap();
-    assert_eq!(
-        events.last().unwrap().event_type,
-        EventType::EffectIndeterminate
-    );
-    assert!(events.last().unwrap().payload["reason"]
-        .as_str()
-        .unwrap()
-        .contains("must match"));
-    assert_eq!(
-        events
-            .iter()
-            .filter(|event| event.payload["checkpoint"]["step"] == "live")
-            .count(),
-        1,
-        "only the author ran; validate never received an argv"
-    );
+    let undeclared_steps = [first, validate];
+    // The seat's `change` declaration is the compiled steps', read the same
+    // under a plain seat and under a select case's site label (#1221 E).
+    let steps = undeclared_steps.clone().map(|step| SequenceStep {
+        declares_change: true,
+        ..step
+    });
+    for seat in ["work", "work:chore"] {
+        let (_kept, mut runtime) = engine(single_body(vec!["driver".into()]));
+        let at = SequenceAt::new("effect", "attempt", seat);
+        run_sequence(&mut runtime, &at, &steps, &input, 2, &selection).unwrap();
+        let events = runtime.store.load(&runtime.run_id).unwrap();
+        let last = events.last().unwrap();
+        assert_eq!(last.event_type, EventType::EffectIndeterminate, "{seat}");
+        let reason = last.payload["reason"].as_str().unwrap();
+        assert!(reason.contains("must match"), "{seat}: {reason}");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.payload["checkpoint"]["step"] == "live")
+                .count(),
+            1,
+            "{seat}: only the author ran; validate never received an argv"
+        );
+    }
 
     let (_kept, mut undeclared) = engine(single_body(vec!["driver".into()]));
     run_sequence(
         &mut undeclared,
         &SequenceAt::new("effect", "attempt", "work"),
-        &steps,
+        &undeclared_steps,
         &input,
         2,
         &selection,
@@ -732,7 +731,6 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
         .contains("no preceding successful result carries it"));
 
     let (_kept, mut storage_error) = engine_failing("effect/indeterminate");
-    storage_error.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
     assert!(run_sequence(
         &mut storage_error,
         &SequenceAt::new("effect", "attempt", "work"),
@@ -902,6 +900,7 @@ pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
         stderr: stderr.into(),
         accepted: true,
         deadline_killed: false,
+        usage: None,
     }
 }
 
@@ -927,14 +926,14 @@ pub(super) fn run_sequence(
 }
 
 /// The `work` seat's requested-time input for the `vocabulary-effect` tests.
-fn vocabulary_input(engine: &Engine) -> Value {
+pub(super) fn vocabulary_input(engine: &Engine) -> Value {
     let current = state(Some("work"), Cursor::RequestEffect);
     engine
         .seat_input(&current, "work", "vocabulary-effect")
         .unwrap()
 }
 
-fn run_vocabulary(
+pub(super) fn run_vocabulary(
     engine: &mut Engine,
     steps: &[SequenceStep],
     input: &Value,
@@ -1971,58 +1970,61 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     engine
         .journal_panel_members("effect", "attempt", &outcomes, &[], "step:")
         .unwrap();
-    assert!(matches!(
-        panel_outcome(Aggregate::UnanimousPass, outcomes.clone()),
-        AttemptOutcome::Indeterminate { .. }
-    ));
-    assert!(matches!(
-        panel_outcome(Aggregate::UnanimousPass, outcomes[..2].to_vec()),
-        AttemptOutcome::Failed { .. }
-    ));
-    assert!(matches!(
-        panel_outcome(Aggregate::UnanimousPass, outcomes[..1].to_vec()),
-        AttemptOutcome::Succeeded { .. }
-    ));
-
+    let unanimous = PanelJoin::open(Aggregate::UnanimousPass, &[]);
+    let joined = |n: usize| panel_outcome(&unanimous, outcomes[..n].to_vec(), Stamped::new());
+    assert!(matches!(joined(3), AttemptOutcome::Indeterminate { .. }));
+    assert!(matches!(joined(2), AttemptOutcome::Failed { .. }));
+    assert!(matches!(joined(1), AttemptOutcome::Succeeded { .. }));
+    let all = MemberVerdict::all;
     assert_eq!(
-        Aggregate::UnanimousPass
-            .aggregate_results(&[("bad".into(), json!({"notes":"missing result"}))])["result"],
+        unanimous.aggregate_results(&all(&[("bad", json!({"notes":"missing"}))]))["result"],
         "__member-schema-invalid__"
     );
     assert_eq!(
-        Aggregate::UnanimousPass.aggregate_results(&[("bad".into(), json!({"result":"invented"}))])
-            ["result"],
+        unanimous.aggregate_results(&all(&[("bad", json!({"result":"invented"}))]))["result"],
         "__member-schema-invalid__"
     );
     assert_eq!(
-        Aggregate::UnanimousPass.aggregate_results(&[
-            ("one".into(), json!({"result":"pass"})),
-            ("two".into(), json!({"result":"fail"}))
-        ])["result"],
+        unanimous.aggregate_results(&all(&[
+            ("one", json!({"result":"pass"})),
+            ("two", json!({"result":"fail"}))
+        ]))["result"],
         "fail"
     );
-    let review = Aggregate::ReviewPanel.aggregate_results(&[
+    // A word the member's agent declares beyond the ranked three ranks
+    // worst and is returned verbatim (decision 0109 ruling 11).
+    let invented = MemberLaw::declaring(&["invented"]);
+    let laws = [
+        ("clean", MemberLaw::open()),
+        ("residual", MemberLaw::open()),
+    ];
+    let review = PanelJoin::under(
+        Aggregate::ReviewPanel,
+        laws.into_iter().chain([("unknown", invented)]),
+    );
+    let review = review.aggregate_results(&all(&[
         (
-            "clean".into(),
+            "clean",
             json!({"result":"clean", "inputs":{"spec_defect":true}}),
         ),
         (
-            "residual".into(),
+            "residual",
             json!({"result":"residual", "inputs":{
                 "max_residual_severity":"high", "has_security_residual":true
             }}),
         ),
-        ("unknown".into(), json!({"result":"invented"})),
-    ]);
+        ("unknown", json!({"result":"invented"})),
+    ]));
     assert_eq!(review["result"], "invented");
     assert_eq!(review["inputs"]["max_residual_severity"], "high");
     assert_eq!(review["inputs"]["has_security_residual"], true);
     assert_eq!(review["inputs"]["fixes_applied"], false);
     assert_eq!(review["inputs"]["spec_defect"], true);
-    let unknown_severity = Aggregate::ReviewPanel.aggregate_results(&[(
-        "residual".into(),
+    let open = PanelJoin::open(Aggregate::ReviewPanel, &["residual"]);
+    let unknown_severity = open.aggregate_results(&all(&[(
+        "residual",
         json!({"result":"residual","inputs":{"max_residual_severity":"invented"}}),
-    )]);
+    )]));
     assert_eq!(unknown_severity["inputs"]["max_residual_severity"], "none");
 
     assert_eq!(
@@ -2036,8 +2038,6 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
         &json!({"secrets":["TOKEN"], "secrets_file":"path"}),
     );
     assert_eq!(secret_input["secrets"], json!(["TOKEN"]));
-    let long = format!("start{}", "x".repeat(2200));
-    assert_eq!(stderr_tail(&long).chars().count(), 2000);
 }
 
 #[test]
@@ -2081,6 +2081,7 @@ pub(super) fn member(name: &str, command: Vec<String>) -> PanelMember {
         candidates: Vec::new(),
         written: Vec::new(),
         class: SeatClass::Work,
+        law: MemberLaw::open(),
     }
 }
 
@@ -2234,7 +2235,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
     assert!(event.payload["reason"]
         .as_str()
         .unwrap()
-        .contains("stderr tail"));
+        .ends_with("; driver stderr: empty"));
 }
 
 /// Give an operated repository the operator's abstract definitions. A
@@ -2257,6 +2258,7 @@ fn carry_definitions(operated: &Path) {
 }
 
 pub(super) fn git_commit(repo: &Path, message: &str) -> String {
+    std::fs::create_dir_all(repo).unwrap();
     if !repo.join(".git").exists() {
         crate::realms::tests::initialised(repo);
     }
@@ -3345,12 +3347,8 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
     // A panel member is marked by its own label, never by the seat's.
     set_site_hands(&mut engine.bundle, "review:security", HandsSpec::default());
     let member = |name: &str| PanelMember {
-        name: name.into(),
         role_path: PathBuf::from(format!("{name}.md")),
-        command: vec!["driver".into()],
-        candidates: Vec::new(),
-        written: Vec::new(),
-        class: SeatClass::Work,
+        ..member(name, vec!["driver".into()])
     };
     let members = vec![member("security"), member("correctness")];
     let meta = json!({
@@ -4222,16 +4220,11 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    let reviewed = git_commit(&repo, "reviewed");
     let world = world_over(dir.path(), &repo, "brokkr");
     let mut engine = engine_in(dir.path(), Some(world), &repo);
-
-    let reviewed = git_commit(&repo, "reviewed");
-    engine
-        .decide(
-            &state(Some("review"), Cursor::RequestEffect),
-            json!({"result":"clean"}),
-        )
-        .unwrap();
+    let (review, raw) = reviewing(&engine, json!({"result":"clean"}));
+    engine.decide(&review, raw).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     assert_eq!(
         events[1].payload["inputs"]["reviewed_heads"],
@@ -4305,12 +4298,8 @@ fn a_repository_the_map_does_not_name_keeps_the_unkeyed_facts() {
     let world = world_over(dir.path(), &mapped, "brokkr");
     let mut engine = engine_in(dir.path(), Some(world), &stranger);
     let reviewed = git_commit(&stranger, "reviewed");
-    engine
-        .decide(
-            &state(Some("review"), Cursor::RequestEffect),
-            json!({"result":"clean"}),
-        )
-        .unwrap();
+    let (review, raw) = reviewing(&engine, json!({"result":"clean"}));
+    engine.decide(&review, raw).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     assert_eq!(inputs["reviewed_heads"], json!({ "repo": reviewed }));
     assert!(inputs.get("realm_facts").is_none());
@@ -4400,12 +4389,8 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     let moved = git_commit(&alpha, "moved");
     assert_ne!(moved, alpha_head, "alpha moved off its fixture head");
     assert_ne!(moved, beta_head);
-    engine
-        .decide(
-            &state(Some("review"), Cursor::RequestEffect),
-            json!({"result":"clean"}),
-        )
-        .unwrap();
+    let (review, raw) = reviewing(&engine, json!({"result":"clean"}));
+    engine.decide(&review, raw).unwrap();
     assert_eq!(
         engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"]["reviewed_heads"],
         json!({ "alpha": moved }),
@@ -4498,12 +4483,8 @@ fn a_resumed_run_keeps_the_world_its_manifest_pinned() {
     );
 
     let reviewed = git_commit(&repo, "reviewed");
-    resumed
-        .decide(
-            &state(Some("review"), Cursor::RequestEffect),
-            json!({"result": "clean"}),
-        )
-        .unwrap();
+    let (review, raw) = reviewing(&resumed, json!({"result": "clean"}));
+    resumed.decide(&review, raw).unwrap();
     let events = resumed.store.load(&run_id).unwrap();
     assert_eq!(
         events.last().unwrap().payload["inputs"]["reviewed_heads"],
@@ -5043,12 +5024,8 @@ fn enter_review_at(engine: &mut Engine, head: &str) {
 }
 
 fn review_inputs(engine: &mut Engine, claim: Value) -> Map<String, Value> {
-    engine
-        .decide(
-            &state(Some("review"), Cursor::RequestEffect),
-            json!({"result": "clean", "inputs": claim}),
-        )
-        .unwrap();
+    let (review, raw) = reviewing(engine, json!({"result": "clean", "inputs": claim}));
+    engine.decide(&review, raw).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     events.last().unwrap().payload["inputs"]
         .as_object()
@@ -5430,10 +5407,15 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
     let inputs = review_inputs(&mut engine, json!({}));
     assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
 
-    // A repository whose head can no longer be read.
+    // A repository that no longer reads after its check accepted a head.
     enter_review_at(&mut engine, &entered);
+    let checked = git_head(&repo).unwrap();
     std::fs::remove_dir_all(repo.join(".git")).unwrap();
-    let inputs = review_inputs(&mut engine, json!({}));
+    let (review, raw) = reviewing_on(&checked, json!({"result": "clean"}));
+    engine.decide(&review, raw).unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let inputs = &events.last().unwrap().payload["inputs"];
+    assert_eq!(inputs["reviewed_heads"], json!({ "repo": checked }));
     assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
 }
 
@@ -5752,6 +5734,7 @@ fn a_refused_checkpoint_becomes_the_attempts_outcome_once_its_driver_ends() {
         seq: 9,
         path: "/".into(),
         contract: "contracts/seat-record.v1.schema.json",
+        settled_member: None,
     };
     assert!(matches!(
         checkpoints::refused_outcome(
@@ -5854,7 +5837,10 @@ fn a_refused_result_ends_a_single_seat_as_a_failed_attempt() {
     let error = failed_error(&driven);
     assert!(refusal_text(&error), "{error}");
     assert!(!error.contains("see the branch"));
-    assert!(error.contains("stderr tail: the driver's last words"));
+    assert!(
+        error.ends_with("; driver stderr: 23 bytes (first byte: letter; sha256: 2c503ed766b4a99a)")
+    );
+    assert!(!error.contains("last words"), "{error}");
 
     // The failed ending itself cannot be written: the storage error
     // propagates, as every other one does.
@@ -5990,6 +5976,45 @@ fn dialect_step(
             execution: crate::bundle::DialectExecution { argv, state },
         },
     }
+}
+
+/// A last step that is a gate journals its result as its step record
+/// first (fix round 0109a1r5, V1), so the fence's refusal of that record
+/// fails the attempt at the step, and no success is written.
+#[test]
+fn a_last_gate_steps_refused_record_fails_the_attempt_at_that_step() {
+    let judge = SequenceStep {
+        class: SeatClass::Gate,
+        ..step(
+            "judge",
+            driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"complete", "model":"a configured guess"}),
+                },
+            ),
+        )
+    };
+    let (_dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    run_sequence(
+        &mut driven,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[judge],
+        &step_input(),
+        2,
+        &Selection::new(),
+    )
+    .unwrap();
+    let error = failed_error(&driven);
+    assert!(error.starts_with("sequence step 'judge': "), "{error}");
+    assert!(refusal_text(&error), "{error}");
+    let events = driven.store.load(&driven.run_id).unwrap();
+    assert!(
+        !(events.iter()).any(|event| event.event_type == EventType::EffectSucceeded
+            || event.payload["checkpoint"]["step"] == "sequence-step-finished"),
+        "the step record is what the fence refused, and no success follows it"
+    );
 }
 
 #[test]

@@ -104,7 +104,7 @@ pub(crate) fn tone_class(tone: Tone) -> &'static str {
 
 /// Every ending's word and the tone class brokkr-core's `Ending::tone`
 /// gives it, as a JSON object: the table the console's run list paints an
-/// ended run from, written into the page as `brokkr ui` serves it, so the
+/// ended run from, written into the page as `brokkr system ui` serves it, so the
 /// console restates no ending's tone (decision 0064 ruling 6).
 pub(crate) fn ending_tones() -> String {
     let tones: serde_json::Map<String, serde_json::Value> = Ending::ALL

@@ -107,7 +107,7 @@ impl CapturedStderr {
 
 /// Append one evidence note as its own line: exactly one newline is added,
 /// and only where the kept text does not already end a line.
-fn join_note(text: &mut String, note: &str) {
+pub(super) fn join_note(text: &mut String, note: &str) {
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
     }

@@ -1,7 +1,8 @@
 //! The CPU budgets for Brokkr's hot paths (#342): instruction counts under
 //! Callgrind, which do not vary with the machine's load the way wall clock
-//! does. CI runs these on Linux against the merge-base in the same job and
-//! fails a regression over 2% (`--callgrind-limits='ir=2%'`). Valgrind runs
+//! does. The nightly cpu-budgets.yml runs these on Linux against the head
+//! the last nightly measured, in the same job, and fails a regression over
+//! 2% (`--callgrind-limits='ir=2%'`). Valgrind runs
 //! nowhere else, so nothing here is compiled into a test run.
 
 use std::hint::black_box;
@@ -42,7 +43,7 @@ fn folded() -> (Vec<EventEnvelope>, RunState) {
     (events, state)
 }
 
-/// `recipes/self` in the self realm, as `brokkr compile` reads it.
+/// `recipes/self` in the self realm, as `brokkr library compile` reads it.
 fn self_bundle() -> (PathBuf, Dialect) {
     let dialect = Dialect::load(&root().join("dialects/openspec.json"))
         .expect("the openspec dialect loads")

@@ -5052,19 +5052,19 @@ fn the_plain_scalar_kind_rule_is_the_core_schema_s() {
     // are the map's own refusals.
     assert_eq!(
         pnpm_flow_map("integrity"),
-        Err("a malformed resolution flow map".to_string())
+        Err(ResolutionRefusal::Unkeyed { field: "integrity" })
     );
     assert_eq!(
         pnpm_flow_map("rogue: x"),
-        Err("a malformed resolution flow map".to_string())
+        Err(ResolutionRefusal::UnknownKey { key: "rogue" })
     );
     assert_eq!(
         pnpm_flow_map("integrity: 'x"),
-        Err("a malformed resolution flow map".to_string())
+        Err(ResolutionRefusal::Value { key: "integrity" })
     );
     assert_eq!(
         pnpm_flow_map("integrity: ''"),
-        Err("a malformed resolution flow map".to_string())
+        Err(ResolutionRefusal::Value { key: "integrity" })
     );
     assert_eq!(pnpm_flow_map("integrity: x"), Ok(vec![("integrity", "x")]));
     assert_eq!(pnpm_scalar("'a'"), Some(Scalar::Quoted("a")));

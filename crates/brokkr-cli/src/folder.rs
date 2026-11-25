@@ -529,7 +529,7 @@ fn in_state(state: Option<PathBuf>, name: &str) -> PathBuf {
 /// read refuses, and a repository with neither a folder, a library mark
 /// nor an old layout has no place for it (ruling 2's step 4).
 ///
-/// Its callers, `brokkr ledger --repo` and `brokkr inspect
+/// Its callers, `brokkr stats ledger --repo` and `brokkr runs inspect
 /// --capability-call` (in `--repo` or the workspace), read an old layout's
 /// root only by ruling 4's `--db` escape, as a run's ship seat does before
 /// the move: in the workspace's own repository the verb's check refuses an

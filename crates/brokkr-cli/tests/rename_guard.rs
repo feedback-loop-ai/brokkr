@@ -21,11 +21,12 @@ struct Offense {
     text: String,
 }
 
-const FIXED_PROSE: [&str; 8] = [
+const FIXED_PROSE: [&str; 9] = [
     "README.md",
     "ARCHITECTURE.md",
     "CONTRIBUTING.md",
     ".github/workflows/ci.yml",
+    ".github/workflows/pr-gates.yml",
     ".github/workflows/release.yml",
     "docs/decisions/README.md",
     "docs/lore/README.md",
@@ -288,7 +289,7 @@ fn front_page_is_brief_proof_first_and_points_to_owners() {
 
     for proof in [
         "brokkr run --recipe brokkr-fast",
-        "brokkr inspect --run latest",
+        "brokkr runs inspect --run latest",
         "The inspection is derived from the journal",
         "review      succeeded",
         "graph",
@@ -338,21 +339,27 @@ fn displaced_front_page_sections_have_documentation_homes() {
     for (relative, marker) in [
         (
             "docs/guides/read-surfaces.md",
-            "`brokkr inspect` — one run, explained",
+            "`brokkr runs inspect` — one run, explained",
         ),
-        ("docs/guides/recipe-authoring.md", "$ brokkr recipes list"),
-        ("docs/guides/agent-library.md", "$ brokkr agents list"),
+        (
+            "docs/guides/recipe-authoring.md",
+            "$ brokkr library recipes list",
+        ),
+        (
+            "docs/guides/agent-library.md",
+            "$ brokkr library agents list",
+        ),
         (
             "docs/guides/provider-adapters.md",
             "A provider adapter is **data**",
         ),
         (
             "docs/guides/secrets.md",
-            "$ brokkr secrets set GITHUB_TOKEN",
+            "$ brokkr system secrets set GITHUB_TOKEN",
         ),
         (
             "docs/guides/journal-and-verification.md",
-            "$ brokkr verify-run",
+            "$ brokkr journal verify",
         ),
         (
             "docs/guides/repository-layout.md",

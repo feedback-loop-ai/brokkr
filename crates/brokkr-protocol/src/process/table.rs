@@ -32,6 +32,8 @@ use rustix::process::PidfdFlags;
 use rustix::process::{Pid, Signal};
 use thiserror::Error;
 
+use super::usage::{self, Sample};
+
 /// One process, by pid and the kernel's start stamp for it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Identity {
@@ -60,6 +62,9 @@ pub(super) struct Entry {
     pub(super) pgid: i32,
     pub(super) zombie: bool,
     pub(super) exiting: bool,
+    /// What the row says the process uses, for the meter alone
+    /// (`usage`); `None` when its numbers did not read.
+    pub(super) usage: Option<Sample>,
 }
 
 /// Why a table read failed.
@@ -152,6 +157,11 @@ impl Sighting {
                 })
                 .collect(),
         }
+    }
+
+    /// The rows the walk read, for the meter alone (`attempts::Registry::meter`).
+    pub(super) fn entries(&self) -> &[Entry] {
+        &self.entries
     }
 
     /// A sighting of `entries`, for the tests that plant a walk.
@@ -295,6 +305,35 @@ fn children(proc: &std::path::Path, pid: i32) -> std::io::Result<(Vec<i32>, bool
     Ok((children, doubt))
 }
 
+/// The rows of `pid`'s own children, for the driver's reaper (#1133). A
+/// row whose stat names another parent is a pid reused since its listing,
+/// and is left out, as is a row that cannot be read: the reaper reaps only
+/// a zombie it read, so one unreadable child stops no other's reap. `None`
+/// when the listing cannot be read: the reaper skips that interval.
+#[cfg(target_os = "linux")]
+pub(super) fn children_of(pid: i32) -> Option<Vec<Entry>> {
+    children_in(std::path::Path::new(PROC), pid)
+}
+
+/// The row of `pid`, or `None` once it is gone: how the driver's reaper
+/// reads the start of a child it holds, and sees its handle reaped it.
+#[cfg(target_os = "linux")]
+pub(super) fn stat_of(pid: i32) -> std::io::Result<Option<Entry>> {
+    read(std::path::Path::new(PROC), pid)
+}
+
+/// [`children_of`] in `proc`, for the planted trees the tests read.
+#[cfg(target_os = "linux")]
+fn children_in(proc: &std::path::Path, pid: i32) -> Option<Vec<Entry>> {
+    let (children, _) = children(proc, pid).ok()?;
+    let mut rows = Vec::new();
+    for child in children {
+        rows.extend(read(proc, child).ok().flatten());
+    }
+    rows.retain(|entry| entry.ppid == pid);
+    Some(rows)
+}
+
 /// Is `error` a process or thread that exited while it was read?
 #[cfg(target_os = "linux")]
 fn gone(error: &std::io::Error) -> bool {
@@ -348,15 +387,17 @@ fn clear_stat_reads() {
 
 /// The row of `pid`, or `None` when the process is gone: its directory
 /// went with it (`ENOENT`), or it exited while its `stat` was read
-/// (`ESRCH`).
+/// (`ESRCH`). The row is read as bytes: its command name is the
+/// process's own to set, and one that is not UTF-8 is no unreadable row.
 #[cfg(target_os = "linux")]
 fn read(proc: &std::path::Path, pid: i32) -> std::io::Result<Option<Entry>> {
     #[cfg(test)]
     count_stat();
-    let stat = match std::fs::read_to_string(proc.join(pid.to_string()).join("stat")) {
+    let stat = match std::fs::read(proc.join(pid.to_string()).join("stat")) {
         Err(error) if gone(&error) => return Ok(None),
         stat => stat?,
     };
+    let stat = String::from_utf8_lossy(&stat);
     parse_stat(pid, &stat).map(Some).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -384,12 +425,14 @@ fn row_in(proc: &std::path::Path, id: &Identity) -> Result<Option<Entry>, TableE
 
 /// `/proc/<pid>/stat`: the command name is parenthesised and may hold any
 /// byte, so fields are counted from its closing parenthesis — state,
-/// ppid, pgrp, and the start time twenty fields on.
+/// ppid, pgrp, and the start time twenty fields on — and the meter's
+/// numbers among them (`usage::from_stat`).
 #[cfg(target_os = "linux")]
-fn parse_stat(pid: i32, stat: &str) -> Option<Entry> {
+pub(super) fn parse_stat(pid: i32, stat: &str) -> Option<Entry> {
     let (_, rest) = stat.rsplit_once(')')?;
     let fields: Vec<&str> = rest.split_whitespace().collect();
     Some(Entry {
+        usage: usage::from_stat(&fields, usage::Units::host()),
         id: Identity {
             pid,
             start: fields.get(19)?.to_string(),
@@ -476,8 +519,9 @@ fn refusal(signalled: rustix::io::Result<()>) -> std::io::Result<()> {
 }
 
 /// Reap `pid`, a zombie the engine adopted as a subreaper (`attempts`),
-/// so the pid is released. Never called on a child the engine spawned:
-/// those are reaped by their own handle.
+/// so the pid is released, and by each driver's reaper (`reaper`) for its
+/// own. Never called on a child the engine or a driver spawned: those are
+/// reaped by their own handle.
 #[cfg(target_os = "linux")]
 pub(super) fn reap(pid: i32) {
     use rustix::process::{waitpid, WaitOptions};
@@ -486,11 +530,13 @@ pub(super) fn reap(pid: i32) {
 
 #[cfg(not(target_os = "linux"))]
 pub(super) fn snapshot() -> Result<Vec<Entry>, TableError> {
-    listed(ps(&["-axo", COLUMNS])?)
+    listed(ps(&["-S", "-axo", COLUMNS])?)
 }
 
+/// The row `parse_ps` reads, the meter's `rss` and `time` after the
+/// stamp; `-S` sums exited children's time into their parent's `time`.
 #[cfg(not(target_os = "linux"))]
-const COLUMNS: &str = "pid=,ppid=,pgid=,stat=,lstart=";
+const COLUMNS: &str = "pid=,ppid=,pgid=,stat=,lstart=,rss=,time=";
 
 #[cfg(not(target_os = "linux"))]
 fn ps(args: &[&str]) -> Result<std::process::Output, TableError> {
@@ -522,21 +568,24 @@ pub(super) fn listed(output: std::process::Output) -> Result<Vec<Entry>, TableEr
 }
 
 /// One `ps` row: pid, ppid, pgid, state, then the start time, which is
-/// several words long and is kept whole as the stamp. The state is a
+/// five words long and is kept whole as the stamp, then the meter's `rss`
+/// and `time` (`usage::from_ps`), which a row may lack. The state is a
 /// letter, `Z` for a zombie, then flags, `E` among them for a process
 /// trying to exit. A row without a
 /// start time, or with one that is not `lstart`'s date (BSD `ps` prints
 /// `-` for a process it cannot inspect), is not read whole: its stamp
 /// names no process, so a recorded one would read as gone (#403).
 #[cfg(any(test, not(target_os = "linux")))]
-fn parse_ps(line: &str) -> Option<Entry> {
+pub(super) fn parse_ps(line: &str) -> Option<Entry> {
     let mut fields = line.split_whitespace();
     let pid = fields.next()?.parse().ok()?;
     let ppid = fields.next()?.parse().ok()?;
     let pgid = fields.next()?.parse().ok()?;
     let state = fields.next()?;
-    let start: Vec<&str> = fields.collect();
-    lstart(&start).then(|| Entry {
+    let words: Vec<&str> = fields.collect();
+    let (start, usage) = stamped(&words);
+    lstart(start).then(|| Entry {
+        usage,
         id: Identity {
             pid,
             start: start.join(" "),
@@ -546,6 +595,19 @@ fn parse_ps(line: &str) -> Option<Entry> {
         zombie: state.starts_with('Z'),
         exiting: state.chars().skip(1).any(|flag| flag == 'E'),
     })
+}
+
+/// A `ps` row's words after its state: the stamp, `lstart`'s five words,
+/// and the meter's usage from the `rss` and `time` after them. A row with
+/// any other count of words after the stamp is handed whole to `lstart`,
+/// which refuses it.
+#[cfg(any(test, not(target_os = "linux")))]
+fn stamped<'a>(words: &'a [&'a str]) -> (&'a [&'a str], Option<Sample>) {
+    match words.split_at_checked(5) {
+        Some((start, [])) => (start, None),
+        Some((start, [rss, time])) => (start, usage::from_ps(rss, time)),
+        _ => (words, None),
+    }
 }
 
 /// Is `words` a start time as `ps` prints `lstart` under `LC_ALL=C`, by

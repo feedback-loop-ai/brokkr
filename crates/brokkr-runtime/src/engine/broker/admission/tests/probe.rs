@@ -52,8 +52,15 @@ fn settled_orphan(at: &Path) {
 /// The release `settle_orphaned` parks with for the run `run-a` of `repo`
 /// when its seal cannot commit.
 fn unsealed(host: &Host, repo: &str) -> Recovery {
-    settle_orphaned(&host.root, [repo, "run-a"], "work", &[], &[wait()], soon())
-        .expect_err("a seal that could not commit was passed over")
+    settle_orphaned(
+        &host.root,
+        [repo, "run-a"],
+        "work",
+        &[],
+        &[wait()],
+        unhurried(),
+    )
+    .expect_err("a seal that could not commit was passed over")
 }
 
 /// Ruling 4's cleanup refusal is said once: the probe, the reservation's
@@ -117,8 +124,15 @@ fn a_reservation_that_does_not_read_parks_naming_where_it_stands() {
     let work = host.worktree("work");
     let (repo, at) = planted(&host, &work, "run-a");
     std::fs::write(&at, "not a reservation").unwrap();
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], &[wait()], soon())
-        .expect_err("a malformed reservation was passed over");
+    let refused = settle_orphaned(
+        &host.root,
+        [&repo, "run-a"],
+        "work",
+        &[],
+        &[wait()],
+        unhurried(),
+    )
+    .expect_err("a malformed reservation was passed over");
     assert!(
         matches!(refused.held.as_ref(), Held::Unreadable { .. }),
         "{refused:?}"
@@ -282,8 +296,15 @@ fn chief_colon_member_cleanup_names_the_reserved_route() {
         wait_at("b", "claude", "first"),
         wait_at("x:b", "codex", "second"),
     ];
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], &waits, soon())
-        .expect_err("an unsettled driver was passed over");
+    let refused = settle_orphaned(
+        &host.root,
+        [&repo, "run-a"],
+        "work",
+        &[],
+        &waits,
+        unhurried(),
+    )
+    .expect_err("an unsettled driver was passed over");
     assert_eq!(refused.provider.as_deref(), Some("codex"), "{refused:?}");
     assert_eq!(refused.route.as_deref(), Some("second"), "{refused:?}");
     assert!(refused.to_string().contains("codex/second"), "{refused}");
@@ -305,7 +326,7 @@ fn cased_cleanup(label: &str, driver_site: &str, waits: &[brokkr_core::ProviderW
     let host = Host::new();
     let work = host.worktree("work");
     let (repo, _at) = standing_with(&host, &work, "run-a", &[driver_site]);
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], label, &[], waits, soon())
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], label, &[], waits, unhurried())
         .expect_err("an unsettled driver was passed over");
     assert_eq!(refused.provider.as_deref(), Some("claude"), "{refused:?}");
     assert_eq!(refused.route.as_deref(), Some("first"), "{refused:?}");
@@ -340,8 +361,15 @@ fn uncased_cleanup(driver_site: &str, waits: &[brokkr_core::ProviderWait]) {
     let host = Host::new();
     let work = host.worktree("work");
     let (repo, _at) = standing_with(&host, &work, "run-a", &[driver_site]);
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], waits, soon())
-        .expect_err("an unsettled driver was passed over");
+    let refused = settle_orphaned(
+        &host.root,
+        [&repo, "run-a"],
+        "work",
+        &[],
+        waits,
+        unhurried(),
+    )
+    .expect_err("an unsettled driver was passed over");
     assert_eq!(refused.provider, None, "{refused:?}");
     assert_eq!(refused.route, None, "{refused:?}");
     let said = refused.to_string();

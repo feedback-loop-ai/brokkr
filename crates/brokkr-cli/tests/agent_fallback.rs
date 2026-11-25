@@ -13,10 +13,6 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
 /// The companion effort every fixture candidate is hired at (decision
 /// 0035 ruling 5). These providers all declare the same three-level
 /// vocabulary, so the middle one stands for "the plainest reading of
@@ -61,16 +57,8 @@ struct Workspace {
 impl Workspace {
     fn new() -> Workspace {
         let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
+            dir: crate::brokkr_folder::inline_work_seat(POLICY),
         };
-        for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
-            std::fs::create_dir_all(ws.path().join(sub)).unwrap();
-        }
-        std::fs::write(ws.path().join("bundle/policy.json"), POLICY).unwrap();
-        // An inline seat's role stands inside its own bundle, where the
-        // file map pins it (decision 0066 ruling 5).
-        std::fs::write(ws.path().join("bundle/roles/work.md"), "# work\n").unwrap();
-        std::fs::write(ws.path().join("agents/charters/work.md"), "# work\n").unwrap();
         // A provider whose binary does not exist: every attempt on it
         // fails to spawn, which satisfies the structural predicate
         // trivially — nothing accepted, nothing checkpointed.
@@ -113,21 +101,12 @@ impl Workspace {
     /// Rust edit anywhere in this test's diff that teaches the resolver
     /// about `fake`.
     fn fake_adapter(&self, provider: &str, model: &str) -> Value {
-        json!({
-            "provider": provider,
-            "binary": brokkr_bin(),
-            "driver": [
-                brokkr_bin(), "fake-driver",
-                "--script", self.path().join("script.json").to_string_lossy(),
-                "--state", self.path().join("state").to_string_lossy(),
-            ],
-            "models": {model: format!("{provider}/{model}")},
-            "model_flag": "--model",
-            "efforts": ["low", "medium", "high"],
-            "effort_flag": "--effort",
-            "tool_permissions": "unsupported",
-            "mcp": "unsupported",
-        })
+        crate::fake_office::fake_adapter(
+            provider,
+            json!({model: format!("{provider}/{model}")}),
+            &self.path().join("script.json"),
+            &self.path().join("state"),
+        )
     }
 
     fn script(&self, body: Value) {
@@ -181,6 +160,7 @@ impl Workspace {
         crate::engine::printed_in(
             self.path(),
             &[
+                "journal",
                 "export",
                 "--run",
                 run_id,
@@ -478,10 +458,9 @@ fn a_sequence_reports_its_agent_step_and_its_inline_step_separately() {
             "sequence": [
                 {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},
                 {"name": "check", "role": "roles/work.md",
-                 "driver": {"command": [
-                     brokkr_bin(), "driver", "exec", "--",
-                     "sh", "./check.sh", "{result_path}",
-                 ]}},
+                 "driver": {"command": crate::built_argv!([
+                     "driver", "exec", "--", "sh", "./check.sh", "{result_path}",
+                 ])}},
             ],
         },
         "review": ws.inline_review(),
@@ -514,11 +493,13 @@ fn a_seat_whose_charter_is_gone_is_journaled_as_a_failure_to_start() {
         "adapters/claude.json",
         json!({
             "provider": "claude",
-            "binary": brokkr_bin(),
-            "driver": [
+            "binary": crate::built::bare_path(),
+            "driver": IntoIterator::into_iter([
                 "env", "BROKKR_CLAUDE_BIN=brokkr-claude-that-is-not-installed",
-                brokkr_bin(), "driver", "claude", "--",
-            ],
+            ])
+                .map(str::to_owned)
+                .chain(crate::built_argv!(["driver", "claude", "--"]))
+                .collect::<Vec<_>>(),
             "models": {"reviewer-model": "claude/reviewer"},
             "model_flag": "--model",
             "efforts": ["low", "medium", "high"],
@@ -544,10 +525,10 @@ fn a_seat_whose_charter_is_gone_is_journaled_as_a_failure_to_start() {
     )
     .unwrap();
     ws.bundle(json!({
-        "implement": {"results": ["complete"], "driver": {"command": [
-            brokkr_bin(), "driver", "exec", "--",
-            "sh", "./unlink.sh", charter.to_string_lossy(), "{prompt_file}",
-        ]}},
+        "implement": {"results": ["complete"], "driver": {"command": crate::built_argv!([
+            "driver", "exec", "--", "sh", "./unlink.sh",
+            charter.to_string_lossy().as_ref(), "{prompt_file}",
+        ])}},
         "review": {"results": ["clean"], "agent": "reviewer"},
     }));
     let run_id = ws.run();

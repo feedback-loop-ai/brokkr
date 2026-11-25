@@ -5,7 +5,6 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use brokkr_core::realms::Boundary;
@@ -22,6 +21,7 @@ use brokkr_runtime::{resolve_agent, Adapters, Availability, Library};
 use crate::boundary;
 use crate::render::Safe;
 use paths::Paths;
+use version::{invocation_version, tool_version};
 
 mod capabilities;
 mod floors;
@@ -29,6 +29,7 @@ mod folder;
 mod paths;
 mod providers;
 mod provisional;
+mod version;
 
 pub(crate) struct Report {
     pub healthy: bool,
@@ -51,24 +52,6 @@ impl Report {
     }
 }
 
-fn tool_version(program: &str) -> Option<String> {
-    // POSIX `sh` has no portable `--version`; dash exits 2 for it even
-    // though the executable is healthy. The exec adapter needs presence,
-    // not a shell brand, so probe the one operation every `sh` promises.
-    if program == "sh" {
-        return Command::new(program)
-            .args(["-c", "printf 'POSIX shell'"])
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned());
-    }
-    let out = Command::new(program).arg("--version").output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(safe_line(&out.stdout))
-}
 /// The first line of a probe's output, escaped for a terminal: a version
 /// banner, or the reason a box gave for not running one. Both are output
 /// doctor did not author, so both go through `Safe`.
@@ -260,20 +243,6 @@ fn dsh_provider_line_probing(
             .map(composite_identity)
             .map_err(|error| error.to_string())
     })
-}
-
-/// The version of a SELECTED executable, asked as native asks it: the
-/// candidate the seam's search found, under the name it was looked up
-/// by. Probing the canonical target instead reported `env`'s version for
-/// a `dsh` symlinked to it, where native exits 1 on the name mismatch
-/// (review of run `124cca78`, R2). Nothing is searched for again: the
-/// invocation's program is a path.
-fn invocation_version(invocation: &DshInvocation) -> Option<String> {
-    let out = invocation.command().arg("--version").output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(safe_line(&out.stdout))
 }
 
 /// `dsh_provider_line` over an injected seam resolver and composite
@@ -652,7 +621,7 @@ pub(crate) fn doctor(
     folder::report_folder(&mut report, defaults, realms, inspected.folder());
     provisional::report_provisional(&mut report, &defaults.adapters, mapped);
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
-    report
+    version::restored(report)
 }
 fn report_realm_world(
     report: &mut Report,
@@ -1060,5 +1029,7 @@ fn doctor_observed(
 
 #[cfg(test)]
 mod capability_tests;
+#[cfg(test)]
+mod hermetic_tests;
 #[cfg(test)]
 mod tests;

@@ -42,7 +42,7 @@ const SUMMARY: &str = "SELECT status, folded_seq FROM run_summary WHERE run_id =
 /// the gate's query both read it, so the query takes the index instead of
 /// walking the run (#440). Its types are brokkr-core's one terminal list,
 /// never a copy here.
-fn terminal_predicate() -> String {
+pub(crate) fn terminal_predicate() -> String {
     let names: Vec<String> = brokkr_core::fold::TERMINAL_EVENTS
         .into_iter()
         .map(|(event, _)| format!("'{}'", event.as_str()))

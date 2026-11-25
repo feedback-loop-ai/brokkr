@@ -1,4 +1,4 @@
-//! The row mappings `brokkr analytics` folds: a run's row to its facts and a
+//! The row mappings `brokkr stats analytics` folds: a run's row to its facts and a
 //! site's row to its fact, including the rows a whole read opens no run or
 //! site from.
 

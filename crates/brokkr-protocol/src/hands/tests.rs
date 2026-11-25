@@ -13,6 +13,7 @@ mod held;
 mod launcher;
 #[cfg(target_os = "linux")]
 mod provision;
+mod quoted;
 mod sealed;
 mod server;
 #[cfg(target_os = "linux")]
@@ -382,9 +383,8 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     );
     assert!(!text.contains("/opt/scratchpad /opt/scratchpad"));
     assert!(text.contains(&format!("--setenv NPM_CONFIG_CACHE {}", npm.display())));
-    assert!(
-        text.contains("--setenv GIT_CONFIG_KEY_0 commit.gpgsign --setenv GIT_CONFIG_VALUE_0 false")
-    );
+    assert!(text
+        .contains("--setenv GIT_CONFIG_PARAMETERS 'commit.gpgsign'='false' --setenv CARGO_HOME"));
     assert!(!text.contains("--tmpfs"), "no git, nothing to mask");
     assert!(text.ends_with(&format!("--chdir {} -- true", workdir.display())));
     assert!(scratch.join("etc/passwd").is_file());
@@ -572,8 +572,8 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
                  --setenv PATH /runtime:{k}/bin:/usr/local/bin:/usr/bin:/bin \
                  --setenv LANG C.UTF-8 --setenv LC_ALL C.UTF-8 --setenv CI true \
                  --setenv DISABLE_AUTOUPDATER 1 --setenv DISABLE_TELEMETRY 1 \
-                 --setenv GIT_CONFIG_COUNT 1 --setenv GIT_CONFIG_KEY_0 commit.gpgsign \
-                 --setenv GIT_CONFIG_VALUE_0 false --setenv CARGO_HOME {k} \
+                 --setenv GIT_CONFIG_PARAMETERS 'commit.gpgsign'='false' \
+                 --setenv CARGO_HOME {k} \
                  --setenv GIT_AUTHOR_NAME Seat --chdir {w} -- {run}"
                 )
                 .split_whitespace()
@@ -1550,9 +1550,7 @@ fn the_unboxed_environment_hands_nothing_of_the_engines_over() {
     assert_eq!(table["CI"], "true");
     assert_eq!(table["DISABLE_AUTOUPDATER"], "1");
     assert_eq!(table["DISABLE_TELEMETRY"], "1");
-    assert_eq!(table["GIT_CONFIG_COUNT"], "1");
-    assert_eq!(table["GIT_CONFIG_KEY_0"], "commit.gpgsign");
-    assert_eq!(table["GIT_CONFIG_VALUE_0"], "false");
+    assert_eq!(table["GIT_CONFIG_PARAMETERS"], "'commit.gpgsign'='false'");
     assert_eq!(table["GIT_AUTHOR_NAME"], "Seat");
     assert_eq!(table["GIT_COMMITTER_EMAIL"], "seat@example.invalid");
     for absent in [
@@ -1756,9 +1754,7 @@ fn the_unboxed_environment_has_exact_keys_on_both_platforms() {
         "CI",
         "DISABLE_AUTOUPDATER",
         "DISABLE_TELEMETRY",
-        "GIT_CONFIG_COUNT",
-        "GIT_CONFIG_KEY_0",
-        "GIT_CONFIG_VALUE_0",
+        "GIT_CONFIG_PARAMETERS",
         "GIT_AUTHOR_NAME",
         "GIT_AUTHOR_EMAIL",
         "GIT_COMMITTER_NAME",
@@ -1818,9 +1814,7 @@ fn the_unboxed_environment_has_exact_keys_on_both_platforms() {
         "CI",
         "DISABLE_AUTOUPDATER",
         "DISABLE_TELEMETRY",
-        "GIT_CONFIG_COUNT",
-        "GIT_CONFIG_KEY_0",
-        "GIT_CONFIG_VALUE_0",
+        "GIT_CONFIG_PARAMETERS",
     ]
     .into();
     assert_eq!(

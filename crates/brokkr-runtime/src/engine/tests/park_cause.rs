@@ -7,6 +7,7 @@
 //! `run/parked` writer takes a `Park`, and a raw `run/parked` is refused.
 
 use super::*;
+use brokkr_core::gate_moved_head::MovedHead;
 
 #[test]
 fn compiled_design_upstream_reenters_specify_then_exhausts() {
@@ -14,7 +15,9 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
         (2, "DESIGN-UPSTREAM", Some("specify")),
         (3, "DESIGN-UPSTREAM-EXHAUSTED", None),
     ] {
-        let (_dir, mut engine) = compiled_triage_engine();
+        let (dir, mut engine) = compiled_triage_engine();
+        // What a failure below prints, so it names its cause (#1132).
+        let seen = |engine: &Engine| crate::witness::witness(engine, dir.path());
         let SeatBody::Sequence { mut steps } = engine.bundle.seats["design"].body.clone() else {
             panic!("compiled triage design is a sequence");
         };
@@ -66,41 +69,68 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
             10,
             &Selection::new(),
         )
-        .unwrap();
+        .unwrap_or_else(|error| panic!("the sequence ran: {error:?}{}", seen(&engine)));
         let events = engine.store.load(&engine.run_id).unwrap();
         let result = events
             .iter()
             .find(|event| event.event_type == EventType::EffectSucceeded)
-            .unwrap()
+            .unwrap_or_else(|| panic!("no effect/succeeded{}", seen(&engine)))
             .payload["result"]
             .clone();
-        assert_eq!(result["result"], "upstream");
-        assert!(!events
-            .iter()
-            .any(|event| event.payload["checkpoint"]["step_name"] == "validate"));
+        assert_eq!(result["result"], "upstream", "{result}{}", seen(&engine));
+        assert!(
+            !events
+                .iter()
+                .any(|event| event.payload["checkpoint"]["step_name"] == "validate"),
+            "the validate step ran{}",
+            seen(&engine)
+        );
 
-        engine.decide(&current, result).unwrap();
-        let decided = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
-        assert_eq!(decided.payload["rule_id"], expected_rule);
-        assert_eq!(decided.payload["next"].as_str(), expected_next);
+        engine
+            .decide(&current, result)
+            .unwrap_or_else(|error| panic!("the ruling: {error:?}{}", seen(&engine)));
+        let decided = engine
+            .store
+            .load(&engine.run_id)
+            .unwrap()
+            .pop()
+            .unwrap_or_else(|| panic!("the journal is empty{}", seen(&engine)));
+        let ruled = format!("{}{}", decided.payload, seen(&engine));
+        assert_eq!(decided.payload["rule_id"], expected_rule, "{ruled}");
+        assert_eq!(decided.payload["next"].as_str(), expected_next, "{ruled}");
         if expected_next.is_none() {
-            let events = engine.store.load(&engine.run_id).unwrap();
-            let decided = events
-                .last()
-                .expect("the ruling was appended")
-                .payload
-                .clone();
-            let mut parked = current.clone();
-            parked.last_decision = Some(serde_json::from_value(decided).unwrap());
-            let reason = brokkr_core::fold::ParkReason::read(format!("{expected_rule} exhausted"));
-            engine
-                .advance_running(&events, brokkr_core::fold::Cursor::Park { reason }, parked)
-                .unwrap();
-            let parked = last_park(&engine);
-            assert_eq!(parked.payload["cause"]["kind"], "ruled");
-            assert_eq!(parked.payload["cause"]["rule_id"], expected_rule);
+            park_on_the_ruling(&mut engine, current, expected_rule, seen);
         }
     }
+}
+
+/// Parks `current` on the ruling just journalled, and asserts the park's
+/// cause is that rule; every journal read prints `seen`'s witness on failure.
+fn park_on_the_ruling(
+    engine: &mut Engine,
+    mut current: RunState,
+    rule: &str,
+    seen: impl Fn(&Engine) -> String,
+) {
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let decided = events
+        .last()
+        .unwrap_or_else(|| panic!("the ruling was not appended{}", seen(engine)))
+        .payload
+        .clone();
+    current.last_decision =
+        Some(serde_json::from_value(decided).unwrap_or_else(|error| {
+            panic!("the ruling does not read back: {error}{}", seen(engine))
+        }));
+    let reason = brokkr_core::fold::ParkReason::read(format!("{rule} exhausted"));
+    engine
+        .advance_running(&events, brokkr_core::fold::Cursor::Park { reason }, current)
+        .unwrap_or_else(|error| panic!("the park: {error:?}{}", seen(engine)));
+    let parked =
+        newest_park(engine).unwrap_or_else(|| panic!("the run did not park{}", seen(engine)));
+    let cause = &parked.payload["cause"];
+    assert_eq!(cause["kind"], "ruled", "{cause}{}", seen(engine));
+    assert_eq!(cause["rule_id"], rule, "{cause}{}", seen(engine));
 }
 
 /// Appends an event to the engine's journal, under `attempt`.
@@ -254,13 +284,17 @@ fn cap_park_after(terminal: EventType, extra: Value, checkpoints: usize) -> Even
 
 /// The newest `run/parked` the run's journal holds.
 fn last_park(engine: &Engine) -> EventEnvelope {
+    newest_park(engine).expect("the run parked")
+}
+
+/// The newest `run/parked` the run's journal holds, if it holds one.
+fn newest_park(engine: &Engine) -> Option<EventEnvelope> {
     engine
         .store
         .load(&engine.run_id)
         .unwrap()
         .into_iter()
         .rfind(|event| event.event_type == EventType::RunParked)
-        .expect("the run parked")
 }
 
 fn start_failure() -> Value {

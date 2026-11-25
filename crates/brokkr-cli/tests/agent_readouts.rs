@@ -2,8 +2,8 @@
 //!
 //! A run whose second attempt fell back to a different model must be
 //! legible as exactly that, everywhere. These tests drive a real
-//! fallback run and then read it back through `brokkr inspect`, the TUI's
-//! model, the console's `/api/view` payload and `brokkr compare` — and
+//! fallback run and then read it back through `brokkr runs inspect`, the TUI's
+//! model, the console's `/api/view` payload and `brokkr runs compare` — and
 //! assert that none of them composes the sentence itself, because a
 //! surface that formats provenance on its own is a surface that can stop
 //! mentioning a fallback without anyone noticing.
@@ -12,10 +12,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::{json, Value};
-
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
 
 /// The companion effort every fixture candidate is hired at (decision
 /// 0035 ruling 5). One level across the chain on purpose: what these
@@ -60,16 +56,8 @@ impl Workspace {
     /// two falls back — the run every readout below is asked to explain.
     fn new(models: Value) -> Workspace {
         let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
+            dir: crate::brokkr_folder::inline_work_seat(POLICY),
         };
-        for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
-            std::fs::create_dir_all(ws.path().join(sub)).unwrap();
-        }
-        std::fs::write(ws.path().join("bundle/policy.json"), POLICY).unwrap();
-        // An inline seat's role stands inside its own bundle, where the
-        // file map pins it (decision 0066 ruling 5).
-        std::fs::write(ws.path().join("bundle/roles/work.md"), "# work\n").unwrap();
-        std::fs::write(ws.path().join("agents/charters/work.md"), "# work\n").unwrap();
         ws.write(
             "adapters/absent.json",
             json!({
@@ -87,21 +75,12 @@ impl Workspace {
         for (provider, model) in [("fake", "second"), ("other", "third")] {
             ws.write(
                 &format!("adapters/{provider}.json"),
-                json!({
-                    "provider": provider,
-                    "binary": brokkr_bin(),
-                    "driver": [
-                        brokkr_bin(), "fake-driver",
-                        "--script", ws.path().join("script.json").to_string_lossy(),
-                        "--state", ws.path().join("state").to_string_lossy(),
-                    ],
-                    "models": {model: format!("{provider}/{model}")},
-                    "model_flag": "--model",
-                    "efforts": ["low", "medium", "high"],
-                    "effort_flag": "--effort",
-                    "tool_permissions": "unsupported",
-                    "mcp": "unsupported",
-                }),
+                crate::fake_office::fake_adapter(
+                    provider,
+                    json!({model: format!("{provider}/{model}")}),
+                    &ws.path().join("script.json"),
+                    &ws.path().join("state"),
+                ),
             );
         }
         ws.write(
@@ -187,6 +166,7 @@ impl Workspace {
 
     fn inspect_json(&self, run_id: &str) -> Value {
         let (stdout, _) = self.brokkr(&[
+            "runs",
             "inspect",
             "--run",
             run_id,
@@ -199,6 +179,7 @@ impl Workspace {
 
     fn inspect_text(&self, run_id: &str) -> String {
         self.brokkr(&[
+            "runs",
             "inspect",
             "--run",
             run_id,
@@ -229,9 +210,18 @@ fn a_run_off_a_terminal_prints_what_it_always_has() {
         let git = git.args(args).current_dir(ws.path());
         assert!(git.status().unwrap().success());
     }
+    // Review is decided on the head its check accepted, which the
+    // decision records (fix round 0109a1r3, H1).
+    let head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(ws.path())
+        .output()
+        .unwrap();
+    let head = String::from_utf8(head.stdout).unwrap();
     let printed = |extra: &[&str]| {
         let (run, stdout, stderr) = ws.run_printing(extra);
-        (stdout.replace(&run, "<run>"), stderr.replace(&run, "<run>"))
+        let stdout = stdout.replace(&run, "<run>").replace(head.trim(), "<head>");
+        (stdout, stderr.replace(&run, "<run>"))
     };
     let summary = r#"{
   "consecutive_failures": {
@@ -245,7 +235,11 @@ fn a_run_off_a_terminal_prints_what_it_always_has() {
   "feature": "readouts",
   "last_decision": {
     "from": "review",
-    "inputs": {},
+    "inputs": {
+      "reviewed_heads": {
+        "repo": "<head>"
+      }
+    },
     "next": "done",
     "problem": null,
     "result": "clean",
@@ -325,7 +319,7 @@ fn a_first_choice_run_carries_no_notice_at_all() {
     assert!(text.contains("worker · selected second via fake"), "{text}");
 }
 
-/// AC-18: `brokkr compare` reports a model difference as a FIRST-CLASS
+/// AC-18: `brokkr runs compare` reports a model difference as a FIRST-CLASS
 /// divergence — reported unconditionally, and reported even when the two
 /// runs pin the same recipe, because comparing pinned plans would hide
 /// precisely the fallback this exists to expose.
@@ -338,25 +332,17 @@ fn compare_reports_a_resolution_divergence_even_when_the_recipe_matches() {
     std::fs::remove_file(ws.path().join("adapters/absent.json")).unwrap();
     ws.write(
         "adapters/absent.json",
-        json!({
-            "provider": "absent",
-            "binary": brokkr_bin(),
-            "driver": [
-                brokkr_bin(), "fake-driver",
-                "--script", ws.path().join("script.json").to_string_lossy(),
-                "--state", ws.path().join("state2").to_string_lossy(),
-            ],
-            "models": {"first": "absent/first"},
-            "model_flag": "--model",
-            "efforts": ["low", "medium", "high"],
-            "effort_flag": "--effort",
-            "tool_permissions": "unsupported",
-            "mcp": "unsupported",
-        }),
+        crate::fake_office::fake_adapter(
+            "absent",
+            json!({"first": "absent/first"}),
+            &ws.path().join("script.json"),
+            &ws.path().join("state2"),
+        ),
     );
     let first_choice = ws.run();
 
     let (stdout, _) = ws.brokkr(&[
+        "runs",
         "compare",
         &fallen_back,
         &first_choice,
@@ -386,6 +372,7 @@ fn compare_reports_a_resolution_divergence_even_when_the_recipe_matches() {
     // rather than omitting the field: absence of a difference is itself
     // a reported fact.
     let (stdout, _) = ws.brokkr(&[
+        "runs",
         "compare",
         &first_choice,
         &first_choice,
@@ -431,17 +418,17 @@ fn no_surface_composes_the_provenance_sentence_itself() {
     }
 }
 
-/// AC-10 through the binary: `brokkr agents list` and
-/// `brokkr agents show` resolve their library roots exactly as
+/// AC-10 through the binary: `brokkr library agents list` and
+/// `brokkr library agents show` resolve their library roots exactly as
 /// `--recipes-dir` does, and `show` prints a machine-readable object
 /// without a `--json` flag.
 #[test]
 fn the_agents_verbs_run_against_the_default_roots() {
     let ws = Workspace::new(json!(["second"]));
-    let (stdout, _) = ws.brokkr(&["agents", "list"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "list"]);
     assert!(stdout.starts_with("worker\tsecond\tthe worker"), "{stdout}");
 
-    let (stdout, _) = ws.brokkr(&["agents", "show", "worker"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "show", "worker"]);
     let shown: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(shown["name"], "worker");
     assert_eq!(shown["resolution"]["chosen"]["provider"], "fake");
@@ -449,6 +436,7 @@ fn the_agents_verbs_run_against_the_default_roots() {
 
     // Explicit roots, and the refusal an unknown name earns.
     let (stdout, _) = ws.brokkr(&[
+        "library",
         "agents",
         "list",
         "--agents-dir",
@@ -456,6 +444,7 @@ fn the_agents_verbs_run_against_the_default_roots() {
     ]);
     assert!(stdout.contains("worker"), "{stdout}");
     let (_, stderr) = ws.brokkr(&[
+        "library",
         "agents",
         "show",
         "nobody",
@@ -467,8 +456,8 @@ fn the_agents_verbs_run_against_the_default_roots() {
     assert!(stderr.contains("is not in the library"), "{stderr}");
 }
 
-/// Decision 0065, CQ2, through the binary: `brokkr agents list` and
-/// `brokkr agents show` are the library's semantic lint. Parsing
+/// Decision 0065, CQ2, through the binary: `brokkr library agents list` and
+/// `brokkr library agents show` are the library's semantic lint. Parsing
 /// `capabilities` is syntax; whether the OPERATOR defines each name is the
 /// question, answered from `capabilities/` in the operator's configuration
 /// directory — and an `--agents-dir` override moves the library, never that
@@ -494,12 +483,12 @@ fn the_agents_verbs_lint_every_ask_against_the_operators_definitions() {
                    declare its classes before requesting it";
 
     // `list` warns and keeps listing; `show` refuses, as the compiler would.
-    let (stdout, _) = ws.brokkr(&["agents", "list"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "list"]);
     assert_eq!(
         stdout,
         format!("warning: {missing}\nworker\tsecond\tthe worker\n")
     );
-    let (stdout, stderr) = ws.brokkr(&["agents", "show", "worker"]);
+    let (stdout, stderr) = ws.brokkr(&["library", "agents", "show", "worker"]);
     assert_eq!(stdout, "");
     assert_eq!(stderr, format!("error: {missing}\n"));
 
@@ -511,7 +500,7 @@ fn the_agents_verbs_lint_every_ask_against_the_operators_definitions() {
         "agents/capabilities/operator-library-docs.json",
         definition.clone(),
     );
-    let (stdout, _) = ws.brokkr(&["agents", "list", "--agents-dir", "agents"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "list", "--agents-dir", "agents"]);
     assert!(
         stdout.starts_with(&format!("warning: {missing}\n")),
         "{stdout}"
@@ -521,9 +510,9 @@ fn the_agents_verbs_lint_every_ask_against_the_operators_definitions() {
     // library lints clean and `show` prints the ask as written.
     std::fs::create_dir_all(ws.path().join("capabilities")).unwrap();
     ws.write("capabilities/operator-library-docs.json", definition);
-    let (stdout, _) = ws.brokkr(&["agents", "list"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "list"]);
     assert_eq!(stdout, "worker\tsecond\tthe worker\n");
-    let (stdout, _) = ws.brokkr(&["agents", "show", "worker"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "show", "worker"]);
     let shown: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(
         shown["capabilities"],
@@ -533,7 +522,10 @@ fn the_agents_verbs_lint_every_ask_against_the_operators_definitions() {
     // A malformed definition is the operator's to repair, and both verbs
     // name the file rather than linting against half a directory.
     std::fs::write(ws.path().join("capabilities/broken.json"), "{").unwrap();
-    for verb in [vec!["agents", "list"], vec!["agents", "show", "worker"]] {
+    for verb in [
+        vec!["library", "agents", "list"],
+        vec!["library", "agents", "show", "worker"],
+    ] {
         let (stdout, stderr) = ws.brokkr(&verb);
         assert_eq!(stdout, "");
         assert!(

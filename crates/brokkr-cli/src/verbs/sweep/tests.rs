@@ -1,4 +1,4 @@
-//! `brokkr sweep` (decision 0104 ruling 9, as R3 amends it): a dry run
+//! `brokkr queue sweep` (decision 0104 ruling 9, as R3 amends it): a dry run
 //! opens read-only, writes no row, holder or migration, and lists what a
 //! pass would remove; a pass takes the dispatch lock, removes the tree and
 //! paints the same lines through `Safe`; and a second sweeper is refused
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use brokkr_core::envelope::EventType;
-use brokkr_runtime::DispatcherError;
+use brokkr_runtime::dispatch::DispatcherError;
 use brokkr_store::{Store, Swept as Closed};
 use clap::Parser;
 use serde_json::json;
@@ -108,7 +108,7 @@ fn seat(store: &mut Store, root: &Path) {
 }
 
 fn parsed(database: &Path, dry_run: bool) -> SweepArgs {
-    let mut argv = vec!["brokkr", "sweep"];
+    let mut argv = vec!["brokkr", "queue", "sweep"];
     if dry_run {
         argv.push("--dry-run");
     }
@@ -279,7 +279,9 @@ fn the_grouped_dispatch_runs_a_sweep() {
 #[test]
 fn a_second_sweeper_is_refused_by_the_lock_by_name_recording_nothing() {
     let (_env, places, database, mut store, tree, _) = ready("run");
-    let held = brokkr_runtime::take_dispatch(&mut store).unwrap().unwrap();
+    let held = brokkr_runtime::dispatch::take_dispatch(&mut store)
+        .unwrap()
+        .unwrap();
 
     let refused = sweep(places.as_path(), parsed(&database, false), &mut Vec::new()).unwrap_err();
 

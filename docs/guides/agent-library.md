@@ -22,7 +22,7 @@ The sample shows the library's base offices; each `…` line stands for
 the overlays the listing prints between them.
 
 ```
-$ brokkr agents list
+$ brokkr library agents list
 analyst	fable → sol → opus	SDD judge, read-only by charter: finds drift across the artifacts and the realm constitution.
 …
 chief-architect	fable → sol → opus → astra	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
@@ -51,15 +51,18 @@ triage	fable → sol → opus	Rules the commission's delivery class from a close
 ```
 
 ```
-brokkr agents show <name>    # the definition, plus its per-entry resolution
+brokkr library agents show <name>    # the definition, plus its per-entry resolution
 brokkr doctor                # which providers and models are actually here
 ```
 
 An agent is one file in `agents/`: a description, a charter, an ORDERED
 preference chain of abstract model names, an abstract tool restriction,
-the capabilities it asks for, its decision-0006 limits and its
-decision-0007 declared inputs. A seat, panel member or sequence step
-says `"agent": "<name>"`.
+the capabilities it asks for, its decision-0006 limits, its
+decision-0007 declared inputs, and the `results` it may report
+(decision 0109 ruling 11). A seat, panel member or sequence step says
+`"agent": "<name>"`. A review-panel member reports only its office's
+`results`, or `clean` and `residual` where the office declares none,
+and a seat that hires an office declaring them reports within them.
 Inline seats stay first-class. Dialect validators such as the `validate`
 step of `recipes/triage`, a Brokkr-only recipe (decision 0087 ruling 5),
 are also model-free execs, but their checked argv comes from
@@ -78,10 +81,12 @@ operator's ruling of 2026-10-07 on decisions 0041 and 0058, #360):
 ```
 
 The loader merges the overlay into the definition it stands for and
-parses that exactly as it parses a base, so `brokkr agents show` prints
+parses that exactly as it parses a base, so `brokkr library agents show` prints
 the merged office and its digest is the merged definition's. `models`
 replaces the base's chain and `efforts` its efforts, whole; `charter` and
 `inputs` replace the base's when written; everything else is inherited.
+`results` is inherited and never written by an overlay, so an overlay
+cannot widen or narrow the words its base may report.
 `tools` and `hands` are the office's power: an overlay that writes either,
 or drops one the base declares, names it under `replaces` with its reason,
 and one that changes either without a reason does not load. An overlay
@@ -102,7 +107,7 @@ Verifier and shipper are deliberately absent from the agent library.
 They are inline `exec` scripts with no model, boxed under the `namespace`
 boundary and run unboxed in a rebuilt environment under `harness`: verification runs a
 recipe's fixed checks, and shipping renders journal evidence through
-`brokkr ledger` before confirming the recorded head and clean tree.
+`brokkr stats ledger` before confirming the recorded head and clean tree.
 
 Resolution happens at compile time, is pinned into the run manifest, and
 is a pure function of *(library, adapters, availability)* — availability
@@ -129,7 +134,7 @@ manifest and in every readout — never nothing. Both checks run over
 declared tool list fails at design time rather than at 2am. The chain is
 a fallback chain,
 not a portability claim: Brokkr never says the second choice equals
-the first, and `brokkr compare` reports a model difference as a
+the first, and `brokkr runs compare` reports a model difference as a
 first-class divergence.
 
 Fallback is narrow on purpose. An attempt that FAILS TO START — the
@@ -217,6 +222,13 @@ says what it lost and why. Anything else — `"optional"`, `true`, a
 dialect, a tool list, a class — is refused rather than read as optional:
 a request is never a grant.
 
+This repository's own realm grants exactly two, to one office: the
+`researcher`'s `web-fetch` and `web-search`, through Claude's native
+dialects, read-only web access the operator ruled on 2026-11-24 (#1329).
+Every other office of the shipped library asks for nothing beyond its
+hands and holds nothing, and a seat on dsh holds neither until dsh's own
+web tools are measured on and off (decision 0065 ruling 4).
+
 A capability's **class** — `reads`, `writes`, `egress`, one or more — is
 the abstraction's, not an implementation's. It lives in the operator's
 `capabilities/<name>.json`, beside `realms.json`:
@@ -238,7 +250,7 @@ spellings agree, because an ordinary reader keeps the last one and would
 turn a `requires` into a `wants` before anything checked it. And a
 compile that loads the library at all resolves the asks of EVERY agent
 in it, seated or not (ruling 8): an undefined request in an agent no
-seat names refuses the compile with the diagnostic `brokkr agents show`
+seat names refuses the compile with the diagnostic `brokkr library agents show`
 gives, and every definition a loaded agent names is pinned in the
 manifest as consulted. So the `capabilities/` beside the operator's map
 must define what every shipped agent asks for — `web-search` and
@@ -319,7 +331,7 @@ of class `writes`), the attribution of a brokered call to its
 capability and dialect in seat-record v6, and retained responses
 (decision 0065 slice two, U9b1a to U9b1e); the limits it shipped with
 are the [security model's](../security-model.md#mcp-capabilities-through-the-broker).
-Capability comparisons in `brokkr compare` are slice three's. No
+Capability comparisons in `brokkr runs compare` are slice three's. No
 provider restriction transport has been measured, so a grant's
 nonempty restriction is refused for a `requires` and dropped, with the
 capability OFF, for a `wants` (operator addendum of 2026-09-25). A

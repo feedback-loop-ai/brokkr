@@ -197,8 +197,231 @@ fn masker_operates_on_bytes_so_invalid_utf8_neighbors_still_mask() {
 
 #[test]
 fn masker_masks_adjacent_and_repeated_needles() {
+    // Every occurrence from the second byte on overlaps the one before,
+    // and occurrences that overlap or touch are one run (#1213).
     let bindings = vec![bound("K", b"vvvv")];
-    assert_eq!(mask_bytes(b"vvvvvvvv", &bindings), b"[secret:K][secret:K]");
+    assert_eq!(mask_bytes(b"vvvvvvvv", &bindings), b"[secret:K]");
+    assert_eq!(
+        mask_bytes(b"vvvv-vvvv", &bindings),
+        b"[secret:K]-[secret:K]"
+    );
+    // Occurrences that touch and do not overlap: no third occurrence
+    // bridges them, and they are still one run, of one value or of two.
+    let bindings = vec![bound("A", b"abcd"), bound("W", b"wxyz")];
+    assert_eq!(mask_bytes(b"-abcdabcd-", &bindings), b"-[secret:A]-");
+    assert_eq!(mask_bytes(b"-wxyzabcd-", &bindings), b"-[secret:W]-");
+}
+
+/// `mask_intersects`, which decision 0114's `reset` asks: a masked run
+/// touches a span only when the two share a byte. A run wholly before the
+/// span, wholly after it, or meeting it at an edge does not.
+#[test]
+fn mask_intersects_only_a_run_that_shares_a_byte_with_the_span() {
+    let bindings = vec![bound("K", b"vvvv")];
+    // The runs are 3..7 and 11..15.
+    let text = "ab vvvv cd vvvv";
+    for (span, expected) in [
+        (0..3, false),
+        (7..11, false),
+        (8..10, false),
+        (0..4, true),
+        (6..12, true),
+        (14..15, true),
+        (0..15, true),
+    ] {
+        assert_eq!(
+            mask_intersects(text, &bindings, span.clone()),
+            expected,
+            "{span:?}"
+        );
+    }
+}
+
+#[test]
+fn occurrences_finds_every_start_overlapping_ones_included() {
+    let occurrences = |bytes, needle| super::Occurrences::new(bytes, needle).collect::<Vec<_>>();
+    assert_eq!(occurrences(b"abababab", b"abab"), vec![0, 2, 4]);
+    assert_eq!(occurrences(b"aabaabaab", b"aabaa"), vec![0, 3]);
+    assert_eq!(occurrences(b"aaabaaab", b"aab"), vec![1, 5]);
+    assert_eq!(occurrences(b"xyz", b"q"), Vec::<usize>::new());
+}
+
+#[test]
+fn covered_gives_out_a_run_once_the_next_disjoint_start_closes_it() {
+    // A run is given out once the next disjoint occurrence is read, not
+    // after the whole text, so many runs never wait in a slot each.
+    let needles = vec![(b"abcd".to_vec(), "A")];
+    let text = b"abcd-abcd-abcd-abcd-";
+    let mut runs = super::covered(text, &needles);
+    assert_eq!(runs.next(), Some((0, 4, "A")));
+    assert_eq!(runs.open, Some((5, 9, "A")));
+    assert_eq!(runs.heads[0].peek(), Some(&10));
+    assert_eq!(
+        runs.collect::<Vec<_>>(),
+        vec![(5, 9, "A"), (10, 14, "A"), (15, 19, "A")]
+    );
+}
+
+/// The 44-character value of #1213's case, and the eight-character one
+/// whose last byte is its first.
+const LONG: &str = "Z0123456789abcdefghijklmnopqrstuvwxyzABCDEFG";
+const SHORT: &str = "prefix!Z";
+/// A value starting inside `LONG`'s last three bytes.
+const TAIL: &str = "EFG!suffix";
+
+/// Each overlap #1213 rules on, as the bindings in the order bound, the
+/// text that holds them, and the text masked: the shorter value first and
+/// the longer starting at its last byte; the reverse; one value inside
+/// another; and two sharing one byte.
+fn overlaps() -> Vec<(Vec<BoundSecret>, String, String)> {
+    let pair = |first: (&str, &str), second: (&str, &str)| {
+        vec![
+            bound(first.0, first.1.as_bytes()),
+            bound(second.0, second.1.as_bytes()),
+        ]
+    };
+    vec![
+        (
+            pair(("LONG", LONG), ("SHORT", SHORT)),
+            format!("a prefix!{LONG} b"),
+            "a [secret:SHORT] b".to_string(),
+        ),
+        (
+            pair(("TAIL", TAIL), ("LONG", LONG)),
+            format!("a {LONG}!suffix b"),
+            "a [secret:LONG] b".to_string(),
+        ),
+        (
+            pair(("INNER", "cdefgh"), ("OUTER", "abcdefghij")),
+            "a abcdefghij b cdefgh c".to_string(),
+            "a [secret:OUTER] b [secret:INNER] c".to_string(),
+        ),
+        (
+            pair(("RIGHT", "Xdefghi"), ("LEFT", "abcdefX")),
+            "a abcdefXdefghi b".to_string(),
+            "a [secret:LEFT] b".to_string(),
+        ),
+    ]
+}
+
+#[test]
+fn masker_masks_the_union_of_overlapping_values_as_one_run() {
+    for (bindings, text, masked) in overlaps() {
+        assert_eq!(mask_text(text.as_bytes(), &bindings), masked, "{text}");
+    }
+}
+
+#[test]
+fn mask_json_masks_the_union_in_a_string_value_and_an_object_key() {
+    for (bindings, text, masked) in overlaps() {
+        let mut value = serde_json::json!({"said": text.clone(), text.clone(): 1});
+        mask_json(&mut value, &bindings);
+        let expected = serde_json::json!({"said": masked.clone(), masked.clone(): 1});
+        assert_eq!(value, expected, "{text}");
+    }
+}
+
+#[test]
+fn mask_projected_masks_the_union_of_an_escaped_form_and_a_raw_one() {
+    // `SHORT` and `TAIL` with a quote in them, so each reaches projected
+    // text escaped, overlapping `LONG` raw.
+    let short = SHORT.replace('!', "\"");
+    let tail = TAIL.replace('!', "\"");
+    let bindings = vec![
+        bound("SHORT", short.as_bytes()),
+        bound("TAIL", tail.as_bytes()),
+        bound("LONG", LONG.as_bytes()),
+    ];
+    let projected = format!("{{\"a\":\"prefix\\\"{LONG}\\\"suffix\"}}");
+    assert_eq!(
+        mask_projected(&projected, &bindings),
+        "{\"a\":\"[secret:SHORT]\"}"
+    );
+}
+
+#[test]
+fn mask_projected_names_the_first_occurrence_raw_or_escaped() {
+    let tail = TAIL.replace('!', "\"");
+    let short = SHORT.replace('!', "\"");
+    let cases = [
+        // Raw first, an escaped form starting in its last three bytes.
+        (
+            vec![
+                bound("TAIL", tail.as_bytes()),
+                bound("LONG", LONG.as_bytes()),
+            ],
+            format!("<{LONG}\\\"suffix>"),
+            "<[secret:LONG]>",
+        ),
+        // Escaped first, the raw value starting at its last byte.
+        (
+            vec![
+                bound("LONG", LONG.as_bytes()),
+                bound("SHORT", short.as_bytes()),
+            ],
+            format!("<prefix\\\"{LONG}>"),
+            "<[secret:SHORT]>",
+        ),
+        // A raw value inside an escaped one.
+        (
+            vec![bound("INNER", b"cdefgh"), bound("OUTER", b"ab\"cdefgh\"ij")],
+            "<ab\\\"cdefgh\\\"ij>".to_string(),
+            "<[secret:OUTER]>",
+        ),
+        // An escaped value inside a raw one.
+        (
+            vec![bound("INNER", b"c\"d"), bound("OUTER", b"xc\\\"dy")],
+            "<xc\\\"dy>".to_string(),
+            "<[secret:OUTER]>",
+        ),
+    ];
+    for (bindings, projected, masked) in cases {
+        assert_eq!(mask_projected(&projected, &bindings), masked, "{projected}");
+    }
+}
+
+#[test]
+fn mask_json_keeps_one_member_for_keys_a_union_makes_one() {
+    // The house rule: `mask_json` keeps one member for keys masking makes
+    // one, as it always did, and a caller to whom that matters detects it,
+    // as the broker's output edge does. No byte of either value is left.
+    let bindings = vec![bound("LEFT", b"abcd"), bound("RIGHT", b"defg")];
+    let mut value = serde_json::json!({"abcd": 1, "abcdefg": 2});
+    mask_json(&mut value, &bindings);
+    assert_eq!(value, serde_json::json!({"[secret:LEFT]": 2}));
+    let text = value.to_string();
+    assert!(!text.contains("abcd") && !text.contains("defg"), "{text}");
+}
+
+#[test]
+fn masker_masks_text_without_overlap_as_it_always_did() {
+    // A golden: separate occurrences of two values, raw and encoded, and
+    // a needle-free neighbour, each run read as before #1213.
+    let bindings = vec![bound("ALPHA", b"abcdef"), bound("BETA", b"tok3n+v4lue!")];
+    let text = b"x abcdef y dG9rM24rdjRsdWUh z tok3n%2Bv4lue%21 \xff abcdefabc";
+    assert_eq!(
+        mask_bytes(text, &bindings),
+        b"x [secret:ALPHA] y [secret:BETA] z [secret:BETA] \xff [secret:ALPHA]abc"
+    );
+}
+
+#[test]
+fn the_guard_refuses_a_value_whose_start_an_earlier_match_covers() {
+    // Two bytes before, so neither value starts on a stride of its own
+    // length: the guard finds each wherever it starts.
+    let bindings = vec![
+        bound("LONG", LONG.as_bytes()),
+        bound("SHORT", SHORT.as_bytes()),
+    ];
+    let guard = Guard::new(&bindings);
+    let text = format!("a prefix!{LONG} b");
+    assert!(!guard.text(text.as_bytes()));
+    assert!(guard.text(mask_text(text.as_bytes(), &bindings).as_bytes()));
+    // Controls in which LONG alone explains the refusal: SHORT's bytes
+    // still cover LONG's start, but SHORT is not bound; and LONG in clear
+    // where SHORT, bound, does not occur.
+    assert!(!Guard::new(&bindings[..1]).text(text.as_bytes()));
+    assert!(!guard.text(format!("a {LONG} b").as_bytes()));
 }
 
 // ------------------------------------------------- layer 2: store
@@ -275,50 +498,51 @@ fn store_write_remove_and_empty_resolve_cover_refusal_boundaries() {
         store_parent(Path::new("/tmp/secrets.env")),
         Path::new("/tmp")
     );
-    assert_eq!(store_io::<()>(Ok(()), "ok".into()), Ok(()));
-    assert!(
-        store_io::<()>(Err(std::io::Error::other("no")), "context".into())
-            .unwrap_err()
-            .contains("context: no")
-    );
+    use store::WriteRefusal;
     let dir = tempfile::tempdir().unwrap();
     let injectable = dir.path().join("injectable.env");
     let entries: [(String, Secret); 1] = [("TOKEN".into(), Secret::new(b"long-enough".to_vec()))];
-    #[cfg(unix)]
-    assert!(write_store_with(
-        &injectable,
-        &entries,
-        |_, _| Err(std::io::Error::other("mode")),
-        write_store_entry,
-    )
-    .unwrap_err()
-    .contains("cannot set secrets store mode"));
-    #[cfg(unix)]
-    assert!(
+    let write = |path: &Path| write_store_with(path, &entries, set_store_mode, write_store_entry);
+    assert!(matches!(
+        write_store_with(
+            &injectable,
+            &entries,
+            |_, _| Err(std::io::Error::other("mode")),
+            write_store_entry,
+        ),
+        Err(WriteRefusal::Mode { .. })
+    ));
+    assert!(matches!(
         write_store_with(&injectable, &entries, set_store_mode, |_, _, _| Err(
             std::io::Error::other("write")
-        ),)
-        .unwrap_err()
-        .contains("cannot write secrets store")
-    );
+        )),
+        Err(WriteRefusal::Write { path, .. }) if path == injectable
+    ));
     let parent_file = dir.path().join("parent-file");
     std::fs::write(&parent_file, "not a directory").unwrap();
+    assert!(matches!(
+        write(&parent_file.join("secrets.env")),
+        Err(WriteRefusal::Create { parent, .. }) if parent == parent_file
+    ));
     assert!(store_set(&parent_file.join("secrets.env"), "TOKEN", "long-enough").is_err());
 
     let destination_directory = dir.path().join("destination-directory");
     std::fs::create_dir(&destination_directory).unwrap();
-    assert!(write_store(
-        &destination_directory,
-        &[("TOKEN".into(), Secret::new(b"long-enough".to_vec()))]
-    )
-    .is_err());
-    assert!(write_store(Path::new(""), &[]).is_err());
-    #[cfg(unix)]
-    assert!(write_store(
-        Path::new("/proc/forge-secrets.env"),
-        &[("TOKEN".into(), Secret::new(b"long-enough".to_vec()))]
-    )
-    .is_err());
+    assert!(matches!(
+        write(&destination_directory),
+        Err(WriteRefusal::Replace { path, .. }) if path == destination_directory
+    ));
+    assert!(matches!(
+        write_store_with(Path::new(""), &[], set_store_mode, write_store_entry),
+        Err(WriteRefusal::Replace { path, .. }) if path.as_os_str().is_empty()
+    ));
+    assert!(write_store(&destination_directory, &entries).is_err());
+    // Stage on Linux; on macOS `create_dir_all("/proc")` refuses first.
+    #[cfg(target_os = "linux")]
+    assert!(matches!(
+        write(Path::new("/proc/forge-secrets.env")),
+        Err(WriteRefusal::Stage { path, .. }) if path == Path::new("/proc/forge-secrets.env")
+    ));
 
     let directory = dir.path().join("read-as-directory");
     std::fs::create_dir(&directory).unwrap();
@@ -332,6 +556,52 @@ fn store_write_remove_and_empty_resolve_cover_refusal_boundaries() {
     let missing = dir.path().join("absent.env");
     assert!(!store_remove(&missing, "TOKEN").unwrap());
     assert!(resolve_bindings(&missing, &[]).unwrap().is_empty());
+}
+
+/// Each write refusal reads as the `format!` that built it did, tempfile's
+/// "failed to persist temporary file: " included in Replace.
+#[test]
+fn every_store_write_refusal_reads_as_it_always_has() {
+    use store::WriteRefusal;
+    let io = || std::io::Error::other("denied");
+    let path = || std::path::PathBuf::from("/store/secrets.env");
+    for (error, text) in [
+        (
+            WriteRefusal::Create {
+                parent: "/store".into(),
+                source: io(),
+            },
+            "cannot create /store: denied",
+        ),
+        (
+            WriteRefusal::Stage {
+                path: path(),
+                source: io(),
+            },
+            "cannot stage secrets store /store/secrets.env: denied",
+        ),
+        (
+            WriteRefusal::Mode { source: io() },
+            "cannot set secrets store mode: denied",
+        ),
+        (
+            WriteRefusal::Write {
+                path: path(),
+                source: io(),
+            },
+            "cannot write secrets store /store/secrets.env: denied",
+        ),
+        (
+            WriteRefusal::Replace {
+                path: path(),
+                source: io(),
+            },
+            "cannot replace secrets store /store/secrets.env: \
+             failed to persist temporary file: denied",
+        ),
+    ] {
+        assert_eq!(error.to_string(), text);
+    }
 }
 
 #[test]
@@ -725,7 +995,7 @@ fn store_causes_render_the_legacy_text_at_the_string_edge() {
     assert_eq!(
         resolve_bindings(&present, &["PRESENT".into(), "ABSENT".into()]).unwrap_err(),
         format!(
-            "secret 'ABSENT' is not in the store at {} (brokkr secrets set ABSENT)",
+            "secret 'ABSENT' is not in the store at {} (brokkr system secrets set ABSENT)",
             present.display()
         )
     );
@@ -913,7 +1183,7 @@ fn resolve_bindings_classifies_a_miss_from_its_one_read() {
     assert_eq!(
         resolved,
         Some(Err(format!(
-            "secret 'ABSENT' is not in the store at {} (brokkr secrets set ABSENT)",
+            "secret 'ABSENT' is not in the store at {} (brokkr system secrets set ABSENT)",
             fifo.display()
         )))
     );
@@ -1048,7 +1318,7 @@ fn the_sender_frames_the_injectors_environment_of_the_declared_names_alone() {
     );
     assert_eq!(kept("DOCS_TOKEN", |_| Ok(())), (token, Some(true), Ok(())));
     let not_in = format!(
-        "secret 'MISSING' is not in the store at {} (brokkr secrets set MISSING)",
+        "secret 'MISSING' is not in the store at {} (brokkr system secrets set MISSING)",
         path.display()
     );
     assert_eq!(
@@ -1071,7 +1341,7 @@ fn the_sender_carries_decision_0012s_own_causes_from_the_admitted_handle() {
     };
     let name = |text: String| Err(Refusal::Name(text));
     let not_in = format!(
-        "secret 'DOCS_TOKEN' is not in the store at {} (brokkr secrets set DOCS_TOKEN)",
+        "secret 'DOCS_TOKEN' is not in the store at {} (brokkr system secrets set DOCS_TOKEN)",
         missing.display()
     );
     assert_eq!(cause(&missing), name(not_in));

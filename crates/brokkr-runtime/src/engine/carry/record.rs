@@ -6,8 +6,13 @@ use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
+use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_store::{SeatRecordError, StoreError};
+
+use super::super::panel::Stamped;
 use super::super::worktree::{read_tree, TreeReading};
-use super::super::{git_head, is_commit_id};
+use super::super::{git_head, is_commit_id, Engine, EngineError};
+use crate::bundle::MemberFindings;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -158,17 +163,86 @@ impl PanelRecord {
     }
 }
 
+/// Each member that succeeded, by its tag, with the result the panel's
+/// record journals: its payload carrying the findings it was admitted
+/// with, written here at the journal's boundary.
 pub(crate) fn settled_members(
-    reports: &[(String, AttemptReport)],
+    (reports, stamped): (&[(String, AttemptReport)], &Stamped),
     step: Option<&str>,
 ) -> BTreeMap<Tag, Value> {
     reports
         .iter()
         .filter_map(|(name, report)| match report.settled_outcome() {
-            AttemptOutcome::Succeeded { result } => Some((Tag::new(step, name), result)),
+            AttemptOutcome::Succeeded { mut result } => {
+                if let Some(MemberFindings::Read(findings)) = stamped.get(name) {
+                    brokkr_core::findings::journal(&mut result, findings);
+                }
+                Some((Tag::new(step, name), result))
+            }
             AttemptOutcome::Failed { .. } | AttemptOutcome::Indeterminate { .. } => None,
         })
         .collect()
+}
+
+impl Engine {
+    /// `payload` appended under the seat-record fence. A panel's failed or
+    /// indeterminate terminal whose marked settled member's payload the
+    /// fence refuses (fix round 0109a1r6, W3) carries no settled verdict
+    /// for that member: it is journaled again without that member alone,
+    /// the refusal named in its own words, as a refused success is
+    /// journaled as a failure, and every sibling the fence admits keeps its
+    /// payload, verdict and retry eligibility (fix round 0109a1r7, X4). The
+    /// refused member is then unsettled, so a retry runs it fresh.
+    ///
+    /// The refusal names its member by its exact tag, as data, and the
+    /// turns are bounded by the payload's own settled members (fix round
+    /// 0109a1r8, M4): each turn unsettles one, so once every member is
+    /// gone the last append is the fence's own word, whatever any tag
+    /// holds.
+    pub(in crate::engine) fn append_settled(
+        &mut self,
+        event_type: EventType,
+        mut payload: Value,
+        attempt_id: Option<String>,
+    ) -> Result<EventEnvelope, EngineError> {
+        let settled = (payload.get("settled_members").and_then(Value::as_object))
+            .map_or(0, serde_json::Map::len);
+        for _ in 0..settled {
+            let appended = self.append_raw(event_type, payload.clone(), attempt_id.clone());
+            let refused = match &appended {
+                Err(EngineError::Store(StoreError::SeatRecord(refusal))) => refusal,
+                _ => return appended,
+            };
+            let Some(tag) = refused.settled_member.as_deref() else {
+                return appended;
+            };
+            unsettle(&mut payload, tag, refused);
+        }
+        self.append_raw(event_type, payload, attempt_id)
+    }
+}
+
+/// `payload` with the settled member `tag` the fence refused removed, and
+/// the refusal named by member in the terminal's own words, `error` or
+/// `reason`.
+fn unsettle(payload: &mut Value, tag: &str, refusal: &SeatRecordError) {
+    let fields = payload
+        .as_object_mut()
+        .expect("a terminal payload is an object");
+    let settled = (fields["settled_members"].as_object_mut())
+        .expect("a refused settled member's terminal settles members");
+    settled.remove(tag);
+    if settled.is_empty() {
+        fields.remove("settled_members");
+    }
+    let said = ["error", "reason"]
+        .into_iter()
+        .find(|field| fields.contains_key(*field));
+    let said = said.expect("a failed or indeterminate terminal says why");
+    let why = fields[said].as_str().unwrap_or_default();
+    fields[said] = Value::from(format!(
+        "{why}; settled member '{tag}' was refused: {refusal}"
+    ));
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,6 +250,12 @@ pub(crate) fn settled_members(
 pub(crate) struct CarriedEntry {
     pub(crate) member: Tag,
     pub(crate) attempt_id: String,
+    /// The carried member's site, from the engine's own marker in its
+    /// source attempt, so a reader files the member's findings under it in
+    /// the retry's effect too, never from the payload (fix round 0109a1r7,
+    /// X2). Absent where no marker named one, as in every earlier journal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) site_ref: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

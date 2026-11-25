@@ -3,7 +3,7 @@
 //! the subject a surface re-resolves (whether it can still gain prose is
 //! the served `working`, derived where the participant is built); and
 //! which visit to its phase the seat was asked in.
-//! Derived here once, so the terminal, the browser and `brokkr transcript`
+//! Derived here once, so the terminal, the browser and `brokkr runs transcript`
 //! cannot read one participant two ways (decision 0013; #351).
 
 use std::collections::BTreeMap;
@@ -31,7 +31,23 @@ pub(crate) fn visits(events: &[EventEnvelope]) -> Vec<Option<u64>> {
             EventType::EffectRequested if field(&event.payload, "effect_id").is_some() => {
                 out.push(phase.and_then(|name| entered.get(name).copied()));
             }
-            _ => {}
+            // A request that names no effect id is not an effect; the
+            // run's lifecycle and the operator's dispositions carry no
+            // visit; and the rest of an effect's life is not its request.
+            EventType::EffectRequested
+            | EventType::RunStarted
+            | EventType::OperatorCommanded
+            | EventType::OperatorAccepted
+            | EventType::OperatorRejected
+            | EventType::RunParked
+            | EventType::RunCompleted
+            | EventType::RunStopped
+            | EventType::EffectStarted
+            | EventType::EffectCheckpointed
+            | EventType::EffectSucceeded
+            | EventType::EffectFailed
+            | EventType::EffectIndeterminate
+            | EventType::TransitionDecided => {}
         }
     }
     out
@@ -44,6 +60,16 @@ pub(crate) fn key_of(effect_id: &str, member: Option<&str>) -> String {
     match member {
         Some(member) => format!("{effect_id}:{member}"),
         None => effect_id.to_string(),
+    }
+}
+
+/// A participant's label: its effect's seat, and `:` and its member's
+/// name where it is a member's. The one home of the form a seat scope
+/// names a participant by, and the completer offers.
+pub fn label_of(seat: &str, member: Option<&str>) -> String {
+    match member {
+        Some(member) => format!("{seat}:{member}"),
+        None => seat.to_string(),
     }
 }
 

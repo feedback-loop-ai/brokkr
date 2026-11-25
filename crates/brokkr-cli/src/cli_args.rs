@@ -6,12 +6,19 @@
 
 mod compile;
 pub(super) use compile::CompileArgs;
+mod dispatch;
+pub(crate) use dispatch::{DispatchArgs, DispatchCmd, DriveArgs, SetBoundArgs, StatusArgs};
 mod entry;
 use entry::EntryArgs;
 mod member_retry;
 mod queue;
 pub(crate) use member_retry::MemberRetryArgs;
 pub(crate) use queue::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
+mod moved;
+#[cfg(test)]
+pub(crate) use moved::old_spellings;
+pub(crate) use moved::respelled;
+mod tree;
 
 use std::path::PathBuf;
 
@@ -150,7 +157,7 @@ pub(super) struct DoctorArgs {
     pub(super) db: Option<PathBuf>,
     /// Operator-side secrets store, so doctor can say which declared
     /// credentials a route is taking from the ambient environment
-    /// instead (decision 0036 ruling 5; default .brokkr/state/secrets.env, else .forge/secrets.env).
+    /// instead (default .brokkr/state/secrets.env, else .forge/secrets.env).
     #[arg(long)]
     pub(super) secrets_file: Option<PathBuf>,
 }
@@ -215,10 +222,9 @@ pub(super) struct LaunchArgs {
     /// starts and handed to its seats.
     #[arg(long)]
     pub(super) feature: String,
-    /// The world's map: realms and the journal they share (decision
-    /// 0023). Defaults to .brokkr/realms.json, else ./realms.json; a map
-    /// named here and missing or malformed is a refusal, never a
-    /// silent fallback.
+    /// The world's map: realms and the journal they share. Defaults to
+    /// .brokkr/realms.json, else ./realms.json; a map named here and
+    /// missing or malformed is a refusal, never a silent fallback.
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
     /// The workspace journal. Outranks the map's journal; without either, the found folder's
@@ -298,8 +304,7 @@ pub(super) struct ConcludeArgs {
     #[arg(long)]
     pub(super) reason: String,
     /// Required: how the run ended, one of superseded, infrastructure,
-    /// delivered-elsewhere, withdrawn, exhausted or operator-stopped
-    /// (decision 0064 ruling 4).
+    /// delivered-elsewhere, withdrawn, exhausted or operator-stopped.
     #[arg(long)]
     pub(super) cause: Option<String>,
     /// With --cause superseded, required: the run that replaced this one,
@@ -331,21 +336,20 @@ pub(super) struct OperatorArgs {
     /// attests that every process the run's ended attempts owned has ended,
     /// and frees the worktree their writer lease holds; "supersede" records
     /// that residual findings on a run that has already finished are closed
-    /// by another run (decision 0047); "classify" names how a stopped run
-    /// ended (decision 0064 ruling 5); "repair" names the late tail an
-    /// event after a run's terminal one left, so the run folds again as it
-    /// ended, the tail kept and never applied (decision 0108 ruling 4);
+    /// by another run; "classify" names how a stopped run ended; "repair"
+    /// names the late tail an event after a run's terminal one left, so
+    /// the run folds again as it ended, the tail kept and never applied;
     /// "settle" records that a quarantined run's writers are proven ended,
-    /// so its worktree is released (decision 0108 ruling 3);
-    /// "acknowledge" lists a quarantined
-    /// run under older until its journal moves (#511).
+    /// so its worktree is released; "acknowledge" lists a quarantined run
+    /// under older until its journal moves.
+    // Decisions 0047, 0064 and 0108 and #511 rule these commands.
     pub(super) command: String,
     /// Why the operator issued the command, recorded with it.
     #[arg(long)]
     pub(super) reason: String,
     /// stop and classify, and required there: how the run ended, one of
     /// superseded, infrastructure, delivered-elsewhere, withdrawn,
-    /// exhausted or operator-stopped (decision 0064 ruling 4).
+    /// exhausted or operator-stopped.
     #[arg(long)]
     pub(super) cause: Option<String>,
     /// supersede only: the residual findings this closes, by the
@@ -406,7 +410,7 @@ pub(super) struct InspectArgs {
     #[arg(long, value_name = "CALL_ID", conflicts_with_all = ["phase", "seat"])]
     pub(super) capability_call: Option<String>,
     /// The operated repository whose run-local directory holds the call's retained response, as
-    /// `ledger --repo` resolves it; without it, the workspace's own.
+    /// `stats ledger --repo` resolves it; without it, the workspace's own.
     #[arg(long, requires = "capability_call")]
     pub(super) repo: Option<PathBuf>,
 }
@@ -450,7 +454,7 @@ pub(super) struct SeatsArgs {
     /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
-    /// Emit the view model verbatim — `inspect --json`'s own bytes.
+    /// Emit the view model verbatim — `runs inspect --json`'s own bytes.
     #[arg(long)]
     pub(super) json: bool,
 }
@@ -621,10 +625,10 @@ pub(super) struct RealmsArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct DriverArgs {
-    /// The adapter to run: claude, lanetally, codex, dsh or exec.
+    /// The adapter to run: claude, lanetally, codex, dsh, qoder, agy or exec.
     pub(super) kind: String,
     /// Arguments after -- pass to the agent CLI
-    /// (claude/lanetally/codex/dsh) or form the command template
+    /// (claude/lanetally/codex/dsh/qoder/agy) or form the command template
     /// (exec).
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub(super) args: Vec<String>,
@@ -637,13 +641,13 @@ pub(super) struct FakeDriverArgs {
     pub(super) script: PathBuf,
     #[arg(long)]
     pub(super) state: PathBuf,
-    /// The concrete model an adapter pinned (decision 0016). Echoed
-    /// back as a checkpoint so a proof can assert the pin actually
-    /// reached the driver rather than trusting the composed argv.
+    /// The concrete model an adapter pinned. Echoed back as a
+    /// checkpoint so a proof can assert the pin actually reached the
+    /// driver rather than trusting the composed argv.
     #[arg(long)]
     pub(super) model: Option<String>,
-    /// The concrete effort an adapter pinned (decision 0035 ruling
-    /// 5), taken and echoed on exactly the terms `--model` is: the
+    /// The concrete effort an adapter pinned, taken and echoed on
+    /// exactly the terms `--model` is: the
     /// other half of the hire travels the same argv, so a fake seat
     /// that could not be told its effort would prove the pin
     /// reached the composed command and nothing further.
@@ -660,48 +664,17 @@ pub(super) enum ProbeCmd {
     Harness(ProbeHarnessArgs),
 }
 
-/// The small verb groups flattened into the top-level verbs so the
-/// command line reads as it always has, and dispatched as one group
-/// (`lib::grouped`). The sweep sits here because it is one pass over the
-/// host, not a library verb, and grouping it keeps `run_with`'s one arm
-/// per group rather than one per verb.
-#[derive(clap::Subcommand)]
+/// The small verb groups dispatched as one group (`lib::grouped`), so
+/// `run_with` keeps one arm per group rather than one per verb. Where
+/// each is typed, and its help, is the tree's (`tree`).
 pub(super) enum GroupedCmd {
-    /// The recipe library: bundle directories as named, swappable
-    /// delivery strategies.
-    Recipes {
-        #[command(subcommand)]
-        command: super::RecipesCmd,
-    },
-    /// The agent library (decision 0016): one definition per agent —
-    /// description, charter, an ordered chain of abstract model names,
-    /// abstract tool/MCP configuration — that seats reference by name.
-    Agents {
-        #[command(subcommand)]
-        command: super::AgentsCmd,
-    },
-    /// The standing overseer (decision 0020): read the fleet, propose to
-    /// the operator, execute nothing. It opens the journal read-only,
-    /// issues no operator command, starts no run, and records every
-    /// proposal — with the run ids and sequence numbers it was derived
-    /// from — in its own append-only file beside the journal.
-    Muninn {
-        #[command(subcommand)]
-        command: super::MuninnCmd,
-    },
-    /// Manage the operator-side secrets store (decision 0012): bundles
-    /// and journals carry NAMES only; values live in this env-format
-    /// file outside version control. There is no value-printing verb.
-    Secrets {
-        #[command(subcommand)]
-        command: SecretsCmd,
-    },
-    /// Remove the run-local seat scratch trees the journal proves free and
-    /// record what each complete removal freed, and reap the hands session
-    /// trees whose owners are dead. One pass under the journal's dispatch
-    /// lock; `--dry-run` lists what a pass would remove, with sizes, and
-    /// writes nothing.
+    Recipes { command: super::RecipesCmd },
+    Agents { command: super::AgentsCmd },
+    Muninn { command: super::MuninnCmd },
+    Configuration(crate::verbs::setup::ConfigurationCmd),
     Sweep(SweepArgs),
+    Dispatch(DispatchArgs),
+    Completions(crate::completion::CompletionsArgs),
 }
 
 /// The MCP capability broker's one verb (decision 0077), and its private
@@ -774,9 +747,15 @@ pub(super) struct ProbeHarnessArgs {
     #[arg(long)]
     pub(super) out: Option<PathBuf>,
     /// A credential every credentialed launch is given, bound by name
-    /// from the secrets store (decision 0012). Repeatable.
+    /// from the secrets store. Repeatable.
     #[arg(long = "credential")]
     pub(super) credentials: Vec<String>,
+    /// A file under HOME the CLI keeps its login in, such as
+    /// .codex/auth.json, linked at the same place under the scratch HOME for
+    /// every credentialed launch, so a login the CLI refreshes is written to
+    /// this file. Its content is never read. Repeatable.
+    #[arg(long = "credential-file")]
+    pub(super) credential_files: Vec<String>,
     /// The secrets store each `--credential` is read from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env).
     #[arg(long)]
     pub(super) secrets_file: Option<PathBuf>,

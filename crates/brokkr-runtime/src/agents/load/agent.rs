@@ -1,16 +1,32 @@
 //! The steps of one agent definition, each a field or a group of its
 //! fields, in the order `parse_agent` reads them: the capability
 //! requests, the description and charter, the model chain with its
-//! efforts, the hands and the inputs. Every refusal stays in the order it
+//! efforts, the hands, the inputs and the results. Every refusal stays in the order it
 //! was written, so a file failing several checks reports the same first
 //! one.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use brokkr_core::policy::is_identifier;
 use serde_json::{Map, Value};
 
 use super::{contained, invalid, name_map, named, string, string_array, LibraryError};
+
+/// The keys an agent definition may write, in the order their steps read.
+pub(super) const KEYS: [&str; 11] = [
+    "description",
+    "charter",
+    "models",
+    "efforts",
+    "tools",
+    "capabilities",
+    "hands",
+    "access",
+    "limits",
+    "inputs",
+    "results",
+];
 
 /// The office's capability requests, absent reading as none.
 pub(super) fn capabilities(
@@ -102,14 +118,44 @@ pub(super) fn hands(
     Ok(hands)
 }
 
-/// The inputs the office reads, where it names them.
-pub(super) fn inputs(
+/// A list an office may declare, absent where it names none.
+type Declared = Option<Vec<String>>;
+
+/// What the office declares of its verdicts: the inputs it reads and the
+/// results it may report, each where it names them.
+pub(super) fn declared(
     map: &Map<String, Value>,
     what: &str,
-) -> Result<Option<Vec<String>>, LibraryError> {
+) -> Result<(Declared, Declared), LibraryError> {
+    Ok((inputs(map, what)?, results(map, what)?))
+}
+
+/// The inputs the office reads, where it names them.
+fn inputs(map: &Map<String, Value>, what: &str) -> Result<Option<Vec<String>>, LibraryError> {
     let inputs = match map.get("inputs") {
         None => None,
         Some(_) => Some(string_array(map, "inputs", what)?),
     };
     Ok(inputs)
+}
+
+/// The results the office may report, where it names them (decision 0109
+/// ruling 11): a non-empty list of result words. A review-panel member
+/// is held to it, and a single seat's own `results` lie within it.
+fn results(map: &Map<String, Value>, what: &str) -> Result<Option<Vec<String>>, LibraryError> {
+    if !map.contains_key("results") {
+        return Ok(None);
+    }
+    let results = string_array(map, "results", what)?;
+    if results.is_empty() {
+        return invalid(format!(
+            "{what} 'results' is empty; an office that declares its results names at least one"
+        ));
+    }
+    match results.iter().find(|word| !is_identifier(word)) {
+        Some(word) => invalid(format!(
+            "{what} 'results' names '{word}', which does not match ^[a-z0-9][a-z0-9._-]*$"
+        )),
+        None => Ok(Some(results)),
+    }
 }

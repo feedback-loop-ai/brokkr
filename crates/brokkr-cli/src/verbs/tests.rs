@@ -127,7 +127,7 @@ fn conclude_resolves_latest_to_the_run_it_stops_and_refuses_an_empty_run() {
     assert_eq!(fold(&events()).unwrap().run.status(), Status::Stopped);
 }
 
-/// `brokkr operator <command> --run latest` on `journal`, with no
+/// `brokkr runs operator <command> --run latest` on `journal`, with no
 /// supersede-only argument, and the cause a stop names.
 fn operator(command: &str, journal: JournalArgs) -> OperatorArgs {
     OperatorArgs {

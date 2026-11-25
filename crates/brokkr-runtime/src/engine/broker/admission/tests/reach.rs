@@ -35,7 +35,7 @@ fn admitted(engine: &mut Engine, coordination: Coordination<'_>) -> bool {
     let seat = engine.bundle.seats["work"].clone();
     let (body, _) = seat.body.selected(None).unwrap();
     let ids = ["effect", "attempt", "work"];
-    let admitted = engine.admit_in(coordination, ids, body, &Selection::new(), soon());
+    let admitted = engine.admit_in(coordination, ids, body, &Selection::new(), unhurried());
     admitted.unwrap()
 }
 
@@ -140,7 +140,7 @@ fn a_reservation_sealed_without_the_store_no_longer_reads() {
         }
         std::fs::write(&at, serde_json::to_vec(&read).unwrap()).unwrap();
         let held = engine.held.clone().expect("a lease");
-        let refused = release(&held, soon());
+        let refused = release(&held, unhurried());
         assert_eq!(refused, Err(Unadmitted::Identity(Unknown::Participant(at))));
     }
 }

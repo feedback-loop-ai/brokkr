@@ -19,8 +19,11 @@ use thiserror::Error;
 pub const SEVERITY_ORDER: [&str; 6] = ["none", "info", "low", "medium", "high", "critical"];
 
 /// A residual finding's severity, typed: the closed set [`SEVERITY_ORDER`]
-/// names, ordered as it orders them. It serializes as its name.
-#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+/// names, ordered as it orders them. It serializes as its name and reads
+/// only from one, as a finding's severity (decision 0109 ruling 3).
+#[derive(
+    serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     None,
@@ -547,7 +550,7 @@ mod words;
 
 pub use errors::{Malformed, Place, RuleKey, TableKey, Unreadable};
 use inputs::{choice_keyed, count, names, vocabulary, Pick};
-pub use inputs::{is_declarable, CONSECUTIVE_FAILURES};
+pub use inputs::{is_declarable, CHANGE, CONSECUTIVE_FAILURES};
 
 #[cfg(test)]
 mod tests;

@@ -216,7 +216,7 @@ fn a_stop_says_who_stopped_it_and_by_which_rule() {
 #[test]
 fn a_stop_accepted_without_an_ending_stands_as_stopping() {
     let detail = "stop accepted at seq 93; no ending written. If no driver is running it, \
-                  `brokkr conclude` closes it.";
+                  `brokkr runs conclude` closes it.";
     let mut accepted = settled(Status::Running, "verify", None);
     accepted.run = Run::Running(Cursor::Stop);
     accepted.stop_accepted_seq = Some(93);
@@ -237,7 +237,7 @@ fn a_stop_accepted_without_an_ending_stands_as_stopping() {
     };
     assert_eq!(stopping.label(), "stopping");
     assert_eq!(stopping.prompt().as_deref(), Some(detail));
-    let conclude = "brokkr conclude --run r1 --cause <cause> --reason <why>";
+    let conclude = "brokkr runs conclude --run r1 --cause <cause> --reason <why>";
     assert_eq!(stopping.commands("r1"), [conclude]);
     assert_eq!(stopping.way_out("r1"), [format!("way out   {conclude}")]);
 
@@ -841,7 +841,7 @@ fn each_need_says_what_the_operator_can_do() {
     assert_eq!(Need::Parked.prompt(), None);
     assert_eq!(
         unfolded.prompt().as_deref(),
-        Some("quarantined: export and inspect")
+        Some("quarantined: journal export and runs inspect")
     );
     assert_eq!(
         unloaded.prompt().as_deref(),
@@ -849,14 +849,14 @@ fn each_need_says_what_the_operator_can_do() {
     );
     assert_eq!(
         stale.prompt().as_deref(),
-        Some("stale: no event since 116h00m; resume or conclude")
+        Some("stale: no event since 116h00m; resume or runs conclude")
     );
     assert_eq!(Need::Parked.way_out("r1"), Vec::<String>::new());
     assert_eq!(Need::Parked.commands("r1"), Vec::<String>::new());
-    let acknowledge = "brokkr operator acknowledge --run r1 --reason <why>";
+    let acknowledge = "brokkr runs operator acknowledge --run r1 --reason <why>";
     assert_eq!(
         unfolded.commands("r1"),
-        ["brokkr export --run r1", acknowledge]
+        ["brokkr journal export --run r1", acknowledge]
     );
     // The store refuses a journal it does not load to every verb that
     // reads it, export included (review M1); an acknowledgement reads
@@ -866,15 +866,15 @@ fn each_need_says_what_the_operator_can_do() {
         stale.commands("r1"),
         [
             "brokkr resume --run r1 --bundle <its-bundle>",
-            "brokkr conclude --run r1 --cause <cause> --reason <why>",
+            "brokkr runs conclude --run r1 --cause <cause> --reason <why>",
         ]
     );
     assert_eq!(
         unfolded.way_out("r1"),
         [
-            "way out   brokkr export --run r1",
+            "way out   brokkr journal export --run r1",
             "          and inspect the journal it writes",
-            "          then brokkr operator acknowledge --run r1 --reason <why> lists it under \
+            "          then brokkr runs operator acknowledge --run r1 --reason <why> lists it under \
              older",
         ]
     );
@@ -883,7 +883,7 @@ fn each_need_says_what_the_operator_can_do() {
         [
             "way out   none in brokkr: the store refuses this journal, export included;",
             "          inspect the hearth's journal file by hand",
-            "          then brokkr operator acknowledge --run r1 --reason <why> lists it under \
+            "          then brokkr runs operator acknowledge --run r1 --reason <why> lists it under \
              older",
         ]
     );
@@ -894,7 +894,7 @@ fn each_need_says_what_the_operator_can_do() {
              and a 1h margin",
             "way out   brokkr resume --run r1 --bundle <its-bundle>",
             "          drives it again under its pinned bundle (or --recipe <name>);",
-            "          or brokkr conclude --run r1 --cause <cause> --reason <why> closes it",
+            "          or brokkr runs conclude --run r1 --cause <cause> --reason <why> closes it",
         ]
     );
     let parked = settled(Status::AwaitingOperator, "review", None);

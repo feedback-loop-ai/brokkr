@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v6.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v8.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -174,6 +174,7 @@ this contract was minted, was accepted by the operator on 2026-10-30.
 | `provider-wait.v1.schema.json` | 0103 |
 | `provider-wait.v2.schema.json` | 0106 |
 | `park-cause.v1.schema.json` | 0106 |
+| `effect-usage.v1.schema.json` | 0112 |
 
 ## Provider wait extension (decision 0103)
 
@@ -1071,6 +1072,33 @@ reads, and every entry the capacity checks would judge waits as
 `runs_undeclared` until the operator declares one, which `brokkr doctor`
 names. This amends decision 0068 ruling 3.
 
+Decision 0125 ruling 7 (#1193) adds `forge.host/v5` beside the
+frozen v4, whose bytes did not move. It is v4 with `runs` and
+`boxed_builds` each OPTIONAL, and one OPTIONAL object, `demand`:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The machine's host configuration sized by demand | `host.v5.schema.json` | brokkr-runtime (`admission/host.rs`, the loader, and `admission/host/demand.rs`; held to this file by test), `brokkr queue list` and `judge`, `brokkr queue dispatch`, `brokkr doctor` |
+
+`demand` is closed, and every key in it is optional: `window_runs`, from 1
+to 1000 (20 when absent), how many of a recipe's latest runs that carry
+`effect-usage/v1` its demand averages; `margin_percent`, from 0 to 1000
+(25 when absent), the margin added over that average; and `recipes`, a
+recipe name to its declared `peak_memory_bytes` and
+`peak_load_millicores`, each at least 1, read only while the recipe's
+window supplies no measured profile, which takes a completed run
+(decision 0125 ruling 3). An absent `boxed_builds` declares no boxed-build
+ceiling. Where the machine's availability is measured (Linux), an absent
+`runs` holds nothing; where it is not, every entry the capacity checks
+would judge waits as `runs_undeclared`, as under v1 to v3. The loader
+refuses a v1 to v4 file that writes `demand` or leaves out
+`boxed_builds`, each naming its version, and a window or margin out of
+range; every v1 to v4 file reads with the defaults.
+
+Run `brokkr system host upgrade --check` to preview the change to v5.
+Run `brokkr system host upgrade` to change the schema while preserving
+every declared value.
+
 The same slice adds one more file and changes none of the bytes above —
 `run-manifest.v12`'s included, which is now pinned by digest beside the
 frozen files:
@@ -1152,3 +1180,131 @@ a word no writer states, and a present object that does not read refuses
 by name, never as absent. The field is legal at `event_schema: 1` under
 the amended rule above. Decision 0106, under which this contract was
 minted, was accepted by the operator on 2026-11-16.
+
+## Effect usage extension (decision 0112)
+
+`effect-usage.v1.schema.json` publishes the optional, absent-by-default
+`usage` object on `effect/succeeded`, `effect/failed` and
+`effect/indeterminate`: what the attempt's process tree used, as the
+engine measured it on its tracker's 100 ms tick from spawn to settlement.
+A single seat carries its six measures — `peak_memory_bytes` and
+`mean_memory_bytes` (the tree's summed resident set, upper estimates),
+`peak_load_millicores` (the busiest one-second window) and
+`mean_load_millicores` (CPU time over wall time), `cpu_ms` (exited
+descendants included) and `wall_ms`; a panel carries `members`, one entry
+per member a tick measured, and a sequence carries `members` too, one
+entry per step driver a tick measured, keyed `<step>` or
+`<step>:<member>` as its checkpoints are. An attempt no tick read carries none, and
+its ending keeps its v1 bytes. Every field is a non-negative integer. The
+field is legal at `event_schema: 1` under the amended rule above; `fold`
+reads none of it, `RunState` gains nothing, and nothing that settles,
+kills, retries or admits an attempt reads it. `brokkr recipes usage`
+reads it, counting an ending without it as unmeasured, never as zero.
+Decision 0112, under which this contract was minted, was accepted by the
+operator on 2026-11-20.
+
+## Seat record with a gate's report (decision 0109)
+
+Decision 0109's first slice (0109a1, ruling 1) adds one file and changes
+none of the bytes above — `seat-record.v6`'s included, which is now pinned
+by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record with a gate's findings, follow-ups and covered identity | `seat-record.v7.schema.json` | brokkr-store append/export/verify (an embedded copy held byte-equal by test), `brokkr inspect`'s findings and covered lines, every seat readout |
+
+`seat-record.v7` is `v6` with its definitions kept under `$defs` and four
+optional properties on the successful result: `findings`, `follow_ups`,
+`covered` and `checked_head`. A finding is closed: `site` (the 64-hex digest of the compiled
+structural site that reported it), `id` (`^[a-z0-9][a-z0-9._-]*$`, at most
+64 bytes), a repository-relative `file` (non-empty, at most 4096
+characters, never absolute and with no `..` component, exactly what the
+engine's reader admits), an optional positive `line` (absent for a whole
+file; a present `null` is refused), a non-empty `summary`, a `severity` in `none < info < low < medium < high <
+critical` and a boolean `security`. Its key is `(site, id)` (ruling 3); the
+rest is the record. `follow_ups` has the same shape. `covered` is closed
+and tagged by `kind`: `head` with exactly one of `head` (a commit id) or
+`head_digest` (the SHA-256 of the protected phase's decide-time head
+string), beside `dirty`, and no `base`; or `artifacts` with at least one
+`{path, sha256}`. `checked_head` is a commit id: the head the protected
+phase's effect's stable-head check accepted, journaled with its result
+(and with a protected sequence gate step's checkpoint) so decide records
+it as `reviewed_heads` from the journal, and a resumed engine decides on
+the same head with no HEAD read of its own. A protected result without
+one, or whose `covered` does not project it, is refused at decide.
+
+A checkpoint may carry `authored: "engine"`: the engine's own record of a
+sequence step's finish or a panel member's, written beside a verdict. It
+is engine-written. The engine refuses a driver's live checkpoint that
+carries it or names either marker's `step` word, and passes a live
+checkpoint's nested `result` through the same admission a successful
+result passes, so a reader admits a checkpoint as a verdict by
+`authored` alone, never by its `step` word.
+
+`covered`, `follow_ups`, `checked_head` and each finding's `site` are the engine's: the
+engine refuses a seat result that carries any of them before this
+contract is asked, and stamps them itself (rulings 1 and 3). In this
+slice the engine writes `findings` where a gate site reports them, each
+with its own site, and refuses a work site's result that carries any; it
+writes `covered` on a gate-produced result in the `head` arm only, from
+the head its span's stable-head check accepted; the `artifacts` arm and `follow_ups` are admitted and written by no
+path until slices 0109c and 0109d, and every `dirty` is `true` until
+0109b's tree check proves a worktree clean.
+
+A checkpoint's nested `result` is an object, as v6 admits it, unless the
+checkpoint carries `authored`; then it is the same closed result a
+successful result is, and the fence reads its findings through the
+engine's typed reader. The scope is `authored` because only this
+contract's writer emits it and v6's closed checkpoint refuses it.
+
+The store dispatches the 0.14 engine line and later to v7, and the 0.12
+and 0.13 lines to v6, at append, export, import verification and offline
+verification alike. The tagged 0.14.0 and 0.15.0 engines are v6-era
+writers in that line: they wrote none of the five fields, and every new
+refusal is scoped on `authored`, so every row they wrote reads under v7
+exactly as it did under v6. Since seat-record v8 (below) stands at this
+same line, dispatch chooses v8 for these lines and v7 for none.
+
+## Seat record with open kinds (decision 0075 ruling 2)
+
+Decision 0075 ruling 2, with its addendum of 2026-11-21, adds one file and
+changes none of the bytes above — `seat-record.v7`'s included, which is
+now pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record whose transcript and root session kinds its harness's adapter declares | `seat-record.v8.schema.json` | brokkr-store append/export/verify (an embedded copy held byte-equal by test), every seat readout |
+
+`seat-record.v8` is `v7` with two members opened and nothing else:
+`transcript.kind` and `root_session.kind` are each one lowercase word of
+letters, digits and single inner hyphens, `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`,
+at most 40 characters, where v7 listed `claude-session`, `codex-thread`,
+`dsh-session` (and, for a transcript, `none`). Every listed kind fits the
+grammar, so every valid v7 record is a valid v8 record. `none` keeps its
+meaning for a transcript, whose `locator` and `home` are then empty, and
+is refused as a root session kind, as v7's list already refused it: a
+root session is a confirmed provider session or it is absent.
+
+The schema admits the grammar; the engine's writer narrows it. Where the
+engine appends a driver's checkpoint or successful result, it refuses a
+kind, at any place the record names one, that the seat's own harness
+does not declare — its adapter's or its built-in driver's, never
+another adapter's — naming the kind and the seat, and the attempt fails
+on that refusal. An adapter declares
+its kinds in the optional `record_kinds` member, a `transcript` kind and,
+where the harness confirms one, a `root_session` kind. Beside a
+`root_session` kind, and only there, `resume_shape` names the one shape
+of the adapter's `resume` its seats rejoin by. The built-in
+drivers declare the kinds they write, so no shipped adapter carries the
+member, and `none` needs no declaration. Verifiers — export, import
+verification and offline verification — judge a record by this schema
+alone, so an exported journal verifies without the adapters that wrote
+it. A reader acts on a kind only at one of the three places v8 defines (a
+checkpoint's `transcript` and `root_session`, and a result's
+`transcript`) and only where the kind was judged, as item 3 of decision
+0075's 2026-11-21 addendum states: a seat readout renders a kind it does
+not know as its kind, locator and home, and acts on nothing of it.
+
+v8 stands at v7's own engine line: the store dispatches the 0.14 line
+and later to v8, and the 0.12 and 0.13 lines to v6. As with v2, no engine
+string selects v7; it stays published, pinned and nameable.

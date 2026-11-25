@@ -29,7 +29,7 @@ mod access;
 pub use access::Access;
 pub mod grammar;
 mod listed;
-mod mcp;
+pub(crate) mod mcp;
 mod read;
 
 use grammar::{Command, Effect, ListKind};
@@ -1331,7 +1331,7 @@ impl SealedBoundary {
             .find(|boundary| boundary.word() == word)
     }
 
-    fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             SealedBoundary::Namespace => "namespace",
             SealedBoundary::Seatbelt => "seatbelt",

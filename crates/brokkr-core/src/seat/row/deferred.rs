@@ -102,7 +102,9 @@ impl Record {
 }
 
 /// One terminal's dated facts, as the row of the attempt in flight reads
-/// them: its outcome, and the model, stamp and effort its result states.
+/// them: its outcome, the model, stamp and effort its result states, and
+/// the sequence step a result names as its producer, which has a row of
+/// its own as the view gives it a participant (fix round 0109a1r4, K6).
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct End {
     seq: u64,
@@ -111,6 +113,7 @@ pub(super) struct End {
     model: Option<String>,
     stamp: Option<String>,
     effort: Option<String>,
+    step: Option<String>,
 }
 
 impl End {
@@ -121,6 +124,7 @@ impl End {
                 .and_then(|result| field(result, key))
                 .map(str::to_string)
         };
+        let step = field(&event.payload, "step").filter(|_| result.is_some());
         End {
             seq: event.seq,
             attempt: field(&event.payload, "attempt_id").map(str::to_string),
@@ -128,6 +132,7 @@ impl End {
             model: says("model"),
             stamp: result.and_then(stamp_of),
             effort: says("effort"),
+            step: step.map(str::to_string),
         }
     }
 }
@@ -228,6 +233,9 @@ impl Seats {
         state(&mut row.model, seq, end.model.clone());
         state(&mut row.stamp, seq, end.stamp.clone());
         state(&mut row.effort, seq, end.effort.clone());
+        if let Some(step) = end.step.as_deref() {
+            self.row(request, end.attempt.as_deref(), Member::of(Some(step)));
+        }
     }
 }
 

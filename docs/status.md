@@ -220,6 +220,14 @@ seat at launch.
 
 ## Known limitations
 
+- **Parallel writers on one journal may corrupt it.** Parallel drivers
+  on one journal corrupted it on SQLite 3.46.0 in 3 of 4 trials. 0.14.0
+  bundles SQLite 3.54.1, past SQLite's WAL-reset fix in 3.51.3, but the
+  issue stays open until its stress test proves the bump. Until then,
+  give each writer its own journal. Opening a damaged journal, or
+  reading its runs, events or listing, refuses it by name; see the guide's
+  [A damaged journal](guides/journal-and-verification.md#a-damaged-journal)
+  ([#1000](https://github.com/feedback-loop-ai/brokkr/issues/1000)).
 - **Resume is live for one shape.** Only Codex's harness work seat
   rejoins its session on a retry. The claude, dsh and LaneTally shapes
   are unmeasured, so their retries start cold, and `exec` has no session

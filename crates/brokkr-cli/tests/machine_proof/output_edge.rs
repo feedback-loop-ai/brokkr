@@ -76,13 +76,23 @@ fn the_output_edge_masks_with_the_shared_masker_and_serializes_once() {
     let guard = PathBuf::from("brokkr-protocol/src/secret/guard.rs");
     let protocol = |needle: &str| {
         let mut calls = production_calls(needle);
-        calls.retain(|(file, _)| file.starts_with("brokkr-protocol/src"));
+        calls.retain(|(file, _)| file.starts_with("brokkr-protocol/src") & !tests(file));
         calls.sort();
         calls
     };
     let ledgers = [at(&ledger, "bind"), at(&ledger, "open_with")];
     assert_eq!(protocol("Guard::new("), ledgers.concat());
-    assert_eq!(protocol("mask_json(&mut masked"), at(&ledger, "masked"));
+    let adapters = PathBuf::from("brokkr-protocol/src/adapters.rs");
+    let probe = PathBuf::from("brokkr-protocol/src/adapters/probe.rs");
+    let mut json_masks = [
+        at(&ledger, "masked"),
+        at(&probe, "seat_row"),
+        at(&adapters, "run_seat_with"),
+        at(&adapters, "run_seat_with"),
+    ]
+    .concat();
+    json_masks.sort();
+    assert_eq!(protocol("secret::mask_json("), json_masks);
     assert_eq!(protocol(".valued("), at(&guard, "passes<B>"));
 }
 

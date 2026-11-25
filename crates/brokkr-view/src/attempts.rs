@@ -63,7 +63,7 @@ impl Site {
     }
 }
 
-/// One reported cost: a checkpoint record's, as `brokkr costs` sums it.
+/// One reported cost: a checkpoint record's, as `brokkr stats costs` sums it.
 pub(crate) struct Spend {
     pub(crate) at: i64,
     pub(crate) phase: Option<String>,

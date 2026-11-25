@@ -1,13 +1,15 @@
 //! The routes declaration's overlay form: one valid object and every
 //! refusal, each pinned to the adapter, the route and the field.
 
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::sha256_bytes;
 use serde_json::{json, Value};
 
+use super::{Declared, LibraryError, OverlayFault, OverlayRefusal, RouteFault, RouteRefusal};
 use crate::agents::tests::{claude_body, Tree};
-use crate::agents::EgressClass;
+use crate::agents::{DeclaredRouteOverlay, EgressClass};
 
 fn dsh_body() -> Value {
     json!({
@@ -345,51 +347,227 @@ fn a_file_naming_a_directory_refuses() {
     refusal(&tree, "routes.spark-glm.overlay.file", "overlays/spark.yml");
 }
 
-/// A metadata fault and a read fault each take the shared unreadable
-/// refusal, and an over-bound read takes the bound refusal the metadata
-/// check would have taken. The injected closures stand where the real
-/// `std::fs` calls do; the directory is the adapter's own.
+const WHAT: &str = "adapter 'dsh'";
+const ROUTE: &str = "spark-glm";
+
+/// The adapter's own directory, canonical, as `declarations` resolves it.
+fn adapters_directory(tree: &Tree) -> PathBuf {
+    std::fs::create_dir_all(tree.root.join("adapters")).unwrap();
+    tree.root.join("adapters").canonicalize().unwrap()
+}
+
+/// `overlay_declaration_with` for `adapter 'dsh'` and route `spark-glm`.
+fn injected(
+    raw: &Value,
+    directory: &Path,
+    metadata: impl FnOnce(&Path) -> std::io::Result<std::fs::Metadata>,
+    read: impl FnOnce(&Path) -> std::io::Result<Vec<u8>>,
+) -> Result<DeclaredRouteOverlay, OverlayFault<'static>> {
+    super::overlay_declaration_with(raw, WHAT, ROUTE, directory, metadata, read)
+}
+
+/// The same over the real file system.
+fn on_disk(raw: &Value, directory: &Path) -> Result<DeclaredRouteOverlay, OverlayFault<'static>> {
+    injected(
+        raw,
+        directory,
+        |path| std::fs::metadata(path),
+        |path| std::fs::read(path),
+    )
+}
+
+/// The typed refusal a declaration took, or a panic naming what it took.
+fn refused(result: Result<DeclaredRouteOverlay, OverlayFault<'static>>) -> OverlayRefusal<'static> {
+    match result {
+        Err(OverlayFault::Refused(refusal)) => refusal,
+        other => panic!("not an overlay refusal: {other:?}"),
+    }
+}
+
+/// `overlay_path` for `adapter 'dsh'` and route `spark-glm`.
+fn path_refusal(file: &str, directory: &Path) -> OverlayRefusal<'static> {
+    super::overlay_path(file, WHAT, ROUTE, directory).unwrap_err()
+}
+
+/// A metadata fault and a read fault each take their own unreadable
+/// variant, and an over-bound read takes the read bound, not the metadata
+/// bound. The injected closures stand where the real `std::fs` calls do;
+/// the directory is the adapter's own.
 #[test]
 fn a_metadata_or_read_fault_takes_the_injected_refusal() {
-    fn injected(
-        raw: &Value,
-        directory: &Path,
-        metadata: impl FnOnce(&Path) -> std::io::Result<std::fs::Metadata>,
-        read: impl FnOnce(&Path) -> std::io::Result<Vec<u8>>,
-    ) -> String {
-        super::overlay_declaration_with(
-            raw,
-            "adapter 'dsh'",
-            "spark-glm",
-            directory,
-            metadata,
-            read,
-        )
-        .unwrap_err()
-        .to_string()
-    }
     let tree = Tree::new();
     write_overlay(&tree, "a: b\n");
-    let directory = tree.root.join("adapters").canonicalize().unwrap();
+    let directory = adapters_directory(&tree);
     let raw = json!({"file": "overlays/spark.yml", "sha256": "a".repeat(64)});
     let fault_metadata = |_: &Path| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
     let fault_read = |_: &Path| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
-    let error = injected(&raw, &directory, fault_metadata, |path| std::fs::read(path));
-    assert!(
-        error.contains("does not resolve to a readable regular file"),
-        "{error}"
+    let (what, route) = (WHAT, ROUTE);
+    assert_eq!(
+        refused(injected(&raw, &directory, fault_metadata, |path| {
+            std::fs::read(path)
+        })),
+        OverlayRefusal::MetadataUnreadable { what, route }
     );
-    let error = injected(&raw, &directory, |path| std::fs::metadata(path), fault_read);
-    assert!(
-        error.contains("does not resolve to a readable regular file"),
-        "{error}"
+    assert_eq!(
+        refused(injected(
+            &raw,
+            &directory,
+            |path| std::fs::metadata(path),
+            fault_read
+        )),
+        OverlayRefusal::ReadUnreadable { what, route }
     );
     let oversized = |_: &Path| Ok(vec![b'x'; 64 * 1024 + 1]);
-    let error = injected(&raw, &directory, |path| std::fs::metadata(path), oversized);
-    assert!(
-        error.contains("past the route overlay's byte bound"),
-        "{error}"
+    assert_eq!(
+        refused(injected(
+            &raw,
+            &directory,
+            |path| std::fs::metadata(path),
+            oversized
+        )),
+        OverlayRefusal::ReadOverBound { what, route }
     );
+}
+
+/// The four path checks, each reached through `overlay_path` on a real
+/// tree, in the order they run.
+#[test]
+fn each_path_check_refuses_in_its_own_variant() {
+    let tree = Tree::new();
+    write_overlay(&tree, "a: b\n");
+    std::fs::write(tree.root.join("outside.yml"), "a: b\n").unwrap();
+    std::os::unix::fs::symlink(
+        "../../outside.yml",
+        tree.root.join("adapters/overlays/escape.yml"),
+    )
+    .unwrap();
+    let directory = adapters_directory(&tree);
+    let (what, route) = (WHAT, ROUTE);
+    assert_eq!(
+        path_refusal("/etc/passwd", &directory),
+        OverlayRefusal::Absolute { what, route }
+    );
+    assert_eq!(
+        path_refusal("../outside.yml", &directory),
+        OverlayRefusal::Traverses { what, route }
+    );
+    assert_eq!(
+        path_refusal("overlays/missing.yml", &directory),
+        OverlayRefusal::Unresolved { what, route }
+    );
+    assert_eq!(
+        path_refusal("overlays/escape.yml", &directory),
+        OverlayRefusal::Outside { what, route }
+    );
+}
+
+/// The file and digest checks on real files: a directory, a file over
+/// the bound, a malformed digest and a digest that does not match; and a
+/// missing `sha256` carries the shared reader's own refusal unchanged.
+#[test]
+fn each_file_and_digest_check_refuses_in_its_own_variant() {
+    let tree = Tree::new();
+    write_overlay(&tree, "a: b\n");
+    std::fs::create_dir_all(tree.root.join("adapters/overlays/dir.yml")).unwrap();
+    let big = vec![b'x'; 64 * 1024 + 1];
+    std::fs::write(tree.root.join("adapters/overlays/big.yml"), &big).unwrap();
+    let directory = adapters_directory(&tree);
+    let (what, route) = (WHAT, ROUTE);
+    let wrong = "a".repeat(64);
+    assert_eq!(
+        refused(on_disk(&declared("overlays/dir.yml", &wrong), &directory)),
+        OverlayRefusal::NotRegular { what, route }
+    );
+    assert_eq!(
+        refused(on_disk(
+            &declared("overlays/big.yml", &sha256_bytes(&big)),
+            &directory
+        )),
+        OverlayRefusal::MetadataOverBound { what, route }
+    );
+    assert_eq!(
+        refused(on_disk(&declared("overlays/spark.yml", "abc"), &directory)),
+        OverlayRefusal::Malformed { what, route }
+    );
+    assert_eq!(
+        refused(on_disk(&declared("overlays/spark.yml", &wrong), &directory)),
+        OverlayRefusal::Mismatch { what, route }
+    );
+    let missing = json!({"file": "overlays/spark.yml"});
+    match on_disk(&missing, &directory) {
+        Err(OverlayFault::Library(LibraryError::Invalid(text))) => assert_eq!(
+            text,
+            "adapter 'dsh' 'routes.spark-glm.overlay' needs a non-empty string 'sha256'"
+        ),
+        other => panic!("not the reader's own refusal: {other:?}"),
+    }
+}
+
+/// Every variant's text, written out, for `adapter 'dsh'` and route
+/// `spark-glm`: the bytes the loader has always printed.
+#[test]
+fn every_route_overlay_refusal_reads_as_it_always_has() {
+    let (what, route) = (WHAT, ROUTE);
+    let cases = [
+        (
+            OverlayRefusal::Absolute { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.file' must be relative to the adapter \
+             file's own directory",
+        ),
+        (
+            OverlayRefusal::Traverses { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.file' must not traverse out of the \
+             adapter file's own directory",
+        ),
+        (
+            OverlayRefusal::Unresolved { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.file' does not resolve to a regular file \
+             inside the adapter file's own directory",
+        ),
+        (
+            OverlayRefusal::Outside { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.file' resolves outside the adapter \
+             file's own directory",
+        ),
+        (
+            OverlayRefusal::MetadataUnreadable { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.file' does not resolve to a readable \
+             regular file inside the adapter file's own directory",
+        ),
+        (
+            OverlayRefusal::NotRegular { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.file' does not resolve to a regular file \
+             inside the adapter file's own directory",
+        ),
+        (
+            OverlayRefusal::MetadataOverBound { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.file' is past the route overlay's byte \
+             bound",
+        ),
+        (
+            OverlayRefusal::Malformed { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.sha256' must be a 64-character lowercase \
+             hexadecimal digest",
+        ),
+        (
+            OverlayRefusal::ReadUnreadable { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.file' does not resolve to a readable \
+             regular file inside the adapter file's own directory",
+        ),
+        (
+            OverlayRefusal::ReadOverBound { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.file' is past the route overlay's byte \
+             bound",
+        ),
+        (
+            OverlayRefusal::Mismatch { what, route },
+            "adapter 'dsh' 'routes.spark-glm.overlay.sha256' does not equal the digest of the \
+             file this route declares",
+        ),
+    ];
+    for (refusal, text) in cases {
+        assert_eq!(refusal.to_string(), text);
+    }
 }
 
 /// An adapter path with no parent resolves its overlays against the empty
@@ -408,4 +586,226 @@ fn a_parentless_adapter_path_refuses_and_an_empty_patch_value_is_no_pair() {
         |value: &str| crate::agents::is_patch_pair(&["--patch".to_string(), value.to_string()]);
     assert!(pair("overlays/spark.yml"));
     assert!(!pair(""));
+}
+
+/// An adapter file whose directory never resolves.
+const ABSENT: &str = "/nonexistent/forge-1052b/adapters/dsh.json";
+
+/// The drivers that dispatch `dsh` and that dispatch no built-in driver.
+fn dsh_driver() -> Vec<String> {
+    ["{brokkr}", "driver", "dsh", "--"]
+        .map(String::from)
+        .to_vec()
+}
+
+fn custom_driver() -> Vec<String> {
+    ["sh", "-c", "true", "--"].map(String::from).to_vec()
+}
+
+/// An adapter file in a tree whose directory resolves.
+fn resolvable(tree: &Tree) -> PathBuf {
+    adapters_directory(tree).join("dsh.json")
+}
+
+/// `declared_routes` for `adapter 'dsh'` over an adapter body.
+fn routes_of<'a>(
+    body: &'a Value,
+    path: &Path,
+    driver: &'a [String],
+) -> Result<Declared, RouteFault<'a>> {
+    super::declared_routes(body.as_object().unwrap(), WHAT, path, driver)
+}
+
+/// The typed refusal a declaration took, or a panic naming what it took.
+fn route_refused(result: Result<Declared, RouteFault<'_>>) -> RouteRefusal<'_> {
+    match result {
+        Err(RouteFault::Refused(refusal)) => refusal,
+        other => panic!("not a route refusal: {other:?}"),
+    }
+}
+
+/// `declared_routes` over a body whose `routes` is `routes` refuses first
+/// with `expected`.
+fn refuses_first(routes: Value, path: &Path, driver: &[String], expected: RouteRefusal<'_>) {
+    let body = json!({ "routes": routes });
+    assert_eq!(route_refused(routes_of(&body, path, driver)), expected);
+}
+
+/// Each check refuses in its own variant, reached through the function
+/// that builds it.
+#[test]
+fn each_route_check_refuses_in_its_own_variant() {
+    let tree = Tree::new();
+    let path = resolvable(&tree);
+    let (dsh, custom) = (dsh_driver(), custom_driver());
+    let (what, route) = (WHAT, ROUTE);
+    let overlay = declared("overlays/spark.yml", &"a".repeat(64));
+    refuses_first(json!([]), &path, &dsh, RouteRefusal::NotObject { what });
+    assert_eq!(
+        super::directory(Path::new(ABSENT), WHAT),
+        Err(RouteRefusal::NoDirectory { what })
+    );
+    let bad = json!({"us/east": "local"});
+    let named = RouteRefusal::BadName {
+        what,
+        route: "us/east",
+    };
+    refuses_first(bad, &path, &dsh, named);
+    let lacking = json!({ROUTE: {"overlay": overlay}});
+    refuses_first(
+        lacking,
+        &path,
+        &dsh,
+        RouteRefusal::NeedsEgress { what, route },
+    );
+    assert_eq!(
+        super::route_egress(&json!("lokal"), ROUTE, WHAT),
+        Err(RouteRefusal::BadEgress { what, route })
+    );
+    let lacking = json!({ROUTE: {"egress": "local"}});
+    refuses_first(
+        lacking,
+        &path,
+        &dsh,
+        RouteRefusal::NeedsOverlay { what, route },
+    );
+    let kind = "<custom>";
+    let whole = json!({ROUTE: {"egress": "local", "overlay": overlay}});
+    refuses_first(
+        whole,
+        &path,
+        &custom,
+        RouteRefusal::WrongDriver { what, route, kind },
+    );
+    let neither = json!({ROUTE: 7});
+    refuses_first(
+        neither,
+        &path,
+        &dsh,
+        RouteRefusal::NeitherForm { what, route },
+    );
+}
+
+/// Where two checks could both fire, the first in the order wins: the
+/// directory before the name, the shape before the directory, the egress
+/// before the overlay and the egress class before the driver.
+#[test]
+fn the_route_checks_run_in_their_order() {
+    let tree = Tree::new();
+    let absent = Path::new(ABSENT);
+    let (dsh, custom) = (dsh_driver(), custom_driver());
+    let (what, route) = (WHAT, ROUTE);
+    let path = resolvable(&tree);
+    let empty = json!({ROUTE: {}});
+    refuses_first(
+        empty,
+        &path,
+        &dsh,
+        RouteRefusal::NeedsEgress { what, route },
+    );
+    let overlay = declared("overlays/spark.yml", &"a".repeat(64));
+    let both = json!({ROUTE: {"egress": "lokal", "overlay": overlay}});
+    refuses_first(
+        both,
+        &path,
+        &custom,
+        RouteRefusal::BadEgress { what, route },
+    );
+    let bad = json!({"us/east": "local"});
+    refuses_first(bad, absent, &dsh, RouteRefusal::NoDirectory { what });
+    refuses_first(json!([]), absent, &dsh, RouteRefusal::NotObject { what });
+}
+
+/// What the declaration admits: an absent `routes` before any directory
+/// is read, an empty object, and a string entry's class with no overlay.
+#[test]
+fn an_absent_empty_or_string_routes_declaration_admits_exactly_its_classes() {
+    let tree = Tree::new();
+    let path = resolvable(&tree);
+    let dsh = dsh_driver();
+    let empty = |declared: Declared| {
+        assert_eq!(declared.routes, BTreeMap::new());
+        assert_eq!(declared.overlays, BTreeMap::new());
+    };
+    let body = json!({});
+    empty(routes_of(&body, Path::new(ABSENT), &dsh).unwrap());
+    let body = json!({"routes": {}});
+    empty(routes_of(&body, &path, &dsh).unwrap());
+    let body = json!({"routes": {ROUTE: "contracted"}});
+    let declared = routes_of(&body, &path, &dsh).unwrap();
+    assert_eq!(
+        declared.routes,
+        BTreeMap::from([(ROUTE.to_string(), EgressClass::Contracted)])
+    );
+    assert_eq!(declared.overlays, BTreeMap::new());
+}
+
+/// `declarations` hands the typed refusal on as the loader's own text.
+#[test]
+fn a_route_refusal_reaches_the_loader_as_its_text() {
+    let tree = Tree::new();
+    let body = json!({"routes": {"us/east": "local"}});
+    match super::declarations(body.as_object().unwrap(), WHAT, &resolvable(&tree), &[]) {
+        Err(LibraryError::Invalid(text)) => assert_eq!(
+            text,
+            "adapter 'dsh' 'routes' names 'us/east', which does not match ^[A-Za-z0-9._:-]+$"
+        ),
+        other => panic!("not the route refusal's text: {other:?}"),
+    }
+}
+
+/// Every variant's text, written out, for `adapter 'dsh'`, route
+/// `spark-glm` and the kind `<custom>`: the bytes the loader has always
+/// printed.
+#[test]
+fn every_route_declaration_refusal_reads_as_it_always_has() {
+    let (what, route) = (WHAT, ROUTE);
+    let cases = [
+        (
+            RouteRefusal::NotObject { what },
+            "adapter 'dsh' 'routes' must be an object of route name → egress class",
+        ),
+        (
+            RouteRefusal::NoDirectory { what },
+            "adapter 'dsh' 'routes' cannot resolve the adapter file's own directory",
+        ),
+        (
+            RouteRefusal::BadName { what, route },
+            "adapter 'dsh' 'routes' names 'spark-glm', which does not match ^[A-Za-z0-9._:-]+$",
+        ),
+        (
+            RouteRefusal::NeedsEgress { what, route },
+            "adapter 'dsh' 'routes.spark-glm' needs 'egress': the route's class is declared in \
+             both forms",
+        ),
+        (
+            RouteRefusal::BadEgress { what, route },
+            "adapter 'dsh' 'routes.spark-glm.egress' is not one of \"local\", \"contracted\" or \
+             \"uncontracted\"; a route's class is the same closed vocabulary in both forms \
+             (decision 0036 ruling 1)",
+        ),
+        (
+            RouteRefusal::NeedsOverlay { what, route },
+            "adapter 'dsh' 'routes.spark-glm' needs 'overlay': the object form is how a route \
+             declares one",
+        ),
+        (
+            RouteRefusal::WrongDriver {
+                what,
+                route,
+                kind: "<custom>",
+            },
+            "adapter 'dsh' 'routes.spark-glm.overlay' declares a route overlay on an adapter \
+             that dispatches '<custom>'; only the 'dsh' driver reads a route overlay, so a \
+             driver that does not is refused at load rather than handed a flag it ignores",
+        ),
+        (
+            RouteRefusal::NeitherForm { what, route },
+            "adapter 'dsh' 'routes.spark-glm' must be a string egress class or an object with \
+             'egress' and 'overlay'",
+        ),
+    ];
+    for (refusal, text) in cases {
+        assert_eq!(refusal.to_string(), text);
+    }
 }

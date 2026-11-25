@@ -177,8 +177,12 @@ pub brokkr_store::Disagreement::Unread::error: brokkr_store::StoreError
 pub brokkr_store::Disagreement::Unread::run_id: alloc::string::String
 impl core::fmt::Display for brokkr_store::Disagreement
 pub fn brokkr_store::Disagreement::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_store::Disposal
+pub brokkr_store::Disposal::Held(brokkr_store::StartRefusal, u32)
+pub brokkr_store::Disposal::Reclaimed(u32)
 pub enum brokkr_store::EntryState
 pub brokkr_store::EntryState::Claimed
+pub brokkr_store::EntryState::Claimed::merged: bool
 pub brokkr_store::EntryState::Claimed::run: alloc::string::String
 pub brokkr_store::EntryState::Dropped
 pub brokkr_store::EntryState::Held
@@ -202,12 +206,13 @@ pub brokkr_store::IndexFault::Stray
 pub enum brokkr_store::QueueCommand
 pub brokkr_store::QueueCommand::Drop
 pub brokkr_store::QueueCommand::Hold
+pub brokkr_store::QueueCommand::Merged
 pub brokkr_store::QueueCommand::Move
 pub brokkr_store::QueueCommand::Move::to: u32
 pub brokkr_store::QueueCommand::Release
 pub enum brokkr_store::QueueRefusal
 pub brokkr_store::QueueRefusal::AlreadyHeld(brokkr_store::EntryId)
-pub brokkr_store::QueueRefusal::BundleMoved(brokkr_store::Claim, alloc::string::String)
+pub brokkr_store::QueueRefusal::BundleMoved(brokkr_store::Claim, alloc::boxed::Box<(alloc::string::String, alloc::string::String)>)
 pub brokkr_store::QueueRefusal::Carried(brokkr_store::Claim, alloc::vec::Vec<alloc::string::String>)
 pub brokkr_store::QueueRefusal::Claimed
 pub brokkr_store::QueueRefusal::Claimed::entry: brokkr_store::EntryId
@@ -233,6 +238,7 @@ pub brokkr_store::QueueRefusal::LatchMoved
 pub brokkr_store::QueueRefusal::LatchMoved::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::LatchMoved::standing: core::option::Option<brokkr_store::Latch>
 pub brokkr_store::QueueRefusal::Launching(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::NotACondition(brokkr_store::Wait)
 pub brokkr_store::QueueRefusal::NotHeld(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::OtherGeneration(brokkr_store::Claim, brokkr_store::Generation)
 pub brokkr_store::QueueRefusal::PastTheEnds
@@ -262,6 +268,7 @@ pub brokkr_store::QueueRefusal::UnknownWait(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::Unmeasured
 pub brokkr_store::QueueRefusal::Unmeasured::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::Unseen(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::Unstarted(brokkr_store::EntryId)
 pub enum brokkr_store::RoundAppend
 pub brokkr_store::RoundAppend::NoTable
 pub brokkr_store::RoundAppend::Written
@@ -294,6 +301,8 @@ pub brokkr_store::SeatRecordVersion::V3
 pub brokkr_store::SeatRecordVersion::V4
 pub brokkr_store::SeatRecordVersion::V5
 pub brokkr_store::SeatRecordVersion::V6
+pub brokkr_store::SeatRecordVersion::V7
+pub brokkr_store::SeatRecordVersion::V8
 impl brokkr_store::SeatRecordVersion
 pub fn brokkr_store::SeatRecordVersion::contract(self) -> &'static str
 pub fn brokkr_store::SeatRecordVersion::of_engine(&str) -> brokkr_store::SeatRecordVersion
@@ -342,6 +351,9 @@ pub brokkr_store::StoreError::Clock::now: alloc::string::String
 pub brokkr_store::StoreError::Contended
 pub brokkr_store::StoreError::Contended::operation: &'static str
 pub brokkr_store::StoreError::Contended::waited_ms: u128
+pub brokkr_store::StoreError::Damaged
+pub brokkr_store::StoreError::Damaged::damage: brokkr_store::Damage
+pub brokkr_store::StoreError::Damaged::journal: std::path::PathBuf
 pub brokkr_store::StoreError::HeadMoved
 pub brokkr_store::StoreError::HeadMoved::expected_seq: u64
 pub brokkr_store::StoreError::HeadMoved::found_seq: u64
@@ -363,6 +375,9 @@ pub brokkr_store::StoreError::Sqlite(rusqlite::error::Error)
 pub brokkr_store::StoreError::TokenCountOutOfRange(u64, &'static str, u64)
 pub brokkr_store::StoreError::UnknownHead
 pub brokkr_store::StoreError::UnknownHead::seq: u64
+pub brokkr_store::StoreError::Unparsed
+pub brokkr_store::StoreError::Unparsed::run_id: alloc::string::String
+pub brokkr_store::StoreError::Unparsed::seq: i64
 impl brokkr_store::StoreError
 pub fn brokkr_store::StoreError::is_contention(&self) -> bool
 pub enum brokkr_store::Swept
@@ -371,6 +386,10 @@ pub brokkr_store::Swept::Scratch(i64)
 pub enum brokkr_store::TreeSweepRecord
 pub brokkr_store::TreeSweepRecord::Unrecorded
 pub brokkr_store::TreeSweepRecord::Written
+pub enum brokkr_store::UsageEvent
+pub brokkr_store::UsageEvent::Completed
+pub brokkr_store::UsageEvent::Ended(alloc::string::String)
+pub brokkr_store::UsageEvent::Entered(alloc::string::String)
 pub enum brokkr_store::VerifyError
 pub brokkr_store::VerifyError::Chain(brokkr_core::envelope::ChainError)
 pub brokkr_store::VerifyError::Fold(brokkr_core::fold::FoldError)
@@ -379,8 +398,10 @@ pub brokkr_store::VerifyError::SeatRecord(brokkr_store::SeatRecordError)
 pub enum brokkr_store::WaitOn
 pub brokkr_store::WaitOn::Completed
 pub brokkr_store::WaitOn::Ended
+pub brokkr_store::WaitOn::Merged
+pub brokkr_store::WaitOn::Named(brokkr_core::ending::Ending)
 impl brokkr_store::WaitOn
-pub const brokkr_store::WaitOn::ALL: [brokkr_store::WaitOn; 2]
+pub const brokkr_store::WaitOn::ALL: [brokkr_store::WaitOn; 14]
 pub fn brokkr_store::WaitOn::word(self) -> &'static str
 impl rusqlite::types::from_sql::FromSql for brokkr_store::WaitOn
 pub fn brokkr_store::WaitOn::column_result(rusqlite::types::value_ref::ValueRef<'_>) -> rusqlite::types::from_sql::FromSqlResult<Self>
@@ -517,10 +538,15 @@ pub brokkr_store::RowEnd::until: time::offset_date_time::OffsetDateTime
 pub struct brokkr_store::Rows<'a, T>
 pub brokkr_store::Rows::payload: &'a dyn core::ops::function::Fn(&T) -> serde_json::value::Value
 pub brokkr_store::Rows::rows: &'a [T]
+pub struct brokkr_store::SeatNames
+pub brokkr_store::SeatNames::member: core::option::Option<alloc::string::String>
+pub brokkr_store::SeatNames::phase: core::option::Option<alloc::string::String>
+pub brokkr_store::SeatNames::seat: core::option::Option<alloc::string::String>
 pub struct brokkr_store::SeatRecordError
 pub brokkr_store::SeatRecordError::contract: &'static str
 pub brokkr_store::SeatRecordError::path: alloc::string::String
 pub brokkr_store::SeatRecordError::seq: u64
+pub brokkr_store::SeatRecordError::settled_member: core::option::Option<alloc::boxed::Box<alloc::string::String>>
 pub struct brokkr_store::SeatTree
 pub brokkr_store::SeatTree::attempt_id: alloc::string::String
 pub brokkr_store::SeatTree::effect_id: alloc::string::String
@@ -601,22 +627,27 @@ pub fn brokkr_store::Store::index_checkpoints(&self, &str, &str, core::option::O
 pub fn brokkr_store::Store::index_trail(&self, &str) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::reads_index(&self) -> core::result::Result<bool, brokkr_store::StoreError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::envelopes_of_engine_markers(&self, &str, u64, u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::envelopes_of_member_markers(&self, &str, &[&str], u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::last_event(&self, &str, u64) -> core::result::Result<core::option::Option<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::rows_through(&self, &[(&str, u64)]) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::high_water(&self) -> core::result::Result<i64, brokkr_store::StoreError>
 pub fn brokkr_store::Store::journal(&self) -> core::result::Result<core::option::Option<uuid::Uuid>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_claim_with<R>(&mut self, &brokkr_store::Claiming<'_>, &str, impl core::ops::function::FnMut(brokkr_store::ClaimFacts<'_>) -> core::result::Result<(), R>) -> core::result::Result<core::result::Result<brokkr_store::Claim, R>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_link(&mut self, brokkr_store::Claim, brokkr_store::Generation, &str, &str) -> core::result::Result<(), brokkr_store::StoreError>
-pub fn brokkr_store::Store::queue_reclaim(&mut self, brokkr_store::Claim, brokkr_store::Generation, core::option::Option<brokkr_store::StartRefusal>, core::num::nonzero::NonZeroU32, &str) -> core::result::Result<u32, brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_reclaim(&mut self, brokkr_store::Claim, brokkr_store::Generation, core::option::Option<brokkr_store::StartRefusal>, core::num::nonzero::NonZeroU32, &str) -> core::result::Result<brokkr_store::Disposal, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_spawn(&mut self, brokkr_store::Claim, brokkr_store::Generation, &str) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_unsettled_with<R>(&mut self, brokkr_store::Generation, impl core::ops::function::FnMut(core::option::Option<uuid::Uuid>) -> core::result::Result<(), R>) -> core::result::Result<core::result::Result<(alloc::vec::Vec<(brokkr_store::Claim, core::option::Option<alloc::string::String>)>, alloc::vec::Vec<(brokkr_store::Claim, alloc::string::String)>), R>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::host_fingerprint(&self) -> core::option::Option<alloc::string::String>
 impl brokkr_store::Store
-pub fn brokkr_store::Store::last_event(&self, &str, u64) -> core::result::Result<core::option::Option<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
-pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
-pub fn brokkr_store::Store::rows_through(&self, &[(&str, u64)]) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
-impl brokkr_store::Store
 pub fn brokkr_store::Store::latest_run(&self) -> core::result::Result<core::option::Option<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::recent_runs(&self, u32) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, core::option::Option<alloc::string::String>)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::run_candidates(&self, &str) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::run_candidates_within(&self, &str, usize) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::run_seats(&self, &str, u32) -> core::result::Result<alloc::vec::Vec<brokkr_store::SeatNames>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::open_kept(&self, &str) -> core::result::Result<(brokkr_store::Opened, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>), brokkr_store::StoreError>
 pub fn brokkr_store::Store::open_run(&self, &str) -> core::result::Result<brokkr_store::Opened, brokkr_store::StoreError>
@@ -626,13 +657,19 @@ pub fn brokkr_store::Store::record_tree_sweep(&mut self, brokkr_store::Swept, &s
 pub fn brokkr_store::Store::tree_sweeps(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::TreeSweep>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::queue_add(&mut self, brokkr_store::NewEntry<'_>, brokkr_store::Attribution<'_>) -> core::result::Result<brokkr_store::EntryId, brokkr_store::StoreError>
-pub fn brokkr_store::Store::queue_command(&mut self, brokkr_store::EntryId, brokkr_store::QueueCommand, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_command(&mut self, brokkr_store::EntryId, brokkr_store::QueueCommand, brokkr_store::Attribution<'_>) -> core::result::Result<core::option::Option<u32>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_entry(&self, brokkr_store::EntryId) -> core::result::Result<brokkr_store::QueueEntry, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_latch(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_list(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_repin(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_waiting(&self, u32) -> core::result::Result<alloc::vec::Vec<(brokkr_store::EntryId, alloc::string::String)>, brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::queue_spawned(&self, brokkr_store::EntryId, i64) -> core::result::Result<core::option::Option<alloc::string::String>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_unspawned(&self) -> core::result::Result<alloc::vec::Vec<(brokkr_store::Claim, core::option::Option<alloc::string::String>)>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::read_snapshot<T, E: core::convert::From<brokkr_store::StoreError>>(&self, impl core::ops::function::FnOnce() -> core::result::Result<T, E>) -> core::result::Result<T, E>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::read_untouched<T, E: core::convert::From<brokkr_store::StoreError>>(&std::path::Path, core::time::Duration, impl core::ops::function::FnOnce(&brokkr_store::Store) -> core::result::Result<T, E>) -> core::result::Result<T, E>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::record_seat_tree(&mut self, &str, &str, &str, &std::path::Path) -> core::result::Result<brokkr_store::SeatTreeRecord, brokkr_store::StoreError>
 pub fn brokkr_store::Store::seat_trees(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::SeatTree>, brokkr_store::StoreError>
@@ -650,6 +687,9 @@ pub fn brokkr_store::Store::seat_rows(&self, &str) -> core::result::Result<brokk
 impl brokkr_store::Store
 pub fn brokkr_store::Store::start_run(&mut self, &str, &str, &str, &serde_json::value::Value, serde_json::value::Value, core::option::Option<&'_ mut dyn core::ops::function::FnMut(&rusqlite::transaction::Transaction<'_>) -> core::result::Result<(), brokkr_store::StoreError>>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::unended_runs(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Unended>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::usage_history(&self, u32) -> core::result::Result<alloc::vec::Vec<brokkr_store::UsageRow>, brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::window_fallbacks(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowFallback<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_sites(&self, i64, i64, core::option::Option<&str>, brokkr_store::metered::SiteOrder, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSite<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_spends(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSpend<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
@@ -660,6 +700,9 @@ pub brokkr_store::TreeSweep::kind: brokkr_store::Swept
 pub brokkr_store::TreeSweep::path: std::path::PathBuf
 pub brokkr_store::TreeSweep::removed_at: i64
 pub brokkr_store::TreeSweep::seq: i64
+pub struct brokkr_store::Unended
+pub brokkr_store::Unended::recipe: alloc::string::String
+pub brokkr_store::Unended::run: alloc::string::String
 pub struct brokkr_store::Unread
 pub brokkr_store::Unread::lane_running: bool
 pub brokkr_store::Unread::order_at: i64

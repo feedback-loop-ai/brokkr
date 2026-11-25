@@ -23,7 +23,7 @@ impl DshFoldState<'_> {
         &mut self,
         launch: &DshLaunch,
         bindings: &[secret::BoundSecret],
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) -> Option<PreSessionRefusal> {
         DshFold::new(
             self.tail,
@@ -48,8 +48,8 @@ pub(super) fn invoke_dsh_launch_observed(
     command: Vec<String>,
     bindings: &[secret::BoundSecret],
     probe: &mut ProbeAnswer,
-    emit: &mut impl FnMut(&Value),
-    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    emit: &mut impl FnMut(&Emitted),
+    wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
     let workdir = launch.workdir.clone();
@@ -187,7 +187,7 @@ impl DshStreamState<'_> {
     fn settle(
         &mut self,
         line: DshStreamLine,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
         observer: &mut impl FnMut(&DshObservation),
     ) {
         self.watch.settle(
@@ -202,7 +202,7 @@ impl DshStreamState<'_> {
     /// Fold whatever the transcript appended, when the hold permits it,
     /// latching the first pre-session refusal it reads. Returns whether
     /// the probe admitted its first answer.
-    fn drain(&mut self, emit: &mut impl FnMut(&Value)) -> bool {
+    fn drain(&mut self, emit: &mut impl FnMut(&Emitted)) -> bool {
         if self.watch.may_fold() {
             let read = DshFoldState {
                 tail: &mut *self.tail,
@@ -222,13 +222,16 @@ impl DshStreamState<'_> {
     /// 430s4a3 M2; decision 0103 ruling 4(a)).
     fn poll(
         &mut self,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
         observer: &mut impl FnMut(&DshObservation),
     ) -> bool {
         if !self.probe.requested() {
             return false;
         }
-        if self.watch.confirming() && self.watch.named_the_offer && !self.watch.settled {
+        if self.watch.confirming()
+            && self.watch.named_offer_display.is_some()
+            && !self.watch.settled
+        {
             self.settle(DshStreamLine::Idle, emit, observer);
         }
         self.drain(emit)
@@ -243,9 +246,9 @@ impl DshStreamState<'_> {
         &mut self,
         open: &mut bool,
         reads: &std::sync::mpsc::Receiver<std::io::Result<String>>,
-        child: &mut std::process::Child,
-        wait: &mut impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
-        emit: &mut impl FnMut(&Value),
+        child: &mut Spawned,
+        wait: &mut impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
+        emit: &mut impl FnMut(&Emitted),
         observer: &mut impl FnMut(&DshObservation),
     ) -> Result<DshPass, std::io::Error> {
         let read = if *open {
@@ -337,9 +340,9 @@ struct DshStreamCall<'a> {
 /// decision 0103 ruling 4(a)).
 fn invoke_dsh_stream_json(
     call: DshStreamCall<'_>,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
     observer: &mut impl FnMut(&DshObservation),
-    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    mut wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
 ) -> Result<DshRun, String> {
     let DshStreamCall {
         command,
@@ -394,7 +397,7 @@ fn invoke_dsh_stream_json(
     let status = loop {
         match io_context(
             state.pass(&mut open, &reads, &mut child, &mut wait, emit, observer),
-            "agent CLI did not conclude",
+            super::stream_turn::UNCONCLUDED,
         )? {
             DshPass::Continue => {}
             DshPass::Answered => {
@@ -520,11 +523,12 @@ mod tests {
         // The refused launch never reaches its three observers, so each is
         // exercised once here and then handed to the invocation, whose
         // refusal proves they were not needed.
-        let mut emit = |_: &Value| {};
-        let wait = |_: &mut std::process::Child| Ok(None);
+        let mut emit = |_: &Emitted| {};
+        let wait = |_: &mut Spawned| Ok(None);
         let mut observer = |_: &DshObservation| {};
-        emit(&Value::Null);
-        let mut child = std::process::Command::new("true").spawn().unwrap();
+        emit(&Emitted::new(Step::SeatTurn, json!({})));
+        let mut child =
+            crate::process::spawned::spawn(&mut std::process::Command::new("true")).unwrap();
         assert_eq!(wait(&mut child).unwrap(), None);
         let _ = child.wait();
         observer(&DshObservation {
@@ -607,7 +611,10 @@ mod tests {
     /// a cold seat has no offer to confirm, a rejoin whose init event has
     /// not named the offer has nothing to settle, a settled watch is not
     /// revisited, and only a named, unsettled rejoin settles on the idle
-    /// tick (decision 0103 ruling 4(a); design D7).
+    /// tick (decision 0103 ruling 4(a); design D7). It holds with no `HOME`
+    /// and no `DSH_HOME` in the process, as while another test holds them
+    /// away, which a rerun of itself in a process without them proves
+    /// (#1224).
     #[test]
     fn the_between_lines_poll_settles_only_a_named_unsettled_offer() {
         fn poll_once(launch: &DshLaunch, watch: &mut DshRootWatch) -> (bool, usize) {
@@ -634,6 +641,11 @@ mod tests {
             (answered, observed)
         }
 
+        // A homeless rerun is homeless: neither name reached it.
+        if std::env::var_os(HOMELESS).is_some() {
+            assert_eq!(std::env::var_os("HOME"), None);
+            assert_eq!(std::env::var_os("DSH_HOME"), None);
+        }
         let dir = tempfile::tempdir().unwrap();
         crate::adapters::tests::plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
         let root = dir.path().join("seat");
@@ -651,20 +663,48 @@ mod tests {
         let mut pending = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
         assert!(pending.confirming());
         assert!(!pending.settled);
-        pending.named_the_offer = true;
+        pending.named_offer_display = Some("session-1".into());
         assert_eq!(poll_once(&launch, &mut pending), (false, 1));
 
         // An offer the init event has not named has nothing to settle.
         let mut unnamed = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
-        unnamed.named_the_offer = false;
+        unnamed.named_offer_display = None;
         assert_eq!(poll_once(&launch, &mut unnamed), (false, 0));
 
         // A settled watch is terminal: no later idle tick revisits it.
         let mut settled = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
-        settled.named_the_offer = true;
+        settled.named_offer_display = Some("session-1".into());
         settled.refuse();
         assert_eq!(poll_once(&launch, &mut settled), (false, 0));
+
+        // Run as itself, it reruns its binary, filtered to itself, with no
+        // `HOME` and no `DSH_HOME`, so this process's own stay with the
+        // tests that read them unguarded. Each is set first, so a removal
+        // left out reaches the rerun whatever this process holds.
+        if std::env::var_os(HOMELESS).is_some() {
+            return;
+        }
+        let rerun = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([UNHOMED, "--exact", "--test-threads=1"])
+            .env(HOMELESS, "1")
+            .env("HOME", dir.path())
+            .env("DSH_HOME", dir.path())
+            .env_remove("HOME")
+            .env_remove("DSH_HOME")
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&rerun.stdout);
+        // A filter that matches nothing exits zero and asserts nothing.
+        assert!(said.contains("1 passed"), "{said}");
     }
+
+    /// What a homeless run of this binary reads: that it is one.
+    const HOMELESS: &str = "BROKKR_TEST_HOMELESS";
+
+    /// [`the_between_lines_poll_settles_only_a_named_unsettled_offer`] by
+    /// its full name, which a homeless run is filtered to.
+    const UNHOMED: &str =
+        "adapters::dsh_launch::tests::the_between_lines_poll_settles_only_a_named_unsettled_offer";
 
     /// The one harness spawn builder's refusals are typed, carry the
     /// injector's own error, and print exactly the words both existing text

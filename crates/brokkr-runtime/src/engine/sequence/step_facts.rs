@@ -1,31 +1,16 @@
-//! The pure step facts a sequence's settling reads: its driver's outcome
-//! with its stderr tail, the step's own result vocabulary, the change a
+//! The pure step facts a sequence's settling reads: its driver's stderr,
+//! the step's own result vocabulary and its word's binding (decision 0109
+//! ruling 2), the change a
 //! dialect step expands, and a dialect step's outcome. Moved out of
 //! `sequence.rs` mechanically so that file stays within ruling 4's 800-line
 //! ceiling (decision 0103 slice 4c2b); no behaviour changed.
 
+use brokkr_core::findings::bind_journaled;
 use brokkr_protocol::AttemptOutcome;
 use serde_json::Value;
 
-use super::super::{stderr_tail, DriverRun, Unproven};
-use crate::bundle::{DialectExecution, SequenceStep};
-
-/// A step driver's outcome, its failure or indeterminate reason with the
-/// driver's stderr tail beside it: the tail rides on the attempt's
-/// terminal event, as a single seat's does. It reads the settled outcome
-/// (#403): a step whose tree is not proven over is indeterminate.
-pub(super) fn tailed_outcome(report: &brokkr_protocol::AttemptReport) -> AttemptOutcome {
-    let tail = stderr_tail(&report.stderr);
-    match report.settled_outcome() {
-        AttemptOutcome::Succeeded { result } => AttemptOutcome::Succeeded { result },
-        AttemptOutcome::Failed { error } => AttemptOutcome::Failed {
-            error: format!("{error}; stderr tail: {tail}"),
-        },
-        AttemptOutcome::Indeterminate { reason } => AttemptOutcome::Indeterminate {
-            reason: format!("{reason}; stderr tail: {tail}"),
-        },
-    }
-}
+use super::super::{DriverRun, Unproven};
+use crate::bundle::{DialectExecution, Invocation, SeatClass, SequenceStep, StepBody};
 
 /// Whether a dialect step's argv or state names `{change}`.
 pub(crate) fn needs_change(execution: &DialectExecution) -> bool {
@@ -37,7 +22,10 @@ pub(crate) fn needs_change(execution: &DialectExecution) -> bool {
 }
 
 /// What is wrong with a step's result against its own vocabulary, if
-/// anything.
+/// anything, and then, at a gate step or a panel step's engine-written
+/// aggregate, against its word's binding to its findings and to the
+/// residual pair its seat compiles (decision 0109 ruling 2). A refused
+/// word is the step's failure; it is never rewritten.
 pub(super) fn vocabulary_problem(step: &SequenceStep, result: &Value) -> Option<String> {
     match result.get("result").and_then(Value::as_str) {
         None => Some("has no 'result' string".to_string()),
@@ -45,14 +33,34 @@ pub(super) fn vocabulary_problem(step: &SequenceStep, result: &Value) -> Option<
             "reported '{word}', outside its declared results {:?}",
             step.results
         )),
+        Some(word) if binds_its_word(step) => (result.as_object())
+            .and_then(|result| bind_journaled(result, word, step.residual).err())
+            .map(|refusal| format!("reported a word that was refused: {refusal}")),
         Some(_) => None,
     }
+}
+
+/// Whether `step`'s word is a verdict ruling 2 binds: a gate step's, or
+/// the aggregate a panel step's engine writes, whatever its members' class.
+pub(in crate::engine) fn binds_its_word(step: &SequenceStep) -> bool {
+    step.class == SeatClass::Gate
+        || matches!(step.body, StepBody::Invocation(Invocation::Panel { .. }))
+}
+
+/// Whether the sequence's seat declares `change`, as its steps were
+/// compiled from the seat scope: a select case's sequence reads it the
+/// same way a plain seat's does, never by its site label (#1221 E).
+pub(super) fn declares_change(steps: &[SequenceStep]) -> bool {
+    steps.iter().any(|step| step.declares_change)
 }
 
 pub(crate) fn nearest_change(context: &Value) -> Option<String> {
     crate::phase_name::CHANGE_SOURCES.iter().find_map(|phase| {
         context
-            .pointer(&format!("/results/{phase}/inputs/change"))
+            .pointer(&format!(
+                "/results/{phase}/inputs/{}",
+                brokkr_core::policy::CHANGE
+            ))
             .and_then(Value::as_str)
             .map(str::to_string)
     })
@@ -62,6 +70,16 @@ pub(crate) fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> 
     argv.iter()
         .map(|token| token.replace("{change}", change))
         .collect()
+}
+
+/// A step driver's retained stderr, which its settling tells once the
+/// attempt's terminal event is appended (#1199); a driver that never
+/// spawned retained none.
+pub(super) fn retained_stderr(run: &DriverRun) -> Option<String> {
+    match run {
+        DriverRun::SpawnFailed(_) => None,
+        DriverRun::Ran(report) => Some(report.stderr.clone()),
+    }
 }
 
 /// A dialect step's outcome, and into `evidence` what its terminal event

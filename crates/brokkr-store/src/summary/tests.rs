@@ -1377,7 +1377,12 @@ fn a_refold_of_an_unreadable_journal_refuses() {
         )
         .unwrap();
     let refused = super::late::refold(&store.conn, "run").unwrap_err();
-    assert!(matches!(refused, crate::StoreError::Json(_)), "{refused:?}");
+    // Unparsed, as an envelope that is not JSON reads before the store's
+    // patience names its journal damaged (#1000).
+    assert!(
+        matches!(&refused, crate::StoreError::Unparsed { run_id, seq: 1 } if run_id == "run"),
+        "{refused:?}"
+    );
     lags(&mut store, &["run"]);
 }
 

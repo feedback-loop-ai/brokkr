@@ -1,4 +1,4 @@
-//! `brokkr graph`'s own part (#568, the Library): the realm it draws in,
+//! `brokkr stats graph`'s own part (#568, the Library): the realm it draws in,
 //! where a recipe's table resolves, the journal it hands over, the lines it
 //! paints, and its refusals. The journals are synthetic, written here.
 
@@ -7,8 +7,11 @@ use brokkr_store::Store;
 use clap::Parser;
 use serde_json::{json, Value};
 
+use std::ffi::OsString;
+
 use super::*;
-use crate::verbs::analytics::CrossRunCmd;
+use crate::tui::width_of;
+use crate::verbs::analytics::{shown, CrossRunCmd};
 use crate::{Cli, Cmd, Exit};
 
 /// The repository root: its `recipes/` holds `self`, which composes
@@ -298,23 +301,28 @@ fn a_composed_recipe_is_drawn_from_its_table_with_its_traffic_and_drift() {
         serde_json::to_value(&view).unwrap()["view_version"],
         json!(2)
     );
-    let painted = paint(&view);
+    let painted = paint(&view, &Style::plain(1000));
     let lines: Vec<&str> = painted.lines().collect();
     assert_eq!(
         lines[0],
         format!("world / self · {} → {now} · 2 runs", view.from)
     );
-    assert_eq!(lines.len(), 1 + view.states.len() + view.rules.len() + 4);
-    let intake = format!(
-        "state  {} · entered 2 · median 0m · p90 0m · not reported · —",
-        first.from
+    // The header, two tables of a header row each a blank line apart, and
+    // the four lines under them.
+    assert_eq!(
+        lines.len(),
+        1 + 1 + view.states.len() + 1 + 1 + view.rules.len() + 4
     );
-    assert!(lines.contains(&intake.as_str()), "{painted}");
-    let rule = format!(
-        "rule   {} · 2 · {} → {next} · forward",
-        first.id, first.from
-    );
-    assert!(lines.contains(&rule.as_str()), "{painted}");
+    assert_eq!(lines[2 + view.states.len()], "", "{painted}");
+    let words = |line: &str| {
+        line.split_whitespace()
+            .map(String::from)
+            .collect::<Vec<_>>()
+    };
+    let intake = [&first.from, "2", "0m", "0m", "not", "reported", "—", "—"];
+    assert!(lines.iter().any(|line| words(line) == intake), "{painted}");
+    let rule = [&first.id, "2", &first.from, next, "forward"];
+    assert!(lines.iter().any(|line| words(line) == rule), "{painted}");
     assert_eq!(
         &lines[lines.len() - 4..],
         [
@@ -335,13 +343,16 @@ fn a_recipe_only_runs_carry_is_drawn_from_them_and_its_live_run_named() {
     journal.run("live", &gone, &[entered("work")]);
     let now = now_rfc3339();
     let view = derive(&hearth(dir.path()), &unshelved(), &[], &asked("gone", &now)).unwrap();
-    let painted = paint(&view);
+    let painted = paint(&view, &Style::plain(80));
     assert_eq!(
         painted,
         format!(
             "world / gone · {} → {now} · 1 runs\n\
              this recipe's table was not found in world\n\
-             state  work · entered 1 · median — · p90 — · not reported · —\n\
+             STATE  ENTERED  MEDIAN  P90          COST  TOKENS  CACHE\n\
+             work         1       —    —  not reported       —      —\n\
+             \n\
+             RULE  COUNT  FROM  TO  KIND\n\
              ends   0 done · 0 stop by a rule · 0 stopped by you · 1 open\n\
              ledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\n\
              live   Draw the graph · work\n",
@@ -421,9 +432,12 @@ fn a_recipe_that_does_not_compile_is_drawn_with_its_refusal_and_named_among_the_
     );
     assert_eq!((view.runs, view.states.len()), (0, 0));
     assert_eq!(
-        paint(&view),
+        paint(&view, &Style::plain(80)),
         format!(
             "world / starter · {} → {now} · 0 runs\n{text}\n  {reason}\n  bundle .brokkr\n\
+             STATE  ENTERED  MEDIAN  P90  COST  TOKENS  CACHE\n\
+             \n\
+             RULE  COUNT  FROM  TO  KIND\n\
              ends   0 done · 0 stop by a rule · 0 stopped by you · 0 open\n\
              ledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\n",
             view.from
@@ -516,6 +530,7 @@ fn the_verb_prints_the_view_as_lines_or_verbatim() {
     let db = dir.path().join("forge.db");
     let cli = Cli::try_parse_from([
         "brokkr".as_ref(),
+        "stats".as_ref(),
         "graph".as_ref(),
         "--db".as_ref(),
         db.as_os_str(),
@@ -546,11 +561,13 @@ fn the_verb_prints_the_view_as_lines_or_verbatim() {
 #[test]
 fn clap_takes_the_recipe_and_refuses_a_range_outside_the_three() {
     // The range is analytics' own parser, refusal and all (its tests).
-    let refused = Cli::try_parse_from(["brokkr", "graph", "--recipe", "self", "--range", "2d"]);
+    let refused = Cli::try_parse_from([
+        "brokkr", "stats", "graph", "--recipe", "self", "--range", "2d",
+    ]);
     assert!(refused.is_err(), "2d is no range");
-    let unnamed = Cli::try_parse_from(["brokkr", "graph"]).unwrap();
+    let unnamed = Cli::try_parse_from(["brokkr", "stats", "graph"]).unwrap();
     let Cmd::CrossRun(CrossRunCmd::Graph(args)) = unnamed.command else {
-        panic!("brokkr graph is the graph verb");
+        panic!("brokkr stats graph is the graph verb");
     };
     assert_eq!(args.recipe, None, "Brokkr picks the recipe");
 }
@@ -594,4 +611,263 @@ fn with_no_recipe_named_the_busiest_is_drawn_else_the_first_known() {
         none.to_string(),
         "no recipe in brokkr: none is installed and no run in the range names one"
     );
+}
+
+/// The graph of `gone`, a recipe only its runs carry: one run worked and
+/// parked in review by `parked`, another still at work.
+fn drawn(parked: &str) -> GraphView {
+    let dir = tempfile::tempdir().unwrap();
+    let mut journal = Journal::at(dir.path());
+    let gone = json!({"bundle_name": "gone"});
+    let mut worked = vec![entered("work")];
+    worked.extend(seat("work", "resolved"));
+    worked.extend([ruled("WORK-OK", "work", Some("review")), entered("review")]);
+    worked.extend(seat("review", "resolved"));
+    worked.push(ruled(parked, "review", None));
+    journal.run("worked", &gone, &worked);
+    journal.run("live", &gone, &[entered("work")]);
+    let now = now_rfc3339();
+    derive(&hearth(dir.path()), &unshelved(), &[], &asked("gone", &now)).unwrap()
+}
+
+#[test]
+fn the_states_and_rules_are_painted_as_two_aligned_tables() {
+    let mut view = drawn("REVIEW-PARK");
+    // The two runs' read order is not the painter's to pin: fix it by id.
+    view.live.sort_by(|a, b| a.run_id.cmp(&b.run_id));
+    // The first state as a reported one reads: its cost and tokens.
+    let work = &mut view.states[0];
+    work.entered = 33;
+    work.cost.text = "$325.28".into();
+    let tokens = &mut work.tokens;
+    for (cell, text) in [
+        (&mut tokens.total, "1363.30M tok"),
+        (&mut tokens.input, "1359.93M"),
+        (&mut tokens.output, "3.38M"),
+        (&mut tokens.cache_hit, "99.0%"),
+    ] {
+        (cell.text, cell.absent) = (text.into(), false);
+    }
+    assert_eq!(
+        paint(&view, &Style::plain(200)),
+        format!(
+            "world / gone · {} → {} · 2 runs\n\
+             this recipe's table was not found in world\n\
+             STATE   ENTERED  MEDIAN  P90          COST                             TOKENS  CACHE\n\
+             work         33      0m   0m       $325.28  Σ 1363.30M tok ↑ 1359.93M ↓ 3.38M  99.0%\n\
+             review        1       —    —  not reported                                  —      —\n\
+             \n\
+             RULE         COUNT  FROM    TO      KIND\n\
+             WORK-OK          1  work    review  forward\n\
+             REVIEW-PARK      1  review  park    self\n\
+             ends   0 done · 0 stop by a rule · 0 stopped by you · 2 open\n\
+             ledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\n\
+             live   Draw the graph · work\n\
+             live   Draw the graph · review\n",
+            view.from, view.to
+        )
+    );
+}
+
+/// The table lines `painted` holds: from under its notes to its ends.
+fn table_lines(painted: &str) -> Vec<String> {
+    painted
+        .lines()
+        .skip(2)
+        .take_while(|line| !line.starts_with("ends"))
+        .map(String::from)
+        .collect()
+}
+
+#[test]
+fn a_narrow_terminal_clamps_the_name_column_and_keeps_the_numbers_whole() {
+    let tables = |view: &GraphView| table_lines(&paint(view, &Style::plain(40)));
+    // 40 columns that hold every cell at one-space gaps: the gaps give way
+    // and every name stays whole.
+    assert_eq!(
+        tables(&drawn("REVIEW-PARK"))[4..],
+        [
+            "RULE        COUNT FROM   TO     KIND",
+            "WORK-OK         1 work   review forward",
+            "REVIEW-PARK     1 review park   self",
+        ]
+    );
+    // 40 columns that do not: each table gives its overflow up from its
+    // widest text column, down to eight cells.
+    let mut view = drawn("REVIEW-PARKS-THE-RUN-FOR-THE-OPERATOR");
+    view.states[1].name = "review-with-a-long-name".into();
+    assert_eq!(
+        tables(&view),
+        [
+            "STATE    ENTERED MEDIAN P90         COST TOKENS CACHE",
+            "work           2     0m  0m not reported      —     —",
+            "review-…       1      —   — not reported      —     —",
+            "",
+            "RULE         COUNT FROM   TO     KIND",
+            "WORK-OK          1 work   review forward",
+            "REVIEW-PARK…     1 review park   self",
+        ]
+    );
+}
+
+#[test]
+fn json_prints_the_view_model_verbatim_and_never_the_tables() {
+    let view = drawn("REVIEW-PARK");
+    let painted = |view: &GraphView| paint(view, &Style::plain(80));
+    let verbatim = format!("{}\n", serde_json::to_string_pretty(&view).unwrap());
+    assert_eq!(shown(&view, true, painted).unwrap(), verbatim);
+    assert_eq!(shown(&view, false, painted).unwrap(), painted(&view));
+}
+
+#[test]
+fn no_color_paints_no_escape_byte_and_colour_bolds_only_the_header_rows() {
+    // A journal-authored rule id that would clear the operator's screen.
+    let mut view = drawn("PARK\x1b[2J");
+    // And journal text on the lines under the tables.
+    view.live
+        .retain(|live| live.state.as_deref() == Some("review"));
+    view.live[0].label = "Draw\x1b[2J".into();
+    view.live[0].state = Some("review\x1b[2J".into());
+    view.drift_text = Some("drifted\x1b[2J".into());
+    let plain = paint(&view, &Style::plain(80));
+    assert!(!plain.contains('\x1b'), "{plain:?}");
+    assert!(
+        plain.contains("\nPARK[2J      1  review  park    self\n"),
+        "{plain:?}"
+    );
+    assert!(
+        plain.ends_with("\ndrift  drifted[2J\nends   0 done · 0 stop by a rule · 0 stopped by you · 2 open\nledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\nlive   Draw[2J · review[2J\n"),
+        "{plain:?}"
+    );
+    let coloured = paint(
+        &view,
+        &Style {
+            color: true,
+            width: 80,
+        },
+    );
+    let escaped: Vec<&str> = coloured
+        .lines()
+        .filter(|line| line.contains('\x1b'))
+        .collect();
+    assert_eq!(
+        escaped,
+        [
+            "\x1b[1mSTATE   ENTERED  MEDIAN  P90          COST  TOKENS  CACHE\x1b[0m",
+            "\x1b[1mRULE     COUNT  FROM    TO      KIND\x1b[0m",
+        ]
+    );
+}
+
+#[test]
+fn every_text_column_gives_way_before_a_row_overflows_and_every_number_stays_whole() {
+    let long = "a-state-named-at-length-for-a-narrow-terminal";
+    let mut view = drawn("REVIEW-PARK");
+    view.states[1].name = long.into();
+    view.rules[0].next = Some(format!("{long}-too"));
+    view.rules[0].count = 1_234_567;
+    view.rules[1].from = long.into();
+    let lines = table_lines(&paint(&view, &Style::plain(60)));
+    assert_eq!(
+        lines,
+        [
+            "STATE           ENTERED MEDIAN P90         COST TOKENS CACHE",
+            "work                  2     0m  0m not reported      —     —",
+            "a-state-named-…       1      —   — not reported      —     —",
+            "",
+            "RULE          COUNT FROM            TO               KIND",
+            "WORK-OK     1234567 work            a-state-named-a… forward",
+            "REVIEW-PARK       1 a-state-named-… park             self",
+        ]
+    );
+    let widest = lines.iter().map(|line| width_of(line)).max();
+    assert_eq!(widest, Some(60));
+}
+
+#[test]
+fn a_wide_name_is_measured_in_the_cells_the_terminal_draws() {
+    let mut view = drawn("REVIEW-PARK");
+    view.states[0].name = "界界界".into();
+    view.states[1].name = "界".repeat(12);
+    // Room for every cell: the column is the 24 cells twelve 界 draw.
+    let lines = table_lines(&paint(&view, &Style::plain(200)));
+    assert_eq!(
+        lines[..3],
+        [
+            "STATE                     ENTERED  MEDIAN  P90          COST  TOKENS  CACHE",
+            "界界界                          2      0m   0m  not reported       —      —",
+            "界界界界界界界界界界界界        1       —    —  not reported       —      —",
+        ]
+    );
+    // Too little: the name gives way to eight cells, its ellipsis one.
+    let lines = table_lines(&paint(&view, &Style::plain(53)));
+    assert_eq!(
+        lines[..3],
+        [
+            "STATE    ENTERED MEDIAN P90         COST TOKENS CACHE",
+            "界界界         2     0m  0m not reported      —     —",
+            "界界界…        1      —   — not reported      —     —",
+        ]
+    );
+}
+
+#[test]
+fn a_decomposed_accent_costs_no_cell_and_never_clamps_the_name_it_marks() {
+    let mut view = drawn("REVIEW-PARK");
+    // Four cells the terminal draws from eight `char`s, in the five STATE's
+    // header gives the column.
+    view.states[0].name = "e\u{301}".repeat(4);
+    view.states[1].name = "ab".into();
+    let lines = table_lines(&paint(&view, &Style::plain(200)));
+    assert_eq!(
+        lines[..3],
+        [
+            "STATE  ENTERED  MEDIAN  P90          COST  TOKENS  CACHE",
+            "e\u{301}e\u{301}e\u{301}e\u{301}         2      0m   0m  not reported       —      —",
+            "ab           1       —    —  not reported       —      —",
+        ]
+    );
+}
+
+/// What the verb prints of a run in `dir` that entered `work` under a
+/// recipe gone from the shelf, on a terminal whose stdout measures
+/// `stdout` columns, under `NO_COLOR` as `no_color` gives it.
+fn verb_drawn(dir: &Path, no_color: Option<&str>, stdout: u16) -> String {
+    let args = GraphArgs {
+        recipe: Some("gone".into()),
+        realm: None,
+        range: Range::Week,
+        realms: None,
+        db: Some(dir.join("forge.db")),
+        json: false,
+    };
+    let env = |name: &str| match name {
+        "NO_COLOR" => no_color.map(OsString::from),
+        _ => None,
+    };
+    let style = |width| Style::detect_in(true, env, width, || Some(stdout));
+    graph_with(dir, args, style).unwrap()
+}
+
+#[test]
+fn no_color_turns_off_the_colour_a_terminal_would_otherwise_take() {
+    let dir = tempfile::tempdir().unwrap();
+    Journal::at(dir.path()).run("live", &json!({"bundle_name": "gone"}), &[entered("work")]);
+    let drawn = |no_color: Option<&str>| verb_drawn(dir.path(), no_color, 120);
+    let plain = drawn(Some("1"));
+    assert!(!plain.contains('\x1b'), "{plain:?}");
+    let coloured = drawn(None);
+    let header = "\x1b[1mSTATE  ENTERED  MEDIAN  P90          COST  TOKENS  CACHE\x1b[0m\n";
+    assert!(coloured.contains(header), "{coloured:?}");
+}
+
+/// The verb sizes its tables by the stdout it writes to (#1167): with no
+/// `COLUMNS`, a 40-cell stdout narrows the gaps the default 80 keeps.
+#[test]
+fn the_verb_sizes_its_tables_by_the_stdout_it_writes_to() {
+    let dir = tempfile::tempdir().unwrap();
+    Journal::at(dir.path()).run("live", &json!({"bundle_name": "gone"}), &[entered("work")]);
+    let narrow = verb_drawn(dir.path(), Some("1"), 40);
+    let header = "\nSTATE ENTERED MEDIAN P90         COST TOKENS CACHE\n";
+    assert!(narrow.contains(header), "{narrow}");
 }

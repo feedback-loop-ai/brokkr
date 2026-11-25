@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::sequence::hard_results;
-use super::{Bundle, CompileError, SeatBody, SequenceStep, StepBody};
+use super::{Bundle, CompileError, SeatBody, SelectCase, SequenceStep, StepBody};
 use crate::bundle::Invocation;
 
 fn workspace() -> PathBuf {
@@ -593,6 +593,15 @@ fn a_table_arm_no_reachable_step_or_aggregate_can_emit_is_refused() {
     );
 }
 
+/// The review arms `a`, to done, and `hold`, the phase's hard stop.
+fn a_and_hold_rules() -> Value {
+    json!([
+        {"id": "REVIEW-A", "from": "review", "result": "a", "next": "done", "reason": "a"},
+        {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
+         "severity": "hard", "reason": "hold"},
+    ])
+}
+
 /// An impassable middle step makes every later step unreachable, so a word
 /// only a later step could emit must not suppress the earlier step's
 /// ending: the engine would stop at the barrier and never reach the tail.
@@ -600,12 +609,7 @@ fn a_table_arm_no_reachable_step_or_aggregate_can_emit_is_refused() {
 /// (decision 0050, ruling 7).
 #[test]
 fn an_unreachable_later_step_does_not_hide_an_earlier_ending() {
-    let rules = json!([
-        {"id": "REVIEW-A", "from": "review", "result": "a", "next": "done",
-         "reason": "a"},
-        {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
-         "severity": "hard", "reason": "hold"},
-    ]);
+    let rules = a_and_hold_rules();
     let seats = json!({
         "work": single_seat(&["complete"]),
         "review": {
@@ -683,5 +687,241 @@ fn assert_marker_refusal(compiled: Result<Bundle, CompileError>, what: &str) {
         ),
         Err(other) => panic!("expected CompileError::Invalid, got {other:?}"),
         Ok(_) => panic!("the declared marker is refused"),
+    }
+}
+
+/// #1221 E: every compiled step knows whether its seat declares `change`,
+/// a select case's sequence as a plain seat's does, and a seat that
+/// declares none gives its steps none.
+#[test]
+fn a_sequences_steps_carry_their_seats_change_declaration_wherever_they_stand() {
+    let rules = a_and_hold_rules();
+    let sequence = sequence_seat(json!(["a", "hold"]))["sequence"].clone();
+    let single = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
+    let flags = |seat: Value| {
+        let dir = fixture(policy(rules.clone()), seat);
+        let bundle = compile(dir.path()).expect("the fixture compiles");
+        let mut out = Vec::new();
+        collect("review", &bundle.seats["review"].body, &[], &mut out);
+        (out.into_iter())
+            .flat_map(|(_, _, steps)| steps.iter().map(|step| step.declares_change))
+            .collect::<Vec<_>>()
+    };
+    let results = json!(["a", "hold"]);
+    for (inputs, declared) in [(json!(["change"]), true), (json!([]), false)] {
+        let plain = json!({"results": results, "inputs": inputs, "sequence": sequence});
+        assert_eq!(flags(plain), [declared; 2], "a plain seat's, {inputs}");
+        let cases = json!({"chore": {"sequence": sequence}});
+        let select = json!({"results": results, "inputs": inputs,
+                            "select": {"on": "strategy", "cases": cases, "default": single}});
+        assert_eq!(flags(select), [declared; 2], "a select case's, {inputs}");
+    }
+}
+
+/// A review table of `hold`, the phase's hard stop, and `waived`, which
+/// routes onward to done, with a clean pass when `clean`.
+fn pre_gate_rules(clean: bool) -> Value {
+    let mut rules = vec![
+        json!({"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
+               "severity": "hard", "reason": "hold"}),
+        json!({"id": "REVIEW-WAIVED", "from": "review", "result": "waived", "next": "done",
+               "reason": "waived"}),
+    ];
+    if clean {
+        rules.push(
+            json!({"id": "REVIEW-CLEAN", "from": "review", "result": "clean",
+                          "next": "done", "reason": "clean"}),
+        );
+    }
+    Value::Array(rules)
+}
+
+/// A sequence step `name` of `class`, declaring `results` where given; a
+/// gate step hires gpt-flash's chief, a trusted and judged gate agent.
+fn step(name: &str, class: &str, results: Option<Value>) -> Value {
+    let mut step = match class {
+        "gate" => json!({"name": name, "class": class, "agent": "gpt-flash-review-chief"}),
+        _ => json!({"name": name, "class": class,
+                    "role": "roles/role.md", "driver": {"command": ["driver"]}}),
+    };
+    if let Some(results) = results {
+        step["results"] = results;
+    }
+    step
+}
+
+/// gpt-flash's shape: [draft (work), judge (gate)], draft declaring
+/// `draft` and judge, the final step, the seat's words.
+fn work_then_gate(draft: Value) -> Value {
+    json!({
+        "results": ["clean", "hold", "waived"],
+        "sequence": [step("draft", "work", Some(draft)), step("judge", "gate", None)],
+    })
+}
+
+/// [draft (work), judge (gate), chief (work)]: judge reports only the hard
+/// `hold`, so no step after it runs, and draft's `go` hands on to judge
+/// while its `waived`, which judge cannot report, ends the sequence.
+fn work_then_impassable_gate() -> Value {
+    json!({
+        "results": ["hold", "waived"],
+        "sequence": [
+            step("draft", "work", Some(json!(["go", "waived"]))),
+            step("judge", "gate", Some(json!(["hold"]))),
+            step("chief", "work", None),
+        ],
+    })
+}
+
+/// [`work_then_impassable_gate`] as the seat of `check`, a phase before
+/// the protected review, which is a single clean seat.
+fn checked_before_review() -> tempfile::TempDir {
+    let table = json!({
+        "schema": "forge.phase-machine/v1",
+        "phases": ["work", "check", "review", "done", "stop"],
+        "initial": "work",
+        "terminal": ["done", "stop"],
+        "rules": [
+            {"id": "WORK", "from": "work", "result": "complete", "next": "check",
+             "reason": "work"},
+            {"id": "CHECK-HOLD", "from": "check", "result": "hold", "next": "stop",
+             "severity": "hard", "reason": "hold"},
+            {"id": "CHECK-WAIVED", "from": "check", "result": "waived", "next": "review",
+             "reason": "waived"},
+            {"id": "REVIEW", "from": "review", "result": "clean", "next": "done",
+             "reason": "clean"},
+        ],
+    });
+    fixture_with_seats(
+        table,
+        json!({"work": single_seat(&["complete"]), "check": work_then_impassable_gate(),
+               "review": single_seat(&["clean"])}),
+    )
+}
+
+/// #1212 L1: a protected sequence's work step before its first gate may
+/// not end on a word that does not stop the run, since no gate has
+/// recorded a head there and decide could only refuse it. A hard word
+/// there is a stop and compiles, as gpt-flash's `security-hold` does, and
+/// the same body unprotected compiles.
+#[test]
+fn a_protected_sequences_pre_gate_ending_that_does_not_stop_is_refused() {
+    let impassable = || fixture(policy(pre_gate_rules(false)), work_then_impassable_gate());
+    let refused = impassable();
+    draft_waived_refused(refused.path(), SelectCase::Default, "the default case");
+
+    let hard = fixture(
+        policy(pre_gate_rules(true)),
+        work_then_gate(json!(["clean", "hold"])),
+    );
+    let steps = compiled_steps(hard.path(), "the pre-gate hard stop");
+    assert_eq!(steps[0].ends_on, ["hold"]);
+    assert_eq!(steps[0].hard_results, ["hold"]);
+    assert_eq!(steps[1].class, super::SeatClass::Gate);
+
+    let unprotected = checked_before_review();
+    let compiled = compile(unprotected.path()).expect("the unprotected body compiles");
+    let SeatBody::Sequence { steps } = &compiled.seats["check"].body else {
+        panic!("check is a sequence")
+    };
+    assert_eq!(steps[0].ends_on, ["waived"]);
+}
+
+/// 1221a2's review, L1: a protected sequence's pre-gate hard stop the
+/// seat's results do not declare is refused at compile too, since decide
+/// refuses a word outside the seat's results before it reads the stop.
+/// Declared, the same stop compiles (gpt-flash's `security-hold` is in its
+/// review seat's results).
+#[test]
+fn a_protected_sequences_undeclared_pre_gate_stop_is_refused() {
+    let rules = json!([
+        {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
+         "severity": "hard", "reason": "hold"},
+        {"id": "REVIEW-CLEAN", "from": "review", "result": "clean", "next": "done",
+         "reason": "clean"},
+    ]);
+    let seat = |results: Value| {
+        json!({
+            "results": results,
+            "sequence": [step("draft", "work", Some(json!(["go", "hold"]))),
+                         step("judge", "gate", None)],
+        })
+    };
+    let undeclared = fixture(policy(rules.clone()), seat(json!(["clean"])));
+    match compile(undeclared.path()) {
+        Err(CompileError::Body(refusal)) => {
+            let want = super::BodyRefusal::PreGateUndeclared {
+                seat: "review".into(),
+                case: SelectCase::Default,
+                step: "draft".into(),
+                word: "hold".into(),
+            };
+            assert_eq!(refusal, want);
+            assert_eq!(
+                refusal.to_string(),
+                "seat 'review' is the protected phase's, and its sequence step 'draft', read \
+                 under the default case, runs before its first gate step yet may end the \
+                 sequence on 'hold', a stop the seat's results do not declare; decide refuses a \
+                 word outside the seat's results, so the engine can never take that ending \
+                 (decision 0050 ruling 7): declare 'hold' in the seat's results"
+            );
+        }
+        Err(other) => panic!("expected CompileError::Body, got {other:?}"),
+        Ok(_) => panic!("the undeclared pre-gate stop is refused"),
+    }
+    let declared = fixture(policy(rules), seat(json!(["clean", "hold"])));
+    let steps = compiled_steps(declared.path(), "the declared pre-gate stop");
+    assert_eq!(steps[0].ends_on, ["hold"]);
+    assert_eq!(steps[0].hard_results, ["hold"]);
+}
+
+/// #1221, INFO: a select's pre-gate refusal names the case whose sequence
+/// it read. `chore`'s sequence compiles on its own; `feature`'s, the
+/// second case, holds the ending that does not stop the run.
+#[test]
+fn a_selects_pre_gate_refusal_names_the_case_it_read() {
+    let chore = json!({"sequence": [step("draft", "work", Some(json!(["waived", "hold"]))),
+                                    step("judge", "gate", None)]});
+    let feature = json!({"sequence": work_then_impassable_gate()["sequence"]});
+    let single = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
+    let select = |cases: Value| {
+        let select = json!({"on": "strategy", "cases": cases, "default": single});
+        fixture(
+            policy(pre_gate_rules(false)),
+            json!({"results": ["hold", "waived"], "select": select}),
+        )
+    };
+    let alone = select(json!({"chore": chore}));
+    compile(alone.path()).expect("chore's sequence compiles on its own");
+    let both = select(json!({"chore": chore, "feature": feature}));
+    let feature = SelectCase::Strategy("feature".into());
+    draft_waived_refused(both.path(), feature, "select case 'feature'");
+}
+
+/// The bundle at `dir` is refused for `review`'s step `draft`, read under
+/// `case`, which the text names as `under`, ending on `waived` before its
+/// first gate step.
+fn draft_waived_refused(dir: &Path, case: SelectCase, under: &str) {
+    match compile(dir) {
+        Err(CompileError::Body(refusal)) => {
+            let want = super::BodyRefusal::PreGateEnding {
+                seat: "review".into(),
+                case,
+                step: "draft".into(),
+                word: "waived".into(),
+            };
+            assert_eq!(refusal, want);
+            assert_eq!(
+                refusal.to_string(),
+                format!(
+                    "seat 'review' is the protected phase's, and its sequence step 'draft', read \
+                     under {under}, runs before its first gate step yet may end the sequence on \
+                     'waived', a word that does not stop the run; no gate has recorded a head \
+                     there, so the engine can never take that ending (decision 0109 ruling 7)"
+                )
+            );
+        }
+        Err(other) => panic!("expected CompileError::Body, got {other:?}"),
+        Ok(_) => panic!("draft's pre-gate ending under {under} is refused"),
     }
 }

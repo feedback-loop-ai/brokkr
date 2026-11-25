@@ -41,6 +41,7 @@ fn panel<C>(aggregate: Aggregate) -> Invocation<C> {
         candidates,
         written: Vec::new(),
         class: SeatClass::Gate,
+        law: crate::bundle::MemberLaw::open(),
     };
     Invocation::Panel {
         members: vec![member("b", chain()), member("a", Vec::new())],

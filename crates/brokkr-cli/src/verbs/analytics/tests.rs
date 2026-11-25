@@ -1,4 +1,4 @@
-//! `brokkr analytics`' own part (#568): the hearths it hands over, the
+//! `brokkr stats analytics`' own part (#568): the hearths it hands over, the
 //! headline it paints, and clap's refusal of a range in the view's words.
 
 use clap::Parser;
@@ -55,7 +55,7 @@ fn a_named_realm_heads_the_painting_and_a_bad_clock_is_refused() {
 
 #[test]
 fn clap_refuses_a_range_outside_the_three_with_the_views_error() {
-    let refused = Cli::try_parse_from(["brokkr", "analytics", "--range", "2d"])
+    let refused = Cli::try_parse_from(["brokkr", "stats", "analytics", "--range", "2d"])
         .err()
         .expect("2d is no range");
     assert_eq!(refused.kind(), clap::error::ErrorKind::ValueValidation);
@@ -1213,7 +1213,13 @@ fn a_hearth_the_fleet_refuses_contributes_no_rows() {
         "the store's refusal, the same text the fleet read states"
     );
     assert_eq!(
-        rows.quarantined[0].refusal, "sqlite: file is not a database",
+        rows.quarantined[0].refusal,
+        format!(
+            "the journal '{}' is damaged (SQLite reads it as no database); nothing was read \
+             from it; restore it from a backup with `brokkr journal restore` and see the guide's \
+             \"A damaged journal\" (#1000)",
+            journal.display()
+        ),
         "the refusal's whole text, so a rewrite of it is a decision"
     );
     assert!(rows.realms.is_empty(), "no realm is listed");

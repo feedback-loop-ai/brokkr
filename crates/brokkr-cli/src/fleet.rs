@@ -1,5 +1,5 @@
 //! The fleet read, written once (#377). Every surface that lists a
-//! hearth's runs — `brokkr runs`, `brokkr tui`, `brokkr ui` and Muninn's
+//! hearth's runs — `brokkr runs`, `brokkr tui`, `brokkr system ui` and Muninn's
 //! dossier — reads it here, so one corrupt run reads one way everywhere.
 //!
 //! A run whose journal will not load, or loads and will not fold, is

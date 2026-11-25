@@ -155,6 +155,7 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
     let store = Store::open(&path).unwrap();
     let claimed = EntryState::Claimed {
         run: "run-a".into(),
+        merged: false,
     };
     assert_eq!(
         rows(&store),
@@ -187,7 +188,7 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
             word(1, "add", Some(1)),
             word(2, "add", Some(2)),
             word(3, "add", Some(3)),
-            word(4, "add", Some(4)),
+            word(4, "add", Some(1)),
             word(4, "move", Some(1)),
             word(2, "hold", None),
             word(3, "drop", None),
@@ -195,7 +196,8 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
             step("link"),
         ]
     );
-    // Released, the held entry keeps its place; moved last, it takes it.
+    // Released, the held entry keeps its place; moved to the first, it
+    // stays under the higher priority.
     let mut store = store;
     store
         .queue_command(ids[1], QueueCommand::Release, BY)
@@ -208,10 +210,233 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
     assert_eq!(
         places[..2],
         [
-            (2, Some(1), EntryState::Queued),
-            (4, Some(2), EntryState::Queued)
+            (4, Some(1), EntryState::Queued),
+            (2, Some(2), EntryState::Queued)
         ]
     );
+}
+
+/// Queue an entry at `priority` with no waits, its payload named `n`.
+fn add_at(store: &mut Store, n: u32, priority: i64) -> EntryId {
+    let new = NewEntry {
+        payload: &payload(n),
+        priority,
+        waits: &[],
+    };
+    store.queue_add(new, BY).unwrap()
+}
+
+/// The listing's ids and places, in the order it lists them; and, as
+/// the operator's ruling on #1191 needs, each waiting entry's place is
+/// its place in that order.
+fn order(store: &Store) -> Vec<(i64, Option<u32>)> {
+    let listed: Vec<(i64, Option<u32>)> = rows(store).into_iter().map(|r| (r.0, r.1)).collect();
+    let places: Vec<u32> = listed.iter().filter_map(|(_, place)| *place).collect();
+    assert_eq!(places, (1..=places.len() as u32).collect::<Vec<_>>());
+    listed
+}
+
+/// The place the last command journaled.
+fn last_place(store: &Store) -> Option<u32> {
+    commands(&store.conn).pop().unwrap().2
+}
+
+/// The queue's one order is priority, higher first, then place (#1191,
+/// decision 0068 ruling 2): equal priorities list in arrival order, a
+/// negative one after the default, and an add lands last among its own
+/// priority, ahead of every lower one, its place journaled as held.
+#[test]
+fn the_queue_lists_by_priority_first_then_by_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    add_at(&mut store, 1, 0);
+    add_at(&mut store, 2, -1);
+    add_at(&mut store, 3, 10);
+    assert_eq!(last_place(&store), Some(1));
+    add_at(&mut store, 4, 0);
+    assert_eq!(last_place(&store), Some(3));
+    add_at(&mut store, 5, 10);
+    assert_eq!(last_place(&store), Some(2));
+    assert_eq!(
+        order(&store),
+        [
+            (3, Some(1)),
+            (5, Some(2)),
+            (1, Some(3)),
+            (4, Some(4)),
+            (2, Some(5))
+        ]
+    );
+}
+
+/// `move` orders an entry among those of its own priority, and priority
+/// always wins (the operator's ruling on #1191): a place across a
+/// priority's edge leaves the entry at that edge, and the place journaled
+/// is the one it holds. A hold, a release, a drop and a claim keep the
+/// order, and the places equal it after every command.
+#[test]
+fn a_move_orders_within_its_priority_and_every_command_keeps_the_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    for (n, priority) in [(1, 5), (2, 0), (3, 0), (4, 0), (5, -3)] {
+        add_at(&mut store, n, priority);
+    }
+    let to = |store: &mut Store, entry: i64, to: u32| {
+        let command = QueueCommand::Move { to };
+        store.queue_command(EntryId(entry), command, BY).unwrap();
+        last_place(store)
+    };
+    let places = |order: [i64; 5]| {
+        (1..)
+            .zip(order)
+            .map(|(p, e)| (e, Some(p)))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(to(&mut store, 4, 2), Some(2));
+    assert_eq!(order(&store), places([1, 4, 2, 3, 5]));
+    assert_eq!(to(&mut store, 2, 1), Some(2));
+    assert_eq!(order(&store), places([1, 2, 4, 3, 5]));
+    assert_eq!(to(&mut store, 3, 5), Some(4));
+    assert_eq!(order(&store), places([1, 2, 4, 3, 5]));
+    assert_eq!(to(&mut store, 5, 1), Some(5));
+    assert_eq!(to(&mut store, 1, 4), Some(1));
+    assert_eq!(order(&store), places([1, 2, 4, 3, 5]));
+
+    let hold = |store: &mut Store, entry: i64, command: QueueCommand| {
+        store.queue_command(EntryId(entry), command, BY).unwrap();
+    };
+    hold(&mut store, 4, QueueCommand::Hold);
+    assert_eq!(order(&store), places([1, 2, 4, 3, 5]));
+    hold(&mut store, 4, QueueCommand::Release);
+    assert_eq!(order(&store), places([1, 2, 4, 3, 5]));
+    hold(&mut store, 2, QueueCommand::Drop);
+    let left = [(1, Some(1)), (4, Some(2)), (3, Some(3)), (5, Some(4))];
+    assert_eq!(order(&store), left);
+    started(&mut store, "run-a");
+    linked(&mut store, EntryId(4), "run-a");
+    let claimed = [(1, Some(1)), (3, Some(2)), (5, Some(3)), (4, None)];
+    assert_eq!(order(&store), claimed);
+    add_at(&mut store, 6, 0);
+    assert_eq!(last_place(&store), Some(3));
+    assert_eq!(
+        order(&store),
+        [
+            (1, Some(1)),
+            (3, Some(2)),
+            (6, Some(3)),
+            (5, Some(4)),
+            (4, None)
+        ]
+    );
+}
+
+/// The listing's rows and their places are read in one snapshot: a peer's
+/// move committed after the rows are read and before their places are
+/// changes neither, so the order listed and the places listed agree, and
+/// the next listing reads the move whole (#1191).
+#[test]
+fn a_peer_move_between_the_rows_and_their_places_is_not_read_half() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let mut store = Store::open(&path).unwrap();
+    queue(&mut store, 3);
+    let mut peer = Store::open(&path).unwrap();
+    let mut between = || {
+        let command = QueueCommand::Move { to: 1 };
+        peer.queue_command(EntryId(3), command, BY).unwrap();
+    };
+    let listed: Vec<(i64, Option<u32>)> = list_once(&store.conn, &mut between)
+        .unwrap()
+        .into_iter()
+        .map(|e| (e.id.0, e.position))
+        .collect();
+    assert_eq!(listed, [(1, Some(1)), (2, Some(2)), (3, Some(3))]);
+    assert_eq!(order(&store), [(3, Some(1)), (1, Some(2)), (2, Some(3))]);
+
+    let mut between = || {
+        let command = QueueCommand::Move { to: 1 };
+        peer.queue_command(EntryId(2), command, BY).unwrap();
+    };
+    let read = entry_once(&store.conn, EntryId(2), &mut between).unwrap();
+    assert_eq!(read.position, Some(3));
+    assert_eq!(store.queue_entry(EntryId(2)).unwrap().position, Some(1));
+}
+
+/// A queue journaled before the order read priority keeps arrival's
+/// places on disk; read now, each waiting entry's place is its place in
+/// the queue's order, through `list`, `entry`, a read-only open, a hold
+/// and a release, and `move --to` names the place listed (#1191).
+#[test]
+fn a_queue_placed_by_arrival_lists_and_moves_by_its_places_in_the_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let mut store = Store::open(&path).unwrap();
+    for (n, priority) in [(1, 0), (2, 10), (3, 0), (4, 10)] {
+        add_at(&mut store, n, priority);
+    }
+    // The places as a binary before this order wrote them: arrival's.
+    let arrival = "UPDATE queue_entries SET position = entry_id";
+    store.conn.execute(arrival, []).unwrap();
+    let listed = [(2, Some(1)), (4, Some(2)), (1, Some(3)), (3, Some(4))];
+    assert_eq!(order(&store), listed);
+    assert_eq!(store.queue_entry(EntryId(1)).unwrap().position, Some(3));
+    store
+        .queue_command(EntryId(3), QueueCommand::Hold, BY)
+        .unwrap();
+    assert_eq!(order(&store), listed);
+    store
+        .queue_command(EntryId(3), QueueCommand::Release, BY)
+        .unwrap();
+    drop(store);
+
+    let read = Store::open_read_only(&path).unwrap();
+    assert_eq!(order(&read), listed);
+    assert_eq!(read.queue_entry(EntryId(2)).unwrap().position, Some(1));
+    drop(read);
+    let mut store = Store::open(&path).unwrap();
+    let to = QueueCommand::Move { to: 3 };
+    store.queue_command(EntryId(3), to, BY).unwrap();
+    assert_eq!(last_place(&store), Some(3));
+    let moved = [(2, Some(1)), (4, Some(2)), (3, Some(3)), (1, Some(4))];
+    assert_eq!(order(&store), moved);
+}
+
+/// The claimed entries list after the waiting ones, by priority, higher
+/// first, then by id.
+#[test]
+fn claimed_entries_list_after_the_waiting_by_priority_then_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    for (n, priority) in [(1, 0), (2, 0), (3, 10)] {
+        add_at(&mut store, n, priority);
+    }
+    for (entry, run) in [(1, "run-a"), (3, "run-b")] {
+        started(&mut store, run);
+        linked(&mut store, EntryId(entry), run);
+    }
+    assert_eq!(order(&store), [(2, Some(1)), (3, None), (1, None)]);
+}
+
+/// A command returns the place it journaled, so a caller never reads it
+/// back (#1191): a move across a priority's edge returns the place held,
+/// not the place asked, and a hold, a release and a drop return none.
+#[test]
+fn a_command_returns_the_place_it_journaled() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    add_at(&mut store, 1, 10);
+    let low = add_at(&mut store, 2, 0);
+    let moved = store.queue_command(low, QueueCommand::Move { to: 1 }, BY);
+    assert_eq!(moved.unwrap(), Some(2));
+    assert_eq!(last_place(&store), Some(2));
+    for command in [
+        QueueCommand::Hold,
+        QueueCommand::Release,
+        QueueCommand::Drop,
+    ] {
+        assert_eq!(store.queue_command(low, command, BY).unwrap(), None);
+        assert_eq!(last_place(&store), None);
+    }
 }
 
 #[test]
@@ -235,6 +460,7 @@ fn a_journal_at_mains_schema_migrates_to_the_queue_and_keeps_its_runs() {
     assert_eq!(store.list_runs().unwrap()[0].0, "old-run");
     let claimed = EntryState::Claimed {
         run: "old-run".into(),
+        merged: false,
     };
     assert_eq!(
         rows(&store),
@@ -687,6 +913,16 @@ fn every_add_and_claim_refusal_is_typed_says_why_and_writes_nothing() {
         QueueRefusal::DuplicateWait(queued),
         "a new queue entry names entry 1 to wait for twice",
     );
+    // A condition the column's reader refuses is never written (#1192).
+    let unclassified = Wait {
+        entry: queued,
+        on: WaitOn::Named(brokkr_core::ending::Ending::Unclassified),
+    };
+    refused_as(
+        add(&[unclassified]),
+        QueueRefusal::NotACondition(unclassified),
+        "a new queue entry cannot wait on 1:unclassified: its condition is not one a wait may name",
+    );
     let mut claim = |entry| refusal(claimed_now(&mut store, entry));
     refused_as(
         claim(held),
@@ -874,14 +1110,16 @@ fn a_wait_reads_back_as_written_and_nothing_else_reads_as_one() {
     }
     for text in ["3", "x:completed", "3:named", "3:"] {
         let refused = text.parse::<Wait>().unwrap_err();
-        let said =
-            format!("'{text}' is not ENTRY:CONDITION, with CONDITION one of completed, ended");
+        let said = format!("'{text}' is not ENTRY:CONDITION, with CONDITION one of {CONDITIONS}");
         assert_eq!(
             (refused.to_string(), refused),
             (said, NotAWait(text.to_string()))
         );
     }
-    let claimed = EntryState::Claimed { run: "r".into() };
+    let claimed = EntryState::Claimed {
+        run: "r".into(),
+        merged: false,
+    };
     let states = [
         (EntryState::Queued, "queued", None),
         (EntryState::Held, "held", None),
@@ -892,6 +1130,138 @@ fn a_wait_reads_back_as_written_and_nothing_else_reads_as_one() {
     for (state, word, run) in states {
         assert_eq!((state.word(), state.run()), (word, run));
     }
+}
+
+/// Every condition a wait may name, as `NotAWait` lists them (#1192).
+const CONDITIONS: &str = "completed, ended, shipped, shipped-flagged, refused, failed, blocked, \
+                          exhausted, superseded, infrastructure, delivered-elsewhere, withdrawn, \
+                          operator-stopped, merged";
+
+/// Each named ending of decision 0064 but `unclassified` is a condition
+/// (#1192): it reads back from its text and from the stored column as
+/// written, and `unclassified`, which no run comes to, is refused.
+#[test]
+fn a_named_ending_is_a_wait_and_unclassified_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let text = "3:unclassified";
+    let refused = text
+        .parse::<Wait>()
+        .map_err(|refused| (refused.to_string(), refused));
+    let said = format!("'{text}' is not ENTRY:CONDITION, with CONDITION one of {CONDITIONS}");
+    assert_eq!(refused, Err((said, NotAWait(text.to_string()))));
+    let merged = Wait {
+        entry: EntryId(3),
+        on: WaitOn::Merged,
+    };
+    let text = "3:merged";
+    assert_eq!(
+        (text.parse(), merged.to_string()),
+        (Ok(merged), text.into())
+    );
+    let awaited = queue(&mut store, 1)[0];
+    let named = &WaitOn::ALL[2..13];
+    let mut written = Vec::new();
+    for (on, ending) in named.iter().zip(brokkr_core::ending::Ending::ALL) {
+        let text = format!("3:{}", ending.word());
+        let wait = Wait {
+            entry: EntryId(3),
+            on: WaitOn::Named(ending),
+        };
+        assert_eq!(
+            (*on, wait.to_string(), text.parse()),
+            (wait.on, text, Ok(wait))
+        );
+        let wait = Wait {
+            entry: awaited,
+            on: *on,
+        };
+        let new = NewEntry {
+            payload: "waits",
+            priority: 0,
+            waits: &[wait],
+        };
+        store.queue_add(new, BY).unwrap();
+        written.push(vec![wait]);
+    }
+    let read: Vec<Vec<Wait>> = rows(&store).into_iter().skip(1).map(|row| row.4).collect();
+    assert_eq!((named.len(), read), (11, written));
+}
+
+/// A `merged` record (#1192) is refused of every entry that started no
+/// run, writing nothing. Of one that did, it is journaled with its
+/// operator and reason and no place, again beside the first when made
+/// twice, and moves no standing or place: the entry reads merged from
+/// then on, and a wait on it is written and read back as `merged`.
+#[test]
+fn a_merge_is_recorded_only_of_an_entry_that_started_a_run_and_moves_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, [queued, held, dropped, claimed]) = every_standing(dir.path());
+    let launching = queue(&mut store, 1)[0];
+    claimed_now(&mut store, launching).unwrap().unwrap();
+    let (listed, mut journaled) = (rows(&store), commands(&store.conn));
+    let mut merged = |entry| refusal(store.queue_command(entry, QueueCommand::Merged, BY));
+    let unstarted =
+        |n| format!("queue entry {n} has started no run, so no merge of its work can be recorded");
+    refused_as(
+        merged(queued),
+        QueueRefusal::Unstarted(queued),
+        &unstarted(1),
+    );
+    refused_as(merged(held), QueueRefusal::Unstarted(held), &unstarted(2));
+    refused_as(
+        merged(launching),
+        QueueRefusal::Launching(launching),
+        "queue entry 5 is launching; the dispatcher links, returns or holds it first",
+    );
+    refused_as(
+        merged(dropped),
+        QueueRefusal::Dropped(dropped),
+        "queue entry 3 was dropped",
+    );
+    assert_eq!(
+        (rows(&store), commands(&store.conn)),
+        (listed.clone(), journaled.clone())
+    );
+
+    let corrected = Attribution {
+        operator: "vy",
+        reason: "PR #2 merged as abc123",
+    };
+    for by in [BY, corrected] {
+        let recorded = store.queue_command(claimed, QueueCommand::Merged, by);
+        assert_eq!(recorded.unwrap(), None);
+        let row = (
+            4,
+            "merged".into(),
+            None,
+            by.operator.into(),
+            by.reason.into(),
+        );
+        journaled.push(row);
+    }
+    assert_eq!(commands(&store.conn), journaled);
+    let merged = EntryState::Claimed {
+        run: "run-b".into(),
+        merged: true,
+    };
+    let mut expected = listed;
+    for row in expected.iter_mut().filter(|row| row.0 == claimed.0) {
+        row.2 = merged.clone();
+    }
+    assert_eq!(rows(&store), expected);
+    assert_eq!(store.queue_entry(claimed).unwrap().state, merged);
+    let wait = Wait {
+        entry: claimed,
+        on: WaitOn::Merged,
+    };
+    let new = NewEntry {
+        payload: "waits",
+        priority: 0,
+        waits: &[wait],
+    };
+    let waiting = store.queue_add(new, BY).unwrap();
+    assert_eq!(store.queue_entry(waiting).unwrap().waits, vec![wait]);
 }
 
 /// The guards the migration installs refuse every rewrite of what is
@@ -1309,4 +1679,31 @@ fn a_latch_or_repin_over_a_pin_or_latch_that_no_longer_stands_is_refused_and_wri
     );
     assert_eq!((rows(&store), commands(&store.conn)), before);
     assert_eq!(store.queue_entry(entry).unwrap().latch.unwrap().seq, 4);
+}
+
+/// The completer's page (decision 0119 ruling 4): only the entries still
+/// waiting, queued or held, newest first, and never more than its limit.
+#[test]
+fn the_waiting_page_lists_queued_and_held_entries_newest_first_within_its_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, [queued, held, _dropped, _claimed]) = every_standing(dir.path());
+    assert_eq!(
+        store.queue_waiting(50).unwrap(),
+        vec![(held, "held".to_string()), (queued, "queued".to_string())],
+        "a dropped entry and a claimed one are not waiting"
+    );
+    let later = queue(&mut store, 3);
+    assert_eq!(
+        store.queue_waiting(2).unwrap(),
+        vec![
+            (later[2], "queued".to_string()),
+            (later[1], "queued".to_string())
+        ],
+        "the page holds the newest two and no more"
+    );
+    // A journal from before the queue has none waiting.
+    let path = dir.path().join("before.db");
+    journal_at_mains_schema(&path);
+    let before_the_queue = Store::open_read_only(&path).unwrap();
+    assert_eq!(before_the_queue.queue_waiting(50).unwrap(), Vec::new());
 }

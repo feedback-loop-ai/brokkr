@@ -102,7 +102,7 @@ impl Store {
             .to_str()
             .ok_or_else(|| SeatTreeRefusal::SweepUnnameable(path.to_path_buf()))?;
         let (conn, patience) = (&mut self.conn, self.patience);
-        patiently("record_tree_sweep", patience, || {
+        patiently("record_tree_sweep", patience, &self.path, || {
             record_sweep_once(conn, swept, path, bytes, generation)
         })
     }
@@ -113,7 +113,7 @@ impl Store {
     /// than the table holds none. A queue this binary does not know refuses
     /// through [`StoreError::Queue`].
     pub fn open_seat_trees(&self) -> Result<Vec<SeatTree>, StoreError> {
-        patiently("open_seat_trees", self.patience, || {
+        patiently("open_seat_trees", self.patience, &self.path, || {
             self.open_seat_trees_once()
         })
     }
@@ -130,7 +130,9 @@ impl Store {
     /// table holds none, and a queue this binary does not know refuses
     /// through [`StoreError::Queue`].
     pub fn tree_sweeps(&self) -> Result<Vec<TreeSweep>, StoreError> {
-        patiently("tree_sweeps", self.patience, || self.tree_sweeps_once())
+        patiently("tree_sweeps", self.patience, &self.path, || {
+            self.tree_sweeps_once()
+        })
     }
 
     fn tree_sweeps_once(&self) -> Result<Vec<TreeSweep>, StoreError> {

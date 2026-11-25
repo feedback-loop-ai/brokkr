@@ -18,40 +18,24 @@ use super::*;
 use crate::boundary::Unboxable;
 use crate::dispatch::{Passed, Seams, Stage};
 use crate::launch::tests::claimed::claimed;
-use crate::launch::QueuedLaunch;
 
 use crate::dispatch::pass::tests::support::{
     commands, count, holding, host, refusals, spawned_one, stands_ok,
 };
 
-/// A claim, its generation and the launch that rebuilt it, for a disposal
-/// that needs no start.
-fn disposed(root: &Path) -> (Claim, Generation, QueuedLaunch) {
+/// A claim and its generation, for a disposal that needs no start.
+fn disposed(root: &Path) -> (Claim, Generation) {
     let claimed = claimed(root, None);
-    let queued = QueuedLaunch::of(&claimed.request, &claimed.run).unwrap();
     let claim = claimed.claim;
     // Keep the dispatcher alive for the journal's generation, then let it
     // go: the disposal is a step under the same store, not the lock.
     drop(claimed._dispatcher);
-    (claim, claimed.generation, queued)
+    (claim, claimed.generation)
 }
 
-/// Dispose of `claim` as a bundle-moved refusal, uncounted.
-fn dispose_bundle_moved(
-    store: &mut Store,
-    claim: Claim,
-    generation: Generation,
-    queued: &QueuedLaunch,
-) -> Outcome {
-    dispose(
-        store,
-        claim,
-        generation,
-        NonZeroU32::MIN,
-        Class::BundleMoved("measured".into()),
-        queued,
-    )
-    .unwrap()
+/// A counted class of `refusal` with the start's words `words`.
+fn counted_as(refusal: StartRefusal, words: &str) -> Class {
+    Class::Counted(refusal, words.into())
 }
 
 /// The `reclaim` row's reason in `store`.
@@ -98,16 +82,20 @@ fn started(root: &Path) -> Started {
     }
 }
 
-/// Link and spawn under `claim`, with the two seams given.
+/// Link and spawn under `claim`, with the stand given and a spawn of one
+/// run: the outcome, and every run the steps left.
 fn linked(
     store: &mut Store,
     dispatcher: &crate::dispatch::Dispatcher,
     claim: Claim,
     run: &str,
     stands: &mut dyn FnMut() -> Result<(), Ending>,
-    spawn: &mut dyn FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
-) -> Outcome {
-    link_and_spawn(store, dispatcher, claim, run, stands, spawn).unwrap()
+) -> (Result<Outcome, Ending>, Vec<Left>) {
+    let mut spawn = spawned_one;
+    let mut left = Vec::new();
+    let steps: Steps<'_> = (stands, &mut spawn);
+    let outcome = link_and_spawn(store, dispatcher, claim, run, steps, &mut left);
+    (outcome, left)
 }
 
 /// Link and spawn with a stand that always stands and a spawn of one run.
@@ -116,10 +104,18 @@ fn linked_quiet(
     dispatcher: &crate::dispatch::Dispatcher,
     claim: Claim,
     run: &str,
-) -> Outcome {
+) -> (Outcome, Vec<Left>) {
     let mut stands = stands_ok;
-    let mut spawn = spawned_one;
-    linked(store, dispatcher, claim, run, &mut stands, &mut spawn)
+    let (outcome, left) = linked(store, dispatcher, claim, run, &mut stands);
+    (outcome.unwrap(), left)
+}
+
+/// The one run `left` names, as the report names it.
+fn left_one(claim: Claim, run: &str) -> Vec<Left> {
+    vec![Left {
+        claim,
+        run: run.into(),
+    }]
 }
 
 /// [`started`] with the store's patience short enough for a held lock to
@@ -139,26 +135,32 @@ fn a_class_maps_every_launch_refusal_to_its_disposal() {
         class(LaunchError::ClaimWithDispatch),
         Class::Start(LaunchError::ClaimWithDispatch)
     ));
+    let missing = WorldError::Missing("no map".into());
+    let words = missing.to_string();
     assert!(matches!(
-        class(LaunchError::World(WorldError::Missing("no map".into()))),
-        Class::Counted(StartRefusal::Compile)
+        class(LaunchError::World(missing)),
+        Class::Counted(StartRefusal::Compile, ref said) if *said == words
     ));
+    let crossing = WorldError::Crossing {
+        realm: "b".into(),
+        crossing: "c".into(),
+        path: "p".into(),
+        detail: "d".into(),
+    };
+    let words = crossing.to_string();
     assert!(matches!(
-        class(LaunchError::World(WorldError::Crossing {
-            realm: "b".into(),
-            crossing: "c".into(),
-            path: "p".into(),
-            detail: "d".into(),
-        })),
-        Class::Counted(StartRefusal::Crossing)
+        class(LaunchError::World(crossing)),
+        Class::Counted(StartRefusal::Crossing, ref said) if *said == words
     ));
+    let unboxable = LaunchError::Unboxable(Unboxable::MissingTool {
+        boundary: Boundary::Namespace,
+        tool: "bwrap",
+        seats: vec![],
+    });
+    let words = unboxable.to_string();
     assert!(matches!(
-        class(LaunchError::Unboxable(Unboxable::MissingTool {
-            boundary: Boundary::Namespace,
-            tool: "bwrap",
-            seats: vec![],
-        })),
-        Class::Counted(StartRefusal::Unboxable)
+        class(unboxable),
+        Class::Counted(StartRefusal::Unboxable, ref said) if *said == words
     ));
     assert!(matches!(
         class(LaunchError::Store(StoreError::RunNotFound("gone".into()))),
@@ -188,18 +190,10 @@ fn a_class_maps_every_launch_refusal_to_its_disposal() {
         Class::Start(LaunchError::Engine(EngineError::Invariant(..)))
     ));
     assert!(matches!(
-        class(LaunchError::Engine(EngineError::UnbuiltBoundary {
-            boundary: Boundary::Namespace,
-            slice: "ii",
-            seats: vec![],
-        })),
-        Class::Counted(StartRefusal::Compile)
-    ));
-    assert!(matches!(
         class(LaunchError::Engine(EngineError::World(
             WorldError::Missing("no map".into())
         ))),
-        Class::Counted(StartRefusal::Compile)
+        Class::Counted(StartRefusal::Compile, _)
     ));
     assert!(matches!(
         class(LaunchError::Engine(EngineError::Store(
@@ -241,12 +235,24 @@ fn a_run_lock_ends_and_an_uninstalled_recipe_counts() {
         ))),
         Class::Start(LaunchError::Engine(EngineError::RunLock(_)))
     ));
+    let unbuilt = EngineError::UnbuiltBoundary {
+        boundary: Boundary::Namespace,
+        slice: "ii",
+        seats: vec![],
+    };
+    let words = unbuilt.to_string();
     assert!(matches!(
-        class(LaunchError::RecipeNotFound {
-            name: "recipe".into(),
-            recipes_dir: "recipes".into(),
-        }),
-        Class::Counted(StartRefusal::Compile)
+        class(LaunchError::Engine(unbuilt)),
+        Class::Counted(StartRefusal::Compile, ref said) if *said == words
+    ));
+    let recipe = LaunchError::RecipeNotFound {
+        name: "recipe".into(),
+        recipes_dir: "recipes".into(),
+    };
+    let words = recipe.to_string();
+    assert!(matches!(
+        class(recipe),
+        Class::Counted(StartRefusal::Compile, ref said) if *said == words
     ));
 }
 
@@ -302,111 +308,102 @@ fn an_ended_store_refusal_keeps_its_class() {
     ));
 }
 
+/// Dispose of a fresh claim as `class` under a bound of 1: the ending,
+/// with no `reclaim` or `hold` written.
+fn ended_by(class: Class) -> Ending {
+    let dir = tempfile::tempdir().unwrap();
+    let (claim, generation) = disposed(dir.path());
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let refused = dispose(&mut store, claim, generation, NonZeroU32::MIN, class).unwrap_err();
+    assert_eq!(count(&store, "reclaim"), 0);
+    assert_eq!(count(&store, "hold"), 0);
+    refused
+}
+
 #[test]
 fn a_disposal_that_is_any_other_refusal_writes_nothing_and_ends() {
-    for class in [
-        Class::Fenced(Generation(7)),
-        Class::QueueStorage(QueueRefusal::SchemaMismatch { found: 9 }),
-        Class::Store(StoreError::RunNotFound("gone".into())),
-        Class::Start(LaunchError::ClaimWithDispatch),
-    ] {
-        let dir = tempfile::tempdir().unwrap();
-        let (claim, generation, queued) = disposed(dir.path());
-        let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-        let refused = dispose(
-            &mut store,
-            claim,
-            generation,
-            NonZeroU32::MIN,
-            class,
-            &queued,
-        )
-        .unwrap_err();
-        match refused {
-            Ending::Fenced(g) => assert_eq!(g, Generation(7)),
-            Ending::QueueStorage(QueueRefusal::SchemaMismatch { found }) => assert_eq!(found, 9),
-            Ending::Store(StoreError::RunNotFound(_)) | Ending::Start(_) => {}
-            other => panic!("{other:?}"),
-        }
-        assert_eq!(count(&store, "reclaim"), 0);
-        assert_eq!(count(&store, "hold"), 0);
-    }
+    assert!(matches!(
+        ended_by(Class::Fenced(Generation(7))),
+        Ending::Fenced(Generation(7))
+    ));
+    assert!(matches!(
+        ended_by(Class::QueueStorage(QueueRefusal::SchemaMismatch {
+            found: 9
+        })),
+        Ending::QueueStorage(QueueRefusal::SchemaMismatch { found: 9 })
+    ));
+    assert!(matches!(
+        ended_by(Class::Store(StoreError::RunNotFound("gone".into()))),
+        Ending::Store(StoreError::RunNotFound(ref run)) if run == "gone"
+    ));
+    assert!(matches!(
+        ended_by(Class::Start(LaunchError::ClaimWithDispatch)),
+        Ending::Start(LaunchError::ClaimWithDispatch)
+    ));
 }
 
+/// Decision 0110 ruling 2: a bundle moved under the claim is reclaimed
+/// uncounted, naming the digest the claim recorded and the one the start
+/// compiled, as the start's refusal carried them, with nothing compiled
+/// again.
 #[test]
-fn a_contended_start_is_reclaimed_uncounted() {
+fn a_bundle_moved_names_both_digests_the_start_carried() {
     let dir = tempfile::tempdir().unwrap();
-    let (claim, generation, queued) = disposed(dir.path());
+    let (claim, generation) = disposed(dir.path());
+    // The bundle is gone, so a disposal that compiled again could not name
+    // the start's digest.
+    std::fs::remove_dir_all(dir.path().join("bundle")).unwrap();
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let class = class(LaunchError::Store(StoreError::Contended {
-        operation: "start",
-        waited_ms: 1,
-    }));
-    let outcome = dispose(
-        &mut store,
-        claim,
-        generation,
-        NonZeroU32::MIN,
-        class,
-        &queued,
-    )
-    .unwrap();
-    assert!(matches!(outcome, Outcome::Reclaimed(ref reclaimed) if reclaimed.refused.is_none()));
-    assert_eq!(count(&store, "reclaim"), 1);
+    let moved = Class::BundleMoved(digests());
+    let outcome = dispose(&mut store, claim, generation, NonZeroU32::MIN, moved).unwrap();
+    let (entry, seq) = claim.parts();
+    let said = format!(
+        "start refused: claim {seq} of entry {entry} measured bundle measured, and this start \
+         compiled compiled"
+    );
+    assert!(matches!(
+        outcome,
+        Outcome::Reclaimed(ref reclaimed)
+            if reclaimed.refused.is_none() && reclaimed.reason == said
+    ));
+    assert_eq!(reclaim_reason(&store), said);
     assert_eq!(refusals(&store), Vec::<String>::new());
-}
-
-#[test]
-fn a_bundle_moved_names_both_digests_or_an_unreadable_remeasure() {
-    let dir = tempfile::tempdir().unwrap();
-    let (claim, generation, queued) = disposed(dir.path());
-    let actual = queued.compiled().unwrap().manifest_digest();
-    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let outcome = dispose_bundle_moved(&mut store, claim, generation, &queued);
-    assert!(matches!(outcome, Outcome::Reclaimed(ref reclaimed) if reclaimed.refused.is_none()));
-    let reason = reclaim_reason(&store);
-    assert!(reason.contains("measured"), "{reason}");
-    assert!(reason.contains(&actual), "{reason}");
-    assert_eq!(refusals(&store), Vec::<String>::new());
-
-    let unreadable = tempfile::tempdir().unwrap();
-    let (claim, generation, queued) = disposed(unreadable.path());
-    std::fs::remove_dir_all(unreadable.path().join("bundle")).unwrap();
-    let mut store = Store::open(&unreadable.path().join("forge.db")).unwrap();
-    let outcome = dispose_bundle_moved(&mut store, claim, generation, &queued);
-    assert!(matches!(outcome, Outcome::Reclaimed(_)));
-    assert!(reclaim_reason(&store).contains("unreadable"));
 }
 
 #[test]
 fn a_bundle_moved_carried_by_the_launch_store_is_uncounted() {
     let dir = tempfile::tempdir().unwrap();
     let claimed = claimed(dir.path(), None);
-    let moved = QueueRefusal::BundleMoved(claimed.claim, "measured".into());
+    let moved = QueueRefusal::BundleMoved(claimed.claim, digests());
     assert!(matches!(
         class(LaunchError::Store(StoreError::Queue(moved))),
-        Class::BundleMoved(ref measured) if measured == "measured"
+        Class::BundleMoved(ref carried) if *carried == digests()
+    ));
+    let moved = QueueRefusal::BundleMoved(claimed.claim, digests());
+    let engine = EngineError::Store(StoreError::Queue(moved));
+    assert!(matches!(
+        class(LaunchError::Engine(engine)),
+        Class::BundleMoved(ref carried) if *carried == digests()
     ));
 }
 
+/// The digest a claim recorded and the one a start compiled.
+fn digests() -> Box<(String, String)> {
+    Box::new(("measured".into(), "compiled".into()))
+}
+
 #[test]
-fn a_counted_disposal_holds_at_a_bound_of_one_with_its_variant() {
+fn a_counted_disposal_holds_at_a_bound_of_one_with_its_variant_and_words() {
     let dir = tempfile::tempdir().unwrap();
-    let (claim, generation, queued) = disposed(dir.path());
+    let (claim, generation) = disposed(dir.path());
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let outcome = dispose(
-        &mut store,
-        claim,
-        generation,
-        NonZeroU32::MIN,
-        Class::Counted(StartRefusal::Compile),
-        &queued,
-    )
-    .unwrap();
+    let class = counted_as(StartRefusal::Compile, "the bundle does not parse");
+    let outcome = dispose(&mut store, claim, generation, NonZeroU32::MIN, class).unwrap();
+    let said = "compile: the bundle does not parse";
     assert!(matches!(
         outcome,
         Outcome::Held(ref held)
-            if held.refusal == StartRefusal::Compile && held.count == 1
+            if held.refusal == StartRefusal::Compile && held.count == 1 && held.reason == said
     ));
     assert_eq!(count(&store, "hold"), 1);
     assert_eq!(refusals(&store), vec!["compile".to_string()]);
@@ -414,60 +411,26 @@ fn a_counted_disposal_holds_at_a_bound_of_one_with_its_variant() {
         .into_iter()
         .find(|(_, command, ..)| command == "hold")
         .unwrap();
-    assert_eq!(reason, "compile");
+    assert_eq!(reason, said);
 }
 
 #[test]
 fn a_counted_disposal_below_the_bound_reclaims_and_counts() {
     let dir = tempfile::tempdir().unwrap();
-    let (claim, generation, queued) = disposed(dir.path());
+    let (claim, generation) = disposed(dir.path());
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
     let bound = NonZeroU32::new(3).unwrap();
-    let outcome = dispose(
-        &mut store,
-        claim,
-        generation,
-        bound,
-        Class::Counted(StartRefusal::Crossing),
-        &queued,
-    )
-    .unwrap();
+    let class = counted_as(StartRefusal::Crossing, "the crossing moved");
+    let outcome = dispose(&mut store, claim, generation, bound, class).unwrap();
     assert!(matches!(
         outcome,
         Outcome::Reclaimed(ref reclaimed)
-            if reclaimed.refused == Some(StartRefusal::Crossing) && reclaimed.count == 1
+            if reclaimed.refused == Some(StartRefusal::Crossing)
+                && reclaimed.count == 1
+                && reclaimed.reason == "crossing: the crossing moved"
     ));
     assert_eq!(count(&store, "reclaim"), 1);
     assert_eq!(refusals(&store), vec!["crossing".to_string()]);
-}
-
-#[test]
-fn a_contended_disposal_is_retried_until_it_lands_with_no_other_claim() {
-    let dir = tempfile::tempdir().unwrap();
-    let (claim, generation, queued) = disposed(dir.path());
-    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-    store.set_patience(Duration::from_millis(20)).unwrap();
-    let holder = holding(&store);
-    let released = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(150));
-        holder.execute_batch("ROLLBACK").unwrap();
-    });
-    let outcome = dispose(
-        &mut store,
-        claim,
-        generation,
-        NonZeroU32::MIN,
-        Class::Counted(StartRefusal::Compile),
-        &queued,
-    )
-    .unwrap();
-    released.join().unwrap();
-    assert!(matches!(
-        outcome,
-        Outcome::Held(ref held) if held.refusal == StartRefusal::Compile
-    ));
-    assert_eq!(count(&store, "hold"), 1);
-    assert_eq!(refusals(&store), vec!["compile".to_string()]);
 }
 
 #[test]
@@ -479,11 +442,16 @@ fn a_contended_link_leaves_the_entry_for_reconciliation_and_is_never_reclaimed()
         mut store,
     } = started_contended(dir.path());
     let holder = holding(&store);
-    let outcome = linked_quiet(&mut store, &claimed._dispatcher, claimed.claim, &run);
+    let (outcome, left) = linked_quiet(&mut store, &claimed._dispatcher, claimed.claim, &run);
     assert!(matches!(
         outcome,
         Outcome::Contended(ref contended) if contended.stage == Stage::Link
     ));
+    assert_eq!(
+        left,
+        left_one(claimed.claim, &run),
+        "the report names the run"
+    );
     assert_eq!(count(&store, "reclaim"), 0);
     holder.execute_batch("ROLLBACK").unwrap();
 
@@ -506,6 +474,7 @@ fn a_contended_link_leaves_the_entry_for_reconciliation_and_is_never_reclaimed()
         OsString::new(),
         Seams {
             stands: || Ok(()),
+            claims: || true,
             spawn: move |spawn: &Spawn| {
                 record.borrow_mut().push(spawn.run.clone());
                 Ok(Spawned { pid: 3 })
@@ -534,25 +503,48 @@ fn a_contended_spawn_row_is_left_for_reconciliation_and_never_reclaimed() {
         *holder.borrow_mut() = Some(conn);
         Ok(())
     };
-    let mut spawn = spawned_one;
-    let outcome = linked(
+    let (outcome, left) = linked(
         &mut store,
         &claimed._dispatcher,
         claimed.claim,
         &run,
         &mut stands,
-        &mut spawn,
     );
     assert!(matches!(
         outcome,
-        Outcome::Contended(ref contended) if contended.stage == Stage::Spawn
+        Ok(Outcome::Contended(ref contended)) if contended.stage == Stage::Spawn
     ));
+    assert_eq!(
+        left,
+        left_one(claimed.claim, &run),
+        "the report names the run"
+    );
     assert_eq!(count(&store, "reclaim"), 0);
     assert_eq!(count(&store, "spawn"), 0);
-    let conn = held.borrow_mut().take();
-    if let Some(conn) = conn {
-        conn.execute_batch("ROLLBACK").unwrap();
-    }
+    let conn = held.borrow_mut().take().unwrap();
+    conn.execute_batch("ROLLBACK").unwrap();
+
+    // The next pass's reconciliation spawns the run, once, and reclaims
+    // nothing.
+    let passed = crate::dispatch::pass(
+        &mut store,
+        &claimed._dispatcher,
+        &host(&dir.path().join("absent-host.json")),
+        OsString::new(),
+        crate::dispatch::pass::tests::support::quiet(),
+    )
+    .unwrap();
+    assert_eq!(
+        passed.reconciled,
+        vec![crate::dispatch::Settled::ToSpawn(
+            claimed.claim,
+            run.clone()
+        )]
+    );
+    assert_eq!(passed.spawned.len(), 1);
+    assert_eq!(passed.spawned[0].run, run);
+    assert_eq!(count(&store, "spawn"), 1);
+    assert_eq!(count(&store, "reclaim"), 0);
 }
 
 #[test]
@@ -564,21 +556,23 @@ fn a_stand_that_ends_before_a_spawn_row_leaves_the_link_alone() {
         mut store,
     } = started(dir.path());
     let mut stands = || Err(Ending::Stood);
-    let mut spawn = spawned_one;
-    let refused = link_and_spawn(
+    let (refused, left) = linked(
         &mut store,
         &claimed._dispatcher,
         claimed.claim,
         &run,
         &mut stands,
-        &mut spawn,
-    )
-    .unwrap_err();
-    assert!(matches!(refused, Ending::Stood));
+    );
+    assert!(matches!(refused, Err(Ending::Stood)));
+    assert_eq!(
+        left,
+        left_one(claimed.claim, &run),
+        "the report names the run"
+    );
     assert_eq!(count(&store, "spawn"), 0);
     assert_eq!(
         store.queue_entry(claimed.entry).unwrap().state,
-        brokkr_store::EntryState::Claimed { run }
+        brokkr_store::EntryState::Claimed { run, merged: false }
     );
 }
 
@@ -609,7 +603,7 @@ fn contention_is_reported_and_any_other_step_refusal_ends() {
 #[test]
 fn a_reclaim_that_is_fenced_out_ends_the_disposal() {
     let dir = tempfile::tempdir().unwrap();
-    let (claim, generation, queued) = disposed(dir.path());
+    let (claim, generation) = disposed(dir.path());
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
     let conn = rusqlite::Connection::open(store.path()).unwrap();
     conn.execute_batch(
@@ -617,15 +611,8 @@ fn a_reclaim_that_is_fenced_out_ends_the_disposal() {
          VALUES (99, NULL, 1, 'then')",
     )
     .unwrap();
-    let refused = dispose(
-        &mut store,
-        claim,
-        generation,
-        NonZeroU32::MIN,
-        Class::Counted(StartRefusal::Compile),
-        &queued,
-    )
-    .unwrap_err();
+    let class = counted_as(StartRefusal::Compile, "c");
+    let refused = dispose(&mut store, claim, generation, NonZeroU32::MIN, class).unwrap_err();
     assert!(matches!(refused, Ending::Fenced(Generation(1))));
     assert_eq!(count(&store, "hold"), 0);
     assert_eq!(count(&store, "reclaim"), 0);

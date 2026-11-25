@@ -6,7 +6,9 @@
 //! The handlers are grouped by what they do to a run:
 //! - [`delivery`] starts, continues or ends one, and [`acknowledge`]
 //!   answers one that is quarantined;
-//! - [`queue`] keeps the runs waiting to start (decision 0068);
+//! - [`queue`] keeps the runs waiting to start (decision 0068), and
+//!   [`dispatch`] starts them, each handed to a driver of its own
+//!   (decision 0110);
 //! - [`readouts`] reads journals and the world, and writes nothing, as
 //!   [`analytics`] does across every hearth;
 //! - [`evidence`] lists the host's historical evidence roots and retires
@@ -20,6 +22,7 @@ mod acknowledge;
 pub(super) mod analytics;
 pub(super) mod backup;
 pub(super) mod delivery;
+pub(super) mod dispatch;
 pub(super) mod evidence;
 pub(super) mod exchange;
 pub(super) mod graph;

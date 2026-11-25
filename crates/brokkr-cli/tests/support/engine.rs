@@ -38,9 +38,13 @@ const RUNTIME_BROKER: &str = include_str!("../../../brokkr-runtime/src/engine/br
 /// A line naming `const STARTUP` in any other shape, no such line, two, or
 /// a source the lexer cannot read, fails the pin, never passes unread.
 fn startup_seconds(source: &str) -> u64 {
-    let code = crate::rust_source::code(source).unwrap_or_else(|unread| {
-        panic!("brokkr-runtime's engine/broker.rs cannot be read as Rust source: {unread}")
-    });
+    startup_seconds_in("brokkr-runtime's engine/broker.rs", source)
+}
+
+/// [`startup_seconds`] of `source`, each failure naming it `file`.
+pub(crate) fn startup_seconds_in(file: &str, source: &str) -> u64 {
+    let code = crate::rust_source::code(source)
+        .unwrap_or_else(|unread| panic!("{file} cannot be read as Rust source: {unread}"));
     let declared: Vec<&str> = code
         .lines()
         .filter(|line| {
@@ -53,8 +57,8 @@ fn startup_seconds(source: &str) -> u64 {
         .collect();
     let [line] = declared[..] else {
         panic!(
-            "brokkr-runtime's engine/broker.rs names `const STARTUP` on {} lines, where the \
-             pin reads exactly one: {declared:?}",
+            "{file} names `const STARTUP` on {} lines, where the pin reads exactly one: \
+             {declared:?}",
             declared.len()
         );
     };
@@ -64,8 +68,8 @@ fn startup_seconds(source: &str) -> u64 {
         .and_then(|digits| digits.parse().ok())
         .unwrap_or_else(|| {
             panic!(
-                "brokkr-runtime's engine/broker.rs declares `STARTUP` in a shape the pin does \
-                 not read, not `const STARTUP: Duration = Duration::from_secs(N);`: {line}"
+                "{file} declares `STARTUP` in a shape the pin does not read, not \
+                 `const STARTUP: Duration = Duration::from_secs(N);`: {line}"
             )
         })
 }
@@ -138,12 +142,12 @@ fn an_unreadable_source_is_refused() {
     startup_seconds("const STARTUP: Duration = Duration::from_secs(30);\n/* never closed\n");
 }
 
-/// `brokkr` run in `dir`, which is its TMPDIR too: its start reaps only
-/// the trees of `dir`. Its HOME is [`home_in`] `dir`, unless the test
+/// `brokkr <argv>` run in `dir`, which is its TMPDIR too: its start reaps
+/// only the trees of `dir`. Its HOME is [`home_in`] `dir`, unless the test
 /// gives it another. `dir` is marked a recipe library first ([`library`]).
-pub(crate) fn brokkr_in(dir: &Path) -> Command {
+pub(crate) fn brokkr_in(dir: &Path, argv: &[&str]) -> Command {
     library(dir);
-    let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+    let mut command = crate::built::brokkr(argv);
     command
         .current_dir(dir)
         .env("TMPDIR", dir)
@@ -153,7 +157,7 @@ pub(crate) fn brokkr_in(dir: &Path) -> Command {
 
 /// `dir/home`, owner-only, made where it is missing: the HOME a test gives
 /// every `brokkr` it launches on a path that can dispatch (`run`,
-/// `resume`, `rerun`), unless it gives it another, so its dispatches admit
+/// `resume`, `runs rerun`), unless it gives it another, so its dispatches admit
 /// their attempts in a coordination root of the test's own, never under
 /// the operator's HOME (decision 0065 slice two, U8a2a). `dir` is the
 /// test's own, but may be the tree a run operates: [`brokkr_in`] stands in
@@ -191,7 +195,7 @@ pub(crate) fn toolchain_home_in(dir: &Path) -> PathBuf {
 /// summary in libtest's captured output, including an unexpected park's
 /// reason on stdout. Child stderr remains unchanged for protocol proofs.
 pub(crate) fn completed_in(dir: &Path, args: &[&str]) -> std::process::Output {
-    let out = brokkr_in(dir).args(args).output().unwrap();
+    let out = brokkr_in(dir, args).output().unwrap();
     if !out.status.success() {
         eprintln!(
             "brokkr {args:?}: {}\nstdout: {}\nstderr: {}",
@@ -238,6 +242,19 @@ pub(crate) fn run_in(dir: &Path, feature: &str, db: &Path) -> (String, String) {
         .trim()
         .to_string();
     (run, stderr)
+}
+
+/// What the engine told its stderr of `run`'s last failed attempt, as it
+/// journaled that attempt's id in `db`: each line under the id, the id
+/// taken off (#1199).
+pub(crate) fn told_of_last_failure<'s>(db: &Path, run: &str, stderr: &'s str) -> Vec<&'s str> {
+    let events = brokkr_store::Store::open(db).unwrap().load(run).unwrap();
+    let failed =
+        (events.iter()).rfind(|event| event.event_type == brokkr_core::EventType::EffectFailed);
+    let attempt = failed.expect("a failed attempt").payload["attempt_id"].as_str();
+    let prefix = format!("{}: driver stderr: ", attempt.unwrap());
+    let told = stderr.lines().filter_map(|line| line.strip_prefix(&prefix));
+    told.collect()
 }
 
 /// A pid no process holds: a child that has exited and been waited for.

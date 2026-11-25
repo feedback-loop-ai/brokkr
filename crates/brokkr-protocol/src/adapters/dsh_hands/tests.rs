@@ -18,6 +18,7 @@ mod composed;
 mod composed_carriers;
 mod composed_controls;
 mod composed_rows;
+mod encoded_row;
 mod launch_order;
 mod releases;
 
@@ -98,7 +99,7 @@ fn sealed(stands: SealedBoundary, access: Option<&str>) -> Value {
 /// in `workdir`, for the inputs [`sealed`] writes.
 fn bound(workdir: &str) -> Vec<String> {
     let spec = HandsSpec::default();
-    crate::hands::serve_args(Path::new(workdir), Path::new("/a"), &reach(), &spec)
+    crate::hands::serve_args_encoded(Path::new(workdir), Path::new("/a"), &reach(), &spec)
 }
 
 fn refused(rows: &str) -> String {
@@ -300,7 +301,7 @@ fn only_a_measured_release_is_served_the_hands_rows() {
         assert!(Release::named(version).is_some(), "{version}");
     }
     let tail = " is not a dsh release its hands rows were measured on (0.2.1-rc.2, \
-         0.2.1-rc.3, 0.2.2-rc.1), and a tool row nobody measured could stay enabled beside the \
+         0.2.1-rc.3, 0.2.2-rc.1, 0.2.2-rc.5), and a tool row nobody measured could stay enabled beside the \
          box, so the seat is not served its native tools (#896)";
     let other = measured(Some("0.2.1-rc.4".into())).unwrap_err();
     assert_eq!(
@@ -1083,7 +1084,7 @@ esac
 {
   printf 'cwd=%s\n' "$(pwd)"
   printf 'dsh_home=%s\n' "${DSH_HOME-<unset>}"
-  printf 'git_key=%s\n' "${GIT_CONFIG_KEY_0-<unset>}"
+  printf 'git_parameters=%s\n' "${GIT_CONFIG_PARAMETERS-<unset>}"
   printf 'removed=%s\n' "${LIBRARY_DOCS_TOKEN-<unset>}"
   printf '%s\n' '--'
 } >> "$BROKKR_TEST_DSH_OBSERVE"
@@ -1238,7 +1239,10 @@ fn a_launch_composes_under_the_sessions_own_environment_and_directory() {
             block.contains(&format!("dsh_home={expected_home}\n")),
             "{block}"
         );
-        assert!(block.contains("git_key=commit.gpgsign\n"), "{block}");
+        assert!(
+            block.contains("git_parameters='commit.gpgsign'='false'\n"),
+            "{block}"
+        );
         assert!(block.contains("removed=<unset>\n"), "{block}");
     }
 }
@@ -1419,11 +1423,19 @@ fn review_a_dsh_probe_answer_must_not_erase_its_startup_refusal() {
 /// shipped and the stream-json launch (#896 round 4). Hands stay selected
 /// only by [`Selection::Hands`], so neither the composition probe nor the
 /// startup gate runs for it. A stand-in bwrap whose one probe succeeds
-/// keeps the test off this box's unusable bubblewrap branch.
+/// keeps the test off this box's unusable bubblewrap branch. It runs in
+/// its own engine: the stand-in leads its `PATH`, which every box test
+/// beside it finds bubblewrap on, and a `/bin/true` there stands no box
+/// at all (#1187).
 #[cfg(target_os = "linux")]
 #[test]
 fn a_linked_worktree_runner_is_not_a_hands_launch() {
     use super::super::tests::{dsh_enabled_input, real_linked_worktree, synthetic_dsh_composite};
+    if !crate::process::in_its_own_engine(
+        "adapters::dsh_hands::tests::a_linked_worktree_runner_is_not_a_hands_launch",
+    ) {
+        return;
+    }
     let mut env = EnvGuard::lock();
     let (dir, worktree, _facts) = real_linked_worktree();
     std::os::unix::fs::symlink("/bin/true", dir.path().join("bwrap")).unwrap();
@@ -1431,11 +1443,11 @@ fn a_linked_worktree_runner_is_not_a_hands_launch() {
     search.push(":");
     search.push(std::env::var_os("PATH").unwrap_or_default());
     env.set("PATH", &search);
-    // The seat process may inherit a broken `git -c` triple from the host;
-    // this test needs `git_facts` to read the real linked worktree.
-    env.set("GIT_CONFIG_COUNT", "1");
-    env.set("GIT_CONFIG_KEY_0", "commit.gpgsign");
-    env.set("GIT_CONFIG_VALUE_0", "false");
+    // The seat process may inherit a broken `git -c` triple from the host
+    // (#1109); this test needs `git_facts` to read the real linked worktree.
+    env.remove("GIT_CONFIG_COUNT");
+    let (git_name, git_value) = crate::hands::environment::seat_git_environment();
+    env.set(git_name, git_value);
     env.set("DSH_PERMISSION_MODE", "workspace-write");
     env.set("DSH_HOME", dir.path());
     let workdir = worktree.to_str().unwrap();
@@ -1658,10 +1670,16 @@ const SPARK_GLM_ROUTE: &str = "\
 #[cfg(unix)]
 fn measured_dump() -> String {
     use super::composition::MEASURED_COMPOSITION;
-    MEASURED_COMPOSITION
-        .iter()
+    dump_of(Release::V0_2_1, &MEASURED_COMPOSITION)
+}
+
+/// `rows` as `--dump-config` writes them, with every row `release`'s
+/// overlay pins marked disabled.
+#[cfg(unix)]
+fn dump_of(release: Release, rows: &[(&str, &str)]) -> String {
+    rows.iter()
         .map(|(id, name)| {
-            let disabled = super::disabled(Release::V0_2_1, id);
+            let disabled = super::disabled(release, id);
             format!(
                 "- id: {id}\n  name: '{name}'\n{}",
                 if disabled { "  disabled: true\n" } else { "" }
@@ -1681,15 +1699,7 @@ fn measured_dump_0_2_2() -> String {
         .filter(|row| !REMOVED_0_2_2.contains(row))
         .collect();
     rows.extend(ADDED_0_2_2);
-    rows.iter()
-        .map(|(id, name)| {
-            let disabled = super::disabled(Release::V0_2_2, id);
-            format!(
-                "- id: {id}\n  name: '{name}'\n{}",
-                if disabled { "  disabled: true\n" } else { "" }
-            )
-        })
-        .collect()
+    dump_of(Release::V0_2_2, &rows)
 }
 
 /// A provider shim that records the engine-only home, the working
@@ -1889,7 +1899,7 @@ fn a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home() {
     );
     let mut command = launch.command.clone();
     command.push("the task".to_string());
-    let mut emit = |_: &Value| {};
+    let mut emit = |_: &crate::adapters::Emitted| {};
     let mut observer = |_: &crate::adapters::DshObservation| {};
     invoke_dsh_launch_observed(
         launch,

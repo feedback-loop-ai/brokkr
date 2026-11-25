@@ -36,7 +36,7 @@ fn stat(pid: i32) -> Option<(char, i32, i32, i32)> {
 }
 
 /// Every live descendant of `root`, found by its parent links.
-fn descendants(root: i32) -> Vec<i32> {
+pub(super) fn descendants(root: i32) -> Vec<i32> {
     let parents: BTreeMap<i32, i32> = processes()
         .filter_map(|pid| {
             stat(pid)
@@ -438,11 +438,8 @@ pub(super) fn left_for_the_next_start(scratch: &Path) -> (Vec<(String, Vec<Strin
     let run = tempfile::tempdir().unwrap();
     let dir = run.path();
     let bundle = crate::hands::reap_bundle(dir);
-    let mut start = crate::engine::brokkr_in(dir);
-    start
-        .env("TMPDIR", scratch)
-        .args(["run", "--bundle"])
-        .arg(&bundle);
+    let mut start = crate::engine::brokkr_in(dir, &["run", "--bundle"]);
+    start.env("TMPDIR", scratch).arg(&bundle);
     start
         .args(["--feature", "reap", "--db"])
         .arg(dir.join("j.db"));

@@ -113,7 +113,7 @@ fn every_member_is_witnessed_before_any_member_is_read() {
     };
     let settled = Checkpoints::new(&mut engine.store, &mut engine.current_cause, attempt).settle();
     let members = engine.settle_members([EFFECT, ATTEMPT], &runs, reports, settled, "");
-    let refused = (members.unwrap().into_iter()).map(|(name, report)| (name, report.refused));
+    let refused = (members.unwrap().0.into_iter()).map(|(name, report)| (name, report.refused));
     let refused: Vec<_> = refused.collect();
     let unchanged = [("docs".to_string(), None), ("sibling".to_string(), None)];
     assert_eq!((refused, site.rows()), (unchanged.to_vec(), vec![]));
@@ -147,7 +147,7 @@ fn every_panel_member_is_settled_by_its_own_broker_calls() {
     ];
     let deadline = Duration::from_secs(10);
     let reports = site.engine.run_panel(EFFECT, ATTEMPT, &runs, deadline, "");
-    let outcomes: Vec<_> = (reports.unwrap().into_iter())
+    let outcomes: Vec<_> = (reports.unwrap().0.into_iter())
         .map(|(name, report)| (name, report.settled_outcome()))
         .collect();
     let expected = [
@@ -204,7 +204,7 @@ fn a_successful_harness_fails_with_its_brokers_observed_stage_cause() {
     ];
     for failure in stages {
         let mut site = Site::new(false, argv.clone());
-        let cause = format!("{failure}; stderr tail: ");
+        let cause = format!("{failure}; driver stderr: empty");
         site.serve(|mut ledger| {
             ledger.fail(failure);
             ledger.close().unwrap();
@@ -220,7 +220,7 @@ fn a_successful_harness_fails_with_its_brokers_observed_stage_cause() {
     let mut site = Site::new(false, argv);
     site.laid(&Fault::Unclosed.ledger(&site));
     let last = concluded(&mut site, Duration::from_secs(10)).unwrap();
-    let cause = json!(format!("{}; stderr tail: ", Invalid::Lifecycle));
+    let cause = json!(format!("{}; driver stderr: empty", Invalid::Lifecycle));
     assert_eq!(
         (last.event_type, &last.payload["error"]),
         (EventType::EffectFailed, &cause)
@@ -247,10 +247,13 @@ fn a_driver_killed_at_its_deadline_settles_its_interrupted_call() {
         answered(&mut ledger, 1);
         let _cut = ledger.room().unwrap().begin("lookup").unwrap();
     });
-    let last = concluded(&mut site, Duration::from_secs(1)).unwrap();
+    let mut last = concluded(&mut site, Duration::from_secs(1)).unwrap();
     let reason = "attempt exceeded its 1s deadline and was killed; its process tree is gone, and \
-                  what it did is unknown; stderr tail: ";
+                  what it did is unknown; driver stderr: empty";
     let killed = json!({"effect_id": EFFECT, "attempt_id": ATTEMPT, "reason": reason});
+    // What the tracker measured of the real tree (decision 0112) is the
+    // ending's, beside what the kill left, and is set aside here.
+    last.payload.as_object_mut().unwrap().remove("usage");
     assert_eq!(
         (last.event_type, last.payload),
         (EventType::EffectIndeterminate, killed)

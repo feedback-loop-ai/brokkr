@@ -1,4 +1,4 @@
-//! `brokkr backup` and `brokkr restore` through the binary (decision 0100,
+//! `brokkr journal backup` and `brokkr journal restore` through the binary (decision 0100,
 //! the journal half of #431): the two verbs are reachable as the operator
 //! types them, each prints its document and its one stderr line, and a
 //! backup the store refuses fails the command with the refusal's words.
@@ -33,7 +33,14 @@ fn backup_and_restore_run_as_typed_and_a_refused_backup_fails_in_its_words() {
 
     let (stdout, stderr, ok) = brokkr(
         dir.path(),
-        &["backup", "--to", &path("backup"), "--db", &path("forge.db")],
+        &[
+            "journal",
+            "backup",
+            "--to",
+            &path("backup"),
+            "--db",
+            &path("forge.db"),
+        ],
     );
     assert!(ok, "{stderr}");
     let document: Value = serde_json::from_str(&stdout).unwrap();
@@ -43,6 +50,7 @@ fn backup_and_restore_run_as_typed_and_a_refused_backup_fails_in_its_words() {
     let (stdout, stderr, ok) = brokkr(
         dir.path(),
         &[
+            "journal",
             "restore",
             "--from",
             &path("backup"),
@@ -61,7 +69,14 @@ fn backup_and_restore_run_as_typed_and_a_refused_backup_fails_in_its_words() {
     std::fs::write(dir.path().join("a-file"), "operator bytes").unwrap();
     let (_, stderr, ok) = brokkr(
         dir.path(),
-        &["backup", "--to", &path("a-file"), "--db", &path("forge.db")],
+        &[
+            "journal",
+            "backup",
+            "--to",
+            &path("a-file"),
+            "--db",
+            &path("forge.db"),
+        ],
     );
     assert!(!ok, "a backup into a file succeeded");
     assert!(
@@ -84,7 +99,14 @@ fn a_file_colon_path_is_the_literal_path_it_spells_in_both_verbs() {
 
     let (_, stderr, ok) = brokkr(
         dir.path(),
-        &["backup", "--to", "file:victim?unused=1", "--db", "forge.db"],
+        &[
+            "journal",
+            "backup",
+            "--to",
+            "file:victim?unused=1",
+            "--db",
+            "forge.db",
+        ],
     );
     assert!(ok, "{stderr}");
     let victim = std::fs::metadata(dir.path().join("victim")).unwrap();
@@ -95,7 +117,14 @@ fn a_file_colon_path_is_the_literal_path_it_spells_in_both_verbs() {
 
     let (_, stderr, ok) = brokkr(
         dir.path(),
-        &["backup", "--to", "file:escaped", "--db", "forge.db"],
+        &[
+            "journal",
+            "backup",
+            "--to",
+            "file:escaped",
+            "--db",
+            "forge.db",
+        ],
     );
     assert!(ok, "{stderr}");
     let strays = std::fs::read_dir(dir.path().join("escaped")).unwrap();
@@ -109,6 +138,7 @@ fn a_file_colon_path_is_the_literal_path_it_spells_in_both_verbs() {
     let (_, stderr, ok) = brokkr(
         dir.path(),
         &[
+            "journal",
             "restore",
             "--from",
             "file:escaped",

@@ -27,7 +27,7 @@ use std::os::fd::{BorrowedFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
-use std::process::{Child, Command};
+use std::process::Command;
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "linux")]
@@ -157,15 +157,17 @@ impl Drop for Identity {
 /// end, the box's only protocol; its standard error's read end, which the
 /// broker drains and masks (U6f1b); the info pipe's read end, on which
 /// bubblewrap names the box's first process; and each mounted source, by
-/// the place of its handle and where it stands in the box. Dropping it
-/// settles the box: the launcher is killed and reaped, which the box it
-/// started does not outlive, and the pipes are closed. It borrows the
-/// entry it launched, so that entry, and the generated identity tree it
-/// removes, outlives the box.
+/// the place of its handle and where it stands in the box. The launcher is
+/// held as every child the door spawns (`process::spawned`): a wait that
+/// reaps it releases the reaper's hold at once. Dropping it settles the
+/// box: the launcher is killed and reaped, which the box it started does
+/// not outlive, and the pipes are closed. It borrows the entry it
+/// launched, so that entry, and the generated identity tree it removes,
+/// outlives the box.
 #[cfg(target_os = "linux")]
 #[derive(Debug)]
 pub struct Launched<'e> {
-    pub child: Child,
+    pub child: crate::process::spawned::Spawned,
     pub control: Option<PipeWriter>,
     pub ready: PipeReader,
     pub status: PipeReader,
@@ -411,7 +413,7 @@ pub(in crate::hands) fn started(
     mut launch: Command,
     hook: impl FnMut() -> std::io::Result<()> + Send + Sync + 'static,
     startup: Startup<'_>,
-) -> Result<Child, Refusal> {
+) -> Result<crate::process::spawned::Spawned, Refusal> {
     let (mut report, reporting) = std::io::pipe().or(Err(Refusal::Establishment))?;
     let (hold, mut releaser) = std::io::pipe().or(Err(Refusal::Establishment))?;
     let ends = [reporting.as_raw_fd(), hold.as_raw_fd()];
@@ -422,7 +424,7 @@ pub(in crate::hands) fn started(
     let ended = AtomicBool::new(false);
     let (started, timely) = std::thread::scope(|scope| {
         let watcher = scope.spawn(|| watched(&ended, &mut report, &mut releaser, startup));
-        let started = launch.spawn().ok();
+        let started = crate::process::spawned::spawn(&mut launch).ok();
         ended.store(true, Ordering::Release);
         (started, watcher.join().unwrap_or(false))
     });

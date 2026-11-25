@@ -1,10 +1,10 @@
-//! `brokkr probe harness` end to end: the verb resolves the shipped
+//! `brokkr system probe harness` end to end: the verb resolves the shipped
 //! adapter files and the secrets store, writes the report, and reports
 //! the drift since the report it replaces. The CLI it launches is a fake
 //! that speaks one Claude-shaped turn; no test reaches a provider.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use serde_json::{json, Value};
 
@@ -62,10 +62,9 @@ impl Host {
         self.launch(Some(&self.cli), adapters, extra)
     }
 
-    /// `brokkr probe harness`, given `--cli` when `cli` names one.
+    /// `brokkr system probe harness`, given `--cli` when `cli` names one.
     fn launch(&self, cli: Option<&Path>, adapters: &Path, extra: &[&str]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-        command.args(["probe", "harness"]);
+        let mut command = crate::built::brokkr(["system", "probe", "harness"]);
         if let Some(cli) = cli {
             command.arg("--cli").arg(cli);
         }
@@ -82,6 +81,15 @@ impl Host {
     fn path(&self, name: &str) -> PathBuf {
         self.dir.path().join(name)
     }
+}
+
+/// The report a probe printed, once it exited 0 with nothing on stderr.
+fn printed_report(output: &Output) -> Value {
+    assert_eq!(
+        (output.status.code(), stderr(output)),
+        (Some(0), String::new())
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
 }
 
 fn stderr(output: &Output) -> String {
@@ -207,11 +215,7 @@ fn the_verb_writes_the_shipped_adapter_s_report_and_its_drift_on_a_new_version()
 fn without_out_the_report_is_printed_and_a_turn_with_no_credential_is_refused() {
     let host = host();
     let output = host.probe(&repo_adapters(), &["--adapter", "codex"]);
-    assert_eq!(
-        (output.status.code(), stderr(&output)),
-        (Some(0), String::new())
-    );
-    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let report = printed_report(&output);
     assert_eq!(
         (
             &report["adapter"],
@@ -492,7 +496,7 @@ fn what_the_verb_cannot_probe_is_refused_by_name() {
             &host.cli,
             vec!["--adapter", "claude", "--credential", "NOPE"],
             format!(
-                "secret 'NOPE' is not in the store at {} (brokkr secrets set NOPE)",
+                "secret 'NOPE' is not in the store at {} (brokkr system secrets set NOPE)",
                 host.store.display()
             ),
         ),
@@ -525,4 +529,61 @@ fn what_the_verb_cannot_probe_is_refused_by_name() {
             "{args:?}"
         );
     }
+}
+
+/// `brokkr system probe harness` with `HOME` set to `home`, given `extra`.
+fn probe_with_home(host: &Host, cli: &Path, home: &Path, extra: &[&str]) -> Output {
+    crate::built::brokkr(["system", "probe", "harness", "--cli"])
+        .arg(cli)
+        .arg("--secrets-file")
+        .arg(&host.store)
+        .arg("--adapters-dir")
+        .arg(repo_adapters())
+        .args(extra)
+        .env("HOME", home)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn a_credential_file_under_home_logs_the_turn_in_and_one_that_is_not_there_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let host = host();
+    let by_file = FAKE.replace(r#"[ -n "$FAKE_TOKEN" ]"#, r#"[ -f "$HOME/.fake/login" ]"#);
+    let cli = executable::install(host.dir.path(), "fake-by-file", &by_file);
+    std::fs::write(host.path("version"), "1.0.0 (Fake)\n").unwrap();
+    let home = host.path("operator");
+    std::fs::create_dir_all(home.join(".fake")).unwrap();
+    let args = ["--adapter", "claude", "--credential-file", ".fake/login"];
+
+    let output = probe_with_home(&host, &cli, Path::new(""), &args);
+    assert_eq!(
+        (output.status.code(), stderr(&output)),
+        (
+            Some(1),
+            "error: --credential-file names a file under HOME, and HOME is not set\n".to_string()
+        )
+    );
+    let output = probe_with_home(&host, &cli, &home, &args);
+    assert!(
+        stderr(&output)
+            .starts_with("error: credential file ~/.fake/login cannot be read: No such file"),
+        "{}",
+        stderr(&output)
+    );
+
+    let login = home.join(".fake/login");
+    std::fs::write(&login, "operator\n").unwrap();
+    std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let output = probe_with_home(&host, &cli, &home, &args);
+    let report = printed_report(&output);
+    let evidence = report["facts"]["headless"]["evidence"].as_str().unwrap();
+    assert!(
+        evidence.starts_with(
+            "one turn ran under a scratch HOME with only these credentials bound: [~/.fake/login]; "
+        ),
+        "{evidence}"
+    );
+    assert_eq!(report["facts"]["headless"]["value"]["exit"], 0);
+    assert_eq!(std::fs::read_to_string(&login).unwrap(), "operator\n");
 }

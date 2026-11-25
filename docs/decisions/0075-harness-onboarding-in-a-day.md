@@ -204,3 +204,287 @@ Since it was drafted (refreshed 2026-10-12):
   the realm's to grant), 0071 (the architectural principles), 0072 (full
   access inside a seat box), 0077 (the broker as the harness's child), and
   0082 (the contract lifecycle).
+
+## Addendum — 2026-11-21, operator ruled: a provisional harness's stream confirms its served model
+
+Accepted by the operator on 2026-11-21 (#1178, ruling "1").
+
+A provisional seat is priced and judged on the model it was pinned to,
+so its stream must prove that model served it. Qoder CLI is the first
+case (#1178; `docs/evidence/adapters/qoder-cli-1-1.md`). Four rounds of
+review found a value escaping a mask or a rendering in a new place each
+time, because the pin and the served model ran as free text through
+masks, `Debug` renderings and error words. These rulings close that
+class:
+
+1. **The pin is a plain id.** It is 1 to 80 characters. The first is an
+   ASCII letter or a digit, so no pin reads as a flag, and each other is
+   an ASCII letter, a digit, `.`, `_` or `-`. It is checked once, at launch,
+   before spawn, and a pin that fails is refused in fixed words naming
+   no value. A plain id has no escaped form. It also holds no character
+   of the mask's replacement text, so no mask can turn another model
+   into the pin.
+2. **Exactly one identity row names it.** The driver's own rules read
+   each row as the harness wrote it. The shared fold reads only a copy
+   the seat's bindings masked, so its classifier, the session record and
+   every row emitted read masked text alone. One identity row
+   naming exactly the pin confirms the model. One naming another model,
+   a second identity row, or a turn before any confirmation refuses the
+   seat.
+3. **Any shape no measured stream carries refuses.** For Qoder, that
+   is a stdout line that is not UTF-8 or not a JSON object, an empty
+   line included. No line ends the read early, and none is skipped.
+4. **A fallback notice is a substitution wherever the stream stops.**
+   The harness's own notice that it served another model refuses the
+   seat as substituted, whatever the identity row said. A refusal
+   before the seat's first turn and before any delivery (item 8) is a
+   refusal to start. After a turn, or after delivery, the seat ends with
+   no result, and its error keeps the refusal's words.
+5. **Refusal words name only plain ids.** Words name an id by
+   `Display`, in single quotes. They name the served model only when it
+   is a plain id, and otherwise say "a model that is not a plain id". No
+   other value from the stream, its stderr, the environment or a path
+   appears in them. Every word the driver returns passes the seat's
+   bindings once, last. The shared driver's own pass over every
+   adapter's refusal stays.
+
+Amended on 2026-11-21 under the same ruling, and still accepted:
+
+6. **A classified provider refusal is named by its class.** A refusal
+   the shared classifier reads is named in fixed words for its class.
+   Today there are two classes: a rate limit, and any other refusal,
+   an API error or an authentication failure included. The words carry
+   none of the provider's text and no other value from the row. The
+   HTTP status and the retry-after stay as the refusal's
+   fields. The driver's own words pass no clipping step, so an id of 80
+   characters is named whole.
+7. **A fallback notice wins every stop.** Where the harness's fallback
+   notice is on the stderr captured by then, every stop refuses as
+   substituted, in the reported-on-stderr words. That includes a second
+   identity row and a line no measured stream carries. Otherwise each
+   stop keeps its own words.
+8. **A stop after work or delivery is lost (decision 0006).** Delivery
+   is read from the harness's real exit: it exited 0 on its own and its
+   result file exists. After a turn, or after delivery, a stop or an
+   identity refusal ends the attempt with no result of its own. The
+   driver prints its words for the operator and sends no wire result, so
+   no provider chain advances past delivered work.
+
+The order of masking and folding, for every adapter, is tracked as #1242.
+
+## Addendum — 2026-11-21, operator ruled: seat-record v8 opens the transcript kind and the root session kind
+
+The operator ruled on
+[#1227](https://github.com/feedback-loop-ai/brokkr/issues/1227) that day:
+"v8 in its own story, and yes open root_session.kind". Seat-record v8
+opens the transcript kind as ruling 2 ordered, and the same version
+opens `root_session.kind` on the same rule, amending the closed `kind`
+of decision 0056 ruling 3 and nothing else of that object.
+
+Each kind is one lowercase word of letters, digits and single inner
+hyphens, at most 40 characters, declared by the harness's adapter in its
+optional `record_kinds` member. The built-in drivers declare the kinds
+they write. `none` stays a transcript's empty locator and is never a
+root session kind. The engine refuses at append, wherever a record
+names a kind, one the seat's own harness does not declare — its
+adapter's, or the kind of the built-in driver its own command runs —
+naming the kind and the seat; no other adapter's declaration counts,
+and an adapter adds kinds and a resume, never a driver. A seat answers
+to its selected candidate's adapter, or, inline, to the adapter the
+compile pins for its model-bearing built-in driver; an adapter that
+declares no kinds grants only its driver's and `none`. A site that
+answers to no adapter, an inline raw command, an inline exec site or a
+site no plan covers, keeps v7's three kinds and `none`: no adapter
+exists to hold a declaration for it, and v8 neither opens nor narrows
+what it may write. A root of a kind no built-in driver writes is
+offered for a rejoin only where the seat's adapter declares it and the
+one shape its `record_kinds.resume_shape` names is `supported` and
+covers the site: class `work`, the site's boundary among its
+`boundaries`, and its `hands` the site's, the words the engine writes
+into the driver's input, so the engine offers no wider than the
+driver's resume gate, asked about that shape, rejoins (decision 0056
+ruling 5: an unmeasured shape is `unsupported-resume` there too). A
+harness that declares its kinds is never offered decision 0030's flat
+session id. An adapter declaring a root session kind must declare
+`resume` and name in `resume_shape` one of its shapes, and declares no
+`resume_shape` without a root session kind. Wherever a record names a
+kind, anything there but a declared kind is refused, on every road,
+whether or not a schema judges it after, an unresolved cleanup's
+evidence and a panel member's result included, and the refusal never
+echoes a value outside the grammar. A record refused for its kind is a
+failed attempt and is never bound as a word.
+
+The rule this protects is one: nothing acts on a kind that the harness
+which wrote it did not declare. It is enforced from both sides:
+
+1. What a driver hands the engine is judged before any of it is
+   appended: a checkpoint, a result, a panel member's result, an
+   unresolved cleanup's received outcome. What it refuses is appended
+   nowhere, in no field. Decision 0109's refusals keep their precedence:
+   a checkpoint that claims a record only the engine authors, or a work
+   site's result that reports findings, is refused by 0109 in 0109's
+   words before its kinds are judged, and the kind check runs before
+   anything else is appended.
+2. What the engine reads back from its own journal is already journaled.
+   Copying it into a later event (decide's `raw_result`, a poisoned
+   aggregate's `notes.members`, a refused carry's evidence) adds no
+   record and no kind place: the value stands in the journal either way,
+   and refusing the copy would remove nothing. Such a copy is evidence,
+   and no reader acts on a kind inside evidence. A partial panel retry's
+   carried member is more than a copy, since the carry makes it a
+   contribution to a new verdict: a carried result whose kind place
+   names an undeclared or out-of-grammar kind of the seat that wrote it
+   is not carried, and one that is not an object has no kind place and
+   carries for the join to poison.
+3. A reader acts on a kind only at a seat-record place, the three v8
+   defines (a checkpoint's `transcript` and `root_session`, and a
+   result's `transcript`, standing alone or nested in an engine-authored
+   checkpoint), and only on a kind that was judged. A verifier judges a
+   record by the schema alone, so an exported journal verifies without
+   the adapters that wrote it; acting on a kind is a reader's, not a
+   verifier's.
+   A reader that takes a kind from an earlier event to act on it, where
+   an earlier engine may have written that event, judges the kind itself
+   before acting, as the resume offer does. The resume offer forwards a
+   transcript's locator and home only where a write of that row at that
+   seat would pass the writer's kind check, a built-in kind included,
+   which changes no offer a real journal can produce, since no built-in
+   driver writes another driver's transcript kind and a site with no
+   adapter admits all three. A reader meeting a kind it
+   does not know reads the record as holding no transcript or no root of
+   a kind it can use: it never guesses, never falls back to another
+   kind, and never fails the read of the rest.
+
+v8 is minted under this decision, which is accepted,
+through decision 0082's lifecycle, and stands at v7's engine line, so
+dispatch never chooses v7.
+
+**Enforcement binding:** `contracts/seat-record.v8.schema.json` and its
+embedded copy; `seat_record::v8_tests` in brokkr-store; the writer's
+check in `crates/brokkr-runtime/src/agents/kinds.rs` and
+`engine::kinds_tests`, whose fixture harness no code names seats,
+records, verifies, exports and renders, and whose undeclared kind is
+refused at append.
+
+## Addendum — 2026-11-24, Antigravity CLI level 2 kept transcripts
+
+Addendum status: proposed
+
+Keeping a turn's transcript file in the operator's state directory after an
+Antigravity CLI seat ends is a new effect on disk (`#1227`, decision 0075
+level 2).
+
+- **What is kept and where.** When a seat's loaded adapter declares
+  `record_kinds.transcript: "agy-conversation"` (carried from the engine in
+  `resume_context.declared_transcript_kind` through one shared type in
+  `brokkr-protocol`, `DeclaredTranscriptKind`, using the one declared-kind
+  grammar in `brokkr-core` shared with the adapter loader and runtime and
+  refusing `"none"`, over-long words and invalid spellings; an unreadable or
+  refused value refuses the launch naming
+  `resume_context.declared_transcript_kind` rather than recording `none`),
+  `brokkr driver agy` copies one file —
+  `<engine HOME>/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`
+  — out of the engine's temporary HOME after `agy` exits and before the engine
+  HOME is removed, into
+  `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/transcript.jsonl`
+  (beside `~/.local/state/brokkr/dsh-homes/`). The conversation database,
+  `transcript_full.jsonl`, `chunks/` and `steps/` are not kept.
+- **Modes, bounds and untrusted-source checks.** `<id>` must be a single
+  exact 36-byte lowercase UUID (`8-4-4-4-12`, one shared helper in
+  `brokkr-core`) read beside the fold without changing the fold's `init` type
+  (absent, non-string, repeated, or non-UUID values yield `InvalidId` and
+  `none` while leaving model confirmation and the turn's verdict unchanged).
+  Before publishing, the driver validates the reference it will record against
+  the same home and path rule the run view uses (`is_valid_transcript_home`,
+  `is_native_transcript_home`, and `is_clean_transcript_path` in
+  `brokkr-core`), so a relative operator `HOME`, a non-native drive or UNC
+  spelling, or one carrying a control character such as a newline keeps
+  nothing with a typed notice (`KeepNotice::InvalidReference`). Every component under
+  the engine HOME is opened with `O_NOFOLLOW`, the leaf must be a regular
+  file, and the copy is bounded at the shared 32 MiB source cap
+  (`TRANSCRIPT_SOURCE_CAP`). Ancestors above `agy-conversations`
+  (`~/.local/state/brokkr` and up) are traversed and, if missing, created with
+  `create_dir_all`, asking nothing of an existing ancestor that the operating
+  system does not ask to traverse it and create an entry in it (an existing
+  ancestor of mode 0300 succeeds). No mode is changed by pathname:
+  `agy-conversations` and each conversation directory that the keeper creates
+  is created with `mkdirat` at mode 0700, opened with `O_NOFOLLOW`, verified by
+  `(st_dev, st_ino)` against the `statat` taken right after `mkdirat`, and set
+  to mode 0700 through that verified handle with `fchmod`, while an existing
+  directory's mode is never changed. When the umask makes a directory the
+  keeper has just created impossible for its owner to open, no transcript is
+  kept and that directory is removed through `unlink_if_same` so nothing of the
+  attempt remains (a umask that leaves a newly created directory openable, such
+  as 0100 leaving mode 0600, is opened, set to 0700 through the verified
+  handle, and keeps the transcript); a replaced entry is left untouched
+  (`KeepNotice::ReplacedDirectory`) with nothing kept. The `agy-conversations` parent is checked to be a real directory
+  (never a symlink) owned by the effective UID with no group or other access
+  (`mode & 0o077 == 0`); if an existing owner-only parent is not writable by
+  the owner (for example mode 0500), creating the conversation directory fails
+  with a typed keep notice (`KeepNotice::Io`, recording `none`) and leaves the
+  turn unchanged. The kept file is set to mode 0600 through `fchmod`, tightening agy's
+  measured 0644 mode.
+- **Only copy and kept-file rule.** The kept `transcript.jsonl` is the only
+  copy that survives removal of the engine HOME. The driver and the engine are
+  two processes, so the driver can only keep nothing in the cases it can see.
+  Those are: a probe (unchanged from main: nothing kept, no notice, answer
+  untouched); a refusal to start (judged by the one pure `refusal_to_start`
+  predicate over a single observation of `result_path` made in `agy::concluded`
+  immediately after `agy` exits and passed along on `Invocation` to
+  `run_seat_with`); no `init` with a conversation; an id that is not a UUID; a
+  source that is not a regular file reached without a symbolic link; a file
+  over the bound; a reference the reader's rule rejects; a row the turn's
+  masking would change (checked by building the exact `Emitted::transcript`
+  row and passing it through the shared path's `probe::seat_row`, keeping
+  nothing with a typed notice naming no value if any byte differs from the
+  unmasked row); and an undeclared kind. What the driver cannot see is the
+  engine refusing the row after the driver has returned. Then a kept file with
+  no record can remain; it is readable only by the operator, and the reaper of
+  issue `#1323` removes kept files that no journal names.
+- **Same-user directory limit.** The stated limit is the class of processes
+  running as the operator's own user that create, rename, move, replace or
+  remove entries under the operator's `agy-conversations` directory while a
+  keep is in progress (operator ruling of 2026-11-25 on `#1227`). The keeper
+  runs as that same user: everything such a process can make the keeper do —
+  write a file into a directory it controls, set a directory it owns to mode
+  0700, remove an entry it owns — that process can already do itself with the
+  same system calls, crossing no privilege boundary and reaching nothing of
+  another user's. Against that class the keeper promises no outcome (for
+  example, not where the transcript ends up if that process moves the
+  directory, not which entry is removed if that process swaps one in between
+  `statat` and `unlinkat`, and not what the record's home names if that
+  process renames a parent). What the code holds are four testable mechanisms:
+  (m1) every open for the kept place is an `openat` relative to a held handle
+  with `O_NOFOLLOW` on the final component, so it never traverses a symbolic
+  link placed at a name it opens; (m2) no system call changes a mode by
+  pathname, only `fchmod` on a handle; (m3) the transcript file is created
+  with `O_CREAT | O_EXCL | O_NOFOLLOW` relative to the conversation
+  directory's handle, so an existing entry at that name is never opened or
+  truncated; (m4) every `unlinkat` is preceded by a `statat` through the same
+  parent handle whose `(st_dev, st_ino)` equals the recorded identity, and is
+  skipped when they differ. When no such process acts on the tree during a
+  keep, the kept place, modes, refusals and rollback guarantees above hold.
+- **Reaping.** Nothing reaps `~/.local/state/brokkr/agy-conversations/` in
+  this story, as nothing reaps `~/.local/state/brokkr/dsh-homes/`; a shared
+  reaper is tracked as `#1323`.
+- **At-rest secrecy and masking.** As measured in
+  `l2b-printed-value.transcript.ndjson`, a bound secret printed by a tool lands
+  in `transcript.jsonl` in clear. Like Claude Code's session files, the kept
+  file at rest is **not** masked; only the operator's UID can read it (private
+  owner-only parent, 0700 conversation directory, 0600 file). Every run-view
+  surface (`brokkr runs transcript`, the TUI and the browser) reads the kept
+  file through the shared `read_local` and `mask_secrets` path against
+  `secrets.env` beside the journal; `mask_secrets` visits `Turn.ts` as well as
+  every block's text, for every transcript kind. The agy reader never re-parses
+  and never re-serializes what a row holds as a string: each member of
+  `tool_calls[].args` is rendered as `name=value` with string values verbatim
+  (already JSON-encoded once by agy, matching claude and codex) and non-string
+  values as compact JSON, so `mask_secrets` covers every raw or once-escaped
+  bound value including bound JSON text. `created_at` admits only exact
+  20-byte `YYYY-MM-DDTHH:MM:SSZ` timestamps; any other present value
+  (including JSON `null`) becomes an empty timestamp and is counted in a
+  notice while keeping the row shown, while only an absent member is not
+  counted.
+- **Follow-ups.** Rejoin (`--conversation`, serialized per conversation) is the
+  next story; applied effort from per-row model slugs is `#1324`; the shared
+  reaper is `#1323`.

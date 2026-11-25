@@ -1,5 +1,5 @@
 //! The one local transcript reader (proposed decision 0055, D2) that
-//! `brokkr transcript`, the terminal and the browser all consume: select
+//! `brokkr runs transcript`, the terminal and the browser all consume: select
 //! and validate a participant's reference, discover its one safe source,
 //! bound-read it and project it, then mask its prose on the way out.
 //!
@@ -119,6 +119,7 @@ pub fn read_local(subject: &Subject, projects_home: Option<&str>) -> TranscriptR
                 projection.skipped_lines,
                 projection.unrecognized_records,
             );
+            read.notices.extend(projection.notices);
             read.source_identity = Some(source_identity);
             read
         }
@@ -188,12 +189,11 @@ pub(crate) fn mask_secrets(mut read: TranscriptRead, store: &Path) -> Transcript
         ));
         return read;
     }
-    for block in read
-        .turns
-        .iter_mut()
-        .flat_map(|turn| turn.blocks.iter_mut())
-    {
-        block.text = secret::mask_projected(&block.text, &bindings);
+    for turn in &mut read.turns {
+        turn.ts = secret::mask_projected(&turn.ts, &bindings);
+        for block in &mut turn.blocks {
+            block.text = secret::mask_projected(&block.text, &bindings);
+        }
     }
     let names: Vec<&str> = bindings.iter().map(secret::BoundSecret::name).collect();
     read.notices.push(format!(
@@ -226,6 +226,8 @@ fn refused_source(
     )
 }
 
+#[cfg(test)]
+mod agy_tests;
 #[cfg(test)]
 pub(crate) mod fault_tests;
 #[cfg(test)]

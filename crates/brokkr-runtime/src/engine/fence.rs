@@ -141,7 +141,10 @@ impl Engine {
                 Ok(true)
             }
             Err(EngineError::Store(StoreError::Queue(QueueRefusal::StartHeld(_)))) => {
-                self.active_gate_head = None;
+                // No start is journaled, so no terminal follows it: the
+                // spans armed for it are spent (decision 0106 ruling 2).
+                self.spans.abandon();
+                self.covering = None;
                 self.cooldown.fenced = launched.to_vec();
                 Ok(false)
             }
@@ -162,6 +165,9 @@ impl Engine {
         attempt_id: Option<String>,
         routes: &[(&str, &str)],
     ) -> Result<EventEnvelope, EngineError> {
+        // An ending of the attempt concluding carries its usage (decision
+        // 0112 ruling 3), so a held outcome holds it too.
+        let payload = self.usage.stamp(event_type, attempt_id.as_deref(), payload);
         let now = (!routes.is_empty()).then(|| self.now());
         let terminal = matches!(
             event_type,
@@ -198,6 +204,7 @@ impl Engine {
                     event_type,
                     payload,
                     attempt_id,
+                    stderr: self.stderr.active.take(),
                 });
                 return Err(contended.into());
             }
@@ -227,12 +234,16 @@ impl Engine {
             }
             Err(error) => return Err(error.into()),
         };
+        let envelope = landed.envelope;
+        if terminal {
+            self.stderr
+                .landed(event_type, envelope.attempt_id.as_deref());
+        }
         // A held wait this drive journaled ends the drive at its next turn
         // (decision 0106 ruling 2): a later drive meeting it before its end
         // is a resume, and refuses. Only a held row the store says it wrote
         // marks it, never the rows asked for: one whose end passed before
         // the event's stamp is not written (fix round 0106b1r10, H4).
-        let envelope = landed.envelope;
         if terminal && landed.held_rows > 0 {
             self.cooldown.held = cooldown::HeldDrive::Written;
         }

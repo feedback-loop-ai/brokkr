@@ -1,5 +1,5 @@
 //! Built-in driver adapters:
-//! `brokkr driver <claude|lanetally|codex|dsh|exec>`.
+//! `brokkr driver <claude|lanetally|codex|dsh|qoder|agy|exec>`.
 //!
 //! The Rust port of the retired Python adapters (decision 0009) — same
 //! protocol behavior, same prompt composition, same result-file
@@ -19,26 +19,37 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
 
+mod agy;
 pub mod capability_calls;
 mod claude_fold;
 mod codex;
+mod codex_fold;
 mod composite;
 mod discovery;
 mod dsh_effort;
 mod dsh_hands;
 mod dsh_launch;
 mod dsh_stderr;
+pub(crate) mod escapes;
 mod exec;
 mod lost;
 mod mcp;
 mod probe;
+mod qoder;
 mod refusal;
 #[cfg(test)]
 mod round430_tests;
 mod route_overlay;
+mod row;
 mod served_route;
+mod serving_shape;
+mod spawn;
 mod start;
 mod stderr;
+mod step;
+mod stream_turn;
+use step::begins_work;
+pub(crate) use step::{Emitted, Step};
 // Design D6 (b) seals the producer: the seams, the structured
 // observation, its error and the one entry point. Every parser, hasher,
 // serializer and injected helper stays private to `composite`, so no
@@ -51,25 +62,30 @@ pub use dsh_hands::ACCESS;
 pub use mcp::{harness_auth, HarnessAuthError, StrictCause};
 pub(crate) use served_route::route_form;
 pub use served_route::split_route;
+pub(crate) use serving_shape::ServingShape;
 
 use crate::dsh_sandbox;
 use crate::hands::GitFacts;
 use crate::native_controls::grammar::Bound;
 use crate::overrides::{Override, OverrideError};
 use crate::secret;
-use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
+use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Locator, Transcript};
 use crate::{Body, Message, PreSessionRefusal, Probe, ResultStatus};
 use capability_calls::Observation;
-use claude_fold::ClaudeFold;
+use claude_fold::{fold_stream_event, ClaudeFold};
+use codex_fold::fold_codex_row;
 use dsh_stderr::redact_dsh_reasoning;
 use mcp::served;
 use probe::{pinned_model, seat_row, ProbeAnswer};
-#[cfg(test)]
-use refusal::refusal_reason;
 use refusal::{
-    bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
-    epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
+    bounded_wire_line, claude_refusal, codex_thread_refusal, dsh_refusal, epoch_now_nanos,
+    find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
+#[cfg(test)]
+use refusal::{codex_refusal, refusal_reason};
+pub(crate) use row::CapturedId;
+use row::{FoldInput, Ident, Row};
+use spawn::{spawn_fed, spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
@@ -107,27 +123,21 @@ const RESULT_RECORD_FIELDS: [&str; 9] = [
     "transcript",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AdapterKind {
-    Claude,
-    Lanetally,
-    Codex,
-    Dsh,
-    Exec,
+probe::adapter_kinds! {
+    Claude => "claude",
+    Lanetally => "lanetally",
+    Codex => "codex",
+    Dsh => "dsh",
+    /// Qoder CLI, a provisional harness at level 1 (#1178; decision 0075):
+    /// unboxed, never a gate, and never resumed.
+    Qoder => "qoder",
+    /// Antigravity CLI, a provisional harness at level 1 (#1200; decision
+    /// 0075): unboxed, never a gate, never resumed, under the engine's HOME.
+    Agy => "agy",
+    Exec => "exec",
 }
 
 impl AdapterKind {
-    pub fn parse(name: &str) -> Option<AdapterKind> {
-        match name {
-            "claude" => Some(AdapterKind::Claude),
-            "lanetally" => Some(AdapterKind::Lanetally),
-            "codex" => Some(AdapterKind::Codex),
-            "dsh" => Some(AdapterKind::Dsh),
-            "exec" => Some(AdapterKind::Exec),
-            _ => None,
-        }
-    }
-
     /// What this adapter honours of the protocol's OPTIONAL vocabulary.
     ///
     /// `resume` is **offer receipt** and nothing more (proposed decision
@@ -140,12 +150,15 @@ impl AdapterKind {
     /// All four model adapters declare receipt so that a claude or dsh
     /// retry can be told about its own session and answer honestly,
     /// which is issue #226's complaint. Exec declares none: it has no
-    /// model turn and no provider to hold a session. A driver that does
-    /// not declare receipt is never handed a handle, by any channel.
+    /// model turn and no provider to hold a session. Qoder declares none
+    /// either: its seat runs `--no-session-persistence`, so there is no
+    /// session to be told about (#1178). Agy declares none: its HOME is the
+    /// engine's for one turn, so no conversation outlives it (#1200). A
+    /// driver that does not declare receipt is never handed a handle.
     fn supports(&self) -> Vec<String> {
         match self {
-            AdapterKind::Exec => Vec::new(),
-            _ => vec!["resume".to_string()],
+            Self::Exec | Self::Qoder | Self::Agy => Vec::new(),
+            Self::Claude | Self::Lanetally | Self::Codex | Self::Dsh => vec!["resume".into()],
         }
     }
 
@@ -158,6 +171,8 @@ impl AdapterKind {
             AdapterKind::Lanetally => "claude-lanetally".to_string(),
             AdapterKind::Codex => "codex".to_string(),
             AdapterKind::Dsh => "deepseek-harness".to_string(),
+            AdapterKind::Qoder => "qoder-cli".to_string(),
+            AdapterKind::Agy => "agy-cli".to_string(),
             // A name the reader refuses labels the driver `exec`, and
             // `run_seat` refuses every start on it by that name.
             AdapterKind::Exec => crate::overrides::read(Override::ExecName)
@@ -482,9 +497,9 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> Result<String, StartRe
          you did and why>\"}}
 
 {only} The object carries exactly these top-level \
-         keys — result, inputs, notes — and nothing else: a typed fact goes INSIDE \
+         keys — result, inputs, notes and, from a gate, findings — and nothing else: a typed fact goes INSIDE \
          inputs, and a record with any other top-level key is refused where it is \
-         sealed (decision 0034), which loses the whole attempt. You never decide the next phase — the engine's policy table rules \
+         sealed (decision 0034), which loses the whole attempt. A gate lists each finding it reports in findings as {{\"id\": \"<a stable lowercase id matching ^[a-z0-9][a-z0-9._-]*$, at most 64 bytes, the same on every visit>\", \"file\": \"<repository-relative path>\", \"line\": <positive integer>, \"summary\": \"<one line>\", \"severity\": \"<none, info, low, medium, high or critical>\", \"security\": <true or false>}} and writes no site, covered or follow_ups: the engine writes those (decision 0109). You never decide the next phase — the engine's policy table rules \
          on your typed result.{hands}\n",
         role = role,
         house = house,
@@ -502,7 +517,10 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> Result<String, StartRe
 struct Invocation {
     exit_code: i32,
     session_meta: Map<String, Value>,
-    stdout: String,
+    /// A dialect check's notes, which exec builds from its validator's
+    /// masked bytes ([`exec::dialect_notes`]); empty for every model
+    /// harness, which has none.
+    notes: String,
     stderr: String,
     state: Option<String>,
     /// A provider refusal the harness recorded BEFORE its first turn
@@ -522,13 +540,20 @@ struct Invocation {
     refusal: Option<PreSessionRefusal>,
     /// A probe's first answer, and the only one this invocation admits
     /// (decision 0103 ruling 4(a)). `None` on every ordinary attempt and
-    /// on a probe that ended without one.
+    /// on a probe that ended without one, but an agy seat's, which carries
+    /// the response its fold accepted, masked, and is not read (#1200 J7).
     answer: Option<Value>,
     /// How this invocation ended against the session it was launched for
     /// (proposed decision 0056 ruling 7, design D7). `run_seat` refuses
     /// to accept a successful seat from an unsettled rejoin even when the
     /// child exited clean and wrote a result file.
     launch: LaunchTerminal,
+    /// Single observation of whether `result_path` existed right after the
+    /// harness exited, carried out of `agy::invoke` before its transcript copy
+    /// so `agy::invoke` and `run_seat_with` never observe `result_path` twice
+    /// (#1227 Y5). `None` for every other adapter, which observes `result_path`
+    /// once in `run_seat_with` as on main.
+    result_exists: Option<bool>,
 }
 
 /// Provider-reported model ids are journal data, so admit only the
@@ -551,7 +576,7 @@ fn model_token(raw: &str) -> Option<String> {
 /// The built-in harnesses have used each of these envelopes for usage
 /// reports. This reads only a string in a named model field; it never
 /// scans prose or substitutes the configured pin.
-fn model_in_json(event: &Value) -> Option<String> {
+fn model_in_json(event: &Row<'_>) -> Option<String> {
     [
         "/model",
         "/message/model",
@@ -562,7 +587,8 @@ fn model_in_json(event: &Value) -> Option<String> {
         "/message/source/model",
     ]
     .into_iter()
-    .find_map(|pointer| event.pointer(pointer).and_then(Value::as_str))
+    .find_map(|pointer| event.text(pointer))
+    .as_deref()
     .and_then(model_token)
 }
 
@@ -607,10 +633,11 @@ fn effort_token(raw: &str) -> Option<String> {
 /// prose, and it never substitutes the configured pin: the pin is what a
 /// bundle ASKED for, and the whole point of reading the echo is that it
 /// is the value that survived every profile and plugin layer.
-fn effort_in_json(event: &Value) -> Option<String> {
+fn effort_in_json(event: &Row<'_>) -> Option<String> {
     ["/effort", "/turn_context/effort"]
         .into_iter()
-        .find_map(|pointer| event.pointer(pointer).and_then(Value::as_str))
+        .find_map(|pointer| event.text(pointer))
+        .as_deref()
         .and_then(effort_token)
 }
 
@@ -643,65 +670,58 @@ fn names_thread_settings(line: &str) -> bool {
     line.contains("turn_context") || line.contains("thread_settings")
 }
 
-fn model_in_thread(line: &Value) -> Option<String> {
-    ["/payload/model", "/payload/thread_settings/model"]
+/// What one thread record answers for a field, read at the first of
+/// `pointers` it names:
+/// - `None`: it cannot answer, because the field is absent or the token
+///   clamp refused its value, so the walk goes on to an older record;
+/// - `Some(None)`: a binding touched the value. The record did answer,
+///   with a value the seat may not quote, so the field settles as not
+///   reported and is never an older record's (decision 0114 D4);
+/// - `Some(Some(value))`: the value, clamped.
+fn thread_field(
+    line: &Row<'_>,
+    pointers: [&str; 2],
+    token: fn(&str) -> Option<String>,
+) -> Option<Option<String>> {
+    let (pointer, text) = pointers
         .into_iter()
-        .find_map(|pointer| line.pointer(pointer).and_then(Value::as_str))
-        .and_then(model_token)
+        .find_map(|pointer| Some((pointer, line.text(pointer)?)))?;
+    if !line.equals(pointer, &text) {
+        return Some(None);
+    }
+    token(&text).map(Some)
 }
 
-fn effort_in_thread(line: &Value) -> Option<String> {
-    [
-        "/payload/effort",
-        "/payload/thread_settings/reasoning_effort",
-    ]
-    .into_iter()
-    .find_map(|pointer| line.pointer(pointer).and_then(Value::as_str))
-    .and_then(effort_token)
+fn model_in_thread(line: &Row<'_>) -> Option<Option<String>> {
+    thread_field(
+        line,
+        ["/payload/model", "/payload/thread_settings/model"],
+        model_token,
+    )
+}
+
+fn effort_in_thread(line: &Row<'_>) -> Option<Option<String>> {
+    thread_field(
+        line,
+        [
+            "/payload/effort",
+            "/payload/thread_settings/reasoning_effort",
+        ],
+        effort_token,
+    )
 }
 
 /// Codex releases which omit the model from JSONL name it in the
 /// driver's own launch/usage header. The anchored `model:` field is the
-/// only stderr text admitted as evidence.
-fn model_in_header(stderr: &str) -> Option<String> {
-    stderr
+/// only stderr text read, and it counts only when it is `pin`, the model
+/// the engine resolved for this seat: stderr is never journal data
+/// (#1199), so any other token, or a seat with no pin, is not reported.
+fn model_in_header(stderr: &str, pin: Option<&str>) -> Option<String> {
+    let header = stderr
         .lines()
         .rev()
-        .find_map(|line| line.trim().strip_prefix("model:").and_then(model_token))
-}
-
-fn positive_count(value: Option<&Value>) -> Option<u64> {
-    value.and_then(Value::as_u64).filter(|value| *value > 0)
-}
-
-fn positive_cost(value: Option<&Value>) -> Option<f64> {
-    value.and_then(Value::as_f64).filter(|value| *value > 0.0)
-}
-
-/// Claude reports cache reads and cache creations beside its uncached
-/// input count. The seat record's input count is inclusive of reads,
-/// while cache creations retain their own `cache_write_tokens` name.
-fn claude_usage(usage: Option<&Value>) -> Map<String, Value> {
-    let usage = usage.unwrap_or(&Value::Null);
-    let input = positive_count(usage.get("input_tokens"));
-    let cache_read = positive_count(usage.get("cache_read_input_tokens"));
-    let mut record = Map::new();
-    let inclusive = input
-        .unwrap_or_default()
-        .saturating_add(cache_read.unwrap_or_default());
-    if inclusive > 0 {
-        record.insert("input_tokens".into(), Value::from(inclusive));
-    }
-    for (source, target) in [
-        ("output_tokens", "output_tokens"),
-        ("cache_read_input_tokens", "cache_read_tokens"),
-        ("cache_creation_input_tokens", "cache_write_tokens"),
-    ] {
-        if let Some(value) = positive_count(usage.get(source)) {
-            record.insert(target.into(), Value::from(value));
-        }
-    }
-    record
+        .find_map(|line| line.trim().strip_prefix("model:").and_then(model_token))?;
+    (Some(header.as_str()) == pin).then_some(header)
 }
 
 fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String> {
@@ -770,51 +790,14 @@ pub(super) fn harness_command(
     Ok(builder)
 }
 
-/// Every harness spawns here: the shared [`harness_command`], the child's
-/// stdio, and the one spawn fact every route reports.
-fn spawn_harness(
-    command: &[String],
-    workdir: &str,
-    stdin: Stdio,
-    stdout: Stdio,
-    env: &[(&str, &str)],
-    bindings: &[secret::BoundSecret],
-) -> Result<std::process::Child, String> {
-    let mut builder = harness_command(command, workdir, env, bindings)?;
-    builder.stdin(stdin).stdout(stdout).stderr(Stdio::piped());
-    let child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
-    lost::spawned();
-    Ok(child)
-}
-
 /// [`spawn_harness`] with stdin and stdout piped and no extra environment.
 fn spawn_piped(
     command: &[String],
     workdir: &str,
     bindings: &[secret::BoundSecret],
-) -> Result<std::process::Child, String> {
+) -> Result<Spawned, String> {
     let piped = Stdio::piped;
     spawn_harness(command, workdir, piped(), piped(), &[], bindings)
-}
-
-/// Spawn a harness with `prompt` on its stdin, its stdin closed, and its
-/// stderr drained on its own thread. The two stream folds share this
-/// prologue so neither can differ from the other in how it feeds a child.
-fn spawn_fed(
-    command: &[String],
-    prompt: &str,
-    workdir: &str,
-    bindings: &[secret::BoundSecret],
-) -> Result<(std::process::Child, StderrCapture), String> {
-    let mut child = spawn_piped(command, workdir, bindings)?;
-    let mut stdin = child.stdin.take().expect("piped");
-    io_context(
-        stdin.write_all(prompt.as_bytes()),
-        "could not write the prompt",
-    )?;
-    drop(stdin);
-    let stderr = drain_stderr(&mut child);
-    Ok((child, stderr))
 }
 
 /// End a probe's harness at its first answer and reap it. A harness that
@@ -824,16 +807,18 @@ fn spawn_fed(
 /// tree, and waiting here would reintroduce the hang the stop removes.
 /// Its one wait failure is typed and converted at the existing text
 /// boundary (#430 L3; decision 0071 ruling 8).
-fn stop_harness(child: &mut std::process::Child) -> std::io::Result<std::process::ExitStatus> {
+fn stop_harness(child: &mut Spawned) -> std::io::Result<std::process::ExitStatus> {
     let _ = child.kill();
     child.wait()
 }
 
-/// [`stop_harness`] at the ONE existing text boundary: every stopped route
-/// converts its typed wait failure here, so the operator's words have one
-/// home (#430 L3; decision 0071 rulings 5 and 8).
-fn conclude_harness(child: &mut std::process::Child) -> Result<std::process::ExitStatus, String> {
-    io_context(stop_harness(child), "agent CLI did not conclude")
+/// [`stop_harness`] at a text boundary: a stopped route converts its typed
+/// wait failure with the one prefix, [`stream_turn::UNCONCLUDED`], here or,
+/// for a route that stops through `stream_turn` (agy), in its typed
+/// `Unconcluded`, so the operator's words have one home (#430 L3;
+/// decision 0071 rulings 5 and 8).
+fn conclude_harness(child: &mut Spawned) -> Result<std::process::ExitStatus, String> {
+    io_context(stop_harness(child), stream_turn::UNCONCLUDED)
 }
 
 fn run_cli(
@@ -849,7 +834,7 @@ fn run_cli(
     } else {
         drop(child.stdin.take());
     }
-    io_context(child.wait_with_output(), "agent CLI did not conclude")
+    io_context(child.wait_with_output(), stream_turn::UNCONCLUDED)
 }
 
 // ---------------------------------------------------------------------
@@ -1073,37 +1058,14 @@ impl LaunchHold {
         self.address = Some(transcript);
     }
 
-    /// The one door every emitted row passes through, so that the
-    /// harness naming its own session is what publishes the launch —
-    /// and publishes it BEFORE the first work row, where decision 0053's
-    /// buffer will keep it in order.
-    ///
-    /// A provider names its session in exactly one place the driver
-    /// already reads: decision 0032's transcript row, whose locator IS
-    /// the session identifier for the two harnesses that report one. DSH
-    /// records a retained DIRECTORY there, so its planner never sets a
-    /// root kind that would let this door confirm anything.
-    fn observe(&mut self, data: &Value, emit: &mut impl FnMut(&Value)) {
-        emit(data);
-        let step = data.get("step").and_then(Value::as_str).unwrap_or("");
-        if begins_work(step) {
-            self.began_work = true;
-        }
-        if self.outcome.is_some() || step != "transcript" || !self.plan.confirms_from_locator {
-            return;
-        }
-        let id = data
-            .pointer("/transcript/locator")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if !id.is_empty() {
-            self.confirm(id, emit);
-        }
-    }
-
     /// The harness named its session. This is the ONLY door through
     /// which a launch fact is published.
-    fn confirm(&mut self, id: &str, emit: &mut impl FnMut(&Value)) -> Confirmation {
+    fn confirm(
+        &mut self,
+        id: &Ident,
+        display: &str,
+        emit: &mut impl FnMut(&Emitted),
+    ) -> Confirmation {
         if let Some(outcome) = self.outcome {
             // The root is latched: a later, different root is a
             // delegated child or a second session, never a correction of
@@ -1112,7 +1074,7 @@ impl LaunchHold {
             return outcome;
         }
         let outcome = match &self.plan.rejoining {
-            Some(offered) if offered == id => Confirmation::Resumed,
+            Some(offered) if id.is_offered(offered) => Confirmation::Resumed,
             Some(_) => Confirmation::Mismatch,
             None => Confirmation::Fresh,
         };
@@ -1126,10 +1088,10 @@ impl LaunchHold {
         // this invocation actually observed. A missing or unrecordable
         // version leaves the root absent — the launch is still reported,
         // and the next retry simply gets no offer.
-        self.confirmed = match (&self.plan.harness_version, recordable_session_id(id)) {
+        self.confirmed = match (&self.plan.harness_version, recordable_session_id(display)) {
             (Some(version), true) if recordable_version(version) => Some(RootSession {
                 kind: self.plan.kind,
-                id: id.to_string(),
+                id: display.to_string(),
                 harness_version: version.clone(),
                 wrapper_digest: self.plan.wrapper_digest.clone(),
                 persistent: self.plan.persistent,
@@ -1146,7 +1108,7 @@ impl LaunchHold {
     /// resumable root. A rejoin that was never confirmed publishes
     /// NOTHING: an unconfirmed resume is uncertain, and neither `cold`
     /// nor `resumed` would be true of it.
-    fn finish(&mut self, emit: &mut impl FnMut(&Value)) {
+    fn finish(&mut self, emit: &mut impl FnMut(&Emitted)) {
         // Every rejoin has already said what it had to say: a confirmed
         // one published on confirmation, and one that was never
         // confirmed — or that named a different root — publishes
@@ -1160,13 +1122,12 @@ impl LaunchHold {
         self.publish(false, emit);
     }
 
-    fn publish(&mut self, resumed: bool, emit: &mut impl FnMut(&Value)) {
+    fn publish(&mut self, resumed: bool, emit: &mut impl FnMut(&Emitted)) {
         if self.published {
             return;
         }
         self.published = true;
         let mut row = Map::new();
-        row.insert("step".into(), Value::String("harness-started".into()));
         row.insert("harness".into(), Value::String(self.harness.to_string()));
         row.insert(
             "launch".into(),
@@ -1200,7 +1161,7 @@ impl LaunchHold {
                 row.insert("resume_refusal".into(), Value::String(refusal.into()));
             }
         }
-        emit(&Value::Object(row));
+        emit(&Emitted::new(Step::HarnessStarted, Value::Object(row)));
     }
 
     /// Whether this launch tried to rejoin and never got its
@@ -1314,6 +1275,15 @@ fn resume_gate(input: &Value, shape: &str) -> ResumeGate {
     }
 }
 
+/// Whether the resume gate enables `shape` for the driver input `input`
+/// (`resume_gate`), the gate itself and never a copy of it. Its one
+/// consumer is the test that holds the engine's offer of a root of a new
+/// kind to this gate, row for row, on the input the engine wrote
+/// (`engine::kinds_tests`; the controller's ruling R11 of 2026-11-21).
+pub fn resume_enabled(input: &Value, shape: &str) -> bool {
+    matches!(resume_gate(input, shape), ResumeGate::Enabled { .. })
+}
+
 /// Ask the selected executable which version it is, once, through the
 /// interface that was measured for it (proposed decision 0056 ruling 5).
 ///
@@ -1408,12 +1378,7 @@ fn qualify(gate: &ResumeGate, probe: &[String], originating: Option<&str>) -> Qu
 /// discarded and re-run because something else about the invocation
 /// looked like a refusal.
 fn delivered_result(input: &Value) -> bool {
-    input
-        .get("result_path")
-        .and_then(Value::as_str)
-        .filter(|path| !path.is_empty())
-        .and_then(|path| std::fs::metadata(path).ok())
-        .is_some_and(|meta| meta.len() > 0)
+    lost::ResultFile::observe(input).delivered()
 }
 
 /// The harness version the offered root was opened under, as the engine
@@ -1444,161 +1409,24 @@ fn recordable_digest(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// One parsed claude stream-json line folded into the seat's telemetry:
-/// `system`/`init` and `result` feed `session_meta`; each `tool_use`
-/// block of an `assistant` message becomes one seat-turn checkpoint,
-/// in block order, all carrying the message's turn number. The first
-/// checkpoint for a message carries that message's usage; a text-only
-/// message still emits one checkpoint, so usage and progress never
-/// disappear merely because the model called no tool.
-/// Privacy invariant (journal is evidence, not transcript): checkpoints
-/// carry turn index, a ≤80-char tool name, and a ≤80-char target only —
-/// never message text, thinking, or full tool inputs.
-fn fold_stream_event(
-    event: &Value,
-    fold: &mut ClaudeFold,
-    session_meta: &mut Map<String, Value>,
-    transcript: &mut Transcript,
-    emit: &mut impl FnMut(&Value),
-) -> Option<PreSessionRefusal> {
-    // Decision 0053: a provider refusal is not a turn. It is classified
-    // ONLY before the first real turn; once one has been counted the
-    // session has opened and decision 0016's mid-session boundary holds
-    // unchanged. A refusal record emits no checkpoint and no usage, so
-    // the structural fail-to-start predicate can see it.
-    if fold.turns == 0 {
-        if let Some(reason) = claude_refusal(event) {
-            return Some(reason);
-        }
-    }
-    match event.get("type").and_then(Value::as_str) {
-        Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
-            if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
-                // Recorded NOW, not only at session end: the transcript
-                // drilldowns can only locate — and live-stream — a
-                // WORKING seat's prose if the id is known from the first
-                // message. Decision 0032's shared module clamps and
-                // shapes the one transcript row. Since decision 0053 the
-                // row reaches the JOURNAL one beat later: `run_seat`
-                // buffers it until a checkpoint proves work began,
-                // because a checkpoint before that would put a refused
-                // attempt on the mid-session side of decision 0016's
-                // boundary. A refused attempt keeps the locator in its
-                // failure reason instead.
-                transcript.record(session_id, session_meta, emit);
-            }
-        }
-        Some("assistant") => {
-            // A message streams a line per content block, each repeating
-            // its id and usage: a repeat is its turn again, usage counted.
-            let repeat = fold.repeats(event.pointer("/message/id").and_then(Value::as_str));
-            fold.turns += u64::from(!repeat);
-            session_meta.insert("num_turns".into(), Value::from(fold.turns));
-            let model = model_in_json(event);
-            if let Some(model) = &model {
-                session_meta.insert("model".into(), Value::String(model.clone()));
-            }
-            // The harness's own echo, beside this assistant record and
-            // not from our pin (decision 0035 ruling 3). Claude writes it
-            // per record, so a thread that changes effort mid-seat says
-            // so turn by turn; the last one seen is the seat's.
-            let effort = effort_in_json(event);
-            if let Some(effort) = &effort {
-                session_meta.insert("effort".into(), Value::String(effort.clone()));
-            }
-            let usage = claude_usage(event.pointer("/message/usage").filter(|_| !repeat));
-            for (key, value) in &usage {
-                add_usage(
-                    session_meta,
-                    key,
-                    value.as_u64().expect("claude usage is a positive integer"),
-                );
-            }
-            let mut base = Map::new();
-            base.insert("step".into(), Value::String("seat-turn".into()));
-            base.insert("turn".into(), Value::from(fold.turns));
-            base.insert(
-                "model".into(),
-                Value::String(
-                    model
-                        .clone()
-                        .unwrap_or_else(|| MODEL_NOT_REPORTED.to_string()),
-                ),
-            );
-            base.insert(
-                "effort".into(),
-                Value::String(
-                    effort
-                        .clone()
-                        .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string()),
-                ),
-            );
-            // No `reasoning_output_tokens` here, and that absence is the
-            // ruling: claude reports its thinking tokens ONLY in the
-            // result (`output_tokens_details.thinking_tokens`), so a
-            // per-turn figure would have to be invented. Decision 0035
-            // ruling 4 says absent, never zero and never back-filled
-            // from the run total.
-            base.extend(usage);
-            let blocks = event.pointer("/message/content").and_then(Value::as_array);
-            let tool_uses = blocks
-                .into_iter()
-                .flatten()
-                .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"));
-            let mut emitted = false;
-            for tool_use in tool_uses {
-                let mut checkpoint = base.clone();
-                if emitted {
-                    for key in USAGE_FIELDS {
-                        checkpoint.remove(key);
-                    }
-                }
-                // file_path ONLY: commands and URLs can embed inline secrets,
-                // and the journal is append-only — the verification review
-                // hard-stopped on exactly this (run verify-…-917996f5). Full
-                // detail belongs to the resumable transcript, not the record.
-                let target = tool_use.pointer("/input/file_path").and_then(Value::as_str);
-                if let Some(target) = target {
-                    checkpoint.insert(
-                        "target".into(),
-                        Value::String(target.chars().take(80).collect()),
-                    );
-                }
-                emit(&Observation::claude(tool_use).onto(Value::Object(checkpoint)));
-                emitted = true;
-            }
-            if !emitted {
-                emit(&Value::Object(base));
-            }
-        }
-        Some("result") => {
-            fold_result_meta(event, session_meta, transcript, emit);
-            // A result's usage and turns are its own query's: each is
-            // added to the earlier results' and replaces the live sum. Its
-            // cost is the process's, less what a resume restored.
-            fold.settle(event, session_meta);
-        }
-        _ => {}
-    }
-    None
-}
-
 /// What a claude or codex `result` names on the same terms: the model and
 /// effort, and the session id as the transcript locator.
 fn fold_result_meta(
-    event: &Value,
+    event: &Row<'_>,
+    model: Option<String>,
+    identity: Option<CapturedId>,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) {
-    if let Some(model) = model_in_json(event) {
+    if let Some(model) = model {
         session_meta.insert("model".into(), Value::String(model));
     }
     if let Some(effort) = effort_in_json(event) {
         session_meta.insert("effort".into(), Value::String(effort));
     }
-    if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
-        transcript.record(session_id, session_meta, emit);
+    if let Some(identity) = identity {
+        transcript.record(Locator::Session(identity), session_meta, emit);
     }
 }
 
@@ -1639,28 +1467,31 @@ const CODEX_THREAD_DEPTH: usize = 6;
 /// derived from any of it. A driver whose harness offers a real stdout
 /// stream should use it rather than inherit this.
 #[derive(Default)]
-struct CodexThreadEcho {
+struct CodexThreadEcho<'a> {
+    bindings: &'a [secret::BoundSecret],
     /// The sessions root and the thread id codex announced, held
     /// together because neither is ever known without the other.
-    announced: Option<(std::path::PathBuf, String)>,
+    announced: Option<(std::path::PathBuf, Ident)>,
     path: Option<std::path::PathBuf>,
 }
 
-impl CodexThreadEcho {
+impl<'a> CodexThreadEcho<'a> {
+    fn new(bindings: &'a [secret::BoundSecret]) -> Self {
+        Self {
+            bindings,
+            ..Self::default()
+        }
+    }
+
     /// Remember the thread codex announced, and try the walk now. The
     /// id is held whether or not the file is there yet, because
     /// announcing a thread and filing its rollout are two writes and
     /// codex does not promise the order.
-    fn locate(&mut self, home: &std::path::Path, thread_id: &str) {
-        // The same clamp the resume argv applies (`plain_thread_id`),
-        // applied on this path too: the id arrives from the harness's
-        // own stream and decides which file is read, so a spelling that
-        // is not an id locates nothing rather than matching whatever it
-        // happens to be a fragment of.
-        if !plain_thread_id(thread_id) {
+    fn locate(&mut self, home: &std::path::Path, thread_id: Ident) {
+        let Some(thread_id) = Ident::for_rollout(thread_id) else {
             return;
-        }
-        self.announced = Some((home.join("sessions"), thread_id.to_string()));
+        };
+        self.announced = Some((home.join("sessions"), thread_id));
         self.resolve();
     }
 
@@ -1718,7 +1549,9 @@ impl CodexThreadEcho {
         // is the distinction ruling 3 makes load-bearing. So a field the
         // anchor leaves empty keeps walking for the newest record that
         // can answer it. The pair still binds every field one record
-        // answers; only a refusal splits it.
+        // answers; only a refusal splits it. A binding inside a value is
+        // not a refusal: that record answered, so the field settles as
+        // not reported there (decision 0114 D4).
         let mut model = None;
         let mut effort = None;
         for line in body.lines().rev() {
@@ -1728,9 +1561,10 @@ impl CodexThreadEcho {
             if !names_thread_settings(line) {
                 continue;
             }
-            let Ok(line) = serde_json::from_str::<Value>(line) else {
+            let Ok(raw) = serde_json::from_str::<Value>(line) else {
                 continue;
             };
+            let line = Row::new(&raw, self.bindings);
             if model.is_none() {
                 model = model_in_thread(&line);
             }
@@ -1738,7 +1572,7 @@ impl CodexThreadEcho {
                 effort = effort_in_thread(&line);
             }
         }
-        (model, effort)
+        (model.flatten(), effort.flatten())
     }
 
     /// The refusal the thread record's own error states, read on the way
@@ -1766,12 +1600,9 @@ impl CodexThreadEcho {
             .announced
             .as_ref()
             .expect("a resolved codex thread path has an announced thread");
-        let (cwd, started) = thread_header(path, Some(announced.as_str()))?;
-        if cwd != workdir || started < since_nanos {
-            return None;
-        }
+        thread_header(path, Some(announced), workdir, since_nanos, self.bindings)?;
         let body = std::fs::read_to_string(path).ok()?;
-        codex_thread_refusal(&body, Some(since_nanos), now)
+        codex_thread_refusal(&body, Some(since_nanos), now, self.bindings)
     }
 
     /// The same read where the CLI never announced its thread, so the
@@ -1798,131 +1629,9 @@ impl CodexThreadEcho {
             workdir,
             now,
             CODEX_THREAD_DEPTH,
+            self.bindings,
         )
     }
-}
-
-/// Fold Codex's stable `exec --json` JSONL into bounded live telemetry.
-/// Commands, item bodies, model output, reasoning, and filesystem paths are
-/// intentionally ignored; the journal records progress and usage, not a
-/// transcript.
-fn fold_codex_event(
-    event: &Value,
-    turn: &mut u64,
-    session_meta: &mut Map<String, Value>,
-    transcript: &mut Transcript,
-    echo: &mut CodexThreadEcho,
-    emit: &mut impl FnMut(&Value),
-) -> Option<PreSessionRefusal> {
-    // Decision 0053: an error codex reported before its first `turn.started`
-    // is a refusal to start, not a turn. After the first turn the boundary
-    // is decision 0016's, unchanged.
-    if *turn == 0 {
-        if let Some(reason) = codex_refusal(event) {
-            return Some(reason);
-        }
-    }
-    match event.get("type").and_then(Value::as_str) {
-        Some("thread.started") => {
-            if let Some(thread_id) = event.get("thread_id").and_then(Value::as_str) {
-                echo.locate(transcript.home(), thread_id);
-                // Recorded NOW, as the claude fold records its own —
-                // and for a second reason here: the thread id is what a
-                // retry resumes (decision 0030), and an attempt killed
-                // on its deadline never reaches the session-finished
-                // checkpoint. Captured at `thread.started`, the id is in
-                // hand from the harness's first message. It reaches the
-                // JOURNAL with the attempt's first work checkpoint,
-                // which `run_seat` flushes it ahead of: a pre-session
-                // row would put a refused attempt on decision 0016's
-                // mid-session side. So a kill AFTER the first turn still
-                // hands its thread to the retry that follows, and a kill
-                // before it has none to hand — decision 0053 ruling 8,
-                // which names that window and its cost.
-                transcript.record(thread_id, session_meta, emit);
-            }
-        }
-        Some("turn.started") => {
-            *turn += 1;
-            emit(&json!({"step":"turn-started", "turn": *turn, "harness":"codex"}));
-        }
-        Some(kind @ ("item.started" | "item.completed")) => {
-            emit(&Observation::codex(event).onto(json!({
-                "step": if kind == "item.started" { "item-started" } else { "item-completed" },
-                "turn": *turn,
-                "harness":"codex",
-            })));
-        }
-        Some("turn.completed") => {
-            let usage = event.get("usage").unwrap_or(&Value::Null);
-            // Neither fact is reliably on this stream, and neither is
-            // ever taken from our pin: both are read from the thread
-            // record codex writes them into (decision 0035 ruling 3),
-            // through decision 0032's retained locator. The stream is
-            // still asked first for the model — a release that does put
-            // it on `turn.completed` is the more direct report.
-            let (thread_model, effort) = echo.echo();
-            let model = model_in_json(event).or(thread_model);
-            if let Some(model) = &model {
-                session_meta.insert("model".into(), Value::String(model.clone()));
-            }
-            if let Some(effort) = &effort {
-                session_meta.insert("effort".into(), Value::String(effort.clone()));
-            }
-            let mut checkpoint = Map::new();
-            checkpoint.insert("step".into(), Value::String("turn-completed".into()));
-            checkpoint.insert("turn".into(), Value::from(*turn));
-            checkpoint.insert("harness".into(), Value::String("codex".into()));
-            checkpoint.insert(
-                "model".into(),
-                Value::String(model.unwrap_or_else(|| MODEL_NOT_REPORTED.to_string())),
-            );
-            checkpoint.insert(
-                "effort".into(),
-                Value::String(effort.unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())),
-            );
-            for (source, target) in [
-                ("input_tokens", "input_tokens"),
-                ("cached_input_tokens", "cache_read_tokens"),
-                ("output_tokens", "output_tokens"),
-                // Received all along and dropped until decision 0035
-                // ruling 4 asked for it; `cache_write_tokens` is a v1
-                // field no codex record has ever filled.
-                ("cache_write_input_tokens", "cache_write_tokens"),
-                // Codex is the one built-in that meters its reasoning
-                // per turn. It is a SUBSET of output_tokens above, so it
-                // rides its own key and is never added to a total again.
-                ("reasoning_output_tokens", "reasoning_output_tokens"),
-            ] {
-                if let Some(value) = positive_count(usage.get(source)) {
-                    checkpoint.insert(target.into(), Value::from(value));
-                    add_usage(session_meta, target, value);
-                }
-            }
-            // The turn count is journaled HERE, not only from `result`.
-            // Verified against codex-cli 0.148.0: a real `codex exec
-            // --json` run ends at `turn.completed` and emits no `result`
-            // event at all, so a codex seat's num_turns never reached
-            // `brokkr costs` — the aggregator saw per-turn token keys it
-            // does not sum and nothing else. Cost in USD is reported
-            // nowhere in that stream (`usage` is token counts only), so
-            // total_cost_usd stays absent rather than invented.
-            session_meta.insert("num_turns".into(), Value::from(*turn));
-            emit(&Value::Object(checkpoint));
-        }
-        // Conformance shims and older clients may provide only final metadata.
-        Some("result") => {
-            fold_result_meta(event, session_meta, transcript, emit);
-            if let Some(value) = positive_count(event.get("num_turns")) {
-                session_meta.insert("num_turns".into(), Value::from(value));
-            }
-            if let Some(value) = positive_cost(event.get("total_cost_usd")) {
-                session_meta.insert("total_cost_usd".into(), Value::from(value));
-            }
-        }
-        _ => {}
-    }
-    None
 }
 
 /// One harness-reported token count folded into the session totals.
@@ -1961,18 +1670,19 @@ fn add_usage(session_meta: &mut Map<String, Value>, key: &str, value: u64) {
 /// adds `totalTokens`, `reasoningTokens` and a zero `cacheReadTokens` to
 /// the same object. The total is a sum the journal never stores twice;
 /// the reasoning count is decision 0035's `reasoning_output_tokens`, a
-/// reported subset of `output_tokens`, and `positive_count` keeps a
-/// reported zero out of the record as the contract requires.
+/// reported subset of `output_tokens`. Reported zeros stay out of the
+/// record as the contract requires.
 const DSH_USAGE: [(&str, &str); 4] = [
-    ("inputTokens", "input_tokens"),
-    ("outputTokens", "output_tokens"),
+    (DSH_INPUT, "input_tokens"),
+    ("/outputTokens", "output_tokens"),
     (DSH_INPUT_CACHE_READ, "cache_read_tokens"),
-    ("reasoningTokens", "reasoning_output_tokens"),
+    ("/reasoningTokens", "reasoning_output_tokens"),
 ];
 
 /// The dsh count that is a subset of the journal's `input_tokens` but a
 /// sibling of dsh's own `inputTokens`.
-const DSH_INPUT_CACHE_READ: &str = "cacheReadTokens";
+const DSH_INPUT_CACHE_READ: &str = "/cacheReadTokens";
+const DSH_INPUT: &str = "/inputTokens";
 
 /// The level the finishing record carries for a non-exec seat.
 /// Harness-written values cross the boundary clamp exactly as before —
@@ -1991,16 +1701,6 @@ fn applied_harness_effort(session_meta: &Map<String, Value>) -> String {
     }
 }
 
-/// The level dsh's request header last echoed for this seat, or the
-/// sentinel for a row written before any header did.
-fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
-    session_meta
-        .get("effort")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())
-}
-
 /// Whether a dsh row is this invocation's own work: a resumed session's
 /// file holds its restored history beside the new work, and only events
 /// past the owned pre-followup sequence are this invocation's (design D8;
@@ -2008,13 +1708,20 @@ fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
 /// launch carries none, so its file is read from its first event. The
 /// fold and the refusal classifier ask here, so neither can read the
 /// other's rows.
-fn dsh_row_is_current(event: &Value, first_seq: Option<u64>) -> bool {
+fn dsh_row_is_current(event: &Row<'_>, first_seq: Option<u64>) -> bool {
     first_seq.is_none_or(|first_seq| {
-        !event
-            .get("seq")
-            .and_then(Value::as_u64)
-            .is_some_and(|seq| seq <= first_seq)
+        event
+            .unsigned_count("/seq")
+            .is_none_or(|seq| seq > first_seq)
     })
+}
+
+#[derive(Clone, Copy)]
+enum DshEvent {
+    Session,
+    Header,
+    Message,
+    Tool,
 }
 
 /// One dsh session-log line folded into bounded live telemetry.
@@ -2061,40 +1768,29 @@ fn dsh_row_is_current(event: &Value, first_seq: Option<u64>) -> bool {
 /// reasoning, or tool arguments. dsh's `arguments` is the model's own
 /// unparsed JSON string, so no target is derived from it at all.
 fn fold_dsh_event(
-    event: &Value,
+    event: &Row<'_>,
+    effort: &mut dsh_effort::Echo,
     first_seq: Option<u64>,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) {
-    // Current-only accounting (design D8; task 9.6): a resumed session's
-    // file holds its restored history beside the new work, and only
-    // events past the owned pre-followup sequence are this invocation's.
-    // The boundary exists only when a root was rejoined. A cold launch
-    // carries none, so its file is folded from its first event: dsh's
-    // log index IS the sequence and starts at 0, and a cold boundary of
-    // 0 would silently drop that first event on the shipped route.
     if !dsh_row_is_current(event, first_seq) {
         return;
     }
-    match event.get("type").and_then(Value::as_str) {
-        Some("session") => {
-            // The dsh locator is the retained seat root, known and
-            // journaled before spawn. Its internal session id is not a
-            // second locator shape (decision 0032).
-        }
-        Some("request/header") => {
-            // The harness's own echo of the level it applied, after
-            // every layer (decision 0035 ruling 3 and its addenda). A
-            // header naming none, or naming the adapter's default,
-            // leaves the seat's effort as it stood: `not reported` for a
-            // pinned seat, invoke_dsh_launch_observed's `not applicable`
-            // seed for a pin-less one.
-            if let Some(effort) = dsh_effort::applied_level(event) {
-                session_meta.insert("effort".into(), Value::String(effort));
-            }
-        }
-        Some("assistant/message") => {
+    match event.kind(
+        "/type",
+        &[
+            ("session", DshEvent::Session),
+            ("request/header", DshEvent::Header),
+            ("assistant/message", DshEvent::Message),
+            ("tool/call", DshEvent::Tool),
+        ],
+    ) {
+        // The retained directory is this driver's only locator.
+        Some(DshEvent::Session) | None => {}
+        Some(DshEvent::Header) => effort.header(event, session_meta),
+        Some(DshEvent::Message) => {
             *turns += 1;
             session_meta.insert("num_turns".into(), Value::from(*turns));
             // The served model, from the harness's own record of the
@@ -2106,7 +1802,6 @@ fn fold_dsh_event(
                 session_meta.insert("model".into(), Value::String(model.clone()));
             }
             let mut checkpoint = Map::new();
-            checkpoint.insert("step".into(), Value::String("seat-turn".into()));
             checkpoint.insert("turn".into(), Value::from(*turns));
             checkpoint.insert("harness".into(), Value::String("deepseek".into()));
             checkpoint.insert(
@@ -2115,30 +1810,25 @@ fn fold_dsh_event(
             );
             // The last level the header echoed, on this step as on
             // every other row (decision 0035 ruling 3).
-            checkpoint.insert(
-                "effort".into(),
-                Value::String(dsh_echoed_effort(session_meta)),
-            );
-            let usage = event.pointer("/data/usage").unwrap_or(&Value::Null);
-            let cache_read = usage
-                .get(DSH_INPUT_CACHE_READ)
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
+            checkpoint.insert("effort".into(), Value::String(effort.shown(session_meta)));
+            let usage = event.at("/data/usage");
+            let count = |source: &str| usage.as_ref()?.unsigned_count(source);
+            let cache_read = count(DSH_INPUT_CACHE_READ).unwrap_or(0);
             for (source, target) in DSH_USAGE {
-                if let Some(mut value) = positive_count(usage.get(source)) {
+                if let Some(mut value) = count(source).filter(|value| *value > 0) {
                     // The one place dsh's disjoint accounting is
                     // reconciled with the journal's inclusive
                     // `input_tokens` — see DSH_USAGE.
-                    if source == "inputTokens" {
+                    if source == DSH_INPUT {
                         value = value.saturating_add(cache_read);
                     }
                     checkpoint.insert(target.into(), Value::from(value));
                     add_usage(session_meta, target, value);
                 }
             }
-            emit(&Value::Object(checkpoint));
+            emit(&Emitted::new(Step::SeatTurn, Value::Object(checkpoint)));
         }
-        Some("tool/call") => {
+        Some(DshEvent::Tool) => {
             let observation = Observation::dsh(event);
             if observation.shown_tool().is_none() || *turns == 0 {
                 return;
@@ -2147,15 +1837,14 @@ fn fold_dsh_event(
                 .get("model")
                 .and_then(Value::as_str)
                 .unwrap_or(MODEL_NOT_REPORTED);
-            emit(&observation.onto(json!({
-                "step":"seat-turn",
+            let row = observation.onto(json!({
                 "turn": *turns,
                 "harness":"deepseek",
                 "model": model,
-                "effort": dsh_echoed_effort(session_meta),
-            })));
+                "effort": effort.shown(session_meta),
+            }));
+            emit(&Emitted::new(Step::SeatTurn, row));
         }
-        _ => {}
     }
 }
 
@@ -2259,12 +1948,8 @@ fn names_the_seats_own_session(candidate: &std::path::Path) -> bool {
     let Ok(event) = serde_json::from_str::<Value>(&header) else {
         return false;
     };
-    event.get("type").and_then(Value::as_str) == Some("session")
-        && event
-            .get("delegationDepth")
-            .and_then(Value::as_u64)
-            .unwrap_or(0)
-            == 0
+    let row = Row::new(&event, &[]);
+    row.is("/type", "session") && row.unsigned_count("/delegationDepth").unwrap_or(0) == 0
 }
 
 /// What the driver has read of the growing transcript so far: the open
@@ -2273,6 +1958,7 @@ fn names_the_seats_own_session(candidate: &std::path::Path) -> bool {
 struct DshTail {
     file: Option<std::fs::File>,
     pending: Vec<u8>,
+    effort: dsh_effort::Echo,
 }
 
 /// The dsh transcript fold's per-invocation state as one parameter
@@ -2346,7 +2032,7 @@ impl DshFold<'_> {
     /// A `turn/end` naming an error before the first `assistant/message`
     /// is dsh's pre-session refusal (decision 0053), typed from the row's
     /// machine fields by `dsh_refusal` and returned to the caller to latch.
-    fn drain(&mut self, emit: &mut impl FnMut(&Value)) -> Option<PreSessionRefusal> {
+    fn drain(&mut self, emit: &mut impl FnMut(&Emitted)) -> Option<PreSessionRefusal> {
         if self.tail.file.is_none() {
             self.tail.file =
                 find_dsh_transcript(self.root).and_then(|path| std::fs::File::open(path).ok());
@@ -2358,34 +2044,41 @@ impl DshFold<'_> {
         let mut refusal = None;
         while let Some(index) = self.tail.pending.iter().position(|byte| *byte == b'\n') {
             let line: Vec<u8> = self.tail.pending.drain(..=index).collect();
-            let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
+            let Ok(event) = serde_json::from_slice::<Value>(&line) else {
                 continue;
             };
-            secret::mask_json(&mut event, self.bindings);
-            // Decision 0053's boundary: only an error before the first
-            // counted turn is a refusal to start. The restored history
-            // below a resumed root's boundary is not this invocation's.
-            // The first refusal is latched: a later error row is not the
-            // reason the session never started.
-            if *self.turns == 0 && dsh_row_is_current(&event, self.first_seq) {
-                refusal = refusal.or_else(|| dsh_refusal(&event));
-            }
-            let answer_event = self.probe.requested() && probe::is_answer(AdapterKind::Dsh, &event);
+            let row = Row::new(&event, self.bindings);
+            let answer_event = self.probe.answers(AdapterKind::Dsh, &row);
+            let row_refusal = if *self.turns == 0 && dsh_row_is_current(&row, self.first_seq) {
+                dsh_refusal(&row)
+            } else {
+                None
+            };
             let mut emitted: Vec<Value> = Vec::new();
-            let mut capture = |data: &Value| {
+            let mut capture = |data: &Emitted| {
                 if answer_event {
-                    emitted.push(data.clone());
+                    emitted.push(data.row.clone());
                 }
                 emit(data);
             };
-            fold_dsh_event(
-                &event,
-                self.first_seq,
-                self.turns,
-                self.session_meta,
-                &mut capture,
-            );
-            self.probe.admit(AdapterKind::Dsh, &event, &emitted);
+            let input = FoldInput {
+                row: &row,
+                refusal: row_refusal,
+                identity: None,
+            };
+            let ended = input.fold(|row, _| {
+                fold_dsh_event(
+                    row,
+                    &mut self.tail.effort,
+                    self.first_seq,
+                    self.turns,
+                    self.session_meta,
+                    &mut capture,
+                );
+                None
+            });
+            refusal = refusal.or(ended);
+            self.probe.admit(answer_event, &emitted);
         }
         refusal
     }
@@ -2413,12 +2106,12 @@ const DSH_POLL_IDLE: std::time::Duration = std::time::Duration::from_millis(25);
 /// case the harness is stopped at once and the answer's exit code stands
 /// (decision 0103 ruling 4(a)); no later pass can admit a second.
 fn poll_until_exit(
-    child: &mut std::process::Child,
-    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    child: &mut Spawned,
+    mut wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
     mut drain: impl FnMut() -> bool,
 ) -> Result<i32, String> {
     loop {
-        let finished = io_context(wait(child), "agent CLI did not conclude")?;
+        let finished = io_context(wait(child), stream_turn::UNCONCLUDED)?;
         if drain() {
             return Ok(lost::exit_code(conclude_harness(child)?));
         }
@@ -2476,7 +2169,7 @@ fn invoke_stream_json(
     bindings: &[secret::BoundSecret],
     hold: &mut LaunchHold,
     probe: &mut ProbeAnswer,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession)?;
     // Read before the process can write to the transcript it resumes.
@@ -2495,31 +2188,26 @@ fn invoke_stream_json(
     let mut refusal: Option<PreSessionRefusal> = None;
     let mut stopped = false;
     let status = {
-        let mut watch = |data: &Value| hold.observe(data, emit);
+        let mut watch = |data: &Emitted| hold.observe(data, emit);
         for line in std::io::BufReader::new(stdout).lines() {
             let Ok(line) = line else { break };
             // Unparseable stream lines are noise, never repaired
             // (decision 0001).
-            let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
+            let Ok(event) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
-            // Masked before the fold clamps or rewrites anything it takes
-            // (decision 0012, layer 5): see `secret::mask_json`.
-            secret::mask_json(&mut event, bindings);
-            // Decision 0103 ruling 4(a): a probe admits the first
-            // model-output answer and no second, captured on the same
-            // fold that builds its checkpoint.
-            let classified =
-                probe::fold_capturing(probe, AdapterKind::Claude, &event, &mut watch, |emit| {
-                    let mut adapted = |data: &Value| emit(data);
-                    fold_stream_event(
-                        &event,
-                        &mut fold,
-                        &mut session_meta,
-                        &mut transcript,
-                        &mut adapted,
-                    )
-                });
+            let row = Row::new(&event, bindings);
+            let answer = probe.answers(AdapterKind::Claude, &row);
+            let classified = probe::fold_capturing(probe, answer, &mut watch, |emit| {
+                fold_stream_event(
+                    &row,
+                    claude_fold::Source::Claude,
+                    &mut fold,
+                    &mut session_meta,
+                    &mut transcript,
+                    &mut |data| emit(data),
+                )
+            });
             refusal = refusal.or(classified);
             // The answer is the probe's whole report: stop the harness
             // here instead of folding to EOF and waiting out a hang.
@@ -2531,7 +2219,7 @@ fn invoke_stream_json(
         let status = if stopped {
             conclude_harness(&mut child)?
         } else {
-            io_context(child.wait(), "agent CLI did not conclude")?
+            io_context(child.wait(), stream_turn::UNCONCLUDED)?
         };
         transcript.finish(&mut session_meta, &mut watch);
         status
@@ -2541,12 +2229,13 @@ fn invoke_stream_json(
     Ok(Invocation {
         exit_code: lost::exit_code(status),
         session_meta,
-        stdout: String::new(),
+        notes: String::new(),
         stderr,
         state: None,
         refusal,
         answer: probe.take(),
         launch: LaunchTerminal::Cold,
+        result_exists: None,
     })
 }
 
@@ -3057,7 +2746,7 @@ fn codex_plan(
         rejoining: None,
         refusal,
         sandbox: None,
-        kind: "codex-thread",
+        kind: TranscriptKind::CodexThread.label(),
         harness_version: version,
         wrapper_digest: None,
         // A codex thread is a rollout on disk: it outlives its
@@ -3095,7 +2784,7 @@ fn codex_plan(
         rejoining: Some(session.to_string()),
         refusal: None,
         sandbox: Some(class),
-        kind: "codex-thread",
+        kind: TranscriptKind::CodexThread.label(),
         harness_version: qualification.observed,
         wrapper_digest: None,
         persistent: true,
@@ -3237,28 +2926,8 @@ pub(crate) fn serving_command(
             command.push(prompt.to_string());
             Ok(command)
         }
-    }
-}
-
-/// The serving command shapes the built-in drivers spawn, one per builder
-/// [`serving_command`] calls. LaneTally wraps Claude's harness and is served
-/// Claude's shape. `exec` and an opaque driver have none, as they have no
-/// modelled grammar ([`crate::native_controls::grammar::grammar`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ServingShape {
-    Claude,
-    Codex,
-    Dsh,
-}
-
-impl ServingShape {
-    pub(crate) fn of(harness: &str) -> Option<ServingShape> {
-        match harness {
-            "claude" | "lanetally" => Some(ServingShape::Claude),
-            "codex" => Some(ServingShape::Codex),
-            "dsh" => Some(ServingShape::Dsh),
-            _ => None,
-        }
+        ServingShape::Qoder => Err("a qoder command, which no modelled grammar reads back"),
+        ServingShape::Agy => Err("an agy command, which no modelled grammar reads back"),
     }
 }
 
@@ -3613,7 +3282,7 @@ fn claude_launch(
         rejoining,
         refusal,
         sandbox: None,
-        kind: "claude-session",
+        kind: TranscriptKind::ClaudeSession.label(),
         harness_version: version,
         wrapper_digest: wrapper_digest.clone(),
         persistent,
@@ -3667,101 +3336,68 @@ fn claude_launch(
 /// `exec --json` JSONL live. Shared by the cold and resume argvs so the
 /// two paths differ in exactly one thing: the command line.
 fn invoke_codex(
-    command: &[String],
+    model_pin: Option<&str>,
     prompt: &str,
     workdir: &str,
     bindings: &[secret::BoundSecret],
     hold: &mut LaunchHold,
     probe_bound: &mut ProbeAnswer,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
     // A rejoin already knows the thread it is writing to, so the locator
-    // is held before the first byte arrives. A cold spawn hands an empty
-    // id, which locates nothing.
-    let mut echo = CodexThreadEcho::default();
-    echo.locate(
-        transcript.home(),
-        hold.plan.rejoining.as_deref().unwrap_or_default(),
-    );
+    // is held before the first byte arrives.
+    let mut echo = CodexThreadEcho::new(bindings);
+    if let Some(handle) = &hold.plan.rejoining {
+        echo.locate(transcript.home(), Ident::from_offered(handle));
+    }
     // The zero-event fallback's lower bound, at the full precision a
     // rollout row and file time carry: a turn written at `…:00.100Z`
     // before this invocation's `…:00.900Z` start is history, not this
     // seat's refusal (decision 0053's boundary).
     let started = epoch_now_nanos();
-    let (mut child, stderr_thread) = spawn_fed(command, prompt, workdir, bindings)?;
+    let (mut child, stderr_thread) = spawn_fed(&hold.plan.command, prompt, workdir, bindings)?;
     let mut session_meta = Map::new();
     let mut turn = 0;
-    // Decision 0053: codex's wire protocol DOES carry the distinction —
-    // a machine-readable `error`/`turn.failed` before the first
-    // `turn.started` is a refusal to start. After a turn it is 0016's
-    // mid-session failure, so the fold classifies only at `turn == 0`,
-    // and — as in the claude arm — it keeps folding the rest of the
-    // stream so a session that recovered keeps its thread id and totals.
     let mut refusal: Option<PreSessionRefusal> = None;
     let mut stopped = false;
     let status = {
-        let mut watch = |data: &Value| hold.observe(data, emit);
+        let mut watch = |data: &Emitted| hold.observe(data, emit);
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
             let Ok(line) = line else { break };
-            if let Ok(mut event) = serde_json::from_str::<Value>(&line) {
-                secret::mask_json(&mut event, bindings);
-                // Decision 0103 ruling 4(a): only `item.completed` whose
-                // `item.type` is `agent_message` answers a probe;
-                // `turn.started` does not.
-                let classified = probe::fold_capturing(
-                    probe_bound,
-                    AdapterKind::Codex,
-                    &event,
-                    &mut watch,
-                    |emit| {
-                        let mut adapted = |data: &Value| emit(data);
-                        fold_codex_event(
-                            &event,
-                            &mut turn,
-                            &mut session_meta,
-                            &mut transcript,
-                            &mut echo,
-                            &mut adapted,
-                        )
-                    },
-                );
-                refusal = refusal.or(classified);
-                // The answer is the probe's whole report: stop the harness
-                // here instead of folding to EOF and waiting out a hang.
-                if probe_bound.answered() {
-                    stopped = true;
-                    break;
-                }
+            let Ok(event) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            let row = Row::new(&event, bindings);
+            let answer = probe_bound.answers(AdapterKind::Codex, &row);
+            let classified = probe::fold_capturing(probe_bound, answer, &mut watch, |emit| {
+                fold_codex_row(
+                    &row,
+                    &mut turn,
+                    &mut session_meta,
+                    &mut transcript,
+                    &mut echo,
+                    &mut |data| emit(data),
+                )
+            });
+            refusal = refusal.or(classified);
+            // The answer is the probe's whole report: stop the harness
+            // here instead of folding to EOF and waiting out a hang.
+            if probe_bound.answered() {
+                stopped = true;
+                break;
             }
         }
         if stopped {
             conclude_harness(&mut child)?
         } else {
-            io_context(child.wait(), "agent CLI did not conclude")?
+            io_context(child.wait(), stream_turn::UNCONCLUDED)?
         }
     };
     let captured = stderr_thread.take(stopped);
     let stderr = captured.evidence(|raw| secret::mask_text(raw, bindings));
-    // An attempt that concluded without ever reaching a `turn.completed`
-    // — a release that folds none, or a codex that exits before its
-    // first turn finishes — has read the thread record not at all. Ask
-    // it once more here, on the way out, before falling back to the
-    // launch header.
-    //
-    // NOT the deadline case, though it reads like one: a deadline is
-    // enforced one process up, where the watchdog SIGKILLs this whole
-    // driver's group (`process::tree::kill_group`), so nothing after `child.wait`
-    // runs for a seat that parks. What a parked codex ran under reaches
-    // the journal from the other direction — the `turn-completed`
-    // checkpoint each folded turn already emitted names its model and
-    // effort as it goes, and a seat killed before its first turn has no
-    // fact to carry.
-    //
-    // Asked unconditionally
-    // and inserted only where nothing stands: a turn that already read
-    // the record wrote the same pair, and `or_insert` is what keeps a
-    // stream's more direct report of the model from being overwritten.
+    // Read the rollout on exit even if no turn completed. An earlier
+    // stream model still wins over the rollout and the pinned stderr echo.
     let (model, effort) = echo.echo();
     if let Some(model) = model {
         session_meta
@@ -3774,7 +3410,7 @@ fn invoke_codex(
             .or_insert_with(|| Value::String(effort));
     }
     if !session_meta.contains_key("model") {
-        if let Some(model) = model_in_header(&stderr) {
+        if let Some(model) = model_in_header(&stderr, model_pin) {
             session_meta.insert("model".into(), Value::String(model));
         }
     }
@@ -3785,18 +3421,19 @@ fn invoke_codex(
     if refusal.is_none() && turn == 0 {
         refusal = codex_early_refusal(&mut echo, transcript.home(), started, workdir);
     }
-    transcript.finish(&mut session_meta, &mut |data: &Value| {
+    transcript.finish(&mut session_meta, &mut |data: &Emitted| {
         hold.observe(data, emit)
     });
     Ok(Invocation {
         exit_code: lost::exit_code(status),
         session_meta,
-        stdout: String::new(),
+        notes: String::new(),
         stderr,
         state: None,
         refusal,
         answer: probe_bound.take(),
         launch: LaunchTerminal::Cold,
+        result_exists: None,
     })
 }
 
@@ -3806,7 +3443,7 @@ fn invoke_codex(
 /// both reads; `started_nanos` is the invocation's start at nanosecond
 /// precision, the boundary the record's rows and file time are held to.
 fn codex_early_refusal(
-    echo: &mut CodexThreadEcho,
+    echo: &mut CodexThreadEcho<'_>,
     home: &std::path::Path,
     started_nanos: Option<i128>,
     workdir: &str,
@@ -3837,7 +3474,7 @@ fn invoke_dsh(
     session: Option<&str>,
     bindings: &[secret::BoundSecret],
     probe: &mut ProbeAnswer,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
     let workdir = input
         .get("workdir")
@@ -3853,9 +3490,7 @@ fn invoke_dsh(
         &workdir,
         input,
     )?;
-    let wait = |child: &mut std::process::Child| {
-        child.try_wait().map(|status| status.map(lost::exit_code))
-    };
+    let wait = |child: &mut Spawned| child.try_wait().map(|status| status.map(lost::exit_code));
     dsh_launch::invoke_dsh_launch_observed(
         launch,
         command,
@@ -3932,6 +3567,14 @@ fn plain_dsh_session_id(id: &str) -> bool {
     recordable_session_id(id)
 }
 
+struct DshStoredId {
+    ident: Ident,
+    #[cfg(test)]
+    display: String,
+}
+
+type DshCensus = Vec<(DshStoredId, std::path::PathBuf)>;
+
 /// What one stored `session.v3.jsonl`'s first line states. `None` is unsafe
 /// evidence — absent, unreadable, truncated, over budget, non-JSON, not a
 /// session header at all, or a depth-zero header with no string id — and
@@ -3941,7 +3584,7 @@ enum DshStoredSession {
     /// A complete header a delegated child wrote under the owned root.
     Delegated,
     /// A complete depth-zero header naming its own session id.
-    DepthZero(String),
+    DepthZero(DshStoredId),
 }
 
 /// Classify a transcript's first line. The line must be complete within a
@@ -3970,22 +3613,21 @@ fn dsh_stored_session_with(candidate: &std::path::Path, budget: u64) -> Option<D
         return None;
     }
     let event = serde_json::from_slice::<Value>(&header).ok()?;
-    if event.get("type").and_then(Value::as_str) != Some("session") {
+    let row = Row::new(&event, &[]);
+    if !row.is("/type", "session") {
         return None;
     }
-    // The selected core's header requires a non-negative safe-integer
-    // `delegationDepth`. `as_u64` refuses a string, null, negative,
-    // fractional or missing value instead of defaulting malformed storage
-    // to the seat's own depth and admitting a partial/mismatched boundary
-    // (design D6; task 8.8(d)).
-    let depth = event.get("delegationDepth").and_then(Value::as_u64)?;
-    if depth != 0 {
+    // Malformed depth is not a depth-zero header (design D6; task 8.8(d)).
+    if row.unsigned_count("/delegationDepth")? != 0 {
         return Some(DshStoredSession::Delegated);
     }
-    event
-        .get("id")
-        .and_then(Value::as_str)
-        .map(|id| DshStoredSession::DepthZero(id.to_string()))
+    row.ident("/id").map(|ident| {
+        DshStoredSession::DepthZero(DshStoredId {
+            ident,
+            #[cfg(test)]
+            display: row.text("/id").expect("the id was read as a string"),
+        })
+    })
 }
 
 /// The one stored depth-zero session file under a retained root whose
@@ -4034,7 +3676,7 @@ fn dsh_session_file_reading(
     let mut matches: Vec<std::path::PathBuf> =
         dsh_depth_zero_sessions_reading(root, budget, read_dir)?
             .into_iter()
-            .filter(|(id, _)| id == expected)
+            .filter(|(id, _)| id.ident.is_offered(expected))
             .map(|(_, candidate)| candidate)
             .collect();
     match matches.len() {
@@ -4061,7 +3703,7 @@ fn dsh_depth_zero_sessions_reading(
     root: &std::path::Path,
     budget: usize,
     read_dir: &dyn Fn(&std::path::Path) -> std::io::Result<SessionDirEntries>,
-) -> Result<Vec<(String, std::path::PathBuf)>, String> {
+) -> Result<DshCensus, String> {
     let root = std::fs::canonicalize(root)
         .map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
     let mut found = Vec::new();
@@ -4127,9 +3769,7 @@ fn dsh_depth_zero_sessions_reading(
 
 /// Every stored depth-zero session under a retained root, read through
 /// production's own directory reader and enumeration budget.
-fn dsh_depth_zero_sessions(
-    root: &std::path::Path,
-) -> Result<Vec<(String, std::path::PathBuf)>, String> {
+fn dsh_depth_zero_sessions(root: &std::path::Path) -> Result<DshCensus, String> {
     dsh_depth_zero_sessions_reading(root, DSH_DIRECTORY_ENTRIES, &read_session_dir)
 }
 
@@ -4181,10 +3821,11 @@ fn dsh_session_last_seq_with(path: &std::path::Path, event_budget: u64) -> Optio
             return None;
         }
         let event = serde_json::from_slice::<Value>(&line).ok()?;
+        let row = Row::new(&event, &[]);
         if first {
             // The header names the session and carries no `seq`; it is not
             // part of the current-work boundary.
-            if event.get("type").and_then(Value::as_str) != Some("session") {
+            if !row.is("/type", "session") {
                 return None;
             }
             first = false;
@@ -4195,7 +3836,7 @@ fn dsh_session_last_seq_with(path: &std::path::Path, event_budget: u64) -> Optio
         // integer sequence is malformed storage, not a row to skip:
         // skipping it would report a lower maximum as if the boundary were
         // complete (design D6; task 8.8(d)).
-        let seq = event.get("seq").and_then(Value::as_u64)?;
+        let seq = row.unsigned_count("/seq")?;
         last = last.max(seq);
     }
     Some(last)
@@ -4348,7 +3989,7 @@ impl DshLaunch {
             } else {
                 EFFORT_NOT_REPORTED.to_string()
             }),
-            kind: "dsh-session",
+            kind: TranscriptKind::DshSession.label(),
             harness_version: self.observed.clone(),
             wrapper_digest: self.wrapper_digest.clone(),
             persistent: true,
@@ -4832,8 +4473,8 @@ fn invoke_dsh_launch(
     prompt: &str,
     workdir: &str,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
-    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    emit: &mut impl FnMut(&Emitted),
+    wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
     let mut command = launch.command.clone();
     command.push(prompt.to_string());
@@ -4858,21 +4499,20 @@ fn spawn_dsh(
     stdout: Stdio,
     launch: &DshLaunch,
     bindings: &[secret::BoundSecret],
-) -> Result<(std::process::Child, StderrCapture), String> {
+) -> Result<(Spawned, StderrCapture), String> {
     let env = dsh_child_env(launch);
     let mut child = spawn_harness(command, workdir, Stdio::null(), stdout, &env, bindings)?;
     let stderr_thread = drain_stderr(&mut child);
     Ok((child, stderr_thread))
 }
 
-/// Every dsh child's fixed environment: unsigned commits (CONTRIBUTING) under the
-/// host's identity (decision 0043 ruling 6), and an engine-only home (U1c2).
+/// Every dsh child's fixed environment: unsigned commits (CONTRIBUTING),
+/// with any numbered git config group the engine inherited closed (#1109),
+/// under the host's identity (decision 0043 ruling 6), and an engine-only
+/// home (U1c2).
 fn dsh_child_env(launch: &DshLaunch) -> Vec<(&str, &str)> {
-    let mut env = vec![
-        ("GIT_CONFIG_COUNT", "1"),
-        ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
-        ("GIT_CONFIG_VALUE_0", "false"),
-    ];
+    use crate::hands::environment::{inherited_git_group_closed, seat_git_environment};
+    let mut env = vec![inherited_git_group_closed(), seat_git_environment()];
     env.extend(launch.home.child_home().map(|home| ("DSH_HOME", home)));
     for (key, value) in &launch.facts.identity {
         env.push((key, value));
@@ -4888,10 +4528,10 @@ fn invoke_dsh_shipped(
     command: &[String],
     launch: &DshLaunch,
     bindings: &[secret::BoundSecret],
-    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    mut wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
     probe: &mut ProbeAnswer,
     session_meta: &mut Map<String, Value>,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> Result<DshRun, String> {
     let (mut child, stderr_thread) =
         spawn_dsh(command, &launch.workdir, Stdio::null(), launch, bindings)?;
@@ -4932,26 +4572,18 @@ fn invoke_dsh_shipped(
 /// no per-message boundary, so the transcript fold — not this event —
 /// owns usage.
 fn fold_dsh_stream_event(
-    event: &Value,
+    event: &Row<'_>,
     watch: &mut DshRootWatch,
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) {
-    let is_init = event.get("type").and_then(Value::as_str) == Some("system")
-        && event.get("subtype").and_then(Value::as_str) == Some("init");
-    if !is_init {
-        return;
+    if let Some(identity) =
+        CapturedId::init(event).filter(|identity| !identity.ident.is_offered(""))
+    {
+        session_meta.insert("session_id".into(), Value::String(identity.display.clone()));
+        watch.named(&identity.ident, &identity.display, hold, emit);
     }
-    let Some(id) = event
-        .get("session_id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-    else {
-        return;
-    };
-    session_meta.insert("session_id".into(), Value::String(id.to_string()));
-    watch.named(id, hold, emit);
 }
 
 /// Decode one stdout line, hear an init event before the store behind it is
@@ -4962,14 +4594,13 @@ fn fold_dsh_line(
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
 ) -> DshStreamLine {
-    let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
+    let Ok(event) = serde_json::from_str::<Value>(&line) else {
         watch.unread(DshStreamLine::Malformed);
         return DshStreamLine::Malformed;
     };
-    secret::mask_json(&mut event, bindings);
-    fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
+    fold_dsh_stream_event(&Row::new(&event, bindings), watch, hold, session_meta, emit);
     DshStreamLine::Event
 }
 
@@ -5015,6 +4646,7 @@ enum DshDisposition {
 #[derive(Debug, Clone, PartialEq)]
 struct DshObservation {
     line: DshStreamLine,
+    #[cfg(test)]
     census: Option<Vec<(String, std::path::PathBuf)>>,
     last_seq: Option<u64>,
     disposition: DshDisposition,
@@ -5030,7 +4662,7 @@ struct DshBaseline {
     offered_file: std::path::PathBuf,
     /// Every admitted `(header id, canonical file)` occurrence, repeated
     /// ids and repeated addresses included.
-    entries: Vec<(String, std::path::PathBuf)>,
+    entries: DshCensus,
 }
 
 /// The launch-root confirmation a DSH rejoin has to pass before ANYTHING
@@ -5078,7 +4710,6 @@ struct DshBaseline {
 /// it — publishing the locator and launch row AFTER their own work rows,
 /// and returning a confirmed rejoin built on work that was never
 /// confirmed. `may_fold` withholds the fold until the hold releases.
-#[expect(clippy::struct_excessive_bools, reason = "baseline 2026-09, #288")]
 struct DshRootWatch {
     /// The exact root this launch was built to rejoin. `None` is a cold
     /// launch, which has no offer to confirm and publishes as it always
@@ -5096,7 +4727,7 @@ struct DshRootWatch {
     locator: String,
     transcript: Transcript,
     /// Whether the child's init event named the offered root.
-    named_the_offer: bool,
+    named_offer_display: Option<String>,
     /// Latched once the outcome is settled: a confirmation publishes once,
     /// and a refusal or a mismatch is not revisited by a later reading.
     /// Nothing clears it.
@@ -5136,7 +4767,7 @@ impl DshRootWatch {
             baseline,
             locator: launch.locator.clone(),
             transcript,
-            named_the_offer: false,
+            named_offer_display: None,
             settled: false,
             released: false,
             mismatched: false,
@@ -5194,10 +4825,12 @@ impl DshRootWatch {
         &mut self,
         hold: &mut LaunchHold,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
     ) {
         let locator = self.locator.clone();
-        let address = self.transcript.record(&locator, session_meta, emit);
+        let address = self
+            .transcript
+            .record(Locator::Retained(&locator), session_meta, emit);
         hold.address(address);
     }
 
@@ -5206,18 +4839,26 @@ impl DshRootWatch {
     /// hold latches the mismatch — while the offered one still has to
     /// survive the retained-store reads below. A settled watch hears
     /// nothing: an init event cannot reset a refusal or a mismatch.
-    fn named(&mut self, id: &str, hold: &mut LaunchHold, emit: &mut impl FnMut(&Value)) {
+    fn named(
+        &mut self,
+        id: &Ident,
+        display: &str,
+        hold: &mut LaunchHold,
+        emit: &mut impl FnMut(&Emitted),
+    ) {
         if self.settled {
             return;
         }
-        if self.offered.as_deref() != Some(id) {
-            // A cold plan's own fresh root, or a rejoin's mismatch. The
-            // hold decides which, and a mismatch publishes nothing.
-            self.mismatched = hold.confirm(id, emit) == Confirmation::Mismatch;
+        if self
+            .offered
+            .as_deref()
+            .is_some_and(|offered| id.is_offered(offered))
+        {
+            self.named_offer_display = Some(display.to_owned());
+        } else {
+            self.mismatched = hold.confirm(id, display, emit) == Confirmation::Mismatch;
             self.settled = true;
-            return;
         }
-        self.named_the_offer = true;
     }
 
     /// One stream line the driver could not decode, or could not read at
@@ -5240,7 +4881,7 @@ impl DshRootWatch {
         if self.settled || !self.confirming() {
             return;
         }
-        if line == DshStreamLine::Unreadable || !self.named_the_offer {
+        if line == DshStreamLine::Unreadable || self.named_offer_display.is_none() {
             self.refuse();
         }
     }
@@ -5255,11 +4896,12 @@ impl DshRootWatch {
         line: DshStreamLine,
         hold: &mut LaunchHold,
         session_meta: &mut Map<String, Value>,
-        emit: &mut impl FnMut(&Value),
+        emit: &mut impl FnMut(&Emitted),
         observer: &mut impl FnMut(&DshObservation),
     ) {
         let mut observation = DshObservation {
             line,
+            #[cfg(test)]
             census: None,
             last_seq: None,
             disposition: self.disposition(),
@@ -5271,7 +4913,7 @@ impl DshRootWatch {
                     &self.root,
                     offered,
                     baseline,
-                    self.named_the_offer,
+                    self.named_offer_display.is_some(),
                     &mut observation,
                 ),
             )),
@@ -5289,7 +4931,11 @@ impl DshRootWatch {
                     // address, so the root and the two coordinates a
                     // rejoin needs are one checkpoint (design D6).
                     self.record_locator(hold, session_meta, emit);
-                    hold.confirm(&offered, emit);
+                    let display = self
+                        .named_offer_display
+                        .as_deref()
+                        .expect("a confirmed dsh store has a matching init");
+                    hold.confirm(&Ident::from_offered(&offered), display, emit);
                 }
                 _ => self.refuse(),
             }
@@ -5332,7 +4978,10 @@ fn dsh_read_offered_store(
     let Ok(sessions) = dsh_depth_zero_sessions(root) else {
         return DshDisposition::Refused;
     };
-    observation.census = Some(sessions.clone());
+    #[cfg(test)]
+    {
+        observation.census = Some(tests::dsh_census_display(&sessions));
+    }
     let Some(file) = dsh_only_header(&sessions, offered) else {
         return DshDisposition::Refused;
     };
@@ -5356,11 +5005,10 @@ fn dsh_read_offered_store(
 /// The address of the ONE header in a census that names `id`, or `None`
 /// when there is none or more than one. An ambiguous id is never resolved
 /// to whichever occurrence the enumeration happened to reach first.
-fn dsh_only_header<'a>(
-    census: &'a [(String, std::path::PathBuf)],
-    id: &str,
-) -> Option<&'a std::path::PathBuf> {
-    let mut named = census.iter().filter(|(header, _)| header == id);
+fn dsh_only_header<'a>(census: &'a DshCensus, id: &str) -> Option<&'a std::path::PathBuf> {
+    let mut named = census
+        .iter()
+        .filter(|(header, _)| header.ident.is_offered(id));
     match (named.next(), named.next()) {
         (Some((_, file)), None) => Some(file),
         _ => None,
@@ -5372,13 +5020,12 @@ fn dsh_only_header<'a>(
 /// containment. A set of ids cannot see a repeated id at a new address,
 /// and a set of pairs cannot see one pair admitted twice, so each baseline
 /// occurrence is spent at most once.
-fn dsh_census_within(
-    current: &[(String, std::path::PathBuf)],
-    baseline: &[(String, std::path::PathBuf)],
-) -> bool {
-    let mut unspent: Vec<&(String, std::path::PathBuf)> = baseline.iter().collect();
-    current.iter().all(|entry| {
-        let held = unspent.iter().position(|held| *held == entry);
+fn dsh_census_within(current: &DshCensus, baseline: &DshCensus) -> bool {
+    let mut unspent: Vec<_> = baseline.iter().collect();
+    current.iter().all(|(current, file)| {
+        let held = unspent
+            .iter()
+            .position(|(stored, path)| (&stored.ident, path) == (&current.ident, file));
         held.map(|at| unspent.swap_remove(at)).is_some()
     })
 }
@@ -5426,11 +5073,12 @@ fn finish_dsh(
             answer,
             exit_code,
             session_meta: session_meta.clone(),
-            stdout: String::new(),
+            notes: String::new(),
             stderr,
             state: None,
             refusal,
             launch: LaunchTerminal::Cold,
+            result_exists: None,
         },
         startup,
     })
@@ -5460,7 +5108,7 @@ fn invoke_with_stager(
     session: Option<&str>,
     bindings: &[secret::BoundSecret],
     probe: bool,
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
     stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
 ) -> Result<Invocation, String> {
     let Pinned { binary: bin, extra } = pinned;
@@ -5472,6 +5120,7 @@ fn invoke_with_stager(
         .unwrap_or("")
         .to_string();
     let mut probe = ProbeAnswer::new(probe);
+    let model_pin = pinned_model(extra, kind.model_flag());
     let invocation = match kind {
         // Same harness, same stream: LaneTally's wrapper is
         // argv-compatible with claude (including stream-json), so the
@@ -5497,10 +5146,9 @@ fn invoke_with_stager(
         AdapterKind::Codex => {
             let (plan, validated_cold) =
                 codex::launch_on_host(bin, extra, &workdir, session, input, codex::present)?;
-            let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
             let mut invocation = invoke_codex(
-                &command, prompt, &workdir, bindings, &mut hold, &mut probe, emit,
+                model_pin, prompt, &workdir, bindings, &mut hold, &mut probe, emit,
             )?;
             hold.finish(emit);
             invocation.launch = hold.terminal();
@@ -5539,10 +5187,9 @@ fn invoke_with_stager(
                 // launch, checked on its own (rebuild unit 15).
                 let cold =
                     LaunchPlan::cold(validated_cold, "codex-thread", Some("harness-refused"));
-                let command = cold.command.clone();
                 let mut replacement = LaunchHold::new("codex", cold);
                 let mut outcome = invoke_codex(
-                    &command,
+                    model_pin,
                     prompt,
                     &workdir,
                     bindings,
@@ -5560,6 +5207,20 @@ fn invoke_with_stager(
             }
         }
         AdapterKind::Dsh => invoke_dsh(pinned, prompt, input, session, bindings, &mut probe, emit),
+        AdapterKind::Qoder => {
+            qoder::drive(bin, extra, session.is_some(), prompt, input, bindings, emit)
+        }
+        AdapterKind::Agy => agy::drive(
+            pinned,
+            agy::StartMode {
+                offered: session.is_some(),
+                probe: probe.requested(),
+            },
+            prompt,
+            input,
+            bindings,
+            emit,
+        ),
         AdapterKind::Exec => {
             exec::invoke_exec(extra, prompt, &workdir, input, bindings, emit, stage)
         }
@@ -5570,7 +5231,7 @@ fn invoke_with_stager(
     // absence, never a guess. A route outside the one form the wire reads
     // refuses the refusal before emission, by name, rather than being
     // rewritten or sent unreadable (fix round 430s4a6 L2).
-    let route = pinned_model(extra).and_then(|model| kind.served_route(model));
+    let route = model_pin.and_then(|model| kind.served_route(model));
     let mut invocation = invocation;
     if let Some(refusal) = invocation.refusal.take() {
         invocation.refusal = Some(
@@ -6273,17 +5934,6 @@ fn stderr_tail_start(stderr: &str) -> usize {
     start
 }
 
-/// Whether a driver checkpoint proves the harness began work (decision
-/// 0053). Every row a driver writes before the session opens is one of
-/// two pre-session shapes — the shared `transcript` locator, and the
-/// `harness-started` launch row codex and dsh write — and the first row
-/// that is neither is the one that flips the attempt across decision
-/// 0016's boundary. Exec has no model turn: its `exec-started` row IS the
-/// start.
-fn begins_work(step: &str) -> bool {
-    !matches!(step, "transcript" | "harness-started")
-}
-
 /// The refused attempt's pointer at its own prose: `<kind>/<locator>`
 /// off the transcript row decision 0032 already shapes, or nothing when
 /// the harness never announced a session. Neither half is read for
@@ -6405,7 +6055,7 @@ fn run_seat_with(
         &str,
         &Value,
         &[secret::BoundSecret],
-        &mut dyn FnMut(&Value),
+        &mut dyn FnMut(&Emitted),
     ) -> Result<Invocation, String>,
 ) {
     let input = start.get("input").cloned().unwrap_or(json!({}));
@@ -6448,7 +6098,7 @@ fn run_seat_with(
     // the codex/dsh launch row — are buffered, flushed once the attempt
     // crosses the boundary, and dropped when it refused to start.
     let mut began_work = false;
-    let mut buffered: Vec<Value> = Vec::new();
+    let mut buffered: Vec<(Step, Value)> = Vec::new();
     let result_path = input
         .get("result_path")
         .and_then(Value::as_str)
@@ -6509,7 +6159,7 @@ fn run_seat_with(
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
     lost::invoking();
-    let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Value| {
+    let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Emitted| {
         // A probe's rows are not streamed: its one answer is reported
         // after the invocation, as the checkpoint that answer emitted
         // (decision 0103 ruling 4(a)). Streaming a `turn.started` here
@@ -6517,11 +6167,8 @@ fn run_seat_with(
         if probe {
             return;
         }
-        let data = seat_row(kind, &bindings, data);
-        let starts = data
-            .get("step")
-            .and_then(Value::as_str)
-            .is_some_and(begins_work);
+        let starts = begins_work(data.step);
+        let row = seat_row(kind, &bindings, &data.row);
         if began_work || starts {
             began_work = true;
             probe::accept_and_flush(
@@ -6534,10 +6181,10 @@ fn run_seat_with(
             send(Body::Checkpoint {
                 effect_id: effect_id.clone(),
                 attempt_id: attempt_id.clone(),
-                data,
+                data: row,
             });
         } else {
-            buffered.push(data);
+            buffered.push((data.step, row));
         }
     }) {
         Ok(invocation) => invocation,
@@ -6553,7 +6200,7 @@ fn run_seat_with(
                     attempt_id: attempt_id.clone(),
                     session_ref: None,
                 });
-                for row in buffered.drain(..) {
+                for (_, row) in buffered.drain(..) {
                     send(Body::Checkpoint {
                         effect_id: effect_id.clone(),
                         attempt_id: attempt_id.clone(),
@@ -6586,12 +6233,13 @@ fn run_seat_with(
     let Invocation {
         exit_code,
         mut session_meta,
-        stdout,
+        notes,
         stderr,
         state,
         refusal,
         answer: _,
         launch,
+        result_exists,
     } = invocation;
     // The same choke point for what the folds kept aside: the session
     // record and a provider's refusal prose both come from the child's
@@ -6624,9 +6272,13 @@ fn run_seat_with(
     //
     // A signal or an unsettled launch is read before any refusal is: either
     // leaves no result, whatever the stream classified (`lost`).
-    let delivered = exit_code == 0 && std::fs::metadata(&result_path).is_ok();
-    let worked = began_work || delivered;
-    if let Some(reason) = lost::refusal_to_start(refusal, worked, exit_code, launch) {
+    if let Some(reason) = lost::refusal_to_start(
+        refusal,
+        began_work,
+        || result_exists.unwrap_or_else(|| std::fs::metadata(&result_path).is_ok()),
+        exit_code,
+        launch,
+    ) {
         let stderr_tail_start = stderr_tail_start(&stderr);
         eprint!("{}", &stderr[stderr_tail_start..]);
         let error = match transcript_locator(&session_meta) {
@@ -6726,11 +6378,6 @@ fn run_seat_with(
             .get("failure_result")
             .and_then(Value::as_str)
             .unwrap_or("fail");
-        let notes = [stdout.trim(), stderr.trim()]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n");
         let mut result = json!({
             "result": if exit_code == 0 { success } else { failure },
             "inputs": {"change": dialect.get("change").cloned().unwrap_or(Value::Null)},
@@ -6936,7 +6583,15 @@ fn serve_with(
     Ok(())
 }
 
+/// The adapter main loop over the process's stdio. On Linux the driver is its
+/// harness tree's subreaper, and its reaper starts first (#1133).
 pub fn serve(kind: AdapterKind, extra: Vec<String>, confine: Confine) -> std::io::Result<()> {
+    // The agy driver's gate mode answers one hook call and serves nothing.
+    if let Some(listed) = agy::gate_listed(kind, &extra) {
+        return agy::gate(listed, std::io::stdin().lock(), std::io::stdout());
+    }
+    #[cfg(target_os = "linux")]
+    crate::process::reaper::start();
     let input = std::io::stdin().lock();
     serve_with(kind, &extra, input, std::io::stdout(), confine)
 }
@@ -6960,4 +6615,10 @@ mod dsh_v4_tests;
 mod dsh_effort_tests;
 
 #[cfg(test)]
+mod stderr_sentinel_tests;
+
+#[cfg(test)]
 mod refusal_tests;
+
+#[cfg(test)]
+mod raw_fold_tests;

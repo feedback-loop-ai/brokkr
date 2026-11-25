@@ -1,0 +1,582 @@
+//! Decision 0109 ruling 7's `head` arm through the real result path: a
+//! gate's success is stamped with what it covered, the protected phase's
+//! digest is pinned to the head decided on, and a seat cannot write it.
+
+use std::process::Command;
+
+use serde_json::{json, Value};
+
+use super::tests::{driven, driven_over, driver, ended, ended_in, reported};
+use crate::bundle::{GateAssessment, SeatClass};
+use crate::engine::heads::{HeadReads, Observed};
+use crate::engine::tests::{bundle, git_commit, single_body, state};
+use crate::engine::verdict::ObservationProblem::{
+    Beyond, Disagrees, Missing, Partial, Reordered, Uncovered, Unlawful, Unreadable, Unrecorded,
+    Unselected,
+};
+use crate::engine::verdict::{checked_head, Producer};
+use crate::engine::{git_head, Engine};
+use brokkr_core::canonical::sha256_bytes;
+use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::fold::{Cursor, RunState, StepObservation, StepRecords};
+use brokkr_core::policy::Machine;
+use brokkr_store::Store;
+
+/// Every result the run journaled, in order.
+fn results(events: &[EventEnvelope]) -> Vec<&Value> {
+    events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectSucceeded)
+        .map(|event| &event.payload["result"])
+        .collect()
+}
+
+/// The protected phase deciding `raw`, journaled as an effect whose check
+/// accepted the head `engine`'s repository stands at now: the state and
+/// the result a hand-fed decide of review needs to record a reviewed head.
+pub(in crate::engine) fn reviewing(engine: &Engine, raw: Value) -> (RunState, Value) {
+    reviewing_on(&git_head(&engine.repo).unwrap(), raw)
+}
+
+/// [`reviewing`], journaled as checked on `head`.
+pub(in crate::engine) fn reviewing_on(head: &str, mut raw: Value) -> (RunState, Value) {
+    raw["checked_head"] = json!(head);
+    let effect_id = "review-effect".to_string();
+    let result = raw.clone();
+    let deciding = state(Some("review"), Cursor::Decide { effect_id, result });
+    (deciding, raw)
+}
+
+/// The run's first decision from `phase`.
+pub(super) fn decided_from<'a>(events: &'a [EventEnvelope], phase: &str) -> &'a Value {
+    events
+        .iter()
+        .find(|event| {
+            event.event_type == EventType::TransitionDecided && event.payload["from"] == phase
+        })
+        .map(|event| &event.payload)
+        .unwrap()
+}
+
+/// The test table with ship's drift arm ahead of its plain one.
+pub(super) fn drift_refusing() -> Machine {
+    Machine::from_table(&drift_table()).unwrap()
+}
+
+/// [`drift_refusing`]'s table, whose rules are work's, review's and
+/// ship's two, in that order.
+pub(super) fn drift_table() -> Value {
+    json!({
+        "phases": ["work", "review", "ship", "done", "stop"],
+        "initial": "work",
+        "terminal": ["done", "stop"],
+        "rules": [
+            {"id": "WORK", "from": "work", "result": "complete", "next": "review", "reason": "work"},
+            {"id": "REVIEW", "from": "review", "result": "clean", "next": "ship", "reason": "review"},
+            {"id": "SHIP-DRIFT", "from": "ship", "result": "shipped", "when": {"drift_detected": true},
+             "next": "stop", "severity": "hard", "reason": "drift"},
+            {"id": "SHIP", "from": "ship", "result": "shipped", "next": "done", "reason": "ship"}
+        ]
+    })
+}
+
+/// A gate outside the protected phase writes the new record: the commit
+/// its stable-head check accepted and `dirty: true`, which every record
+/// says until 0109b's tree check, even when HEAD reads otherwise on every
+/// read after the check; a work effect writes none.
+#[test]
+fn a_gate_outside_the_protected_phase_records_the_commit_it_read() {
+    let result = json!({"result": "complete", "findings": [reported("one", 1)]});
+    let mut accepted = String::new();
+    let (_dir, events) = driven_over(
+        single_body(driver(&result)),
+        |compiled| compiled.seats.get_mut("work").unwrap().gate = GateAssessment::AllGate,
+        |repo| {
+            accepted = git_head(repo).unwrap();
+            let moved = git_commit(repo, "moved");
+            HeadReads::scripted(&[&accepted, &accepted, &moved])
+        },
+    );
+    let succeeded = ended(&events, EventType::EffectSucceeded);
+    assert_eq!(
+        succeeded[0]["result"]["covered"],
+        json!({"kind": "head", "head": accepted, "dirty": true})
+    );
+    assert_eq!(succeeded[0]["result"]["findings"][0]["id"], "one");
+    let (_dir, events) = driven(single_body(driver(&json!({"result": "complete"}))), false);
+    let succeeded = ended(&events, EventType::EffectSucceeded);
+    assert!(
+        succeeded[0]["result"].get("covered").is_none(),
+        "{succeeded:?}"
+    );
+}
+
+/// Ruling 7's one observation through a driven run whose protected phase
+/// holds two commits: HEAD reads `entered` as review is entered, the
+/// review gate's span reads `reviewed` at its start and its end, and
+/// every read after the check reads `moved`. The covered digest and
+/// `reviewed_heads` both name `reviewed`, the head the check accepted,
+/// `entered` is its strict ancestor, and ship's drift check refuses the
+/// moved head. A work-class review is a checked span too: it records no
+/// `covered`, and its `reviewed_heads` is still the head its check
+/// accepted, so ship's drift check refuses the moved head there as well
+/// (fix round 0109a1r2, verify's return). No path in this slice writes
+/// the `artifacts` arm or a follow-up.
+#[test]
+fn the_reviewed_head_is_the_one_the_stable_head_check_accepted() {
+    let mut planned = Vec::new();
+    let shape = |gate: bool| {
+        move |compiled: &mut crate::bundle::Bundle| {
+            compiled.machine = drift_refusing();
+            let review = compiled.seats.get_mut("review").unwrap();
+            review.body = single_body(driver(&json!({"result": "clean"})));
+            if gate {
+                review.gate = GateAssessment::AllGate;
+            }
+            let ship = compiled.seats.get_mut("ship").unwrap();
+            ship.body = single_body(driver(&json!({"result": "shipped"})));
+        }
+    };
+    let work = || single_body(driver(&json!({"result": "complete"})));
+    let (dir, events) = driven_over(work(), shape(true), |repo| {
+        let entered = git_head(repo).unwrap();
+        git_commit(repo, "second");
+        let reviewed = git_commit(repo, "reviewed");
+        let moved = git_commit(repo, "moved");
+        planned = vec![entered, reviewed, moved];
+        let [entered, reviewed, moved] = [&planned[0], &planned[1], &planned[2]];
+        HeadReads::scripted(&[entered, reviewed, reviewed, moved])
+    });
+    let [entered, reviewed, moved] = [&planned[0], &planned[1], &planned[2]];
+    let succeeded = ended_in(&events, "review", EventType::EffectSucceeded);
+    let digest = sha256_bytes(reviewed.as_bytes());
+    assert_eq!(
+        succeeded[0]["result"]["covered"],
+        json!({"kind": "head", "head_digest": digest, "dirty": true})
+    );
+    let decided = decided_from(&events, "review");
+    assert_eq!(decided["rule_id"], "REVIEW", "{decided}");
+    assert_eq!(
+        decided["inputs"]["reviewed_heads"],
+        json!({"repo": reviewed})
+    );
+    let phase_entered = events
+        .iter()
+        .find(|event| {
+            event.event_type == EventType::PhaseEntered && event.payload["phase"] == "review"
+        })
+        .unwrap();
+    assert_eq!(phase_entered.payload["head"], json!(entered));
+    assert_ne!(entered, reviewed);
+    let ancestry = Command::new("git")
+        .args(["merge-base", "--is-ancestor", entered, reviewed])
+        .current_dir(dir.path().join("work"))
+        .status()
+        .unwrap();
+    assert!(ancestry.success(), "{entered} is an ancestor of {reviewed}");
+    let shipped = decided_from(&events, "ship");
+    assert_eq!(
+        shipped["rule_id"], "SHIP-DRIFT",
+        "{shipped} against {moved}"
+    );
+    assert_eq!(shipped["inputs"]["drift_detected"], json!(true));
+    for result in results(&events) {
+        assert!(result.get("follow_ups").is_none(), "{result}");
+        let kind = result.pointer("/covered/kind");
+        assert!(kind.is_none() || kind == Some(&json!("head")), "{result}");
+    }
+    let mut accepted = String::new();
+    let (_dir, events) = driven_over(work(), shape(false), |repo| {
+        accepted = git_commit(repo, "reviewed");
+        let moved = git_commit(repo, "moved");
+        HeadReads::scripted(&[&accepted, &accepted, &accepted, &moved])
+    });
+    let succeeded = ended_in(&events, "review", EventType::EffectSucceeded);
+    assert!(
+        succeeded[0]["result"].get("covered").is_none(),
+        "{succeeded:?}"
+    );
+    let decided = decided_from(&events, "review");
+    assert_eq!(
+        decided["inputs"]["reviewed_heads"],
+        json!({"repo": accepted})
+    );
+    assert_eq!(decided_from(&events, "ship")["rule_id"], "SHIP-DRIFT");
+}
+
+/// A protected-phase result is refused at decide with its own typed
+/// problem, and parks, when it carries no journaled checked head, whether
+/// or not it carries `covered`, when that head is not a commit id, and
+/// when its covered record does not read or does not project the head;
+/// the consistent one is ruled and records that head, whatever process
+/// memory the engine holds (fix round 0109a1r3, H1). The texts are pinned
+/// here once.
+#[test]
+fn a_protected_result_without_one_consistent_checked_head_refuses_at_decide() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let head = git_commit(&repo, "reviewed");
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut compiled = bundle(dir.path(), single_body(vec!["driver".into()]));
+    compiled.seats.get_mut("review").unwrap().gate = GateAssessment::AllGate;
+    let mut engine = Engine::start(store, compiled, "pinned", Some(repo.clone())).unwrap();
+    let covered = |head: &str| json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
+    let other = "0123456789abcdef0123456789abcdef01234567";
+    let cases = [
+        (json!({"result": "clean"}), Err(Missing)),
+        // A protected gate owes the digest its dispatch armed (fix round
+        // 0109a1r8, M2): an absent or commit-form `covered` refuses.
+        (
+            json!({"result": "clean", "checked_head": head}),
+            Err(Uncovered),
+        ),
+        (
+            json!({"result": "clean", "checked_head": head,
+                   "covered": {"kind": "head", "head": head, "dirty": true}}),
+            Err(Uncovered),
+        ),
+        (
+            json!({"result": "clean", "covered": covered(&head)}),
+            Err(Missing),
+        ),
+        (
+            json!({"result": "clean", "checked_head": "HEAD"}),
+            Err(Unreadable),
+        ),
+        (
+            json!({"result": "clean", "checked_head": head, "covered": covered(other)}),
+            Err(Disagrees),
+        ),
+        (
+            json!({"result": "clean", "checked_head": head,
+                   "covered": {"kind": "head", "head": other, "dirty": true}}),
+            Err(Disagrees),
+        ),
+        (
+            json!({"result": "clean", "checked_head": head, "covered": {"kind": "head", "dirty": true}}),
+            Err(Disagrees),
+        ),
+        (
+            json!({"result": "clean", "checked_head": head, "covered": covered(&head)}),
+            Ok(head.clone()),
+        ),
+    ];
+    // Process memory names another head: decide never reads it.
+    engine.spans.checked = Some(Observed {
+        effect_id: "review".into(),
+        head: Some(other.into()),
+    });
+    for (raw, want) in &cases {
+        let none = StepRecords::default();
+        let read = checked_head(raw, &none, &Producer::Effect { gate: true })
+            .map(|head| head.as_str().to_string());
+        assert_eq!(&read, want, "{raw}");
+        let result = raw.clone();
+        let effect_id = "review".to_string();
+        let deciding = state(Some("review"), Cursor::Decide { effect_id, result });
+        engine.decide(&deciding, raw.clone()).unwrap();
+    }
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let decided: Vec<&Value> = events
+        .iter()
+        .filter(|event| event.event_type == EventType::TransitionDecided)
+        .map(|event| &event.payload)
+        .collect();
+    let texts = [
+        (
+            Missing,
+            "the protected result carries no durable checked head of its own effect \
+             (decision 0109 ruling 7)",
+        ),
+        (
+            Unreadable,
+            "the protected result's checked head is not a commit id (decision 0109 ruling 7)",
+        ),
+        (
+            Disagrees,
+            "the protected effect's durable observations disagree on the head decided on \
+             (decision 0109 ruling 7)",
+        ),
+    ];
+    for (problem, text) in &texts {
+        assert_eq!(problem.to_string(), *text);
+    }
+    for ((_, want), decided) in cases.iter().zip(&decided) {
+        match want {
+            Err(problem) => {
+                assert_eq!(decided["result"], "__schema-invalid__");
+                let text = format!("result failed schema validation: {problem}");
+                assert_eq!(decided["problem"], text);
+                assert!(decided["inputs"].get("reviewed_heads").is_none());
+            }
+            Ok(head) => {
+                assert_eq!(decided["rule_id"], "REVIEW");
+                assert_eq!(decided["inputs"]["reviewed_heads"]["repo"], json!(head));
+            }
+        }
+    }
+}
+
+/// The attempt's latest gate step record is a durable observation too
+/// (fix rounds 0109a1r4, K2, and 0109a1r5, V1): the terminal agrees with
+/// it field by field, its `checked_head` always and its `covered` where it
+/// carries one, or is refused. A terminal `covered` is no newer span of
+/// its own: a gate step that ends the sequence journals its own record.
+#[test]
+fn a_terminal_agrees_with_its_latest_gate_step_record_field_by_field_or_is_refused() {
+    let head = "89abcdef0123456789abcdef0123456789abcdef".to_string();
+    let other = "0123456789abcdef0123456789abcdef01234567";
+    let covered = |head: &str| json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
+    let checked = |seen: &str| StepObservation::Checked {
+        head: seen.to_string().try_into().unwrap(),
+        covered: serde_json::from_value(covered(seen)).unwrap(),
+    };
+    let plain = json!({"result": "clean", "checked_head": head});
+    let stamped = json!({"result": "clean", "checked_head": head, "covered": covered(&head)});
+    // judge (gate), then tidy (work) or chief (gate): what each owes.
+    let (judge, tidy) = (("judge", SeatClass::Gate), ("tidy", SeatClass::Work));
+    let work = Producer::Step {
+        steps: vec![judge, tidy],
+        at: 1,
+    };
+    let gate = Producer::Step {
+        steps: vec![judge, ("chief", SeatClass::Gate)],
+        at: 1,
+    };
+    let records = |judge: StepObservation, chief: Option<StepObservation>| {
+        let mut records = StepRecords::default();
+        let named = [("judge", Some(judge)), ("chief", chief)];
+        for (step, seen) in named {
+            if let Some(seen) = seen {
+                records.by_step.insert(step.to_string(), seen);
+            }
+        }
+        records
+    };
+    let unrecorded = |step: &str| Err(Unrecorded { step: step.into() });
+    let (on, off) = (|| checked(&head), || checked(other));
+    let steps = [
+        // A work step's terminal: no covered, its head the last owed record's.
+        (&plain, &work, records(on(), None), Ok(head.clone())),
+        (&plain, &work, records(off(), None), Err(Disagrees)),
+        (
+            &plain,
+            &work,
+            records(StepObservation::Unobserved, None),
+            unrecorded("judge"),
+        ),
+        (
+            &plain,
+            &work,
+            records(StepObservation::Unreadable, None),
+            unrecorded("judge"),
+        ),
+        // The terminal's own covered pair never outweighs the record.
+        (&stamped, &work, records(on(), None), Err(Disagrees)),
+        (&stamped, &work, records(off(), None), Err(Disagrees)),
+        // A gate step's terminal is its own record's result, presence
+        // included (fix round 0109a1r6, W1), and every earlier owed gate
+        // record is whole (X1).
+        (
+            &stamped,
+            &gate,
+            records(off(), Some(on())),
+            Ok(head.clone()),
+        ),
+        (&stamped, &gate, records(on(), Some(off())), Err(Disagrees)),
+        (&plain, &gate, records(on(), Some(on())), Err(Disagrees)),
+        (&stamped, &gate, records(on(), None), unrecorded("chief")),
+        (
+            &stamped,
+            &gate,
+            records(StepObservation::Unobserved, Some(on())),
+            unrecorded("judge"),
+        ),
+    ];
+    for (raw, producer, records, want) in steps {
+        let read = checked_head(raw, &records, producer).map(|head| head.as_str().to_string());
+        assert_eq!(read, want, "{raw} {producer:?} {records:?}");
+    }
+    // A latched malformed record refuses whatever followed it (X1).
+    for (malformed, want) in [
+        (StepObservation::Partial, Partial),
+        (StepObservation::Unreadable, Disagrees),
+    ] {
+        let mut latched = records(on(), Some(on()));
+        latched.malformed = Some(malformed);
+        assert_eq!(checked_head(&stamped, &latched, &gate), Err(want));
+    }
+    let alone = |raw, producer: &Producer<'_>| {
+        let records = StepRecords::default();
+        checked_head(raw, &records, producer).map(|head| head.as_str().to_string())
+    };
+    let single = Producer::Effect { gate: true };
+    assert_eq!(alone(&stamped, &single), Ok(head.clone()));
+    let only_work = Producer::Step {
+        steps: vec![("draft", SeatClass::Work), tidy],
+        at: 1,
+    };
+    assert_eq!(alone(&plain, &only_work), Ok(head.clone()));
+    assert_eq!(alone(&stamped, &only_work), Err(Disagrees));
+    assert_eq!(alone(&plain, &work), unrecorded("judge"));
+    assert_eq!(alone(&stamped, &gate), unrecorded("judge"));
+    // A single body owes no step record, so one beside it refuses.
+    let beside = records(on(), None);
+    assert_eq!(checked_head(&stamped, &beside, &single), Err(Disagrees));
+}
+
+/// The texts of fix round 0109a1r8's refusals (M1 to M3), pinned once.
+#[test]
+fn the_compiled_position_and_digest_refusals_say_why() {
+    let texts = [
+        (
+            Reordered,
+            "the protected effect's step records are journaled out of their compiled order \
+             (decision 0109 ruling 7)",
+        ),
+        (
+            Uncovered,
+            "the protected gate's result carries no `covered` head digest, the form its \
+             dispatch armed (decision 0109 ruling 7)",
+        ),
+        (
+            Unselected,
+            "the protected seat's compiled body resolves no case under the run's strategy \
+             (decision 0109 ruling 7)",
+        ),
+        (
+            Unlawful {
+                step: "draft".into(),
+            },
+            "the protected result names the step 'draft' as its producer, and its compiled \
+             body does not end on that step with that result (decision 0109 ruling 7)",
+        ),
+        (
+            Beyond {
+                step: "judge".into(),
+            },
+            "the protected effect's attempt journaled a record of the step 'judge', which its \
+             compiled body does not run before its result's producer (decision 0109 ruling 7)",
+        ),
+    ];
+    for (problem, text) in texts {
+        assert_eq!(problem.to_string(), text);
+    }
+}
+
+/// Fix round 0109a1r8, M2: a protected body owes the `covered` form its
+/// dispatch armed. A single gate's terminal carries the digest, and one
+/// with it removed or in the commit form refuses; a single work body's
+/// carries none. A protected sequence's gate record is armed alike, so a
+/// commit-form record refuses too.
+#[test]
+fn a_protected_gate_owes_the_covered_digest_its_dispatch_armed() {
+    let head = "89abcdef0123456789abcdef0123456789abcdef";
+    let digest =
+        json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
+    let commit = json!({"kind": "head", "head": head, "dirty": true});
+    let plain = json!({"result": "clean", "checked_head": head});
+    let with = |covered: &Value| {
+        let mut raw = plain.clone();
+        raw["covered"] = covered.clone();
+        raw
+    };
+    let none = StepRecords::default();
+    let read = |raw: &Value, records: &StepRecords, producer: &Producer<'_>| {
+        checked_head(raw, records, producer).map(|head| head.as_str().to_string())
+    };
+    let (gate, work) = (
+        Producer::Effect { gate: true },
+        Producer::Effect { gate: false },
+    );
+    let decided = || Ok(head.to_string());
+    assert_eq!(read(&with(&digest), &none, &gate), decided());
+    assert_eq!(read(&plain, &none, &gate), Err(Uncovered));
+    assert_eq!(read(&with(&commit), &none, &gate), Err(Uncovered));
+    assert_eq!(read(&plain, &none, &work), decided());
+    assert_eq!(read(&with(&digest), &none, &work), Err(Disagrees));
+
+    let chief = Producer::Step {
+        steps: vec![("judge", SeatClass::Gate), ("chief", SeatClass::Gate)],
+        at: 1,
+    };
+    for (form, want) in [(&commit, Err(Uncovered)), (&digest, decided())] {
+        let checked = StepObservation::Checked {
+            head: head.to_string().try_into().unwrap(),
+            covered: serde_json::from_value(form.clone()).unwrap(),
+        };
+        let mut records = StepRecords::default();
+        for step in ["judge", "chief"] {
+            records.by_step.insert(step.into(), checked.clone());
+        }
+        assert_eq!(read(&with(form), &records, &chief), want);
+    }
+}
+
+/// Fix round 0109a1r8, M1: a work step's record journals no observation,
+/// so one that carries a head is no record the body produces. Draft
+/// (work), judge (gate), tidy (work) ended at tidy, judge's record whole.
+#[test]
+fn a_work_steps_record_carrying_a_head_refuses() {
+    let head = "89abcdef0123456789abcdef0123456789abcdef";
+    let digest =
+        json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
+    let checked = StepObservation::Checked {
+        head: head.to_string().try_into().unwrap(),
+        covered: serde_json::from_value(digest).unwrap(),
+    };
+    let plain = json!({"result": "clean", "checked_head": head});
+    let tidy = Producer::Step {
+        steps: vec![
+            ("draft", SeatClass::Work),
+            ("judge", SeatClass::Gate),
+            ("tidy", SeatClass::Work),
+        ],
+        at: 2,
+    };
+    for (draft, want) in [
+        (checked.clone(), Err(Disagrees)),
+        (StepObservation::Unobserved, Ok(head.to_string())),
+    ] {
+        let mut records = StepRecords::default();
+        records.by_step.insert("judge".into(), checked.clone());
+        records.by_step.insert("draft".into(), draft);
+        let read = checked_head(&plain, &records, &tidy).map(|head| head.as_str().to_string());
+        assert_eq!(read, want);
+    }
+}
+
+/// Ruling 1 through the real result path: a seat-supplied `covered` or
+/// `follow_ups` fails the attempt with the refusal named and is never
+/// journaled, even from a gate whose success the engine would stamp.
+#[test]
+fn a_seat_supplied_covered_or_follow_ups_fails_the_attempt() {
+    let head = json!({"kind": "head", "head": "0".repeat(40), "dirty": false});
+    let checked = json!("0".repeat(40));
+    for (field, value) in [
+        ("covered", head),
+        ("follow_ups", json!([])),
+        ("checked_head", checked),
+    ] {
+        let mut result = json!({"result": "complete"});
+        result[field] = value;
+        let (_dir, events) = driven(single_body(driver(&result)), true);
+        assert!(
+            ended(&events, EventType::EffectSucceeded).is_empty(),
+            "{field}"
+        );
+        let failed = ended(&events, EventType::EffectFailed);
+        assert_eq!(failed.len(), 2, "{field}");
+        let want = format!(
+            "the result was refused: the result carries '{field}', which only the engine \
+             writes (decision 0109 ruling 1); driver stderr: "
+        );
+        for failure in failed {
+            assert!(
+                failure["error"].as_str().unwrap().starts_with(&want),
+                "{failure}"
+            );
+        }
+    }
+}

@@ -965,10 +965,10 @@ fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// One job's body in `.github/workflows/ci.yml`: its lines up to the next
+/// One job's body in `.github/workflows/<file>`: its lines up to the next
 /// key at the jobs map's indentation.
-fn ci_job(id: &str) -> String {
-    let workflow = read(".github/workflows/ci.yml");
+fn workflow_job(file: &str, id: &str) -> String {
+    let workflow = read(&format!(".github/workflows/{file}"));
     let is_job = |line: &str| {
         line.starts_with("  ") && !line.starts_with("   ") && line.trim_end().ends_with(':')
     };
@@ -977,18 +977,19 @@ fn ci_job(id: &str) -> String {
         .skip_while(|line| *line != format!("  {id}:"));
     let head = lines
         .next()
-        .unwrap_or_else(|| panic!("ci.yml has no {id} job"));
+        .unwrap_or_else(|| panic!("{file} has no {id} job"));
     let body: Vec<&str> = lines.take_while(|line| !is_job(line)).collect();
     format!("{head}\n{}\n", body.join("\n"))
 }
 
 /// Every ratchet runs in CI, in order: complexity and the public API in
 /// the required coverage job, complexity only after the exact gate wrote its
-/// LCOV, and the rest in the ratchets job, a raised baseline judged against
-/// the pull request's base. Dropping a step fails here.
+/// LCOV, and the rest in pr-gates.yml's ratchets job (#1295), a raised
+/// baseline judged against the pull request's base. Dropping a step fails
+/// here.
 #[test]
 fn ci_runs_every_ratchet() {
-    let coverage = ci_job("coverage");
+    let coverage = workflow_job("ci.yml", "coverage");
     let gate = coverage
         .find("bash scripts/coverage-exact.sh")
         .expect("the exact gate");
@@ -1003,7 +1004,7 @@ fn ci_runs_every_ratchet() {
         coverage.contains("run: quality/ratchet.sh api"),
         "the public-API ratchet"
     );
-    let ratchets = ci_job("ratchets");
+    let ratchets = workflow_job("pr-gates.yml", "ratchets");
     for step in [
         "uses: ./.github/actions/setup-jscpd",
         "run: quality/ratchet.sh files",

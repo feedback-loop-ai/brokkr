@@ -19,21 +19,30 @@
 //! is the terminal twin of the console's fixed class allowlists, and it
 //! serves all three surfaces (decision 0014's TUI included).
 //!
-//! **Width.** `COLUMNS` with a sane default, all column arithmetic
-//! saturating, all truncation on `char` boundaries. Without a
-//! Unicode-width dependency — forbidden by the ruling — CJK and emoji
-//! columns will misalign. That is stated, not pretended away.
-
-use std::io::IsTerminal;
+//! **Width.** `COLUMNS` with a sane default (`brokkr stats graph` alone also
+//! measures the stdout it writes to), all column arithmetic
+//! saturating, all truncation on `char` boundaries. The readouts that
+//! measure in `char`s ([`Safe::width`], the seats block) take no
+//! Unicode-width dependency of their own, so their CJK and emoji columns
+//! will misalign; that is stated, not pretended away. `brokkr stats graph`'s
+//! tables alone measure the terminal's cells, by the TUI's ratatui
+//! widths (#1167).
 
 use brokkr_view::transcript::TranscriptRead;
 use brokkr_view::{
-    keeps_participant, keeps_phase, keeps_row, JournalRow, Lens, ModelAtBoundary, Participant,
-    Phase, RunRow, RunView, RunsView, ScopeError,
+    keeps_participant, keeps_row, JournalRow, Lens, ModelAtBoundary, Participant, RunRow, RunView,
+    RunsView, ScopeError,
 };
 
 pub(crate) mod ending;
-mod inspect;
+pub(crate) mod graph;
+pub(crate) mod inspect;
+mod style;
+pub(crate) mod table;
+
+#[cfg(test)]
+use style::{color_enabled, width_from, window_columns};
+pub(crate) use style::{Style, Width};
 
 const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
@@ -41,9 +50,6 @@ const BOLD: &str = "\x1b[1m";
 const RED: &str = "\x1b[31m";
 const GREEN: &str = "\x1b[32m";
 
-const DEFAULT_WIDTH: usize = 80;
-const MIN_WIDTH: usize = 20;
-const MAX_WIDTH: usize = 1000;
 /// Below this many remaining columns the feature is omitted rather than
 /// mangled into two characters and an ellipsis.
 const FEATURE_FLOOR: usize = 8;
@@ -70,6 +76,13 @@ fn reorders(character: char) -> bool {
         | '\u{FEFF}')
 }
 
+/// A cell's width in `char`s, as the readouts that predate the graph's
+/// tables size and pad it: [`Safe::width`] and the seats block's column
+/// sizing both read it here, so the two cannot disagree (#1167).
+fn scalars(text: &str) -> usize {
+    text.chars().count()
+}
+
 impl Safe {
     pub(crate) fn new(text: &str) -> Safe {
         Safe(
@@ -86,7 +99,7 @@ impl Safe {
     /// Display width in `char`s — computed on the sanitized text, so a
     /// stripped escape sequence cannot claim invisible columns.
     pub(crate) fn width(&self) -> usize {
-        self.0.chars().count()
+        scalars(&self.0)
     }
 
     pub(crate) fn padded(&self, width: usize) -> String {
@@ -95,47 +108,6 @@ impl Safe {
             out.push(' ');
         }
         out
-    }
-}
-
-/// How the terminal wants to be written to. Both facts come from the
-/// environment; the rules that read them are pure.
-pub(crate) struct Style {
-    pub color: bool,
-    pub width: usize,
-}
-
-impl Style {
-    pub(crate) fn detect() -> Style {
-        Style {
-            color: color_enabled(
-                std::io::stdout().is_terminal(),
-                std::env::var_os("NO_COLOR").is_some(),
-                std::env::var_os("TERM") == Some(std::ffi::OsString::from("dumb")),
-            ),
-            width: width_from(std::env::var("COLUMNS").ok().as_deref()),
-        }
-    }
-
-    /// The shape every golden runs in: colour is a post-processing wrap,
-    /// so the goldens prove content and exactly one test proves colour.
-    #[cfg(test)]
-    pub(crate) fn plain(width: usize) -> Style {
-        Style {
-            color: false,
-            width,
-        }
-    }
-}
-
-fn color_enabled(is_terminal: bool, no_color: bool, term_is_dumb: bool) -> bool {
-    is_terminal && !no_color && !term_is_dumb
-}
-
-fn width_from(value: Option<&str>) -> usize {
-    match value.and_then(|text| text.parse::<usize>().ok()) {
-        Some(width) => width.clamp(MIN_WIDTH, MAX_WIDTH),
-        None => DEFAULT_WIDTH,
     }
 }
 
@@ -170,7 +142,7 @@ fn status_code(status: &str) -> &'static str {
     }
 }
 
-fn tint(text: &str, code: &'static str, style: &Style) -> String {
+fn tint(text: &str, code: &str, style: &Style) -> String {
     if style.color {
         format!("{code}{text}{RESET}")
     } else {
@@ -395,7 +367,7 @@ pub(crate) fn realm_head(
     out
 }
 
-// -------------------------------------------------------- brokkr inspect
+// -------------------------------------------------------- brokkr runs inspect
 
 /// A scope that matched nothing, as the operator's tty receives it. The
 /// view names the scope and what the run offers in the journal's own
@@ -408,7 +380,7 @@ pub(crate) fn scope_refusal(error: &ScopeError) -> String {
         .to_string()
 }
 
-/// The seats block alone, as `brokkr seats` prints it (decision 0046
+/// The seats block alone, as `brokkr runs seats` prints it (decision 0046
 /// ruling 3; design DD11): the same block `inspect` renders, from the
 /// same view, unscoped.
 pub(crate) fn seats(view: &RunView, style: &Style) -> String {
@@ -458,15 +430,7 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             Safe::new(&part.activity.text),
         ]);
     }
-    let mut widths = [0usize; 9];
-    for (index, name) in header.iter().enumerate() {
-        widths[index] = name.chars().count();
-    }
-    for row in &rows {
-        for (index, width) in widths.iter_mut().enumerate() {
-            *width = (*width).max(row[index].width());
-        }
-    }
+    let widths = table::widths(&header, &rows);
     let used = widths.iter().sum::<usize>() + widths.len() + 2;
     let remaining = style.width.saturating_sub(used);
     let mut out = String::from("seats\n");
@@ -580,76 +544,6 @@ fn trail_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     out
 }
 
-/// The phase graph as a terminal tree: `⑂` precedes parallel members and
-/// `→` precedes a sequential step, both nested under their phase. The
-/// markers are content, not colour, and are therefore unconditional —
-/// the models already emit `Σ`, `↓`, `…` and `—` in pre-baked text, so
-/// an ASCII mode would need a second derivation of every one of them.
-/// Nodes read as name and state only: the served model is a seat's
-/// field, printed by the seats table and the seat block, never by the
-/// rail — the graph is the abstraction over order and shape.
-fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
-    let phases: Vec<&Phase> = view
-        .phases
-        .iter()
-        .filter(|phase| keeps_phase(lens, phase))
-        .collect();
-    if phases.is_empty() {
-        return String::new();
-    }
-    let mut out = String::from("graph\n");
-    for phase in phases {
-        let current = if phase.current { "  ←current" } else { "" };
-        push_line(
-            &mut out,
-            &format!(
-                "  {}{} ×{}{current}",
-                Safe::new(&phase.name).as_str(),
-                phase
-                    .strategy
-                    .as_ref()
-                    .map(|strategy| format!(" · {}", Safe::new(strategy).as_str()))
-                    .unwrap_or_default(),
-                phase.visits
-            ),
-        );
-        for column in &phase.columns {
-            if column.nodes.len() == 1 {
-                let node = &column.nodes[0];
-                let label = match &column.label {
-                    Some(label) => label.as_str(),
-                    None => node.label.as_str(),
-                };
-                push_line(
-                    &mut out,
-                    &format!(
-                        "    → {} · {}",
-                        Safe::new(label).as_str(),
-                        Safe::new(&node.state).as_str()
-                    ),
-                );
-            } else {
-                let label = match &column.label {
-                    Some(label) => format!(" {}", Safe::new(label).as_str()),
-                    None => String::new(),
-                };
-                push_line(&mut out, &format!("    ⑂{label}"));
-                for node in &column.nodes {
-                    push_line(
-                        &mut out,
-                        &format!(
-                            "      {} · {}",
-                            Safe::new(&node.label).as_str(),
-                            Safe::new(&node.state).as_str()
-                        ),
-                    );
-                }
-            }
-        }
-    }
-    out
-}
-
 /// The human readout: header, ruling, park reason, live seat activity,
 /// the seats table, the decision trail, and the phase tree. A `watch`
 /// frame is this without the trail.
@@ -704,7 +598,7 @@ pub(crate) fn inspect(
         } else {
             String::new()
         },
-        graph_block(view, lens),
+        graph::graph_block(view, lens, style),
     ] {
         if !block.is_empty() {
             out.push('\n');

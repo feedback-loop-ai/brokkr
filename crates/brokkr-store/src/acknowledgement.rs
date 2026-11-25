@@ -170,7 +170,7 @@ impl Store {
     ) -> Result<Acknowledgement, StoreError> {
         let recorded_at = now_rfc3339();
         let conn = &mut self.conn;
-        patiently("acknowledge_quarantine", self.patience, || {
+        patiently("acknowledge_quarantine", self.patience, &self.path, || {
             acknowledge_once(conn, run_id, head, by, &recorded_at)
         })
     }
@@ -179,7 +179,7 @@ impl Store {
     /// last event. `None` when there is none, when the journal moved after
     /// it, and on a journal from before the table.
     pub fn acknowledgement(&self, run_id: &str) -> Result<Option<Acknowledgement>, StoreError> {
-        patiently("acknowledgement", self.patience, || {
+        patiently("acknowledgement", self.patience, &self.path, || {
             standing(&self.conn, run_id)
         })
     }

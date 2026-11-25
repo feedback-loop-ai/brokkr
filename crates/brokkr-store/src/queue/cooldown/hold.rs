@@ -219,7 +219,7 @@ impl Store {
         let Some(ends) = after_second(hold.deadline) else {
             return Err(QueueRefusal::ProbeHoldUnending(Box::new(unwritten())).into());
         };
-        patiently("hold_probe", self.patience, || {
+        patiently("hold_probe", self.patience, &self.path, || {
             let tx = self
                 .conn
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -297,7 +297,7 @@ impl Store {
             Ok(())
         };
         let (conn, carried) = (&mut self.conn, self.carried.as_ref());
-        let (landed, settled) = patiently("append", self.patience, || {
+        let (landed, settled) = patiently("append", self.patience, &self.path, || {
             chain::append_once((conn, carried), &event, &[], &clear)
         })?;
         self.settle((event.run_id, 1), settled);
@@ -320,7 +320,7 @@ impl Store {
         attempts: &[String],
         now: OffsetDateTime,
     ) -> Result<(), StoreError> {
-        patiently("settle_probe_holds", self.patience, || {
+        patiently("settle_probe_holds", self.patience, &self.path, || {
             let tx = self
                 .conn
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -353,7 +353,7 @@ impl Store {
         id: Option<ProbeHoldId>,
         now: OffsetDateTime,
     ) -> Result<(), StoreError> {
-        patiently("end_probe_hold", self.patience, || {
+        patiently("end_probe_hold", self.patience, &self.path, || {
             let tx = self
                 .conn
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;

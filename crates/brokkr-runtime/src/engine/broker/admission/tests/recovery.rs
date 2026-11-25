@@ -49,10 +49,14 @@ fn crashed_as(
     }
     let reservation = host.reservation(&work, &engine.run_id);
     let saved = dir.path().join("saved");
+    let copying = saved.with_extension("copying");
     let copied = format!(
-        "cp '{}' '{}'; {before}",
-        reservation.display(),
-        saved.display()
+        "cp '{source}' '{copying}' && mv '{copying}' '{target}' || {{ \
+         printf '%s\\n' 'could not save admission reservation {source} to {target}' >&2; \
+         exit 97; }}; {before}",
+        source = reservation.display(),
+        copying = copying.display(),
+        target = saved.display(),
     );
     engine.boundary = Boundary::Namespace;
     set_site_hands(&mut engine.bundle, "work", spec(&work));
@@ -66,6 +70,16 @@ fn crashed_as(
         },
     );
     let ended = executed(&mut engine);
+    if !saved.is_file() {
+        engine.stderr.tell(&mut engine.told);
+        panic!(
+            "driver did not save reservation '{}' to '{}'. Dispatch ended with {} {}",
+            reservation.display(),
+            saved.display(),
+            ended.0.as_str(),
+            ended.1,
+        );
+    }
     let mut stood: Reservation = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
     let fact = [Witnessed::Settling, Witnessed::Settled][usize::from(proved)];
     stood

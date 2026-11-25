@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.01222
 Authors: Zichuan Li, Jian Cui, Ashley Chen, Xiaojing Liao, Luyi Xing (University of Illinois Urbana-Champaign)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: chat session, operator-fed, 2026-09-04
 
 ## Summary
@@ -44,6 +44,60 @@ steering review verdicts. Two vendors shipped mitigations.
 | 4 | Deny session-scope writes into project or user scope without an operator ruling, and hash-pin instruction files | alternative | decision 0043: under namespace a boxed workspace call finds the common git hooks directory empty and the common git config read-only, but the rest of the common git directory is bound read-write, so in a repository with extensions.worktreeConfig it can set a core.hooksPath in a worktree's config.worktree that the host's next git honours (`crates/brokkr-protocol/src/hands.rs`, recorded as known open); decision 0041: judging offices are read-only by charter, and nothing stops an unboxed seat, the default delivery's review gate included, from writing project or user scope (`docs/security-model.md`); the operator's own instruction files are not hash-pinned; decision 0034: the seat record admits no prompt or response text |
 | 5 | Ban or sandbox dynamic shell markup in skills and scope skill discovery to pinned paths | alternative | decision 0043: under namespace a claude seat that declares hands is started with no tools of Claude Code's own but one boxed workspace tool and the tool of each native power the realm grants it (`adapters/claude.json`; the function final_tools in `crates/brokkr-protocol/src/native_controls.rs`), so the commands its model asks for run in the box, and under harness no box stands; a Codex seat that declares hands keeps its native shell on the host, read-only (`adapters/codex.json`), and a seat without hands is not boxed at all; Brokkr scopes no skill discovery, a claude seat still loads the operator's own configuration (`docs/security-model.md`), and where a skill's shell block runs is not measured |
 | 6 | Fail closed on unknown override-precedence files | not-planned | |
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** For "Two vendors shipped mitigations." read "At least
+  three agents (Codex, Gemini CLI and Cline) shipped new versions to
+  mitigate the reported threats, and OpenAI and Anthropic acknowledged
+  the findings." (ruled: "0002, 0003, 0004 - approved")
+- **Summary.** For "Sources are modelled on three axes: role, scope
+  (user, project, session) and lifecycle (loaded at" read "Each source
+  is modelled as a three-tuple of content, role and scope (user,
+  project, session), with a lifecycle (loaded at"; for "launch or at
+  runtime)." read "launch or at runtime) defined beside it." (ruled:
+  "0002, 0003, 0004 - approved")
+- **Row 1** keeps `alternative`. Citation: For "and
+  `crates/brokkr-runtime/tests/witness_digests.rs`: the bytes a seat is
+  built from are pinned as" read "and
+  `crates/brokkr-runtime/tests/witness_digests.rs`: the bundle's bytes
+  (charters, tables, adapter declarations) are pinned as"; for "pinned
+  as bundle identity; no per-source role" read "pinned as bundle
+  identity, but a claude seat also loads the operator's own settings,
+  `CLAUDE.md`, auto-memory and hooks from the host, which nothing pins
+  (`docs/security-model.md`, #467); no per-source role". (ruled: "0002,
+  0003, 0004 - approved")
+- **Row 2** now reads `alternative`, not `not-planned`. Finding: After
+  "on adapter changes" add "(a defence drawn from the paper's analysis
+  method)". Citation: decision 0075 and `brokkr system probe harness`
+  (`crates/brokkr-protocol/src/probe.rs`,
+  `crates/brokkr-protocol/src/probe/judge.rs`): the probe plants a
+  user-scope MCP server in a scratch HOME, refuses a harness not shown
+  to keep it out, and reports drift on a re-run; one source only, no
+  interception of the model request, no role or scope assertion (ruled:
+  "0002, 0003, 0004 - approved")
+- **Row 4** keeps `alternative`. Finding: After "hash-pin instruction
+  files" add "(a defence derived from the paper's cross-scope attacks)".
+  Citation: For "next git honours
+  (`crates/brokkr-protocol/src/hands.rs`, recorded as known" read "next
+  git honours
+  (`crates/brokkr-protocol/src/hands/namespace/workspace.rs`, recorded
+  as known". (ruled: "0002, 0003, 0004 - approved")
+- **Row 6** now reads `alternative`, not `not-planned`. Citation:
+  `crates/brokkr-protocol/src/adapters/codex.rs` (`HostConfig`): a Codex
+  seat is refused on a host holding codex's system or managed
+  configuration (`/etc/codex/config.toml`,
+  `/etc/codex/managed_config.toml`), which codex loads whatever options
+  it is passed; `crates/brokkr-protocol/src/adapters/agy/home.rs`
+  (`WORKSPACE_CONFIGURATION`): an agy seat is refused when its working
+  directory or any directory above it holds
+  `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or
+  `<dir>/.agents/hooks.json` (a pathname check at launch, #1217); both
+  refuse named files, not unknown ones, and a claude seat still loads
+  the operator's own configuration (`docs/security-model.md`) (ruled:
+  "0002, 0003, 0004 - approved")
 
 ## Candidates
 

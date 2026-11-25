@@ -62,6 +62,7 @@ serde_json = { workspace = true }
 # already in the graph through serde_json.
 serde = { workspace = true }
 clap = { workspace = true }
+clap_complete = { workspace = true }
 anyhow = { workspace = true }
 tempfile = { workspace = true }
 time = { workspace = true }
@@ -78,9 +79,15 @@ ratatui = { workspace = true }
 # driver's no_new_privs. `signal-hook` (U9b1e) lets `broker serve` count the
 # SIGINT or SIGTERM its harness ends it by, so it closes its ledger: a direct
 # edge to the version brokkr-protocol already holds; no registry version moves.
+# `termios` (#1167) reads the window size of the stdout `brokkr stats graph` writes
+# to; crossterm already builds rustix with it, so no crate is added.
+# `libc` (#1137) sets SIGCHLD to its default for a doctor version probe's
+# life with `sigaction`, as brokkr-protocol's stop handler reads it: a direct
+# edge to the version brokkr-protocol already holds; no registry version moves.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", default-features = false, features = ["event", "fs", "net", "process", "std", "thread"] }
+rustix = { version = "1.1.4", default-features = false, features = ["event", "fs", "net", "process", "std", "termios", "thread"] }
 signal-hook = "0.3.18"
+libc = "0.2.189"
 
 [dev-dependencies]
 brokkr-store = { workspace = true, features = ["test-support"] }
@@ -114,6 +121,13 @@ gungraun = "=0.19.4"
 # brokkr-view, whose dependency set is closed (decision 0071 ruling 1).
 dhat = "=0.3.3"
 
+# `pty` (#1167): the render tests hand a child a 60-cell stdout under an
+# 80-cell controlling terminal, so `brokkr stats graph`'s width is proved to
+# read the former. A feature of the rustix the CLI already links; no
+# crate is added, and it reaches no binary.
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { version = "1.1.4", default-features = false, features = ["pty"] }
+
 # The integration tests link as one binary (#423): `tests/it.rs` holds every
 # file under tests/ as a module, so a test runs as `<file>::<name>`. A file
 # that needs a process of its own is its own binary below, with the reason.
@@ -145,6 +159,9 @@ name = "heap_codex"
 
 [[test]]
 name = "heap_dsh"
+
+[[test]]
+name = "heap_agy"
 
 # The fleet page's (decision 0089 ruling 9): dhat's peak beside SQLite's own
 # high-water, for the console's first page at two journal sizes.

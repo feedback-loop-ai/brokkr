@@ -121,7 +121,7 @@ impl Store {
             .to_str()
             .ok_or_else(|| SeatTreeRefusal::RootUnnameable(root.to_path_buf()))?;
         let (conn, patience) = (&mut self.conn, self.patience);
-        patiently("record_seat_tree", patience, || {
+        patiently("record_seat_tree", patience, &self.path, || {
             record_once(conn, run_id, effect_id, attempt_id, root)
         })
     }
@@ -131,7 +131,9 @@ impl Store {
     /// binary does not know refuses through [`StoreError::Queue`], because
     /// only its own binary can say what it holds.
     pub fn seat_trees(&self, run_id: &str) -> Result<Vec<SeatTree>, StoreError> {
-        patiently("seat_trees", self.patience, || self.seat_trees_once(run_id))
+        patiently("seat_trees", self.patience, &self.path, || {
+            self.seat_trees_once(run_id)
+        })
     }
 
     fn seat_trees_once(&self, run_id: &str) -> Result<Vec<SeatTree>, StoreError> {

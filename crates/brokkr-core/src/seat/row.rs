@@ -20,7 +20,7 @@
 //! running cost and last metered turn beside its rows, so a row holds the
 //! cost summed through its last priced record and its turns' tokens, each
 //! message once. A request's own row also keeps its effect's accounting,
-//! what `brokkr costs` reads ([`costs`]; decision 0089 slice 3).
+//! what `brokkr stats costs` reads ([`costs`]; decision 0089 slice 3).
 
 use std::collections::BTreeMap;
 

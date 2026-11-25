@@ -36,6 +36,7 @@ use serde_json::{json, Value};
 use super::{put, skip, Ended, World, STARTS};
 use crate::capability_broker::observer::{processes, status, tracer, NO_TRACER};
 use crate::capability_broker::readiness::Reads;
+use crate::capability_broker::{STARTUP, TALK_MAX};
 
 /// How long the tracer holds a store read or a server's exec: past the broker's
 /// 30 s startup, so that only its deadline or a cancellation ends the window.
@@ -49,15 +50,14 @@ const TIMEOUT: u64 = 25;
 const TIMED_OUT: &str =
     "s deadline and was killed; its process tree is gone, and what it did is unknown";
 
-/// How long the engine's end of a timed or expired window is waited for.
-const PATIENCE: Duration = Duration::from_secs(90);
+/// How long the engine's end of a timed or expired window is waited for: an
+/// expired window ends only at the broker's own deadline, so the suite's wait
+/// for a broker, that deadline and its settle allowance (#1008).
+const PATIENCE: Duration = TALK_MAX;
 
 /// How long a window's broker, and then everything below it, is given to end
 /// once its end is due: seconds, on a hosted runner as on a quiet host.
 const TEARDOWN: Duration = Duration::from_secs(30);
-
-/// MB3's startup deadline, which no window here moves.
-const STARTUP: Duration = Duration::from_secs(30);
 
 /// A window of a broker's startup, held open.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -634,7 +634,7 @@ fn expired_at(window: Window) {
     standing.world.unserialized();
     // The broker's end by its own state: a process held in the tracer's delay is
     // reaped only with the delay's end, which is the hold's and not the deadline's.
-    let at = standing.broker_ended(PATIENCE);
+    let at = standing.broker_ended(TALK_MAX);
     let lasted = standing.lasted(at);
     let released = Duration::from_millis(u64::from(HELD_MS));
     assert!(

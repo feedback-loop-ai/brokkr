@@ -45,7 +45,14 @@ const GOLDEN: [(&str, &[&str]); 11] = [
         "effect/checkpointed",
         &["attempt_id", "checkpoint", "effect_id"],
     ),
-    ("effect/succeeded", &["attempt_id", "effect_id", "result"]),
+    // `authored`: the engine's within-row mark that the success's result
+    // is its admitted verdict, which no released engine wrote (decision
+    // 0109, fix round 0109a1r6, W6). It is the engine's, not the agent
+    // library's, so every run carries it.
+    (
+        "effect/succeeded",
+        &["attempt_id", "authored", "effect_id", "result"],
+    ),
     (
         "transition/decided",
         &[
@@ -148,6 +155,89 @@ impl Workspace {
     }
 }
 
+/// The endings decision 0112 ruling 3 lets carry `usage`.
+const ENDINGS: [&str; 3] = ["effect/succeeded", "effect/failed", "effect/indeterminate"];
+
+/// `events` as the golden reads them: each event's type and its sorted
+/// payload keys, a run of checkpoints read as one.
+///
+/// How many checkpoints an attempt reports is its driver's: the exec
+/// driver these seats run (U9b1) reports three where the scripted fake
+/// driver the golden was recorded under reported one, each of the same
+/// shape, so a run of them reads as one. Whether an ending carries
+/// `usage` is a tick's: decision 0112 ruling 3 makes it an optional,
+/// absent-by-default extension at `event_schema: 1`, present only when a
+/// tick saw the driver's tree, so on the three endings that one key is
+/// set aside and every other key is still compared.
+fn shape_of(events: &[Value]) -> Vec<(String, Vec<String>)> {
+    let mut shape: Vec<(String, Vec<String>)> = events
+        .iter()
+        .map(|event| {
+            let event_type = event["type"].as_str().expect("typed event").to_string();
+            let ending = ENDINGS.contains(&event_type.as_str());
+            let mut keys: Vec<String> = event["payload"]
+                .as_object()
+                .expect("object payload")
+                .keys()
+                .filter(|key| !(ending && *key == "usage"))
+                .cloned()
+                .collect();
+            keys.sort();
+            (event_type, keys)
+        })
+        .collect();
+    shape.dedup_by(|next, kept| next == kept && kept.0 == "effect/checkpointed");
+    shape
+}
+
+/// The type of every event of `events` other than the three endings that
+/// carries `usage` anywhere in its payload.
+fn usage_off_the_endings(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|event| !ENDINGS.contains(&event["type"].as_str().expect("typed event")))
+        .filter(|event| {
+            let mut keys = Vec::new();
+            keys_deep(&event["payload"], &mut keys);
+            keys.iter().any(|key| key == "usage")
+        })
+        .map(|event| event["type"].as_str().expect("typed event").to_string())
+        .collect()
+}
+
+/// The witness sets aside `usage` only on the three endings: a planted
+/// one there reads as the golden's keys, a stray key beside it still
+/// shows, and `usage` on any other type is named.
+#[test]
+fn only_an_endings_usage_is_set_aside() {
+    let events = [
+        json!({"type": "run/started", "payload": {"feature": "f", "usage": {}}}),
+        json!({"type": "effect/succeeded", "payload": {
+            "attempt_id": "a", "effect_id": "e", "result": {}, "usage": {"cpu_ms": 1},
+        }}),
+        json!({"type": "effect/failed", "payload": {"error": "x", "stray": 1, "usage": {}}}),
+        json!({"type": "effect/checkpointed", "payload": {"checkpoint": {"usage": {}}}}),
+    ];
+    let keys =
+        |keys: &[&str]| -> Vec<String> { keys.iter().map(|key| (*key).to_string()).collect() };
+    assert_eq!(
+        shape_of(&events),
+        [
+            ("run/started".to_string(), keys(&["feature", "usage"])),
+            (
+                "effect/succeeded".to_string(),
+                keys(&["attempt_id", "effect_id", "result"])
+            ),
+            ("effect/failed".to_string(), keys(&["error", "stray"])),
+            ("effect/checkpointed".to_string(), keys(&["checkpoint"])),
+        ]
+    );
+    assert_eq!(
+        usage_off_the_endings(&events),
+        ["run/started", "effect/checkpointed"]
+    );
+}
+
 /// Every string key anywhere in a JSON value.
 fn keys_deep(value: &Value, out: &mut Vec<String>) {
     match value {
@@ -173,6 +263,7 @@ fn a_non_adopting_run_journals_exactly_the_events_it_always_did() {
     let (run_id, _) = ws.run();
 
     ws.brokkr(&[
+        "journal",
         "export",
         "--run",
         &run_id,
@@ -189,25 +280,7 @@ fn a_non_adopting_run_journals_exactly_the_events_it_always_did() {
         .map(|line| serde_json::from_str(line).expect("canonical NDJSON"))
         .collect();
 
-    // How many checkpoints an attempt reports is its driver's: the exec
-    // driver these seats run (U9b1) reports three where the scripted fake
-    // driver the golden was recorded under reported one, each of the same
-    // shape, so a run of them reads as one.
-    let mut shape: Vec<(String, Vec<String>)> = events
-        .iter()
-        .map(|event| {
-            let event_type = event["type"].as_str().expect("typed event").to_string();
-            let mut keys: Vec<String> = event["payload"]
-                .as_object()
-                .expect("object payload")
-                .keys()
-                .cloned()
-                .collect();
-            keys.sort();
-            (event_type, keys)
-        })
-        .collect();
-    shape.dedup_by(|next, kept| next == kept && kept.0 == "effect/checkpointed");
+    let shape = shape_of(&events);
     let expected: Vec<(String, Vec<String>)> = GOLDEN
         .iter()
         .map(|(kind, keys)| {
@@ -221,6 +294,11 @@ fn a_non_adopting_run_journals_exactly_the_events_it_always_did() {
         &shape[..expected.len()],
         &expected[..],
         "a non-adopting run's journal shape moved"
+    );
+    assert_eq!(
+        usage_off_the_endings(&events),
+        Vec::<String>::new(),
+        "only an attempt's ending carries `usage` (decision 0112 ruling 3)"
     );
 
     for event in &events {

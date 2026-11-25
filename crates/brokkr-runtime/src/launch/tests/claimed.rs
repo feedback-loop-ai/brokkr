@@ -154,7 +154,10 @@ fn refused(root: &Path, claimed: Claimed) -> QueueRefusal {
 fn a_dispatched_start_whose_claim_does_not_stand_writes_no_run() {
     let dir = tempfile::tempdir().unwrap();
     let moved = claimed(dir.path(), Some("measured"));
-    let refusal = QueueRefusal::BundleMoved(moved.claim, "measured".into());
+    let queued = crate::launch::QueuedLaunch::of(&moved.request, &moved.run).unwrap();
+    let compiled = queued.compiled().unwrap().manifest_digest();
+    let digests = Box::new(("measured".into(), compiled));
+    let refusal = QueueRefusal::BundleMoved(moved.claim, digests);
     assert_eq!(refused(dir.path(), moved), refusal);
 
     let dir = tempfile::tempdir().unwrap();

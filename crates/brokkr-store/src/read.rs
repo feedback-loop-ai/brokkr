@@ -1,10 +1,14 @@
 //! The suffix read (#354): what landed on a run after a head the caller
 //! already verified, and the row reader the whole read shares.
 
+use std::sync::LazyLock;
+
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, EventEnvelope};
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::damage::envelope;
+use crate::event_index::{last_text, payload, seqs, CHECKPOINTED};
 use crate::{patiently, Store, StoreError, HEAD_OF_RUN};
 
 /// The rows of each `[run_id, seq]` pair of the JSON array `?1` at or
@@ -12,6 +16,85 @@ use crate::{patiently, Store, StoreError, HEAD_OF_RUN};
 const ROWS_THROUGH: &str = "SELECT (SELECT count(*) FROM events
          WHERE run_id = head.value ->> 0 AND seq <= head.value ->> 1)
      FROM json_each(?1) AS head ORDER BY head.key";
+
+/// The engine's step record's `step` word (`EngineMarker::StepFinished`).
+const STEP_FINISHED: &str = "sequence-step-finished";
+
+/// The engine's panel member's marker's `step` word
+/// (`EngineMarker::MemberFinished`).
+const MEMBER_FINISHED: &str = "panel-member-finished";
+
+/// Whether the `events` row aliased `event` holds a stored checkpoint that
+/// is the engine's own marker whose `step` is one of `steps`: the
+/// checkpoint object serde reads, the payload's last `checkpoint`, as the
+/// index's own projection reads it and never `json_extract`'s first, whose
+/// last `step` is one of `steps` and whose last `authored` is the
+/// engine's. The one home of that read and of its words, which every
+/// marker statement here shares (#1212), held to `EngineMarker::record` by
+/// the store's tests.
+fn engine_marker(event: &str, steps: &[&str]) -> String {
+    let checkpoint = format!(
+        "(SELECT value FROM {} WHERE key = 'checkpoint' ORDER BY id DESC LIMIT 1)",
+        payload(&format!("{event}.envelope"))
+    );
+    let entries =
+        format!("json_each(CASE WHEN json_valid({checkpoint}) THEN {checkpoint} ELSE '{{}}' END)");
+    let words: Vec<String> = steps.iter().map(|step| format!("'{step}'")).collect();
+    // A row whose stored text names none of the words cannot be such a
+    // marker, since the engine writes each word as it is. So one substring
+    // scan turns it away before the JSON walks below parse its envelope,
+    // which they do several times a row (#1243's Callgrind).
+    let named: Vec<String> = (words.iter())
+        .map(|word| format!("instr({event}.envelope, {word}) > 0"))
+        .collect();
+    format!(
+        "CASE WHEN {named} THEN {step} IN ({words}) AND {authored} = 'engine' ELSE 0 END",
+        named = named.join(" OR "),
+        step = last_text(&entries, "step"),
+        words = words.join(", "),
+        authored = last_text(&entries, "authored"),
+    )
+}
+
+/// A run's checkpoints between two seqs, both held, that are the engine's
+/// own markers, a step record or a panel member's finish, in seq order:
+/// the only checkpoints a verdicts window reads (#1212), found through the
+/// primary key's range and filtered on the stored checkpoint before any
+/// envelope is decoded, so a seat turn, telemetry or a driver's record of
+/// either word is never read. Both markers name their `member` (a step
+/// record its step, a member's finish its member), so the index's own
+/// `member` column turns every single seat's turn away before its row is
+/// even joined (#1243's Callgrind).
+static ENGINE_MARKERS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT i.seq FROM event_index AS i
+         JOIN events AS e ON e.run_id = i.run_id AND e.seq = i.seq
+         WHERE i.run_id = ?1 AND i.seq >= ?2 AND i.seq <= ?3 AND i.type = '{CHECKPOINTED}'
+           AND i.member IS NOT NULL AND {marker}
+         ORDER BY i.seq",
+        marker = engine_marker("e", &[STEP_FINISHED, MEMBER_FINISHED]),
+    )
+});
+
+/// A run's checkpoints under the attempts of the JSON array `?2` that are
+/// the engine's own `panel-member-finished` marker, at or below a seq, in
+/// seq order: one query over every attempt (#1212, R1), read through the
+/// stream index and filtered on the stored checkpoint before any envelope
+/// is decoded, so a member-tagged seat turn or a step record is never read
+/// (fix round 0109a1r8, R1). `member` alone cannot tell them apart:
+/// `tag_member` writes it on every panel member's checkpoint.
+static MEMBER_MARKERS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT i.seq FROM event_index AS i INDEXED BY event_index_stream
+         JOIN events AS e ON e.run_id = i.run_id AND e.seq = i.seq
+         WHERE i.run_id = ?1 AND i.attempt_id IN (SELECT value FROM json_each(?2))
+           AND i.member IS NOT NULL
+           AND i.seq <= ?3 AND i.type = '{CHECKPOINTED}'
+           AND {marker}
+         ORDER BY i.seq",
+        marker = engine_marker("e", &[MEMBER_FINISHED]),
+    )
+});
 
 impl Store {
     /// What landed on a run after a head the caller already loaded and
@@ -31,7 +114,7 @@ impl Store {
         hash: &str,
     ) -> Result<Vec<EventEnvelope>, StoreError> {
         let head = i64::try_from(seq).map_err(|_| StoreError::UnknownHead { seq })?;
-        patiently("load", self.patience, || {
+        patiently("load", self.patience, &self.path, || {
             let (stored, lowest): (Option<String>, Option<i64>) = self
                 .conn
                 .query_row(HEAD_OF_RUN, params![run_id, head], |r| {
@@ -64,7 +147,7 @@ impl Store {
     /// run whole.
     pub fn last_event(&self, run_id: &str, seq: u64) -> Result<Option<EventEnvelope>, StoreError> {
         let seq = i64::try_from(seq).map_err(|_| StoreError::UnknownHead { seq })?;
-        patiently("last_event", self.patience, || {
+        patiently("last_event", self.patience, &self.path, || {
             let raw: Option<String> = self
                 .conn
                 .query_row(
@@ -73,10 +156,54 @@ impl Store {
                     |row| row.get(0),
                 )
                 .optional()?;
-            raw.map(|raw| serde_json::from_str(&raw))
-                .transpose()
-                .map_err(StoreError::from)
+            raw.map(|raw| envelope(run_id, seq, &raw)).transpose()
         })
+    }
+
+    /// A run's checkpoints in `from..=to` that are the engine's own
+    /// markers, a sequence step's record or a panel member's finish, in seq
+    /// order, found in one query through the primary key's range and each
+    /// read by its key: the only checkpoints a verdicts window holds a
+    /// verdict or a member's mark in (decision 0089 ruling 9, #1212). Each
+    /// is chosen on its stored checkpoint before any envelope is decoded,
+    /// so a seat turn, telemetry or a driver's checkpoint naming either
+    /// word without the engine's authorship is never read. A journal that
+    /// reads no index must read the run whole instead
+    /// ([`Store::reads_index`]).
+    pub fn envelopes_of_engine_markers(
+        &self,
+        run_id: &str,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<EventEnvelope>, StoreError> {
+        let found = patiently("index", self.patience, &self.path, || {
+            seqs(&self.conn, &ENGINE_MARKERS, params![run_id, from, to])
+        })?;
+        self.envelopes_at(run_id, &found)
+    }
+
+    /// A run's checkpoints under the attempts `attempts` names that are the
+    /// engine's own `panel-member-finished` marker, at or below `to`, in seq
+    /// order, found in one query through the stream index and each read by
+    /// its key: the markers a verdicts window's cut dropped, which a verdict
+    /// inside that window is read with (decision 0089 ruling 9, #1212). The
+    /// query still parses each named attempt's member-tagged checkpoints up
+    /// to `to`, so its work grows with those attempts, not with the window.
+    /// A member-tagged seat turn and a step record name a member too but
+    /// carry no marker's word and no authorship, so neither is read. A
+    /// journal that reads no index must read the run whole instead
+    /// ([`Store::reads_index`]).
+    pub fn envelopes_of_member_markers(
+        &self,
+        run_id: &str,
+        attempts: &[&str],
+        to: u64,
+    ) -> Result<Vec<EventEnvelope>, StoreError> {
+        let attempts = serde_json::to_string(attempts)?;
+        let found = patiently("index", self.patience, &self.path, || {
+            seqs(&self.conn, &MEMBER_MARKERS, params![run_id, attempts, to])
+        })?;
+        self.envelopes_at(run_id, &found)
     }
 
     /// How many rows each run of `heads` holds at or below its seq, in
@@ -87,7 +214,7 @@ impl Store {
     /// row below it is gone. A run the journal lacks holds none.
     pub fn rows_through(&self, heads: &[(&str, u64)]) -> Result<Vec<u64>, StoreError> {
         let heads = serde_json::to_string(heads)?;
-        patiently("count", self.patience, || {
+        patiently("count", self.patience, &self.path, || {
             Ok(self
                 .conn
                 .prepare(ROWS_THROUGH)?
@@ -113,21 +240,25 @@ pub(crate) fn rows_in(
     run_id: &str,
     after: Option<i64>,
 ) -> Result<Vec<EventEnvelope>, StoreError> {
+    const ALL: &str = "SELECT envelope, seq FROM events WHERE run_id = ?1 ORDER BY seq";
+    const AFTER: &str =
+        "SELECT envelope, seq FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq";
+    // The seq beside each envelope names a row whose envelope is not JSON.
+    let row = |r: &rusqlite::Row<'_>| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?));
     let texts = match after {
         None => conn
-            .prepare("SELECT envelope FROM events WHERE run_id = ?1 ORDER BY seq")?
-            .query_map(params![run_id], |r| r.get::<_, String>(0))?
+            .prepare(ALL)?
+            .query_map(params![run_id], row)?
             .collect::<Result<Vec<_>, _>>()?,
         Some(seq) => conn
-            .prepare("SELECT envelope FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq")?
-            .query_map(params![run_id, seq], |r| r.get::<_, String>(0))?
+            .prepare(AFTER)?
+            .query_map(params![run_id, seq], row)?
             .collect::<Result<Vec<_>, _>>()?,
     };
-    let events = texts
-        .into_iter()
-        .map(|raw| serde_json::from_str::<EventEnvelope>(&raw))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(events)
+    texts
+        .iter()
+        .map(|(raw, seq)| envelope(run_id, *seq, raw))
+        .collect()
 }
 
 #[cfg(test)]

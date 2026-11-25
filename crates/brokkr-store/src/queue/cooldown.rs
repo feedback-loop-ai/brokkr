@@ -10,7 +10,8 @@
 //! returns NULL and a NULL CHECK passes. Only the readers here convert
 //! them, into the `time` type the engine already carries.
 
-use std::collections::BTreeMap;
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::{provider_waits, Held};
@@ -310,23 +311,175 @@ pub(super) fn in_force(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, Sto
 /// [`in_force`], which the expired row never joins. A row whose stored
 /// instant this reader cannot spell refuses by name, carrying the row's
 /// `seq`.
-fn newest(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
-    let sql = format!(
-        "SELECT {ROWS} FROM provider_cooldowns AS held
-         WHERE held.until_at > ?1
-            OR NOT EXISTS (
-                SELECT 1 FROM provider_cooldowns AS later
-                WHERE later.provider = held.provider AND later.route = held.route
-                  AND (later.until_at > held.until_at
-                       OR (later.until_at = held.until_at AND later.seq > held.seq)))
-         ORDER BY held.seq"
-    );
-    read_rows(conn, &sql, now)
+fn newest(store: &Store, now: i64) -> Result<Vec<Cooldown>, StoreError> {
+    newest_with(store, now, |_| {}, |_| {})
+}
+
+/// [`newest_in`] under one snapshot ([`Store::read_snapshot`]): the scan
+/// and every kept row's lookup read the journal as it stood at the scan's
+/// first row, so a writer's commit at any point in the read neither grows
+/// it nor splits itself across its rows (#1112). The snapshot ends with
+/// the read, its refusal included, and a read already inside one joins it.
+/// `between` runs after each scanned row is taken, with its `seq`: the
+/// instant a peer's commit lands, which the tests stage.
+fn newest_with(
+    store: &Store,
+    now: i64,
+    between: impl FnMut(i64),
+    stepped: impl FnOnce(i64),
+) -> Result<Vec<Cooldown>, StoreError> {
+    store.read_snapshot(|| newest_in(&store.conn, now, between, stepped))
+}
+
+/// [`newest`]'s two statements (#1112). The first scans the table once in
+/// `seq` order, its primary key, reading only each row's key, provider,
+/// route and end ([`Scanned`]), so SQLite sorts nothing and never extracts
+/// a row's words; [`Newest`] decides which rows are kept. It reads one row
+/// per run, the least `seq` from `from` on, and each run's reset releases
+/// that row's names before the next is read, so a streaming scan's
+/// registers never hold one row's wide route beside the next row's wide
+/// provider. The second reads each kept row's whole projection by its
+/// `seq`, in `seq` order, so a discarded row's words never enter SQLite's
+/// heap. Every kept row is read before any is typed, so a column SQLite
+/// cannot hand over refuses before an earlier row's unreadable time, as the
+/// single statement this replaced refused. The scan reads every row's key
+/// columns before any payload, so a key column's refusal precedes an
+/// earlier kept row's payload refusal, which that statement would have
+/// reported first; both refuse. A row is append-only and never
+/// deleted, and [`newest_with`] holds both statements to one snapshot, so
+/// a kept `seq` reads back the row the scan saw. Both statements' VM steps
+/// go to `stepped`, so the test that binds the read's cost measures them.
+fn newest_in(
+    conn: &Connection,
+    now: i64,
+    mut between: impl FnMut(i64),
+    stepped: impl FnOnce(i64),
+) -> Result<Vec<Cooldown>, StoreError> {
+    let mut scan = conn.prepare(
+        "SELECT seq, provider, route, until_at FROM provider_cooldowns
+         WHERE seq >= ?1 ORDER BY seq LIMIT 1",
+    )?;
+    let mut newest = Newest::default();
+    let mut from = Some(i64::MIN);
+    while let Some(at) = from {
+        let Some(row) = scan.query_row([at], Scanned::read).optional()? else {
+            break;
+        };
+        let seq = row.seq;
+        from = seq.checked_add(1);
+        newest.take(row, now);
+        between(seq);
+    }
+    let mut payload = conn.prepare(&format!(
+        "SELECT {ROWS} FROM provider_cooldowns WHERE seq = ?1"
+    ))?;
+    let kept = newest
+        .kept()
+        .into_iter()
+        .map(|seq| payload.query_row([seq], Raw::read))
+        .collect::<Result<Vec<_>, _>>()?;
+    let steps = |statement: &rusqlite::Statement<'_>| {
+        i64::from(statement.get_status(rusqlite::StatementStatus::VmStep))
+    };
+    stepped(steps(&scan) + steps(&payload));
+    kept.into_iter().map(Raw::typed).collect()
+}
+
+/// A row as [`newest`]'s scan reads it: its key, its provider and route,
+/// and its end, never its words.
+struct Scanned {
+    seq: i64,
+    provider: String,
+    route: String,
+    until: i64,
+}
+
+impl Scanned {
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Scanned> {
+        Ok(Scanned {
+            seq: row.get(0)?,
+            provider: row.get(1)?,
+            route: row.get(2)?,
+            until: row.get(3)?,
+        })
+    }
+}
+
+/// Where one provider and route stands in [`Newest`]'s scan so far.
+enum Standing {
+    /// A row in force holds it: no expired row of it is kept.
+    Held,
+    /// Every row of it read so far has ended, and this, by its `seq` and
+    /// its end, is the newest.
+    Ended { seq: i64, until: i64 },
+}
+
+/// The readout's rows, decided over a scan in `seq` order: every row in
+/// force at `now`, and, for a provider and route no such row holds, the
+/// row with the latest end, the later-written on a tie. A row is kept once
+/// at most, and only its `seq` is held.
+#[derive(Default)]
+struct Newest {
+    in_force: Vec<i64>,
+    routes: HashMap<(String, String), Standing>,
+}
+
+impl Newest {
+    /// Take the scan's next row, which is later-written than every row
+    /// taken before it.
+    fn take(&mut self, row: Scanned, now: i64) {
+        let key = (row.provider, row.route);
+        if row.until > now {
+            self.routes.insert(key, Standing::Held);
+            self.in_force.push(row.seq);
+            return;
+        }
+        let ended = Standing::Ended {
+            seq: row.seq,
+            until: row.until,
+        };
+        match self.routes.entry(key) {
+            Entry::Vacant(first) => {
+                first.insert(ended);
+            }
+            Entry::Occupied(mut seen) => {
+                let later =
+                    matches!(seen.get(), Standing::Ended { until, .. } if row.until >= *until);
+                if later {
+                    seen.insert(ended);
+                }
+            }
+        }
+    }
+
+    /// The kept rows' `seq`s in the order they were written.
+    fn kept(self) -> Vec<i64> {
+        let mut kept = self.in_force;
+        kept.extend(
+            self.routes
+                .into_values()
+                .filter_map(|standing| match standing {
+                    Standing::Ended { seq, .. } => Some(seq),
+                    Standing::Held => None,
+                }),
+        );
+        kept.sort_unstable();
+        kept
+    }
+}
+
+/// The VM steps [`newest`]'s two statements take at `now`, for the test
+/// that holds the read to one scan.
+#[cfg(test)]
+fn newest_steps(store: &Store, now: i64) -> Result<i64, StoreError> {
+    let mut steps = 0;
+    newest_with(store, now, |_| {}, |taken| steps = taken)?;
+    Ok(steps)
 }
 
 /// The rows `sql` selects at `now`, each read and typed once: the one
-/// home of the prepare, the query and the refusal-by-row every cool-down
-/// reader shares.
+/// home of the prepare, the query and the refusal-by-row the in-force
+/// readers share.
 fn read_rows(conn: &Connection, sql: &str, now: i64) -> Result<Vec<Cooldown>, StoreError> {
     let mut statement = conn.prepare(sql)?;
     let raw = statement.query_map([now], Raw::read)?;
@@ -498,7 +651,7 @@ impl Store {
         route: &str,
         now: OffsetDateTime,
     ) -> Result<Option<CooldownAggregate>, StoreError> {
-        patiently("cooldown", self.patience, || {
+        patiently("cooldown", self.patience, &self.path, || {
             self.read_snapshot(|| {
                 if cool_downs_held(&self.conn)? {
                     aggregate(&self.conn, provider, route, now.unix_timestamp())
@@ -515,7 +668,7 @@ impl Store {
     /// version, the rows and the probe holds are read in one snapshot,
     /// which joins a caller's own (fix round 0106b1r5, H1).
     pub fn cooldowns_in_force(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
-        patiently("cooldowns_in_force", self.patience, || {
+        patiently("cooldowns_in_force", self.patience, &self.path, || {
             self.read_snapshot(|| {
                 if cool_downs_held(&self.conn)? {
                     in_force(&self.conn, now.unix_timestamp())
@@ -530,22 +683,41 @@ impl Store {
     /// provider and route no unexpired row holds any more, in the order
     /// they were written: what a readout paints, so a probe's later end
     /// survives the instant it passes and the event's earlier end never
-    /// returns (decision 0103 slice 4f). newest's one statement; admission
-    /// keeps reading [`Store::cooldown`] and [`Store::cooldowns_in_force`],
-    /// which an expired row never holds. The queue's version is judged
-    /// first, as [`Store::cooldown`] does. One statement is not a linear
-    /// read: `newest`'s correlated `NOT EXISTS` rescans the table for every
-    /// expired row, and the table's only index is `(run_id, event_seq,
-    /// site, rounds)`, so the bound is the append-only table squared, never
-    /// the run or its events; the worst case is every row expired. The
-    /// history a journal keeps is the rate limits its runs met, so the quadratic term is
-    /// bounded by that count and not by a run's size; the console pays the
-    /// statement twice per refresh, once to compare the kept frame's
-    /// aggregate and once in the frame or whole read.
+    /// returns (decision 0103 slice 4f). Admission keeps reading
+    /// [`Store::cooldown`] and [`Store::cooldowns_in_force`], which an
+    /// expired row never holds. The queue's version is judged first, as
+    /// [`Store::cooldown`] does. The read is one scan of the table's keys,
+    /// providers, routes and ends in its primary key's order (#1112), one
+    /// row per lookup by that key, so SQLite sorts nothing; the scan keeps
+    /// each provider and route's newest `seq` so far as it goes, then reads
+    /// each kept row's whole projection by its primary key, so the bound is
+    /// `n` lookups in the table's rows, never the run or its events, plus a
+    /// sort of the kept `seq`s and one lookup per kept row. SQLite holds one
+    /// row at a time: the scanned row's provider and route, every row's
+    /// read, discarded or kept, and then one kept row's projection. A
+    /// discarded row's words are never read, and its provider and route are
+    /// its group's, which the kept row of that group returns; no two rows'
+    /// names are held at once. The read holds one provider and route per
+    /// pair and the kept rows, the rows it returns. The history a
+    /// journal keeps is the rate limits its runs met, so `n` is that count
+    /// and not a run's size; the console pays the read twice per refresh,
+    /// once to compare the kept frame's aggregate and once in the frame or
+    /// whole read. The scan and every lookup read one snapshot, so a
+    /// writer's commit at any point in the read changes nothing it returns,
+    /// and its rows are the rows the journal held when the scan began. A
+    /// row SQLite cannot hand over refuses the read: a key column's
+    /// refusal (its key, provider, route or end, which the scan reads for
+    /// every row) precedes a payload column's refusal of any kept row,
+    /// however early that row was written. Its groups are the provider and
+    /// route strings SQLite hands over, which are the stored keys in the
+    /// UTF-8 journal the store makes, the only encoding it makes. A foreign
+    /// UTF-16 journal can store two keys that decode to one string (an
+    /// unpaired surrogate), which this read takes as one group; such a
+    /// journal is outside its scope.
     pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
-        patiently("cooldowns_newest", self.patience, || {
+        patiently("cooldowns_newest", self.patience, &self.path, || {
             if cool_downs_held(&self.conn)? {
-                newest(&self.conn, now.unix_timestamp())
+                newest(self, now.unix_timestamp())
             } else {
                 Ok(Vec::new())
             }
@@ -564,7 +736,7 @@ impl Store {
         event_seq: u64,
         site: &str,
     ) -> Result<Vec<Cooldown>, StoreError> {
-        patiently("cooldown_rounds", self.patience, || {
+        patiently("cooldown_rounds", self.patience, &self.path, || {
             if cool_downs_held(&self.conn)? {
                 rounds(&self.conn, run_id, event_seq, site)
             } else {
@@ -584,7 +756,7 @@ impl Store {
         event_seq: u64,
         site: &str,
     ) -> Result<BTreeMap<u64, Held>, StoreError> {
-        patiently("cooldown_held_rounds", self.patience, || {
+        patiently("cooldown_held_rounds", self.patience, &self.path, || {
             if cool_downs_held(&self.conn)? {
                 held_rounds(&self.conn, run_id, event_seq, site)
             } else {
@@ -629,7 +801,7 @@ impl Store {
         round: &CooldownRound<'_>,
         held: Option<Held>,
     ) -> Result<RoundAppend, StoreError> {
-        patiently("append_cooldown_round", self.patience, || {
+        patiently("append_cooldown_round", self.patience, &self.path, || {
             let tx = self
                 .conn
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;

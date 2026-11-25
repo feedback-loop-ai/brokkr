@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-16, "go with recommended on all seven" (https://github.com/feedback-loop-ai/brokkr/issues/430#issuecomment-6913524052)
 Date: 2026-11-16
 
-Built: unbuilt (#430)
+Built: built
 Amends: 0068
 
 ## Context
@@ -475,7 +475,10 @@ included.
 - **Service files.** The guide shows a user unit and a launchd agent. Brokkr
   installs neither.
 - **Windows** (0063).
-- **0068 ruling 2's named endings,** which wait for #317.
+- **0068 ruling 2's named endings,** which wait for #317. *Built
+  2026-11-23 by #1192:* `--after ENTRY:ENDING` waits on any of decision
+  0064's endings but `unclassified`, and a run over that ended otherwise
+  holds the entry as `ended_otherwise`.
 
 ## The slices
 

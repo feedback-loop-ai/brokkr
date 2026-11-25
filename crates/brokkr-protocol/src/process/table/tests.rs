@@ -133,6 +133,7 @@ fn a_stat_line_is_read_from_its_last_parenthesis() {
             pgid: 7,
             zombie: false,
             exiting: false,
+            usage: Some(Sample::default()),
         })
     );
     assert_eq!(parse_stat(7, "7 (cut short) Z 1"), None);
@@ -330,6 +331,41 @@ fn a_tree_walk_skips_what_exited_and_fails_what_it_cannot_read() {
     );
 }
 
+/// #1133: the driver's reaper reads the rows of its own children. A pid
+/// its listing names whose row names another parent, that is gone, or
+/// whose row it cannot read, is left out, and costs no other row; a
+/// listing it cannot read is no read at all.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_reaper_reads_its_own_children_past_a_row_it_cannot() {
+    let tree = [(501, 500), (502, 501), (503, 500), (505, 500)];
+    let proc = tree_proc(500, &tree, 0);
+    std::fs::write(
+        proc.path().join("500/task/500/children"),
+        "505 501 502 503 504",
+    )
+    .unwrap();
+    std::fs::remove_dir_all(proc.path().join("503")).unwrap();
+    std::fs::remove_file(proc.path().join("505/stat")).unwrap();
+    std::fs::create_dir(proc.path().join("505/stat")).unwrap();
+    let rows = children_in(proc.path(), 500).unwrap();
+    assert_eq!(rows.iter().map(|row| row.id.pid).collect::<Vec<_>>(), [501]);
+
+    // A child names itself in any bytes, UTF-8 or not, and is still read.
+    let stat = b"501 (\xff\xfe) Z 500 501 501 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 601 0 0";
+    std::fs::write(proc.path().join("501/stat"), stat).unwrap();
+    let rows = children_in(proc.path(), 500).unwrap();
+    assert_eq!(
+        rows.iter()
+            .map(|row| (row.id.pid, row.zombie))
+            .collect::<Vec<_>>(),
+        [(501, true)]
+    );
+
+    std::fs::write(proc.path().join("500/task/500/children"), "x").unwrap();
+    assert_eq!(children_in(proc.path(), 500), None);
+}
+
 /// #918 H1: a child's own `stat` names its parent, never the listing. A
 /// pid that A's `children` named, now reused by an unrelated process U
 /// with another parent, is dropped from the walk: `Live::record` never
@@ -465,6 +501,7 @@ fn a_ps_row_keeps_its_start_time_whole() {
             pgid: 7,
             zombie: true,
             exiting: false,
+            usage: None,
         })
     );
     assert_eq!(parse_ps("7 1"), None);

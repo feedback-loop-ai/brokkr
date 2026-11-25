@@ -11,7 +11,9 @@ Both show the same console, with three views, **Realms**, **Analytics** and
 **Library**, in
 DSH's light or dark theme, whichever DSH's Settings has chosen. It is a DSH plugin
 kept in this repository at `extensions/dsh/brokkr-console/` (decision 0085,
-proposed). It targets DSH `0.2.0-rc.2`.
+proposed). It targets DSH `0.2.0-rc.2`. It spawns an installed `brokkr`,
+so until 0.17 it types the verbs as a 0.15 release spells them; its
+[README](../../extensions/dsh/brokkr-console/README.md) says which.
 
 The console paints Brokkr's own readouts and presses Brokkr's own verbs. It
 decides nothing: every standing, park reason, admitted command, refusal,
@@ -26,7 +28,7 @@ readout printed. It never opens a journal.
    that directory in `BROKKR_CONSOLE_WORKSPACE`. Every readout runs there, as
    you would run it by hand.
 3. Nothing to name for resuming: a retry is followed by `brokkr resume`
-   under the recipe the run's start recorded (`brokkr inspect --json`'s
+   under the recipe the run's start recorded (`brokkr runs inspect --json`'s
    `recipe`), as you would type `--recipe` by hand. To resume every run
    under one bundle instead, name it in `BROKKR_CONSOLE_RESUME_BUNDLE` (a
    bundle directory) or `BROKKR_CONSOLE_RESUME_RECIPE` (a recipe name). A
@@ -55,7 +57,7 @@ without DSH's login cookie, or from another origin, is refused.
 ## Where it opens
 
 - **In a conversation.** The Brokkr tab asks the plugin which realm the
-  conversation's folder belongs to. The plugin answers from `brokkr realms
+  conversation's folder belongs to. The plugin answers from `brokkr system realms
   --json`: a folder inside a realm's folder belongs to that realm, and so
   does a git worktree of one (its `.git` file points into the realm's
   `.git/worktrees/`, read from the files, never by running git). The tab
@@ -72,11 +74,11 @@ where every realm is.
 
 - **Realms.** One card per hearth `brokkr runs` lists: the runs that need
   you, each with its title, step and Brokkr's verdict; how many are running;
-  how many shipped and stopped in the last day, from `brokkr analytics
+  how many shipped and stopped in the last day, from `brokkr stats analytics
   --range 24h`. A hearth whose journal does not load shows its refusal. Below
   them, the queue from `brokkr queue list`, each entry with admission's word
   and reasons; starting a queued run waits for Brokkr's dispatcher. Muninn's
-  last review, from `brokkr muninn list`, when one is recorded.
+  last review, from `brokkr runs muninn list`, when one is recorded.
 - **The realms.** One pane, a row per realm as the TUI's fleet lists them: a
   status dot that strikes while a run runs, its state, running count, today's
   shipped and stopped, and what is moving or needs you. Rows needing you come
@@ -106,7 +108,7 @@ where every realm is.
   as its room allows (the whole sentence, then who sent it back with the
   rule, then the rule) and the whole sentence on hover. A wide graph
   scrolls sideways and opens on the current phase. While the run is driven its active step wears Brokkr's
-  pulse, the dot striking and a halo spreading as in `brokkr ui`; the
+  pulse, the dot striking and a halo spreading as in `brokkr system ui`; the
   console's mark and the left-panel icon strike while any run is running.
   Reduced motion stills both.
 - **Picking.** Click a step, an arrow between phases, or a phase's name;
@@ -121,21 +123,21 @@ where every realm is.
 - **A seat.** As the TUI's participant pane reads it: the model it claims
   and its boundary, effort pinned and applied, tokens as Σ total · ↑ in ·
   ↓ out, the cache hit (cache reads over input and cache writes, from
-  `brokkr inspect`), cost, turns and attempts, and its transcript, newest
+  `brokkr runs inspect`), cost, turns and attempts, and its transcript, newest
   last, read again whenever
   the run moves so a working seat's follows its tail. Beside the model the
   harness reported serving, the seat carries what its plan selected in
-  `brokkr inspect`'s own provenance line, the one the TUI prints after
+  `brokkr runs inspect`'s own provenance line, the one the TUI prints after
   "selected by" ("security · selected glm-flash via dsh", and a fallback
   says it was not the agent's first choice); a seat served through DSH
   reports no model of its own. A figure Brokkr did not record says why, and
-  so does a seat with no transcript, in the words `brokkr transcript` prints.
+  so does a seat with no transcript, in the words `brokkr runs transcript` prints.
 - **Why it waits.** Beside the reader when the run waits: Brokkr's park
   reason, word for word, with the rule, where and since when, and a link to
   read that seat; a clarify park's questions and **Open the spec**; the rule
   that stopped it; or a quarantine. Run ids and sequence numbers sit under
   "Details for audit" in the timeline.
-- **Analytics.** `brokkr analytics` for 24 hours, 7 days or 30 days, all
+- **Analytics.** `brokkr stats analytics` for 24 hours, 7 days or 30 days, all
   realms or one: the headline tiles, runs finished per day, where runs wait
   for you, rework, the share of step attempts by model, the by-realm table,
   and the readout's own "not recorded yet" list.
@@ -144,7 +146,7 @@ where every realm is.
   Pareto targets, in this browser. In a conversation's tab it opens on the
   conversation's realm, on the recipe with the most runs; where none ran in
   the range, on the first the realm knows, so its recipes are still listed.
-- **Graph.** `brokkr graph --recipe <name> --json`: the recipe's state
+- **Graph.** `brokkr stats graph --recipe <name> --json`: the recipe's state
   machine as its table resolves now, its states left to right from the
   initial one, then in `phases` order, with `done` at the end and `stop`
   beneath, each box holding the seats and models the latest run pinned. The
@@ -174,7 +176,7 @@ where every realm is.
   without runs, and marks each that does not compile.
 - **Pareto.** Each recipe of the realm with runs and a reported cost is a
   point, how often its runs reach `done` against what a run costs, from
-  `brokkr analytics --json`'s `recipes`. Two targets you set (50% done and
+  `brokkr stats analytics --json`'s `recipes`. Two targets you set (50% done and
   $3.00 a run until you change them) split the plane into **Pareto frontier
   quadrant**, **Reliable but costly**, **Cheap but leaky** and **Costly and
   leaky**; a point on a target line counts on the better side. A step line
@@ -198,7 +200,8 @@ them. The console sends the command with a fresh command id and the
 run head you were looking at. The plugin reads the run again first. If the head moved, nothing
 is sent: the outcome says "not sent" and shows the run as it is now. If
 Brokkr no longer admits the command, the outcome shows Brokkr's refusal. Otherwise the
-plugin runs `brokkr operator retry` or `stop`, or `brokkr conclude`, with
+plugin runs `brokkr runs operator retry` or `stop`, or `brokkr runs conclude`
+(spelled as its README says), with
 the cause you picked and your reason, followed by the console's command id so the record can be
 matched. A retry is followed by `brokkr resume`, which keeps driving the run
 after the panel is closed.
@@ -220,7 +223,7 @@ the first outcome.
 | Start a queued run | The dispatcher is not built ([#430](https://github.com/feedback-loop-ai/brokkr/issues/430)) |
 
 The graph lists the first four under "Not available yet", disabled, each
-with the reason `brokkr inspect` gives.
+with the reason `brokkr runs inspect` gives.
 
 ## The assistant
 

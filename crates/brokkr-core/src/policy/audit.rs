@@ -6,7 +6,7 @@
 //! `docs/evidence/decision-0050-audit.md` lists them. The load refuses
 //! order, liveness and `v2` presence (`Machine::refuse_findings`); the
 //! compiler refuses an unruled valuation and a table past the sweep's
-//! budget (`Machine::refuse_unruled`). `brokkr compile` prints the audit
+//! budget (`Machine::refuse_unruled`). `brokkr library compile` prints the audit
 //! beside its manifest.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -608,7 +608,7 @@ impl fmt::Display for Finding {
     }
 }
 
-/// The report `brokkr compile` prints: the sweep's size, every finding
+/// The report `brokkr library compile` prints: the sweep's size, every finding
 /// but the unruled valuations, and the first of those.
 impl fmt::Display for Audit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

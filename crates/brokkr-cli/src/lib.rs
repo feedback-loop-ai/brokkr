@@ -15,6 +15,7 @@ mod broker;
 mod budget_frame;
 mod cli_args;
 mod compare;
+mod completion;
 mod doctor;
 mod dsh_key;
 mod exit;
@@ -52,6 +53,8 @@ pub use crate::budget_frame::{
 #[doc(hidden)]
 pub use crate::tui::transcript_surfaces_for_test;
 #[doc(hidden)]
+pub use crate::tui_read::tui_transcript_for_test;
+#[doc(hidden)]
 pub use local_transcript::read_local;
 #[doc(hidden)]
 pub use ui::{handle, Response};
@@ -65,185 +68,68 @@ use brokkr_runtime::realms::{Hearth, World, WorldError};
 use brokkr_runtime::{Bundle, DriveEnd, EngineError};
 use brokkr_store::Store;
 use brokkr_view::transcript::{TranscriptRead, Unavailable};
-use clap::{ArgGroup, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use cli_args::*;
 use exit::Exit;
 use serde_json::{json, Value};
 
-/// The command line. Its exit codes are [`exit::Exit`]'s.
-#[derive(Parser)]
-// `bin_name` is pinned, not inferred from argv[0]: a renamed or
-// symlinked copy still prints the name this engine answers to
-// (decision 0019 ruling 9).
-#[command(
-    name = "brokkr",
-    bin_name = "brokkr",
-    version,
-    about = "Deterministic delivery engine"
-)]
+/// The command line, parsed through the tree `cli_args::tree` builds
+/// (decision 0113). Its exit codes are [`exit::Exit`]'s.
 struct Cli {
-    #[command(subcommand)]
     command: Cmd,
 }
 
-#[derive(Subcommand)]
+/// Every verb a parsed command line reaches, whichever path it was typed
+/// by: the dispatcher matches this, and each verb's help is the tree's.
 enum Cmd {
-    /// Scaffold a minimal reviewable bundle and prove it compiles.
     Init(InitArgs),
-    /// Per-seat cost and session accounting from journal checkpoints —
-    /// the LaneTally join surface (stable seat ids, journal-derived).
     Costs(CostsArgs),
-    /// Render the shipper's delivery ledger from journal and repository evidence.
     Ledger(LedgerArgs),
-    /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
-    /// or verify the existing anchor with --check.
     Anchor(AnchorArgs),
-    /// Keep-refs (decision 0028): the git objects a run's journal cites,
-    /// held by refs/forge/keep/<run>/<sha> so a squash-merge, a branch
-    /// delete and a gc cannot collect the evidence the journal names.
-    /// Runs plant these themselves at conclusion; these verbs cover the
-    /// runs that concluded before the mechanism existed, and the
-    /// deliberate letting-go that is the operator's alone.
     KeepRefs {
-        #[command(subcommand)]
         command: KeepRefsCmd,
     },
-    /// Serve the embedded read-only surface on loopback.
     Ui(UiArgs),
-    /// Explore runs interactively in the terminal: the fleet as a
-    /// navigable table, one run's phase graph, seats and decision
-    /// trail, and one seat's own checkpoint and session stream.
-    /// Read-only like every other readout (decision 0014) — it issues
-    /// no operator commands and writes nothing to the journal.
     Tui(TuiArgs),
-    /// Verify tools, drivers, the workspace database, and optionally a
-    /// bundle, without executing any agent.
     Doctor(DoctorArgs),
-    /// Validate a bundle and print its pinned manifest and digest.
     Compile(CompileArgs),
-    /// Start a new run and drive it until it parks or finishes.
-    #[command(group(ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Run(RunArgs),
-    /// Resume an existing run under its exact pinned bundle.
-    #[command(group(ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Resume(ResumeArgs),
-    /// Re-run a past run's feature as a NEW run under another bundle or
-    /// recipe, so outcomes can be compared by run id. No stored linkage.
-    #[command(group(ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Rerun(RerunArgs),
-    /// Compare two runs' aligned outcomes: decision trails, first
-    /// divergence, phases visited, per-seat costs. Read-only.
     Compare(CompareArgs),
-    #[command(flatten)]
     Grouped(GroupedCmd),
-    /// Close a stopped or parked run from its journal alone — no bundle,
-    /// no recipe, no effect. `resume` compiles the exact pinned recipe
-    /// and refuses on any drift, which is right for the branches that
-    /// spend money but leaves a run from a moved engine with no lawful
-    /// ending. This appends the operator stop conclusion and nothing
-    /// else, so it needs no pinned recipe to be honest about what it
-    /// wrote. It cannot retry: that re-enters the policy loop, and the
-    /// policy loop needs the bundle by construction. For a run believed
-    /// dead: every write is fenced, so a journal that moves beneath the
-    /// conclusion — something still driving the run — refuses instead
-    /// of being closed over (decision 0029). Check `brokkr runs` first.
     Conclude(ConcludeArgs),
-    /// Record an operator command (retry | stop | release | supersede |
-    /// classify | repair) as journal events, or acknowledge a quarantined
-    /// run beside its journal.
     Operator(OperatorArgs),
-    /// The dispatcher's queue (decision 0068): runs waiting to start, in
-    /// the journal's own database. Add, list, judge, move, hold, release,
-    /// re-pin and drop entries; each change is journaled with its reason.
     Queue {
-        #[command(subcommand)]
         command: QueueCmd,
     },
-    /// Explain a run: header, ruling, seats, decision trail, and the
-    /// phase graph as a tree. `--phase` and `--seat` are the scoping
-    /// verbs the console's clicks became; `--json` emits the view model,
-    /// or with `--capability-call` the call and its verified response.
-    #[command(group(ArgGroup::new("scope").args(["phase", "seat"])))]
     Inspect(InspectArgs),
-    /// Read one participant's retained local transcript — Claude, Codex or
-    /// DSH — through the same bounded local derivation the TUI uses. The
-    /// verb never launches, retries or resumes a provider and writes
-    /// nothing to the journal.
     Transcript(TranscriptArgs),
-    /// The seats of a run: the seats block `inspect` renders — every
-    /// seat's model with the boundary its hands stood behind beside it
-    /// (decision 0046 ruling 3) — from the same view. `--json` prints
-    /// that view verbatim, the bytes `inspect --json` prints.
     Seats(SeatsArgs),
-    /// Watch a run live: redraw the graph, seats, last ruling and seat
-    /// activity whenever the journal head moves; exit when the run
-    /// reaches a terminal status. Read-only, like every other readout.
     Watch(WatchArgs),
-    /// Rebuild state from the journal twice and verify determinism.
     Replay(ReplayArgs),
-    /// Write the canonical NDJSON journal and pinned manifest.
     Export(ExportArgs),
-    /// List every historical evidence root, or retire one under the
-    /// admission lock once its evidence is archived or discarded. The
-    /// sealed retirement sits beside the historical record, which stays
-    /// (decision 0105).
     Evidence {
-        #[command(subcommand)]
         command: verbs::evidence::EvidenceCmd,
     },
-    /// Back up a whole journal — one consistent snapshot taken while
-    /// writers may run, plus the versioned inventory that declares its
-    /// boundary and makes the backup complete.
     Backup(verbs::backup::BackupArgs),
-    /// Restore a journal backup into a new location, after the inventory,
-    /// the snapshot's digest, SQLite's integrity, every chain and the
-    /// counts all pass. It starts nothing.
     Restore(verbs::backup::RestoreArgs),
-    /// Adopt an exported run into this journal, byte-identically — the
-    /// verb paired with `export`. Journals never merge; one run
-    /// relocates. Nothing lands unless the whole chain verifies, the
-    /// events fold, the run_id does not already exist here, and the
-    /// export is not a redacted derivative.
     Import(ImportArgs),
-    /// Verify an exported journal offline: chain, envelopes, fold.
     VerifyRun(VerifyRunArgs),
-    /// Synchronize a Looper-bound run over the authenticated producer API.
-    /// The API key is read from an environment variable and is never stored.
     Bridge(BridgeArgs),
-    /// List runs in the workspace database: one clamped line per run, the
-    /// fleet's sections in order and each by last activity, read a page at
-    /// a time. `--json` emits the view model for scripts.
     Runs(RunsArgs),
-    /// List the world (decision 0023): each realm with its path, default
-    /// branch and current HEAD, and the journal the world writes.
-    /// Read-only, like every other readout.
     Realms(RealmsArgs),
-    #[command(flatten)]
     CrossRun(verbs::analytics::CrossRunCmd),
-    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
-    /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
     Driver(DriverArgs),
-    /// The model's hands are one tool, and the tool runs in an empty root
-    /// (decision 0043): serve the `workspace` tool over MCP on stdio, or
-    /// run one command whole inside the same box.
     Hands {
-        #[command(subcommand)]
         command: HandsCommand,
     },
-    /// Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI.
     Probe {
-        #[command(subcommand)]
         command: ProbeCmd,
     },
-    /// (internal) The MCP capability broker the harness starts beside
-    /// `hands` from the engine's configuration (decision 0077).
-    #[command(hide = true)]
     Broker {
-        #[command(subcommand)]
         command: BrokerCmd,
     },
-    /// (internal) Scripted forge-driver/v1 driver for machine proof.
-    #[command(hide = true)]
     FakeDriver(FakeDriverArgs),
 }
 
@@ -353,53 +239,7 @@ enum KeepRefsCmd {
     },
 }
 
-#[derive(Subcommand)]
-enum RecipesCmd {
-    /// List recipes under --dir, then those on the personal shelf, each
-    /// with its origin, project or personal; broken ones print a warning
-    /// line, never abort the listing.
-    List {
-        /// The recipe library directory (default the found .brokkr/recipes,
-        /// listing nothing while it is absent, else recipes).
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
-    /// Install a recipe from a local path or a git URL into the shelf at
-    /// the repository's root, .brokkr/recipes/<name> where the folder is,
-    /// else recipes/<name>, with the agents and charters it names that
-    /// the agent library lacks.
-    Add {
-        /// A local bundle directory or a git URL.
-        source: String,
-        /// The name the recipe is installed under.
-        #[arg(long)]
-        name: String,
-        /// With a git URL, the bundle's directory inside the clone, a
-        /// relative path of plain names (`recipes/fast`), walked without
-        /// following a link; without it, the clone's root or its one
-        /// subdirectory holding a bundle.json. The bases its recipe
-        /// extends come from beside it.
-        #[arg(long)]
-        path: Option<String>,
-        /// Install onto the personal shelf instead,
-        /// $XDG_CONFIG_HOME/brokkr/recipes/<name>, else
-        /// $HOME/.config/brokkr/recipes/<name>, beside host.json and in no
-        /// repository; it copies no agent or charter.
-        #[arg(long)]
-        personal: bool,
-    },
-    /// Print one recipe's RESOLVED bundle and, when it extends another,
-    /// the composition chain it was resolved from (decision 0017).
-    Show {
-        /// The recipe's name, resolved to <dir>/<name>, else to the
-        /// personal shelf's; a name on both refuses.
-        name: String,
-        /// The recipe library directory (default the found .brokkr/recipes,
-        /// else recipes).
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
-}
+use recipes::verb::RecipesCmd;
 
 /// Every crossing the WORLD draws, per realm: what each realm publishes,
 /// with the path it was read from and the digest of the bytes that were
@@ -457,8 +297,8 @@ fn crossings_view(world: &World) -> Option<Value> {
     (!realms.is_empty()).then_some(Value::Object(realms))
 }
 
-/// What a compiled bundle looks like to an operator. `brokkr compile` and
-/// `brokkr recipes show` print this and nothing else, from here, so the
+/// What a compiled bundle looks like to an operator. `brokkr library compile` and
+/// `brokkr library recipes show` print this and nothing else, from here, so the
 /// two surfaces can never drift. `composed_from` is omitted entirely
 /// when nothing was composed, so a plain bundle's output is unchanged —
 /// and so is `crossings`, which belongs to the world a verb discovered
@@ -636,6 +476,15 @@ fn watch_loop(
                     }
                 }
             }
+            // Damage is no poll's accident, so it is refused at once (#1000).
+            Err(error)
+                if matches!(
+                    error.downcast_ref(),
+                    Some(brokkr_store::StoreError::Damaged { .. })
+                ) =>
+            {
+                return Err(error)
+            }
             Err(error) => {
                 failures += 1;
                 let frame = format!("the journal is not readable right now: {error}\n");
@@ -671,7 +520,7 @@ fn keep_ref_run(workspace: &std::path::Path, journal: JournalArgs, run: &str) ->
     anyhow::ensure!(
         run != selector::LATEST,
         "'{}' is a question for the workspace database, and {} is not there; \
-         name the run itself — `brokkr keep-refs list` prints the runs this \
+         name the run itself — `brokkr journal keep-refs list` prints the runs this \
          repository holds exhibits for",
         selector::LATEST,
         db.display()
@@ -856,11 +705,20 @@ pub(crate) fn safe_lines(text: &str) -> String {
 /// profile from the command, and clap cannot both parse a verb and
 /// preserve that separator. It is not a user-facing command and never
 /// appears in `--help`.
+///
+/// An old flat spelling is respelled before the parse and says its new
+/// one on stderr first (decision 0113 ruling 4). A shell's completion
+/// request is answered before either, and exits (decision 0119 ruling 2).
 pub fn main() -> ExitCode {
+    completion::answer_if_asked();
     if let Some(args) = dsh_sandbox_runner_args() {
         return dsh_sandbox_runner(args);
     }
-    match Cli::try_parse().map(run) {
+    let (argv, moved) = respelled(std::env::args_os());
+    if let Some(moved) = moved {
+        eprintln!("{moved}");
+    }
+    match Cli::try_parse_from(argv).map(run) {
         Ok(Ok(code)) => code,
         Ok(Err(e)) => report(&e),
         Err(usage) => Exit::of_parse(&usage).into(),
@@ -1055,7 +913,7 @@ fn select_transcript_turn(read: TranscriptRead, turn: Option<u64>) -> Transcript
 
 /// The complete `brokkr.transcript/v1` document, every member present
 /// even when null or empty, serialized from the shared result alone: the
-/// bytes `brokkr transcript --json` prints and the browser's transcript
+/// bytes `brokkr runs transcript --json` prints and the browser's transcript
 /// route serves (#352).
 fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Option<u64>) -> String {
     let document = json!({
@@ -1077,7 +935,7 @@ fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Optio
     serde_json::to_string_pretty(&document).expect("a JSON value serializes")
 }
 
-/// `brokkr transcript`: resolve the run read-only, select exactly one
+/// `brokkr runs transcript`: resolve the run read-only, select exactly one
 /// participant, run the shared local derivation and render it. Nothing
 /// is launched, written or resumed.
 fn transcript_command(
@@ -1201,8 +1059,8 @@ impl Invocation {
     }
 
     /// The world as a READ surface reads it: a crossing that has moved is
-    /// a line in the readout rather than the end of it. `brokkr realms`
-    /// and `brokkr muninn run` read this way for the same reason `brokkr
+    /// a line in the readout rather than the end of it. `brokkr system realms`
+    /// and `brokkr runs muninn run` read this way for the same reason `brokkr
     /// doctor` does — a surface that only looks refuses nothing, and
     /// refusing here would blank the readout in exactly the world an
     /// operator opened it to see (decision 0046's Addendum; decision 0023
@@ -1282,7 +1140,7 @@ impl Invocation {
     }
 }
 
-/// `brokkr operator supersede` (decision 0047 ruling 1): one annotation
+/// `brokkr runs operator supersede` (decision 0047 ruling 1): one annotation
 /// on a run that has already finished, saying which of its residual
 /// findings another run closed. Every citation is verified before
 /// anything is written and a refusal writes nothing (ruling 2), so this
@@ -1331,8 +1189,8 @@ fn supersede(
     )?;
     eprintln!(
         "recorded supersede at seq {} on {run}; the findings stay in the journal, \
-         marked, and the run's status is untouched. Read it with: brokkr inspect \
-         --run {run}",
+         marked, and the run's status is untouched. Read it with: brokkr runs \
+         inspect --run {run}",
         written.seq
     );
     Ok(Exit::Completed.into())
@@ -1367,7 +1225,7 @@ impl JournalArgs {
     }
 }
 
-/// The one journal `brokkr ui` serves: the fleet `brokkr tui` opens, read
+/// The one journal `brokkr system ui` serves: the fleet `brokkr tui` opens, read
 /// the way `tui` reads it ([`hearths_of`]), so the two surfaces never show
 /// different fleets (#374). The web view serves a single journal, so a
 /// world whose realms name several hearths is refused, naming them, rather
@@ -1376,8 +1234,8 @@ fn ui_journal(workspace: &std::path::Path, journal: JournalArgs) -> Result<PathB
     let mut hearths = hearths_of(workspace, journal.realms, journal.db)?;
     anyhow::ensure!(
         hearths.len() == 1,
-        "brokkr ui serves one journal, and this world's realms name {}: {}; --db names \
-         the one to serve (brokkr tui and brokkr runs read them all)",
+        "brokkr system ui serves one journal, and this world's realms name {}: {}; --db \
+         names the one to serve (brokkr tui and brokkr runs read them all)",
         hearths.len(),
         hearths
             .iter()
@@ -1408,7 +1266,7 @@ fn hearths_of(
 
 /// The same fleet, with the WORLD it was read from kept — what a surface
 /// needs when it states facts about the map itself and not only about the
-/// journals the map names, which is `brokkr muninn run` and its crossings
+/// journals the map names, which is `brokkr runs muninn run` and its crossings
 /// (decision 0057; decision 0026 ruling 3).
 ///
 /// Opened with [`Invocation::inspect`]: the raven reports a moved
@@ -1517,13 +1375,17 @@ fn run_with(
 
 /// The small verb groups `Cmd::Grouped` flattens, each to its handler.
 fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode> {
-    use verbs::{setup, sweep};
+    use verbs::{dispatch, setup, sweep};
     match command {
         GroupedCmd::Recipes { command } => setup::recipes(workspace, command),
         GroupedCmd::Agents { command } => setup::agents(workspace, command),
         GroupedCmd::Muninn { command } => setup::muninn(workspace, command),
-        GroupedCmd::Secrets { command } => setup::secrets(workspace, command),
+        GroupedCmd::Configuration(command) => setup::configuration(workspace, command),
         GroupedCmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
+        GroupedCmd::Dispatch(args) => dispatch::dispatch(workspace, args, &mut std::io::stdout()),
+        GroupedCmd::Completions(args) => {
+            Ok(completion::script(args, &mut std::io::stdout().lock()))
+        }
     }
 }
 

@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.01035
 Authors: Molly Wang (Imperial Business School, London)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: research sweep, run weekly-research-sweep-registry-d-2012cc4d, 2026-09-04
 
 ## Summary
@@ -54,6 +54,33 @@ operator-GPG-signed grant. Decision 0046 slice (i)
 now supports namespace, harness and open, while seatbelt and container
 are refused as unbuilt. A boundary grant is also not the paper's
 per-activation risk certificate; sandbox spawning still consumes compute.
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** After "number crosses one:" add "as local risk approaches
+  zero, harm is"; for "at criticality, and with a positive floor" read
+  "at criticality, and keeps a positive floor". (ruled: "approve all the
+  fact and wording fixes")
+- **Row 2** keeps `alternative`. Finding: For "Condition an activation
+  on the full history that selected it, not only the local certificate"
+  read "Each activation's local certificate must stay valid conditional
+  on the full pre-activation history, including the information used to
+  select the request". (ruled: "approve all the fact and wording fixes")
+- **Row 4** now reads `planned`, not `alternative`. Finding: For "Grant
+  recursive authority sparingly and treat delegation as an explicit,
+  revocable loan" read "Grant recursive authority sparingly, with an
+  explicit risk charge for each activation". Citation: For "decision
+  0020; `crates/brokkr-cli/src/muninn.rs`: Muninn reads a dossier and
+  records validated proposals" read "#476 builds decision 0025's
+  operator-signed, expiring grant under a compiled never-list ceiling,
+  with escalation as the default; `crates/brokkr-cli/src/muninn.rs`
+  records validated proposals"; for "without executing them; the signed,
+  expiring grant and recursive-authority ceiling of decision 0025 are
+  not implemented here" read "without executing them; no per-activation
+  risk charge is planned". (ruled: "approve all that move to planned as
+  well")
 
 ## Candidates
 

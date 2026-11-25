@@ -4,10 +4,10 @@ This document states what you can build against, what may still move,
 and how a change to a frozen thing is made when it has to happen.
 
 **Where the tree is right now:** the workspace version in `Cargo.toml`
-is **0.14.0**. This is pre-1.0 software. The contracts under
+is **0.15.2**. This is pre-1.0 software. The contracts under
 `contracts/` are nonetheless already frozen and have been since the
 first implementation — the freeze is older than the version number and
-does not wait for it. See the [v0.14.0 release notes](../releases/v0.14.0.md)
+does not wait for it. See the [v0.15.2 release notes](../releases/v0.15.2.md)
 for what changed and current platform limitations, and the
 [v0.10.0 notes](../releases/v0.10.0.md) for the boundary migration.
 
@@ -28,7 +28,7 @@ other is not yet.
 | | Frozen contracts | The CLI surface |
 |---|---|---|
 | **Promise** | A version's bytes never change. A change is a new numbered version file beside the old one. | Semver from 1.0: breaking changes to subcommands and flags need a major bump. |
-| **In force** | **Now**, and since the first implementation. Independent of the crate version. | **From 1.0.** Today, at 0.14.0, flags may still move. |
+| **In force** | **Now**, and since the first implementation. Independent of the crate version. | **From 1.0.** Today, at 0.15.2, flags may still move. |
 | **Enforced by** | CI compiles the frozen and additive contracts; the fixtures corpus differential-tests the evaluator; manifest schemas pin `{"const": 1}` on `event_schema`. | Convention today; release process from 1.0. |
 
 The contracts freeze is the load-bearing one, because it is what a
@@ -185,7 +185,9 @@ and the release window in that ruling's slice 2.
 | `seat-record/v3` | `contracts/seat-record.v3.schema.json` | journal | 0034 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.8 | 0.12 |
 | `seat-record/v4` | `contracts/seat-record.v4.schema.json` | journal | 0046 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.9 | 0.12 |
 | `seat-record/v5` | `contracts/seat-record.v5.schema.json` | journal | 0056, enacted, pending acceptance | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.11 | 0.14 |
-| `seat-record/v6` | `contracts/seat-record.v6.schema.json` | journal | 0065 | drivers | dispatch brokkr_store::SeatRecordVersion | current | | |
+| `seat-record/v6` | `contracts/seat-record.v6.schema.json` | journal | 0065 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.13 | 0.16 |
+| `seat-record/v7` | `contracts/seat-record.v7.schema.json` | journal | 0109 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | never | 0.17 |
+| `seat-record/v8` | `contracts/seat-record.v8.schema.json` | journal | 0075 | drivers | dispatch brokkr_store::SeatRecordVersion | current | | |
 | `forge.realms/v1` | `contracts/realms.v1.schema.json` | input | 0023 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v2` | `contracts/realms.v2.schema.json` | input | 0026 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v3` | `contracts/realms.v3.schema.json` | input | 0041 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
@@ -216,11 +218,13 @@ and the release window in that ruling's slice 2.
 | `forge.host/v1` | `contracts/host.v1.schema.json` | input | 0068 (2026-10-10 addendum) | operator | load brokkr_runtime::admission::host::read | reader | | decision |
 | `forge.host/v2` | `contracts/host.v2.schema.json` | input | 0103 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
 | `forge.host/v3` | `contracts/host.v3.schema.json` | input | 0104 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
-| `forge.host/v4` | `contracts/host.v4.schema.json` | input | 0110 | operator | load brokkr_runtime::admission::host::read | current | | decision |
+| `forge.host/v4` | `contracts/host.v4.schema.json` | input | 0110 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
+| `forge.host/v5` | `contracts/host.v5.schema.json` | input | 0125 | operator | load brokkr_runtime::admission::host::read | current | | decision |
 | `panel-carry/v1` | `contracts/panel-carry.v1.schema.json` | journal | 0093 | engine crates/brokkr-runtime/src/engine/dispatch.rs | load brokkr_runtime::engine::carry::facts::terminal_record | current | | |
 | `provider-wait/v1` | `contracts/provider-wait.v1.schema.json` | journal | 0103 | engine crates/brokkr-runtime/src/engine/cooldown.rs | load brokkr_core::provider_waits | reader | | |
 | `provider-wait/v2` | `contracts/provider-wait.v2.schema.json` | journal | 0106 | engine crates/brokkr-runtime/src/engine/cooldown.rs | load brokkr_core::provider_waits | current | | |
 | `park-cause/v1` | `contracts/park-cause.v1.schema.json` | journal | 0106 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::ParkCause::read | current | | |
+| `effect-usage/v1` | `contracts/effect-usage.v1.schema.json` | journal | 0112 | engine crates/brokkr-runtime/src/engine/usage.rs | load brokkr_view::recipe_usage | current | | |
 | `brokkr.evidence-archive/v1` | `contracts/evidence-archive.v1.schema.json` | input | 0105 | operator | load brokkr_runtime::engine::evidence::read_archive | current | | decision |
 
 `fixtures/evaluator/corpus.ndjson` is frozen contract data, never
@@ -232,7 +236,7 @@ The binary reports the versions it was built against:
 ```console
 $ brokkr doctor
 …
-ok       contracts: engine 0.14.0, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.15.2, event_schema 1, database_schema 1, driver_protocol 1
 …
 ```
 
@@ -299,7 +303,7 @@ Stated plainly, because this is a 0.x tree:
 - **What does *not* break, even pre-1.0:** the frozen contracts. Every
   decision that has touched them so far — 0016, 0022, 0023 — added a new
   numbered version beside the old one and left the old bytes alone. That
-  is the one guarantee that is already load-bearing at 0.14.0, and it is
+  is the one guarantee that is already load-bearing at 0.15.2, and it is
   the one to build against.
 
 ## The closed deprecation window
@@ -310,11 +314,13 @@ Issue #355 closed that window: releases after v0.11.0 read only the
 current names.
 
 - **Environment overrides.** `BROKKR_CLAUDE_BIN`, `BROKKR_LANETALLY_BIN`,
-  `BROKKR_CODEX_BIN`, `BROKKR_DSH_BIN`, `BROKKR_EXEC_NAME` and
-  `BROKKR_BROWSER_BIN` are the only names that configure anything. A
-  pre-rename spelling set where its current name is not is refused by
-  both names: the seat fails to start, `brokkr doctor` reports the DSH
-  selection refused, and `brokkr ui` opens no browser. Nothing runs in
+  `BROKKR_CODEX_BIN`, `BROKKR_DSH_BIN`, `BROKKR_QODER_BIN`,
+  `BROKKR_AGY_BIN`, `BROKKR_EXEC_NAME` and `BROKKR_BROWSER_BIN` are the
+  only names that configure anything. `BROKKR_QODER_BIN` and
+  `BROKKR_AGY_BIN` came after the rename and have no pre-rename
+  spelling. A pre-rename spelling set where its current name
+  is not is refused by both names: the seat fails to start, `brokkr doctor` reports the DSH
+  selection refused, and `brokkr system ui` opens no browser. Nothing runs in
   its place. The prefix is no longer denied as a secret name, since a
   name read only to refuse it cannot aim the harness anywhere.
 - **The bundle argv token.** Only `{brokkr}` expands to the engine's own

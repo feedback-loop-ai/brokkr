@@ -116,7 +116,7 @@ impl Store {
         // Asked before the write lock is taken, never under it.
         let host = crate::origin::local_host();
         let conn = &mut self.conn;
-        patiently("dispatch_hold", self.patience, || {
+        patiently("dispatch_hold", self.patience, &self.path, || {
             in_step(conn, |tx| hold_in(tx, host.as_deref(), pid))
         })
     }
@@ -125,14 +125,18 @@ impl Store {
     /// generation, its pid and when it took the journal; `None` where no
     /// dispatcher ever took it.
     pub fn dispatch_holder(&self) -> Result<Option<Holder>, StoreError> {
-        patiently("dispatch_holder", self.patience, || holder_now(&self.conn))
+        patiently("dispatch_holder", self.patience, &self.path, || {
+            holder_now(&self.conn)
+        })
     }
 
     /// The journal's bound on the refusals counted against an entry: the
     /// one its latest setting holds, or 3 where none was ever set. A
     /// setting that does not read as a bound of at least 1 is refused.
     pub fn dispatch_bound(&self) -> Result<NonZeroU32, StoreError> {
-        patiently("dispatch_bound", self.patience, || bound_now(&self.conn))
+        patiently("dispatch_bound", self.patience, &self.path, || {
+            bound_now(&self.conn)
+        })
     }
 
     /// Set the journal's bound on counted refusals to `bound`, journaling
@@ -144,7 +148,7 @@ impl Store {
         by: Attribution<'_>,
     ) -> Result<(), StoreError> {
         let conn = &mut self.conn;
-        patiently("set_dispatch_bound", self.patience, || {
+        patiently("set_dispatch_bound", self.patience, &self.path, || {
             in_step(conn, |tx| set_bound_in(tx, bound, by))
         })
     }

@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::{decided, fenced_append, read_back, EngineError};
 
-/// What `brokkr operator supersede` says, as the operator typed it
+/// What `brokkr runs operator supersede` says, as the operator typed it
 /// (decision 0047 ruling 1): which of this run's residual findings are
 /// closed, the run and ruling that closed them, and why.
 pub struct Supersede<'a> {
@@ -106,7 +106,7 @@ pub(in crate::engine) fn operator_supersede_racing(
         if !derived.iter().any(|known| known.ruling.seq == *finding) {
             return Err(refused(format!(
                 "seq {finding} is not a residual finding of run '{run_id}'; \
-                 brokkr inspect --run {run_id} lists the rulings that carry one"
+                 brokkr runs inspect --run {run_id} lists the rulings that carry one"
             )));
         }
     }

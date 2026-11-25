@@ -119,8 +119,8 @@ controller can follow this procedure.
 4. Ask the model for its tool list in one session, once with the overlay's
    `agent-default-model` row alone and once with the release's hands rows
    (`Release::pinned_rows`: the ten common rows, and on 0.2.2-rc.1 the
-   `tool-executor-ptc` pin as well). Record both lists and every tool that
-   changed.
+   `tool-executor-ptc` pin as well; on 0.2.2-rc.5 the `tool-agent-team`
+   pin after it). Record both lists and every tool that changed.
 5. Check the sandbox rows: `sandbox`, `sandbox-policy`, `bash-sandbox`,
    `pwsh-sandbox`, `permission` and `fs-sandbox` keep their ids and
    packages, and the hands overlay's `sandbox-policy` row carries the
@@ -370,6 +370,20 @@ controller can follow this procedure.
    overlay, by adding it to that release's `Release::pinned_rows`, the
    one table the judge, the overlay writer and the bounded reader all
    read.
+7. Read the release's transcripts (#1176). Run one seat session that uses
+   the job tools, so its transcript holds background-job records. Record
+   the set of record kinds (`type`) that session's transcript carries as
+   the release's catalogue fixture: a const list named for the release and
+   the date observed, beside `DSH_0_2_1_RC_2_CATALOGUE_2026_11_19` in
+   `crates/brokkr-view/src/transcript/dsh_versions/tests.rs`, with a test
+   that every kind is placed under its session version, as content, quiet
+   or a counted omission. A kind the reader cannot place fails that test
+   until the reader decides it; a kind no version places still refuses
+   the read (decision 0086). Then read the session with
+   `brokkr transcript`, which must not print `unsupported-format`.
+   The 0.2.1-rc.2 catalogue is the controller's, from 589 real seat
+   transcripts (2026-11-19). The 0.2.2-rc.5 catalogue is owed by the
+   controller, from a real rc.5 seat.
 
 ## Offline bindings (this change)
 
@@ -793,8 +807,209 @@ clean); `git diff --check`. The 649f80072 message names the reverted bare
 filter word with no `::` as `UnreadFilter` (its `path_of` finds no
 module). The gate verdict is unchanged, and the commit is not amended.
 
+## 0.2.2-rc.5: a measured release with its own composed set (2026-11-19)
+
+The operator, 2026-11-19: "can we update dsh to latest and qualify it for
+review seats?" This section covers the first step only: npm's `latest` and
+`next` are 0.2.2-rc.5 (published 2026-11-18), and Brokkr now admits it as a
+measured hands release. Qualifying it for review seats is later work.
+
+### Provenance
+
+The implementing seat has no dsh and no network. **No dsh figure in this
+section was re-run by that seat.** Every live figure is the controller's
+measurement of 2026-11-19, by the procedure above, quoted from the story's
+framing. The offline bindings at the end were run by the seat.
+
+| Figure | Source |
+| --- | --- |
+| The 0.2.2-rc.5 install, its 673 packages and `dsh --version` | controller, 2026-11-19, Linux workstation |
+| The plain `--dump-config`'s 101 rows, the three row deltas and the dump's digest | controller, 2026-11-19 |
+| Both tool lists, with and without the hands rows | controller, 2026-11-19, `spark-glm/GLM-5.3-Flash-EXL3` |
+| The sandbox rows, the executor defaults and the hands dump's digest | controller, 2026-11-19 |
+| The release tables, the overlay bytes and the judge's refusals | offline tests, this change |
+
+### Install and home
+
+| Item | Value |
+| --- | --- |
+| Host | Linux (the controller's workstation). macOS: pending, no macOS host |
+| Install | `npm install --prefix /var/tmp/dsh-0.2.2-rc.5 @deepseek-ai/dsh@0.2.2-rc.5`; 673 packages; `dsh --version` = `0.2.2-rc.5` |
+| Home | a scratch `DSH_HOME` (`/var/tmp/dsh-home-0225`) holding a copy of the operator's `headless` profile, identical to the one 0.2.2-rc.1 was measured with; the installed 0.2.1-rc.2 and the operator's `~/.dsh` were untouched |
+| Profile modules | the copy's `node_modules` held 0 entries, so every row is 0.2.2-rc.5's own |
+
+### The composition diff
+
+`dsh --profile headless --dump-config` (no model call) composed 101
+top-level rows, against 0.2.2-rc.1's 99. Its sha256 starts
+`271ed858f3d14686`. Every other `(id, name)` pair is unchanged. The deltas
+against 0.2.2-rc.1, by `(id, name)`:
+
+| Change | Row | Package | State |
+| --- | --- | --- | --- |
+| new | `agent-team` | `@deepseek-ai/dsh-agent-team` | enabled by default; config `maxTasks: 256` |
+| new | `tool-agent-team` | `@deepseek-ai/dsh-tool-agent-team` | enabled by default; no config |
+| changed | `deepseek-account` | `@deepseek-ai/dsh-deepseek-account-platform` → `@deepseek-ai/dsh-deepseek-account` | still `disabled: true` |
+| unchanged | `brokkr-hands` | `@deepseek-ai/dsh-mcp-client` | absent from a plain dump: the seat overlay's own insert |
+
+So 0.2.2-rc.5's measured set is 0.2.2-rc.1's, plus `agent-team` and
+`tool-agent-team`, with `deepseek-account` under its new package name, plus
+`brokkr-hands`: 102 rows in a seat's tree. The two counts measure different
+things: 101 (0.2.2-rc.1: 99) is a plain `--dump-config`, which carries no
+`brokkr-hands`; 102 (0.2.2-rc.1: 100) is a seat's composed tree, which adds
+that one row. In the code that is
+`ADDED_0_2_2_RC5` and `REMOVED_0_2_2_RC5` over 0.2.2-rc.1's set. Each
+release admits only its own set: a 0.2.2-rc.1 tree that carries either team
+row or the new `deepseek-account` package is refused `Unmeasured` naming
+0.2.2-rc.1, and a 0.2.2-rc.5 tree that carries the old package is refused
+naming 0.2.2-rc.5. 0.2.2-rc.2, rc.3 and rc.4 are not measured, so a seat on
+any of them is refused, and the refusal names every measured release.
+
+### The overlay
+
+The overlay is unchanged for 0.2.1 and 0.2.2-rc.1: the same bytes, the same
+sets and the same refusal texts, except that the version refusal now lists
+0.2.2-rc.5 among the measured releases. On 0.2.2-rc.5 it writes one more
+row, after the `tool-executor-ptc` pin and before the workspace server:
+
+```yaml
+- id: tool-agent-team
+  disabled: true
+```
+
+The new surface fails closed. `tool-agent-team` is the agent-team tool row,
+enabled by default. It offered no tool in either measured list, but nobody
+measured what it serves once a team is formed. So the overlay pins it
+disabled, and a composed tree that enables it is refused
+`Composition::Enabled`. `agent-team` is the host row and has no tool. It
+added no tool to either list below, so it stays as composed.
+
+### Tool lists
+
+Asked of the model in one session each on `spark-glm/GLM-5.3-Flash-EXL3`:
+
+| Overlay | Tools |
+| --- | --- |
+| the `agent-default-model` row alone | 24 tools (the controller recorded the count, not the names) |
+| the 0.2.2 hands rows: the ten common rows and the `tool-executor-ptc` pin (8) | `create_goal` `get_goal` `list_agents` `send_message` `todo_write` `update_goal` `wait_agent` `working_directory` |
+
+Compared with 0.2.2-rc.1, both lists changed the same way:
+`interrupt_agent` is gone and `wait_agent` is new. No team tool appears in
+either list. The hands list was measured with 0.2.2-rc.1's pins. The
+`tool-agent-team` pin this change adds only removes a row that offered
+nothing, so a tool list measured under the rc.5 overlay itself is listed
+under Pending.
+
+### Sandbox rows and digests
+
+- The six sandbox rows (`sandbox`, `sandbox-policy`, `bash-sandbox`,
+  `pwsh-sandbox`, `permission`, `fs-sandbox`) keep their ids and package
+  names.
+- `tool-executor-ptc` is `disabled: true` by default, and
+  `tool-executor-native` is enabled, as on 0.2.2-rc.1.
+- With the hands rows the dump still has 101 rows. The hands dump's sha256
+  starts `be8e3716a26ffbf0`; the plain dump's starts `271ed858f3d14686`.
+  The hands dump was taken with 0.2.2-rc.1's pins (the ten common rows and
+  the `tool-executor-ptc` pin), the same overlay as the hands tool list
+  above, not with the rc.5 overlay's `tool-agent-team` pin; a digest under
+  the rc.5 overlay itself is listed under Pending.
+
+### Offline bindings (0.2.2-rc.5)
+
+Run by the implementing seat with
+`cargo test -p brokkr-protocol --lib --locked -- --test-threads=16
+adapters::dsh_hands`, which gave 103 passed. The new tests are in
+`dsh_hands/tests/releases.rs`:
+
+- `a_0_2_2_rc5_tree_is_admitted`: the delta tables are pinned literally,
+  and the rc.5 fixture tree has 102 rows, with `agent-team` enabled and
+  `tool-agent-team` disabled. The judge admits it.
+- `a_0_2_2_rc5_row_is_refused_under_another_release`: each rc.5 row in a
+  0.2.2-rc.1 tree is refused `Unmeasured` naming 0.2.2-rc.1, and the old
+  `deepseek-account` package in an rc.5 tree is refused naming 0.2.2-rc.5.
+- `a_0_2_2_rc5_tree_with_the_team_tool_enabled_is_refused`:
+  `Composition::Enabled { id: "tool-agent-team" }`.
+- `only_0_2_2_rc5_whole_is_the_new_release`: `Release::named` matches
+  `0.2.2-rc.5` whole. `0.2.2-rc.2`, `rc.3`, `rc.4`, `0.2.2` and
+  `0.2.2-rc.50` refuse, and the refusal's text names all four measured
+  versions.
+- `the_0_2_2_rc5_overlay_is_pinned`: the rc.5 overlay's bytes are pinned.
+  The bounded reader refuses an rc.5 overlay that lacks the team pin
+  (`Overlay::HandsRowMissing("tool-agent-team")`), and refuses the team pin
+  on 0.2.2-rc.1 (`Overlay::HandsRow("tool-agent-team")`), each matched by
+  variant.
+
+## The boxed `brokkr-hands` row under `--dump-config` (#1277, 2026-11-24)
+
+Every boxed dsh seat was refused before its first turn with `Unreadable`
+("the composed dsh tree cannot be read as the one sequence of id and package
+rows dsh writes"). The driver's `brokkr-hands` overlay row carried
+`hands serve --workdir <path> --artifacts <path> --reach <JSON> --spec <JSON>`,
+and dsh's `--dump-config` (js-yaml) folds long string scalars onto a `>-`
+block scalar whose content line begins with `{`. Round 1052g8's line-property
+closure (`crates/brokkr-protocol/src/adapters/dsh_hands/composition/rows/carriers.rs`)
+reads every line as a structure line at its own position and refuses any line
+that opens a non-empty flow collection. Because a sealed reach always holds
+four absolute paths, `--reach` was always folded. The controller's captures
+are recorded in [dsh-hands-1277/README.md](dsh-hands-1277/README.md).
+
+### Provenance (#1277)
+
+The implementing seat has no dsh and no API key. **No dsh capture below was
+re-run by that seat.** Every live capture is the controller's measurement of
+2026-11-24 on Linux with dsh 0.2.2-rc.1, quoted from
+[dsh-hands-1277/README.md](dsh-hands-1277/README.md). The offline bindings
+were run by this seat.
+
+| Figure | Source |
+| --- | --- |
+| `seat-overlay.yml` and `dump-folded-json.txt` (100 rows; lines 455 and 458 start with `{` and are refused by the line rule) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 (`2811aede`, `dashscope/qwen4-max`) |
+| `overlay-base64url.yml` and `dump-base64url.txt` (100 rows, no line refused by the line rule) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
+| `dump-file-paths.txt` and `dump-short-json.txt` (100 rows each, no line refused) | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
+| Offline reader binding (runtime fixture read) on `dump-folded-json.txt` (`Unreadable`) and `dump-base64url.txt` (100 rows, `brokkr-hands` enabled on `@deepseek-ai/dsh-mcp-client`, admitted by `judge(Release::V0_2_2, …)` and `judge_mode(…, Mode::WorkspaceWrite)`) | offline tests, this change |
+| Keyed boxed Qwen4-Max chief seat turn (`ig-chief-dsh-qwen4-max-boxed-k4`) on round 4's change merged onto `main` at `4d51c363`: unkeyed run passed the reader and both judges and stopped at the missing credential (`eval-note-not-part-of-the-story--c8b73b47`); keyed run completed whole turn (`eval-note-not-part-of-the-story--be048762`: boundary `namespace`, 24 seat turns in 5m22s, 769,587 input tokens of which 713,216 cache reads, 19,344 output). Earlier keyed run on round 2's head: `eval-note-not-part-of-the-story--1ec99967`, 21 turns | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
+| Unkeyed boxed dsh seat launch on round 6's head (`fcddea103`, engine built from it): stopped at the same missing-credential point (`eval-note-not-part-of-the-story--f2b8935d`) and composed the equal seat overlay (the same four flags in the same order, and the same encoded reach of 689 JSON bytes and spec of 168 JSON bytes). No keyed turn was run on a head after round 4's | controller, 2026-11-24, Linux, dsh 0.2.2-rc.1 |
+| Writer binding: `--reach-base64url` and `--spec-base64url`, non-ASCII path and `-`/`_` bytes, exact round-trip decode, every emitted and folded line admitted by `rows::carriers::check`, and regenerated dump admitted by both judges | offline tests, this change |
+| `hands serve` CLI argument resolution (JSON or unpadded base64url through one deserialization per document; reach required in one spelling with main's usage order; spec defaults to `"workspace"` when omitted and refuses both spellings; leading-hyphen encoded values reach the decoder; encoded refusals disclose neither the raw value nor any decoded text; both spellings agree on every document including duplicate members; plain JSON refusals match main byte for byte on `hands serve` and `hands exec`) | offline tests, this change |
+
+### The fix
+
+- The line rule and row grammar (`composition/rows.rs` and
+  `composition/rows/carriers.rs`) did not change.
+- In a dsh seat's overlay only, the `brokkr-hands` row carries the exact
+  JSON bytes of the sealed reach and the hands spec encoded as RFC 4648
+  base64url without padding under `--reach-base64url` and `--spec-base64url`.
+  Harnesses that carry MCP configuration in JSON (`claude`, `codex`, `agy`,
+  `qoder`) keep `--reach` and `--spec` unchanged.
+- `brokkr hands serve` accepts each document in either its JSON spelling
+  (`--reach`, `--spec`) or its unpadded base64url spelling
+  (`--reach-base64url`, `--spec-base64url`), documented in
+  [hands.md](../../reference/hands.md) and proposed decision
+  [0127](../../decisions/0127-a-dsh-hands-row-carries-its-documents-as-unpadded-base64url.md).
+  For `--reach`, exactly one spelling is required (omitting both fails at clap
+  with exit code 2 before `--spec` is parsed, printing main's exact usage order
+  with `--reach` before `--spec`, selected from structured parser state); for `--spec`, both spellings refuse and omitting both uses
+  main's default `"workspace"` (shown in `brokkr hands serve --help` and
+  parsed by the same check). Both encoded arguments accept leading-hyphen
+  values so they reach the typed decoder. After decoding, both spellings of
+  each document go through the exact same parse (`serde_json::from_str::<Sealed>`
+  directly for reach, with no intermediate `Value` or map, so duplicate
+  members refuse identically in both spellings; `serde_json::from_str::<Value>`
+  plus `HandsSpec::checked` for spec, matching main). Encoded refusals meet
+  redaction at error reduction by keeping only the serde `Category` or
+  payload-free `SpecRefusalKind` (no raw value or decoded text in `Display`
+  or `Debug`), while plain JSON refusals on `hands serve` and `hands exec`
+  keep main's diagnostics byte for byte. One
+  codec in `crates/brokkr-protocol/src/base64.rs` (extracted from
+  `secret.rs`'s existing RFC 4648 encoder) serves both the overlay writer and
+  `hands serve`.
+- `--workdir` and `--artifacts` stay plain paths and are not encoded: a path
+  dsh folds onto a line the line rule refuses (for example starting with a
+  YAML flow indicator or a quote) stays refused, fail closed.
+
 ## Pending
 
+- Re-running a live keyed boxed dsh seat turn on a head after round 4's (#1277, #953): the controller measured a complete keyed turn on round 4's change merged onto `main` at `4d51c363` (`eval-note-not-part-of-the-story--be048762`, 24 seat turns in 5m22s, boundary `namespace`, 769,587 input tokens of which 713,216 cache reads, 19,344 output; unkeyed run `eval-note-not-part-of-the-story--c8b73b47`; earlier keyed run on round 2's head `eval-note-not-part-of-the-story--1ec99967`, 21 turns), and checked round 6's head (`fcddea103`) by the no-key run (`eval-note-not-part-of-the-story--f2b8935d`) and equal composed seat overlay (the same four flags in the same order, 689 JSON bytes of reach, 168 JSON bytes of spec); no keyed turn was run on a head after round 4's.
 - Exact coverage and `quality/ratchet.sh crap`: this seat's box has no
   LCOV output, so the crap ratchet refuses with "no LCOV at
   target/coverage/lcov.info: run scripts/coverage-exact.sh first". Every
@@ -809,3 +1024,12 @@ module). The gate verdict is unchanged, and the commit is not amended.
   owed to the controller).
 - A planted write through any remaining path in a read-only seat with the
   composed hands row, on 0.2.2-rc.1 as on 0.2.1.
+- On 0.2.2-rc.5: a tool list and a `--dump-config` digest measured under
+  the rc.5 overlay itself (with the `tool-agent-team` pin), which is also
+  the first live run of `agent-team` enabled beside its tool row disabled
+  and so the first thing the next measurement closes, a live
+  `mcp__brokkr__workspace` call, macOS, and the review-seat qualification
+  the operator asked for, which later units own.
+- On 0.2.2-rc.5: the record-kind catalogue of a real rc.5 seat session
+  that used the job tools, read with `brokkr transcript` (step 7; owed to
+  the controller).

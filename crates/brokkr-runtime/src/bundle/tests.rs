@@ -647,6 +647,26 @@ fn compiler_refuses_invalid_phase_seat_limit_and_input_shapes() {
     assert!(error(fixture.compile(&config, &policy)).contains("has no seat"));
 }
 
+/// #1221 C: a seat whose body and input set are both refused reports the
+/// body's refusal, and its inputs' once the body compiles.
+#[test]
+fn a_seats_body_refusal_is_reported_before_its_inputs() {
+    let (fixture, policy) = (Fixture::new(), Fixture::policy());
+    let mut config = Fixture::config();
+    config["seats"]["work"]["inputs"] = json!("bad");
+    let inputs = error(fixture.compile(&config, &policy));
+    assert_eq!(
+        inputs,
+        "bundle: seat 'work' inputs must be an array of strings"
+    );
+    config["seats"]["work"]
+        .as_object_mut()
+        .unwrap()
+        .remove("role");
+    let body = error(fixture.compile(&config, &policy));
+    assert_eq!(body, "bundle: seat 'work' missing 'role'");
+}
+
 #[test]
 fn select_parses_every_case_and_refuses_closed_vocabulary_defects_by_case() {
     let fixture = Fixture::new();
@@ -767,6 +787,8 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         dir,
         results: &results,
         secrets: &[],
+        residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
+        declares_change: false,
     };
 
     for raw in [
@@ -903,7 +925,7 @@ fn role_secret_command_and_confinement_boundaries_are_explicit() {
         json!({"driver":{"confine":{}}}),
         json!({"driver":{"confine":{"image":"img", "network":true, "mounts":["/x"]}}}),
     ] {
-        let refusal = error(refuse_confine("work", &raw));
+        let refusal = refuse_confine("work", &raw).unwrap_err().to_string();
         assert!(
             refusal.contains("seat 'work' declares driver.confine"),
             "{refusal}"

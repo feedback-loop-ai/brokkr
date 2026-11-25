@@ -188,7 +188,7 @@ fn invalid(message: String) -> CompileError {
 struct Layer {
     name: String,
     /// The library directory this layer was reached by. It may differ
-    /// from `name` — `brokkr recipes add --name` installs under a chosen
+    /// from `name` — `brokkr library recipes add --name` installs under a chosen
     /// directory — so provenance records both rather than trusting one.
     reached_as: Option<String>,
     dir: PathBuf,

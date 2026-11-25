@@ -52,7 +52,9 @@
 #
 # With no --binary, a release build is made first. Building is NOT
 # timed: the budgets are an operator's install experience, and an
-# operator installs a built artifact.
+# operator installs a built artifact. The script types 0.16's spellings
+# (`runs inspect`), so a --binary must be 0.16 or later: a released 0.15
+# binary does not parse them.
 
 set -euo pipefail
 
@@ -95,6 +97,7 @@ rule
 say 'MOCKED, so the numbers are not read as more than they are:'
 say '  · the download is a file:// read from a local staging dir,'
 say '    NOT a GitHub transfer. Network time is not in the 60s.'
+# shellcheck disable=SC2016 # the backticks are literal text the banner prints
 say '  · the run is driven by a stub standing in for the `claude`'
 say '    binary (BROKKR_CLAUDE_BIN). No agent session is spawned and'
 say '    nothing is billed. The bundle, compile, gate-class trust'
@@ -194,7 +197,7 @@ case "$phase" in
   # real; the model review answers clean with nothing fixed, so the
   # run is carried all the way to `done`. The window therefore
   # OVER-measures time-to-first-effect and never under-measures it.
-  review) result=clean; inputs='{"fixes_applied":false}' ;;
+  review) result=clean; inputs='{"fixes_applied":false,"max_residual_severity":"none","has_security_residual":false}' ;;
   *) result=blocked ;;
 esac
 if [ -z "$result_file" ]; then
@@ -251,7 +254,7 @@ fi
 # the run closed out by the table's own ruling. (These are the
 # assertions `crates/brokkr-cli/tests/bootstrap_bench.rs` makes, so the
 # mechanism is under the workspace suite and not only under this script.)
-( cd "$trial/src" && "$install_dir/brokkr" inspect --run latest --json ) \
+( cd "$trial/src" && "$install_dir/brokkr" runs inspect --run latest --json ) \
   >"$workdir/inspect.json" 2>&1 || true
 for expected in 'effect/succeeded' 'VERIFY-PASS' 'REVIEW-CLEAN-NO-FIXES' 'SHIP-COMPLETE'; do
   if ! grep -q "$expected" "$workdir/inspect.json"; then

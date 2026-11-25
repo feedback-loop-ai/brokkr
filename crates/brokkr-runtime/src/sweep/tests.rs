@@ -14,6 +14,7 @@ mod gone;
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -30,6 +31,7 @@ use env_guard::EnvGuard;
 use super::*;
 use crate::engine::{Cause, Named};
 use crate::envelope_builder::EnvelopeBuilder;
+use crate::reaped::exited_pid;
 
 const RUN: &str = "run-sweep";
 const RUN2: &str = "run-sweep-two";
@@ -941,6 +943,35 @@ fn a_hands_tree_with_no_lock_is_kept_and_reported() {
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
+/// F3 of #430's 5c2 reviews: a dry run names the lockless hands tree a
+/// pass keeps, with the pass's own words, and neither removes it.
+#[test]
+fn a_dry_run_and_a_pass_name_a_kept_lockless_hands_tree_alike() {
+    let mut fixture = Fixture::new();
+    let tree = hands_tree(&fixture.tmp, exited_pid(), "lockless");
+    let line = format!(
+        "sweep: kept {}: its lock cannot be probed: it holds no lock file; trees from before \
+         #415 are no longer reaped (0.13.0)\n",
+        tree.display()
+    );
+
+    let planned = plan(&fixture.store).unwrap();
+
+    assert!(tree.exists());
+    assert_eq!(
+        planned.lines_with(safe, true),
+        format!("{line}sweep: would free 0 bytes\n")
+    );
+    let (swept, _) = pass_one(&mut fixture.store);
+    assert!(tree.exists());
+    assert_eq!(swept.kept(), planned.kept());
+    assert_eq!(
+        swept.lines_with(safe, false),
+        format!("{line}sweep: freed 0 bytes\n")
+    );
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
 #[test]
 fn a_dry_run_lists_what_a_pass_would_remove_without_removing_it() {
     let mut fixture = Fixture::new();
@@ -1257,15 +1288,48 @@ fn a_hands_listing_whose_count_refuses_is_reported() {
     );
 }
 
+/// F4 of #430's 5c2 reviews: a walk refusal's line carries
+/// `TreeError::cause`'s own words, the one home brokkr-protocol keeps,
+/// and names no path the refusal carries. The line is compared with
+/// `error.cause()` before the words are pinned, so a restatement in sweep
+/// fails here as soon as the one home's words move.
 #[test]
-fn a_foreign_removal_cause_names_no_path() {
+fn a_walk_refusals_line_is_the_trees_own_cause() {
+    let io = TreeError::Io {
+        path: PathBuf::from("/tree/sealed"),
+        cause: std::io::Error::from_raw_os_error(13),
+    };
     let foreign = TreeError::Foreign {
         path: PathBuf::from("/tree/mounted"),
         device: 2,
         tree: 1,
     };
+    let words = (io.cause(), foreign.cause());
+    let mut swept = Swept::default();
+    let listed = |tree: &str, error| Listed {
+        tree: PathBuf::from(tree),
+        count: Err(error),
+    };
+    plan_hands_with(
+        [
+            listed("/tmp/brokkr-hands-io", io),
+            listed("/tmp/brokkr-hands-foreign", foreign),
+        ]
+        .into_iter(),
+        &mut swept,
+    );
+
     assert_eq!(
-        cause(&foreign),
+        swept.lines_with(safe, true),
+        format!(
+            "sweep: could not remove /tmp/brokkr-hands-io: {}\nsweep: could not remove \
+             /tmp/brokkr-hands-foreign: {}\nsweep: would free 0 bytes\n",
+            words.0, words.1
+        )
+    );
+    assert_eq!(words.0, "Permission denied (os error 13)");
+    assert_eq!(
+        words.1,
         "is on another filesystem (device 2, not 1); a tree is removed on its own filesystem"
     );
 }
@@ -1622,6 +1686,7 @@ fn every_kept_reason_has_words() {
         KeptReason::Shape(ShapeReason::ForeignFilesystem),
         KeptReason::RunCannotBeRead,
         KeptReason::RunDoesNotFold,
+        KeptReason::OperatorPayloadUnread,
         KeptReason::TmpdirRelative,
         KeptReason::TmpdirNotUtf8,
         KeptReason::Held(HeldReason::RunNotEnded),
@@ -1723,13 +1788,188 @@ fn hands_tree(tmp: &Path, pid: u32, label: &str) -> PathBuf {
     tree
 }
 
-/// A pid the kernel has reaped: a child that ran to completion.
-fn exited_pid() -> u32 {
-    let mut child = Command::new("true").spawn().unwrap();
-    let pid = child.id();
-    assert!(child.wait().unwrap().success());
-    pid
+/// The patience the fixture's own tests give it: under twice `REAP_GRACE`,
+/// so the grace it keeps back is half of it, and a fresh `REAP_GRACE`
+/// after the stop would overrun it.
+const FIXTURE_PATIENCE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// A child that never exits on its own.
+fn never_exits() -> Command {
+    let mut never_exits = Command::new("sleep");
+    never_exits.arg("600").stdout(std::process::Stdio::null());
+    never_exits.stderr(std::process::Stdio::null());
+    never_exits
 }
+
+/// What the fixture gave back for a child that never exits, stopped by
+/// `stop`, and how long it took.
+fn overdue_after(
+    stop: impl FnOnce(&mut std::process::Child),
+) -> (std::time::Duration, crate::reaped::Overdue) {
+    let started = std::time::Instant::now();
+    let overdue = crate::reaped::reaped_with(&mut never_exits(), FIXTURE_PATIENCE, stop)
+        .err()
+        .unwrap();
+    (started.elapsed(), overdue)
+}
+
+/// The words the fixture's entry point fails with on a child that never
+/// exits, stopped by `stop`; that child's pid; and how long the entry point
+/// took to fail.
+fn entry_failed_after(
+    stop: impl FnOnce(&mut std::process::Child),
+) -> (String, u32, std::time::Duration) {
+    let pid = std::cell::Cell::new(0);
+    let started = std::time::Instant::now();
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::reaped::pid_within(&mut never_exits(), FIXTURE_PATIENCE, |child| {
+            pid.set(child.id());
+            stop(child)
+        })
+    }));
+    let elapsed = started.elapsed();
+    let words = *panicked.err().unwrap().downcast::<String>().unwrap();
+    (words, pid.get(), elapsed)
+}
+
+/// The reaped-pid fixture is bounded by its one patience: a child that never
+/// exits is killed with the grace kept back, reaped, and given back as
+/// stopped before that patience runs out rather than hang; the entry point
+/// fails as soon, with the fixture's words for it.
+#[test]
+fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_that_never_exits() {
+    use crate::reaped::{kill, OverdueOutcome};
+    let (elapsed, overdue) = overdue_after(kill);
+    let status = match &overdue.outcome {
+        OverdueOutcome::Stopped(status) => *status,
+        OverdueOutcome::Unreaped(_) => panic!("{overdue}"),
+    };
+    let (words, pid, failed_after) = entry_failed_after(kill);
+
+    assert!(elapsed < FIXTURE_PATIENCE, "{elapsed:?}");
+    assert_eq!(status.signal(), Some(SIGKILL));
+    assert!(failed_after < FIXTURE_PATIENCE, "{failed_after:?}");
+    assert_eq!(
+        words,
+        format!(
+            "the fixture's child {pid} did not exit within 1s; it was stopped, and ended {status}"
+        )
+    );
+}
+
+/// The reap after the stop shares that patience, and so does the entry
+/// point's failure: a child the stop leaves alive is given back unreaped by
+/// the patience's end, and the entry point fails on it with no fresh grace,
+/// sends it SIGKILL, and leaves it reaped rather than a zombie.
+#[test]
+fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_its_stop_leaves_alive() {
+    use crate::reaped::{OverdueOutcome, REAP_GRACE};
+    let (elapsed, overdue) = overdue_after(|_| {});
+    let OverdueOutcome::Unreaped(mut child) = overdue.outcome else {
+        panic!("a child the stop left alive was given back reaped")
+    };
+    child.kill().unwrap();
+    let killed = child.id();
+    let reaped = crate::reaped::exited_before(
+        &mut child,
+        std::time::Instant::now() + crate::reaped::PATIENCE,
+    );
+    assert!(
+        reaped.is_some(),
+        "the given-back child {killed} was not reaped within PATIENCE of its kill"
+    );
+    let (words, pid, failed_after) = entry_failed_after(|_| {});
+    let gone = gone_before(pid, std::time::Instant::now() + REAP_GRACE);
+
+    let slack = std::time::Duration::from_millis(100);
+    assert!(elapsed < FIXTURE_PATIENCE + slack, "{elapsed:?}");
+    assert!(failed_after < FIXTURE_PATIENCE + slack, "{failed_after:?}");
+    assert_eq!(
+        words,
+        format!(
+            "the fixture's child {pid} did not exit within 1s; it was stopped but not reaped within it"
+        )
+    );
+    assert!(gone, "the fixture's child {pid} was left unreaped");
+}
+
+/// A child its stop lets end by itself is given back stopped, and the
+/// fixture says it ended by itself rather than that the stop ended it: here
+/// the stop closes the stdin the child reads, so it exits with a code.
+#[test]
+fn the_reaped_pid_fixture_says_a_child_ended_by_itself_when_no_signal_ended_it() {
+    use crate::reaped::OverdueOutcome;
+    let mut reads = Command::new("sh");
+    reads.args(["-c", "read -r line"]);
+    reads.stdin(std::process::Stdio::piped());
+    let overdue = crate::reaped::reaped_with(&mut reads, FIXTURE_PATIENCE, |child| {
+        drop(child.stdin.take())
+    })
+    .err()
+    .unwrap();
+    let OverdueOutcome::Stopped(status) = overdue.outcome else {
+        panic!("{overdue}")
+    };
+
+    assert_eq!(status.signal(), None, "{status}");
+    assert_eq!(
+        overdue.to_string(),
+        format!(
+            "the fixture's child {} did not exit within 1s; it was sent its stop, but ended by itself: {status}",
+            overdue.pid
+        )
+    );
+}
+
+/// A status is the fixture's only when a poll begun before the deadline
+/// collected it: a child that has ended, still unreaped, is not reported as
+/// reaped by a deadline already past, and the next bounded poll reaps it.
+#[test]
+fn the_reaped_pid_fixture_reports_no_reap_that_a_poll_after_its_deadline_collected() {
+    let mut child = Command::new("true").spawn().unwrap();
+    let pid = rustix::process::Pid::from_raw(i32::try_from(child.id()).unwrap()).unwrap();
+    assert!(
+        ended_unreaped_before(pid, std::time::Instant::now() + crate::reaped::PATIENCE),
+        "the fixture's child {pid:?} did not end within PATIENCE"
+    );
+
+    let past = std::time::Instant::now();
+    assert_eq!(crate::reaped::exited_before(&mut child, past), None);
+    let reaped = crate::reaped::exited_before(
+        &mut child,
+        std::time::Instant::now() + crate::reaped::PATIENCE,
+    );
+    assert!(reaped.is_some_and(|status| status.success()), "{reaped:?}");
+}
+
+/// Has `pid`, a child of this process, ended by `deadline`? Observed with
+/// `WNOWAIT`, so it stays unreaped for the caller.
+fn ended_unreaped_before(pid: rustix::process::Pid, deadline: std::time::Instant) -> bool {
+    use rustix::process::{waitid, WaitId, WaitIdOptions};
+    let options = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
+    loop {
+        let ended = matches!(waitid(WaitId::Pid(pid), options), Ok(Some(_)));
+        if ended || std::time::Instant::now() >= deadline {
+            return ended;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// Is `pid` gone, reaped and no zombie, by `deadline`?
+fn gone_before(pid: u32, deadline: std::time::Instant) -> bool {
+    let pid = rustix::process::Pid::from_raw(i32::try_from(pid).unwrap()).unwrap();
+    loop {
+        let gone = rustix::process::test_kill_process(pid) == Err(rustix::io::Errno::SRCH);
+        if gone || std::time::Instant::now() >= deadline {
+            return gone;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// The signal number of SIGKILL on both supported hosts.
+const SIGKILL: i32 = 9;
 
 /// A safe renderer for the lines: the CLI's own strips controls and the
 /// bidi marks, and this pins the same visible result for a control byte.

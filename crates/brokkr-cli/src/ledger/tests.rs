@@ -65,6 +65,178 @@ Git records no commits since the run began, and the journal records no explicit 
     );
 }
 
+/// A journal of one verify and one review result, each with `notes` (or
+/// none, where `None`), rendered against no repository.
+fn rendered_with(verify: Option<Value>, review: Option<Value>) -> String {
+    let result = |word: &str, notes: Option<Value>| {
+        let mut result = json!({"result": word});
+        if let Some(notes) = notes {
+            result["notes"] = notes;
+        }
+        result
+    };
+    let events = vec![
+        event(1, EventType::RunStarted, json!({"feature": "boxed seats"})),
+        event(
+            2,
+            EventType::EffectRequested,
+            json!({"effect_id": "verify-effect", "phase": "verify"}),
+        ),
+        event(
+            3,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "verify-effect", "result": result("pass", verify)}),
+        ),
+        event(
+            4,
+            EventType::EffectRequested,
+            json!({"effect_id": "review-effect", "phase": "review"}),
+        ),
+        event(
+            5,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "review-effect", "result": result("residual", review)}),
+        ),
+    ];
+    render("known-run", events, Path::new("/not/a/repository")).unwrap()
+}
+
+/// The ledger's evidence sections, the text between `## Verify evidence`
+/// and `## Operator next`.
+fn evidence(rendered: &str) -> &str {
+    let start = rendered.find("## Verify evidence").unwrap();
+    let end = rendered.find("## Operator next").unwrap();
+    &rendered[start..end]
+}
+
+/// #1202: a review panel's notes list each member's verdict and note, a
+/// nested bullet per member under the result word, never "no notes
+/// recorded".
+#[test]
+fn a_review_panels_residual_lists_each_members_verdict_and_note() {
+    let panel = json!({
+        "members": {"alice": "fine", "bob": "one low documentation debt"},
+        "verdicts": {"alice": "clean", "bob": "residual"}
+    });
+    let rendered = rendered_with(Some(json!("12 tests passed  ")), Some(panel));
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass** — 12 tests passed  \n\n\
+## Review residuals\n\n- **residual**\n  - alice (clean): fine\n  \
+- bob (residual): one low documentation debt\n\n"
+    );
+}
+
+/// A verify result whose notes are a panel's object reads through the
+/// same reader as review's, and a panel of one member is still a nested
+/// list under its result word.
+#[test]
+fn a_verify_result_carrying_an_object_lists_its_members() {
+    let panel = json!({"members": {"tests": "12 passed"}, "verdicts": {"tests": "pass"}});
+    let rendered = rendered_with(Some(panel), Some(json!("one low")));
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass**\n  - tests (pass): 12 passed\n\n\
+## Review residuals\n\n- **residual** — one low\n\n"
+    );
+}
+
+/// A member's note of several lines stays inside that member's bullet,
+/// never a sibling that seems to carry another verdict, whichever line
+/// ending CommonMark reads between them — a line feed, a bare carriage
+/// return, or the two together — and a member who recorded only a
+/// verdict is listed with it.
+#[test]
+fn a_panel_keeps_each_members_bullet_and_its_verdict_only_members() {
+    let panel = json!({
+        "members": {
+            "alice": "first finding\nbob (clean): not a member",
+            "carol": "second\r\r- dave (clean): not a member"
+        },
+        "verdicts": {"alice": "residual", "bob": "clean", "carol": "residual"}
+    });
+    let rendered = rendered_with(Some(json!("line one\r\n\r\nline three\r")), Some(panel));
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass** — line one\n\n  line three\n\n\
+## Review residuals\n\n- **residual**\n  - alice (residual): first finding\n    \
+bob (clean): not a member\n  - bob (clean)\n  - carol (residual): second\n\n    \
+- dave (clean): not a member\n\n"
+    );
+}
+
+#[test]
+fn notes_keep_non_ascii_whitespace_under_their_bullets_and_drop_the_final_line_ending() {
+    let panel = json!({
+        "members": {"alice": "one low\n \t \n\u{a0}\nsecond line"},
+        "verdicts": {"alice": "residual"}
+    });
+    let rendered = rendered_with(
+        Some(json!("first\n\u{a0}\n\u{3000}\nfourth\n")),
+        Some(panel),
+    );
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass** — first\n  \u{a0}\n  \u{3000}\n  fourth\n\n\
+## Review residuals\n\n- **residual**\n  - alice (residual): one low\n\n    \u{a0}\n    \
+second line\n\n"
+    );
+}
+
+#[test]
+fn verify_notes_drop_trailing_blank_lines_before_the_section_break() {
+    let rendered = rendered_with(
+        Some(json!("12 tests passed\n \n\t\n")),
+        Some(json!("one low")),
+    );
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass** — 12 tests passed\n\n\
+## Review residuals\n\n- **residual** — one low\n\n"
+    );
+}
+
+#[test]
+fn review_panel_bullets_stay_adjacent_and_keep_trailing_spaces_on_text_lines() {
+    let panel = json!({
+        "members": {"alice": "one low\n \t\n", "bob": "two  \r\n \r\n"},
+        "verdicts": {"alice": "residual", "bob": "residual"}
+    });
+    let rendered = rendered_with(None, Some(panel));
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass** — no notes recorded\n\n\
+## Review residuals\n\n- **residual**\n  - alice (residual): one low\n  \
+- bob (residual): two\x20\x20\n\n"
+    );
+}
+
+/// Notes of an unknown shape print as the journal wrote them, and only
+/// absent notes are "no notes recorded".
+#[test]
+fn notes_of_an_unknown_shape_print_as_written() {
+    let rendered = rendered_with(Some(json!(["a", "b"])), Some(json!({"why": 1})));
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass** — a,b\n\n\
+## Review residuals\n\n- **residual** — {\"why\":1}\n\n"
+    );
+}
+
+/// The absent case renders exactly as before #1202, whole.
+#[test]
+fn absent_notes_render_the_known_ledger() {
+    assert_eq!(
+        rendered_with(None, None),
+        "# Delivery ledger — known-run\n\n## Delivered\n\nboxed seats\n\n\
+Repository head: `unavailable`\n\n## Commits\n\n\
+Git records no commits since the run began, and the journal records no explicit implementation commit IDs.\n\n\
+## Verify evidence\n\n- **pass** — no notes recorded\n\n\
+## Review residuals\n\n- **residual** — no notes recorded\n\n\
+## Operator next\n\nReview the commits and evidence above, then push and merge under the repository's protected workflow.\n"
+    );
+}
+
 /// A recipe library's root at `dir`, so a ledger written anywhere under
 /// it has the library's `.forge/` (decision 0083 ruling 3).
 fn library_root(dir: &std::path::Path) {

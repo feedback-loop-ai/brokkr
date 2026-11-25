@@ -1078,7 +1078,7 @@ const SCANNER_CASES: [(&str, &[&str]); 48] = [
     ),
     (
         "#[serde(deserialize_with = \"url::Url::socket_addrs\")]\n#[serde(serialize_with = \"::std::fs::read\", with = \"Instant\")]\n#[cfg_attr(test, serde(getter = \"time::UtcDateTime::now\"))]",
-        &["1: \"url::Url::socket_addrs\" in an attribute: socket_addrs: an effectful item of url 2.5.8", "2: \"::std::fs::read\" in an attribute: std::fs::read: outside the pure std allowlist", "2: \"Instant\" in an attribute: Instant: a clock or randomness source", "3: \"time::UtcDateTime::now\" in an attribute: ::now: a clock or randomness source"],
+        &["1: \"url::Url::socket_addrs\" in an attribute: socket_addrs: an effectful item of url 2.5.9", "2: \"::std::fs::read\" in an attribute: std::fs::read: outside the pure std allowlist", "2: \"Instant\" in an attribute: Instant: a clock or randomness source", "3: \"time::UtcDateTime::now\" in an attribute: ::now: a clock or randomness source"],
     ),
     (
         "#[serde(bound = \"T: Serialize\")]\n#[serde(foo = \"b\")]\n#[serde(with = r\"std::fs\")]\n#[serde(from = \"std::\\x66s\")]\n#[serde(\"x\")]",
@@ -1090,7 +1090,7 @@ const SCANNER_CASES: [(&str, &[&str]); 48] = [
     ),
     (
         "let a = url.socket_addrs(|| None);\ntime::UtcOffset::local_offset_at(t);\nlet s = time::util::refresh_tz();",
-        &["1: socket_addrs: an effectful item of url 2.5.8", "2: local_offset_at: an effectful item of time 0.3.55", "3: refresh_tz: an effectful item of time 0.3.55"],
+        &["1: socket_addrs: an effectful item of url 2.5.9", "2: local_offset_at: an effectful item of time 0.3.55", "3: refresh_tz: an effectful item of time 0.3.55"],
     ),
     (
         "mod tests {\n    fn f() {}\n}\n#[cfg(not(test))]\nmod tests {\n    pub(crate) mod evil;\n}\n#[cfg(test)]\nmod tests {}\n#[cfg(test)]\n#[allow(dead_code)]\npub mod tests;",

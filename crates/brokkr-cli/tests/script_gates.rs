@@ -774,7 +774,324 @@ fn a_lint_tool_the_box_cannot_reach_is_named_and_the_rest_decide() {
     let (result, _) = fast_verify(&repo, "");
     assert_eq!(
         result,
-        r#"{"result": "pass", "notes": "cargo fmt --all -- --check: clean; cargo clippy --workspace --all-targets --all-features --locked -- -D warnings: clean\nlint-non-rust: not run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline (zizmor on PATH reports zizmor 0.1.0, not the pinned 3.0.0)\nlint-non-rust: not run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress (lychee is not on PATH)\nlint-non-rust: 4 of 6 lints ran clean\ncargo test --workspace: 1 successful test-suite summaries, 0 failed; cargo run -p brokkr-cli -- compile --bundle recipes/self: 1 bundle compiled, 0 failed (offline from the bound Cargo registry cache)"}
+        r#"{"result": "pass", "notes": "cargo fmt --all -- --check: clean; cargo clippy --workspace --all-targets --all-features --locked -- -D warnings: clean\nlint-non-rust: not run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline (zizmor on PATH reports zizmor 0.1.0, not the pinned 3.0.0)\nlint-non-rust: not run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress (lychee is not on PATH)\nlint-non-rust: 4 of 6 lints ran clean\ncargo test --workspace: 1 successful test-suite summaries, 0 failed; cargo run -p brokkr-cli -- library compile --bundle recipes/self: 1 bundle compiled, 0 failed (offline from the bound Cargo registry cache)"}
 "#
+    );
+}
+
+/// A tree for `docs-lane.sh classify` (#1295), committed and tagged `base`:
+/// pages under docs/ and at the top, one named by a file the docs lane
+/// runs, one compiled into a crate, a script and a workflow.
+fn lane_tree() -> Repo {
+    let repo = Repo::new();
+    for (path, text) in [
+        ("docs/guide.md", "# guide\n"),
+        ("docs/listed.md", "# listed\n"),
+        ("docs/compiled.md", "# compiled\n"),
+        ("README.md", "# front page\n"),
+        (
+            "scripts/docs-lane-tests.txt",
+            "# the lane\nbrokkr-cli it doc_truth:: crates/cli/tests/doc_truth.rs\n",
+        ),
+        (
+            "crates/cli/tests/doc_truth.rs",
+            "read(\"docs/listed.md\");\n",
+        ),
+        (
+            "crates/cli/src/lib.rs",
+            "include_str!(\"../../../docs/compiled.md\");\n",
+        ),
+        ("scripts/old.sh", "true\n"),
+        (".github/workflows/ci.yml", "jobs: {}\n"),
+        ("docs/proposed.md", "# proposed\n"),
+        ("openspec/plan.md", "See docs/proposed.md.\n"),
+        ("docs/roled.md", "# roled\n"),
+        ("recipes/r/roles/reviewer.md", "Read docs/roled.md first.\n"),
+        ("docs/tested.md", "# tested\n"),
+        (
+            "crates/cli/tests/unlisted.rs",
+            "read(\"docs/tested.md\");\n",
+        ),
+    ] {
+        repo.put(path, text);
+    }
+    repo.git(&["add", "-A"]);
+    repo.git(&["commit", "-q", "-m", "base"]);
+    repo.git(&["tag", "base"]);
+    repo
+}
+
+/// What `docs-lane.sh classify` prints for `base...head` in `repo`, and the
+/// reason it gives on stderr.
+fn lane_of(repo: &Repo, base: &str, head: &str) -> (String, String) {
+    let output = repo.run("scripts/docs-lane.sh", &["classify", base, head], &[]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    (stdout(&output), stderr(&output))
+}
+
+/// One path of a change, and its new text, `None` for a deletion.
+type Edit<'a> = (&'a str, Option<&'a str>);
+
+/// `repo`'s change, committed: each path written, or deleted when its text
+/// is `None`.
+fn change(repo: &Repo, edits: &[Edit]) {
+    for (path, text) in edits {
+        match text {
+            Some(text) => repo.put(path, text),
+            None => std::fs::remove_file(repo.path().join(path)).expect(path),
+        }
+    }
+    repo.git(&["add", "-A"]);
+    repo.git(&["commit", "-q", "--allow-empty", "-m", "change"]);
+}
+
+/// The classifier, case by case: only a page under docs/ or at the top,
+/// named by nothing but prose outside the code's trees and the docs lane's
+/// own files, is documentation, and every other change, or one it cannot
+/// read, is full, with its reason.
+#[test]
+fn the_docs_lane_classifier_calls_only_unnamed_pages_docs() {
+    let edit = "# changed\n";
+    let full = |reason: &str| ("full\n".to_string(), format!("docs lane: full: {reason}\n"));
+    let docs = || ("docs\n".to_string(), String::new());
+    let cases: [(&[Edit], (String, String)); 15] = [
+        (&[("docs/guide.md", Some(edit))], docs()),
+        (&[("README.md", Some(edit))], docs()),
+        (&[("docs/listed.md", Some(edit))], docs()),
+        (&[("docs/proposed.md", Some(edit))], docs()),
+        (
+            &[("docs/compiled.md", Some(edit))],
+            full("the file name of docs/compiled.md is named in code's input, outside the docs lane's tests"),
+        ),
+        (
+            &[("docs/roled.md", Some(edit))],
+            full("the file name of docs/roled.md is named in code's input, outside the docs lane's tests"),
+        ),
+        (
+            // A test the docs lane does not run names its page.
+            &[("docs/tested.md", Some(edit))],
+            full("the file name of docs/tested.md is named in code's input, outside the docs lane's tests"),
+        ),
+        (
+            &[("docs/guide.md", Some(edit)), ("crates/cli/src/lib.rs", Some("fn f() {}\n"))],
+            full("crates/cli/src/lib.rs is not a .md file"),
+        ),
+        (
+            &[(".github/workflows/ci.yml", Some("jobs: {a: {}}\n"))],
+            full(".github/workflows/ci.yml is not a .md file"),
+        ),
+        (
+            &[(".github/pull_request_template.md", Some(edit))],
+            full(".github/pull_request_template.md is neither under docs/ nor a top-level .md"),
+        ),
+        (
+            &[("docs/guide.md", None), ("notes/guide.md", Some("# guide\n"))],
+            full("notes/guide.md is neither under docs/ nor a top-level .md"),
+        ),
+        (&[("scripts/old.sh", None)], full("scripts/old.sh is not a .md file")),
+        // A page deleted (D, 100644 to 000000): alone it is documentation;
+        // one that code still names is not, since the base names it.
+        (&[("docs/guide.md", None)], docs()),
+        (
+            &[("docs/compiled.md", None)],
+            full("the file name of docs/compiled.md is named in code's input, outside the docs lane's tests"),
+        ),
+        (
+            &[("docs/blob.md", Some("a\0binary\0page\n"))],
+            full("docs/blob.md is a binary file"),
+        ),
+    ];
+    for (edits, expected) in cases {
+        let repo = lane_tree();
+        change(&repo, edits);
+        assert_eq!(lane_of(&repo, "base", "HEAD"), expected, "{edits:?}");
+    }
+
+    let repo = lane_tree();
+    assert_eq!(lane_of(&repo, "base", "HEAD"), full("the change is empty"));
+    let missing = "0123456789abcdef0123456789abcdef01234567";
+    assert_eq!(
+        lane_of(&repo, missing, "HEAD"),
+        full(&format!("the base {missing} is not a commit here"))
+    );
+
+    // The base gained a reader of docs/guide.md since the head forked: the
+    // head alone names nothing, the base does.
+    let repo = lane_tree();
+    change(
+        &repo,
+        &[(
+            "crates/cli/src/guide.rs",
+            Some("include_str!(\"guide.md\");\n"),
+        )],
+    );
+    repo.git(&["tag", "tip"]);
+    repo.git(&["checkout", "-q", "--detach", "base"]);
+    change(&repo, &[("docs/guide.md", Some(edit))]);
+    assert_eq!(
+        lane_of(&repo, "tip", "HEAD"),
+        full("the file name of docs/guide.md is named in code's input, outside the docs lane's tests")
+    );
+
+    let repo = lane_tree();
+    std::os::unix::fs::symlink("guide.md", repo.path().join("docs/link.md")).unwrap();
+    change(&repo, &[]);
+    let (lane, reason) = lane_of(&repo, "base", "HEAD");
+    assert_eq!(lane, "full\n");
+    assert!(
+        reason.starts_with("docs lane: full: docs/link.md changed as 000000 120000 "),
+        "{reason}"
+    );
+
+    let repo = lane_tree();
+    let output = repo.run("scripts/docs-lane.sh", &["classify", "base"], &[]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        stderr(&output),
+        "usage: docs-lane.sh classify <base> <head>\n"
+    );
+}
+
+/// `docs-lane.sh run` runs each package and target's filters as one test
+/// command, through the guard that refuses a run of no test, in the order
+/// the list first names each; one that fails fails the lane, and the rest
+/// still run.
+#[test]
+fn the_docs_lane_runs_its_list_one_command_a_target() {
+    let repo = lane_tree();
+    repo.put(
+        "scripts/docs-lane-tests.txt",
+        "# the lane\n\
+         a test:it one:: x.rs\n\
+         b lib two:: y.rs\n\
+         a test:it three:: z.rs\n",
+    );
+    for script in ["scripts/run-it-tests.sh", "scripts/test-summary.sh"] {
+        repo.put(
+            script,
+            &std::fs::read_to_string(workspace().join(script)).unwrap(),
+        );
+    }
+    repo.executable(
+        "scripts/run-it-tests.sh",
+        &repo.read("scripts/run-it-tests.sh"),
+    );
+    repo.executable(
+        "stub-bin/cargo",
+        &STUB_CARGO.replace(
+            "0 failed'",
+            "0 failed; 0 ignored; 0 measured; 0 filtered out'",
+        ),
+    );
+    let ran = repo.path().join("ran.txt");
+    let record = ran.to_str().unwrap();
+    let output = repo.run("scripts/docs-lane.sh", &["run"], &[("STUB_OUT", record)]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(
+        repo.read("ran.txt"),
+        "cargo test --locked -p a --test it -- one:: three::\n\
+         cargo test --locked -p b --lib -- two::\n"
+    );
+    std::fs::write(&ran, "").unwrap();
+    let output = repo.run(
+        "scripts/docs-lane.sh",
+        &["run"],
+        &[("STUB_OUT", record), ("STUB_FAIL", "cargo test")],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        repo.read("ran.txt").lines().count(),
+        2,
+        "the second target still ran"
+    );
+
+    repo.put("scripts/docs-lane-tests.txt", "a bench one:: x.rs\n");
+    let output = repo.run("scripts/docs-lane.sh", &["run"], &[("STUB_OUT", record)]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stderr(&output),
+        "docs lane: scripts/docs-lane-tests.txt names bench, neither lib nor test:<name>\n"
+    );
+}
+
+/// ci.yml's classifier step, run as a runner runs it: every event but a
+/// pull request's is full without a classifier run; a pull request is
+/// classified by its base's copy of the script, and a base without one is
+/// full; the lane is the step's output.
+#[test]
+fn the_classifier_step_is_full_off_a_pull_request_and_runs_the_bases_copy() {
+    let ci = std::fs::read_to_string(workspace().join(".github/workflows/ci.yml")).unwrap();
+    let (_, body) = crate::workflow::jobs(&ci)
+        .into_iter()
+        .find(|(job, _)| job == "classify")
+        .expect("ci.yml's classify job");
+    let lines: Vec<&str> = body.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.trim() == "run: |")
+        .expect("its run block");
+    let block: String = lines[at + 1..]
+        .iter()
+        .take_while(|line| line.starts_with("          "))
+        .map(|line| format!("{}\n", line.trim()))
+        .collect();
+    let step = |repo: &Repo, event: &str| {
+        let output_file = repo.path().join("output.txt");
+        std::fs::write(&output_file, "").unwrap();
+        let status = Command::new("bash")
+            .args(["-e", "-c", &block])
+            .current_dir(repo.path())
+            .env("EVENT", event)
+            .env("BASE", "base")
+            .env("HEAD", "HEAD")
+            .env("RUNNER_TEMP", repo.path())
+            .env("GITHUB_OUTPUT", &output_file)
+            .status()
+            .expect("bash");
+        (
+            status.success(),
+            std::fs::read_to_string(&output_file).unwrap(),
+        )
+    };
+
+    let repo = lane_tree();
+    change(&repo, &[("docs/guide.md", Some("# changed\n"))]);
+    for event in ["merge_group", "push", "workflow_dispatch", "pull_request"] {
+        assert_eq!(
+            step(&repo, event),
+            (true, "lane=full\n".to_string()),
+            "{event}"
+        );
+    }
+
+    let repo = lane_tree();
+    repo.put(
+        "scripts/docs-lane.sh",
+        &std::fs::read_to_string(workspace().join("scripts/docs-lane.sh")).unwrap(),
+    );
+    repo.git(&["add", "-A"]);
+    repo.git(&["commit", "-q", "-m", "the classifier"]);
+    repo.git(&["tag", "-f", "base"]);
+    change(&repo, &[("docs/guide.md", Some("# changed\n"))]);
+    assert_eq!(
+        step(&repo, "pull_request"),
+        (true, "lane=docs\n".to_string())
+    );
+    assert_eq!(
+        step(&repo, "merge_group"),
+        (true, "lane=full\n".to_string())
+    );
+
+    // The base's copy and the head's differ: the base's is the one run,
+    // never the copy the pull request brings.
+    let repo = lane_tree();
+    repo.put("scripts/docs-lane.sh", "echo docs\n");
+    repo.git(&["add", "-A"]);
+    repo.git(&["commit", "-q", "-m", "the base's classifier"]);
+    repo.git(&["tag", "-f", "base"]);
+    change(&repo, &[("scripts/docs-lane.sh", Some("echo full\n"))]);
+    assert_eq!(
+        step(&repo, "pull_request"),
+        (true, "lane=docs\n".to_string())
     );
 }

@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 
 #[path = "../../tests/support/git.rs"]
 mod git;
-pub(crate) use git::{in_clean_git_config, run, test_repository};
+#[path = "../../tests/support/git_child.rs"]
+mod git_child;
+pub(crate) use git::{run, test_repository};
+pub(crate) use git_child::in_clean_git_config;
 
 /// Run the calling test again in a clean child, returning here in the
 /// parent ([`in_clean_git_config`]). One line, so a repeated guard makes no

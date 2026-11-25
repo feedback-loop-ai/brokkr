@@ -175,9 +175,8 @@ fn an_entry_queued_under_another_environment_is_held_by_its_unplaced_shelf() {
         other.join("brokkr/recipes").display()
     );
     let listed = super::under(
-        &repo,
+        &mut repo.command("", &["queue", "list", "--json"]),
         &[("XDG_CONFIG_HOME", Some(&other))],
-        &["queue", "list", "--json"],
     );
     assert_eq!((listed.code, &*listed.stderr), (Some(0), ""));
     for (queue, hold) in [
@@ -197,10 +196,10 @@ fn an_entry_queued_under_another_environment_is_held_by_its_unplaced_shelf() {
 fn recipes_list_composes_across_the_shelf_it_selects() {
     let repo = selected();
     for (from, own) in [("", "own"), ("src", "../own")] {
-        let show = repo.brokkr(from, &["recipes", "show", "mine", "--dir", own]);
+        let show = repo.brokkr(from, &["library", "recipes", "show", "mine", "--dir", own]);
         assert_eq!(show.code, Some(0), "{}", show.stderr);
         let shown: Value = serde_json::from_str(&show.stdout).unwrap();
-        let list = repo.brokkr(from, &["recipes", "list", "--dir", own]);
+        let list = repo.brokkr(from, &["library", "recipes", "list", "--dir", own]);
         assert_eq!((list.code, &*list.stderr), (Some(0), ""));
         let line = list.stdout.lines().find(|line| line.contains("mine"));
         let fields: Vec<&str> = line.unwrap_or_default().split('\t').collect();

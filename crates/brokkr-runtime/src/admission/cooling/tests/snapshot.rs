@@ -90,8 +90,18 @@ fn a_refusal_committed_between_the_pass_reads_leaves_its_route_cooling_down() {
     let probing = cooling_by(("beta", "cloud"), hold_alone(at(31), words));
     assert_eq!(verdicts(judged), vec![vec![probing]]);
     // The claim, after it, reads the renewed row.
-    match (room.claim_at(&mut fixture.store, Generation(1), "admitted", base())).unwrap() {
-        Err(reason) => assert_eq!(reason, cooling("beta", "cloud", renewed, "renewed")),
+    let claimed = room.claim_at(
+        &mut fixture.store,
+        Generation(1),
+        "admitted",
+        &mut || true,
+        base(),
+    );
+    match claimed.unwrap() {
+        Err(crate::admission::capacity::Unclaimed::Refused(reason)) => {
+            assert_eq!(reason, cooling("beta", "cloud", renewed, "renewed"))
+        }
+        Err(stopped) => panic!("nothing asked the claim to stop: {stopped:?}"),
         Ok(claim) => panic!("the claim took {claim:?} over a renewed cool-down"),
     }
 }

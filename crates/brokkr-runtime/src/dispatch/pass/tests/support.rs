@@ -9,6 +9,7 @@ use brokkr_store::Store;
 
 use super::super::super::{pass, Ended, Ending, Passed, Seams, Spawn, SpawnFailed, Spawned};
 use crate::admission::Host;
+use crate::dispatch::pass::PassSeams;
 use crate::dispatch::Dispatcher;
 
 /// The host `file` declares, with a temp directory the tests own and every
@@ -18,19 +19,21 @@ pub(crate) fn host(file: &Path) -> Host<'_> {
         file,
         temp: Path::new("/brokkr-test-temp"),
         free: &|_: &Path| Ok(1 << 40),
+        machine: None,
     }
 }
 
 /// Run one pass over `store`, with the machine `file` names and `seams`.
-pub(crate) fn run_pass<S, P>(
+pub(crate) fn run_pass<S, P, C>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     file: &Path,
-    seams: Seams<S, P>,
+    seams: Seams<S, P, C>,
 ) -> Result<Passed, Box<Ended>>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    C: FnMut() -> bool,
 {
     pass(store, dispatcher, &host(file), OsString::new(), seams)
 }
@@ -40,6 +43,11 @@ pub(crate) fn stands_ok() -> Result<(), Ending> {
     Ok(())
 }
 
+/// A stop that never comes: every claim may go ahead.
+pub(crate) fn claims_ok() -> bool {
+    true
+}
+
 /// A spawn that starts one run with pid 1.
 pub(crate) fn spawned_one(_: &Spawn) -> Result<Spawned, SpawnFailed> {
     Ok(Spawned { pid: 1 })
@@ -47,14 +55,22 @@ pub(crate) fn spawned_one(_: &Spawn) -> Result<Spawned, SpawnFailed> {
 
 /// The seam a test uses when it neither counts a stand nor records a
 /// spawn.
-type Quiet = Seams<fn() -> Result<(), Ending>, fn(&Spawn) -> Result<Spawned, SpawnFailed>>;
+type Quiet =
+    PassSeams<'static, fn() -> Result<(), Ending>, fn(&Spawn) -> Result<Spawned, SpawnFailed>>;
 
-/// A seam that always stands and starts one run.
+/// A seam that always stands, claims and starts one run.
 pub(crate) fn quiet() -> Quiet {
     Seams {
         stands: stands_ok,
         spawn: spawned_one,
+        claims: always_claims(),
     }
+}
+
+/// [`claims_ok`] as the pass's own steps take it. A function item has no
+/// size, so the box it is leaked from allocates nothing.
+pub(crate) fn always_claims() -> &'static mut dyn FnMut() -> bool {
+    Box::leak(Box::new(claims_ok))
 }
 
 /// The queue commands the journal holds, in order.

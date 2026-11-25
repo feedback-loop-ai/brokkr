@@ -31,6 +31,7 @@ use std::path::Path;
 use std::time::Duration;
 
 pub use facts::Report;
+pub use observe::CredentialFile;
 
 use crate::adapters::AdapterKind;
 use crate::secret::BoundSecret;
@@ -106,6 +107,9 @@ pub struct ProbeInput<'a> {
     /// The credentials a turn is given; a turn without them measures the
     /// authentication refusal.
     pub bindings: &'a [BoundSecret],
+    /// The files under the operator's HOME a CLI reads its login from,
+    /// linked into the scratch HOME for each credentialed launch.
+    pub credential_files: &'a [CredentialFile],
     /// This binary, whose `hands serve` is the MCP server the hands argv
     /// supplies.
     pub brokkr: &'a Path,
@@ -149,10 +153,11 @@ pub fn run(input: &ProbeInput<'_>) -> Result<Report, ProbeError> {
         cli: input.cli,
         brokkr: input.brokkr,
         bindings: input.bindings,
+        files: input.credential_files,
         deadline: input.deadline,
         transcripts: plan.transcripts,
     };
-    let no_credentials = if input.bindings.is_empty() {
+    let no_credentials = if input.bindings.is_empty() && input.credential_files.is_empty() {
         Trial::Untried(
             "no credential was bound, so a turn without one is the plain turn".to_string(),
         )
@@ -168,7 +173,17 @@ pub fn run(input: &ProbeInput<'_>) -> Result<Report, ProbeError> {
         boxed: runner.trial(&plan.boxed)?,
         native_off: runner.trial(&plan.native_off)?,
     };
-    let bound: Vec<&str> = input.bindings.iter().map(BoundSecret::name).collect();
+    let files: Vec<String> = input
+        .credential_files
+        .iter()
+        .map(CredentialFile::name)
+        .collect();
+    let bound: Vec<&str> = input
+        .bindings
+        .iter()
+        .map(BoundSecret::name)
+        .chain(files.iter().map(String::as_str))
+        .collect();
     let measure::Reading { facts, unread } = measure::reading(&plan, &observed, &bound);
     let version = measure::version(&observed.version);
     Ok(Report {

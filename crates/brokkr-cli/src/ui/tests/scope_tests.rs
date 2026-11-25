@@ -1,5 +1,5 @@
 //! The browser paints the terminal's scope (#351): what `/api/view/<id>`
-//! serves for a seat is what `brokkr inspect --seat` prints for it, and
+//! serves for a seat is what `brokkr runs inspect --seat` prints for it, and
 //! the retired `/api/run/<id>` answers as any unknown path does.
 
 use super::*;

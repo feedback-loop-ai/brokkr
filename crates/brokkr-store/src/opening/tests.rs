@@ -11,7 +11,7 @@ use serde_json::error::Category;
 use serde_json::json;
 
 use crate::test_support::{plant_event, plant_run};
-use crate::{Opened, Store, StoreError};
+use crate::{Damage, Opened, Store, StoreError};
 
 /// A verdict, comparable: the head opened, or the refusal's variant with
 /// what it names, and its words.
@@ -20,6 +20,7 @@ enum Verdict {
     Opened(Opened),
     Chain(ChainError, String),
     Json((Category, usize, usize), String),
+    Damaged(Damage, String),
     NotFound(String, String),
     Unread(String),
 }
@@ -35,6 +36,7 @@ fn verdict(read: Result<Opened, StoreError>) -> Verdict {
         StoreError::Json(json) => {
             Verdict::Json((json.classify(), json.line(), json.column()), words)
         }
+        StoreError::Damaged { damage, .. } => Verdict::Damaged(damage, words),
         StoreError::RunNotFound(run_id) => Verdict::NotFound(run_id, words),
         StoreError::Sqlite(_) => Verdict::Unread(words),
         other => panic!("no verdict reads {other:?}"),
@@ -205,10 +207,18 @@ fn a_run_is_opened_as_the_whole_read_reads_it() {
     let events = journal(&db);
     let store = Store::open_read_only(&db).unwrap();
     let chain = |defect: ChainError| verdict(Err(StoreError::Chain(defect)));
-    let unparsed = || {
-        let error = serde_json::from_str::<EventEnvelope>("not an envelope").unwrap_err();
-        let words = StoreError::Json(error).to_string();
-        Verdict::Json((Category::Syntax, 1, 2), words)
+    // A row that is not JSON is the journal's damage, named at its seq (#1000).
+    let unparsed = |run_id: &str, seq| {
+        let damage = Damage::Envelope {
+            run_id: run_id.into(),
+            seq,
+        };
+        let journal = db.clone();
+        let words = StoreError::Damaged {
+            journal,
+            damage: damage.clone(),
+        };
+        Verdict::Damaged(damage, words.to_string())
     };
     let last = &events[3];
     let expected = [
@@ -250,8 +260,11 @@ fn a_run_is_opened_as_the_whole_read_reads_it() {
             "schema",
             chain(ChainError::BadSchemaVersion { seq: 2, found: 2 }),
         ),
-        ("unparsed-after-a-defect", unparsed()),
-        ("unparsed-twice", unparsed()),
+        (
+            "unparsed-after-a-defect",
+            unparsed("unparsed-after-a-defect", 4),
+        ),
+        ("unparsed-twice", unparsed("unparsed-twice", 2)),
         (
             "unread",
             Verdict::Unread("sqlite: Invalid column type Blob at index: 0, name: envelope".into()),

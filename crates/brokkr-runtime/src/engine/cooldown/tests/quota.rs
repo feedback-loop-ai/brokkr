@@ -20,6 +20,12 @@ const SERVE_CODEX: &str = "BROKKR_COOLDOWN_TESTS_SERVE_CODEX";
 #[cfg(unix)]
 const HARNESS_LINE: &str = "running 1 test";
 
+/// How far past [`LONG_WAIT`] the fake's usage reset lies when it reads the
+/// wall clock: the adapter reads its own a moment later, and the slack
+/// keeps the parsed wait at least `LONG_WAIT`, past any stall (#857).
+#[cfg(unix)]
+const RESET_SLACK: u64 = 300;
+
 /// Run the production codex adapter when this binary was spawned as the
 /// engine's driver. A binary run as a test returns from here and runs the
 /// case.
@@ -76,7 +82,7 @@ case "$n" in
   1)
     printf '%s\n' 'attempt:refuse' >> '@LOG@'
     mkdir -p "$CODEX_HOME/sessions/2026/11/08"
-    reset=$(($(date +%s) + 3600))
+    reset=$(($(date +%s) + @RESET@))
     {
       printf '%s\n' '@HEADER@' '@STARTED@'
       printf '{"timestamp":"9999-12-31T00:00:02Z","ordinal":2,"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":100.0,"resets_at":%s},"secondary":null}}}\n' "$reset"
@@ -105,6 +111,7 @@ esac
         ("@STARTED@", started),
         ("@COMPLETE@", complete),
         ("@THREAD@", THREAD.to_string()),
+        ("@RESET@", (LONG_WAIT_SECONDS + RESET_SLACK).to_string()),
     ] {
         script = script.replace(at, &with);
     }
@@ -207,6 +214,7 @@ fn codex_served(bundle: &mut crate::bundle::Bundle, label: &str, link: &Candidat
 #[test]
 fn a_codex_usage_limit_record_waits_for_the_probe_then_retries() {
     serve_codex_when_spawned();
+    own_engine!();
 
     let dir = tempfile::tempdir().unwrap();
     // The bundle's layer is bound by its canonical path: macOS's temporary
@@ -254,7 +262,9 @@ fn a_codex_usage_limit_record_waits_for_the_probe_then_retries() {
     // taken rather than parked: the held-wait past the maximum is
     // decision 0106's, and this unit does not build it.
     engine.cooldown.host = Some(host(&root, 1, 7_200));
-    let (mut engine, now) = with_clock(engine);
+    // A clock at real time, with no lead: the reset's own `LONG_WAIT` keeps
+    // the row in force however long the host stalls (#857).
+    let (mut engine, now) = with_clock_at(engine, OffsetDateTime::now_utc());
     let refused_at = *now.lock().unwrap();
     engine.drive().unwrap();
 
@@ -283,10 +293,14 @@ fn a_codex_usage_limit_record_waits_for_the_probe_then_retries() {
     let retry = waits[0]["retry_after_seconds"]
         .as_u64()
         .expect("the adapter parsed the record's reset");
-    // The fake states `now + 3600`; the adapter reads its clock a moment
-    // later, so the parsed wait is 3600 or a few seconds less. It is well
-    // inside the route's 7200-second maximum either way.
-    assert!((3_400..=3_600).contains(&retry), "{waits}");
+    // The fake states `now + LONG_WAIT + RESET_SLACK`; the adapter reads its
+    // clock a moment later, so the parsed wait is that or a few seconds
+    // less, never under `LONG_WAIT`. It is well inside the route's
+    // 7200-second maximum either way.
+    assert!(
+        (LONG_WAIT_SECONDS..=LONG_WAIT_SECONDS + RESET_SLACK).contains(&retry),
+        "{waits}"
+    );
     assert_eq!(waits[0]["seconds"], retry);
     assert_eq!(
         waits[0]["until"],

@@ -15,7 +15,23 @@ a fix by this seat.
 
 Result: `clean` · `residual`
 with `inputs: {"max_residual_severity": "<severity>",
-"has_security_residual": <bool>}` · or
+"has_security_residual": <bool>}` (a clean writes `none` and `false`) · or
 `security-hold` for any unresolved high/critical finding — one hold
 from you stops the whole panel: that is the design. The aggregate takes
 the worst member verdict; severities max; security flags OR.
+
+Record every security finding in `notes` with its severity, file and
+line, and one concrete failing case. Every member takes the class of its
+enclosing panel — gate-class only if all panel members are gates (the
+compiler refuses mixed panels, and a work-class panel treats every
+member as a work site). From a work site, your result object carries
+only `result`, `inputs` and `notes` and nothing else: any `findings`
+property, including `[]`, is refused (decision 0109 ruling 1). Your
+prompt never states your effective class, so keep your result object to
+`result`, `inputs` and `notes` and leave out `findings` completely
+unless you know the entire panel is gate-class. When you do emit
+`findings` from a gate-class panel, your word is bound to them (decision
+0109 ruling 2): `security: true` is the typed hold and requires
+`security-hold`; a security finding below hold severity stays at its
+honest severity with `security: false`, is named in `notes`, and sets
+`has_security_residual: true` under `residual`.

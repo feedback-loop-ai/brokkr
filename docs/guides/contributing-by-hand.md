@@ -57,7 +57,7 @@ judges by, so inside this tree plain `cargo` is CI's compiler and CI's
 Clippy (`rustup toolchain install`, run inside the tree, installs it), and the `+1.89.0` and
 dated-nightly prefixes are how the other two get selected.
 
-You do **not** need `cargo-audit`; the RustSec check runs only in CI.
+You do **not** need `cargo-audit`; CI runs the RustSec check for you.
 Installing it locally is a convenience, not a requirement — see
 [the checks you cannot fully reproduce](#the-checks-you-cannot-fully-reproduce).
 
@@ -88,26 +88,31 @@ Two habits from the house flow that transfer directly:
 
 ## The twelve checks
 
-All twelve are required status checks on `main`. Eleven come from ten
-jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (`engine`
+All twelve are required status checks on `main`. Two read the pull
+request's own labels and body and come from
+[`../../.github/workflows/pr-gates.yml`](../../.github/workflows/pr-gates.yml), which also
+re-runs them when a label or the body changes (#1295). Nine come from
+eight jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (`engine`
 runs once per operating system), and one is in
 [`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml). They run on
 every pull request, and again in [the merge queue](#the-merge-queue) on
-the commit that lands. This is the full list, in the workflows' own order;
+the commit that lands; a pull request that changes only documentation
+runs [the docs lane](#the-docs-lane) in place of the test and coverage
+machines. This is the full list, in the workflows' own order;
 each local command is the job's own, and the sections below explain them:
 
 | # | CI check | Job | Local command |
 |---|---|---|---|
-| 1 | `delivered by brokkr` | `delivered-by-brokkr` | — (a shipped run at your head; see [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand)) |
-| 2 | `MSRV (1.89)` | `msrv` | [`cargo +1.89.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
-| 3 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
-| 4 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test --parallel-heaps`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
-| 5 | `test (macos-latest)` | `engine` | on a Mac, `bash scripts/test-shards.sh test --parallel-heaps`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
-| 6 | `exact coverage gate` | `coverage` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
-| 7 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
-| 8 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
-| 9 | `baseline ratchets` | `ratchets` | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `PR_BODY="<your pull request's body>" quality/ratchet.sh baselines origin/main` |
-| 10 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
+| 1 | `delivered by brokkr` | `delivered-by-brokkr` (pr-gates.yml) | — (a shipped run at your head; see [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand)) |
+| 2 | `baseline ratchets` | `ratchets` (pr-gates.yml) | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `PR_BODY="<your pull request's body>" quality/ratchet.sh baselines origin/main` |
+| 3 | `MSRV (1.89)` | `msrv` | [`cargo +1.89.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
+| 4 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
+| 5 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test --parallel-heaps`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
+| 6 | `test (macos-latest)` | `engine` | on a Mac, `bash scripts/test-shards.sh test --parallel-heaps`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
+| 7 | `exact coverage gate` | `coverage-gate` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
+| 8 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
+| 9 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
+| 10 | `RustSec dependency audit` | `dependency-audit` | [`cargo audit`](#the-rustsec-advisory-audit), whose verdict moves with the advisory database |
 | 11 | `release binary artifact` | `release-binary` | [`cargo build --release --locked -p brokkr-cli`](#the-release-binary), then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
 | 12 | `mutants in the diff: brokkr-core` | `core-gate` (mutants.yml) | `bash scripts/mutants.sh gate origin/main brokkr-core` |
 
@@ -133,8 +138,9 @@ The four checks the list above adds to the older eight:
 - **`baseline ratchets`** (#338) holds file size and duplication to
   `quality/`'s committed baselines, refuses an unused dependency, and
   refuses any raised baseline unless the pull request body carries a
-  `Ruling:` line. CI reads that body from the pull request and judges
-  against the merge commit's first parent; locally, `origin/main` is the
+  `Ruling:` line. CI reads that body from the pull request, re-reads it
+  when you edit it, and judges against the merge commit's first parent;
+  locally, `origin/main` is the
   base and `PR_BODY` carries the body, so a raised baseline without its
   `Ruling:` line is refused here as it is there. `quality/README.md`
   explains each baseline and how to refresh it. The complexity and
@@ -239,7 +245,7 @@ and skip hosted cache transfers.
 requests and macOS always use hosted runners.
 
 CI spreads the shards over machines (operator rulings 2026-11-01,
-2026-11-03, 2026-11-04 and 2026-11-11): five Linux runners and four macOS runners, each running the shards the script
+2026-11-03, 2026-11-04, 2026-11-11 and 2026-11-23): eight Linux runners and five macOS runners, each running the shards the script
 lays on it, still one after another, while the machines run at once. The
 `engine-machines` job names each runner's machine in `BROKKR_TEST_MACHINE`
 (`linux/2`, `macos/1`), and the script's `machines` mode prints each
@@ -320,8 +326,8 @@ floor silently.
 ### The bundles compile
 
 ```
-cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
-cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
+cargo run --locked -p brokkr-cli -- library compile --bundle recipes/self
+cargo run --locked -p brokkr-cli -- library compile --bundle recipes/verify
 ```
 
 Each prints the resolved manifest and its content digest, and exits 0.
@@ -336,7 +342,7 @@ If you touched a recipe, a bundle, a role charter or an adapter, compile
 that one too:
 
 ```
-cargo run --locked -p brokkr-cli -- compile --bundle recipes/<name>
+cargo run --locked -p brokkr-cli -- library compile --bundle recipes/<name>
 ```
 
 and expect a witness digest to move — see
@@ -359,7 +365,9 @@ counts regions a skipped boundary proof never enters, so set it as the
 suite above does. This one has its own section:
 [the coverage gate, practically](#the-coverage-gate-practically).
 
-CI measures on the suite's Linux machines (operator ruling 2026-11-01).
+CI measures on eight Linux machines (operator rulings 2026-11-01 and
+2026-11-23), laid out by the shard script's own coverage column, since the
+instrumented shards do not grow alike; `machines coverage` prints them.
 Each `coverage-machines` runner measures its machine's shards, merges its
 profiles into one and hands it on with a manifest naming the machine and
 the candidate: the checked-out tree and the cache key. The gate's own job
@@ -469,20 +477,23 @@ docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app --entrypoint renovate-con
 
 ### The RustSec advisory audit
 
-CI runs `rustsec/audit-check` v2.0.0, pinned by commit, which fetches the RustSec advisory
-database and scans `Cargo.lock`. **It has no exact local
-equivalent** — the Action reports through the GitHub Checks API
-and reads its own copy of the database. The closest local approximation
-is `cargo install cargo-audit` and then:
+CI installs the cargo-audit release that
+[`setup-cargo-audit`](../../.github/actions/setup-cargo-audit/action.yml)
+pins by version and digest, and runs:
 
 ```
 cargo audit
 ```
 
-which loads the advisory database into `~/.cargo/advisory-db` and scans
-the same lockfile. A clean run reports the number of crate dependencies
-scanned and finds nothing; a hit prints the advisory id, the affected
-crate and version, and the versions that fix it.
+which fetches the RustSec advisory database into `~/.cargo/advisory-db`
+and scans `Cargo.lock`; its exit code is the check's verdict. Run the
+same with that release installed locally. A clean run reports the number
+of crate dependencies scanned and exits 0, printing any warning such as
+an unmaintained crate without failing; a vulnerability prints the
+advisory id, the affected crate and version, and the versions that fix
+it, and exits non-zero. Your verdict can still differ from CI's: the
+database is fetched fresh on each run, so an advisory published between
+the two runs changes it.
 
 The fix for an advisory is to move off the affected version: bump the
 dependency, or bump whatever pulls it in transitively, and commit the
@@ -596,8 +607,8 @@ against `.github/delivery-classes.json`; prose goes straight to the
 review seat, code goes through the verifier first — `cargo fmt --all
 -- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy
 --workspace --all-targets --all-features --locked -- -D warnings`,
-`cargo test --workspace` and `cargo run -p brokkr-cli -- compile
---bundle recipes/self`, in that order
+`cargo test --workspace` and `cargo run -p brokkr-cli -- library
+compile --bundle recipes/self`, in that order
 (`recipes/brokkr-fast/scripts/verify-seat.sh`, #427), in the box with no
 network because this repository's realm declares no boundary and so
 reads `namespace`; under `harness` the same script would run unboxed.
@@ -921,6 +932,44 @@ raised baseline's `Ruling:` line.
 `crates/brokkr-cli/tests/contributing.rs` holds which job and which step
 does which, each skip with its reason.
 
+### The docs lane
+
+A pull request whose change is documentation alone gets its verdict in
+minutes (#1295). The `classify` job runs the base branch's
+`scripts/docs-lane.sh classify` on the pull request's base and head, and
+calls the change `docs` only when every path it adds, modifies, deletes
+or renames is a plain text `.md` file under `docs/` or at the top level,
+and no file of the base's tree or the head's names its file name but
+another Markdown page outside `crates/`, `scripts/`, `recipes/`,
+`agents/`, `.github/` and `quality/`, or one of the docs lane's own
+tests. A page that code reads by name,
+compiles in with `include_str!` or pins by digest is code's input, so a
+change to it is `full`. Anything else is `full` too: an empty change, a
+binary, a symlink, a workflow, a commit git cannot find, or a step that
+fails.
+
+On `docs`, the test and coverage machines do not start, and the
+`docs-lane` job runs the tests that read documentation, the list
+`scripts/docs-lane-tests.txt` pins, with bubblewrap installed and the
+boxed samples required, as the Linux test machines run them:
+
+```
+BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 BROKKR_REQUIRE_PIDNS=1 bash scripts/docs-lane.sh run
+```
+
+`test (ubuntu-latest)`, `test (macos-latest)` and `exact coverage gate`
+then pass on the docs lane's own result, and on `full` on every machine's,
+as before: a classifier that failed, a docs lane that did not pass, or a
+machine that was skipped fails them, never passes them. The fast gates,
+`non-Rust lints` among them, run as on any pull request.
+
+Only a pull request's own event is classified. A merge group is always
+`full`, because it can hold several pull requests and is the last check
+before `main`, so a docs-only pull request still lands through the full
+queue run. `crates/brokkr-cli/tests/contributing/docs_lane.rs` holds the
+list complete: a test file that reads a page it does not name, a
+directory of `docs/` or every tracked file must be in it.
+
 ## The decision culture
 
 Every semantic change is a numbered operator ruling in
@@ -983,7 +1032,7 @@ identity, and so it faces the same required checks.
 This is the honest contribution surface for a first change, and it
 should not need a Rust edit. What a data change faces:
 
-1. **`brokkr compile`.** Every recipe and bundle in the tree is compiled
+1. **`brokkr library compile`.** Every recipe and bundle in the tree is compiled
    by `every_bundle_in_the_tree_compiles` in
    [`crates/brokkr-runtime/tests/witness_digests.rs`](../../crates/brokkr-runtime/tests/witness_digests.rs),
    automatically, as soon as the directory exists under `recipes/`.

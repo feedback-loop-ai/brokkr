@@ -22,6 +22,26 @@ pub(crate) const INDEX: &str = "runs_created_at";
 const LATEST_SQL: &str =
     "SELECT run_id, created_at FROM runs ORDER BY created_at DESC, rowid DESC LIMIT 1";
 
+/// `recent_runs`' statement: the index walked backwards, `?1` rows, each
+/// with the summary's bounded feature line where one is folded.
+const RECENT_SQL: &str = "SELECT runs.run_id, run_summary.feature_line FROM runs
+     LEFT JOIN run_summary ON run_summary.run_id = runs.run_id
+     ORDER BY runs.created_at DESC, runs.rowid DESC LIMIT ?1";
+
+/// `run_seats`' statement: the run's seat rows by their key, `?2` of them,
+/// in the order the projection opened them. No event is read.
+const SEATS_SQL: &str = "SELECT phase, seat, member FROM seat_summary
+     WHERE run_id = ?1 ORDER BY opened LIMIT ?2";
+
+/// A participant's names as its seat row keeps them: the phase it sat in,
+/// its seat, and its member's name where it is a panel member.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeatNames {
+    pub phase: Option<String>,
+    pub seat: Option<String>,
+    pub member: Option<String>,
+}
+
 /// `prefixed_runs`' statement: the key range a prefix reads.
 const PREFIX_SQL: &str =
     "SELECT run_id, created_at, rowid FROM runs WHERE run_id >= ?1 ORDER BY run_id";
@@ -51,11 +71,48 @@ impl Store {
     /// insertion order, and both keys descending is the index walked
     /// backwards, one row.
     pub fn latest_run(&self) -> Result<Option<(String, String)>, StoreError> {
-        patiently("latest_run", self.patience, || {
+        patiently("latest_run", self.patience, &self.path, || {
             let mut statement = self.conn.prepare(LATEST_SQL)?;
             let found = statement
                 .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
                 .optional()?;
+            self.note(&statement);
+            Ok(found)
+        })
+    }
+
+    /// The newest `limit` runs, newest first in `latest`'s order, each with
+    /// its summary's feature line, or `None` where none is folded: one page
+    /// of the `(created_at)` index and a key seek per row, whatever the
+    /// journal's size (decision 0119 ruling 4). No event is read.
+    pub fn recent_runs(&self, limit: u32) -> Result<Vec<(String, Option<String>)>, StoreError> {
+        patiently("recent_runs", self.patience, &self.path, || {
+            let mut statement = self.conn.prepare(RECENT_SQL)?;
+            let found = statement
+                .query_map(params![limit], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            self.note(&statement);
+            Ok(found)
+        })
+    }
+
+    /// The names of the first `limit` participants of `run_id`, as their
+    /// seat rows keep them: one range of the `(run_id, opened)` key,
+    /// whatever the run's or the journal's size (decision 0119 ruling 4).
+    /// No event is read, no chain verified, and a lagging row is read as
+    /// it stands: these are candidates, never a readout.
+    pub fn run_seats(&self, run_id: &str, limit: u32) -> Result<Vec<SeatNames>, StoreError> {
+        patiently("run_seats", self.patience, &self.path, || {
+            let mut statement = self.conn.prepare(SEATS_SQL)?;
+            let found = statement
+                .query_map(params![run_id, limit], |row| {
+                    Ok(SeatNames {
+                        phase: row.get(0)?,
+                        seat: row.get(1)?,
+                        member: row.get(2)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
             self.note(&statement);
             Ok(found)
         })
@@ -72,19 +129,37 @@ impl Store {
     /// it is a prefix of every id and `resolve` refuses it before any
     /// candidate is considered.
     pub fn run_candidates(&self, requested: &str) -> Result<Vec<(String, String)>, StoreError> {
-        patiently("run_candidates", self.patience, || {
-            self.candidates_once(requested)
+        patiently("run_candidates", self.patience, &self.path, || {
+            self.candidates_once(requested, usize::MAX)
         })
     }
 
-    fn candidates_once(&self, requested: &str) -> Result<Vec<(String, String)>, StoreError> {
+    /// [`Store::run_candidates`], reading at most `most` of a prefix's
+    /// matches: what tells one run from several costs one page, however
+    /// many runs the prefix names (decision 0119 ruling 4). A completer's
+    /// read, which never shows how many matched.
+    pub fn run_candidates_within(
+        &self,
+        requested: &str,
+        most: usize,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        patiently("run_candidates", self.patience, &self.path, || {
+            self.candidates_once(requested, most)
+        })
+    }
+
+    fn candidates_once(
+        &self,
+        requested: &str,
+        most: usize,
+    ) -> Result<Vec<(String, String)>, StoreError> {
         if requested.is_empty() {
             return Ok(Vec::new());
         }
         if let Some(exact) = self.exact_run(requested)? {
             return Ok(vec![exact]);
         }
-        self.prefixed_runs(requested)
+        self.prefixed_runs(requested, most)
     }
 
     fn exact_run(&self, requested: &str) -> Result<Option<(String, String)>, StoreError> {
@@ -98,12 +173,19 @@ impl Store {
         Ok(found)
     }
 
-    fn prefixed_runs(&self, prefix: &str) -> Result<Vec<(String, String)>, StoreError> {
+    fn prefixed_runs(
+        &self,
+        prefix: &str,
+        most: usize,
+    ) -> Result<Vec<(String, String)>, StoreError> {
         let mut statement = self.conn.prepare(PREFIX_SQL)?;
         let mut found: Vec<(String, String, i64)> = Vec::new();
         {
             let mut rows = statement.query(params![prefix])?;
-            while let Some(row) = rows.next()? {
+            while found.len() < most {
+                let Some(row) = rows.next()? else {
+                    break;
+                };
                 let run_id: String = row.get(0)?;
                 if !run_id.starts_with(prefix) {
                     break;

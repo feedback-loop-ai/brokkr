@@ -1,5 +1,5 @@
-//! `brokkr compare` — aligned outcome comparison of two runs: the payoff
-//! of the recipe library and `brokkr rerun` ("same feature, different
+//! `brokkr runs compare` — aligned outcome comparison of two runs: the payoff
+//! of the recipe library and `brokkr runs rerun` ("same feature, different
 //! strategy, what diverged?") as a single read-only command. Everything
 //! is derived from the run's fold, its trail, its seat rows and the
 //! stored manifest — no bundle recompilation, no writes, no
@@ -8,7 +8,7 @@
 //! `brokkr-view`'s derivations; this module reads the journal and prints
 //! them.
 //!
-//! `brokkr costs` and `brokkr compare` open each run first, its chain
+//! `brokkr stats costs` and `brokkr runs compare` open each run first, its chain
 //! verified, then read its seat rows, and `compare` its trail, at the
 //! head the opening verified (decision 0089 rulings 5 and 7). A run the
 //! store says is kept is read whole, as before (ruling 8): either way
@@ -31,7 +31,7 @@ use brokkr_view::{
 use serde::Serialize;
 use serde_json::{json, Value};
 
-/// `brokkr costs`: the run's per-seat report under the id `--run`
+/// `brokkr stats costs`: the run's per-seat report under the id `--run`
 /// resolved to — a full id, a unique prefix or `latest` (decision 0015).
 /// These bytes are LaneTally's join surface. The run is opened, then its
 /// seat rows read at the head the opening verified, or the run read whole
@@ -42,7 +42,7 @@ pub(crate) fn costs(store: &Store, requested: &str) -> Result<Costs> {
     costs_at(store, run, &opened)
 }
 
-/// `brokkr costs`' document of `run`, which its opening verified to
+/// `brokkr stats costs`' document of `run`, which its opening verified to
 /// `opened` (what ruling 9 bounds after the opening).
 pub(crate) fn costs_at(store: &Store, run: String, opened: &Opened) -> Result<Costs> {
     let (report, total) = match store.seat_rows_at(&run, opened)? {
@@ -70,7 +70,7 @@ pub(crate) fn costs_at(store: &Store, run: String, opened: &Opened) -> Result<Co
 // `Resolution` and `FirstDivergence` declare their fields in another
 // order, and the map is what keeps their keys sorted.
 
-/// `brokkr costs`'s document.
+/// `brokkr stats costs`'s document.
 #[derive(Serialize)]
 pub(crate) struct Costs {
     run_id: String,
@@ -78,7 +78,7 @@ pub(crate) struct Costs {
     total_cost_usd: f64,
 }
 
-/// One run's section of `brokkr compare`'s document.
+/// One run's section of `brokkr runs compare`'s document.
 #[derive(Serialize)]
 struct Summary {
     bundle_name: Value,
@@ -106,7 +106,7 @@ struct Pinned {
     sha256: String,
 }
 
-/// `brokkr compare`'s document: both runs' summaries keyed by run id.
+/// `brokkr runs compare`'s document: both runs' summaries keyed by run id.
 #[derive(Serialize)]
 struct Compared {
     comparison: Comparison,
@@ -342,7 +342,7 @@ pub(crate) fn compare(run_a: &str, run_b: &str, db: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The bytes `brokkr compare` prints of the two runs `runs` names, which
+/// The bytes `brokkr runs compare` prints of the two runs `runs` names, which
 /// their openings verified each to the head beside it (what ruling 9
 /// bounds after the openings).
 pub(crate) fn compared_at(store: &Store, runs: [(&str, &Opened); 2]) -> Result<String> {
@@ -352,7 +352,7 @@ pub(crate) fn compared_at(store: &Store, runs: [(&str, &Opened); 2]) -> Result<S
     Ok(serde_json::to_string_pretty(&document(run_a, a, run_b, b))?)
 }
 
-/// `brokkr compare`'s document: both runs' summaries keyed by run id, and
+/// `brokkr runs compare`'s document: both runs' summaries keyed by run id, and
 /// what the comparison found between them.
 fn document(run_a: &str, a: RunFacts, run_b: &str, b: RunFacts) -> Compared {
     let (one, two) = (&a.summary, &b.summary);

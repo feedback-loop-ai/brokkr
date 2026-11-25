@@ -2,6 +2,8 @@
 //! the one before it (#464): a writer that held rows behind a peer's lock
 //! takes the lock once to land them all, not once per row.
 
+use std::collections::BTreeSet;
+
 use brokkr_core::envelope::{EventEnvelope, EventType, EVENT_SCHEMA_VERSION};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
@@ -28,9 +30,13 @@ pub(crate) fn fence(
     payload: &Value,
     seq: u64,
 ) -> Result<Result<(), SeatRecordError>, StoreError> {
-    let Some(record) = seat_record::record_of(event_type, payload) else {
+    let record = seat_record::record_of(event_type, payload);
+    let settled = seat_record::settled_of(event_type, payload)
+        .next()
+        .is_some();
+    if record.is_none() && !settled {
         return Ok(Ok(()));
-    };
+    }
     // Which contract this run writes under is settled once, at
     // `run/started`, and `runs.manifest` is immutable by trigger — so the
     // engine named there is the same answer the export and verify sweeps
@@ -42,8 +48,58 @@ pub(crate) fn fence(
         .optional()?
         .flatten();
     let version = SeatRecordVersion::of_manifest(engine.as_deref());
-    Ok(seat_record::validate_seat_record(record, seq, version))
+    if let Some(Err(refusal)) =
+        record.map(|record| seat_record::validate_seat_record(record, seq, version))
+    {
+        return Ok(Err(refusal));
+    }
+    let marked = match settled {
+        true => marked_members(tx, run_id, payload)?,
+        false => BTreeSet::new(),
+    };
+    Ok(seat_record::validate_settled(
+        (event_type, payload),
+        &marked,
+        seq,
+        version,
+    ))
 }
+
+/// Every checkpoint payload of one attempt of a run, read from its
+/// journal: where the fence finds the engine's member markers.
+const CHECKPOINTS_OF_ATTEMPT: &str = "SELECT json_extract(envelope, '$.payload') FROM events
+     WHERE run_id = ?1 AND json_extract(envelope, '$.type') = 'effect/checkpointed'
+       AND json_extract(envelope, '$.payload.attempt_id') = ?2";
+
+/// The members the engine's own markers settled in `payload`'s attempt,
+/// read inside the fence's transaction, so the append fence judges a
+/// settled member's payload by the mark export and verify read (fix round
+/// 0109a1r6, W3).
+fn marked_members(
+    tx: &Connection,
+    run_id: &str,
+    payload: &Value,
+) -> Result<BTreeSet<String>, StoreError> {
+    let attempt = payload["attempt_id"].as_str().unwrap_or_default();
+    let mut statement = tx.prepare_cached(CHECKPOINTS_OF_ATTEMPT)?;
+    let rows = statement.query_map(params![run_id, attempt], |row| row.get::<_, String>(0))?;
+    let mut marked = BTreeSet::new();
+    for row in rows {
+        let checkpointed: Value = serde_json::from_str(&row?)?;
+        if let Some(member) =
+            seat_record::marked_member(EventType::EffectCheckpointed, &checkpointed)
+        {
+            marked.insert(member.to_owned());
+        }
+    }
+    Ok(marked)
+}
+
+/// The one insert every append seals its row with, prepared through the
+/// connection's statement cache (#1156): prepared afresh, the statement
+/// and every trigger it fires cost each row of a large append again.
+const INSERT_EVENT: &str = "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
+         VALUES (?1, ?2, ?3, ?4)";
 
 /// Seal `payload` as the run's next event after `head`, its seq and hash,
 /// and insert it inside `tx`; a seq a peer already took is
@@ -76,11 +132,9 @@ pub(crate) fn seal_and_insert(
     }
     .sealed();
     let serialized = serde_json::to_string(&envelope)?;
-    let inserted = tx.execute(
-        "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![run_id, envelope.seq as i64, envelope.event_hash, serialized],
-    )?;
+    let mut insert = tx.prepare_cached(INSERT_EVENT)?;
+    let row = params![run_id, envelope.seq as i64, envelope.event_hash, serialized];
+    let inserted = insert.execute(row)?;
     if inserted == 0 {
         return Err(StoreError::AppendConflict { seq: envelope.seq });
     }
@@ -166,7 +220,7 @@ impl Store {
         attempt_id: Option<String>,
     ) -> Result<Chain, StoreError> {
         let (conn, carried) = (&mut self.conn, self.carried.as_ref());
-        let (chain, settled) = patiently("append", self.patience, || {
+        let (chain, settled) = patiently("append", self.patience, &self.path, || {
             chain_once(
                 (conn, carried),
                 run_id,

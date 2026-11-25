@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2608.25174
 Authors: Davis, Kalu, Peng (Purdue University); Patil (Amazon Robotics)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: chat session, operator-fed, 2026-09-04
 
 ## Summary
@@ -48,6 +48,36 @@ building only; the authors make no causal claim.
 | 4 | Separate producing and reviewing agents with bounded roles and tools, and keep merge authority human | alternative | decision 0021: work and gate seats, held by different agents; decision 0033: the operator merges; the roles are bounded by charter, not by a control: decision 0041 makes judging offices read-only by charter, a tool list pre-approves tools and removes none, and only a seat that declares hands in a namespace realm is boxed, so the default delivery's review gate runs unboxed and can write (`docs/security-model.md`) |
 | 5 | Progressive disclosure of tools and representations to the agent | alternative | decision 0043: under namespace a claude seat's hands are one workspace tool whose calls the box bounds, while a Codex seat keeps its native read-only shell on the host beside it, and under harness no box stands (`docs/security-model.md`) |
 | 6 | Keep purpose-built models beside the code and test them against the reality they depict | implemented | decision 0002: the phase table is data the engine evaluates; decision 0037: a diagram of a machine-owned structure is tested against that structure; decision 0023: the realms map |
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Row 1** now reads `alternative`, not `implemented`. Finding: For
+  "Every fix ships with a decidable check; track the pairing rate" read
+  "Turn a failure that exposes an unenforced obligation into a fix
+  paired with a decidable check (208 such pairs in the paper's case)".
+  Citation: After "every determinable ruling" add "of a decision"; for
+  "it is judgment guidance" read "it is judgment guidance; this binds
+  decisions, not individual fixes, and no pairing rate is tracked".
+  (ruled: "0005 - approved")
+- **Row 2** now reads `implemented`, not `alternative`. Citation: For
+  "`docs/decisions/README.md`: a decision is proposed and the binding
+  lands with the slice that enacts it; there is no drain phase" read
+  "decision 0071 and `quality/README.md`: #335 recorded code-health
+  baselines on main before any code moved (audit), #338 turned them into
+  ratchets that may only shrink (drain), and CI's `ratchets` job and
+  `quality/ratchet.sh` refuse a regression, a raised baseline needing a
+  named ruling (promote); the remaining debt is epic #330". (ruled:
+  "0005 - approved")
+- **Row 3** keeps `not-planned`. Citation: `quality/file-lines.txt` and
+  `quality/suppressions.txt` already hold production and test line
+  counts and lint suppressions as committed baselines; no
+  support-to-production ratio, unmodelled share or drift-recurrence
+  measure is computed over time (ruled: "0005 - approved")
+- **Row 5** keeps `alternative`. Finding: After "to the agent" add "(a
+  practice the paper credits to a comparator case)". (ruled: "0005 -
+  approved")
 
 ## Candidates
 

@@ -12,18 +12,19 @@ use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use rustix::io::Errno;
 use rustix::net::{AddressFamily, SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags};
 use rustix::net::{SocketFlags, SocketType};
 use rustix::process::Pid;
 use serde_json::{json, Value};
 
-use super::cleanup::{identity, left_for_the_next_start};
+use super::cleanup::{descendants, identity, left_for_the_next_start};
 use super::{admitted, bootstrap, brokkr, chmod, euid, refused, setpriv, skip, unservable};
-use super::{Refusal, Sealed, Store, HARNESS};
+use super::{Refusal, Sealed, Store, HARNESS, STARTUP};
 
 /// A sequenced-packet pair, both ends closed on exec unless handed on.
 pub(super) fn pair() -> (OwnedFd, OwnedFd) {
@@ -474,8 +475,8 @@ fn an_observer_leading_no_process_group_of_its_own_refuses_before_its_tether() {
     // socket stays open until the observer has exited, so no watcher it
     // armed could fire: what this test sees is the refusal alone.
     let (ours, theirs) = pair();
-    let mut command = Command::new(brokkr());
-    command.args(args).args(["--plan-digest", super::DIGEST]);
+    let mut command = crate::built::brokkr_at(brokkr(), args);
+    command.args(["--plan-digest", super::DIGEST]);
     command.env("HOME", &sealed.home).stdin(Stdio::null());
     let child = command.stdout(theirs).stderr(Stdio::piped()).spawn();
     let out = super::bounded(child.unwrap(), b"");
@@ -911,14 +912,16 @@ fn blocked_to_the_deadline(kind: Kind) {
         let store = Store::new(sealed.path("store/secrets.env"));
         let started = Instant::now();
         let mut command = adopted(&serving(&sealed, &digest, &block, Starter::Harness));
-        let attempt = command.stderr(Stdio::null()).spawn().unwrap();
+        let mut attempt = command.stderr(Stdio::null()).spawn().unwrap();
         let pid = blocked(&sealed.locator, &block);
         let (_, broker, _) = status(pid).unwrap();
         // The controlled-clock proofs check the exact budget. Here the
         // deadline must refuse and settle the whole real process group;
         // the parent's elapsed time also includes startup and scheduling.
-        let elapsed = awaited(broker) - started;
-        let finished = exited(broker);
+        // A hang takes the observer's group with it, wherever it stands.
+        let observed = || group_felled(pid);
+        let at = ended_by_the_guard(broker, &mut attempt, observed, &format!("{kind:?}"));
+        let elapsed = at - started;
         let ended = swept(pid);
         let code = super::bounded_apart(attempt, b"", &apart(&sealed))
             .status
@@ -926,11 +929,7 @@ fn blocked_to_the_deadline(kind: Kind) {
         let ended_at = Instant::now();
         let answer = (code, broker_err(&sealed));
         assert_eq!((kind, answer), (kind, refused(Refusal::Identity)));
-        assert!(finished, "{kind:?}: broker still running at the hang guard");
-        assert!(
-            elapsed >= Duration::from_secs(30),
-            "{kind:?}: early refusal: {elapsed:?}"
-        );
+        assert!(elapsed >= STARTUP, "{kind:?}: early refusal: {elapsed:?}");
         assert!(ended, "{kind:?}");
         // Nothing was looked up or started.
         assert_eq!((kind, store.lookups(ended_at)), (kind, 0));
@@ -1002,19 +1001,255 @@ pub(super) fn cancelled(broker: i32) -> Duration {
     awaited(broker) - cancelled
 }
 
-/// When `pid` is gone, or only a zombie, waiting no longer than a minute.
-pub(super) fn awaited(pid: i32) -> Instant {
-    let until = Instant::now() + Duration::from_secs(60);
-    while !exited(pid) && Instant::now() < until {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    Instant::now()
+#[test]
+fn the_suites_startup_is_the_brokers_own() {
+    let session = include_str!("../../src/broker/session.rs");
+    let startup = crate::engine::startup_seconds_in("src/broker/session.rs", session);
+    assert_eq!(STARTUP, Duration::from_secs(startup));
 }
 
-/// Whether the process is gone or a zombie, without another wait. A
-/// caller can distinguish the hang guard in `awaited` from an exit, then
-/// clean up its fixture before asserting the observation.
-pub(super) fn exited(pid: i32) -> bool {
+/// When `pid` is gone, or only a zombie, waiting no longer than the hang
+/// guard, [`super::TALK_MAX`] from the wait's start.
+pub(super) fn awaited(pid: i32) -> Instant {
+    guarded(pid, || felled(pid)).0
+}
+
+/// [`awaited`], and whether `pid` ended by the hang guard: seen ended at a
+/// time no later than the guard, so that one exiting past it, however late
+/// this wakes, did not. One not ended by the guard is ended by `kill`.
+fn guarded(pid: i32, kill: impl FnOnce()) -> (Instant, bool) {
+    let until = Instant::now() + super::TALK_MAX;
+    // Its state first: an exit seen here came no later than the time.
+    guarded_with(until, || (exited(pid), Instant::now()), kill)
+}
+
+/// [`guarded`] on what `seen` observes, whether the process has ended and
+/// when that was looked at, until it ended or `until` passed. Every verdict
+/// short of an end by `until`, a late exit included, calls `kill`, so no
+/// failed proof leaves its attempt's tree standing.
+fn guarded_with(
+    until: Instant,
+    mut seen: impl FnMut() -> (bool, Instant),
+    kill: impl FnOnce(),
+) -> (Instant, bool) {
+    loop {
+        let (ended, at) = seen();
+        if ended | (at >= until) {
+            let finished = ended & (at <= until);
+            if !finished {
+                kill();
+            }
+            return (at, finished);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn an_exit_seen_past_the_guard_is_killed_as_a_hang_is() {
+    let until = Instant::now();
+    let late = until + Duration::from_millis(1);
+    let verdicts = [until, late].map(|at| {
+        let killed = std::cell::Cell::new(false);
+        let (_, finished) = guarded_with(until, || (true, at), || killed.set(true));
+        (finished, killed.get())
+    });
+    assert_eq!(verdicts, [(true, false), (false, true)]);
+}
+
+/// Kill `pid` outright; one gone and reaped since is no failure of the
+/// kill's.
+fn felled(pid: i32) {
+    let signal = rustix::process::Signal::KILL;
+    let gone = rustix::process::kill_process(Pid::from_raw(pid).unwrap(), signal);
+    assert!(matches!(gone, Ok(()) | Err(Errno::SRCH)), "{gone:?}");
+}
+
+/// Kill `root` and every live process below it, all found before any is
+/// killed, while each parent still stands, so no killed parent's orphan is
+/// left running.
+fn uprooted(root: i32) {
+    for pid in std::iter::once(root).chain(descendants(root)) {
+        felled(pid);
+    }
+}
+
+/// When `broker`, started by `attempt`, ended, within the hang guard
+/// ([`guarded`]). One that did not fails `what` there and then, its
+/// fixture torn down first ([`torn_down`]) with what the proof `observed`,
+/// so that no cleanup wait of its fixture outlasts the guard and nothing
+/// of it is left running.
+pub(super) fn ended_by_the_guard(
+    broker: i32,
+    attempt: &mut Child,
+    observed: impl FnOnce(),
+    what: &str,
+) -> Instant {
+    let (at, finished) = guarded(broker, || torn_down(attempt, observed));
+    assert!(finished, "{what}: broker still running at the hang guard");
+    at
+}
+
+/// [`felled_with`] of `attempt`; then reap it, so no zombie of it outlives
+/// the failure.
+fn torn_down(attempt: &mut Child, observed: impl FnOnce()) {
+    felled_with(i32::try_from(attempt.id()).unwrap(), observed);
+    attempt.wait().unwrap();
+}
+
+/// Kill `root` and every process below it, the broker, its starter and all
+/// they started ([`uprooted`]); then kill what `observed` names, those the
+/// proof saw that a broker already gone left reparented outside that tree.
+fn felled_with(root: i32, observed: impl FnOnce()) {
+    uprooted(root);
+    observed();
+}
+
+/// Kill every live one of `pids`, those already gone left alone.
+pub(super) fn felled_live(pids: &[i32]) {
+    pids.iter()
+        .filter(|pid| !exited(**pid))
+        .for_each(|pid| felled(*pid));
+}
+
+/// Kill every member of the process group `group`; one already empty is no
+/// failure.
+fn group_felled(group: i32) {
+    let signal = rustix::process::Signal::KILL;
+    let gone = rustix::process::kill_process_group(Pid::from_raw(group).unwrap(), signal);
+    assert!(matches!(gone, Ok(()) | Err(Errno::SRCH)), "{gone:?}");
+}
+
+#[test]
+fn a_torn_down_fixture_takes_what_was_observed_outside_its_tree() {
+    // The inner shell ends at once, so its sleep is reparented out of the
+    // attempt's tree, as a broker gone late leaves what it started.
+    // It stays in the attempt's process group, which `Planted` kills.
+    let script = "sh -c 'sleep 600 & echo $!'; exec sleep 600";
+    let mut command = Command::new("sh");
+    let attempt = command
+        .args(["-c", script])
+        .stdout(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let mut planted = Planted { attempt };
+    let out = planted.attempt.stdout.take().unwrap();
+    let said = first_line_within(out).expect("the fixture never said its orphan");
+    let orphan: i32 = said.trim().parse().unwrap();
+    let root = i32::try_from(planted.attempt.id()).unwrap();
+    // A process other than the attempt, seen outside its tree and still a
+    // live member of its group, so that outside is no vacuous truth; one
+    // that is not fails here, `Planted` killing the group on the unwind.
+    let outside = within(|| !descendants(root).contains(&orphan));
+    let member = members(root).contains(&orphan);
+    assert_eq!((orphan == root, outside, member), (false, true, true));
+    // `torn_down` itself, on a thread of its own awaited within a while, so
+    // one that kills nothing fails here, not when the attempt's sleep ends;
+    // the fixture comes back with nothing else having reaped its root.
+    let (done, came) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        torn_down(&mut planted.attempt, || felled_live(&[orphan]));
+        done.send(planted).ok();
+    });
+    let back = came.recv_timeout(WHILE).ok();
+    // Every observation is taken before any fallback kill: the root reaped
+    // by the teardown, gone from /proc and no zombie, and the orphan ended.
+    let reaped = back.is_some() && status(root).is_none();
+    let survived = !gone(orphan);
+    // A teardown that never came back is felled by its group, then awaited
+    // once more within a while, so the worker reaps the root and hands the
+    // fixture back before the proof fails, leaving no zombie to the host.
+    let back = back.or_else(|| {
+        group_felled(root);
+        came.recv_timeout(WHILE).ok()
+    });
+    drop(back);
+    assert_eq!((reaped, survived), (true, false));
+}
+
+/// The most a fixture's first line may hold: a PID and its newline fit
+/// many times over, and a writer that streams with no newline stops here.
+const LINE_CAP: u64 = 64;
+
+/// The first line `out` says within [`WHILE`] and [`LINE_CAP`] bytes, read
+/// on a thread of its own, so a writer that never says one, its pipe held
+/// open or streaming without a newline, blocks and grows no proof; none
+/// when no line came by then.
+fn first_line_within(out: impl std::io::Read + Send + 'static) -> Option<String> {
+    let (said, heard) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let capped = std::io::Read::take(out, LINE_CAP);
+        let read = std::io::BufRead::read_line(&mut std::io::BufReader::new(capped), &mut line);
+        if read.is_ok_and(|bytes| bytes > 0) {
+            said.send(line).ok();
+        }
+    });
+    heard.recv_timeout(WHILE).ok()
+}
+
+#[test]
+fn a_hang_kills_the_whole_tree_of_its_attempt() {
+    // A grandchild and its own child below the attempt, as the harness
+    // shell and the broker stand below the adopter's strace: past a kill
+    // of the attempt's children alone.
+    let script = "sh -c 'sleep 600 & wait' & wait";
+    let mut command = Command::new("sh");
+    let attempt = command
+        .args(["-c", script])
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let mut planted = Planted { attempt };
+    let root = i32::try_from(planted.attempt.id()).unwrap();
+    let stood = within(|| descendants(root).len() == 2);
+    let tree = descendants(root);
+    if !stood {
+        drop(planted);
+        panic!("the attempt's tree never stood");
+    }
+    uprooted(root);
+    let left: Vec<i32> = tree.iter().copied().filter(|pid| !gone(*pid)).collect();
+    let signal = planted.ended_by();
+    // Its survivors are counted first, so this teardown hides none.
+    drop(planted);
+    assert_eq!((left, signal), (vec![], Some(9)));
+}
+
+/// A fixture's attempt, started as the leader of a process group of its
+/// own, which all it starts joins: the whole group killed when it drops, a
+/// failed proof's unwind included, so a fork no scan of the tree has seen
+/// is killed with it; the attempt is then reaped, so nothing of the
+/// fixture outlives the test.
+struct Planted {
+    attempt: Child,
+}
+
+impl Planted {
+    /// The signal that ended the attempt, looked at within [`WHILE`] and
+    /// never waited on, so one left standing fails its proof then, not when
+    /// its sleep ends; none while it stands or when no signal ended it.
+    fn ended_by(&mut self) -> Option<i32> {
+        use std::os::unix::process::ExitStatusExt;
+        let root = i32::try_from(self.attempt.id()).unwrap();
+        let ended = within(|| exited(root)).then(|| self.attempt.try_wait().unwrap());
+        ended.flatten().and_then(|status| status.signal())
+    }
+}
+
+impl Drop for Planted {
+    fn drop(&mut self) {
+        // The group outlives its leader's reaping while a member stands.
+        let group = i32::try_from(self.attempt.id()).unwrap();
+        let signal = rustix::process::Signal::KILL;
+        rustix::process::kill_process_group(Pid::from_raw(group).unwrap(), signal).ok();
+        self.attempt.wait().ok();
+    }
+}
+
+/// Whether the process is gone or a zombie, without another wait.
+fn exited(pid: i32) -> bool {
     status(pid).is_none_or(|(state, _, _)| state == 'Z')
 }
 
@@ -1034,9 +1269,12 @@ pub(super) fn gone(pid: i32) -> bool {
     within(|| status(pid).is_none_or(|(state, _, _)| state == 'Z'))
 }
 
-/// Whether `holds` comes true within five seconds.
+/// The while a fixture's process is given to do what is looked for.
+const WHILE: Duration = Duration::from_secs(5);
+
+/// Whether `holds` comes true within [`WHILE`].
 pub(super) fn within(holds: impl Fn() -> bool) -> bool {
-    let until = Instant::now() + Duration::from_secs(5);
+    let until = Instant::now() + WHILE;
     while Instant::now() < until {
         if holds() {
             return true;

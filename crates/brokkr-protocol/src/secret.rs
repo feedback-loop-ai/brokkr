@@ -14,11 +14,12 @@
 
 use std::fmt;
 use std::io::Write;
+use std::iter::Peekable;
 use std::path::Path;
 
 /// Names a seat may never bind: grammar-legal names that would turn the
 /// env injector into a code-loading or harness-spoofing primitive.
-/// Enforced at bundle compile AND at `brokkr secrets set`.
+/// Enforced at bundle compile AND at `brokkr system secrets set`.
 pub const DENYLIST: [&str; 4] = ["PATH", "IFS", "LD_PRELOAD", "LD_LIBRARY_PATH"];
 
 /// The harness-owned prefix: `BROKKR_*` names configure the harness
@@ -150,18 +151,18 @@ pub fn denylisted(name: &str) -> bool {
 }
 
 /// Validate a name for binding: grammar plus denylist. One shared
-/// refusal for bundle compile and `brokkr secrets set`.
+/// refusal for bundle compile and `brokkr system secrets set`.
 pub fn validate_name(name: &str) -> Result<(), String> {
+    checked_name(name).map_err(|refusal| refusal.to_string())
+}
+
+/// [`validate_name`]'s checks, refusing in a typed cause.
+fn checked_name(name: &str) -> Result<(), NameRefusal<'_>> {
     if !valid_name(name) {
-        return Err(format!(
-            "secret name '{name}' does not match [A-Z][A-Z0-9_]*"
-        ));
+        return Err(NameRefusal::Grammar { name });
     }
     if denylisted(name) {
-        return Err(format!(
-            "secret name '{name}' is denylisted (PATH, IFS, LD_PRELOAD, \
-             LD_LIBRARY_PATH, and the BROKKR_ prefix are never bindable)"
-        ));
+        return Err(NameRefusal::Denylisted { name });
     }
     Ok(())
 }
@@ -171,20 +172,23 @@ pub fn validate_name(name: &str) -> Result<(), String> {
 /// wrong secret plus garbage lines — refused instead. Returns an
 /// optional warning for short-but-accepted values.
 pub fn validate_value(value: &str) -> Result<Option<String>, String> {
+    checked_value(value).map_err(|refusal| refusal.to_string())
+}
+
+/// [`validate_value`]'s checks, refusing in a typed cause; the warning
+/// stays text on the success path.
+fn checked_value(value: &str) -> Result<Option<String>, ValueRefusal> {
     if value.is_empty() {
-        return Err("secret value is empty".into());
+        return Err(ValueRefusal::Empty);
     }
     if value.contains('\n') || value.contains('\r') {
-        return Err("secret value must be a single line (the store is line-oriented)".into());
+        return Err(ValueRefusal::MultiLine);
     }
     if value.contains('\0') {
-        return Err("secret value must not contain NUL".into());
+        return Err(ValueRefusal::Nul);
     }
     if value.len() < MIN_VALUE_BYTES {
-        return Err(format!(
-            "secret value is shorter than {MIN_VALUE_BYTES} bytes; masking a \
-             tiny value shreds the journal's evidence trail"
-        ));
+        return Err(ValueRefusal::TooShort);
     }
     if value.len() < SHORT_VALUE_WARN_BYTES {
         return Ok(Some(format!(
@@ -205,6 +209,11 @@ pub fn validate_value(value: &str) -> Result<Option<String>, String> {
 /// whitespace (`{{ secret:NAME }}`), and unclosed references all fail
 /// closed at compile; a typo never rides into argv as literal text.
 pub fn scan_secret_refs(text: &str) -> Result<Vec<String>, String> {
+    checked_refs(text).map_err(|refusal| refusal.to_string())
+}
+
+/// [`scan_secret_refs`]'s walk, refusing in a typed cause.
+fn checked_refs(text: &str) -> Result<Vec<String>, ReferenceRefusal<'_>> {
     let bytes = text.as_bytes();
     let mut names = Vec::new();
     let mut search = 0;
@@ -221,11 +230,7 @@ pub fn scan_secret_refs(text: &str) -> Result<Vec<String>, String> {
             continue; // not a secret reference (no opening braces)
         }
         if open != at {
-            return Err(
-                "malformed secret reference near '{{{{ secret:': whitespace \
-                 is not allowed inside a reference"
-                    .to_string(),
-            );
+            return Err(ReferenceRefusal::Whitespace);
         }
         let name_start = at + "secret:".len();
         let mut name_end = name_start;
@@ -238,18 +243,12 @@ pub fn scan_secret_refs(text: &str) -> Result<Vec<String>, String> {
         }
         let name = &text[name_start..name_end];
         if name.is_empty() || !valid_name(name) {
-            return Err(format!(
-                "malformed secret reference '{}': expected {{{{secret:NAME}}}} \
-                 with NAME matching [A-Z][A-Z0-9_]*",
-                &text[at - 2..(name_end + 2).min(text.len())]
-            ));
+            return Err(ReferenceRefusal::Name {
+                quoted: quoted_reference(text, at, name_end),
+            });
         }
         if !text[name_end..].starts_with("}}") {
-            return Err(format!(
-                "malformed secret reference '{{{{secret:{name}': missing the \
-                 closing '}}}}' (or the name continues with characters outside \
-                 [A-Z0-9_])"
-            ));
+            return Err(ReferenceRefusal::Unclosed { name });
         }
         names.push(name.to_string());
         search = name_end; // the closing "}}" cannot begin "secret:"
@@ -257,17 +256,22 @@ pub fn scan_secret_refs(text: &str) -> Result<Vec<String>, String> {
     Ok(names)
 }
 
+/// The text a refused reference name quotes: from its `{{` through two
+/// bytes past the name, or the end of `text`, rounded up to the next
+/// character boundary so a multibyte character there is quoted whole
+/// rather than split. `text.len()` is a boundary, so the loop ends.
+fn quoted_reference(text: &str, at: usize, name_end: usize) -> &str {
+    let mut end = (name_end + 2).min(text.len());
+    while !text.is_char_boundary(end) {
+        end += 1;
+    }
+    &text[at - 2..end]
+}
+
 // ---------------------------------------------------------------------
 // Operator-side store: env-format file outside the bundle and outside
 // version control. Names ride bundles and digests; values live here.
 // ---------------------------------------------------------------------
-
-fn store_io<T>(result: std::io::Result<T>, context: String) -> Result<T, String> {
-    match result {
-        Ok(value) => Ok(value),
-        Err(error) => Err(format!("{context}: {error}")),
-    }
-}
 
 /// Parse the store at `path` through the one handle the typed reader
 /// checks and reads. The typed cause becomes text only here.
@@ -310,20 +314,20 @@ fn write_store_with(
     entries: &[(String, Secret)],
     #[cfg(unix)] set_mode: impl Fn(&Path, u32) -> std::io::Result<()>,
     mut write_entry: impl FnMut(&mut std::fs::File, &str, &Secret) -> std::io::Result<()>,
-) -> Result<(), String> {
+) -> Result<(), store::WriteRefusal> {
+    use store::WriteRefusal;
     let parent = store_parent(path);
-    store_io(
-        std::fs::create_dir_all(&parent),
-        format!("cannot create {}", parent.display()),
-    )?;
+    let at = || path.to_path_buf();
+    let create = |source| WriteRefusal::Create {
+        parent: parent.clone(),
+        source,
+    };
+    std::fs::create_dir_all(&parent).map_err(create)?;
 
     let staged = tempfile::Builder::new()
         .prefix(".secrets.env.")
         .tempfile_in(&parent);
-    let mut tmp = store_io(
-        staged,
-        format!("cannot stage secrets store {}", path.display()),
-    )?;
+    let mut tmp = staged.map_err(|source| WriteRefusal::Stage { path: at(), source })?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -332,19 +336,18 @@ fn write_store_with(
         let mode = std::fs::metadata(path)
             .map(|m| m.permissions().mode() & 0o600)
             .unwrap_or(0o600);
-        store_io(
-            set_mode(tmp.path(), mode),
-            "cannot set secrets store mode".into(),
-        )?;
+        set_mode(tmp.path(), mode).map_err(|source| WriteRefusal::Mode { source })?;
     }
     for (name, secret) in entries {
-        store_io(
-            write_entry(tmp.as_file_mut(), name, secret),
-            format!("cannot write secrets store {}", path.display()),
-        )?;
+        write_entry(tmp.as_file_mut(), name, secret)
+            .map_err(|source| WriteRefusal::Write { path: at(), source })?;
     }
-    tmp.persist(path)
-        .map_err(|e| format!("cannot replace secrets store {}: {e}", path.display()))?;
+    // Only the I/O error is kept: the staged file drops here, as it did.
+    let replace = |e: tempfile::PersistError| WriteRefusal::Replace {
+        path: at(),
+        source: e.error,
+    };
+    tmp.persist(path).map_err(replace)?;
     Ok(())
 }
 
@@ -355,6 +358,8 @@ fn store_parent(path: &Path) -> std::path::PathBuf {
     }
 }
 
+/// Write `entries` to the store at `path`. The typed cause becomes text
+/// only here.
 fn write_store(path: &Path, entries: &[(String, Secret)]) -> Result<(), String> {
     write_store_with(
         path,
@@ -363,9 +368,10 @@ fn write_store(path: &Path, entries: &[(String, Secret)]) -> Result<(), String> 
         set_store_mode,
         write_store_entry,
     )
+    .map_err(|error| error.to_string())
 }
 
-/// `brokkr secrets set`: validate, then read-modify-write atomically.
+/// `brokkr system secrets set`: validate, then read-modify-write atomically.
 /// Returns an optional warning (short value) on success.
 pub fn store_set(path: &Path, name: &str, value: &str) -> Result<Option<String>, String> {
     validate_name(name)?;
@@ -386,7 +392,7 @@ pub fn store_set(path: &Path, name: &str, value: &str) -> Result<Option<String>,
     Ok(warning)
 }
 
-/// `brokkr secrets list`: names, never values. There is no value-printing
+/// `brokkr system secrets list`: names, never values. There is no value-printing
 /// verb anywhere — that is the one thing decision 0012 exists to prevent.
 pub fn store_names(path: &Path) -> Result<Vec<String>, String> {
     if !path.exists() {
@@ -398,7 +404,7 @@ pub fn store_names(path: &Path) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// `brokkr secrets remove`: Ok(true) when the name existed.
+/// `brokkr system secrets remove`: Ok(true) when the name existed.
 pub fn store_remove(path: &Path, name: &str) -> Result<bool, String> {
     if !path.exists() {
         return Ok(false);
@@ -454,42 +460,17 @@ fn enc_raw(bytes: &[u8]) -> Vec<u8> {
     bytes.to_vec()
 }
 
-const B64_STD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-const B64_URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-fn b64(bytes: &[u8], alphabet: &[u8; 64], pad: bool) -> Vec<u8> {
-    let mut out = Vec::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let n = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        out.push(alphabet[(n >> 18) as usize & 63]);
-        out.push(alphabet[(n >> 12) as usize & 63]);
-        if chunk.len() > 1 {
-            out.push(alphabet[(n >> 6) as usize & 63]);
-        } else if pad {
-            out.push(b'=');
-        }
-        if chunk.len() > 2 {
-            out.push(alphabet[n as usize & 63]);
-        } else if pad {
-            out.push(b'=');
-        }
-    }
-    out
-}
-
 fn enc_b64_std(bytes: &[u8]) -> Vec<u8> {
-    b64(bytes, B64_STD, true)
+    crate::base64::encode_std(bytes)
 }
 fn enc_b64_std_nopad(bytes: &[u8]) -> Vec<u8> {
-    b64(bytes, B64_STD, false)
+    crate::base64::encode_std_nopad(bytes)
 }
 fn enc_b64_url(bytes: &[u8]) -> Vec<u8> {
-    b64(bytes, B64_URL, true)
+    crate::base64::encode_url(bytes)
 }
 fn enc_b64_url_nopad(bytes: &[u8]) -> Vec<u8> {
-    b64(bytes, B64_URL, false)
+    crate::base64::encode_base64url(bytes).into_bytes()
 }
 
 fn hex(bytes: &[u8], digits: &[u8; 16]) -> Vec<u8> {
@@ -536,9 +517,11 @@ fn enc_pct_lower(bytes: &[u8]) -> Vec<u8> {
 /// Mask every needle of every bound secret in `bytes`, replacing each
 /// match with `[secret:NAME]`. Operates on RAW captured bytes — callers
 /// mask first and lossy-convert to string second, never the reverse
-/// (UTF-8 replacement characters must not split needles). Replacement
-/// is longest-needle-first so overlapping needles from multiple secrets
-/// resolve deterministically.
+/// (UTF-8 replacement characters must not split needles). Every byte
+/// any occurrence of any needle covers is masked, and occurrences that
+/// overlap or touch read one marker, named for the binding whose
+/// occurrence starts first (the longest needle's where several start at
+/// one byte), so overlapping needles resolve deterministically.
 ///
 /// BUFFERED-ONLY INVARIANT: every masked surface today is a complete
 /// captured buffer (`wait_with_output`), so whole-buffer masking is
@@ -592,25 +575,130 @@ fn needles<'b>(
     needles
 }
 
-fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Encoder)]) -> Vec<u8> {
-    if bindings.is_empty() {
-        return bytes.to_vec();
+/// Every run of `bytes` that occurrences of `needles` cover, in order, as
+/// where it begins and ends and the name the run's marker reads (#1213,
+/// decision 0012's addendum of 2026-11-21): the union of every occurrence
+/// of every needle, so a needle starting inside another's match is masked
+/// whole. Occurrences that overlap or touch are one run, named for the
+/// binding whose occurrence starts first; of those starting at one byte,
+/// the longest needle's, as it always was. Each needle is found in one
+/// pass of [`occurrences`], so the cost is linear in the text times the
+/// needles. The runs are read as the mask writes them, each given out
+/// once the next disjoint start, or the text's end, closes it, so a text
+/// of many runs never holds a slot per run.
+fn covered<'a, 'n>(bytes: &'a [u8], needles: &'a [(Vec<u8>, &'n str)]) -> Runs<'a, 'n> {
+    // Each needle's next unread occurrence, found as the merge reaches it,
+    // so the scratch is the needles', never a slot per byte of the text.
+    let heads = needles
+        .iter()
+        .map(|(needle, _)| Occurrences::new(bytes, needle).peekable())
+        .collect();
+    Runs {
+        needles,
+        heads,
+        open: None,
     }
-    let needles = needles(bindings, encodings);
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    'scan: while i < bytes.len() {
-        for (needle, name) in &needles {
-            if bytes[i..].starts_with(needle) {
-                out.extend_from_slice(format!("[secret:{name}]").as_bytes());
-                i += needle.len();
-                continue 'scan;
+}
+
+/// The runs [`covered`] reads, in order.
+struct Runs<'a, 'n> {
+    needles: &'a [(Vec<u8>, &'n str)],
+    heads: Vec<Peekable<Occurrences<'a>>>,
+    /// The run the occurrences read so far end in, not yet closed.
+    open: Option<(usize, usize, &'n str)>,
+}
+
+impl<'n> Iterator for Runs<'_, 'n> {
+    type Item = (usize, usize, &'n str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // The earliest unread occurrence; of those starting at one byte,
+        // the first needle's, so the longest. Each turn reads one start,
+        // so the turns are at most the text's bytes, each costing the
+        // needles.
+        while let Some((start, index)) = earliest(&mut self.heads) {
+            for head in &mut self.heads {
+                head.next_if_eq(&start);
+            }
+            let (needle, name) = &self.needles[index];
+            let end = start + needle.len();
+            match &mut self.open {
+                Some(run) if start <= run.1 => run.1 = run.1.max(end),
+                open => {
+                    if let Some(closed) = open.replace((start, end, name)) {
+                        return Some(closed);
+                    }
+                }
             }
         }
-        out.push(bytes[i]);
-        i += 1;
+        self.open.take()
     }
-    out
+}
+
+/// The least next start among `heads`, and the index of the first head
+/// it is next in.
+fn earliest(heads: &mut [Peekable<Occurrences<'_>>]) -> Option<(usize, usize)> {
+    let next =
+        |(index, head): (usize, &mut Peekable<Occurrences<'_>>)| Some((*head.peek()?, index));
+    heads.iter_mut().enumerate().filter_map(next).min()
+}
+
+/// Where every occurrence of `needle`, which is not empty, starts in
+/// `bytes`, overlapping ones included, in order: one Knuth–Morris–Pratt
+/// pass, linear in the text and the needle, read as it is consumed.
+struct Occurrences<'a> {
+    bytes: &'a [u8],
+    needle: &'a [u8],
+    /// `border[i]`: the longest proper prefix of `needle[..=i]` that is
+    /// also its suffix.
+    border: Vec<usize>,
+    /// How many bytes of `bytes` are read.
+    read: usize,
+    /// How much of `needle` the bytes read end with.
+    matched: usize,
+}
+
+impl<'a> Occurrences<'a> {
+    fn new(bytes: &'a [u8], needle: &'a [u8]) -> Occurrences<'a> {
+        let mut border = vec![0; needle.len()];
+        let mut matched = 0;
+        for i in 1..needle.len() {
+            matched = advance(needle, &border, matched, needle[i]);
+            border[i] = matched;
+        }
+        Occurrences {
+            bytes,
+            needle,
+            border,
+            read: 0,
+            matched: 0,
+        }
+    }
+}
+
+impl Iterator for Occurrences<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        while let Some(&byte) = self.bytes.get(self.read) {
+            self.read += 1;
+            self.matched = advance(self.needle, &self.border, self.matched, byte);
+            if self.matched == self.needle.len() {
+                self.matched = self.border[self.matched - 1];
+                return Some(self.read - self.needle.len());
+            }
+        }
+        None
+    }
+}
+
+/// How much of `needle` is matched after `byte`, when `matched` bytes of
+/// it, fewer than all, were matched before it.
+fn advance(needle: &[u8], border: &[usize], mut matched: usize, byte: u8) -> usize {
+    while matched > 0 && byte != needle[matched] {
+        matched = border[matched - 1];
+    }
+    matched + usize::from(byte == needle[matched])
 }
 
 /// [`mask_bytes`] over every string inside a JSON value — object keys
@@ -660,7 +748,13 @@ pub use handoff::{exec_confined, send_environment};
 
 mod guard;
 pub(crate) mod handoff;
+mod mask;
+mod refusal;
 mod store;
+
+use mask::mask_needles;
+pub(crate) use mask::{mask_intersects, mask_split, MaskedSplit};
+use refusal::{NameRefusal, ReferenceRefusal, ValueRefusal};
 
 #[cfg(test)]
 mod tests;

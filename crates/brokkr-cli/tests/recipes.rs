@@ -9,67 +9,8 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
-const POLICY: &str = r#"{
-  "schema": "forge.phase-machine/v1",
-  "phases": ["intake", "implement", "verify", "review", "ship", "done", "stop"],
-  "initial": "intake",
-  "terminal": ["done", "stop"],
-  "shippable_from": ["review"],
-  "rules": [
-    {"id": "INTAKE-OK", "from": "intake", "result": "resolved", "next": "implement",
-     "reason": "Task framed and recorded."},
-    {"id": "IMPL-BROKEN-TWICE", "from": "implement", "result": "broken",
-     "when": {"consecutive_failures_gte": 2}, "next": "stop", "severity": "hard",
-     "reason": "Two consecutive broken implement runs; stop rather than thrash."},
-    {"id": "IMPL-BROKEN-RETRY", "from": "implement", "result": "broken",
-     "next": "implement", "reason": "First broken run; one re-run permitted."},
-    {"id": "IMPL-BLOCKED", "from": "implement", "result": "blocked", "next": "stop",
-     "severity": "hard", "reason": "Implementer blocked; report, never silently continue."},
-    {"id": "IMPL-OK", "from": "implement", "result": "complete", "next": "verify",
-     "reason": "Implementation complete and committed."},
-    {"id": "VERIFY-FAIL", "from": "verify", "result": "fail", "next": "stop",
-     "severity": "hard", "reason": "Verification failed; not shippable."},
-    {"id": "VERIFY-PASS", "from": "verify", "result": "pass", "next": "review",
-     "reason": "Suite green; reviewers read verified code."},
-    {"id": "REVIEW-SECURITY-HOLD", "from": "review", "result": "security-hold",
-     "next": "stop", "severity": "hard",
-     "reason": "Unresolved security findings. NEVER ship."},
-    {"id": "REVIEW-RESIDUAL-ABOVE-MEDIUM", "from": "review", "result": "residual",
-     "when": {"max_residual_severity_above": "medium"}, "next": "stop",
-     "severity": "hard", "reason": "Residual severity above medium; not shippable."},
-    {"id": "REVIEW-RESIDUAL-SECURITY", "from": "review", "result": "residual",
-     "when": {"has_security_residual": true}, "next": "stop", "severity": "hard",
-     "reason": "Security residuals never take the tracked-debt path."},
-    {"id": "REVIEW-RESIDUAL-OK", "from": "review", "result": "residual", "next": "ship",
-     "severity": "flagged",
-     "reason": "Non-security residuals at or below medium proceed as tracked debt."},
-    {"id": "REVIEW-CLEAN-NO-FIXES", "from": "review", "result": "clean",
-     "when": {"fixes_applied": false}, "next": "ship",
-     "reason": "Clean with no fixes reported; a gate that moves HEAD parks and ship stops on a dirty tree."},
-    {"id": "REVIEW-CLEAN", "from": "review", "result": "clean", "next": "verify",
-     "reason": "Clean but fixes applied; re-verify before shipping."},
-    {"id": "SHIP-DRIFT", "from": "ship", "result": "ready",
-     "when": {"drift_detected": true}, "next": "review", "severity": "flagged",
-     "reason": "HEAD moved after review; re-arm a scoped review."},
-    {"id": "SHIP-DIRTY", "from": "ship", "result": "ready",
-     "when": {"dirty_worktrees": true}, "next": "stop", "severity": "hard",
-     "reason": "Dirty tree at ship time is a defect."},
-    {"id": "SHIP-READY", "from": "ship", "result": "ready", "next": "ship",
-     "reason": "Gates passed and ledger written; confirm close-out and report shipped."},
-    {"id": "SHIPPED-DRIFT", "from": "ship", "result": "shipped",
-     "when": {"drift_detected": true}, "next": "review", "severity": "flagged",
-     "reason": "HEAD moved between ready and close-out; re-arm a scoped review."},
-    {"id": "SHIPPED-DIRTY", "from": "ship", "result": "shipped",
-     "when": {"dirty_worktrees": true}, "next": "stop", "severity": "hard",
-     "reason": "Dirty tree at close-out is a defect."},
-    {"id": "SHIP-COMPLETE", "from": "ship", "result": "shipped", "next": "done",
-     "reason": "Close-out confirmed: clean, reviewed, verified; done."}
-  ]
-}"#;
+// The machine proof's table, which these bundles run too.
+use crate::machine_proof::POLICY;
 
 fn happy_script() -> Value {
     json!({"seats": {
@@ -85,6 +26,18 @@ fn happy_script() -> Value {
             {"behavior": "succeed", "result": {"result": "shipped"}},
         ],
     }})
+}
+
+/// `script` with each review member's clean naming the residual pair the
+/// review seat compiles, as every member charter orders (decision 0109
+/// ruling 2).
+fn charter_shaped(mut script: Value) -> Value {
+    for member in ["review:correctness", "review:security"] {
+        let inputs = &mut script["seats"][member][0]["result"]["inputs"];
+        inputs["max_residual_severity"] = json!("none");
+        inputs["has_security_residual"] = json!(false);
+    }
+    script
 }
 
 struct Ws {
@@ -103,7 +56,7 @@ impl Ws {
         std::fs::create_dir_all(ws.path().join("state")).unwrap();
         std::fs::write(
             ws.path().join("script.json"),
-            serde_json::to_string(&happy_script()).unwrap(),
+            serde_json::to_string(&charter_shaped(happy_script())).unwrap(),
         )
         .unwrap();
         ws
@@ -119,7 +72,14 @@ impl Ws {
         let ws = Ws::new();
         let src = ws.path().join("src-bundle");
         ws.write_recipe(&src);
-        let add = ["recipes", "add", src.to_str().unwrap(), "--name", name];
+        let add = [
+            "library",
+            "recipes",
+            "add",
+            src.to_str().unwrap(),
+            "--name",
+            name,
+        ];
         let (code, _, stderr) = ws.brokkr(&add);
         assert_eq!(code, Some(0), "stderr: {stderr}");
         (ws, src, stderr)
@@ -209,8 +169,8 @@ impl Ws {
     /// `brokkr <args>` in the workspace, whose personal shelf (#697) is one
     /// nothing stands at, so no host's own is listed here.
     fn brokkr(&self, args: &[&str]) -> (Option<i32>, String, String) {
-        let mut command = Command::new(brokkr_bin());
-        command.args(args).current_dir(self.path());
+        let mut command = crate::built::brokkr(args);
+        command.current_dir(self.path());
         command.env("XDG_CONFIG_HOME", self.path().join(".config"));
         command.env("HOME", self.home.path());
         let ran = crate::brokkr_folder::Ran::of(command.output().unwrap());
@@ -253,13 +213,18 @@ fn list_prints_valid_recipes_and_warns_on_broken_ones() {
     ws.write_broken(&rdir.join("broken"));
 
     // The digest the listing must abbreviate.
-    let (code, stdout, stderr) =
-        ws.brokkr(&["compile", "--bundle", rdir.join("good").to_str().unwrap()]);
+    let (code, stdout, stderr) = ws.brokkr(&[
+        "library",
+        "compile",
+        "--bundle",
+        rdir.join("good").to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let compiled: Value = serde_json::from_str(&stdout).unwrap();
     let digest = compiled["digest"].as_str().unwrap();
 
-    let (code, stdout, stderr) = ws.brokkr(&["recipes", "list", "--dir", rdir.to_str().unwrap()]);
+    let dir = rdir.to_str().unwrap();
+    let (code, stdout, stderr) = ws.brokkr(&["library", "recipes", "list", "--dir", dir]);
     assert_eq!(code, Some(0), "a broken recipe must not abort: {stderr}");
 
     let line = stdout
@@ -321,11 +286,21 @@ fn add_from_local_path_installs_and_lists() {
     assert!(stderr.contains("added recipe 'mine'"), "stderr: {stderr}");
     assert!(rdir.join("mine/bundle.json").is_file());
 
-    let (code, _, stderr) =
-        ws.brokkr(&["compile", "--bundle", rdir.join("mine").to_str().unwrap()]);
+    let (code, _, stderr) = ws.brokkr(&[
+        "library",
+        "compile",
+        "--bundle",
+        rdir.join("mine").to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(0), "installed copy compiles: {stderr}");
 
-    let (code, stdout, _) = ws.brokkr(&["recipes", "list", "--dir", rdir.to_str().unwrap()]);
+    let (code, stdout, _) = ws.brokkr(&[
+        "library",
+        "recipes",
+        "list",
+        "--dir",
+        rdir.to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(0));
     assert!(
         stdout.lines().any(|l| l.starts_with("mine\t")),
@@ -348,7 +323,7 @@ fn add_from_git_url_clones_and_installs_without_network() {
     git(&repo, &["commit", "-m", "fixture bundle"]);
     let url = format!("file://{}", repo.display());
 
-    let (code, _, stderr) = ws.brokkr(&["recipes", "add", &url, "--name", "cloned"]);
+    let (code, _, stderr) = ws.brokkr(&["library", "recipes", "add", &url, "--name", "cloned"]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(rdir.join("cloned/bundle.json").is_file());
     assert!(
@@ -356,8 +331,12 @@ fn add_from_git_url_clones_and_installs_without_network() {
         "recipes are plain files, not repos"
     );
 
-    let (code, _, stderr) =
-        ws.brokkr(&["compile", "--bundle", rdir.join("cloned").to_str().unwrap()]);
+    let (code, _, stderr) = ws.brokkr(&[
+        "library",
+        "compile",
+        "--bundle",
+        rdir.join("cloned").to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(0), "cloned copy compiles: {stderr}");
 }
 
@@ -375,7 +354,8 @@ pub(crate) fn committed(repo: &Path) -> String {
 fn added(ws: &Ws, rdir: &Path, names: &[&str]) -> String {
     let line = |name: &&str| {
         let at = rdir.join(name);
-        let (code, stdout, stderr) = ws.brokkr(&["compile", "--bundle", at.to_str().unwrap()]);
+        let (code, stdout, stderr) =
+            ws.brokkr(&["library", "compile", "--bundle", at.to_str().unwrap()]);
         assert_eq!(code, Some(0), "{stderr}");
         let compiled: Value = serde_json::from_str(&stdout).unwrap();
         let digest = &compiled["digest"].as_str().unwrap()[..12];
@@ -404,7 +384,7 @@ fn add_with_path_installs_the_bundle_it_names_inside_the_clone() {
     }
     std::fs::write(repo.join("recipes/x/roles/x.md"), "x\n").unwrap();
     let url = committed(&repo);
-    let add = ["recipes", "add", &url, "--name", "x"];
+    let add = ["library", "recipes", "add", &url, "--name", "x"];
 
     let (code, _, stderr) = ws.brokkr(&add);
     let discovered = "error: clone has no bundle.json at its root or in any subdirectory\n";
@@ -427,6 +407,7 @@ fn add_with_path_brings_the_bases_its_recipe_extends_from_beside_it() {
     ws.write_derived(&repo.join("recipes/node"), "node", "fast", true);
     let url = committed(&repo);
     let (code, _, stderr) = ws.brokkr(&[
+        "library",
         "recipes",
         "add",
         &url,
@@ -461,8 +442,8 @@ fn add_with_path_refuses_what_it_cannot_reach_and_writes_nothing() {
 
     let unplain = |path: &str| {
         format!(
-            "error: --path '{path}' is not a relative path of plain names, so recipes add cannot \
-             judge where in the clone it leads (#695); nothing was cloned or written\n"
+            "error: --path '{path}' is not a relative path of plain names, so library recipes add \
+             cannot judge where in the clone it leads (#695); nothing was cloned or written\n"
         )
     };
     let mut refusals: Vec<(&str, &str, String)> = ["../x", "/abs", "recipes/./x", "recipes/x/", ""]
@@ -502,8 +483,9 @@ fn add_with_path_refuses_what_it_cannot_reach_and_writes_nothing() {
         ),
     ]);
     for (source, path, refusal) in refusals {
-        let (code, _, stderr) =
-            ws.brokkr(&["recipes", "add", source, "--name", "x", "--path", path]);
+        let (code, _, stderr) = ws.brokkr(&[
+            "library", "recipes", "add", source, "--name", "x", "--path", path,
+        ]);
         assert_eq!((code, stderr), (Some(1), refusal), "{path}");
         assert!(!rdir.exists(), "{path}");
     }
@@ -516,7 +498,14 @@ fn add_of_a_non_compiling_bundle_cleans_up_and_fails() {
     let src = ws.path().join("bad-bundle");
     ws.write_broken(&src);
 
-    let (code, _, stderr) = ws.brokkr(&["recipes", "add", src.to_str().unwrap(), "--name", "bad"]);
+    let (code, _, stderr) = ws.brokkr(&[
+        "library",
+        "recipes",
+        "add",
+        src.to_str().unwrap(),
+        "--name",
+        "bad",
+    ]);
     assert_eq!(code, Some(1), "stderr: {stderr}");
     assert!(
         stderr.contains("missing 'policy'"),
@@ -534,7 +523,7 @@ fn add_refuses_the_ext_transport_that_would_execute_a_command() {
     let marker = ws.path().join("pwned");
     let url = format!("ext::sh -c \"touch {}\" x.git", marker.display());
 
-    let (code, _, _) = ws.brokkr(&["recipes", "add", &url, "--name", "evil"]);
+    let (code, _, _) = ws.brokkr(&["library", "recipes", "add", &url, "--name", "evil"]);
     assert_ne!(code, Some(0), "ext transport must be refused");
     assert!(!marker.exists(), "the ext command must never execute");
     assert!(!rdir.join("evil").exists());
@@ -551,8 +540,14 @@ fn add_refuses_symlinks_and_removes_the_partial_copy() {
     std::fs::write(&secret, "not for the library").unwrap();
     std::os::unix::fs::symlink(&secret, src.join("zz-link")).unwrap();
 
-    let (code, _, stderr) =
-        ws.brokkr(&["recipes", "add", src.to_str().unwrap(), "--name", "sneaky"]);
+    let (code, _, stderr) = ws.brokkr(&[
+        "library",
+        "recipes",
+        "add",
+        src.to_str().unwrap(),
+        "--name",
+        "sneaky",
+    ]);
     assert_eq!(code, Some(1), "stderr: {stderr}");
     assert!(stderr.contains("symlink"), "names the refusal: {stderr}");
     assert!(!rdir.join("sneaky").exists(), "the partial copy is removed");
@@ -563,8 +558,8 @@ fn add_refuses_symlinks_and_removes_the_partial_copy() {
 /// its one pin.
 pub(crate) fn in_folder(root: &Path, place: &Path) -> String {
     format!(
-        "error: recipes add would install into {place}, inside the folder repository {root} but \
-         not its shelf {root}/.brokkr/recipes/ (decision 0083; #675, #696): a folder repository \
+        "error: library recipes add would install into {place}, inside the folder repository \
+         {root} but not its shelf {root}/.brokkr/recipes/ (decision 0083; #675, #696): a folder repository \
          keeps its named recipes on its shelf, so nothing was written\n",
         root = root.display(),
         place = place.display()
@@ -587,13 +582,20 @@ fn add_installs_onto_the_shelf_of_a_folder_repository() {
     for (from, name) in [("", "x"), ("src", "y")] {
         let ran = repo.brokkr(
             from,
-            &["recipes", "add", src.to_str().unwrap(), "--name", name],
+            &[
+                "library",
+                "recipes",
+                "add",
+                src.to_str().unwrap(),
+                "--name",
+                name,
+            ],
         );
         assert_eq!(ran.code, Some(0), "{}", ran.stderr);
         added.push(ran.stderr);
     }
     assert_eq!(crate::brokkr_folder::digest(&repo, ".brokkr"), before);
-    let listed = repo.brokkr("src", &["recipes", "list"]);
+    let listed = repo.brokkr("src", &["library", "recipes", "list"]);
     let line = |l: &str| {
         let (name, digest) = (&l[..1], &l[2..14]);
         format!(
@@ -603,7 +605,7 @@ fn add_installs_onto_the_shelf_of_a_folder_repository() {
     };
     let lines: Vec<String> = listed.stdout.lines().map(line).collect();
     assert_eq!((listed.code, lines), (Some(0), added));
-    let shown = repo.brokkr("src", &["recipes", "show", "y"]);
+    let shown = repo.brokkr("src", &["library", "recipes", "show", "y"]);
     assert_eq!(shown.code, Some(0), "{}", shown.stderr);
     for left in ["recipes", "src/recipes", ".forge"] {
         assert!(!repo.path(left).exists(), "{left}");
@@ -651,7 +653,14 @@ fn add_refuses_a_name_that_would_write_where_it_did_not_judge() {
     let climb = "../../repo/recipes/x";
     let ran = repo.brokkr(
         "../lib",
-        &["recipes", "add", src.to_str().unwrap(), "--name", climb],
+        &[
+            "library",
+            "recipes",
+            "add",
+            src.to_str().unwrap(),
+            "--name",
+            climb,
+        ],
     );
     let refusal = format!(
         "error: --name '{climb}' is not one plain path component, so the recipe would not be \
@@ -681,8 +690,14 @@ fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
     for plant in [&plant_directory as &dyn Fn(&Path), &plant_repository] {
         plant(&into);
         let before = repo.files();
-        let (code, _, stderr) =
-            ws.brokkr(&["recipes", "add", src.to_str().unwrap(), "--name", "x"]);
+        let (code, _, stderr) = ws.brokkr(&[
+            "library",
+            "recipes",
+            "add",
+            src.to_str().unwrap(),
+            "--name",
+            "x",
+        ]);
         assert_eq!((code, stderr), (Some(1), in_folder(&repo.root, &into)));
         assert_eq!(repo.files(), before);
         assert!(!into.join("x").exists());
@@ -719,7 +734,14 @@ fn add_refuses_a_folder_repository_a_link_from_outside_resolves_into() {
         let before = repo.files();
         let ran = repo.brokkr(
             from,
-            &["recipes", "add", src.to_str().unwrap(), "--name", "x"],
+            &[
+                "library",
+                "recipes",
+                "add",
+                src.to_str().unwrap(),
+                "--name",
+                "x",
+            ],
         );
         let refused = (ran.code, ran.stderr);
         assert_eq!(refused, (Some(1), in_folder(&repo.root, &into)), "{from}");
@@ -746,7 +768,14 @@ fn add_refuses_a_shelf_that_links_out_of_the_folder() {
     let before = repo.files();
     let ran = repo.brokkr(
         "",
-        &["recipes", "add", src.to_str().unwrap(), "--name", "x"],
+        &[
+            "library",
+            "recipes",
+            "add",
+            src.to_str().unwrap(),
+            "--name",
+            "x",
+        ],
     );
     assert_eq!(
         (ran.code, ran.stderr),
@@ -768,7 +797,14 @@ fn add_has_no_dir_and_installs_at_a_librarys_root() {
     let ws = Ws::new();
     let src = ws.path().join("src-bundle");
     ws.write_recipe_hiring(&src, &repo.path(""));
-    let add = ["recipes", "add", src.to_str().unwrap(), "--name", "z"];
+    let add = [
+        "library",
+        "recipes",
+        "add",
+        src.to_str().unwrap(),
+        "--name",
+        "z",
+    ];
     let ran = repo.brokkr("sub", &[&add[..], &["--dir", "x"]].concat());
     let unexpected = "error: unexpected argument '--dir' found";
     assert_eq!((ran.code, ran.first_line()), (Some(2), unexpected));
@@ -778,10 +814,10 @@ fn add_has_no_dir_and_installs_at_a_librarys_root() {
     assert!(!repo.path("sub/recipes").exists());
     // From the root, whose agents its recipes hire (U9b1): `list --dir`
     // compiles each with the working directory's library.
-    let listed = repo.brokkr("", &["recipes", "list", "--dir", "recipes"]);
+    let listed = repo.brokkr("", &["library", "recipes", "list", "--dir", "recipes"]);
     let names: Vec<&str> = listed.stdout.lines().map(|l| &l[..2]).collect();
     assert_eq!((listed.code, names), (Some(0), vec!["x\t", "z\t"]));
-    let shown = repo.brokkr("", &["recipes", "show", "z"]);
+    let shown = repo.brokkr("", &["library", "recipes", "show", "z"]);
     assert_eq!(shown.code, Some(0), "{}", shown.stderr);
 }
 
@@ -789,6 +825,8 @@ fn add_has_no_dir_and_installs_at_a_librarys_root() {
 fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     let (ws, src, _) = Ws::installed("good");
     let rdir = ws.recipes_dir();
+    // The run's review is checked on a head (fix round 0109a1r3, H1).
+    crate::brokkr_folder::clean_head(ws.path());
 
     let db = ws.path().join("forge.db");
     let (code, stdout, stderr) = ws.brokkr(&[
@@ -847,8 +885,12 @@ fn compile_and_show_print_the_resolved_result_and_its_provenance() {
 
     // A bundle that composed nothing prints exactly what it always did:
     // no `composed_from` member at all.
-    let (code, plain, stderr) =
-        ws.brokkr(&["compile", "--bundle", rdir.join("good").to_str().unwrap()]);
+    let (code, plain, stderr) = ws.brokkr(&[
+        "library",
+        "compile",
+        "--bundle",
+        rdir.join("good").to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let base: Value = serde_json::from_str(&plain).unwrap();
     assert!(base.get("composed_from").is_none(), "{plain}");
@@ -864,6 +906,7 @@ fn compile_and_show_print_the_resolved_result_and_its_provenance() {
 
     // A composed one prints the RESOLVED result and its provenance.
     let (code, composed, stderr) = ws.brokkr(&[
+        "library",
         "compile",
         "--bundle",
         rdir.join("paranoid").to_str().unwrap(),
@@ -909,6 +952,7 @@ fn compile_and_show_print_the_resolved_result_and_its_provenance() {
 
     // `recipes show` is the same renderer, reached by name, for both.
     let (code, shown, stderr) = ws.brokkr(&[
+        "library",
         "recipes",
         "show",
         "paranoid",
@@ -917,12 +961,25 @@ fn compile_and_show_print_the_resolved_result_and_its_provenance() {
     ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert_eq!(shown, composed);
-    let (code, shown, _) = ws.brokkr(&["recipes", "show", "good", "--dir", rdir.to_str().unwrap()]);
+    let (code, shown, _) = ws.brokkr(&[
+        "library",
+        "recipes",
+        "show",
+        "good",
+        "--dir",
+        rdir.to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(0));
     assert_eq!(shown, plain);
 
-    let (code, _, stderr) =
-        ws.brokkr(&["recipes", "show", "absent", "--dir", rdir.to_str().unwrap()]);
+    let (code, _, stderr) = ws.brokkr(&[
+        "library",
+        "recipes",
+        "show",
+        "absent",
+        "--dir",
+        rdir.to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("recipe 'absent' not found"), "{stderr}");
 }
@@ -934,8 +991,12 @@ fn a_merge_conflict_names_the_file_and_the_conflicting_key() {
     ws.write_recipe(&rdir.join("good"));
     ws.write_derived(&rdir.join("clash"), "clash", "good", false);
 
-    let (code, _, stderr) =
-        ws.brokkr(&["compile", "--bundle", rdir.join("clash").to_str().unwrap()]);
+    let (code, _, stderr) = ws.brokkr(&[
+        "library",
+        "compile",
+        "--bundle",
+        rdir.join("clash").to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("redefines seat 'review'"), "{stderr}");
     // Windows spells the same path with backslashes; the assertion is
@@ -959,7 +1020,8 @@ fn list_warns_when_a_derived_recipes_base_is_missing() {
     )
     .unwrap();
 
-    let (code, stdout, stderr) = ws.brokkr(&["recipes", "list", "--dir", rdir.to_str().unwrap()]);
+    let dir = rdir.to_str().unwrap();
+    let (code, stdout, stderr) = ws.brokkr(&["library", "recipes", "list", "--dir", dir]);
     assert_eq!(code, Some(0), "a missing base must not abort: {stderr}");
     assert!(
         stdout.lines().any(|l| l.starts_with("good\t")),
@@ -1100,9 +1162,9 @@ fn show_and_compile_agree_for_every_recipe_under_every_realm_map() {
         }
         for (library, name) in &named {
             let bundle = library.join(name);
-            let compiled = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+            let compiled = ws.brokkr(&["library", "compile", "--bundle", bundle.to_str().unwrap()]);
             let dir = library.to_str().unwrap();
-            let shown = ws.brokkr(&["recipes", "show", name, "--dir", dir]);
+            let shown = ws.brokkr(&["library", "recipes", "show", name, "--dir", dir]);
             assert_eq!(as_compiled(shown), compiled, "{name} under {label}");
             match compiled {
                 // A compiled view carries decision 0050's sweep on stderr

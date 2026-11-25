@@ -31,26 +31,42 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
-mod environment;
+pub use bind_refusal::BindRefusal;
+use call_refusal::CallRefusal;
+pub use spec_refusal::SpecRefusal;
+
+mod bind_refusal;
+mod call_refusal;
+pub(crate) mod environment;
 mod evidence;
 mod git;
 mod namespace;
 mod overlay;
 mod sealed;
+mod serve_args;
 mod session;
+mod spec_refusal;
 pub use evidence::UNPROTECTED_EVIDENCE;
 #[cfg(test)]
 use git::parse_git_dirs;
 use git::{git_dirs, git_identity};
 pub use git::{git_facts, GitFacts};
 #[rustfmt::skip] pub use namespace::{entry::ServerEntry, namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
+pub use crate::base64::{decode_base64url, encode_base64url, Base64UrlError};
 use namespace::namespace_path;
 use namespace::workspace::Workspace;
 #[cfg(test)]
 use namespace::{workspace::Boxed, Namespace, Profile};
 pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use sealed::{drifted, seal, sealed_store, store_place, Sealed, SEALED_REACH, UNHIDDEN_STORE};
-pub use session::{list_reapable_under, reap_dead_sessions, Listed, Reaped, Session, SessionError};
+pub(crate) use serve_args::serve_args_encoded;
+pub use serve_args::{
+    serve_args, REACH_BASE64URL_OPTION, REACH_OPTION, SPEC_BASE64URL_OPTION, SPEC_OPTION,
+};
+pub(crate) use session::reap_dead_sessions_under;
+pub use session::{
+    list_reapable_under, reap_dead_sessions, Listed, Listing, Reaped, Session, SessionError,
+};
 
 /// The boxed tool Brokkr serves. Claude Code names it `mcp__brokkr__workspace`.
 pub const SERVER_NAME: &str = "brokkr";
@@ -155,48 +171,52 @@ impl HandsSpec {
     /// `workspace` and nothing else; unknown keys are refused, because a
     /// dropped key here would be a dropped boundary.
     pub fn parse(raw: &Value) -> Result<HandsSpec, String> {
-        let object = match raw {
-            Value::String(kind) if kind == "workspace" => return Ok(HandsSpec::default()),
-            Value::String(other) => {
-                return Err(format!(
-                    "hands '{other}' is not a known kind; the vocabulary is: workspace"
-                ))
-            }
-            Value::Object(object) => object,
-            other => {
-                return Err(format!(
-                    "hands must be \"workspace\" or an object, got {other}"
-                ))
-            }
-        };
+        HandsSpec::checked(raw).map_err(|refusal| refusal.to_string())
+    }
+
+    /// The string-or-object read: a string is the kind, an object is
+    /// checked whole, refusing in its typed [`SpecRefusal`].
+    pub fn checked(raw: &Value) -> Result<HandsSpec, SpecRefusal> {
+        match raw {
+            Value::String(kind) if kind == "workspace" => Ok(HandsSpec::default()),
+            Value::String(kind) => Err(SpecRefusal::UnknownKind { kind: kind.clone() }),
+            Value::Object(object) => HandsSpec::checked_object(object),
+            got => Err(SpecRefusal::NotKindOrObject {
+                got: got.to_string(),
+            }),
+        }
+    }
+
+    /// The object's checks, in order, each refusing in its own variant.
+    fn checked_object(object: &Map<String, Value>) -> Result<HandsSpec, SpecRefusal> {
         // Named as a misplaced field, never as an unknown key: the author
         // is told where the word lives (decision 0046 ruling 1).
         if object.contains_key("boundary") {
-            return Err(format!("hands names 'boundary'; {BOUNDARY_IS_THE_REALMS}"));
+            return Err(SpecRefusal::Boundary);
         }
-        for key in object.keys() {
-            if !["kind", "network", "binds"].contains(&key.as_str()) {
-                return Err(format!(
-                    "hands has unknown key '{key}'; known: kind, network, binds"
-                ));
-            }
+        let known = ["kind", "network", "binds"];
+        if let Some(key) = object.keys().find(|key| !known.contains(&key.as_str())) {
+            return Err(SpecRefusal::UnknownKey { key: key.clone() });
         }
-        match object.get("kind").and_then(Value::as_str) {
-            Some("workspace") => {}
-            _ => return Err("hands.kind must be \"workspace\"".to_string()),
+        if object.get("kind").and_then(Value::as_str) != Some("workspace") {
+            return Err(SpecRefusal::Kind);
         }
         let network = match object.get("network") {
             None => false,
             Some(Value::Bool(flag)) => *flag,
-            Some(other) => return Err(format!("hands.network must be a boolean, got {other}")),
+            Some(got) => {
+                return Err(SpecRefusal::Network {
+                    got: got.to_string(),
+                });
+            }
         };
         let mut binds = Vec::new();
         if let Some(raw_binds) = object.get("binds") {
-            let entries = raw_binds
-                .as_array()
-                .ok_or_else(|| "hands.binds must be an array".to_string())?;
+            let Some(entries) = raw_binds.as_array() else {
+                return Err(SpecRefusal::BindsNotArray);
+            };
             for entry in entries {
-                binds.push(Bind::parse(entry)?);
+                binds.push(Bind::checked(entry).map_err(SpecRefusal::Bind)?);
             }
         }
         Ok(HandsSpec { network, binds })
@@ -218,49 +238,39 @@ impl HandsSpec {
 }
 
 impl Bind {
-    fn parse(raw: &Value) -> Result<Bind, String> {
-        let object = raw
-            .as_object()
-            .ok_or_else(|| "hands.binds entry must be an object".to_string())?;
-        for key in object.keys() {
-            if !["path", "mode", "mask"].contains(&key.as_str()) {
-                return Err(format!(
-                    "hands.binds entry has unknown key '{key}'; known: path, mode, mask"
-                ));
-            }
+    /// The bind's checks, in order, each refusing in its own variant.
+    fn checked(raw: &Value) -> Result<Bind, BindRefusal> {
+        let Some(object) = raw.as_object() else {
+            return Err(BindRefusal::NotObject);
+        };
+        let known = ["path", "mode", "mask"];
+        if let Some(key) = object.keys().find(|key| !known.contains(&key.as_str())) {
+            return Err(BindRefusal::UnknownKey { key: key.clone() });
         }
-        let path = object
-            .get("path")
-            .and_then(Value::as_str)
-            .filter(|path| !path.is_empty())
-            .ok_or_else(|| "hands.binds entry needs a non-empty 'path'".to_string())?
-            .to_string();
+        let present = object.get("path").and_then(Value::as_str);
+        let Some(path) = present.filter(|path| !path.is_empty()) else {
+            return Err(BindRefusal::NoPath);
+        };
+        let path = path.to_string();
         let mode = match object.get("mode").and_then(Value::as_str) {
             Some("ro") => BindMode::Ro,
             Some("rw") => BindMode::Rw,
             Some("overlay") => BindMode::Overlay,
-            _ => {
-                return Err(format!(
-                    "hands.binds entry '{path}' needs mode \"ro\", \"rw\" or \"overlay\""
-                ))
-            }
+            _ => return Err(BindRefusal::Mode { path }),
         };
         let mut mask = Vec::new();
         if let Some(raw_mask) = object.get("mask") {
-            let names = raw_mask
-                .as_array()
-                .ok_or_else(|| format!("hands.binds entry '{path}' mask must be an array"))?;
+            let Some(names) = raw_mask.as_array() else {
+                return Err(BindRefusal::MaskNotArray { path });
+            };
             for name in names {
-                let name = name
+                match name
                     .as_str()
                     .filter(|name| !name.is_empty() && !name.contains('/'))
-                    .ok_or_else(|| {
-                        format!(
-                            "hands.binds entry '{path}' mask names one file each, \
-                             without a slash"
-                        )
-                    })?;
-                mask.push(name.to_string());
+                {
+                    Some(name) => mask.push(name.to_string()),
+                    None => return Err(BindRefusal::MaskName { path }),
+                }
             }
         }
         Ok(Bind { path, mode, mask })
@@ -343,6 +353,11 @@ pub fn ids() -> (u32, u32) {
 /// - `PATH`, `USER` and `LOGNAME`: the engine's own, each only when set
 ///   there — the box's fixed `PATH` names mounts that exist only inside a
 ///   namespace, and a `runner` name would not match the operator's uid;
+/// - `VOLTA_HOME`: the engine's own, or the operator's `~/.volta` where
+///   that `PATH` reaches its shims ([`environment::volta_home`]), so a
+///   volta shim does not recurse under the private `HOME`; read, like
+///   every inherited name here, from `engine_env`'s UTF-8 strings: a
+///   non-UTF-8 `PATH` or `VOLTA_HOME` panics before this table is built;
 /// - `CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`: the operator's
 ///   `~/.cargo`, `~/.rustup`, `~/.npm` exactly when the spec's binds
 ///   declare that path, as the box sets them; a bind's `mask` is declared
@@ -350,8 +365,8 @@ pub fn ids() -> (u32, u32) {
 /// - [`HANDS_BOX_ENV`]: inherited exactly when the engine itself already
 ///   stands inside a box, never set here, because it is the marker every
 ///   box-building test skips on;
-/// - the box's fixed switches, the gpgsign triple, and the bundle's git
-///   identity.
+/// - the box's fixed switches, the seat's git environment
+///   ([`environment::seat_git_environment`]), and the bundle's git identity.
 ///
 /// Pure over its inputs, so the table is read directly by tests.
 /// Clearing the environment confines nothing on disk: an unboxed script
@@ -375,15 +390,17 @@ pub fn unboxed_environment(
             set(key, value.clone());
         }
     }
+    let os = |key: &str| engine_env.get(key).map(std::ffi::OsStr::new);
+    if let Some((key, value)) = environment::volta_home(os("VOLTA_HOME"), os("PATH"), home) {
+        set(key, value.to_string_lossy().into_owned());
+    }
     for (key, value) in [
         ("LANG", "C.UTF-8"),
         ("LC_ALL", "C.UTF-8"),
         ("CI", "true"),
         ("DISABLE_AUTOUPDATER", "1"),
         ("DISABLE_TELEMETRY", "1"),
-        ("GIT_CONFIG_COUNT", "1"),
-        ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
-        ("GIT_CONFIG_VALUE_0", "false"),
+        environment::seat_git_environment(),
     ] {
         set(key, value.to_string());
     }
@@ -450,15 +467,8 @@ pub fn probe_network_prefix(
     };
     let mut argv = network_prefix(uid, gid);
     argv.push("true".to_string());
-    Command::new(unshare)
-        .args(&argv[1..])
-        .env_clear()
-        .envs(env)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+    let mut command = Command::new(unshare);
+    crate::process::spawned::succeeds(command.args(&argv[1..]).env_clear().envs(env))
 }
 
 extern "C" {
@@ -486,9 +496,7 @@ pub fn require_bwrap_for(spec: &HandsSpec) -> Result<PathBuf, String> {
 /// Refuse a spec with overlay binds on a bwrap older than 0.11.
 pub fn overlay_supported(spec: &HandsSpec, bwrap: &Path) -> Result<(), String> {
     overlay_supported_with(spec, bwrap, || {
-        Command::new(bwrap)
-            .arg("--version")
-            .output()
+        crate::process::spawned::output(Command::new(bwrap).arg("--version"))
             .ok()
             .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
             .unwrap_or_default()
@@ -664,7 +672,7 @@ pub fn execute_in(
             .env_clear()
             .env("PATH", "/usr/bin:/bin");
         let bwrap = bwrap.stdin(Stdio::null()).stdout(Stdio::piped());
-        bwrap.stderr(Stdio::piped()).spawn()
+        crate::process::spawned::spawn(bwrap.stderr(Stdio::piped()))
     });
     let mut child = io_context(spawned, "could not spawn bwrap")?;
     let stdout_pipe = child.stdout.take().expect("piped");
@@ -764,7 +772,7 @@ pub fn run_boxed_in(
     let boxed = io_context(workspace.boxed(command), "namespace")?;
     let ran = boxed.launch(bwrap, |bwrap| {
         let bwrap = bwrap.current_dir("/").env_clear();
-        bwrap.env("PATH", "/usr/bin:/bin").status()
+        crate::process::spawned::status(bwrap.env("PATH", "/usr/bin:/bin"))
     });
     let status = io_context(ran, "could not spawn bwrap")?;
     Ok(status.code().unwrap_or(-1))
@@ -811,28 +819,6 @@ pub fn mcp_config(
         spec,
     };
     transport.document()
-}
-
-/// The `brokkr hands serve …` argument vector a harness spawns. A sealed
-/// reach that is not UTF-8 is carried empty, which no hands server reads.
-pub fn serve_args(
-    workdir: &Path,
-    artifacts: &Path,
-    sealed: &Sealed,
-    spec: &HandsSpec,
-) -> Vec<String> {
-    vec![
-        "hands".to_string(),
-        "serve".to_string(),
-        "--workdir".to_string(),
-        workdir.to_string_lossy().into_owned(),
-        "--artifacts".to_string(),
-        artifacts.to_string_lossy().into_owned(),
-        "--reach".to_string(),
-        serde_json::to_string(sealed).unwrap_or_default(),
-        "--spec".to_string(),
-        spec.to_value().to_string(),
-    ]
 }
 
 /// One JSON-RPC exchange of the MCP stdio transport: newline-delimited
@@ -936,36 +922,32 @@ pub fn handle(
 /// The tool's arguments, refused when they are not exactly the two the
 /// schema names.
 fn call_arguments(params: &Value) -> Result<(String, Duration), String> {
+    checked_call(params).map_err(|refusal| refusal.to_string())
+}
+
+/// The call's checks, in order, each refusing in its own variant. An
+/// absent or non-object `arguments` reads as an empty map.
+fn checked_call(params: &Value) -> Result<(String, Duration), CallRefusal<'_>> {
     if params.get("name").and_then(Value::as_str) != Some(TOOL_NAME) {
-        return Err(format!(
-            "unknown tool; this server serves only '{TOOL_NAME}'"
-        ));
+        return Err(CallRefusal::UnknownTool);
     }
-    let empty = Map::new();
-    let arguments = params
-        .get("arguments")
-        .and_then(Value::as_object)
-        .unwrap_or(&empty);
-    for key in arguments.keys() {
-        if key != "command" && key != "timeoutMs" {
-            return Err(format!("{TOOL_NAME}: unknown argument '{key}'"));
-        }
+    let arguments = params.get("arguments").and_then(Value::as_object);
+    let known = ["command", "timeoutMs"];
+    let mut keys = arguments.into_iter().flat_map(|arguments| arguments.keys());
+    if let Some(key) = keys.find(|key| !known.contains(&key.as_str())) {
+        return Err(CallRefusal::UnknownArgument { key });
     }
-    let command = arguments
-        .get("command")
+    let argument = |name| arguments.and_then(|arguments| arguments.get(name));
+    let command = argument("command")
         .and_then(Value::as_str)
         .filter(|command| !command.trim().is_empty() && command.len() <= 16_384)
-        .ok_or_else(|| format!("{TOOL_NAME}: command must contain 1-16384 characters"))?;
-    let timeout_ms = match arguments.get("timeoutMs") {
+        .ok_or(CallRefusal::Command)?;
+    let timeout_ms = match argument("timeoutMs") {
         None => DEFAULT_TIMEOUT_MS,
         Some(value) => value
             .as_u64()
             .filter(|ms| (100..=MAX_TIMEOUT_MS).contains(ms))
-            .ok_or_else(|| {
-                format!(
-                    "{TOOL_NAME}: timeoutMs must be an integer from 100 through {MAX_TIMEOUT_MS}"
-                )
-            })?,
+            .ok_or(CallRefusal::Timeout)?,
     };
     Ok((command.to_string(), Duration::from_millis(timeout_ms)))
 }

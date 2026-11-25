@@ -87,6 +87,18 @@ is untouched, so unprefixed ids and the `dashscope/*` front stay
 uncontracted, and every other adapter stands where ruling 4's migration
 left it.
 
+2026-11-20, separately: the operator ruled the `agy` adapter's one route —
+Google's Antigravity service, reached through the Antigravity CLI signed
+in to a personal account on the Google AI Ultra plan — class
+`contracted` (#1200): "ultra terms justify trusted and contracted, but
+run an eval". The class is written into the agy adapter as ruling 1
+prescribes. The ruling is the operator's reading of that plan's terms;
+what Google's pages state about a personal account's interactions is
+quoted in `docs/evidence/adapters/agy-cli-1-5.md`, under Terms. It rules
+the class of this one route and nothing on the judging axis: the trust
+tier waits on the wager and its own recorded ruling, as decision 0021
+rulings 3 and 7 order.
+
 ## Rulings
 
 1. **Egress is a named class, and the vocabulary is closed and ordered.**

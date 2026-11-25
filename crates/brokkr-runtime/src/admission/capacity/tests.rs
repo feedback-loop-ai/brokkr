@@ -214,6 +214,7 @@ impl Fixture {
             file,
             temp: TEMP.as_ref(),
             free: &probe,
+            machine: None,
         };
         verdicts(pass_within(&self.store, &host).unwrap().0)
     }
@@ -300,7 +301,8 @@ pub(crate) fn refused_rows(store: &mut Store, run: &str, rows: &[Row]) -> EventE
 }
 
 /// Write one beta/cloud cool-down row through the store's own writer, in
-/// force for the next five minutes.
+/// force for the next hour: longer than any stall a loaded host puts
+/// between this instant and the row's recording (#857).
 pub(crate) fn write_cooling(store: &mut Store, run: &str) {
     refused_rows(
         store,
@@ -309,7 +311,7 @@ pub(crate) fn write_cooling(store: &mut Store, run: &str) {
             site: String::new(),
             provider: "beta".into(),
             route: "cloud".into(),
-            until_at: Stamp::now_utc() + time::Duration::minutes(5),
+            until_at: Stamp::now_utc() + time::Duration::hours(1),
             reason: "cooling".into(),
             retry_after_seconds: None,
             rounds: 1,
@@ -331,6 +333,7 @@ fn passed_naming(store: &Store, file: &Path) -> Result<(Vec<Judged>, Vec<Reason>
         file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     pass_within(store, &host)
 }
@@ -543,7 +546,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         with("/floors", json!([floor(1), floor(2)]))
     };
     let cases = [
-        (unknown, "unknown field `pause`, expected one of `schema`, `providers`, `floors`, `boxed_builds`, `runs`, `cooldowns`, `containment` at line 1 column 92"),
+        (unknown, "unknown field `pause`, expected one of `schema`, `providers`, `floors`, `boxed_builds`, `runs`, `demand`, `cooldowns`, `containment` at line 1 column 92"),
         (keyed, "unknown field `burst`, expected `ceiling` or `routes` at line 1 column 114"),
         (with("/providers/alpha/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 119"),
         (with("/providers/alpha/ceiling", json!(-1)), "invalid value: integer `-1`, expected a nonzero u32 at line 1 column 120"),
@@ -560,7 +563,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         (with("/floors/0", json!({"floor_bytes": 1, "place": "temp", "size": 1})), "unknown field `size`, expected one of `floor_bytes`, `path`, `place` at line 1 column 78"),
         (twice(json!({"place": "temp"})), "the floor at place 'temp' is written twice at line 1 column 106"),
         (twice(json!({"path": "/var/tmp"})), "the floor at path '/var/tmp' is written twice at line 1 column 112"),
-        (with("/schema", json!("forge.host/v5")), "unknown variant `forge.host/v5`, expected one of `forge.host/v1`, `forge.host/v2`, `forge.host/v3`, `forge.host/v4` at line 1 column 199"),
+        (with("/schema", json!("forge.host/v6")), "unknown variant `forge.host/v6`, expected one of `forge.host/v1`, `forge.host/v2`, `forge.host/v3`, `forge.host/v4`, `forge.host/v5` at line 1 column 199"),
         (with("/providers/beta/routes", json!({"spark-glm": route(1, "local")})), "unknown variant `local`, expected `cloud` or `shared-local` at line 1 column 190"),
     ];
     let said: Vec<String> = cases
@@ -792,10 +795,7 @@ fn the_claims_recheck_counts_the_moved_runs_before_it_judges_a_cool_down() {
     let room = admitted(&fixture, &file);
     write_cooling(&mut fixture.store, "run-cooling");
     fixture.running("odd", &json!({}));
-    match room
-        .claim(&mut fixture.store, Generation(1), "admitted")
-        .unwrap()
-    {
+    match claimed(&mut fixture, &room) {
         Err(reason) => assert_eq!(reason.kind(), "run_unmeasured"),
         Ok(claim) => panic!("the claim took {claim:?} over an unreadable run"),
     }
@@ -826,6 +826,7 @@ fn measured(
         file: &file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     let reasons = verdicts(pass_within(&fixture.store, &host).unwrap().0).remove(0);
     (reasons, asked.into_inner())
@@ -914,11 +915,20 @@ fn an_exact_integral_floor_token_keeps_the_admission_guard() {
     fixture.queue();
     let file = fixture.root.join("host.json");
     let probe = 9_007_199_254_740_992;
-    std::fs::write(
-        &file,
-        r#"{"schema":"forge.host/v4","providers":{"alpha":{"ceiling":1},"beta":{"ceiling":1,"routes":{}}},"floors":[{"floor_bytes":9007199254740993.0,"place":"temp"}],"boxed_builds":{"ceiling":2},"runs":{"ceiling":9}}"#,
-    )
-    .unwrap();
+    let v4 = r#"{"schema":"forge.host/v4","providers":{"alpha":{"ceiling":1},"beta":{"ceiling":1,"routes":{}}},"floors":[{"floor_bytes":9007199254740993.0,"place":"temp"}],"boxed_builds":{"ceiling":2},"runs":{"ceiling":9}}"#;
+    // 6d L2: a v1, v2 or v3 file declares no run ceiling, so admission
+    // waits its entry as `runs_undeclared` before any floor; the loader
+    // the guard reads reads the same token exactly in each.
+    for schema in ["forge.host/v1", "forge.host/v2", "forge.host/v3"] {
+        let earlier = v4.replace("forge.host/v4", schema);
+        std::fs::write(&file, earlier.replace(r#","runs":{"ceiling":9}"#, "")).unwrap();
+        let Hosting::Declared(read) = host::read(&file).unwrap() else {
+            panic!("{schema} did not load");
+        };
+        let floor = read.floors.0[0].floor_bytes.get();
+        assert_eq!(floor, 9_007_199_254_740_993, "{schema}");
+    }
+    std::fs::write(&file, v4).unwrap();
     let reasons = fixture.reasons(&file, probe).remove(0);
     assert_eq!(
         reasons,
@@ -990,6 +1000,7 @@ fn a_floor_path_through_a_dangling_link_is_unmeasured_and_never_measured_on_its_
             file: &file,
             temp: TEMP.as_ref(),
             free: &host::free_bytes,
+            machine: None,
         };
         let mut reasons = verdicts(pass_within(&fixture.store, &host).unwrap().0).remove(0);
         let reason = reasons.pop().unwrap();
@@ -1141,6 +1152,7 @@ fn the_writing_pass_judges_the_machine_after_it_latches() {
         file: &file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     let judged = verdicts(judge_within(&mut fixture.store, &host, BY).unwrap().0);
     let undeclared = Reason::Capacity(Capacity::Undeclared(file.clone()));
@@ -1397,11 +1409,23 @@ fn one_admitted() -> (Fixture, EntryId, PathBuf, Room) {
 
 /// Claim the entry `room` was measured for, as generation 1.
 pub(crate) fn claimed(fixture: &mut Fixture, room: &Room) -> Result<Claim, Reason> {
-    room.claim(&mut fixture.store, Generation(1), "admitted")
-        .unwrap()
+    match claim(room, &mut fixture.store).unwrap() {
+        Ok(claim) => Ok(claim),
+        Err(Unclaimed::Refused(reason)) => Err(reason),
+        Err(Unclaimed::Stopped) => panic!("a claim that is never stopped stopped"),
+    }
 }
 
-/// An operator's `retry` of a run, as `brokkr operator` journals it.
+/// Claim the entry `room` was measured for through `store`, as generation
+/// 1, never stopped.
+pub(crate) fn claim(
+    room: &Room,
+    store: &mut Store,
+) -> Result<Result<Claim, Unclaimed>, AdmissionError> {
+    room.claim(store, Generation(1), "admitted", &mut || true)
+}
+
+/// An operator's `retry` of a run, as `brokkr runs operator` journals it.
 fn retry() -> Value {
     json!({"command_id": "c1", "command": "retry", "args": {}, "operator": "vy"})
 }
@@ -1470,6 +1494,36 @@ fn a_run_retried_or_started_after_the_pass_refuses_the_claim_on_capacity() {
     }
 }
 
+/// Decision 0110 ruling 5: the stop is the last read before the claim's
+/// write, after the re-check, so a stop asked while the claim re-checked
+/// is honoured. A re-check that refuses never reaches it; one that passes
+/// asks it once, and its no claims nothing.
+#[test]
+fn a_claims_stop_is_read_after_its_recheck_and_last_before_its_write() {
+    let mut fixture = Fixture::new();
+    let entry = fixture.queue();
+    let file = fixture.declare(&ceilings(1, 1, json!({})));
+    let room = admitted(&fixture, &file);
+    let mut asked = 0;
+    let mut stop = || {
+        asked += 1;
+        false
+    };
+    let unclaimed = room.claim(&mut fixture.store, Generation(1), "admitted", &mut stop);
+    assert_eq!(unclaimed.unwrap(), Err(Unclaimed::Stopped));
+    let mut stop = || {
+        asked += 1;
+        false
+    };
+    fixture.started("r2");
+    let unclaimed = room.claim(&mut fixture.store, Generation(1), "admitted", &mut stop);
+    let full = Reason::Capacity(full("alpha", 1, 1).unwrap());
+    assert_eq!(unclaimed.unwrap(), Err(Unclaimed::Refused(full)));
+    assert_eq!(asked, 1, "the refused re-check asked no stop");
+    let state = fixture.store.queue_entry(entry).unwrap().state;
+    assert_eq!(state, brokkr_store::EntryState::Queued);
+}
+
 /// A run running at the pass that moved and seats what it seated is
 /// counted once, a run that ended since frees its place, and a run
 /// started since takes one: under a ceiling of 3, with two running at the
@@ -1531,7 +1585,7 @@ fn a_run_that_moved_and_cannot_be_read_refuses_the_claim() {
     brokkr_store::test_support::plant_envelope(&conn, &after).unwrap();
     // A run that does not fold stands behind its head on purpose.
     brokkr_store::test_support::lags(&mut fixture.store, &["r1"]);
-    let error = (room.claim(&mut fixture.store, Generation(1), "admitted")).unwrap_err();
+    let error = claim(&room, &mut fixture.store).unwrap_err();
     assert!(
         matches!(&error, AdmissionError::Fold { run, .. } if run == "r1"),
         "{error:?}"
@@ -1578,7 +1632,7 @@ fn a_room_claims_its_entry_only_as_the_pass_read_it() {
         let (mut fixture, entry, _, room) = one_admitted();
         act(&mut fixture, entry);
         let before = fixture.store.queue_entry(entry).unwrap();
-        let error = (room.claim(&mut fixture.store, Generation(1), "admitted")).unwrap_err();
+        let error = claim(&room, &mut fixture.store).unwrap_err();
         let AdmissionError::Store(StoreError::Queue(refused)) = &error else {
             panic!("not a queue refusal: {error:?}");
         };
@@ -1641,13 +1695,11 @@ fn a_room_claims_in_no_journal_but_the_one_its_pass_measured() {
     }
     let mut copied = Store::open(&copy).unwrap();
     let before = [written(&measured.store), written(&other.store)];
-    let error = (room.claim(&mut other.store, Generation(1), "admitted")).unwrap_err();
+    let error = claim(&room, &mut other.store).unwrap_err();
     refused_elsewhere(&error, other.store.path());
     assert_eq!([written(&measured.store), written(&other.store)], before);
 
-    (room.claim(&mut copied, Generation(1), "admitted"))
-        .unwrap()
-        .unwrap();
+    claim(&room, &mut copied).unwrap().unwrap();
     let state = copied.queue_entry(entry).unwrap().state;
     assert_eq!(state, brokkr_store::EntryState::Launching);
     assert_eq!(written(&measured.store), before[0]);
@@ -1669,9 +1721,7 @@ fn a_room_claims_through_any_store_on_the_journal_its_pass_measured() {
             }
         };
         let mut reconnected = Store::open(&path).unwrap();
-        (room.claim(&mut reconnected, Generation(1), "admitted"))
-            .unwrap()
-            .unwrap();
+        claim(&room, &mut reconnected).unwrap().unwrap();
         let state = fixture.store.queue_entry(entry).unwrap().state;
         assert_eq!(state, brokkr_store::EntryState::Launching);
     }
@@ -1706,7 +1756,7 @@ fn a_store_opened_through_a_symlink_retargeted_since_is_the_journal_it_holds() {
                 (&mut measured.store, named)
             }
         };
-        let error = (room.claim(handed, Generation(1), "admitted")).unwrap_err();
+        let error = claim(&room, handed).unwrap_err();
         refused_elsewhere(&error, &named);
         let after = [written(&measured.store), written(&other.store)];
         assert_eq!(after, before);
@@ -1724,7 +1774,7 @@ fn a_store_whose_place_another_file_was_renamed_into_is_the_journal_it_opened() 
     other.queue();
     let before = [&measured.store, &other.store].map(|store| store.queue_list().unwrap());
     std::fs::rename(measured.store.path(), other.store.path()).unwrap();
-    let error = (room.claim(&mut other.store, Generation(1), "admitted")).unwrap_err();
+    let error = claim(&room, &mut other.store).unwrap_err();
     refused_elsewhere(&error, other.store.path());
     let after = [&measured.store, &other.store].map(|store| store.queue_list().unwrap());
     assert_eq!(after, before);
@@ -1761,7 +1811,7 @@ fn a_store_whose_path_was_replaced_while_its_open_waited_is_the_journal_it_holds
     let mut waited = opening.join().unwrap();
     assert_eq!(waited.queue_list().unwrap(), before[1].0, "not B's store");
 
-    let error = (room.claim(&mut waited, Generation(1), "admitted")).unwrap_err();
+    let error = claim(&room, &mut waited).unwrap_err();
     refused_elsewhere(&error, &path);
     std::fs::rename(&path, measured.store.path()).unwrap();
     std::fs::rename(&kept, &path).unwrap();
@@ -1784,7 +1834,7 @@ fn a_room_whose_pass_read_a_journal_with_no_id_claims_in_nothing() {
     let mut named = Store::open(&path).unwrap();
     assert_ne!(named.journal().unwrap(), None);
     for store in [&mut read, &mut named] {
-        let error = (room.claim(store, Generation(1), "admitted")).unwrap_err();
+        let error = claim(&room, store).unwrap_err();
         refused_elsewhere(&error, &path);
     }
     assert_eq!(written(&measured.store), before);
@@ -1803,6 +1853,7 @@ fn bound_to(room: &Room, entry: QueueEntry) -> Room {
         runs: room.runs,
         config: room.config.clone(),
         census: Arc::clone(&room.census),
+        recipe: room.recipe.clone(),
     }
 }
 

@@ -10,7 +10,7 @@ pub(super) fn invoke_exec(
     workdir: &str,
     input: &Value,
     bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
+    emit: &mut impl FnMut(&Emitted),
     mut stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
 ) -> Result<Invocation, String> {
     if extra.is_empty() {
@@ -21,7 +21,7 @@ pub(super) fn invoke_exec(
     // bundle manifest; no command-shaped prose enters a checkpoint.
     let mut session_meta = Map::new();
     Transcript::resolve(TranscriptKind::None)?.finish(&mut session_meta, emit);
-    emit(&json!({"step": "exec-started"}));
+    emit(&Emitted::new(Step::ExecStarted, json!({})));
     let mut prompt_file: Option<tempfile::NamedTempFile> = None;
     if extra.iter().any(|part| part.contains("{prompt_file}")) {
         prompt_file = Some(stage(prompt)?);
@@ -42,12 +42,13 @@ pub(super) fn invoke_exec(
     let out = run_cli(&command, stdin_payload, workdir, bindings)?;
     // Known-plaintext masking choke point (decision 0012, layer
     // 5), on RAW captured bytes before any string conversion.
-    // stdout is captured-and-dropped today; stderr is re-emitted
-    // by run_seat and journaled as the stderr tail on failure —
-    // the path that fires exactly when a credentialed command
-    // prints the offending header.
+    // stdout becomes a dialect check's notes; stderr is named there by
+    // evidence over those same masked bytes, re-emitted by run_seat,
+    // and its tail told to the engine's own log on failure (the
+    // journal names it by evidence alone, #1199) — the path that
+    // fires when a credentialed command prints it.
     let stderr = secret::mask_bytes(&out.stderr, bindings);
-    let stdout = secret::mask_bytes(&out.stdout, bindings);
+    let notes = dialect_notes(&secret::mask_bytes(&out.stdout, bindings), &stderr);
     let state = input
         .pointer("/dialect_exec/state")
         .and_then(Value::as_array)
@@ -63,13 +64,26 @@ pub(super) fn invoke_exec(
                 String::from_utf8_lossy(&bytes).into_owned()
             })
         })
-        .transpose()?;
+        .transpose();
+    let stderr_text = String::from_utf8_lossy(&stderr);
+    let state = match state {
+        Ok(state) => state,
+        Err(mut error) => {
+            let start = stderr_tail_start(&stderr_text);
+            let _ = std::io::stderr().write_all(stderr_text[start..].as_bytes());
+            if let Some(evidence) = validator_evidence(&stderr) {
+                error.push('\n');
+                error.push_str(&evidence);
+            }
+            return Err(error);
+        }
+    };
     Ok(Invocation {
         answer: None,
         exit_code: lost::exit_code(out.status),
         session_meta,
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        notes,
+        stderr: stderr_text.into_owned(),
         state,
         // Decision 0053: exec has no model turn and no provider
         // to refuse it. Its failures are the script's own, and
@@ -77,5 +91,36 @@ pub(super) fn invoke_exec(
         // there is no fallback for a refusal to reach.
         refusal: None,
         launch: LaunchTerminal::Cold,
+        result_exists: None,
     })
 }
+
+/// A dialect check's notes: its validator's trimmed stdout, then, where
+/// its stderr is not empty, one line naming that stderr by content-free
+/// evidence (#1199, decision 0012). The notes reach the journal as a step
+/// checkpoint or as the attempt's result, and a validator can print a
+/// value the seat binds nowhere, so no byte of its stderr is copied here:
+/// a realm that wants its validator's diagnostics in the notes redirects
+/// them to stdout inside its own command. The evidence counts and digests
+/// the captured masked bytes themselves, never a lossy reading of them.
+fn dialect_notes(stdout: &[u8], stderr: &[u8]) -> String {
+    let mut notes = String::from_utf8_lossy(stdout).trim().to_string();
+    if let Some(evidence) = validator_evidence(stderr) {
+        if !notes.is_empty() {
+            notes.push('\n');
+        }
+        notes.push_str(&evidence);
+    }
+    notes
+}
+
+fn validator_evidence(stderr: &[u8]) -> Option<String> {
+    if stderr.is_empty() {
+        return None;
+    }
+    let evidence = crate::process::Evidence::of(stderr);
+    Some(format!("validator stderr: {evidence}"))
+}
+
+#[cfg(test)]
+mod tests;

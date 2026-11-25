@@ -49,10 +49,12 @@ use crate::bundle::Limits;
 
 pub(crate) mod charter_data;
 mod compose;
+pub(crate) mod kinds;
 mod load;
 mod mcp;
 mod route;
 pub use brokkr_protocol::adapters::HandsNotice;
+pub use kinds::{DeclaredKinds, RecordKinds, RootShapeUnmet};
 pub use load::{resolve_route, valid_name, Adapters, Library, LibraryError, NAME_GRAMMAR};
 pub(crate) use mcp::Uncarried;
 pub use mcp::{McpAxis, McpError, McpHands, McpHost, McpInvocation, McpIsolation, McpMeasurement};
@@ -134,9 +136,12 @@ pub struct Agent {
     pub hands: Option<brokkr_protocol::hands::HandsSpec>,
     pub limits: Option<Limits>,
     pub inputs: Option<Vec<String>>,
+    /// Decision 0109 ruling 11: the results the office may report, where
+    /// it names them. Inherited through `extends`, never an overlay key.
+    pub results: Option<Vec<String>>,
     /// sha256 over the canonical definition JSON.
     pub digest: String,
-    /// The definition as written, for `brokkr agents show`.
+    /// The definition as written, for `brokkr library agents show`.
     pub source: Value,
 }
 
@@ -489,6 +494,10 @@ pub struct Adapter {
     /// `hands` already uses, and the reading every adapter written
     /// before this ruling gets.
     pub resume: ResumeAssessment,
+    /// Decision 0075 ruling 2: the transcript and root session kinds this
+    /// harness's seat records name. `None` declares nothing, which every
+    /// shipped adapter is: a built-in driver declares the kinds it writes.
+    pub record_kinds: Option<RecordKinds>,
     /// Decision 0065 ruling 4: the powers this harness already has — a
     /// server-side search, a built-in fetch — each with how it is switched
     /// on and off, or `unsupported` with the measured reason, or
@@ -645,6 +654,17 @@ impl ResumeShape {
             "limitations": self.limitations,
             "reason": self.reason,
         })
+    }
+
+    /// Whether this shape was measured for a site of `class` standing
+    /// under `boundary` with `hands`: the class among its `classes`, the
+    /// boundary among its `boundaries`, and its `hands` the site's. The
+    /// same three facts, in the same words, that the engine writes into
+    /// the driver's input and the driver's resume gate matches (proposed
+    /// decision 0056 ruling 5; the controller's ruling R4 of 2026-11-21).
+    pub(crate) fn covers(&self, class: &str, boundary: &str, hands: &str) -> bool {
+        let names = |words: &[String], word: &str| words.iter().any(|named| named == word);
+        names(&self.classes, class) && names(&self.boundaries, boundary) && self.hands == hands
     }
 }
 
@@ -879,7 +899,7 @@ pub enum ResolveError {
 
 /// One chain entry as the resolver sees it: the shared derivation behind
 /// `resolve` (which the compiler calls) and `report` (which
-/// `brokkr agents show` and `brokkr doctor` call). They are the same walk
+/// `brokkr library agents show` and `brokkr doctor` call). They are the same walk
 /// — `resolve` is `report` plus the refusals.
 #[derive(Debug, Clone)]
 pub struct ChainEntry {
@@ -1084,6 +1104,8 @@ pub struct Resolution {
     pub charter_source: CharterSource,
     pub limits: Option<Limits>,
     pub inputs: Option<Vec<String>>,
+    /// The office's declared results (decision 0109 ruling 11).
+    pub results: Option<Vec<String>>,
     /// Ordered; `[0]` is the choice and the rest are the bounded
     /// fallback order.
     pub candidates: Vec<Candidate>,
@@ -1259,7 +1281,7 @@ fn native_alias(adapter: &Adapter, tool: &str, name: &str) -> Result<(), String>
 }
 
 /// Walk an agent's whole chain without refusing anything but an unknown
-/// name: the derivation `brokkr agents show` and `brokkr doctor` print.
+/// name: the derivation `brokkr library agents show` and `brokkr doctor` print.
 pub fn report(
     library: &Library,
     adapters: &Adapters,
@@ -1483,6 +1505,7 @@ pub(crate) fn resolve_report(
         charter_source: agent.charter_source(),
         limits: agent.limits,
         inputs: agent.inputs.clone(),
+        results: agent.results.clone(),
         candidates,
         record,
         notices,

@@ -52,6 +52,7 @@ pub brokkr_view::transcript::LegacyProvenance::Claude
 pub brokkr_view::transcript::LegacyProvenance::LaneTally
 pub brokkr_view::transcript::LegacyProvenance::Other
 pub enum brokkr_view::transcript::TranscriptKind
+pub brokkr_view::transcript::TranscriptKind::AgyConversation
 pub brokkr_view::transcript::TranscriptKind::ClaudeSession
 pub brokkr_view::transcript::TranscriptKind::CodexThread
 pub brokkr_view::transcript::TranscriptKind::DshSession
@@ -88,6 +89,7 @@ pub fn brokkr_view::transcript::Block::text(impl core::convert::Into<alloc::stri
 pub fn brokkr_view::transcript::Block::tool(impl core::convert::Into<alloc::string::String>) -> brokkr_view::transcript::Block
 pub fn brokkr_view::transcript::Block::tool_result(impl core::convert::Into<alloc::string::String>) -> brokkr_view::transcript::Block
 pub struct brokkr_view::transcript::Projection
+pub brokkr_view::transcript::Projection::notices: alloc::vec::Vec<alloc::string::String>
 pub brokkr_view::transcript::Projection::skipped_lines: u64
 pub brokkr_view::transcript::Projection::truncated: bool
 pub brokkr_view::transcript::Projection::turns: alloc::vec::Vec<brokkr_view::transcript::Turn>
@@ -242,6 +244,9 @@ pub type brokkr_view::Range::Err = brokkr_view::AnalyticsError
 pub fn brokkr_view::Range::from_str(&str) -> core::result::Result<brokkr_view::Range, brokkr_view::AnalyticsError>
 impl serde_core::ser::Serialize for brokkr_view::Range
 pub fn brokkr_view::Range::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+pub enum brokkr_view::ResultNotes
+pub brokkr_view::ResultNotes::Panel(alloc::vec::Vec<alloc::string::String>)
+pub brokkr_view::ResultNotes::Text(alloc::string::String)
 pub enum brokkr_view::Ruled
 pub brokkr_view::Ruled::Flagged
 pub brokkr_view::Ruled::Open
@@ -436,6 +441,25 @@ pub struct brokkr_view::FleetView
 pub brokkr_view::FleetView::count: usize
 pub brokkr_view::FleetView::realms: alloc::vec::Vec<brokkr_view::RealmRuns>
 pub brokkr_view::FleetView::view_version: u32
+pub struct brokkr_view::GateFinding
+pub brokkr_view::GateFinding::file: alloc::string::String
+pub brokkr_view::GateFinding::id: alloc::string::String
+pub brokkr_view::GateFinding::line: core::option::Option<u64>
+pub brokkr_view::GateFinding::participant: alloc::string::String
+pub brokkr_view::GateFinding::producer: alloc::string::String
+pub brokkr_view::GateFinding::security: bool
+pub brokkr_view::GateFinding::severity: &'static str
+pub brokkr_view::GateFinding::site: alloc::string::String
+pub brokkr_view::GateFinding::summary: alloc::string::String
+pub struct brokkr_view::GateRecord
+pub brokkr_view::GateRecord::covered: core::option::Option<alloc::string::String>
+pub brokkr_view::GateRecord::findings: alloc::vec::Vec<brokkr_view::GateFinding>
+pub brokkr_view::GateRecord::key: alloc::string::String
+pub brokkr_view::GateRecord::phase: alloc::string::String
+pub brokkr_view::GateRecord::unread: bool
+pub brokkr_view::GateRecord::unverified: core::option::Option<alloc::string::String>
+impl brokkr_view::GateRecord
+pub fn brokkr_view::GateRecord::kept_by(&self, core::option::Option<&brokkr_view::Lens>) -> core::option::Option<brokkr_view::GateRecord>
 pub struct brokkr_view::GraphQuery<'a>
 pub brokkr_view::GraphQuery::does_not_compile: &'a [alloc::string::String]
 pub brokkr_view::GraphQuery::hearths: &'a [brokkr_view::AnalyticsHearth<'a>]
@@ -581,6 +605,18 @@ pub brokkr_view::Phase::plain: bool
 pub brokkr_view::Phase::returns: alloc::vec::Vec<brokkr_view::Road>
 pub brokkr_view::Phase::strategy: core::option::Option<alloc::string::String>
 pub brokkr_view::Phase::visits: u64
+pub struct brokkr_view::PhaseUsage
+pub brokkr_view::PhaseUsage::attempts: usize
+pub brokkr_view::PhaseUsage::cpu_ms: core::option::Option<brokkr_view::Spread>
+pub brokkr_view::PhaseUsage::mean_load_millicores: core::option::Option<brokkr_view::Spread>
+pub brokkr_view::PhaseUsage::mean_memory_bytes: core::option::Option<brokkr_view::Spread>
+pub brokkr_view::PhaseUsage::measured: usize
+pub brokkr_view::PhaseUsage::peak_load_millicores: core::option::Option<brokkr_view::Spread>
+pub brokkr_view::PhaseUsage::peak_memory_bytes: core::option::Option<brokkr_view::Spread>
+pub brokkr_view::PhaseUsage::phase: alloc::string::String
+pub brokkr_view::PhaseUsage::recipe: alloc::string::String
+pub brokkr_view::PhaseUsage::unmeasured: usize
+pub brokkr_view::PhaseUsage::wall_ms: core::option::Option<brokkr_view::Spread>
 pub struct brokkr_view::Provenance
 pub brokkr_view::Provenance::agent: alloc::string::String
 pub brokkr_view::Provenance::chain_index: u64
@@ -737,6 +773,10 @@ pub struct brokkr_view::SpendFact
 pub brokkr_view::SpendFact::at: i64
 pub brokkr_view::SpendFact::realm: alloc::string::String
 pub brokkr_view::SpendFact::usd: f64
+pub struct brokkr_view::Spread
+pub brokkr_view::Spread::average: u64
+pub brokkr_view::Spread::max: u64
+pub brokkr_view::Spread::min: u64
 pub struct brokkr_view::Subject
 pub brokkr_view::Subject::key: alloc::string::String
 pub brokkr_view::Subject::legacy_id: core::option::Option<alloc::string::String>
@@ -883,6 +923,8 @@ pub fn brokkr_view::entry_sentence(&brokkr_core::entry::RunEntry) -> alloc::stri
 pub fn brokkr_view::first_divergence(&[alloc::string::String], &[alloc::string::String]) -> core::option::Option<brokkr_view::FirstDivergence>
 pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>], &[brokkr_view::Cooling]) -> brokkr_view::FleetView
 pub fn brokkr_view::fmt_dur(&str, &str) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::gate_records(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> alloc::vec::Vec<brokkr_view::GateRecord>
+pub fn brokkr_view::gate_records_within(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>, u64) -> alloc::vec::Vec<brokkr_view::GateRecord>
 pub fn brokkr_view::graph(&brokkr_view::GraphQuery<'_>) -> core::result::Result<brokkr_view::GraphView, brokkr_view::GraphError>
 pub fn brokkr_view::keeps_participant(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Participant) -> bool
 pub fn brokkr_view::keeps_phase(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Phase) -> bool
@@ -895,13 +937,16 @@ pub fn brokkr_view::operator_commands(&brokkr_core::fold::RunState) -> alloc::ve
 pub fn brokkr_view::operator_refusal(&str, &str, &str) -> alloc::string::String
 pub fn brokkr_view::page<E>(core::option::Option<&brokkr_view::Cursor>, (usize, &str), impl core::ops::function::FnMut(brokkr_view::Section, core::option::Option<brokkr_core::page::Place<'_>>, usize) -> core::result::Result<alloc::vec::Vec<brokkr_view::RunRow>, E>) -> core::result::Result<brokkr_view::Page, E>
 pub fn brokkr_view::page_rows(core::option::Option<&str>, &mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_core::envelope::EventEnvelope>) -> impl core::ops::function::Fn(&brokkr_core::envelope::EventEnvelope) -> core::option::Option<brokkr_view::CheckpointRow>
+pub fn brokkr_view::participant_label(&str, core::option::Option<&str>) -> alloc::string::String
 pub fn brokkr_view::quarantine_finding(&str, u64, &str) -> brokkr_view::ResidualFinding
 pub fn brokkr_view::ranges(brokkr_view::Section, &str) -> alloc::vec::Vec<brokkr_core::page::Range>
 pub fn brokkr_view::realm_in_scope(core::option::Option<&str>, &str) -> bool
+pub fn brokkr_view::recipe_usage(&[alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>], core::option::Option<&str>) -> alloc::vec::Vec<brokkr_view::PhaseUsage>
 pub fn brokkr_view::residual_findings_at(&str, &[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> alloc::vec::Vec<brokkr_view::ResidualFinding>
 pub fn brokkr_view::resolution_divergence<T: core::clone::Clone + core::cmp::PartialEq>(&alloc::collections::btree::map::BTreeMap<alloc::string::String, T>, &alloc::collections::btree::map::BTreeMap<alloc::string::String, T>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Sides<T>>
 pub fn brokkr_view::resolutions_at(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
 pub fn brokkr_view::resolved(alloc::vec::Vec<brokkr_view::Participant>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
+pub fn brokkr_view::result_notes(&serde_json::value::Value) -> core::option::Option<brokkr_view::ResultNotes>
 pub fn brokkr_view::run_row(&brokkr_view::RunEntry<'_>, &[brokkr_view::Cooling]) -> brokkr_view::RunRow
 pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>], &[brokkr_view::Cooling]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
@@ -916,6 +961,7 @@ pub fn brokkr_view::summary(&brokkr_core::fold::RunState, &[brokkr_core::envelop
 pub fn brokkr_view::summary_row(&brokkr_core::page::Row, core::option::Option<&brokkr_core::page::Whole>, &brokkr_view::WaitFact, &[brokkr_view::Cooling]) -> brokkr_view::RunRow
 pub fn brokkr_view::title(&str) -> alloc::string::String
 pub fn brokkr_view::title_within(&str, usize) -> alloc::string::String
+pub fn brokkr_view::verdict_attempts_within(&[&brokkr_core::envelope::EventEnvelope], u64) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_view::whole_read(&brokkr_view::Query<'_>, brokkr_view::Window) -> brokkr_view::WholeRead
 pub fn brokkr_view::window<E>(core::option::Option<&brokkr_view::Cursor>, (usize, &str), usize, impl core::ops::function::FnMut(brokkr_view::Section, core::option::Option<brokkr_core::page::Place<'_>>, usize) -> core::result::Result<alloc::vec::Vec<brokkr_view::RunRow>, E>) -> core::result::Result<(brokkr_view::Page, core::option::Option<brokkr_view::Cursor>), E>
 pub fn brokkr_view::windows(&brokkr_view::Query<'_>) -> core::result::Result<(brokkr_view::Window, brokkr_view::Window), brokkr_view::AnalyticsError>

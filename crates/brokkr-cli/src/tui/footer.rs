@@ -253,9 +253,9 @@ pub(super) fn status_line(tui: &Tui) -> String {
 }
 
 pub(super) const HELP: [&str; 15] = [
-    "brokkr tui — a read-only console over the same models as",
-    "brokkr inspect, brokkr watch and brokkr ui. It issues no",
-    "operator commands and writes nothing to the journal.",
+    "brokkr tui — a read-only console, the same models as brokkr",
+    "runs inspect, brokkr watch and brokkr system ui. It issues",
+    "no operator commands and writes nothing to the journal.",
     "",
     "↑ ↓ j k     move          Enter   descend / scope",
     "← →         the graph rail        ↑ ↓ its lanes",

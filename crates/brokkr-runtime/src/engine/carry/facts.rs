@@ -1,20 +1,25 @@
 //! Read evidence at the journal edge, then observe the repository without deciding.
 use std::collections::{BTreeMap, BTreeSet};
 
+use brokkr_core::findings::EngineMarker;
 use brokkr_core::fold::RunState;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::super::worktree::{read_tree, TreeReading};
+use super::super::{site_kinds, site_label};
 use super::record::{CarriedEntry, Head, PanelRecord, RetryArgs, Tag};
 use super::{CarryRefusal, Engine, ExecutableBody, Invocation, RecordId, Refusal, StepBody};
+use crate::agents::kinds::{SeatKinds, UndeclaredKind, UNDECLARED};
 
 #[derive(Debug)]
 pub(crate) enum PanelShape {
     Panel {
         step: Option<String>,
         tags: Vec<Tag>,
+        /// Every member's compiled law, by bare name (decision 0109).
+        laws: crate::bundle::MemberLaws,
     },
     NoPanel {
         phase: String,
@@ -33,9 +38,45 @@ pub(crate) struct PanelAttempt {
     pub(crate) record: Option<PanelRecord>,
     pub(crate) carried: Vec<CarriedEntry>,
     pub(crate) steps: Vec<String>,
+    /// The members the engine's own marker settled in this attempt: the
+    /// mark a settled payload is carried as a verdict by (W2), each with
+    /// the site that marker names, which a retry carrying the member
+    /// journals as its own (X2).
+    pub(crate) marked: BTreeMap<Tag, Option<String>>,
     pub(crate) park_reason: Option<String>,
     pub(crate) input_holds: bool,
     ended_at: Option<u64>,
+    /// Who wrote each member's settled result here, by tag ([`Writer`]).
+    writers: BTreeMap<Tag, Writer>,
+}
+
+/// The seat that wrote a member's settled result, as the current bundle
+/// resolves it for the selection its attempt began under: the label its
+/// site ran under, and the harness it answers to (the controller's ruling
+/// R18 of 2026-11-22).
+struct Writer {
+    seat: String,
+    kinds: SeatKinds,
+}
+
+impl PanelAttempt {
+    /// Whether `result`, `member`'s settled result, may carry: a carried
+    /// result contributes to a new verdict, so one whose kind place names
+    /// an undeclared or out-of-grammar kind is refused for the seat that
+    /// wrote it (v7's vocabulary for a member the body no longer declares).
+    /// A masked key where kind places are read also refuses the result.
+    /// A result that is not an object has no kind place by the grammar and
+    /// carries as on main for the join to poison (the controller's ruling
+    /// R23 of 2026-11-22).
+    pub(crate) fn admits(&self, member: &Tag, result: &Value) -> bool {
+        let writer = self.writers.get(member);
+        let seat = writer.map_or(member.0.as_str(), |writer| writer.seat.as_str());
+        let kinds = writer.map_or(&UNDECLARED, |writer| &writer.kinds);
+        match kinds.admit(result, seat) {
+            Ok(()) | Err(UndeclaredKind::Unread { .. }) => true,
+            Err(UndeclaredKind::Named { .. } | UndeclaredKind::Masked { .. }) => false,
+        }
+    }
 }
 
 pub(crate) struct CarryFacts {
@@ -142,9 +183,11 @@ fn record_start(
         record: None,
         carried,
         steps: Vec::new(),
+        marked: BTreeMap::new(),
         park_reason: None,
         input_holds: false,
         ended_at: None,
+        writers: BTreeMap::new(),
     });
     Ok(())
 }
@@ -172,17 +215,27 @@ fn record_park(attempts: &mut [PanelAttempt], payload: &Value) {
     }
 }
 
+/// A checkpoint of one of this visit's attempts: a finished step's name,
+/// and each member the engine's own marker settles (fix round 0109a1r6,
+/// W2), each read by the one check inspect reads it by, the engine's
+/// authorship (fix round 0109a1r4, K1; #1212): a driver's checkpoint that
+/// names a marker's word is no step record.
 fn record_step(attempts: &mut [PanelAttempt], payload: &Value) {
-    if payload["checkpoint"]["step"] != "sequence-step-finished" {
-        return;
-    }
     let Some(at) = attempts
         .iter_mut()
         .find(|at| payload["attempt_id"].as_str() == Some(&at.id))
     else {
         return;
     };
-    if let Some(step) = payload["checkpoint"]["step_name"].as_str() {
+    let checkpoint = &payload["checkpoint"];
+    if let Some(member) = EngineMarker::settled_member(checkpoint) {
+        let site = checkpoint["site_ref"].as_str().map(str::to_owned);
+        at.marked.insert(Tag(member.to_owned()), site);
+    }
+    if EngineMarker::authored(checkpoint) != Some(EngineMarker::StepFinished) {
+        return;
+    }
+    if let Some(step) = checkpoint["step_name"].as_str() {
         at.steps.push(step.to_owned());
     }
 }
@@ -256,7 +309,12 @@ impl Engine {
         mut attempts: Vec<PanelAttempt>,
     ) -> CarryFacts {
         let phase = state.phase.clone().unwrap_or_default();
+        let selected = (self.bundle.seats.get(&phase))
+            .and_then(|seat| seat.body.selected(state.strategy.as_deref()));
         for at in &mut attempts {
+            if let Some((body, case)) = selected {
+                at.writers = self.result_writers(events, at, body, (&phase, case));
+            }
             let digest = events
                 .iter()
                 .find(|event| {
@@ -271,12 +329,7 @@ impl Engine {
                     Some(brokkr_core::canonical::sha256_hex(&input).as_str()) == digest
                 });
         }
-        let body = self
-            .bundle
-            .seats
-            .get(&phase)
-            .and_then(|seat| seat.body.selected(state.strategy.as_deref()))
-            .map(|(body, _)| body);
+        let body = selected.map(|(body, _)| body);
         let shape = panel_shape(body, &phase);
         let steps = match body {
             Some(ExecutableBody::Sequence { steps }) => {
@@ -295,6 +348,30 @@ impl Engine {
             steps,
         }
     }
+
+    /// Who wrote each member's result in `at`, a panel attempt of the seat
+    /// `seat` running `body` (its case `case`): every member site's label
+    /// and harness, as this bundle resolves them for the candidates the
+    /// journal selected before `at` began, which is the selection it ran.
+    fn result_writers(
+        &self,
+        events: &[EventEnvelope],
+        at: &PanelAttempt,
+        body: ExecutableBody<'_>,
+        (seat, case): (&str, Option<&str>),
+    ) -> BTreeMap<Tag, Writer> {
+        let began = &events[..events.partition_point(|event| event.seq < at.seq)];
+        let (selection, _, _) = super::super::select_candidates(began, &at.effect, body);
+        let site_name = super::super::dispatch::site_name(seat, case);
+        // The class a site is read as names no harness, so `gate` is moot.
+        let sites = super::super::resume::structural_sites(body, seat, case, false);
+        let writer = |entry: super::super::resume::StructuralSite| {
+            let kinds = site_kinds(&self.bundle, &selection, &entry.site, &entry.command);
+            let seat = site_label(&site_name, &entry.site);
+            Some((Tag(entry.site?), Writer { seat, kinds }))
+        };
+        sites.into_iter().filter_map(writer).collect()
+    }
 }
 
 fn panel_shape(body: Option<ExecutableBody<'_>>, phase: &str) -> PanelShape {
@@ -305,6 +382,7 @@ fn panel_shape(body: Option<ExecutableBody<'_>>, phase: &str) -> PanelShape {
                 .iter()
                 .map(|member| Tag::new(None, &member.name))
                 .collect(),
+            laws: crate::bundle::laws_of(members),
         },
         Some(ExecutableBody::Sequence { steps }) => {
             for (index, step) in steps.iter().enumerate() {
@@ -321,6 +399,7 @@ fn panel_shape(body: Option<ExecutableBody<'_>>, phase: &str) -> PanelShape {
                             .iter()
                             .map(|member| Tag::new(Some(&step.name), &member.name))
                             .collect(),
+                        laws: crate::bundle::laws_of(members),
                     };
                 }
             }

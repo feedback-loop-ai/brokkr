@@ -18,6 +18,8 @@ use crate::agents::{Candidate, HarnessHands, Lowering};
 use crate::bundle::{Aggregate, Invocation, Limits, PanelMember, SeatBody, SeatClass};
 use crate::engine::tests::{bundle, single_body, templated};
 use crate::engine::Engine;
+use crate::witness::witness;
+use support::{limits_for, own_engine, work};
 
 fn base() -> OffsetDateTime {
     OffsetDateTime::parse("2026-11-01T00:00:00Z", &Rfc3339).unwrap()
@@ -49,6 +51,24 @@ impl Clock {
     }
 }
 
+/// How far past the journal's real recording instant a fixture keeps every
+/// end that must be in force when it is written or read (#857). The store
+/// keeps a row only while its `until` is past the event's `recorded_at`,
+/// and a loaded host's attempts lock can stall a test's append by many
+/// seconds while its clock stands still: an hour outlasts any such stall.
+const LONG_WAIT: time::Duration = time::Duration::seconds(LONG_WAIT_SECONDS as i64);
+
+/// [`LONG_WAIT`] in the whole seconds a host file or a provider answer
+/// spells.
+const LONG_WAIT_SECONDS: u64 = 3_600;
+
+/// Where a fixture's clock starts when the journal's real instant is `real`:
+/// [`LONG_WAIT`] past it, so a short wait the test waits out on its own clock
+/// still ends past the instant the journal records its row (#857).
+fn ahead_of(real: OffsetDateTime) -> OffsetDateTime {
+    real + LONG_WAIT
+}
+
 /// A seat with the limits this test needs.
 fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
     started_in(dir, "work", body, limits)
@@ -73,13 +93,6 @@ fn started_in(dir: &Path, tree: &str, body: SeatBody, limits: Limits) -> Engine 
 /// the fixtures that only need a journal and a seat share it.
 pub(super) fn bare_engine(dir: &Path, attempts: u64) -> Engine {
     started(dir, single_body(vec!["unused".into()]), work(attempts))
-}
-
-fn work(attempts: u64) -> Limits {
-    Limits {
-        max_attempts: attempts,
-        timeout_seconds: 2,
-    }
 }
 
 /// A v2 host file declaring cool-downs for claude/first and codex/second,
@@ -418,11 +431,17 @@ fn with_clock_at(mut engine: Engine, at: OffsetDateTime) -> (Engine, Arc<Mutex<O
     (engine, now)
 }
 
+/// The run's own advancing clock, started [`LONG_WAIT`] past the run's
+/// first recorded instant: the waits these fixtures take stay short and end
+/// on the clock, and their rows are in force however long the host stalls.
 fn with_clock(engine: Engine) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
     let start = engine.store.load(&engine.run_id).unwrap()[0]
         .recorded_at
         .clone();
-    with_clock_at(engine, OffsetDateTime::parse(&start, &Rfc3339).unwrap())
+    with_clock_at(
+        engine,
+        ahead_of(OffsetDateTime::parse(&start, &Rfc3339).unwrap()),
+    )
 }
 
 /// Where a test clock's one action runs: after its first slice, or on its
@@ -476,15 +495,15 @@ fn clock_acting(
 /// v2 host file and the run's own clock. A test that needs another host
 /// replaces it after this returns.
 macro_rules! seated {
-    (@in $dir:expr, $body:expr, $attempts:expr) => {{
-        let mut engine = started($dir.path(), $body, work($attempts));
+    (@in $dir:expr, $body:expr, $limits:expr) => {{
+        let mut engine = started($dir.path(), $body, $limits);
         engine.cooldown.host = Some(host($dir.path(), 1, 10));
         let (engine, now) = with_clock(engine);
         ($dir, engine, now)
     }};
     ($body:expr, $attempts:expr) => {{
         let dir = tempfile::tempdir().unwrap();
-        seated!(@in dir, $body, $attempts)
+        seated!(@in dir, $body, work($attempts))
     }};
     ($verdicts:expr, $probed:expr, $retry:expr, $attempts:expr) => {{
         let dir = tempfile::tempdir().unwrap();
@@ -497,7 +516,7 @@ macro_rules! seated {
             "claude",
             "first",
         );
-        seated!(@in dir, single_body(command), $attempts)
+        seated!(@in dir, single_body(command), limits_for($probed, $attempts))
     }};
 }
 
@@ -557,6 +576,7 @@ fn journaled(dir: &Path, body: SeatBody, waits: Value) -> Engine {
 
 #[test]
 fn a_rate_limit_waits_for_the_probe_then_retries() {
+    own_engine!();
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     engine.drive().unwrap();
     // The probe ran BETWEEN the refused attempt and the retry: the log's
@@ -576,6 +596,7 @@ fn a_rate_limit_waits_for_the_probe_then_retries() {
 
 #[test]
 fn the_cap_parks_naming_the_cool_down_and_starts_no_third_attempt() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "refuse"], Probed::Answer, None, 2);
     drove(
         &mut engine,
@@ -598,6 +619,7 @@ fn parked_probe(probed: Probed) -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetD
 
 #[test]
 fn a_probe_that_starts_then_hangs_parks_without_a_retry() {
+    own_engine!();
     let (_dir, engine, _now) = parked_probe(Probed::Hang);
     let reason = park_reason(&engine);
     assert!(reason.contains("ended without an answer"), "{reason}");
@@ -605,6 +627,7 @@ fn a_probe_that_starts_then_hangs_parks_without_a_retry() {
 
 #[test]
 fn a_probe_that_starts_then_errors_parks_without_a_retry() {
+    own_engine!();
     let (_dir, engine, _now) = parked_probe(Probed::Error);
     let reason = park_reason(&engine);
     assert!(reason.contains("ended without an answer"), "{reason}");
@@ -613,9 +636,10 @@ fn a_probe_that_starts_then_errors_parks_without_a_retry() {
 
 #[test]
 fn the_probe_asks_the_cooled_route_and_the_retry_takes_the_next_link() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let body = two_route_body(dir.path(), &["refuse"], &["succeed"]);
-    let (dir, mut engine, _now) = seated!(@in dir, body, 2);
+    let (dir, mut engine, _now) = seated!(@in dir, body, work(2));
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "claude"), ["attempt:refuse", "probe"]);
     assert_eq!(logs(dir.path(), "codex"), ["attempt:succeed"]);
@@ -627,10 +651,11 @@ fn the_probe_asks_the_cooled_route_and_the_retry_takes_the_next_link() {
 
 #[test]
 fn a_one_candidate_chain_retries_the_cooled_route() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let command = standard_command(dir.path());
     let body = chain(vec![candidate("claude", "claude/first", command)]);
-    let (dir, mut engine, _now) = seated!(@in dir, body, 2);
+    let (dir, mut engine, _now) = seated!(@in dir, body, work(2));
     engine.drive().unwrap();
     assert_eq!(
         logs(dir.path(), "work"),
@@ -728,6 +753,7 @@ fn assert_stopped(dir: &Path, engine: &Engine) {
 
 #[test]
 fn an_operator_stop_during_the_wait_is_honoured() {
+    own_engine!();
     let (dir, mut engine, now, db, run_id) = stop_fixture();
     engine.cooldown.clock = clock_acting(&now, Acting::AfterFirstSlice, move || {
         append_stop(&db, &run_id)
@@ -742,6 +768,7 @@ fn an_operator_stop_during_the_wait_is_honoured() {
 /// never attempted.
 #[test]
 fn a_stop_before_the_first_sample_stops_without_a_probe() {
+    own_engine!();
     let (dir, mut engine, now, db, run_id) = stop_fixture();
     engine.cooldown.clock =
         clock_acting(&now, Acting::At(base()), move || append_stop(&db, &run_id));
@@ -785,6 +812,7 @@ fn a_stop_already_journaled_is_seen_before_the_first_slice() {
 
 #[test]
 fn an_accumulated_episode_past_the_maximum_parks() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let command = driver(
         dir.path(),
@@ -795,7 +823,7 @@ fn an_accumulated_episode_past_the_maximum_parks() {
         "claude",
         "first",
     );
-    let mut engine = started(dir.path(), single_body(command), probe_rounds::patient(3));
+    let mut engine = started(dir.path(), single_body(command), work(3));
     engine.cooldown.host = Some(host(dir.path(), 2, 3));
     let (mut engine, _now) = with_clock(engine);
     drove(
@@ -814,6 +842,7 @@ fn an_accumulated_episode_past_the_maximum_parks() {
 /// the maximum.
 #[test]
 fn a_huge_retry_after_parks_without_a_panic_or_a_wait() {
+    own_engine!();
     for retry in [1_000_000_000_000u64, i64::MAX as u64] {
         let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, Some(retry), 2);
         engine.drive().unwrap();
@@ -840,6 +869,7 @@ fn a_huge_retry_after_parks_without_a_panic_or_a_wait() {
 /// beside it; the episode's own park never speaks.
 #[test]
 fn the_cap_reason_speaks_first_and_names_the_passed_maximum() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "refuse"], Probed::Answer, None, 2);
     engine.cooldown.host = Some(host(dir.path(), 1, 2));
     drove(
@@ -866,6 +896,7 @@ fn the_cap_reason_speaks_first_and_names_the_passed_maximum() {
 /// event's `refused` record, saying plainly that no `until` exists.
 #[test]
 fn a_no_until_cap_names_the_refusal_facts() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, Some(1_000_000_000_000), 1);
     drove(&mut engine, dir.path(), &["attempt:refuse"]);
     assert_eq!(starts(&engine).len(), 1);
@@ -1257,6 +1288,7 @@ fn a_past_maximum_record_with_no_readable_episode_states_the_maximum() {
 
 #[test]
 fn an_ordinary_wait_resumed_before_its_until_waits_the_remainder_and_probes() {
+    own_engine!();
     let (dir, mut engine, now) = resumed(&["succeed"], base() + time::Duration::seconds(3), 3);
     // No declaration on the resume: the recorded end is the wait's.
     engine.cooldown.host = None;
@@ -1318,9 +1350,10 @@ fn a_resume_late_keeps_the_recorded_maximum_refusal() {
 /// and passes codex's 5s maximum, so codex is never probed or retried.
 #[test]
 fn an_episode_sums_each_routes_recorded_length() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let body = two_route_body(dir.path(), &["refuse"], &["refuse", "succeed"]);
-    let mut engine = started(dir.path(), body, probe_rounds::patient(3));
+    let mut engine = started(dir.path(), body, work(3));
     engine.cooldown.host = Some(routes_host(dir.path()));
     let (mut engine, _now) = with_clock(engine);
     engine.drive().unwrap();
@@ -1346,6 +1379,7 @@ fn a_resume_parks_when_the_host_file_is_invalid() {
 
 #[test]
 fn a_run_with_no_cool_down_declared_retries_and_names_the_absence_at_the_cap() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "refuse"], Probed::Answer, None, 2);
     let file = v1_host(dir.path());
     engine.cooldown.host = Some(file.clone());
@@ -1367,6 +1401,7 @@ fn a_run_with_no_cool_down_declared_retries_and_names_the_absence_at_the_cap() {
 
 #[test]
 fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
+    own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Unadvertised, None, 2);
     engine.drive().unwrap();
     // The transport refuses the probe before any `start`, so the driver's
@@ -1397,6 +1432,7 @@ mod lease;
 mod probe_driver;
 mod probe_rounds;
 mod sequence;
+mod support;
 
 fn no_waits(engine: &Engine) {
     for event in failed(engine) {
@@ -1417,6 +1453,7 @@ fn panel_body(command: Vec<String>) -> SeatBody {
             candidates: Vec::new(),
             written: Vec::new(),
             class: SeatClass::Work,
+            law: crate::bundle::MemberLaw::open(),
         }],
         aggregate: Aggregate::UnanimousPass,
     })
@@ -1756,6 +1793,7 @@ fn report(
         stderr: String::new(),
         accepted: true,
         deadline_killed: false,
+        usage: None,
     }
 }
 
@@ -1808,6 +1846,7 @@ fn a_wait_recorded_at_a_panel_refuses_by_name() {
 
 #[test]
 fn a_probe_that_does_not_spawn_parks() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let engine = journaled(
         dir.path(),

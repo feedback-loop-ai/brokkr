@@ -83,7 +83,7 @@ fn the_console_refuses_it(db: &Path) {
     }
 }
 
-/// The page `brokkr ui` serves, its ending-to-tone table written in.
+/// The page `brokkr system ui` serves, its ending-to-tone table written in.
 static PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(crate::ui::page);
 
 /// The served page's text between `/* <name>:start */` and its end.
@@ -96,7 +96,7 @@ fn page_block(name: &str) -> &'static str {
 
 /// The DOM, the fetch and the page globals the page's reads of one run
 /// meet in a browser, each recording what reaches it: `fetch` answers
-/// each route as `brokkr ui` served it (`__served`).
+/// each route as `brokkr system ui` served it (`__served`).
 const BROWSER: &str = r#"
 var __painted = [];
 var __transcript = [];
@@ -150,7 +150,7 @@ fn open(run: &str) -> String {
     format!("loadDetail('{run}').catch(function (error) {{ __painted.push('threw ' + error); }});")
 }
 
-/// What the page `brokkr ui` serves draws of run `run` over `db`, its own
+/// What the page `brokkr system ui` serves draws of run `run` over `db`, its own
 /// code run in Boa against each route as `handle` serves it: the run
 /// opened in the detail pane, and its participant `work` drilled.
 fn drawn_in_the_page(db: &Path, run: &str) -> serde_json::Value {
@@ -274,8 +274,8 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
     let at = db.to_str().unwrap();
     let out = dir.path().join("out");
     let readouts: [&[&str]; 9] = [
-        &["brokkr", "inspect", "--run", "r1", "--db", at],
-        &["brokkr", "seats", "--run", "r1", "--db", at],
+        &["brokkr", "runs", "inspect", "--run", "r1", "--db", at],
+        &["brokkr", "runs", "seats", "--run", "r1", "--db", at],
         &[
             "brokkr",
             "watch",
@@ -288,6 +288,7 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
         ],
         &[
             "brokkr",
+            "runs",
             "transcript",
             "--run",
             "r1",
@@ -296,11 +297,12 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
             "--db",
             at,
         ],
-        &["brokkr", "ledger", "--run", "r1", "--db", at],
-        &["brokkr", "replay", "--run", "r1", "--db", at],
-        &["brokkr", "costs", "--run", "r1", "--db", at],
+        &["brokkr", "stats", "ledger", "--run", "r1", "--db", at],
+        &["brokkr", "runs", "replay", "--run", "r1", "--db", at],
+        &["brokkr", "stats", "costs", "--run", "r1", "--db", at],
         &[
             "brokkr",
+            "journal",
             "export",
             "--run",
             "r1",
@@ -309,11 +311,11 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
             "--out",
             out.to_str().unwrap(),
         ],
-        &["brokkr", "compare", "r2", "r1", "--db", at],
+        &["brokkr", "runs", "compare", "r2", "r1", "--db", at],
     ];
     let chain = "event 1: event_hash does not match canonical content";
     for line in readouts {
-        let words = match line[1] {
+        let words = match line[2] {
             "compare" => vec!["loading run 'r1'", EDITED, chain],
             _ => vec![EDITED, chain],
         };
@@ -461,7 +463,7 @@ fn drawn_in_the_run_list(runs: serde_json::Value) -> serde_json::Value {
 #[test]
 fn the_run_list_reads_a_stopping_run_from_the_shared_standing() {
     let detail = "stop accepted at seq 4; no ending written. If no driver is running it, \
-                  `brokkr conclude` closes it.";
+                  `brokkr runs conclude` closes it.";
     let drawn = drawn_in_the_run_list(serde_json::json!([{
         "run_id": "r1",
         "status": "running",

@@ -319,7 +319,7 @@ fn two_real_engines_share_one_journal_and_neither_exits_on_busy() {
         // journal, as parallel lanes do: two runs on one worktree are
         // serialized by its writer lease (decision 0065 slice two, U8a2a).
         let worktree = dir.path().join(role);
-        std::fs::create_dir_all(&worktree).unwrap();
+        crate::committed::committed_repository(&worktree);
         Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",

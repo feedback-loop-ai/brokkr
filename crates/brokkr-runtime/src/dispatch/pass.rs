@@ -29,14 +29,21 @@ use crate::sweep::{self, SweepError, Swept};
 /// The queue admission judged, and the reasons no entry waits on.
 type JudgedQueue = (Vec<Judged>, Vec<Reason>);
 
-/// The two seams a pass is handed in place of a process and a binary check
-/// (decision 0110 ruling 1): `stands` is ruling 4's check, called before
-/// each claim and before each `spawn` row, and `spawn` starts one run once
-/// its `spawn` row has landed.
-pub struct Seams<S, P> {
+/// The three seams a pass is handed in place of a process, a binary check
+/// and a stop (decision 0110 rulings 1 and 5): `stands` is ruling 4's
+/// check, called before each claim and before each `spawn` row; `spawn`
+/// starts one run once its `spawn` row has landed; and `claims`, called
+/// inside each claim's transaction alone, answers false once a stop asks
+/// the pass to claim nothing more, which it then reports as a [`Passed`].
+pub struct Seams<S, P, C> {
     pub stands: S,
     pub spawn: P,
+    pub claims: C,
 }
+
+/// The seams as the pass's own steps take them, `claims` behind a
+/// reference: only the claim reads it.
+pub(crate) type PassSeams<'c, S, P> = Seams<S, P, &'c mut dyn FnMut() -> bool>;
 
 /// A step of the pass, as a test's seam records its order and a report
 /// names where a contention stood.
@@ -60,10 +67,17 @@ pub enum Ending {
     /// another journal, or a step was not its to take.
     #[error(transparent)]
     Dispatcher(super::DispatcherError),
-    /// `stands` ended the dispatcher: the binary it would spawn is not the
-    /// one it started from, or a signal asked it to stop.
+    /// `stands` ended the dispatcher: a signal asked it to stop.
     #[error("dispatch: the dispatcher no longer stands")]
     Stood,
+    /// The brokkr the dispatcher was started from is no longer the file at
+    /// its path (decision 0110 ruling 4): nothing more was claimed.
+    #[error(
+        "dispatch: the brokkr at {} is not the one this dispatcher started from; it claimed \
+         nothing after; start the dispatcher again",
+        .0.display()
+    )]
+    Replaced(std::path::PathBuf),
     /// A newer dispatcher holds the journal: nothing after was written.
     /// The generation named is the stale one this dispatcher held.
     #[error(
@@ -81,6 +95,13 @@ pub enum Ending {
     /// Any other store error that is not `Contended`.
     #[error(transparent)]
     Store(StoreError),
+    /// The standing loop's report seam could not write a tick's facts: it
+    /// claimed nothing after, and its drivers run on.
+    #[error(
+        "dispatch: a tick's report could not be written ({0}); the dispatcher claimed nothing \
+         after, and its drivers run on"
+    )]
+    Unreported(std::io::Error),
 }
 
 /// A pass that ended: the typed [`Ending`] and the [`Passed`] report of
@@ -147,14 +168,27 @@ pub struct Reclaimed {
     pub refused: Option<StartRefusal>,
     /// The entry's count of counted refusals since its latest release.
     pub count: u32,
+    /// The reason journaled: the class word and the start's own words.
+    pub reason: String,
 }
 
-/// An entry a counted refusal held at the journal's bound.
+/// An entry a counted refusal held at the journal's bound, with the reason
+/// journaled: the class word and the start's own words.
 #[derive(Debug)]
 pub struct Held {
     pub claim: Claim,
     pub refusal: StartRefusal,
     pub count: u32,
+    pub reason: String,
+}
+
+/// A run this pass started and did not hand to its driver: its link or its
+/// `spawn` row did not land, or the dispatcher ended between them. The
+/// next pass's reconciliation links and spawns it (decision 0095 ruling 3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Left {
+    pub claim: Claim,
+    pub run: String,
 }
 
 /// A step `Contended` past its patience: reported. A contention on an
@@ -186,6 +220,7 @@ pub struct Passed {
     pub admission_refused: Option<AdmissionError>,
     pub unstarted: Vec<Reason>,
     pub started: Vec<Started>,
+    pub left: Vec<Left>,
     pub spawned: Vec<Spawning>,
     pub reclaimed: Vec<Reclaimed>,
     pub held: Vec<Held>,
@@ -201,34 +236,59 @@ pub struct Passed {
 /// and the boundary tool search path `host_path`: reconcile, sweep, read
 /// the bound, judge the queue and start each admitted entry, reporting what
 /// it did. A typed [`Ending`] carries the report [`Ended::passed`].
-pub fn pass<S, P>(
+pub fn pass<S, P, C>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
-    seams: Seams<S, P>,
+    seams: Seams<S, P, C>,
 ) -> Result<Passed, Box<Ended>>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    C: FnMut() -> bool,
 {
-    pass_with(store, dispatcher, host, host_path, seams, |_| {})
+    let watch = Watch {
+        observe: |_| {},
+        launch: crate::launch::start,
+    };
+    let Seams {
+        stands,
+        spawn,
+        mut claims,
+    } = seams;
+    let claims: &mut dyn FnMut() -> bool = &mut claims;
+    let seams = Seams {
+        stands,
+        spawn,
+        claims,
+    };
+    pass_with(store, dispatcher, host, host_path, seams, watch)
 }
 
-/// [`pass`], with a seam that records each step's order: the test that
-/// binds ruling 1's fixed order, private so no production consumer carries
-/// an observer.
-fn pass_with<S, P>(
+/// The private seams a test hands [`pass_with`]: `observe` records each
+/// step's order, and `launch` starts each run, a fault in its place where
+/// a test stands a refused start at the pass's own step.
+struct Watch<O> {
+    observe: O,
+    launch: start::Launch,
+}
+
+/// [`pass`], with the private seams of [`Watch`]: the tests that bind
+/// ruling 1's fixed order and ruling 2's disposals, private so no
+/// production consumer carries an observer or a fault.
+fn pass_with<S, P, O>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
-    seams: Seams<S, P>,
-    mut observe: impl FnMut(Stage),
+    seams: PassSeams<'_, S, P>,
+    mut watch: Watch<O>,
 ) -> Result<Passed, Box<Ended>>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    O: FnMut(Stage),
 {
     let mut passed = Passed::default();
     match run(
@@ -238,7 +298,7 @@ where
         host_path,
         seams,
         &mut passed,
-        &mut observe,
+        &mut watch,
     ) {
         Ok(()) => Ok(passed),
         Err(ending) => Err(Box::new(Ended { ending, passed })),
@@ -247,19 +307,21 @@ where
 
 /// The pass's steps, keeping everything they did in `passed` so an ending
 /// can carry it.
-fn run<S, P>(
+fn run<S, P, O>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
-    mut seams: Seams<S, P>,
+    mut seams: PassSeams<'_, S, P>,
     passed: &mut Passed,
-    observe: &mut impl FnMut(Stage),
+    watch: &mut Watch<O>,
 ) -> Result<(), Ending>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    O: FnMut(Stage),
 {
+    let observe = &mut watch.observe;
     observe(Stage::Reconcile);
     if !reconcile_once(store, dispatcher, passed)? {
         return Ok(());
@@ -287,6 +349,11 @@ where
         .iter()
         .filter(|judged| standing(judged) == Some(Standing::Held))
         .count();
+    let shared = start::Shared {
+        bound,
+        host_path: &host_path,
+        launch: watch.launch,
+    };
     for judged in judged {
         let Judged {
             entry,
@@ -303,14 +370,8 @@ where
             launch,
             room,
         };
-        let outcome = start::start(
-            store,
-            dispatcher,
-            admitted,
-            bound,
-            host_path.clone(),
-            &mut seams,
-        )?;
+        let left = &mut passed.left;
+        let outcome = start::start(store, dispatcher, admitted, &shared, &mut seams, left)?;
         if !record_start(passed, outcome) {
             break;
         }
@@ -338,8 +399,8 @@ fn reconcile_once(
     }
 }
 
-/// Take one entry's start into the report. A contention or a claim that
-/// could not be judged stops the pass's claims; every other outcome lets
+/// Take one entry's start into the report. A contention, a claim that
+/// could not be judged or a stop ends the pass's claims; every other outcome lets
 /// the next entry be judged.
 fn record_start(passed: &mut Passed, outcome: start::Outcome) -> bool {
     match outcome {
@@ -355,6 +416,7 @@ fn record_start(passed: &mut Passed, outcome: start::Outcome) -> bool {
             passed.admission_refused = Some(error);
             return false;
         }
+        start::Outcome::Stopped => return false,
     }
     true
 }
@@ -367,7 +429,7 @@ fn spawned_after_reconcile<S, P>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     passed: &mut Passed,
-    seams: &mut Seams<S, P>,
+    seams: &mut PassSeams<'_, S, P>,
 ) -> Result<bool, Ending>
 where
     S: FnMut() -> Result<(), Ending>,
@@ -380,7 +442,13 @@ where
         match settled {
             Settled::Reclaimed(claim) => passed.reconciled.push(Settled::Reclaimed(claim)),
             Settled::ToSpawn(claim, run) => {
-                (seams.stands)()?;
+                // A stand that ends keeps this item and every later one,
+                // as a store refusal below does: `Ended` never drops them.
+                if let Err(ending) = (seams.stands)() {
+                    passed.reconciled.push(Settled::ToSpawn(claim, run));
+                    passed.reconciled.extend(pending);
+                    return Err(ending);
+                }
                 if let Err(error) =
                     store.queue_spawn(claim, generation, &start::spawn_reason(claim, &run))
                 {

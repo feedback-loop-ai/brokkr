@@ -16,6 +16,7 @@ use crate::secret;
 
 mod answered;
 mod compressed;
+mod credential_file;
 mod evidence;
 #[path = "../../../../tests/support/executable.rs"]
 mod executable;
@@ -263,11 +264,23 @@ fn probe_with(
     bindings: &[secret::BoundSecret],
     deadline: Duration,
 ) -> Result<Report, ProbeError> {
+    probe_given(kind, cli, declared, bindings, &[], deadline)
+}
+
+fn probe_given(
+    kind: AdapterKind,
+    cli: &Path,
+    declared: &Declared,
+    bindings: &[secret::BoundSecret],
+    credential_files: &[CredentialFile],
+    deadline: Duration,
+) -> Result<Report, ProbeError> {
     run(&ProbeInput {
         kind,
         cli: cli.to_str().unwrap(),
         declared,
         bindings,
+        credential_files,
         brokkr: Path::new("/opt/brokkr/bin/brokkr"),
         date: DATE,
         deadline,
@@ -904,6 +917,45 @@ fn a_cli_that_exits_leaving_a_child_on_its_stdout_is_read_without_waiting_for_th
         serde_json::to_value(report.unwrap()).unwrap()["cli"]["version"],
         measured(json!("dsh 0.9.9"), "the first line `--version` printed")
     );
+}
+
+/// A launch runs under the scratch `HOME`, so a volta shim on `PATH`
+/// would find no volta install there and recurse: the launch is told the
+/// operator's volta home where `PATH` reaches its shims, the engine's own
+/// `VOLTA_HOME` verbatim even with no `HOME` set, and nothing otherwise.
+#[test]
+fn a_launch_is_told_the_volta_home_its_path_reaches() {
+    if !in_its_own_engine("probe::tests::a_launch_is_told_the_volta_home_its_path_reaches") {
+        return;
+    }
+    let mut env = crate::env_guard::EnvGuard::lock();
+    let world = world();
+    let cli = world.fake("dsh", "#!/bin/sh\necho \"dsh ${VOLTA_HOME:-unset}\"\n");
+    let operator = world.dir.path().join("operator");
+    std::fs::create_dir_all(&operator).unwrap();
+    let path = std::env::var("PATH").unwrap_or_default();
+    let shims = operator.join(".volta/bin");
+    env.set("HOME", &operator);
+    env.remove("VOLTA_HOME");
+    let version = || {
+        let report = probe_with(
+            AdapterKind::Dsh,
+            &cli,
+            &dsh_declared(),
+            &world.bindings,
+            DEADLINE,
+        );
+        report.unwrap().cli.version
+    };
+    let printed = |line: String| Fact::measured(line, "the first line `--version` printed");
+    env.set("PATH", format!("{}:{path}", shims.display()));
+    let told = format!("dsh {}", operator.join(".volta").display());
+    assert_eq!(version(), printed(told));
+    env.set("PATH", &path);
+    assert_eq!(version(), printed("dsh unset".to_string()));
+    env.remove("HOME");
+    env.set("VOLTA_HOME", "/srv/volta");
+    assert_eq!(version(), printed("dsh /srv/volta".to_string()));
 }
 
 #[test]

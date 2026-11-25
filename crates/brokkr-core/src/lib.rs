@@ -12,6 +12,7 @@ pub mod ending;
 pub mod entry;
 pub mod envelope;
 pub mod event_index;
+pub mod findings;
 pub mod fold;
 pub mod gate_moved_head;
 pub mod keep_refs;
@@ -31,8 +32,9 @@ pub use fold::{fold, Cursor, FoldError, RunState, Status};
 pub use keep_refs::cited_shas;
 pub use park::{CauseRead, FailureClass, ParkCause, ParkCauseError, ProviderLimitRefusal};
 pub use payload::{
-    provider_refusal, provider_waits, Held, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
-    ProviderWait, ProviderWaitError, RefusalCause,
+    accepted_command, operator_command, provider_refusal, provider_waits, succeeded_effect, Held,
+    ProbeAnswer, ProviderRefusal, ProviderRefusalError, ProviderWait, ProviderWaitError,
+    RefusalCause,
 };
 pub use policy::{Machine, Outcome, PolicyError};
 

@@ -1,4 +1,4 @@
-//! `brokkr analytics`: the cross-run readout over every hearth the world
+//! `brokkr stats analytics`: the cross-run readout over every hearth the world
 //! names (#568). The figures are derived once, in
 //! [`brokkr_view::analytics`]; this verb reads the hearths, hands them over
 //! with the clock, and prints what comes back. It writes nothing
@@ -59,15 +59,10 @@ pub(crate) fn range(word: &str) -> Result<Range, RangeRefused> {
     word.parse().map_err(RangeRefused)
 }
 
-/// The cross-run readouts, flattened into the top-level verbs so the
-/// command line reads as it always has, and dispatched as one group.
-#[derive(clap::Subcommand)]
+/// The cross-run readouts, dispatched as one group. Where each is typed,
+/// `brokkr stats`, and its help, is the command tree's.
 pub(crate) enum CrossRunCmd {
-    /// What the runs did across every hearth, for a range and an optional
-    /// realm: shipped, start to end, waiting on you, rework, cost and
-    /// served models. `--json` emits the view model.
     Analytics(AnalyticsArgs),
-    /// One recipe's state machine and its traffic over a range. `--json` emits the view model.
     Graph(super::graph::GraphArgs),
 }
 
@@ -79,7 +74,7 @@ pub(crate) fn cross_run(workspace: &Path, command: CrossRunCmd) -> Result<ExitCo
     }
 }
 
-/// `brokkr analytics`: the readout for the range ending now.
+/// `brokkr stats analytics`: the readout for the range ending now.
 pub(crate) fn analytics(workspace: &Path, args: AnalyticsArgs) -> Result<ExitCode> {
     let hearths = hearths_of(workspace, args.realms, args.db)?;
     let view = derive(&hearths, args.range, args.realm.as_deref(), &now_rfc3339())?;
@@ -93,11 +88,21 @@ pub(crate) fn printed<T: serde::Serialize>(
     json: bool,
     paint: impl FnOnce(&T) -> String,
 ) -> Result<ExitCode> {
-    match json {
-        true => println!("{}", serde_json::to_string_pretty(view)?),
-        false => print!("{}", paint(view)),
-    }
+    print!("{}", shown(view, json, paint)?);
     Ok(Exit::Completed.into())
+}
+
+/// The text [`printed`] writes: the view verbatim, a line of pretty JSON,
+/// or as the verb paints it.
+pub(crate) fn shown<T: serde::Serialize>(
+    view: &T,
+    json: bool,
+    paint: impl FnOnce(&T) -> String,
+) -> Result<String> {
+    Ok(match json {
+        true => format!("{}\n", serde_json::to_string_pretty(view)?),
+        false => paint(view),
+    })
 }
 
 /// Every hearth read, quarantining what does not load, and the view

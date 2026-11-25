@@ -3,7 +3,7 @@
 //!
 //! Every guarantee here is a claim about what Muninn CANNOT do, so each
 //! test is written as an observation of the real binary rather than as a
-//! reading of the code: a fleet is staged, `brokkr muninn run` is spawned
+//! reading of the code: a fleet is staged, `brokkr runs muninn run` is spawned
 //! against a driver this test scripts, and what the driver saw — plus
 //! what the journals look like afterwards — is the evidence.
 
@@ -12,13 +12,9 @@ use std::process::{Command, Output};
 
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
 const POLICY: &str = r#"{
-  "phases": ["implement", "review", "done", "stop"],
   "initial": "implement",
+  "phases": ["implement", "review", "done", "stop"],
   "terminal": ["done", "stop"],
   "rules": [
     {"id": "IMPL-OK", "from": "implement", "result": "complete", "next": "review",
@@ -68,23 +64,16 @@ impl Workspace {
         // A canary the overseer must never see, in a directory that
         // looks exactly like a repository it might be tempted to read.
         std::fs::write(ws.path().join("repo/CANARY.md"), "untouched\n").unwrap();
+        // The staged run's review is checked on a head (fix round 0109a1r3, H1).
+        crate::brokkr_folder::clean_head(&ws.path().join("repo"));
         ws.write(
             "adapters/fake.json",
-            json!({
-                "provider": "fake",
-                "binary": brokkr_bin(),
-                "driver": [
-                    brokkr_bin(), "fake-driver",
-                    "--script", ws.path().join("script.json").to_string_lossy(),
-                    "--state", ws.path().join("state").to_string_lossy(),
-                ],
-                "models": {"work": "fake/work"},
-                "model_flag": "--model",
-                "efforts": ["low", "medium", "high"],
-                "effort_flag": "--effort",
-                "tool_permissions": "unsupported",
-                "mcp": "unsupported",
-            }),
+            crate::fake_office::fake_adapter(
+                "fake",
+                json!({"work": "fake/work"}),
+                &ws.path().join("script.json"),
+                &ws.path().join("state"),
+            ),
         );
         ws.write(
             "agents/work.json",
@@ -238,8 +227,7 @@ impl Workspace {
 
     fn brokkr(&self, args: &[&str]) -> Output {
         crate::engine::library(self.path());
-        Command::new(brokkr_bin())
-            .args(args)
+        crate::built::brokkr(args)
             .env("HOME", self.home.path())
             .current_dir(self.path())
             .output()
@@ -280,6 +268,7 @@ impl Workspace {
 
     fn muninn(&self) -> Output {
         self.brokkr(&[
+            "runs",
             "muninn",
             "run",
             "--db",
@@ -297,6 +286,7 @@ impl Workspace {
     /// hearths are read (decision 0026 ruling 3).
     fn muninn_over_world(&self) -> Output {
         self.brokkr(&[
+            "runs",
             "muninn",
             "run",
             "--agents-dir",
@@ -418,7 +408,7 @@ fn a_proposal_is_recorded_with_its_citations_and_read_back_by_list() {
     assert_eq!(records.len(), 2);
     assert_eq!(records[0], *entry, "the first entry is byte-identical");
 
-    let listed = ws.brokkr(&["muninn", "list", "--record", ".forge/muninn.ndjson"]);
+    let listed = ws.brokkr(&["runs", "muninn", "list", "--record", ".forge/muninn.ndjson"]);
     let text = String::from_utf8_lossy(&listed.stdout);
     assert!(listed.status.success());
     assert_eq!(
@@ -436,6 +426,7 @@ fn a_proposal_is_recorded_with_its_citations_and_read_back_by_list() {
     );
 
     let json = ws.brokkr(&[
+        "runs",
         "muninn",
         "list",
         "--record",
@@ -941,6 +932,7 @@ fn a_realm_with_no_journal_yet_does_not_withhold_the_worlds_dossier() {
     // The one-hearth world's refusal is unchanged: no dossier, nothing
     // recorded, nonzero.
     let output = ws.brokkr(&[
+        "runs",
         "muninn",
         "run",
         "--db",

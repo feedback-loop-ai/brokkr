@@ -66,7 +66,7 @@ folder it goes on the folder's shelf, `.brokkr/recipes/node/`, which
 `run --recipe` reads with no flag:
 
 ```
-$ brokkr recipes add ~/src/brokkr/recipes/node --name node
+$ brokkr library recipes add ~/src/brokkr/recipes/node --name node
 added recipe 'node' (…) at /home/you/my-app/.brokkr/recipes/node
 added recipe 'fast' (…) at /home/you/my-app/.brokkr/recipes/fast
 …
@@ -89,7 +89,7 @@ explicitly. That means it needs a committed `package-lock.json` and
 resolves outward to the registry, which is not what you want a gate seat
 doing.
 
-`recipes add` brings `fast`, the recipe `node` extends, onto the shelf
+`library recipes add` brings `fast`, the recipe `node` extends, onto the shelf
 with it, and the agents both seat. **It brings no adapters**, and
 `verify`, `review` and `ship` are gate-class: your folder's adapters must
 vouch for them, or the compile refuses and leaves you nothing. This is

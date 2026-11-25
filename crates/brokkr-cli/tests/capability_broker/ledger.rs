@@ -288,11 +288,12 @@ fn every_record_is_masked_and_guarded_before_it_is_appended() {
     assert_eq!(recovered, (calls, Some(Disposition::Clean), None));
     // A call's Terminal is reserved as masking writes its tool: a name
     // that fits the record bound as it is, but not masked, is the ledger's
-    // limit before anything of it is recorded.
+    // limit before anything of it is recorded. Its occurrences stand
+    // apart, since occurrences that touch read one marker (#1213).
     let bound = state("wxyz");
     let (ledger, disk) = opened_by(None, &bound);
     let mut ledger = ledger.unwrap();
-    let begun = ledger.room().unwrap().begin(&"wxyz".repeat(975)).err();
+    let begun = ledger.room().unwrap().begin(&"wxyz-".repeat(780)).err();
     assert_eq!(begun, Some(Unrecorded::Limit));
     let limit = Disposition::Failed(Failure::Limit);
     assert_eq!(ledger.close(), Ok(limit.clone()));

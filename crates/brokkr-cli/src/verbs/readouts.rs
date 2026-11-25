@@ -18,12 +18,12 @@ use serde_json::json;
 
 use crate::cli_args::{CompareArgs, CostsArgs, InspectArgs, LedgerArgs, RealmsArgs};
 use crate::cli_args::{ReplayArgs, RunsArgs, SeatsArgs, TuiArgs, UiArgs, WatchArgs};
-use crate::run_pages::{self, Shows};
+use crate::run_pages::{self, Rows, Shows};
 use crate::{compare, fleet, ledger, realms, render, run_view, selector, tui};
 use crate::{hearths_of, journal_of, now_rfc3339, open_journal, resolve_in_hearths};
 use crate::{summarize, ui_journal, watch_loop, Access, Exit, Invocation};
 
-/// `brokkr costs`: per-seat cost and session accounting.
+/// `brokkr stats costs`: per-seat cost and session accounting.
 pub(crate) fn costs(workspace: &Path, CostsArgs { run, journal }: CostsArgs) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
     let report = compare::costs(&store, &run)?;
@@ -31,7 +31,7 @@ pub(crate) fn costs(workspace: &Path, CostsArgs { run, journal }: CostsArgs) -> 
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr ledger`: the shipper's delivery ledger.
+/// `brokkr stats ledger`: the shipper's delivery ledger.
 pub(crate) fn ledger(
     workspace: &Path,
     LedgerArgs { run, journal, repo }: LedgerArgs,
@@ -52,7 +52,7 @@ pub(crate) fn ledger(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr ui`: serve the read-only surface through `serve_ui`.
+/// `brokkr system ui`: serve the read-only surface through `serve_ui`.
 pub(crate) fn ui(
     workspace: &Path,
     UiArgs {
@@ -102,7 +102,8 @@ type Reads<'r> = &'r dyn Fn(&Store, &str, Shows, &str) -> Result<run_pages::View
 /// The view `inspect` derives and `seats` paints a block of: the run the
 /// selector names, in the journal the world names, read by `read` as a
 /// reader that `shows` it reads it, at `now`, and refused where it does
-/// not fold.
+/// not fold; beside it, the journal it was read from, the run's id, and
+/// the journal rows that read already holds ([`Rows`]).
 fn run_view_of(
     workspace: &Path,
     realms: Option<PathBuf>,
@@ -111,13 +112,19 @@ fn run_view_of(
     shows: Shows,
     now: &str,
     read: Reads<'_>,
-) -> Result<brokkr_view::RunView> {
+) -> Result<(
+    brokkr_view::RunView,
+    Store,
+    String,
+    brokkr_core::RunState,
+    Rows,
+)> {
     let db = journal_of(workspace, realms, db)?;
     let store = open_journal(&db, Access::Read)?;
     let run = selector::resolve_run(&store, run)?;
-    let read = read(&store, &run, shows, now)?;
-    read.folded?;
-    Ok(read.view)
+    let run_pages::Viewed { view, folded, rows } = read(&store, &run, shows, now)?;
+    let state = folded?;
+    Ok((view, store, run, state, rows))
 }
 
 /// `inspect --json`'s bytes, which `seats --json` prints too: the view as
@@ -129,7 +136,7 @@ fn print_served(view: brokkr_view::RunView, out: &mut dyn Write) -> Result<ExitC
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr inspect`: explain a run, whole or scoped to a phase or a seat,
+/// `brokkr runs inspect`: explain a run, whole or scoped to a phase or a seat,
 /// on `out`.
 pub(crate) fn inspect(
     workspace: &Path,
@@ -157,7 +164,8 @@ fn inspect_with(
 ) -> Result<ExitCode> {
     let whole = json || capability_call.is_some();
     let now = crate::now_rfc3339();
-    let view = run_view_of(workspace, realms, db, &run, Shows::of(whole), &now, read)?;
+    let (view, store, run, state, rows) =
+        run_view_of(workspace, realms, db, &run, Shows::of(whole), &now, read)?;
     if let Some(call_id) = capability_call {
         let repo = repo.as_deref().unwrap_or(workspace);
         return print_call(repo, &view, &call_id, json, out);
@@ -174,8 +182,111 @@ fn inspect_with(
     let lens = brokkr_view::lens_for(&view, scope.as_ref())
         .map_err(|error| anyhow::Error::msg(render::scope_refusal(&error)))?;
     let frame = render::inspect(&view, lens.as_ref(), true, &now, &render::Style::detect());
-    write!(out, "{frame}")?;
+    // The verdicts block reads the gate verdicts the journal records, a
+    // sequence step's checkpoint and a panel member's marker among them,
+    // each under its own seat (fix round 0109a1r3, M3), through the run's
+    // fold, so a repaired run's late tail records no verdict, as the frame
+    // shows none (fix round 0109a1r5, V5), and only as far as the frame's
+    // own head, `state.seq`, so a verdict appended between the frame's
+    // read and this one shows on no frame that predates it (fix round
+    // 0109a1r7, X6). Unscoped, it reads within the frame's budget
+    // ([`verdict_rows`]); a scope reads the journal whole.
+    let read = match (scope, rows) {
+        (Some(_), _) => VerdictRows::whole(store.load(&run)?),
+        (None, Rows::Whole(events)) => VerdictRows::whole(events),
+        (None, Rows::Trail(trail)) => verdict_rows(&store, &run, state.seq, trail)?,
+    };
+    let gates = brokkr_view::gate_records_within(&read.events, Some(&state), read.unread);
+    let gates: Vec<_> = (gates.iter())
+        .filter_map(|record| record.kept_by(lens.as_ref()))
+        .collect();
+    let block = render::inspect::gates(&gates);
+    write!(out, "{frame}{}", read.with_its_cut(block, state.seq))?;
     Ok(Exit::Completed.into())
+}
+
+/// The journal rows plain `inspect`'s verdicts block reads at most, ending
+/// at its frame's head (decision 0089 ruling 9, #1212): the frame reads
+/// the run's trail and no checkpoint, so the verdicts its checkpoints
+/// hold are read from this many of the newest rows alone.
+const VERDICT_ROWS: u64 = 1_000;
+
+/// The rows a verdicts block reads, and how many of the run's rows up to
+/// the frame's head it left unread for verdicts.
+#[derive(Debug)]
+struct VerdictRows {
+    events: Vec<brokkr_core::EventEnvelope>,
+    unread: u64,
+}
+
+impl VerdictRows {
+    /// Every row of `events`, none left unread.
+    fn whole(events: Vec<brokkr_core::EventEnvelope>) -> Self {
+        VerdictRows { events, unread: 0 }
+    }
+
+    /// The verdicts `block` paints, and where rows were left unread, the
+    /// one line that says how many of the `head` rows were not read and
+    /// which verbs read the run whole, so a cut is never silent.
+    fn with_its_cut(&self, block: String, head: u64) -> String {
+        if self.unread == 0 {
+            return block;
+        }
+        let read = head - self.unread;
+        let line = format!(
+            "  … runs inspect read the newest {read} of the run's {head} journal rows for \
+             verdicts; the first {} were not read, and `runs inspect --phase <phase>` or \
+             `--seat <seat>` reads the run whole\n",
+            self.unread
+        );
+        match block.is_empty() {
+            true => format!("\nverdicts\n{line}"),
+            false => format!("{block}{line}"),
+        }
+    }
+}
+
+/// The rows of `run` plain `inspect`'s verdicts block reads, through
+/// `head` and never past it: `trail`, the frame's read, beside the engine's
+/// own markers among the newest [`VERDICT_ROWS`], the only checkpoints that
+/// hold a verdict or a member's mark, read by key, and beside the
+/// member markers of an attempt whose verdict is inside that window,
+/// read by key even where the window's cut dropped them. A journal whose
+/// event index is not read is read whole, as the frame reads it (decision
+/// 0089 ruling 8). The view alone decides which of these rows shows
+/// ([`brokkr_view::gate_records_within`]) and which attempts a marker is
+/// read for ([`brokkr_view::verdict_attempts_within`]); this reads what it
+/// may need. Each checkpoint is read after the frame's opening verified
+/// the chain (ruling 5).
+fn verdict_rows(
+    store: &Store,
+    run: &str,
+    head: u64,
+    trail: Vec<brokkr_core::EventEnvelope>,
+) -> Result<VerdictRows, StoreError> {
+    let cut = head.saturating_sub(VERDICT_ROWS);
+    if !store.reads_index()? {
+        return Ok(VerdictRows::whole(store.load(run)?));
+    }
+    let mut rows: std::collections::BTreeMap<u64, brokkr_core::EventEnvelope> =
+        trail.into_iter().map(|event| (event.seq, event)).collect();
+    for event in store.envelopes_of_engine_markers(run, cut + 1, head)? {
+        rows.insert(event.seq, event);
+    }
+    // A window's every marker is already read, its members' included; only
+    // a cut can leave a verdict's marker behind it.
+    if cut > 0 {
+        let window: Vec<&brokkr_core::EventEnvelope> = rows.values().collect();
+        let attempts = brokkr_view::verdict_attempts_within(&window, cut);
+        let named: Vec<&str> = attempts.iter().map(String::as_str).collect();
+        for event in store.envelopes_of_member_markers(run, &named, head)? {
+            rows.insert(event.seq, event);
+        }
+    }
+    Ok(VerdictRows {
+        events: rows.into_values().collect(),
+        unread: cut,
+    })
 }
 
 /// Why `inspect --capability-call` opens no call of the selected run's
@@ -333,12 +444,20 @@ fn print_retired(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr seats`: the seats block of `inspect`'s readout, on `out`.
+/// `brokkr runs seats`: the seats block of `inspect`'s readout, on `out`.
 pub(crate) fn seats(workspace: &Path, args: SeatsArgs, out: &mut dyn Write) -> Result<ExitCode> {
-    seats_with(workspace, args, out, &run_pages::viewed)
+    seats_with(
+        workspace,
+        args,
+        out,
+        &run_pages::viewed,
+        render::Style::detect_for,
+    )
 }
 
-/// [`seats`], its run read by `read`.
+/// [`seats`], its run read by `read` and painted in the style `style`
+/// reads for [`render::Width::Columns`]: `COLUMNS` where it is set, else
+/// the default, never the terminal's own width (#1167).
 fn seats_with(
     workspace: &Path,
     SeatsArgs {
@@ -349,13 +468,14 @@ fn seats_with(
     }: SeatsArgs,
     out: &mut dyn Write,
     read: Reads<'_>,
+    style: impl FnOnce(render::Width) -> render::Style,
 ) -> Result<ExitCode> {
     // A thin verb (design DD11): the journal `inspect` would
     // open, the view `inspect` would derive, and either the
     // seats block of `inspect`'s readout or `inspect --json`'s
     // own bytes. Nothing is derived here and no wire object is
     // versioned for the verb.
-    let view = run_view_of(
+    let (view, ..) = run_view_of(
         workspace,
         realms,
         db,
@@ -367,7 +487,8 @@ fn seats_with(
     if json {
         return print_served(view, out);
     }
-    write!(out, "{}", render::seats(&view, &render::Style::detect()))?;
+    let style = style(render::Width::Columns);
+    write!(out, "{}", render::seats(&view, &style))?;
     Ok(Exit::Completed.into())
 }
 
@@ -416,7 +537,7 @@ pub(crate) fn watch(
     )
 }
 
-/// `brokkr replay`: rebuild state from the journal twice and compare.
+/// `brokkr runs replay`: rebuild state from the journal twice and compare.
 pub(crate) fn replay(
     workspace: &Path,
     ReplayArgs { run, journal }: ReplayArgs,
@@ -572,7 +693,7 @@ fn runs_fleet(hearths: &[Hearth], asked: (bool, fleet::Filter)) -> Result<ExitCo
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr realms`: the world, each realm with its path, branch and HEAD.
+/// `brokkr system realms`: the world, each realm with its path, branch and HEAD.
 pub(crate) fn realms(
     workspace: &Path,
     RealmsArgs { realms, db, json }: RealmsArgs,
@@ -607,7 +728,7 @@ pub(crate) fn realms(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr compare`: two runs' aligned outcomes.
+/// `brokkr runs compare`: two runs' aligned outcomes.
 pub(crate) fn compare(
     workspace: &Path,
     CompareArgs {

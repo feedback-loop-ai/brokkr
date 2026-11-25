@@ -17,6 +17,14 @@ mod dsh_home;
 #[cfg(unix)]
 mod brokers;
 
+/// The engine's set a qoder launch is served (#1178).
+#[cfg(unix)]
+mod qoder;
+
+/// The engine's set an agy launch is served (#1200).
+#[cfg(unix)]
+mod agy;
+
 fn s(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| part.to_string()).collect()
 }

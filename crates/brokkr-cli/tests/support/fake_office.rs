@@ -22,21 +22,47 @@ pub(crate) const OFFICE: &str = "fake-office";
 
 /// The fake driver's argv, reading `script` and keeping `state`.
 pub(crate) fn fake_driver(script: &Path, state: &Path) -> Value {
-    json!([
-        env!("CARGO_BIN_EXE_brokkr"),
+    json!(crate::built_argv!([
         "fake-driver",
         "--script",
-        script.to_string_lossy(),
+        script.to_string_lossy().as_ref(),
         "--state",
-        state.to_string_lossy()
-    ])
+        state.to_string_lossy().as_ref(),
+    ]))
 }
+
+/// The office a review-panel member of [`of`] hires: the fake
+/// driver, declaring every word a review panel ranks, as a member's agent
+/// must for its member to report them (decision 0109 ruling 11).
+pub(crate) const REVIEWER: &str = "fake-reviewer";
 
 /// Writes, under `root`, the adapter `fake` whose driver is the fake
 /// driver reading `script` and keeping `state`, and the office
-/// [`OFFICE`] hiring its one model.
+/// [`OFFICE`] hiring its one model; and beside them [`REVIEWER`], over
+/// its own adapter.
 pub(crate) fn hire(root: &Path, script: &Path, state: &Path) {
     hire_driver(root, [OFFICE, "fake"], fake_driver(script, state));
+    hire_driver(root, [REVIEWER, "fake-review"], fake_driver(script, state));
+    let path = root.join(format!("agents/{REVIEWER}.json"));
+    let mut office: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    office["results"] = json!(["clean", "residual", "security-hold"]);
+    std::fs::write(&path, serde_json::to_vec_pretty(&office).unwrap()).unwrap();
+}
+
+/// The adapter `provider` backed by the fake driver reading `script` and
+/// keeping `state`, serving `models`, with no tool permissions or MCP.
+pub(crate) fn fake_adapter(provider: &str, models: Value, script: &Path, state: &Path) -> Value {
+    json!({
+        "provider": provider,
+        "binary": crate::built::bare_path(),
+        "driver": fake_driver(script, state),
+        "models": models,
+        "model_flag": "--model",
+        "efforts": ["low", "medium", "high"],
+        "effort_flag": "--effort",
+        "tool_permissions": "unsupported",
+        "mcp": "unsupported",
+    })
 }
 
 /// Writes, under `root`, the adapter `provider` whose driver is `driver`,
@@ -79,8 +105,8 @@ pub(crate) fn inline(root: &Path, script: &Path, state: &Path) -> Value {
     use std::os::unix::fs::PermissionsExt;
     let wrapper = root.join(INLINE);
     let body = format!(
-        "#!/bin/sh\nshift 2\nexec '{}' fake-driver \"$@\"\n",
-        env!("CARGO_BIN_EXE_brokkr")
+        "#!/bin/sh\nshift 2\nexec {} \"$@\"\n",
+        crate::built_shell_line!(["fake-driver"])
     );
     std::fs::write(&wrapper, body).unwrap();
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -128,4 +154,13 @@ pub(crate) fn seat(results: &[&str]) -> Value {
 /// A panel member, sequence step or select case hiring [`OFFICE`].
 pub(crate) fn body() -> Value {
     json!({"agent": OFFICE})
+}
+
+/// A member of a panel joined by `aggregate`: a review-panel member hires
+/// [`REVIEWER`], any other [`OFFICE`].
+pub(crate) fn of(aggregate: &str) -> Value {
+    match aggregate {
+        "review-panel" => json!({"agent": REVIEWER}),
+        _ => body(),
+    }
 }

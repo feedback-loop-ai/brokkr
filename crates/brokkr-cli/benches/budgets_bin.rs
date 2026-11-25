@@ -1,7 +1,7 @@
 //! The CPU budgets for the shipped binary (#342): instruction counts under
-//! Callgrind for startup and for `inspect` over a real exported run. CI runs
-//! these on Linux against the merge-base in the same job and fails a
-//! regression over 2%.
+//! Callgrind for startup and for `inspect` over a real exported run. The
+//! nightly cpu-budgets.yml runs these on Linux against the head the last
+//! nightly measured, in the same job, and fails a regression over 2%.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -24,12 +24,15 @@ fn fixture() -> PathBuf {
 /// Adopt the fixture into `journal.db` in the sandbox, outside the measure.
 fn import_fixture() {
     let status = Command::new(BINARY)
-        .args(["import", "--db", "journal.db", "--from"])
+        .args(["journal", "import", "--db", "journal.db", "--from"])
         .arg(fixture())
         .stdout(std::process::Stdio::null())
         .status()
-        .expect("brokkr import starts");
-    assert!(status.success(), "brokkr import adopts the fixture run");
+        .expect("brokkr journal import starts");
+    assert!(
+        status.success(),
+        "brokkr journal import adopts the fixture run"
+    );
 }
 
 #[binary_benchmark]
@@ -48,7 +51,7 @@ fn version() -> gungraun::Command {
 )]
 fn inspect() -> gungraun::Command {
     gungraun::Command::new(BINARY)
-        .args(["inspect", "--db", "journal.db", "--run", RUN])
+        .args(["runs", "inspect", "--db", "journal.db", "--run", RUN])
         .stdout(Stdio::Null)
         .build()
 }

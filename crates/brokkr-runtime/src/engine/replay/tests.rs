@@ -422,9 +422,10 @@ fn an_engine_sequence_s_rows_list_its_steps_tags_and_models_as_its_view() {
         account.seats_kept(),
         account.state().ok(),
     );
-    // Its seat, its two steps' and its panel's two members, its one phase
-    // and its one visit.
-    assert_eq!(found, (Vec::new(), 7));
+    // Its seat, its two steps', its final panel step's, which its success
+    // names (fix round 0109a1r4, K6), and that panel's two members, its
+    // one phase and its one visit.
+    assert_eq!(found, (Vec::new(), 8));
 }
 
 /// An engine driven to its conclusion leaves its run's summary at the

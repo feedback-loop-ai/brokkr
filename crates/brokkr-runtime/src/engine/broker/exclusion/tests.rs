@@ -302,7 +302,7 @@ fn a_repaired_run_whose_writers_are_settled_releases_its_worktree() {
 /// Where the records prove nothing, the operator's settle record is the
 /// proof the exclusion honours: a run whose only driver is not sealed
 /// Settled, and whose recorded process group is gone from the host, is
-/// released once `brokkr operator settle` names it. This is 440c's F5 test
+/// released once `brokkr runs operator settle` names it. This is 440c's F5 test
 /// rewritten to the new truth.
 #[test]
 fn a_settle_record_releases_what_the_records_cannot_prove() {
@@ -887,7 +887,7 @@ fn assert_v0_13_0_reservation(at: &std::path::Path) {
 /// The route for a reservation written before this build (v0.13.0's shape:
 /// drivers, no process group): `operator settle` cannot prove it, and the
 /// operator repairs the run and then uses the existing
-/// `brokkr operator release` attestation. The 0.12.0-era journal is the
+/// `brokkr runs operator release` attestation. The 0.12.0-era journal is the
 /// shape (B) one; the reservation is the tag's own bytes, not this build's
 /// serialisation (S6). A build that reported 0.12.0 from main between #745
 /// and #822 wrote an earlier shape, whose view or reachable journal this

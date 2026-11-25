@@ -207,6 +207,9 @@ impl Coordination {
     fn worktree(&self, name: &str) -> PathBuf {
         let worktree = self.root.join(name);
         std::fs::create_dir_all(&worktree).unwrap();
+        // Review is decided on the head its check accepted, so the
+        // worktree has one (fix round 0109a1r3, H1).
+        crate::engine::tests::git_commit(&worktree, "base");
         worktree
     }
 

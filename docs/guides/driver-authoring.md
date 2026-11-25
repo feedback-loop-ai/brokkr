@@ -57,10 +57,14 @@ NDJSON over stdio, one JSON object per line.
 - **stdout is protocol-only.** Any line that is not a valid protocol
   message fails the attempt closed. Do not print banners, progress bars
   or logs there.
-- **stderr is captured as an artifact** and rides on failed and
-  indeterminate outcomes. Put your logging there. It is masked for
-  declared secret values on raw bytes before any string exists (decision
-  0012), so an echoed token does not reach the journal.
+- **stderr is captured, and never journaled.** Put your logging there.
+  A failed or indeterminate outcome names it in the journal by
+  content-free evidence alone: its length, the class of its first byte
+  and a SHA-256 prefix (decision 0012's addendum of 2026-11-20). Its
+  tail goes to the engine's own stderr, each line under the attempt id:
+  the terminal under `brokkr run`, the driver log under `brokkr queue
+  dispatch`. A built-in driver masks declared secret values in it on raw
+  bytes before any string exists, so an echoed token is not printed there.
 
 Every message, in both directions, carries three keys:
 
@@ -390,7 +394,7 @@ Before export the Looper bridge hashes targets and withholds
 transcript locators outright (only `observed-redacted` leaves), and the
 full session transcript stays wherever your harness put it.
 
-Two field names are read by `brokkr costs` if you supply them:
+Two field names are read by `brokkr stats costs` if you supply them:
 `num_turns` (summed into the seat's turn count) and `total_cost_usd`
 (summed into its cost). A third, `model`, is the provider-reported model
 id displayed by every read surface (decision 0031). Put it on every
@@ -508,7 +512,7 @@ normalizes to the inclusive form before journaling, and reports the
 cache read separately in `cache_read_tokens` as the subset it is. A harness
 that reports cache creation writes it as `cache_write_tokens`; it is shown
 separately and is not part of the input-plus-output total.
-`brokkr costs` and the seat surfaces sum `input_tokens` and
+`brokkr stats costs` and the seat surfaces sum `input_tokens` and
 `output_tokens` only; adding the cache read would double-count it. One
 journal key means one thing across every driver, not whatever its
 harness happened to mean.
@@ -875,7 +879,7 @@ Then check it before you run it:
 
 ```
 brokkr doctor --bundle my-bundle    # is the driver actually reachable here
-brokkr compile --bundle my-bundle   # does the bundle hold together
+brokkr library compile --bundle my-bundle   # does the bundle hold together
 ```
 
 If your driver does not need a protocol implementation at all — you just

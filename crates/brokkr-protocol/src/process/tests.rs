@@ -1144,6 +1144,7 @@ fn an_unresolved_cleanup_is_acted_on_as_indeterminate() {
         stderr: String::new(),
         accepted: true,
         deadline_killed: false,
+        usage: None,
     };
     let stdout = || Cleanup::Unresolved {
         reason: Unsettled::Stdout,
