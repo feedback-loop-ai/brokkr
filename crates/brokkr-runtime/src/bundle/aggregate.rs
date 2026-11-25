@@ -175,13 +175,14 @@ pub enum BodyRefusal {
     /// onward with no gate record, so decide refuses it on every pass
     /// (decision 0109 ruling 7, #1212 L1). A hard word there is a stop.
     #[error(
-        "seat '{seat}' is the protected phase's, and its sequence step '{step}' runs before its \
-         first gate step yet may end the sequence on '{word}', a word that does not stop the \
-         run; no gate has recorded a head there, so the engine can never take that ending \
-         (decision 0109 ruling 7)"
+        "seat '{seat}' is the protected phase's, and its sequence step '{step}', read under \
+         {case}, runs before its first gate step yet may end the sequence on '{word}', a word \
+         that does not stop the run; no gate has recorded a head there, so the engine can never \
+         take that ending (decision 0109 ruling 7)"
     )]
     PreGateEnding {
         seat: String,
+        case: SelectCase,
         step: String,
         word: String,
     },
@@ -191,16 +192,37 @@ pub enum BodyRefusal {
     /// so that ending parks on every pass (decision 0050 ruling 7; 1221a2's
     /// review, L1).
     #[error(
-        "seat '{seat}' is the protected phase's, and its sequence step '{step}' runs before its \
-         first gate step yet may end the sequence on '{word}', a stop the seat's results do not \
-         declare; decide refuses a word outside the seat's results, so the engine can never \
-         take that ending (decision 0050 ruling 7): declare '{word}' in the seat's results"
+        "seat '{seat}' is the protected phase's, and its sequence step '{step}', read under \
+         {case}, runs before its first gate step yet may end the sequence on '{word}', a stop \
+         the seat's results do not declare; decide refuses a word outside the seat's results, \
+         so the engine can never take that ending (decision 0050 ruling 7): declare '{word}' in \
+         the seat's results"
     )]
     PreGateUndeclared {
         seat: String,
+        case: SelectCase,
         step: String,
         word: String,
     },
+}
+
+/// The case of a seat's body a sequence was read under (#1221, INFO): a
+/// select's strategy word, or the default, which is also a body that is
+/// not a select. The word is a `Box<str>`, not a `String`, so every
+/// `CompileError` stays inside clippy's `result_large_err` bound.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelectCase {
+    Strategy(Box<str>),
+    Default,
+}
+
+impl std::fmt::Display for SelectCase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SelectCase::Strategy(word) => write!(f, "select case '{word}'"),
+            SelectCase::Default => f.write_str("the default case"),
+        }
+    }
 }
 
 impl Aggregate {

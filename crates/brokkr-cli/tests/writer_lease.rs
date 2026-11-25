@@ -149,8 +149,7 @@ impl Host {
     pub(crate) fn start(&self, work: &Path, bundle: &Path) -> Running {
         let name = bundle.file_name().unwrap().to_str().unwrap();
         let said = self.base.join(format!("{name}.stderr"));
-        let child = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-            .args(["run", "--bundle", bundle.to_str().unwrap()])
+        let child = crate::built::brokkr(["run", "--bundle", bundle.to_str().unwrap()])
             .args([
                 "--feature",
                 "writer lease",
@@ -184,20 +183,19 @@ impl Host {
     pub(crate) fn events(&self, bundle: &Path, run: &str) -> Vec<Value> {
         let name = bundle.file_name().unwrap().to_str().unwrap();
         let (db, out) = (self.journal(name), self.base.join(format!("{name}.export")));
-        let exported = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-            .args([
-                "journal",
-                "export",
-                "--run",
-                run,
-                "--out",
-                out.to_str().unwrap(),
-            ])
-            .args(["--db", db.to_str().unwrap()])
-            .current_dir(&self.base)
-            .env("HOME", self.base.join("home"))
-            .output()
-            .unwrap();
+        let exported = crate::built::brokkr([
+            "journal",
+            "export",
+            "--run",
+            run,
+            "--out",
+            out.to_str().unwrap(),
+        ])
+        .args(["--db", db.to_str().unwrap()])
+        .current_dir(&self.base)
+        .env("HOME", self.base.join("home"))
+        .output()
+        .unwrap();
         assert!(exported.status.success(), "{exported:?}");
         let ndjson = std::fs::read_to_string(out.join(format!("{run}.ndjson"))).unwrap();
         ndjson

@@ -2,7 +2,6 @@
 //! operator reads once the acknowledgement is recorded.
 
 use std::path::Path;
-use std::process::Command;
 
 use brokkr_core::envelope::EventType;
 use serde_json::json;
@@ -31,19 +30,18 @@ fn an_acknowledgement_says_where_the_run_lists_and_that_its_refusal_stands() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     unanswered(&db);
-    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .current_dir(dir.path())
-        .args([
-            "runs",
-            "operator",
-            "--run",
-            "unanswered",
-            "--reason",
-            "seen",
-        ])
-        .args(["--db", db.to_str().unwrap(), "acknowledge"])
-        .output()
-        .unwrap();
+    let out = crate::built::brokkr([
+        "runs",
+        "operator",
+        "--run",
+        "unanswered",
+        "--reason",
+        "seen",
+    ])
+    .current_dir(dir.path())
+    .args(["--db", db.to_str().unwrap(), "acknowledge"])
+    .output()
+    .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "{stderr}");
     assert_eq!(

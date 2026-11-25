@@ -1,7 +1,7 @@
 //! The CPU budgets for the shipped binary (#342): instruction counts under
-//! Callgrind for startup and for `inspect` over a real exported run. CI runs
-//! these on Linux against the merge-base in the same job and fails a
-//! regression over 2%.
+//! Callgrind for startup and for `inspect` over a real exported run. The
+//! nightly cpu-budgets.yml runs these on Linux against the head the last
+//! nightly measured, in the same job, and fails a regression over 2%.
 
 use std::path::PathBuf;
 use std::process::Command;

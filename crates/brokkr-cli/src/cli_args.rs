@@ -15,6 +15,8 @@ mod queue;
 pub(crate) use member_retry::MemberRetryArgs;
 pub(crate) use queue::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
 mod moved;
+#[cfg(test)]
+pub(crate) use moved::old_spellings;
 pub(crate) use moved::respelled;
 mod tree;
 
@@ -623,10 +625,10 @@ pub(super) struct RealmsArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct DriverArgs {
-    /// The adapter to run: claude, lanetally, codex, dsh, qoder or exec.
+    /// The adapter to run: claude, lanetally, codex, dsh, qoder, agy or exec.
     pub(super) kind: String,
     /// Arguments after -- pass to the agent CLI
-    /// (claude/lanetally/codex/dsh/qoder) or form the command template
+    /// (claude/lanetally/codex/dsh/qoder/agy) or form the command template
     /// (exec).
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub(super) args: Vec<String>,
@@ -669,9 +671,10 @@ pub(super) enum GroupedCmd {
     Recipes { command: super::RecipesCmd },
     Agents { command: super::AgentsCmd },
     Muninn { command: super::MuninnCmd },
-    Secrets { command: SecretsCmd },
+    Configuration(crate::verbs::setup::ConfigurationCmd),
     Sweep(SweepArgs),
     Dispatch(DispatchArgs),
+    Completions(crate::completion::CompletionsArgs),
 }
 
 /// The MCP capability broker's one verb (decision 0077), and its private

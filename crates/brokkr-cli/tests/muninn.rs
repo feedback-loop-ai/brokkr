@@ -12,13 +12,9 @@ use std::process::{Command, Output};
 
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
 const POLICY: &str = r#"{
-  "phases": ["implement", "review", "done", "stop"],
   "initial": "implement",
+  "phases": ["implement", "review", "done", "stop"],
   "terminal": ["done", "stop"],
   "rules": [
     {"id": "IMPL-OK", "from": "implement", "result": "complete", "next": "review",
@@ -72,21 +68,12 @@ impl Workspace {
         crate::brokkr_folder::clean_head(&ws.path().join("repo"));
         ws.write(
             "adapters/fake.json",
-            json!({
-                "provider": "fake",
-                "binary": brokkr_bin(),
-                "driver": [
-                    brokkr_bin(), "fake-driver",
-                    "--script", ws.path().join("script.json").to_string_lossy(),
-                    "--state", ws.path().join("state").to_string_lossy(),
-                ],
-                "models": {"work": "fake/work"},
-                "model_flag": "--model",
-                "efforts": ["low", "medium", "high"],
-                "effort_flag": "--effort",
-                "tool_permissions": "unsupported",
-                "mcp": "unsupported",
-            }),
+            crate::fake_office::fake_adapter(
+                "fake",
+                json!({"work": "fake/work"}),
+                &ws.path().join("script.json"),
+                &ws.path().join("state"),
+            ),
         );
         ws.write(
             "agents/work.json",
@@ -240,8 +227,7 @@ impl Workspace {
 
     fn brokkr(&self, args: &[&str]) -> Output {
         crate::engine::library(self.path());
-        Command::new(brokkr_bin())
-            .args(args)
+        crate::built::brokkr(args)
             .env("HOME", self.home.path())
             .current_dir(self.path())
             .output()

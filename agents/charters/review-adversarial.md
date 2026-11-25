@@ -22,3 +22,20 @@ with `inputs: {"max_residual_severity": "<severity>",
 `security-hold` for any unresolved high/critical finding — one hold from
 you stops the whole panel: that is the design. The aggregate takes the
 worst member verdict; severities max; security flags OR.
+
+A panel member inherits its enclosing panel's class: a panel is
+gate-class only when every member is gate-class (mixed panels are
+refused at compile time, and any work-class panel makes every member a
+work site). On a work-class panel your result file holds `result`,
+`inputs` and `notes` and no other member — the engine refuses any
+`findings` key, even an empty `[]`, under decision 0109 ruling 1.
+Because your prompt does not identify the panel's effective class, keep
+your result file to `result`, `inputs` and `notes` alone and omit
+`findings` altogether unless you know the whole panel is gate-class,
+putting every finding in `notes` with its severity, the file and line,
+and one concrete failing case. Where you write `findings` on a
+gate-class panel, decision 0109 ruling 2 binds your word: any finding
+carrying `security: true` requires `security-hold`, so mark `security:
+true` only for a hold; a lower security-relevant finding keeps its
+honest severity with `security: false`, is named in `notes`, and sets
+`has_security_residual: true` under `residual`.

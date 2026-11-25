@@ -186,7 +186,8 @@ and the release window in that ruling's slice 2.
 | `seat-record/v4` | `contracts/seat-record.v4.schema.json` | journal | 0046 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.9 | 0.12 |
 | `seat-record/v5` | `contracts/seat-record.v5.schema.json` | journal | 0056, enacted, pending acceptance | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.11 | 0.14 |
 | `seat-record/v6` | `contracts/seat-record.v6.schema.json` | journal | 0065 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.13 | 0.16 |
-| `seat-record/v7` | `contracts/seat-record.v7.schema.json` | journal | 0109 | drivers | dispatch brokkr_store::SeatRecordVersion | current | | |
+| `seat-record/v7` | `contracts/seat-record.v7.schema.json` | journal | 0109 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | never | 0.17 |
+| `seat-record/v8` | `contracts/seat-record.v8.schema.json` | journal | 0075 | drivers | dispatch brokkr_store::SeatRecordVersion | current | | |
 | `forge.realms/v1` | `contracts/realms.v1.schema.json` | input | 0023 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v2` | `contracts/realms.v2.schema.json` | input | 0026 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v3` | `contracts/realms.v3.schema.json` | input | 0041 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
@@ -217,7 +218,8 @@ and the release window in that ruling's slice 2.
 | `forge.host/v1` | `contracts/host.v1.schema.json` | input | 0068 (2026-10-10 addendum) | operator | load brokkr_runtime::admission::host::read | reader | | decision |
 | `forge.host/v2` | `contracts/host.v2.schema.json` | input | 0103 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
 | `forge.host/v3` | `contracts/host.v3.schema.json` | input | 0104 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
-| `forge.host/v4` | `contracts/host.v4.schema.json` | input | 0110 | operator | load brokkr_runtime::admission::host::read | current | | decision |
+| `forge.host/v4` | `contracts/host.v4.schema.json` | input | 0110 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
+| `forge.host/v5` | `contracts/host.v5.schema.json` | input | 0125 | operator | load brokkr_runtime::admission::host::read | current | | decision |
 | `panel-carry/v1` | `contracts/panel-carry.v1.schema.json` | journal | 0093 | engine crates/brokkr-runtime/src/engine/dispatch.rs | load brokkr_runtime::engine::carry::facts::terminal_record | current | | |
 | `provider-wait/v1` | `contracts/provider-wait.v1.schema.json` | journal | 0103 | engine crates/brokkr-runtime/src/engine/cooldown.rs | load brokkr_core::provider_waits | current | | |
 | `park-cause/v1` | `contracts/park-cause.v1.schema.json` | journal | 0106 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::ParkCause::read | current | | |
@@ -312,9 +314,10 @@ current names.
 
 - **Environment overrides.** `BROKKR_CLAUDE_BIN`, `BROKKR_LANETALLY_BIN`,
   `BROKKR_CODEX_BIN`, `BROKKR_DSH_BIN`, `BROKKR_QODER_BIN`,
-  `BROKKR_EXEC_NAME` and `BROKKR_BROWSER_BIN` are the only names that
-  configure anything. `BROKKR_QODER_BIN` came after the rename and has no
-  pre-rename spelling. A pre-rename spelling set where its current name
+  `BROKKR_AGY_BIN`, `BROKKR_EXEC_NAME` and `BROKKR_BROWSER_BIN` are the
+  only names that configure anything. `BROKKR_QODER_BIN` and
+  `BROKKR_AGY_BIN` came after the rename and have no pre-rename
+  spelling. A pre-rename spelling set where its current name
   is not is refused by both names: the seat fails to start, `brokkr doctor` reports the DSH
   selection refused, and `brokkr system ui` opens no browser. Nothing runs in
   its place. The prefix is no longer denied as a secret name, since a

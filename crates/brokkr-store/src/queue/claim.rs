@@ -242,7 +242,7 @@ fn unclaimable(entry: EntryId, state: EntryState) -> Option<QueueRefusal> {
         EntryState::Queued => None,
         EntryState::Held => Some(QueueRefusal::Held(entry)),
         EntryState::Launching => Some(QueueRefusal::Launching(entry)),
-        EntryState::Claimed { run } => Some(QueueRefusal::Claimed { entry, run }),
+        EntryState::Claimed { run, .. } => Some(QueueRefusal::Claimed { entry, run }),
         EntryState::Dropped => Some(QueueRefusal::Dropped(entry)),
     }
 }

@@ -7,7 +7,7 @@
 use serde_json::{json, Value};
 
 use super::super::discovery::capabilities_contract;
-use super::super::{render_prompt, AdapterKind};
+use super::super::{render_prompt, AdapterKind, Row};
 use super::{codex_notice, contract, input, BOXED, CONTRACT, DISCOVERY};
 
 /// The capability contract for a seat holding `library-docs`'s two tools.
@@ -208,7 +208,10 @@ fn the_guidance_names_a_tool_as_its_observed_call_shows_it() {
         shown("fetch")
     );
     assert_eq!(capabilities_contract(&seat), format!("{HELD}{guidance}"));
-    let read = Observation::claude(&json!({"id": "toolu_1", "name": shown("lookup")}));
+    let read = Observation::claude(&Row::new(
+        &json!({"id": "toolu_1", "name": shown("lookup")}),
+        &[],
+    ));
     assert_eq!(read.tool, mcp("lookup"));
 }
 

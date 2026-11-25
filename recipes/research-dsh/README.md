@@ -37,6 +37,13 @@ about what dsh reaches on its own, not about a grant — and it is
 exactly the gap the adapter's reason names and the controller owes a
 measurement for.
 
+The realm's grant of both to the `researcher` office (the operator's
+ruling of 2026-11-24, through Claude's native dialects) does not reach
+this seat: an inline seat's office is its site label, and no grant can
+be served through dsh until that measurement is recorded. Until then the
+weekly sweep reaches no source and escalates, and the Claude lane
+(`recipes/research`) is the one that reads the web.
+
 The reading dsh does takes the shape dsh has: the headless profile's own web tools. Since
 dsh 0.1.2-rc.1 that profile ships `web-fetch-http` with page fetch on
 (0.1.0-rc.6 shipped no fetch provider, and the first sweep read with

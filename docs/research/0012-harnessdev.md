@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.01437
 Authors: Yuhao Wu, Jingyuan Zhang, Jiajun Shi and 16 co-authors (ByteDance Seed; Singapore University of Technology and Design; Georgia Institute of Technology; M-A-P; TokenWave.AI)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: research sweep, run weekly-research-sweep-registry-d-2012cc4d, 2026-09-04
 
 ## Summary

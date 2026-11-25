@@ -174,3 +174,116 @@ fn a_volta_bin_holding_codex_and_dsh_scaffolds_for_the_named_one() {
         );
     }
 }
+
+#[test]
+fn init_seeds_exactly_the_installed_providers_and_leaves_a_legacy_host_unchanged() {
+    use brokkr_runtime::admission::{declared_routes, HostRoutes};
+
+    let repo = crate::brokkr_folder::repository();
+    let aside = tempfile::tempdir().unwrap();
+    let bins = bins_holding(aside.path(), &["claude", "codex", "dsh"]);
+    let host = aside.path().join(".config/brokkr/host.json");
+    let (code, output) = init_under(repo.path(), &bins, aside.path(), &["--cli", "dsh"]);
+    assert_eq!(code, Some(0), "{output}");
+
+    let parsed: Value = serde_json::from_slice(&std::fs::read(&host).unwrap()).unwrap();
+    assert_eq!(parsed["schema"], "forge.host/v5");
+    assert_eq!(
+        parsed["providers"],
+        serde_json::json!({"claude":{"ceiling":1}, "dsh":{"ceiling":1}, "exec":{"ceiling":1}})
+    );
+    assert_eq!(
+        parsed["floors"],
+        serde_json::json!([{"place":"seat-scratch", "floor_bytes":30_000_000_000u64}])
+    );
+    let HostRoutes::Declared(routes) = declared_routes(&host).unwrap() else {
+        panic!("the host loader did not read the init draft");
+    };
+    assert_eq!(
+        routes.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["claude", "dsh", "exec"]
+    );
+    let lines: Vec<_> = output
+        .lines()
+        .filter(|line| line.ends_with("(placeholder to tune)"))
+        .collect();
+    let mut placeholders: Vec<_> = ["claude", "dsh", "exec"]
+        .map(|provider| {
+            format!(
+                "{}: providers.{provider}.ceiling = 1 (placeholder to tune)",
+                host.display()
+            )
+        })
+        .into();
+    placeholders.push(format!(
+        "{}: floors[seat-scratch].floor_bytes = 30000000000 (placeholder to tune)",
+        host.display()
+    ));
+    assert_eq!(lines, placeholders);
+
+    let old = r#"{"schema":"forge.host/v1","providers":{"existing":{"ceiling":2e0}},"floors":[{"place":"temp","floor_bytes":1}],"boxed_builds":{"ceiling":5}}"#;
+    std::fs::write(&host, old).unwrap();
+    let second = crate::brokkr_folder::repository();
+    let (code, output) = init_under(second.path(), &bins, aside.path(), &["--cli", "codex"]);
+    assert_eq!(code, Some(0), "{output}");
+    assert_eq!(std::fs::read(&host).unwrap(), old.as_bytes());
+    let expected = format!(
+        "Left existing host file {} as it was. Run `brokkr system host upgrade` to upgrade it.",
+        host.display()
+    );
+    assert_eq!(
+        output.lines().filter(|line| *line == expected).count(),
+        1,
+        "{output}"
+    );
+}
+
+/// `brokkr system host upgrade` through the binary, on a host file under
+/// its own XDG_CONFIG_HOME: `--check` prints the change and exits 1,
+/// writing nothing; the upgrade writes v5; a second run says it is current.
+#[test]
+fn system_host_upgrade_checks_writes_and_then_reads_current() {
+    let aside = tempfile::tempdir().unwrap();
+    let config = aside.path().join("config");
+    let host = config.join("brokkr/host.json");
+    std::fs::create_dir_all(host.parent().unwrap()).unwrap();
+    let old = r#"{"schema":"forge.host/v1","providers":{"exec":{"ceiling":2}},"floors":[{"place":"temp","floor_bytes":1}],"boxed_builds":{"ceiling":5}}"#;
+    std::fs::write(&host, old).unwrap();
+    let upgrade = |extra: &[&str]| {
+        let args: Vec<&str> = ["system", "host", "upgrade"]
+            .iter()
+            .chain(extra)
+            .copied()
+            .collect();
+        brokkr_with(&args, aside.path(), |command| {
+            command
+                .env("HOME", aside.path())
+                .env("XDG_CONFIG_HOME", &config);
+        })
+    };
+    let (code, stdout, stderr) = upgrade(&["--check"]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(
+        stdout.contains("+{\"schema\":\"forge.host/v5\""),
+        "{stdout}"
+    );
+    assert_eq!(std::fs::read_to_string(&host).unwrap(), old);
+    let (code, _, stderr) = upgrade(&[]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let upgraded = old.replace("forge.host/v1", "forge.host/v5");
+    assert_eq!(std::fs::read_to_string(&host).unwrap(), upgraded);
+    let (code, stdout, stderr) = upgrade(&[]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let current = format!("{} is current (forge.host/v5)\n", host.display());
+    assert_eq!(stdout, current);
+
+    // With no absolute HOME or XDG_CONFIG_HOME, there is no host file to name.
+    let (code, _, stderr) = brokkr_with(&["system", "host", "upgrade"], aside.path(), |command| {
+        command.env("HOME", "relative-home");
+    });
+    assert_ne!(code, Some(0), "{stderr}");
+    assert!(
+        stderr.contains("no host configuration can be found"),
+        "{stderr}"
+    );
+}

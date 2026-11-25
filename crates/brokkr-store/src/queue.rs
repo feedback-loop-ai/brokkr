@@ -142,17 +142,22 @@ pub struct Attribution<'a> {
     pub reason: &'a str,
 }
 
+/// Whether a `merged` record of a `queue_entries` row stands, read in the
+/// statement that reads its standing, the command's word bound as `?2`.
+const MERGED: &str = "EXISTS (SELECT 1 FROM queue_commands
+    WHERE queue_commands.entry_id = queue_entries.entry_id AND command = ?2)";
+
 /// The standing of one entry, read inside the transaction that acts on it.
 fn standing(tx: &Transaction<'_>, entry: EntryId) -> Result<EntryState, StoreError> {
-    let row: Option<(Standing, Option<String>)> = tx
+    let row: Option<(Standing, Option<String>, bool)> = tx
         .query_row(
-            "SELECT state, run_id FROM queue_entries WHERE entry_id = ?1",
-            params![entry.0],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            &format!("SELECT state, run_id, {MERGED} FROM queue_entries WHERE entry_id = ?1"),
+            params![entry.0, QueueCommand::Merged.word()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?;
-    let (standing, run) = row.ok_or(QueueRefusal::UnknownEntry(entry))?;
-    Ok(EntryState::of(standing, run))
+    let (standing, run, merged) = row.ok_or(QueueRefusal::UnknownEntry(entry))?;
+    Ok(EntryState::of(standing, run, merged))
 }
 
 /// Does the table hold a row with this key?
@@ -172,6 +177,12 @@ fn exists(
 /// so a queue journaled before this order, its places still arrival's,
 /// lists and moves by the same places.
 const ORDER: &str = "priority DESC, position, entry_id";
+
+/// The completer's page of waiting entries ([`Store::queue_waiting`]):
+/// unclaimed rows in either waiting standing, newest first, within a limit.
+const WAITING_SQL: &str = "SELECT entry_id, state FROM queue_entries
+     WHERE run_id IS NULL AND state IN (?1, ?2)
+     ORDER BY entry_id DESC LIMIT ?3";
 
 /// A waiting entry and the priority that orders it first.
 type Waiting = (EntryId, i64);
@@ -258,13 +269,17 @@ fn record(
     Ok(tx.last_insert_rowid())
 }
 
-/// Refuse a command the entry's standing cannot take.
+/// Refuse a command the entry's standing cannot take: a `merged` record
+/// only of an entry that started a run, every other command only of one
+/// that waits.
 fn admit(entry: EntryId, state: EntryState, command: QueueCommand) -> Result<(), QueueRefusal> {
-    use QueueCommand::{Drop, Hold, Move, Release};
+    use QueueCommand::{Drop, Hold, Merged, Move, Release};
     match (state, command) {
         (EntryState::Dropped, _) => Err(QueueRefusal::Dropped(entry)),
-        (EntryState::Claimed { run }, _) => Err(QueueRefusal::Claimed { entry, run }),
+        (EntryState::Claimed { .. }, Merged) => Ok(()),
+        (EntryState::Claimed { run, .. }, _) => Err(QueueRefusal::Claimed { entry, run }),
         (EntryState::Launching, _) => Err(QueueRefusal::Launching(entry)),
+        (EntryState::Queued | EntryState::Held, Merged) => Err(QueueRefusal::Unstarted(entry)),
         (EntryState::Held, Hold) => Err(QueueRefusal::AlreadyHeld(entry)),
         (EntryState::Queued, Release) => Err(QueueRefusal::NotHeld(entry)),
         (EntryState::Queued, Move { .. } | Hold | Drop)
@@ -272,11 +287,16 @@ fn admit(entry: EntryId, state: EntryState, command: QueueCommand) -> Result<(),
     }
 }
 
-/// Refuse waits that name an entry twice or one the queue never held.
-/// Checked before the new entry exists, so no wait can name it, and every
-/// entry waited for is older than it: waits never close a cycle.
+/// Refuse waits on a condition the column's reader would refuse, such as
+/// `unclassified`, and waits that name an entry twice or one the queue
+/// never held. Checked before the new entry exists, so no wait can name
+/// it, and every entry waited for is older than it: waits never close a
+/// cycle.
 fn admit_waits(tx: &Transaction<'_>, waits: &[Wait]) -> Result<(), StoreError> {
     for (index, wait) in waits.iter().enumerate() {
+        if !WaitOn::ALL.contains(&wait.on) {
+            return Err(QueueRefusal::NotACondition(*wait).into());
+        }
         if waits[..index].iter().any(|seen| seen.entry == wait.entry) {
             return Err(QueueRefusal::DuplicateWait(wait.entry).into());
         }
@@ -356,6 +376,7 @@ fn apply(
             leave_order(tx, entry)?;
             Ok(None)
         }
+        QueueCommand::Merged => Ok(None),
     }
 }
 
@@ -401,16 +422,16 @@ fn entries(
         Stored::V1 => ("payload", "NULL", false),
     };
     let mut entries = conn.prepare(&format!(
-        "SELECT entry_id, position, state, run_id, priority, {payload}, added_at, {pin}
+        "SELECT entry_id, position, state, run_id, priority, {payload}, added_at, {pin}, {MERGED}
          FROM queue_entries WHERE {filter}
          ORDER BY position IS NULL, {ORDER}"
     ))?;
     let mut listed = entries
-        .query_map([key], |row| {
+        .query_map(params![key, QueueCommand::Merged.word()], |row| {
             Ok(QueueEntry {
                 id: EntryId(row.get(0)?),
                 position: row.get(1)?,
-                state: EntryState::of(row.get(2)?, row.get(3)?),
+                state: EntryState::of(row.get(2)?, row.get(3)?, row.get(8)?),
                 priority: row.get(4)?,
                 payload: row.get(5)?,
                 added_at: row.get(6)?,
@@ -484,7 +505,8 @@ impl Store {
     ///
     /// Returns the place the command journaled: `Some` with the place a
     /// move left the entry holding, which priority can make other than
-    /// the place asked, and `None` for a hold, a release or a drop. It is
+    /// the place asked, and `None` for a hold, a release, a drop or a
+    /// `merged` record, which moves no standing and no place. It is
     /// the same transaction's, so a caller never reads it back after a
     /// peer's command may have moved it.
     pub fn queue_command(
@@ -507,6 +529,26 @@ impl Store {
     pub fn queue_list(&self) -> Result<Vec<QueueEntry>, StoreError> {
         patiently("queue_list", self.patience, &self.path, || {
             list_once(&self.conn, &mut || {})
+        })
+    }
+
+    /// The newest `limit` entries still waiting to start, queued or held,
+    /// each with its standing's word: the entries an operator command
+    /// names, read as one page from the unclaimed rows and never decoded
+    /// (decision 0119 ruling 4). A journal from before the queue has none.
+    pub fn queue_waiting(&self, limit: u32) -> Result<Vec<(EntryId, String)>, StoreError> {
+        patiently("queue_waiting", self.patience, &self.path, || {
+            if queue_stored(&self.conn)?.is_none() {
+                return Ok(Vec::new());
+            }
+            let waiting = [Standing::Queued.word(), Standing::Held.word()];
+            let mut statement = self.conn.prepare(WAITING_SQL)?;
+            let found = statement
+                .query_map(params![waiting[0], waiting[1], limit], |row| {
+                    Ok((EntryId(row.get(0)?), row.get(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(found)
         })
     }
 

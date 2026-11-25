@@ -16,7 +16,8 @@ use super::site_form::{classify, StepShape, STEP};
 use super::{
     command_parts, dialect_gate_site, dialect_results, parse_class, parse_command,
     record_inline_tools, refuse_class_without_a_driver, resolve_reference, Aggregate, BodyRefusal,
-    CompileError, DialectExecution, Invocation, SeatBody, SeatClass, SequenceStep, StepBody,
+    CompileError, DialectExecution, Invocation, SeatBody, SeatClass, SelectCase, SequenceStep,
+    StepBody,
 };
 use crate::dialect::{Dialect, DialectPhase};
 
@@ -471,26 +472,40 @@ pub(super) fn parse_sequence(
 pub(super) fn stamp_endings(
     machine: &Machine,
     bundle: &str,
-    (phase, protected): (&str, bool),
+    at: (&str, bool),
     seat_results: &[String],
     body: &mut SeatBody,
+) -> Result<(), CompileError> {
+    let case = &SelectCase::Default;
+    stamp_case(machine, bundle, at, seat_results, (case, body))
+}
+
+/// [`stamp_endings`] of `body`, read under `case` of its seat's body.
+fn stamp_case(
+    machine: &Machine,
+    bundle: &str,
+    (phase, protected): (&str, bool),
+    seat_results: &[String],
+    (case, body): (&SelectCase, &mut SeatBody),
 ) -> Result<(), CompileError> {
     match body {
         SeatBody::Invocation(_) => Ok(()),
         SeatBody::Sequence { steps } => {
             stamp_sequence(machine, bundle, phase, seat_results, steps)?;
             match protected {
-                true => refuse_pre_gate_ending(phase, seat_results, steps),
+                true => refuse_pre_gate_ending((phase, case), seat_results, steps),
                 false => Ok(()),
             }
         }
         SeatBody::Select { cases, default } => {
             let at = (phase, protected);
-            for case in cases.values_mut() {
-                stamp_endings(machine, bundle, at, seat_results, case)?;
+            for (word, body) in cases.iter_mut() {
+                let case = &SelectCase::Strategy(word.as_str().into());
+                stamp_case(machine, bundle, at, seat_results, (case, body))?;
             }
             if let Some(default) = default.as_deref_mut() {
-                stamp_endings(machine, bundle, at, seat_results, default)?;
+                let case = &SelectCase::Default;
+                stamp_case(machine, bundle, at, seat_results, (case, default))?;
             }
             Ok(())
         }
@@ -507,29 +522,49 @@ pub(super) fn stamp_endings(
 ///   review, L1).
 ///
 /// A declared hard word there is a stop, which decide takes; a sequence
-/// with no gate step decides on its terminal.
-fn refuse_pre_gate_ending(
-    seat: &str,
+/// with no gate step decides on its terminal. The refusal names `case`,
+/// the case of the seat's body the sequence was read under.
+pub(crate) fn refuse_pre_gate_ending(
+    (seat, case): (&str, &SelectCase),
     seat_results: &[String],
     steps: &[SequenceStep],
 ) -> Result<(), CompileError> {
-    let Some(first_gate) = steps.iter().position(|step| step.class == SeatClass::Gate) else {
-        return Ok(());
-    };
-    for step in &steps[..first_gate] {
+    for step in before_every_gate(steps).unwrap_or_default() {
         for word in &step.ends_on {
             let hard = step.hard_results.contains(word);
             if hard && seat_results.contains(word) {
                 continue;
             }
-            let (seat, step, word) = (seat.to_string(), step.name.clone(), word.clone());
+            let (seat, case) = (seat.to_string(), case.clone());
+            let (step, word) = (step.name.clone(), word.clone());
             return Err(CompileError::Body(match hard {
-                false => BodyRefusal::PreGateEnding { seat, step, word },
-                true => BodyRefusal::PreGateUndeclared { seat, step, word },
+                false => BodyRefusal::PreGateEnding {
+                    seat,
+                    case,
+                    step,
+                    word,
+                },
+                true => BodyRefusal::PreGateUndeclared {
+                    seat,
+                    case,
+                    step,
+                    word,
+                },
             }));
         }
     }
     Ok(())
+}
+
+/// The steps of `steps` before its first gate step, or none when no step
+/// is a gate. A work step there, ended on a compiled hard word, is a stop:
+/// compile refuses any other ending there and decide takes that stop, so
+/// both read this one geometry (#1221, LOW 2).
+pub(crate) fn before_every_gate(steps: &[SequenceStep]) -> Option<&[SequenceStep]> {
+    let first_gate = steps
+        .iter()
+        .position(|step| step.class == SeatClass::Gate)?;
+    Some(&steps[..first_gate])
 }
 
 /// A sequence's compiled endings: each non-final step's ending words, and

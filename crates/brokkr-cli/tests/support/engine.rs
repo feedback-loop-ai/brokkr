@@ -142,12 +142,12 @@ fn an_unreadable_source_is_refused() {
     startup_seconds("const STARTUP: Duration = Duration::from_secs(30);\n/* never closed\n");
 }
 
-/// `brokkr` run in `dir`, which is its TMPDIR too: its start reaps only
-/// the trees of `dir`. Its HOME is [`home_in`] `dir`, unless the test
+/// `brokkr <argv>` run in `dir`, which is its TMPDIR too: its start reaps
+/// only the trees of `dir`. Its HOME is [`home_in`] `dir`, unless the test
 /// gives it another. `dir` is marked a recipe library first ([`library`]).
-pub(crate) fn brokkr_in(dir: &Path) -> Command {
+pub(crate) fn brokkr_in(dir: &Path, argv: &[&str]) -> Command {
     library(dir);
-    let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+    let mut command = crate::built::brokkr(argv);
     command
         .current_dir(dir)
         .env("TMPDIR", dir)
@@ -195,7 +195,7 @@ pub(crate) fn toolchain_home_in(dir: &Path) -> PathBuf {
 /// summary in libtest's captured output, including an unexpected park's
 /// reason on stdout. Child stderr remains unchanged for protocol proofs.
 pub(crate) fn completed_in(dir: &Path, args: &[&str]) -> std::process::Output {
-    let out = brokkr_in(dir).args(args).output().unwrap();
+    let out = brokkr_in(dir, args).output().unwrap();
     if !out.status.success() {
         eprintln!(
             "brokkr {args:?}: {}\nstdout: {}\nstderr: {}",

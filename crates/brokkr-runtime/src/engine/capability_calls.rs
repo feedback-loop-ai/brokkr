@@ -46,6 +46,7 @@ use serde_json::{json, Value};
 
 use super::resume::{RootHistory, SiteContext};
 use super::SiteSpawn;
+use crate::agents::kinds::masked;
 use crate::bundle::SiteFacts;
 use crate::capabilities::{Implementation, NativePlan, Outcome};
 
@@ -163,6 +164,18 @@ impl Stamp {
         checkpoint["dialect"] = Value::String(self.dialect);
         checkpoint["call_id"] = Value::String(self.call_id);
         checkpoint["call_state"] = Value::String("observed".to_string());
+    }
+
+    /// The group `consume` writes for a held native web search whose call
+    /// id is `call_id`, for a test that journals a call by the sink.
+    #[cfg(test)]
+    pub(super) fn native_search(call_id: &str) -> Stamp {
+        Stamp {
+            tool: "WebSearch".into(),
+            capability: "web-search".into(),
+            dialect: "native".into(),
+            call_id: call_id.into(),
+        }
     }
 }
 
@@ -298,18 +311,6 @@ impl Calls {
             call_id,
         }))
     }
-}
-
-/// Whether `name` holds a secret marker, `[secret:NAME]` with `NAME` in
-/// the binding grammar (decision 0012's #1213 addendum, K2): the form the
-/// mask writes over a bound value, and nothing a name merely shares with
-/// it. Until #1242 reads the tool from the raw row, a masked name is
-/// unattributable.
-fn masked(name: &str) -> bool {
-    (name.split("[secret:").skip(1)).any(|rest| {
-        rest.split_once(']')
-            .is_some_and(|(binding, _)| brokkr_protocol::secret::valid_name(binding))
-    })
 }
 
 /// The step every settled broker checkpoint names: the engine's own row,
@@ -491,3 +492,6 @@ pub(super) fn unjournaled<'r>(
         .filter(|row| !journaled.contains(row.checkpoint.call_id.as_str()))
         .collect())
 }
+
+#[cfg(test)]
+mod tests;

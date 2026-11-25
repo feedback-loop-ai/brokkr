@@ -162,7 +162,7 @@ fn brokkr_only() -> Vec<String> {
 const VERIFIER: &str = "494242f4eaec29ccce7f65deeffadf5ac74c6f9f3456839132c2761b10b7d52a";
 const SHIPPER: &str = "a90dcffbe326c8258d67c943bea81aeb78f3223fb3d3d97f1b5198b7f387a7af";
 const PREFLIGHT: &str = "59d3f5a43ec22da57352f00e422242d4668d41df81fdc842fbcd40b56c43b6b6";
-const RESEARCH: &str = "49a06816e803e6f9bcef7073ec2563ba00ca0cc4fae054cfe83631f44b68d8c0";
+const RESEARCH: &str = "cfe1c7da16200cf132d137761c4dcbdae5cfa5c0c9e1a159b0c78fda5762bc58";
 
 /// The layer Brokkr's verifier is pinned under, which before the move was
 /// `fast`.

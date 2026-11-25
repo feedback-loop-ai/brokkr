@@ -1008,6 +1008,63 @@ The script prints this every run, and so does this page:
 
 Neither number is a claim about your machine. Run the script.
 
+### Shell completion
+
+`brokkr completions <shell>` prints a completion script for bash, zsh,
+fish, powershell or elvish. It offers every verb, flag and fixed value,
+and none of the hidden engine verbs or the old flat spellings. Install
+it once, saving each shell's script where that shell looks:
+
+```sh
+brokkr completions bash
+brokkr completions zsh
+brokkr completions fish
+brokkr completions powershell
+brokkr completions elvish
+```
+
+- bash: save the output as `brokkr` in
+  `~/.local/share/bash-completion/completions/`.
+- zsh: save it as `_brokkr` in a directory on your `fpath`, such as
+  `~/.zfunc`, before `compinit` runs.
+- fish: save it as `brokkr.fish` in `~/.config/fish/completions/`.
+  clap_complete's fish script offers the flags of verbs one and two
+  words deep, so a three-word verb such as `library agents show`
+  completes its arguments' values live but not its flags.
+- powershell: add `brokkr completions powershell | Out-String |
+  Invoke-Expression` to your `$PROFILE`.
+- elvish: add `eval (brokkr completions elvish | slurp)` to
+  `~/.config/elvish/rc.elv`.
+
+The live completer completes values as well. Register it instead of the
+static script, with the one line for your shell in its startup file
+(`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`, `$PROFILE` or
+`~/.config/elvish/rc.elv`):
+
+```text
+source <(COMPLETE=bash brokkr)
+source <(COMPLETE=zsh brokkr)
+COMPLETE=fish brokkr | source
+$env:COMPLETE = "powershell"; brokkr | Out-String | Invoke-Expression; Remove-Item Env:\COMPLETE
+eval (E:COMPLETE=elvish brokkr | slurp)
+```
+
+A Homebrew install needs no `source` line. The formula installs the live
+completer's registration for bash, zsh and fish, which the shell reads
+from Homebrew's completion directories once Homebrew's shell setup is
+in place. Every other install, from the deb or rpm package, the release
+tarball, nix or cargo, still needs the line above or the saved script.
+
+It offers the 50 newest run ids for `--run`, `--by-run` and `runs
+compare`, newest first, and the phases and seats of the run a `--run`
+on the line names, read from that run's seat rows. It also offers recipe
+names from the project and personal shelves, agent names from the
+library, realm names from the map, and the waiting queue entries for
+the queue's commands. It reads the journal the completed command would
+read, and a `--db` or `--realms` on the line wins. It opens that journal
+read-only, creates no file beside it, and waits at most 50 ms on a busy
+one. Any failure completes nothing and prints nothing (decision 0119).
+
 ### Limits worth knowing
 
 - **One journal per world.** A realms map names a set of repositories

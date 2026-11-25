@@ -22,14 +22,13 @@ pub(crate) const OFFICE: &str = "fake-office";
 
 /// The fake driver's argv, reading `script` and keeping `state`.
 pub(crate) fn fake_driver(script: &Path, state: &Path) -> Value {
-    json!([
-        env!("CARGO_BIN_EXE_brokkr"),
+    json!(crate::built_argv!([
         "fake-driver",
         "--script",
-        script.to_string_lossy(),
+        script.to_string_lossy().as_ref(),
         "--state",
-        state.to_string_lossy()
-    ])
+        state.to_string_lossy().as_ref(),
+    ]))
 }
 
 /// The office a review-panel member of [`of`] hires: the fake
@@ -48,6 +47,22 @@ pub(crate) fn hire(root: &Path, script: &Path, state: &Path) {
     let mut office: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     office["results"] = json!(["clean", "residual", "security-hold"]);
     std::fs::write(&path, serde_json::to_vec_pretty(&office).unwrap()).unwrap();
+}
+
+/// The adapter `provider` backed by the fake driver reading `script` and
+/// keeping `state`, serving `models`, with no tool permissions or MCP.
+pub(crate) fn fake_adapter(provider: &str, models: Value, script: &Path, state: &Path) -> Value {
+    json!({
+        "provider": provider,
+        "binary": crate::built::bare_path(),
+        "driver": fake_driver(script, state),
+        "models": models,
+        "model_flag": "--model",
+        "efforts": ["low", "medium", "high"],
+        "effort_flag": "--effort",
+        "tool_permissions": "unsupported",
+        "mcp": "unsupported",
+    })
 }
 
 /// Writes, under `root`, the adapter `provider` whose driver is `driver`,
@@ -90,8 +105,8 @@ pub(crate) fn inline(root: &Path, script: &Path, state: &Path) -> Value {
     use std::os::unix::fs::PermissionsExt;
     let wrapper = root.join(INLINE);
     let body = format!(
-        "#!/bin/sh\nshift 2\nexec '{}' fake-driver \"$@\"\n",
-        env!("CARGO_BIN_EXE_brokkr")
+        "#!/bin/sh\nshift 2\nexec {} \"$@\"\n",
+        crate::built_shell_line!(["fake-driver"])
     );
     std::fs::write(&wrapper, body).unwrap();
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();

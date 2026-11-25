@@ -426,7 +426,12 @@ fn measured(observed: Option<String>) -> Result<Release, Refusal> {
 /// the WHOLE pinned block, 0.2.2-rc.1's programmatic executor included, so
 /// no pinned row Brokkr writes goes unread; 0.2.1 names no such row. The
 /// `- insert:` row appended after that check is Brokkr's workspace server
-/// and is outside the reader, as it was before the mode was read.
+/// and is outside the reader, as it was before the mode was read. Its
+/// `--reach-base64url` and `--spec-base64url` arguments carry the sealed
+/// reach and hands spec as unpadded base64url so dsh's `--dump-config`
+/// never folds a `{`-led JSON scalar onto a line the line rule refuses
+/// (#1277); `--workdir` and `--artifacts` stay plain paths, so a path dsh
+/// folds onto a refused line stays refused (fail closed).
 fn hands_rows(
     release: Release,
     mode: Mode,

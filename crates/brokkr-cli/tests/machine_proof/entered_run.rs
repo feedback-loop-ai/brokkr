@@ -49,8 +49,8 @@ fn fixture() -> Workspace {
     std::fs::write(
         &wrapper,
         format!(
-            "#!/bin/sh\nshift 4\nexec '{}' fake-driver \"$@\"\n",
-            brokkr_bin()
+            "#!/bin/sh\nshift 4\nexec {} \"$@\"\n",
+            crate::built_shell_line!(["fake-driver"])
         ),
     )
     .unwrap();
@@ -337,8 +337,8 @@ fn completed_entry(ws: &Workspace, phase: &str) -> Vec<Value> {
 fn work_driver(ws: &Workspace, config: &mut Value) {
     let work_driver = ws.path().join("synthetic-work");
     std::fs::write(&work_driver,format!(
-        "#!/bin/sh\ngit -c commit.gpgsign=false commit -q --allow-empty -m 'synthetic implementation' >&2\nexec '{}' fake-driver \"$@\"\n",
-        brokkr_bin())).unwrap();
+        "#!/bin/sh\ngit -c commit.gpgsign=false commit -q --allow-empty -m 'synthetic implementation' >&2\nexec {} \"$@\"\n",
+        crate::built_shell_line!(["fake-driver"]))).unwrap();
     std::fs::set_permissions(&work_driver, std::fs::Permissions::from_mode(0o755)).unwrap();
     let fake =
         crate::fake_office::fake_driver(&ws.path().join("script.json"), &ws.path().join("state"));

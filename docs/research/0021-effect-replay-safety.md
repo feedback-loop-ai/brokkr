@@ -3,7 +3,7 @@
 Source: https://github.com/feedback-loop-ai/brokkr/issues/434
 Authors: Brokkr's implementer seat (Claude Opus 5.5), from the issue's architecture review of `8d7da844`
 Read: 2026-10-11
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: run `design-story-434-define-effect-r-a3442867`, on main at `3ad0f66c` (code-health epic #330)
 
 ## Summary

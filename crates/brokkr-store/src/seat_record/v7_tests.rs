@@ -299,19 +299,21 @@ fn a_v6_record_carrying_a_v7_field_is_refused() {
     assert_eq!(judged(&plain, SeatRecordVersion::V7), Ok(()));
 }
 
-/// The v7 boundary is the 0.14 line: the 0.13 line keeps v6, so one
-/// result with findings is admitted in a 0.14 journal and refused, as
-/// v6's violation, in a 0.13 one, at the append fence, and the export
+/// The gate report's boundary is the 0.14 line: the 0.13 line keeps v6,
+/// so one result with findings is admitted in a 0.14 journal and refused,
+/// as v6's violation, in a 0.13 one, at the append fence, and the export
 /// and offline-verify sweeps judge the same row by the same contract.
+/// Seat-record v8 (decision 0075 ruling 2) stands at v7's line and keeps
+/// v7's gate report, so the 0.14 line writes v8.
 #[test]
-fn the_zero_fourteen_line_writes_v7_and_the_thirteen_line_still_reads_v6() {
+fn the_zero_fourteen_line_writes_the_gate_report_and_the_thirteen_line_still_reads_v6() {
     for (engine, want) in [
         ("0.13.0", SeatRecordVersion::V6),
         ("0.13.99+build.7", SeatRecordVersion::V6),
-        ("0.14.0-rc.1", SeatRecordVersion::V7),
-        ("0.14.0", SeatRecordVersion::V7),
-        ("0.14.2", SeatRecordVersion::V7),
-        ("1.0.0", SeatRecordVersion::V7),
+        ("0.14.0-rc.1", SeatRecordVersion::V8),
+        ("0.14.0", SeatRecordVersion::V8),
+        ("0.14.2", SeatRecordVersion::V8),
+        ("1.0.0", SeatRecordVersion::V8),
         ("0.14", SeatRecordVersion::V1),
     ] {
         assert_eq!(SeatRecordVersion::of_engine(engine), want, "{engine}");
@@ -353,7 +355,7 @@ fn the_zero_fourteen_line_writes_v7_and_the_thirteen_line_still_reads_v6() {
     let crate::StoreError::SeatRecord(swept) = store.export_ndjson("fourteen").unwrap_err() else {
         panic!("export refuses a covered record with both head field sets");
     };
-    assert_eq!(swept.contract, CONTRACT_V7);
+    assert_eq!(swept.contract, CONTRACT_V8);
     assert_eq!(swept.seq, 6);
 }
 
@@ -418,7 +420,7 @@ fn refused_after(store: &mut crate::Store, run: &str, rows: &[(EventType, Value)
     };
     assert_eq!(
         (appended.contract, appended.path.as_str()),
-        (CONTRACT_V7, path)
+        (CONTRACT_V8, path)
     );
     crate::tests::plant_unfenced(store, run, kind, payload);
     let crate::StoreError::SeatRecord(exported) = store.export_ndjson(run).unwrap_err() else {
@@ -426,7 +428,7 @@ fn refused_after(store: &mut crate::Store, run: &str, rows: &[(EventType, Value)
     };
     assert_eq!(
         (exported.contract, exported.path.as_str()),
-        (CONTRACT_V7, path)
+        (CONTRACT_V8, path)
     );
     let ndjson: String = (store.load(run).unwrap().iter())
         .map(|event| serde_json::to_string(event).unwrap() + "\n")
@@ -562,7 +564,7 @@ fn a_released_engines_step_checkpoint_stays_admissible_under_v7() {
     assert_eq!(judged(&released, SeatRecordVersion::V6), Ok(()));
     let (_dir, mut store) = crate::tests::store();
     for engine in ["0.14.0", "0.15.0"] {
-        assert_eq!(SeatRecordVersion::of_engine(engine), SeatRecordVersion::V7);
+        assert_eq!(SeatRecordVersion::of_engine(engine), SeatRecordVersion::V8);
         super::tests::started_run(&mut store, engine, engine);
         let payload = json!({"effect_id": "fx", "attempt_id": "attempt-1",
                              "checkpoint": released});

@@ -53,7 +53,10 @@ fn codex_row(index: usize) -> String {
             index - 1
         ),
     };
-    format!("{{\"timestamp\":\"t{index}\",\"type\":\"response_item\",\"payload\":{payload}}}\n")
+    let second = index % 60;
+    format!(
+        "{{\"timestamp\":\"2026-01-01T00:00:{second:02}Z\",\"type\":\"response_item\",\"payload\":{payload}}}\n"
+    )
 }
 
 /// A DSH session streaming its answer: a user message, then text deltas,
@@ -73,6 +76,18 @@ fn dsh_row(index: usize) -> String {
     }
 }
 
+fn agy_row(index: usize) -> String {
+    if index.is_multiple_of(2) {
+        format!(
+            "{{\"step_index\":{index},\"source\":\"USER_EXPLICIT\",\"type\":\"USER_INPUT\",\"status\":\"DONE\",\"content\":\"question {index}\"}}\n"
+        )
+    } else {
+        format!(
+            "{{\"step_index\":{index},\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"content\":\"answer {index}\"}}\n"
+        )
+    }
+}
+
 /// The largest source of `kind` the reader admits whole: rows until the
 /// next would pass `SOURCE_CAP`.
 fn source(kind: TranscriptKind) -> Vec<u8> {
@@ -80,6 +95,7 @@ fn source(kind: TranscriptKind) -> Vec<u8> {
         TranscriptKind::ClaudeSession => ("", claude_row),
         TranscriptKind::CodexThread => ("", codex_row),
         TranscriptKind::DshSession => ("{\"type\":\"session\",\"version\":0}\n", dsh_row),
+        TranscriptKind::AgyConversation => ("", agy_row),
         TranscriptKind::None => panic!("the `None` kind names no transcript to measure"),
     };
     let cap = usize::try_from(SOURCE_CAP).expect("the cap fits in memory");

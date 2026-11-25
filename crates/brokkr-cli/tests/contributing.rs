@@ -5,13 +5,16 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::Value;
 
 use crate::doc_samples::hermetic;
 use crate::workflow;
 
+#[path = "contributing/boundary_guides.rs"]
+mod boundary_guides;
+#[path = "contributing/docs_lane.rs"]
+mod docs_lane;
 #[path = "contributing/inline_copies.rs"]
 mod inline_copies;
 #[path = "contributing/job_lines.rs"]
@@ -78,8 +81,8 @@ fn the_sixty_second_table_is_the_recipe_library() {
 
     // A config home of its own, so no host's personal shelf (#697) adds rows.
     let config = tempfile::tempdir().unwrap();
-    let mut list = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    list.args(["library", "recipes", "list"]).current_dir(&root);
+    let mut list = crate::built::brokkr(["library", "recipes", "list"]);
+    list.current_dir(&root);
     hermetic(&mut list, config.path());
     let output = list.output().unwrap();
     assert!(
@@ -149,15 +152,16 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
     let template = std::fs::read_to_string(root.join(".github/pull_request_template.md")).unwrap();
     assert!(template.lines().any(|line| line == "Brokkr-Run: <run id>"));
 
-    let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
+    let workflow = std::fs::read_to_string(root.join(".github/workflows/pr-gates.yml")).unwrap();
     for binding in [
         "name: delivered by brokkr",
         "github.event.pull_request.base.sha",
         "fetch-depth: 0",
         "scripts/delivered-by-brokkr.sh",
         "join(github.event.pull_request.labels.*.name, ',')",
-        // Decision 0038 ruling 4: the label re-runs the gate, no reopen.
-        "types: [opened, synchronize, reopened, labeled, unlabeled]",
+        // Decision 0038 ruling 4: the label re-runs the gate, no reopen,
+        // and so does a body edit (#1295).
+        "types: [opened, synchronize, reopened, edited, labeled, unlabeled]",
     ] {
         assert!(workflow.contains(binding), "CI lost binding: {binding}");
     }
@@ -323,6 +327,14 @@ const PIN_READS: [Line; 3] = [
     ),
 ];
 
+/// The suite's verdict over its machines, or the docs lane (#1295).
+const VERDICT_LINES: [Line; 2] = [
+    Line::Unwritten(r#"test "$CLASSIFIED" = success"#),
+    Line::Unwritten(
+        r#"case "$LANE" in docs) test "$DOCS" = success ;; full) test "$MACHINES" = success ;; *) exit 1 ;; esac"#,
+    ),
+];
+
 /// Every line each of the twelve checks' legs runs, in order: a skipped
 /// line such as an early `exit 0`, or a command moved into a branch that
 /// never runs, fails the test like a command the row left out.
@@ -370,7 +382,8 @@ const LEG_LINES: [(&str, &[Line]); 12] = [
             Line::Written,
             Line::Written,
             Line::Written,
-            Line::Unwritten(r#"test "$MACHINES" = success"#),
+            VERDICT_LINES[0],
+            VERDICT_LINES[1],
         ],
     ),
     (
@@ -386,7 +399,8 @@ const LEG_LINES: [(&str, &[Line]); 12] = [
             Line::Written,
             Line::Written,
             Line::Written,
-            Line::Unwritten(r#"test "$MACHINES" = success"#),
+            VERDICT_LINES[0],
+            VERDICT_LINES[1],
         ],
     ),
     (
@@ -397,9 +411,8 @@ const LEG_LINES: [(&str, &[Line]); 12] = [
             PIN_READS[1],
             PIN_READS[2],
             Line::Written,
-            // The gate: its verdict over the machines, its pin reads, the
-            // report over every machine's profile, and the ratchets.
-            Line::Unwritten(r#"test "$MACHINES" = success"#),
+            // The report: its pin reads, the report over every machine's
+            // profile, and the ratchets.
             PIN_READS[0],
             PIN_READS[1],
             PIN_READS[2],
@@ -407,6 +420,11 @@ const LEG_LINES: [(&str, &[Line]); 12] = [
             Line::Written,
             Line::Unwritten("cargo install --locked cargo-public-api --version 0.52.0"),
             Line::Written,
+            // The gate: its verdict over the report, or the docs lane.
+            Line::Unwritten(r#"test "$CLASSIFIED" = success"#),
+            Line::Unwritten(
+                r#"case "$LANE" in docs) test "$DOCS" = success ;; full) test "$REPORT" = success ;; *) exit 1 ;; esac"#,
+            ),
         ],
     ),
     ("dependency licenses (cargo-deny)", &[Line::Written]),
@@ -452,7 +470,7 @@ enum Local {
 /// variable no row has ruled on fails the test rather than dropping out of
 /// the guide. A step no row writes, such as each of `delivered by
 /// brokkr`'s, has its variables held word for word by `JOB_LINES`.
-const LOCAL_ENV: [(&str, Local); 9] = [
+const LOCAL_ENV: [(&str, Local); 10] = [
     ("BROKKR_REQUIRE_BOUNDARY_EVIDENCE", Local::Carried),
     ("BROKKR_SUPPRESSION_BASE", Local::Carried),
     ("PR_BODY", Local::Carried),
@@ -471,6 +489,10 @@ const LOCAL_ENV: [(&str, Local); 9] = [
     // Where a coverage machine leaves its profile and the gate reads every
     // machine's; a local run measures and reports in one.
     ("BROKKR_COVERAGE_PROFILES", Local::Omitted),
+    // CI requires a real-delivery test's PID namespace where it installed
+    // bubblewrap (#1137h); a local run, which may be a box that cannot nest
+    // one (decision 0054), leaves it unset and such a test skips aloud.
+    ("BROKKR_REQUIRE_PIDNS", Local::Omitted),
 ];
 
 /// A variable's value on a local run of `runner`'s leg: a literal
@@ -513,13 +535,15 @@ fn env_map(lines: &[&str]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The required checks that are verdicts over another job's machines, as
-/// (the verdict's job, the machines' job): a verdict's leg runs every step
-/// its machines run, on its system, and then its own, so its row writes
-/// what a local run of the whole suite runs.
-const VERDICTS: [(&str, &str); 2] = [
-    ("engine", "engine-machines"),
-    ("coverage", "coverage-machines"),
+/// The required checks that are verdicts over other jobs, as (the
+/// verdict's job, the jobs it judges on a change that is not documentation
+/// alone, in the order they run): a verdict's leg runs every step those
+/// jobs run, on its system, and then its own, so its row writes what a
+/// local run of the whole suite runs. The docs lane (#1295) is not among
+/// them: a local run is the whole suite.
+const VERDICTS: [(&str, &[&str]); 2] = [
+    ("engine", &["engine-machines"]),
+    ("coverage-gate", &["coverage-machines", "coverage"]),
 ];
 
 fn workflow_legs(root: &Path, file: &'static str) -> Vec<WorkflowLeg> {
@@ -528,18 +552,30 @@ fn workflow_legs(root: &Path, file: &'static str) -> Vec<WorkflowLeg> {
         .into_iter()
         .flat_map(|(id, body)| job_legs(file, &id, &body.lines().collect::<Vec<_>>()))
         .collect();
-    for (verdict, machines) in VERDICTS {
-        let steps: Vec<(&'static str, Vec<Step>)> = legs
-            .iter()
-            .filter(|leg| leg.id == machines)
-            .map(|leg| (leg.runner, leg.steps.clone()))
-            .collect();
-        for leg in legs.iter_mut().filter(|leg| leg.id == verdict) {
-            let (_, ran) = steps
+    for (verdict, judged) in VERDICTS {
+        for runner in ["Linux", "macOS"] {
+            if !legs
                 .iter()
-                .find(|(runner, _)| *runner == leg.runner)
-                .unwrap_or_else(|| panic!("{file}'s {machines} has no {} machine", leg.runner));
-            leg.steps.splice(0..0, ran.iter().cloned());
+                .any(|leg| leg.id == verdict && leg.runner == runner)
+            {
+                continue;
+            }
+            let ran: Vec<Step> = judged
+                .iter()
+                .flat_map(|job| {
+                    legs.iter()
+                        .find(|leg| leg.id == *job && leg.runner == runner)
+                        .unwrap_or_else(|| panic!("{file}'s {job} has no {runner} machine"))
+                        .steps
+                        .clone()
+                })
+                .collect();
+            for leg in legs
+                .iter_mut()
+                .filter(|leg| leg.id == verdict && leg.runner == runner)
+            {
+                leg.steps.splice(0..0, ran.iter().cloned());
+            }
         }
     }
     legs
@@ -833,24 +869,28 @@ fn check_rows(guide: &str) -> Vec<CheckRow> {
         .map(|line| {
             let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
             assert_eq!(cells.len(), 4, "one four-column check row: {line}");
-            let file = if cells[2].ends_with(" (mutants.yml)") {
-                "mutants.yml"
-            } else {
-                "ci.yml"
-            };
+            let (job, file) = ["mutants.yml", "pr-gates.yml"]
+                .into_iter()
+                .find_map(|file| {
+                    cells[2]
+                        .strip_suffix(&format!(" ({file})"))
+                        .map(|job| (job, file))
+                })
+                .unwrap_or((cells[2], "ci.yml"));
             CheckRow {
                 number: cells[0].to_string(),
                 check: cells[1].trim_matches('`').to_string(),
-                job: cells[2]
-                    .trim_end_matches(" (mutants.yml)")
-                    .trim_matches('`')
-                    .to_string(),
+                job: job.trim_matches('`').to_string(),
                 file,
                 command: cells[3].to_string(),
             }
         })
         .collect()
 }
+
+/// The workflows the required checks live in, in their order: the pull
+/// request's metadata gates (#1295), the suite, and the mutants gate.
+const REQUIRED_WORKFLOWS: [&str; 3] = ["pr-gates.yml", "ci.yml", "mutants.yml"];
 
 /// The checks branch protection on main requires (operator rulings,
 /// 2026-09-26), as (context, job id, workflow), in the workflows' order.
@@ -859,19 +899,19 @@ fn check_rows(guide: &str) -> Vec<CheckRow> {
 /// `contributing_lists_the_checks_branch_protection_requires` holds this
 /// list to it.
 const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
-    ("delivered by brokkr", "delivered-by-brokkr", "ci.yml"),
+    ("delivered by brokkr", "delivered-by-brokkr", "pr-gates.yml"),
+    ("baseline ratchets", "ratchets", "pr-gates.yml"),
     ("MSRV (1.89)", "msrv", "ci.yml"),
     ("format, clippy, contracts", "quality", "ci.yml"),
     ("test (ubuntu-latest)", "engine", "ci.yml"),
     ("test (macos-latest)", "engine", "ci.yml"),
-    ("exact coverage gate", "coverage", "ci.yml"),
+    ("exact coverage gate", "coverage-gate", "ci.yml"),
     (
         "dependency licenses (cargo-deny)",
         "license-compliance",
         "ci.yml",
     ),
     ("non-Rust lints", "lint-non-rust", "ci.yml"),
-    ("baseline ratchets", "ratchets", "ci.yml"),
     ("RustSec dependency audit", "dependency-audit", "ci.yml"),
     ("release binary artifact", "release-binary", "ci.yml"),
     (
@@ -903,7 +943,7 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         listed, required,
         "the guide lists the twelve checks main requires"
     );
-    let legs: Vec<WorkflowLeg> = ["ci.yml", "mutants.yml"]
+    let legs: Vec<WorkflowLeg> = REQUIRED_WORKFLOWS
         .into_iter()
         .flat_map(|file| workflow_legs(&root, file))
         .collect();
@@ -1043,7 +1083,7 @@ fn contributing_lists_the_checks_branch_protection_requires() {
         "the snapshot names the API it transcribes"
     );
     let contexts = &snapshot.required_status_checks.contexts;
-    let legs: Vec<WorkflowLeg> = ["ci.yml", "mutants.yml"]
+    let legs: Vec<WorkflowLeg> = REQUIRED_WORKFLOWS
         .into_iter()
         .flat_map(|file| workflow_legs(&root, file))
         .collect();
@@ -1095,75 +1135,168 @@ enum InTheQueue {
     PullRequestOnly,
     /// It runs on its schedule or by hand, never in the queue.
     Scheduled,
+    /// It runs on the push of a commit to `main` alone, a commit the queue
+    /// already judged, and saves what a pull request's run restores
+    /// (#1295).
+    PushOnly,
 }
 
-/// The `if:` conditions this test reads, and what each does in a merge
-/// group. Any other condition fails the test rather than being guessed at.
-const CONDITIONS: [(&str, InTheQueue); 11] = [
+/// The other events a condition lets its job or step run on: a pull
+/// request's, and the push of a commit to `main` (#1295).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Fires {
+    pull_request: bool,
+    push: bool,
+}
+
+/// Every event but the merge queue's, which `InTheQueue` holds.
+const EVERY: Fires = Fires {
+    pull_request: true,
+    push: true,
+};
+
+/// A pull request's events, and no push.
+const NOT_ON_PUSH: Fires = Fires {
+    pull_request: true,
+    push: false,
+};
+
+/// The `if:` conditions this test reads, what each does in a merge group,
+/// and the other events it runs on. Any other condition fails the test
+/// rather than being guessed at.
+const CONDITIONS: [(&str, InTheQueue, Fires); 18] = [
+    // The docs lane (#1295): the classifier calls a merge group, and every
+    // event but a pull request's, full, so the machines run there and the
+    // docs lane does not.
+    (
+        "github.event_name != 'push' && needs.classify.outputs.lane != 'docs'",
+        InTheQueue::Runs,
+        NOT_ON_PUSH,
+    ),
+    (
+        "needs.classify.outputs.lane != 'docs'",
+        InTheQueue::Runs,
+        EVERY,
+    ),
+    (
+        "needs.classify.outputs.lane == 'docs'",
+        InTheQueue::PullRequestOnly,
+        NOT_ON_PUSH,
+    ),
     (
         "github.event_name == 'pull_request'",
         InTheQueue::PullRequestOnly,
+        NOT_ON_PUSH,
     ),
     (
         "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
         InTheQueue::Scheduled,
+        Fires {
+            pull_request: false,
+            push: false,
+        },
+    ),
+    // The push of a commit the queue already judged runs only what nothing
+    // else feeds (#1295).
+    ("github.event_name != 'push'", InTheQueue::Runs, NOT_ON_PUSH),
+    (
+        "always() && github.event_name != 'push'",
+        InTheQueue::Runs,
+        NOT_ON_PUSH,
+    ),
+    (
+        "github.event_name == 'push'",
+        InTheQueue::PushOnly,
+        Fires {
+            pull_request: false,
+            push: true,
+        },
+    ),
+    // An exact cache hit leaves nothing to save, so its build is skipped.
+    (
+        "steps.cache.outputs.cache-hit != 'true'",
+        InTheQueue::Runs,
+        EVERY,
     ),
     // Both runner kinds execute the same checks in the queue. Only their
     // provisioning and cache steps differ.
-    ("runner.environment == 'self-hosted'", InTheQueue::Runs),
-    ("runner.environment != 'self-hosted'", InTheQueue::Runs),
+    (
+        "runner.environment == 'self-hosted'",
+        InTheQueue::Runs,
+        EVERY,
+    ),
+    (
+        "runner.environment != 'self-hosted'",
+        InTheQueue::Runs,
+        EVERY,
+    ),
     (
         "runner.os == 'Linux' && runner.environment != 'self-hosted'",
         InTheQueue::Runs,
+        EVERY,
     ),
-    ("runner.os == 'Linux'", InTheQueue::Runs),
-    ("runner.os == 'macOS'", InTheQueue::Runs),
-    ("always()", InTheQueue::Runs),
-    ("always() && runner.os == 'macOS'", InTheQueue::Runs),
+    ("runner.os == 'Linux'", InTheQueue::Runs, EVERY),
+    ("runner.os == 'macOS'", InTheQueue::Runs, EVERY),
+    ("always()", InTheQueue::Runs, EVERY),
+    ("always() && runner.os == 'macOS'", InTheQueue::Runs, EVERY),
     // The macOS startup gate runs on one of the suite's machines, the
     // first; the queue runs every machine.
     (
         "runner.os == 'macOS' && matrix.machine == 'macos/1'",
         InTheQueue::Runs,
+        EVERY,
     ),
     (
         "always() && runner.os == 'macOS' && matrix.machine == 'macos/1'",
         InTheQueue::Runs,
+        EVERY,
     ),
 ];
 
 /// Every job of the workflows the required checks live in, in file order,
 /// and what it does in a merge group.
-const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 23] = [
+const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 26] = [
     // It judges the run that the pull request's own description names for
     // its own head (decisions 0033, 0038), and a merge group carries no
     // description, labels or head repository. The queue lands that head's
     // patch, which the judgment bound.
-    ("ci.yml", "delivered-by-brokkr", InTheQueue::PullRequestOnly),
+    (
+        "pr-gates.yml",
+        "delivered-by-brokkr",
+        InTheQueue::PullRequestOnly,
+    ),
+    ("pr-gates.yml", "ratchets", InTheQueue::Runs),
     ("ci.yml", "msrv", InTheQueue::Runs),
     ("ci.yml", "quality", InTheQueue::Runs),
     // The console plugin's tests (decision 0085 ruling 5) test the landed
     // bytes like the Rust suite does.
     ("ci.yml", "plugin-tests", InTheQueue::Runs),
+    // It calls a merge group full (#1295), the queue being the last check
+    // before main and able to hold several pull requests.
+    ("ci.yml", "classify", InTheQueue::Runs),
+    // In no required check: the tests that read documentation, on a pull
+    // request's docs change alone. A merge group is full, so the verdicts
+    // read the machines there.
+    ("ci.yml", "docs-lane", InTheQueue::PullRequestOnly),
     ("ci.yml", "engine-machines", InTheQueue::Runs),
     // The suite's verdicts run whatever the machines ended with.
     ("ci.yml", "engine", InTheQueue::Runs),
     ("ci.yml", "seatbelt-lifetime", InTheQueue::Runs),
     ("ci.yml", "coverage-machines", InTheQueue::Runs),
-    // The gate runs whatever the machines ended with.
     ("ci.yml", "coverage", InTheQueue::Runs),
+    // The gate runs whatever the report ended with.
+    ("ci.yml", "coverage-gate", InTheQueue::Runs),
     ("ci.yml", "license-compliance", InTheQueue::Runs),
     ("ci.yml", "lint-non-rust", InTheQueue::Runs),
-    ("ci.yml", "ratchets", InTheQueue::Runs),
     ("ci.yml", "dependency-audit", InTheQueue::Runs),
     ("ci.yml", "bootstrap-budgets", InTheQueue::Runs),
     ("ci.yml", "bootstrap-budgets-macos", InTheQueue::Runs),
     ("ci.yml", "packaging", InTheQueue::Runs),
     ("ci.yml", "flake", InTheQueue::Runs),
     ("ci.yml", "release-binary", InTheQueue::Runs),
-    // In no required check: it measures the pull request's merge against
-    // the base its event names, and a rise is ruled on the pull request.
-    ("ci.yml", "cpu-budgets", InTheQueue::PullRequestOnly),
+    // In no required check: it saves, from main, the caches a pull
+    // request's jobs restore, which a merge group's cache cannot feed.
+    ("ci.yml", "pr-caches", InTheQueue::PushOnly),
     // It judges the mutants of the pull request's own diff against its
     // base, and the queue lands that diff. A miss two pull requests make
     // only together is left to the weekly run.
@@ -1177,7 +1310,16 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 23] = [
 
 /// Every step that does not run in a merge group, as (workflow, job,
 /// step): the rest of its job judges the combined tree.
-const STEPS_OUT_OF_THE_QUEUE: [(&str, &str, &str, InTheQueue); 2] = [
+const STEPS_OUT_OF_THE_QUEUE: [(&str, &str, &str, InTheQueue); 3] = [
+    // It reads the `Ruling:` line of the pull request's description, which
+    // a merge group does not carry. The file-size and duplication ratchets
+    // before it judge the combined tree against the baselines.
+    (
+        "pr-gates.yml",
+        "ratchets",
+        "a raised baseline names its ruling (quality/)",
+        InTheQueue::PullRequestOnly,
+    ),
     // It reads the suppressions the pull request's own diff adds against
     // its base. The tree's counts, which two pull requests could raise
     // together, ride the test jobs (quality/suppressions.txt).
@@ -1187,62 +1329,105 @@ const STEPS_OUT_OF_THE_QUEUE: [(&str, &str, &str, InTheQueue); 2] = [
         "an added suppression names a ruling",
         InTheQueue::PullRequestOnly,
     ),
-    // It reads the `Ruling:` line of the pull request's description, which
-    // a merge group does not carry. The file-size and duplication ratchets
-    // before it judge the combined tree against the baselines.
+    // The docs lane classifies a pull request's change alone: a merge
+    // group is full without reading git, so its classify job checks
+    // nothing out and pays for no history (1295b, review LOW).
     (
         "ci.yml",
-        "ratchets",
-        "a raised baseline names its ruling (quality/)",
+        "classify",
+        "- uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0",
         InTheQueue::PullRequestOnly,
     ),
 ];
 
-/// What `condition`, an `if:` at `site`, does in a merge group.
-fn in_the_queue(condition: Option<&str>, site: &str) -> InTheQueue {
-    condition.map_or(InTheQueue::Runs, |condition| {
+/// What `condition`, an `if:` at `site`, does in a merge group, and the
+/// other events it runs on.
+fn read_condition(condition: Option<&str>, site: &str) -> (InTheQueue, Fires) {
+    condition.map_or((InTheQueue::Runs, EVERY), |condition| {
         CONDITIONS
             .iter()
-            .find(|(known, _)| *known == condition)
-            .map(|(_, queue)| *queue)
+            .find(|(known, _, _)| *known == condition)
+            .map(|&(_, queue, fires)| (queue, fires))
             .unwrap_or_else(|| panic!("{site} runs `if: {condition}`, which this test cannot read"))
     })
 }
 
-/// What the job `id` of `jobs` does in a merge group: its own `if:`, and
-/// then the job it `needs:`, which a skip carries into it.
-fn job_in_the_queue(file: &str, jobs: &[(String, String)], id: &str) -> InTheQueue {
-    let site = format!("{file}'s {id}");
-    let body = jobs
-        .iter()
-        .find_map(|(job, body)| (job == id).then_some(body))
-        .unwrap_or_else(|| panic!("{file} has no {id} job"));
-    let own = in_the_queue(
-        body.lines().find_map(|line| line.strip_prefix("    if: ")),
-        &site,
-    );
-    let needs = body
+/// What `condition`, an `if:` at `site`, does in a merge group.
+fn in_the_queue(condition: Option<&str>, site: &str) -> InTheQueue {
+    read_condition(condition, site).0
+}
+
+/// The jobs a job's body `needs:`, one id or a `[a, b]` list; an entry
+/// this cannot read fails the test.
+fn needs_of(body: &str, site: &str) -> Vec<String> {
+    let Some(needed) = body
         .lines()
         .find_map(|line| line.strip_prefix("    needs:"))
-        .map(str::trim);
-    match needs {
-        Some(needed) => {
+        .map(str::trim)
+    else {
+        return Vec::new();
+    };
+    let list = needed
+        .strip_prefix('[')
+        .and_then(|list| list.strip_suffix(']'))
+        .unwrap_or(needed);
+    list.split(", ")
+        .map(|id| {
             assert!(
-                !needed.is_empty()
-                    && needed
+                !id.is_empty()
+                    && id
                         .chars()
                         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
                 "{site} needs `{needed}`, which this test cannot read"
             );
-            let upstream = job_in_the_queue(file, jobs, needed);
-            if own == InTheQueue::Runs {
-                upstream
-            } else {
-                own
-            }
-        }
-        None => own,
+            id.to_string()
+        })
+        .collect()
+}
+
+/// The job `id` of `jobs` as a site to name, its body, and its own `if:`.
+fn job_and_condition<'a>(
+    file: &str,
+    jobs: &'a [(String, String)],
+    id: &str,
+) -> (String, &'a str, Option<&'a str>) {
+    let body = jobs
+        .iter()
+        .find_map(|(job, body)| (job == id).then_some(body.as_str()))
+        .unwrap_or_else(|| panic!("{file} has no {id} job"));
+    let own = body.lines().find_map(|line| line.strip_prefix("    if: "));
+    (format!("{file}'s {id}"), body, own)
+}
+
+/// Whether the job `id` of `jobs` runs on the event `on` picks: its own
+/// `if:`, and then each job it `needs:`, whose skip it carries unless its
+/// own condition is `always()`.
+fn job_fires(file: &str, jobs: &[(String, String)], id: &str, on: fn(Fires) -> bool) -> bool {
+    let (site, body, own) = job_and_condition(file, jobs, id);
+    let fires = on(read_condition(own, &site).1);
+    match fires && !own.is_some_and(|own| own.starts_with("always()")) {
+        true => needs_of(body, &site)
+            .iter()
+            .all(|needed| job_fires(file, jobs, needed, on)),
+        false => fires,
     }
+}
+
+/// What the job `id` of `jobs` does in a merge group: its own `if:`, and
+/// then each job it `needs:`, whose skip carries into it unless its own
+/// condition is `always()`.
+fn job_in_the_queue(file: &str, jobs: &[(String, String)], id: &str) -> InTheQueue {
+    let (site, body, condition) = job_and_condition(file, jobs, id);
+    let own = in_the_queue(condition, &site);
+    let needs = needs_of(body, &site);
+    if own != InTheQueue::Runs || condition.is_some_and(|own| own.starts_with("always()")) {
+        return own;
+    }
+    needs
+        .iter()
+        .map(|needed| job_in_the_queue(file, jobs, needed))
+        .find(|upstream| *upstream != InTheQueue::Runs)
+        .unwrap_or(own)
 }
 
 /// The steps of the job `id` that do not run in a merge group, each named
@@ -1292,7 +1477,7 @@ fn every_job_behaves_deliberately_in_a_merge_group() {
     let root = workspace();
     let mut files: Vec<&str> = MAIN_REQUIRES.iter().map(|&(_, _, file)| file).collect();
     files.dedup();
-    assert_eq!(files, ["ci.yml", "mutants.yml"]);
+    assert_eq!(files, REQUIRED_WORKFLOWS);
     let (mut jobs_seen, mut steps_seen) = (Vec::new(), Vec::new());
     for file in files {
         let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
@@ -1333,6 +1518,336 @@ fn every_job_behaves_deliberately_in_a_merge_group() {
             "{check} neither runs nor skips deliberately in a merge group: {queue:?}"
         );
     }
+}
+
+/// The jobs of ci.yml that run on the push of a commit to `main` (#1295),
+/// in file order: the fast gates, so the README's badge reads a verdict
+/// on main, and the builds that save the caches a merge group's and a
+/// pull request's run restore. The coverage machines and gate are among
+/// them because only their measurement makes the instrumented build their
+/// caches hold, with the classifier they need, which calls a push full,
+/// and the gate over their report. Everything else that commit already
+/// passed in the queue.
+const JOBS_ON_PUSH: [&str; 11] = [
+    "msrv",
+    "quality",
+    "classify",
+    "coverage-machines",
+    "coverage",
+    "coverage-gate",
+    "license-compliance",
+    "lint-non-rust",
+    "dependency-audit",
+    "release-binary",
+    "pr-caches",
+];
+
+/// What no step on the push to `main` may run: the suite, the CPU and
+/// bootstrap benches, or a test that is not `--no-run`.
+const NOT_ON_PUSH_RUNS: [&str; 3] = [
+    "scripts/test-shards.sh",
+    "cargo bench",
+    "scripts/bootstrap-bench.sh",
+];
+
+/// The jobs whose steps may run the coverage measurement on the push to
+/// `main`: the coverage machines and gate, which save its caches.
+const COVERAGE_ON_PUSH: [&str; 2] = ["coverage-machines", "coverage"];
+
+/// The push to `main` after each merge runs only what it uniquely feeds
+/// (#1295): `JOBS_ON_PUSH`, none of whose steps on `push` runs a test,
+/// Callgrind or bootstrap measure, and only the coverage jobs the coverage
+/// measurement. And every required check's job still runs on a pull
+/// request, and runs or reports in a merge group.
+#[test]
+fn the_push_to_main_runs_only_what_it_uniquely_feeds() {
+    let root = workspace();
+    let text = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
+    let jobs = workflow::jobs(&text);
+    let on_push: Vec<&str> = jobs
+        .iter()
+        .map(|(id, _)| id.as_str())
+        .filter(|id| job_fires("ci.yml", &jobs, id, |fires| fires.push))
+        .collect();
+    assert_eq!(on_push, JOBS_ON_PUSH, "ci.yml's jobs on the push to main");
+    for (id, body) in jobs.iter().filter(|(id, _)| on_push.contains(&id.as_str())) {
+        let site = format!("a step of ci.yml's {id}");
+        for step in job_steps(&body.lines().collect::<Vec<_>>()) {
+            let condition = step.iter().find_map(|line| {
+                line.strip_prefix("      - if: ")
+                    .or_else(|| line.strip_prefix("        if: "))
+            });
+            if !read_condition(condition, &site).1.push {
+                continue;
+            }
+            for line in step {
+                assert!(
+                    !NOT_ON_PUSH_RUNS.iter().any(|run| line.contains(run))
+                        && (!line.contains("cargo test") || line.contains("--no-run"))
+                        && (!line.contains("scripts/coverage-exact.sh")
+                            || COVERAGE_ON_PUSH.contains(&id.as_str())),
+                    "{id} runs `{}` on the push to main",
+                    line.trim()
+                );
+            }
+        }
+    }
+    for (check, id, file) in MAIN_REQUIRES {
+        let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
+        let jobs = workflow::jobs(&text);
+        assert!(
+            job_fires(file, &jobs, id, |fires| fires.pull_request),
+            "{check} does not run on a pull request"
+        );
+        assert!(
+            matches!(
+                job_in_the_queue(file, &jobs, id),
+                InTheQueue::Runs | InTheQueue::PullRequestOnly
+            ),
+            "{check} neither runs nor reports in a merge group"
+        );
+    }
+}
+
+/// Where `pr-caches` fails to warm the very cache a job restores, one
+/// problem a line (#1295). Its matrix keys and its `case` arms are the same
+/// set; its rust-cache step is keyed by the entry's key; and each key names
+/// a ci.yml job on the entry's system, on the same toolchain, keyed by its
+/// own id (no other `shared-key`), whose build, `--no-run` aside, is the
+/// arm's: in its own steps, or in scripts/test-shards.sh, which the test
+/// machines run.
+fn pr_caches_unbound(ci: &str, shards: &str) -> Vec<String> {
+    let jobs = workflow::jobs(ci);
+    let body = |id: &str| {
+        jobs.iter()
+            .find(|(seen, _)| seen == id)
+            .map(|(_, body)| body.as_str())
+    };
+    let Some(warm) = body("pr-caches") else {
+        return vec!["ci.yml has no pr-caches job".to_string()];
+    };
+    let lines: Vec<&str> = warm.lines().map(str::trim).collect();
+    let entries: Vec<(&str, &str)> = lines
+        .windows(2)
+        .filter_map(|pair| {
+            Some((
+                pair[0].strip_prefix("- key: ")?,
+                pair[1].strip_prefix("os: ")?,
+            ))
+        })
+        .collect();
+    let arms: BTreeMap<&str, &str> = lines
+        .iter()
+        .filter_map(|line| {
+            let (key, command) = line.strip_suffix(" ;;")?.split_once(") ")?;
+            (key != "*").then_some((key, command))
+        })
+        .collect();
+    let toolchain = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter_map(|line| line.trim().strip_prefix("toolchain: "))
+            .map(String::from)
+            .collect()
+    };
+    let mut problems = Vec::new();
+    if !lines.contains(&"shared-key: ${{ matrix.key }}") {
+        problems.push("pr-caches' rust-cache is not keyed by its entry's key".to_string());
+    }
+    let keys: std::collections::BTreeSet<&str> = entries.iter().map(|(key, _)| *key).collect();
+    if keys != arms.keys().copied().collect() {
+        problems.push(format!(
+            "pr-caches warms {keys:?} and builds {:?}",
+            arms.keys()
+        ));
+    }
+    for (key, os) in entries {
+        let Some(job) = body(key) else {
+            problems.push(format!("pr-caches warms {key}, and ci.yml has no such job"));
+            continue;
+        };
+        if !job.contains("Swatinem/rust-cache@") {
+            problems.push(format!("{key} restores no rust-cache"));
+        }
+        let mut shared = job
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("shared-key: "));
+        if let Some(other) = shared.find(|shared| *shared != key) {
+            problems.push(format!(
+                "{key}'s rust-cache is keyed {other}, not by its id"
+            ));
+        }
+        if !job.contains(os) {
+            problems.push(format!(
+                "pr-caches warms {key} on {os}, and {key} does not run there"
+            ));
+        }
+        if toolchain(job) != toolchain(warm) {
+            problems.push(format!("{key}'s toolchain is not pr-caches' toolchain"));
+        }
+        let build = arms
+            .get(key)
+            .map(|command| command.replace(" --no-run", ""));
+        let source = if job.contains("scripts/test-shards.sh") {
+            format!("{job}{shards}")
+        } else {
+            job.to_string()
+        };
+        if !build.is_some_and(|build| source.contains(&build)) {
+            problems.push(format!(
+                "pr-caches' build for {key} is not what {key} builds"
+            ));
+        }
+    }
+    problems
+}
+
+/// `pr-caches` warms the very key and build each job it names restores
+/// (#1295), so a renamed job, another `shared-key` or a changed build
+/// cannot leave a cache unwarmed unseen. Two altered copies are the
+/// control: an entry naming no job, and a build that is not the job's.
+#[test]
+fn pr_caches_warms_each_jobs_own_cache() {
+    let root = workspace();
+    let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
+    let shards = std::fs::read_to_string(root.join("scripts/test-shards.sh")).unwrap();
+    assert_eq!(pr_caches_unbound(&ci, &shards), Vec::<String>::new());
+    let altered = [
+        (
+            "          - key: packaging\n",
+            "          - key: packages\n",
+        ),
+        (
+            "bootstrap-budgets-macos) cargo build --release --locked -p brokkr-cli ;;",
+            "bootstrap-budgets-macos) cargo build --release --locked -p brokkr-core ;;",
+        ),
+    ];
+    for (from, to) in altered {
+        assert_eq!(ci.matches(from).count(), 1, "{from}");
+        let problems = pr_caches_unbound(&ci.replace(from, to), &shards);
+        assert!(!problems.is_empty(), "{to} passes");
+    }
+}
+
+/// A label or a body change starts no suite run (#1295): ci.yml runs on a
+/// pull request's new head alone, and pr-gates.yml, which holds the two
+/// required checks that read its labels and body, runs on those changes
+/// too, and on the merge queue's event so both still report there.
+#[test]
+fn a_label_or_body_change_reruns_only_the_metadata_gates() {
+    let root = workspace();
+    let read =
+        |file: &str| std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
+    let (ci, gates) = (read("ci.yml"), read("pr-gates.yml"));
+    assert_eq!(
+        event_lines(&ci, "pull_request"),
+        ["    types: [opened, synchronize, reopened]"],
+        "ci.yml starts on a label or a body change"
+    );
+    assert_eq!(
+        event_lines(&gates, "pull_request"),
+        ["    types: [opened, synchronize, reopened, edited, labeled, unlabeled]"],
+    );
+    assert_eq!(
+        event_lines(&gates, "merge_group"),
+        ["    types: [checks_requested]"],
+        "pr-gates.yml does not run on the merge queue's event"
+    );
+    let ids: Vec<String> = workflow::jobs(&gates)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    let held: Vec<&str> = MAIN_REQUIRES
+        .iter()
+        .filter(|&&(_, _, file)| file == "pr-gates.yml")
+        .map(|&(_, id, _)| id)
+        .collect();
+    assert_eq!(ids, held, "pr-gates.yml holds the metadata gates alone");
+}
+
+/// The events a workflow's `on:` map names, in order, comments dropped.
+fn events(workflow: &str) -> Vec<&str> {
+    let (_, on) = workflow.split_once("\non:\n").expect("an on: map");
+    on.lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .take_while(|line| line.starts_with("  "))
+        .filter_map(|line| line.strip_prefix("  "))
+        .filter(|line| !line.starts_with(' '))
+        .map(|line| line.trim_end_matches(':'))
+        .collect()
+}
+
+/// The CPU budgets run nightly and by hand alone (#1295): cpu-budgets.yml
+/// starts on `schedule` and `workflow_dispatch` and on nothing else, never
+/// on a pull request's or the merge queue's event.
+#[test]
+fn the_cpu_budgets_run_on_their_schedule_or_by_hand_alone() {
+    let text =
+        std::fs::read_to_string(workspace().join(".github/workflows/cpu-budgets.yml")).unwrap();
+    assert_eq!(events(&text), ["schedule", "workflow_dispatch"]);
+    assert_eq!(
+        event_lines(&text, "workflow_dispatch")[..2],
+        ["    inputs:", "      ref:"],
+        "a person cannot name the ref to measure"
+    );
+}
+
+/// What the CPU budgets' measure leaves a trace by: Valgrind, gungraun's
+/// runner, a bench run and the limit it fails over.
+const CALLGRIND_TRACES: [&str; 4] = ["valgrind", "gungraun", "cargo bench", "--callgrind-limits"];
+
+/// The workflows among `files` that start on a pull request's or the merge
+/// queue's event and measure Callgrind, each as (file, line).
+fn callgrind_on_the_pull_request_path(files: &[(String, String)]) -> Vec<(String, String)> {
+    files
+        .iter()
+        .filter(|(_, text)| {
+            events(text)
+                .iter()
+                .any(|event| ["pull_request", "merge_group"].contains(event))
+        })
+        .flat_map(|(file, text)| {
+            text.lines()
+                .filter(|line| !line.trim_start().starts_with('#'))
+                .filter(|line| {
+                    CALLGRIND_TRACES
+                        .iter()
+                        .any(|trace| line.to_lowercase().contains(trace))
+                })
+                .map(|line| (file.to_string(), line.trim().to_string()))
+        })
+        .collect()
+}
+
+/// No pull request's or merge group's run measures Callgrind (#1295): the
+/// nightly does. Every workflow is read, ci.yml among them, and a ci.yml
+/// with a bench run planted back in is the control.
+#[test]
+fn no_pull_request_or_merge_group_run_measures_callgrind() {
+    let dir = workspace().join(".github/workflows");
+    let mut files: Vec<(String, String)> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|file| file.ends_with(".yml"))
+        .map(|file| {
+            let text = std::fs::read_to_string(dir.join(&file)).unwrap();
+            (file, text)
+        })
+        .collect();
+    files.sort();
+    let read: Vec<&str> = files.iter().map(|(file, _)| file.as_str()).collect();
+    for known in ["ci.yml", "cpu-budgets.yml", "mutants.yml", "pr-gates.yml"] {
+        assert!(read.contains(&known), "{known} was not read: {read:?}");
+    }
+    assert_eq!(callgrind_on_the_pull_request_path(&files), []);
+    let ci = files.iter_mut().find(|(file, _)| file == "ci.yml").unwrap();
+    ci.1.push_str("      - run: cargo bench -p brokkr-cli --bench budgets_lib\n");
+    assert_eq!(
+        callgrind_on_the_pull_request_path(&files),
+        [(
+            "ci.yml".to_string(),
+            "- run: cargo bench -p brokkr-cli --bench budgets_lib".to_string()
+        )]
+    );
 }
 
 /// Every version the by-hand guide states for a pinned tool is its pin:
@@ -1419,74 +1934,4 @@ fn version_token(text: &str) -> &str {
         .find(|c: char| !c.is_ascii_alphanumeric() && c != '.')
         .unwrap_or(text.len());
     text[..end].trim_end_matches('.')
-}
-
-/// Decision 0046's guides: no page states that the network was off under
-/// `harness` or `open`, and the decision carries its one-line erratum
-/// under a heading of its own. Which sections and rows a page keeps is a
-/// reviewer's call since #365: a false claim fails here, a lost section
-/// does not.
-#[test]
-fn no_boundary_guide_says_the_network_was_off_and_0046_carries_its_erratum() {
-    let root = workspace();
-    for page in [
-        "docs/guides/provider-adapters.md",
-        "docs/guides/recipe-authoring.md",
-        "docs/guides/quickstart.md",
-        "docs/guides/journal-and-verification.md",
-        "docs/guides/repository-layout.md",
-        "docs/guides/driver-authoring.md",
-        "ARCHITECTURE.md",
-        "contracts/README.md",
-    ] {
-        let raw = std::fs::read_to_string(root.join(page)).unwrap();
-        // Task 12.8 (design DD15): the prefix is a narrowing the engine
-        // attempts on Linux, and no page says the network was off.
-        let lower = raw
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .to_lowercase();
-        for claim in ["network was off", "network is off", "network off"] {
-            assert!(
-                !lower.contains(claim),
-                "{page} states the network was off: {claim}"
-            );
-        }
-    }
-
-    // The erratum: one heading, one line, the decision otherwise untouched.
-    // The accepted 2026-09-09 Seatbelt addendum follows the erratum, so the
-    // erratum section is delimited by the next `##` heading, not the file end.
-    let decision =
-        std::fs::read_to_string(root.join("docs/decisions/0046-the-boundary-is-named.md")).unwrap();
-    assert!(decision.starts_with("# 0046 — The boundary is named"));
-    assert!(decision.contains("\nStatus: accepted (operator ruled in chat, 2026-09-05)\n"));
-    let erratum: Vec<&str> = decision
-        .split("\n## Erratum\n")
-        .nth(1)
-        .expect("the decision carries its erratum heading")
-        .split("\n## ")
-        .next()
-        .expect("the erratum section is bounded by the next heading")
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect();
-    assert_eq!(
-        erratum.len(),
-        1,
-        "the erratum is exactly one line: {erratum:?}"
-    );
-    for named in [
-        "`seat-record.v3`",
-        "`seat-record.v4`",
-        "#202",
-        "decision 0034 rulings 6 and 7",
-        "nothing else is renumbered",
-    ] {
-        assert!(
-            erratum[0].contains(named),
-            "the erratum does not name {named}"
-        );
-    }
 }

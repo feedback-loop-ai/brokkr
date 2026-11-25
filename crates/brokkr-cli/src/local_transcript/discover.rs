@@ -115,13 +115,6 @@ fn root_error(error: &std::io::Error) -> Discovery {
     Discovery::Refused(reason, None)
 }
 
-/// Whether a recorded home uses the current target's native absolute
-/// syntax, so that a foreign-platform spelling is refused before any
-/// filesystem call rather than reinterpreted as a host-relative path.
-fn native_absolute_home(home: &str) -> bool {
-    home.starts_with('/')
-}
-
 /// Locate one safely opened local source for a validated reference. No
 /// transcript content is read for Claude or Codex; a DSH candidate's
 /// bounded opening header is read to prove depth-zero ownership. The
@@ -131,7 +124,7 @@ pub(crate) fn discover(reference: &ValidReference) -> Discovery {
     // Lexical validity is portable; native I/O is not. A recorded home
     // spelled in another platform's absolute syntax is refused here,
     // before canonicalization, and its bytes stay echoed unchanged.
-    if !native_absolute_home(&reference.home) {
+    if !brokkr_core::seat::is_native_transcript_home(&reference.home) {
         return Discovery::Refused(Unavailable::InvalidReference, None);
     }
     let canonical = match std::fs::canonicalize(&reference.home) {
@@ -151,6 +144,7 @@ pub(crate) fn discover(reference: &ValidReference) -> Discovery {
         TranscriptKind::ClaudeSession => discover_claude(&root, home, reference, &mut lookup),
         TranscriptKind::CodexThread => discover_codex(&root, home, reference, &mut lookup),
         TranscriptKind::DshSession => discover_dsh(&root, home, reference, &mut lookup),
+        TranscriptKind::AgyConversation => discover_agy(&root, home, reference, &mut lookup),
         TranscriptKind::None => {}
     }
     lookup.resolve(reference.kind)
@@ -200,20 +194,7 @@ fn discover_claude(
         let Some(project) = child_dir(root, name, lookup) else {
             continue;
         };
-        match project.child(std::ffi::OsStr::new(&file_name)) {
-            Ok(safe_fs::Child::File(file)) => match file.identity() {
-                Ok(identity) => lookup.candidates.push(AdmittedSource {
-                    path: join_path(&join_path(home, name), &file_name),
-                    identity,
-                    file,
-                    encoding: Encoding::Plain,
-                }),
-                Err(_) => lookup.io_seen = true,
-            },
-            Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
-            Ok(_) => {}
-            Err(_) => lookup.io_seen = true,
-        }
+        admit_plain_child(&project, &join_path(home, name), &file_name, lookup);
     }
 }
 
@@ -554,5 +535,38 @@ pub(crate) fn source_size(reference: &ValidReference) -> Option<u64> {
     match discover(reference) {
         Discovery::Admitted(source) => Some(source.file.len()),
         Discovery::Refused(..) => None,
+    }
+}
+
+/// Locate one kept agy conversation transcript at `<home>/<locator>/transcript.jsonl`,
+/// opening each component relative to `root` without following symlinks (#1227).
+fn discover_agy(root: &safe_fs::Dir, home: &str, reference: &ValidReference, lookup: &mut Lookup) {
+    lookup.note_entry();
+    let Some(conversation) = child_dir(root, &reference.locator, lookup) else {
+        return;
+    };
+    lookup.note_entry();
+    admit_plain_child(
+        &conversation,
+        &join_path(home, &reference.locator),
+        brokkr_core::seat::AGY_TRANSCRIPT_FILE,
+        lookup,
+    );
+}
+
+fn admit_plain_child(dir: &safe_fs::Dir, dir_path: &str, file_name: &str, lookup: &mut Lookup) {
+    match dir.child(std::ffi::OsStr::new(file_name)) {
+        Ok(safe_fs::Child::File(file)) => match file.identity() {
+            Ok(identity) => lookup.candidates.push(AdmittedSource {
+                path: join_path(dir_path, file_name),
+                identity,
+                file,
+                encoding: Encoding::Plain,
+            }),
+            Err(_) => lookup.io_seen = true,
+        },
+        Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
+        Ok(_) => {}
+        Err(_) => lookup.io_seen = true,
     }
 }

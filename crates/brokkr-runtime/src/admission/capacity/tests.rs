@@ -204,6 +204,7 @@ impl Fixture {
             file,
             temp: TEMP.as_ref(),
             free: &probe,
+            machine: None,
         };
         verdicts(pass_within(&self.store, &host).unwrap().0)
     }
@@ -320,6 +321,7 @@ fn passed_naming(store: &Store, file: &Path) -> Result<(Vec<Judged>, Vec<Reason>
         file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     pass_within(store, &host)
 }
@@ -532,7 +534,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         with("/floors", json!([floor(1), floor(2)]))
     };
     let cases = [
-        (unknown, "unknown field `pause`, expected one of `schema`, `providers`, `floors`, `boxed_builds`, `runs`, `cooldowns`, `containment` at line 1 column 92"),
+        (unknown, "unknown field `pause`, expected one of `schema`, `providers`, `floors`, `boxed_builds`, `runs`, `demand`, `cooldowns`, `containment` at line 1 column 92"),
         (keyed, "unknown field `burst`, expected `ceiling` or `routes` at line 1 column 114"),
         (with("/providers/alpha/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 119"),
         (with("/providers/alpha/ceiling", json!(-1)), "invalid value: integer `-1`, expected a nonzero u32 at line 1 column 120"),
@@ -549,7 +551,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         (with("/floors/0", json!({"floor_bytes": 1, "place": "temp", "size": 1})), "unknown field `size`, expected one of `floor_bytes`, `path`, `place` at line 1 column 78"),
         (twice(json!({"place": "temp"})), "the floor at place 'temp' is written twice at line 1 column 106"),
         (twice(json!({"path": "/var/tmp"})), "the floor at path '/var/tmp' is written twice at line 1 column 112"),
-        (with("/schema", json!("forge.host/v5")), "unknown variant `forge.host/v5`, expected one of `forge.host/v1`, `forge.host/v2`, `forge.host/v3`, `forge.host/v4` at line 1 column 199"),
+        (with("/schema", json!("forge.host/v6")), "unknown variant `forge.host/v6`, expected one of `forge.host/v1`, `forge.host/v2`, `forge.host/v3`, `forge.host/v4`, `forge.host/v5` at line 1 column 199"),
         (with("/providers/beta/routes", json!({"spark-glm": route(1, "local")})), "unknown variant `local`, expected `cloud` or `shared-local` at line 1 column 190"),
     ];
     let said: Vec<String> = cases
@@ -812,6 +814,7 @@ fn measured(
         file: &file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     let reasons = verdicts(pass_within(&fixture.store, &host).unwrap().0).remove(0);
     (reasons, asked.into_inner())
@@ -985,6 +988,7 @@ fn a_floor_path_through_a_dangling_link_is_unmeasured_and_never_measured_on_its_
             file: &file,
             temp: TEMP.as_ref(),
             free: &host::free_bytes,
+            machine: None,
         };
         let mut reasons = verdicts(pass_within(&fixture.store, &host).unwrap().0).remove(0);
         let reason = reasons.pop().unwrap();
@@ -1136,6 +1140,7 @@ fn the_writing_pass_judges_the_machine_after_it_latches() {
         file: &file,
         temp: TEMP.as_ref(),
         free: &probe,
+        machine: None,
     };
     let judged = verdicts(judge_within(&mut fixture.store, &host, BY).unwrap().0);
     let undeclared = Reason::Capacity(Capacity::Undeclared(file.clone()));
@@ -1826,6 +1831,7 @@ fn bound_to(room: &Room, entry: QueueEntry) -> Room {
         runs: room.runs,
         config: room.config.clone(),
         census: Arc::clone(&room.census),
+        recipe: room.recipe.clone(),
     }
 }
 

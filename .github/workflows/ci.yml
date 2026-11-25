@@ -1,13 +1,20 @@
 name: ci
 
 on:
+  # The push of a commit the merge queue already judged (#1295) runs only
+  # what nothing else feeds: the fast gates, so the README's badge still
+  # reads a verdict on main, and the builds whose caches a pull request's
+  # run restores from main, which no merge group's cache can reach. Every
+  # test, coverage, bootstrap and packaging job skips on `push`
+  # alone; contributing.rs holds which jobs run there.
   push:
     branches: [main]
+  # A label or a body change starts no run here (#1295): the two required
+  # checks that read a pull request's labels and body, `delivered by
+  # brokkr` and `baseline ratchets`, live in pr-gates.yml, which re-runs on
+  # `edited`, `labeled` and `unlabeled` alone.
   pull_request:
-    # `labeled` and `unlabeled` are decision 0038 ruling 4: applying the
-    # operator's by-hand label re-runs the gate on the same head, with no
-    # close-and-reopen ceremony.
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
   # The merge queue (#451): the required checks run again on the commit
   # that lands, main plus the queued pull requests, so two green pull
   # requests first meet here rather than on main. A job that judges a pull
@@ -37,70 +44,6 @@ permissions:
 # rust-toolchain.toml's channel. A tag or a branch can move under a
 # verdict with no change here; `workflow_pins.rs` refuses one (issue #340).
 jobs:
-  delivered-by-brokkr:
-    name: delivered by brokkr
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      # The verifier, the gate script and the delivery classes come from
-      # the trusted base, never from the pull request whose evidence they
-      # judge.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: base-verifier
-      # The head under judgment, with the history its merge-base needs.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          path: pr
-      - name: the base branch, for the merge-base
-        # Event data reaches the shell through the environment, never by
-        # interpolation into the command line.
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          BASE_REPO: https://github.com/${{ github.repository }}.git
-        run: |
-          git -C pr fetch --no-tags "$BASE_REPO" "${BASE_REF}:refs/remotes/base/${BASE_REF}"
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
-        with:
-          toolchain: 1.98.0
-      - name: build the base branch's offline verifier
-        run: cargo build --locked --manifest-path "base-verifier/Cargo.toml" -p brokkr-cli
-      - name: the tier is cut by the delta since the judgment (decisions 0033, 0038)
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_BASE: refs/remotes/base/${{ github.event.pull_request.base.ref }}
-          REPO: pr
-          EVIDENCE: https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git
-          VERIFIER: base-verifier/target/debug/brokkr
-          CLASSES: base-verifier/.github/delivery-classes.json
-          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        # The by-hand label is honoured inside the script, which logs the
-        # tier it would have applied (0038 ruling 6). A base branch that
-        # carries no gate script yet — the one landing that introduces it —
-        # can cut no tier: the label skips, anything else refuses.
-        run: |
-          if [ ! -f base-verifier/scripts/delivered-by-brokkr.sh ]; then
-            case ",${LABELS}," in
-              *,by-hand,*)
-                echo "delivered by brokkr: skipped — operator applied the by-hand label; the base branch carries no gate script yet"
-                exit 0 ;;
-            esac
-            echo "delivered by brokkr: the base branch carries no gate script" >&2
-            exit 1
-          fi
-          bash base-verifier/scripts/delivered-by-brokkr.sh
-
   msrv:
     name: MSRV (1.89)
     runs-on: ubuntu-24.04
@@ -165,6 +108,7 @@ jobs:
   # (decision 0063). The plugin has no dependencies, so nothing is installed.
   plugin-tests:
     name: plugin tests (${{ matrix.os }})
+    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -182,6 +126,75 @@ jobs:
         working-directory: extensions/dsh/brokkr-console
         run: npm test
 
+  # The docs lane (#1295): a pull request whose change scripts/docs-lane.sh
+  # classifies as documentation alone runs the tests that read documentation
+  # (`docs-lane`) in place of the test and coverage machines, which do not
+  # start, and the three suite verdicts pass on that job's own result. The
+  # classifier run is the base branch's copy, so a pull request that edits it
+  # is judged by the one it would replace, and a base without one is full.
+  # Every other event is full: a merge group can hold several pull requests
+  # and is the last check before main, and the push to main saves the
+  # caches. It fails closed: a step that fails fails this job, and every
+  # verdict with it.
+  classify:
+    name: docs lane or full (scripts/docs-lane.sh)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      lane: ${{ steps.lane.outputs.lane }}
+    steps:
+      # Only a pull request is classified, so only a pull request pays for
+      # the full history; push and merge_group are full without a checkout.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: a pull request's change, documentation alone or not
+        id: lane
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          lane=full
+          if [ "$EVENT" = pull_request ] && git show "$BASE:scripts/docs-lane.sh" > "$RUNNER_TEMP/docs-lane.sh"; then
+            lane="$(bash "$RUNNER_TEMP/docs-lane.sh" classify "$BASE" "$HEAD")"
+          fi
+          case "$lane" in docs | full) ;; *) exit 1 ;; esac
+          echo "lane=$lane" >> "$GITHUB_OUTPUT"
+
+  # The tests that read documentation, as scripts/docs-lane-tests.txt pins
+  # them (docs_lane.rs holds the list complete), on a docs change alone. The
+  # links, spelling and the rest are `non-Rust lints`, which runs on every
+  # pull request.
+  docs-lane:
+    name: docs lane (the tests that read documentation)
+    needs: classify
+    if: needs.classify.outputs.lane == 'docs'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # doc_samples runs the samples at the scaffold's boxed gates in a real
+      # namespace (decision 0043), and requires it here as the Linux test
+      # machines do, so a sample is never skipped into a pass.
+      - name: bubblewrap for the boxed samples
+        uses: ./.github/actions/setup-bubblewrap
+        with:
+          cache-build: 'true'
+      - name: the tests that read documentation (scripts/docs-lane-tests.txt)
+        run: bash scripts/docs-lane.sh run
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+          BROKKR_REQUIRE_PIDNS: '1'
+
   # The suite's machines (operator ruling 2026-11-01): one runner ran every
   # shard one after another, and a hosted merge-queue run took 57 minutes
   # on Linux and 42 on macOS, past 75 on a slow runner. Each machine below
@@ -191,6 +204,8 @@ jobs:
   # job's verdicts over them, so the checks main requires keep their names.
   engine-machines:
     name: test (${{ matrix.os }}) on ${{ matrix.machine }}
+    needs: classify
+    if: github.event_name != 'push' && needs.classify.outputs.lane != 'docs'
     strategy:
       fail-fast: false
       matrix:
@@ -205,6 +220,12 @@ jobs:
             machine: linux/4
           - os: ubuntu-latest
             machine: linux/5
+          - os: ubuntu-latest
+            machine: linux/6
+          - os: ubuntu-latest
+            machine: linux/7
+          - os: ubuntu-latest
+            machine: linux/8
           - os: macos-latest
             machine: macos/1
           - os: macos-latest
@@ -213,6 +234,8 @@ jobs:
             machine: macos/3
           - os: macos-latest
             machine: macos/4
+          - os: macos-latest
+            machine: macos/5
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os)) }}
     # 45 on Linux and 60 on macOS, not the usual 20 (operator rulings
     # 2026-10-09 to 2026-11-01, and 2026-11-11 for macOS): a machine's
@@ -267,6 +290,11 @@ jobs:
           # other operating systems have no namespace to open, so they
           # are left to skip.
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
+          # #1137h: a test that delivers a real signal runs alone in a PID
+          # namespace of its own, and skips where none can be built. On
+          # the Linux leg, which installed bubblewrap above, a skip is a
+          # failure; macOS has no PID namespace and runs no such test.
+          BROKKR_REQUIRE_PIDNS: ${{ runner.os == 'Linux' && '1' || '' }}
       # Decision 0046 slice II, design D3/D14: Gate A (startup) executes here
       # and its durable report survives even when it fails. Gate B (lifetime)
       # is the `seatbelt-lifetime` job below, whose gated driver re-runs the
@@ -308,14 +336,17 @@ jobs:
           cargo run --locked -p brokkr-cli -- library compile --bundle recipes/verify
 
   # The checks main requires for the suite: each system's verdict over the
-  # machines above. It runs whatever they ended with, `always()`, because a
-  # skipped job reports success to a required check: a machine that failed,
-  # was cancelled or never ran fails both verdicts, and the machine's own
-  # job names which.
+  # machines above, or over the docs lane on a docs change (#1295). It runs
+  # whatever they ended with, `always()`, because a skipped job reports
+  # success to a required check: a classifier that failed, a docs lane that
+  # did not pass on a docs change, or a machine that failed, was cancelled
+  # or never ran on any other fails both verdicts, and the job's own run
+  # names which. On `push` the machines skip by design, so the verdicts
+  # skip with them (#1295).
   engine:
     name: test (${{ matrix.os }})
-    needs: engine-machines
-    if: always()
+    needs: [classify, docs-lane, engine-machines]
+    if: always() && github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -323,10 +354,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: every machine ran its shards and passed
+      - name: the docs lane passed on a docs change, and every machine on any other
         env:
+          CLASSIFIED: ${{ needs.classify.result }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          DOCS: ${{ needs.docs-lane.result }}
           MACHINES: ${{ needs.engine-machines.result }}
-        run: test "$MACHINES" = success
+        run: |
+          test "$CLASSIFIED" = success
+          case "$LANE" in docs) test "$DOCS" = success ;; full) test "$MACHINES" = success ;; *) exit 1 ;; esac
 
   # Gate A is a hard gate in `test (macos-latest)`: it passes, so it
   # protects a solved property. Gate B reports while #269 is open. The
@@ -342,6 +378,7 @@ jobs:
   # either way; closing #269 restores the gate.
   seatbelt-lifetime:
     name: seatbelt lifetime probe (Gate B, reporting)
+    if: github.event_name != 'push'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -380,13 +417,19 @@ jobs:
   # every instrumented shard one after another, 46 to 66 minutes on a
   # hosted runner, past 75 on a slow one. Each machine measures the shards
   # scripts/test-shards.sh lays on it, one after another, and hands the
-  # report its merged profile; the machines run at once.
+  # report its merged profile; the machines run at once. They run on the
+  # push to main too, unlike the test machines: their instrumented build is
+  # made only by scripts/coverage-exact.sh as it measures, so measuring on
+  # main is what saves the caches a merge group's and a pull request's
+  # coverage jobs restore (#1295). On a docs change they do not start.
   coverage-machines:
     name: exact coverage on ${{ matrix.machine }}
+    needs: classify
+    if: needs.classify.outputs.lane != 'docs'
     strategy:
       fail-fast: false
       matrix:
-        machine: [linux/1, linux/2, linux/3, linux/4, linux/5]
+        machine: [linux/1, linux/2, linux/3, linux/4, linux/5, linux/6, linux/7, linux/8]
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     # 45, not the usual 20: a machine's instrumented shards took up to about
     # 20 minutes on a hosted runner, its build and setup about 5, and a slow
@@ -459,6 +502,9 @@ jobs:
           # this job must run the boundary proofs for real too
           # (decision 0054 ruling 9).
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+          # And the tests that deliver a real signal, each alone in a PID
+          # namespace of its own (#1137h).
+          BROKKR_REQUIRE_PIDNS: '1'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-machine-${{ strategy.job-index }}
@@ -466,23 +512,18 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # The exact gate itself: every machine's profile, merged over the same
-  # instrumented build, and judged whole. It runs whatever the machines
-  # ended with, `always()`, because a skipped job reports success to a
-  # required check, and refuses unless every machine passed.
+  # The exact gate's report: every machine's profile, merged over the same
+  # instrumented build, and judged whole. It runs only when every machine
+  # passed, so a machine that failed, was cancelled or never ran leaves it
+  # skipped, which the gate below refuses.
   coverage:
-    name: exact coverage gate
+    name: exact coverage report
     needs: coverage-machines
-    if: always()
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     # 30, not the usual 20: it rebuilds the instrumented binaries, about 5
     # minutes on a hosted runner, then runs the ratchets.
     timeout-minutes: 30
     steps:
-      - name: every machine measured its shards
-        env:
-          MACHINES: ${{ needs.coverage-machines.result }}
-        run: test "$MACHINES" = success
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
@@ -556,6 +597,28 @@ jobs:
           name: coverage-exact
           path: target/coverage/
 
+  # The check main requires for exact coverage: the report's verdict, or the
+  # docs lane's on a docs change (#1295). Like the suite's verdicts it runs
+  # whatever they ended with, `always()`, because a skipped job reports
+  # success to a required check, so a report that did not run on a change
+  # that is not documentation fails it.
+  coverage-gate:
+    name: exact coverage gate
+    needs: [classify, docs-lane, coverage]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: the docs lane passed on a docs change, and the report on any other
+        env:
+          CLASSIFIED: ${{ needs.classify.result }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          DOCS: ${{ needs.docs-lane.result }}
+          REPORT: ${{ needs.coverage.result }}
+        run: |
+          test "$CLASSIFIED" = success
+          case "$LANE" in docs) test "$DOCS" = success ;; full) test "$REPORT" = success ;; *) exit 1 ;; esac
+
   license-compliance:
     name: dependency licenses (cargo-deny)
     runs-on: ubuntu-24.04
@@ -626,50 +689,6 @@ jobs:
           validate --no-global .github/renovate.json5
           validate .github/renovate-global.json5
 
-  # The committed baselines under quality/ may only shrink (issue #338):
-  # file size, duplication, unused dependencies, and a raised baseline that
-  # names its ruling. Complexity and the public API ride the coverage job,
-  # which has the LCOV and the pinned nightly. A required check on main, by
-  # the operator's ruling of 2026-09-26.
-  ratchets:
-    name: baseline ratchets
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      # The pull request's merge commit, and its first parent: the base a
-      # raised baseline is judged against. In a merge group it is the
-      # queue's commit, whose files and clones are judged in full.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
-        with:
-          toolchain: 1.98.0
-      - uses: ./.github/actions/setup-jscpd
-      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
-        with:
-          tool: cargo-shear@1.14.0
-          fallback: none
-      - name: file-size ratchet (quality/file-lines.txt)
-        run: quality/ratchet.sh files
-      - name: duplication ratchet (quality/jscpd-baseline-*.json)
-        run: quality/ratchet.sh clones
-      - name: no unused dependency (cargo-shear)
-        run: cargo shear --deny-warnings --locked
-      - name: a raised baseline names its ruling (quality/)
-        if: github.event_name == 'pull_request'
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          git rev-parse --verify --quiet 'HEAD^2' > /dev/null || {
-            echo "ratchet refusal: the checkout is not the pull request's merge commit" >&2
-            exit 1
-          }
-          quality/ratchet.sh baselines 'HEAD^1'
-
   dependency-audit:
     name: RustSec dependency audit
     runs-on: ubuntu-24.04
@@ -714,6 +733,7 @@ jobs:
   bootstrap-budgets:
     name: bootstrap budgets (60s install / 5min first run, ubuntu-latest)
     needs: release-binary
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -735,6 +755,7 @@ jobs:
 
   bootstrap-budgets-macos:
     name: bootstrap budgets (60s install / 5min first run, macos-latest)
+    if: github.event_name != 'push'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -757,6 +778,7 @@ jobs:
   packaging:
     name: packaging channels
     needs: release-binary
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -818,6 +840,7 @@ jobs:
   # the channels job renders after the tag (see packaging/README.md).
   flake:
     name: nix flake check
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -858,67 +881,66 @@ jobs:
           name: brokkr-linux-x86_64
           path: target/release/brokkr
 
-  # The CPU budgets (#342): instruction counts under Callgrind for the fold,
-  # the run view, a compile of recipes/self, one TUI frame, startup and
-  # `inspect`. Counts do not move with the runner's load the way wall clock
-  # does, so the pull request's merge is measured against its base in this
-  # one job, and a rise over 2% on any bench fails it (gungraun exits 3). It
-  # is not a required check: a regression is ruled on, not merged past
-  # silently. Valgrind runs on Linux only. The bench build's `--timings`
-  # report is an artifact, never a gate.
-  cpu-budgets:
-    name: CPU budgets (Callgrind, against the base)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  # The CPU budgets (#342) under Callgrind are not measured here: the
+  # nightly cpu-budgets.yml measures main against the previous night's head
+  # (#1295), and measures a branch on demand.
+
+  # The caches a pull request's run restores (#1295). GitHub scopes a cache
+  # to the ref that saved it, and a pull request's run reads its own ref's
+  # and its base branch's, never a merge group's. So the push to main is
+  # what saves them, and on `push` the jobs that restore them skip. Each
+  # entry builds what one such job builds, running nothing, under that
+  # job's own cache key: rust-cache's key is its `shared-key` where one is
+  # given and the job's id where not, then the runner's system and
+  # architecture and a hash of the toolchain and its CARGO and RUST
+  # variables, so `shared-key: engine-machines` here saves the very key
+  # engine-machines restores. `format, clippy, contracts` and the release
+  # binary run on `push` themselves and save their own, and so do the
+  # coverage machines and gate: their rust-cache keys, the
+  # `brokkr-coverage-<system>-<hash>` cache of the instrumented build and
+  # bubblewrap's build cache. An exact hit means main already holds this
+  # key, so the build is skipped. Not saved on `push` any more: the
+  # baseline ratchets' jscpd install, now pr-gates.yml's, which a pull
+  # request's own run saves for itself.
+  pr-caches:
+    name: pull-request cache (${{ matrix.key }}, ${{ matrix.os }})
+    if: github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: engine-machines
+            os: ubuntu-24.04
+          - key: engine-machines
+            os: macos-latest
+          - key: seatbelt-lifetime
+            os: macos-latest
+          - key: bootstrap-budgets-macos
+            os: macos-latest
+          - key: packaging
+            os: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # The runner must be the library's own version, so it is read from
-      # Cargo.lock rather than pinned a second time here: brokkr-cli's
-      # `gungraun = "=X.Y.Z"` is its one home, moved by hand like every
-      # Cargo.toml requirement.
-      - name: valgrind, and the gungraun runner at the library's version
-        run: |
-          sudo apt-get update -q && sudo apt-get install -y -q valgrind
-          version="$(awk '$0 == "name = \"gungraun\"" { getline; gsub(/^version = "|"$/, ""); print }' Cargo.lock)"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Cargo.lock holds no single gungraun version" >&2; exit 1; }
-          cargo install --locked gungraun-runner --version "$version"
-          echo "GUNGRAUN_VERSION=$version" >> "$GITHUB_ENV"
-      - name: the base's counts
-        run: |
-          export GUNGRAUN_HOME="$RUNNER_TEMP/gungraun"
-          git worktree add "$RUNNER_TEMP/base" "$BASE_SHA"
-          cd "$RUNNER_TEMP/base"
-          base="$(awk '$0 == "name = \"gungraun\"" { getline; gsub(/^version = "|"$/, ""); print }' Cargo.lock)"
-          if [ ! -f crates/brokkr-cli/benches/budgets_lib.rs ]; then
-            echo "the base carries no CPU budgets yet; this run records the first counts"
-          elif [ "$base" != "$GUNGRAUN_VERSION" ]; then
-            echo "the base measures with gungraun $base, this merge with $GUNGRAUN_VERSION; this run records the first counts"
-          else
-            cargo bench --locked -p brokkr-cli --bench budgets_lib --bench budgets_bin -- --save-baseline=base
-          fi
-      - name: this merge's counts, 2% over the base at most
-        run: |
-          export GUNGRAUN_HOME="$RUNNER_TEMP/gungraun"
-          set -- --locked --timings -p brokkr-cli --bench budgets_lib --bench budgets_bin
-          if [ -d "$GUNGRAUN_HOME" ]; then
-            cargo bench "$@" -- --baseline=base --callgrind-limits='ir=2%'
-          else
-            cargo bench "$@"
-          fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: always()
+        id: cache
         with:
-          name: cargo-timings
-          path: target/cargo-timings/
+          shared-key: ${{ matrix.key }}
+      - name: the job's build, no test run
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          KEY: ${{ matrix.key }}
+        run: |
+          case "$KEY" in
+            engine-machines) cargo test --workspace --all-features --locked --no-run ;;
+            seatbelt-lifetime) cargo test --locked -p brokkr-seatbelt-probe --test seatbelt_lifetime_probe --no-run ;;
+            bootstrap-budgets-macos) cargo build --release --locked -p brokkr-cli ;;
+            packaging) cargo test --locked -p brokkr-cli --no-run ;;
+            *) echo "no build for the cache key $KEY" >&2; exit 1 ;;
+          esac

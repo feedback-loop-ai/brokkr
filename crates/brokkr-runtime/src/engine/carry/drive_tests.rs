@@ -391,6 +391,45 @@ fn sequence_tags_carry_into_the_chief_and_only_the_panel_stamps_its_own_terminal
     }
 }
 
+/// A sequence step's carry is judged as a seat panel's is (the
+/// controller's ruling R18 of 2026-11-22): a released engine's unmarked
+/// settled result for `positions:a`, naming a transcript kind outside the
+/// grammar beside a word the join would refuse, is no verdict to carry,
+/// so the accepted retry of `positions:b` alone parks at the drive as a
+/// member with no settled result does, and no later event holds the kind.
+#[test]
+fn a_sequence_steps_carried_result_is_judged_for_its_kinds_at_the_drive() {
+    let stray = json!({"result":"maybe", "transcript":{"kind":"trellis--stray", "locator":"t-1"}});
+    let (_dir, mut runtime) = parked_record(sequence(clean(), None), false, |record| {
+        record["settled_members"] = json!({"positions:a": stray});
+    });
+    let parked = events(&runtime).len();
+    accept(&mut runtime, json!({"members":["positions:b"]}));
+    let reason = refused_at_drive(&mut runtime);
+    let journaled = serde_json::to_string(&events(&runtime)[parked..]).unwrap();
+    assert!(!journaled.contains("trellis--stray"), "{journaled}");
+    assert_eq!(
+        reason,
+        "members positions:a have no settled verdict to carry; name them or use plain runs operator retry"
+    );
+}
+
+#[test]
+fn carry_refuses_a_settled_result_with_a_masked_nested_kind_place() {
+    use crate::agents::kinds::tests::masked_by;
+
+    let result = json!({"result": {"transcript": {"kind": "trellis--stray"}}});
+    let masked = masked_by(result, "transcript");
+    let (_dir, mut runtime) = parked_record(sequence(clean(), None), false, |record| {
+        record["settled_members"] = json!({"positions:a": masked});
+    });
+    accept(&mut runtime, json!({"members":["positions:b"]}));
+    assert_eq!(
+        refused_at_drive(&mut runtime),
+        "members positions:a have no settled verdict to carry; name them or use plain runs operator retry"
+    );
+}
+
 fn moving_body(action: &str, gate: bool) -> SeatBody {
     let mut body = body();
     let SeatBody::Invocation(Invocation::Panel { members, .. }) = &mut body else {

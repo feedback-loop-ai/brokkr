@@ -99,6 +99,16 @@ One sibling repository, created by the operator on 2026-09-02:
 - `feedback-loop-ai/homebrew-tap`, file `Formula/brokkr.rb` — installs
   as `brew install feedback-loop-ai/tap/brokkr`
 
+The formula installs shell completion for bash, zsh and fish, so a
+Homebrew user adds no `source` line. Its form is the live completer's
+registration (decision 0119 ruling 2), not the static
+`brokkr completions <shell>` script: at install time,
+`generate_completions_from_executable(…, shell_parameter_format: :clap)`
+runs the installed binary once per shell with `COMPLETE=<shell>` and no
+word, and writes what it prints into the keg's completion directories.
+The registration names the completer by the path it was run as, the
+keg's own `bin/brokkr`, so an upgrade writes a new one with the new keg.
+
 and one repository secret holding a fine-grained token with
 `contents: write` and `pull requests: write` **on that repository only**:
 

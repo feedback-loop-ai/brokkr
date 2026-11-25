@@ -3,7 +3,7 @@
 Source: https://arxiv.org/abs/2609.01736
 Authors: Haibo Jin, Xucheng Yu, Haohan Wang (School of Information Sciences, University of Illinois Urbana-Champaign); Suijin Wang, Haojing Luo (Starc Institute)
 Read: 2026-09-04
-Status: proposed
+Status: ruled (2026-11-24)
 Intake: research sweep, run weekly-research-sweep-registry-d-2012cc4d, 2026-09-04
 
 ## Summary

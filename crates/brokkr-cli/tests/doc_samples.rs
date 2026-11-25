@@ -32,7 +32,7 @@ use serde_json::Value;
 use crate::bootstrap_bench::{can_box_the_gates, scaffold_with, Scaffold};
 use crate::brokkr_folder::repository;
 use crate::doc_truth::{readable_docs, Block, Doc};
-use crate::init_stacks::{brokkr_with, repository_of};
+use crate::init_stacks::{brokkr_with, doctored_with, repository_of};
 use crate::machine_proof::copy_dir;
 use crate::workspace_root::{read, workspace};
 
@@ -764,12 +764,12 @@ fn ran(
     stdin: Option<&str>,
 ) -> Printed {
     let (code, stdout, stderr) = match stdin {
-        None => brokkr_with(argv, cwd, configure),
+        None => spawned(argv, cwd, configure),
         Some(input) => {
             let file = tempfile::NamedTempFile::new().unwrap();
             std::fs::write(file.path(), input).unwrap();
             let path = file.path().to_path_buf();
-            brokkr_with(argv, cwd, |command| {
+            spawned(argv, cwd, |command| {
                 configure(command);
                 command.stdin(std::fs::File::open(&path).unwrap());
             })
@@ -780,6 +780,41 @@ fn ran(
         stdout,
         stderr,
         roots,
+    }
+}
+
+/// Whether `argv` reaches doctor's version probe.
+fn probes(argv: &[&str]) -> bool {
+    argv.first()
+        .is_some_and(|verb| crate::built::PROBING.contains(verb))
+}
+
+/// The HOME a doctor sample runs under: one that does not exist, so, as
+/// on the fresh host a guide shows, no coordination root stands. Inside
+/// the namespace every root-owned directory, `/tmp` and `/home` among
+/// them, reads as another user's, and a HOME below one would be refused
+/// as unprotected rather than read as absent.
+const NO_HOME: &str = "/nonexistent-brokkr-doc-sample-home";
+
+/// [`brokkr_with`], and for doctor [`doctored_with`] under [`NO_HOME`],
+/// alone in a PID namespace of its own (#1137i): [`runnable`] keeps a
+/// doctor sample only where one can be built.
+fn spawned(
+    argv: &[&str],
+    cwd: &Path,
+    configure: impl Fn(&mut Command),
+) -> (Option<i32>, String, String) {
+    match probes(argv) {
+        false => brokkr_with(argv, cwd, configure),
+        true => {
+            let alone = crate::isolated::alone()
+                .expect("runnable keeps a doctor sample only where doctor runs alone");
+            assert!(!Path::new(NO_HOME).exists(), "{NO_HOME} stands");
+            doctored_with(&alone, argv, cwd, |command| {
+                configure(command);
+                command.env("HOME", NO_HOME);
+            })
+        }
     }
 }
 
@@ -1056,11 +1091,13 @@ fn every_brokkr_prompt_in_a_living_doc_is_sampled_or_allowed() {
 }
 
 /// The samples a host runs: all of them where the scaffold's gates can
-/// be `boxed`, and else all but those at the scaffold's places.
-fn runnable(boxed: bool) -> Vec<Sample> {
+/// be `boxed`, and else all but those at the scaffold's places; a doctor
+/// sample only where doctor runs `alone` in a PID namespace of its own.
+fn runnable(boxed: bool, alone: bool) -> Vec<Sample> {
     SAMPLED
         .iter()
         .filter(|sample| boxed || !sample.place.on_the_scaffold())
+        .filter(|sample| alone || !probes(sample.argv))
         .copied()
         .collect()
 }
@@ -1078,8 +1115,9 @@ fn every_sample_is_what_the_binary_prints() {
              so the samples at its places are not run",
         );
     }
+    let alone = crate::isolated::alone().is_some();
     assert_eq!(
-        sample_failures(&readable_docs(), &runnable(boxed), printed),
+        sample_failures(&readable_docs(), &runnable(boxed, alone), printed),
         Vec::<String>::new(),
         "a sampled block is not what its command prints: paste the output, eliding with `…`"
     );
@@ -1370,12 +1408,22 @@ fn a_prompt_quotes_an_argument_that_holds_a_space() {
 fn the_scaffolds_samples_wait_for_a_box() {
     let prompts = |samples: Vec<Sample>| samples.iter().map(|s| s.prompt).collect::<Vec<_>>();
     assert_eq!(
-        prompts(runnable(true)),
+        prompts(runnable(true, true)),
         prompts(SAMPLED.to_vec()),
         "a host that boxes the gates runs every sample"
     );
+    let unisolated: Vec<_> = SAMPLED
+        .iter()
+        .filter(|s| s.argv != ["doctor"])
+        .copied()
+        .collect();
     assert_eq!(
-        prompts(runnable(false)),
+        prompts(runnable(true, false)),
+        prompts(unisolated),
+        "a host where doctor cannot run alone runs every sample but doctor's (#1137i)"
+    );
+    assert_eq!(
+        prompts(runnable(false, true)),
         [
             "$ brokkr library agents list",
             "$ brokkr library recipes list",

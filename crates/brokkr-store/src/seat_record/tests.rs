@@ -39,6 +39,7 @@ fn embedded_schemas_are_the_published_contracts() {
         (CONTRACT_V5, SCHEMA_V5),
         (CONTRACT_V6, SCHEMA_V6),
         (CONTRACT_V7, SCHEMA_V7),
+        (CONTRACT_V8, SCHEMA_V8),
     ] {
         let published = std::fs::read(workspace.join(relative)).unwrap();
         assert_eq!(
@@ -208,11 +209,12 @@ fn the_version_is_the_one_the_runs_engine_wrote() {
     assert_eq!(SeatRecordVersion::of_engine("0.9.1"), SeatRecordVersion::V4);
     // Proposed decision 0056 ruling 7 moved the top of this ladder to
     // v5 at the 0.10 line, decision 0065 ruling 8 to v6 at the 0.12
-    // line, and decision 0109 ruling 1 to v7 at the 0.14 line, on the
-    // same superset argument, so a release-candidate of 1.0.0 reads v7.
+    // line, decision 0109 ruling 1 to v7 at the 0.14 line, and decision
+    // 0075 ruling 2 to v8 at that same line, on the same superset
+    // argument, so a release-candidate of 1.0.0 reads v8.
     assert_eq!(
         SeatRecordVersion::of_engine("1.0.0-rc.1"),
-        SeatRecordVersion::V7
+        SeatRecordVersion::V8
     );
     assert_eq!(
         SeatRecordVersion::of_engine("0.10.0"),

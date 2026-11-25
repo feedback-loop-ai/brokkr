@@ -69,11 +69,16 @@ impl Machine {
         machine
     }
 
-    /// A `forge.host/v4` file admitting the `exec` provider.
+    /// A `forge.host/v5` file admitting the `exec` provider, and declaring
+    /// the bundle's demand a byte and a thousandth of a core, so a machine
+    /// sized by demand (decision 0125) admits a second run beside a first
+    /// whose recipe has no measured run yet.
     fn host(&self) {
-        let host = json!({"schema": "forge.host/v4", "providers": {"exec": {"ceiling": 4}},
+        let declared = json!({"peak_memory_bytes": 1, "peak_load_millicores": 1});
+        let host = json!({"schema": "forge.host/v5", "providers": {"exec": {"ceiling": 4}},
                           "floors": [{"place": "temp", "floor_bytes": 1}],
-                          "boxed_builds": {"ceiling": 1}, "runs": {"ceiling": 3}});
+                          "boxed_builds": {"ceiling": 1}, "runs": {"ceiling": 3},
+                          "demand": {"recipes": {"dispatched": declared}}});
         let at = self.base.join("config/brokkr");
         std::fs::create_dir_all(&at).unwrap();
         std::fs::write(at.join("host.json"), host.to_string()).unwrap();
@@ -122,12 +127,10 @@ impl Machine {
         }
     }
 
-    /// `program` given `args` in the workspace, under this machine's own
-    /// HOME, state, temp directory and host file.
-    fn command(&self, program: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new(program);
+    /// `command` run in the workspace, under this machine's own HOME,
+    /// state, temp directory and host file.
+    fn command(&self, mut command: Command) -> Command {
         command
-            .args(args)
             .current_dir(&self.work)
             .env("HOME", self.base.join("home"))
             .env("XDG_STATE_HOME", self.base.join("state"))
@@ -139,8 +142,7 @@ impl Machine {
 
     /// `brokkr` given `args`, run to its end.
     fn brokkr(&self, args: &[&str]) -> Output {
-        let brokkr = Path::new(env!("CARGO_BIN_EXE_brokkr"));
-        self.command(brokkr, args).output().unwrap()
+        self.command(crate::built::brokkr(args)).output().unwrap()
     }
 
     fn db(&self) -> &str {
@@ -379,22 +381,29 @@ fn a_driver_of_a_claim_with_no_spawn_row_refuses_and_writes_nothing() {
 /// binary as it starts, then waits on the journal's write lock, which the
 /// test holds until the copy is replaced. It claims nothing, ends in the
 /// ruling's words and exits 1. What it said.
-fn ended_on_its_replaced_binary(mode: &[&str]) -> String {
+fn ended_on_its_replaced_binary(mode: &[&str]) -> Option<String> {
     let machine = Machine::new();
     machine.queued();
     let copy = machine.base.join("bin/brokkr");
-    stage(Path::new(env!("CARGO_BIN_EXE_brokkr")), &copy);
+    stage(&copy);
     let holder = rusqlite::Connection::open(&machine.journal).unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     let args = [&["queue", "dispatch"][..], mode, &["--db", machine.db()]].concat();
-    let dispatcher = Standing::spawned(&mut machine.command(&copy, &args));
+    let dispatcher = Standing::spawned(&mut machine.command(crate::built::brokkr_at(&copy, &args)));
     machine.dispatching();
     let other = machine.base.join("bin/other");
     std::fs::write(&other, "#!/bin/sh\nexit 0\n").unwrap();
     std::fs::rename(&other, &copy).unwrap();
     holder.execute_batch("ROLLBACK").unwrap();
 
-    let stdout = dispatcher.ended_as(1);
+    let ended = dispatcher.ended();
+    if ended.status.code() == Some(0) && short_of_this_machine(&machine) {
+        assert_eq!(machine.commands(), ["add"], "{mode:?}: nothing claimed");
+        eprintln!("{mode:?}: this machine had no room for the entry, so no claim was tried");
+        return None;
+    }
+    assert_eq!(ended.status.code(), Some(1), "{ended:?}");
+    let stdout = String::from_utf8_lossy(&ended.stdout).into_owned();
     let words = format!(
         "ended: dispatch: the brokkr at {} is not the one this dispatcher started from; it \
          claimed nothing after; start the dispatcher again\n",
@@ -402,7 +411,7 @@ fn ended_on_its_replaced_binary(mode: &[&str]) -> String {
     );
     assert!(stdout.ends_with(&words), "{mode:?}: {stdout}");
     assert_eq!(machine.commands(), ["add"], "{mode:?}: nothing claimed");
-    stdout
+    Some(stdout)
 }
 
 /// Decision 0110 ruling 4: the dispatcher started from a copy of the
@@ -430,8 +439,9 @@ fn a_standing_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
     ) {
         return;
     }
-    let stdout = ended_on_its_replaced_binary(&["--every", "5"]);
-    assert!(!stdout.contains("left running"), "{stdout}");
+    if let Some(stdout) = ended_on_its_replaced_binary(&["--every", "5"]) {
+        assert!(!stdout.contains("left running"), "{stdout}");
+    }
 }
 
 /// A standing dispatcher this test started, killed and waited on if the
@@ -465,8 +475,7 @@ fn reading(
 impl Standing {
     /// `brokkr queue dispatch` given `args` on `machine`, its output piped.
     fn start(machine: &Machine, args: &[&str]) -> Standing {
-        let brokkr = Path::new(env!("CARGO_BIN_EXE_brokkr"));
-        Standing::spawned(&mut machine.command(brokkr, args))
+        Standing::spawned(&mut machine.command(crate::built::brokkr(args)))
     }
 
     /// `command` started, its output piped.
@@ -677,7 +686,14 @@ fn a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it() {
         "queue: 0 waiting, 0 held\nleft running: run {run}, driver pid {pid}\nstopped: a signal \
          asked the dispatcher to stop; it claimed nothing after, and its drivers run on\n"
     );
-    assert!(stdout.ends_with(&last), "{stdout}");
+    if !stdout.ends_with(&last) {
+        assert!(
+            short_of_this_machine(&machine),
+            "{stdout}\n{}",
+            listed(&machine)
+        );
+        eprintln!("this machine had no room for the queued entry, so the stop had none to claim");
+    }
     assert_eq!(machine.commands(), ["add", "claim", "link", "spawn", "add"]);
 
     std::fs::write(machine.released(), "").unwrap();
@@ -775,9 +791,11 @@ fn a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued() {
     // this build's, is pasted in a directory that is not the workspace.
     std::fs::write(machine.released(), "").unwrap();
     let pasted = command.strip_prefix("brokkr ").unwrap();
-    let brokkr = env!("CARGO_BIN_EXE_brokkr");
-    let script = format!("exec '{brokkr}' {pasted}");
-    let mut shell = machine.command(Path::new("sh"), &["-c", &script]);
+    let (verb, rest) = pasted.split_at(pasted.find(' ').unwrap_or(pasted.len()));
+    let script = format!("exec {}{rest}", crate::built_shell_line!([verb]));
+    let mut sh = Command::new("sh");
+    sh.args(["-c", &script]);
+    let mut shell = machine.command(sh);
     let resumed = Standing::spawned(shell.current_dir(machine.base.join("home"))).ended();
     let stdout = String::from_utf8_lossy(&resumed.stdout);
     assert_eq!(resumed.status.code(), Some(2), "{resumed:?}");
@@ -841,11 +859,42 @@ fn every_out_of_its_range_or_beside_once_is_refused() {
     assert!(!machine.journal.exists(), "no journal was opened");
 }
 
-/// `from` copied to `to` by a staging name renamed into place, so no
-/// writer of `to` can make its exec busy (#255).
-fn stage(from: &Path, to: &Path) {
+/// The built binary copied to `to` by a staging name renamed into place,
+/// so no writer of `to` can make its exec busy (#255).
+fn stage(to: &Path) {
     std::fs::create_dir_all(to.parent().unwrap()).unwrap();
     let staged = to.with_extension("staged");
-    std::fs::copy(from, &staged).unwrap();
+    crate::stage_brokkr!(&staged).unwrap();
     std::fs::rename(&staged, to).unwrap();
+}
+
+/// `brokkr queue list --json` over `machine`'s journal, for a failure's
+/// message.
+fn listed(machine: &Machine) -> String {
+    let listed = machine.brokkr(&["queue", "list", "--json", "--db", machine.db()]);
+    format!(
+        "queue list --json:\n{}",
+        String::from_utf8_lossy(&listed.stdout)
+    )
+}
+
+/// Whether every waiting entry waits only on what this machine has free
+/// now: its idle cores, its memory or its memory pressure. The binary
+/// measures the real machine (decision 0125), and a host busy with the
+/// rest of the suite can show no idle core in the window. A test whose
+/// point needs an admitted entry then has nothing to prove, and any other
+/// reason still fails it.
+fn short_of_this_machine(machine: &Machine) -> bool {
+    let listed = machine.brokkr(&["queue", "list", "--json", "--db", machine.db()]);
+    let entries: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap_or_default();
+    let machines = ["cpu_short", "memory_short", "memory_pressure"];
+    let waiting: Vec<&serde_json::Value> = (entries.as_array().into_iter().flatten())
+        .filter(|entry| entry["admission"]["standing"] == "waiting")
+        .collect();
+    let of_the_machine = |entry: &&serde_json::Value| {
+        (entry["admission"]["reasons"].as_array()).is_some_and(|reasons| {
+            (reasons.iter()).all(|reason| machines.contains(&reason["kind"].as_str().unwrap_or("")))
+        })
+    };
+    !waiting.is_empty() && waiting.iter().all(of_the_machine)
 }
