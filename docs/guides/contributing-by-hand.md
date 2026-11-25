@@ -2,7 +2,7 @@
 
 This repository's engine forges its own changes and reviews them
 adversarially. The bar for a human contribution is the bar the machine
-is already held to — twelve required checks, none of them a percentage you
+is already held to — eleven required checks, none of them a percentage you
 can nudge. This document is the whole walk from `git clone` to a green
 pull request, with every command written out.
 
@@ -14,7 +14,7 @@ ever looks at it.
 
 - [What you need installed](#what-you-need-installed)
 - [Fork, clone, branch](#fork-clone-branch)
-- [The twelve checks](#the-twelve-checks)
+- [The eleven checks](#the-eleven-checks)
 - [The pre-flight: let the machine review you first](#the-pre-flight-let-the-machine-review-you-first)
 - [The coverage gate, practically](#the-coverage-gate-practically)
 - [Commits, signing, and how your PR actually lands](#commits-signing-and-how-your-pr-actually-lands)
@@ -86,14 +86,24 @@ Two habits from the house flow that transfer directly:
   that adds behaviour and no test fails the coverage gate anyway (see
   below), so this is not a style preference.
 
-## The twelve checks
+## The eleven checks
 
-All twelve are required status checks on `main`. Two read the pull
+All eleven are required status checks on `main` (operator ruling
+2026-11-25, #1383, dropped `test (macos-latest)` from the pull-request
+path; once this lands, the controller adds `build (macos-latest)` —
+`build-macos` in `ci.yml`, which compiles the workspace and every test
+target on macOS without running tests — to `main`'s required status
+checks, while the five macOS test shards and
+[the macOS startup gate](#the-macos-startup-gate) run as
+`test (macos-latest)` nightly against `main` in
+[`../../.github/workflows/macos-tests.yml`](../../.github/workflows/macos-tests.yml),
+on `workflow_dispatch`, and in
+[`../../.github/workflows/release.yml`](../../.github/workflows/release.yml)
+before publication). Two read the pull
 request's own labels and body and come from
 [`../../.github/workflows/pr-gates.yml`](../../.github/workflows/pr-gates.yml), which also
-re-runs them when a label or the body changes (#1295). Nine come from
-eight jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (`engine`
-runs once per operating system), and one is in
+re-runs them when a label or the body changes (#1295). Eight come from
+eight jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml), and one is in
 [`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml). They run on
 every pull request, and again in [the merge queue](#the-merge-queue) on
 the commit that lands; a pull request that changes only documentation
@@ -108,13 +118,12 @@ each local command is the job's own, and the sections below explain them:
 | 3 | `MSRV (1.89)` | `msrv` | [`cargo +1.89.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
 | 4 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
 | 5 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test --parallel-heaps`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
-| 6 | `test (macos-latest)` | `engine` | on a Mac, `bash scripts/test-shards.sh test --parallel-heaps`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
-| 7 | `exact coverage gate` | `coverage-gate` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
-| 8 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
-| 9 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
-| 10 | `RustSec dependency audit` | `dependency-audit` | [`cargo audit`](#the-rustsec-advisory-audit), whose verdict moves with the advisory database |
-| 11 | `release binary artifact` | `release-binary` | [`cargo build --release --locked -p brokkr-cli`](#the-release-binary), then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
-| 12 | `mutants in the diff: brokkr-core` | `core-gate` (mutants.yml) | `bash scripts/mutants.sh gate origin/main brokkr-core` |
+| 6 | `exact coverage gate` | `coverage-gate` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
+| 7 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
+| 8 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
+| 9 | `RustSec dependency audit` | `dependency-audit` | [`cargo audit`](#the-rustsec-advisory-audit), whose verdict moves with the advisory database |
+| 10 | `release binary artifact` | `release-binary` | [`cargo build --release --locked -p brokkr-cli`](#the-release-binary), then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
+| 11 | `mutants in the diff: brokkr-core` | `core-gate` (mutants.yml) | `bash scripts/mutants.sh gate origin/main brokkr-core` |
 
 The four checks the list above adds to the older eight:
 
@@ -148,7 +157,7 @@ The four checks the list above adds to the older eight:
   LCOV and its pinned nightly.
 - **`mutants in the diff: brokkr-core`** (#289) fails a pull request that
   adds a mutant no test catches to brokkr-core. Reproduce it with the
-  command in row 12 (cargo-mutants 27.1.0). A miss that shares a
+  command in row 11 (cargo-mutants 27.1.0). A miss that shares a
   committed miss's file and mutation, in
   `quality/mutants/brokkr-core.missed.txt`, is accounted for once; any
   other miss fails, and the fix is a test that catches it.
@@ -245,15 +254,18 @@ and skip hosted cache transfers.
 requests and macOS always use hosted runners.
 
 CI spreads the shards over machines (operator rulings 2026-11-01,
-2026-11-03, 2026-11-04, 2026-11-11 and 2026-11-23): eight Linux runners and five macOS runners, each running the shards the script
-lays on it, still one after another, while the machines run at once. The
-`engine-machines` job names each runner's machine in `BROKKR_TEST_MACHINE`
-(`linux/2`, `macos/1`), and the script's `machines` mode prints each
-machine and its shards. The two test checks are the `engine` job's
-verdicts over every machine: one machine that fails, is cancelled or never
-runs fails both, and its own job, named for its system and its machine,
-names it. A local run names no machine and runs every shard, which is what
-the two checks prove together.
+2026-11-03, 2026-11-04, 2026-11-11, 2026-11-23 and 2026-11-25, #1383):
+on pull requests and merge groups, `engine-machines` runs eight Linux
+runners (`linux/1` to `linux/8`) and `engine` reports the Linux test verdict
+over those Linux machines alone, while `build-macos`
+(`build (macos-latest)`) compiles the workspace and every test target on
+macOS without running tests. The five macOS runners (`macos/1` to `macos/5`)
+live in `macos-test-shards.yml` and run nightly against `main`
+(`macos-tests.yml`), on `workflow_dispatch`, and in `release.yml` before
+publication, each with its macOS test verdict. Each runner names
+its machine in `BROKKR_TEST_MACHINE` (`linux/2`, `macos/1`), and the
+script's `machines` mode prints each machine and its shards. A local run
+names no machine and runs every shard its host compiles.
 Each system's machines are numbered from 1 with none empty, and a machine
 named any other way is refused before anything is built. A plain cargo test runs the same
 tests, also one binary after another. On Linux,
@@ -289,7 +301,7 @@ that shell at the first failure, as it ends CI's step. Without it, `tee`
 masks a failed probe, and the quiet `grep`s fail silently while the last
 one can pass against a report an earlier run left.
 
-The macOS leg of the `engine` job runs one step the Linux leg does not:
+The `macos/1` shard of `macos-test-shards.yml` (run nightly against `main`, on `workflow_dispatch`, and in `release.yml` under the `test (macos-latest)` verdict) runs one step the Linux leg does not:
 Seatbelt's Gate A, the startup matrix of decision
 [0046](../decisions/0046-the-boundary-is-named.md) slice II,
 against the real `/usr/bin/sandbox-exec` and your per-user `launchctl`. The
@@ -528,9 +540,13 @@ if you think they are at risk:
 - **`delivered by brokkr`** has no local command: it reads a run that
   shipped your head, or the operator's `by-hand` label. See
   [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand).
-- **The two-OS matrix.** Checks 4–5 run the same suite on Ubuntu and
-  macOS, and the macOS leg adds [the startup gate](#the-macos-startup-gate),
-  which only a Mac can run. You ran one leg. Anything touching the filesystem or the
+- **The two-OS checks.** Pull requests and merge groups run the workspace
+  suite on Ubuntu (`test (ubuntu-latest)`) and a workspace-and-tests compile
+  on macOS (`build (macos-latest)`, to be required once #1383 lands), while
+  the five macOS test shards and [the startup gate](#the-macos-startup-gate)
+  (`test (macos-latest)`) run nightly against `main`, on `workflow_dispatch`,
+  and in `release.yml` before publication (operator ruling 2026-11-25, #1383).
+  You ran one host. Anything touching the filesystem or the
   platform's process lookup is where this bites. Windows is not a host
   (decision [0063](../decisions/0063-windows-is-not-a-host.md)); WSL2 is Linux. Note that
   [`.gitattributes`](../../.gitattributes) normalises every text file to LF in
@@ -612,13 +628,13 @@ compile --bundle recipes/self`, in that order
 (`recipes/brokkr-fast/scripts/verify-seat.sh`, #427), in the box with no
 network because this repository's realm declares no boundary and so
 reads `namespace`; under `harness` the same script would run unboxed.
-The rest of the twelve
+The rest of the eleven
 stay CI's to prove: the suite in CI's own form
 (`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, `--all-features`, `--locked` and
 `--no-fail-fast`; inside the `namespace` box a boundary proof cannot
 open a namespace, and it skips), any non-Rust lint whose tool the seat
 cannot reach (the seat names it `not run`), the MSRV, the suppression check and the
-`recipes/verify` compile, the other OS, the exact coverage gate,
+`recipes/verify` compile, the macOS compile check (`build (macos-latest)`), the exact coverage gate,
 cargo-deny, the diagram render and Renovate's validator, the ratchets,
 the RustSec audit, the release build and its size budget, and the
 mutants gate. A failure or a finding
@@ -920,8 +936,8 @@ gh pr merge <number> --auto --squash
 ```
 
 `--auto` queues it as soon as its own checks pass. What the queue runs
-again is everything that judges the combined tree: the tests on both
-operating systems, the exact coverage gate with the complexity and
+again is everything that judges the combined tree: the Linux tests (`test (ubuntu-latest)`), the macOS workspace compile
+(`build (macos-latest)`), the exact coverage gate with the complexity and
 public-API ratchets, format and clippy, the bundle compiles, the MSRV,
 the licences, the non-Rust lints, the file-size and duplication
 ratchets, the RustSec audit and the release binary. What judges the
@@ -957,8 +973,8 @@ boxed samples required, as the Linux test machines run them:
 BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 BROKKR_REQUIRE_PIDNS=1 bash scripts/docs-lane.sh run
 ```
 
-`test (ubuntu-latest)`, `test (macos-latest)` and `exact coverage gate`
-then pass on the docs lane's own result, and on `full` on every machine's,
+`test (ubuntu-latest)` and `exact coverage gate`
+then pass on the docs lane's own result (while `build (macos-latest)` still compiles on macOS), and on `full` on every machine's,
 as before: a classifier that failed, a docs lane that did not pass, or a
 machine that was skipped fails them, never passes them. The fast gates,
 `non-Rust lints` among them, run as on any pull request.

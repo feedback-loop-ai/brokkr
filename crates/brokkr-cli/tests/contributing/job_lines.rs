@@ -177,71 +177,24 @@ const JOB_LINES: [(&str, &str); 16] = [
     (
         "engine-machines",
         r#"
-    name: test (${{ matrix.os }}) on ${{ matrix.machine }}
+    name: test (ubuntu-latest) on ${{ matrix.machine }}
     needs: classify
     if: github.event_name != 'push' && needs.classify.outputs.lane != 'docs'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            machine: linux/1
-          - os: ubuntu-latest
-            machine: linux/2
-          - os: ubuntu-latest
-            machine: linux/3
-          - os: ubuntu-latest
-            machine: linux/4
-          - os: ubuntu-latest
-            machine: linux/5
-          - os: ubuntu-latest
-            machine: linux/6
-          - os: ubuntu-latest
-            machine: linux/7
-          - os: ubuntu-latest
-            machine: linux/8
-          - os: macos-latest
-            machine: macos/1
-          - os: macos-latest
-            machine: macos/2
-          - os: macos-latest
-            machine: macos/3
-          - os: macos-latest
-            machine: macos/4
-          - os: macos-latest
-            machine: macos/5
-    runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os)) }}
-    timeout-minutes: ${{ matrix.os == 'macos-latest' && 60 || 45 }}
+<linux machines>
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || '["ubuntu-24.04"]') }}
+    timeout-minutes: 45
     steps:
 <local checkout>
 <stable toolchain>
 <rust-cache>
         if: runner.environment != 'self-hosted'
-      - name: bubblewrap for the hands tests
-        id: bubblewrap
-        if: runner.os == 'Linux' && runner.environment != 'self-hosted'
-        uses: ./.github/actions/setup-bubblewrap
-        with:
-          protect-system-tree: 'background'
-          cache-build: 'true'
+<bubblewrap background>
       - run:
         env:
           BROKKR_TEST_MACHINE: ${{ matrix.machine }}
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
-          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
-          BROKKR_REQUIRE_PIDNS: ${{ runner.os == 'Linux' && '1' || '' }}
-      - name: R3 native startup gate
-        if: runner.os == 'macOS' && matrix.machine == 'macos/1'
-        run:
-      - name: R3 native diagnostics
-        if: always() && runner.os == 'macOS' && matrix.machine == 'macos/1'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: r3-native-diagnostics
-          path: |
-            target/r3-startup.log
-            target/r3-startup-report.txt
-          if-no-files-found: warn
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+          BROKKR_REQUIRE_PIDNS: '1'
       - name: self and verify bundles compile under the constitutional lint
         run:
 "#,
@@ -249,13 +202,9 @@ const JOB_LINES: [(&str, &str); 16] = [
     (
         "engine",
         r#"
-    name: test (${{ matrix.os }})
+    name: test (ubuntu-latest)
     needs: [classify, docs-lane, engine-machines]
     if: always() && github.event_name != 'push'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -274,22 +223,13 @@ const JOB_LINES: [(&str, &str); 16] = [
     name: exact coverage on ${{ matrix.machine }}
     needs: classify
     if: needs.classify.outputs.lane != 'docs'
-    strategy:
-      fail-fast: false
-      matrix:
-        machine: [linux/1, linux/2, linux/3, linux/4, linux/5, linux/6, linux/7, linux/8]
+<linux machines>
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     timeout-minutes: 45
     steps:
 <local checkout>
 <coverage toolchain>
-      - name: bubblewrap for the hands tests
-        id: bubblewrap
-        if: runner.environment != 'self-hosted'
-        uses: ./.github/actions/setup-bubblewrap
-        with:
-          protect-system-tree: 'background'
-          cache-build: 'true'
+<bubblewrap background>
       - name: measure this machine's shards
         run:
         env:
@@ -495,7 +435,7 @@ fn top_level_keys(workflow: &str) -> Vec<&str> {
 }
 
 /// The steps several required jobs take word for word, held once.
-const SHARED_STEPS: [(&str, &str); 6] = [
+const SHARED_STEPS: [(&str, &str); 8] = [
     (
         "<local build runner>",
         r#"    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-24.04"]') }}"#,
@@ -524,6 +464,23 @@ const SHARED_STEPS: [(&str, &str); 6] = [
     (
         "<rust-cache>",
         "      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+    ),
+    (
+        "<linux machines>",
+        "    strategy:
+      fail-fast: false
+      matrix:
+        machine: [linux/1, linux/2, linux/3, linux/4, linux/5, linux/6, linux/7, linux/8]",
+    ),
+    (
+        "<bubblewrap background>",
+        "      - name: bubblewrap for the hands tests
+        id: bubblewrap
+        if: runner.environment != 'self-hosted'
+        uses: ./.github/actions/setup-bubblewrap
+        with:
+          protect-system-tree: 'background'
+          cache-build: 'true'",
     ),
     (
         "<coverage toolchain>",

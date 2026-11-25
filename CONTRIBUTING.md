@@ -10,10 +10,10 @@ judges it, sends findings back to a smith, and ships it, so the pull
 request names a run all the same (decision 0051).
 
 <!-- required-checks:start -->
-`main`'s branch protection, as observed on 2026-09-26 ([snapshot](.github/branch-protection.json)), requires 12 checks: `delivered by brokkr`, `baseline ratchets`, `MSRV (1.89)`, `format, clippy, contracts`, `test (ubuntu-latest)`, `test (macos-latest)`, `exact coverage gate`, `dependency licenses (cargo-deny)`, `non-Rust lints`, `RustSec dependency audit`, `release binary artifact`, and `mutants in the diff: brokkr-core`. It requires signed commits, does not require a branch to be up to date with `main`, does not require an approving review, and does not apply to administrators.
+`main`'s branch protection, as observed on 2026-11-25 ([snapshot](.github/branch-protection.json)), requires 11 checks: `delivered by brokkr`, `baseline ratchets`, `MSRV (1.89)`, `format, clippy, contracts`, `test (ubuntu-latest)`, `exact coverage gate`, `dependency licenses (cargo-deny)`, `non-Rust lints`, `RustSec dependency audit`, `release binary artifact`, and `mutants in the diff: brokkr-core`. It requires signed commits, does not require a branch to be up to date with `main`, does not require an approving review, and does not apply to administrators.
 <!-- required-checks:end -->
 
-`delivered by brokkr` is the check that enforces the run: it passes a pull request that names a completed run, or one the operator has given the visible `by-hand` label, which the gate itself reads. Because administrators are exempt, an administrator can still merge past it.
+`delivered by brokkr` is the check that enforces the run: it passes a pull request that names a completed run, or one the operator has given the visible `by-hand` label, which the gate itself reads. Because administrators are exempt, an administrator can still merge past it. Once this split lands, the controller adds `build (macos-latest)` — which compiles the workspace and every test target on macOS without running tests — to `main`'s required status checks; the macOS test shards and Seatbelt Gate A (`test (macos-latest)`) run nightly against `main` (`macos-tests.yml`), on `workflow_dispatch`, and in `release.yml` before publication (#1383, operator ruling 2026-11-25).
 
 ## 1. Install Brokkr
 
@@ -95,7 +95,7 @@ preflight` on the new head, named as `Brokkr-Preflight: <run-id>`; a code
 delta needs a new run. Only the operator may apply the visible `by-hand`
 escape-hatch label, and only where no landing can stand (decision 0051).
 
-Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit. A pull request that changes only documentation, `.md` pages under `docs/` or at the top level that no code names, runs [the docs lane](docs/guides/contributing-by-hand.md#the-docs-lane): the tests that read documentation, in minutes, in place of the test and coverage machines, and the three suite checks pass on that lane's own result. It still lands through the merge queue's full run (#1295).
+Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit. A pull request that changes only documentation, `.md` pages under `docs/` or at the top level that no code names, runs [the docs lane](docs/guides/contributing-by-hand.md#the-docs-lane): the tests that read documentation, in minutes, in place of the test and coverage machines, and the two suite checks pass on that lane's own result. It still lands through the merge queue's full run (#1295).
 
 ## 6. Dependency admission
 
@@ -112,7 +112,7 @@ allowlist, and cargo-deny and the RustSec audit read this same lockfile.
 Removal is blocked while Boa stays pinned at `=0.21.1` for the MSRV and
 the exact-served-code proof; this admission is revisited when Boa's icu range admits the newer normalizer.
 
-Curious about the machinery? [The by-hand guide](docs/guides/contributing-by-hand.md) preserves the twelve exact checks, coverage practicalities and refusals, signing walkthrough, decision culture, and frozen surfaces; a landing's verify seat runs `cargo fmt --all -- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, `cargo test --workspace` and `cargo run -p brokkr-cli -- library compile --bundle recipes/self`, and CI proves the rest (any non-Rust lint whose tool the seat cannot reach, which the seat names as not run, the MSRV, the suppression check, the `recipes/verify` compile, the suite in CI's own form on both OSes, exact coverage, cargo-deny, the diagram render and Renovate's validator, the ratchets, the RustSec audit, the release build and the mutants gate), so contributors do not need to run them.
+Curious about the machinery? [The by-hand guide](docs/guides/contributing-by-hand.md) preserves the eleven exact checks, coverage practicalities and refusals, signing walkthrough, decision culture, and frozen surfaces; a landing's verify seat runs `cargo fmt --all -- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, `cargo test --workspace` and `cargo run -p brokkr-cli -- library compile --bundle recipes/self`, and CI proves the rest (any non-Rust lint whose tool the seat cannot reach, which the seat names as not run, the MSRV, the suppression check, the `recipes/verify` compile, the suite in CI's own form on Linux (with `build (macos-latest)` compiling the workspace on macOS, and the macOS test shards running nightly, on dispatch and at release), exact coverage, cargo-deny, the diagram render and Renovate's validator, the ratchets, the RustSec audit, the release build and the mutants gate), so contributors do not need to run them.
 
 Contributions are dual licensed under Apache-2.0 OR MIT unless you say otherwise.
 

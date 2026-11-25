@@ -19,6 +19,8 @@ mod docs_lane;
 mod inline_copies;
 #[path = "contributing/job_lines.rs"]
 mod job_lines;
+#[path = "contributing/macos_split.rs"]
+mod macos_split;
 use inline_copies::{
     assert_first_words_listed, assert_inline_copies, assert_inline_only_used, text_reads_as_command,
 };
@@ -338,7 +340,7 @@ const VERDICT_LINES: [Line; 2] = [
 /// Every line each of the twelve checks' legs runs, in order: a skipped
 /// line such as an early `exit 0`, or a command moved into a branch that
 /// never runs, fails the test like a command the row left out.
-const LEG_LINES: [(&str, &[Line]); 12] = [
+const LEG_LINES: [(&str, &[Line]); 11] = [
     (
         "delivered by brokkr",
         &[
@@ -379,23 +381,6 @@ const LEG_LINES: [(&str, &[Line]); 12] = [
     (
         "test (ubuntu-latest)",
         &[
-            Line::Written,
-            Line::Written,
-            Line::Written,
-            VERDICT_LINES[0],
-            VERDICT_LINES[1],
-        ],
-    ),
-    (
-        "test (macos-latest)",
-        &[
-            Line::Written,
-            Line::Written,
-            Line::Unwritten("sw_vers"),
-            Line::Unwritten("uname -m"),
-            Line::Unwritten("test -x /usr/bin/sandbox-exec"),
-            Line::Written,
-            Line::Written,
             Line::Written,
             Line::Written,
             Line::Written,
@@ -583,6 +568,9 @@ fn workflow_legs(root: &Path, file: &'static str) -> Vec<WorkflowLeg> {
 
 fn job_legs(file: &'static str, id: &str, body: &[&str]) -> Vec<WorkflowLeg> {
     let field = |key: &str| body.iter().find_map(|line| line.strip_prefix(key));
+    if field("    uses: ").is_some() {
+        return Vec::new();
+    }
     let name = field("    name: ")
         .unwrap_or_else(|| panic!("{file}'s {id} has no name"))
         .trim_matches('\'');
@@ -857,7 +845,7 @@ struct CheckRow {
 
 fn check_rows(guide: &str) -> Vec<CheckRow> {
     let section = guide
-        .split_once("\n## The twelve checks\n")
+        .split_once("\n## The eleven checks\n")
         .expect("the guide has its checks section")
         .1
         .split_once("\n## ")
@@ -898,13 +886,12 @@ const REQUIRED_WORKFLOWS: [&str; 3] = ["pr-gates.yml", "ci.yml", "mutants.yml"];
 /// `.github/branch-protection.json`, holds these contexts, and
 /// `contributing_lists_the_checks_branch_protection_requires` holds this
 /// list to it.
-const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
+const MAIN_REQUIRES: [(&str, &str, &str); 11] = [
     ("delivered by brokkr", "delivered-by-brokkr", "pr-gates.yml"),
     ("baseline ratchets", "ratchets", "pr-gates.yml"),
     ("MSRV (1.89)", "msrv", "ci.yml"),
     ("format, clippy, contracts", "quality", "ci.yml"),
     ("test (ubuntu-latest)", "engine", "ci.yml"),
-    ("test (macos-latest)", "engine", "ci.yml"),
     ("exact coverage gate", "coverage-gate", "ci.yml"),
     (
         "dependency licenses (cargo-deny)",
@@ -941,7 +928,7 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         .collect();
     assert_eq!(
         listed, required,
-        "the guide lists the twelve checks main requires"
+        "the guide lists the eleven checks main requires"
     );
     let legs: Vec<WorkflowLeg> = REQUIRED_WORKFLOWS
         .into_iter()
@@ -1004,8 +991,8 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         );
     }
     let contributing = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
-    assert!(contributing.contains("preserves the twelve exact checks"));
-    assert!(guide.contains("twelve required checks"));
+    assert!(contributing.contains("preserves the eleven exact checks"));
+    assert!(guide.contains("eleven required checks"));
 }
 
 /// `.github/branch-protection.json`: the checked-in snapshot of what
@@ -1164,7 +1151,7 @@ const NOT_ON_PUSH: Fires = Fires {
 /// The `if:` conditions this test reads, what each does in a merge group,
 /// and the other events it runs on. Any other condition fails the test
 /// rather than being guessed at.
-const CONDITIONS: [(&str, InTheQueue, Fires); 18] = [
+const CONDITIONS: [(&str, InTheQueue, Fires); 20] = [
     // The docs lane (#1295): the classifier calls a merge group, and every
     // event but a pull request's, full, so the machines run there and the
     // docs lane does not.
@@ -1190,6 +1177,22 @@ const CONDITIONS: [(&str, InTheQueue, Fires); 18] = [
     ),
     (
         "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+        InTheQueue::Scheduled,
+        Fires {
+            pull_request: false,
+            push: false,
+        },
+    ),
+    (
+        "github.event_name == 'workflow_dispatch'",
+        InTheQueue::Scheduled,
+        Fires {
+            pull_request: false,
+            push: false,
+        },
+    ),
+    (
+        "always() && github.event_name == 'workflow_dispatch'",
         InTheQueue::Scheduled,
         Fires {
             pull_request: false,
@@ -1255,7 +1258,7 @@ const CONDITIONS: [(&str, InTheQueue, Fires); 18] = [
 
 /// Every job of the workflows the required checks live in, in file order,
 /// and what it does in a merge group.
-const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 26] = [
+const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 29] = [
     // It judges the run that the pull request's own description names for
     // its own head (decisions 0033, 0038), and a merge group carries no
     // description, labels or head repository. The queue lands that head's
@@ -1281,6 +1284,11 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 26] = [
     ("ci.yml", "engine-machines", InTheQueue::Runs),
     // The suite's verdicts run whatever the machines ended with.
     ("ci.yml", "engine", InTheQueue::Runs),
+    // The macOS workspace-and-tests compile check (#1383).
+    ("ci.yml", "build-macos", InTheQueue::Runs),
+    // Manual dispatch of the five macOS test shards (#1383); never in the queue.
+    ("ci.yml", "macos-machines", InTheQueue::Scheduled),
+    ("ci.yml", "macos-tests", InTheQueue::Scheduled),
     ("ci.yml", "seatbelt-lifetime", InTheQueue::Runs),
     ("ci.yml", "coverage-machines", InTheQueue::Runs),
     ("ci.yml", "coverage", InTheQueue::Runs),

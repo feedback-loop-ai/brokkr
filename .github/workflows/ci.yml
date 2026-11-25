@@ -195,58 +195,30 @@ jobs:
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
           BROKKR_REQUIRE_PIDNS: '1'
 
-  # The suite's machines (operator ruling 2026-11-01): one runner ran every
-  # shard one after another, and a hosted merge-queue run took 57 minutes
-  # on Linux and 42 on macOS, past 75 on a slow runner. Each machine below
-  # runs the shards scripts/test-shards.sh lays on it, still one after
-  # another, so a shard never shares its runner, and the machines run at
-  # once. `test (ubuntu-latest)` and `test (macos-latest)` are the `engine`
-  # job's verdicts over them, so the checks main requires keep their names.
+  # The Linux suite's machines (operator ruling 2026-11-01; macOS split out by
+  # operator ruling 2026-11-25, #1383): one runner ran every shard one after
+  # another, and a hosted merge-queue run took 57 minutes on Linux, past 75 on
+  # a slow runner. Each Linux machine below runs the shards
+  # scripts/test-shards.sh lays on it, still one after another, so a shard
+  # never shares its runner, and the machines run at once.
+  # `test (ubuntu-latest)` is the `engine` job's verdict over the Linux
+  # machines alone, so no macOS test shard can fail a pull request or merge
+  # group.
   engine-machines:
-    name: test (${{ matrix.os }}) on ${{ matrix.machine }}
+    name: test (ubuntu-latest) on ${{ matrix.machine }}
     needs: classify
     if: github.event_name != 'push' && needs.classify.outputs.lane != 'docs'
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            machine: linux/1
-          - os: ubuntu-latest
-            machine: linux/2
-          - os: ubuntu-latest
-            machine: linux/3
-          - os: ubuntu-latest
-            machine: linux/4
-          - os: ubuntu-latest
-            machine: linux/5
-          - os: ubuntu-latest
-            machine: linux/6
-          - os: ubuntu-latest
-            machine: linux/7
-          - os: ubuntu-latest
-            machine: linux/8
-          - os: macos-latest
-            machine: macos/1
-          - os: macos-latest
-            machine: macos/2
-          - os: macos-latest
-            machine: macos/3
-          - os: macos-latest
-            machine: macos/4
-          - os: macos-latest
-            machine: macos/5
-    runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os)) }}
-    # 45 on Linux and 60 on macOS, not the usual 20 (operator rulings
-    # 2026-10-09 to 2026-11-01, and 2026-11-11 for macOS): a machine's
-    # shards took about 20 minutes on a hosted runner, and its build and
-    # setup 3 to 5, and a slow hosted runner is a third slower. One runner
-    # running every shard took 57 minutes and was cancelled at 75 on a slow
-    # one (#940). On 2026-11-11 macos/1 ran past 45 twice in the merge
-    # queue, on runners GitHub named as under capacity constraints, so
-    # macOS's limit is 60 and its shards are rebalanced
-    # (scripts/test-shards.sh).
-    timeout-minutes: ${{ matrix.os == 'macos-latest' && 60 || 45 }}
+        machine: [linux/1, linux/2, linux/3, linux/4, linux/5, linux/6, linux/7, linux/8]
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || '["ubuntu-24.04"]') }}
+    # 45 on Linux, not the usual 20 (operator rulings 2026-10-09 to
+    # 2026-11-01): a machine's shards took about 20 minutes on a hosted runner,
+    # its build and setup 3 to 5, and a slow hosted runner is a third slower.
+    # One runner running every shard took 57 minutes and was cancelled at 75 on
+    # a slow one (#940).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -266,7 +238,7 @@ jobs:
       # (#647); nothing between here and the shards installs under /usr.
       - name: bubblewrap for the hands tests
         id: bubblewrap
-        if: runner.os == 'Linux' && runner.environment != 'self-hosted'
+        if: runner.environment != 'self-hosted'
         uses: ./.github/actions/setup-bubblewrap
         with:
           protect-system-tree: 'background'
@@ -280,77 +252,34 @@ jobs:
           # The machine whose shards this runner runs; a local run, with
           # none named, runs every shard.
           BROKKR_TEST_MACHINE: ${{ matrix.machine }}
-          # The protected set's directory, empty where the step was skipped
-          # (macOS), so nothing waits there (#647).
+          # The protected set's directory (#647).
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           # Decision 0054 ruling 9: a boundary proof that cannot open a
-          # namespace skips, and a skipped Rust test prints `ok`. On the
-          # Linux leg — the one that installed bubblewrap above and whose
-          # job is to produce this evidence — a skip is a failure. The
-          # other operating systems have no namespace to open, so they
-          # are left to skip.
-          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
+          # namespace skips, and a skipped Rust test prints `ok`. On Linux —
+          # which installed bubblewrap above and whose job is to produce this
+          # evidence — a skip is a failure.
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
           # #1137h: a test that delivers a real signal runs alone in a PID
-          # namespace of its own, and skips where none can be built. On
-          # the Linux leg, which installed bubblewrap above, a skip is a
-          # failure; macOS has no PID namespace and runs no such test.
-          BROKKR_REQUIRE_PIDNS: ${{ runner.os == 'Linux' && '1' || '' }}
-      # Decision 0046 slice II, design D3/D14: Gate A (startup) executes here
-      # and its durable report survives even when it fails. Gate B (lifetime)
-      # is the `seatbelt-lifetime` job below, whose gated driver re-runs the
-      # startup gate in its own process and marks the lifetime matrix `not
-      # run` if that verdict is not a pass for the exact helper/profile
-      # candidate. Both use real /usr/bin/sandbox-exec and real per-user
-      # launchctl; a missing tool, an outer box, zero selected cells or any
-      # unmet observation fails the step and never skips into success.
-      #
-      # The destructive launchd adapter is `#[ignore]`d so the generic parallel
-      # workspace suite runs only the host-independent model; these steps select
-      # it explicitly with `--ignored --exact`. The report-content checks make a
-      # mis-selection or an empty report a failure rather than a silent pass.
-      - name: R3 native startup gate
-        if: runner.os == 'macOS' && matrix.machine == 'macos/1'
-        run: |
-          set -euo pipefail
-          sw_vers
-          uname -m
-          test -x /usr/bin/sandbox-exec
-          cargo test --locked -p brokkr-seatbelt-probe --test seatbelt_lifetime_probe \
-            -- --ignored --exact --nocapture \
-            seatbelt_probe::native::native_startup_feasibility_probe \
-            2>&1 | tee target/r3-startup.log
-          grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
-          grep -q 'Gate A startup verdict' target/r3-startup-report.txt
-      - name: R3 native diagnostics
-        if: always() && runner.os == 'macOS' && matrix.machine == 'macos/1'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: r3-native-diagnostics
-          path: |
-            target/r3-startup.log
-            target/r3-startup-report.txt
-          if-no-files-found: warn
+          # namespace of its own, and skips where none can be built. On Linux,
+          # which installed bubblewrap above, a skip is a failure.
+          BROKKR_REQUIRE_PIDNS: '1'
       - name: self and verify bundles compile under the constitutional lint
         run: |
           cargo run --locked -p brokkr-cli -- library compile --bundle recipes/self
           cargo run --locked -p brokkr-cli -- library compile --bundle recipes/verify
 
-  # The checks main requires for the suite: each system's verdict over the
+  # The check main requires for the Linux suite: its verdict over the Linux
   # machines above, or over the docs lane on a docs change (#1295). It runs
   # whatever they ended with, `always()`, because a skipped job reports
   # success to a required check: a classifier that failed, a docs lane that
-  # did not pass on a docs change, or a machine that failed, was cancelled
-  # or never ran on any other fails both verdicts, and the job's own run
-  # names which. On `push` the machines skip by design, so the verdicts
-  # skip with them (#1295).
+  # did not pass on a docs change, or a Linux machine that failed, was
+  # cancelled or never ran on any other fails the verdict, and the job's own
+  # run names which. On `push` the machines skip by design, so the verdict
+  # skips with them (#1295).
   engine:
-    name: test (${{ matrix.os }})
+    name: test (ubuntu-latest)
     needs: [classify, docs-lane, engine-machines]
     if: always() && github.event_name != 'push'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -364,7 +293,53 @@ jobs:
           test "$CLASSIFIED" = success
           case "$LANE" in docs) test "$DOCS" = success ;; full) test "$MACHINES" = success ;; *) exit 1 ;; esac
 
-  # Gate A is a hard gate in `test (macos-latest)`: it passes, so it
+  # The macOS build check (#1383, operator ruling 2026-11-25): compiles the
+  # whole workspace and every test target with the locked dependencies and
+  # all features, and runs no test. Reuses the same rust-cache setup the
+  # macOS shards used (`pr-caches` warms `build-macos` on main), so a warm
+  # build takes about 3 to 5 minutes (up to ~12 cold); bounded at 30 minutes
+  # for slow hosted runners.
+  build-macos:
+    name: build (macos-latest)
+    if: github.event_name != 'push'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: workspace and test targets compile on macOS
+        run: cargo test --workspace --all-features --locked --no-run
+
+  # Manual dispatch of ci.yml also runs the five macOS test shards and Seatbelt
+  # Gate A via the one shared definition (macos-test-shards.yml), so a branch
+  # can prove the macOS suite on demand before merge (#1383). On pull requests
+  # and merge groups neither job runs; nightly runs live in macos-tests.yml.
+  macos-machines:
+    name: test (macos-latest) shards
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/macos-test-shards.yml
+    with:
+      use-cache: true
+
+  macos-tests:
+    name: test (macos-latest)
+    needs: macos-machines
+    if: always() && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: every macOS machine passed
+        env:
+          MACHINES: ${{ needs.macos-machines.result }}
+        run: test "$MACHINES" = success
+
+  # Gate A is a hard gate in `test (macos-latest)` (macos-test-shards.yml, run
+  # nightly, on dispatch and in release.yml): it passes, so it
   # protects a solved property. Gate B reports while #269 is open. The
   # launchd lease-pair teardown is tasks 1.29-1.33 of
   # boundary-seatbelt-slice-ii and all five are unticked, so this probe
@@ -911,7 +886,7 @@ jobs:
         include:
           - key: engine-machines
             os: ubuntu-24.04
-          - key: engine-machines
+          - key: build-macos
             os: macos-latest
           - key: seatbelt-lifetime
             os: macos-latest
@@ -939,6 +914,7 @@ jobs:
         run: |
           case "$KEY" in
             engine-machines) cargo test --workspace --all-features --locked --no-run ;;
+            build-macos) cargo test --workspace --all-features --locked --no-run ;;
             seatbelt-lifetime) cargo test --locked -p brokkr-seatbelt-probe --test seatbelt_lifetime_probe --no-run ;;
             bootstrap-budgets-macos) cargo build --release --locked -p brokkr-cli ;;
             packaging) cargo test --locked -p brokkr-cli --no-run ;;

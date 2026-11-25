@@ -104,9 +104,28 @@ jobs:
         env:
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
 
+  # The five macOS test shards and Seatbelt Gate A (#1383, operator ruling
+  # 2026-11-25): called from the one shared definition with no build cache
+  # restored (`use-cache` defaults to false), so the release stays cold-tree.
+  macos-machines:
+    name: test (macos-latest) shards
+    uses: ./.github/workflows/macos-test-shards.yml
+
+  macos-tests:
+    name: test (macos-latest)
+    needs: macos-machines
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: every macOS machine passed
+        env:
+          MACHINES: ${{ needs.macos-machines.result }}
+        run: test "$MACHINES" = success
+
   build:
     name: build (${{ matrix.name }})
-    needs: [verify, coverage]
+    needs: [verify, coverage, macos-tests]
     permissions:
       contents: read
       id-token: write
@@ -190,7 +209,7 @@ jobs:
 
   publish:
     name: publish release
-    needs: build
+    needs: [build, macos-tests]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

@@ -1,0 +1,81 @@
+name: macOS tests
+
+# The macOS test suite and Seatbelt Gate A (#1383, operator ruling 2026-11-25):
+# runs nightly against main and on manual dispatch, using the same jobs for
+# both so a dispatch run proves the scheduled path. A failing nightly opens or
+# updates one issue carrying the `macos-nightly` label; a passing nightly
+# leaves any open issue for a person to close.
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  macos-machines:
+    name: test (macos-latest) shards
+    uses: ./.github/workflows/macos-test-shards.yml
+    with:
+      use-cache: true
+
+  macos-tests:
+    name: test (macos-latest)
+    needs: macos-machines
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: every macOS machine passed
+        env:
+          MACHINES: ${{ needs.macos-machines.result }}
+        run: test "$MACHINES" = success
+
+  notify-failure:
+    name: report nightly macOS test failure
+    needs: [macos-machines, macos-tests]
+    if: always() && github.event_name == 'schedule' && needs.macos-tests.result != 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: open or update the nightly macOS failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+          VERDICT: ${{ needs.macos-tests.result }}
+          LABEL: macos-nightly
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/labels/${LABEL}" >/dev/null 2>&1 || \
+            gh api -X POST "repos/${REPO}/labels" \
+              -f name="$LABEL" \
+              -f color="b60205" \
+              -f description="Nightly macOS test suite failure" >/dev/null
+          failed_jobs="$(gh api --paginate "repos/${REPO}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+            --jq '.jobs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped") | "- `\(.name)` (\(.conclusion)): \(.html_url)"')"
+          if [ -z "$failed_jobs" ]; then
+            failed_jobs="- \`test (macos-latest)\` (${VERDICT})"
+          fi
+          today="$(date -u +%Y-%m-%d)"
+          body="$(printf 'Nightly macOS test run failed on %s (`%s`).\n\n- Run: %s\n- Verdict: `%s`\n\n## Failed jobs\n\n%s\n\nA passing nightly leaves this issue open; close it once investigated.' "$today" "$HEAD_SHA" "$RUN_URL" "$VERDICT" "$failed_jobs")"
+          existing="$(gh api "repos/${REPO}/issues?labels=${LABEL}&state=open&per_page=100" \
+            --jq '[.[] | select(.pull_request == null)] | sort_by(.number) | .[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/${REPO}/issues/${existing}" -f body="$body" >/dev/null
+          else
+            gh api -X POST "repos/${REPO}/issues" \
+              -f title="Nightly macOS tests failed" \
+              -f body="$body" \
+              -f "labels[]=${LABEL}" >/dev/null
+          fi

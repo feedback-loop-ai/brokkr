@@ -1,0 +1,83 @@
+name: macOS test shards
+
+# The five macOS test shards and Seatbelt Gate A (#1383, operator ruling
+# 2026-11-25): one definition called by macos-tests.yml (nightly against main
+# and manual dispatch), ci.yml (manual dispatch) and release.yml (cold tree,
+# before publication). Each caller defines its own verdict job named
+# `test (macos-latest)` so the verdict keeps that exact check name wherever it
+# runs without a reusable-workflow prefix.
+on:
+  workflow_call:
+    inputs:
+      use-cache:
+        description: Restore and save Swatinem/rust-cache (true on nightly/dispatch, false on cold release runs)
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  macos-machines:
+    name: test (macos-latest) on ${{ matrix.machine }}
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]
+    runs-on: macos-latest
+    # 60, not the usual 20 (operator ruling 2026-11-11): macOS shards are
+    # rebalanced across five runners (scripts/test-shards.sh), and slow hosted
+    # runners under capacity constraints can run past 45 minutes.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      # Reuses build-macos's warm cache on nightly and dispatch runs; release
+      # calls leave `use-cache` false so releases build from a cold tree.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: inputs.use-cache
+        with:
+          shared-key: build-macos
+      # The suite `cargo test --workspace --all-features --locked
+      # --no-fail-fast` runs, each test target macOS compiles once, as shards
+      # one after another (#633).
+      - run: bash scripts/test-shards.sh test --parallel-heaps
+        env:
+          BROKKR_TEST_MACHINE: ${{ matrix.machine }}
+      # Decision 0046 slice II, design D3/D14: Gate A (startup) executes here
+      # and its durable report survives even when it fails. Gate B (lifetime)
+      # is ci.yml's `seatbelt-lifetime` job. Both use real
+      # /usr/bin/sandbox-exec and real per-user launchctl; a missing tool, an
+      # outer box, zero selected cells or any unmet observation fails the step
+      # and never skips into success.
+      - name: R3 native startup gate
+        if: matrix.machine == 'macos/1'
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -m
+          test -x /usr/bin/sandbox-exec
+          cargo test --locked -p brokkr-seatbelt-probe --test seatbelt_lifetime_probe \
+            -- --ignored --exact --nocapture \
+            seatbelt_probe::native::native_startup_feasibility_probe \
+            2>&1 | tee target/r3-startup.log
+          grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
+          grep -q 'Gate A startup verdict' target/r3-startup-report.txt
+      - name: R3 native diagnostics
+        if: always() && matrix.machine == 'macos/1'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: r3-native-diagnostics
+          path: |
+            target/r3-startup.log
+            target/r3-startup-report.txt
+          if-no-files-found: warn
+      - name: self and verify bundles compile under the constitutional lint
+        run: |
+          cargo run --locked -p brokkr-cli -- library compile --bundle recipes/self
+          cargo run --locked -p brokkr-cli -- library compile --bundle recipes/verify
