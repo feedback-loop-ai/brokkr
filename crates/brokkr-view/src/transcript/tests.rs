@@ -410,15 +410,7 @@ fn codex_projects_ordered_content() {
     assert!(projection.unavailable.is_none());
     assert_eq!(projection.turns.len(), 4);
     assert_eq!(projection.turns[0].role, "user");
-    assert_eq!(projection.turns[1].blocks, vec![Block::reasoning("think")]);
-    assert_eq!(
-        projection.turns[2].blocks,
-        vec![Block::tool("Read {} [c1]")]
-    );
-    assert_eq!(
-        projection.turns[3].blocks,
-        vec![Block::tool_result("ok [c1]")]
-    );
+    assert_codex_reasoning_and_tool_exchange(&projection);
 }
 
 #[test]
@@ -562,6 +554,39 @@ fn project_text(kind: TranscriptKind, text: &str) -> Projection {
 
 fn codex(text: &str) -> Projection {
     project_text(TranscriptKind::CodexThread, text)
+}
+
+fn codex_rows<const N: usize>(rows: [serde_json::Value; N]) -> Projection {
+    codex(&rows.map(row).concat())
+}
+
+fn codex_turns_with_first_block<const N: usize>(
+    rows: [serde_json::Value; N],
+    count: usize,
+    first: Block,
+) -> Projection {
+    let projection = codex_rows(rows);
+    assert_eq!(projection.turns.len(), count);
+    assert_eq!(projection.turns[0].blocks, vec![first]);
+    projection
+}
+
+fn assert_recognized_turns(projection: &Projection, count: usize) {
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.turns.len(), count);
+}
+
+fn assert_codex_reasoning_and_tool_exchange(projection: &Projection) {
+    assert_eq!(projection.turns[1].blocks, vec![Block::reasoning("think")]);
+    assert_eq!(
+        projection.turns[2].blocks,
+        vec![Block::tool("Read {} [c1]")]
+    );
+    assert_eq!(
+        projection.turns[3].blocks,
+        vec![Block::tool_result("ok [c1]")]
+    );
 }
 
 pub(super) fn dsh(text: &str) -> Projection {
@@ -728,32 +753,21 @@ fn codex_five_record_ruling_reads_in_order() {
 
 #[test]
 fn codex_canonical_records_beside_matching_events_show_once() {
-    let text = [
-        row(json!({"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"m1","content":[{"type":"output_text","text":"canonical"}]}})),
-        row(json!({"timestamp":"2026-01-01T00:00:01.500Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"mirror"}]}}})),
-        row(json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"think"}]}})),
-        row(json!({"timestamp":"2026-01-01T00:00:02.500Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"r1","summary_text":["think"]}}})),
-        row(json!({"timestamp":"2026-01-01T00:00:03Z","type":"response_item","payload":{"type":"function_call","name":"Read","call_id":"c1","arguments":"{}"}})),
-        row(json!({"timestamp":"2026-01-01T00:00:03.500Z","type":"event_msg","payload":{"type":"exec_command_begin","call_id":"c1","command":"ls"}})),
-        row(json!({"timestamp":"2026-01-01T00:00:04Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}})),
-        row(json!({"timestamp":"2026-01-01T00:00:04.500Z","type":"event_msg","payload":{"type":"exec_command_end","call_id":"c1","stdout":"ok"}})),
-    ]
-    .concat();
-    let projection = codex(&text);
-    assert!(projection.unavailable.is_none());
-    assert_eq!(projection.unrecognized_records, 0);
-    assert_eq!(projection.turns.len(), 4);
+    let rows = [
+        json!({"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"m1","content":[{"type":"output_text","text":"canonical"}]}}),
+        json!({"timestamp":"2026-01-01T00:00:01.500Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"mirror"}]}}}),
+        json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"think"}]}}),
+        json!({"timestamp":"2026-01-01T00:00:02.500Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"r1","summary_text":["think"]}}}),
+        json!({"timestamp":"2026-01-01T00:00:03Z","type":"response_item","payload":{"type":"function_call","name":"Read","call_id":"c1","arguments":"{}"}}),
+        json!({"timestamp":"2026-01-01T00:00:03.500Z","type":"event_msg","payload":{"type":"exec_command_begin","call_id":"c1","command":"ls"}}),
+        json!({"timestamp":"2026-01-01T00:00:04Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}}),
+        json!({"timestamp":"2026-01-01T00:00:04.500Z","type":"event_msg","payload":{"type":"exec_command_end","call_id":"c1","stdout":"ok"}}),
+    ];
+    let projection = codex_rows(rows);
+    assert_recognized_turns(&projection, 4);
     assert_eq!(projection.turns[0].blocks, vec![Block::text("canonical")]);
     assert_eq!(projection.turns[0].ts, "2026-01-01T00:00:01Z");
-    assert_eq!(projection.turns[1].blocks, vec![Block::reasoning("think")]);
-    assert_eq!(
-        projection.turns[2].blocks,
-        vec![Block::tool("Read {} [c1]")]
-    );
-    assert_eq!(
-        projection.turns[3].blocks,
-        vec![Block::tool_result("ok [c1]")]
-    );
+    assert_codex_reasoning_and_tool_exchange(&projection);
 }
 
 #[test]
@@ -786,15 +800,12 @@ fn codex_event_only_snapshot_reads_all_five_kinds() {
 
 #[test]
 fn codex_late_canonical_replaces_fallback_and_keeps_unrelated_events() {
-    let text = [
-        row(json!({"timestamp":"2026-01-01T00:00:01Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"fallback"}]}}})),
-        row(json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"m1","content":[{"type":"output_text","text":"canonical"}]}})),
-        row(json!({"timestamp":"2026-01-01T00:00:03Z","type":"event_msg","payload":{"type":"user_message","message":"unrelated"}})),
-    ]
-    .concat();
-    let projection = codex(&text);
-    assert_eq!(projection.turns.len(), 2);
-    assert_eq!(projection.turns[0].blocks, vec![Block::text("canonical")]);
+    let rows = [
+        json!({"timestamp":"2026-01-01T00:00:01Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"m1","content":[{"type":"output_text","text":"fallback"}]}}}),
+        json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"m1","content":[{"type":"output_text","text":"canonical"}]}}),
+        json!({"timestamp":"2026-01-01T00:00:03Z","type":"event_msg","payload":{"type":"user_message","message":"unrelated"}}),
+    ];
+    let projection = codex_turns_with_first_block(rows, 2, Block::text("canonical"));
     assert_eq!(projection.turns[0].ts, "2026-01-01T00:00:02Z");
     assert_eq!(projection.turns[1].blocks, vec![Block::text("unrelated")]);
 }
@@ -855,28 +866,22 @@ fn codex_identical_text_with_distinct_identities_is_kept_twice() {
 
 #[test]
 fn codex_two_calls_with_equal_arguments_keep_distinct_ids() {
-    let text = [
-        row(json!({"type":"response_item","payload":{"type":"function_call","name":"F","call_id":"c1","arguments":"{}"}})),
-        row(json!({"type":"response_item","payload":{"type":"function_call","name":"F","call_id":"c2","arguments":"{}"}})),
-    ]
-    .concat();
-    let projection = codex(&text);
-    assert_eq!(projection.turns.len(), 2);
-    assert_eq!(projection.turns[0].blocks, vec![Block::tool("F {} [c1]")]);
+    let rows = [
+        json!({"type":"response_item","payload":{"type":"function_call","name":"F","call_id":"c1","arguments":"{}"}}),
+        json!({"type":"response_item","payload":{"type":"function_call","name":"F","call_id":"c2","arguments":"{}"}}),
+    ];
+    let projection = codex_turns_with_first_block(rows, 2, Block::tool("F {} [c1]"));
     assert_eq!(projection.turns[1].blocks, vec![Block::tool("F {} [c2]")]);
 }
 
 #[test]
 fn codex_orphan_output_and_encrypted_reasoning_are_honest() {
-    let text = [
-        row(json!({"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c9","output":"orphan"}})),
-        row(json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"reasoning","id":"r9","encrypted_content":"AAAA"}})),
-    ]
-    .concat();
-    let projection = codex(&text);
-    assert!(projection.unavailable.is_none());
-    assert_eq!(projection.unrecognized_records, 0);
-    assert_eq!(projection.turns.len(), 1);
+    let rows = [
+        json!({"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c9","output":"orphan"}}),
+        json!({"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"reasoning","id":"r9","encrypted_content":"AAAA"}}),
+    ];
+    let projection = codex_rows(rows);
+    assert_recognized_turns(&projection, 1);
     assert_eq!(
         projection.turns[0].blocks,
         vec![Block::tool_result("orphan [c9]")]
@@ -962,14 +967,11 @@ fn codex_mcp_and_dynamic_records_keep_their_measured_context() {
 
 #[test]
 fn codex_direction_separates_calls_from_results() {
-    let text = [
-        row(json!({"type":"response_item","payload":{"type":"function_call","name":"F","call_id":"c1","arguments":"{}"}})),
-        row(json!({"type":"event_msg","payload":{"type":"exec_command_end","call_id":"c1","stdout":"ok"}})),
-    ]
-    .concat();
-    let projection = codex(&text);
-    assert_eq!(projection.turns.len(), 2);
-    assert_eq!(projection.turns[0].blocks, vec![Block::tool("F {} [c1]")]);
+    let rows = [
+        json!({"type":"response_item","payload":{"type":"function_call","name":"F","call_id":"c1","arguments":"{}"}}),
+        json!({"type":"event_msg","payload":{"type":"exec_command_end","call_id":"c1","stdout":"ok"}}),
+    ];
+    let projection = codex_turns_with_first_block(rows, 2, Block::tool("F {} [c1]"));
     assert_eq!(
         projection.turns[1].blocks,
         vec![Block::tool_result("ok [c1]")]
@@ -1003,14 +1005,11 @@ fn codex_colliding_identities_suppress_nothing() {
 fn codex_composite_event_keeps_its_uncovered_output() {
     // The canonical call covers only the event's call block; the output
     // has no canonical counterpart and stays visible.
-    let text = [
-        row(json!({"type":"response_item","payload":{"type":"function_call","name":"ls","call_id":"c2","arguments":"{}"}})),
-        row(json!({"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"c2","command":"ls","stdout":"files"}}})),
-    ]
-    .concat();
-    let projection = codex(&text);
-    assert_eq!(projection.turns.len(), 2);
-    assert_eq!(projection.turns[0].blocks, vec![Block::tool("ls {} [c2]")]);
+    let rows = [
+        json!({"type":"response_item","payload":{"type":"function_call","name":"ls","call_id":"c2","arguments":"{}"}}),
+        json!({"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"c2","command":"ls","stdout":"files"}}}),
+    ];
+    let projection = codex_turns_with_first_block(rows, 2, Block::tool("ls {} [c2]"));
     assert_eq!(projection.turns[1].role, "assistant");
     assert_eq!(
         projection.turns[1].blocks,
@@ -2095,9 +2094,7 @@ fn codex_media_parts_name_their_class() {
         "content":[{"type":"input_text","text":"see"},{"type":"input_image"},
                    {"type":"input_audio"}]},"timestamp":"2026-01-01T00:00:01Z"}));
     let projection = codex(&text);
-    assert!(projection.unavailable.is_none());
-    assert_eq!(projection.unrecognized_records, 0);
-    assert_eq!(projection.turns.len(), 1);
+    assert_recognized_turns(&projection, 1);
     assert_eq!(
         projection.turns[0].blocks,
         vec![

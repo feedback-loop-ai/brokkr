@@ -56,7 +56,6 @@ pub(super) fn timestamp(word: &str) -> bool {
     let zone = if let Some(fraction) = rest.strip_prefix(b".") {
         let digits = fraction
             .iter()
-            .take(MAX_FRACTION_DIGITS + 1)
             .take_while(|byte| byte.is_ascii_digit())
             .count();
         if !(1..=MAX_FRACTION_DIGITS).contains(&digits) {

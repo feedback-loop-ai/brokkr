@@ -228,6 +228,16 @@ fn read_document(output: &std::process::Output) -> Value {
     })
 }
 
+fn read_available_seat_transcript(world: &World, path: &str) -> Value {
+    let output = seat_json(&world.db, &world.home, world.path());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    let document = read_document(&output);
+    assert_eq!(document["unavailable"], Value::Null);
+    assert_eq!(document["path"], path);
+    document
+}
+
 /// Materialize one Claude transcript under an immediate project directory.
 fn write_claude(world: &World, id: &str, body: &str) -> String {
     let project = world.projects().join("project");
@@ -277,18 +287,7 @@ fn a_readable_claude_source_serializes_its_turns() {
         "abcd-1234",
         "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hello\"},\"timestamp\":\"2026-01-01T00:00:01Z\"}\n",
     );
-    let output = run(
-        &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
-    );
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(document["unavailable"], Value::Null);
-    assert_eq!(document["path"], path);
+    let document = read_available_seat_transcript(&world, &path);
     assert_eq!(document["turns"][0]["role"], "assistant");
     assert_eq!(document["turns"][0]["blocks"][0]["text"], "hello");
     assert_eq!(
@@ -455,18 +454,7 @@ fn a_headerless_codex_rollout_is_readable() {
         json!({"kind": "codex-thread", "locator": "0199mine",
                "home": world.home.to_str().unwrap()}),
     );
-    let output = run(
-        &world,
-        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
-    );
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(document["unavailable"], Value::Null);
-    assert_eq!(document["path"], path);
+    let document = read_available_seat_transcript(&world, &path);
     assert!(document["turns"].as_array().unwrap().is_empty());
     assert_eq!(
         document["full_session"],
