@@ -8,20 +8,11 @@ use super::{events, needs_of, workspace};
 use crate::workflow;
 
 /// Missing workflow job lookup error (decision 0071 ruling 8).
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 enum JobLookupError {
+    #[error("{file} has no {id} job")]
     Missing { file: String, id: String },
 }
-
-impl std::fmt::Display for JobLookupError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Missing { file, id } => write!(f, "{file} has no {id} job"),
-        }
-    }
-}
-
-impl std::error::Error for JobLookupError {}
 
 /// Owned body of job `id` in `text`, or a typed missing-job error naming `file`.
 fn job_of(text: &str, file: &str, id: &str) -> Result<String, JobLookupError> {
@@ -276,6 +267,11 @@ fn check_nightly_workflow(nightly: &str, problems: &mut Vec<String>) {
                 "macos-tests.yml concurrency group `{group}` varies per commit/ref and lets two scheduled runs race"
             ));
         }
+        Some(group) if !group.contains("github.event_name") => {
+            problems.push(format!(
+                "macos-tests.yml concurrency group `{group}` shares pending slots between schedule and workflow_dispatch"
+            ));
+        }
         Some(_) => {}
     }
     if conc.get("cancel-in-progress").map(String::as_str) != Some("false") {
@@ -324,11 +320,15 @@ fn check_nightly_workflow(nightly: &str, problems: &mut Vec<String>) {
             if body.contains("contents: write") {
                 problems.push("notify-failure asks for contents: write".to_string());
             }
-            let lookup =
-                body.find("existing=\"$(gh api \"repos/${REPO}/issues?labels=${LABEL}&state=open");
+            let lookup = body.find(
+                "existing=\"$(gh api --paginate \"repos/${REPO}/issues?labels=${LABEL}&state=open",
+            );
             let create = body.find("gh api -X POST \"repos/${REPO}/issues\"");
             if !matches!((lookup, create), (Some(l), Some(c)) if l < c) {
-                problems.push("notify-failure does not look up the open issue immediately before creating one".to_string());
+                problems.push(
+                    "notify-failure does not paginate open issues immediately before creating one"
+                        .to_string(),
+                );
             }
         }
         Err(err) => problems.push(err.to_string()),
@@ -430,7 +430,7 @@ fn macos_test_shards_run_nightly_on_dispatch_and_in_release_with_failure_issue()
     );
 
     let mut_sha_group = nightly.replacen(
-        "  group: macos-tests\n",
+        "  group: macos-tests-${{ github.event_name }}\n",
         "  group: macos-tests-${{ github.sha }}\n",
         1,
     );
@@ -438,6 +438,28 @@ fn macos_test_shards_run_nightly_on_dispatch_and_in_release_with_failure_issue()
     assert!(
         !macos_shards_and_nightly_problems(&shards, &mut_sha_group, &ci, &release).is_empty(),
         "per-commit concurrency group on macos-tests.yml must fail"
+    );
+
+    let mut_shared_group = nightly.replacen(
+        "  group: macos-tests-${{ github.event_name }}\n",
+        "  group: macos-tests\n",
+        1,
+    );
+    assert_ne!(mut_shared_group, nightly);
+    assert!(
+        !macos_shards_and_nightly_problems(&shards, &mut_shared_group, &ci, &release).is_empty(),
+        "shared concurrency group across schedule and dispatch must fail"
+    );
+
+    let mut_unpaginated = nightly.replacen(
+        "existing=\"$(gh api --paginate \"repos/${REPO}/issues?labels=${LABEL}&state=open",
+        "existing=\"$(gh api \"repos/${REPO}/issues?labels=${LABEL}&state=open",
+        1,
+    );
+    assert_ne!(mut_unpaginated, nightly);
+    assert!(
+        !macos_shards_and_nightly_problems(&shards, &mut_unpaginated, &ci, &release).is_empty(),
+        "unpaginated nightly issue lookup must fail"
     );
 
     let missing = job_of(&ci, "ci.yml", "no-such-job").unwrap_err();
@@ -471,6 +493,76 @@ fn contributing_records_macos_build_handoff_and_shard_schedule() {
     }
 }
 
+/// Parse a single-line YAML scalar into an exact literal string, returning
+/// `None` for empty values, multiline block scalars, YAML forms we do not
+/// evaluate (anchors, flow collections, double-quoted escapes), or GitHub
+/// Actions `${{ ... }}` expressions (decision 0071 rulings 5 and 9).
+fn parse_yaml_literal(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let value = if let Some(rest) = raw.strip_prefix('"') {
+        parse_double_quoted_yaml(rest)?
+    } else if let Some(rest) = raw.strip_prefix('\'') {
+        parse_single_quoted_yaml(rest)?
+    } else {
+        parse_plain_yaml(raw)?
+    };
+    (!value.is_empty() && !value.contains("${{")).then_some(value)
+}
+
+fn parse_double_quoted_yaml(rest: &str) -> Option<String> {
+    let (inner, after) = rest.split_once('"')?;
+    if inner.contains('\\') {
+        return None;
+    }
+    let tail = after.trim_start();
+    (tail.is_empty() || tail.starts_with('#')).then(|| inner.to_string())
+}
+
+fn parse_single_quoted_yaml(rest: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut chars = rest.char_indices().peekable();
+    while let Some((idx, ch)) = chars.next() {
+        if ch != '\'' {
+            out.push(ch);
+            continue;
+        }
+        if matches!(chars.peek(), Some(&(_, '\''))) {
+            chars.next();
+            out.push('\'');
+            continue;
+        }
+        let tail = rest[idx + 1..].trim_start();
+        return (tail.is_empty() || tail.starts_with('#')).then_some(out);
+    }
+    None
+}
+
+fn parse_plain_yaml(raw: &str) -> Option<String> {
+    let comment_at = raw.char_indices().find_map(|(i, ch)| {
+        let prev_ws = i == 0
+            || raw[..i]
+                .chars()
+                .next_back()
+                .is_some_and(char::is_whitespace);
+        (ch == '#' && prev_ws).then_some(i)
+    });
+    let value = match comment_at {
+        Some(idx) => raw[..idx].trim_end(),
+        None => raw,
+    };
+    let first = value.chars().next()?;
+    if matches!(
+        first,
+        '&' | '*' | '!' | '{' | '}' | '[' | ']' | '|' | '>' | '%' | '@' | '`' | ',' | '?' | ':'
+    ) {
+        return None;
+    }
+    Some(value.to_string())
+}
+
 /// Parse the `build` matrix in `release.yml`, returning `(all_names, linux_pkg_names)`.
 fn build_matrix_artifact_names(build_body: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     let mut all = BTreeSet::new();
@@ -486,7 +578,7 @@ fn build_matrix_artifact_names(build_body: &str) -> (BTreeSet<String>, BTreeSet<
                 continue;
             };
             match k.trim() {
-                "name" => name = Some(v.trim().to_string()),
+                "name" => name = parse_yaml_literal(v),
                 "nfpm_arch" => has_nfpm = true,
                 _ => {}
             }
@@ -515,16 +607,16 @@ fn step_action_with_blocks(job_body: &str, action_prefix: &str) -> Vec<BTreeMap<
             current.push(line);
         }
     }
-    let needle = format!("uses: {action_prefix}@");
+    let action_at = format!("{action_prefix}@");
     steps
         .into_iter()
         .filter(|step| {
             step.iter().any(|line| {
                 let trimmed = line.trim_start();
-                trimmed
-                    .strip_prefix("- ")
-                    .unwrap_or(trimmed)
-                    .starts_with(&needle)
+                let body = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+                body.strip_prefix("uses:")
+                    .map(|rest| rest.trim().trim_matches(['\'', '"']))
+                    .is_some_and(|used| used.starts_with(&action_at))
             })
         })
         .map(|step| parse_with_map(&step))
@@ -570,9 +662,36 @@ fn called_local_workflows(workflow_text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Check that every `actions/download-artifact` step in `job_id` selects an
-/// exact literal artifact name (no bare "all artifacts", no `merge-multiple`,
-/// no `pattern`, no wildcards) and matches `expected` when required.
+/// Check that a `download-artifact` step's `with:` keys stay within
+/// `{name, path}`, rejecting cross-run selectors (`run-id`, `repository`,
+/// `github-token`), `pattern`, `merge-multiple`, and any unknown input.
+fn check_download_with_keys(
+    job_id: &str,
+    with: &BTreeMap<String, String>,
+    problems: &mut Vec<String>,
+) {
+    for key in with.keys() {
+        match key.as_str() {
+            "name" | "path" => {}
+            "pattern" => problems.push(format!(
+                "release.yml's {job_id} downloads artifacts by pattern instead of exact build name"
+            )),
+            "merge-multiple" => problems.push(format!(
+                "release.yml's {job_id} uses merge-multiple instead of exact build artifact names"
+            )),
+            "run-id" | "repository" | "github-token" => problems.push(format!(
+                "release.yml's {job_id} sets `{key}` on download-artifact, which selects artifacts outside the current run"
+            )),
+            other => problems.push(format!(
+                "release.yml's {job_id} sets unexpected download-artifact input `{other}`"
+            )),
+        }
+    }
+}
+
+/// Check that every `actions/download-artifact` step in `job_id` stays bound to
+/// the current workflow run, selects an exact literal artifact name from
+/// `allowed`, and matches `expected` when required.
 fn check_job_downloads(
     job_id: &str,
     body: &str,
@@ -582,38 +701,27 @@ fn check_job_downloads(
 ) {
     let mut seen = BTreeSet::new();
     for with in step_action_with_blocks(body, "actions/download-artifact") {
-        if with.contains_key("pattern") {
-            problems.push(format!(
-                "release.yml's {job_id} downloads artifacts by pattern instead of exact build name"
-            ));
-        }
-        if with.get("merge-multiple").map(String::as_str) == Some("true") {
-            problems.push(format!(
-                "release.yml's {job_id} uses merge-multiple instead of exact build artifact names"
-            ));
-        }
+        check_download_with_keys(job_id, &with, problems);
         match with.get("name") {
             None => problems.push(format!(
                 "release.yml's {job_id} downloads all artifacts of the run without an exact name"
             )),
-            Some(name)
-                if name.contains('*')
-                    || name.contains('?')
-                    || name.contains('[')
-                    || name.contains("${{") =>
-            {
-                problems.push(format!(
-                    "release.yml's {job_id} download name `{name}` is not an exact literal name"
-                ));
-            }
-            Some(name) => {
-                if !allowed.contains(name) {
-                    problems.push(format!(
-                        "release.yml's {job_id} downloads `{name}`, which is not a build matrix artifact"
-                    ));
+            Some(raw) => match parse_yaml_literal(raw) {
+                None => problems.push(format!(
+                    "release.yml's {job_id} download name `{raw}` is not an exact literal name"
+                )),
+                Some(name) if name.contains(['*', '?', '[']) => problems.push(format!(
+                    "release.yml's {job_id} download name `{name}` contains wildcard characters"
+                )),
+                Some(name) => {
+                    if !allowed.contains(&name) {
+                        problems.push(format!(
+                            "release.yml's {job_id} downloads `{name}`, which is not an allowed build artifact"
+                        ));
+                    }
+                    seen.insert(name);
                 }
-                seen.insert(name.clone());
-            }
+            },
         }
     }
     if let Some(expected) = expected {
@@ -625,8 +733,8 @@ fn check_job_downloads(
     }
 }
 
-/// Check that no `actions/upload-artifact` step in `body` collides with any
-/// `build` artifact name downloaded by the release publisher or pages job.
+/// Check that every `actions/upload-artifact` step in `body` uses a resolved
+/// literal name that cannot collide with any `build` artifact name.
 fn check_non_build_uploads(
     source: &str,
     job_id: &str,
@@ -637,10 +745,15 @@ fn check_non_build_uploads(
     for with in step_action_with_blocks(body, "actions/upload-artifact") {
         match with.get("name") {
             None => problems.push(format!("{source}'s {job_id} uploads an unnamed artifact")),
-            Some(name) if build_names.contains(name) => problems.push(format!(
-                "{source}'s {job_id} uploads `{name}`, which collides with a build artifact"
-            )),
-            Some(_) => {}
+            Some(raw) => match parse_yaml_literal(raw) {
+                None => problems.push(format!(
+                    "{source}'s {job_id} uploads unresolved artifact name `{raw}`"
+                )),
+                Some(name) if build_names.contains(&name) => problems.push(format!(
+                    "{source}'s {job_id} uploads `{name}`, which collides with a build artifact"
+                )),
+                Some(_) => {}
+            },
         }
     }
 }
@@ -674,9 +787,17 @@ fn release_artifact_provenance_problems(
     if build_names.is_empty() || linux_pkg_names.is_empty() {
         problems.push("release.yml's build matrix yielded no artifact names".to_string());
     }
+    let no_artifacts = BTreeSet::new();
     let (mut saw_publish, mut saw_pages) = (false, false);
     for (id, body) in workflow::jobs(release) {
         if id == "build" {
+            check_job_downloads(
+                "build",
+                &body,
+                Some(&no_artifacts),
+                &no_artifacts,
+                &mut problems,
+            );
             continue;
         }
         check_non_build_uploads("release.yml", &id, &body, &build_names, &mut problems);
@@ -722,17 +843,38 @@ fn release_artifact_provenance_problems(
     problems
 }
 
-#[test]
-fn release_publishes_only_build_matrix_artifacts() {
+fn release_and_called() -> (String, BTreeMap<String, String>) {
     let root = workspace();
     let release = std::fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
-    let called: BTreeMap<String, String> = called_local_workflows(&release)
+    let called = called_local_workflows(&release)
         .into_iter()
         .map(|path| {
             let text = std::fs::read_to_string(root.join(&path)).unwrap();
             (path, text)
         })
         .collect();
+    (release, called)
+}
+
+fn with_shard_upload_name(
+    called: &BTreeMap<String, String>,
+    replacement: &str,
+) -> BTreeMap<String, String> {
+    let mut mutated = called.clone();
+    let shards = mutated
+        .get_mut(".github/workflows/macos-test-shards.yml")
+        .unwrap();
+    *shards = shards.replacen(
+        "          name: r3-native-diagnostics\n",
+        &format!("          name: {replacement}\n"),
+        1,
+    );
+    mutated
+}
+
+#[test]
+fn release_publishes_only_build_matrix_artifacts() {
+    let (release, called) = release_and_called();
     assert!(
         called.contains_key(".github/workflows/macos-test-shards.yml"),
         "release.yml must call macos-test-shards.yml"
@@ -789,17 +931,73 @@ fn release_publishes_only_build_matrix_artifacts() {
         "an extra non-build upload in macos-test-shards.yml cannot reach publish"
     );
 
-    let mut called_collide = called.clone();
-    let shards_collide = called_collide
-        .get_mut(".github/workflows/macos-test-shards.yml")
-        .unwrap();
-    *shards_collide = shards_collide.replacen(
-        "          name: r3-native-diagnostics\n",
-        "          name: brokkr-macos-arm64\n",
-        1,
-    );
+    let called_collide = with_shard_upload_name(&called, "brokkr-macos-arm64");
     assert!(
         !release_artifact_provenance_problems(&release, &called_collide).is_empty(),
         "a called workflow uploading a build artifact name must fail"
+    );
+}
+
+#[test]
+fn release_provenance_rejects_build_downloads_cross_run_inputs_and_disguised_uploads() {
+    let (release, called) = release_and_called();
+
+    let attest = "      - name: attest packaged binary and checksum\n";
+    let dl = "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        with:\n";
+    for (label, step) in [
+        (
+            "download-all in build",
+            format!("{dl}          path: dist\n          merge-multiple: true\n"),
+        ),
+        (
+            "named download in build",
+            format!("{dl}          name: brokkr-linux-x86_64\n          path: dist\n"),
+        ),
+    ] {
+        let mutated = release.replacen(attest, &format!("{step}{attest}"), 1);
+        assert_ne!(mutated, release);
+        assert!(
+            !release_artifact_provenance_problems(&mutated, &called).is_empty(),
+            "{label} must fail"
+        );
+    }
+
+    let target_dl = "          name: brokkr-linux-x86_64\n          path: dist\n";
+    for extra_input in [
+        "          run-id: 12345\n",
+        "          repository: other/repo\n",
+        "          github-token: ${{ secrets.GITHUB_TOKEN }}\n",
+        "          artifact-ids: 99\n",
+    ] {
+        let mutated = release.replacen(target_dl, &format!("{target_dl}{extra_input}"), 1);
+        assert_ne!(mutated, release);
+        assert!(
+            !release_artifact_provenance_problems(&mutated, &called).is_empty(),
+            "download-artifact with `{}` must fail",
+            extra_input.trim()
+        );
+    }
+
+    for bad_name in [
+        "\"brokkr-macos-arm64\"",
+        "'brokkr-macos-arm64'",
+        "brokkr-macos-arm64 # diagnostic",
+        "'brokkr-macos-arm64' # diagnostic",
+        "${{ matrix.name }}",
+        "brokkr-${{ matrix.machine }}",
+        "|",
+        "\"brokkr-\\x6dacos-arm64\"",
+    ] {
+        let called_mut = with_shard_upload_name(&called, bad_name);
+        assert!(
+            !release_artifact_provenance_problems(&release, &called_mut).is_empty(),
+            "non-build upload name `{bad_name}` must fail"
+        );
+    }
+
+    let called_ok = with_shard_upload_name(&called, "'r3-native-diagnostics' # human-readable");
+    assert_eq!(
+        release_artifact_provenance_problems(&release, &called_ok),
+        Vec::<String>::new()
     );
 }

@@ -1652,16 +1652,19 @@ fn unbounded_jobs(file: &str, text: &str) -> Vec<String> {
         .into_iter()
         .filter(|(_, body)| !is_reusable_workflow_caller(body))
         .filter(|(_, body)| {
-            !body
-                .lines()
-                .any(|line| line.starts_with("    timeout-minutes: "))
+            !body.lines().any(|line| {
+                line.strip_prefix("    timeout-minutes: ")
+                    .map(|rest| rest.split('#').next().unwrap_or(rest).trim())
+                    .is_some_and(|value| !value.is_empty())
+            })
         })
         .map(|(id, _)| format!("{file}'s {id} is unbounded"))
         .collect()
 }
 
 /// Removing `timeout-minutes` from a runner job fails even when its steps
-/// carry an indented `uses:` line (decision 0071 ruling 9, #1383).
+/// carry an indented `uses:` line, or when a comment or script line mentions
+/// `timeout-minutes:` (decision 0071 rulings 5 and 9, #1383).
 #[test]
 fn timeout_rule_exempts_only_reusable_workflow_callers() {
     let shards = read(".github/workflows/macos-test-shards.yml");
@@ -1693,6 +1696,19 @@ fn timeout_rule_exempts_only_reusable_workflow_callers() {
         unbounded_jobs(".github/workflows/ci.yml", &no_ci_timeout),
         [".github/workflows/ci.yml's seatbelt-lifetime is unbounded"]
     );
+
+    let pr_gates = read(".github/workflows/pr-gates.yml");
+    for fake in [
+        "    #     timeout-minutes: 20\n",
+        "        # echo \"    timeout-minutes: 20\"\n",
+    ] {
+        let mutated = pr_gates.replacen("    timeout-minutes: 20\n", fake, 1);
+        assert_ne!(mutated, pr_gates);
+        assert_eq!(
+            unbounded_jobs(".github/workflows/pr-gates.yml", &mutated),
+            [".github/workflows/pr-gates.yml's delivered-by-brokkr is unbounded"]
+        );
+    }
 }
 
 /// The rest of issue #340's CI shape: superseded pull request runs are
@@ -1720,9 +1736,6 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
     let gates = workflow::jobs(&read(".github/workflows/pr-gates.yml"));
     let ids: Vec<&str> = gates.iter().map(|(id, _)| id.as_str()).collect();
     assert_eq!(ids, ["delivered-by-brokkr", "ratchets"]);
-    for (id, body) in &gates {
-        assert!(body.contains("    timeout-minutes: "), "{id} is unbounded");
-    }
 
     let jobs = ci_jobs();
     let ids: Vec<&str> = jobs.iter().map(|(id, _)| id.as_str()).collect();
@@ -1754,14 +1767,9 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "pr-caches",
         ]
     );
-    assert_eq!(
-        unbounded_jobs(
-            ".github/workflows/ci.yml",
-            &read(".github/workflows/ci.yml")
-        ),
-        Vec::<String>::new()
-    );
     for file in [
+        ".github/workflows/pr-gates.yml",
+        ".github/workflows/ci.yml",
         ".github/workflows/macos-test-shards.yml",
         ".github/workflows/macos-tests.yml",
     ] {

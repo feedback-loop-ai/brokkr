@@ -13,11 +13,12 @@ on:
 permissions:
   contents: read
 
-# Serialise runs of this workflow across commits without cancelling a run in
-# progress so two scheduled runs on different commits cannot race in
-# `notify-failure` and both open a `macos-nightly` issue.
+# Give scheduled runs their own concurrency group across commits without
+# cancelling a run in progress, so two scheduled runs on different commits
+# cannot race in `notify-failure` and a later `workflow_dispatch` run cannot
+# displace a pending scheduled run.
 concurrency:
-  group: macos-tests
+  group: macos-tests-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
@@ -75,8 +76,9 @@ jobs:
           fi
           today="$(date -u +%Y-%m-%d)"
           body="$(printf 'Nightly macOS test run failed on %s (`%s`).\n\n- Run: %s\n- Verdict: `%s`\n\n## Failed jobs\n\n%s\n\nA passing nightly leaves this issue open; close it once investigated.' "$today" "$HEAD_SHA" "$RUN_URL" "$VERDICT" "$failed_jobs")"
-          existing="$(gh api "repos/${REPO}/issues?labels=${LABEL}&state=open&per_page=100" \
-            --jq '[.[] | select(.pull_request == null)] | sort_by(.number) | .[0].number // empty')"
+          existing="$(gh api --paginate "repos/${REPO}/issues?labels=${LABEL}&state=open&per_page=100" \
+            --jq '.[] | select(.pull_request == null) | .number' \
+            | awk '{ n = $1 + 0; if (!seen || n < min) { min = n; seen = 1 } } END { if (seen) print min }')"
           if [ -n "$existing" ]; then
             gh api -X PATCH "repos/${REPO}/issues/${existing}" -f body="$body" >/dev/null
           else
