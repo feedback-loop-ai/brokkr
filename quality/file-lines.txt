@@ -536,7 +536,7 @@
    225 crates/brokkr-cli/tests/private_hosts.rs
    227 crates/brokkr-cli/tests/provenance.rs
   1020 crates/brokkr-cli/tests/ratchets.rs
-  1347 crates/brokkr-cli/tests/realms.rs
+  1589 crates/brokkr-cli/tests/realms.rs
   1127 crates/brokkr-cli/tests/recipes.rs
    452 crates/brokkr-cli/tests/rename_guard.rs
    286 crates/brokkr-cli/tests/research_registry.rs

@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use brokkr_core::realms::RealmMap;
+use brokkr_core::realms::{GrantDialect, RealmMap};
 use brokkr_core::EventType;
 use serde_json::{json, Value};
 
@@ -1538,23 +1538,25 @@ fn the_repository_carries_the_bootstrap_map() {
     assert_eq!(realm.default_branch, "main");
     assert_eq!(realm.house.as_deref(), Some("docs/house-rules.md"));
     assert_eq!(realm.dialect.as_deref(), Some("openspec"));
-    let granted: Vec<(&str, &str, Option<&[String]>)> = realm
+    let granted: Vec<_> = realm
         .grants
         .iter()
-        .map(|(name, grant)| {
-            (
-                name.as_str(),
-                grant.dialect.as_str(),
-                grant.offices.as_deref(),
-            )
-        })
+        .map(|(name, grant)| (name.as_str(), &grant.dialect, grant.offices.as_deref()))
         .collect();
     let researcher = ["researcher".to_owned()];
     assert_eq!(
         granted,
         [
-            ("web-fetch", "claude-native-fetch", Some(&researcher[..])),
-            ("web-search", "claude-native-search", Some(&researcher[..])),
+            (
+                "web-fetch",
+                &GrantDialect::from("claude-native-fetch"),
+                Some(&researcher[..])
+            ),
+            (
+                "web-search",
+                &GrantDialect::from("claude-native-search"),
+                Some(&researcher[..])
+            ),
         ],
         "the realm grants read-only web to the researcher office alone"
     );
