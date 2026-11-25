@@ -1214,7 +1214,7 @@ fn assert_metadata_stays_out_of_surfaces(
 ) {
     const BOUND_VALUE: &str = "ghp-bound-7f3a9c";
     let mut env = EnvGuard::lock();
-    let body = format!("{}\n", row(BOUND_VALUE, &format!("role/{BOUND_VALUE}")));
+    let body = format!("{}\n", row(BOUND_VALUE, BOUND_VALUE));
     let world = make_world(kind, locator, &body);
     env.set("HOME", &world.home);
     let read = shared_read(&world);
@@ -1250,12 +1250,27 @@ fn assert_metadata_stays_out_of_surfaces(
     .collect();
     assert_eq!(exposed, Vec::<&str>::new(), "{kind}: bound value exposure");
 
+    let notice = "unrecognized transcript records: 1";
     assert_eq!(read.unrecognized_records, 1, "{kind}: count");
-    assert_eq!(read.notices, ["unrecognized transcript records: 1"]);
+    assert_eq!(read.notices, [notice]);
+    let rendered = String::from_utf8_lossy(&text_face.stdout);
+    assert!(
+        rendered.lines().any(|line| line == "turn 1 · unknown ·"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(&format!("notice {notice}\n")),
+        "{rendered}"
+    );
+    let document = parse(&json_face);
+    assert_eq!(document["turns"][0]["role"], "unknown", "{kind}: role");
+    assert_eq!(document["turns"][0]["ts"], "", "{kind}: timestamp");
+    assert_eq!(document["unrecognized_records"], 1, "{kind}: JSON count");
+    assert_eq!(format!("{}\n", browser.body).as_bytes(), json_face.stdout);
     assert_eq!(
-        parse(&json_face)["notices"],
+        document["notices"],
         json!([
-            "unrecognized transcript records: 1",
+            notice,
             "secrets masked against the store's current values for GH_TOKEN; a value \
              rotated or removed since the run is not masked"
         ])

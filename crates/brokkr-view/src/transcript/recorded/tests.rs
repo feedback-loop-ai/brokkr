@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use super::super::{project, Block, Projection, Snapshot, TranscriptKind};
-use super::{role_word, timestamp};
+use super::timestamp;
 
 const VALID_TIMESTAMP: &str = "2026-01-01T00:00:01Z";
 const BOUND_VALUE: &str = "ghp-bound-7f3a9c";
@@ -45,22 +45,27 @@ fn recorded_timestamps_require_the_rfc_3339_shape() {
 }
 
 #[test]
-fn recorded_roles_require_a_short_ascii_word() {
-    let longest = "a".repeat(32);
-    let too_long = "a".repeat(33);
-    for word in ["A", "System_2-alpha", &longest] {
-        assert!(role_word(word), "refused {word:?}");
-    }
-    for word in [
-        "",
-        &too_long,
-        "two words",
-        "tool/system",
-        "tool\u{1b}",
-        "tool\u{661}",
-        "tool\u{202e}",
-    ] {
-        assert!(!role_word(word), "admitted {word:?}");
+fn recorded_roles_use_the_closed_harness_vocabulary() {
+    for kind in READERS {
+        for word in ["user", "assistant", "tool", "developer", "system"] {
+            let projection = project_prose(kind, None, word);
+            assert_eq!(projection.turns[0].role, word, "{kind:?}");
+            assert_eq!(projection.unrecognized_records, 0, "{kind:?} {word}");
+        }
+        for word in [
+            "",
+            "System_2-alpha",
+            &"a".repeat(33),
+            "two words",
+            "tool/system",
+            "tool\u{1b}",
+            "tool\u{661}",
+            "tool\u{202e}",
+        ] {
+            let projection = project_prose(kind, None, word);
+            assert_eq!(projection.turns[0].role, "unknown", "{kind:?} {word:?}");
+            assert_eq!(projection.unrecognized_records, 1, "{kind:?} {word:?}");
+        }
     }
 }
 
@@ -84,7 +89,10 @@ fn project_message(
     if let Some(timestamp) = timestamp {
         row["timestamp"] = timestamp;
     }
-    let body = format!("{row}\n");
+    project_rows(kind, &format!("{row}\n"))
+}
+
+fn project_rows(kind: TranscriptKind, body: &str) -> Projection {
     project(
         kind,
         &Snapshot {
@@ -128,18 +136,13 @@ fn codex_projects_only_timestamp_shaped_strings() {
 
 #[test]
 fn invalid_recorded_roles_use_a_fixed_word_and_count_once() {
-    let invalid_role = format!("role/{BOUND_VALUE}");
     for kind in READERS {
-        let valid = project_prose(kind, None, "System_2-alpha");
-        assert_eq!(valid.turns[0].role, "System_2-alpha", "{kind:?} role");
-        assert_eq!(valid.unrecognized_records, 0, "{kind:?} count");
-
-        let invalid = project_prose(kind, Some(json!(VALID_TIMESTAMP)), &invalid_role);
+        let invalid = project_prose(kind, Some(json!(VALID_TIMESTAMP)), BOUND_VALUE);
         assert_eq!(invalid.turns[0].role, "unknown", "{kind:?} role");
         assert_eq!(invalid.turns[0].ts, VALID_TIMESTAMP, "{kind:?} timestamp");
         assert_eq!(invalid.unrecognized_records, 1, "{kind:?} count");
 
-        let combined = project_message(kind, Some(json!(BOUND_VALUE)), &invalid_role, |part| {
+        let combined = project_message(kind, Some(json!(BOUND_VALUE)), BOUND_VALUE, |part| {
             vec![
                 json!({"type": part, "text": "x"}),
                 json!({"type": "future"}),
@@ -161,6 +164,36 @@ fn metadata_keeps_diagnostics_for_records_with_no_turn() {
             assert_eq!(projection.unrecognized_records, count, "{kind:?} count");
         }
     }
+}
+
+#[test]
+fn codex_counts_a_bad_stamp_only_when_its_fallback_survives_association() {
+    let fallback = json!({
+        "timestamp": "bad stamp",
+        "type": "event_msg",
+        "payload": {"type": "item_completed", "item": {
+            "type": "AgentMessage", "id": "m1",
+            "content": [{"type": "output_text", "text": "fallback"}],
+        }},
+    });
+    let canonical = json!({
+        "timestamp": VALID_TIMESTAMP,
+        "type": "response_item",
+        "payload": {"type": "message", "role": "assistant", "id": "m1",
+                    "content": [{"type": "output_text", "text": "canonical"}]},
+    });
+
+    let kind = TranscriptKind::CodexThread;
+    let mirrored = project_rows(kind, &format!("{fallback}\n{canonical}\n"));
+    assert_eq!(mirrored.turns.len(), 1);
+    assert_eq!(mirrored.turns[0].blocks, [Block::text("canonical")]);
+    assert_eq!(mirrored.unrecognized_records, 0);
+
+    let unmirrored = project_rows(kind, &format!("{fallback}\n"));
+    assert_eq!(unmirrored.turns.len(), 1);
+    assert_eq!(unmirrored.turns[0].blocks, [Block::text("fallback")]);
+    assert_eq!(unmirrored.turns[0].ts, "");
+    assert_eq!(unmirrored.unrecognized_records, 1);
 }
 
 #[test]

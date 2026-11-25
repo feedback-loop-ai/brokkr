@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::Transcript;
+use recorded::Role;
 
 /// The public document version the command serializes. Structural
 /// changes to this unpublished document require a new identifier.
@@ -815,40 +816,6 @@ fn display_cost(blocks: &[Block]) -> Option<usize> {
     Some(cost)
 }
 
-/// Who speaks a turn, with a fixed label for invalid recorded roles.
-#[derive(Clone, PartialEq, Eq, Debug)]
-enum Role {
-    User,
-    Assistant,
-    Tool,
-    Recorded(String),
-    InvalidRecorded,
-}
-
-impl Role {
-    /// Classify a recorded role and keep short custom words as written.
-    fn recorded(word: &str) -> Role {
-        match word {
-            "user" => Role::User,
-            "assistant" => Role::Assistant,
-            "tool" => Role::Tool,
-            other if recorded::role_word(other) => Role::Recorded(other.to_string()),
-            _ => Role::InvalidRecorded,
-        }
-    }
-
-    /// The spelling every surface shows.
-    fn into_wire(self) -> String {
-        match self {
-            Role::User => "user".to_string(),
-            Role::Assistant => "assistant".to_string(),
-            Role::Tool => "tool".to_string(),
-            Role::Recorded(word) => word,
-            Role::InvalidRecorded => "unknown".to_string(),
-        }
-    }
-}
-
 /// What one classified record contributes (#352): its blocks, who speaks
 /// them, its recorded timestamp, and whether it named anything its kind's
 /// table does not recognize. An outcome with no blocks supplies no turn.
@@ -864,7 +831,7 @@ impl<B> RowOutcome<B> {
     fn nothing(unrecognized: bool) -> RowOutcome<B> {
         RowOutcome {
             blocks: Vec::new(),
-            role: Role::Recorded(String::new()),
+            role: Role::NoTurn,
             ts: String::new(),
             unrecognized,
         }
@@ -1359,26 +1326,29 @@ fn compose(parts: &[&str]) -> String {
 
 /// Project a Codex rollout in two passes over the same bounded prefix, as
 /// DSH does (design D1, D4; #352). The fact pass classifies every row,
-/// counts its diagnostics and association keys, and releases it: no
-/// record is retained, so a 32 MiB source of two-byte rows cannot amplify
-/// into records. The projection pass classifies each row again, removes
-/// what association proved mirrored, and feeds the one collector.
+/// counts association keys, and releases it: no record is retained, so a
+/// 32 MiB source of two-byte rows cannot amplify into records. The projection
+/// pass removes proved mirrors and counts diagnostics for surviving records,
+/// including those that had no blocks to begin with, before display admission.
 fn project_codex(admitted: &Admitted<'_>, projection: &mut Projection) {
     let mut association = CodexAssociation::default();
     projection.skipped_lines = for_each_parsed_row(admitted, |_, value, _| {
-        let record = codex_row(&value);
-        if record.outcome.unrecognized {
-            projection.unrecognized_records += 1;
-        }
-        association.count(&record, |_, _, _| {});
+        association.count(&codex_row(&value), |_, _, _| {});
     });
     let mut collector = TurnCollector::new(projection.truncated);
     for_each_parsed_row(admitted, |_, value, _| {
         let mut record = codex_row(&value);
+        let was_blockless = record.outcome.blocks.is_empty();
         association.retain(&mut record, |_, _, _| {});
         let RowOutcome {
-            blocks, role, ts, ..
+            blocks,
+            role,
+            ts,
+            unrecognized,
         } = record.outcome;
+        if unrecognized && (was_blockless || !blocks.is_empty()) {
+            projection.unrecognized_records += 1;
+        }
         collector.admit(
             role,
             ts,

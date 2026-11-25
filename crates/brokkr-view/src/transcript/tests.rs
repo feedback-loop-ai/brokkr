@@ -2708,8 +2708,8 @@ fn claude_row_classifies_malformed_and_wrong_typed_shapes() {
         let outcome = claude_row(&shape);
         assert_eq!(outcome.blocks, Vec::<Block>::new());
         assert_eq!(
-            (outcome.role, outcome.ts, outcome.unrecognized),
-            (Role::Recorded(String::new()), String::new(), true)
+            (outcome.role.into_wire(), outcome.ts, outcome.unrecognized),
+            (String::new(), String::new(), true)
         );
     }
 
@@ -2723,7 +2723,7 @@ fn claude_row_classifies_malformed_and_wrong_typed_shapes() {
     assert!(claude_row(&json!({"type":"assistant","message":7})).unrecognized);
     assert!(claude_row(&content(json!(7))).unrecognized);
     assert!(claude_row(&content(json!(["x"]))).unrecognized);
-    // A role outside the three is kept as written.
+    // A system role keeps its recorded spelling.
     let system = json!({"type":"user","message":{"role":"system","content":"x"}});
     assert_eq!(claude_row(&system).role.into_wire(), "system");
 }
@@ -4541,16 +4541,15 @@ fn complete_prefix_refusal_survives_the_display_cap() {
 #[test]
 fn display_cap_charges_the_constant_and_drops_empty_turns() {
     let mut collector = TurnCollector::new(false);
-    let role = |word: &str| Role::Recorded(word.to_string());
-    collector.admit(role("empty"), String::new(), Vec::new());
-    collector.admit(role("one"), String::new(), vec![Block::text("x")]);
+    collector.admit(Role::NoTurn, String::new(), Vec::new());
+    collector.admit(Role::User, String::new(), vec![Block::text("x")]);
     let over = vec![Block::text("x".repeat(DISPLAY_CAP))];
-    collector.admit(role("over"), String::new(), over);
+    collector.admit(Role::Assistant, String::new(), over);
     let mut kept = Projection::default();
     collector.finish(&mut kept);
     assert!(kept.truncated);
     assert_eq!(kept.turns.len(), 1);
-    assert_eq!(kept.turns[0].role, "one");
+    assert_eq!(kept.turns[0].role, "user");
     assert_eq!(display_cost(&[]), None);
     assert_eq!(
         display_cost(&[Block::text("x")]),
