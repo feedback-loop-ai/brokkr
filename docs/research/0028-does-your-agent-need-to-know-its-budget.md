@@ -47,7 +47,7 @@ read from a fetch summary, not verbatim text.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Enforce a budget in the harness, and do not rely on telling the agent about it: enforcement moves the outcome and disclosure adds nothing beyond a placebo sentence | alternative | decision 0006 and decision 0067; `recipes/fast/bundle.json`: the engine enforces a per-seat attempt limit and wall-clock deadline today; engine-enforced token, turn and context ceilings per visit are ruled by decision 0067 and unbuilt (#463) |
+| 1 | Enforce a budget in the harness, and do not rely on telling the agent about it: enforcement moves the outcome and disclosure adds nothing beyond a placebo sentence | planned | #463 (decision 0067 ruling 4: engine-enforced token, turn and context ceilings per visit, accepted 2026-09-24); #604 and #1048 for cost budgets |
 | 2 | Set a cap from measured runs, in units of a first call's cost, and check that the tightest cap can fund one call | not-planned | |
 | 3 | When testing any prompt-level change, run a same-length neutral arm: a sentence of no content moved resolution by 7.2 points | not-planned | |
 | 4 | Report resolution, tokens per resolved task and run-to-run variance as three outcomes, since a cap moves each differently | alternative | decision 0034 and decision 0064; `docs/guides/read-surfaces.md`: the seat record carries per-turn and finishing usage and cost, the costs readout sums them, and a ledger drawn from the journal leaves out runs whose work was never judged and says how many; no readout divides cost by shipped runs or reports variance |

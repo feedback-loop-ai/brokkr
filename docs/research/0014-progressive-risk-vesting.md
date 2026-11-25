@@ -55,6 +55,25 @@ now supports namespace, harness and open, while seatbelt and container
 are refused as unbuilt. A boundary grant is also not the paper's
 per-activation risk certificate; sandbox spawning still consumes compute.
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all that move to
+planned as well" for row 4
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 4** now reads `planned`, not `alternative`. Finding: "Grant
+  recursive authority sparingly, with an explicit risk charge for each
+  activation". Citation: #476 builds decision 0025's operator-signed,
+  expiring grant under a compiled never-list ceiling, with escalation as
+  the default; `crates/brokkr-cli/src/muninn.rs` records validated
+  proposals without executing them; no per-activation risk charge is
+  planned
+
 ## Candidates
 
 Finding 3 remains a possible future design question, not an attempt

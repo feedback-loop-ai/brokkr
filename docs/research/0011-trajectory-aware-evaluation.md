@@ -51,6 +51,26 @@ model-authored summaries. The privacy-bounded record carries tool and
 file identifiers, not the full exploration, edits or reasoning traces
 used by PTA-IRT.
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all that move to
+planned as well" for row 4
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 4** now reads `planned`, not `alternative`. Finding: "Price the
+  evaluation itself: report what each evaluation cost, per model and per
+  task, as a first-class result (Brokkr's extension of the paper's cost
+  motivation; the paper does not price its own calibration)". Citation:
+  #1268: no eval seats a harness whose turn cost is not observed, and
+  each eval report carries a cost table per model and office; today
+  `crates/brokkr-cli/src/compare.rs` reports per-seat cost and attempt
+  deltas between two runs; no calibration subset is priced
+
 ## Candidates
 
 Finding 1 would extend the existing compare command with a priced

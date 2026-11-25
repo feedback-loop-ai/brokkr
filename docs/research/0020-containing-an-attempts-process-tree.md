@@ -267,7 +267,8 @@ cannot reach a cgroup tree or nest the namespaces.
 
 ## Erratum — 2026-11-25
 
-The operator ruled this erratum on 2026-11-25, "0020 - approved"
+The operator ruled this erratum on 2026-11-25, "0020 - approved";
+"approve all that move to planned as well" for row 8
 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
 every row of this entry was checked three ways: against the article,
 against main at `4912e583e`, and against the open issues and pull
@@ -302,3 +303,7 @@ word.
   Citation: #472; decision 0080 ruling 9 names the per-harness
   PID-namespace study (each harness under `bwrap --unshare-pid`,
   measuring whether its own sandbox still starts)
+- **Row 8** now reads `planned`, not `not-planned`. Citation: decision
+  0080 ruling 9 names the launchd-coalition study on macos-latest and an
+  operator's Mac; #472 is decision 0080's build issue (no issue of its
+  own for the study)

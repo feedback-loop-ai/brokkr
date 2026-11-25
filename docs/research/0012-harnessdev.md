@@ -51,6 +51,30 @@ provider evidence stays missing. The evaluator corpus is public in the
 tree, so freezing it does not provide HarnessDev's hidden-task protocol.
 No creator-variance or held-out harness ranking has landed.
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all that move to
+planned as well" for rows 1 and 2
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 1** now reads `planned`, not `alternative`. Citation: #436 owns
+  held-out, repeated evaluation of delivery quality with total cost per
+  accepted result; today `crates/brokkr-cli/src/compare.rs` compares two
+  runs' recipe identity, verdict trails, attempts and reported cost, and
+  does not score held-out harness capability or efficiency
+- **Row 2** now reads `planned`, not `alternative`. Citation: #436 owns
+  a versioned evaluation corpus whose held-out cases are kept from
+  candidate seats; today decision 0041 separates judge seats from
+  implementers, and no held-out task set exists
+  (`fixtures/evaluator/corpus.ndjson` is the policy evaluator's
+  differential test corpus, read by
+  `crates/brokkr-core/tests/differential.rs`)
+
 ## Candidates
 
 Finding 3 remains supporting evidence for keeping runtime control-plane

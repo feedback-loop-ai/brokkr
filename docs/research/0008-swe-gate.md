@@ -54,6 +54,23 @@ carries the change identifier and validation state, while the artifacts
 live in the repository. Findings 3 and 4 remain gaps: no constraint-category
 report or hidden-failure-rate calculation is implemented.
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all that move to
+planned as well" for row 4
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 4** now reads `planned`, not `not-planned`. Citation: #436:
+  independent acceptance (checks authored apart from the implementation,
+  and a second reviewer) and a qualification report of escaped defects
+  and false approvals; no standing hidden-failure metric over runs
+  exists today
+
 ## Candidates
 
 Findings 3 and 4 remain candidates for the operator: use the paper's

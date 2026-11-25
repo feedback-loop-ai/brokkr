@@ -53,6 +53,32 @@ in SCX's candidate filter. The boundary enactment demonstrates why an
 accepted decision is not a release claim: namespace, harness and open
 are built; seatbelt and container remain refused.
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all that move to
+planned as well" for rows 1 and 4
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 1** now reads `planned`, not `alternative`. Citation: #224
+  proposes choosing the implementation hire by remaining ambiguity,
+  checks, integration risk, size and measured lane capability, with
+  deterministic routing and pinned hires (not a learned router); today
+  `recipes/triage/bundle.json` and `crates/brokkr-runtime/src/agents.rs`
+  select a declared office by strategy and resolve its pinned chain
+- **Row 4** now reads `planned`, not `alternative`. Finding: "Evaluate
+  routing on downstream task outcomes, because label-level classifier
+  metrics can be dominated by negative labels". Citation: #224 proposes
+  comparing model choices on accepted results, cost, returns and later
+  defects through the wager machinery; #436 owns independent repeated
+  evaluation with accepted-task and escaped-defect rates; today
+  `crates/brokkr-cli/src/compare.rs` exposes verdict trails, model
+  resolution, boundary, cost and attempts between two runs
+
 ## Candidates
 
 A learned suitability selector and task ontology remain possible future

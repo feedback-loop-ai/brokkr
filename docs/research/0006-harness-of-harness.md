@@ -46,6 +46,32 @@ regression.
 | 5 | Warm-start each iteration and re-plan every time; both ablate hard | alternative | decision 0030: a retry rejoins its own session with the harness's own sandbox class re-imposed; decision 0022: a finding returns to implement as declared input |
 | 6 | Compare configurations budget-matched (score per token at equal passes), by dominance, and by issue close and reopen counts | alternative | `crates/brokkr-cli/src/compare.rs` folds two journals to their first divergence with per-seat cost; outcome economics stay in the ledger (decision 0021) |
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "approve all that move to
+planned as well" for rows 1 and 2
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 1** now reads `planned`, not `alternative`. Citation: #1260 and
+  #564: the engine would compare the tracked tree after every gate, not
+  only the head, and fence every read-only review position; today
+  decision 0041 parks a gate that moves HEAD
+  (`crates/brokkr-runtime/src/engine/heads.rs`) and the reviewed head is
+  recorded and compared (`crates/brokkr-runtime/src/engine/decide.rs`),
+  while an uncommitted write passes and no control freezes the judge's
+  snapshot (`docs/security-model.md`)
+- **Row 2** now reads `planned`, not `alternative`. Citation: #1088
+  (decision 0109, accepted 2026-11-17): a gate's re-visit reads the
+  delta since the head its last verdict covered, with the findings that
+  still stand, so verified evidence carries between iterations inside a
+  run; nothing is carried into the next run's planning (decisions 0028
+  and 0029 keep each run's evidence)
+
 ## Candidates
 
 Finding 2 is the one to weigh. Every run here starts cold, and the
