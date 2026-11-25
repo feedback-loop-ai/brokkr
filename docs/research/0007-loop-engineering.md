@@ -49,7 +49,8 @@ and scheduled loops on throughput, correctness, cost and human effort.
 ## Erratum — 2026-11-25
 
 The operator ruled this erratum on 2026-11-25, "approve all the fact and
-wording fixes" for row 5 and the summary
+wording fixes" for row 5 and the summary; "0007 - row 6 - approved, but
+only if this can be done in an automated way" for row 6
 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
 every row of this entry was checked three ways: against the article,
 against main at `4912e583e`, and against the open issues and pull
@@ -81,6 +82,18 @@ word.
   the loop's own configuration as a distinct signal (the paper measures
   agent-majority context files beside loop artifacts; tracking edits to
   the loop's configuration is the analogous signal for Brokkr)".
+- **Row 6** keeps `not-planned`, and the operator takes it up only in an
+  automated form. Brokkr's own autonomy levels are recipe variants that
+  differ only in where a run stops for the operator. Each is run on the
+  same commission through the wager pattern
+  (`recipes/wager-harness/README.md`) and read with `brokkr runs
+  compare`, on four axes: elapsed time, accepted results, cost (Claude
+  seats only until #765), and the operator commands each run's journal
+  records. Interactive prompting is not one of the levels: Brokkr has no
+  workflow for it, since every seat runs headless, and it is not a use
+  case for Brokkr (operator, 2026-11-25). #436's repeated trials measure
+  the same axes against an existing workflow and a simpler baseline, but
+  they do not vary autonomy, so no issue plans this yet.
 
 ## Candidates
 
