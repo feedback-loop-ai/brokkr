@@ -1,6 +1,6 @@
 # 0126 — One realm grant may name a tool dialect for each provider
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-25, "accept 0126" (https://github.com/feedback-loop-ai/brokkr/issues/1329#issuecomment-7157859734)
 Date: 2026-11-24
 
 Built: unbuilt (#1329)
