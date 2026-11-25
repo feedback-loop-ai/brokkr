@@ -53,7 +53,7 @@ pub(crate) use inventory::{
     Boundary, Head, Inventory, Schemas, Snapshot, EXCLUDED, INVENTORY_FILE,
 };
 
-use inventory::{invalid_inventory, OrdersSchema, JOURNAL_BACKUP_V1};
+use inventory::{OrdersSchema, JOURNAL_BACKUP_V1};
 
 use crate::orders::orders_schema;
 use crate::queue::queue_schema;
@@ -522,6 +522,21 @@ fn schemas_of(store: &Store, journal: &Path, projection: u32) -> Result<Schemas,
     })
 }
 
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error(
+    "the snapshot's work-order schema is {}; schemas.orders says {}",
+    schema_label(*.found),
+    schema_label(*.declared)
+)]
+struct OrdersSchemaMismatch {
+    found: Option<u32>,
+    declared: Option<u32>,
+}
+
+fn schema_label(version: Option<u32>) -> String {
+    version.map_or_else(|| "null".into(), |version| version.to_string())
+}
+
 fn verify_orders_schema(store: &Store, declared: &OrdersSchema) -> Result<(), BackupError> {
     let OrdersSchema::Recorded(declared) = declared else {
         return Ok(());
@@ -530,12 +545,13 @@ fn verify_orders_schema(store: &Store, declared: &OrdersSchema) -> Result<(), Ba
     if found == *declared {
         return Ok(());
     }
-    let display = |version: Option<u32>| version.map_or_else(|| "null".into(), |n| n.to_string());
-    Err(invalid_inventory(format!(
-        "the snapshot's work-order schema is {}; schemas.orders says {}",
-        display(found),
-        display(*declared)
-    )))
+    // The store API budget reserves its two new variants for work-order refusals.
+    // Carry the typed disagreement as invalid data through the existing error.
+    let mismatch = OrdersSchemaMismatch {
+        found,
+        declared: *declared,
+    };
+    Err(std::io::Error::new(std::io::ErrorKind::InvalidData, mismatch).into())
 }
 
 /// `VACUUM INTO` one temporary file under `scratch`, retried through the

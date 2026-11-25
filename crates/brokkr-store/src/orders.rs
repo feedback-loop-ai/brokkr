@@ -83,7 +83,7 @@ pub(crate) fn migrate_orders(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// Read the recorded version and check that its table still holds the history.
+/// Read the recorded version and check table presence for the version this build reads.
 pub(crate) fn orders_schema(conn: &Connection) -> Result<Option<u32>, StoreError> {
     let recorded = conn
         .query_row(
@@ -101,7 +101,7 @@ pub(crate) fn orders_schema(conn: &Connection) -> Result<Option<u32>, StoreError
     };
     let recorded = recorded.map_err(|_| damaged())?;
     let version = recorded.parse::<NonZeroU32>().map_err(|_| damaged())?;
-    if !all_present(conn, "table", &["work_order_events"])? {
+    if version.get() == ORDERS_SCHEMA && !all_present(conn, "table", &["work_order_events"])? {
         return Err(damaged());
     }
     Ok(Some(version.get()))

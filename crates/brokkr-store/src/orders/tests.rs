@@ -148,7 +148,7 @@ fn an_unknown_schema_is_left_untouched_and_every_method_refuses_it() {
     let (_dir, path, store) = scratch();
     store
         .conn
-        .execute_batch("UPDATE meta SET value = '9' WHERE key = 'orders_schema'; DROP INDEX work_order_events_proposed;")
+        .execute_batch("UPDATE meta SET value = '9' WHERE key = 'orders_schema'; DROP TABLE work_order_events;")
         .unwrap();
     drop(store);
     let mut store = Store::open(&path).unwrap();
@@ -160,7 +160,7 @@ fn an_unknown_schema_is_left_untouched_and_every_method_refuses_it() {
     migrate_orders(&tx).unwrap();
     tx.commit().unwrap();
     assert_eq!(orders_schema(&store.conn).unwrap(), Some(9));
-    assert!(!all_present(&store.conn, "index", &[PROPOSED_INDEX]).unwrap());
+    assert!(!all_present(&store.conn, "table", &["work_order_events"]).unwrap());
     let work = id(1);
     let trackers = trackers();
     let errors = [

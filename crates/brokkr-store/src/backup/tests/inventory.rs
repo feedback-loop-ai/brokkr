@@ -343,6 +343,32 @@ fn a_journal_before_work_orders_backs_up_with_null_and_restores() {
 }
 
 #[test]
+fn a_newer_work_order_schema_backs_up_and_restores_without_the_v1_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    seed(&mut store, "alpha", 1);
+    store
+        .conn
+        .execute_batch(
+            "UPDATE meta SET value = '9' WHERE key = 'orders_schema'; \
+             ALTER TABLE work_order_events RENAME TO newer_order_events;",
+        )
+        .unwrap();
+
+    let taken = snapshot_of(&store, &dir.path().join("backup"));
+    assert!(matches!(
+        inventory_of(&taken).schemas.orders,
+        OrdersSchema::Recorded(Some(9))
+    ));
+    let destination = absent_destination(dir.path());
+    let restored = restore(&taken.to, &destination).unwrap();
+    assert_eq!((restored.runs, restored.events), (1, 1));
+    let restored = Store::open_read_only(&destination).unwrap();
+    assert_eq!(orders_schema(&restored.conn).unwrap(), Some(9));
+    assert!(crate::schema::all_present(&restored.conn, "table", &["newer_order_events"]).unwrap());
+}
+
+#[test]
 fn v1_inventory_restores_with_no_work_order_schema_field() {
     let dir = tempfile::tempdir().unwrap();
     let (_, taken) = completed(dir.path());
@@ -361,27 +387,42 @@ fn v2_requires_orders_and_checks_it_against_the_snapshot() {
     let (_, taken) = completed(dir.path());
     let mut inventory = inventory_of(&taken);
     let destination = absent_destination(dir.path());
-    for (orders, reason) in [
-        (OrdersSchema::Legacy, "schemas.orders is required in v2"),
-        (
-            OrdersSchema::Recorded(None),
-            "the snapshot's work-order schema is 1; schemas.orders says null",
-        ),
-        (
-            OrdersSchema::Recorded(Some(2)),
-            "the snapshot's work-order schema is 1; schemas.orders says 2",
-        ),
-    ] {
-        inventory.schemas.orders = orders;
+
+    inventory.schemas.orders = OrdersSchema::Legacy;
+    rewrite_inventory(&taken, &inventory);
+    let refused = restore(&taken.to, &destination).unwrap_err();
+    let BackupError::InvalidInventory { source } = refused else {
+        panic!("expected v2 to require schemas.orders: {refused:?}");
+    };
+    assert_eq!(source.to_string(), "schemas.orders is required in v2");
+    assert_absent(&destination);
+
+    for (declared, label) in [(None, "null"), (Some(2), "2")] {
+        inventory.schemas.orders = OrdersSchema::Recorded(declared);
         rewrite_inventory(&taken, &inventory);
         let refused = restore(&taken.to, &destination).unwrap_err();
-        let BackupError::InvalidInventory { source } = refused else {
-            panic!("expected an invalid inventory: {refused:?}");
+        let BackupError::Io(source) = &refused else {
+            panic!("expected a work-order schema mismatch: {refused:?}");
         };
-        assert_eq!(source.to_string(), reason);
+        assert_eq!(source.kind(), std::io::ErrorKind::InvalidData);
+        let mismatch = source
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<OrdersSchemaMismatch>();
+        assert_eq!(
+            mismatch,
+            Some(&OrdersSchemaMismatch {
+                found: Some(1),
+                declared
+            })
+        );
+        assert_eq!(
+            refused.to_string(),
+            format!("io: the snapshot's work-order schema is 1; schemas.orders says {label}")
+        );
         assert_absent(&destination);
     }
-    inventory.format = "brokkr.journal-backup.v1".into();
+    inventory.format = JOURNAL_BACKUP_V1.into();
     rewrite_inventory(&taken, &inventory);
     let refused = restore(&taken.to, &destination).unwrap_err();
     let BackupError::InvalidInventory { source } = refused else {

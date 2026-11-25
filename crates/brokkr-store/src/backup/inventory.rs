@@ -85,7 +85,7 @@ impl Inventory {
     }
 }
 
-pub(super) fn invalid_inventory(message: impl std::fmt::Display) -> BackupError {
+fn invalid_inventory(message: impl std::fmt::Display) -> BackupError {
     BackupError::InvalidInventory {
         source: serde::de::Error::custom(message),
     }
