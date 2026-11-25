@@ -91,8 +91,17 @@ pub const RUN_ID_MAX: usize = 128;
 /// character. Import is the first path by which a run id somebody else
 /// authored reaches the `runs` table, and from there `brokkr journal export`'s
 /// `<out>/<run_id>.ndjson` and the operator's terminal.
-fn adoptable(character: char) -> bool {
+pub(crate) fn adoptable(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '-' || character == '_'
+}
+
+/// Gate a run id for adoption or NDJSON import: 1..=[`RUN_ID_MAX`] characters,
+/// each allowed by [`adoptable`].
+pub(crate) fn admit_run_id(run_id: &str) -> Result<(), ImportError> {
+    if run_id.is_empty() || run_id.chars().count() > RUN_ID_MAX || !run_id.chars().all(adoptable) {
+        return Err(ImportError::UnadoptableRunId(escaped(run_id)));
+    }
+    Ok(())
 }
 
 /// A rejected run id as it may be written into a refusal. Every
@@ -163,12 +172,7 @@ impl<'a> RunsRow<'a> {
         // this one run_id (`ChainError::ForeignRun`) and that no byte of
         // any of them was altered — so checking the first is checking
         // them all, and what is left to check is the name itself.
-        if started.run_id.is_empty()
-            || started.run_id.chars().count() > RUN_ID_MAX
-            || !started.run_id.chars().all(adoptable)
-        {
-            return Err(ImportError::UnadoptableRunId(escaped(&started.run_id)));
-        }
+        admit_run_id(&started.run_id)?;
         let feature = state
             .feature
             .ok_or(ImportError::Unattested { field: "feature" })?;

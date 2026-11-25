@@ -263,6 +263,13 @@ pub enum StoreError {
         operation: &'static str,
         waited_ms: u128,
     },
+    /// The event log committed envelopes for `run_id`, but updating derived
+    /// projections failed. The event is durable; callers must NOT treat this
+    /// as contention (`is_contention() == false`).
+    #[error(
+        "projection lag for run '{run_id}': event log committed, but projection update failed ({reason})"
+    )]
+    ProjectionLag { run_id: String, reason: String },
 }
 
 impl StoreError {

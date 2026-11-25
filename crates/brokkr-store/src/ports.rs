@@ -6,12 +6,12 @@
 //! [`CoordinationStore`] — with no async runtime dependency. Each trait
 //! marks a persistence seam whose operations must stay mutually consistent
 //! across a storage backend boundary (decision 0071 ruling 2): SQLite today
-//! (Slice 1), local split files and disposable indexes in Slice 2, and a
-//! PostgreSQL service backend in Slice 3.
+//! (Slice 1, via [`SqlitePorts`]), local split files and disposable indexes
+//! in Slice 2, and a PostgreSQL service backend in Slice 3.
 //!
 //! Domain invariants (run-id admission, hash-chain continuity, optimistic
-//! `expected_head` fencing, seat-record schema validation, and canonical
-//! NDJSON export/import) live once in [`Journal`].
+//! `expected_head` fencing, post-terminal refusal, seat-record schema
+//! validation, and canonical NDJSON export/import) live once in [`Journal`].
 
 use brokkr_core::envelope::EventEnvelope;
 use serde_json::Value;
@@ -22,6 +22,7 @@ mod journal;
 mod sqlite;
 
 pub use journal::Journal;
+pub use sqlite::SqlitePorts;
 
 /// Persistence seam for durable per-run manifests and append-only event
 /// streams (decision 0126 ruling 1; decision 0071 ruling 2).
@@ -36,12 +37,25 @@ pub trait EventLog {
 
     /// Atomically append pre-sealed `envelopes` to `run_id` only while the
     /// stored head matches `expected_head`, refusing a moved head with
-    /// [`StoreError::HeadMoved`] and a duplicate sequence number with
-    /// [`StoreError::AppendConflict`].
+    /// [`StoreError::HeadMoved`], a duplicate sequence number with
+    /// [`StoreError::AppendConflict`], a foreign `run_id` with
+    /// [`brokkr_core::envelope::ChainError::ForeignRun`], and non-annotation
+    /// events after a terminal event with [`StoreError::AfterTerminal`].
     fn append_envelopes(
         &self,
         run_id: &str,
         expected_head: (u64, &str),
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError>;
+
+    /// Atomically persist an imported run record and its verified pre-sealed
+    /// `envelopes` in one transaction or unit of work, leaving zero partial
+    /// state on refusal and leaving local origin unset so imported runs are
+    /// never mistaken for runs started on this host (decision 0030 ruling 4).
+    fn import_run_stream(
+        &self,
+        run_id: &str,
+        manifest: &Value,
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError>;
 
@@ -50,7 +64,8 @@ pub trait EventLog {
     fn head(&self, run_id: &str) -> Result<(u64, String), StoreError>;
 
     /// Read all stored envelopes of `run_id` with `seq >= from_seq`, in
-    /// ascending sequence order.
+    /// ascending sequence order. When `from_seq <= 1`, reads the run's full
+    /// stored stream and refuses rows before sequence 1.
     fn read_stream(&self, run_id: &str, from_seq: u64) -> Result<Vec<EventEnvelope>, StoreError>;
 
     /// Read the immutable manifest recorded when `run_id` was created.
@@ -104,6 +119,15 @@ impl<T: EventLog + ?Sized> EventLog for &T {
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
         (**self).append_envelopes(run_id, expected_head, envelopes)
+    }
+
+    fn import_run_stream(
+        &self,
+        run_id: &str,
+        manifest: &Value,
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError> {
+        (**self).import_run_stream(run_id, manifest, envelopes)
     }
 
     fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {

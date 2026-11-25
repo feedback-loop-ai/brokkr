@@ -6,7 +6,7 @@
 //! conformance tests proving [`Store`] satisfies every port contract.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
@@ -15,11 +15,11 @@ use tempfile::tempdir;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::ports::{CoordinationStore, EventLog, Journal, ProjectionStore};
+use crate::ports::{CoordinationStore, EventLog, Journal, ProjectionStore, SqlitePorts};
 use crate::test_support::every_run_reads_as_its_fold;
 use crate::{
-    Cooldown, CooldownAppend, Cooling, EntryId, EntryState, NewEntry, QueueEntry, Store,
-    StoreError, RUN_ID_MAX,
+    Cooldown, CooldownAppend, Cooling, EntryId, EntryState, ImportError, NewEntry, QueueEntry,
+    Store, StoreError, VerifyError, RUN_ID_MAX,
 };
 
 // ---------------------------------------------------------------------------
@@ -31,11 +31,47 @@ struct MemEventLog {
     runs: RefCell<BTreeMap<String, (Value, Vec<EventEnvelope>)>>,
 }
 
+fn validate_mem_batch(
+    run_id: &str,
+    seen: &mut BTreeSet<u64>,
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    for envelope in envelopes {
+        if envelope.run_id != run_id {
+            return Err(StoreError::Chain(ChainError::ForeignRun {
+                seq: envelope.seq,
+            }));
+        }
+        if !seen.insert(envelope.seq) {
+            return Err(StoreError::AppendConflict { seq: envelope.seq });
+        }
+    }
+    Ok(())
+}
+
 impl MemEventLog {
+    fn with_run<T>(
+        &self,
+        run_id: &str,
+        f: impl FnOnce(&(Value, Vec<EventEnvelope>)) -> T,
+    ) -> Result<T, StoreError> {
+        let runs = self.runs.borrow();
+        let entry = runs
+            .get(run_id)
+            .ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))?;
+        Ok(f(entry))
+    }
+
     fn tamper_payload(&self, run_id: &str, index: usize, payload: Value) {
         let mut runs = self.runs.borrow_mut();
         let (_, events) = runs.get_mut(run_id).expect("run exists");
         events[index].payload = payload;
+    }
+
+    fn plant_raw_stream(&self, run_id: &str, manifest: Value, events: Vec<EventEnvelope>) {
+        self.runs
+            .borrow_mut()
+            .insert(run_id.to_string(), (manifest, events));
     }
 }
 
@@ -68,43 +104,48 @@ impl EventLog for MemEventLog {
                 found_seq,
             });
         }
-        for envelope in envelopes {
-            if events.iter().any(|existing| existing.seq == envelope.seq) {
-                return Err(StoreError::AppendConflict { seq: envelope.seq });
-            }
-            events.push(envelope.clone());
+        let mut seen: BTreeSet<u64> = events.iter().map(|existing| existing.seq).collect();
+        validate_mem_batch(run_id, &mut seen, envelopes)?;
+        events.extend(envelopes.iter().cloned());
+        Ok(())
+    }
+
+    fn import_run_stream(
+        &self,
+        run_id: &str,
+        manifest: &Value,
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError> {
+        let mut runs = self.runs.borrow_mut();
+        if runs.contains_key(run_id) {
+            return Err(StoreError::RunExists(run_id.to_string()));
         }
+        validate_mem_batch(run_id, &mut BTreeSet::new(), envelopes)?;
+        runs.insert(run_id.to_string(), (manifest.clone(), envelopes.to_vec()));
         Ok(())
     }
 
     fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {
-        let runs = self.runs.borrow();
-        let (_, events) = runs
-            .get(run_id)
-            .ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))?;
-        Ok(events.last().map_or_else(
-            || (0, ZERO_HASH.to_string()),
-            |last| (last.seq, last.event_hash.clone()),
-        ))
+        self.with_run(run_id, |(_, events)| {
+            events.last().map_or_else(
+                || (0, ZERO_HASH.to_string()),
+                |last| (last.seq, last.event_hash.clone()),
+            )
+        })
     }
 
     fn read_stream(&self, run_id: &str, from_seq: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        let runs = self.runs.borrow();
-        let (_, events) = runs
-            .get(run_id)
-            .ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))?;
-        Ok(events
-            .iter()
-            .filter(|event| event.seq >= from_seq)
-            .cloned()
-            .collect())
+        self.with_run(run_id, |(_, events)| {
+            events
+                .iter()
+                .filter(|event| event.seq >= from_seq)
+                .cloned()
+                .collect()
+        })
     }
 
     fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
-        let runs = self.runs.borrow();
-        runs.get(run_id)
-            .map(|(manifest, _)| manifest.clone())
-            .ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))
+        self.with_run(run_id, |(manifest, _)| manifest.clone())
     }
 
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
@@ -283,6 +324,59 @@ fn invalid_checkpoint_payload() -> Value {
             "not_a_valid_field": true,
         }
     })
+}
+
+fn append_valid_checkpoint_flow<E: EventLog, P: ProjectionStore, C: CoordinationStore>(
+    journal: &Journal<E, P, C>,
+    run_id: &str,
+    feature: &str,
+) -> EventEnvelope {
+    let e1 = journal
+        .append_event(
+            run_id,
+            EventType::RunStarted,
+            started_payload(feature),
+            None,
+            "2026-11-25T10:00:00Z",
+        )
+        .unwrap();
+    let e2 = journal
+        .append_event(
+            run_id,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            Some(&e1.event_id),
+            "2026-11-25T10:00:01Z",
+        )
+        .unwrap();
+    let e3 = journal
+        .append_event(
+            run_id,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff-1", "seat": "implement"}),
+            Some(&e2.event_id),
+            "2026-11-25T10:00:02Z",
+        )
+        .unwrap();
+    let e4 = journal
+        .append_event(
+            run_id,
+            EventType::EffectStarted,
+            json!({"effect_id": "eff-1", "attempt_id": "att-1"}),
+            Some(&e3.event_id),
+            "2026-11-25T10:00:03Z",
+        )
+        .unwrap();
+    journal
+        .append_if_head(
+            run_id,
+            (4, &e4.event_hash),
+            EventType::EffectCheckpointed,
+            valid_checkpoint_payload(),
+            Some(&e4.event_id),
+            "2026-11-25T10:00:05Z",
+        )
+        .unwrap()
 }
 
 fn rfc3339(ts: &str) -> OffsetDateTime {
@@ -508,27 +602,10 @@ fn memory_journal_export_import_round_trip_and_refusals() {
     );
     let manifest = sample_manifest("portable");
     source.create_run("run-port", &manifest).unwrap();
-    source
-        .append_event(
-            "run-port",
-            EventType::RunStarted,
-            started_payload("portable"),
-            None,
-            "2026-11-25T10:00:00Z",
-        )
-        .unwrap();
-    source
-        .append_event(
-            "run-port",
-            EventType::EffectCheckpointed,
-            valid_checkpoint_payload(),
-            None,
-            "2026-11-25T10:00:05Z",
-        )
-        .unwrap();
+    append_valid_checkpoint_flow(&source, "run-port", "portable");
 
     let exported = source.export_ndjson("run-port").unwrap();
-    assert_eq!(exported.lines().count(), 2);
+    assert_eq!(exported.lines().count(), 5);
 
     let dest = Journal::new(
         MemEventLog::default(),
@@ -539,7 +616,7 @@ fn memory_journal_export_import_round_trip_and_refusals() {
     let count = dest
         .import_ndjson("run-port", &manifest, &with_blank)
         .unwrap();
-    assert_eq!(count, 2);
+    assert_eq!(count, 5);
     assert_eq!(dest.export_ndjson("run-port").unwrap(), exported);
     assert_eq!(
         dest.projections().list_runs().unwrap(),
@@ -551,12 +628,14 @@ fn memory_journal_export_import_round_trip_and_refusals() {
     );
 
     let dup = dest.import_ndjson("run-port", &manifest, &exported);
-    assert!(matches!(dup, Err(StoreError::RunExists(id)) if id == "run-port"));
+    assert!(matches!(dup, Err(ImportError::Collision(id)) if id == "run-port"));
 
     let foreign = dest.import_ndjson("run-other", &manifest, &exported);
     assert!(matches!(
         foreign,
-        Err(StoreError::Chain(ChainError::ForeignRun { seq: 1 }))
+        Err(ImportError::Verify(VerifyError::Chain(
+            ChainError::ForeignRun { seq: 1 }
+        )))
     ));
     assert!(matches!(
         dest.event_log().manifest("run-other"),
@@ -564,7 +643,10 @@ fn memory_journal_export_import_round_trip_and_refusals() {
     ));
 
     let bad_json = dest.import_ndjson("run-bad-json", &manifest, "{not json}\n");
-    assert!(matches!(bad_json, Err(StoreError::Json(_))));
+    assert!(matches!(
+        bad_json,
+        Err(ImportError::Verify(VerifyError::Parse(_)))
+    ));
 }
 
 #[test]
@@ -698,37 +780,29 @@ fn memory_journal_coordination_enqueue_list_and_cooldowns() {
 fn sqlite_store_satisfies_event_log_and_projection_ports() {
     let dir = tempdir().unwrap();
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let ports = SqlitePorts::new(&store);
     let manifest = sample_manifest("sqlite-conformance");
 
     assert!(matches!(
-        EventLog::head(&store, "absent"),
+        ports.head("absent"),
         Err(StoreError::RunNotFound(id)) if id == "absent"
     ));
     assert!(matches!(
-        EventLog::read_stream(&store, "absent", 1),
+        ports.read_stream("absent", 1),
         Err(StoreError::RunNotFound(id)) if id == "absent"
     ));
     assert!(matches!(
-        EventLog::append_envelopes(&store, "absent", (0, ZERO_HASH), &[]),
+        ports.append_envelopes("absent", (0, ZERO_HASH), &[]),
         Err(StoreError::RunNotFound(id)) if id == "absent"
     ));
-    assert!(matches!(
-        ProjectionStore::apply_envelopes(&store, "absent", &[]),
-        Err(StoreError::RunNotFound(id)) if id == "absent"
-    ));
+    ports.apply_envelopes("absent", &[]).unwrap();
 
-    EventLog::create_run(&store, "sql-1", &manifest).unwrap();
-    assert_eq!(
-        EventLog::head(&store, "sql-1").unwrap(),
-        (0, ZERO_HASH.to_string())
-    );
-    assert_eq!(EventLog::manifest(&store, "sql-1").unwrap(), manifest);
-    assert_eq!(
-        EventLog::list_run_ids(&store).unwrap(),
-        vec!["sql-1".to_string()]
-    );
+    ports.create_run("sql-1", &manifest).unwrap();
+    assert_eq!(ports.head("sql-1").unwrap(), (0, ZERO_HASH.to_string()));
+    assert_eq!(ports.manifest("sql-1").unwrap(), manifest);
+    assert_eq!(ports.list_run_ids().unwrap(), vec!["sql-1".to_string()]);
     assert!(matches!(
-        EventLog::create_run(&store, "sql-1", &manifest),
+        ports.create_run("sql-1", &manifest),
         Err(StoreError::RunExists(id)) if id == "sql-1"
     ));
 
@@ -764,33 +838,33 @@ fn sqlite_store_satisfies_event_log_and_projection_ports() {
     .sealed();
 
     assert!(matches!(
-        EventLog::append_envelopes(&store, "sql-1", (1, ZERO_HASH), std::slice::from_ref(&e1)),
+        ports.append_envelopes("sql-1", (1, ZERO_HASH), std::slice::from_ref(&e1)),
         Err(StoreError::HeadMoved {
             expected_seq: 1,
             found_seq: 0
         })
     ));
     assert!(matches!(
-        EventLog::append_envelopes(&store, "sql-1", (0, "bad-hash"), std::slice::from_ref(&e1),),
+        ports.append_envelopes("sql-1", (0, "bad-hash"), std::slice::from_ref(&e1)),
         Err(StoreError::HeadMoved {
             expected_seq: 0,
             found_seq: 0
         })
     ));
     assert!(matches!(
-        EventLog::append_envelopes(&store, "sql-1", (0, ZERO_HASH), &[e1.clone(), e1.clone()]),
+        ports.append_envelopes("sql-1", (0, ZERO_HASH), &[e1.clone(), e1.clone()]),
         Err(StoreError::AppendConflict { seq: 1 })
     ));
 
-    EventLog::append_envelopes(&store, "sql-1", (0, ZERO_HASH), &[e1.clone(), e2.clone()]).unwrap();
-    ProjectionStore::apply_envelopes(&store, "sql-1", &[e1, e2.clone()]).unwrap();
-    assert_eq!(
-        EventLog::head(&store, "sql-1").unwrap(),
-        (2, e2.event_hash.clone())
-    );
-    assert_eq!(EventLog::read_stream(&store, "sql-1", 1).unwrap().len(), 2);
-    assert_eq!(EventLog::read_stream(&store, "sql-1", 2).unwrap().len(), 1);
-    assert_eq!(ProjectionStore::list_runs(&store).unwrap().len(), 1);
+    ports
+        .append_envelopes("sql-1", (0, ZERO_HASH), &[e1.clone(), e2.clone()])
+        .unwrap();
+    ports.apply_envelopes("sql-1", &[e1, e2.clone()]).unwrap();
+    assert_eq!(ports.head("sql-1").unwrap(), (2, e2.event_hash.clone()));
+    assert_eq!(ports.read_stream("sql-1", 1).unwrap().len(), 2);
+    assert_eq!(ports.read_stream("sql-1", 2).unwrap().len(), 1);
+    assert!(ports.read_stream("sql-1", u64::MAX).unwrap().is_empty());
+    assert_eq!(ports.list_runs().unwrap().len(), 1);
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
@@ -816,16 +890,19 @@ fn sqlite_projection_rebuilds_from_external_memory_event_log() {
         )
         .unwrap();
     let fresh_sql = Store::open(&dir.path().join("rebuilt.db")).unwrap();
-    let rebuilt_count = ProjectionStore::rebuild_from(&fresh_sql, &mem_log).unwrap();
+    let fresh_ports = SqlitePorts::new(&fresh_sql);
+    let rebuilt_count = fresh_ports.rebuild_from(&mem_log).unwrap();
     assert_eq!(rebuilt_count, 1);
-    let listed = ProjectionStore::list_runs(&fresh_sql).unwrap();
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].0, "from-mem");
-    assert_eq!(listed[0].1, "external");
     assert_eq!(
-        every_run_reads_as_its_fold(&fresh_sql),
-        Vec::<String>::new()
+        fresh_ports.list_runs().unwrap(),
+        vec![(
+            "from-mem".to_string(),
+            "external".to_string(),
+            "2026-11-25T13:10:00Z".to_string(),
+        )]
     );
+    assert!(fresh_ports.list_run_ids().unwrap().is_empty());
+    assert!(fresh_sql.list_runs().unwrap().is_empty());
 }
 
 #[test]
@@ -839,12 +916,14 @@ fn sqlite_store_satisfies_coordination_port() {
         waits: &[],
     };
     assert!(matches!(
-        CoordinationStore::enqueue(&store, &entry, "not-a-timestamp"),
+        SqlitePorts::new(&store).enqueue(&entry, "not-a-timestamp"),
         Err(StoreError::Clock { ref now }) if now == "not-a-timestamp"
     ));
 
-    let id = CoordinationStore::enqueue(&store, &entry, "2026-11-25T14:00:00Z").unwrap();
-    let listed = CoordinationStore::list_queue(&store).unwrap();
+    let id = SqlitePorts::new(&store)
+        .enqueue(&entry, "2026-11-25T14:00:00Z")
+        .unwrap();
+    let listed = SqlitePorts::new(&store).list_queue().unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, id);
     assert_eq!(listed[0].added_at, "2026-11-25T14:00:00Z");
@@ -896,16 +975,15 @@ fn sqlite_store_satisfies_coordination_port() {
         .format(&Rfc3339)
         .unwrap();
 
-    let active = CoordinationStore::active_cooldowns(&store, &before).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let active = ports.active_cooldowns(&before).unwrap();
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].provider, "claude");
     assert_eq!(active[0].route, "primary");
 
-    assert!(CoordinationStore::active_cooldowns(&store, &after)
-        .unwrap()
-        .is_empty());
+    assert!(ports.active_cooldowns(&after).unwrap().is_empty());
     assert!(matches!(
-        CoordinationStore::active_cooldowns(&store, "bad-clock"),
+        ports.active_cooldowns("bad-clock"),
         Err(StoreError::Clock { ref now }) if now == "bad-clock"
     ));
 }
@@ -914,7 +992,8 @@ fn sqlite_store_satisfies_coordination_port() {
 fn journal_end_to_end_over_sqlite_references() {
     let dir = tempdir().unwrap();
     let store = Store::open(&dir.path().join("primary.db")).unwrap();
-    let journal = Journal::new(&store, &store, &store);
+    let ports = SqlitePorts::new(&store);
+    let journal = Journal::new(&ports, &ports, &ports);
 
     let manifest = sample_manifest("e2e-sqlite");
     journal.create_run("e2e-1", &manifest).unwrap();
@@ -923,26 +1002,8 @@ fn journal_end_to_end_over_sqlite_references() {
         vec!["e2e-1".to_string()]
     );
 
-    let e1 = journal
-        .append_event(
-            "e2e-1",
-            EventType::RunStarted,
-            started_payload("e2e-1"),
-            None,
-            "2026-11-25T15:00:00Z",
-        )
-        .unwrap();
-    let e2 = journal
-        .append_if_head(
-            "e2e-1",
-            (1, &e1.event_hash),
-            EventType::EffectCheckpointed,
-            valid_checkpoint_payload(),
-            Some(&e1.event_id),
-            "2026-11-25T15:00:10Z",
-        )
-        .unwrap();
-    assert_eq!(e2.seq, 2);
+    let e5 = append_valid_checkpoint_flow(&journal, "e2e-1", "e2e-sqlite");
+    assert_eq!(e5.seq, 5);
 
     assert!(matches!(
         journal.append_event(
@@ -952,13 +1013,13 @@ fn journal_end_to_end_over_sqlite_references() {
             None,
             "2026-11-25T15:00:15Z",
         ),
-        Err(StoreError::SeatRecord(ref err)) if err.seq == 3
+        Err(StoreError::SeatRecord(ref err)) if err.seq == 6
     ));
 
     assert!(matches!(
         journal.append_if_head(
             "e2e-1",
-            (1, &e1.event_hash),
+            (1, &e5.previous_hash),
             EventType::PhaseEntered,
             json!({"phase": "verify"}),
             None,
@@ -966,14 +1027,14 @@ fn journal_end_to_end_over_sqlite_references() {
         ),
         Err(StoreError::HeadMoved {
             expected_seq: 1,
-            found_seq: 2
+            found_seq: 5
         })
     ));
 
     let verified = journal.load_verified("e2e-1").unwrap();
-    assert_eq!(verified.len(), 2);
+    assert_eq!(verified.len(), 5);
     assert_eq!(journal.projections().list_runs().unwrap().len(), 1);
-    assert_eq!(journal.reindex().unwrap(), 2);
+    assert_eq!(journal.reindex().unwrap(), 5);
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 
     let entry = NewEntry {
@@ -996,11 +1057,15 @@ fn journal_end_to_end_over_sqlite_references() {
     assert_eq!(ndjson, store.export_ndjson("e2e-1").unwrap());
 
     let replica = Store::open(&dir.path().join("replica.db")).unwrap();
-    let replica_journal = Journal::new(&replica, &replica, &replica);
+    let replica_ports = SqlitePorts::new(&replica);
+    let replica_journal = Journal::new(&replica_ports, &replica_ports, &replica_ports);
     let imported = replica_journal
         .import_ndjson("e2e-1", &manifest, &ndjson)
         .unwrap();
-    assert_eq!(imported, 2);
+    assert_eq!(imported, 5);
     assert_eq!(replica_journal.export_ndjson("e2e-1").unwrap(), ndjson);
+    assert!(!replica.started_here("e2e-1").unwrap());
     assert_eq!(every_run_reads_as_its_fold(&replica), Vec::<String>::new());
 }
+
+mod regressions;

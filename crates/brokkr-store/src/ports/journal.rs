@@ -1,16 +1,22 @@
 //! Backend-agnostic [`Journal`] domain facade (decision 0126 ruling 2).
 //!
 //! Owns hash-chain continuity, optimistic `expected_head` fencing,
-//! `seat_record` schema validation, canonical NDJSON export/import, and
-//! projection reindexing once across every storage backend.
+//! post-terminal refusal, `seat_record` schema validation, canonical NDJSON
+//! export/import, and projection reindexing once across every storage backend.
+
+use std::collections::BTreeSet;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{
-    verify_chain, verify_chain_after, EventEnvelope, EventType, EVENT_SCHEMA_VERSION,
+    verify_chain_after, ChainError, EventEnvelope, EventType, EVENT_SCHEMA_VERSION,
 };
+use brokkr_core::fold::{lawful_after_terminal, terminal_event};
 use serde_json::Value;
 
-use crate::{format_canonical_ndjson, import, seat_record, SeatRecordVersion, StoreError};
+use crate::{
+    format_canonical_ndjson, import, seat_record, ImportError, SeatRecordVersion, StoreError,
+    VerifyError,
+};
 
 use super::{CoordinationStore, EventLog, ProjectionStore};
 
@@ -56,8 +62,8 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
     }
 
     /// Read the current head of `run_id`, seal a hash-chained event onto it,
-    /// validate any seat record, append under the head fence, and update
-    /// projections.
+    /// enforce post-terminal and seat-record gates, append under the head
+    /// fence, and update projections.
     pub fn append_event(
         &self,
         run_id: &str,
@@ -67,7 +73,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
         ts: &str,
     ) -> Result<EventEnvelope, StoreError> {
         let (seq, hash) = self.event_log.head(run_id)?;
-        self.append_if_head(run_id, (seq, &hash), event_type, payload, causation_id, ts)
+        self.append_checked(run_id, (seq, &hash), event_type, payload, causation_id, ts)
     }
 
     /// Seal and append an event onto `run_id` only while its head matches
@@ -81,15 +87,97 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
         causation_id: Option<&str>,
         ts: &str,
     ) -> Result<EventEnvelope, StoreError> {
-        let (found_seq, found_hash) = self.event_log.head(run_id)?;
+        self.append_checked(run_id, expected_head, event_type, payload, causation_id, ts)
+    }
+
+    /// Load `run_id`'s full event stream from sequence 1 and verify hash-chain
+    /// and run-id integrity.
+    pub fn load_verified(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
+        let events = self.event_log.read_stream(run_id, 1)?;
+        verify_chain_after(run_id, 0, ZERO_HASH, &events)?;
+        Ok(events)
+    }
+
+    /// Export `run_id`'s verified stream as canonical NDJSON after validating
+    /// every seat record.
+    pub fn export_ndjson(&self, run_id: &str) -> Result<String, StoreError> {
+        let events = self.load_verified(run_id)?;
+        seat_record::validate_events(&events)?;
+        format_canonical_ndjson(&events)
+    }
+
+    /// Verify and adopt an exported NDJSON stream under all adoption gates,
+    /// persist the run and its verified envelopes atomically using the
+    /// hash-attested manifest from `run/started`, and apply them to
+    /// projections. Returns the number of imported events.
+    pub fn import_ndjson(
+        &self,
+        run_id: &str,
+        manifest: &Value,
+        ndjson: &str,
+    ) -> Result<u64, ImportError> {
+        import::admit_run_id(run_id)?;
+        if is_redacted(manifest) {
+            return Err(ImportError::Redacted(run_id.to_string()));
+        }
+        let (events, state) = import::verified_events(ndjson)?;
+        if events[0].run_id != run_id {
+            return Err(ImportError::Verify(VerifyError::Chain(
+                ChainError::ForeignRun { seq: 1 },
+            )));
+        }
+        let _feature = state
+            .feature
+            .ok_or(ImportError::Unattested { field: "feature" })?;
+        let attested = events[0]
+            .payload
+            .get("manifest")
+            .ok_or(ImportError::Unattested { field: "manifest" })?;
+        if is_redacted(attested) {
+            return Err(ImportError::Redacted(run_id.to_string()));
+        }
+        self.event_log
+            .import_run_stream(run_id, attested, &events)
+            .map_err(|error| match error {
+                StoreError::RunExists(id) => ImportError::Collision(id),
+                other => ImportError::Store(other),
+            })?;
+        self.apply_projections(run_id, &events)?;
+        Ok(events.len() as u64)
+    }
+
+    /// Rebuild all read-model projections from the underlying [`EventLog`].
+    pub fn reindex(&self) -> Result<u64, StoreError> {
+        self.projections.rebuild_from(&self.event_log)
+    }
+
+    fn append_checked(
+        &self,
+        run_id: &str,
+        expected_head: (u64, &str),
+        event_type: EventType,
+        payload: Value,
+        causation_id: Option<&str>,
+        ts: &str,
+    ) -> Result<EventEnvelope, StoreError> {
+        let seq = expected_head
+            .0
+            .checked_add(1)
+            .ok_or(ChainError::SeqOverflow {
+                after: expected_head.0,
+            })?;
+        let events = self.event_log.read_stream(run_id, 1)?;
+        let (found_seq, found_hash) = events
+            .last()
+            .map_or((0, ZERO_HASH), |last| (last.seq, last.event_hash.as_str()));
         if found_seq != expected_head.0 || found_hash != expected_head.1 {
             return Err(StoreError::HeadMoved {
                 expected_seq: expected_head.0,
                 found_seq,
             });
         }
-        let seq = expected_head.0 + 1;
-        self.validate_record(run_id, seq, event_type, &payload)?;
+        refuse_after_terminal(run_id, &events, event_type)?;
+        validate_record(&events, seq, event_type, &payload)?;
         let envelope = EventEnvelope {
             run_id: run_id.to_string(),
             seq,
@@ -107,69 +195,81 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
         .sealed();
         self.event_log
             .append_envelopes(run_id, expected_head, std::slice::from_ref(&envelope))?;
-        self.projections
-            .apply_envelopes(run_id, std::slice::from_ref(&envelope))?;
+        self.apply_projections(run_id, std::slice::from_ref(&envelope))?;
         Ok(envelope)
     }
 
-    /// Load `run_id`'s full event stream from sequence 1 and verify hash-chain
-    /// integrity.
-    pub fn load_verified(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
-        let events = self.event_log.read_stream(run_id, 1)?;
-        verify_chain(&events)?;
-        Ok(events)
-    }
-
-    /// Export `run_id`'s verified stream as canonical NDJSON after validating
-    /// every seat record.
-    pub fn export_ndjson(&self, run_id: &str) -> Result<String, StoreError> {
-        let events = self.load_verified(run_id)?;
-        seat_record::validate_events(&events)?;
-        format_canonical_ndjson(&events)
-    }
-
-    /// Verify an exported NDJSON stream, create `run_id`, append the verified
-    /// envelopes verbatim, and apply them to projections. Returns the number
-    /// of imported events.
-    pub fn import_ndjson(
+    fn apply_projections(
         &self,
         run_id: &str,
-        manifest: &Value,
-        ndjson: &str,
-    ) -> Result<u64, StoreError> {
-        let events = ndjson
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(serde_json::from_str::<EventEnvelope>)
-            .collect::<Result<Vec<_>, _>>()?;
-        verify_chain_after(run_id, 0, ZERO_HASH, &events)?;
-        seat_record::validate_events(&events)?;
-        self.create_run(run_id, manifest)?;
-        self.event_log
-            .append_envelopes(run_id, (0, ZERO_HASH), &events)?;
-        self.projections.apply_envelopes(run_id, &events)?;
-        Ok(events.len() as u64)
-    }
-
-    /// Rebuild all read-model projections from the underlying [`EventLog`].
-    pub fn reindex(&self) -> Result<u64, StoreError> {
-        self.projections.rebuild_from(&self.event_log)
-    }
-
-    fn validate_record(
-        &self,
-        run_id: &str,
-        seq: u64,
-        event_type: EventType,
-        payload: &Value,
+        envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
-        let Some(record) = seat_record::record_of(event_type, payload) else {
-            return Ok(());
-        };
-        let manifest = self.event_log.manifest(run_id)?;
-        let version =
-            SeatRecordVersion::of_manifest(manifest.get("engine").and_then(Value::as_str));
-        seat_record::validate_seat_record(record, seq, version)?;
-        Ok(())
+        self.projections
+            .apply_envelopes(run_id, envelopes)
+            .map_err(|error| StoreError::ProjectionLag {
+                run_id: run_id.to_string(),
+                reason: error.to_string(),
+            })
     }
+}
+
+fn is_redacted(manifest: &Value) -> bool {
+    manifest.get("redacted") == Some(&Value::Bool(true))
+}
+
+fn refuse_after_terminal(
+    run_id: &str,
+    events: &[EventEnvelope],
+    event_type: EventType,
+) -> Result<(), StoreError> {
+    if lawful_after_terminal(event_type) {
+        return Ok(());
+    }
+    if let Some(status) = events
+        .iter()
+        .rev()
+        .find_map(|event| terminal_event(event.event_type))
+    {
+        return Err(StoreError::AfterTerminal {
+            run_id: run_id.to_string(),
+            status,
+            event_type,
+        });
+    }
+    Ok(())
+}
+
+fn validate_record(
+    events: &[EventEnvelope],
+    seq: u64,
+    event_type: EventType,
+    payload: &Value,
+) -> Result<(), StoreError> {
+    let record = seat_record::record_of(event_type, payload);
+    let has_settled = seat_record::settled_of(event_type, payload)
+        .next()
+        .is_some();
+    if record.is_none() && !has_settled {
+        return Ok(());
+    }
+    let engine = events
+        .iter()
+        .find(|event| event.event_type == EventType::RunStarted)
+        .and_then(|event| event.payload.pointer("/manifest/engine"))
+        .and_then(Value::as_str);
+    let version = SeatRecordVersion::of_manifest(engine);
+    if let Some(record) = record {
+        seat_record::validate_seat_record(record, seq, version)?;
+    }
+    if has_settled {
+        let attempt = payload["attempt_id"].as_str().unwrap_or_default();
+        let marked: BTreeSet<String> = events
+            .iter()
+            .filter(|event| event.payload["attempt_id"].as_str().unwrap_or_default() == attempt)
+            .filter_map(|event| seat_record::marked_member(event.event_type, &event.payload))
+            .map(str::to_owned)
+            .collect();
+        seat_record::validate_settled((event_type, payload), &marked, seq, version)?;
+    }
+    Ok(())
 }

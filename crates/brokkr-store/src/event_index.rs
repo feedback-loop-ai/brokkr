@@ -72,7 +72,7 @@ mod park_walk;
 use checkpoint::COLUMNS as CHECKPOINT_COLUMNS;
 pub(crate) use checkpoint::{
     write_all as write_all_checkpoints, write_all_available, write_appended as write_checkpoints,
-    write_sealed,
+    write_one as write_checkpoint, write_sealed,
 };
 pub(crate) use compare::{first_parted, first_unindexed, place, IndexReading};
 use park_walk::ParkWalk;
