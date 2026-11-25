@@ -50,12 +50,13 @@ and scheduled loops on throughput, correctness, cost and human effort.
 
 The operator ruled this erratum on 2026-11-25, "approve all the fact and
 wording fixes" for row 5 and the summary; "0007-1 approved" for row 1;
-"0007 - row 6 - approved, but only if this can be done in an automated
-way", then "that's not use case for us" and "the rest can be done" for
-row 6 ([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)),
-after every row of this entry was checked three ways: against the
-article, against main at `4912e583e`, and against the open issues and
-pull requests. The text above stands as ruled on 2026-11-24 and stays
+"0007-2 approved" for row 2; "0007-3 - approved" for row 3; "0007 - row
+6 - approved, but only if this can be done in an automated way", then
+"that's not use case for us" and "the rest can be done" for row 6
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
 readable; where this section differs, this section is the product's
 word.
 
@@ -87,6 +88,17 @@ word.
   the budget is attempts and deadlines only: decision 0067's enforced
   visit budgets are unbuilt (#463), and cost, stagnation and
   elapsed-time budgets are #604
+- **Row 2** keeps `implemented`. Citation: `policy/phase-machine.json`
+  and each recipe's policy table (`recipes/fast/policy.json`) carry the
+  terminal rules; each recipe's `recipes/fast/bundle.json` carries the
+  per-seat attempts and deadlines; cost, stagnation and elapsed-time
+  budgets are not yet committed artifacts (#604, decision 0067 unbuilt)
+- **Row 3** keeps `implemented`. Citation: decision 0034 and decision
+  0035: `contracts/seat-record.v8.schema.json` records usage, cost,
+  effort and reasoning tokens per seat; gaps: a Codex seat killed at its
+  deadline loses its tokens (#826), Codex and dsh seats carry no dollar
+  figure (#765), and Claude usage may double-count repeated message
+  records (#402)
 - **Row 5** keeps `not-planned`. Finding: "Track agent-authored edits to
   the loop's own configuration as a distinct signal (the paper measures
   agent-majority context files beside loop artifacts; tracking edits to
