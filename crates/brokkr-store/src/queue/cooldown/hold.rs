@@ -144,14 +144,12 @@ pub(super) fn standing(conn: &Connection) -> Result<Vec<Cooldown>, StoreError> {
 /// is never reported as written, and the caller's transaction, a renewed
 /// round's included, rolls back whole (fix round 0106b1r13, M2).
 pub(super) fn ended(conn: &Connection, id: Option<ProbeHoldId>, at: i64) -> Result<(), StoreError> {
+    const END_HOLD: &str = concat!(
+        "UPDATE probe_holds SET ended_at = ?2 WHERE seq = ?1 AND ",
+        standing_hold!()
+    );
     let seq = id.map(|id| id.0);
-    conn.execute(
-        concat!(
-            "UPDATE probe_holds SET ended_at = ?2 WHERE seq = ?1 AND ",
-            standing_hold!()
-        ),
-        params![seq, at],
-    )?;
+    conn.execute(END_HOLD, params![seq, at])?;
     let standing: Option<(String, String)> = conn
         .query_row(
             concat!(
@@ -171,15 +169,12 @@ pub(super) fn ended(conn: &Connection, id: Option<ProbeHoldId>, at: i64) -> Resu
 /// Refused where a hold of the run `run_id` naming one of `attempts` still
 /// stands after its settlement's updates: the first such attempt, by name.
 fn unsettled(conn: &Connection, run_id: &str, attempts: &[String]) -> Result<(), StoreError> {
+    const COUNT_STANDING: &str = concat!(
+        "SELECT COUNT(*) FROM probe_holds WHERE run_id = ?1 AND attempt_id = ?2 AND ",
+        standing_hold!()
+    );
     for attempt in attempts {
-        let standing: i64 = conn.query_row(
-            concat!(
-                "SELECT COUNT(*) FROM probe_holds WHERE run_id = ?1 AND attempt_id = ?2 AND ",
-                standing_hold!()
-            ),
-            params![run_id, attempt],
-            |row| row.get(0),
-        )?;
+        let standing: i64 = conn.query_row(COUNT_STANDING, [run_id, attempt], |row| row.get(0))?;
         if standing > 0 {
             let unsettled = UnsettledHold {
                 run_id: run_id.to_string(),
