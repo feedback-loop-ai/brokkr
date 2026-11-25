@@ -216,7 +216,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
             .apply_envelopes(run_id, envelopes)
             .map_err(|error| StoreError::ProjectionLag {
                 run_id: run_id.to_string(),
-                reason: error.to_string(),
+                source: Box::new(error),
             })
     }
 }

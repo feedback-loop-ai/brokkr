@@ -567,18 +567,6 @@ pub(crate) fn write_sealed(
     refold_sealed(tx, run_id, sealed)
 }
 
-/// Write one checkpoint row's facts directly from `checkpoint`, propagating
-/// [`StoreError::TokenCountOutOfRange`] on out-of-range counts.
-pub(crate) fn write_one(
-    tx: &Connection,
-    run_id: &str,
-    seq: u64,
-    checkpoint: Option<&Checkpoint>,
-) -> Result<(), StoreError> {
-    let values = facts(checkpoint)?;
-    write(tx, run_id, seq, &values)
-}
-
 /// Write the facts of every checkpoint of `account`'s run, at the head the
 /// account covers: the backfill's walk and an adoption's whole write.
 pub(crate) fn write_all(tx: &Connection, account: &Account) -> Result<(), StoreError> {

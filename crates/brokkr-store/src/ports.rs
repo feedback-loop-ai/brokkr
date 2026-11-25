@@ -37,10 +37,11 @@ pub trait EventLog {
 
     /// Atomically append pre-sealed `envelopes` to `run_id` only while the
     /// stored head matches `expected_head`, refusing a moved head with
-    /// [`StoreError::HeadMoved`], a duplicate sequence number with
-    /// [`StoreError::AppendConflict`], a foreign `run_id` with
-    /// [`brokkr_core::envelope::ChainError::ForeignRun`], and non-annotation
-    /// events after a terminal event with [`StoreError::AfterTerminal`].
+    /// [`StoreError::HeadMoved`], a duplicate or non-contiguous sequence number
+    /// in a batch with [`brokkr_core::envelope::ChainError::SeqGap`], a foreign
+    /// `run_id` with [`brokkr_core::envelope::ChainError::ForeignRun`], and
+    /// non-annotation events after a terminal event with
+    /// [`StoreError::AfterTerminal`].
     fn append_envelopes(
         &self,
         run_id: &str,
@@ -83,10 +84,13 @@ pub trait EventLog {
 pub trait ProjectionStore {
     /// Project committed `envelopes` for `run_id` into read models.
     ///
-    /// Callers may supply either the full verified stream from sequence 1 or
-    /// a newly committed suffix; implementations must remain monotonic and
-    /// never regress a run whose projection is already at or past the batch's
-    /// highest sequence number.
+    /// Decoupled implementations require a verified complete prefix starting at
+    /// sequence 1 (refusing a suffix starting past sequence 1 with
+    /// [`brokkr_core::envelope::ChainError::SeqGap`]); co-located
+    /// implementations may also accept a committed suffix matching their local
+    /// event stream. Implementations must remain monotonic and never regress a
+    /// run whose projection is already at or past the batch's highest sequence
+    /// number.
     fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError>;
 
     /// List known runs as `(run_id, feature, created_at)` triples.

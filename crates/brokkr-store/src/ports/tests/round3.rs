@@ -16,7 +16,7 @@ use tempfile::tempdir;
 
 use super::regressions::{sealed_event, sqlite_table_count};
 use super::{
-    sample_manifest, started_payload, valid_checkpoint_payload, MemCoordinationStore, MemEventLog,
+    open_split_journal, sample_manifest, started_payload, MemCoordinationStore, MemEventLog,
     MemProjectionStore,
 };
 use crate::ports::{EventLog, Journal, ProjectionStore, SqlitePorts};
@@ -33,7 +33,7 @@ fn session_finished_checkpoint(attempt_id: &str, output_tokens: u64) -> Value {
     })
 }
 
-fn started_event(run_id: &str, feature: &str, ts: &str) -> EventEnvelope {
+pub(super) fn started_event(run_id: &str, feature: &str, ts: &str) -> EventEnvelope {
     sealed_event(
         run_id,
         1,
@@ -44,7 +44,7 @@ fn started_event(run_id: &str, feature: &str, ts: &str) -> EventEnvelope {
     )
 }
 
-fn summary_snapshot(
+pub(super) fn summary_snapshot(
     path: &std::path::Path,
     run_id: &str,
 ) -> (i64, Option<i64>, Option<String>, String, Option<i64>) {
@@ -458,15 +458,7 @@ fn decoupled_journal_full_fold_monotonic_and_session_dedup() {
     let dir = tempdir().unwrap();
     let proj_path = dir.path().join("proj-full.db");
     let proj_store = Store::open(&proj_path).unwrap();
-    let journal = Journal::new(
-        MemEventLog::default(),
-        SqlitePorts::new(&proj_store),
-        MemCoordinationStore::default(),
-    );
-
-    journal
-        .create_run("dec-1", &sample_manifest("dec-full"))
-        .unwrap();
+    let journal = open_split_journal(&proj_store, "dec-1", "dec-full");
     let sealed = append_parked_session_flow(&journal, "dec-1");
 
     let (head_seq, folded_seq, status, lane, last_at_ms) = summary_snapshot(&proj_path, "dec-1");
@@ -616,17 +608,9 @@ fn sqlite_direct_suffix_apply_envelopes_covers_colocated_and_decoupled() {
     let e3 = sealed_event(
         "cs-1",
         3,
-        EventType::EffectCheckpointed,
-        valid_checkpoint_payload(),
-        &e2.event_hash,
-        "2026-11-25T10:00:10Z",
-    );
-    let e4 = sealed_event(
-        "cs-1",
-        4,
         EventType::RunCompleted,
         json!({}),
-        &e3.event_hash,
+        &e2.event_hash,
         "2026-11-25T10:00:15Z",
     );
     assert!(matches!(
@@ -647,20 +631,33 @@ fn sqlite_direct_suffix_apply_envelopes_covers_colocated_and_decoupled() {
     dec_ports
         .apply_envelopes("cs-1", std::slice::from_ref(&e1))
         .unwrap();
-    for event in [e2, e3, e4] {
-        dec_ports
-            .apply_envelopes("cs-1", std::slice::from_ref(&event))
-            .unwrap();
-    }
-    let conn = Connection::open(&dec_path).unwrap();
-    let (head_seq, phase, status): (i64, Option<String>, Option<String>) = conn
-        .query_row(
-            "SELECT head_seq, phase, status FROM run_summary WHERE run_id = 'cs-1'",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
+    assert!(matches!(
+        dec_ports.apply_envelopes("cs-1", std::slice::from_ref(&e2)),
+        Err(StoreError::Chain(ChainError::SeqGap {
+            seq: 2,
+            expected: 1,
+        }))
+    ));
+    dec_ports
+        .apply_envelopes("cs-1", &[e1.clone(), e2.clone()])
         .unwrap();
-    assert_eq!(head_seq, 4);
+    let conn = Connection::open(&dec_path).unwrap();
+    let read_state = || -> (i64, Option<i64>, Option<String>, Option<String>) {
+        conn.query_row(
+            "SELECT head_seq, folded_seq, phase, status FROM run_summary WHERE run_id = 'cs-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap()
+    };
+    let (head_seq, folded_seq, phase, status) = read_state();
+    assert_eq!((head_seq, folded_seq), (2, Some(2)));
+    assert_eq!(phase.as_deref(), Some("verify"));
+    assert_eq!(status.as_deref(), Some("running"));
+
+    dec_ports.apply_envelopes("cs-1", &[e1, e2, e3]).unwrap();
+    let (head_seq, folded_seq, phase, status) = read_state();
+    assert_eq!((head_seq, folded_seq), (3, Some(3)));
     assert_eq!(phase.as_deref(), Some("verify"));
     assert_eq!(status.as_deref(), Some("completed"));
 }
@@ -707,20 +704,17 @@ fn rebuild_from_skips_empty_runs_and_derives_created_at_from_first_event() {
 
     let raw = Connection::open(&coloc_path).unwrap();
     raw.execute(
-        "UPDATE runs SET created_at = '2026-11-25T00:00:00Z' WHERE run_id = 'retro-1'",
+        "UPDATE runs SET created_at = '2025-06-01T00:00:00Z' WHERE run_id = 'retro-1'",
         [],
     )
     .unwrap();
     drop(raw);
 
     assert_eq!(coloc_ports.rebuild_from(&coloc_ports).unwrap(), 1);
+    assert!(coloc_store.summary_disagreements().unwrap().is_empty());
     assert_eq!(
         coloc_ports.list_runs().unwrap(),
-        vec![(
-            "retro-1".to_string(),
-            "retro".to_string(),
-            "2020-01-01T00:00:00Z".to_string(),
-        )]
+        coloc_store.list_runs().unwrap()
     );
 }
 
@@ -833,8 +827,20 @@ fn import_ndjson_projection_lag_heals_via_reindex() {
         .unwrap_err();
     assert!(matches!(
         err,
-        ImportError::Store(ref store_err @ StoreError::ProjectionLag { ref run_id, .. })
-            if run_id == "heal-1" && !store_err.is_contention()
+        ImportError::Store(
+            ref store_err @ StoreError::ProjectionLag {
+                ref run_id,
+                ref source,
+            }
+        ) if run_id == "heal-1"
+            && !store_err.is_contention()
+            && matches!(
+                source.as_ref(),
+                StoreError::Contended {
+                    operation: "apply_envelopes",
+                    waited_ms: 3,
+                }
+            )
     ));
     assert!(matches!(
         dst_journal.import_ndjson("heal-1", &manifest, &ndjson),

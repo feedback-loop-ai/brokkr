@@ -1074,5 +1074,22 @@ fn journal_end_to_end_over_sqlite_references() {
     assert_eq!(every_run_reads_as_its_fold(&replica), Vec::<String>::new());
 }
 
+fn open_split_journal<'a>(
+    store: &'a Store,
+    run_id: &str,
+    feature: &str,
+) -> Journal<MemEventLog, SqlitePorts<'a>, MemCoordinationStore> {
+    let journal = Journal::new(
+        MemEventLog::default(),
+        SqlitePorts::new(store),
+        MemCoordinationStore::default(),
+    );
+    journal
+        .create_run(run_id, &sample_manifest(feature))
+        .unwrap();
+    journal
+}
+
 mod regressions;
 mod round3;
+mod round4;

@@ -267,9 +267,13 @@ pub enum StoreError {
     /// projections failed. The event is durable; callers must NOT treat this
     /// as contention (`is_contention() == false`).
     #[error(
-        "projection lag for run '{run_id}': event log committed, but projection update failed ({reason})"
+        "projection lag for run '{run_id}': event log committed, but projection update failed ({source})"
     )]
-    ProjectionLag { run_id: String, reason: String },
+    ProjectionLag {
+        run_id: String,
+        #[source]
+        source: Box<StoreError>,
+    },
     /// `ProjectionStore::rebuild_from` was handed an event log that diverges
     /// from this store's own `events` table; refusing keeps local projections
     /// aligned with local events (including terminal fences).

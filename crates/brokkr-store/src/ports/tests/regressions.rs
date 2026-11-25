@@ -13,8 +13,8 @@ use serde_json::{json, Value};
 use tempfile::tempdir;
 
 use super::{
-    sample_manifest, started_payload, valid_checkpoint_payload, MemCoordinationStore, MemEventLog,
-    MemProjectionStore,
+    open_split_journal, sample_manifest, started_payload, valid_checkpoint_payload,
+    MemCoordinationStore, MemEventLog, MemProjectionStore,
 };
 use crate::damage::Damage;
 use crate::ports::{EventLog, Journal, ProjectionStore, SqlitePorts};
@@ -681,6 +681,12 @@ fn foreign_run_id_refused_in_load_verified_and_append_envelopes() {
         journal.load_verified("run-b"),
         Err(StoreError::Chain(ChainError::ForeignRun { seq: 1 }))
     ));
+    assert!(matches!(
+        journal.import_ndjson("run-c", &sample_manifest("c"), &single_ndjson(&e_a)),
+        Err(ImportError::Verify(VerifyError::Chain(
+            ChainError::ForeignRun { seq: 1 }
+        )))
+    ));
 
     mem.create_run("run-c", &sample_manifest("c")).unwrap();
     assert!(matches!(
@@ -708,14 +714,7 @@ fn split_journal_mem_log_sqlite_projections_end_to_end() {
     let dir = tempdir().unwrap();
     let proj_path = dir.path().join("proj.db");
     let proj_store = Store::open(&proj_path).unwrap();
-    let journal = Journal::new(
-        MemEventLog::default(),
-        SqlitePorts::new(&proj_store),
-        MemCoordinationStore::default(),
-    );
-    journal
-        .create_run("split-1", &sample_manifest("split-feat"))
-        .unwrap();
+    let journal = open_split_journal(&proj_store, "split-1", "split-feat");
     journal
         .append_event(
             "split-1",
@@ -860,13 +859,36 @@ fn sqlite_projection_propagates_token_count_out_of_range() {
         Err(StoreError::TokenCountOutOfRange(2, "input_tokens", count)) if count == overflow
     ));
 
-    // Incremental decoupled apply_envelopes also propagates TokenCountOutOfRange.
-    ports
-        .apply_envelopes("tok-1", std::slice::from_ref(&e1))
+    // Journal over decoupled SqlitePorts wraps TokenCountOutOfRange inside typed ProjectionLag.
+    let split = open_split_journal(&proj_store, "tok-lag", "tok");
+    split
+        .append_event(
+            "tok-lag",
+            EventType::RunStarted,
+            started_payload("tok"),
+            None,
+            "2026-11-25T10:00:00Z",
+        )
         .unwrap();
+    let lag_err = split
+        .append_event(
+            "tok-lag",
+            EventType::EffectCheckpointed,
+            e2.payload.clone(),
+            None,
+            "2026-11-25T10:00:05Z",
+        )
+        .unwrap_err();
+    assert!(!lag_err.is_contention());
     assert!(matches!(
-        ports.apply_envelopes("tok-1", std::slice::from_ref(&e2)),
-        Err(StoreError::TokenCountOutOfRange(2, "input_tokens", count)) if count == overflow
+        lag_err,
+        StoreError::ProjectionLag { ref run_id, ref source }
+            if run_id == "tok-lag"
+                && matches!(
+                    source.as_ref(),
+                    StoreError::TokenCountOutOfRange(2, "input_tokens", count)
+                        if *count == overflow
+                )
     ));
 
     // rebuild_from also propagates TokenCountOutOfRange.
@@ -925,10 +947,25 @@ fn post_commit_projection_failure_returns_non_contention_projection_lag() {
     assert!(!err.is_contention());
     assert!(matches!(
         err,
-        StoreError::ProjectionLag { ref run_id, ref reason }
-            if run_id == "lag-1" && reason.contains("contended")
+        StoreError::ProjectionLag { ref run_id, ref source }
+            if run_id == "lag-1"
+                && matches!(
+                    source.as_ref(),
+                    StoreError::Contended {
+                        operation: "apply_envelopes",
+                        waited_ms: 5,
+                    }
+                )
     ));
-    assert!(err.to_string().contains("projection lag for run 'lag-1'"));
+    assert!(std::error::Error::source(&err).is_some());
+    assert_eq!(
+        err.to_string(),
+        concat!(
+            "projection lag for run 'lag-1': event log committed, ",
+            "but projection update failed (contended: a peer still held ",
+            "the journal's write lock after 5ms of apply_envelopes; nothing was written)",
+        )
+    );
     // The event WAS durably committed in EventLog before projections lagged.
     assert_eq!(journal.load_verified("lag-1").unwrap().len(), 1);
 
@@ -943,8 +980,20 @@ fn post_commit_projection_failure_returns_non_contention_projection_lag() {
         .unwrap_err();
     assert!(matches!(
         import_err,
-        ImportError::Store(ref store_err @ StoreError::ProjectionLag { ref run_id, .. })
-            if run_id == "lag-1" && !store_err.is_contention()
+        ImportError::Store(
+            ref store_err @ StoreError::ProjectionLag {
+                ref run_id,
+                ref source,
+            }
+        ) if run_id == "lag-1"
+            && !store_err.is_contention()
+            && matches!(
+                source.as_ref(),
+                StoreError::Contended {
+                    operation: "apply_envelopes",
+                    waited_ms: 5,
+                }
+            )
     ));
     assert_eq!(import_journal.load_verified("lag-1").unwrap().len(), 1);
 }
