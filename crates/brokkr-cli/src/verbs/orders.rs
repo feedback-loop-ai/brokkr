@@ -1,11 +1,12 @@
 //! Work orders in the journal (decision 0116 rulings 2, 9 and 10).
 
-use std::io::Write;
-use std::path::Path;
+use std::fs;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use brokkr_core::work_order::{Trackers, WorkOrder, WorkOrderId, WorkOrderState};
+use brokkr_core::work_order::{Trackers, WorkOrder, WorkOrderError, WorkOrderId, WorkOrderState};
 use brokkr_store::{OrderRefusal, StoreError};
 use serde::Serialize;
 
@@ -14,6 +15,7 @@ use crate::cli_args::{
     OrderAddArgs, OrderEditArgs, OrderListArgs, OrderRuleArgs, OrderShowArgs, OrderWriteArgs,
     OrdersCmd,
 };
+use crate::folder::Layout;
 use crate::render::Safe;
 use crate::{open_journal, Access, Exit};
 
@@ -26,8 +28,69 @@ const SHIPPED: &[&str] = &[
     include_str!("../../trackers/zenhub.json"),
 ];
 
-fn shipped_trackers() -> Trackers {
-    Trackers::from_definitions(SHIPPED.iter().copied()).expect("the shipped tracker definitions")
+#[derive(Debug, thiserror::Error)]
+enum TrackerError {
+    #[error("cannot read trackers at '{}'", path.display())]
+    Read { path: PathBuf, source: io::Error },
+    #[error("invalid tracker definition in '{}'", path.display())]
+    Definition {
+        path: PathBuf,
+        source: WorkOrderError,
+    },
+}
+
+fn tracker_paths(directory: &Path) -> Result<Vec<PathBuf>, TrackerError> {
+    let read_error = |source| TrackerError::Read {
+        path: directory.to_path_buf(),
+        source,
+    };
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {
+            // A dangling directory link stands here and should be refused.
+            return match directory.symlink_metadata() {
+                Err(missing) if missing.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+                Ok(_) | Err(_) => Err(read_error(source)),
+            };
+        }
+        Err(source) => return Err(read_error(source)),
+    };
+    let mut paths: Vec<_> = entries
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<io::Result<_>>()
+        .map_err(read_error)?;
+    paths.retain(|path| path.extension().is_some_and(|ext| ext == "json"));
+    paths.sort_unstable();
+    Ok(paths)
+}
+
+fn trackers(directory: Option<&Path>) -> Result<Trackers, TrackerError> {
+    let paths = directory
+        .map(tracker_paths)
+        .transpose()?
+        .unwrap_or_default();
+    let mut files = Vec::with_capacity(paths.len());
+    for path in paths {
+        let text = fs::read_to_string(&path).map_err(|source| TrackerError::Read {
+            path: path.clone(),
+            source,
+        });
+        files.push((path, text?));
+    }
+    // The core reader stops on the failing definition, so its path is
+    // the last one yielded. Shipped definitions are checked in tests.
+    let mut current = None;
+    let adopter = files.iter().map(|(path, text)| {
+        current = Some(path);
+        text.as_str()
+    });
+    let definitions = SHIPPED.iter().copied().chain(adopter);
+    Trackers::from_definitions(definitions).map_err(|source| TrackerError::Definition {
+        path: current
+            .expect("the shipped tracker definitions are valid")
+            .clone(),
+        source,
+    })
 }
 
 pub(crate) fn orders(
@@ -35,7 +98,8 @@ pub(crate) fn orders(
     command: OrdersCmd,
     out: &mut impl Write,
 ) -> Result<ExitCode> {
-    let trackers = shipped_trackers();
+    let layout = Layout::discover(workspace)?;
+    let trackers = trackers(layout.trackers().as_deref())?;
     match command {
         OrdersCmd::List(args) => list(workspace, args, &trackers, out)?,
         OrdersCmd::Show(args) => show(workspace, args, &trackers, out)?,
@@ -105,10 +169,10 @@ fn show(
         }
         order => order?,
     };
+    writeln!(out, "digest {}", order.digest())?;
     for line in order.render().lines() {
         writeln!(out, "{}", Safe::new(line).as_str())?;
     }
-    writeln!(out, "digest {}", order.digest())?;
     Ok(())
 }
 

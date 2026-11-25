@@ -362,13 +362,11 @@ fn every_width_from_the_minimum_draws_each_verdict_and_id_whole() {
     }
 }
 
-/// Acceptance 1 against the sanitizer: a family emoji is one 2-column
-/// sequence only while its joiners hold, and the TUI strips joiners, so
-/// thirty of them measure 60 columns in the view and paint 240 here.
-/// The row paints its title clamped as drawn: on a 160-column frame,
-/// whose title column holds 89, 44 emoji and an ellipsis.
+/// A family emoji paints as four two-column emoji and three eight-column
+/// joiner marks. The 89-column title fits two families, part of a third
+/// and an ellipsis.
 #[test]
-fn a_title_is_clamped_as_it_is_painted_once_its_joiners_are_stripped() {
+fn a_title_is_clamped_to_the_width_of_emoji_and_joiner_marks() {
     let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}";
     let feature = family.repeat(30);
     let state = state_of(Status::Running);
@@ -387,13 +385,15 @@ fn a_title_is_clamped_as_it_is_painted_once_its_joiners_are_stripped() {
     let mut views = Views::empty();
     views.now = NOW.to_string();
     views.runs = brokkr_view::run_rows(&[entry], &[]);
-    assert_eq!(views.runs.runs[0].title, feature, "the view measures 60");
+    assert_eq!(views.runs.runs[0].title, feature);
     let frame = frame_of(&Tui::new(None), &views, 160, 48);
     let painted = frame
         .chars()
         .filter(|c| family.contains(*c) && *c != '\u{200D}');
-    assert_eq!(painted.count(), 44, "{frame}");
-    assert!(frame.contains('…'), "{frame}");
+    assert_eq!(painted.count(), 11, "{frame}");
+    assert_eq!(frame.matches("<U+200D>").count(), 8, "{frame}");
+    assert!(!frame.contains('\u{200D}'), "{frame}");
+    assert!(frame.contains('\u{2026}'), "{frame}");
 }
 
 #[test]

@@ -1,8 +1,5 @@
 //! Exercise the parsed verbs against a separate scratch journal per test.
 
-use std::io;
-use std::path::PathBuf;
-
 use brokkr_store::{Attribution, Store};
 use clap::Parser;
 use rusqlite::Connection;
@@ -14,6 +11,8 @@ use crate::{report_to, Cli, Cmd, GroupedCmd};
 const DRAFT: &str = "draft.md";
 const COMPLETE: &str = "complete.md";
 const REASON: &str = "the operator's reason";
+const CUSTOM_TRACKER: &str = r#"{"tracker":"custom","hosts":["github.com"]}"#;
+const COUNTERFEIT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 struct Scratch {
     dir: tempfile::TempDir,
@@ -21,11 +20,29 @@ struct Scratch {
 }
 
 impl Scratch {
-    fn new() -> Self {
+    fn bare() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        crate::folder::folder_tests::plant_library(dir.path());
         let db = dir.path().join("orders.db");
         Self { dir, db }
+    }
+
+    fn new() -> Self {
+        let scratch = Self::bare();
+        crate::folder::folder_tests::plant_library(scratch.dir.path());
+        scratch
+    }
+
+    fn folder() -> Self {
+        let scratch = Self::bare();
+        fs::create_dir(scratch.dir.path().join(".brokkr")).unwrap();
+        scratch
+    }
+
+    fn tracker(&self, name: &str, text: &str) -> PathBuf {
+        let file = self.dir.path().join(name);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, text).unwrap();
+        file
     }
 
     fn sql(&self) -> Connection {
@@ -50,8 +67,10 @@ impl Scratch {
 
     fn shown_digest(&self, id: &str) -> String {
         let shown = self.stdout(&["show", id]);
-        let (_, digest) = shown.trim_end().rsplit_once("\ndigest ").unwrap();
-        digest.to_owned()
+        digest_line(&shown)
+            .strip_prefix("digest ")
+            .unwrap()
+            .to_owned()
     }
 
     fn invoke(&self, words: &[&str]) -> (Result<ExitCode>, String) {
@@ -87,6 +106,41 @@ impl Scratch {
         }
     }
 
+    fn readout_refusals(&self) -> impl Iterator<Item = (anyhow::Error, String)> + '_ {
+        [&["list"][..], &["show", "WO-1"]]
+            .into_iter()
+            .map(|words| self.refused(words))
+    }
+
+    fn refused_before_open(&self, check: impl Fn(TrackerError, String)) {
+        let file = self.dir.path().join("missing.md");
+        let file = file.to_str().unwrap();
+        for words in [
+            &["list"][..],
+            &["show", "WO-1"],
+            &["add", file, "--reason", REASON],
+            &["edit", "WO-1", file, "--reason", REASON],
+            &rule_words("WO-1", COUNTERFEIT),
+        ] {
+            let (error, stderr) = self.refused(words);
+            check(error.downcast::<TrackerError>().unwrap(), stderr);
+        }
+        assert!(!self.db.exists());
+    }
+
+    fn refused_definition(&self, file: &Path, detail: &str) {
+        self.refused_before_open(|error, stderr| {
+            assert!(matches!(error, TrackerError::Definition { path, .. } if path == file));
+            assert_eq!(
+                stderr,
+                format!(
+                    "error: invalid tracker definition in '{}': {detail}\n",
+                    file.display()
+                )
+            );
+        });
+    }
+
     fn add(&self, file: &Path) -> String {
         self.stdout(&["add", file.to_str().unwrap(), "--reason", REASON])
     }
@@ -96,8 +150,20 @@ fn rule_words<'a>(id: &'a str, digest: &'a str) -> [&'a str; 6] {
     ["rule", id, "--digest", digest, "--reason", REASON]
 }
 
+fn digest_line(shown: &str) -> &str {
+    shown.lines().next().unwrap()
+}
+
 fn shown(text: &str, digest: &str) -> String {
-    format!("{text}digest {digest}\n")
+    format!("digest {digest}\n{text}")
+}
+
+fn shipped_trackers() -> Trackers {
+    trackers(None).unwrap()
+}
+
+fn custom_reference() -> String {
+    document(COMPLETE).replace("\"tracker\": \"github\"", "\"tracker\": \"custom\"")
 }
 
 fn fixture(name: &str) -> PathBuf {
@@ -119,10 +185,10 @@ fn add_assigns_an_id_lists_it_and_refuses_a_second_proposal() {
         "WO-1  proposed  0  Work order draft\n"
     );
     let recorded = scratch.stdout(&["show", "WO-1"]);
-    let (document, digest) = recorded.rsplit_once("digest ").unwrap();
+    let (digest, document) = recorded.split_once('\n').unwrap();
     assert_eq!(
         digest,
-        "167afdc611b69fc43f54e9c13f4e5aba53d2b99e52f7114125217225b32659ae\n"
+        "digest 167afdc611b69fc43f54e9c13f4e5aba53d2b99e52f7114125217225b32659ae"
     );
     let duplicate = scratch.file(document);
     let (error, stderr) =
@@ -138,7 +204,7 @@ fn add_assigns_an_id_lists_it_and_refuses_a_second_proposal() {
 }
 
 #[test]
-fn list_prints_a_title_without_controls_or_directional_overrides() {
+fn list_prints_a_title_with_format_marks_and_without_controls() {
     let scratch = Scratch::new();
     let text = document(DRAFT).replace(
         "\"Work order draft\"",
@@ -148,7 +214,7 @@ fn list_prints_a_title_without_controls_or_directional_overrides() {
 
     assert_eq!(
         scratch.stdout(&["list"]),
-        "WO-1  proposed  0  Work order draft\n"
+        "WO-1  proposed  0  Work order<U+202E> draft\n"
     );
 }
 
@@ -235,10 +301,9 @@ fn ruling_waits_for_closed_asks_and_an_edit_returns_the_order_to_proposed() {
 #[test]
 fn ruling_an_order_the_cli_cannot_show_journals_no_ruling() {
     let scratch = Scratch::new();
-    let extra = r#"{"tracker":"custom","hosts":["github.com"]}"#;
-    let extended = Trackers::from_definitions(SHIPPED.iter().copied().chain([extra])).unwrap();
-    let document = document(COMPLETE).replace("\"tracker\": \"github\"", "\"tracker\": \"custom\"");
-    let order = WorkOrder::parse(&document, &extended).unwrap();
+    let extended =
+        Trackers::from_definitions(SHIPPED.iter().copied().chain([CUSTOM_TRACKER])).unwrap();
+    let order = WorkOrder::parse(&custom_reference(), &extended).unwrap();
     let by = Attribution {
         operator: "operator",
         reason: "propose from another tracker set",
@@ -266,7 +331,7 @@ fn ruling_an_order_the_cli_cannot_show_journals_no_ruling() {
 }
 
 #[test]
-fn show_prints_each_line_without_controls_or_directional_overrides() {
+fn show_prints_each_line_with_format_marks_and_without_controls() {
     let scratch = Scratch::new();
     let draft = document(DRAFT);
     let text = draft.replace(
@@ -277,7 +342,7 @@ fn show_prints_each_line_without_controls_or_directional_overrides() {
     let expected = WorkOrder::parse(
         &draft.replace(
             "Keep the work clear.",
-            "Keep the work clear.\n<!-- The review still reads this line.",
+            "Keep the work<U+202E> clear.\n<!-- The review still reads this line.",
         ),
         &shipped_trackers(),
     )
@@ -301,7 +366,7 @@ fn a_parser_refusal_prints_the_tracker_word_without_controls() {
     assert!(error.is::<brokkr_core::work_order::WorkOrderError>());
     assert_eq!(
         stderr,
-        "error: the work order cites unknown tracker 'other'\n"
+        "error: the work order cites unknown tracker 'other<U+202E>'\n"
     );
 }
 
@@ -373,8 +438,7 @@ fn readouts_keep_the_refusal_for_a_later_storage_version() {
             [],
         )
         .unwrap();
-    for words in [&["list"][..], &["show", "WO-1"]] {
-        let (error, stderr) = scratch.refused(words);
+    for (error, stderr) in scratch.readout_refusals() {
         assert!(matches!(
             error.downcast_ref::<StoreError>(),
             Some(StoreError::Orders(OrderRefusal::SchemaMismatch(2)))
@@ -445,8 +509,7 @@ fn list_and_show_refuse_damaged_work_order_storage() {
         let scratch = Scratch::new();
         scratch.add(&fixture(DRAFT));
         scratch.sql().execute_batch(sql).unwrap();
-        for words in [&["list"][..], &["show", "WO-1"]] {
-            let (error, stderr) = scratch.refused(words);
+        for (error, stderr) in scratch.readout_refusals() {
             assert!(matches!(
                 error.downcast_ref::<StoreError>(),
                 Some(StoreError::Damaged { journal, damage: brokkr_store::Damage::Orders }) if *journal == scratch.db
@@ -457,6 +520,141 @@ fn list_and_show_refuse_damaged_work_order_storage() {
             )));
         }
     }
+}
+
+#[test]
+fn folder_and_library_trackers_are_used_by_add_show_list_and_rule() {
+    for (scratch, tracker) in [
+        (Scratch::folder(), ".brokkr/trackers/custom.json"),
+        (Scratch::new(), "trackers/custom.json"),
+    ] {
+        scratch.tracker(tracker, CUSTOM_TRACKER);
+        let text = custom_reference();
+        scratch.add(&scratch.file(&text));
+        let digest = scratch.shown_digest("WO-12");
+        let proposed = text.replace("\"state\": \"ruled\"", "\"state\": \"proposed\"");
+        assert_eq!(
+            scratch.stdout(&["show", "WO-12"]),
+            shown(&proposed, &digest)
+        );
+        assert_eq!(
+            scratch.stdout(&rule_words("WO-12", &digest)),
+            "ruled WO-12\n"
+        );
+        assert_eq!(
+            scratch.stdout(&["list"]),
+            "WO-12  ruled  0  Render the work order\n"
+        );
+    }
+}
+
+#[test]
+fn shipped_trackers_work_without_an_overlay_and_ignore_other_files() {
+    let bare = Scratch::bare();
+    bare.tracker("trackers/ignored.json", "invalid");
+    let library = Scratch::new();
+    library.tracker("trackers/ignored.txt", "invalid");
+    for scratch in [bare, library, Scratch::new()] {
+        assert!(scratch
+            .add(&fixture(COMPLETE))
+            .starts_with("proposed WO-12\n"));
+        assert_eq!(
+            scratch.stdout(&[]),
+            "WO-12  proposed  0  Render the work order\n"
+        );
+    }
+}
+
+#[test]
+fn tracker_redefinitions_name_the_file_and_word_before_every_verb() {
+    let shipped = Scratch::new();
+    let duplicate = shipped.tracker(
+        "trackers/shipped.json",
+        r#"{"tracker":"github","hosts":["impostor.example"]}"#,
+    );
+    let adopter = Scratch::new();
+    let later = adopter.tracker("trackers/a.json", CUSTOM_TRACKER);
+    adopter.tracker("trackers/Z.json", CUSTOM_TRACKER);
+    for (scratch, file, word) in [(shipped, duplicate, "github"), (adopter, later, "custom")] {
+        scratch.refused_definition(
+            &file,
+            &format!("tracker word '{word}' already has a definition"),
+        );
+    }
+}
+
+#[test]
+fn malformed_tracker_definitions_refuse_before_every_verb_and_name_the_file() {
+    let scratch = Scratch::new();
+    let file = scratch.tracker("trackers/bad.json", r#"{"tracker":"custom","hosts":[]}"#);
+    scratch.refused_definition(
+        &file,
+        "a tracker definition must list at least one link host",
+    );
+}
+
+#[test]
+fn unreadable_tracker_paths_refuse_before_every_verb_and_name_the_path() {
+    let directory = Scratch::new();
+    let not_dir = directory.tracker("trackers", "");
+    let file = Scratch::new();
+    let bad = file.tracker("trackers/bad.json", "");
+    fs::write(&bad, b"\xff").unwrap();
+    let dangling = Scratch::new();
+    let link = dangling.dir.path().join("trackers");
+    std::os::unix::fs::symlink("absent", &link).unwrap();
+    for (scratch, path, kind) in [
+        (directory, not_dir, io::ErrorKind::NotADirectory),
+        (file, bad, io::ErrorKind::InvalidData),
+        (dangling, link, io::ErrorKind::NotFound),
+    ] {
+        scratch.refused_before_open(|error, stderr| {
+            assert!(matches!(error, TrackerError::Read { path: named, source }
+                if named == path && source.kind() == kind));
+            assert!(stderr.starts_with(&format!(
+                "error: cannot read trackers at '{}': ",
+                path.display()
+            )));
+        });
+    }
+}
+
+#[test]
+fn show_marks_tag_block_letters_in_the_intent() {
+    let scratch = Scratch::new();
+    let tags: String = (0xe0041..=0xe005a)
+        .map(|point| char::from_u32(point).unwrap())
+        .collect();
+    let text = document(DRAFT).replace("Keep the work clear.", &format!("Keep {tags} visible."));
+    scratch.add(&scratch.file(&text));
+    let shown = scratch.stdout(&["show", "WO-1"]);
+    let line = shown.lines().find(|line| line.starts_with("Keep "));
+    assert_eq!(
+        line,
+        Some(concat!(
+            "Keep <U+E0041><U+E0042><U+E0043><U+E0044><U+E0045><U+E0046><U+E0047>",
+            "<U+E0048><U+E0049><U+E004A><U+E004B><U+E004C><U+E004D><U+E004E>",
+            "<U+E004F><U+E0050><U+E0051><U+E0052><U+E0053><U+E0054><U+E0055>",
+            "<U+E0056><U+E0057><U+E0058><U+E0059><U+E005A> visible.",
+        ))
+    );
+}
+
+#[test]
+fn show_puts_the_real_digest_above_a_counterfeit_and_rule_refuses_the_counterfeit() {
+    let scratch = Scratch::new();
+    let counterfeit_line = format!("digest {COUNTERFEIT}");
+    let text = document(DRAFT).replace("Keep the work clear.", &counterfeit_line);
+    scratch.add(&scratch.file(&text));
+    let order = WorkOrder::parse(&text, &shipped_trackers())
+        .unwrap()
+        .with_id("WO-1".parse().unwrap());
+    let digest = brokkr_core::work_order::text_digest(&order.render());
+    let shown = scratch.stdout(&["show", "WO-1"]);
+    assert_eq!(digest_line(&shown), format!("digest {digest}"));
+    assert!(shown.lines().skip(1).any(|line| line == counterfeit_line));
+    let (refusal, _) = scratch.refused_order(&rule_words("WO-1", COUNTERFEIT));
+    assert!(matches!(refusal, OrderRefusal::StaleDigest(id) if id.number() == 1));
 }
 
 #[test]

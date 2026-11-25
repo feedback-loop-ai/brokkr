@@ -21,7 +21,7 @@ pub(crate) enum OrdersCmd {
     /// List work orders by number, with state, open ask count and title.
     /// Use `--json` for the view model.
     List(OrderListArgs),
-    /// Print a work order's canonical Markdown, journaled state and text digest.
+    /// Print the text digest first, then the work order's canonical Markdown and journaled state.
     Show(OrderShowArgs),
     /// Propose a work order from a Markdown file.
     Add(OrderAddArgs),
@@ -77,7 +77,7 @@ pub(crate) struct OrderRuleArgs {
     /// The work order's id.
     #[arg(value_name = "WO-<n>")]
     pub(crate) id: WorkOrderId,
-    /// The 64 lowercase hexadecimal characters printed by orders show.
+    /// The 64 lowercase hexadecimal characters on the first line of orders show.
     #[arg(long, value_name = "HEX", value_parser = read_digest)]
     pub(crate) digest: String,
     #[command(flatten)]

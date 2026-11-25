@@ -379,34 +379,73 @@ fn control_characters_never_reach_the_terminal() {
     assert_eq!(Safe::new("a\u{7f}b\u{9b}c").as_str(), "abc");
 }
 
-/// `char::is_control()` does not cover the bidi and zero-width
-/// formatting characters, and those **visually reorder the rest of a
-/// rendered line** — a hostile seat label can forge a ruling line
-/// without a single escape byte. One sanitizer serves all three
-/// surfaces, so the hardening lands here (decision 0014).
 #[test]
-fn bidi_and_zero_width_formatting_characters_never_reach_the_terminal() {
-    let hostile = "seat\u{202E}gnippots\u{202C} \u{200B}\u{FEFF}label";
-    let safe = Safe::new(hostile);
-    assert_eq!(safe.as_str(), "seatgnippots label", "in source order");
-    assert_eq!(safe.width(), 18, "width is computed on the sanitized text");
-    // Every enumerated range, at both of its ends and inside.
-    for stripped in [
-        '\u{061C}', '\u{200B}', '\u{200D}', '\u{200F}', '\u{202A}', '\u{202C}', '\u{202E}',
-        '\u{2060}', '\u{2062}', '\u{2064}', '\u{2066}', '\u{2068}', '\u{2069}', '\u{FEFF}',
+fn invisible_format_characters_are_marked_before_counting_width() {
+    let mixed = "seat\u{202e}gnippots\u{202c} \u{200b}\u{feff}label";
+    let safe = Safe::new(mixed);
+    assert_eq!(
+        safe.as_str(),
+        "seat<U+202E>gnippots<U+202C> <U+200B><U+FEFF>label"
+    );
+    assert_eq!(safe.width(), 50);
+    assert_eq!(Safe::new("\u{e0041}").width(), 9);
+    // Every marked singleton and both ends of every marked range.
+    for marked in [
+        '\u{00ad}',
+        '\u{034f}',
+        '\u{0600}',
+        '\u{0605}',
+        '\u{061c}',
+        '\u{06dd}',
+        '\u{070f}',
+        '\u{0890}',
+        '\u{0891}',
+        '\u{08e2}',
+        '\u{115f}',
+        '\u{1160}',
+        '\u{180b}',
+        '\u{180d}',
+        '\u{180e}',
+        '\u{180f}',
+        '\u{200b}',
+        '\u{200f}',
+        '\u{2028}',
+        '\u{2029}',
+        '\u{202a}',
+        '\u{202e}',
+        '\u{2060}',
+        '\u{2064}',
+        '\u{2066}',
+        '\u{2069}',
+        '\u{206a}',
+        '\u{206f}',
+        '\u{3164}',
+        '\u{feff}',
+        '\u{ffa0}',
+        '\u{fff9}',
+        '\u{fffb}',
+        '\u{110bd}',
+        '\u{110cd}',
+        '\u{13430}',
+        '\u{1343f}',
+        '\u{1bca0}',
+        '\u{1bca3}',
+        '\u{1d173}',
+        '\u{1d17a}',
+        '\u{e0000}',
+        '\u{e007f}',
+        '\u{e0100}',
+        '\u{e01ef}',
     ] {
-        assert!(reorders(stripped), "{stripped:?} reorders a line");
-        assert_eq!(Safe::new(&format!("a{stripped}b")).as_str(), "ab");
+        let expected = format!("<U+{:04X}>", u32::from(marked));
+        assert_eq!(Safe::new(&marked.to_string()).as_str(), expected);
     }
-    // And the characters on the other side of every boundary stay: this
-    // is an enumerated list, not a blanket sweep of the formatting
-    // planes, so ordinary text is untouched.
     for kept in [
-        '\u{200A}', '\u{2010}', '\u{2029}', '\u{202F}', '\u{205F}', '\u{2065}', '\u{206A}',
-        '\u{2070}', '\u{FEFE}', '\u{FF00}', 'a', 'é', '中',
+        '\u{200a}', '\u{2010}', '\u{202f}', '\u{205f}', '\u{2065}', '\u{2070}', '\u{fefe}',
+        '\u{ff00}', '\u{fe00}', '\u{fe0f}', 'a', '\u{e9}', '\u{4e2d}',
     ] {
-        assert!(!reorders(kept), "{kept:?} is ordinary text");
-        assert_eq!(Safe::new(&format!("a{kept}b")).width(), 3);
+        let text = format!("a{kept}b");
+        assert_eq!(Safe::new(&text).as_str(), text);
     }
 }
 

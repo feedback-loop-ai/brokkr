@@ -7,19 +7,15 @@
 //! text, seat labels, result tokens, park reasons, error strings.
 //! Printed straight to a tty, `\x1b]0;…\x07` retitles the operator's
 //! terminal, `\x1b[2J` clears the frame that was supposed to be
-//! evidence, and `\r` plus spaces overwrites the line above — so a
-//! hostile result token can forge a ruling line, continuously under
-//! `watch`. Every human surface passes journal strings through [`Safe`].
-//! The `--json` view models for `queue` and `orders list` write strings as
-//! journaled, JSON-escaped and unsanitized, for scripts. The only
-//! constructor of [`Safe`] strips control characters **and** the bidi and
-//! zero-width formatting characters that `char::is_control()` does not
-//! cover — U+202E RIGHT-TO-LEFT OVERRIDE and its neighbours visually
-//! reorder the rest of a rendered line, which forges the same ruling
-//! line by another route. Sanitization happens **before** any width
-//! arithmetic so an escape sequence cannot smuggle invisible width. This
-//! is the terminal twin of the console's fixed class allowlists, and it
-//! serves all three surfaces (decision 0014's TUI included).
+//! evidence, and `\r` plus spaces overwrites the line above. [`Safe`] drops
+//! C0, DEL and C1 controls on terminal surfaces, including the TUI
+//! (decision 0014). Invisible format characters can hide text, reorder
+//! it or break a line. Terminal and browser surfaces show their code
+//! points as ASCII marks such as `<U+202E>`. U+FE00 through U+FE0F pass
+//! through for emoji and glyph presentation. On the terminal, this
+//! happens before width arithmetic, so each mark occupies its ASCII
+//! length. The `--json` view models for `queue` and `orders list` write
+//! journal strings as journaled, JSON-escaped, for scripts.
 //!
 //! **Width.** `COLUMNS` with a sane default (`brokkr stats graph` alone also
 //! measures the stdout it writes to), all column arithmetic
@@ -29,6 +25,8 @@
 //! will misalign; that is stated, not pretended away. `brokkr stats graph`'s
 //! tables alone measure the terminal's cells, by the TUI's ratatui
 //! widths (#1167).
+
+use std::fmt::Write as _;
 
 use brokkr_view::transcript::TranscriptRead;
 use brokkr_view::{
@@ -61,21 +59,57 @@ const FEATURE_FLOOR: usize = 8;
 /// construction, not by discipline.
 pub(crate) struct Safe(String);
 
-/// The formatting characters that reorder or hide a line without being
-/// control characters: the Arabic letter mark (U+061C), the zero-width
-/// and bidi marks (U+200B–U+200F), the embedding and override controls
-/// (U+202A–U+202E), the invisible operators (U+2060–U+2064), the
-/// directional isolates (U+2066–U+2069) and the byte-order mark
-/// (U+FEFF). Enumerated explicitly — a Unicode-properties dependency is
-/// not on the table.
-fn reorders(character: char) -> bool {
-    matches!(character,
-        '\u{061C}'
-        | '\u{200B}'..='\u{200F}'
-        | '\u{202A}'..='\u{202E}'
-        | '\u{2060}'..='\u{2064}'
-        | '\u{2066}'..='\u{2069}'
-        | '\u{FEFF}')
+/// Unicode 16's format characters, the whole tag block, invisible fillers
+/// and joiners, line and paragraph separators, and invisible selectors.
+/// Mark these so that reordering, hidden text and breaks are visible.
+/// The terminal drops control characters separately.
+fn invisible_formats() -> &'static [(char, char)] {
+    &[
+        ('\u{00ad}', '\u{00ad}'),
+        ('\u{034f}', '\u{034f}'),
+        ('\u{0600}', '\u{0605}'),
+        ('\u{061c}', '\u{061c}'),
+        ('\u{06dd}', '\u{06dd}'),
+        ('\u{070f}', '\u{070f}'),
+        ('\u{0890}', '\u{0891}'),
+        ('\u{08e2}', '\u{08e2}'),
+        ('\u{115f}', '\u{115f}'),
+        ('\u{1160}', '\u{1160}'),
+        ('\u{180b}', '\u{180d}'),
+        ('\u{180e}', '\u{180e}'),
+        ('\u{180f}', '\u{180f}'),
+        ('\u{200b}', '\u{200f}'),
+        ('\u{2028}', '\u{2028}'),
+        ('\u{2029}', '\u{2029}'),
+        ('\u{202a}', '\u{202e}'),
+        ('\u{2060}', '\u{2064}'),
+        ('\u{2066}', '\u{2069}'),
+        ('\u{206a}', '\u{206f}'),
+        ('\u{3164}', '\u{3164}'),
+        ('\u{feff}', '\u{feff}'),
+        ('\u{ffa0}', '\u{ffa0}'),
+        ('\u{fff9}', '\u{fffb}'),
+        ('\u{110bd}', '\u{110bd}'),
+        ('\u{110cd}', '\u{110cd}'),
+        ('\u{13430}', '\u{1343f}'),
+        ('\u{1bca0}', '\u{1bca3}'),
+        ('\u{1d173}', '\u{1d17a}'),
+        ('\u{e0000}', '\u{e007f}'),
+        ('\u{e0100}', '\u{e01ef}'),
+    ]
+}
+
+/// The browser's character class uses the same ranges as the terminal.
+pub(crate) fn display_format_pattern() -> String {
+    let mut pattern = String::from("[");
+    for &(first, last) in invisible_formats() {
+        write!(pattern, r"\u{{{:X}}}", u32::from(first)).expect("writing to a string");
+        if first != last {
+            write!(pattern, r"-\u{{{:X}}}", u32::from(last)).expect("writing to a string");
+        }
+    }
+    pattern.push(']');
+    pattern
 }
 
 /// A cell's width in `char`s, as the readouts that predate the graph's
@@ -87,11 +121,19 @@ fn scalars(text: &str) -> usize {
 
 impl Safe {
     pub(crate) fn new(text: &str) -> Safe {
-        Safe(
-            text.chars()
-                .filter(|c| !c.is_control() && !reorders(*c))
-                .collect(),
-        )
+        let mut safe = String::with_capacity(text.len());
+        for character in text.chars().filter(|c| !c.is_control()) {
+            if character >= '\u{ad}'
+                && invisible_formats()
+                    .iter()
+                    .any(|&(first, last)| (first..=last).contains(&character))
+            {
+                write!(safe, "<U+{:04X}>", u32::from(character)).expect("writing to a string");
+            } else {
+                safe.push(character);
+            }
+        }
+        Safe(safe)
     }
 
     pub(crate) fn as_str(&self) -> &str {

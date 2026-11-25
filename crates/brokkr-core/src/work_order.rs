@@ -1,7 +1,7 @@
 //! The typed work-order document and its Markdown form (decision 0116).
 //! Text and tracker definitions arrive from the caller.
 
-use std::collections::BTreeMap;
+use std::collections::{btree_map::Entry, BTreeMap};
 use std::fmt;
 use std::str::FromStr;
 
@@ -471,10 +471,13 @@ impl Trackers {
 
     fn add(&mut self, definition: &str) -> Result<(), Refusal> {
         let (word, hosts) = TrackerDefinition::read(definition)?;
-        if self.0.insert(word, hosts).is_some() {
-            return Err(Refusal::DuplicateTracker);
+        match self.0.entry(word) {
+            Entry::Vacant(entry) => {
+                entry.insert(hosts);
+                Ok(())
+            }
+            Entry::Occupied(entry) => Err(Refusal::DuplicateTracker(entry.key().clone())),
         }
-        Ok(())
     }
 
     fn check(&self, reference: &Reference) -> Result<(), Refusal> {
@@ -759,8 +762,8 @@ enum Refusal {
     TrackerHosts,
     #[error("a tracker link host pattern must be a DNS name or a DNS suffix starting with '*.'")]
     TrackerHostPattern,
-    #[error("each tracker word must have exactly one definition")]
-    DuplicateTracker,
+    #[error("tracker word '{0}' already has a definition")]
+    DuplicateTracker(String),
     #[error("the work order cites unknown tracker '{0}'")]
     UnknownTracker(String),
     #[error("a work order reference must carry an absolute HTTPS link")]

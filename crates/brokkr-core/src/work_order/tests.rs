@@ -673,10 +673,10 @@ fn invalid_tracker_definitions_are_refused() {
     }
     let definition = tracker!("github");
     let error = Trackers::from_definitions([definition, definition]).unwrap_err();
-    assert_eq!(error.0, DuplicateTracker);
+    assert_eq!(error.0, DuplicateTracker("github".into()));
     assert_eq!(
         error.to_string(),
-        "each tracker word must have exactly one definition"
+        "tracker word 'github' already has a definition"
     );
 }
 

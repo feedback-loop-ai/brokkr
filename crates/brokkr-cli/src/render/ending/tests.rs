@@ -263,7 +263,7 @@ fn a_hostile_citation_is_painted_through_safe() {
     assert_eq!(
         out,
         "  run-superseded superseded implement seq 14 7m03s f\n      \
-         by re]0;pwnedalm/run[2Jnext\n"
+         by re]0;pwnedalm/run[2J<U+202E>next\n"
     );
     let workspace = Citation::Run {
         realm: None,

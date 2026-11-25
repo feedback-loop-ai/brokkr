@@ -688,8 +688,8 @@ fn failure_line(error: &anyhow::Error) -> String {
 }
 
 /// Sanitize an error display line by line, keeping the chain's own line
-/// breaks: every rendered line loses control and directional characters
-/// while the recorded error strings stay untouched.
+/// breaks. Each rendered line drops controls and shows invisible format
+/// characters as marks. The recorded error strings stay untouched.
 pub(crate) fn safe_lines(text: &str) -> String {
     text.split('\n')
         .map(|line| render::Safe::new(line).as_str().to_string())

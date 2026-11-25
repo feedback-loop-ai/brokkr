@@ -66,7 +66,7 @@ The verbs nest under fourteen roots: decision 0113's twelve, decision 0119's `co
 - [`brokkr queue sweep`](#brokkr-queue-sweep): Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
 - [`brokkr orders`](#brokkr-orders): Work orders in the journal: list them (the default), show one, propose or edit its text, or record the operator's ruling
 - [`brokkr orders list`](#brokkr-orders-list): List work orders by number, with state, open ask count and title. Use `--json` for the view model
-- [`brokkr orders show`](#brokkr-orders-show): Print a work order's canonical Markdown, journaled state and text digest
+- [`brokkr orders show`](#brokkr-orders-show): Print the text digest first, then the work order's canonical Markdown and journaled state
 - [`brokkr orders add`](#brokkr-orders-add): Propose a work order from a Markdown file
 - [`brokkr orders edit`](#brokkr-orders-edit): Replace a work order's text and return it to proposed
 - [`brokkr orders rule`](#brokkr-orders-rule): Rule the text identified by the digest from show, after every ask is closed
@@ -965,7 +965,7 @@ Usage: brokkr orders list [OPTIONS]
 
 ## brokkr orders show
 
-Print a work order's canonical Markdown, journaled state and text digest
+Print the text digest first, then the work order's canonical Markdown and journaled state
 
 ```text
 Usage: brokkr orders show [OPTIONS] <WO-<n>>
@@ -1019,7 +1019,7 @@ Usage: brokkr orders rule [OPTIONS] --digest <HEX> --reason <WHY> <WO-<n>>
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `<WO-<n>>` |  |  | The work order's id |
-| `--digest <HEX>` |  |  | The 64 lowercase hexadecimal characters printed by orders show |
+| `--digest <HEX>` |  |  | The 64 lowercase hexadecimal characters on the first line of orders show |
 | `--reason <WHY>` |  |  | Why, journaled with the command |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
