@@ -106,15 +106,35 @@ fn scaffold_with_host(
     home: &OsStr,
     cli: Option<init::Cli>,
 ) -> Result<init::Scaffold> {
+    let mut scaffold = init::init(root, path, os, Path::new(home), cli)?;
     let host_file = brokkr_runtime::admission::host_file(
         std::env::var_os("XDG_CONFIG_HOME"),
         Some(home.to_owned()),
-    )?;
-    let mut scaffold = init::init(root, path, os, Path::new(home), cli)?;
-    scaffold
-        .notes
-        .extend(host::seed(&host_file, &scaffold.bundle)?);
+    );
+    let bundle = &scaffold.bundle;
+    let notes = seeded(host_file, |file| host::seed(file, bundle));
+    scaffold.notes.extend(notes);
     Ok(scaffold)
+}
+
+/// Ask E's host file, seeded after the folder is written. Seeding never
+/// refuses `init`: a host file that cannot be placed or written is a note
+/// saying why, beside the folder `init` already made (1193c's review,
+/// finding 3).
+fn seeded(
+    file: Result<std::path::PathBuf, brokkr_runtime::admission::HostError>,
+    seed: impl FnOnce(&Path) -> Result<Vec<String>>,
+) -> Vec<String> {
+    match file
+        .map_err(anyhow::Error::from)
+        .and_then(|file| seed(&file))
+    {
+        Ok(notes) => notes,
+        Err(error) => vec![format!(
+            "No host file was seeded: {error:#}. The .brokkr folder is written; \
+             declare a host file by hand (contracts/host.v5.schema.json)."
+        )],
+    }
 }
 
 /// `brokkr doctor`: tools, drivers, the database and optionally a bundle.
@@ -375,3 +395,6 @@ pub(crate) fn fake_driver(
     brokkr_protocol::fake::run_fake_driver(&script, &state, model.as_deref(), effort.as_deref())?;
     Ok(Exit::Completed.into())
 }
+
+#[cfg(test)]
+mod tests;

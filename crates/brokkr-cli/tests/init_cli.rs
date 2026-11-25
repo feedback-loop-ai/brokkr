@@ -207,12 +207,18 @@ fn init_seeds_exactly_the_installed_providers_and_leaves_a_legacy_host_unchanged
         .lines()
         .filter(|line| line.ends_with("(placeholder to tune)"))
         .collect();
-    let placeholders = ["claude", "dsh", "exec"].map(|provider| {
-        format!(
-            "{}: providers.{provider}.ceiling = 1 (placeholder to tune)",
-            host.display()
-        )
-    });
+    let mut placeholders: Vec<_> = ["claude", "dsh", "exec"]
+        .map(|provider| {
+            format!(
+                "{}: providers.{provider}.ceiling = 1 (placeholder to tune)",
+                host.display()
+            )
+        })
+        .into();
+    placeholders.push(format!(
+        "{}: floors[seat-scratch].floor_bytes = 30000000000 (placeholder to tune)",
+        host.display()
+    ));
     assert_eq!(lines, placeholders);
 
     let old = r#"{"schema":"forge.host/v1","providers":{"existing":{"ceiling":2e0}},"floors":[{"place":"temp","floor_bytes":1}],"boxed_builds":{"ceiling":5}}"#;

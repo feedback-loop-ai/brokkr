@@ -128,18 +128,23 @@ fn kept(path: &Path) -> Vec<String> {
     )]
 }
 
+/// One line for each value `init` invented: each provider's ceiling, and
+/// the one free-space floor v5 requires (1193c's review, finding 4).
 fn placeholders(path: &Path, draft: &Draft<'_>) -> Vec<String> {
-    draft
-        .providers
-        .iter()
-        .map(|(provider, policy)| {
-            format!(
-                "{}: providers.{provider}.ceiling = {} (placeholder to tune)",
-                path.display(),
-                policy.ceiling,
-            )
-        })
-        .collect()
+    let shown = path.display();
+    let ceilings = draft.providers.iter().map(|(provider, policy)| {
+        format!(
+            "{shown}: providers.{provider}.ceiling = {} (placeholder to tune)",
+            policy.ceiling,
+        )
+    });
+    let floors = draft.floors.iter().map(|floor| {
+        format!(
+            "{shown}: floors[{}].floor_bytes = {} (placeholder to tune)",
+            floor.place, floor.floor_bytes,
+        )
+    });
+    ceilings.chain(floors).collect()
 }
 
 #[cfg(test)]
