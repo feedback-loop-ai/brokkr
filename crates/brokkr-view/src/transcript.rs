@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::Transcript;
+use recorded::Role;
 
 /// The public document version the command serializes. Structural
 /// changes to this unpublished document require a new identifier.
@@ -815,39 +816,6 @@ fn display_cost(blocks: &[Block]) -> Option<usize> {
     Some(cost)
 }
 
-/// Who speaks a turn: the three roles the classifiers name, or a role a
-/// record names outside them, kept as written (empty when a row supplies
-/// no turn).
-#[derive(Clone, PartialEq, Eq, Debug)]
-enum Role {
-    User,
-    Assistant,
-    Tool,
-    Recorded(String),
-}
-
-impl Role {
-    /// The role a record names: one of the three, or kept as written.
-    fn recorded(word: &str) -> Role {
-        match word {
-            "user" => Role::User,
-            "assistant" => Role::Assistant,
-            "tool" => Role::Tool,
-            other => Role::Recorded(other.to_string()),
-        }
-    }
-
-    /// The spelling every surface shows.
-    fn into_wire(self) -> String {
-        match self {
-            Role::User => "user".to_string(),
-            Role::Assistant => "assistant".to_string(),
-            Role::Tool => "tool".to_string(),
-            Role::Recorded(word) => word,
-        }
-    }
-}
-
 /// What one classified record contributes (#352): its blocks, who speaks
 /// them, its recorded timestamp, and whether it named anything its kind's
 /// table does not recognize. An outcome with no blocks supplies no turn.
@@ -863,7 +831,7 @@ impl<B> RowOutcome<B> {
     fn nothing(unrecognized: bool) -> RowOutcome<B> {
         RowOutcome {
             blocks: Vec::new(),
-            role: Role::Recorded(String::new()),
+            role: Role::NoTurn,
             ts: String::new(),
             unrecognized,
         }
@@ -883,9 +851,17 @@ impl<B> RowOutcome<B> {
         RowOutcome::of(vec![block], role)
     }
 
-    /// The same outcome at its record's recorded timestamp.
-    fn at(mut self, ts: String) -> RowOutcome<B> {
-        self.ts = ts;
+    /// Admit metadata for records with blocks and combine their diagnostics.
+    fn at(mut self, row: &Value) -> RowOutcome<B> {
+        if self.blocks.is_empty() {
+            return self;
+        }
+        match row.get("timestamp").and_then(Value::as_str) {
+            Some(ts) if recorded::timestamp(ts) => self.ts = ts.to_string(),
+            Some(_) => self.unrecognized = true,
+            None => {}
+        }
+        self.unrecognized |= matches!(self.role, Role::InvalidRecorded);
         self
     }
 }
@@ -1037,11 +1013,6 @@ fn claude_row(value: &Value) -> RowOutcome<Block> {
     if kind != "user" && kind != "assistant" {
         return RowOutcome::nothing(true);
     }
-    let ts = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
     let message = value.get("message");
     let role = Role::recorded(
         message
@@ -1060,7 +1031,7 @@ fn claude_row(value: &Value) -> RowOutcome<Block> {
             ..RowOutcome::of(Vec::new(), role)
         },
     };
-    outcome.at(ts)
+    outcome.at(value)
 }
 
 /// One Claude content member: nonblank prose, or a tool marker naming its
@@ -1355,26 +1326,29 @@ fn compose(parts: &[&str]) -> String {
 
 /// Project a Codex rollout in two passes over the same bounded prefix, as
 /// DSH does (design D1, D4; #352). The fact pass classifies every row,
-/// counts its diagnostics and association keys, and releases it: no
-/// record is retained, so a 32 MiB source of two-byte rows cannot amplify
-/// into records. The projection pass classifies each row again, removes
-/// what association proved mirrored, and feeds the one collector.
+/// counts association keys, and releases it: no record is retained, so a
+/// 32 MiB source of two-byte rows cannot amplify into records. The projection
+/// pass removes proved mirrors and counts diagnostics for surviving records,
+/// including those that had no blocks to begin with, before display admission.
 fn project_codex(admitted: &Admitted<'_>, projection: &mut Projection) {
     let mut association = CodexAssociation::default();
     projection.skipped_lines = for_each_parsed_row(admitted, |_, value, _| {
-        let record = codex_row(&value);
-        if record.outcome.unrecognized {
-            projection.unrecognized_records += 1;
-        }
-        association.count(&record, |_, _, _| {});
+        association.count(&codex_row(&value), |_, _, _| {});
     });
     let mut collector = TurnCollector::new(projection.truncated);
     for_each_parsed_row(admitted, |_, value, _| {
         let mut record = codex_row(&value);
+        let was_blockless = record.outcome.blocks.is_empty();
         association.retain(&mut record, |_, _, _| {});
         let RowOutcome {
-            blocks, role, ts, ..
+            blocks,
+            role,
+            ts,
+            unrecognized,
         } = record.outcome;
+        if unrecognized && (was_blockless || !blocks.is_empty()) {
+            projection.unrecognized_records += 1;
+        }
         collector.admit(
             role,
             ts,
@@ -1460,11 +1434,6 @@ impl CodexAssociation {
 
 /// Project one Codex record into its blocks and recorded metadata.
 fn codex_row(value: &Value) -> CodexRecord {
-    let ts = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
     let payload = value.get("payload");
     let (outcome, canonical) = match value.get("type").and_then(Value::as_str) {
         Some("response_item") => (payload.map(codex_response_item), true),
@@ -1473,7 +1442,7 @@ fn codex_row(value: &Value) -> CodexRecord {
         None => (None, false),
     };
     CodexRecord {
-        outcome: outcome.unwrap_or_else(|| RowOutcome::nothing(true)).at(ts),
+        outcome: outcome.map_or_else(|| RowOutcome::nothing(true), |row| row.at(value)),
         canonical,
     }
 }
@@ -1732,6 +1701,7 @@ fn codex_completed_item(item: &Value) -> RowOutcome<CodexBlock> {
 // ----------------------------------------------------------------- DSH
 
 mod dsh_versions;
+mod recorded;
 use dsh_versions::DshVersion;
 
 /// The version-zero recognized quiet vocabulary: the captured 0.1.2-rc.1

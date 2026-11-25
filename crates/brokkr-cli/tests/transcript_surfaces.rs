@@ -553,8 +553,8 @@ fn one_derivation_reaches_every_surface() {
         (
             "codex-thread",
             "0199mine",
-            "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"codex asks\"}]}}\n\
-             {\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"codex answers\"}]}}\n",
+            "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"codex asks\"}]}}\n\
+             {\"timestamp\":\"2026-01-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"codex answers\"}]}}\n",
         ),
         (
             "dsh-session",
@@ -931,10 +931,10 @@ fn recorded_tool_identity_and_context_reach_every_surface() {
             "codex-thread",
             "0199mine",
             concat!(
-                "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
-                "{\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c2\",\"arguments\":\"{}\"}}\n",
-                "{\"timestamp\":\"t3\",\"type\":\"event_msg\",\"payload\":{\"type\":\"mcp_tool_call_begin\",\"call_id\":\"m1\",\"invocation\":{\"server\":\"srv\",\"tool\":\"search\",\"arguments\":\"{}\"}}}\n",
-                "{\"timestamp\":\"t4\",\"type\":\"event_msg\",\"payload\":{\"type\":\"dynamic_tool_call_response\",\"call_id\":\"d1\",\"content_items\":[{\"type\":\"inputText\",\"text\":\"done\"}],\"error\":\"boom\"}}\n",
+                "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
+                "{\"timestamp\":\"2026-01-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c2\",\"arguments\":\"{}\"}}\n",
+                "{\"timestamp\":\"2026-01-01T00:00:03Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"mcp_tool_call_begin\",\"call_id\":\"m1\",\"invocation\":{\"server\":\"srv\",\"tool\":\"search\",\"arguments\":\"{}\"}}}\n",
+                "{\"timestamp\":\"2026-01-01T00:00:04Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"dynamic_tool_call_response\",\"call_id\":\"d1\",\"content_items\":[{\"type\":\"inputText\",\"text\":\"done\"}],\"error\":\"boom\"}}\n",
             ),
             vec!["[c1]", "[c2]", "srv", "search", "[m1]", "[d1]", "done", "boom"],
         ),
@@ -1098,7 +1098,7 @@ fn r25_portable_hint_is_identical_across_every_surface() {
 /// only the store's current values rather than passing it silently.
 #[test]
 fn the_command_masks_a_bound_value_and_states_what_a_rotation_leaves() {
-    let body = "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"now ghp-bound-7f3a9c, before ghp-rotated-0c11\"}]}}\n";
+    let body = "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"now ghp-bound-7f3a9c, before ghp-rotated-0c11\"}]}}\n";
     let world = make_world("codex-thread", "0199mine", body);
     brokkr_protocol::secret::store_set(
         &world.dir.path().join("secrets.env"),
@@ -1140,7 +1140,7 @@ fn the_command_masks_a_bound_value_a_structured_call_reserialised() {
     let arguments = json!({"command": ["curl", "-H", value], "type": "exec"});
     let codex = format!(
         "{}\n",
-        json!({"timestamp": "t1", "type": "response_item", "payload": {
+        json!({"timestamp": "2026-01-01T00:00:01Z", "type": "response_item", "payload": {
             "type": "local_shell_call", "call_id": "c1", "action": arguments}})
     );
     let dsh = format!(
@@ -1179,4 +1179,100 @@ fn the_command_masks_a_bound_value_a_structured_call_reserialised() {
         assert!(rendered.contains(&format!("  tool: {text}")), "{rendered}");
         assert!(!rendered.contains("7f3a9c"), "{rendered}");
     }
+}
+
+#[test]
+fn claude_surfaces_drop_a_bound_value_from_recorded_metadata() {
+    assert_metadata_stays_out_of_surfaces("claude-session", "abcd-1234", |stamp, role| {
+        json!({
+            "timestamp": stamp,
+            "type": "assistant",
+            "message": {"role": role, "content": "visible"},
+        })
+    });
+}
+
+#[test]
+fn codex_surfaces_drop_a_bound_value_from_recorded_metadata() {
+    assert_metadata_stays_out_of_surfaces("codex-thread", "0199mine", |stamp, role| {
+        json!({
+            "timestamp": stamp,
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": role,
+                "content": [{"type": "output_text", "text": "visible"}],
+            },
+        })
+    });
+}
+
+fn assert_metadata_stays_out_of_surfaces(
+    kind: &str,
+    locator: &str,
+    row: impl FnOnce(&str, &str) -> Value,
+) {
+    const BOUND_VALUE: &str = "ghp-bound-7f3a9c";
+    let mut env = EnvGuard::lock();
+    let body = format!("{}\n", row(BOUND_VALUE, BOUND_VALUE));
+    let world = make_world(kind, locator, &body);
+    env.set("HOME", &world.home);
+    let read = shared_read(&world);
+    compare(&world, &read, Some(0));
+
+    brokkr_protocol::secret::store_set(
+        &world.dir.path().join("secrets.env"),
+        "GH_TOKEN",
+        BOUND_VALUE,
+    )
+    .unwrap();
+    let text_face = command(&world, &[]);
+    let json_face = command(&world, &["--json"]);
+    let browser = brokkr_cli::handle(&world.db, "/api/transcript/r222/eff1");
+    assert!(text_face.status.success(), "{kind}: text");
+    assert!(json_face.status.success(), "{kind}: JSON");
+    assert_eq!(browser.status, "200 OK");
+
+    let exposed: Vec<_> = [
+        ("text stdout", text_face.stdout.as_slice()),
+        ("text stderr", text_face.stderr.as_slice()),
+        ("JSON stdout", json_face.stdout.as_slice()),
+        ("JSON stderr", json_face.stderr.as_slice()),
+        ("browser body", browser.body.as_bytes()),
+    ]
+    .into_iter()
+    .filter_map(|(surface, bytes)| {
+        bytes
+            .windows(BOUND_VALUE.len())
+            .any(|window| window == BOUND_VALUE.as_bytes())
+            .then_some(surface)
+    })
+    .collect();
+    assert_eq!(exposed, Vec::<&str>::new(), "{kind}: bound value exposure");
+
+    let notice = "unrecognized transcript records: 1";
+    assert_eq!(read.unrecognized_records, 1, "{kind}: count");
+    assert_eq!(read.notices, [notice]);
+    let rendered = String::from_utf8_lossy(&text_face.stdout);
+    assert!(
+        rendered.lines().any(|line| line == "turn 1 · unknown ·"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(&format!("notice {notice}\n")),
+        "{rendered}"
+    );
+    let document = parse(&json_face);
+    assert_eq!(document["turns"][0]["role"], "unknown", "{kind}: role");
+    assert_eq!(document["turns"][0]["ts"], "", "{kind}: timestamp");
+    assert_eq!(document["unrecognized_records"], 1, "{kind}: JSON count");
+    assert_eq!(format!("{}\n", browser.body).as_bytes(), json_face.stdout);
+    assert_eq!(
+        document["notices"],
+        json!([
+            notice,
+            "secrets masked against the store's current values for GH_TOKEN; a value \
+             rotated or removed since the run is not masked"
+        ])
+    );
 }

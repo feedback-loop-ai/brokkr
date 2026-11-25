@@ -68,7 +68,7 @@ fn write_transcript(world: &World) -> PathBuf {
          \"content\":[{{\"type\":\"text\",\"text\":\"{SENTINEL}-output\"}},\
          {{\"type\":\"thinking\",\"text\":\"{SENTINEL}-reasoning\"}},\
          {{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{{\"file_path\":\"{SENTINEL}-arg\"}}}}]}},\
-         \"timestamp\":\"T\"}}\n"
+         \"timestamp\":\"2026-01-01T00:00:01Z\"}}\n"
     );
     std::fs::write(&file, body).unwrap();
     file
@@ -748,9 +748,9 @@ fn growth_reads_keep_the_tree_config_and_journal_inert() {
     }
 }
 
-/// Terminal controls in prompt, tool argument and stamp survive only as
-/// JSON data; the text face and every refusal are sanitized, and the
-/// journal is untouched.
+/// The readers refuse a stamp with a terminal control. Controls in the
+/// prompt and tool argument survive only as JSON data. The text face and
+/// every refusal are sanitized, and the journal is untouched.
 #[test]
 fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
     let world = world();
@@ -784,6 +784,14 @@ fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
         rendered.contains(SENTINEL),
         "the explicit read still carries its requested prose"
     );
+    assert!(
+        rendered.lines().any(|line| line == "turn 1 · assistant ·"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("notice unrecognized transcript records: 1\n"),
+        "{rendered}"
+    );
 
     let json = run(
         &world,
@@ -799,6 +807,8 @@ fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
     );
     assert!(json.status.success());
     let document: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(document["turns"][0]["ts"], "");
+    assert_eq!(document["unrecognized_records"], 1);
     assert_eq!(
         document["turns"][0]["blocks"][0]["text"],
         format!("\u{1b}[2J{SENTINEL}-output")
