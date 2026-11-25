@@ -349,19 +349,7 @@ where
         return Ok(());
     };
     passed.unstarted = unstarted;
-    for judged in &mut judged {
-        if let Some(verdict) = judged.verdict.take() {
-            match verdict.standing() {
-                Standing::Waiting => passed.waits.push(Waiting {
-                    entry: judged.entry.id,
-                    reasons: verdict.reasons,
-                }),
-                Standing::Held => passed.held_entries += 1,
-                Standing::Admissible => {}
-            }
-        }
-    }
-    passed.waiting = passed.waits.len();
+    record_waits(passed, &mut judged);
     let shared = start::Shared {
         bound,
         host_path: &host_path,
@@ -390,6 +378,23 @@ where
         }
     }
     Ok(())
+}
+
+/// Keep the queue's waits and held count from the verdicts it already read.
+fn record_waits(passed: &mut Passed, judged: &mut [Judged]) {
+    for judged in judged {
+        if let Some(verdict) = judged.verdict.take() {
+            match verdict.standing() {
+                Standing::Waiting => passed.waits.push(Waiting {
+                    entry: judged.entry.id,
+                    reasons: verdict.reasons,
+                }),
+                Standing::Held => passed.held_entries += 1,
+                Standing::Admissible => {}
+            }
+        }
+    }
+    passed.waiting = passed.waits.len();
 }
 
 /// Reconcile what a dispatcher left mid-start. A contention is reported and

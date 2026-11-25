@@ -274,7 +274,7 @@
    297 crates/brokkr-runtime/src/capabilities/manifest.rs
    772 crates/brokkr-runtime/src/dialect.rs
     98 crates/brokkr-runtime/src/dispatch.rs
-   620 crates/brokkr-runtime/src/dispatch/pass.rs
+   625 crates/brokkr-runtime/src/dispatch/pass.rs
   3314 crates/brokkr-runtime/src/engine.rs
    508 crates/brokkr-runtime/src/engine/artifacts.rs
    418 crates/brokkr-runtime/src/engine/boxed.rs
