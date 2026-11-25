@@ -364,14 +364,26 @@ fn post_terminal_refusal_on_sqlite_ports() {
     assert_eq!(ports.head("sql-term").unwrap().0, 3);
 }
 
+fn panel_member_checkpoint() -> Value {
+    json!({
+        "effect_id": "eff-1",
+        "attempt_id": "att-1",
+        "checkpoint": {
+            "step": "panel-member-finished",
+            "outcome": "succeeded",
+            "member": "alpha",
+            "authored": "engine",
+        }
+    })
+}
+
 #[test]
-fn settled_members_validation_and_run_started_engine_resolution() {
+fn run_started_engine_version_overrides_sidecar_manifest() {
     let journal = Journal::new(
         MemEventLog::default(),
         MemProjectionStore::default(),
         MemCoordinationStore::default(),
     );
-
     // Sidecar claims v8 (0.15.0), but RunStarted's attested manifest names v1 (0.7.0).
     let sidecar_v8 = sample_manifest("engine-mismatch");
     journal.create_run("v1-run", &sidecar_v8).unwrap();
@@ -387,30 +399,29 @@ fn settled_members_validation_and_run_started_engine_resolution() {
             "2026-11-25T10:00:00Z",
         )
         .unwrap();
-    let v8_only_checkpoint = json!({
-        "effect_id": "eff-1",
-        "attempt_id": "att-1",
-        "checkpoint": {
-            "step": "panel-member-finished",
-            "outcome": "succeeded",
-            "member": "alpha",
-            "authored": "engine",
-        }
-    });
     assert!(matches!(
         journal.append_event(
             "v1-run",
             EventType::EffectCheckpointed,
-            v8_only_checkpoint.clone(),
+            panel_member_checkpoint(),
             None,
             "2026-11-25T10:00:01Z",
         ),
         Err(StoreError::SeatRecord(ref err))
             if err.seq == 2 && err.contract == "contracts/seat-record.v1.schema.json"
     ));
+}
 
-    // Under v8, marked settled_members are validated on EffectFailed and EffectIndeterminate.
-    journal.create_run("v8-panel", &sidecar_v8).unwrap();
+#[test]
+fn settled_members_validation_on_effect_failed_and_indeterminate() {
+    let journal = Journal::new(
+        MemEventLog::default(),
+        MemProjectionStore::default(),
+        MemCoordinationStore::default(),
+    );
+    journal
+        .create_run("v8-panel", &sample_manifest("v8-panel"))
+        .unwrap();
     journal
         .append_event(
             "v8-panel",
@@ -424,7 +435,7 @@ fn settled_members_validation_and_run_started_engine_resolution() {
         .append_event(
             "v8-panel",
             EventType::EffectCheckpointed,
-            v8_only_checkpoint,
+            panel_member_checkpoint(),
             None,
             "2026-11-25T10:00:01Z",
         )
