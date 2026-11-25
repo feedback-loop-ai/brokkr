@@ -453,13 +453,13 @@ directory is a separate, RAM-backed tmpfs, so both floors matter.
 
 The six shipped citation trackers are Azure DevOps, GitHub, GitLab, Jira,
 Linear and ZenHub. To add another, put one JSON definition per `.json` file
-in `.brokkr/trackers/` for a found folder or `./trackers/` for a recipe
-library. Use the same fields as the shipped definitions in
-`crates/brokkr-cli/trackers/`: `tracker`, `hosts` and an optional
-`description`. Definitions load in filename byte order after the shipped
-ones. Duplicate words, invalid definitions and unreadable paths refuse
-every order command. A missing directory or a bare workspace uses the
-shipped set.
+in `.brokkr/trackers/` for a found folder or in the `trackers` directory
+at the root of a recipe library. The shipped files in
+`crates/brokkr-cli/trackers/` show the required `tracker` and `hosts`
+fields and the optional `description`. Definitions load in filename byte
+order after the shipped ones. Duplicate words, invalid definitions and
+unreadable paths refuse every order command. A missing directory or a
+bare workspace uses the shipped set.
 
 `brokkr orders show WO-1` prints the text digest on its first line.
 Use that value with `brokkr orders rule WO-1 --digest HEX --reason WHY`.

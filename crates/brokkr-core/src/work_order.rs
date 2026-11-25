@@ -1,7 +1,7 @@
 //! The typed work-order document and its Markdown form (decision 0116).
 //! Text and tracker definitions arrive from the caller.
 
-use std::collections::{btree_map::Entry, BTreeMap};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
 
@@ -471,13 +471,11 @@ impl Trackers {
 
     fn add(&mut self, definition: &str) -> Result<(), Refusal> {
         let (word, hosts) = TrackerDefinition::read(definition)?;
-        match self.0.entry(word) {
-            Entry::Vacant(entry) => {
-                entry.insert(hosts);
-                Ok(())
-            }
-            Entry::Occupied(entry) => Err(Refusal::DuplicateTracker(entry.key().clone())),
+        if self.0.contains_key(&word) {
+            return Err(Refusal::DuplicateTracker(word));
         }
+        self.0.insert(word, hosts);
+        Ok(())
     }
 
     fn check(&self, reference: &Reference) -> Result<(), Refusal> {
