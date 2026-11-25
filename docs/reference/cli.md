@@ -4,7 +4,7 @@
 
 Every `brokkr` verb and argument with its default, and every exit code, as the binary defines them; `brokkr <verb> --help` prints the same text. An argument marked **yes** under Selector takes a full run id, a unique prefix of one, or `latest`, the run created most recently (decision 0015, and for the write paths its proposed 2026-09-28 addendum); one marked **with a journal** does so only when the workspace journal is there, and otherwise takes the id literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, and `brokkr` itself `-V`/`--version`; the tables leave them out.
 
-The verbs nest under thirteen roots: decision 0113's twelve and decision 0119's `completions`. Every old flat name, such as `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for `brokkr journal verify`, still parses as a hidden alias until 0.17, and says its new spelling on stderr.
+The verbs nest under thirteen roots: decision 0113's twelve and decision 0119's `completions`. Every old flat name, such as `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for `brokkr journal verify`, still parses as a hidden alias until 0.17, and says its new spelling on stderr. Internal engine verbs (`driver`, `hands`, `bridge`, `broker`, `fake-driver`) are hidden from this page; the `brokkr hands` argument contract is documented in [hands.md](hands.md).
 
 - [`brokkr init`](#brokkr-init): Scaffold a minimal reviewable bundle and prove it compiles
 - [`brokkr run`](#brokkr-run): Start a new run and drive it until it parks or finishes

@@ -447,7 +447,33 @@ impl clap::FromArgMatches for Cli {
     }
 }
 
-impl Parser for Cli {}
+impl Parser for Cli {
+    fn try_parse_from<I, T>(itr: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        let argv: Vec<std::ffi::OsString> = itr.into_iter().map(Into::into).collect();
+        if let Some(err) = crate::hands::refuse_encoded_option_as_value(
+            &argv,
+            <Self as clap::CommandFactory>::command,
+        ) {
+            return Err(err);
+        }
+        <Self as clap::CommandFactory>::command()
+            .try_get_matches_from(&argv)
+            .and_then(|mut matches| {
+                <Self as clap::FromArgMatches>::from_arg_matches_mut(&mut matches)
+            })
+            .map_err(|err| {
+                crate::hands::reformat_serve_clap_error(
+                    err,
+                    &argv,
+                    <Self as clap::CommandFactory>::command,
+                )
+            })
+    }
+}
 
 #[cfg(test)]
 mod tests;

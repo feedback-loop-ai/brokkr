@@ -33,6 +33,7 @@ use crate::exit::Exit;
 use crate::Cli;
 
 mod flat;
+mod hands_tests;
 #[path = "../tests/support/records.rs"]
 mod records;
 #[path = "../tests/support/tracked.rs"]
@@ -213,9 +214,9 @@ fn description(arg: &Arg) -> String {
         .unwrap_or_default()
 }
 
-/// One argument's table row, in the verb at `path`.
-fn argument_row(path: &str, arg: &Arg) -> String {
-    let default = if arg.get_action().takes_values() {
+/// An argument's default values, formatted for a reference table cell.
+fn default_values(arg: &Arg) -> String {
+    if arg.get_action().takes_values() {
         arg.get_default_values()
             .iter()
             .map(|value| format!("`{}`", value.to_string_lossy()))
@@ -223,7 +224,12 @@ fn argument_row(path: &str, arg: &Arg) -> String {
             .join(", ")
     } else {
         String::new()
-    };
+    }
+}
+
+/// One argument's table row, in the verb at `path`.
+fn argument_row(path: &str, arg: &Arg) -> String {
+    let default = default_values(arg);
     let selector = match selector(path, arg) {
         Some(Selector::Always) => "yes",
         Some(Selector::WithJournal) => "with a journal",
@@ -242,10 +248,10 @@ fn listed(verb: &Command) -> Vec<&Arg> {
         .collect()
 }
 
-/// Every listed argument with no description, as `verb argument`: a row
-/// the page would print with its Description cell empty.
-fn undescribed(cli: &Command) -> Vec<String> {
-    verbs(cli)
+/// Every listed argument in `selected` with no description, as `verb argument`:
+/// a row the page would print with its Description cell empty.
+fn undescribed_in<'a>(selected: impl IntoIterator<Item = &'a Command>) -> Vec<String> {
+    selected
         .into_iter()
         .flat_map(|verb| {
             let path = verb.get_bin_name().expect("a built command names its path");
@@ -255,6 +261,12 @@ fn undescribed(cli: &Command) -> Vec<String> {
                 .map(move |arg| format!("{path} {}", spelled(arg)))
         })
         .collect()
+}
+
+/// Every listed argument with no description, as `verb argument`: a row
+/// the page would print with its Description cell empty.
+fn undescribed(cli: &Command) -> Vec<String> {
+    undescribed_in(verbs(cli))
 }
 
 /// One verb's section: its heading, its description, its usage and a
@@ -321,7 +333,10 @@ fn reference() -> String {
          decision 0119's `completions`. Every old flat name, such as \
          `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for \
          `brokkr journal verify`, still parses as a hidden alias until 0.17, \
-         and says its new spelling on stderr.\n\n"
+         and says its new spelling on stderr. Internal engine verbs (`driver`, \
+         `hands`, `bridge`, `broker`, `fake-driver`) are hidden from this page; \
+         the `brokkr hands` argument contract is documented in \
+         [hands.md](hands.md).\n\n"
     );
     for verb in verbs(&cli) {
         let path = verb.get_bin_name().expect("a built command names its path");
