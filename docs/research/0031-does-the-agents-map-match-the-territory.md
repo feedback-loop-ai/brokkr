@@ -10,7 +10,7 @@ Intake: research sweep, run weekly-research-sweep-registry-d-5feb3fa3, 2026-11-2
 
 A coding agent starts each session with no memory of the system's
 architecture and takes what its context file says (`CLAUDE.md`,
-`AGENTS.md`, Copilot instructions) as true. The paper asks whether
+AGENTS.md, Copilot instructions) as true. The paper asks whether
 those files match the code, for the two kinds of architectural claim
 that can be checked: path claims, which name a folder or file, and
 dependency rules, which say what may import what. From 36,710
@@ -28,7 +28,7 @@ written, 2.6 percent later went stale, at 0.99 per 100 claim-months
 against 1.74 for READMEs; 61 percent of stale claims were fixed, most
 in the same commit that broke them, and the unfixed ones had a median
 age of 59 days. Stale claims are fixed in 73 percent of cases in
-`AGENTS.md`, 59 in `CLAUDE.md` and 43 in Copilot instruction files.
+AGENTS.md, 59 in CLAUDE.md and 43 in Copilot instruction files.
 
 The rulebooks are less reliable. Of 184 dependency rules from 115
 projects, 33 (18 percent) were confirmed broken on the day they were

@@ -9,7 +9,7 @@ Intake: research sweep, run weekly-research-sweep-registry-d-5feb3fa3, 2026-11-2
 ## Summary
 
 Coding-agent benchmarks usually run the agent's code in the environment
-that grades it, so the agent can forge a pass: a `conftest.py` hook
+that grades it, so the agent can forge a pass: a conftest.py hook
 that rewrites test outcomes, a read of the scorer's call stack, a
 swapped binary. The authors call this adversarial measurement and
 argue a stronger sandbox does not fix it, because the attacks use

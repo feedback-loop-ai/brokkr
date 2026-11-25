@@ -49,6 +49,38 @@ building only; the authors make no causal claim.
 | 5 | Progressive disclosure of tools and representations to the agent | alternative | decision 0043: under namespace a claude seat's hands are one workspace tool whose calls the box bounds, while a Codex seat keeps its native read-only shell on the host beside it, and under harness no box stands (`docs/security-model.md`) |
 | 6 | Keep purpose-built models beside the code and test them against the reality they depict | implemented | decision 0002: the phase table is data the engine evaluates; decision 0037: a diagram of a machine-owned structure is tested against that structure; decision 0023: the realms map |
 
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "0005 - approved"
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 1** now reads `alternative`, not `implemented`. Finding: "Turn a
+  failure that exposes an unenforced obligation into a fix paired with a
+  decidable check (208 such pairs in the paper's case)". Citation:
+  `docs/decisions/README.md`: every determinable ruling of a decision
+  names its enforcement binding, and a ruling without one must say it is
+  judgment guidance; this binds decisions, not individual fixes, and no
+  pairing rate is tracked
+- **Row 2** now reads `implemented`, not `alternative`. Citation:
+  decision 0071 and `quality/README.md`: #335 recorded code-health
+  baselines on main before any code moved (audit), #338 turned them into
+  ratchets that may only shrink (drain), and CI's `ratchets` job and
+  `quality/ratchet.sh` refuse a regression, a raised baseline needing a
+  named ruling (promote); the remaining debt is epic #330
+- **Row 3** keeps `not-planned`. Citation: `quality/file-lines.txt` and
+  `quality/suppressions.txt` already hold production and test line
+  counts and lint suppressions as committed baselines; no
+  support-to-production ratio, unmodelled share or drift-recurrence
+  measure is computed over time
+- **Row 5** keeps `alternative`. Finding: "Progressive disclosure of
+  tools and representations to the agent (a practice the paper credits
+  to a comparator case)".
+
 ## Candidates
 
 Finding 3 is the paper's own measure of whether a governed environment

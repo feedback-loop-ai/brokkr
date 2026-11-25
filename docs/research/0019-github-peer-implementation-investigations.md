@@ -98,3 +98,29 @@ These are proposed research fixtures, not completed experiments or newly approve
 The strongest potential distinction remains a coherent and demonstrably enforced delivery contract: reusable role data, composed recipes, protected review, bounded effects, pinned identity and inspectable event-derived evidence. The deeper review narrows that positioning; it does not establish uniqueness or erase Brokkr's open enforcement gaps.
 
 The most useful next investment is closing and qualifying that contract while borrowing test patterns documented in the inspected source and useful authoring ergonomics. The current evidence does not justify replacing the architecture, claiming superior reliability, or assigning peers grades from source inspection. Adoption or comparative implementation should be proposed with a specific workload, guarantee and measurable result.
+
+## Erratum — 2026-11-25
+
+The operator ruled this erratum on 2026-11-25, "0019 - approved"
+([#1350](https://github.com/feedback-loop-ai/brokkr/issues/1350)), after
+every row of this entry was checked three ways: against the article,
+against main at `4912e583e`, and against the open issues and pull
+requests. The text above stands as ruled on 2026-11-24 and stays
+readable; where this section differs, this section is the product's
+word.
+
+- **Row 1** keeps `planned`. Citation: #429 owns compile-time
+  completeness of the policy (presence, shadowing, liveness, totality)
+  and #430 owns the dispatcher's queue and admission; no issue yet owns
+  end-to-end evidence that each declared refusal holds at every dispatch
+  entry point
+- **Row 2** keeps `planned`. Citation: #434 owns replay safety; #435
+  owns operational qualification; #472 owns closing the accepted Linux
+  polling residuals by containment (#403, which owned process lifecycle,
+  closed as completed on 2026-09-29:
+  `crates/brokkr-protocol/src/process/tree.rs`)
+- **Row 4** keeps `planned`. Citation: #432 owns configuration
+  isolation; #662 owns carrying the transport limits in the host
+  configuration (decision 0079 ruling 6; the bounds themselves landed
+  with #433, closed as completed on 2026-10-13); #438 owns setup and
+  release qualification
