@@ -1087,8 +1087,9 @@ pub fn restriction_names(prefix: &str, restrictions: &Map<String, Value>) -> Vec
 pub struct Authority {
     pub context: CapabilityContext,
     pub definitions: Definitions,
-    /// Capability to the dialect its grant selected.
+    /// Capability to the dialect its single-dialect grant selected.
     pub dialects: BTreeMap<String, ToolDialect>,
+    provider_dialects: BTreeMap<String, BTreeMap<String, ToolDialect>>,
     /// The bundle's binding minimum an `mcp` dialect's egress meets (MB4).
     minimum: crate::agents::EgressClass,
     pub(crate) fence: McpFence,
@@ -1140,6 +1141,7 @@ impl Authority {
             context: CapabilityContext::no_grants(realm, root),
             definitions: Definitions::default(),
             dialects: BTreeMap::new(),
+            provider_dialects: BTreeMap::new(),
             minimum: ABSENT_EGRESS_MINIMUM,
             fence: McpFence::current(),
         }

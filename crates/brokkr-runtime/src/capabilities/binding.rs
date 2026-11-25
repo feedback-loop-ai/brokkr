@@ -414,7 +414,7 @@ impl Authority {
     /// fence (`McpFence`) stands. None of these can become an optional drop.
     pub fn load(context: CapabilityContext) -> Result<Authority, String> {
         let authority = Authority::validated(context)?;
-        for (capability, dialect) in &authority.dialects {
+        for (capability, dialect) in authority.all_dialects() {
             let realm = &authority.context.realm;
             let carried = match bound(realm, capability, dialect) {
                 Ok(Binding::Mcp(_)) if stands(authority.fence) => {
