@@ -1061,6 +1061,12 @@ pub fn brokkr_protocol::probe::Report::with_drift_from(self, &brokkr_protocol::p
 pub fn brokkr_protocol::probe::run(&brokkr_protocol::probe::ProbeInput<'_>) -> core::result::Result<brokkr_protocol::probe::Report, brokkr_protocol::probe::ProbeError>
 pub mod brokkr_protocol::process
 pub mod brokkr_protocol::process::usage
+pub enum brokkr_protocol::process::usage::MemoryPressure
+pub brokkr_protocol::process::usage::MemoryPressure::Critical
+pub brokkr_protocol::process::usage::MemoryPressure::Normal
+pub brokkr_protocol::process::usage::MemoryPressure::Warn
+impl core::fmt::Display for brokkr_protocol::process::usage::MemoryPressure
+pub fn brokkr_protocol::process::usage::MemoryPressure::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_protocol::process::usage::TreeNow
 pub brokkr_protocol::process::usage::TreeNow::cpu: core::time::Duration
 pub brokkr_protocol::process::usage::TreeNow::memory_bytes: u64
