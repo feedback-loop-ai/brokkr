@@ -1,41 +1,13 @@
 //! Dispatch assertions use the report of the pass whose claim they exercise.
 
-use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::process::Command;
 
 use brokkr_store::EntryId;
 
-use super::{Machine, Standing};
+use super::{in_its_own_engine, in_its_own_engine_relaying_stderr, Machine, Standing};
 
 pub(super) const CLAIMED: [&str; 4] = ["add", "claim", "link", "spawn"];
-
-/// Re-execute the test alone and relay its skip line even on a passing run.
-pub(super) fn in_its_own_dispatch_engine(test: &str) -> bool {
-    const RERUN: &str = "BROKKR_TEST_DISPATCH_ENGINE";
-    if std::env::var_os(RERUN).is_some() {
-        return true;
-    }
-    let mut command = Command::new(std::env::current_exe().unwrap());
-    command
-        .args(["--exact", test, "--nocapture"])
-        .env(RERUN, "1")
-        .stdin(Stdio::null());
-    let ended = Standing::spawned(&mut command).ended_within(Duration::from_secs(180));
-    let stdout = String::from_utf8_lossy(&ended.stdout);
-    let stderr = String::from_utf8_lossy(&ended.stderr);
-    assert!(
-        ended.status.success() && stdout.contains("test result: ok. 1 passed;"),
-        "{test}: {}\n{stdout}\n{stderr}",
-        ended.status
-    );
-    let skip = format!("{test}: ");
-    for line in stderr.lines().filter(|line| line.starts_with(&skip)) {
-        writeln!(std::io::stderr().lock(), "{line}").unwrap();
-    }
-    false
-}
 
 fn waiting_lines(stdout: &str) -> impl Iterator<Item = &str> {
     stdout.lines().filter(|line| line.starts_with("waiting:"))
@@ -213,4 +185,34 @@ fn no_waiting_line_gives_no_reason_to_skip() {
         "waiting: entry 1: \nqueue: 1 waiting, 0 held\n",
     ];
     assert_eq!(reports.map(machine_only_wait), [false; 2], "{reports:?}");
+}
+
+#[test]
+fn a_passing_rerun_relays_only_its_named_stderr_lines() {
+    const TEST: &str = "dispatch::pass_report::a_passing_rerun_relays_only_its_named_stderr_lines";
+    const MODE: &str = "BROKKR_TEST_RELAY_MODE";
+    if let Some(mode) = std::env::var_os(MODE) {
+        let child = if mode == "relay" {
+            in_its_own_engine_relaying_stderr(TEST)
+        } else {
+            in_its_own_engine(TEST)
+        };
+        if child {
+            println!("\n{TEST}: stdout");
+            eprintln!("other stderr");
+            eprintln!("{TEST}: named stderr");
+        }
+        return;
+    }
+    let expected = format!("{TEST}: named stderr\n");
+    for (mode, stderr) in [("quiet", ""), ("relay", expected.as_str())] {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact", TEST]).env(MODE, mode);
+        let output = Standing::spawned(&mut command).ended();
+        assert_eq!(
+            (output.status.code(), output.stderr.as_slice()),
+            (Some(0), stderr.as_bytes()),
+            "{mode}: {output:?}"
+        );
+    }
 }

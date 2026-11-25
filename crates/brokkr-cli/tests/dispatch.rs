@@ -16,14 +16,14 @@ use std::process::{Command, Output, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use brokkr_protocol::process::in_its_own_engine;
+use brokkr_protocol::process::{in_its_own_engine, in_its_own_engine_relaying_stderr};
 use serde_json::json;
 
 mod pass_report;
 
 use pass_report::{
-    assert_commands, check_start, diagnostics, first_report, in_its_own_dispatch_engine,
-    machine_only_wait, say_wait, standing_over_a_working_seat, started, started_line, CLAIMED,
+    assert_commands, check_start, diagnostics, first_report, machine_only_wait, say_wait,
+    standing_over_a_working_seat, started, started_line, CLAIMED,
 };
 
 /// The longest a test waits on a driver.
@@ -245,7 +245,7 @@ fn session(pid: i32) -> i32 {
 #[test]
 fn a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it() {
     const TEST: &str = "dispatch::a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it";
-    if !in_its_own_dispatch_engine(TEST) {
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
     let machine = Machine::new();
@@ -427,7 +427,7 @@ fn ended_on_its_replaced_binary(test: &str, mode: &[&str]) -> Option<String> {
 #[test]
 fn a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
     const TEST: &str = "dispatch::a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends";
-    if !in_its_own_dispatch_engine(TEST) {
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
     ended_on_its_replaced_binary(TEST, &["--once"]);
@@ -442,7 +442,7 @@ fn a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
 fn a_standing_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
     const TEST: &str =
         "dispatch::a_standing_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends";
-    if !in_its_own_dispatch_engine(TEST) {
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
     if let Some(stdout) = ended_on_its_replaced_binary(TEST, &["--every", "3600"]) {
@@ -546,18 +546,14 @@ impl Standing {
     /// to close, and read what it said. Its pipes close only once every
     /// process holding them has gone, so a driver that kept them would
     /// hold the test: that wait is bounded by the same patience.
-    fn ended(self) -> Output {
-        self.ended_within(PATIENCE)
-    }
-
-    fn ended_within(mut self, patience: Duration) -> Output {
+    fn ended(mut self) -> Output {
         let mut child = self.child.take().unwrap();
         let began = Instant::now();
         let status = loop {
             if let Some(status) = child.try_wait().unwrap() {
                 break status;
             }
-            if began.elapsed() > patience {
+            if began.elapsed() > PATIENCE {
                 let _ = child.kill();
                 let _ = child.wait();
                 panic!("the dispatcher did not end within the patience");
@@ -571,7 +567,7 @@ impl Standing {
         {
             let said = self.said.lock().unwrap().clone();
             assert!(
-                began.elapsed() < patience,
+                began.elapsed() < PATIENCE,
                 "the dispatcher ended, {status}, but its output never closed: a process it \
                  left holds its pipes. It said: {said}"
             );
@@ -610,7 +606,7 @@ fn alive(pid: i32) -> bool {
 #[test]
 fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
     const TEST: &str = "dispatch::a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on";
-    if !in_its_own_dispatch_engine(TEST) {
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
     let Some((machine, dispatcher, _)) = standing_over_a_working_seat(TEST, "5") else {
@@ -647,7 +643,7 @@ fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
 fn a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it() {
     const TEST: &str =
         "dispatch::a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it";
-    if !in_its_own_dispatch_engine(TEST) {
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
     let Some((machine, dispatcher, first)) = standing_over_a_working_seat(TEST, "5") else {
@@ -725,7 +721,7 @@ fn exited(pid: i32) {
 fn a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited() {
     const TEST: &str =
         "dispatch::a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited";
-    if !in_its_own_dispatch_engine(TEST) {
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
     let Some((machine, dispatcher, first)) = standing_over_a_working_seat(TEST, "60") else {
@@ -770,7 +766,7 @@ fn a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited() {
 fn a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued() {
     const TEST: &str =
         "dispatch::a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued";
-    if !in_its_own_dispatch_engine(TEST) {
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
     let Some((machine, dispatcher, first)) = standing_over_a_working_seat(TEST, "5") else {

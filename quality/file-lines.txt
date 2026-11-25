@@ -208,7 +208,7 @@
    611 crates/brokkr-protocol/src/process/attempts.rs
    143 crates/brokkr-protocol/src/process/evidence.rs
    251 crates/brokkr-protocol/src/process/limits.rs
-    34 crates/brokkr-protocol/src/process/own_engine.rs
+   172 crates/brokkr-protocol/src/process/own_engine.rs
    111 crates/brokkr-protocol/src/process/queue.rs
    295 crates/brokkr-protocol/src/process/table.rs
    331 crates/brokkr-protocol/src/process/tree.rs
@@ -494,8 +494,8 @@
   1948 crates/brokkr-cli/tests/decisions_index.rs
   1305 crates/brokkr-cli/tests/delivered_by_brokkr.rs
    568 crates/brokkr-cli/tests/diagrams.rs
-   887 crates/brokkr-cli/tests/dispatch.rs
-   216 crates/brokkr-cli/tests/dispatch/pass_report.rs
+   883 crates/brokkr-cli/tests/dispatch.rs
+   218 crates/brokkr-cli/tests/dispatch/pass_report.rs
   1240 crates/brokkr-cli/tests/doc_samples.rs
    349 crates/brokkr-cli/tests/doc_truth.rs
    517 crates/brokkr-cli/tests/doc_truth/citations.rs

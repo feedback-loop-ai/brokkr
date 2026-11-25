@@ -64,7 +64,7 @@ use outcome::{reached, refuse_foreign, unread};
 // surface: the probe's tests and the runtime engine's play a test whose
 // launches must see no other test's orphan through this one helper.
 #[doc(hidden)]
-pub use own_engine::in_its_own_engine;
+pub use own_engine::{in_its_own_engine, in_its_own_engine_relaying_stderr};
 pub use tree::Unsettled;
 use tree::{Bounds, Host};
 
