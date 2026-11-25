@@ -1,6 +1,6 @@
 # 0121 — A review panel's scope and fixes flags are read, never defaulted
 
-Status: proposed
+Status: accepted — operator ruled 2026-11-25, accepting it with its three sibling engine patches from feedback-loop-ai/swarmail (decisions 0120 to 0123, pull requests #1291 to #1294) and landing each by hand
 Date: 2026-11-23
 
 Built: built
