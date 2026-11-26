@@ -210,6 +210,15 @@ pub struct SweepRefused {
     pub cause: String,
 }
 
+/// An entry admission judged waiting, with that judgment's reasons.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Waiting {
+    /// The entry the pass left waiting.
+    pub entry: EntryId,
+    /// The reasons admission gave for the wait.
+    pub reasons: Vec<Reason>,
+}
+
 /// What one pass did. Nothing here is printed: the verb paints it (slice
 /// 6b), and the next pass judges everything the report names again.
 #[derive(Debug, Default)]
@@ -226,10 +235,17 @@ pub struct Passed {
     pub held: Vec<Held>,
     pub claims_refused: Vec<start::ClaimRefused>,
     pub contended: Vec<Contended>,
-    /// Entries admission still judged waiting, and held, when the pass read
-    /// the queue.
-    pub waiting: usize,
+    /// The entries left waiting and their reasons, in queue order.
+    pub waits: Vec<Waiting>,
+    /// Entries admission judged held when the pass read the queue.
     pub held_entries: usize,
+}
+
+impl Passed {
+    /// The number of entries left waiting, the length of [`Self::waits`].
+    pub fn waiting(&self) -> usize {
+        self.waits.len()
+    }
 }
 
 /// Run one pass under the dispatcher's lock, with the machine `host` names
@@ -337,18 +353,11 @@ where
         return Ok(());
     };
     observe(Stage::Judge);
-    let Some((judged, unstarted)) = judge_queue(store, dispatcher, host, passed)? else {
+    let Some((mut judged, unstarted)) = judge_queue(store, dispatcher, host, passed)? else {
         return Ok(());
     };
     passed.unstarted = unstarted;
-    passed.waiting = judged
-        .iter()
-        .filter(|judged| standing(judged) == Some(Standing::Waiting))
-        .count();
-    passed.held_entries = judged
-        .iter()
-        .filter(|judged| standing(judged) == Some(Standing::Held))
-        .count();
+    record_waits(passed, &mut judged);
     let shared = start::Shared {
         bound,
         host_path: &host_path,
@@ -377,6 +386,22 @@ where
         }
     }
     Ok(())
+}
+
+/// Keep the queue's waits and held count from the verdicts it already read.
+fn record_waits(passed: &mut Passed, judged: &mut [Judged]) {
+    for judged in judged {
+        if let Some(verdict) = judged.verdict.take() {
+            match verdict.standing() {
+                Standing::Waiting => passed.waits.push(Waiting {
+                    entry: judged.entry.id,
+                    reasons: verdict.reasons,
+                }),
+                Standing::Held => passed.held_entries += 1,
+                Standing::Admissible => {}
+            }
+        }
+    }
 }
 
 /// Reconcile what a dispatcher left mid-start. A contention is reported and
@@ -601,12 +626,6 @@ fn store_refused(
         start::Refused::QueueStorage(refusal) => Err(Ending::QueueStorage(refusal)),
         start::Refused::Store(error) => Err(Ending::Store(error)),
     }
-}
-
-/// The standing admission found for `judged`, `None` once it is claimed or
-/// started.
-fn standing(judged: &Judged) -> Option<Standing> {
-    judged.verdict.as_ref().map(|verdict| verdict.standing())
 }
 
 #[cfg(test)]

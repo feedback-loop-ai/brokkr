@@ -5,7 +5,7 @@
 //! dispatcher whose binary was replaced claims nothing and ends in ruling
 //! 4's words. Every journal, HOME, host file and recipe is the test's own.
 //!
-//! Each test runs in a process of its own (`in_its_own_engine`), so the
+//! Each dispatcher test runs in a process of its own, so the
 //! driver a pass leaves behind is never adopted by a test binary another
 //! test made a subreaper.
 
@@ -16,8 +16,15 @@ use std::process::{Command, Output, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use brokkr_protocol::process::in_its_own_engine;
+use brokkr_protocol::process::{in_its_own_engine, in_its_own_engine_relaying_stderr};
 use serde_json::json;
+
+mod pass_report;
+
+use pass_report::{
+    assert_commands, check_start, diagnostics, first_report, machine_only_wait, say_wait,
+    standing_over_a_working_seat, started, started_line, CLAIMED,
+};
 
 /// The longest a test waits on a driver.
 const PATIENCE: Duration = Duration::from_secs(120);
@@ -212,31 +219,6 @@ fn answering(before: &str, result: &str) -> serde_json::Value {
     json!({"results": [result], "role": "role.md", "driver": {"command": command}})
 }
 
-/// A pass's first `started:` line: its words before the driver's log, and
-/// that log's path, which it names last.
-fn started_line(stdout: &str) -> (&str, PathBuf) {
-    let line = (stdout.lines())
-        .find(|line| line.starts_with("started: "))
-        .unwrap_or_else(|| panic!("no started line in {stdout}"));
-    let (named, log) = (line.rsplit_once(", log "))
-        .unwrap_or_else(|| panic!("the started line names no log: {line}"));
-    (named, PathBuf::from(log))
-}
-
-/// The run, entry, claim and driver pid a pass's `started:` line names.
-fn started(stdout: &str) -> (String, String, String, i32) {
-    let (line, _) = started_line(stdout);
-    let words: Vec<&str> = line.split([' ', ',']).filter(|w| !w.is_empty()).collect();
-    // started: run R under claim S of entry E driver pid P
-    let pid = words[words.len() - 1].parse().unwrap();
-    (
-        words[2].to_string(),
-        words[8].to_string(),
-        words[5].to_string(),
-        pid,
-    )
-}
-
 /// Wait up to the patience for the driver's `log` to say its run
 /// completed.
 fn completes(log: &Path) {
@@ -262,16 +244,24 @@ fn session(pid: i32) -> i32 {
 
 #[test]
 fn a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it() {
-    if !in_its_own_engine("dispatch::a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it")
-    {
+    const TEST: &str = "dispatch::a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it";
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
     let machine = Machine::new();
     machine.queued();
     let pass = machine.brokkr(&["queue", "dispatch", "--once", "--db", machine.db()]);
-    let stdout = String::from_utf8_lossy(&pass.stdout).into_owned();
-    assert!(pass.status.success(), "{pass:?}");
-    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
+    let stdout = String::from_utf8_lossy(&pass.stdout);
+    let stderr = String::from_utf8_lossy(&pass.stderr);
+    assert!(
+        pass.status.success(),
+        "{}: {}",
+        pass.status,
+        diagnostics(&machine, &stdout, &stderr)
+    );
+    if !check_start(TEST, &machine, &stdout, &stderr) {
+        return;
+    }
     let (run, entry, claim, pid) = started(&stdout);
     assert!(stdout.ends_with("queue: 0 waiting, 0 held\n"), "{stdout}");
 
@@ -313,15 +303,15 @@ fn a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it() {
         said.contains(&format!("run '{run}' is driven by pid {pid}")),
         "{said}"
     );
-    released_to_complete(&machine, &log);
+    released_to_complete(&machine, &log, &stdout, &stderr);
 }
 
 /// Release `machine`'s working seat, wait for its driver's `log` to say the
 /// run completed, and see that the queue recorded nothing more.
-fn released_to_complete(machine: &Machine, log: &Path) {
+fn released_to_complete(machine: &Machine, log: &Path, stdout: &str, stderr: &str) {
     std::fs::write(machine.released(), "").unwrap();
     completes(log);
-    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
+    assert_commands(machine, stdout, stderr, &CLAIMED);
 }
 
 /// On Linux, the driver's open descriptors: its standard streams, stdin
@@ -373,7 +363,12 @@ fn a_driver_of_a_claim_with_no_spawn_row_refuses_and_writes_nothing() {
          so this driver resumes nothing and wrote nothing (decision 0110)\n"
     );
     assert_eq!(std::fs::read(&machine.journal).unwrap(), before);
-    assert_eq!(machine.commands(), ["add"]);
+    assert_commands(
+        &machine,
+        &String::from_utf8_lossy(&refused.stdout),
+        &String::from_utf8_lossy(&refused.stderr),
+        &["add"],
+    );
 }
 
 /// How many times a replaced-binary test stages its machine before it
@@ -381,31 +376,29 @@ fn a_driver_of_a_claim_with_no_spawn_row_refuses_and_writes_nothing() {
 /// (decision 0125), and on macOS its memory pressure can read `warn` for
 /// the dispatcher's pass and `normal` a moment later, so a second reading
 /// cannot excuse the first: a pass that claimed nothing and ended 0 is
-/// staged again, on a fresh machine, and only the last staging falls back
-/// to that second reading.
+/// staged again, on a fresh machine, and the last staging is excused only by
+/// that pass's own `waiting:` lines (#1374), never by a second reading.
 const REPLACED_BINARY_STAGINGS: usize = 3;
 
 /// Decision 0110 ruling 4 on a machine with one entry queued: `brokkr
 /// dispatch` given `mode`, started from a copy of the binary, records its
 /// binary as it starts, then waits on the journal's write lock, which the
 /// test holds until the copy is replaced. It claims nothing, ends in the
-/// ruling's words and exits 1. What it said, or nothing when no staging's
-/// machine had room for the entry, so no claim was tried.
-fn ended_on_its_replaced_binary(mode: &[&str]) -> Option<String> {
+/// ruling's words and exits 1. What it said, or nothing when every staging's
+/// pass claimed nothing while its own report says it waited on the
+/// machine, so no claim was tried.
+fn ended_on_its_replaced_binary(test: &str, mode: &[&str]) -> Option<String> {
     for staging in 1..=REPLACED_BINARY_STAGINGS {
         match staged_replaced_binary(mode) {
             Staged::Ended(stdout) => return Some(stdout),
-            Staged::Claimless(machine, ended) => {
+            Staged::Claimless(stdout) => {
                 if staging < REPLACED_BINARY_STAGINGS {
                     eprintln!(
-                        "{mode:?}: staging {staging} claimed nothing and ended 0; staged again"
+                        "{test}: staging {staging} claimed nothing while waiting on the machine; staged again"
                     );
                     continue;
                 }
-                assert!(short_of_this_machine(&machine), "{mode:?}: {ended:?}");
-                eprintln!(
-                    "{mode:?}: this machine had no room for the entry, so no claim was tried"
-                );
+                say_wait(test, &stdout);
             }
         }
     }
@@ -413,11 +406,12 @@ fn ended_on_its_replaced_binary(mode: &[&str]) -> Option<String> {
 }
 
 /// What one staging of [`ended_on_its_replaced_binary`] came to: the
-/// ruling's ending, or a pass that claimed nothing and ended 0, with its
-/// machine and output kept for the last staging's fallback.
+/// ruling's ending, or a pass that claimed nothing and ended 0 while its own
+/// `waiting:` lines name only the machine, with that report kept for the
+/// last staging's skip line.
 enum Staged {
     Ended(String),
-    Claimless(Machine, std::process::Output),
+    Claimless(String),
 }
 
 /// One staging of [`ended_on_its_replaced_binary`] on a fresh machine.
@@ -436,20 +430,32 @@ fn staged_replaced_binary(mode: &[&str]) -> Staged {
     std::fs::rename(&other, &copy).unwrap();
     holder.execute_batch("ROLLBACK").unwrap();
 
-    let ended = dispatcher.ended();
-    if ended.status.code() == Some(0) {
-        assert_eq!(machine.commands(), ["add"], "{mode:?}: nothing claimed");
-        return Staged::Claimless(machine, ended);
+    if mode != ["--once"] && machine_only_wait(&first_report(&dispatcher)) {
+        dispatcher.signal(rustix::process::Signal::TERM);
     }
-    assert_eq!(ended.status.code(), Some(1), "{ended:?}");
+    let ended = dispatcher.ended();
     let stdout = String::from_utf8_lossy(&ended.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&ended.stderr);
+    assert_commands(&machine, &stdout, &stderr, &["add"]);
+    if ended.status.code() == Some(0) && machine_only_wait(&stdout) {
+        return Staged::Claimless(stdout);
+    }
+    assert_eq!(
+        ended.status.code(),
+        Some(1),
+        "{}",
+        diagnostics(&machine, &stdout, &stderr)
+    );
     let words = format!(
         "ended: dispatch: the brokkr at {} is not the one this dispatcher started from; it \
          claimed nothing after; start the dispatcher again\n",
         copy.display()
     );
-    assert!(stdout.ends_with(&words), "{mode:?}: {stdout}");
-    assert_eq!(machine.commands(), ["add"], "{mode:?}: nothing claimed");
+    assert!(
+        stdout.ends_with(&words),
+        "{}",
+        diagnostics(&machine, &stdout, &stderr)
+    );
     Staged::Ended(stdout)
 }
 
@@ -458,12 +464,11 @@ fn staged_replaced_binary(mode: &[&str]) -> Staged {
 /// write lock, claims nothing and ends in the ruling's words.
 #[test]
 fn a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
-    if !in_its_own_engine(
-        "dispatch::a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends",
-    ) {
+    const TEST: &str = "dispatch::a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends";
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
-    ended_on_its_replaced_binary(&["--once"]);
+    ended_on_its_replaced_binary(TEST, &["--once"]);
 }
 
 /// Decision 0110 rulings 4 and 5: a standing dispatcher ends on its pass's
@@ -473,12 +478,12 @@ fn a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
 /// leave running.
 #[test]
 fn a_standing_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
-    if !in_its_own_engine(
-        "dispatch::a_standing_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends",
-    ) {
+    const TEST: &str =
+        "dispatch::a_standing_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends";
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
-    if let Some(stdout) = ended_on_its_replaced_binary(&["--every", "5"]) {
+    if let Some(stdout) = ended_on_its_replaced_binary(TEST, &["--every", "3600"]) {
         assert!(!stdout.contains("left running"), "{stdout}");
     }
 }
@@ -544,12 +549,6 @@ impl Standing {
         rustix::process::kill_process(pid, signal).unwrap();
     }
 
-    /// Wait up to the patience for the first tick's `started:` line: the
-    /// pid of the driver it names.
-    fn first_driver(&self) -> i32 {
-        started(&self.said("queue: ")).3
-    }
-
     /// Wait up to the patience for the process to have said `words`: all
     /// it said by then.
     fn said(&self, words: &str) -> String {
@@ -562,13 +561,6 @@ impl Standing {
             assert!(began.elapsed() < PATIENCE, "never said {words}: {said}");
             std::thread::sleep(Duration::from_millis(25));
         }
-    }
-
-    /// [`Standing::ended`], which must have exited `code`: what it said.
-    fn ended_as(self, code: i32) -> String {
-        let ended = self.ended();
-        assert_eq!(ended.status.code(), Some(code), "{ended:?}");
-        String::from_utf8_lossy(&ended.stdout).into_owned()
     }
 
     /// The ticks reported so far: each tick's report ends on its `queue:`
@@ -586,6 +578,17 @@ impl Standing {
             assert!(began.elapsed() < PATIENCE, "no tick reported: {said}");
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    /// Ask the dispatcher to stop, then verify a clean exit and read its output.
+    fn ended_on_term_with(self, after_signal: impl FnOnce()) -> (String, String) {
+        self.signal(rustix::process::Signal::TERM);
+        after_signal();
+        let ended = self.ended();
+        let stdout = String::from_utf8_lossy(&ended.stdout);
+        let stderr = String::from_utf8_lossy(&ended.stderr);
+        assert_eq!(ended.status.code(), Some(0), "{ended:?}");
+        (stdout.into_owned(), stderr.into_owned())
     }
 
     /// Wait up to the patience for the dispatcher to end and for its output
@@ -645,32 +648,20 @@ fn alive(pid: i32) -> bool {
     rustix::process::test_kill_process(pid).is_ok()
 }
 
-/// A machine with one entry queued, and a dispatcher standing over it
-/// every `every` seconds once its first driver's seat is working.
-fn standing_over_a_working_seat(every: &str) -> (Machine, Standing) {
-    let machine = Machine::new();
-    machine.queued();
-    let args = ["queue", "dispatch", "--every", every, "--db", machine.db()];
-    let dispatcher = Standing::start(&machine, &args);
-    machine.seat_runs();
-    (machine, dispatcher)
-}
-
 /// Decision 0110 ruling 5: the standing loop starts the queued entry's
 /// driver, and a SIGTERM stops it with exit 0 once that tick is reported.
 /// The driver, in a session of its own, is never signalled: it runs on and
 /// completes its run, and no claim follows the signal.
 #[test]
 fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
-    if !in_its_own_engine("dispatch::a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on")
-    {
+    const TEST: &str = "dispatch::a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on";
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
-    let (machine, dispatcher) = standing_over_a_working_seat("5");
-    dispatcher.signal(rustix::process::Signal::TERM);
-    let ended = dispatcher.ended();
-    let stdout = String::from_utf8_lossy(&ended.stdout).into_owned();
-    assert_eq!(ended.status.code(), Some(0), "{ended:?}");
+    let Some((machine, dispatcher, _)) = standing_over_a_working_seat(TEST, "5") else {
+        return;
+    };
+    let (stdout, stderr) = dispatcher.ended_on_term_with(|| {});
     let (run, _, _, pid) = started(&stdout);
     let last = format!(
         "queue: 0 waiting, 0 held\nleft running: run {run}, driver pid {pid}\nstopped: a signal \
@@ -678,12 +669,20 @@ fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
     );
     assert!(stdout.ends_with(&last), "{stdout}");
     assert!(alive(pid), "the driver was not signalled");
-    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
-
     // The tick's started line names the log the driver writes.
     let (_, log) = started_line(&stdout);
     assert_eq!(log, machine.log(&run));
-    released_to_complete(&machine, &log);
+    released_to_complete(&machine, &log, &stdout, &stderr);
+}
+
+/// Start a five-second standing dispatcher in the test's own engine.
+fn standing_driver(test: &str) -> Option<(Machine, Standing, String, i32)> {
+    if !in_its_own_engine_relaying_stderr(test) {
+        return None;
+    }
+    let (machine, dispatcher, first) = standing_over_a_working_seat(test, "5")?;
+    let (run, _, _, pid) = started(&first);
+    Some((machine, dispatcher, run, pid))
 }
 
 /// Decision 0110 ruling 5 at the binary: a stop asked in the middle of a
@@ -697,13 +696,11 @@ fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
 /// here.
 #[test]
 fn a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it() {
-    if !in_its_own_engine(
-        "dispatch::a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it",
-    ) {
+    const TEST: &str =
+        "dispatch::a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it";
+    let Some((machine, dispatcher, run, pid)) = standing_driver(TEST) else {
         return;
-    }
-    let (machine, dispatcher) = standing_over_a_working_seat("5");
-    let (run, _, _, pid) = started(&dispatcher.said("queue: "));
+    };
     let seen = dispatcher.reports();
     dispatcher.next_report(seen);
     machine.queued();
@@ -714,26 +711,33 @@ fn a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it() {
     // last tick reported, and waits on the lock, well inside the store's
     // busy timeout.
     std::thread::sleep(Duration::from_secs(5 + 3));
-    dispatcher.signal(rustix::process::Signal::TERM);
-    std::thread::sleep(Duration::from_millis(300));
-    holder.execute_batch("ROLLBACK").unwrap();
-    let stdout = dispatcher.ended_as(0);
-    // One tick reported after the lock was taken: the stop landed inside
-    // that pass, not in a sleep, where the loop's own reading would end it.
+    let (stdout, stderr) = dispatcher.ended_on_term_with(|| {
+        std::thread::sleep(Duration::from_millis(300));
+        holder.execute_batch("ROLLBACK").unwrap();
+    });
+    // One tick reported after the lock was taken, so the stop reached that pass.
     assert_eq!(stdout.matches("\nqueue: ").count(), held + 1, "{stdout}");
-    let last = format!(
-        "queue: 0 waiting, 0 held\nleft running: run {run}, driver pid {pid}\nstopped: a signal \
+    let stopped = format!(
+        "left running: run {run}, driver pid {pid}\nstopped: a signal \
          asked the dispatcher to stop; it claimed nothing after, and its drivers run on\n"
     );
-    if !stdout.ends_with(&last) {
+    assert!(stdout.ends_with(&stopped), "{stdout}");
+    assert_commands(
+        &machine,
+        &stdout,
+        &stderr,
+        &["add", "claim", "link", "spawn", "add"],
+    );
+    if !stdout.ends_with(&format!("queue: 0 waiting, 0 held\n{stopped}")) {
+        // Earlier ticks include the first entry's claim.
+        let last_pass = stdout.rsplit("\nqueue: ").nth(1).unwrap();
         assert!(
-            short_of_this_machine(&machine),
-            "{stdout}\n{}",
-            listed(&machine)
+            machine_only_wait(last_pass),
+            "{}",
+            diagnostics(&machine, &stdout, &stderr)
         );
-        eprintln!("this machine had no room for the queued entry, so the stop had none to claim");
+        say_wait(TEST, last_pass);
     }
-    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn", "add"]);
 
     std::fs::write(machine.released(), "").unwrap();
     completes(&machine.log(&run));
@@ -763,14 +767,16 @@ fn exited(pid: i32) {
 /// An entry queued during the sleep is never claimed.
 #[test]
 fn a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited() {
-    if !in_its_own_engine(
-        "dispatch::a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited",
-    ) {
+    const TEST: &str =
+        "dispatch::a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited";
+    if !in_its_own_engine_relaying_stderr(TEST) {
         return;
     }
-    let (machine, dispatcher) = standing_over_a_working_seat("60");
+    let Some((machine, dispatcher, first)) = standing_over_a_working_seat(TEST, "60") else {
+        return;
+    };
     std::fs::write(machine.released(), "").unwrap();
-    let pid = dispatcher.first_driver();
+    let (run, _, _, pid) = started(&first);
     exited(pid);
     machine.queued();
     let asked = Instant::now();
@@ -780,7 +786,7 @@ fn a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited() {
     assert!(woke < Duration::from_secs(20), "the sleep woke: {woke:?}");
     let stdout = String::from_utf8_lossy(&ended.stdout).into_owned();
     assert_eq!(ended.status.code(), Some(0), "{ended:?}");
-    let (run, ..) = started(&stdout);
+    let stderr = String::from_utf8_lossy(&ended.stderr);
     let last = format!(
         "driver exited: run {run}, driver pid {pid}, exit status: 0; the run reads completed\n\
          stopped: a signal asked the dispatcher to stop; it claimed nothing after, and its \
@@ -788,7 +794,12 @@ fn a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited() {
     );
     assert!(stdout.ends_with(&last), "{stdout}");
     assert!(!stdout.contains("left running"), "{stdout}");
-    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn", "add"]);
+    assert_commands(
+        &machine,
+        &stdout,
+        &stderr,
+        &["add", "claim", "link", "spawn", "add"],
+    );
 }
 
 /// Decision 0110 ruling 5: a driver killed while its run reads `running` is
@@ -801,22 +812,20 @@ fn a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited() {
 /// it again.
 #[test]
 fn a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued() {
-    if !in_its_own_engine(
-        "dispatch::a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued",
-    ) {
+    const TEST: &str =
+        "dispatch::a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued";
+    let Some((machine, dispatcher, run, pid)) = standing_driver(TEST) else {
         return;
-    }
-    let (machine, dispatcher) = standing_over_a_working_seat("5");
-    let pid = dispatcher.first_driver();
+    };
     let driver = rustix::process::Pid::from_raw(pid).unwrap();
     rustix::process::kill_process(driver, rustix::process::Signal::KILL).unwrap();
     let said = dispatcher.said("driver exited: ");
     dispatcher.signal(rustix::process::Signal::TERM);
-    assert_eq!(dispatcher.ended().status.code(), Some(0));
+    let ended = dispatcher.ended();
+    assert_eq!(ended.status.code(), Some(0), "{ended:?}");
     let line = (said.lines())
         .find(|line| line.starts_with("driver exited: "))
         .unwrap();
-    let (run, ..) = started(&said);
     let (exited, command) = line.split_once("; resume it with: ").unwrap();
     assert_eq!(
         exited,
@@ -845,7 +854,12 @@ fn a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued() {
     ] {
         assert!(stdout.contains(&said), "{said}: {stdout}");
     }
-    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
+    assert_commands(
+        &machine,
+        &String::from_utf8_lossy(&ended.stdout),
+        &String::from_utf8_lossy(&ended.stderr),
+        &CLAIMED,
+    );
 }
 
 /// Decision 0110 ruling 5: a second signal while the first's stop is asked
@@ -871,7 +885,12 @@ fn a_second_sigterm_ends_the_dispatcher_at_once() {
     let ended = dispatcher.ended();
     assert_eq!(ended.status.code(), Some(143), "{ended:?}");
     holder.execute_batch("ROLLBACK").unwrap();
-    assert_eq!(machine.commands(), ["add"], "nothing claimed");
+    assert_commands(
+        &machine,
+        &String::from_utf8_lossy(&ended.stdout),
+        &String::from_utf8_lossy(&ended.stderr),
+        &["add"],
+    );
 }
 
 /// Decision 0110 ruling 5 through the built binary: `--every` below 5 or
@@ -905,35 +924,4 @@ fn stage(to: &Path) {
     let staged = to.with_extension("staged");
     crate::stage_brokkr!(&staged).unwrap();
     std::fs::rename(&staged, to).unwrap();
-}
-
-/// `brokkr queue list --json` over `machine`'s journal, for a failure's
-/// message.
-fn listed(machine: &Machine) -> String {
-    let listed = machine.brokkr(&["queue", "list", "--json", "--db", machine.db()]);
-    format!(
-        "queue list --json:\n{}",
-        String::from_utf8_lossy(&listed.stdout)
-    )
-}
-
-/// Whether every waiting entry waits only on what this machine has free
-/// now: its idle cores, its memory or its memory pressure. The binary
-/// measures the real machine (decision 0125), and a host busy with the
-/// rest of the suite can show no idle core in the window. A test whose
-/// point needs an admitted entry then has nothing to prove, and any other
-/// reason still fails it.
-fn short_of_this_machine(machine: &Machine) -> bool {
-    let listed = machine.brokkr(&["queue", "list", "--json", "--db", machine.db()]);
-    let entries: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap_or_default();
-    let machines = ["cpu_short", "memory_short", "memory_pressure"];
-    let waiting: Vec<&serde_json::Value> = (entries.as_array().into_iter().flatten())
-        .filter(|entry| entry["admission"]["standing"] == "waiting")
-        .collect();
-    let of_the_machine = |entry: &&serde_json::Value| {
-        (entry["admission"]["reasons"].as_array()).is_some_and(|reasons| {
-            (reasons.iter()).all(|reason| machines.contains(&reason["kind"].as_str().unwrap_or("")))
-        })
-    };
-    !waiting.is_empty() && waiting.iter().all(of_the_machine)
 }

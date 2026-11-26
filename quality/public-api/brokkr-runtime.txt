@@ -1391,7 +1391,9 @@ pub brokkr_runtime::dispatch::Passed::spawned: alloc::vec::Vec<brokkr_runtime::d
 pub brokkr_runtime::dispatch::Passed::started: alloc::vec::Vec<brokkr_runtime::dispatch::Started>
 pub brokkr_runtime::dispatch::Passed::sweep: core::option::Option<brokkr_runtime::dispatch::SweepOutcome>
 pub brokkr_runtime::dispatch::Passed::unstarted: alloc::vec::Vec<brokkr_runtime::admission::Reason>
-pub brokkr_runtime::dispatch::Passed::waiting: usize
+pub brokkr_runtime::dispatch::Passed::waits: alloc::vec::Vec<brokkr_runtime::dispatch::Waiting>
+impl brokkr_runtime::dispatch::Passed
+pub fn brokkr_runtime::dispatch::Passed::waiting(&self) -> usize
 pub struct brokkr_runtime::dispatch::Reaped
 pub brokkr_runtime::dispatch::Reaped::exited: brokkr_runtime::dispatch::Exited
 pub brokkr_runtime::dispatch::Reaped::reads: core::result::Result<brokkr_core::fold::Status, brokkr_runtime::engine::EngineError>
@@ -1433,6 +1435,9 @@ pub struct brokkr_runtime::dispatch::Stopped
 pub struct brokkr_runtime::dispatch::SweepRefused
 pub brokkr_runtime::dispatch::SweepRefused::cause: alloc::string::String
 pub brokkr_runtime::dispatch::SweepRefused::report: brokkr_runtime::sweep::Swept
+pub struct brokkr_runtime::dispatch::Waiting
+pub brokkr_runtime::dispatch::Waiting::entry: brokkr_store::queue::EntryId
+pub brokkr_runtime::dispatch::Waiting::reasons: alloc::vec::Vec<brokkr_runtime::admission::Reason>
 pub fn brokkr_runtime::dispatch::dispatched(&std::path::Path) -> bool
 pub fn brokkr_runtime::dispatch::driven(&std::path::Path, brokkr_store::queue::EntryId, i64, std::ffi::os_str::OsString) -> core::result::Result<(brokkr_runtime::launch::LaunchRequest, alloc::string::String), brokkr_runtime::dispatch::DriverError>
 pub fn brokkr_runtime::dispatch::driver_log(&std::path::Path, &str) -> core::result::Result<std::fs::File, brokkr_runtime::dispatch::DriverError>
