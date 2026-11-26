@@ -408,6 +408,7 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::Damaged { .. }
         | StoreError::DivergentEventLog { .. }
         | StoreError::HeadMoved { .. }
+        | StoreError::Import(_)
         | StoreError::InvalidManifest { .. }
         | StoreError::Json(_)
         | StoreError::ProjectionLag { .. }

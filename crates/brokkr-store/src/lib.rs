@@ -289,6 +289,10 @@ pub enum StoreError {
         run_id: String,
         reason: ManifestRefusal,
     },
+    /// An import operation failed an adoption gate (such as an unadoptable
+    /// run id or a fold refusal); nothing was recorded.
+    #[error(transparent)]
+    Import(Box<ImportError>),
 }
 
 impl StoreError {

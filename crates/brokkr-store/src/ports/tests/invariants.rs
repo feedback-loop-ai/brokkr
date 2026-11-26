@@ -282,7 +282,7 @@ fn import_ndjson_enforces_adoption_gates_and_attested_manifest() {
         "no-feat",
         1,
         EventType::RunStarted,
-        json!({"manifest": sample_manifest("x")}),
+        json!({"manifest": {"engine": "0.15.0", "bundle_name": "self"}}),
         ZERO_HASH,
         "2026-11-25T10:00:00Z",
     );

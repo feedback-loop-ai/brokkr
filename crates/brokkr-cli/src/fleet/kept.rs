@@ -463,7 +463,8 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         | StoreError::Contended { .. }
         | StoreError::ProjectionLag { .. }
         | StoreError::DivergentEventLog { .. }
-        | StoreError::InvalidManifest { .. } => false,
+        | StoreError::InvalidManifest { .. }
+        | StoreError::Import(_) => false,
     }
 }
 

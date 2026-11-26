@@ -29,6 +29,7 @@ mod validation;
 pub use validation::validate_seat_record;
 pub(crate) use validation::{
     marked_member, record_of, settled_of, validate_events, validate_incoming, validate_settled,
+    version_of_events,
 };
 
 const SCHEMA_V1: &str = include_str!("seat-record.v1.schema.json");

@@ -911,8 +911,9 @@ fn colocated_projection_propagates_token_count_out_of_range() {
         &e1.event_hash,
         "2026-11-25T10:00:05Z",
     );
+    ports.create_run("tok-1", &sample_manifest("tok")).unwrap();
     ports
-        .import_run_stream("tok-1", &sample_manifest("tok"), &[e1.clone(), e2.clone()])
+        .append_envelopes("tok-1", (0, ZERO_HASH), &[e1.clone(), e2.clone()])
         .unwrap();
 
     assert!(matches!(
@@ -1030,11 +1031,12 @@ fn colocated_feature_sync_precedence_and_late_run_started() {
         "2026-11-25T10:00:05Z",
     );
     assert_eq!(
-        super::super::sqlite::started_feature_of(std::slice::from_ref(&e2_late)),
+        super::super::started_feature_of(std::slice::from_ref(&e2_late)),
         None
     );
+    ports.create_run("r-late", &manifest_default).unwrap();
     ports
-        .import_run_stream("r-late", &manifest_default, &[e1_phase, e2_late])
+        .append_envelopes("r-late", (0, ZERO_HASH), &[e1_phase, e2_late])
         .unwrap();
 
     assert_eq!(journal.reindex().unwrap(), 5);
@@ -1044,19 +1046,14 @@ fn colocated_feature_sync_precedence_and_late_run_started() {
         .into_iter()
         .map(|(id, feat, _)| (id, feat))
         .collect();
-    assert_eq!(
-        runs.get("r-pre").map(String::as_str),
-        Some("manifest-default")
-    );
-    assert_eq!(runs.get("r-empty").map(String::as_str), Some(""));
-    assert_eq!(
-        runs.get("r-legacy").map(String::as_str),
-        Some("legacy-goal")
-    );
-    assert_eq!(
-        runs.get("r-late").map(String::as_str),
-        Some("manifest-default")
-    );
+    for (id, expected) in [
+        ("r-pre", "manifest-default"),
+        ("r-empty", ""),
+        ("r-legacy", "legacy-goal"),
+        ("r-late", "manifest-default"),
+    ] {
+        assert_eq!(runs.get(id).map(String::as_str), Some(expected));
+    }
     assert_eq!(ports.list_runs().unwrap(), store.list_runs().unwrap());
     assert!(store.summary_disagreements().unwrap().is_empty());
 
@@ -1476,6 +1473,14 @@ fn v8_stream(run_id: &str) -> [EventEnvelope; 2] {
     [start, succ]
 }
 
+fn assert_settled_member_refusal(result: Result<(), StoreError>, seq: u64, member: &str) {
+    assert!(matches!(
+        result,
+        Err(StoreError::SeatRecord(ref err))
+            if err.seq == seq && err.settled_member.as_deref().map(String::as_str) == Some(member)
+    ));
+}
+
 #[test]
 fn sqlite_append_envelopes_refuses_malformed_seat_records_and_settled_members() {
     let dir = tempdir().unwrap();
@@ -1494,15 +1499,15 @@ fn sqlite_append_envelopes_refuses_malformed_seat_records_and_settled_members() 
         ports.append_envelopes("sr-append", (1, &e1.event_hash), &[bad_cp]),
         Err(StoreError::SeatRecord(ref err)) if err.seq == 2
     ));
-    assert!(matches!(
+    assert_settled_member_refusal(
         ports.append_envelopes(
             "sr-append",
             (1, &e1.event_hash),
-            &[panel_cp.clone(), bad_failed.clone()]
+            &[panel_cp.clone(), bad_failed.clone()],
         ),
-        Err(StoreError::SeatRecord(ref err))
-            if err.seq == 3 && err.settled_member.as_deref().map(String::as_str) == Some("alpha")
-    ));
+        3,
+        "alpha",
+    );
     assert_eq!(ports.head("sr-append").unwrap(), (1, e1.event_hash.clone()));
 
     ports
@@ -1512,11 +1517,11 @@ fn sqlite_append_envelopes_refuses_malformed_seat_records_and_settled_members() 
             std::slice::from_ref(&panel_cp),
         )
         .unwrap();
-    assert!(matches!(
+    assert_settled_member_refusal(
         ports.append_envelopes("sr-append", (2, &panel_cp.event_hash), &[bad_failed]),
-        Err(StoreError::SeatRecord(ref err))
-            if err.seq == 3 && err.settled_member.as_deref().map(String::as_str) == Some("alpha")
-    ));
+        3,
+        "alpha",
+    );
     assert_eq!(ports.head("sr-append").unwrap(), (2, panel_cp.event_hash));
 
     // Persisted v1 manifest wins over v8 RunStarted engine on direct SQLite append.
@@ -1550,11 +1555,11 @@ fn sqlite_import_run_stream_refuses_malformed_seat_records_and_settled_members()
         let (e1, _, cp, failed) = bad_seat_streams("sr-imp-set");
         (e1, cp, failed)
     };
-    assert!(matches!(
+    assert_settled_member_refusal(
         ports.import_run_stream("sr-imp-set", &manifest, &[e1, panel_cp, bad_failed]),
-        Err(StoreError::SeatRecord(ref err))
-            if err.seq == 3 && err.settled_member.as_deref().map(String::as_str) == Some("alpha")
-    ));
+        3,
+        "alpha",
+    );
 
     let v1_manifest = json!({"engine": "0.1.0", "bundle_name": "self"});
     assert!(matches!(
@@ -1565,4 +1570,181 @@ fn sqlite_import_run_stream_refuses_malformed_seat_records_and_settled_members()
 
     assert_eq!(sqlite_table_count(&path, "runs"), 0);
     assert_eq!(sqlite_table_count(&path, "events"), 0);
+}
+
+#[test]
+fn sqlite_import_run_stream_enforces_adoptable_id_fold_and_post_terminal() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("import-gates.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let manifest = sample_manifest("gates");
+
+    for bad_id in ["team/run", "../escape"] {
+        let err = ports.import_run_stream(bad_id, &manifest, &[]).unwrap_err();
+        assert!(matches!(
+            err,
+            StoreError::Import(ref inner) if matches!(**inner, ImportError::UnadoptableRunId(_))
+        ));
+        assert!(err
+            .to_string()
+            .contains("is not a run id this journal will carry"));
+    }
+
+    let three = |run_id: &str, terminal: EventType, third: EventType, third_payload: Value| {
+        let e1 = started_event(run_id, "gates", "2026-11-25T10:00:00Z");
+        let e2 = sealed_event(
+            run_id,
+            2,
+            terminal,
+            json!({}),
+            &e1.event_hash,
+            "2026-11-25T10:00:01Z",
+        );
+        let e3 = sealed_event(
+            run_id,
+            3,
+            third,
+            third_payload,
+            &e2.event_hash,
+            "2026-11-25T10:00:02Z",
+        );
+        [e1, e2, e3]
+    };
+
+    for (run_id, terminal, status) in [
+        ("imp-done", EventType::RunCompleted, Status::Completed),
+        ("imp-stop", EventType::RunStopped, Status::Stopped),
+    ] {
+        let stream = three(
+            run_id,
+            terminal,
+            EventType::PhaseEntered,
+            json!({"phase": "after"}),
+        );
+        assert!(matches!(
+            ports.import_run_stream(run_id, &manifest, &stream),
+            Err(StoreError::AfterTerminal {
+                status: got,
+                event_type: EventType::PhaseEntered,
+                ..
+            }) if got == status
+        ));
+    }
+
+    let bad_first = sealed_event(
+        "imp-fold",
+        1,
+        EventType::PhaseEntered,
+        json!({"phase": "plan"}),
+        ZERO_HASH,
+        "2026-11-25T10:00:00Z",
+    );
+    assert!(matches!(
+        ports.import_run_stream("imp-fold", &manifest, &[bad_first]),
+        Err(StoreError::Import(ref inner))
+            if matches!(**inner, ImportError::Verify(VerifyError::Fold(_)))
+    ));
+    assert_eq!(sqlite_table_count(&path, "runs"), 0);
+    assert_eq!(sqlite_table_count(&path, "events"), 0);
+
+    // Lawful annotation after terminal is admitted.
+    let ok_stream = three(
+        "imp-ok",
+        EventType::RunCompleted,
+        EventType::OperatorRejected,
+        json!({"reason": "post-mortem"}),
+    );
+    ports
+        .import_run_stream("imp-ok", &manifest, &ok_stream)
+        .unwrap();
+    assert_eq!(ports.head("imp-ok").unwrap().0, 3);
+}
+
+#[test]
+fn colocated_apply_envelopes_updates_event_index_incrementally_and_repairs_gaps() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("incremental-index.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let manifest = sample_manifest("incremental");
+    ports.create_run("inc-1", &manifest).unwrap();
+
+    exec_raw_sql(
+        &path,
+        "CREATE TABLE test_deleted_seqs (seq INTEGER);
+         CREATE TRIGGER test_track_index_delete AFTER DELETE ON event_index BEGIN
+             INSERT INTO test_deleted_seqs (seq) VALUES (OLD.seq);
+         END;",
+    );
+
+    let e1 = started_event("inc-1", "incremental", "2026-11-25T10:00:00Z");
+    let e2 = sealed_event(
+        "inc-1",
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "implement"}),
+        &e1.event_hash,
+        "2026-11-25T10:00:01Z",
+    );
+    let e3 = sealed_event(
+        "inc-1",
+        3,
+        EventType::EffectRequested,
+        json!({"effect_id": "eff-1", "attempt_id": "att-1", "phase": "implement"}),
+        &e2.event_hash,
+        "2026-11-25T10:00:02Z",
+    );
+    let e4 = sealed_event(
+        "inc-1",
+        4,
+        EventType::EffectStarted,
+        json!({"effect_id": "eff-1", "attempt_id": "att-1"}),
+        &e3.event_hash,
+        "2026-11-25T10:00:03Z",
+    );
+    let e5 = sealed_event(
+        "inc-1",
+        5,
+        EventType::EffectCheckpointed,
+        valid_checkpoint_payload(),
+        &e4.event_hash,
+        "2026-11-25T10:00:04Z",
+    );
+    let all = [e1, e2, e3, e4, e5];
+    let mut head = (0u64, ZERO_HASH.to_string());
+    for (idx, event) in all.iter().enumerate() {
+        ports
+            .append_envelopes("inc-1", (head.0, &head.1), std::slice::from_ref(event))
+            .unwrap();
+        ports
+            .apply_envelopes("inc-1", Some(&manifest), &all[..=idx])
+            .unwrap();
+        head = (event.seq, event.event_hash.clone());
+    }
+    assert_eq!(sqlite_table_count(&path, "test_deleted_seqs"), 0);
+    assert_eq!(sqlite_table_count(&path, "event_index"), 5);
+
+    // Missing suffix appends incrementally (0 deletes); missing middle row rebuilds all 4 remaining.
+    for (drop_seq, expected_deletes) in [(5, 0), (2, 4)] {
+        exec_raw_sql(
+            &path,
+            &format!(
+                "DELETE FROM event_index WHERE run_id = 'inc-1' AND seq = {drop_seq};
+                 DELETE FROM test_deleted_seqs;"
+            ),
+        );
+        ports.apply_envelopes("inc-1", None, &all).unwrap();
+        assert_eq!(
+            sqlite_table_count(&path, "test_deleted_seqs"),
+            expected_deletes
+        );
+        assert_eq!(sqlite_table_count(&path, "event_index"), 5);
+    }
+
+    exec_raw_sql(
+        &path,
+        "DROP TRIGGER test_track_index_delete; DROP TABLE test_deleted_seqs;",
+    );
+    assert!(store.summary_disagreements().unwrap().is_empty());
 }

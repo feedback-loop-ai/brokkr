@@ -189,8 +189,13 @@ impl ProjectionStore for MemProjectionStore {
             .filter(|feature| !feature.is_empty());
         for event in envelopes {
             if event.event_type == EventType::RunStarted {
-                let feature = super::sqlite::started_feature_of(std::slice::from_ref(event))
+                let existing = runs
+                    .get(run_id)
+                    .map(|(feature, _)| feature.as_str())
+                    .filter(|feature| !feature.is_empty());
+                let feature = super::started_feature_of(std::slice::from_ref(event))
                     .or(manifest_feature)
+                    .or(existing)
                     .unwrap_or_default()
                     .to_string();
                 runs.insert(run_id.to_string(), (feature, event.recorded_at.clone()));
@@ -1070,6 +1075,88 @@ fn mem_event_log_append_envelopes_batch_is_atomic() {
     ));
     assert_eq!(log.head("batch-1").unwrap(), (0, ZERO_HASH.to_string()));
     assert!(log.read_stream("batch-1", 1).unwrap().is_empty());
+}
+
+#[test]
+fn manifest_only_feature_round_trips_and_replay_preserves_known_feature() {
+    let manifest = sample_manifest("manifest-only");
+    let blank_sidecar = json!({"engine": "0.15.0", "bundle_name": "self"});
+    let source = Journal::new(
+        MemEventLog::default(),
+        MemProjectionStore::default(),
+        MemCoordinationStore::default(),
+    );
+    source.create_run("run-mo", &manifest).unwrap();
+    source
+        .append_event(
+            "run-mo",
+            plain_event(
+                EventType::RunStarted,
+                json!({"manifest": manifest}),
+                None,
+                "2026-11-25T10:00:00Z",
+            ),
+        )
+        .unwrap();
+    let exported = source.export_ndjson("run-mo").unwrap();
+
+    // Mem destination round-trips manifest-only feature through export_ndjson -> import_ndjson.
+    let mem_dest = Journal::new(
+        MemEventLog::default(),
+        MemProjectionStore::default(),
+        MemCoordinationStore::default(),
+    );
+    assert_eq!(
+        mem_dest
+            .import_ndjson("run-mo", &blank_sidecar, &exported)
+            .unwrap(),
+        1
+    );
+    let expected = vec![(
+        "run-mo".to_string(),
+        "manifest-only".to_string(),
+        "2026-11-25T10:00:00Z".to_string(),
+    )];
+    assert_eq!(mem_dest.projections().list_runs().unwrap(), expected);
+
+    // SQLite destination also round-trips manifest-only feature cleanly.
+    let dir = tempdir().unwrap();
+    let store = Store::open(&dir.path().join("manifest-only.db")).unwrap();
+    let sql_dest = sqlite_journal(&store);
+    assert_eq!(
+        sql_dest
+            .import_ndjson("run-mo", &blank_sidecar, &exported)
+            .unwrap(),
+        1
+    );
+    assert_eq!(sql_dest.projections().list_runs().unwrap(), expected);
+
+    // Replaying RunStarted without feature and with manifest: None preserves known feature.
+    let proj = MemProjectionStore::default();
+    let bare_started = sealed_event(
+        "run-replay",
+        1,
+        EventType::RunStarted,
+        json!({}),
+        ZERO_HASH,
+        "2026-11-25T10:00:00Z",
+    );
+    proj.apply_envelopes(
+        "run-replay",
+        Some(&manifest),
+        std::slice::from_ref(&bare_started),
+    )
+    .unwrap();
+    proj.apply_envelopes("run-replay", None, &[bare_started])
+        .unwrap();
+    assert_eq!(
+        proj.list_runs().unwrap(),
+        vec![(
+            "run-replay".to_string(),
+            "manifest-only".to_string(),
+            "2026-11-25T10:00:00Z".to_string(),
+        )]
+    );
 }
 
 mod invariants;

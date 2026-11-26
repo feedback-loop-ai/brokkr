@@ -92,6 +92,22 @@ pub(crate) fn validate_started_manifest(
     Ok(())
 }
 
+pub(crate) fn non_empty_str(value: Option<&Value>) -> Option<&str> {
+    value.and_then(Value::as_str).filter(|s| !s.is_empty())
+}
+
+pub(crate) fn started_feature(payload: &Value) -> Option<&str> {
+    non_empty_str(payload.get("feature"))
+        .or_else(|| non_empty_str(payload.pointer("/manifest/feature")))
+}
+
+pub(crate) fn started_feature_of(events: &[EventEnvelope]) -> Option<&str> {
+    events
+        .first()
+        .filter(|event| event.seq == 1 && event.event_type == EventType::RunStarted)
+        .and_then(|event| started_feature(&event.payload))
+}
+
 /// Validate every incoming envelope's seat record (`checkpoint` / `result`)
 /// and marked `settled_members` against the stricter [`SeatRecordVersion`] of
 /// the persisted `manifest` and `RunStarted`'s `/manifest/engine`.
@@ -102,13 +118,8 @@ pub(crate) fn validate_seat_records(
 ) -> Result<(), StoreError> {
     let manifest_version =
         SeatRecordVersion::of_manifest(manifest.get("engine").and_then(Value::as_str));
-    let started_engine = existing
-        .iter()
-        .chain(incoming.iter())
-        .find(|event| event.event_type == EventType::RunStarted)
-        .and_then(|event| event.payload.pointer("/manifest/engine"))
-        .and_then(Value::as_str);
-    let version = manifest_version.stricter(SeatRecordVersion::of_manifest(started_engine));
+    let started_version = seat_record::version_of_events(&[existing, incoming]);
+    let version = manifest_version.stricter(started_version);
     seat_record::validate_incoming(existing, incoming, version)?;
     Ok(())
 }
@@ -169,12 +180,15 @@ pub trait EventLog {
     ) -> Result<(), StoreError>;
 
     /// Atomically persist an imported run record and its verified pre-sealed
-    /// `envelopes` in one transaction or unit of work, refusing an invalid
-    /// top-level or embedded `RunStarted` manifest with
-    /// [`StoreError::InvalidManifest`] and malformed seat records or settled
-    /// members with [`StoreError::SeatRecord`], leaving zero partial state on
-    /// refusal, and leaving local origin unset so imported runs are never
-    /// mistaken for runs started on this host (decision 0030 ruling 4).
+    /// `envelopes` in one transaction or unit of work, refusing an unadoptable
+    /// `run_id` or an unfoldable non-empty stream with [`StoreError::Import`],
+    /// non-annotation events after a terminal event with
+    /// [`StoreError::AfterTerminal`], an invalid top-level or embedded
+    /// `RunStarted` manifest with [`StoreError::InvalidManifest`], and
+    /// malformed seat records or settled members with
+    /// [`StoreError::SeatRecord`], leaving zero partial state on refusal, and
+    /// leaving local origin unset so imported runs are never mistaken for runs
+    /// started on this host (decision 0030 ruling 4).
     fn import_run_stream(
         &self,
         run_id: &str,

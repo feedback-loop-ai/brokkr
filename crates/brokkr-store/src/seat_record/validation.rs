@@ -243,14 +243,22 @@ pub(crate) fn validate_incoming(
     Ok(())
 }
 
+/// The [`SeatRecordVersion`] named by the first `RunStarted` event's
+/// `/manifest/engine` across `slices`, falling back to
+/// [`SeatRecordVersion::V1`] when no `RunStarted` carries an engine string.
+pub(crate) fn version_of_events(slices: &[&[EventEnvelope]]) -> SeatRecordVersion {
+    let engine = slices
+        .iter()
+        .flat_map(|slice| slice.iter())
+        .find(|event| event.event_type == EventType::RunStarted)
+        .and_then(|event| event.payload.pointer("/manifest/engine"))
+        .and_then(Value::as_str);
+    SeatRecordVersion::of_manifest(engine)
+}
+
 pub(crate) fn validate_events(events: &[EventEnvelope]) -> Result<(), SeatRecordError> {
     // The contract this run's engine wrote its records under.
-    let engine = events
-        .iter()
-        .find(|event| event.event_type == EventType::RunStarted)
-        .and_then(|event| event.payload.pointer("/manifest/engine"));
-    let version = SeatRecordVersion::of_manifest(engine.and_then(Value::as_str));
-    validate_incoming(&[], events, version)
+    validate_incoming(&[], events, version_of_events(&[events]))
 }
 
 /// The member a checkpoint event's engine marker settles, by the one

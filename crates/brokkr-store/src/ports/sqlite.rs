@@ -22,16 +22,18 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use crate::event_index::{IndexFault, IndexReading};
 use crate::start::Row;
 use crate::summary::Listed;
 use crate::{
     damage, event_index, head_of, import, origin, patiently, queue, refuse_existing, seat_summary,
-    start, summary, Attribution, Cooldown, EntryId, NewEntry, QueueEntry, Store, StoreError,
+    start, summary, Attribution, Cooldown, EntryId, ImportError, NewEntry, QueueEntry, Store,
+    StoreError, VerifyError,
 };
 
 use super::{
-    refuse_after_terminal, validate_manifest, validate_seat_records, validate_started_manifest,
-    CoordinationStore, EventLog, ProjectionStore,
+    refuse_after_terminal, started_feature, started_feature_of, validate_manifest,
+    validate_seat_records, validate_started_manifest, CoordinationStore, EventLog, ProjectionStore,
 };
 
 /// Thin co-located adapter exposing a SQLite [`Store`] through the
@@ -71,22 +73,6 @@ fn manifest_meta(manifest: &Value) -> (&str, &str) {
         .and_then(Value::as_str)
         .unwrap_or_default();
     (feature, bundle_name)
-}
-
-fn non_empty_str(value: Option<&Value>) -> Option<&str> {
-    value.and_then(Value::as_str).filter(|s| !s.is_empty())
-}
-
-fn started_feature(payload: &Value) -> Option<&str> {
-    non_empty_str(payload.get("feature"))
-        .or_else(|| non_empty_str(payload.pointer("/manifest/feature")))
-}
-
-pub(super) fn started_feature_of(events: &[EventEnvelope]) -> Option<&str> {
-    events
-        .first()
-        .filter(|event| event.seq == 1 && event.event_type == EventType::RunStarted)
-        .and_then(|event| started_feature(&event.payload))
 }
 
 fn checked_seq(seq: u64) -> Result<i64, StoreError> {
@@ -255,6 +241,38 @@ fn insert_events(
     Ok(())
 }
 
+fn max_indexed_seq(tx: &Connection, run_id: &str) -> Result<Option<i64>, StoreError> {
+    Ok(tx.query_row(
+        "SELECT MAX(seq) FROM event_index WHERE run_id = ?1",
+        params![run_id],
+        |row| row.get(0),
+    )?)
+}
+
+fn sync_event_index(
+    tx: &Connection,
+    run_id: &str,
+    events: &[EventEnvelope],
+    account: &Account,
+) -> Result<(), StoreError> {
+    match event_index::first_unindexed(tx, run_id, events)? {
+        IndexReading::Agrees => return Ok(()),
+        IndexReading::Behind => {}
+        IndexReading::Parted(first_missing, IndexFault::Missing)
+            if max_indexed_seq(tx, run_id)?.is_none_or(|max| max < first_missing as i64) =>
+        {
+            event_index::index_run(tx, run_id)?;
+        }
+        IndexReading::Parted(_, _) => {
+            tx.execute("DELETE FROM event_index WHERE run_id = ?1", params![run_id])?;
+            event_index::index_run(tx, run_id)?;
+        }
+    }
+    event_index::write_parks(tx, account)?;
+    event_index::write_all_checkpoints(tx, account)?;
+    Ok(())
+}
+
 fn write_colocated_projection(
     tx: &Connection,
     run_id: &str,
@@ -264,10 +282,7 @@ fn write_colocated_projection(
     let account = Account::whole(run_id, events);
     summary::upsert(tx, run_id, &Summary::of(&account, listed.listing()))?;
     seat_summary::write(tx, &account, None)?;
-    tx.execute("DELETE FROM event_index WHERE run_id = ?1", params![run_id])?;
-    event_index::index_run(tx, run_id)?;
-    event_index::write_parks(tx, &account)?;
-    event_index::write_all_checkpoints(tx, &account)?;
+    sync_event_index(tx, run_id, events, &account)?;
     Ok(())
 }
 
@@ -406,11 +421,18 @@ impl EventLog for SqlitePorts<'_> {
         manifest: &Value,
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
-        import::recordable(run_id)?;
+        import::admit_run_id(run_id).map_err(|err| StoreError::Import(Box::new(err)))?;
         validate_manifest(run_id, manifest)?;
         verify_chain_for_sqlite(run_id, (0, ZERO_HASH), envelopes)?;
+        let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
+        refuse_after_terminal(run_id, &[], &incoming)?;
         validate_started_manifests(run_id, envelopes)?;
         validate_seat_records(manifest, &[], envelopes)?;
+        if !envelopes.is_empty() {
+            brokkr_core::fold(envelopes).map_err(|err| {
+                StoreError::Import(Box::new(ImportError::Verify(VerifyError::Fold(err))))
+            })?;
+        }
         let (manifest_feature, bundle_name) = manifest_meta(manifest);
         let feature = started_feature_of(envelopes).unwrap_or(manifest_feature);
         let manifest_json = serde_json::to_string(manifest)?;
