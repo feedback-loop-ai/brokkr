@@ -29,7 +29,7 @@
     18 crates/brokkr-cli/src/cli_args/ui.rs
    225 crates/brokkr-cli/src/compare.rs
   1064 crates/brokkr-cli/src/doctor.rs
-   662 crates/brokkr-cli/src/doctor/capabilities.rs
+   677 crates/brokkr-cli/src/doctor/capabilities.rs
    326 crates/brokkr-cli/src/doctor/capabilities/mcp.rs
    319 crates/brokkr-cli/src/doctor/folder.rs
     64 crates/brokkr-cli/src/doctor/paths.rs
@@ -118,7 +118,7 @@
    218 crates/brokkr-core/src/policy/inputs.rs
     38 crates/brokkr-core/src/policy/words.rs
    556 crates/brokkr-core/src/realms.rs
-   389 crates/brokkr-core/src/realms/grants.rs
+   390 crates/brokkr-core/src/realms/grants.rs
     47 crates/brokkr-core/src/realms/provisional.rs
    183 crates/brokkr-core/src/realms/unusable.rs
    274 crates/brokkr-core/src/residual.rs
@@ -398,7 +398,7 @@
   1932 crates/brokkr-cli/src/doctor/capability_tests.rs
    122 crates/brokkr-cli/src/doctor/capability_tests/binding_tests.rs
    854 crates/brokkr-cli/src/doctor/capability_tests/mcp_tests.rs
-    82 crates/brokkr-cli/src/doctor/capability_tests/provider_dialects_tests.rs
+   115 crates/brokkr-cli/src/doctor/capability_tests/provider_dialects_tests.rs
    449 crates/brokkr-cli/src/doctor/folder/folder_tests.rs
    166 crates/brokkr-cli/src/doctor/paths/tests.rs
     82 crates/brokkr-cli/src/doctor/provisional/tests.rs

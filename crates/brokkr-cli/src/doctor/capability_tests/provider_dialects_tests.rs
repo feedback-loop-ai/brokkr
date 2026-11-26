@@ -80,3 +80,36 @@ fn doctor_reports_the_names_and_refusal_of_an_invalid_provider_grant() {
               'dialects/tools/absent.json' in the operator configuration")
     );
 }
+
+#[test]
+fn doctor_notes_unmeasured_inventory_on_the_provider_grant() {
+    let dir = workspace_with(None);
+    let root = dir.path();
+    write(
+        root,
+        "dialects/tools/dsh-search.json",
+        &native_dialect("dsh-search", "dsh"),
+    );
+    let (healthy, lines) = doctor_over_a_v9_grant(
+        root,
+        json!({
+            "dialects": {"codex": "codex-native-search", "dsh": "dsh-search"},
+            "offices": ["researcher"]
+        }),
+        &[],
+    );
+    assert!(healthy, "{lines:#?}");
+    assert_eq!(
+        lines
+            .iter()
+            .find(|line| line.contains("'web-search':"))
+            .map(String::as_str),
+        Some(
+            "ok       capabilities private 'web-search': provider 'codex' through dialect \
+              'codex-native-search', provider 'dsh' through dialect 'dsh-search' · offices \
+              [researcher] only · provider 'dsh' declares its native capabilities unmeasured \
+              (unsupported mcp proves no absence of native egress): no seat can hold the \
+              capability through this grant, and no native denial is claimed"
+        )
+    );
+}
