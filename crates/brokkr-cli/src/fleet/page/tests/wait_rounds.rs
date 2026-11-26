@@ -129,8 +129,19 @@ fn a_behind_row_refreshes_its_kind_when_the_end_and_head_stand() {
         )
     );
 
+    assert_damaged_head_reads_alike(&store, &mut pages, &head, now);
+}
+
+fn assert_damaged_head_reads_alike(
+    store: &Store,
+    pages: &mut Pages,
+    head: &(u64, String),
+    now: &str,
+) {
+    let db = store.path();
+    let seq = head.0;
     // A bad envelope at the same indexed head should have the same quarantine on every read.
-    let journal = rusqlite::Connection::open(&db).unwrap();
+    let journal = rusqlite::Connection::open(db).unwrap();
     journal
         .execute_batch("DROP TRIGGER events_append_only_update")
         .unwrap();
@@ -140,12 +151,12 @@ fn a_behind_row_refreshes_its_kind_when_the_end_and_head_stand() {
             [seq as i64],
         )
         .unwrap();
-    assert_eq!(store.head_hash("r1").unwrap(), head);
+    assert_eq!(&store.head_hash("r1").unwrap(), head);
     let error = store.last_event("r1", seq).unwrap_err();
     assert!(matches!(error, StoreError::Damaged { .. }), "{error:?}");
     assert_eq!(
         pages
-            .refresh(&store, Journal::at(&db), AHEAD_ROWS, now)
+            .refresh(store, Journal::at(db), AHEAD_ROWS, now)
             .unwrap(),
         0
     );
@@ -153,7 +164,7 @@ fn a_behind_row_refreshes_its_kind_when_the_end_and_head_stand() {
         panic!("the summary pages this journal");
     };
     let row = &behind.rows[0];
-    let whole = one(&store, "r1", now).unwrap();
+    let whole = one(store, "r1", now).unwrap();
     // Put the summary at its indexed head to exercise the paged fallback.
     journal
         .execute(
@@ -161,14 +172,14 @@ fn a_behind_row_refreshes_its_kind_when_the_end_and_head_stand() {
             [seq as i64],
         )
         .unwrap();
-    let fresh = Pages::listing(&store, Journal::at(&db), now).unwrap();
+    let fresh = Pages::listing(store, Journal::at(db), now).unwrap();
     assert!(matches!(&fresh, Pages::Summary(behind) if behind.rows.is_empty()));
     let ask = Ask {
         now,
         whole: &|_| false,
         keep: &|_| true,
     };
-    let paged = fresh.page(&store, ask, None, PAGE_ROWS).unwrap();
+    let paged = fresh.page(store, ask, None, PAGE_ROWS).unwrap();
     assert_eq!(paged.rows.len(), 1);
     assert_eq!(whole.verdict.standing, Standing::Quarantined);
     assert_eq!(whole.quarantine, Some(brokkr_view::Quarantine::DoesNotLoad));
