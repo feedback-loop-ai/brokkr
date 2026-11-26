@@ -19,6 +19,8 @@ mod docs_lane;
 mod inline_copies;
 #[path = "contributing/job_lines.rs"]
 mod job_lines;
+#[path = "contributing/macos_split.rs"]
+mod macos_split;
 use inline_copies::{
     assert_first_words_listed, assert_inline_copies, assert_inline_only_used, text_reads_as_command,
 };
@@ -386,23 +388,7 @@ const LEG_LINES: [(&str, &[Line]); 12] = [
             VERDICT_LINES[1],
         ],
     ),
-    (
-        "test (macos-latest)",
-        &[
-            Line::Written,
-            Line::Written,
-            Line::Unwritten("sw_vers"),
-            Line::Unwritten("uname -m"),
-            Line::Unwritten("test -x /usr/bin/sandbox-exec"),
-            Line::Written,
-            Line::Written,
-            Line::Written,
-            Line::Written,
-            Line::Written,
-            VERDICT_LINES[0],
-            VERDICT_LINES[1],
-        ],
-    ),
+    ("build (macos-latest)", &[Line::Written]),
     (
         "exact coverage gate",
         &[
@@ -583,6 +569,9 @@ fn workflow_legs(root: &Path, file: &'static str) -> Vec<WorkflowLeg> {
 
 fn job_legs(file: &'static str, id: &str, body: &[&str]) -> Vec<WorkflowLeg> {
     let field = |key: &str| body.iter().find_map(|line| line.strip_prefix(key));
+    if field("    uses: ").is_some() {
+        return Vec::new();
+    }
     let name = field("    name: ")
         .unwrap_or_else(|| panic!("{file}'s {id} has no name"))
         .trim_matches('\'');
@@ -904,7 +893,7 @@ const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
     ("MSRV (1.89)", "msrv", "ci.yml"),
     ("format, clippy, contracts", "quality", "ci.yml"),
     ("test (ubuntu-latest)", "engine", "ci.yml"),
-    ("test (macos-latest)", "engine", "ci.yml"),
+    ("build (macos-latest)", "build-macos", "ci.yml"),
     ("exact coverage gate", "coverage-gate", "ci.yml"),
     (
         "dependency licenses (cargo-deny)",
@@ -1045,9 +1034,11 @@ fn required_checks_paragraph(snapshot: &Protection, ordered: &[&str]) -> String 
     let (last, rest) = ordered.split_last().expect("main requires a check");
     let rest: Vec<String> = rest.iter().map(|check| format!("`{check}`")).collect();
     format!(
-        "`{branch}`'s branch protection, as observed on {observed} \
-         ([snapshot](.github/branch-protection.json)), requires {count} checks: {rest}, and \
-         `{last}`. It {signatures}, {strict}, {review}, and {admins} administrators.\n",
+        "`{branch}`'s branch protection ([snapshot](.github/branch-protection.json), \
+         the setting as it stands once #1383 has landed and the operator's controller \
+         has added `build (macos-latest)`, dated {observed}) requires {count} checks: \
+         {rest}, and `{last}`. It {signatures}, {strict}, {review}, and {admins} \
+         administrators.\n",
         branch = snapshot.branch,
         observed = snapshot.observed,
         count = ordered.len(),
@@ -1164,7 +1155,7 @@ const NOT_ON_PUSH: Fires = Fires {
 /// The `if:` conditions this test reads, what each does in a merge group,
 /// and the other events it runs on. Any other condition fails the test
 /// rather than being guessed at.
-const CONDITIONS: [(&str, InTheQueue, Fires); 18] = [
+const CONDITIONS: [(&str, InTheQueue, Fires); 20] = [
     // The docs lane (#1295): the classifier calls a merge group, and every
     // event but a pull request's, full, so the machines run there and the
     // docs lane does not.
@@ -1190,6 +1181,22 @@ const CONDITIONS: [(&str, InTheQueue, Fires); 18] = [
     ),
     (
         "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+        InTheQueue::Scheduled,
+        Fires {
+            pull_request: false,
+            push: false,
+        },
+    ),
+    (
+        "github.event_name == 'workflow_dispatch'",
+        InTheQueue::Scheduled,
+        Fires {
+            pull_request: false,
+            push: false,
+        },
+    ),
+    (
+        "always() && github.event_name == 'workflow_dispatch'",
         InTheQueue::Scheduled,
         Fires {
             pull_request: false,
@@ -1255,7 +1262,7 @@ const CONDITIONS: [(&str, InTheQueue, Fires); 18] = [
 
 /// Every job of the workflows the required checks live in, in file order,
 /// and what it does in a merge group.
-const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 26] = [
+const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 29] = [
     // It judges the run that the pull request's own description names for
     // its own head (decisions 0033, 0038), and a merge group carries no
     // description, labels or head repository. The queue lands that head's
@@ -1281,6 +1288,11 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 26] = [
     ("ci.yml", "engine-machines", InTheQueue::Runs),
     // The suite's verdicts run whatever the machines ended with.
     ("ci.yml", "engine", InTheQueue::Runs),
+    // The macOS workspace-and-tests compile check (#1383).
+    ("ci.yml", "build-macos", InTheQueue::Runs),
+    // Manual dispatch of the five macOS test shards (#1383); never in the queue.
+    ("ci.yml", "macos-machines", InTheQueue::Scheduled),
+    ("ci.yml", "macos-tests", InTheQueue::Scheduled),
     ("ci.yml", "seatbelt-lifetime", InTheQueue::Runs),
     ("ci.yml", "coverage-machines", InTheQueue::Runs),
     ("ci.yml", "coverage", InTheQueue::Runs),
@@ -1639,9 +1651,10 @@ fn pr_caches_unbound(ci: &str, shards: &str) -> Vec<String> {
     let arms: BTreeMap<&str, &str> = lines
         .iter()
         .filter_map(|line| {
-            let (key, command) = line.strip_suffix(" ;;")?.split_once(") ")?;
-            (key != "*").then_some((key, command))
+            let (keys, command) = line.strip_suffix(" ;;")?.split_once(") ")?;
+            (keys != "*").then_some((keys, command))
         })
+        .flat_map(|(keys, command)| keys.split('|').map(move |key| (key.trim(), command)))
         .collect();
     let toolchain = |text: &str| -> Vec<String> {
         text.lines()
