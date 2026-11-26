@@ -632,9 +632,15 @@ else that comes up").
 - **The lane scripts and their units** are the controller's.
 - **Every file and line cited** was read at fb7b775c1, main on 2026-11-16.
 
-## Addendum — 2026-11-25, proposed for #1374
+## Addendum — 2026-11-25, accepted 2026-11-26: a pass names why each entry it left waiting waits (#1374)
 
-Status: proposed
+Addendum status: accepted (operator, 2026-11-26)
+
+The operator accepted this addendum in chat on 2026-11-26, "accept the
+0110 addendum", and ruled in the same message that the waiting count is
+derived from the list rather than kept beside it ("derive
+Passed::waiting"), recorded on
+[#1374](https://github.com/feedback-loop-ai/brokkr/issues/1374).
 
 A machine can report memory pressure during a dispatch pass and clear it
 before the next command. The pass's own report can explain the wait
