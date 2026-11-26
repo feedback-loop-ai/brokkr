@@ -1021,20 +1021,14 @@ fn the_docs_lane_runs_its_list_one_command_a_target() {
 #[test]
 fn the_classifier_step_is_full_off_a_pull_request_and_runs_the_bases_copy() {
     let ci = std::fs::read_to_string(workspace().join(".github/workflows/ci.yml")).unwrap();
-    let (_, body) = crate::workflow::jobs(&ci)
-        .into_iter()
-        .find(|(job, _)| job == "classify")
-        .expect("ci.yml's classify job");
-    let lines: Vec<&str> = body.lines().collect();
-    let at = lines
+    let wf = crate::workflow::Workflow::parse(&ci).expect("ci.yml parses");
+    let classify = wf.require_job("ci.yml", "classify").unwrap();
+    let block = classify
+        .steps
         .iter()
-        .position(|line| line.trim() == "run: |")
-        .expect("its run block");
-    let block: String = lines[at + 1..]
-        .iter()
-        .take_while(|line| line.starts_with("          "))
-        .map(|line| format!("{}\n", line.trim()))
-        .collect();
+        .find_map(|s| s.run.as_deref())
+        .expect("classify job run block")
+        .to_string();
     let step = |repo: &Repo, event: &str| {
         let output_file = repo.path().join("output.txt");
         std::fs::write(&output_file, "").unwrap();

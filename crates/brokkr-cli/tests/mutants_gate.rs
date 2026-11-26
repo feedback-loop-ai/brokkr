@@ -636,96 +636,73 @@ fn a_base_git_cannot_resolve_fails_the_gate() {
     assert!(!gate.path("argv").exists());
 }
 
-/// The conditions in a job's body, each as `if: <value>`, read at every
-/// depth: a step's leading `- ` is dropped, and a key is read without its
-/// spacing or quotes, so `if :` and `'if':` count. A flow collection or a
-/// merge key could carry a condition this reading does not see, so either
-/// one fails.
-fn conditions(job: &str) -> Vec<String> {
-    let mut found = Vec::new();
-    for line in job.lines() {
-        let line = line.trim_start();
-        let line = line.strip_prefix("- ").unwrap_or(line).trim_start();
-        assert!(
-            !line.starts_with(['{', '[']),
-            "a flow collection in the job: {line}"
-        );
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        let (key, value) = (key.trim().trim_matches(['"', '\'']), value.trim());
-        assert_ne!(key, "<<", "a merge key in the job: {line}");
-        assert!(
-            !value.starts_with(['{', '[']),
-            "a flow collection in the job: {line}"
-        );
-        if key == "if" {
-            found.push(format!("if: {value}"));
-        }
-    }
-    found
-}
-
-/// The body of mutants.yml's job `id`.
-fn job(workflow: &str, id: &str) -> String {
-    workflow::jobs(workflow)
-        .into_iter()
-        .find_map(|(job, body)| (job == id).then_some(body))
-        .unwrap_or_else(|| panic!("mutants.yml has no {id} job"))
-}
-
 /// The check branch protection names runs the gate, whole and unsoftened,
 /// under the name the guide gives it; the protocol job only reports. The
 /// #420 landing found that turning the run line to `in-diff` left every
 /// test green while the required check stopped failing anything.
 #[test]
 fn the_required_job_runs_the_gate_and_protocol_only_reports() {
-    let workflow = std::fs::read_to_string(workspace().join(".github/workflows/mutants.yml"))
+    let raw = std::fs::read_to_string(workspace().join(".github/workflows/mutants.yml"))
         .expect("mutants.yml");
-    let core = job(&workflow, "core-gate");
+    let wf = workflow::Workflow::parse(&raw).expect("mutants.yml parses");
+    let core = wf.require_job("mutants.yml", "core-gate").unwrap();
     // A skipped job or step reports success, which satisfies a required
     // check: the #420 landing set the job's condition to `false`, then gave
     // the gate step an `if:` of its own and the job a `needs:` on the
     // weekly job, and every test stayed green each time. The job runs on
     // exactly the event it gates, and its only other condition is the
-    // artifact upload's. Conditions are read at every depth, a step's
-    // leading `- if:` included.
+    // artifact upload's.
     assert_eq!(
-        conditions(&core),
-        ["if: github.event_name == 'pull_request'", "if: always()"],
-        "core-gate's conditions must be the pull-request event and the upload's:\n{core}"
+        core.all_conditions(),
+        ["github.event_name == 'pull_request'", "always()"],
+        "core-gate's conditions must be the pull-request event and the upload's"
     );
-    assert!(core.contains("\n    if: github.event_name == 'pull_request'\n"));
-    let keys: Vec<&str> = core
-        .lines()
-        .filter_map(|line| line.strip_prefix("    "))
-        .filter(|line| !line.starts_with([' ', '#']))
-        .filter_map(|line| line.split_once(':').map(|(key, _)| key))
-        .collect();
     assert_eq!(
-        keys,
+        core.if_cond.as_deref(),
+        Some("github.event_name == 'pull_request'")
+    );
+    assert_eq!(
+        core.keys,
         ["name", "if", "runs-on", "timeout-minutes", "steps"],
-        "core-gate gained or lost a job key, such as `needs:`:\n{core}"
+        "core-gate gained or lost a job key, such as `needs:`"
     );
-    for line in [
-        "    name: 'mutants in the diff: brokkr-core'\n",
-        "          BASE: ${{ github.event.pull_request.base.sha }}\n",
-        "        run: bash scripts/mutants.sh gate \"$BASE\" brokkr-core\n",
-    ] {
-        assert!(core.contains(line), "core-gate lacks {line:?}:\n{core}");
-    }
-    assert!(!core.contains("continue-on-error"), "{core}");
-    assert_eq!(workflow.matches("scripts/mutants.sh gate ").count(), 1);
-    let protocol = job(&workflow, "in-diff");
-    for line in [
-        "    name: 'mutants in the diff: brokkr-protocol (report only)'\n",
-        "        run: bash scripts/mutants.sh in-diff \"$BASE\" brokkr-protocol\n",
-    ] {
-        assert!(
-            protocol.contains(line),
-            "in-diff lacks {line:?}:\n{protocol}"
-        );
-    }
+    assert_eq!(
+        core.name.as_deref(),
+        Some("mutants in the diff: brokkr-core")
+    );
+    assert!(
+        core.steps.iter().any(|s| {
+            s.env_value("BASE") == Some("${{ github.event.pull_request.base.sha }}")
+                && s.run.as_deref() == Some("bash scripts/mutants.sh gate \"$BASE\" brokkr-core")
+        }),
+        "core-gate lacks the brokkr-core gate step"
+    );
+    assert!(
+        !core.has_continue_on_error(),
+        "core-gate has continue-on-error"
+    );
+    let gate_steps: usize = wf
+        .jobs
+        .iter()
+        .flat_map(|j| &j.steps)
+        .filter(|s| {
+            s.run
+                .as_deref()
+                .is_some_and(|r| r.contains("scripts/mutants.sh gate "))
+        })
+        .count();
+    assert_eq!(gate_steps, 1);
+    let protocol = wf.require_job("mutants.yml", "in-diff").unwrap();
+    assert_eq!(
+        protocol.name.as_deref(),
+        Some("mutants in the diff: brokkr-protocol (report only)")
+    );
+    assert!(
+        protocol.steps.iter().any(|s| {
+            s.run.as_deref() == Some("bash scripts/mutants.sh in-diff \"$BASE\" brokkr-protocol")
+        }),
+        "in-diff lacks the brokkr-protocol report step"
+    );
     let guide = std::fs::read_to_string(workspace().join("docs/guides/contributing-by-hand.md"))
         .expect("the contributing guide");
     for named in [

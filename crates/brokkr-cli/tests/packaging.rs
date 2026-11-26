@@ -127,28 +127,24 @@ fn every_workspace_path_dependency_names_the_workspace_version() {
 /// The release matrix, read from the workflow that owns it: rust target
 /// triple → the artifact file the release publishes for it.
 fn release_artifacts() -> BTreeMap<String, String> {
-    let workflow = read(".github/workflows/release.yml");
+    let text = read(".github/workflows/release.yml");
+    let wf = crate::workflow::Workflow::parse(&text).expect("release.yml parses");
+    let build = wf.require_job("release.yml", "build").unwrap();
+    let matrix = build.matrix.as_ref().expect("release.yml build matrix");
     let mut artifacts = BTreeMap::new();
-    for line in workflow.lines() {
-        let line = line.trim();
-        let Some(entry) = line.strip_prefix("- {").and_then(|l| l.strip_suffix("}")) else {
-            continue;
-        };
-        let mut target = None;
-        let mut name = None;
-        for pair in entry.split(',') {
-            let (key, value) = pair.split_once(':').expect("matrix entries are key: value");
-            match key.trim() {
-                "target" => target = Some(value.trim().to_string()),
-                "name" => name = Some(value.trim().to_string()),
-                _ => {}
-            }
-        }
-        let (target, name) = (target.expect("a target"), name.expect("a name"));
+    for row in &matrix.include {
+        let target = row
+            .get("target")
+            .and_then(|v| v.as_literal())
+            .expect("matrix row target");
+        let name = row
+            .get("name")
+            .and_then(|v| v.as_literal())
+            .expect("matrix row name");
         // Decision 0063: Linux and macOS are the hosts, so every release
         // asset is a gzipped tar and no leg builds for Windows.
         assert!(!target.contains("windows"), "{target}");
-        artifacts.insert(target, format!("{name}.tar.gz"));
+        artifacts.insert(target.to_string(), format!("{name}.tar.gz"));
     }
     assert_eq!(artifacts.len(), 4, "{artifacts:?}");
     artifacts
@@ -252,26 +248,40 @@ fn the_nfpm_configuration_ships_one_binary_under_the_dual_licence() {
 /// than a side channel that skips the manifest.
 #[test]
 fn the_release_workflow_puts_the_packages_through_the_attested_pipeline() {
-    let workflow = read(".github/workflows/release.yml");
-    let packaging = workflow
-        .split("- name: package (linux .deb and .rpm)")
-        .nth(1)
+    let text = read(".github/workflows/release.yml");
+    let wf = crate::workflow::Workflow::parse(&text).expect("release.yml parses");
+    let build = wf.require_job("release.yml", "build").unwrap();
+    let pkg_idx = build
+        .steps
+        .iter()
+        .position(|st| st.name.as_deref() == Some("package (linux .deb and .rpm)"))
         .expect("the linux packaging step");
-    let (packaging, rest) = packaging
-        .split_once("- name: attest packaged binary and checksum")
-        .expect("packaging comes before the attestation");
-
+    let attest_idx = build
+        .steps
+        .iter()
+        .position(|st| st.name.as_deref() == Some("attest packaged binary and checksum"))
+        .expect("the attestation step");
+    assert!(pkg_idx < attest_idx, "packaging comes before attestation");
+    let pkg_run = build.steps[pkg_idx].run.as_deref().expect("packaging run");
     for fragment in [
         "--packager deb --target \"dist/${{ matrix.name }}.deb\"",
         "--packager rpm --target \"dist/${{ matrix.name }}.rpm\"",
         "shasum -a 256",
     ] {
-        assert!(packaging.contains(fragment), "{packaging}");
+        assert!(pkg_run.contains(fragment), "{pkg_run}");
     }
-    // Attestation covers everything in dist/, and the publish job folds
-    // every sidecar into the one manifest it then attests.
-    assert!(rest.contains("subject-path: dist/*"), "{rest}");
-    assert!(rest.contains("cat *.sha256 > SHA256SUMS"), "{rest}");
+    assert_eq!(
+        build.steps[attest_idx].with_str("subject-path"),
+        Some("dist/*")
+    );
+    let publish = wf.require_job("release.yml", "publish").unwrap();
+    assert!(
+        publish.steps.iter().any(|st| st
+            .run
+            .as_deref()
+            .is_some_and(|r| r.contains("cat *.sha256 > SHA256SUMS"))),
+        "publish folds every sidecar into SHA256SUMS"
+    );
 }
 
 /// The tool that fills the attested packages is pinned, and pinned once.
@@ -404,41 +414,77 @@ fn the_release_workflow_keeps_secret_values_off_the_process_table() {
 /// publish the sibling, then hand the tree to the action.
 #[test]
 fn the_channel_steps_read_the_rendered_tree_before_the_action_moves_it() {
-    let workflow = read(".github/workflows/release.yml");
-    let channels = workflow
-        .split("\n  channels:\n")
-        .nth(1)
-        .expect("the channels job");
-    let at = |needle: &str| {
+    let text = read(".github/workflows/release.yml");
+    let wf = crate::workflow::Workflow::parse(&text).expect("release.yml parses");
+    let channels = wf.require_job("release.yml", "channels").unwrap();
+    let pos_run = |needle: &str| {
         channels
-            .find(needle)
-            .unwrap_or_else(|| panic!("no {needle} in:\n{channels}"))
+            .steps
+            .iter()
+            .position(|st| st.run.as_deref().is_some_and(|r| r.contains(needle)))
+            .unwrap_or_else(|| panic!("no run step containing {needle}"))
     };
-
-    let bump = at("bash packaging/bump-from-sums.sh");
-    let tap = at("--repo \"${GITHUB_REPOSITORY_OWNER}/homebrew-tap\"");
-    let app_token = at("uses: actions/create-github-app-token@");
-    let action = at("uses: peter-evans/create-pull-request@");
-
-    assert!(bump < tap, "{channels}");
-    assert!(tap < app_token, "{channels}");
-    // The scoop bucket is retired (decision 0063): no step reaches it.
-    assert!(!channels.contains("scoop"), "{channels}");
-    assert!(app_token < action, "{channels}");
-
-    for contract in [
-        "app-id: ${{ vars.BROKKR_RELEASE_APP_ID }}",
-        "private-key: ${{ secrets.BROKKR_RELEASE_APP_PRIVATE_KEY }}",
-        "token: ${{ steps.flake-app-token.outputs.token }}",
-        "sign-commits: true",
-        "COMMITS_VERIFIED: ${{ steps.flake-pr.outputs.pull-request-commits-verified }}",
-        "the flake pull request commit is not verified",
-    ] {
-        assert!(channels.contains(contract), "no {contract} in:\n{channels}");
-    }
+    let pos_action = |repo: &str| {
+        channels
+            .steps
+            .iter()
+            .position(|st| {
+                matches!(
+                    st.action_match(repo),
+                    Some(crate::workflow::ActionMatch::Exact)
+                )
+            })
+            .unwrap_or_else(|| panic!("no action step using {repo}"))
+    };
+    let bump = pos_run("bash packaging/bump-from-sums.sh");
+    let tap = pos_run("--repo \"${GITHUB_REPOSITORY_OWNER}/homebrew-tap\"");
+    let app_token = pos_action("actions/create-github-app-token");
+    let action = pos_action("peter-evans/create-pull-request");
+    assert!(bump < tap);
+    assert!(tap < app_token);
+    assert!(app_token < action);
     assert!(
-        !channels.contains("BROKKR_FLAKE_PR_TOKEN"),
-        "the unsigned PAT fallback returned:\n{channels}"
+        !channels
+            .all_scalars
+            .iter()
+            .any(|sc| sc.to_ascii_lowercase().contains("scoop")),
+        "the scoop bucket is retired"
+    );
+    assert_eq!(
+        channels.steps[app_token].with_str("app-id"),
+        Some("${{ vars.BROKKR_RELEASE_APP_ID }}")
+    );
+    assert_eq!(
+        channels.steps[app_token].with_str("private-key"),
+        Some("${{ secrets.BROKKR_RELEASE_APP_PRIVATE_KEY }}")
+    );
+    assert_eq!(
+        channels.steps[action].with_str("token"),
+        Some("${{ steps.flake-app-token.outputs.token }}")
+    );
+    assert_eq!(
+        channels.steps[action]
+            .with_value("sign-commits")
+            .and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert!(
+        channels.steps.iter().any(|st| {
+            st.env_value("COMMITS_VERIFIED")
+                == Some("${{ steps.flake-pr.outputs.pull-request-commits-verified }}")
+                && st
+                    .run
+                    .as_deref()
+                    .is_some_and(|r| r.contains("the flake pull request commit is not verified"))
+        }),
+        "channels verifies flake pull request commits"
+    );
+    assert!(
+        !channels
+            .all_scalars
+            .iter()
+            .any(|sc| sc.contains("BROKKR_FLAKE_PR_TOKEN")),
+        "the unsigned PAT fallback returned"
     );
 }
 
@@ -534,30 +580,26 @@ fn the_channel_pull_request_script_reads_its_token_from_the_environment() {
 /// material is anywhere in the tree.
 #[test]
 fn the_repository_signing_key_is_a_secret_name_and_never_key_material() {
-    let workflow = read(".github/workflows/release.yml");
-    let pages = workflow
-        .split("\n  pages:\n")
-        .nth(1)
-        .expect("the pages job")
-        .split("\n  channels:\n")
-        .next()
-        .expect("the pages job ends");
-
+    let text = read(".github/workflows/release.yml");
+    let wf = crate::workflow::Workflow::parse(&text).expect("release.yml parses");
+    let pages = wf.require_job("release.yml", "pages").unwrap();
+    let sign_step = pages
+        .steps
+        .iter()
+        .find(|st| {
+            st.env_value("BROKKR_APT_SIGNING_KEY") == Some("${{ secrets.BROKKR_APT_SIGNING_KEY }}")
+        })
+        .expect("pages signing step with BROKKR_APT_SIGNING_KEY");
+    let run_script = sign_step.run.as_deref().expect("signing step run script");
     assert!(
-        pages.contains("BROKKR_APT_SIGNING_KEY: ${{ secrets.BROKKR_APT_SIGNING_KEY }}"),
-        "{pages}"
-    );
-    // An unset secret refuses to publish rather than publishing an
-    // unsigned repository users would be told to trust.
-    assert!(
-        pages.contains("refusing to publish an unsigned repository"),
-        "{pages}"
+        run_script.contains("refusing to publish an unsigned repository"),
+        "{run_script}"
     );
     assert!(
-        pages.contains("--clearsign --output site/apt/dists/stable/InRelease"),
-        "{pages}"
+        run_script.contains("--clearsign --output site/apt/dists/stable/InRelease"),
+        "{run_script}"
     );
-    assert!(pages.contains("gpg --armor --export"), "{pages}");
+    assert!(run_script.contains("gpg --armor --export"), "{run_script}");
 
     for file in [
         "packaging/README.md",
@@ -1420,30 +1462,34 @@ fn packages_under_test(work: &Path, extension: &str) -> PathBuf {
 /// secret is not provisioned rather than a red tail.
 #[test]
 fn the_crates_are_published_in_dependency_order_after_the_release() {
-    let workflow = read(".github/workflows/release.yml");
-    let start = workflow.find("\n  crates:\n").expect("a crates job");
-    let job = &workflow[start..];
-    let job = &job[..job.find("\n  pages:\n").unwrap_or(job.len())];
-    assert!(job.contains("needs: publish"), "{job}");
+    let text = read(".github/workflows/release.yml");
+    let wf = crate::workflow::Workflow::parse(&text).expect("release.yml parses");
+    let crates = wf.require_job("release.yml", "crates").unwrap();
+    assert_eq!(crates.needs, ["publish"]);
+    let step = crates
+        .steps
+        .iter()
+        .find(|st| {
+            st.env_value("CARGO_REGISTRY_TOKEN") == Some("${{ secrets.CARGO_REGISTRY_TOKEN }}")
+        })
+        .expect("crates publish step");
+    let script = step.run.as_deref().expect("crates publish run script");
     assert!(
-        job.contains("CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}"),
-        "{job}"
+        script.contains("::warning::CARGO_REGISTRY_TOKEN is not set"),
+        "{script}"
     );
     assert!(
-        job.contains("::warning::CARGO_REGISTRY_TOKEN is not set"),
-        "{job}"
+        script.contains(r#"cargo publish -p "$crate" --locked"#),
+        "{script}"
     );
     assert!(
-        job.contains(r#"cargo publish -p "$crate" --locked"#),
-        "{job}"
+        script.contains(r#""https://crates.io/api/v1/crates/${crate}/${version}""#),
+        "{script}"
     );
-    // Idempotent: a re-run skips a version the registry already serves,
-    // so a refusal mid-list (v0.9.0's rate limit) is resumable.
     assert!(
-        job.contains(r#""https://crates.io/api/v1/crates/${crate}/${version}""#),
-        "{job}"
+        script.contains("is already on crates.io — skipped"),
+        "{script}"
     );
-    assert!(job.contains("is already on crates.io — skipped"), "{job}");
     let order = [
         "brokkr-core",
         "brokkr-store",
@@ -1455,9 +1501,9 @@ fn the_crates_are_published_in_dependency_order_after_the_release() {
     ];
     let mut cursor = 0;
     for crate_name in order {
-        let at = job[cursor..]
+        let at = script[cursor..]
             .find(crate_name)
-            .unwrap_or_else(|| panic!("{crate_name} out of order in:\n{job}"));
+            .unwrap_or_else(|| panic!("{crate_name} out of order in:\n{script}"));
         cursor += at + crate_name.len();
     }
 }
