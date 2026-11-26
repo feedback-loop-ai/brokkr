@@ -1,0 +1,1 @@
+error: invalid model selection (--model "claude-opus-5-5" --effort "xhigh"): claude-opus-5-5 has no "xhigh" effort (available: low, medium, high)
