@@ -66,7 +66,7 @@ pub(super) fn passed(passed: &Passed, journal: &Path) -> String {
             .join("; ");
         line(&mut lines, &format!("waiting: entry {entry}: {reasons}"));
     }
-    let (waiting, held) = (passed.waiting, passed.held_entries);
+    let (waiting, held) = (passed.waiting(), passed.held_entries);
     line(
         &mut lines,
         &format!("queue: {waiting} waiting, {held} held"),

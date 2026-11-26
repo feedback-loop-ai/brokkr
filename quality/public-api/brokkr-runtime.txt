@@ -1391,8 +1391,9 @@ pub brokkr_runtime::dispatch::Passed::spawned: alloc::vec::Vec<brokkr_runtime::d
 pub brokkr_runtime::dispatch::Passed::started: alloc::vec::Vec<brokkr_runtime::dispatch::Started>
 pub brokkr_runtime::dispatch::Passed::sweep: core::option::Option<brokkr_runtime::dispatch::SweepOutcome>
 pub brokkr_runtime::dispatch::Passed::unstarted: alloc::vec::Vec<brokkr_runtime::admission::Reason>
-pub brokkr_runtime::dispatch::Passed::waiting: usize
 pub brokkr_runtime::dispatch::Passed::waits: alloc::vec::Vec<brokkr_runtime::dispatch::Waiting>
+impl brokkr_runtime::dispatch::Passed
+pub fn brokkr_runtime::dispatch::Passed::waiting(&self) -> usize
 pub struct brokkr_runtime::dispatch::Reaped
 pub brokkr_runtime::dispatch::Reaped::exited: brokkr_runtime::dispatch::Exited
 pub brokkr_runtime::dispatch::Reaped::reads: core::result::Result<brokkr_core::fold::Status, brokkr_runtime::engine::EngineError>

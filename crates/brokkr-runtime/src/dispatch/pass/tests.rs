@@ -403,7 +403,7 @@ fn two_admitted_entries_under_one_provider_ceiling_start_only_the_first() {
     let hold = brokkr_store::QueueCommand::Hold;
     fixture.store.queue_command(entries[2], hold, by).unwrap();
     let (passed, seen) = one_pass(&mut fixture.store, &dispatcher, &file);
-    assert_eq!((passed.waiting, passed.held_entries), (0, 1));
+    assert_eq!((passed.waiting(), passed.held_entries), (0, 1));
     assert_eq!(passed.started.len(), 1);
     assert_eq!(passed.started[0].entry, first);
     assert_eq!(
@@ -423,7 +423,7 @@ fn two_admitted_entries_under_one_provider_ceiling_start_only_the_first() {
 
     // The next pass judges the second entry waiting on the full ceiling.
     let (again, _) = one_pass(&mut fixture.store, &dispatcher, &file);
-    assert_eq!((again.waiting, again.held_entries), (1, 1));
+    assert_eq!((again.waiting(), again.held_entries), (1, 1));
 }
 
 /// "Queue it before the rest" is a priority (decision 0068 ruling 2,
@@ -1571,7 +1571,6 @@ fn an_entry_waiting_on_shipped_starts_when_it_ships_and_is_held_when_it_ships_fl
         };
         let waiting = one_pass(&mut fixture.store, &dispatcher, &file).0;
         assert_eq!(waiting.started.len(), 0);
-        assert_eq!(waiting.waiting, waiting.waits.len());
         assert_eq!(
             waiting.waits,
             [Waiting {

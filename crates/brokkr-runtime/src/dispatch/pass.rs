@@ -235,12 +235,17 @@ pub struct Passed {
     pub held: Vec<Held>,
     pub claims_refused: Vec<start::ClaimRefused>,
     pub contended: Vec<Contended>,
-    /// Entries admission still judged waiting, and held, when the pass read
-    /// the queue.
-    pub waiting: usize,
     /// The entries left waiting and their reasons, in queue order.
     pub waits: Vec<Waiting>,
+    /// Entries admission judged held when the pass read the queue.
     pub held_entries: usize,
+}
+
+impl Passed {
+    /// The number of entries left waiting, the length of [`Self::waits`].
+    pub fn waiting(&self) -> usize {
+        self.waits.len()
+    }
 }
 
 /// Run one pass under the dispatcher's lock, with the machine `host` names
@@ -397,7 +402,6 @@ fn record_waits(passed: &mut Passed, judged: &mut [Judged]) {
             }
         }
     }
-    passed.waiting = passed.waits.len();
 }
 
 /// Reconcile what a dispatcher left mid-start. A contention is reported and

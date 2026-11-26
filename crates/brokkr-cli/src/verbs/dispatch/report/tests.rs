@@ -103,7 +103,6 @@ fn every_fact(claim: Claim) -> Passed {
                 error: contention(),
             },
         ],
-        waiting: 2,
         waits: vec![
             Waiting {
                 entry: EntryId(7),
