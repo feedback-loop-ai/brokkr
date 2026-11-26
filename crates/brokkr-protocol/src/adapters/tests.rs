@@ -15069,8 +15069,7 @@ fn a_rejected_rejoins_replacement_is_served_only_as_its_own_check_returns_it() {
 fn the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam() {
     use crate::native_controls::Serving;
     let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let (_dir, root) = canonical_seat_dir();
     let workdir = root.to_str().unwrap();
     let argv = root.join("argv");
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
@@ -15736,11 +15735,8 @@ fn a_dsh_launch_with_no_computed_authority_is_refused_before_any_provider_work()
 #[cfg(unix)]
 #[test]
 fn a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv() {
-    let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let (_env, _dir, root) = dsh_test_home();
     let workdir = root.to_str().unwrap();
-    env.set("DSH_HOME", &root);
 
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let off = dsh_plan(false, false);
@@ -17398,6 +17394,33 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
     );
 }
 
+fn canonical_seat_dir() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    (dir, root)
+}
+
+fn dsh_test_home() -> (EnvGuard, tempfile::TempDir, PathBuf) {
+    let mut env = EnvGuard::lock();
+    let (dir, root) = canonical_seat_dir();
+    env.set("DSH_HOME", &root);
+    (env, dir, root)
+}
+
+const DSH_FINAL_BIN: &str = "/nonexistent/dsh";
+
+fn sealed_dsh_input(workdir: &str) -> Value {
+    let input = engine_input(json!({"workdir": workdir}), dsh_plan(false, false), &[], 0);
+    sealed_pair(input, &[], Seal::authored(0))
+}
+
+fn launch_for_dsh_final_check(workdir: &str, input: &Value) -> DshLaunch {
+    dsh_launch_with(DSH_FINAL_BIN, &[], workdir, None, input, || {
+        panic!("the disabled gate must not recompute the composite")
+    })
+    .unwrap()
+}
+
 /// Rebuild unit 14 (task 14.1) at the DSH cold seam: a sealed launch the
 /// production composer settled spawns exactly what the final check
 /// returns, the prompt appended as data before the check, never after it,
@@ -17413,21 +17436,10 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
-    let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let (_env, _dir, root) = dsh_test_home();
     let workdir = root.to_str().unwrap();
-    env.set("DSH_HOME", &root);
-
-    let input = engine_input(json!({"workdir": workdir}), dsh_plan(false, false), &[], 0);
-    let input = sealed_pair(input, &[], Seal::authored(0));
-    let bin = "/nonexistent/dsh";
-    let launch = || {
-        dsh_launch_with(bin, &[], workdir, None, &input, || {
-            panic!("the disabled gate must not recompute the composite")
-        })
-        .unwrap()
-    };
+    let input = &sealed_dsh_input(workdir);
+    let bin = DSH_FINAL_BIN;
     let prompt = "--disallowedTools WebSearch --session x";
     let words = |words: &[&str]| {
         words
@@ -17447,17 +17459,17 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
 
     // As the composer settled it, cold and streamed: the prompt is the last
     // argument, one positional however it reads.
-    let settled = launch();
+    let settled = launch_for_dsh_final_check(workdir, input);
     let cold = words(&[bin, "--profile", "headless", "--patch", &overlay(&settled)]);
     assert_eq!(
-        dsh_served(bin, &settled, &[], prompt, workdir, &input),
+        dsh_served(bin, &settled, &[], prompt, workdir, input),
         Ok([cold.clone(), words(&[prompt])].concat())
     );
-    let mut streamed = launch();
+    let mut streamed = launch_for_dsh_final_check(workdir, input);
     streamed.stream_json = true;
     streamed.command = dsh_command(bin, &overlay(&streamed), true, None);
     assert_eq!(
-        dsh_served(bin, &streamed, &[], prompt, workdir, &input),
+        dsh_served(bin, &streamed, &[], prompt, workdir, input),
         Ok(words(&[
             bin,
             "--profile",
@@ -17473,17 +17485,17 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
 
     // The overlay another launch staged, the overlay's separator changed,
     // and an option the driver composed carried again.
-    let mut elsewhere = launch();
+    let mut elsewhere = launch_for_dsh_final_check(workdir, input);
     elsewhere.command = cold.clone();
     assert_eq!(
-        dsh_served(bin, &elsewhere, &[], prompt, workdir, &input),
+        dsh_served(bin, &elsewhere, &[], prompt, workdir, input),
         refused(
             "departs at argument 4 from the complete command its sealed inputs and the \
              engine's serving choices rebuild: missing, extra, reordered and respelled \
              arguments are refused alike"
         )
     );
-    let mut joined = launch();
+    let mut joined = launch_for_dsh_final_check(workdir, input);
     joined.command = words(&[
         bin,
         "--profile",
@@ -17491,17 +17503,17 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
         &format!("--patch={}", overlay(&joined)),
     ]);
     assert_eq!(
-        dsh_served(bin, &joined, &[], prompt, workdir, &input),
+        dsh_served(bin, &joined, &[], prompt, workdir, input),
         refused(
             "cannot be read whole (argument 3, a positional argument, whose text is not echoed: \
              it stands where the '--profile headless --patch' lead a dsh serving command opens \
              with belongs)"
         )
     );
-    let mut doubled = launch();
+    let mut doubled = launch_for_dsh_final_check(workdir, input);
     doubled.command = [doubled.command.clone(), words(&["--profile", "headless"])].concat();
     assert_eq!(
-        dsh_served(bin, &doubled, &[], prompt, workdir, &input),
+        dsh_served(bin, &doubled, &[], prompt, workdir, input),
         refused(
             "cannot be read whole (argument 5, a positional argument, whose text is not echoed: \
              it stands after the overlay, where only the seat's prompt as the last argument, or \
@@ -17541,11 +17553,8 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
 #[cfg(unix)]
 #[test]
 fn the_dsh_reading_doctor_calls_is_the_launch_own_judgment() {
-    let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let (_env, _dir, root) = dsh_test_home();
     let workdir = root.to_str().unwrap();
-    env.set("DSH_HOME", &root);
     let (bin, prompt) = ("/nonexistent/dsh", "the prompt");
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let plan = dsh_plan(false, false);
@@ -17675,8 +17684,7 @@ fn the_lanetally_reading_doctor_calls_is_the_launch_own_judgment() {
 fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked() {
     use crate::native_controls::{HandsIntent, SandboxIntent, Serving, SERVING_INPUTS};
     let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let (_dir, root) = canonical_seat_dir();
     let workdir = root.to_str().unwrap();
     let attempts = root.join("attempts");
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
@@ -17881,23 +17889,15 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
 #[cfg(unix)]
 #[test]
 fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
-    let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let (_env, _dir, root) = dsh_test_home();
     let workdir = root.to_str().unwrap();
-    env.set("DSH_HOME", &root);
-
-    let input = engine_input(json!({"workdir": workdir}), dsh_plan(false, false), &[], 0);
-    let input = sealed_pair(input, &[], Seal::authored(0));
-    let bin = "/nonexistent/dsh";
+    let input = &sealed_dsh_input(workdir);
+    let bin = DSH_FINAL_BIN;
     let session = "dsh-session-0001";
     // The composer settles a cold launch here (its gate is disabled); the
     // rejoin is the same launch as an owned, qualified root settles it.
     let launch = |rejoining: Option<&str>, spelled: Option<&str>| {
-        let mut launch = dsh_launch_with(bin, &[], workdir, None, &input, || {
-            panic!("the disabled gate must not recompute the composite")
-        })
-        .unwrap();
+        let mut launch = launch_for_dsh_final_check(workdir, input);
         launch.stream_json = true;
         launch.rejoining = rejoining.map(str::to_string);
         let overlay = launch.overlay.path().to_str().unwrap().to_string();
@@ -17918,7 +17918,7 @@ fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
 
     let (rejoin, overlay) = launch(Some(session), Some(session));
     assert_eq!(
-        dsh_served(bin, &rejoin, &[], prompt, workdir, &input),
+        dsh_served(bin, &rejoin, &[], prompt, workdir, input),
         Ok([
             bin,
             "--profile",
@@ -17936,12 +17936,12 @@ fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
     );
     let (opened, _) = launch(Some(session), None);
     assert_eq!(
-        dsh_served(bin, &opened, &[], prompt, workdir, &input),
+        dsh_served(bin, &opened, &[], prompt, workdir, input),
         departs(7)
     );
     let (named, _) = launch(None, Some(session));
     assert_eq!(
-        dsh_served(bin, &named, &[], prompt, workdir, &input),
+        dsh_served(bin, &named, &[], prompt, workdir, input),
         departs(7)
     );
 }

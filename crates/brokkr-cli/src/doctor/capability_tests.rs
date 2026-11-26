@@ -155,6 +155,24 @@ fn lines(dir: &Path, availability: &Availability) -> (bool, Vec<String>) {
     (report.healthy, report.lines)
 }
 
+fn assert_private_no_grants(
+    dir: &Path,
+    availability: &Availability,
+    plans: impl IntoIterator<Item = String>,
+) {
+    let (healthy, actual) = lines(dir, availability);
+    assert!(healthy);
+    let expected: Vec<_> = [
+        "ok       capabilities private: grants nothing; every native capability is \
+             governed by the no-grant default — switched off, or the seat is refused"
+            .to_string(),
+    ]
+    .into_iter()
+    .chain(plans)
+    .collect();
+    assert_eq!(actual, expected);
+}
+
 const EVIDENCE: &str =
     "evidence: cold exec on 0.154.0 only · still unmeasured: a RESUMED session is unmeasured";
 
@@ -1586,20 +1604,16 @@ fn a_plan_whose_final_command_carries_no_off_is_refused_as_launch_refuses_it() {
     let unmeasured = codex(json!({"default": "measured off by default"}));
     let dir = workspace_with(Some(json!([realm("private", None)])));
     write(dir.path(), "adapters/codex.json", &unmeasured);
-    let (healthy, lines) = lines(dir.path(), &installed(&["codex"]));
-    assert!(healthy);
-    assert_eq!(
-        lines,
+    assert_private_no_grants(
+        dir.path(),
+        &installed(&["codex"]),
         [
-            "ok       capabilities private: grants nothing; every native capability is \
-             governed by the no-grant default — switched off, or the seat is refused"
-                .to_string(),
             refused("private", "codex", &final_check),
             format!(
                 "warn     capabilities private native codex 'web-search': NOT granted here: \
                  {NO_OFF} · {EVIDENCE}"
             ),
-        ]
+        ],
     );
     let dir = workspace_with(Some(restricted.clone()));
     write(dir.path(), "adapters/codex.json", &unmeasured);
@@ -1678,14 +1692,10 @@ fn each_harness_is_answered_as_its_launch_serves_it() {
          (decision 0066 ruling 1)",
         hypothetical("private", "adapter-plan")
     );
-    let (healthy, lines) = lines(dir.path(), &availability);
-    assert!(healthy);
-    assert_eq!(
-        lines,
+    assert_private_no_grants(
+        dir.path(),
+        &availability,
         [
-            "ok       capabilities private: grants nothing; every native capability is \
-             governed by the no-grant default — switched off, or the seat is refused"
-                .to_string(),
             refused("private", "dsh", &missing_fetch),
             search("dsh", NO_OFF),
             admitted("private", "exec"),
@@ -1710,7 +1720,7 @@ fn each_harness_is_answered_as_its_launch_serves_it() {
                 &unchecked("nosuch", "no built-in driver of that name is launched"),
             ),
             search("nosuch", NO_OFF),
-        ]
+        ],
     );
 }
 
@@ -1816,14 +1826,10 @@ fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
             limitations.join("; ")
         )
     };
-    let (healthy, lines) = lines(dir.path(), &availability);
-    assert!(healthy);
-    assert_eq!(
-        lines,
+    assert_private_no_grants(
+        dir.path(),
+        &availability,
         [
-            "ok       capabilities private: grants nothing; every native capability is \
-             governed by the no-grant default — switched off, or the seat is refused"
-                .to_string(),
             refused(
                 "private",
                 "dsh-effort",
@@ -1841,7 +1847,7 @@ fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
                 "warn     capabilities private native lanetally 'web-fetch': NOT granted here: \
                  {OFF} · {EVIDENCE}"
             ),
-        ]
+        ],
     );
 }
 

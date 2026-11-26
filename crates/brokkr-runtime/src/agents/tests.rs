@@ -1320,6 +1320,20 @@ fn an_effort_for_a_candidate_outside_the_chain_is_refused_by_name() {
     assert!(message.contains("opus, sonnet"), "{message}");
 }
 
+fn dsh_adapter_body(models: Value) -> Value {
+    crate::dsh_adapter::with_measured_web(json!({
+        "provider": "dsh",
+        "binary": "dsh",
+        "driver": ["{brokkr}", "driver", "dsh", "--"],
+        "models": models,
+        "model_flag": "--model",
+        "efforts": ["low", "medium", "high"],
+        "effort_flag": "--effort",
+        "tool_permissions": "unsupported",
+        "mcp": "unsupported",
+    }))
+}
+
 /// The operator's own example, run: a tool-restricted agent whose chain
 /// reaches providers that cannot express restrictions does not compile,
 /// and the message tells the reader exactly which link is the problem.
@@ -1335,17 +1349,7 @@ fn the_operators_literal_chain_fails_for_a_tool_restricted_agent() {
     tree.write("adapters/claude.json", &claude);
     tree.write(
         "adapters/dsh.json",
-        &crate::dsh_adapter::with_measured_web(json!({
-            "provider": "dsh",
-            "binary": "dsh",
-            "driver": ["{brokkr}", "driver", "dsh", "--"],
-            "models": {"qwen-max": "qwen-max"},
-            "model_flag": "--model",
-            "efforts": ["low", "medium", "high"],
-            "effort_flag": "--effort",
-            "tool_permissions": "unsupported",
-            "mcp": "unsupported",
-        })),
+        &dsh_adapter_body(json!({"qwen-max": "qwen-max"})),
     );
     let message = refusal(&tree, "chief-architect");
     assert!(message.contains("agent 'chief-architect'"), "{message}");
@@ -2011,6 +2015,15 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
     }
 }
 
+fn write_spark_adapter(tree: &Tree, effortless: bool) {
+    let mut adapter = dsh_adapter_body(json!({"spark-flash": "spark/qwen3.8-flash"}));
+    if effortless {
+        adapter["effortless_routes"] =
+            json!({"spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level"});
+    }
+    tree.write("adapters/dsh.json", &adapter);
+}
+
 /// Decision 0035 addendum 2026-09-11: absent is no effortless route,
 /// and only a prefixed lane on a listed route claims the standing — a
 /// bare id keeps the adapter default's, and an unlisted prefix is an
@@ -2018,40 +2031,13 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
 #[test]
 fn effortless_routes_default_to_empty_and_match_prefixed_lanes_only() {
     let bare = Tree::new();
-    bare.write(
-        "adapters/dsh.json",
-        &crate::dsh_adapter::with_measured_web(json!({
-            "provider": "dsh",
-            "binary": "dsh",
-            "driver": ["{brokkr}", "driver", "dsh", "--"],
-            "models": {"spark-flash": "spark/qwen3.8-flash"},
-            "model_flag": "--model",
-            "efforts": ["low", "medium", "high", "xhigh"],
-            "effort_flag": "--effort",
-            "tool_permissions": "unsupported",
-            "mcp": "unsupported",
-        })),
-    );
+    write_spark_adapter(&bare, false);
     let adapter = bare.adapters().adapter("dsh").unwrap().clone();
     assert!(adapter.effortless_routes.is_empty());
     assert!(!route_is_effortless(&adapter, "spark/qwen3.8-flash"));
 
     let listed = Tree::new();
-    listed.write(
-        "adapters/dsh.json",
-        &crate::dsh_adapter::with_measured_web(json!({
-            "provider": "dsh",
-            "binary": "dsh",
-            "driver": ["{brokkr}", "driver", "dsh", "--"],
-            "models": {"spark-flash": "spark/qwen3.8-flash"},
-            "model_flag": "--model",
-            "efforts": ["low", "medium", "high", "xhigh"],
-            "effort_flag": "--effort",
-            "effortless_routes": {"spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level"},
-            "tool_permissions": "unsupported",
-            "mcp": "unsupported",
-        })),
-    );
+    write_spark_adapter(&listed, true);
     let adapter = listed.adapters().adapter("dsh").unwrap().clone();
     assert_eq!(adapter.effortless_routes.len(), 1);
     assert!(route_is_effortless(&adapter, "spark/qwen3.8-flash"));
@@ -2074,21 +2060,7 @@ fn a_candidate_on_an_effortless_route_needs_no_effort_entry() {
     // effort axis only.
     body.as_object_mut().unwrap().remove("tools");
     tree.write("agents/tester.json", &body);
-    tree.write(
-        "adapters/dsh.json",
-        &crate::dsh_adapter::with_measured_web(json!({
-            "provider": "dsh",
-            "binary": "dsh",
-            "driver": ["{brokkr}", "driver", "dsh", "--"],
-            "models": {"spark-flash": "spark/qwen3.8-flash"},
-            "model_flag": "--model",
-            "efforts": ["low", "medium", "high", "xhigh"],
-            "effort_flag": "--effort",
-            "effortless_routes": {"spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level"},
-            "tool_permissions": "unsupported",
-            "mcp": "unsupported",
-        })),
-    );
+    write_spark_adapter(&tree, true);
     let resolution = resolved(&tree, &Availability::unspecified());
     assert_eq!(resolution.candidates.len(), 1);
     let candidate = &resolution.candidates[0];
