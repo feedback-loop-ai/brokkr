@@ -138,7 +138,7 @@ impl Store {
 
     fn seat_trees_once(&self, run_id: &str) -> Result<Vec<SeatTree>, StoreError> {
         match queue_stored(&self.conn)? {
-            Some(Stored::V5 | Stored::V6) => read_trees(&self.conn, run_id),
+            Some(Stored::V5 | Stored::V6 | Stored::V7) => read_trees(&self.conn, run_id),
             Some(Stored::V1 | Stored::V2 | Stored::V3 | Stored::V4) | None => Ok(Vec::new()),
         }
     }

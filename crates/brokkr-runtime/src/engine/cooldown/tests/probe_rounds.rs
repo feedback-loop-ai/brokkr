@@ -87,8 +87,23 @@ fn only_the_own_row_and_the_maximum(engine: &Engine, expected: &str) {
     assert!(reason.contains("declared 100s maximum"), "{reason}");
 }
 
+/// The maximum judged over a wait to `end` with nothing waited before it,
+/// at the engine's own instant.
+fn judged(
+    engine: &Engine,
+    events: &[brokkr_core::EventEnvelope],
+    waits: &[brokkr_core::ProviderWait],
+    end: OffsetDateTime,
+    counted: OffsetDateTime,
+) -> Result<super::super::wait::WaitBudget, super::super::CooldownError> {
+    let now = engine.now();
+    let span = super::super::wait::Span { end, counted, now };
+    let charge = super::super::wait::Charge::default();
+    engine.extension_park_reason(events, "effect", waits, span, charge)
+}
+
 /// A second run in the same journal, ready for its own refusal row.
-fn second_run(dir: &Path) -> String {
+pub(super) fn second_run(dir: &Path) -> String {
     let store = brokkr_store::Store::open(&dir.join("forge.db")).unwrap();
     let engine = Engine::start(
         store,
@@ -102,7 +117,7 @@ fn second_run(dir: &Path) -> String {
 
 /// Append a second run's own terminal refusal for `provider`/`route`,
 /// ending at `until`: another run's aggregate row on the route run-A cools.
-fn append_second_row_on(
+pub(super) fn append_second_row_on(
     db: &Path,
     run_id: &str,
     provider: &str,
@@ -135,6 +150,7 @@ fn append_second_row_on(
                 reason: "run-b refused".into(),
                 retry_after_seconds: None,
                 rounds: 1,
+                held: None,
             }],
         )
         .unwrap();
@@ -212,7 +228,7 @@ fn engine_with_wait(
 
 /// Append one probe row at the single seat's terminal: the tests that plant
 /// a written round share one row shape.
-fn append_round(
+pub(super) fn append_round(
     engine: &mut Engine,
     event_seq: u64,
     until_at: OffsetDateTime,
@@ -233,6 +249,7 @@ fn append_round(
             retry_after_seconds: None,
             rounds,
             seconds,
+            ends: None,
         })
         .unwrap();
 }
@@ -446,10 +463,11 @@ fn a_stop_during_the_extended_wait_ends_the_run_without_a_probe_or_retry() {
     assert_eq!(rounds(&engine, event.seq, ""), [1, 2]);
 }
 
-/// A version 1, 2 or 3 journal has no table for a probe's next round: the
-/// refusal parks as 4c does and writes no row.
+/// A version 1, 2 or 3 journal has no table for a probe's hold or its next
+/// round: the probe is refused before dispatch, unheld, and parks naming
+/// the store's words (fix round 0106b1r9, E3), and no row is written.
 #[test]
-fn a_version_three_journal_parks_a_probe_refusal_as_4c_and_writes_no_row() {
+fn a_version_three_journal_parks_its_probe_unheld_and_writes_no_row() {
     own_engine!();
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Refuse, None, 2);
     let db = dir.path().join("forge.db");
@@ -457,12 +475,11 @@ fn a_version_three_journal_parks_a_probe_refusal_as_4c_and_writes_no_row() {
         .unwrap()
         .execute("UPDATE meta SET value = '3' WHERE key = 'queue_schema'", [])
         .unwrap();
-    let (reason, _) = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
+    let (reason, _) = drove_one(dir.path(), &mut engine, &["attempt:refuse"]);
     assert!(
-        reason.contains("was refused again by the provider"),
+        reason.contains("the journal's queue storage is not one this binary writes"),
         "{reason}"
     );
-    assert!(reason.contains("rate_limit: slow down"), "{reason}");
     let count: i64 = rusqlite::Connection::open(&db)
         .unwrap()
         .query_row("SELECT COUNT(*) FROM provider_cooldowns", [], |row| {
@@ -558,11 +575,16 @@ fn a_probes_cleanup_refusal_parks_first_and_writes_no_row() {
         }
         super::super::Probe::Extended(round) => Some(round),
         super::super::Probe::Answered(_) => panic!("a cleanup refusal answered"),
+        super::super::Probe::Held => panic!("a probe that ran was held from its route"),
     };
     // Only the broken cleanup-first check reaches here; the write is the
     // row-writing path the row assertion is the removal control for.
     if let Some(round) = extended {
-        let _ = engine.record_extension(&[wait()], &[Some(1000)], &round, 0);
+        let site = super::super::held::SiteMax {
+            max: 1000,
+            ordinary: true,
+        };
+        let _ = engine.record_extension(&[wait()], &[Some(site)], &round, 0);
     }
     let event = failed(&engine).remove(0);
     assert_eq!(
@@ -819,14 +841,13 @@ fn a_non_empty_sites_refusal_extends_and_reprobes_the_answered_member() {
     let dir = tempfile::tempdir().unwrap();
     let body = retried_two_route_panel(dir.path(), Probed::Answer, Probed::RefuseThenAnswer);
     let mut engine = started(dir.path(), body, work(2));
-    // Each first wait ends far past any load (#1110): the test's clock
-    // stands at the run's start while the attempt runs, and the store
-    // writes no row whose end the terminal's wall-clock stamp has passed.
-    // b's 90s ends after a's 60s, and its doubled second round ends at
-    // 90 + 180 = 270s, inside the 600s maximum.
+    // Each first wait ends far past any load (#1110): the store writes no
+    // row whose end the terminal's wall-clock stamp has passed. b's 90s
+    // ends after a's 60s, and its doubled second round ends at 90 + 180 =
+    // 270s, inside the 600s maximum.
     engine.cooldown.host = Some(route_host(dir.path(), (60, 600), (90, 600)));
-    let (mut engine, now) = with_clock(engine);
-    let start = *now.lock().unwrap();
+    let start = live_row_clock_start();
+    let (mut engine, _) = with_clock_at(engine, start);
     engine.drive().unwrap();
     let seen = witness(&engine, dir.path());
     let event = failed(&engine).remove(0);
@@ -869,6 +890,116 @@ fn waited_round_fixture() -> (tempfile::TempDir, Engine, Vec<brokkr_core::EventE
     (dir, engine, events)
 }
 
+/// Plan the next round from a probe's provider-stated reset.
+fn stated_probe_round(
+    engine: &mut Engine,
+    wait: &brokkr_core::ProviderWait,
+    seconds: u64,
+) -> super::super::probe::NextRound {
+    let refusal = serde_json::from_value(json!({
+        "class": "rate_limit",
+        "provider": wait.provider,
+        "route": wait.route,
+        "words": wait.words,
+        "retry_after_seconds": seconds,
+    }))
+    .unwrap();
+    let report = report(Some(Box::new(refusal)), Cleanup::Settled, Vec::new());
+    let super::super::Probe::Extended(round) = engine.probe_end("effect", wait, report) else {
+        panic!("the probe's refusal must plan a round");
+    };
+    round
+}
+
+#[test]
+fn an_earlier_held_round_keeps_the_later_held_end() {
+    let (_dir, mut engine, events) = waited_round_fixture();
+    engine.cooldown.clock = Clock::advancing(base()).0;
+    let wait = wait();
+    let maxima = [Some(super::super::held::SiteMax {
+        max: 2,
+        ordinary: true,
+    })];
+    for seconds in [5, 3] {
+        let round = stated_probe_round(&mut engine, &wait, seconds);
+        engine
+            .record_extension(std::slice::from_ref(&wait), &maxima, &round, 0)
+            .unwrap();
+    }
+    let episode =
+        super::super::episode_by_site(&engine.store, &engine.run_id, &events, "effect").unwrap();
+    assert_eq!(
+        episode.held,
+        Some(super::super::HeldEnd {
+            until: base() + Duration::seconds(5),
+            provider: wait.provider,
+            route: wait.route,
+            held: brokkr_core::Held { max_seconds: 2 },
+        })
+    );
+}
+
+#[test]
+fn a_round_without_its_own_wait_is_refused() {
+    let (_dir, mut engine, _) = waited_round_fixture();
+    let wait = wait();
+    let round = stated_probe_round(&mut engine, &wait, 5);
+    let other_wait = brokkr_core::ProviderWait {
+        site: Some("other".into()),
+        ..wait
+    };
+    let maxima = [Some(super::super::held::SiteMax {
+        max: 2,
+        ordinary: true,
+    })];
+    let result = engine.judge_round(&[other_wait], &maxima, &round, 0);
+    let Err(super::super::CooldownError::RoundUnbounded {
+        provider,
+        route,
+        words,
+    }) = result
+    else {
+        panic!("a round without its own wait must be unbounded: {result:?}");
+    };
+    assert_eq!(
+        (provider, route, words),
+        (round.provider, round.route, round.words)
+    );
+}
+
+#[test]
+fn a_held_round_on_a_version_three_journal_refuses_by_name() {
+    let (dir, mut engine, _) = waited_round_fixture();
+    let wait = wait();
+    let round = stated_probe_round(&mut engine, &wait, 5);
+    alter_journal(
+        &dir.path().join("forge.db"),
+        "DROP TABLE provider_cooldowns;
+         DROP TABLE probe_holds;
+         UPDATE meta SET value = '3' WHERE key = 'queue_schema';",
+    );
+    let maxima = [Some(super::super::held::SiteMax {
+        max: 2,
+        ordinary: true,
+    })];
+    let error = engine
+        .record_extension(&[wait], &maxima, &round, 0)
+        .err()
+        .expect("a version 3 queue cannot write a held round");
+    let super::super::CooldownError::RoundNoTable {
+        provider,
+        route,
+        words,
+    } = error
+    else {
+        panic!("an unwritten held round must name the absent table: {error:?}");
+    };
+    assert_eq!(
+        (provider, route, words),
+        (round.provider, round.route, round.words)
+    );
+}
+
 /// The later rounds' two unreadable inputs park by name: a store that loses
 /// the table between rounds, and bounds that stop reading; the probe rows'
 /// own recorded instants make the episode unreadable too.
@@ -882,17 +1013,10 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
         "DROP TABLE provider_cooldowns",
     );
     let waits = [wait()];
-    let mut unrecorded = 0;
+    let mut charge = super::super::wait::Charge::default();
     let mut maxima = Vec::new();
     match engine
-        .wait_round(
-            &events,
-            "effect",
-            &waits,
-            &mut unrecorded,
-            base(),
-            &mut maxima,
-        )
+        .wait_round(&events, "effect", &waits, &mut charge, base(), &mut maxima)
         .unwrap()
     {
         super::super::wait::WaitRound::Parked(park) => {
@@ -909,8 +1033,7 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
     // Bounds that stop reading between rounds.
     let (dir, mut engine, events) = waited_round_fixture();
     invalid_host(dir.path(), &mut engine);
-    let error = engine
-        .extension_park_reason(&events, "effect", &waits, waits[0].until, base(), 0)
+    let error = judged(&engine, &events, &waits, waits[0].until, base())
         .expect_err("unreadable bounds park");
     assert!(
         matches!(
@@ -930,8 +1053,7 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
         "DROP TRIGGER provider_cooldowns_append_only_update;
          UPDATE provider_cooldowns SET recorded_at = -9223372036854775808;",
     );
-    let error = engine
-        .extension_park_reason(&events, "effect", &waits, waits[0].until, base(), 0)
+    let error = judged(&engine, &events, &waits, waits[0].until, base())
         .expect_err("an unreadable round parks");
     assert!(
         matches!(
@@ -976,6 +1098,22 @@ fn a_stop_journaled_before_the_first_slice_is_honoured() {
         ["attempt:refuse"],
         "a probe ran after the stop"
     );
+}
+
+#[test]
+fn a_run_that_left_the_effect_sleeps_no_slice() {
+    let (dir, mut engine, _) = waited_round_fixture();
+    let now = Arc::new(Mutex::new(base()));
+    let (clock, slept) = super::held_charge::sleeping(&now, Duration::seconds(1), |_, _| {});
+    engine.cooldown.clock = clock;
+    append_stop(&dir.path().join("forge.db"), &engine.run_id);
+
+    let stopped = engine
+        .wait_in_slices(base() + Duration::seconds(2))
+        .unwrap();
+    let slices = *slept.lock().unwrap();
+    drive_to_stop(&mut engine);
+    assert_eq!((stopped, slices), (true, 0));
 }
 
 /// A resume over a round already written counts that round's remainder
@@ -1403,16 +1541,14 @@ fn a_maximum_park_carries_the_rounds_typed_facts() {
         .pop()
         .expect("the terminal's own row")
         .until_at;
-    let error = engine
-        .extension_park_reason(
-            &events,
-            "effect",
-            &waits,
-            row_until + Duration::seconds(60),
-            until,
-            0,
-        )
-        .expect_err("a round past the maximum parks");
+    let error = judged(
+        &engine,
+        &events,
+        &waits,
+        row_until + Duration::seconds(60),
+        until,
+    )
+    .expect_err("a round past the maximum parks");
     match error {
         super::super::CooldownError::Maximum(facts) => {
             let super::super::MaximumFacts {

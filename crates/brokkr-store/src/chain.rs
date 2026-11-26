@@ -257,6 +257,19 @@ impl Store {
 #[cfg(test)]
 mod tests;
 
+/// What [`Store::append_with_cooldowns`] wrote: the event, and the store's
+/// own evidence of the rows that landed with it, so a caller derives
+/// nothing from the rows it asked for (decision 0106 slice 0106b1, fix
+/// round 0106b1r10, H4): a held row whose end passed before the event's
+/// stamp, or an ordinary one on a queue this binary does not write, is not
+/// written, and is not counted.
+#[derive(Debug, Clone)]
+pub struct Landed {
+    pub envelope: EventEnvelope,
+    /// The held rows the transaction wrote.
+    pub held_rows: usize,
+}
+
 /// [`Store::append_next`]'s one transaction, as a body [`patiently`] may
 /// run again.
 ///
@@ -273,12 +286,16 @@ mod tests;
 /// keeps a fence a fence. The writer's carried account is judged against
 /// the head found, in the same transaction ([`summary::judge`]). The
 /// cool-down rows are written after the event, in the same transaction: a
-/// row the table refuses rolls the event back with it.
+/// row the table refuses rolls the event back with it. `admit` judges the
+/// journal inside the same transaction, after the head's fence and before
+/// anything is written, and its refusal writes nothing (fix round
+/// 0106b1r14, R1).
 pub(crate) fn append_once(
     (conn, carried): (&mut Connection, Option<&summary::Carried>),
     event: &CooldownAppend<'_>,
     cooldowns: &[Cooling],
-) -> Result<(EventEnvelope, summary::Settled), StoreError> {
+    admit: &dyn Fn(&Connection) -> Result<(), StoreError>,
+) -> Result<(crate::Landed, summary::Settled), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let (last_seq, previous_hash) = head_of(&tx, event.run_id)?;
     if let Some((expected_seq, expected_hash)) = event.fenced {
@@ -291,6 +308,7 @@ pub(crate) fn append_once(
             });
         }
     }
+    admit(&tx)?;
     // Dropping the transaction rolls it back: a refused record writes
     // nothing, like a fence that fails.
     let seq = last_seq + 1;
@@ -304,15 +322,13 @@ pub(crate) fn append_once(
         event.causation_id.clone(),
         event.attempt_id.clone(),
     )?;
-    insert_cooldowns(
-        &tx,
-        event.run_id,
-        envelope.seq,
-        &envelope.recorded_at,
-        cooldowns,
-    )?;
+    let held_rows = insert_cooldowns(&tx, &envelope, cooldowns)?;
     let found = (last_seq, previous_hash.as_str());
     let settled = summary::judge(&tx, carried, found, std::slice::from_ref(&envelope))?;
     tx.commit()?;
-    Ok((envelope, settled))
+    let landed = crate::Landed {
+        envelope,
+        held_rows,
+    };
+    Ok((landed, settled))
 }

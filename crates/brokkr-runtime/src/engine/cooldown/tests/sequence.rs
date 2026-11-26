@@ -688,7 +688,11 @@ fn a_dialect_steps_input_carries_no_spec_dialect() {
 fn the_failed_steps_park_lands_in_the_attempts_own_turn() {
     own_engine!();
     let dir = tempfile::tempdir().unwrap();
-    let mut engine = past_maximum_engine(dir.path());
+    let body = past_maximum_body(dir.path());
+    let mut engine = sequence_engine(dir.path(), body, 2);
+    // A host that does not read parks the step at its terminal; the stated
+    // reset past the maximum alone is held (decision 0106 ruling 2).
+    invalid_host(dir.path(), &mut engine);
     request_effect(&mut engine);
     engine.drive_once().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
@@ -702,7 +706,7 @@ fn the_failed_steps_park_lands_in_the_attempts_own_turn() {
         "the failed arm did not park in its own turn: {events:?}"
     );
     let reason = park_reason(&engine);
-    assert!(reason.contains("past the declared 10s maximum"), "{reason}");
+    assert!(reason.contains("host configuration"), "{reason}");
 }
 
 /// The failed step's tail is told only once its park is journaled too
@@ -713,6 +717,9 @@ fn the_failed_steps_tail_is_told_after_its_park() {
     let dir = tempfile::tempdir().unwrap();
     let body = past_maximum_saying(dir.path(), "drafting\n");
     let mut engine = sequence_engine(dir.path(), body, 2);
+    // A host that does not read parks the step at its terminal; the stated
+    // reset past the maximum alone is held (decision 0106 ruling 2).
+    invalid_host(dir.path(), &mut engine);
     let watch = crate::engine::tests::driver_stderr::Watch::on(dir.path(), &mut engine);
     request_effect(&mut engine);
     engine.drive_once().unwrap();
@@ -918,34 +925,28 @@ fn an_inline_single_steps_probe_uses_its_own_command() {
     single_step_facts(dir.path(), &engine);
 }
 
-/// A wait whose retry-after is past the host maximum parks the sequence at
-/// its failing step: the failed event carries the refused record, no probe
-/// runs and no retry follows.
+/// A step's stated reset past the host maximum is held, not parked
+/// (decision 0106 ruling 2): the failed event carries the held wait and no
+/// refused record, no probe runs, no retry follows, and the run stays
+/// running.
 #[test]
-fn a_wait_past_the_maximum_parks_the_sequence_without_a_probe() {
+fn a_steps_stated_reset_past_the_maximum_is_held_without_a_probe() {
     own_engine!();
     let dir = tempfile::tempdir().unwrap();
     let mut engine = past_maximum_engine(dir.path());
     engine.drive().unwrap();
     let failed = failed_here(&engine);
     assert_eq!(failed.len(), 1, "{failed:?}");
-    assert_eq!(failed[0].payload["refused"]["site"], "draft");
-    assert_eq!(failed[0].payload["refused"]["cause"], "past-maximum");
-    // 4c2a's panel writer keeps the computable wait beside the record.
-    assert_eq!(waits(&failed[0])[0]["site"], "draft");
+    assert_eq!(failed[0].payload.get("refused"), None);
+    let wait = &waits(&failed[0])[0];
+    assert_eq!(
+        (&wait["site"], &wait["held"], &wait["max_seconds"]),
+        (&json!("draft"), &json!(true), &json!(10))
+    );
     assert_eq!(logs(dir.path(), "draft"), ["attempt:refuse"]);
-    assert_eq!(starts(&engine).len(), 1, "a parked step retried");
-    let reason = park_reason(&engine);
-    assert!(reason.contains("past the declared 10s maximum"), "{reason}");
-    assert!(reason.contains("rate_limit: slow down"), "{reason}");
-    // The sequence's park states the same typed cause a panel's does.
-    let brokkr_core::ProviderLimitRefusal::PastMaximum {
-        route, max_seconds, ..
-    } = refusal_of(park_cause_of(&engine))
-    else {
-        panic!("a step's wait past the maximum parks as past-maximum");
-    };
-    assert_eq!((route.as_str(), max_seconds), ("first", 10));
+    assert_eq!(starts(&engine).len(), 1, "a held step retried");
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert_eq!(fold(&events).unwrap().run.status(), Status::Running);
 }
 
 /// A rate-limit refusal whose cool-down is not declared writes no wait and
@@ -1065,6 +1066,7 @@ fn a_member_wait_resolves_the_declared_step_and_member_pair() {
         seconds: 1,
         until: base(),
         rounds: 1,
+        held: None,
     };
     let probe = engine
         .probe_member(&events, &state, "effect", "work", &wait, "a:b:c")
@@ -1076,6 +1078,9 @@ fn a_member_wait_resolves_the_declared_step_and_member_pair() {
         }
         crate::engine::cooldown::probe::Probe::Extended(_) => {
             panic!("a:b:c extended a wait instead of answering")
+        }
+        crate::engine::cooldown::probe::Probe::Held => {
+            panic!("a:b:c was held from its route instead of answering")
         }
     }
     assert_eq!(logs(dir.path(), "c"), ["probe"]);
@@ -1146,6 +1151,7 @@ fn a_sequence_wait_at_a_form_it_does_not_name_parks_by_name() {
         seconds: 1,
         until: base(),
         rounds: 1,
+        held: None,
     };
     for (site, expected) in [
         ("unknown", "declares no step"),
@@ -1166,6 +1172,9 @@ fn a_sequence_wait_at_a_form_it_does_not_name_parks_by_name() {
             }
             crate::engine::cooldown::probe::Probe::Extended(_) => {
                 panic!("{site} extended a wait")
+            }
+            crate::engine::cooldown::probe::Probe::Held => {
+                panic!("{site} was held from its route")
             }
         }
     }

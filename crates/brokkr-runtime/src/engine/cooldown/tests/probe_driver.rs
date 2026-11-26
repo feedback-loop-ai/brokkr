@@ -51,6 +51,14 @@ pub(super) fn probe_action(
             "{accepted}\n  : > '@STARTED@'\n  i=0\n  while [ ! -e '@RELEASE@' ] && \
              [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n  {checkpoint}\n  {succeeded}"
         ),
+        Probed::AnswerThenLinger => {
+            format!("{accepted}\n  {checkpoint}\n  {succeeded}\n  : > '@ANSWERED@'\n  sleep 30")
+        }
+        Probed::DescendantThenLinger => format!(
+            "setsid sleep 30 < /dev/null > /dev/null 2>&1 &\n  printf '%s' \"$!\" > \
+             '@DESCPID@'\n  {accepted}\n  {checkpoint}\n  {succeeded}\n  : > '@ANSWERED@'\n  \
+             sleep 30"
+        ),
         Probed::BarrierRefuse => format!(
             "{accepted}\n  : > '@STARTED@'\n  i=0\n  while [ ! -e '@RELEASE@' ] && \
              [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n  {refused}"

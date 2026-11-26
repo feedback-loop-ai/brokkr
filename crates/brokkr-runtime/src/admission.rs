@@ -10,12 +10,9 @@
 //! operator's own hold; a wait that can never be met, because the awaited
 //! entry was dropped or its run stopped where `completed` was asked; a
 //! realm whose governing facts changed since the entry was queued; and a
-//! map that cannot be read to tell. The facts it was queued with are its
-//! pin's, the realm the pin selected included, never re-resolved through
-//! the disk. Admission never resolves a hold. It
-//! never starts an entry on a grant the map no longer gives, and never
-//! takes one the map gives now that the entry was not queued with: the
-//! operator re-pins the entry to the map on disk, or re-queues or drops it.
+//! map that cannot be read to tell. The pin holds the entry's original facts, including
+//! its selected realm. A start uses only grants both the pin and current map give.
+//! The operator resolves a hold by re-pinning the entry to disk, re-queuing or dropping it.
 //!
 //! A realm that changed is a fact about the past, so its hold LATCHES (the
 //! operator's ruling of 2026-10-04): [`judge`] records what it found in the
@@ -68,6 +65,9 @@ mod governing;
 mod host;
 
 use awaited::{awaiting, came_to, observe, otherwise, unmerged, unstarted};
+// A cool-down end's one spelling, the reason's and a held wait's refusal's
+// (decision 0106 ruling 2).
+pub(crate) use cooling::spelled;
 pub use demand::{
     measurable, Available, Machine, Need, Reserved, Sized, Source, Unfit, Unmeasured,
 };

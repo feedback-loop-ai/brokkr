@@ -3,7 +3,9 @@
 //! answers dedicated probes gave, and the typed refusal that parks. `fold`
 //! reads none of it; the engine, and later the readout, read it from the
 //! effect's own events (decision 0103 rulings 2 to 4). A present entry that
-//! cannot be read refuses by name, never as absent.
+//! cannot be read refuses by name, never as absent. The reader is
+//! `provider-wait/v2`'s (decision 0106 ruling 2): a `waits` entry may carry
+//! `held: true` and `max_seconds`, and a v1 entry reads as not held.
 
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
@@ -39,6 +41,20 @@ pub struct ProviderWait {
     /// is the length computed under this entry's own route's bounds
     /// (decision 0103 ruling 3).
     pub rounds: u64,
+    /// `Some` for a held wait (decision 0106 ruling 2, `provider-wait/v2`):
+    /// the provider stated a reset that alone lies past the declared
+    /// maximum, so the run stays `running` and no park is written. `None`
+    /// is an ordinary wait, and every v1 entry reads as one.
+    pub held: Option<Held>,
+}
+
+/// What a held wait carries beyond an ordinary one (decision 0106 ruling 2):
+/// the declared maximum its provider-stated end exceeded. The maximum bounds
+/// the engine's own computation, never the provider's word, so a held
+/// wait's `seconds` lies past it and is not counted in the episode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Held {
+    pub max_seconds: u64,
 }
 
 impl ProviderWait {
@@ -155,8 +171,9 @@ pub enum ProviderWaitError {
     Until,
 }
 
-/// The keys one `waits` entry may carry.
-const WAIT_FIELDS: [&str; 8] = [
+/// The keys one `waits` entry may carry: v1's eight, and `provider-wait/v2`'s
+/// `held` and `max_seconds` (decision 0106 ruling 2).
+const WAIT_FIELDS: [&str; 10] = [
     "site",
     "provider",
     "route",
@@ -165,6 +182,8 @@ const WAIT_FIELDS: [&str; 8] = [
     "seconds",
     "until",
     "rounds",
+    "held",
+    "max_seconds",
 ];
 
 /// The schema's bound on a wait's `words`.
@@ -302,6 +321,13 @@ pub fn provider_waits(
             }
         }
     }
+    // `refused` is the refusal that ends in a park, and a held wait is the
+    // case that does not park: an event carrying both is a record no writer
+    // makes, refused by name rather than read as either (decision 0106
+    // ruling 2).
+    if waits.iter().any(|wait| wait.held.is_some()) && event.payload.get("refused").is_some() {
+        return Err(unreadable_wait(event, "refused"));
+    }
     Ok(Some(waits))
 }
 
@@ -329,7 +355,38 @@ fn wait_entry(event: &EventEnvelope, value: &Value) -> Result<ProviderWait, Prov
         seconds,
         until: until(event, object)?,
         rounds: rounds(event, object)?,
+        held: held(event, object, retry_after_seconds, seconds)?,
     })
+}
+
+/// A v2 entry's held fact (decision 0106 ruling 2): absent is an ordinary
+/// wait, and so is every v1 entry; `held: true` requires the declared
+/// `max_seconds` the provider's own stated `retry_after_seconds` exceeded.
+/// A maximum without `held`, a `held` that is not `true`, a held entry with
+/// no maximum or no stated reset, and a held length within its maximum each
+/// refuse by name. Draft-07 cannot compare `seconds` with `max_seconds`, so
+/// that rule is the reader's, as the retry-after equality is.
+fn held(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+    retry_after_seconds: Option<u64>,
+    seconds: u64,
+) -> Result<Option<Held>, ProviderWaitError> {
+    match object.get("held") {
+        None if object.contains_key("max_seconds") => Err(unreadable_wait(event, "max_seconds")),
+        None => Ok(None),
+        Some(Value::Bool(true)) => {
+            let max_seconds = required_seconds(event, object, "max_seconds")?;
+            if retry_after_seconds.is_none() {
+                return Err(unreadable_wait(event, "retry_after_seconds"));
+            }
+            if seconds <= max_seconds {
+                return Err(unreadable_wait(event, "max_seconds"));
+            }
+            Ok(Some(Held { max_seconds }))
+        }
+        Some(_) => Err(unreadable_wait(event, "held")),
+    }
 }
 
 /// A required non-empty string, refused by the record's own error.

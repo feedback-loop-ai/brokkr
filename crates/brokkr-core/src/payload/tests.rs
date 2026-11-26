@@ -425,6 +425,63 @@ fn the_provider_wait_extension_refuses_by_name() {
     }
 }
 
+/// `provider-wait/v2` (decision 0106 ruling 2): a held entry reads its
+/// maximum, a v1 entry reads as not held, and every held shape no writer
+/// makes refuses by the field's own name, never as an ordinary wait.
+#[test]
+fn a_held_entry_reads_its_maximum_and_every_other_held_shape_refuses_by_name() {
+    let held = |extra: Value| {
+        let mut entry = json!({"provider": "codex", "route": "r", "words": "w",
+            "retry_after_seconds": 9000, "seconds": 9000,
+            "until": "2026-11-01T00:00:00Z", "rounds": 1});
+        for (key, value) in extra.as_object().unwrap() {
+            entry[key] = value.clone();
+        }
+        entry
+    };
+    let read = |payload: Value| provider_waits(&event(Type::EffectFailed, payload));
+    let entry = held(json!({"held": true, "max_seconds": 7200}));
+    let waits = read(json!({"waits": [entry.clone()]})).unwrap().unwrap();
+    assert_eq!(waits[0].held, Some(Held { max_seconds: 7200 }));
+    let ordinary = read(json!({"waits": [held(json!({}))]})).unwrap().unwrap();
+    assert_eq!(ordinary[0].held, None);
+    let mut unstated = entry.clone();
+    unstated
+        .as_object_mut()
+        .unwrap()
+        .remove("retry_after_seconds");
+    for (payload, field) in [
+        (
+            json!({"waits": [held(json!({"held": true}))]}),
+            "max_seconds",
+        ),
+        (
+            json!({"waits": [held(json!({"max_seconds": 7200}))]}),
+            "max_seconds",
+        ),
+        (
+            json!({"waits": [held(json!({"held": false, "max_seconds": 7200}))]}),
+            "held",
+        ),
+        (
+            json!({"waits": [held(json!({"held": 1, "max_seconds": 7200}))]}),
+            "held",
+        ),
+        (
+            json!({"waits": [held(json!({"held": true, "max_seconds": 0}))]}),
+            "max_seconds",
+        ),
+        (
+            json!({"waits": [held(json!({"held": true, "max_seconds": 9000}))]}),
+            "max_seconds",
+        ),
+        (json!({"waits": [unstated]}), "retry_after_seconds"),
+        (json!({"waits": [entry], "refused": {}}), "refused"),
+    ] {
+        refuses_by_name(payload, field);
+    }
+}
+
 /// The reader refuses the two schema `maxLength` bounds the old reader let
 /// through: a wait's words past 300 characters and a site past 200.
 #[test]
