@@ -1,4 +1,4 @@
-//! Locality and inertness for the local transcript reader (#222, proposed
+//! Locality and inertness for the local transcript reader (#222,
 //! decision 0055): prose stays out of every journal-derived surface, the
 //! retained evidence keeps its bytes, and no provider process is started.
 

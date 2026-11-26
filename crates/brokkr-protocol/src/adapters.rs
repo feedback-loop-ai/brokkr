@@ -1876,7 +1876,7 @@ const DSH_TRANSCRIPT_SHIPPED: &str = "session.jsonl";
 /// `compression: none` (`sessionFormatLogFilename(4)`). A cold launch on
 /// a host whose installed core is that one tails it, so the seat's first
 /// turn is journaled while it works rather than only with its finishing
-/// row (#678; proposed decision 0086 ruling 5). The strict warm admission
+/// row (#678; decision 0086 ruling 5). The strict warm admission
 /// keeps naming `DSH_TRANSCRIPT` alone: no pin moves.
 const DSH_TRANSCRIPT_V4: &str = "session.v4.jsonl";
 

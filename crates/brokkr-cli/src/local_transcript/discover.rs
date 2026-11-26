@@ -1,4 +1,4 @@
-//! Safe local discovery (proposed decision 0055, design D3): one validated
+//! Safe local discovery (decision 0055, design D3): one validated
 //! reference's unique source, located by handle-relative traversal under
 //! its recorded home and each kind's closed scope, before any body byte is
 //! interpreted.
@@ -22,7 +22,7 @@ pub(crate) struct AdmittedSource {
 
 /// How a source file is stored: as written, or in the checksummed zstd
 /// frames DSH's persistence backend writes by default, which only its
-/// `.jsonl.zstd` name admits (proposed decision 0086 ruling 3).
+/// `.jsonl.zstd` name admits (decision 0086 ruling 3).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Encoding {
     Plain,
@@ -318,7 +318,7 @@ enum HeaderCheck {
 /// is seen instead of being discarded as the overflow probe. A compressed
 /// candidate's budget is of decompressed bytes, decoded from at most
 /// twice the budget of compressed input, so a header check never reads a
-/// body (proposed decision 0086 ruling 3). `None` is a failed read or a
+/// body (decision 0086 ruling 3). `None` is a failed read or a
 /// refused frame.
 fn header_bytes(file: &safe_fs::OpenedFile, encoding: Encoding) -> Option<(Vec<u8>, bool)> {
     let budget = brokkr_view::transcript::DSH_HEADER_CAP as u64 + 1;
@@ -519,7 +519,7 @@ fn dsh_session(session: &safe_fs::Dir, session_path: &str, lookup: &mut Lookup) 
 /// files is stated rather than incidental: of the two version-four
 /// encodings, which DSH never writes into one root together, the plain
 /// one is asked first, being the one a Brokkr-launched seat writes
-/// (proposed decision 0086 ruling 2).
+/// (decision 0086 ruling 2).
 const DSH_SESSION_FILES: [(&str, Encoding); 4] = [
     ("session.v4.jsonl", Encoding::Plain),
     ("session.v4.jsonl.zstd", Encoding::Zstd),

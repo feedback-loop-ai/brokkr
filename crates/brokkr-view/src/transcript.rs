@@ -1,5 +1,5 @@
 //! The one local transcript derivation every surface consumes (#222,
-//! proposed decision 0055).
+//! decision 0055).
 //!
 //! This module is pure: it selects and validates a supplied recorded
 //! reference, admits a bounded supplied byte snapshot, classifies and
@@ -968,7 +968,7 @@ fn project_claude(admitted: &Admitted<'_>, projection: &mut Projection) {
     collector.finish(projection);
 }
 
-/// Claude's closed classification table (proposed 0055 ruling 3).
+/// Claude's closed classification table (0055 ruling 3).
 fn claude_row(value: &Value) -> RowOutcome<Block> {
     let Some(kind) = value.get("type").and_then(Value::as_str) else {
         return RowOutcome::nothing(true);

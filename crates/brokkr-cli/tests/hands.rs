@@ -1471,7 +1471,7 @@ impl EncodedClapFixture {
     }
 }
 
-/// #1277 V3 (proposed decision 0127 ruling 4): missing values on encoded
+/// #1277 V3 (decision 0127 ruling 4): missing values on encoded
 /// options (beside the other encoded option, beside their plain twin, or last
 /// with no value) exit with code 2 and omit all values and decoded markers.
 #[test]
@@ -1679,7 +1679,7 @@ fn assert_both_spellings_refused(fx: &HandsFixture, case: &BothSpellingsCase<'_>
     }
 }
 
-/// #1277 X1 (proposed decision 0127 rulings 2 and 4): passing both `--reach`
+/// #1277 X1 (decision 0127 rulings 2 and 4): passing both `--reach`
 /// and `--reach-base64url` with values exits with code 1 and
 /// `DocumentError::BothSpellings`, showing neither raw value nor any marker.
 #[test]
@@ -1702,7 +1702,7 @@ fn hands_serve_both_reach_spellings_with_values_exit_1_without_values() {
     );
 }
 
-/// #1277 X1 (proposed decision 0127 rulings 2 and 4): passing both `--spec`
+/// #1277 X1 (decision 0127 rulings 2 and 4): passing both `--spec`
 /// and `--spec-base64url` with values exits with code 1 and
 /// `DocumentError::BothSpellings`, showing neither raw value nor any marker.
 #[test]
@@ -1725,7 +1725,7 @@ fn hands_serve_both_spec_spellings_with_values_exit_1_without_values() {
     );
 }
 
-/// #1277 F4 (proposed decision 0127 ruling 2): when more than one thing is
+/// #1277 F4 (decision 0127 ruling 2): when more than one thing is
 /// wrong, `hands serve` reports the first refusal it reaches — a spec that is
 /// not a hands spec (`--spec '{}'`) is refused before the reach spellings are
 /// compared, showing neither reach value nor any marker.

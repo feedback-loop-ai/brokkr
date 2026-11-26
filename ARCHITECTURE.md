@@ -350,7 +350,7 @@ verified separately from local run completion.
 
 ### Run-level gate entry
 
-Proposed decision 0094 keeps entry out of the bundle manifest. One typed
+Decision 0094 keeps entry out of the bundle manifest. One typed
 admission module checks the compiled table and whole-gate assessments;
 the engine reads the journaled entry at its start cursor and rechecks it
 on resume. Core owns the direction predicate, reachability walk and entry

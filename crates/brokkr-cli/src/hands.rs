@@ -287,7 +287,7 @@ impl std::error::Error for DocumentError {
 
 /// Whether `argv` invokes `hands serve` with neither `reach` nor
 /// `reach_base64url` supplied, checked from clap's structured `ArgMatches`
-/// state rather than rendered diagnostic text (#1277 V3, proposed decision
+/// state rather than rendered diagnostic text (#1277 V3, decision
 /// 0127 ruling 2).
 fn is_missing_serve_reach(argv: &[std::ffi::OsString], command: &clap::Command) -> bool {
     let matches = command
@@ -355,7 +355,7 @@ fn is_serve_option_token(arg: &std::ffi::OsStr, serve: &clap::Command) -> bool {
 
 /// Build a payload-free `clap::Error` for `hands serve` naming only the error
 /// kind and usage synopsis, so neither raw argument tokens nor decoded text
-/// ever appear on stderr when an encoded option is present (#1277 V1, proposed
+/// ever appear on stderr when an encoded option is present (#1277 V1,
 /// decision 0127 ruling 4).
 fn redacted_serve_error(mut cmd: clap::Command, kind: clap::error::ErrorKind) -> clap::Error {
     cmd.build();
@@ -374,7 +374,7 @@ fn redacted_serve_error(mut cmd: clap::Command, kind: clap::error::ErrorKind) ->
 /// Refuse `hands serve` before clap parses when a bare encoded option is
 /// immediately followed by another `hands serve` option token, instead of
 /// letting `allow_hyphen_values = true` swallow that option name as a value
-/// (#1277 V1, proposed decision 0127 ruling 4).
+/// (#1277 V1, decision 0127 ruling 4).
 pub(crate) fn refuse_encoded_option_as_value(
     argv: &[std::ffi::OsString],
     command: impl FnOnce() -> clap::Command,
@@ -411,7 +411,7 @@ pub(crate) fn refuse_encoded_option_as_value(
 /// Rewrite clap errors for `hands serve`: whenever an encoded option appears
 /// anywhere in `hands serve`'s arguments, every refusal (`use_stderr()`) is
 /// replaced with a payload-free error naming the error kind and usage (#1277
-/// V1, proposed decision 0127 ruling 4). When no encoded option is present,
+/// V1, decision 0127 ruling 4). When no encoded option is present,
 /// plain-spelling diagnostics pass through unchanged (keeping main's exact
 /// missing-reach usage order).
 pub(crate) fn reformat_serve_clap_error(
@@ -428,7 +428,7 @@ pub(crate) fn reformat_serve_clap_error(
 /// When `hands serve` fails clap validation because neither `--reach` nor
 /// `--reach-base64url` was given, re-render the error with `--reach` marked
 /// unconditionally required so clap emits main's exact usage order
-/// (`--reach <REACH>` before `--spec <SPEC>`, #1277 V3, proposed decision
+/// (`--reach <REACH>` before `--spec <SPEC>`, #1277 V3, decision
 /// 0127 ruling 2).
 fn reformat_missing_serve_reach(
     err: clap::Error,

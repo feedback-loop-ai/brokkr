@@ -18,7 +18,7 @@ by a wager arm — and what remains is judgment, proof, and shipment.
 Its verifier and shipper are `fast`'s, inherited, so it runs every check
 `fast`'s verifier runs; landing remains the shop-work road.
 
-Proposed by decision 0060: the verify entry and the forced Muse/Astra
+By decision 0060: the verify entry and the forced Muse/Astra
 crew are the 0041 ruling 7 exception for the reason a wager forces its
 crew, named and asserted; landing stays the shop-work road. The judge
 seat moved from Astra 6.0 to Sol 6.1 at `high` on the operator's

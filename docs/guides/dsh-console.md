@@ -10,8 +10,8 @@ The console puts Brokkr's fleet inside a DSH web client, in two places:
 Both show the same console, with three views, **Realms**, **Analytics** and
 **Library**, in
 DSH's light or dark theme, whichever DSH's Settings has chosen. It is a DSH plugin
-kept in this repository at `extensions/dsh/brokkr-console/` (decision 0085,
-proposed). It targets DSH `0.2.0-rc.2`. It spawns an installed `brokkr`,
+kept in this repository at `extensions/dsh/brokkr-console/` (decision 0085).
+It targets DSH `0.2.0-rc.2`. It spawns an installed `brokkr`,
 so until 0.17 it types the verbs as a 0.15 release spells them; its
 [README](../../extensions/dsh/brokkr-console/README.md) says which.
 
@@ -302,4 +302,4 @@ the gate entered, then each continued run's title with its id. It reports
 an unreadable entry in the same place. The rail follows the phase order
 recorded at start, including first returns into work the entered run had
 not visited. No console-side history or predecessor verdict is inferred
-(proposed decision 0094).
+(decision 0094).

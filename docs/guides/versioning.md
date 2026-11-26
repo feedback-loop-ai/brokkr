@@ -176,7 +176,7 @@ and the release window in that ruling's slice 2.
 | `run-manifest/v7` | `contracts/run-manifest.v7.schema.json` | journal | 0041 | none | none | record | | |
 | `run-manifest/v8` | `contracts/run-manifest.v8.schema.json` | journal | 0041 | none | none | record | | |
 | `run-manifest/v9` | `contracts/run-manifest.v9.schema.json` | journal | 0046 | none | none | record | | |
-| `run-manifest/v10` | `contracts/run-manifest.v10.schema.json` | journal | 0057, enacted, pending acceptance | none | none | record | | |
+| `run-manifest/v10` | `contracts/run-manifest.v10.schema.json` | journal | 0057 | none | none | record | | |
 | `run-manifest/v11` | `contracts/run-manifest.v11.schema.json` | journal | 0065 | none | none | record | | |
 | `run-manifest/v12` | `contracts/run-manifest.v12.schema.json` | journal | 0065 | none | none | record | | |
 | `run-manifest/v13` | `contracts/run-manifest.v13.schema.json` | journal | operator ruling 2026-10-10 (#430, PR #621), enacted, pending acceptance | none | none | record | | |
@@ -194,7 +194,7 @@ and the release window in that ruling's slice 2.
 | `forge.realms/v2` | `contracts/realms.v2.schema.json` | input | 0026 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v3` | `contracts/realms.v3.schema.json` | input | 0041 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v4` | `contracts/realms.v4.schema.json` | input | 0046 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
-| `forge.realms/v5` | `contracts/realms.v5.schema.json` | input | 0057, enacted, pending acceptance | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
+| `forge.realms/v5` | `contracts/realms.v5.schema.json` | input | 0057 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v6` | `contracts/realms.v6.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v7` | `contracts/realms.v7.schema.json` | input | 0075 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v8` | `contracts/realms.v8.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
@@ -211,7 +211,7 @@ and the release window in that ruling's slice 2.
 | `effect-provenance/v1` | `contracts/effect-provenance.v1.schema.json` | journal | 0016 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::seat::row::Seats::note | current | | |
 | `effect-boundary/v1` | `contracts/effect-boundary.v1.schema.json` | journal | 0046 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::seat::boundary_entries | current | | |
 | `effect-cleanup/v1` | `contracts/effect-cleanup.v1.schema.json` | journal | 0006 (2026-09-27 addendum), enacted, pending acceptance | engine crates/brokkr-runtime/src/engine.rs | none | current | | |
-| `phase-entered-head/v1` | `contracts/phase-entered-head.v1.schema.json` | journal | 0039, enacted, pending acceptance | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::payload::PhaseEntered::read | current | | |
+| `phase-entered-head/v1` | `contracts/phase-entered-head.v1.schema.json` | journal | 0039 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::payload::PhaseEntered::read | current | | |
 | `phase-entered-case/v1` | `contracts/phase-entered-case.v1.schema.json` | journal | 0041 | engine crates/brokkr-runtime/src/engine.rs | none | current | | |
 | `operator-ending/v1` | `contracts/operator-ending.v1.schema.json` | journal | 0064 | operator | load brokkr_core::ending::operator_ending | current | | |
 | `operator-supersede/v1` | `contracts/operator-supersede.v1.schema.json` | journal | 0047 | operator | load brokkr_core::residual::closings | current | | |

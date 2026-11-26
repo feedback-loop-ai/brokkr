@@ -962,7 +962,7 @@ fn an_inherited_pinned_script_refuses_startup_metacharacters_at_compile() {
 /// pinned-script lookup runs over the ancestor's directory, which is the
 /// one the seat's `./` expands against. At spawn its script directory is
 /// checked against the file map retained from the ancestor's compose
-/// manifest (proposed 0048); drift names the ancestor and the script key,
+/// manifest (0048); drift names the ancestor and the script key,
 /// while unrelated source edits and the leaf name nothing.
 #[test]
 fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {

@@ -1,4 +1,4 @@
-//! Run-level admission; no recipe identity moves (decision 0094, proposed).
+//! Run-level admission; no recipe identity moves (decision 0094).
 use std::collections::BTreeSet;
 use std::fmt;
 

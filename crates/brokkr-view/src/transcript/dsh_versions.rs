@@ -1,5 +1,5 @@
 //! The DSH session format versions the reader admits, and what version
-//! four reads differently from version three (proposed decision 0086;
+//! four reads differently from version three (decision 0086;
 //! change `admit-dsh-session-v4`, design D3 to D6). Everything else
 //! version four reads exactly as version three: the V3-to-V4 edge of the
 //! 0.2.0-rc.2 writer rewrites no event type and keeps every field outside
