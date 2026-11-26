@@ -1,0 +1,27 @@
+{
+  "run": "one-turn-measurement-not-a-story-cd3129f5",
+  "seat": "implement",
+  "status": "succeeded",
+  "attempts": 1,
+  "turns": 6,
+  "model": "claude-sonnet-5-5",
+  "effort_pin": "low",
+  "boundary": "namespace",
+  "usage": {
+    "input_tokens": 131858,
+    "output_tokens": 1288,
+    "cache_read_tokens": 110932,
+    "cache_write_tokens": null,
+    "reasoning_output_tokens": null,
+    "total_tokens": 133146
+  },
+  "transcript_kind": "agy-conversation",
+  "ruled": {
+    "phase": "implement",
+    "ruled": "passed",
+    "rule": "IMPL-OK",
+    "residual": null,
+    "model": "claude-sonnet-5-5, not reported",
+    "duration": "26s"
+  }
+}
