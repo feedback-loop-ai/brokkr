@@ -344,12 +344,18 @@ fn the_test_paths_are_the_coverage_gates() {
 #[test]
 fn ci_runs_the_added_suppression_check_on_every_pull_request() {
     let ci = read(".github/workflows/ci.yml");
-    for needle in [
-        "BROKKR_SUPPRESSION_BASE: ${{ github.event.pull_request.base.sha }}",
-        "--test it -- --ignored --exact suppressions::an_added_suppression_of_a_ratcheted_lint_names_a_ruling",
-    ] {
-        assert!(ci.contains(needle), "ci.yml does not carry: {needle}");
-    }
+    let wf = crate::workflow::Workflow::parse(&ci).expect("ci.yml parses");
+    let quality = wf.require_job("ci.yml", "quality").unwrap();
+    assert!(
+        quality.steps.iter().any(|s| {
+            s.env_value("BROKKR_SUPPRESSION_BASE")
+                == Some("${{ github.event.pull_request.base.sha }}")
+                && s.run.as_deref().is_some_and(|r| {
+                    r.contains("--test it -- --ignored --exact suppressions::an_added_suppression_of_a_ratcheted_lint_names_a_ruling")
+                })
+        }),
+        "ci.yml's quality job does not carry the added-suppression check"
+    );
 }
 
 #[test]

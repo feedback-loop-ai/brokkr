@@ -965,21 +965,14 @@ fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// One job's body in `.github/workflows/<file>`: its lines up to the next
-/// key at the jobs map's indentation.
-fn workflow_job(file: &str, id: &str) -> String {
-    let workflow = read(&format!(".github/workflows/{file}"));
-    let is_job = |line: &str| {
-        line.starts_with("  ") && !line.starts_with("   ") && line.trim_end().ends_with(':')
-    };
-    let mut lines = workflow
-        .lines()
-        .skip_while(|line| *line != format!("  {id}:"));
-    let head = lines
-        .next()
-        .unwrap_or_else(|| panic!("{file} has no {id} job"));
-    let body: Vec<&str> = lines.take_while(|line| !is_job(line)).collect();
-    format!("{head}\n{}\n", body.join("\n"))
+/// One parsed job in `.github/workflows/<file>`.
+fn workflow_job(file: &str, id: &str) -> crate::workflow::Job {
+    let text = read(&format!(".github/workflows/{file}"));
+    crate::workflow::Workflow::parse(&text)
+        .unwrap_or_else(|e| panic!("{file} parses: {e}"))
+        .require_job(file, id)
+        .unwrap()
+        .clone()
 }
 
 /// Every ratchet runs in CI, in order: complexity and the public API in
@@ -991,31 +984,55 @@ fn workflow_job(file: &str, id: &str) -> String {
 fn ci_runs_every_ratchet() {
     let coverage = workflow_job("ci.yml", "coverage");
     let gate = coverage
-        .find("bash scripts/coverage-exact.sh")
+        .steps
+        .iter()
+        .position(|s| {
+            s.run
+                .as_deref()
+                .is_some_and(|r| r.contains("bash scripts/coverage-exact.sh"))
+        })
         .expect("the exact gate");
     let crap = coverage
-        .find("run: quality/ratchet.sh crap")
+        .steps
+        .iter()
+        .position(|s| s.run.as_deref() == Some("quality/ratchet.sh crap"))
         .expect("the complexity ratchet");
     assert!(
         gate < crap,
         "the complexity ratchet reads the gate's LCOV, so it runs after it"
     );
     assert!(
-        coverage.contains("run: quality/ratchet.sh api"),
+        coverage
+            .steps
+            .iter()
+            .any(|s| s.run.as_deref() == Some("quality/ratchet.sh api")),
         "the public-API ratchet"
     );
     let ratchets = workflow_job("pr-gates.yml", "ratchets");
-    for step in [
-        "uses: ./.github/actions/setup-jscpd",
-        "run: quality/ratchet.sh files",
-        "run: quality/ratchet.sh clones",
-        "run: cargo shear --deny-warnings --locked",
-        "quality/ratchet.sh baselines",
-        "PR_BODY: ${{ github.event.pull_request.body }}",
+    assert!(
+        ratchets
+            .steps
+            .iter()
+            .any(|s| s.uses.as_deref() == Some("./.github/actions/setup-jscpd")),
+        "the ratchets job does not set up jscpd"
+    );
+    for cmd in [
+        "quality/ratchet.sh files",
+        "quality/ratchet.sh clones",
+        "cargo shear --deny-warnings --locked",
     ] {
         assert!(
-            ratchets.contains(step),
-            "the ratchets job does not run {step:?}"
+            ratchets.steps.iter().any(|s| s.run.as_deref() == Some(cmd)),
+            "the ratchets job does not run {cmd:?}"
         );
     }
+    assert!(
+        ratchets.steps.iter().any(|s| {
+            s.run
+                .as_deref()
+                .is_some_and(|r| r.contains("quality/ratchet.sh baselines"))
+                && s.env_value("PR_BODY") == Some("${{ github.event.pull_request.body }}")
+        }),
+        "the ratchets job does not run quality/ratchet.sh baselines with PR_BODY"
+    );
 }

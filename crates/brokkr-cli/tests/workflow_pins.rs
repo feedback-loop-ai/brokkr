@@ -1172,15 +1172,21 @@ fn the_renovate_image_has_one_home_pinned_by_release_and_digest() {
             "{file} names the Renovate image outside {RENOVATE_IMAGE_FILE}"
         );
     }
-    let renovate = read(".github/workflows/renovate.yml");
-    assert!(renovate.contains(&format!("renovate-image: {RENOVATE_IMAGE_INPUT}\n")));
-    let jobs = ci_jobs();
-    let (_, lint) = jobs
+    let renovate = workflow::Workflow::parse(&read(".github/workflows/renovate.yml"))
+        .expect("renovate.yml parses");
+    assert!(renovate
+        .jobs
         .iter()
-        .find(|(id, _)| id == "lint-non-rust")
-        .expect("a lint-non-rust job");
+        .flat_map(|j| &j.steps)
+        .any(|s| s.with_str("renovate-image") == Some(RENOVATE_IMAGE_INPUT)));
+    let ci = ci_workflow();
+    let lint = ci.require_job("ci.yml", "lint-non-rust").unwrap();
     assert!(
-        lint.contains(r#"image="$(tr -d '[:space:]' < .github/renovate-image.txt)""#),
+        lint.steps.iter().any(|s| {
+            s.run.as_deref().is_some_and(|r| {
+                r.contains(r#"image="$(tr -d '[:space:]' < .github/renovate-image.txt)""#)
+            })
+        }),
         "lint-non-rust does not validate from the pinned image"
     );
 
@@ -1563,132 +1569,100 @@ fn the_lint_tools_are_installed_from_releases_verified_by_digest() {
     }
 }
 
-/// The job bodies of ci.yml, keyed by job id, in file order.
-fn ci_jobs() -> Vec<(String, String)> {
-    workflow::jobs(&read(".github/workflows/ci.yml"))
+/// Parsed `ci.yml` workflow.
+fn ci_workflow() -> workflow::Workflow {
+    workflow::Workflow::parse(&read(".github/workflows/ci.yml")).expect("ci.yml parses")
 }
 
-/// The body of the job `wanted` among [`ci_jobs`].
-fn ci_job<'a>(jobs: &'a [(String, String)], wanted: &str) -> &'a str {
-    jobs.iter()
-        .find(|(id, _)| id == wanted)
-        .map(|(_, body)| body.as_str())
-        .unwrap_or_else(|| panic!("no {wanted} job"))
-}
-
-/// The tools a job's install-action `tool:` line names, versions dropped.
-fn installed_tools(job: &str) -> Vec<&str> {
-    job.lines()
-        .find_map(|line| line.trim().strip_prefix("tool: "))
-        .expect("an install-action tool: line")
+/// The tools a job's install-action `tool:` input names, versions dropped.
+fn installed_tools(job: &workflow::Job) -> Vec<String> {
+    job.steps
+        .iter()
+        .find_map(|s| s.with_str("tool"))
+        .expect("an install-action tool input")
         .split(',')
-        .map(|entry| entry.split_once('@').map_or(entry, |(name, _)| name))
+        .map(|entry| {
+            let entry = entry.trim();
+            entry
+                .split_once('@')
+                .map_or(entry, |(name, _)| name)
+                .to_string()
+        })
         .collect()
 }
 
-/// Every command a job's steps `run:`, in order, read in each form a step
-/// writes one (#444): `run: <command>` and `- run: <command>` inline, and
-/// a `|` or `>` block scalar as its lines, their indentation removed. A
-/// `run:` in any other form (empty, quoted, anchored, a flow mapping, an
-/// indentation indicator) panics, so a step this cannot read is refused
-/// rather than passed.
-fn run_steps(job: &str) -> Vec<String> {
-    let mut steps = Vec::new();
-    let mut lines = job.lines().peekable();
-    while let Some(line) = lines.next() {
-        let key = line.trim_start();
-        let key = key.strip_prefix("- ").unwrap_or(key);
-        if key.starts_with('#') || !line.contains("run:") {
-            continue;
-        }
-        let value = key
-            .strip_prefix("run:")
-            .map(str::trim)
-            .filter(|value| !value.is_empty() && !value.starts_with(['"', '\'', '&', '*', '!']))
-            .unwrap_or_else(|| panic!("a run: this guard cannot read: {line:?}"));
-        if !value.starts_with(['|', '>']) {
-            steps.push(value.to_string());
-            continue;
-        }
-        assert!(
-            ["|", "|-", "|+", ">", ">-", ">+"].contains(&value),
-            "a run: this guard cannot read: {line:?}"
-        );
-        let column = line.len() - key.len();
-        let mut block: Vec<&str> = Vec::new();
-        while let Some(next) = lines
-            .next_if(|next| next.trim().is_empty() || next.len() - next.trim_start().len() > column)
-        {
-            block.push(next);
-        }
-        let indent = block
-            .iter()
-            .map(|line| line.len() - line.trim_start().len())
-            .filter(|&indent| indent > column)
-            .min()
-            .unwrap_or_else(|| panic!("an empty run: block: {line:?}"));
-        let text: Vec<&str> = block
-            .iter()
-            .map(|line| line.get(indent..).unwrap_or(""))
-            .collect();
-        steps.push(text.join("\n").trim_end().to_string());
-    }
-    steps
-}
-
-/// True when a job itself calls a reusable workflow (a job-level `uses:` at
-/// four-space indentation and no job-level `runs-on:`). A step-level
-/// `        uses:` is indented eight spaces and never exempts a job.
-fn is_reusable_workflow_caller(body: &str) -> bool {
-    let has_job_uses = body.lines().any(|line| line.starts_with("    uses: "));
-    let has_runs_on = body.lines().any(|line| line.starts_with("    runs-on: "));
-    has_job_uses && !has_runs_on
+/// Every `run:` script in `job`, in step order, trimmed of trailing newline.
+fn run_steps(job: &workflow::Job) -> Vec<String> {
+    job.steps
+        .iter()
+        .filter_map(|s| s.run.as_deref().map(|r| r.trim_end().to_string()))
+        .collect()
 }
 
 /// Every job in `text` that runs on a runner of its own (not a
-/// reusable-workflow caller) and lacks a job-level `timeout-minutes:`.
+/// reusable-workflow caller) and lacks a positive integer `timeout-minutes:`.
+/// Fails closed if `text` cannot be parsed as a valid workflow.
 fn unbounded_jobs(file: &str, text: &str) -> Vec<String> {
-    workflow::jobs(text)
-        .into_iter()
-        .filter(|(_, body)| !is_reusable_workflow_caller(body))
-        .filter(|(_, body)| {
-            !body.lines().any(|line| {
-                line.strip_prefix("    timeout-minutes: ")
-                    .map(|rest| rest.split('#').next().unwrap_or(rest).trim())
-                    .is_some_and(|value| !value.is_empty())
-            })
-        })
-        .map(|(id, _)| format!("{file}'s {id} is unbounded"))
+    let wf = match workflow::Workflow::parse(text) {
+        Ok(wf) => wf,
+        Err(err) => return vec![format!("{file} is unreadable: {err}")],
+    };
+    wf.jobs
+        .iter()
+        .filter(|job| !job.is_reusable_caller() && !job.has_positive_timeout())
+        .map(|job| format!("{file}'s {} is unbounded", job.id))
         .collect()
 }
 
 /// Removing `timeout-minutes` from a runner job fails even when its steps
-/// carry an indented `uses:` line, or when a comment or script line mentions
-/// `timeout-minutes:` (decision 0071 rulings 5 and 9, #1383).
+/// carry an indented `uses:` line, when a comment mentions `timeout-minutes:`,
+/// or when the `jobs:` map uses another valid indentation (decision 0071
+/// rulings 5 and 9, #1383, #1396).
 #[test]
 fn timeout_rule_exempts_only_reusable_workflow_callers() {
     let shards = read(".github/workflows/macos-test-shards.yml");
-    let no_shard_timeout = shards.replacen(
-        "    timeout-minutes: 60
-",
-        "",
-        1,
-    );
+    let no_shard_timeout = shards.replacen("    timeout-minutes: 60\n", "", 1);
     assert_ne!(no_shard_timeout, shards);
     assert_eq!(
         unbounded_jobs(".github/workflows/macos-test-shards.yml", &no_shard_timeout),
         [".github/workflows/macos-test-shards.yml's macos-machines is unbounded"]
     );
 
+    // Re-indenting `jobs:` to 4 spaces keeps a valid workflow passing and
+    // still catches a missing `timeout-minutes:` (#1396).
+    let (head, jobs_tail) = shards.split_once("jobs:\n").expect("jobs:");
+    let reindented = format!(
+        "{head}jobs:\n{}",
+        jobs_tail
+            .lines()
+            .map(|l| if l.is_empty() {
+                String::new()
+            } else {
+                format!("  {l}")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    assert_eq!(
+        unbounded_jobs(".github/workflows/macos-test-shards.yml", &reindented),
+        Vec::<String>::new()
+    );
+    let reindented_unbounded = reindented.replacen("      timeout-minutes: 60\n", "", 1);
+    assert_ne!(reindented_unbounded, reindented);
+    assert_eq!(
+        unbounded_jobs(
+            ".github/workflows/macos-test-shards.yml",
+            &reindented_unbounded
+        ),
+        [".github/workflows/macos-test-shards.yml's macos-machines is unbounded"]
+    );
+
     let ci = read(".github/workflows/ci.yml");
-    // `seatbelt-lifetime` has a step-level `        uses: actions/upload-artifact@...`
+    // `seatbelt-lifetime` has a step-level `uses: actions/upload-artifact@...`
     // and must still fail when its job-level timeout is removed.
     let no_ci_timeout = ci.replacen(
-        "    runs-on: macos-latest
-    timeout-minutes: 20
-",
-        "    runs-on: macos-latest
-",
+        "    runs-on: macos-latest\n    timeout-minutes: 20\n",
+        "    runs-on: macos-latest\n",
         1,
     );
     assert_ne!(no_ci_timeout, ci);
@@ -1717,6 +1691,25 @@ fn timeout_rule_exempts_only_reusable_workflow_callers() {
 /// macOS job's critical path. A merge group's run is grouped by its event
 /// as well as its commit, so it neither cancels nor queues behind a pull
 /// request's run or the push of the commit it lands (#451).
+fn assert_pr_cancellation_concurrency(file: &str) {
+    let wf =
+        workflow::Workflow::parse(&read(file)).unwrap_or_else(|e| panic!("{file} parses: {e}"));
+    let conc = wf
+        .concurrency
+        .as_ref()
+        .unwrap_or_else(|| panic!("{file} has no concurrency block"));
+    assert_eq!(
+        conc.group.as_ref().and_then(|v| v.as_str()),
+        Some("${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}"),
+        "{file} concurrency group"
+    );
+    assert_eq!(
+        conc.cancel_in_progress.as_ref().and_then(|v| v.as_str()),
+        Some("${{ github.event_name == 'pull_request' }}"),
+        "{file} cancel-in-progress"
+    );
+}
+
 #[test]
 fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
     for file in [
@@ -1724,21 +1717,17 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
         ".github/workflows/ci.yml",
         ".github/workflows/mutants.yml",
     ] {
-        assert!(
-            read(file).contains(
-                "concurrency:\n  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
-            ),
-            "{file} does not cancel a superseded pull request run, or groups a run with another event's or another commit's"
-        );
+        assert_pr_cancellation_concurrency(file);
     }
 
     // The pull request's metadata gates, apart from the suite (#1295).
-    let gates = workflow::jobs(&read(".github/workflows/pr-gates.yml"));
-    let ids: Vec<&str> = gates.iter().map(|(id, _)| id.as_str()).collect();
-    assert_eq!(ids, ["delivered-by-brokkr", "ratchets"]);
+    let gates = workflow::Workflow::parse(&read(".github/workflows/pr-gates.yml"))
+        .expect("pr-gates.yml parses");
+    let gate_ids: Vec<&str> = gates.jobs.iter().map(|j| j.id.as_str()).collect();
+    assert_eq!(gate_ids, ["delivered-by-brokkr", "ratchets"]);
 
-    let jobs = ci_jobs();
-    let ids: Vec<&str> = jobs.iter().map(|(id, _)| id.as_str()).collect();
+    let ci = ci_workflow();
+    let ids: Vec<&str> = ci.jobs.iter().map(|j| j.id.as_str()).collect();
     assert_eq!(
         ids,
         [
@@ -1776,11 +1765,21 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
         assert_eq!(unbounded_jobs(file, &read(file)), Vec::<String>::new());
     }
 
-    let job = |wanted: &str| ci_job(&jobs, wanted);
-    let builders: Vec<&str> = jobs
+    assert_release_binary_and_gate_b(&ci);
+}
+
+fn assert_release_binary_and_gate_b(ci: &workflow::Workflow) {
+    let builders: Vec<&str> = ci
+        .jobs
         .iter()
-        .filter(|(_, body)| body.contains("cargo build --release"))
-        .map(|(id, _)| id.as_str())
+        .filter(|job| {
+            job.steps.iter().any(|s| {
+                s.run
+                    .as_deref()
+                    .is_some_and(|r| r.contains("cargo build --release"))
+            })
+        })
+        .map(|job| job.id.as_str())
         .collect();
     // pr-caches builds on macOS, on the push to main alone, to save the
     // macOS bootstrap job's cache (#1295); Linux still builds once.
@@ -1789,25 +1788,41 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
         ["bootstrap-budgets-macos", "release-binary", "pr-caches"]
     );
     for consumer in ["bootstrap-budgets", "packaging"] {
-        let body = job(consumer);
-        assert!(body.contains("    needs: release-binary\n"), "{consumer}");
+        let job = ci.require_job("ci.yml", consumer).unwrap();
+        assert_eq!(job.needs, ["release-binary"], "{consumer}");
         assert!(
-            body.contains("          name: brokkr-linux-x86_64\n"),
-            "{consumer}"
+            job.steps.iter().any(|s| {
+                matches!(
+                    s.action_match("actions/download-artifact"),
+                    Some(workflow::ActionMatch::Exact)
+                ) && s.with_literal("name") == Some("brokkr-linux-x86_64")
+            }),
+            "{consumer} downloads brokkr-linux-x86_64"
         );
         assert!(
-            body.contains("chmod +x target/release/brokkr"),
+            job.steps.iter().any(|s| s
+                .run
+                .as_deref()
+                .is_some_and(|r| r.contains("chmod +x target/release/brokkr"))),
             "{consumer}"
         );
     }
 
     let gate_b = "native_lifetime_feasibility_probe";
     for suite in ["engine-machines", "engine"] {
-        assert!(!job(suite).contains(gate_b), "Gate B is back in {suite}");
-        assert!(!job(suite).contains("continue-on-error"), "{suite}");
+        let job = ci.require_job("ci.yml", suite).unwrap();
+        assert!(
+            !job.all_scalars.iter().any(|sc| sc.contains(gate_b)),
+            "Gate B is back in {suite}"
+        );
+        assert!(!job.has_continue_on_error(), "{suite}");
     }
-    assert!(job("seatbelt-lifetime").contains(gate_b));
-    assert!(job("seatbelt-lifetime").contains("    runs-on: macos-latest\n"));
+    let lifetime = ci.require_job("ci.yml", "seatbelt-lifetime").unwrap();
+    assert!(lifetime.all_scalars.iter().any(|sc| sc.contains(gate_b)));
+    assert_eq!(
+        lifetime.runs_on.as_ref().and_then(workflow::RunsOn::as_str),
+        Some("macos-latest")
+    );
 }
 
 /// The offline lints, as `scripts/lint-non-rust.sh` lists them: the tools
@@ -1836,11 +1851,8 @@ fn offline_lints() -> Vec<(String, String)> {
 /// (#427), which the job runs and runs nothing beside.
 #[test]
 fn the_non_rust_lints_job_runs_every_check() {
-    let jobs = ci_jobs();
-    let (_, job) = jobs
-        .iter()
-        .find(|(id, _)| id == "lint-non-rust")
-        .expect("a lint-non-rust job");
+    let ci = ci_workflow();
+    let job = ci.require_job("ci.yml", "lint-non-rust").unwrap();
     let listed = offline_lints();
     let lints: Vec<(&str, &str)> = listed
         .iter()
@@ -1880,17 +1892,25 @@ validate --no-global .github/renovate.json5
 validate .github/renovate-global.json5",
         ]
     );
-    for step in [
-        "uses: ./.github/actions/setup-actionlint\n",
-        "uses: ./.github/actions/setup-lychee\n",
-        "fallback: none\n",
-    ] {
-        assert!(job.contains(step), "lint-non-rust does not run {step:?}");
-    }
-    assert!(!job.contains("continue-on-error"), "lint-non-rust");
-    // The versions have their homes (the tool: line, the lockfile) and
-    // Renovate moves them there; this holds the shape, so a bump never
-    // reddens it. The pin scan holds each tool: entry to an exact release.
+    assert!(
+        job.steps
+            .iter()
+            .any(|s| s.uses.as_deref() == Some("./.github/actions/setup-actionlint")),
+        "lint-non-rust does not set up actionlint"
+    );
+    assert!(
+        job.steps
+            .iter()
+            .any(|s| s.uses.as_deref() == Some("./.github/actions/setup-lychee")),
+        "lint-non-rust does not set up lychee"
+    );
+    assert!(
+        job.steps
+            .iter()
+            .any(|s| s.with_literal("fallback") == Some("none")),
+        "lint-non-rust does not set fallback: none"
+    );
+    assert!(!job.has_continue_on_error(), "lint-non-rust");
     assert_eq!(installed_tools(job), ["shellcheck", "typos", "zizmor"]);
     let lock = read(".github/lint/package-lock.json");
     let mermaid = lock
@@ -1916,10 +1936,13 @@ validate .github/renovate-global.json5",
 #[test]
 fn the_landing_verify_seat_runs_the_ci_jobs_commands() {
     let seat = read("recipes/brokkr-fast/scripts/verify-seat.sh");
-    let jobs = ci_jobs();
-    let rust: Vec<&str> = ci_job(&jobs, "quality")
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("run: "))
+    let ci = ci_workflow();
+    let rust: Vec<&str> = ci
+        .require_job("ci.yml", "quality")
+        .unwrap()
+        .steps
+        .iter()
+        .filter_map(|s| s.run.as_deref())
         .filter(|command| command.starts_with("cargo fmt ") || command.starts_with("cargo clippy "))
         .collect();
     assert_eq!(rust.len(), 2, "{rust:?}");
@@ -1936,10 +1959,12 @@ fn the_landing_verify_seat_runs_the_ci_jobs_commands() {
             "the verify seat does not run {command}"
         );
     }
-    let lint_job = ci_job(&jobs, "lint-non-rust");
+    let lint_job = ci.require_job("ci.yml", "lint-non-rust").unwrap();
     assert_eq!(
         lint_job
-            .matches("run: bash scripts/lint-non-rust.sh\n")
+            .steps
+            .iter()
+            .filter(|s| s.run.as_deref() == Some("bash scripts/lint-non-rust.sh"))
             .count(),
         1
     );
@@ -1947,11 +1972,11 @@ fn the_landing_verify_seat_runs_the_ci_jobs_commands() {
     // actionlint and lychee arrive by their setup actions, which the
     // lint-non-rust job is held to above.
     let mut installed = installed_tools(lint_job);
-    installed.extend(["actionlint", "lychee"]);
+    installed.extend(["actionlint".to_string(), "lychee".to_string()]);
     for (tools, command) in offline_lints() {
         for tool in tools.split(' ') {
             assert!(
-                installed.contains(&tool),
+                installed.iter().any(|i| i == tool),
                 "{command} needs {tool}, which CI does not install"
             );
         }

@@ -1,37 +1,55 @@
-//! Issue #1383 (operator ruling 2026-11-25): the macOS test shards leave the
-//! pull-request path for nightly, manual dispatch and release runs, replaced
-//! on pull requests and merge groups by `build (macos-latest)`.
+//! Issue #1383 (operator ruling 2026-11-25) and #1396 (operator ruling
+//! 2026-11-26): the macOS test shards leave the pull-request path for nightly,
+//! manual dispatch and release runs, replaced on pull requests and merge groups
+//! by `build (macos-latest)`. Every structural workflow question goes through
+//! `crate::workflow::Workflow` (backed by `yaml-rust2`).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
+use std::process::Command;
 
-use super::{events, needs_of, workspace};
-use crate::workflow::{self, ActionMatch, ParsedJob, ParsedStep, ParsedSteps, YamlMap};
+use serde::Deserialize;
 
-/// Missing workflow job lookup error (decision 0071 ruling 8).
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-enum JobLookupError {
-    #[error("{file} has no {id} job")]
-    Missing { file: String, id: String },
-}
+use super::workspace;
 
-/// Owned body of job `id` in `text`, or a typed missing-job error naming `file`.
-fn job_of(text: &str, file: &str, id: &str) -> Result<String, JobLookupError> {
-    workflow::jobs(text)
-        .into_iter()
-        .find_map(|(seen, body)| (seen == id).then_some(body))
-        .ok_or_else(|| JobLookupError::Missing {
-            file: file.to_string(),
-            id: id.to_string(),
-        })
-}
+use crate::workflow::{
+    self, ActionMatch, CondVal, ConditionContext, ConditionError, EventTrigger, Job, Permissions,
+    RunsOn, Scalar, Step, Workflow, WorkflowError,
+};
 
-/// Push each message whose `needle` is missing from `body`.
-fn require_needles(body: &str, needles: &[(&str, &str)], problems: &mut Vec<String>) {
-    for &(needle, msg) in needles {
-        if !body.contains(needle) {
-            problems.push(msg.to_string());
+const SHARDS_WORKFLOW: &str = "./.github/workflows/macos-test-shards.yml";
+const MACOS_SHARDS: [&str; 5] = ["macos/1", "macos/2", "macos/3", "macos/4", "macos/5"];
+
+fn parse_or_problem(file: &str, text: &str, problems: &mut Vec<String>) -> Option<Workflow> {
+    match Workflow::parse(text) {
+        Ok(wf) => Some(wf),
+        Err(err) => {
+            problems.push(format!("{file} is unreadable: {err}"));
+            None
         }
     }
+}
+
+fn job_mentions_macos(job: &Job) -> bool {
+    job.all_scalars
+        .iter()
+        .any(|scalar| scalar.to_ascii_lowercase().contains("macos"))
+}
+
+fn shard_ctx(machine: &str, use_cache: bool) -> ConditionContext {
+    ConditionContext::default_ok()
+        .with_matrix("machine", CondVal::Str(machine.to_string()))
+        .with_input("use-cache", CondVal::Bool(use_cache))
+}
+
+fn step_enforces_all_shards(job: &Job, step: &Step) -> bool {
+    MACOS_SHARDS.iter().all(|machine| {
+        [false, true].into_iter().all(|use_cache| {
+            let ctx = shard_ctx(machine, use_cache);
+            job.step_enforces(step, &ctx, &ctx) == Ok(true)
+        })
+    })
 }
 
 /// Check C1 and C2 on `ci.yml`: no macOS test shard runs on `pull_request` or
@@ -40,239 +58,314 @@ fn require_needles(body: &str, needles: &[(&str, &str)], problems: &mut Vec<Stri
 /// without running tests.
 fn ci_macos_split_problems(ci: &str) -> Vec<String> {
     let mut problems = Vec::new();
-    let non_comment = |body: &str| -> String {
-        body.lines()
-            .filter(|line| !line.trim_start().starts_with('#'))
-            .collect::<Vec<_>>()
-            .join("\n")
+    let Some(wf) = parse_or_problem("ci.yml", ci, &mut problems) else {
+        return problems;
     };
-    match job_of(ci, "ci.yml", "engine-machines") {
-        Ok(body) if non_comment(&body).to_lowercase().contains("macos") => {
+    for ev in ["pull_request", "merge_group"] {
+        if wf.unfiltered_event(ev).is_none() {
+            problems.push(format!("ci.yml does not run unfiltered on {ev}"));
+        }
+    }
+    match wf.require_job("ci.yml", "engine-machines") {
+        Ok(job) if job_mentions_macos(job) => {
             problems.push("engine-machines still mentions macOS".to_string());
         }
         Ok(_) => {}
         Err(err) => problems.push(err.to_string()),
     }
-    match job_of(ci, "ci.yml", "engine") {
-        Ok(body) => {
-            require_needles(
-                &body,
-                &[(
-                    "    name: test (ubuntu-latest)\n",
-                    "engine's name is not `test (ubuntu-latest)`",
-                )],
-                &mut problems,
-            );
-            if non_comment(&body).to_lowercase().contains("macos") {
+    match wf.require_job("ci.yml", "engine") {
+        Ok(job) => {
+            if job.name.as_deref() != Some("test (ubuntu-latest)") {
+                problems.push("engine's name is not `test (ubuntu-latest)`".to_string());
+            }
+            if job_mentions_macos(job) {
                 problems.push("engine still mentions macOS".to_string());
             }
         }
         Err(err) => problems.push(err.to_string()),
     }
-    match job_of(ci, "ci.yml", "build-macos") {
-        Ok(body) => {
-            require_needles(
-                &body,
-                &[
-                    (
-                        "    name: build (macos-latest)\n",
-                        "build-macos name is not `build (macos-latest)`",
-                    ),
-                    (
-                        "    if: github.event_name != 'push'\n",
-                        "build-macos does not run on pull_request and merge_group",
-                    ),
-                    (
-                        "    runs-on: macos-latest\n",
-                        "build-macos does not run on macos-latest",
-                    ),
-                    (
-                        "Swatinem/rust-cache@",
-                        "build-macos does not reuse rust-cache",
-                    ),
-                    (
-                        "run: cargo test --workspace --all-features --locked --no-run\n",
-                        "build-macos does not compile all workspace test targets without running tests",
-                    ),
-                ],
-                &mut problems,
-            );
-            if body.contains("test-shards.sh") {
-                problems.push("build-macos runs test-shards.sh".to_string());
-            }
-        }
-        Err(err) => problems.push(err.to_string()),
-    }
-    for (id, cond) in [
-        (
-            "macos-machines",
-            "    if: github.event_name == 'workflow_dispatch'\n",
-        ),
-        (
-            "macos-tests",
-            "    if: always() && github.event_name == 'workflow_dispatch'\n",
-        ),
-    ] {
-        match job_of(ci, "ci.yml", id) {
-            Ok(body) if !body.contains(cond) => {
-                problems.push(format!(
-                    "ci.yml's {id} does not gate on workflow_dispatch alone"
-                ));
-            }
-            Ok(_) => {}
-            Err(err) => problems.push(err.to_string()),
-        }
-    }
-    if ci.contains("issues: write") {
+    check_ci_build_macos(&wf, &mut problems);
+    check_ci_dispatch_only_macos(&wf, &mut problems);
+    if wf.grants_permission("issues", "write") {
         problems.push("ci.yml gained `issues: write` on the pull-request path".to_string());
     }
     problems
 }
 
+fn check_ci_dispatch_only_macos(wf: &Workflow, problems: &mut Vec<String>) {
+    for (id, run_on_prior_failure) in [("macos-machines", false), ("macos-tests", true)] {
+        let job = match wf.require_job("ci.yml", id) {
+            Ok(job) => job,
+            Err(err) => {
+                problems.push(err.to_string());
+                continue;
+            }
+        };
+        if job.allows_failure() {
+            problems.push(format!(
+                "ci.yml's {id} allows failure via continue-on-error"
+            ));
+        }
+        let dispatch_ok = job.runs_under(
+            &ConditionContext::default_ok()
+                .with_event("workflow_dispatch")
+                .with_prior_succeeded(!run_on_prior_failure),
+        ) == Ok(true);
+        let skipped_elsewhere = ["pull_request", "merge_group", "push"]
+            .into_iter()
+            .all(|ev| {
+                job.runs_under(
+                    &ConditionContext::default_ok()
+                        .with_event(ev)
+                        .with_prior_succeeded(!run_on_prior_failure),
+                ) == Ok(false)
+            });
+        if !dispatch_ok || !skipped_elsewhere {
+            problems.push(format!(
+                "ci.yml's {id} does not gate on workflow_dispatch alone"
+            ));
+        }
+    }
+}
+
+fn check_ci_build_macos(wf: &Workflow, problems: &mut Vec<String>) {
+    let job = match wf.require_job("ci.yml", "build-macos") {
+        Ok(job) => job,
+        Err(err) => {
+            problems.push(err.to_string());
+            return;
+        }
+    };
+    if job.name.as_deref() != Some("build (macos-latest)") {
+        problems.push("build-macos name is not `build (macos-latest)`".to_string());
+    }
+    if job.allows_failure() {
+        problems.push("build-macos allows failure via continue-on-error".to_string());
+    }
+    let pr_ctx = ConditionContext::default_ok().with_event("pull_request");
+    let mg_ctx = ConditionContext::default_ok().with_event("merge_group");
+    let push_ctx = ConditionContext::default_ok().with_event("push");
+    if job.runs_under(&pr_ctx) != Ok(true)
+        || job.runs_under(&mg_ctx) != Ok(true)
+        || job.runs_under(&push_ctx) != Ok(false)
+    {
+        problems.push("build-macos does not run on pull_request and merge_group".to_string());
+    }
+    if job.runs_on != Some(RunsOn::Single("macos-latest".to_string())) {
+        problems.push("build-macos does not run on macos-latest".to_string());
+    }
+    let step_runs = |s: &Step| {
+        job.step_enforces(s, &pr_ctx, &pr_ctx) == Ok(true)
+            && job.step_enforces(s, &mg_ctx, &mg_ctx) == Ok(true)
+    };
+    if !job.steps.iter().any(|s| {
+        matches!(
+            s.action_match("Swatinem/rust-cache"),
+            Some(ActionMatch::Exact)
+        ) && step_runs(s)
+    }) {
+        problems.push("build-macos does not reuse rust-cache".to_string());
+    }
+    if !job.steps.iter().any(|s| {
+        s.run.as_deref() == Some("cargo test --workspace --all-features --locked --no-run")
+            && step_runs(s)
+    }) {
+        problems.push(
+            "build-macos does not compile all workspace test targets without running tests"
+                .to_string(),
+        );
+    }
+    if job.steps.iter().any(|s| {
+        s.run
+            .as_deref()
+            .is_some_and(|r| r.contains("test-shards.sh"))
+    }) {
+        problems.push("build-macos runs test-shards.sh".to_string());
+    }
+}
+
 /// Check the single reusable shard workflow `macos-test-shards.yml` (C3).
 fn check_reusable_shards(shards: &str, problems: &mut Vec<String>) {
-    if events(shards) != ["workflow_call"] {
+    let Some(wf) = parse_or_problem("macos-test-shards.yml", shards, problems) else {
+        return;
+    };
+    if wf.event_names() != ["workflow_call"] || wf.unfiltered_event("workflow_call").is_none() {
         problems.push(format!(
-            "macos-test-shards.yml events are {:?}, not [workflow_call]",
-            events(shards)
+            "macos-test-shards.yml events are {:?}, not unfiltered [workflow_call]",
+            wf.event_names()
         ));
     }
-    match workflow::nested_map(shards, &["on", "workflow_call", "inputs", "use-cache"]) {
-        Some(YamlMap::Entries(input)) => {
-            let is_bool = input
-                .get("type")
-                .and_then(|v| workflow::parse_yaml_literal(v))
-                .as_deref()
-                == Some("boolean");
-            if !is_bool {
-                problems
-                    .push("macos-test-shards.yml use-cache input is not typed boolean".to_string());
+    match wf.workflow_call_input("use-cache") {
+        Some(input) => {
+            if input.input_type.as_ref().and_then(Scalar::as_literal) != Some("boolean") {
+                problems.push("macos-test-shards.yml use-cache input is not typed boolean".into());
             }
-            let default_false = input
-                .get("default")
-                .is_some_and(|v| workflow::parse_yaml_bool(v) == Ok(false));
-            if !default_false {
-                problems.push(
-                    "macos-test-shards.yml use-cache input does not default to false".to_string(),
-                );
+            if input.default.as_ref().and_then(Scalar::as_bool) != Some(false) {
+                problems
+                    .push("macos-test-shards.yml use-cache input does not default to false".into());
             }
         }
-        Some(YamlMap::Unreadable(raw)) => problems.push(format!(
-            "macos-test-shards.yml use-cache input is unreadable: `{raw}`"
-        )),
         None => problems.push("macos-test-shards.yml has no use-cache input".to_string()),
     }
-    match job_of(shards, "macos-test-shards.yml", "macos-machines") {
-        Ok(body) => require_needles(
-            &body,
-            &[
-                (
-                    "machine: [macos/1, macos/2, macos/3, macos/4, macos/5]",
-                    "macos-test-shards.yml lost the five macOS shards",
-                ),
-                (
-                    "run: bash scripts/test-shards.sh test --parallel-heaps",
-                    "macos-test-shards.yml lost scripts/test-shards.sh",
-                ),
-                (
-                    "      - run: bash scripts/test-shards.sh test --parallel-heaps\n        env:\n          BROKKR_TEST_MACHINE: ${{ matrix.machine }}\n",
-                    "macos-test-shards.yml shard step lost BROKKR_TEST_MACHINE: ${{ matrix.machine }}",
-                ),
-                (
-                    "seatbelt_probe::native::native_startup_feasibility_probe",
-                    "macos-test-shards.yml lost Gate A (startup probe)",
-                ),
-                (
-                    "if: matrix.machine == 'macos/1'",
-                    "Gate A is not scoped to macos/1",
-                ),
-                (
-                    "if: inputs.use-cache",
-                    "macos-test-shards.yml does not gate rust-cache on inputs.use-cache",
-                ),
-                (
-                    "cargo run --locked -p brokkr-cli -- library compile --bundle recipes/self",
-                    "macos-test-shards.yml lost recipes/self compile",
-                ),
-                (
-                    "cargo run --locked -p brokkr-cli -- library compile --bundle recipes/verify",
-                    "macos-test-shards.yml lost recipes/verify compile",
-                ),
-            ],
-            problems,
-        ),
+    match wf.require_job("macos-test-shards.yml", "macos-machines") {
+        Ok(job) => check_reusable_shard_job(job, problems),
         Err(err) => problems.push(err.to_string()),
     }
 }
 
-/// Check that a caller reuses `macos-test-shards.yml` and keeps verdict `test (macos-latest)`.
-fn check_shard_caller(file: &str, text: &str, wants_cache: bool, problems: &mut Vec<String>) {
-    if text.contains("macos/1") {
+fn check_reusable_shard_job(job: &Job, problems: &mut Vec<String>) {
+    let machines = job.matrix.as_ref().and_then(|m| m.axis_strings("machine"));
+    if machines.as_deref() != Some(MACOS_SHARDS.as_slice()) {
+        problems.push("macos-test-shards.yml lost the five macOS shards".to_string());
+    }
+    if job.allows_failure() {
+        problems.push("macos-test-shards.yml macos-machines sets continue-on-error".to_string());
+    }
+    let has_shard_step = job.steps.iter().any(|s| {
+        s.run.as_deref() == Some("bash scripts/test-shards.sh test --parallel-heaps")
+            && s.env_value("BROKKR_TEST_MACHINE") == Some("${{ matrix.machine }}")
+            && step_enforces_all_shards(job, s)
+    });
+    if !has_shard_step {
+        problems.push(
+            "macos-test-shards.yml shard step lost scripts/test-shards.sh or BROKKR_TEST_MACHINE: ${{ matrix.machine }}"
+                .to_string(),
+        );
+    }
+    let has_gate_a =
+        job.steps.iter().any(|s| {
+            s.run.as_deref().is_some_and(|r| {
+                r.contains("seatbelt_probe::native::native_startup_feasibility_probe")
+            }) && [false, true].into_iter().all(|c| {
+                let ctx = shard_ctx("macos/1", c);
+                job.step_enforces(s, &ctx, &ctx) == Ok(true)
+            }) && MACOS_SHARDS[1..]
+                .iter()
+                .all(|m| s.runs_under(&shard_ctx(m, false)) == Ok(false))
+        });
+    if !has_gate_a {
+        problems.push("macos-test-shards.yml lost Gate A scoped to macos/1".to_string());
+    }
+    let has_gated_cache = job.steps.iter().any(|s| {
+        matches!(
+            s.action_match("Swatinem/rust-cache"),
+            Some(ActionMatch::Exact)
+        ) && MACOS_SHARDS.iter().all(|m| {
+            let (on, off) = (shard_ctx(m, true), shard_ctx(m, false));
+            job.runs_under(&on) == Ok(true)
+                && s.runs_under(&on) == Ok(true)
+                && s.runs_under(&off) == Ok(false)
+        })
+    });
+    if !has_gated_cache {
+        problems.push("macos-test-shards.yml does not gate rust-cache on inputs.use-cache".into());
+    }
+    for bundle in ["recipes/self", "recipes/verify"] {
+        let needle =
+            format!("cargo run --locked -p brokkr-cli -- library compile --bundle {bundle}");
+        if !job.steps.iter().any(|s| {
+            s.run.as_deref().is_some_and(|r| r.contains(&needle))
+                && step_enforces_all_shards(job, s)
+        }) {
+            problems.push(format!("macos-test-shards.yml lost {bundle} compile"));
+        }
+    }
+}
+
+fn check_shard_caller(
+    file: &str,
+    text: &str,
+    wants_cache: bool,
+    events: &[&str],
+    problems: &mut Vec<String>,
+) {
+    let Some(wf) = parse_or_problem(file, text, problems) else {
+        return;
+    };
+    if wf
+        .jobs
+        .iter()
+        .any(|j| j.all_scalars.iter().any(|sc| sc.contains("macos/1")))
+    {
         problems.push(format!("{file} copied the macOS shard list"));
     }
-    match job_of(text, file, "macos-machines") {
-        Ok(body) => {
-            let job = workflow::parse_job(&body);
-            if let Some(reason) = &job.unreadable {
-                problems.push(format!("{file}'s macos-machines is unreadable: {reason}"));
-            }
-            let calls_shards = job
-                .uses
-                .as_deref()
-                .and_then(workflow::parse_yaml_literal)
-                .as_deref()
-                == Some("./.github/workflows/macos-test-shards.yml");
-            if !calls_shards {
-                problems.push(format!(
-                    "{file}'s macos-machines does not call macos-test-shards.yml"
-                ));
-            }
-            let cache_setting = match &job.with {
-                None => Ok(false),
-                Some(YamlMap::Unreadable(raw)) => Err(format!("unreadable with: `{raw}`")),
-                Some(YamlMap::Entries(with)) => match with.get("use-cache") {
-                    None => Ok(false),
-                    Some(raw) => workflow::parse_yaml_bool(raw),
-                },
-            };
-            match cache_setting {
-                Ok(enables_cache) if enables_cache != wants_cache => problems.push(format!(
-                    "{file}'s macos-machines use-cache={enables_cache}, expected {wants_cache}"
-                )),
-                Ok(_) => {}
-                Err(reason) => problems.push(format!(
-                    "{file}'s macos-machines use-cache input is invalid: {reason}"
-                )),
-            }
-        }
+    match wf.require_job(file, "macos-machines") {
+        Ok(job) => check_caller_machines(file, job, wants_cache, events, problems),
         Err(err) => problems.push(err.to_string()),
     }
-    match job_of(text, file, "macos-tests") {
-        Ok(body) => {
-            require_needles(
-                &body,
-                &[
-                    (
-                        "    name: test (macos-latest)\n",
-                        "macos-tests is not named `test (macos-latest)`",
-                    ),
-                    (
-                        "test \"$MACHINES\" = success",
-                        "macos-tests does not check MACHINES=success",
-                    ),
-                ],
-                problems,
-            );
-            if !needs_of(&body, file).iter().any(|n| n == "macos-machines") {
-                problems.push(format!("{file}'s macos-tests does not need macos-machines"));
-            }
-        }
+    match wf.require_job(file, "macos-tests") {
+        Ok(job) => check_caller_verdict(file, job, events, problems),
         Err(err) => problems.push(err.to_string()),
     }
 }
 
-/// Extract every `${{ ... }}` GitHub Actions expression inside `text`, failing
-/// closed on unclosed `${{` delimiters.
+fn check_caller_machines(
+    file: &str,
+    job: &Job,
+    wants_cache: bool,
+    events: &[&str],
+    problems: &mut Vec<String>,
+) {
+    if job.uses.as_deref() != Some(SHARDS_WORKFLOW) {
+        problems.push(format!(
+            "{file}'s macos-machines does not call macos-test-shards.yml"
+        ));
+    }
+    if job.allows_failure() {
+        problems.push(format!("{file}'s macos-machines sets continue-on-error"));
+    }
+    if !events
+        .iter()
+        .all(|ev| job.runs_under(&ConditionContext::default_ok().with_event(ev)) == Ok(true))
+    {
+        problems.push(format!(
+            "{file}'s macos-machines does not run on {events:?}"
+        ));
+    }
+    let cache_setting = match job.with_value("use-cache") {
+        None => Ok(false),
+        Some(val) => val
+            .as_bool()
+            .ok_or_else(|| format!("{val:?} is not a YAML boolean")),
+    };
+    match cache_setting {
+        Ok(enables_cache) if enables_cache != wants_cache => problems.push(format!(
+            "{file}'s macos-machines use-cache={enables_cache}, expected {wants_cache}"
+        )),
+        Ok(_) => {}
+        Err(reason) => problems.push(format!(
+            "{file}'s macos-machines use-cache input is invalid: {reason}"
+        )),
+    }
+}
+
+fn check_caller_verdict(file: &str, job: &Job, events: &[&str], problems: &mut Vec<String>) {
+    if job.name.as_deref() != Some("test (macos-latest)") {
+        problems.push("macos-tests is not named `test (macos-latest)`".to_string());
+    }
+    if !job.needs.iter().any(|n| n == "macos-machines") {
+        problems.push(format!("{file}'s macos-tests does not need macos-machines"));
+    }
+    if job.allows_failure() {
+        problems.push(format!("{file}'s macos-tests sets continue-on-error"));
+    }
+    let runs_verdict = job.steps.iter().any(|s| {
+        s.run
+            .as_deref()
+            .is_some_and(|r| r.contains("test \"$MACHINES\" = success"))
+            && events.iter().all(|ev| {
+                let job_ctx = ConditionContext::default_ok()
+                    .with_event(ev)
+                    .with_prior_succeeded(false);
+                let step_ctx = ConditionContext::default_ok().with_event(ev);
+                job.step_enforces(s, &job_ctx, &step_ctx) == Ok(true)
+            })
+    });
+    if !runs_verdict {
+        problems.push("macos-tests does not check MACHINES=success".to_string());
+    }
+}
+
 fn extract_gha_expressions(text: &str) -> Result<Vec<&str>, &'static str> {
     let mut exprs = Vec::new();
     let mut rest = text;
@@ -289,152 +382,530 @@ fn extract_gha_expressions(text: &str) -> Result<Vec<&str>, &'static str> {
     Ok(exprs)
 }
 
-/// Check that `macos-tests.yml`'s top-level `concurrency:` block serializes
-/// scheduled runs across commits without cancelling in-progress runs, while
-/// keeping `schedule` and `workflow_dispatch` in separate slots and disallowing
-/// any per-run or per-commit expression suffix (e.g. `github.run_number`).
-fn check_nightly_concurrency(nightly: &str, problems: &mut Vec<String>) {
-    let conc = match workflow::nested_map(nightly, &["concurrency"]) {
-        Some(YamlMap::Entries(map)) => map,
-        Some(YamlMap::Unreadable(raw)) => {
-            problems.push(format!(
-                "macos-tests.yml concurrency is unreadable: `{raw}`"
-            ));
-            return;
-        }
-        None => {
-            problems.push("macos-tests.yml has no workflow concurrency group".to_string());
-            return;
-        }
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ConcurrencyProblem {
+    MissingBlock,
+    UnreadableGroup,
+    MultilineOrEmptyGroup(String),
+    InvalidExpression { group: String, reason: &'static str },
+    SharedSlot(String),
+    DisallowedExpression { group: String, expr: String },
+    CancelInProgressNotFalse,
+}
+
+fn nightly_concurrency_problems(wf: &Workflow) -> Vec<ConcurrencyProblem> {
+    let mut problems = Vec::new();
+    let Some(conc) = &wf.concurrency else {
+        problems.push(ConcurrencyProblem::MissingBlock);
+        return problems;
     };
-    match conc.get("group").and_then(|v| workflow::parse_yaml_scalar(v)) {
-        None => problems.push("macos-tests.yml has no readable workflow concurrency group".to_string()),
-        Some(group) => match extract_gha_expressions(&group) {
-            Err(err) => problems.push(format!(
-                "macos-tests.yml concurrency group `{group}` is invalid: {err}"
-            )),
-            Ok(exprs) if exprs.is_empty() => problems.push(format!(
-                "macos-tests.yml concurrency group `{group}` shares pending slots between schedule and workflow_dispatch"
-            )),
-            Ok(exprs) => {
-                for expr in exprs {
-                    if expr != "github.event_name" {
-                        problems.push(format!(
-                            "macos-tests.yml concurrency group `{group}` uses disallowed expression `{expr}` that can let scheduled runs race"
-                        ));
+    match conc.group.as_ref().and_then(Scalar::as_str) {
+        None => problems.push(ConcurrencyProblem::UnreadableGroup),
+        Some(raw_group) => {
+            let group = raw_group.trim_end_matches('\n');
+            if group.is_empty() || group.contains(['\n', '\r']) {
+                problems.push(ConcurrencyProblem::MultilineOrEmptyGroup(raw_group.into()));
+            }
+            match extract_gha_expressions(group) {
+                Err(reason) => problems.push(ConcurrencyProblem::InvalidExpression {
+                    group: group.to_string(),
+                    reason,
+                }),
+                Ok(exprs) if exprs.is_empty() => {
+                    problems.push(ConcurrencyProblem::SharedSlot(group.to_string()));
+                }
+                Ok(exprs) => {
+                    for expr in exprs {
+                        if expr != "github.event_name" {
+                            problems.push(ConcurrencyProblem::DisallowedExpression {
+                                group: group.to_string(),
+                                expr: expr.to_string(),
+                            });
+                        }
                     }
                 }
             }
-        },
-    }
-    let cancels_false = conc
-        .get("cancel-in-progress")
-        .is_some_and(|v| workflow::parse_yaml_bool(v) == Ok(false));
-    if !cancels_false {
-        problems.push("macos-tests.yml concurrency must set cancel-in-progress: false".to_string());
-    }
-}
-
-/// Check C4 on `macos-tests.yml`: schedule + dispatch share the same test jobs,
-/// and `notify-failure` opens/updates one issue on a failing nightly only.
-fn check_nightly_workflow(nightly: &str, problems: &mut Vec<String>) {
-    if events(nightly) != ["schedule", "workflow_dispatch"] {
-        problems.push(format!(
-            "macos-tests.yml events are {:?}, not [schedule, workflow_dispatch]",
-            events(nightly)
-        ));
-    }
-    check_nightly_concurrency(nightly, problems);
-    match job_of(nightly, "macos-tests.yml", "notify-failure") {
-        Ok(body) => {
-            require_needles(
-                &body,
-                &[
-                    (
-                        "    if: always() && github.event_name == 'schedule' && needs.macos-tests.result != 'success'\n",
-                        "notify-failure condition does not match failing nightly schedule only",
-                    ),
-                    (
-                        "      actions: read\n      issues: write\n",
-                        "notify-failure permissions are not minimal (actions: read, issues: write)",
-                    ),
-                    (
-                        "LABEL: macos-nightly\n",
-                        "notify-failure does not declare its own label",
-                    ),
-                    (
-                        "RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n",
-                        "notify-failure does not pass RUN_URL via env",
-                    ),
-                    (
-                        "actions/runs/${RUN_ID}/jobs",
-                        "notify-failure does not query failed jobs",
-                    ),
-                    (
-                        "issues?labels=${LABEL}&state=open",
-                        "notify-failure does not look up an existing open issue by label",
-                    ),
-                    (
-                        "gh api -X PATCH \"repos/${REPO}/issues/${existing}\"",
-                        "notify-failure does not update an existing open issue",
-                    ),
-                    (
-                        "gh api -X POST \"repos/${REPO}/issues\"",
-                        "notify-failure does not open a new issue when none exists",
-                    ),
-                ],
-                problems,
-            );
-            if body.contains("contents: write") {
-                problems.push("notify-failure asks for contents: write".to_string());
-            }
-            let lookup = body.find(
-                "existing=\"$(gh api --paginate \"repos/${REPO}/issues?labels=${LABEL}&state=open",
-            );
-            let create = body.find("gh api -X POST \"repos/${REPO}/issues\"");
-            if !matches!((lookup, create), (Some(l), Some(c)) if l < c) {
-                problems.push(
-                    "notify-failure does not paginate open issues immediately before creating one"
-                        .to_string(),
-                );
-            }
         }
-        Err(err) => problems.push(err.to_string()),
     }
-}
-
-/// Check C3 and C4 across `macos-test-shards.yml`, `macos-tests.yml`, `ci.yml`
-/// and `release.yml`.
-fn macos_shards_and_nightly_problems(
-    shards: &str,
-    nightly: &str,
-    ci: &str,
-    release: &str,
-) -> Vec<String> {
-    let mut problems = Vec::new();
-    check_reusable_shards(shards, &mut problems);
-    check_nightly_workflow(nightly, &mut problems);
-    for (file, text, wants_cache) in [
-        ("macos-tests.yml", nightly, true),
-        ("ci.yml", ci, true),
-        ("release.yml", release, false),
-    ] {
-        check_shard_caller(file, text, wants_cache, &mut problems);
-    }
-    for id in ["build", "publish"] {
-        match job_of(release, "release.yml", id) {
-            Ok(body)
-                if !needs_of(&body, "release.yml")
-                    .iter()
-                    .any(|n| n == "macos-tests") =>
-            {
-                problems.push(format!("release.yml's {id} does not wait on macos-tests"));
-            }
-            Ok(_) => {}
-            Err(err) => problems.push(err.to_string()),
-        }
+    if conc.cancel_in_progress.as_ref().and_then(Scalar::as_bool) != Some(false) {
+        problems.push(ConcurrencyProblem::CancelInProgressNotFalse);
     }
     problems
+}
+
+const STUB_GH_SCRIPT: &str = r#"#!/usr/bin/env bash
+set -euo pipefail
+[ -n "${GH_TOKEN:-}" ] || { echo "GH_TOKEN is not set" >&2; exit 1; }
+stub_dir="$(cd "$(dirname "$0")" && pwd)"
+log_file="${stub_dir}/calls.jsonl"
+issues_file="${stub_dir}/issues.json"
+[ "${1:-}" = "api" ] || { echo "unexpected gh subcommand: ${1:-}" >&2; exit 2; }
+shift
+m=""; p="false"; j=""; ep=""; has_fields=0
+fields=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -X|--method) m="$2"; shift 2 ;;
+    --method=*) m="${1#--method=}"; shift ;;
+    -X*) m="${1#-X}"; shift ;;
+    --paginate) p="true"; shift ;;
+    --jq|-q) j="$2"; shift 2 ;;
+    --jq=*) j="${1#--jq=}"; shift ;;
+    -f|--raw-field|-F|--field) fields+=("$2"); has_fields=1; shift 2 ;;
+    --raw-field=*) fields+=("${1#--raw-field=}"); has_fields=1; shift ;;
+    --field=*) fields+=("${1#--field=}"); has_fields=1; shift ;;
+    -f*) fields+=("${1#-f}"); has_fields=1; shift ;;
+    -F*) fields+=("${1#-F}"); has_fields=1; shift ;;
+    --input) has_fields=1; shift 2 ;;
+    --input=*) has_fields=1; shift ;;
+    -H|--header) shift 2 ;;
+    --header=*) shift ;;
+    -*) echo "unexpected gh flag: $1" >&2; exit 2 ;;
+    *) [ -z "$ep" ] && ep="$1" || { echo "unexpected extra arg: $1" >&2; exit 2; }; shift ;;
+  esac
+done
+if [ -z "$m" ]; then
+  if [ "$has_fields" -eq 1 ]; then m="POST"; else m="GET"; fi
+fi
+m="$(printf '%s' "$m" | tr '[:lower:]' '[:upper:]')"
+jq -nc --arg method "$m" --argjson paginate "$p" --arg endpoint "$ep" \
+  '{method:$method,paginate:$paginate,endpoint:$endpoint,fields:$ARGS.positional}' \
+  --args -- ${fields[@]+"${fields[@]}"} >> "$log_file"
+out() { if [ -n "$j" ]; then printf '%s\n' "$1" | jq -r "$j"; else printf '%s\n' "$1"; fi; }
+case "$m:$ep" in
+  GET:repos/*/labels/*|PATCH:repos/*/issues/*|POST:repos/*/issues|POST:repos/*/labels) exit 0 ;;
+  GET:repos/*/actions/runs/*/jobs*) out '{"jobs":[{"name":"test (macos-latest) on macos/2","conclusion":"failure","html_url":"https://example.invalid/jobs/2"}]}' ;;
+  GET:repos/*/issues?*) out "$(cat "$issues_file")" ;;
+  *) echo "unexpected gh call: $m $ep" >&2; exit 2 ;;
+esac
+"#;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GhCall {
+    method: String,
+    paginate: bool,
+    endpoint: String,
+    fields: Vec<String>,
+}
+
+struct NotifyScenario {
+    label: &'static str,
+    issues_json: &'static str,
+    expected_patch: Option<&'static str>,
+    expected_posts: usize,
+}
+
+struct RunnableStep<'a> {
+    script: &'a str,
+    env: BTreeMap<String, String>,
+}
+
+fn eval_notify_env_expr(expr: &str, declared_needs: &[String]) -> Result<&'static str, String> {
+    match expr {
+        "github.token" => Ok("stub-github-token"),
+        "github.repository" => Ok("owner/repo"),
+        "github.run_id" => Ok("777"),
+        "github.server_url" => Ok("https://example.invalid"),
+        "github.sha" => Ok("deadbeef"),
+        "github.event_name" => Ok("schedule"),
+        other => {
+            if let Some(job_id) = other
+                .strip_prefix("needs.")
+                .and_then(|r| r.strip_suffix(".result"))
+            {
+                if declared_needs.iter().any(|n| n == job_id) {
+                    return Ok("failure");
+                }
+                return Err(format!(
+                    "references `{other}` without declaring `{job_id}` in needs"
+                ));
+            }
+            Err(format!("uses unsupported env expression `{other}`"))
+        }
+    }
+}
+
+fn expand_notify_env_value(raw: &str, declared_needs: &[String]) -> Result<String, String> {
+    let mut out = String::new();
+    let mut rest = raw;
+    while let Some((before, after_open)) = rest.split_once("${{") {
+        let Some((inner, after_close)) = after_open.split_once("}}") else {
+            return Err(format!("unclosed `${{{{` in env value `{raw}`"));
+        };
+        out.push_str(before);
+        out.push_str(eval_notify_env_expr(inner.trim(), declared_needs)?);
+        rest = after_close;
+    }
+    if rest.contains("}}") {
+        return Err(format!("stray `}}}}` in env value `{raw}`"));
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+fn collect_notify_steps<'a>(
+    wf: &Workflow,
+    job: &'a Job,
+    problems: &mut Vec<String>,
+) -> Vec<RunnableStep<'a>> {
+    let mut job_ctx = ConditionContext::default_ok()
+        .with_event("schedule")
+        .with_prior_succeeded(false);
+    for dep in &job.needs {
+        job_ctx = job_ctx.with_needs_result(dep, "failure");
+    }
+    if job.allows_failure() {
+        problems.push("notify-failure job sets continue-on-error".to_string());
+        return Vec::new();
+    }
+    match job.runs_under(&job_ctx) {
+        Ok(true) => {}
+        Ok(false) => {
+            problems.push("notify-failure job does not run on a failing nightly".to_string());
+            return Vec::new();
+        }
+        Err(err) => {
+            problems.push(format!("notify-failure job condition refused: {err}"));
+            return Vec::new();
+        }
+    }
+    let mut step_ctx = ConditionContext::default_ok().with_event("schedule");
+    for dep in &job.needs {
+        step_ctx = step_ctx.with_needs_result(dep, "failure");
+    }
+    let mut runnable = Vec::new();
+    for step in &job.steps {
+        let Some(script) = step.run.as_deref() else {
+            continue;
+        };
+        match step.runs_under(&step_ctx) {
+            Ok(false) => continue,
+            Err(err) => {
+                problems.push(format!("notify-failure step condition refused: {err}"));
+                return Vec::new();
+            }
+            Ok(true) => {}
+        }
+        if step.allows_failure() {
+            problems.push("notify-failure step sets continue-on-error".to_string());
+            return Vec::new();
+        }
+        let mut env = BTreeMap::new();
+        for layer in [&wf.env, &job.env, &step.env] {
+            for (k, v) in layer {
+                match expand_notify_env_value(v, &job.needs) {
+                    Ok(expanded) => {
+                        env.insert(k.clone(), expanded);
+                    }
+                    Err(reason) => {
+                        problems.push(format!("notify-failure env `{k}` {reason}"));
+                        return Vec::new();
+                    }
+                }
+            }
+        }
+        runnable.push(RunnableStep { script, env });
+    }
+    if runnable.is_empty() {
+        problems.push("notify-failure has no runnable script step".to_string());
+    }
+    runnable
+}
+
+fn verify_notify_scenario(
+    dir: &Path,
+    path_env: &str,
+    steps: &[RunnableStep<'_>],
+    scenario: &NotifyScenario,
+    problems: &mut Vec<String>,
+) {
+    let log_path = dir.join("calls.jsonl");
+    let issues_path = dir.join("issues.json");
+    std::fs::write(&log_path, "").expect("init stub log");
+    std::fs::write(&issues_path, scenario.issues_json).expect("write stub issues");
+    // Runner-provided environment is strictly `PATH` (with the stub `gh` dir
+    // first); every other binding comes from workflow -> job -> step `env:`.
+    for step in steps {
+        let output = Command::new("bash")
+            .args(["-e", "-c", step.script])
+            .env_clear()
+            .env("PATH", path_env)
+            .envs(&step.env)
+            .output()
+            .expect("bash");
+        if !output.status.success() {
+            problems.push(format!(
+                "notify-failure script failed in `{}`",
+                scenario.label
+            ));
+            return;
+        }
+    }
+    let log = std::fs::read_to_string(&log_path).expect("read stub log");
+    let calls: Vec<GhCall> = log
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("parse stub gh jsonl"))
+        .collect();
+    if !calls.iter().any(|c| {
+        c.method == "GET"
+            && c.paginate
+            && c.endpoint
+                .starts_with("repos/owner/repo/actions/runs/777/jobs")
+    }) {
+        problems.push(format!(
+            "notify-failure ({}) did not paginate failed jobs",
+            scenario.label
+        ));
+    }
+    if !calls.iter().any(|c| {
+        c.method == "GET"
+            && c.paginate
+            && c.endpoint
+                .starts_with("repos/owner/repo/issues?labels=macos-nightly&state=open")
+    }) {
+        problems.push(format!(
+            "notify-failure ({}) did not paginate open issue lookup",
+            scenario.label
+        ));
+    }
+    check_notify_mutations(&calls, scenario, problems);
+}
+
+fn check_notify_mutations(calls: &[GhCall], scenario: &NotifyScenario, problems: &mut Vec<String>) {
+    let has_run_body = |fields: &[String]| {
+        fields.iter().any(|f| {
+            f.strip_prefix("body=").is_some_and(|b| {
+                b.contains("https://example.invalid/owner/repo/actions/runs/777")
+                    && b.contains("deadbeef")
+            })
+        })
+    };
+    let patches: Vec<&GhCall> = calls
+        .iter()
+        .filter(|c| {
+            c.method == "PATCH" && !c.paginate && c.endpoint.starts_with("repos/owner/repo/issues/")
+        })
+        .collect();
+    let patch_endpoints: Vec<&str> = patches.iter().map(|c| c.endpoint.as_str()).collect();
+    match scenario.expected_patch {
+        Some(expected) if patch_endpoints != [expected] => problems.push(format!(
+            "notify-failure ({}) patches were {patch_endpoints:?}, expected [{expected:?}]",
+            scenario.label
+        )),
+        Some(_) if !has_run_body(&patches[0].fields) => problems.push(format!(
+            "notify-failure ({}) patch missing expected body fields",
+            scenario.label
+        )),
+        None if !patches.is_empty() => problems.push(format!(
+            "notify-failure ({}) unexpectedly patched {patch_endpoints:?}",
+            scenario.label
+        )),
+        _ => {}
+    }
+    let posts: Vec<&GhCall> = calls
+        .iter()
+        .filter(|c| c.method == "POST" && !c.paginate && c.endpoint == "repos/owner/repo/issues")
+        .collect();
+    if posts.len() != scenario.expected_posts {
+        problems.push(format!(
+            "notify-failure ({}) created {} issue(s), expected {}",
+            scenario.label,
+            posts.len(),
+            scenario.expected_posts
+        ));
+    }
+    for post in posts {
+        if !post.fields.iter().any(|f| f == "labels[]=macos-nightly") {
+            problems.push(format!(
+                "notify-failure ({}) created issue without labels[]=macos-nightly: {:?}",
+                scenario.label, post.fields
+            ));
+        }
+        if !post
+            .fields
+            .iter()
+            .any(|f| f.strip_prefix("title=").is_some_and(|t| !t.is_empty()))
+        {
+            problems.push(format!(
+                "notify-failure ({}) created issue without title",
+                scenario.label
+            ));
+        }
+        if !has_run_body(&post.fields) {
+            problems.push(format!(
+                "notify-failure ({}) created issue without expected body",
+                scenario.label
+            ));
+        }
+    }
+}
+
+fn run_notify_failure_behavior(wf: &Workflow, job: &Job, problems: &mut Vec<String>) {
+    let steps = collect_notify_steps(wf, job, problems);
+    if steps.is_empty() {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir for notify-failure stub");
+    let gh_path = dir.path().join("gh");
+    std::fs::write(&gh_path, STUB_GH_SCRIPT).expect("write stub gh");
+    std::fs::set_permissions(&gh_path, std::fs::Permissions::from_mode(0o755))
+        .expect("chmod stub gh");
+    let path_env = format!(
+        "{}:{}",
+        dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let scenarios = [
+        NotifyScenario {
+            label: "existing-open-issue",
+            issues_json: r#"[{"number":10,"pull_request":{}},{"number":99},{"number":42}]"#,
+            expected_patch: Some("repos/owner/repo/issues/42"),
+            expected_posts: 0,
+        },
+        NotifyScenario {
+            label: "no-open-issue",
+            issues_json: "[]",
+            expected_patch: None,
+            expected_posts: 1,
+        },
+    ];
+    for scenario in &scenarios {
+        verify_notify_scenario(dir.path(), &path_env, &steps, scenario, problems);
+    }
+}
+
+fn check_nightly_workflow(nightly: &str, problems: &mut Vec<String>) {
+    let Some(wf) = parse_or_problem("macos-tests.yml", nightly, problems) else {
+        return;
+    };
+    if wf.event_names() != ["schedule", "workflow_dispatch"]
+        || !wf
+            .event("schedule")
+            .is_some_and(EventTrigger::has_active_schedule)
+        || wf.unfiltered_event("workflow_dispatch").is_none()
+    {
+        problems.push(format!(
+            "macos-tests.yml events/schedule invalid: {:?}",
+            wf.events
+        ));
+    }
+    for p in nightly_concurrency_problems(&wf) {
+        problems.push(format!("{p:?}"));
+    }
+    let job = match wf.require_job("macos-tests.yml", "notify-failure") {
+        Ok(job) => job,
+        Err(err) => {
+            problems.push(err.to_string());
+            return;
+        }
+    };
+    check_notify_job_gate(job, problems);
+    let expected_perms = Permissions::Scopes(BTreeMap::from([
+        ("actions".to_string(), "read".to_string()),
+        ("issues".to_string(), "write".to_string()),
+    ]));
+    if job.permissions.as_ref() != Some(&expected_perms) {
+        problems.push(
+            "notify-failure permissions are not minimal (actions: read, issues: write)".to_string(),
+        );
+    }
+    run_notify_failure_behavior(&wf, job, problems);
+}
+
+fn check_notify_job_gate(job: &Job, problems: &mut Vec<String>) {
+    let ctx_for = |event: &str, verdict: &str, prior_ok: bool| {
+        let mut ctx = ConditionContext::default_ok()
+            .with_event(event)
+            .with_prior_succeeded(prior_ok);
+        for dep in &job.needs {
+            ctx = ctx.with_needs_result(dep, verdict);
+        }
+        ctx
+    };
+    let gate_ok = job.needs.iter().any(|n| n == "macos-tests")
+        && job.runs_under(&ctx_for("schedule", "failure", false)) == Ok(true)
+        && job.runs_under(&ctx_for("schedule", "cancelled", false)) == Ok(true)
+        && job.runs_under(&ctx_for("schedule", "success", true)) == Ok(false)
+        && job.runs_under(&ctx_for("workflow_dispatch", "failure", false)) == Ok(false);
+    if !gate_ok {
+        problems.push(
+            "notify-failure condition does not match failing nightly schedule only".to_string(),
+        );
+    }
+}
+
+#[derive(Clone)]
+struct ShardWorkflows {
+    shards: String,
+    nightly: String,
+    ci: String,
+    release: String,
+}
+
+impl ShardWorkflows {
+    fn load() -> Self {
+        let root = workspace();
+        let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap();
+        Self {
+            shards: read(".github/workflows/macos-test-shards.yml"),
+            nightly: read(".github/workflows/macos-tests.yml"),
+            ci: read(".github/workflows/ci.yml"),
+            release: read(".github/workflows/release.yml"),
+        }
+    }
+
+    fn problems(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+        check_reusable_shards(&self.shards, &mut problems);
+        check_nightly_workflow(&self.nightly, &mut problems);
+        for (file, text, wants_cache, events) in [
+            (
+                "macos-tests.yml",
+                self.nightly.as_str(),
+                true,
+                &["schedule", "workflow_dispatch"][..],
+            ),
+            ("ci.yml", self.ci.as_str(), true, &["workflow_dispatch"][..]),
+            ("release.yml", self.release.as_str(), false, &["push"][..]),
+        ] {
+            check_shard_caller(file, text, wants_cache, events, &mut problems);
+        }
+        if let Some(release_wf) = parse_or_problem("release.yml", &self.release, &mut problems) {
+            for id in ["build", "publish"] {
+                match release_wf.require_job("release.yml", id) {
+                    Ok(job) if !job.needs.iter().any(|n| n == "macos-tests") => {
+                        problems.push(format!("release.yml's {id} does not wait on macos-tests"));
+                    }
+                    Ok(_) => {}
+                    Err(err) => problems.push(err.to_string()),
+                }
+            }
+        }
+        problems
+    }
+
+    fn with_nightly(&self, nightly: String) -> Self {
+        Self {
+            nightly,
+            ..self.clone()
+        }
+    }
+    fn with_shards(&self, shards: String) -> Self {
+        Self {
+            shards,
+            ..self.clone()
+        }
+    }
+    fn with_ci(&self, ci: String) -> Self {
+        Self { ci, ..self.clone() }
+    }
+    fn with_release(&self, release: String) -> Self {
+        Self {
+            release,
+            ..self.clone()
+        }
+    }
 }
 
 #[test]
@@ -443,212 +914,372 @@ fn pull_request_path_replaces_macos_shards_with_macos_build() {
     assert_eq!(ci_macos_split_problems(&ci), Vec::<String>::new());
 
     let mut_no_run = ci.replacen("--locked --no-run", "--locked", 1);
-    assert!(
-        !ci_macos_split_problems(&mut_no_run).is_empty(),
-        "dropping --no-run from build-macos must fail"
+    assert!(!ci_macos_split_problems(&mut_no_run).is_empty());
+    let mut_perm = ci.replacen(
+        "permissions:\n  contents: read\n",
+        "permissions:\n  contents: read\n  issues: write\n",
+        1,
     );
-    let mut_perm = format!("{ci}\n# issues: write\n");
-    assert!(
-        !ci_macos_split_problems(&mut_perm).is_empty(),
-        "adding issues: write to ci.yml must fail"
-    );
-}
+    assert_ne!(mut_perm, ci);
+    assert!(!ci_macos_split_problems(&mut_perm).is_empty());
 
-fn shard_workflows() -> (String, String, String, String) {
-    let root = workspace();
-    let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap();
-    (
-        read(".github/workflows/macos-test-shards.yml"),
-        read(".github/workflows/macos-tests.yml"),
-        read(".github/workflows/ci.yml"),
-        read(".github/workflows/release.yml"),
-    )
+    for filter in ["    paths: [crates/**]\n", "    branches: [other]\n"] {
+        let filtered = ci.replacen(
+            "  pull_request:\n    types: [opened, synchronize, reopened]\n",
+            &format!("  pull_request:\n    types: [opened, synchronize, reopened]\n{filter}"),
+            1,
+        );
+        assert_ne!(filtered, ci);
+        assert!(ci_macos_split_problems(&filtered)
+            .iter()
+            .any(|p| p.contains("unfiltered on pull_request")));
+    }
+
+    let key_macos = ci.replacen(
+        "  engine:\n    name: test (ubuntu-latest)\n",
+        "  engine:\n    name: test (ubuntu-latest)\n    env:\n      MACOS_HOST: '1'\n",
+        1,
+    );
+    assert_ne!(key_macos, ci);
+    assert!(ci_macos_split_problems(&key_macos)
+        .iter()
+        .any(|p| p.contains("engine still mentions macOS")));
+
+    for bypass in [
+        "        if: false\n",
+        "        continue-on-error: true\n",
+        "        if: vars.ENABLE_BUILD\n",
+    ] {
+        let bypassed = ci.replacen(
+            "      - name: workspace and test targets compile on macOS\n",
+            &format!("      - name: workspace and test targets compile on macOS\n{bypass}"),
+            1,
+        );
+        assert_ne!(bypassed, ci);
+        assert!(ci_macos_split_problems(&bypassed)
+            .iter()
+            .any(|p| p.contains("compile all workspace test targets")));
+    }
 }
 
 #[test]
 fn macos_test_shards_run_nightly_on_dispatch_and_in_release_with_failure_issue() {
-    let (shards, nightly, ci, release) = shard_workflows();
-    assert_eq!(
-        macos_shards_and_nightly_problems(&shards, &nightly, &ci, &release),
-        Vec::<String>::new()
-    );
+    let wfs = ShardWorkflows::load();
+    assert_eq!(wfs.problems(), Vec::<String>::new());
 
-    let mut_release_pub = release.replacen("needs: [build, macos-tests]", "needs: build", 1);
-    assert!(
-        !macos_shards_and_nightly_problems(&shards, &nightly, &ci, &mut_release_pub).is_empty(),
-        "release publish not waiting on macos-tests must fail"
-    );
-    let mut_nightly_cond = nightly.replacen(
+    let mut_release_pub = wfs
+        .release
+        .replacen("needs: [build, macos-tests]", "needs: build", 1);
+    assert!(!wfs.with_release(mut_release_pub).problems().is_empty());
+
+    let mut_nightly_cond = wfs.nightly.replacen(
         "github.event_name == 'schedule' && needs.macos-tests.result != 'success'",
         "github.event_name == 'schedule'",
         1,
     );
-    assert!(
-        !macos_shards_and_nightly_problems(&shards, &mut_nightly_cond, &ci, &release).is_empty(),
-        "notify-failure running on a passing nightly must fail"
-    );
+    assert_ne!(mut_nightly_cond, wfs.nightly);
+    assert!(!wfs.with_nightly(mut_nightly_cond).problems().is_empty());
 
-    let mut_no_machine = shards.replacen(
+    for empty_sched in ["  schedule: []\n", "  schedule:\n"] {
+        let no_cron =
+            wfs.nightly
+                .replacen("  schedule:\n    - cron: '17 4 * * *'\n", empty_sched, 1);
+        assert_ne!(no_cron, wfs.nightly);
+        assert!(wfs
+            .with_nightly(no_cron)
+            .problems()
+            .iter()
+            .any(|p| p.contains("events/schedule invalid")));
+    }
+
+    let mut_no_machine = wfs.shards.replacen(
         "        env:\n          BROKKR_TEST_MACHINE: ${{ matrix.machine }}\n",
         "",
         1,
     );
-    assert_ne!(mut_no_machine, shards);
-    let machine_problems =
-        macos_shards_and_nightly_problems(&mut_no_machine, &nightly, &ci, &release);
-    assert!(
-        machine_problems
+    assert_ne!(mut_no_machine, wfs.shards);
+    assert!(wfs
+        .with_shards(mut_no_machine)
+        .problems()
+        .iter()
+        .any(|p| p.contains("BROKKR_TEST_MACHINE")));
+
+    for bypass in [
+        "        if: false\n",
+        "        if: matrix.machine == 'macos/1'\n",
+        "        if: vars.RUN_SHARDS\n",
+        "        continue-on-error: true\n",
+    ] {
+        let shard_mut = wfs.shards.replacen(
+            "      - run: bash scripts/test-shards.sh test --parallel-heaps\n",
+            &format!("      - run: bash scripts/test-shards.sh test --parallel-heaps\n{bypass}"),
+            1,
+        );
+        assert!(wfs
+            .with_shards(shard_mut)
+            .problems()
             .iter()
-            .any(|p| p.contains("BROKKR_TEST_MACHINE")),
-        "removing BROKKR_TEST_MACHINE must fail naming it: {machine_problems:?}"
-    );
+            .any(|p| p.contains("shard step lost")));
+        let bundle_mut = wfs.shards.replacen(
+            "      - name: self and verify bundles compile under the constitutional lint\n",
+            &format!(
+                "      - name: self and verify bundles compile under the constitutional lint\n{bypass}"
+            ),
+            1,
+        );
+        assert!(wfs
+            .with_shards(bundle_mut)
+            .problems()
+            .iter()
+            .any(|p| p.contains("recipes/self compile")));
+    }
 
-    let mut_sha_group = nightly.replacen(
-        "  group: macos-tests-${{ github.event_name }}\n",
-        "  group: macos-tests-${{ github.sha }}\n",
-        1,
-    );
-    assert_ne!(mut_sha_group, nightly);
-    assert!(
-        !macos_shards_and_nightly_problems(&shards, &mut_sha_group, &ci, &release).is_empty(),
-        "per-commit concurrency group on macos-tests.yml must fail"
-    );
-
-    let mut_shared_group = nightly.replacen(
-        "  group: macos-tests-${{ github.event_name }}\n",
-        "  group: macos-tests\n",
-        1,
-    );
-    assert_ne!(mut_shared_group, nightly);
-    assert!(
-        !macos_shards_and_nightly_problems(&shards, &mut_shared_group, &ci, &release).is_empty(),
-        "shared concurrency group across schedule and dispatch must fail"
-    );
-
-    let mut_unpaginated = nightly.replacen(
+    let mut_unpaginated = wfs.nightly.replacen(
         "existing=\"$(gh api --paginate \"repos/${REPO}/issues?labels=${LABEL}&state=open",
         "existing=\"$(gh api \"repos/${REPO}/issues?labels=${LABEL}&state=open",
         1,
     );
-    assert_ne!(mut_unpaginated, nightly);
-    assert!(
-        !macos_shards_and_nightly_problems(&shards, &mut_unpaginated, &ci, &release).is_empty(),
-        "unpaginated nightly issue lookup must fail"
-    );
+    assert_ne!(mut_unpaginated, wfs.nightly);
+    assert!(!wfs.with_nightly(mut_unpaginated).problems().is_empty());
 
-    let missing = job_of(&ci, "ci.yml", "no-such-job").unwrap_err();
+    let wf = Workflow::parse(&wfs.ci).expect("ci.yml parses");
+    let missing = wf.require_job("ci.yml", "no-such-job").unwrap_err();
     assert_eq!(
         missing,
-        JobLookupError::Missing {
+        WorkflowError::MissingJob {
             file: "ci.yml".to_string(),
-            id: "no-such-job".to_string(),
+            id: "no-such-job".to_string()
         }
     );
     assert_eq!(missing.to_string(), "ci.yml has no no-such-job job");
 }
 
 #[test]
-fn nightly_concurrency_rejects_per_run_suffixes_and_cache_input_is_parsed_structurally() {
-    let (shards, nightly, ci, release) = shard_workflows();
+fn nightly_concurrency_and_notify_script_hold_under_yaml_variants() {
+    let wfs = ShardWorkflows::load();
 
-    for bad_group in [
-        "macos-tests-${{ github.event_name }}-${{ github.run_number }}",
-        "macos-tests-${{ github.event_name }}-${{ github.run_attempt }}",
-        "macos-tests-${{ github.event_name }}-${{ github.sha }}",
-        "macos-tests-${{ github.event_name || github.run_number }}",
+    let shared = wfs.nightly.replacen(
+        "  group: macos-tests-${{ github.event_name }}\n",
+        "  group: macos-tests\n",
+        1,
+    );
+    assert_eq!(
+        nightly_concurrency_problems(&Workflow::parse(&shared).unwrap()),
+        vec![ConcurrencyProblem::SharedSlot("macos-tests".to_string())]
+    );
+
+    for (bad_group, group, expr) in [
+        (
+            "  group: macos-tests-${{ github.sha }}\n",
+            "macos-tests-${{ github.sha }}",
+            "github.sha",
+        ),
+        (
+            "  group: macos-tests-${{ github.event_name }}-${{ github.run_number }}\n",
+            "macos-tests-${{ github.event_name }}-${{ github.run_number }}",
+            "github.run_number",
+        ),
+        (
+            "  group: macos-tests-${{ github.event_name }}-${{ github.run_attempt }}\n",
+            "macos-tests-${{ github.event_name }}-${{ github.run_attempt }}",
+            "github.run_attempt",
+        ),
+        (
+            "  group: macos-tests-${{ github.event_name }}-${{ github.sha }}\n",
+            "macos-tests-${{ github.event_name }}-${{ github.sha }}",
+            "github.sha",
+        ),
+        (
+            "  group: macos-tests-${{ github.event_name || github.run_number }}\n",
+            "macos-tests-${{ github.event_name || github.run_number }}",
+            "github.event_name || github.run_number",
+        ),
+        (
+            "  group: >-\n    macos-tests-${{ github.event_name }}-${{ github.sha }}\n",
+            "macos-tests-${{ github.event_name }}-${{ github.sha }}",
+            "github.sha",
+        ),
+        (
+            "  group: >\n    macos-tests-${{ github.event_name }}-${{ github.sha }}\n",
+            "macos-tests-${{ github.event_name }}-${{ github.sha }}",
+            "github.sha",
+        ),
+        (
+            "  group: macos-tests-${{ github.event_name }}\n    -${{ github.sha }}\n",
+            "macos-tests-${{ github.event_name }} -${{ github.sha }}",
+            "github.sha",
+        ),
     ] {
-        let mut_group = nightly.replacen(
+        let mutated = wfs.nightly.replacen(
             "  group: macos-tests-${{ github.event_name }}\n",
-            &format!("  group: {bad_group}\n"),
+            bad_group,
             1,
         );
-        assert_ne!(mut_group, nightly);
-        assert!(
-            !macos_shards_and_nightly_problems(&shards, &mut_group, &ci, &release).is_empty(),
-            "concurrency group `{bad_group}` must fail"
+        assert_ne!(mutated, wfs.nightly);
+        assert_eq!(
+            nightly_concurrency_problems(&Workflow::parse(&mutated).unwrap()),
+            vec![ConcurrencyProblem::DisallowedExpression {
+                group: group.to_string(),
+                expr: expr.to_string(),
+            }]
         );
     }
 
-    let mut_comment_conc = nightly.replacen("concurrency:\n", "concurrency: # serialize\n", 1);
+    let mut_comment_conc = wfs
+        .nightly
+        .replacen("concurrency:\n", "concurrency: # serialize\n", 1);
     assert_eq!(
-        macos_shards_and_nightly_problems(&shards, &mut_comment_conc, &ci, &release),
+        wfs.with_nightly(mut_comment_conc).problems(),
         Vec::<String>::new()
     );
-
-    let mut_cancel_true = nightly.replacen(
+    let mut_cancel_true = wfs.nightly.replacen(
         "  cancel-in-progress: false\n",
         "  cancel-in-progress: true\n",
         1,
     );
-    assert!(
-        !macos_shards_and_nightly_problems(&shards, &mut_cancel_true, &ci, &release).is_empty(),
-        "cancel-in-progress: true must fail"
+    assert_eq!(
+        nightly_concurrency_problems(&Workflow::parse(&mut_cancel_true).unwrap()),
+        vec![ConcurrencyProblem::CancelInProgressNotFalse]
     );
+}
 
-    let mut_ci_comment_only = ci.replacen(
+#[test]
+fn notify_failure_harness_enforces_gh_fields_methods_conditions_and_workflow_env() {
+    let wfs = ShardWorkflows::load();
+
+    // Unconditional issue create after update branch, both with `-X POST` and
+    // with fields-only (implicit POST in `gh api`).
+    for create_call in [
+        "            gh api -X POST \"repos/${REPO}/issues\" \\\n",
+        "            gh api \"repos/${REPO}/issues\" \\\n",
+    ] {
+        let mut_uncond = wfs
+            .nightly
+            .replacen(
+                "          if [ -n \"$existing\" ]; then\n            gh api -X PATCH \"repos/${REPO}/issues/${existing}\" -f body=\"$body\" >/dev/null\n          else\n            gh api -X POST \"repos/${REPO}/issues\" \\\n",
+                &format!("          if [ -n \"$existing\" ]; then\n            gh api -X PATCH \"repos/${{REPO}}/issues/${{existing}}\" -f body=\"$body\" >/dev/null\n          fi\n{create_call}"),
+                1,
+            )
+            .replacen(
+                "              -f \"labels[]=${LABEL}\" >/dev/null\n          fi\n",
+                "              -f \"labels[]=${LABEL}\" >/dev/null\n",
+                1,
+            );
+        assert_ne!(mut_uncond, wfs.nightly);
+        let problems = wfs.with_nightly(mut_uncond).problems();
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("created 1 issue(s), expected 0")),
+            "duplicate create `{create_call}` must fail: {problems:?}"
+        );
+    }
+
+    let no_label = wfs.nightly.replacen(
+        "              -f body=\"$body\" \\\n              -f \"labels[]=${LABEL}\" >/dev/null\n",
+        "              -f body=\"$body\" >/dev/null\n",
+        1,
+    );
+    assert_ne!(no_label, wfs.nightly);
+    assert!(wfs
+        .with_nightly(no_label)
+        .problems()
+        .iter()
+        .any(|p| p.contains("without labels[]=macos-nightly")));
+
+    for dropped in [
+        "          REPO: ${{ github.repository }}\n",
+        "          GH_TOKEN: ${{ github.token }}\n",
+        "          VERDICT: ${{ needs.macos-tests.result }}\n",
+    ] {
+        let mutated = wfs.nightly.replacen(dropped, "", 1);
+        assert_ne!(mutated, wfs.nightly);
+        assert!(
+            !wfs.with_nightly(mutated).problems().is_empty(),
+            "dropping `{dropped}` must fail"
+        );
+    }
+    let dropped_needs = wfs.nightly.replacen(
+        "    needs: [macos-machines, macos-tests]\n",
+        "    needs: [macos-machines]\n",
+        1,
+    );
+    assert!(!wfs.with_nightly(dropped_needs).problems().is_empty());
+
+    for bypass in ["        if: false\n", "        continue-on-error: true\n"] {
+        let mutated = wfs.nightly.replacen(
+            "      - name: open or update the nightly macOS failure issue\n",
+            &format!("      - name: open or update the nightly macOS failure issue\n{bypass}"),
+            1,
+        );
+        assert!(!wfs.with_nightly(mutated).problems().is_empty());
+    }
+
+    let lifted_env = wfs
+        .nightly
+        .replacen(
+            "permissions:\n",
+            "env:\n  LABEL: macos-nightly\n\npermissions:\n",
+            1,
+        )
+        .replacen("          LABEL: macos-nightly\n", "", 1);
+    assert_eq!(
+        wfs.with_nightly(lifted_env).problems(),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn cache_input_is_parsed_structurally_across_callers() {
+    let wfs = ShardWorkflows::load();
+
+    let mut_ci_comment = wfs.ci.replacen(
         "    with:\n      use-cache: true\n",
         "    # use-cache: true\n",
         1,
     );
-    assert_ne!(mut_ci_comment_only, ci);
-    assert!(
-        !macos_shards_and_nightly_problems(&shards, &nightly, &mut_ci_comment_only, &release)
-            .is_empty(),
-        "a comment `# use-cache: true` must not satisfy ci.yml's warm cache requirement"
-    );
+    assert!(!wfs.with_ci(mut_ci_comment).problems().is_empty());
 
-    let mut_ci_spaced = ci.replacen(
+    let mut_ci_spaced = wfs.ci.replacen(
         "      use-cache: true\n",
         "      use-cache:  true # warm\n",
         1,
     );
-    assert_eq!(
-        macos_shards_and_nightly_problems(&shards, &nightly, &mut_ci_spaced, &release),
-        Vec::<String>::new(),
-        "valid extra spacing on use-cache: true in ci.yml must pass"
-    );
+    assert_eq!(wfs.with_ci(mut_ci_spaced).problems(), Vec::<String>::new());
 
-    let mut_release_comment = release.replacen(
+    let mut_release_comment = wfs.release.replacen(
         "    uses: ./.github/workflows/macos-test-shards.yml\n",
         "    uses: ./.github/workflows/macos-test-shards.yml\n    # use-cache: true\n",
         1,
     );
     assert_eq!(
-        macos_shards_and_nightly_problems(&shards, &nightly, &ci, &mut_release_comment),
-        Vec::<String>::new(),
-        "a comment mentioning use-cache: true in release.yml does not enable caching"
+        wfs.with_release(mut_release_comment).problems(),
+        Vec::<String>::new()
     );
 
     for bad_release_with in [
         "    with:\n      use-cache:  true\n",
+        "    with:\n      Use-Cache: true\n",
         "    with:\n      use-cache: true # warm\n",
         "    with:\n      use-cache: 'true'\n",
         "    with: { use-cache: true }\n",
     ] {
-        let mut_release = release.replacen(
+        let mut_release = wfs.release.replacen(
             "    uses: ./.github/workflows/macos-test-shards.yml\n",
             &format!("    uses: ./.github/workflows/macos-test-shards.yml\n{bad_release_with}"),
             1,
         );
-        assert!(
-            !macos_shards_and_nightly_problems(&shards, &nightly, &ci, &mut_release).is_empty(),
-            "release.yml with `{}` must fail",
-            bad_release_with.trim()
-        );
+        assert!(!wfs.with_release(mut_release).problems().is_empty());
     }
 
-    let mut_ci_quoted = ci.replacen("      use-cache: true\n", "      use-cache: 'true'\n", 1);
-    assert!(
-        !macos_shards_and_nightly_problems(&shards, &nightly, &mut_ci_quoted, &release).is_empty(),
-        "quoted use-cache: 'true' in ci.yml must fail"
-    );
-
+    let mut_ci_quoted = wfs
+        .ci
+        .replacen("      use-cache: true\n", "      use-cache: 'true'\n", 1);
+    assert!(!wfs.with_ci(mut_ci_quoted).problems().is_empty());
     let mut_default_true =
-        shards.replacen("        default: false\n", "        default: true\n", 1);
-    assert!(
-        !macos_shards_and_nightly_problems(&mut_default_true, &nightly, &ci, &release).is_empty(),
-        "macos-test-shards.yml defaulting use-cache to true must fail"
-    );
+        wfs.shards
+            .replacen("        default: false\n", "        default: true\n", 1);
+    assert!(!wfs.with_shards(mut_default_true).problems().is_empty());
 }
 
 #[test]
@@ -671,741 +1302,45 @@ fn contributing_records_macos_build_handoff_and_shard_schedule() {
     }
 }
 
-/// Parse the `build` matrix in `release.yml`, returning `(all_names, linux_pkg_names)`.
-fn build_matrix_artifact_names(build_body: &str) -> (BTreeSet<String>, BTreeSet<String>) {
-    let mut all = BTreeSet::new();
-    let mut linux_pkg = BTreeSet::new();
-    for line in build_body.lines().map(str::trim) {
-        let Some(entry) = line.strip_prefix("- {").and_then(|l| l.strip_suffix('}')) else {
-            continue;
-        };
-        let mut name = None;
-        let mut has_nfpm = false;
-        for pair in entry.split(',') {
-            let Some((k, v)) = pair.split_once(':') else {
-                continue;
-            };
-            match k.trim() {
-                "name" => name = workflow::parse_yaml_literal(v),
-                "nfpm_arch" => has_nfpm = true,
-                _ => {}
-            }
-        }
-        if let Some(name) = name {
-            if has_nfpm {
-                linux_pkg.insert(name.clone());
-            }
-            all.insert(name);
-        }
-    }
-    (all, linux_pkg)
-}
-
-/// Extract readable steps from a parsed job, pushing problems for any
-/// unreadable job, `steps:` block, or individual step.
-fn readable_steps<'a>(
-    source: &str,
-    job_id: &str,
-    job: &'a ParsedJob,
-    problems: &mut Vec<String>,
-) -> &'a [ParsedStep] {
-    if let Some(reason) = &job.unreadable {
-        problems.push(format!("{source}'s {job_id} is unreadable: {reason}"));
-    }
-    match &job.steps {
-        None => &[],
-        Some(ParsedSteps::Unreadable(reason)) => {
-            problems.push(format!(
-                "{source}'s {job_id} has unreadable steps: {reason}"
-            ));
-            &[]
-        }
-        Some(ParsedSteps::Items(steps)) => {
-            for step in steps {
-                if let Some(reason) = &step.unreadable {
-                    problems.push(format!("{source}'s {job_id} has unreadable step: {reason}"));
-                }
-            }
-            steps.as_slice()
-        }
-    }
-}
-
-/// Extract local reusable workflows called at job level, recording problems for
-/// any unparseable or external reusable workflow `uses:`.
-fn called_workflows_in(
-    source: &str,
-    workflow_text: &str,
-    problems: &mut Vec<String>,
-) -> Vec<String> {
-    let mut called = Vec::new();
-    for (job_id, body) in workflow::jobs(workflow_text) {
-        let job = workflow::parse_job(&body);
-        let Some(raw_uses) = job.uses else {
-            continue;
-        };
-        match workflow::parse_yaml_literal(&raw_uses) {
-            None => problems.push(format!(
-                "{source}'s {job_id} has unparseable reusable workflow uses `{raw_uses}`"
-            )),
-            Some(target) => match target
-                .strip_prefix("./")
-                .filter(|path| path.starts_with(".github/workflows/"))
-            {
-                Some(path) => called.push(path.to_string()),
-                None => problems.push(format!(
-                    "{source}'s {job_id} calls external workflow `{target}`, whose uploads are not checked"
-                )),
-            },
-        }
-    }
-    called
-}
-
-/// Check that a `download-artifact` step's `with:` keys stay within
-/// `{name, path}`, rejecting cross-run selectors (`run-id`, `repository`,
-/// `github-token`), `pattern`, `merge-multiple`, and any unknown input.
-fn check_download_with_keys(
-    job_id: &str,
-    with: &BTreeMap<String, String>,
-    problems: &mut Vec<String>,
-) {
-    for key in with.keys() {
-        match key.as_str() {
-            "name" | "path" => {}
-            "pattern" => problems.push(format!(
-                "release.yml's {job_id} downloads artifacts by pattern instead of exact build name"
-            )),
-            "merge-multiple" => problems.push(format!(
-                "release.yml's {job_id} uses merge-multiple instead of exact build artifact names"
-            )),
-            "run-id" | "repository" | "github-token" => problems.push(format!(
-                "release.yml's {job_id} sets `{key}` on download-artifact, which selects artifacts outside the current run"
-            )),
-            other => problems.push(format!(
-                "release.yml's {job_id} sets unexpected download-artifact input `{other}`"
-            )),
-        }
-    }
-}
-
-/// Check that `release.yml`'s `build` job unconditionally uploads exactly
-/// `${{ matrix.name }}` via `actions/upload-artifact` for every matrix row.
-fn check_build_uploads(build_job: &ParsedJob, problems: &mut Vec<String>) {
-    if let Some(cond) = &build_job.if_cond {
-        problems.push(format!(
-            "release.yml's build job is conditional (`{cond}`) and may skip matrix artifacts"
-        ));
-    }
-    let steps = readable_steps("release.yml", "build", build_job, problems);
-    let mut upload_names = Vec::new();
-    for step in steps {
-        let Some(raw_uses) = step.uses.as_deref() else {
-            continue;
-        };
-        match workflow::action_repo_match(raw_uses, "actions/upload-artifact") {
-            None => problems.push(format!(
-                "release.yml's build step has unparseable uses `{raw_uses}`"
-            )),
-            Some(ActionMatch::Other) => continue,
-            Some(ActionMatch::SubAction(sub)) => {
-                problems.push(format!(
-                    "release.yml's build uses `{sub}` instead of `actions/upload-artifact`"
-                ));
-                upload_names.push(None);
-                continue;
-            }
-            Some(ActionMatch::Exact) => {}
-        }
-        if let Some(cond) = &step.if_cond {
-            problems.push(format!(
-                "release.yml's build upload step is conditional (`{cond}`) and may skip matrix artifacts"
-            ));
-        }
-        match &step.with {
-            Some(YamlMap::Entries(with)) => {
-                let name = with
-                    .get("name")
-                    .and_then(|raw| workflow::parse_yaml_scalar(raw));
-                upload_names.push(name);
-            }
-            Some(YamlMap::Unreadable(raw)) => {
-                problems.push(format!(
-                    "release.yml's build upload-artifact has unreadable with: `{raw}`"
-                ));
-                upload_names.push(None);
-            }
-            None => upload_names.push(None),
-        }
-    }
-    if upload_names != [Some("${{ matrix.name }}".to_string())] {
-        problems.push(format!(
-            "release.yml's build upload names are {upload_names:?}, expected [Some(\"${{{{ matrix.name }}}}\")]"
-        ));
-    }
-}
-
-/// Check that every `actions/download-artifact` step in `job_id` stays bound to
-/// the current workflow run, selects an exact literal artifact name from
-/// `allowed`, is unconditional when `expected` is required, and matches
-/// `expected`.
-fn check_download_step(
-    job_id: &str,
-    step: &ParsedStep,
-    require_unconditional: bool,
-    allowed: &BTreeSet<String>,
-    seen: &mut BTreeSet<String>,
-    problems: &mut Vec<String>,
-) {
-    if require_unconditional {
-        if let Some(cond) = &step.if_cond {
-            problems.push(format!(
-                "release.yml's {job_id} download step is conditional (`{cond}`) and may skip a required artifact"
-            ));
-        }
-    }
-    let with = match &step.with {
-        Some(YamlMap::Entries(map)) => map,
-        Some(YamlMap::Unreadable(raw)) => {
-            problems.push(format!(
-                "release.yml's {job_id} download-artifact has unreadable with: `{raw}`"
-            ));
-            return;
-        }
-        None => {
-            problems.push(format!(
-                "release.yml's {job_id} downloads all artifacts of the run without an exact name"
-            ));
-            return;
-        }
-    };
-    check_download_with_keys(job_id, with, problems);
-    match with.get("name") {
-        None => problems.push(format!(
-            "release.yml's {job_id} downloads all artifacts of the run without an exact name"
-        )),
-        Some(raw) => match workflow::parse_yaml_literal(raw) {
-            None => problems.push(format!(
-                "release.yml's {job_id} download name `{raw}` is not an exact literal name"
-            )),
-            Some(name) if name.contains(['*', '?', '[']) => problems.push(format!(
-                "release.yml's {job_id} download name `{name}` contains wildcard characters"
-            )),
-            Some(name) => {
-                if !allowed.contains(&name) {
-                    problems.push(format!(
-                        "release.yml's {job_id} downloads `{name}`, which is not an allowed build artifact"
-                    ));
-                }
-                seen.insert(name);
-            }
-        },
-    }
-}
-
-fn check_job_downloads(
-    job_id: &str,
-    job: &ParsedJob,
-    expected: Option<&BTreeSet<String>>,
-    allowed: &BTreeSet<String>,
-    problems: &mut Vec<String>,
-) {
-    if expected.is_some() {
-        if let Some(cond) = &job.if_cond {
-            problems.push(format!(
-                "release.yml's {job_id} job is conditional (`{cond}`) and may skip required downloads"
-            ));
-        }
-    }
-    let steps = readable_steps("release.yml", job_id, job, problems);
-    let mut seen = BTreeSet::new();
-    for step in steps {
-        let Some(raw_uses) = step.uses.as_deref() else {
-            continue;
-        };
-        match workflow::action_repo_match(raw_uses, "actions/download-artifact") {
-            None => problems.push(format!(
-                "release.yml's {job_id} step has unparseable uses `{raw_uses}`"
-            )),
-            Some(ActionMatch::Other) => {}
-            Some(ActionMatch::Exact | ActionMatch::SubAction(_)) => check_download_step(
-                job_id,
-                step,
-                expected.is_some(),
-                allowed,
-                &mut seen,
-                problems,
-            ),
-        }
-    }
-    if let Some(expected) = expected {
-        if &seen != expected {
-            problems.push(format!(
-                "release.yml's {job_id} downloads {seen:?}, expected {expected:?}"
-            ));
-        }
-    }
-}
-
-/// Check that every `actions/upload-artifact` (including sub-actions such as
-/// `actions/upload-artifact/merge`) step in `job` uses a resolved literal name
-/// that cannot collide with any `build` artifact name.
-fn check_non_build_uploads(
-    source: &str,
-    job_id: &str,
-    job: &ParsedJob,
-    build_names: &BTreeSet<String>,
-    problems: &mut Vec<String>,
-) {
-    let steps = readable_steps(source, job_id, job, problems);
-    for step in steps {
-        let Some(raw_uses) = step.uses.as_deref() else {
-            continue;
-        };
-        match workflow::action_repo_match(raw_uses, "actions/upload-artifact") {
-            None => {
-                problems.push(format!(
-                    "{source}'s {job_id} step has unparseable uses `{raw_uses}`"
-                ));
-                continue;
-            }
-            Some(ActionMatch::Other) => continue,
-            Some(ActionMatch::Exact | ActionMatch::SubAction(_)) => {}
-        }
-        let with = match &step.with {
-            Some(YamlMap::Entries(map)) => map,
-            Some(YamlMap::Unreadable(raw)) => {
-                problems.push(format!(
-                    "{source}'s {job_id} upload-artifact has unreadable with: `{raw}`"
-                ));
-                continue;
-            }
-            None => {
-                problems.push(format!("{source}'s {job_id} uploads an unnamed artifact"));
-                continue;
-            }
-        };
-        match with.get("name") {
-            None => problems.push(format!("{source}'s {job_id} uploads an unnamed artifact")),
-            Some(raw) => match workflow::parse_yaml_literal(raw) {
-                None => problems.push(format!(
-                    "{source}'s {job_id} uploads unresolved artifact name `{raw}`"
-                )),
-                Some(name) if build_names.contains(&name) => problems.push(format!(
-                    "{source}'s {job_id} uploads `{name}`, which collides with a build artifact"
-                )),
-                Some(_) => {}
-            },
-        }
-    }
-}
-
-/// H1 (release provenance): `release.yml`'s `publish` job downloads exactly
-/// the artifacts `build` unconditionally uploads by exact matrix name, `pages`
-/// downloads only the Linux package build artifacts by exact name, no job
-/// downloads "all artifacts of the run" or uses a wildcard pattern, and no
-/// upload in another job of `release.yml` or any reusable workflow it calls
-/// (including `actions/upload-artifact/merge` or quoted local calls) can match
-/// the publisher's selection.
-fn release_artifact_provenance_problems(
-    release: &str,
-    called_workflows: &BTreeMap<String, String>,
-) -> Vec<String> {
-    let mut problems = Vec::new();
-    let build_body = match job_of(release, "release.yml", "build") {
-        Ok(body) => body,
-        Err(err) => return vec![err.to_string()],
-    };
-    let build_job = workflow::parse_job(&build_body);
-    check_build_uploads(&build_job, &mut problems);
-    let (build_names, linux_pkg_names) = build_matrix_artifact_names(&build_body);
-    if build_names.is_empty() || linux_pkg_names.is_empty() {
-        problems.push("release.yml's build matrix yielded no artifact names".to_string());
-    }
-    let no_artifacts = BTreeSet::new();
-    let (mut saw_publish, mut saw_pages) = (false, false);
-    for (id, body) in workflow::jobs(release) {
-        let job = workflow::parse_job(&body);
-        if id == "build" {
-            check_job_downloads(
-                "build",
-                &job,
-                Some(&no_artifacts),
-                &no_artifacts,
-                &mut problems,
-            );
-            continue;
-        }
-        check_non_build_uploads("release.yml", &id, &job, &build_names, &mut problems);
-        match id.as_str() {
-            "publish" => {
-                saw_publish = true;
-                check_job_downloads(
-                    "publish",
-                    &job,
-                    Some(&build_names),
-                    &build_names,
-                    &mut problems,
-                );
-            }
-            "pages" => {
-                saw_pages = true;
-                check_job_downloads(
-                    "pages",
-                    &job,
-                    Some(&linux_pkg_names),
-                    &build_names,
-                    &mut problems,
-                );
-            }
-            other => check_job_downloads(other, &job, None, &build_names, &mut problems),
-        }
-    }
-    if !saw_publish {
-        problems.push("release.yml has no publish job".to_string());
-    }
-    if !saw_pages {
-        problems.push("release.yml has no pages job".to_string());
-    }
-    check_called_workflows(release, called_workflows, &build_names, &mut problems);
-    problems
-}
-
-fn check_called_workflows(
-    release: &str,
-    called_workflows: &BTreeMap<String, String>,
-    build_names: &BTreeSet<String>,
-    problems: &mut Vec<String>,
-) {
-    let mut pending = called_workflows_in("release.yml", release, problems);
-    let mut visited = BTreeSet::new();
-    while let Some(path) = pending.pop() {
-        if !visited.insert(path.clone()) {
-            continue;
-        }
-        let Some(text) = called_workflows.get(&path) else {
-            problems.push(format!("release.yml calls {path}, which was not checked"));
-            continue;
-        };
-        for (job_id, body) in workflow::jobs(text) {
-            let job = workflow::parse_job(&body);
-            check_non_build_uploads(&path, &job_id, &job, build_names, problems);
-        }
-        pending.extend(called_workflows_in(&path, text, problems));
-    }
-}
-
-fn release_and_called() -> (String, BTreeMap<String, String>) {
-    let root = workspace();
-    let release = std::fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
-    let mut problems = Vec::new();
-    let mut pending = called_workflows_in("release.yml", &release, &mut problems);
-    assert_eq!(problems, Vec::<String>::new());
-    let mut called = BTreeMap::new();
-    while let Some(path) = pending.pop() {
-        if called.contains_key(&path) {
-            continue;
-        }
-        let text = std::fs::read_to_string(root.join(&path)).unwrap();
-        pending.extend(called_workflows_in(&path, &text, &mut problems));
-        assert_eq!(problems, Vec::<String>::new());
-        called.insert(path, text);
-    }
-    (release, called)
-}
-
-fn with_shard_upload_name(
-    called: &BTreeMap<String, String>,
-    replacement: &str,
-) -> BTreeMap<String, String> {
-    let mut mutated = called.clone();
-    let shards = mutated
-        .get_mut(".github/workflows/macos-test-shards.yml")
-        .unwrap();
-    *shards = shards.replacen(
-        "          name: r3-native-diagnostics\n",
-        &format!("          name: {replacement}\n"),
-        1,
-    );
-    mutated
-}
-
 #[test]
-fn release_publishes_only_build_matrix_artifacts() {
-    let (release, called) = release_and_called();
-    assert!(
-        called.contains_key(".github/workflows/macos-test-shards.yml"),
-        "release.yml must call macos-test-shards.yml"
+fn workflow_reader_checks_mapping_keys_write_implies_read_and_refuses_unknown_conditions() {
+    let wf = Workflow::parse(
+        "on: push\npermissions:\n  contents: write\njobs:\n  BROKKR_FLAKE_PR_TOKEN:\n    runs-on: ubuntu-24.04\n    env:\n      SECRET_KEY_NAME: safe\n",
+    )
+    .expect("parses");
+    let job = wf.job("BROKKR_FLAKE_PR_TOKEN").expect("job");
+    assert!(job.all_scalars.iter().any(|s| s == "BROKKR_FLAKE_PR_TOKEN"));
+    assert!(job.all_scalars.iter().any(|s| s == "SECRET_KEY_NAME"));
+    assert!(wf.grants_permission("contents", "write"));
+    assert!(wf.grants_permission("contents", "read"));
+    assert!(!wf.grants_permission("issues", "read"));
+
+    let ctx = ConditionContext::default_ok()
+        .with_event("pull_request")
+        .with_input("Use-Cache", CondVal::Bool(true));
+    assert_eq!(
+        workflow::evaluate_condition(Some("${{ inputs.use-cache && !false }}"), &ctx),
+        Ok(true)
     );
     assert_eq!(
-        release_artifact_provenance_problems(&release, &called),
-        Vec::<String>::new()
+        workflow::evaluate_condition(Some("contains(github.ref, 'main')"), &ctx),
+        Err(ConditionError::Unsupported {
+            expr: "contains(github.ref, 'main')".to_string(),
+            token: ",".to_string(),
+        })
     );
-
-    let dl = "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        with:\n";
-    let widened_publish = release.replacen(
-        &format!("{dl}          name: brokkr-linux-x86_64\n          path: dist\n"),
-        &format!("{dl}          path: dist\n          merge-multiple: true\n"),
-        1,
-    );
-    assert_ne!(widened_publish, release);
-    assert!(
-        !release_artifact_provenance_problems(&widened_publish, &called).is_empty(),
-        "widening publish to all artifacts must fail"
-    );
-
-    let pattern_publish = release.replacen(
-        "          name: brokkr-linux-x86_64\n",
-        "          pattern: brokkr-*\n",
-        1,
-    );
-    assert_ne!(pattern_publish, release);
-    assert!(
-        !release_artifact_provenance_problems(&pattern_publish, &called).is_empty(),
-        "using a wildcard pattern in publish must fail"
-    );
-
-    let widened_pages = release.replacen(
-        &format!("{dl}          name: brokkr-linux-aarch64\n          path: dist\n      - name: repository tooling"),
-        &format!("{dl}          path: dist\n          merge-multiple: true\n      - name: repository tooling"),
-        1,
-    );
-    assert_ne!(widened_pages, release);
-    assert!(
-        !release_artifact_provenance_problems(&widened_pages, &called).is_empty(),
-        "widening pages to all artifacts must fail"
-    );
-
-    let mut called_extra = called.clone();
-    called_extra
-        .get_mut(".github/workflows/macos-test-shards.yml")
-        .unwrap()
-        .push_str(
-            "      - name: extra diagnostics\n        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2\n        with:\n          name: extra-macos-diagnostics\n          path: target/extra.log\n",
-        );
     assert_eq!(
-        release_artifact_provenance_problems(&release, &called_extra),
-        Vec::<String>::new(),
-        "an extra non-build upload in macos-test-shards.yml cannot reach publish"
+        workflow::evaluate_condition(Some("hashFiles('Cargo.lock')"), &ctx),
+        Err(ConditionError::Unsupported {
+            expr: "hashFiles('Cargo.lock')".to_string(),
+            token: "hashFiles(...)".to_string(),
+        })
     );
-
-    let called_collide = with_shard_upload_name(&called, "brokkr-macos-arm64");
-    assert!(
-        !release_artifact_provenance_problems(&release, &called_collide).is_empty(),
-        "a called workflow uploading a build artifact name must fail"
-    );
-}
-
-#[test]
-fn release_provenance_rejects_build_downloads_cross_run_inputs_and_disguised_uploads() {
-    let (release, called) = release_and_called();
-
-    let attest = "      - name: attest packaged binary and checksum\n";
-    let dl = "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        with:\n";
-    for (label, step) in [
-        (
-            "download-all in build",
-            format!("{dl}          path: dist\n          merge-multiple: true\n"),
-        ),
-        (
-            "named download in build",
-            format!("{dl}          name: brokkr-linux-x86_64\n          path: dist\n"),
-        ),
-    ] {
-        let mutated = release.replacen(attest, &format!("{step}{attest}"), 1);
-        assert_ne!(mutated, release);
-        assert!(
-            !release_artifact_provenance_problems(&mutated, &called).is_empty(),
-            "{label} must fail"
-        );
-    }
-
-    let target_dl = "          name: brokkr-linux-x86_64\n          path: dist\n";
-    for extra_input in [
-        "          run-id: 12345\n",
-        "          repository: other/repo\n",
-        "          github-token: ${{ secrets.GITHUB_TOKEN }}\n",
-        "          artifact-ids: 99\n",
-    ] {
-        let mutated = release.replacen(target_dl, &format!("{target_dl}{extra_input}"), 1);
-        assert_ne!(mutated, release);
-        assert!(
-            !release_artifact_provenance_problems(&mutated, &called).is_empty(),
-            "download-artifact with `{}` must fail",
-            extra_input.trim()
-        );
-    }
-
-    for bad_name in [
-        "\"brokkr-macos-arm64\"",
-        "'brokkr-macos-arm64'",
-        "brokkr-macos-arm64 # diagnostic",
-        "'brokkr-macos-arm64' # diagnostic",
-        "${{ matrix.name }}",
-        "brokkr-${{ matrix.machine }}",
-        "|",
-        "\"brokkr-\\x6dacos-arm64\"",
-    ] {
-        let called_mut = with_shard_upload_name(&called, bad_name);
-        assert!(
-            !release_artifact_provenance_problems(&release, &called_mut).is_empty(),
-            "non-build upload name `{bad_name}` must fail"
-        );
-    }
-
-    let called_ok = with_shard_upload_name(&called, "'r3-native-diagnostics' # human-readable");
     assert_eq!(
-        release_artifact_provenance_problems(&release, &called_ok),
-        Vec::<String>::new()
-    );
-}
-
-#[test]
-fn release_provenance_scans_commented_steps_merge_subactions_and_quoted_calls() {
-    let (release, called) = release_and_called();
-
-    let mut called_commented_steps = with_shard_upload_name(&called, "brokkr-macos-arm64");
-    let shards = called_commented_steps
-        .get_mut(".github/workflows/macos-test-shards.yml")
-        .unwrap();
-    *shards = shards
-        .replacen("    steps:\n", "    steps: # shard steps\n", 1)
-        .replacen("        with:\n", "        with: # upload inputs\n", 1);
-    assert!(
-        !release_artifact_provenance_problems(&release, &called_commented_steps).is_empty(),
-        "colliding upload under `steps: # comment` and `with: # comment` must fail"
-    );
-
-    let mut called_flush_steps = called.clone();
-    let shards_flush = called_flush_steps
-        .get_mut(".github/workflows/macos-test-shards.yml")
-        .unwrap();
-    *shards_flush = shards_flush.replacen(
-        "    steps:\n",
-        "    steps:\n    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2\n      with:\n        name: brokkr-macos-arm64\n        path: target/r3-startup.log\n",
-        1,
-    );
-    assert!(
-        !release_artifact_provenance_problems(&release, &called_flush_steps).is_empty(),
-        "colliding upload at 4-space step indentation must fail"
-    );
-
-    let mut called_merge_collide = called.clone();
-    called_merge_collide
-        .get_mut(".github/workflows/macos-test-shards.yml")
-        .unwrap()
-        .push_str(
-            "      - name: merge diagnostics\n        uses: actions/upload-artifact/merge@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2\n        with:\n          name: brokkr-macos-arm64\n",
-        );
-    assert!(
-        !release_artifact_provenance_problems(&release, &called_merge_collide).is_empty(),
-        "actions/upload-artifact/merge colliding with a build name must fail"
-    );
-
-    let mut called_merge_unnamed = called.clone();
-    called_merge_unnamed
-        .get_mut(".github/workflows/macos-test-shards.yml")
-        .unwrap()
-        .push_str(
-            "      - uses: actions/upload-artifact/merge@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2\n",
-        );
-    assert!(
-        !release_artifact_provenance_problems(&release, &called_merge_unnamed).is_empty(),
-        "unnamed actions/upload-artifact/merge must fail"
-    );
-
-    let mut called_merge_safe = called.clone();
-    called_merge_safe
-        .get_mut(".github/workflows/macos-test-shards.yml")
-        .unwrap()
-        .push_str(
-            "      - uses: actions/upload-artifact/merge@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2\n        with:\n          name: merged-r3-diagnostics\n",
-        );
-    assert_eq!(
-        release_artifact_provenance_problems(&release, &called_merge_safe),
-        Vec::<String>::new(),
-        "actions/upload-artifact/merge with a disjoint literal name cannot reach publish"
-    );
-
-    for quoted_call in [
-        "'./.github/workflows/extra.yml'",
-        "\"./.github/workflows/extra.yml\"",
-        "'./.github/workflows/extra.yml' # extra",
-    ] {
-        let release_with_extra = format!("{release}\n  extra-caller:\n    uses: {quoted_call}\n");
-        assert!(
-            !release_artifact_provenance_problems(&release_with_extra, &called).is_empty(),
-            "unchecked quoted local call `{quoted_call}` must fail"
-        );
-        let mut called_with_extra = called.clone();
-        called_with_extra.insert(
-            ".github/workflows/extra.yml".to_string(),
-            "on:\n  workflow_call:\njobs:\n  sneaky:\n    runs-on: ubuntu-24.04\n    steps: # hidden\n      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n        with:\n          name: brokkr-linux-x86_64\n          path: dist/*\n"
-                .to_string(),
-        );
-        assert!(
-            !release_artifact_provenance_problems(&release_with_extra, &called_with_extra)
-                .is_empty(),
-            "colliding upload in quoted local call `{quoted_call}` must fail"
-        );
-    }
-
-    let release_remote_call = format!(
-        "{release}\n  remote-caller:\n    uses: other/repo/.github/workflows/x.yml@11d5960a326750d5838078e36cf38b85af677262\n"
-    );
-    assert!(
-        !release_artifact_provenance_problems(&release_remote_call, &called).is_empty(),
-        "external reusable workflow call in release.yml must fail"
-    );
-
-    let mut called_flow_with = called.clone();
-    let shards_flow = called_flow_with
-        .get_mut(".github/workflows/macos-test-shards.yml")
-        .unwrap();
-    *shards_flow = shards_flow.replacen(
-        "        with:\n          name: r3-native-diagnostics\n",
-        "        with: { name: brokkr-macos-arm64 }\n",
-        1,
-    );
-    assert!(
-        !release_artifact_provenance_problems(&release, &called_flow_with).is_empty(),
-        "flow-map `with:` on upload-artifact must fail closed"
-    );
-}
-
-#[test]
-fn release_provenance_rejects_conditional_build_uploads_and_downloads() {
-    let (release, called) = release_and_called();
-
-    let conditional_upload = release.replacen(
-        "      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2\n        with:\n",
-        "      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2\n        if: matrix.nfpm_arch\n        with:\n",
-        1,
-    );
-    assert_ne!(conditional_upload, release);
-    let cond_problems = release_artifact_provenance_problems(&conditional_upload, &called);
-    assert!(
-        cond_problems.iter().any(|p| p.contains("conditional")),
-        "conditional build upload skipping macOS artifacts must fail: {cond_problems:?}"
-    );
-
-    let conditional_build_job = release.replacen(
-        "  build:\n    name: build (${{ matrix.name }})\n",
-        "  build:\n    name: build (${{ matrix.name }})\n    if: matrix.nfpm_arch\n",
-        1,
-    );
-    assert!(
-        !release_artifact_provenance_problems(&conditional_build_job, &called).is_empty(),
-        "conditional build job must fail"
-    );
-
-    let conditional_publish_dl = release.replacen(
-        "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        with:\n          name: brokkr-macos-arm64\n",
-        "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        if: false\n        with:\n          name: brokkr-macos-arm64\n",
-        1,
-    );
-    assert!(
-        !release_artifact_provenance_problems(&conditional_publish_dl, &called).is_empty(),
-        "conditional download in publish must fail"
+        workflow::evaluate_condition(Some("needs.missing.result == 'success'"), &ctx),
+        Err(ConditionError::Unbound {
+            expr: "needs.missing.result == 'success'".to_string(),
+            name: "needs.missing.result".to_string(),
+        })
     );
 }
