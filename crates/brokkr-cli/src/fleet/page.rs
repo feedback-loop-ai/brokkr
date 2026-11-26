@@ -337,13 +337,17 @@ impl Behind {
         for key in listed {
             let run_id = resume(&key).1;
             let head = store.head_hash(&run_id)?;
-            let row = match (heads.remove(&run_id), kept.remove(&run_id)) {
-                (Some(at), Some(row))
-                    if !cooling_moved && at == head && answered_alike(store, &run_id, &row) =>
-                {
-                    refresh_row(store, row, head.0, &self.cooling)
-                }
-                _ => {
+            let retained = heads
+                .remove(&run_id)
+                .zip(kept.remove(&run_id))
+                .filter(|(at, row)| {
+                    !cooling_moved && *at == head && answered_alike(store, &run_id, row)
+                })
+                .and_then(|(_, row)| refresh_row(store, row, head.0, &self.cooling).ok());
+            let row = match retained {
+                Some(row) => row,
+                // A damaged head takes the same whole read as a fresh page.
+                None => {
                     let (row, events) = read_keyed(store, &key, &self.cooling)?;
                     read += events;
                     // A run id past its bound names no run, and none is read.

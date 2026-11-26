@@ -150,16 +150,20 @@ impl RunWaits {
     }
 }
 
-/// A kept behind row can gain a new kind at the same head and route end.
-fn refresh_row(store: &Store, row: RunRow, seq: u64, cooling: &[Cooling]) -> RunRow {
+/// Refresh a kept wait at the same head, or let the caller read it whole
+/// when its head's event cannot be read.
+fn refresh_row(
+    store: &Store,
+    row: RunRow,
+    seq: u64,
+    cooling: &[Cooling],
+) -> Result<RunRow, StoreError> {
     if row.waits == Waits::default() {
-        return row;
+        return Ok(row);
     }
-    let fact = match store.last_event(&row.run_id, seq) {
-        Ok(event) => read_rounds(store, &row.run_id, WaitFact::of(event.as_ref())),
-        Err(error) => WaitFact::Unreadable(WaitRefusal::Store(error.to_string())),
-    };
-    row.with_waits(Waits::of(&fact, cooling))
+    let event = store.last_event(&row.run_id, seq)?;
+    let fact = read_rounds(store, &row.run_id, WaitFact::of(event.as_ref()));
+    Ok(row.with_waits(Waits::of(&fact, cooling)))
 }
 
 /// Why a listed run carries no state, and where its citation points.
