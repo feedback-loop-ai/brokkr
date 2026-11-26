@@ -51,6 +51,28 @@ payload hash. Decision 0047 adds explicit, cited residual closure without
 changing the historical outcome. Neither it nor an accepted executor
 decision supplies signed-grant enforcement.
 
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Row 2** keeps `alternative`. Finding: For "the evidence properties:
+  temporal anchoring and integrity are cheap, while ordering, capture"
+  read "the evidence properties: hash anchoring alone gives temporal
+  existence and integrity, while ordering, capture". Citation: For
+  "described in decision 0025" read "described in decision 0025; #602
+  proposes operator-key signed checkpoints (authorized anchoring),
+  unbuilt". (ruled: "approve all the fact and wording fixes")
+- **Row 3** keeps `alternative`. Citation: For "and decision 0034;
+  `crates/brokkr-store/src/seat_record.rs`: bindings use names, captured
+  streams mask known secret encodings, and accounting carries transcript
+  locators instead of bodies; the separate result/inputs/notes" read
+  "and decision 0034; bindings use names (decision 0012);
+  `crates/brokkr-protocol/src/secret/mask.rs` masks known secret
+  encodings in captured streams; `contracts/seat-record.v8.schema.json`:
+  accounting carries a transcript locator, never transcript content; the
+  separate result/inputs/notes". (ruled: "approve all the fact and
+  wording fixes")
+
 ## Candidates
 
 An evidence-property matrix could document what the journal proves and

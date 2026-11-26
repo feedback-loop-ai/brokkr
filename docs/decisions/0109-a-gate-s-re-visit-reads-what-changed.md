@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-17, "accept 0109 as recommended" (https://github.com/feedback-loop-ai/brokkr/issues/1088#issuecomment-6960606249)
 Date: 2026-11-15
 
-Built: unbuilt (#1088)
+Built: partial (#1088) — slice 0109a built the finding key, the covered head, seat-record v7 and the word's binding to its findings (0109a1 #1216, 0109a2 #1222); 0109b to 0109e, the shadow delta, the read policy and its triggers, panels and follow-ups, and the readouts, are unbuilt
 Amends: 0034
 
 This decision is a document only. It sets the shapes and rules a later build

@@ -60,6 +60,21 @@ and the candidates' "#231 already tracks". Row 1 stays `implemented`,
 because it rests on the decision record, not on the links. No class
 changes.
 
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** After "generated decisions are" add "often". (ruled:
+  "approve all the fact and wording fixes")
+- **Row 2** keeps `implemented`. Finding: After "Model-generated
+  decision summaries" add "often". Citation: For "decision 0044 and
+  `docs/decisions/README.md`: research classification and decision
+  acceptance belong to the operator; grammar tests check" read
+  "`docs/decisions/README.md` (only the operator accepts a decision) and
+  decision 0044 (research classification is the operator's; its status
+  is still proposed); grammar tests check". (ruled: "approve all the
+  fact and wording fixes")
+
 ## Candidates
 
 No new uptake proposed. The study supports recording rationale while

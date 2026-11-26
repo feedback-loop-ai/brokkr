@@ -1887,10 +1887,9 @@ fn a_rendered_proposal_cannot_forge_the_line_above_it() {
     assert!(!rendered.contains('\r'), "no carriage return survives");
     assert!(rendered.contains("summary: one run[2Jcleared"));
     assert!(rendered.contains("safeforged: every run is green"));
-    assert!(
-        !render(&json!({"fleet_summary": "seat\u{202E}gnippots"})).contains('\u{202E}'),
-        "the reordering characters go too"
-    );
+    let reordered = render(&json!({"fleet_summary": "seat\u{202E}gnippots"}));
+    assert!(reordered.contains("seat<U+202E>gnippots"), "{reordered:?}");
+    assert!(!reordered.contains('\u{202E}'), "{reordered:?}");
 }
 
 #[test]

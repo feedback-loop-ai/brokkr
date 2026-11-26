@@ -41,6 +41,30 @@ and recording this survey does not approve adopting another framework.
 | 7 | Measure independent delivery outcomes and the scope of real maintenance changes | planned | #436 owns independent delivery and usability evaluation; #437 owns structural change and maintenance evidence; #439 owns independent qualification |
 | 8 | Prototype equivalent recipes on Amplifier, Kilroy, BMAD Loop and Squad to compare their guarantees directly | not-planned | |
 
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Summary.** For
+  "[Overview](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/README.md)
+  and [formula
+  composition](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/docs/design/formula-resolution.md)."
+  read
+  "[Overview](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/README.md)
+  and [formula
+  resolution](https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/docs/design/formula-resolution.md)
+  (partially implemented)." (ruled: "approve all the fact and wording
+  fixes")
+- **Summary.** For "with advisory `depends_on`, optional aggressive JSON
+  extraction, and configurable error" read "with advisory `depends_on`,
+  aggressive JSON extraction (opt-in through `parse_json` for agent
+  steps, an automatic fallback for bash steps), and configurable error".
+  (ruled: "approve all the fact and wording fixes")
+- **Row 4** keeps `implemented`. Citation: For "proof of agent-output
+  correctness" read "proof of agent-output correctness, and the
+  installed harness version is not yet checked against the version its
+  adapter record measured (#1240)". (ruled: "0018-4 approved")
+
 ## Candidates
 
 Finding 8 is the concrete follow-up proposed by this survey. The experiment

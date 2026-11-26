@@ -4,10 +4,10 @@ This document states what you can build against, what may still move,
 and how a change to a frozen thing is made when it has to happen.
 
 **Where the tree is right now:** the workspace version in `Cargo.toml`
-is **0.15.2**. This is pre-1.0 software. The contracts under
+is **0.16.0**. This is pre-1.0 software. The contracts under
 `contracts/` are nonetheless already frozen and have been since the
 first implementation — the freeze is older than the version number and
-does not wait for it. See the [v0.15.2 release notes](../releases/v0.15.2.md)
+does not wait for it. See the [v0.16.0 release notes](../releases/v0.16.0.md)
 for what changed and current platform limitations, and the
 [v0.10.0 notes](../releases/v0.10.0.md) for the boundary migration.
 
@@ -28,7 +28,7 @@ other is not yet.
 | | Frozen contracts | The CLI surface |
 |---|---|---|
 | **Promise** | A version's bytes never change. A change is a new numbered version file beside the old one. | Semver from 1.0: breaking changes to subcommands and flags need a major bump. |
-| **In force** | **Now**, and since the first implementation. Independent of the crate version. | **From 1.0.** Today, at 0.15.2, flags may still move. |
+| **In force** | **Now**, and since the first implementation. Independent of the crate version. | **From 1.0.** Today, at 0.16.0, flags may still move. |
 | **Enforced by** | CI compiles the frozen and additive contracts; the fixtures corpus differential-tests the evaluator; manifest schemas pin `{"const": 1}` on `event_schema`. | Convention today; release process from 1.0. |
 
 The contracts freeze is the load-bearing one, because it is what a
@@ -225,6 +225,13 @@ and the release window in that ruling's slice 2.
 | `park-cause/v1` | `contracts/park-cause.v1.schema.json` | journal | 0106 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::ParkCause::read | current | | |
 | `effect-usage/v1` | `contracts/effect-usage.v1.schema.json` | journal | 0112 | engine crates/brokkr-runtime/src/engine/usage.rs | load brokkr_view::recipe_usage | current | | |
 | `brokkr.evidence-archive/v1` | `contracts/evidence-archive.v1.schema.json` | input | 0105 | operator | load brokkr_runtime::engine::evidence::read_archive | current | | decision |
+| `work-order/v1` | `contracts/work-order.v1.schema.json` | input | 0116 | engine crates/brokkr-core/src/work_order.rs | load brokkr_core::work_order::Header::read | current | | decision |
+
+Journal backups write `brokkr.journal-backup.v2`. Its closed inventory
+adds `schemas.orders`, the work-order schema recorded in the snapshot or
+`null` when no marker is recorded. Restore reads v1 and v2 inventories
+and checks the v2 field against the snapshot.
+[Decision 0100](../decisions/0100-a-journals-backup-is-one-consistent-snapshot-with-a-versioned-inventory.md)
 
 `fixtures/evaluator/corpus.ndjson` is frozen contract data, never
 regenerated, only versioned; it is not a file under `contracts/` and so
@@ -235,7 +242,7 @@ The binary reports the versions it was built against:
 ```console
 $ brokkr doctor
 …
-ok       contracts: engine 0.15.2, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.16.0, event_schema 1, database_schema 1, driver_protocol 1
 …
 ```
 
@@ -302,7 +309,7 @@ Stated plainly, because this is a 0.x tree:
 - **What does *not* break, even pre-1.0:** the frozen contracts. Every
   decision that has touched them so far — 0016, 0022, 0023 — added a new
   numbered version beside the old one and left the old bytes alone. That
-  is the one guarantee that is already load-bearing at 0.15.2, and it is
+  is the one guarantee that is already load-bearing at 0.16.0, and it is
   the one to build against.
 
 ## The closed deprecation window

@@ -38,7 +38,7 @@ flowchart TB
     store --> core
     protocol --> core
   end
-  protocol -- "NDJSON" --> harness([Claude Code · Codex · dsh · LaneTally · exec<br/>capability, as leaf effects])
+  protocol -- "NDJSON" --> harness([Claude Code · Codex · dsh · LaneTally · Qoder CLI · Antigravity CLI · exec<br/>capability, as leaf effects])
   seatbelt-probe["brokkr-seatbelt-probe<br/>test-support"]
 ```
 
@@ -297,9 +297,11 @@ Drivers speak `forge-driver/v1`
 ([contracts/driver-protocol.v1.schema.json](contracts/driver-protocol.v1.schema.json)):
 NDJSON over stdio, stdout protocol-only, stderr captured and never
 journaled: the journal names it by content-free evidence alone.
-The adapters for Claude Code, Codex, dsh, LaneTally's Claude Code wrapper
-and any prompt-in/result-file-out harness (`exec`) are built in as
-`{brokkr} driver <kind>` (decision 0009), while the protocol stays
+The adapters for Claude Code, Codex, dsh, LaneTally's Claude Code wrapper,
+Qoder CLI, Antigravity CLI (`agy`) and any prompt-in/result-file-out
+harness (`exec`) are built in as `{brokkr} driver <kind>` (decision 0009);
+Qoder's and agy's adapter declarations ship as examples under
+`docs/examples/adapters/`, not in `adapters/`, while the protocol stays
 language-neutral for third-party drivers. What stands around a seat's
 hands is the realm's **boundary** (decision 0046): `namespace`,
 `seatbelt`, `container`, `harness` or `open`, pinned per site, rendered

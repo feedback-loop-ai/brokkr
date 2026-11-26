@@ -266,10 +266,10 @@ fn a_killed_servers_tree_is_reaped_at_the_next_start_and_a_live_ones_kept() {
 }
 
 /// #468: a hostile tree name reaches the terminal through the same safe
-/// renderer as every other operator-facing line. A directory planted
-/// under a shared `TMPDIR` whose name carries ESC, bidi, CR or LF bytes
-/// is said with those stripped, never as written — and a newline inside
-/// the name cannot pose as one of the renderer's own separators.
+/// renderer as every other operator-facing line. For a directory planted
+/// under a shared `TMPDIR`, the renderer marks bidi characters and drops
+/// ESC, CR and LF. A newline inside the name cannot pose as one of the
+/// renderer's own separators.
 #[test]
 fn a_hostile_tree_name_is_said_sanitized() {
     let tmp = tempfile::tempdir().unwrap();
@@ -302,7 +302,7 @@ fn a_hostile_tree_name_is_said_sanitized() {
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let mut expected = vec![
-        golden(format!("brokkr-hands-escbidi-{dead}-{uuid}")),
+        golden(format!("brokkr-hands-esc<U+202E>bidi-{dead}-{uuid}")),
         golden(format!("brokkr-hands-xhands: reaped FORGED-{dead}-{uuid}")),
     ];
     said.sort_unstable();

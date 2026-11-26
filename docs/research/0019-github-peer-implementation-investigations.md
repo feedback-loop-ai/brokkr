@@ -98,3 +98,27 @@ These are proposed research fixtures, not completed experiments or newly approve
 The strongest potential distinction remains a coherent and demonstrably enforced delivery contract: reusable role data, composed recipes, protected review, bounded effects, pinned identity and inspectable event-derived evidence. The deeper review narrows that positioning; it does not establish uniqueness or erase Brokkr's open enforcement gaps.
 
 The most useful next investment is closing and qualifying that contract while borrowing test patterns documented in the inspected source and useful authoring ergonomics. The current evidence does not justify replacing the architecture, claiming superior reliability, or assigning peers grades from source inspection. Adoption or comparative implementation should be proposed with a specific workload, guarantee and measurable result.
+
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Row 1** keeps `planned`. Citation: For "#429 owns policy validation
+  and #430 owns dispatcher hardening" read "#429 owns compile-time
+  completeness of the policy (presence, shadowing, liveness, totality)
+  and #430 owns the dispatcher's queue and admission; no issue yet owns
+  end-to-end evidence that each declared refusal holds at every dispatch
+  entry point". (ruled: "0019 - approved")
+- **Row 2** keeps `planned`. Citation: For "#403 owns process lifecycle;
+  #434 owns replay" read "#434 owns replay"; for "#435 owns operational
+  qualification" read "#435 owns operational qualification; #472 owns
+  closing the accepted Linux polling residuals by containment (#403,
+  which owned process lifecycle, closed as completed on 2026-09-29:
+  `crates/brokkr-protocol/src/process/tree.rs`)". (ruled: "0019 -
+  approved")
+- **Row 4** keeps `planned`. Citation: For "owns configuration
+  isolation; #433 owns resource bounds; #438 owns setup" read "owns
+  configuration isolation; #662 owns carrying the transport limits in
+  the host configuration (decision 0079 ruling 6; the bounds themselves
+  landed with #433, closed as completed on 2026-10-13); #438 owns
+  setup". (ruled: "0019 - approved")

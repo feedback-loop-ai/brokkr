@@ -209,8 +209,8 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
 }
 
 /// An unstarted run's id is the journal's, and an older brokkr let
-/// control and reordering characters into it: `list` and `judge` name
-/// the run on stderr with them out, as the table's cells are
+/// control and reordering characters into it. `list` and `judge` name
+/// the run on stderr with controls dropped and format marks visible
 /// (`render::Safe`), whether or not an entry waits on it.
 #[test]
 fn an_unstarted_run_is_named_on_stderr_with_its_id_made_safe() {
@@ -233,7 +233,7 @@ fn an_unstarted_run_is_named_on_stderr_with_its_id_made_safe() {
              run/started: it spawned nothing, and counts against no ceiling\n"
         )
     };
-    let named = [said("legacy-[2Jhidden"), said("legacy-123")].concat();
+    let named = [said("legacy-[2Jhidden"), said("legacy-<U+202E>123")].concat();
     assert_eq!(stderr_of(ws, &db, &["list"]), named);
     assert_eq!(stderr_of(ws, &db, &["judge", "--reason", "r"]), named);
 }
@@ -360,7 +360,7 @@ fn a_repin_says_the_differences_it_accepted_with_their_names_made_safe() {
     assert_eq!(
         stderr_of(ws, &db, &["repin", "1", "--reason", "r"]),
         "re-pinned queue entry 1 to the realms map on disk, accepting: grant web[2Jhidden added; \
-         the repository's realm oldname → here\n"
+         the repository's realm old<U+202E><U+200B>name \u{2192} here\n"
     );
 }
 
