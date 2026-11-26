@@ -4919,7 +4919,7 @@ mod native {
                 (
                     name.clone(),
                     CapabilityGrant {
-                        dialect: dialect.as_str().unwrap().to_string(),
+                        dialect: dialect.as_str().unwrap().into(),
                         tools,
                         offices: None,
                         retention: brokkr_core::realms::GrantRetention::Unreserved,

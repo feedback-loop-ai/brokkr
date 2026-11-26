@@ -123,8 +123,8 @@ fn text_that_is_not_json_is_refused_naming_the_file() {
 
 #[test]
 fn a_map_that_calls_itself_another_version_is_refused_by_name() {
-    let refusal = with(|map| map["schema"] = json!("forge.realms/v9")).unusable();
-    assert_eq!(refusal, Unusable::UnknownSchema("forge.realms/v9".into()));
+    let refusal = with(|map| map["schema"] = json!("forge.realms/v10")).unusable();
+    assert_eq!(refusal, Unusable::UnknownSchema("forge.realms/v10".into()));
     let text = refusal.to_string();
     for label in SCHEMAS {
         assert!(text.contains(label), "{label}: {text}");
@@ -1166,7 +1166,10 @@ fn a_map_embedded_as_a_value_carries_the_same_grants() {
     let content: Value =
         serde_json::from_str(&v6(Some(json!({"web-search": {"dialect": "d"}})))).unwrap();
     let (map, _) = RealmMap::of("pinned", content).unwrap();
-    assert_eq!(map.realms[0].grants["web-search"].dialect, "d");
+    assert_eq!(
+        map.realms[0].grants["web-search"].dialect,
+        GrantDialect::from("d")
+    );
 }
 
 /// Decision 0075 ruling 5: the operator's list of offices a
@@ -1308,11 +1311,11 @@ fn world_refusals() -> Vec<Refused> {
              decision (decision 0046 ruling 1)",
         ),
         (
-            with(|m| m["schema"] = json!("forge.realms/v9")),
-            Unusable::UnknownSchema("forge.realms/v9".into()),
-            "it calls itself 'forge.realms/v9'; this build reads forge.realms/v1, forge.realms/v2, \
-             forge.realms/v3, forge.realms/v4, forge.realms/v5, forge.realms/v6, forge.realms/v7 \
-             and forge.realms/v8",
+            with(|m| m["schema"] = json!("forge.realms/v10")),
+            Unusable::UnknownSchema("forge.realms/v10".into()),
+            "it calls itself 'forge.realms/v10'; this build reads forge.realms/v1, forge.realms/v2, \
+             forge.realms/v3, forge.realms/v4, forge.realms/v5, forge.realms/v6, forge.realms/v7, \
+             forge.realms/v8 and forge.realms/v9",
         ),
         (
             labelled(SCHEMA_V5, |m| m["realms"][0]["capabilities"] = json!({})),

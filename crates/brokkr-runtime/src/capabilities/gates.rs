@@ -80,6 +80,11 @@ pub(super) enum Cause {
     Ungranted(String),
     /// The grant's dialect cannot carry it on this candidate (design D4).
     Incompatible { dialect: String, but: String },
+    /// The per-provider grant gives this candidate no dialect.
+    ProviderUnavailable {
+        provider: String,
+        served: Vec<String>,
+    },
     /// The grant reaches the office, and the site's class forbids it.
     Gate {
         dialect: String,
@@ -100,10 +105,11 @@ impl Cause {
         Cause::Gate { dialect, refusal }
     }
 
-    /// ` through dialect '<dialect>'`, or nothing where no grant was found.
+    /// The grant's dialect or per-provider form, where the cause carries one.
     pub(super) fn through(&self) -> String {
         match self {
             Cause::Ungranted(_) => String::new(),
+            Cause::ProviderUnavailable { .. } => " through the realm's per-provider grant".into(),
             Cause::Incompatible { dialect, .. } | Cause::Gate { dialect, .. } => {
                 format!(" through dialect '{dialect}'")
             }
@@ -114,6 +120,10 @@ impl Cause {
     pub(super) fn but(&self) -> String {
         match self {
             Cause::Ungranted(but) | Cause::Incompatible { but, .. } => but.clone(),
+            Cause::ProviderUnavailable { provider, served } => format!(
+                "provider '{provider}' has no dialect in this grant, which serves providers [{}]",
+                served.join(", ")
+            ),
             Cause::Gate { refusal, .. } => refusal.to_string(),
         }
     }
@@ -124,7 +134,7 @@ impl Cause {
         let (through, but) = (self.through(), self.but());
         match self {
             Cause::Ungranted(_) => format!("{who}: requires capability '{capability}' but {but}"),
-            Cause::Incompatible { .. } => format!(
+            Cause::Incompatible { .. } | Cause::ProviderUnavailable { .. } => format!(
                 "{who}: requires capability '{capability}'{through}, but {but}; the capability \
                  cannot be held under this grant"
             ),

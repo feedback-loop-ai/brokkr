@@ -283,9 +283,8 @@ impl Authority {
             .filter_map(|name| Some((name.clone(), self.definitions.get(name)?.value())))
             .collect();
         let dialects: Map<String, Value> = self
-            .dialects
-            .values()
-            .map(|dialect| (dialect.name.clone(), dialect.value()))
+            .all_dialects()
+            .map(|(_, dialect)| (dialect.name.clone(), dialect.value()))
             .collect();
         json!({
             "realm": self.context.realm,
