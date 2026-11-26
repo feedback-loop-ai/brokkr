@@ -318,6 +318,10 @@ fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes(
             assert!(output.status.success(), "{said}");
         };
         git(&["init", "-q", "--initial-branch=main"]);
+        // Instrumented seats whose fixed environment clears
+        // LLVM_PROFILE_FILE leave their default profile in the tree, and a
+        // verified candidate counts every untracked file (decision 0122).
+        std::fs::write(ws.path().join(".git/info/exclude"), "*.profraw\n").unwrap();
         let (code, _, stderr) = ws.unmarked(&["init", "."]);
         assert_eq!(code, Some(0), "{stderr}");
         let folder = ws.path().join(".brokkr");
@@ -329,10 +333,17 @@ fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes(
         std::fs::create_dir_all(ws.path().join("src")).unwrap();
         std::fs::write(ws.path().join("src/implementation.txt"), "before\n").unwrap();
         std::fs::write(folder.join("scripts/gate.sh"), GATE).unwrap();
+        // The implement seat commits what it wrote, as every implementer
+        // charter requires: verify binds the committed candidate (decision
+        // 0122 ruling 1), and an uncommitted tree parks it.
         std::fs::write(
             folder.join("scripts/implement.sh"),
             format!(
-                "printf 'after\\n' > src/implementation.txt\nprintf 'new\\n' > src/new.txt\n{GATE}"
+                "printf 'after\\n' > src/implementation.txt\nprintf 'new\\n' > src/new.txt\n\
+                 git -c user.name=Boundary -c user.email=b@example.invalid \
+                 -c commit.gpgsign=false add src\n\
+                 git -c user.name=Boundary -c user.email=b@example.invalid \
+                 -c commit.gpgsign=false commit -qm implemented\n{GATE}"
             ),
         )
         .unwrap();

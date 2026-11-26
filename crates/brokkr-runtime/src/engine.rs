@@ -3180,16 +3180,7 @@ impl Engine {
         if entered == head {
             return None;
         }
-        let class = docs_class(repo, entered)?;
-        let paths = crate::anchor::changed_paths(repo, entered, head)?;
-        if paths.is_empty() {
-            return None;
-        }
-        Some(
-            paths
-                .iter()
-                .all(|path| class.iter().any(|pattern| pattern.is_match(path))),
-        )
+        decide::docs_only_between(repo, entered, head)
     }
 }
 

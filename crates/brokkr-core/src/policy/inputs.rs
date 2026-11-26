@@ -72,7 +72,7 @@ const fn input(name: &'static str, kind: InputKind, owner: Owner) -> Input {
 /// 0022) closes over each table's own phases, so it is a prefix, not a
 /// row. A projection keeps table order, which the loader's refusals
 /// print.
-pub(crate) const INPUTS: [Input; 16] = [
+pub(crate) const INPUTS: [Input; 17] = [
     input(CONSECUTIVE_FAILURES, InputKind::Counter, Owner::Engine),
     input("skip_verify", InputKind::Flag, Owner::Seat),
     input("fixes_applied", InputKind::Flag, Owner::Seat),
@@ -119,6 +119,9 @@ pub(crate) const INPUTS: [Input; 16] = [
         Owner::Seat,
     ),
     input(REVIEWED_HEADS, InputKind::Record, Owner::Engine),
+    // Decision 0122: the HEAD and tree a passing verification bound,
+    // which the protected phase and ship are held to.
+    input("verified_candidate", InputKind::Record, Owner::Engine),
     // The same repository facts, keyed by realm (decision 0023).
     input(REALM_FACTS, InputKind::Record, Owner::Engine),
 ];
