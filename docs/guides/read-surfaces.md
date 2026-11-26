@@ -222,16 +222,16 @@ starter · 1 run · 0 want a ruling · 0 want an action · /home/you/my-app/.bro
 endings  1 shipped
 ```
 
-A run in a provider wait reads `waiting` under "running" while the
-aggregate's latest end has not passed. Its row prints one line per site
-with the provider, the route, the aggregate's end (a probe's later round
-included) and the provider's own words. An ordinary wait names the engine
-as its driver. A held wait names its maximum and `brokkr resume`. Each line
-says `(ended)` once its end has passed. After the latest end passes, only
-the ordinary three-hour staleness bound still holds the run: a silent run
-past both reads "needs you" like any other stale one. The same line is
-under `runs inspect`'s header and in the console's row, derived once in
-brokkr-view.
+A run in a provider wait reads `waiting` until its retry's `effect/started`.
+It lists under "running" while it is exempt from staleness or within the
+ordinary silence bound. Its row prints one line per site with the provider,
+the route, the aggregate's end (a probe's later round included) and the
+provider's own words. An ordinary wait names the engine as its driver. A
+held wait names its maximum and `brokkr resume`. Each line says `(ended)`
+once its end has passed. At the latest end the ordinary three-hour
+staleness bound applies. A run silent past both reads "needs you" like any
+other stale one. The same line is under `runs inspect`'s header and in the
+console's row, derived once in brokkr-view.
 
 A finished run's status cell names how it ended (decision 0064), and the
 colour says what the row waits on, never whether the run was good: yellow

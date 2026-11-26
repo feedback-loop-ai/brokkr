@@ -1226,6 +1226,7 @@ fn a_mixed_site_whole_paged_and_kept_read_keeps_every_site() {
         store: &store,
     };
     let dossier = crate::muninn::dossier_of(&[source], &[], WAIT_READ_AT).unwrap();
+    assert_eq!(dossier.value["dossier_version"], 1);
     assert_eq!(dossier.value["runs"][0]["status"], "waiting");
     assert_eq!(dossier.value["fleet"]["running"], 1);
 }
