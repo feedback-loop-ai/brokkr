@@ -739,11 +739,13 @@ struct Pinned<'a> {
     extra: &'a [String],
 }
 
+/// Under #1247 ruling (a), a broken pipe means the exec command declined its
+/// input, while the model harness prompt writer in `spawn.rs` refuses delivery.
 fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
-    io_context(
-        writer.write_all(payload.as_bytes()),
-        "could not write the prompt",
-    )
+    match writer.write_all(payload.as_bytes()) {
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        result => io_context(result, "could not write the prompt"),
+    }
 }
 
 /// Why the one harness spawn builder could not build a command: an argv
