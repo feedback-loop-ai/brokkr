@@ -1169,24 +1169,24 @@ fn an_optional_inline_adapter_read_tells_absence_from_invalidity() {
             root.join("codex.json").display()
         ))
     );
-    // An inline DSH site, whose harness carries no known native power, is
+    // An inline LaneTally site, whose harness carries no known native power, is
     // not refused by the capability pass: the present root that does not
     // load is refused with the loader's words, where an absent root reads
     // as no notice (decision 0069; rebuild unit 26b).
-    let mut dsh = inline_codex(false);
-    dsh["driver"]["command"] = json!([
+    let mut tally = inline_codex(false);
+    tally["driver"]["command"] = json!([
         "{brokkr}",
         "driver",
-        "dsh",
+        "lanetally",
         "--",
         "--model",
-        "deepseek-flash",
+        "claude-sonnet-5-5",
         "--effort",
         "high"
     ]);
     let compiled = |root: &Path| {
         fixture
-            .compile(dsh.clone(), root, Boundary::Namespace)
+            .compile(tally.clone(), root, Boundary::Namespace)
             .map(|_| ())
             .map_err(|error| error.to_string())
     };

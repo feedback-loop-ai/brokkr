@@ -14,6 +14,7 @@ use pin_walk_tests::typed_seats;
 use serde_json::json;
 
 mod dsh_hands_tests;
+mod dsh_model_tests;
 mod pin_walk_tests;
 mod site_form_tests;
 
@@ -568,11 +569,8 @@ fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
 #[test]
 fn a_dsh_seat_is_refused_at_compile_for_the_model_words_its_driver_refuses_at_spawn() {
     let fixture = Fixture::new();
-    let mut dsh = adapter("dsh", Some("untrusted"), Some(false));
+    let mut dsh = dsh_model_tests::adapter("untrusted", false);
     dsh["models"] = json!({"flash": "deepseek-v4-flash"});
-    dsh["model_flag"] = json!("--model");
-    dsh["efforts"] = json!(["low", "medium", "high", "xhigh"]);
-    dsh["effort_flag"] = json!("--effort");
     fixture.write_adapter(dsh);
     // No trailing positional word: decision 0065's dsh command grammar
     // places none, and would refuse the seat for that word before the
@@ -4089,7 +4087,7 @@ fn effortless_routes_excuse_only_their_own_lanes() {
     std::fs::create_dir_all(dir.path().join("adapters")).unwrap();
     std::fs::write(
         dir.path().join("adapters/dsh.json"),
-        serde_json::to_string_pretty(&json!({
+        serde_json::to_string_pretty(&crate::dsh_adapter::with_measured_web(json!({
             "provider": "dsh",
             "binary": "dsh",
             "driver": ["{brokkr}", "driver", "dsh", "--"],
@@ -4106,7 +4104,7 @@ fn effortless_routes_excuse_only_their_own_lanes() {
             },
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
-        }))
+        })))
         .unwrap(),
     )
     .unwrap();
@@ -4212,12 +4210,9 @@ fn an_exempted_inline_gate_merges_its_authorisation_with_its_exemption() {
     // digest witnessed beside the exemption), so the manifest merges the
     // two records instead of inserting.
     let fixture = Fixture::new();
-    let mut dsh = adapter("dsh", Some("trusted"), Some(true));
+    let mut dsh = dsh_model_tests::adapter("trusted", true);
     dsh["models"] = json!({"spark": "spark/qwen3.8-flash"});
     dsh["judges"] = json!(["spark"]);
-    dsh["model_flag"] = json!("--model");
-    dsh["efforts"] = json!(["low", "medium", "high", "xhigh"]);
-    dsh["effort_flag"] = json!("--effort");
     dsh["effortless_routes"] = json!({"spark": "test route refuses every level"});
     fixture.write_adapter(dsh);
     let bundle = fixture

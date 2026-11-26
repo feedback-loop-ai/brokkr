@@ -12,7 +12,7 @@ use crate::agents::tests::{claude_body, Tree};
 use crate::agents::{DeclaredRouteOverlay, EgressClass};
 
 fn dsh_body() -> Value {
-    json!({
+    crate::dsh_adapter::with_measured_web(json!({
         "provider": "dsh",
         "binary": "dsh",
         "driver": ["{brokkr}", "driver", "dsh", "--"],
@@ -23,7 +23,7 @@ fn dsh_body() -> Value {
         "tool_permissions": "unsupported",
         "mcp": "unsupported",
         "routes": {"dashscope": "local"},
-    })
+    }))
 }
 
 fn declared(file: &str, sha256: &str) -> Value {

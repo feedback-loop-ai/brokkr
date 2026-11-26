@@ -1772,23 +1772,6 @@ fn a_final_validation_refusal_is_bounded_as_a_compile_refusal_is() {
     );
 }
 
-fn dsh_web() -> Value {
-    let known: serde_json::Map<String, Value> = ["fetch", "search"]
-        .into_iter()
-        .map(|key| {
-            let capability = format!("web-{key}");
-            let control = |enabled| json!({"overlay": {format!("dsh-{capability}"): enabled}});
-            let inventory = native(control(false));
-            let mut entry = inventory["known"]["web-search"].clone();
-            entry["capability"] = json!(capability);
-            entry["tools"] = json!([format!("web_{key}")]);
-            entry["on"] = control(true);
-            (capability, entry)
-        })
-        .collect();
-    json!({"known": known})
-}
-
 /// Review return SC22-2 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`
 /// (operator ruling of 2026-09-30): a DSH or LaneTally plan is admitted or
 /// refused by the final validation its own launch runs, never by a
@@ -1802,17 +1785,37 @@ fn dsh_web() -> Value {
 fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
     let dir = workspace_with(Some(json!([realm("private", None)])));
     let mut availability = installed(&[]);
-    for (provider, harness, declared, template) in [
-        ("dsh-effort", "dsh", dsh_web(), &["--effort", "high"][..]),
-        ("lanetally", "lanetally", selecting(), &[]),
+    let dsh = crate::dsh_key::adapter_fixture::with_measured_web(adapter("dsh-effort", None));
+    for (provider, harness, mut declared, template) in [
+        ("dsh-effort", "dsh", dsh.clone(), &["--effort", "high"][..]),
+        (
+            "lanetally",
+            "lanetally",
+            adapter("lanetally", Some(selecting())),
+            &[],
+        ),
     ] {
-        let mut declared = adapter(provider, Some(declared));
         let mut driver = vec!["{brokkr}", "driver", harness, "--"];
         driver.extend(template);
         declared["driver"] = json!(driver);
         write(dir.path(), &format!("adapters/{provider}.json"), &declared);
         availability.record(provider, Presence::Available);
     }
+    let no_dsh_off = |capability: &str| {
+        let evidence = &dsh["native_capabilities"]["known"][capability]["evidence"];
+        let scope = evidence["scope"].as_str().unwrap();
+        let limitations: Vec<_> = evidence["limitations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry.as_str().unwrap())
+            .collect();
+        format!(
+            "warn     capabilities private native dsh-effort '{capability}': NOT granted here: \
+             {NO_OFF} · evidence: {scope} · still unmeasured: {}",
+            limitations.join("; ")
+        )
+    };
     let (healthy, lines) = lines(dir.path(), &availability);
     assert!(healthy);
     assert_eq!(
@@ -1831,8 +1834,8 @@ fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
                     hypothetical("private", "adapter-plan")
                 ),
             ),
-            format!("warn     capabilities private native dsh-effort 'web-fetch': NOT granted here: {NO_OFF} · {EVIDENCE}"),
-            format!("warn     capabilities private native dsh-effort 'web-search': NOT granted here: {NO_OFF} · {EVIDENCE}"),
+            no_dsh_off("web-fetch"),
+            no_dsh_off("web-search"),
             admitted("private", "lanetally"),
             format!(
                 "warn     capabilities private native lanetally 'web-fetch': NOT granted here: \

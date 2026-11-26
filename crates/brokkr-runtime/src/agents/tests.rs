@@ -1335,7 +1335,7 @@ fn the_operators_literal_chain_fails_for_a_tool_restricted_agent() {
     tree.write("adapters/claude.json", &claude);
     tree.write(
         "adapters/dsh.json",
-        &json!({
+        &crate::dsh_adapter::with_measured_web(json!({
             "provider": "dsh",
             "binary": "dsh",
             "driver": ["{brokkr}", "driver", "dsh", "--"],
@@ -1345,7 +1345,7 @@ fn the_operators_literal_chain_fails_for_a_tool_restricted_agent() {
             "effort_flag": "--effort",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
-        }),
+        })),
     );
     let message = refusal(&tree, "chief-architect");
     assert!(message.contains("agent 'chief-architect'"), "{message}");
@@ -2020,7 +2020,7 @@ fn effortless_routes_default_to_empty_and_match_prefixed_lanes_only() {
     let bare = Tree::new();
     bare.write(
         "adapters/dsh.json",
-        &json!({
+        &crate::dsh_adapter::with_measured_web(json!({
             "provider": "dsh",
             "binary": "dsh",
             "driver": ["{brokkr}", "driver", "dsh", "--"],
@@ -2030,7 +2030,7 @@ fn effortless_routes_default_to_empty_and_match_prefixed_lanes_only() {
             "effort_flag": "--effort",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
-        }),
+        })),
     );
     let adapter = bare.adapters().adapter("dsh").unwrap().clone();
     assert!(adapter.effortless_routes.is_empty());
@@ -2039,7 +2039,7 @@ fn effortless_routes_default_to_empty_and_match_prefixed_lanes_only() {
     let listed = Tree::new();
     listed.write(
         "adapters/dsh.json",
-        &json!({
+        &crate::dsh_adapter::with_measured_web(json!({
             "provider": "dsh",
             "binary": "dsh",
             "driver": ["{brokkr}", "driver", "dsh", "--"],
@@ -2050,7 +2050,7 @@ fn effortless_routes_default_to_empty_and_match_prefixed_lanes_only() {
             "effortless_routes": {"spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level"},
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
-        }),
+        })),
     );
     let adapter = listed.adapters().adapter("dsh").unwrap().clone();
     assert_eq!(adapter.effortless_routes.len(), 1);
@@ -2076,7 +2076,7 @@ fn a_candidate_on_an_effortless_route_needs_no_effort_entry() {
     tree.write("agents/tester.json", &body);
     tree.write(
         "adapters/dsh.json",
-        &json!({
+        &crate::dsh_adapter::with_measured_web(json!({
             "provider": "dsh",
             "binary": "dsh",
             "driver": ["{brokkr}", "driver", "dsh", "--"],
@@ -2087,7 +2087,7 @@ fn a_candidate_on_an_effortless_route_needs_no_effort_entry() {
             "effortless_routes": {"spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level"},
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
-        }),
+        })),
     );
     let resolution = resolved(&tree, &Availability::unspecified());
     assert_eq!(resolution.candidates.len(), 1);

@@ -36,7 +36,7 @@ impl Planted {
         for path in [&repo, &home.join("profiles/headless"), &adapters] {
             std::fs::create_dir_all(path).unwrap();
         }
-        let dsh = json!({
+        let dsh = adapter_fixture::with_measured_web(json!({
             "provider": "dsh",
             "trust_tier": "untrusted",
             "egress": "uncontracted",
@@ -50,9 +50,8 @@ impl Planted {
             "effort_flag": "unsupported",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
-            "native_capabilities": {"unmeasured": "the test's"},
             "hands": {"unsupported": "the test's"},
-        });
+        }));
         std::fs::write(adapters.join("dsh.json"), dsh.to_string()).unwrap();
         Planted {
             _dir: dir,

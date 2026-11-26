@@ -21,6 +21,8 @@ use serde_json::{json, Value};
 mod charters;
 #[path = "capability_launch/codex_store.rs"]
 mod codex_store;
+#[path = "capability_launch/dsh_tests.rs"]
+mod dsh_tests;
 use codex_store::{
     codex_served, cold_served, harnessed_rejoin, owned, profile, profiled_cold, profiled_rejoin,
     ASTRA, ISOLATING, STORE,
@@ -5406,13 +5408,11 @@ fn a_codex_that_could_not_switch_search_off_is_unseatable_boxed_and_unboxed() {
     }
 }
 
-/// Every shipped bundle, as it compiles in this repository's own realm —
-/// which grants NOTHING. Every executable site of every form has an
-/// outcome; no seat holds anything; every Codex candidate is composed with
-/// the OFF pair and every Claude candidate with both native tools denied;
-/// DSH, LaneTally and exec stay unmeasured and claim no denial; and the
-/// dialect wrapper moved the wrapped verify seat's outcome with the rest of
-/// its facts while the generated validator got an explicit empty one.
+/// Every shipped bundle compiled without a realm grant has a candidate
+/// outcome at each executable site. Codex, Claude and DSH deny their
+/// measured web tools. LaneTally and exec report an unmeasured inventory.
+/// The dialect wrapper preserves the verify outcome and gives its
+/// generated validator an explicit empty outcome.
 #[test]
 fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_denied() {
     let root = workspace();
@@ -5422,7 +5422,7 @@ fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_de
         .filter(|dir| dir.join("bundle.json").is_file())
         .collect();
     dirs.sort();
-    let (mut codex, mut claude, mut unmeasured, mut nested) = (0, 0, 0, 0);
+    let (mut codex, mut claude, mut dsh, mut unmeasured, mut nested) = (0, 0, 0, 0, 0);
     for dir in &dirs {
         let bundle = Bundle::compile_with(dir, &root.join("agents"), &root.join("adapters"))
             .unwrap_or_else(|error| panic!("{} must compile: {error}", dir.display()));
@@ -5456,6 +5456,15 @@ fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_de
                         );
                         assert_eq!(controls["selection"]["include"], json!([]));
                     }
+                    "dsh" => {
+                        dsh += 1;
+                        assert_eq!(
+                            controls["overlay"],
+                            json!([{"dsh-web-fetch": false}, {"dsh-web-search": false}]),
+                            "{}: {label}",
+                            dir.display()
+                        );
+                    }
                     _ => {
                         unmeasured += 1;
                         assert_eq!(controls["inventory"], "unmeasured", "{label}");
@@ -5477,7 +5486,7 @@ fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_de
             assert_eq!(validator.outcomes[0].provider, "exec");
         }
     }
-    assert!(codex > 0 && claude > 0 && unmeasured > 0 && nested > 0);
+    assert!(codex > 0 && claude > 0 && dsh > 0 && unmeasured > 0 && nested > 0);
     // The researcher is the one shipped office that asks, and in this
     // realm it loses both wants, visibly, on every link of its chain.
     let research = Bundle::compile_with(
@@ -6509,24 +6518,7 @@ fn a_known_native_power_with_no_valid_denial_refuses_the_seat() {
             "its adapter declares no native capability serving 'web-fetch'"
         )
     );
-    // DSH inherits nobody's floor: its declared uncertainty still seats.
-    one_inline_seat(
-        &operator,
-        &[
-            "{brokkr}",
-            "driver",
-            "dsh",
-            "--",
-            "--model",
-            "deepseek-v4-flash",
-            "--effort",
-            "high",
-        ],
-    );
-    let seated = solo_bundle(&operator, &workspace().join("adapters"), &contexts[1]).unwrap();
-    let outcome = &seated.sites["work"].capabilities.as_ref().unwrap().outcomes[0];
-    assert_eq!(outcome.controls()["inventory"], "unmeasured");
-    assert_eq!(outcome.controls()["harness"], "dsh");
+    dsh_tests::refuses_unmeasured_inventory(&operator, &contexts[1], refusal);
 }
 
 /// Finding H1, agent-backed: the same law where the adapters were opened
