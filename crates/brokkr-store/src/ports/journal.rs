@@ -184,7 +184,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
             });
         }
         super::refuse_after_terminal(run_id, &events, &[event.event_type])?;
-        validate_started_manifest(run_id, event.event_type, &event.payload)?;
+        super::validate_started_manifest(run_id, event.event_type, &event.payload)?;
         validate_record(
             &self.event_log,
             run_id,
@@ -231,19 +231,6 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
 
 fn is_redacted(manifest: &Value) -> bool {
     manifest.get("redacted") == Some(&Value::Bool(true))
-}
-
-fn validate_started_manifest(
-    run_id: &str,
-    event_type: EventType,
-    payload: &Value,
-) -> Result<(), StoreError> {
-    if event_type == EventType::RunStarted {
-        if let Some(manifest) = payload.get("manifest") {
-            super::validate_manifest(run_id, manifest)?;
-        }
-    }
-    Ok(())
 }
 
 fn validate_record(

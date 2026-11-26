@@ -30,7 +30,8 @@ use crate::{
 };
 
 use super::{
-    refuse_after_terminal, validate_manifest, CoordinationStore, EventLog, ProjectionStore,
+    refuse_after_terminal, validate_manifest, validate_started_manifest, CoordinationStore,
+    EventLog, ProjectionStore,
 };
 
 /// Thin co-located adapter exposing a SQLite [`Store`] through the
@@ -105,6 +106,13 @@ fn verify_chain_for_sqlite(
         let _ = checked_seq(envelope.seq)?;
     }
     verify_chain_after(run_id, expected_head.0, expected_head.1, envelopes)?;
+    Ok(())
+}
+
+fn validate_started_manifests(run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
+    for envelope in envelopes {
+        validate_started_manifest(run_id, envelope.event_type, &envelope.payload)?;
+    }
     Ok(())
 }
 
@@ -380,6 +388,7 @@ impl EventLog for SqlitePorts<'_> {
             verify_chain_for_sqlite(run_id, expected_head, envelopes)?;
             let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
             refuse_after_terminal(run_id, &local, &incoming)?;
+            validate_started_manifests(run_id, envelopes)?;
             insert_events(&tx, run_id, envelopes)?;
             tx.commit()?;
             Ok(())
@@ -395,6 +404,7 @@ impl EventLog for SqlitePorts<'_> {
         import::recordable(run_id)?;
         validate_manifest(run_id, manifest)?;
         verify_chain_for_sqlite(run_id, (0, ZERO_HASH), envelopes)?;
+        validate_started_manifests(run_id, envelopes)?;
         let (manifest_feature, bundle_name) = manifest_meta(manifest);
         let feature = started_feature_of(envelopes).unwrap_or(manifest_feature);
         let manifest_json = serde_json::to_string(manifest)?;

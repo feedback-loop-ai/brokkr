@@ -74,6 +74,20 @@ pub(crate) fn validate_manifest(run_id: &str, manifest: &Value) -> Result<(), St
     Ok(())
 }
 
+/// Validate an embedded `manifest` inside a `RunStarted` payload, if present.
+pub(crate) fn validate_started_manifest(
+    run_id: &str,
+    event_type: EventType,
+    payload: &Value,
+) -> Result<(), StoreError> {
+    if event_type == EventType::RunStarted {
+        if let Some(manifest) = payload.get("manifest") {
+            validate_manifest(run_id, manifest)?;
+        }
+    }
+    Ok(())
+}
+
 /// Refuse any non-annotation event in `incoming` once `existing` or an earlier
 /// event in `incoming` has reached a terminal event.
 pub(crate) fn refuse_after_terminal(
@@ -109,18 +123,18 @@ pub(crate) fn refuse_after_terminal(
 /// domain validation and hashing remain in [`Journal`].
 pub trait EventLog {
     /// Persist a new run record with its immutable manifest, refusing a
-    /// duplicate `run_id` with [`StoreError::RunExists`] and a non-object
-    /// manifest or non-string `"engine"` / `"feature"` field with
-    /// [`StoreError::InvalidManifest`].
+    /// duplicate `run_id` with [`StoreError::RunExists`] and an invalid
+    /// manifest (see [`ManifestRefusal`]) with [`StoreError::InvalidManifest`].
     fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError>;
 
     /// Atomically append pre-sealed `envelopes` to `run_id` only while the
     /// stored head matches `expected_head`, refusing a moved head with
     /// [`StoreError::HeadMoved`], a duplicate or non-contiguous sequence number
     /// in a batch with [`brokkr_core::envelope::ChainError::SeqGap`], a foreign
-    /// `run_id` with [`brokkr_core::envelope::ChainError::ForeignRun`], and
+    /// `run_id` with [`brokkr_core::envelope::ChainError::ForeignRun`],
     /// non-annotation events after a terminal event with
-    /// [`StoreError::AfterTerminal`].
+    /// [`StoreError::AfterTerminal`], and an invalid embedded `RunStarted`
+    /// manifest with [`StoreError::InvalidManifest`].
     fn append_envelopes(
         &self,
         run_id: &str,
@@ -129,9 +143,11 @@ pub trait EventLog {
     ) -> Result<(), StoreError>;
 
     /// Atomically persist an imported run record and its verified pre-sealed
-    /// `envelopes` in one transaction or unit of work, leaving zero partial
-    /// state on refusal and leaving local origin unset so imported runs are
-    /// never mistaken for runs started on this host (decision 0030 ruling 4).
+    /// `envelopes` in one transaction or unit of work, refusing an invalid
+    /// top-level or embedded `RunStarted` manifest with
+    /// [`StoreError::InvalidManifest`], leaving zero partial state on refusal,
+    /// and leaving local origin unset so imported runs are never mistaken for
+    /// runs started on this host (decision 0030 ruling 4).
     fn import_run_stream(
         &self,
         run_id: &str,

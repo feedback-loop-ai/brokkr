@@ -10,7 +10,7 @@ use rusqlite::{params, Connection};
 
 use super::*;
 use crate::damage::Damage;
-use crate::Attribution;
+use crate::{Attribution, ManifestRefusal};
 
 fn summary_feature(path: &Path, run_id: &str) -> Option<String> {
     let conn = Connection::open(path).unwrap();
@@ -1368,4 +1368,64 @@ fn colocated_rebuild_from_refuses_empty_run_manifest_mismatch() {
         ports.rebuild_from(&external),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "empty-same-id"
     ));
+}
+
+#[test]
+fn sqlite_append_and_import_refuse_invalid_embedded_run_started_manifest() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("embedded-manifest.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let ts = "2026-11-25T10:00:00Z";
+    let bad_payload = json!({"manifest": {"engine": "0.15.0", "feature": 42}});
+
+    // Direct SqlitePorts::append_envelopes refuses numeric manifest.feature without committing.
+    ports
+        .create_run("r-append", &sample_manifest("ok"))
+        .unwrap();
+    let bad_append = sealed_event(
+        "r-append",
+        1,
+        EventType::RunStarted,
+        bad_payload.clone(),
+        ZERO_HASH,
+        ts,
+    );
+    assert!(matches!(
+        ports.append_envelopes("r-append", (0, ZERO_HASH), std::slice::from_ref(&bad_append)),
+        Err(StoreError::InvalidManifest {
+            ref run_id,
+            reason: ManifestRefusal::FeatureNotString,
+        }) if run_id == "r-append"
+    ));
+    assert_eq!(ports.head("r-append").unwrap(), (0, ZERO_HASH.to_string()));
+    assert_eq!(sqlite_table_count(&path, "events"), 0);
+
+    // Direct SqlitePorts::import_run_stream refuses numeric manifest.feature even when the
+    // separate manifest argument is valid, leaving zero committed rows.
+    let bad_import = sealed_event(
+        "r-import",
+        1,
+        EventType::RunStarted,
+        bad_payload,
+        ZERO_HASH,
+        ts,
+    );
+    assert!(matches!(
+        ports.import_run_stream(
+            "r-import",
+            &sample_manifest("ok"),
+            std::slice::from_ref(&bad_import),
+        ),
+        Err(StoreError::InvalidManifest {
+            ref run_id,
+            reason: ManifestRefusal::FeatureNotString,
+        }) if run_id == "r-import"
+    ));
+    assert!(matches!(
+        ports.head("r-import"),
+        Err(StoreError::RunNotFound(ref id)) if id == "r-import"
+    ));
+    assert_eq!(sqlite_table_count(&path, "runs"), 1);
+    assert_eq!(sqlite_table_count(&path, "events"), 0);
 }
