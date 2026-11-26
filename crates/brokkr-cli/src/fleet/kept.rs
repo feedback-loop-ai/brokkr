@@ -464,7 +464,10 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         | StoreError::ProjectionLag { .. }
         | StoreError::DivergentEventLog { .. }
         | StoreError::InvalidManifest { .. }
-        | StoreError::Import(_) => false,
+        | StoreError::Import(_)
+        | StoreError::Io(_)
+        | StoreError::UnsafeRunId(_)
+        | StoreError::SymlinkRefused(_) => false,
     }
 }
 

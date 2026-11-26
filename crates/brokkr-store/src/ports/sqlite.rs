@@ -12,15 +12,13 @@
 //! decoupled SQLite projections (`index.db`) belong to Slice 2 (decision 0126
 //! ruling 4).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope, EventType};
 use brokkr_core::summary::{Account, Summary};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde_json::Value;
-use time::format_description::well_known::Rfc3339;
-use time::OffsetDateTime;
 
 use crate::event_index::ordinal::OrdinalState;
 use crate::event_index::{IndexFault, IndexReading};
@@ -28,13 +26,14 @@ use crate::start::Row;
 use crate::summary::Listed;
 use crate::{
     damage, event_index, head_of, import, origin, patiently, queue, refuse_existing, seat_summary,
-    start, summary, Attribution, Cooldown, EntryId, ImportError, NewEntry, QueueEntry, Store,
-    StoreError, VerifyError,
+    start, summary, Attribution, Cooldown, EntryId, NewEntry, QueueEntry, Store, StoreError,
 };
 
 use super::{
-    refuse_after_terminal, started_feature, started_feature_of, validate_manifest,
-    validate_seat_records, validate_started_manifest, CoordinationStore, EventLog, ProjectionStore,
+    checked_seq, divergent, manifest_meta, parse_clock, read_verified_log, refuse_after_terminal,
+    started_feature, started_feature_of, validate_import_stream, validate_manifest,
+    validate_seat_records, validate_started_manifests, verify_chain_checked, CoordinationStore,
+    EventLog, ProjectionStore, VerifiedRun,
 };
 
 /// Thin co-located adapter exposing a SQLite [`Store`] through the
@@ -64,51 +63,6 @@ const PROJECTION_TABLES: [&str; 5] = [
     "event_index",
 ];
 
-fn manifest_meta(manifest: &Value) -> (&str, &str) {
-    let feature = manifest
-        .get("feature")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let bundle_name = manifest
-        .get("bundle_name")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    (feature, bundle_name)
-}
-
-fn checked_seq(seq: u64) -> Result<i64, StoreError> {
-    i64::try_from(seq).map_err(|_| {
-        StoreError::Chain(ChainError::SeqOverflow {
-            after: i64::MAX as u64,
-        })
-    })
-}
-
-fn verify_chain_for_sqlite(
-    run_id: &str,
-    expected_head: (u64, &str),
-    envelopes: &[EventEnvelope],
-) -> Result<(), StoreError> {
-    for envelope in envelopes {
-        let _ = checked_seq(envelope.seq)?;
-    }
-    verify_chain_after(run_id, expected_head.0, expected_head.1, envelopes)?;
-    Ok(())
-}
-
-fn validate_started_manifests(run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
-    for envelope in envelopes {
-        validate_started_manifest(run_id, envelope.event_type, &envelope.payload)?;
-    }
-    Ok(())
-}
-
-fn parse_clock(now: &str) -> Result<OffsetDateTime, StoreError> {
-    OffsetDateTime::parse(now, &Rfc3339).map_err(|_| StoreError::Clock {
-        now: now.to_string(),
-    })
-}
-
 fn has_run(conn: &Connection, run_id: &str) -> Result<bool, StoreError> {
     let found: Option<i64> = conn
         .query_row(
@@ -125,12 +79,6 @@ fn ensure_run_exists(conn: &Connection, run_id: &str) -> Result<(), StoreError> 
         Ok(())
     } else {
         Err(StoreError::RunNotFound(run_id.to_string()))
-    }
-}
-
-fn divergent(run_id: &str) -> StoreError {
-    StoreError::DivergentEventLog {
-        run_id: run_id.to_string(),
     }
 }
 
@@ -326,12 +274,6 @@ fn clear_projections(tx: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
-struct VerifiedRun {
-    run_id: String,
-    manifest: Value,
-    events: Vec<EventEnvelope>,
-}
-
 fn load_local_manifest(tx: &Connection, run_id: &str) -> Result<Option<Value>, StoreError> {
     let raw: Option<String> = tx
         .query_row(
@@ -348,26 +290,6 @@ fn load_local_manifest(tx: &Connection, run_id: &str) -> Result<Option<Value>, S
 
 fn require_local_manifest(tx: &Connection, run_id: &str) -> Result<Value, StoreError> {
     load_local_manifest(tx, run_id)?.ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))
-}
-
-fn read_verified_log(log: &dyn EventLog) -> Result<Vec<VerifiedRun>, StoreError> {
-    let run_ids = log.list_run_ids()?;
-    let mut seen = BTreeSet::new();
-    let mut verified = Vec::with_capacity(run_ids.len());
-    for run_id in run_ids {
-        if !seen.insert(run_id.clone()) {
-            return Err(StoreError::DivergentEventLog { run_id });
-        }
-        let manifest = log.manifest(&run_id)?;
-        let events = log.read_stream(&run_id, 1)?;
-        verify_chain_for_sqlite(&run_id, (0, ZERO_HASH), &events)?;
-        verified.push(VerifiedRun {
-            run_id,
-            manifest,
-            events,
-        });
-    }
-    Ok(verified)
 }
 
 fn verify_local_events_match(tx: &Connection, verified: &[VerifiedRun]) -> Result<(), StoreError> {
@@ -437,7 +359,7 @@ impl EventLog for SqlitePorts<'_> {
                     found_seq: head_seq,
                 });
             }
-            verify_chain_for_sqlite(run_id, expected_head, envelopes)?;
+            verify_chain_checked(run_id, expected_head, envelopes)?;
             let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
             refuse_after_terminal(run_id, &local, &incoming)?;
             validate_started_manifests(run_id, envelopes)?;
@@ -454,16 +376,7 @@ impl EventLog for SqlitePorts<'_> {
         manifest: &Value,
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
-        import::admit_run_id(run_id).map_err(|err| StoreError::Import(Box::new(err)))?;
-        validate_manifest(run_id, manifest)?;
-        verify_chain_for_sqlite(run_id, (0, ZERO_HASH), envelopes)?;
-        let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
-        refuse_after_terminal(run_id, &[], &incoming)?;
-        validate_started_manifests(run_id, envelopes)?;
-        validate_seat_records(manifest, &[], envelopes)?;
-        brokkr_core::fold(envelopes).map_err(|err| {
-            StoreError::Import(Box::new(ImportError::Verify(VerifyError::Fold(err))))
-        })?;
+        validate_import_stream(run_id, manifest, envelopes)?;
         let (manifest_feature, bundle_name) = manifest_meta(manifest);
         let feature = started_feature_of(envelopes).unwrap_or(manifest_feature);
         let manifest_json = serde_json::to_string(manifest)?;

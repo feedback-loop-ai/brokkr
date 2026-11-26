@@ -1212,4 +1212,5 @@ fn empty_top_level_feature_imports_across_store_and_journal() {
 }
 
 mod invariants;
+mod split;
 mod sqlite;

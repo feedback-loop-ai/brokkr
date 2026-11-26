@@ -32,6 +32,8 @@ The verbs nest under thirteen roots: decision 0113's twelve and decision 0119's 
 - [`brokkr journal verify`](#brokkr-journal-verify): Verify an exported journal offline: chain, envelopes, fold
 - [`brokkr journal backup`](#brokkr-journal-backup): Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
 - [`brokkr journal restore`](#brokkr-journal-restore): Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
+- [`brokkr journal reindex`](#brokkr-journal-reindex): Rebuild a disposable SQLite projection index (`index.db`) from a filesystem event-log runs directory
+- [`brokkr journal migrate`](#brokkr-journal-migrate): Migrate all runs from a monolithic SQLite journal (`forge.db`) into a split layout (`<to>/runs` and rebuilt `<to>/index.db`), verifying canonical NDJSON parity atomically without modifying the source
 - [`brokkr journal anchor`](#brokkr-journal-anchor): Anchor a run's journal head in refs/forge/&lt;run&gt; (tamper evidence), or verify the existing anchor with --check
 - [`brokkr journal keep-refs`](#brokkr-journal-keep-refs): Keep-refs: the git objects a run's journal cites, held by refs/forge/keep/&lt;run&gt;/&lt;sha&gt; so a squash-merge, a branch delete and a gc cannot collect the evidence the journal names. Runs plant these themselves at conclusion; these verbs cover the runs that concluded before the mechanism existed, and the deliberate letting-go that is the operator's alone
 - [`brokkr journal keep-refs plant`](#brokkr-journal-keep-refs-plant): Plant a keep-ref for every object the run's journal cites. Idempotent: replanting moves nothing
@@ -494,6 +496,35 @@ Usage: brokkr journal restore --from <FROM> --to <TO>
 | --- | --- | --- | --- |
 | `--from <FROM>` |  |  | The backup directory holding the snapshot and its inventory |
 | `--to <TO>` |  |  | The new journal path. It must not exist; a live journal is never a restore's destination |
+
+## brokkr journal reindex
+
+Rebuild a disposable SQLite projection index (`index.db`) from a filesystem event-log runs directory
+
+```text
+Usage: brokkr journal reindex [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--runs <RUNS>` |  |  | The filesystem event-log runs directory to read from (default: `runs` beside the workspace journal) |
+| `--index <INDEX>` |  |  | The disposable SQLite projection index database to rebuild (default: `index.db` beside the workspace journal) |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr journal migrate
+
+Migrate all runs from a monolithic SQLite journal (`forge.db`) into a split layout (`<to>/runs` and rebuilt `<to>/index.db`), verifying canonical NDJSON parity atomically without modifying the source
+
+```text
+Usage: brokkr journal migrate [OPTIONS] --to <TO>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--to <TO>` |  |  | The target directory for the split layout (`<to>/runs` and `<to>/index.db`); it must be absent or empty, and nothing in it is overwritten |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 
 ## brokkr journal anchor
 

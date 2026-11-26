@@ -1,5 +1,5 @@
 //! Synchronous storage ports and the backend-agnostic [`Journal`] facade
-//! (decision 0126, rulings 1–3).
+//! (decision 0126, rulings 1–4).
 //!
 //! `brokkr-store` separates three persistence concerns behind narrow
 //! synchronous traits — [`EventLog`], [`ProjectionStore`], and
@@ -15,19 +15,35 @@
 //! schema validation, and canonical NDJSON export/import) live once in
 //! [`Journal`].
 
-use brokkr_core::envelope::{EventEnvelope, EventType};
+use std::collections::BTreeSet;
+use std::path::Path;
+
+use brokkr_core::canonical::ZERO_HASH;
+use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope, EventType};
 use brokkr_core::fold::{lawful_after_terminal, terminal_event};
 use serde_json::Value;
-
 use thiserror::Error;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
-use crate::{seat_record, Cooldown, EntryId, NewEntry, QueueEntry, SeatRecordVersion, StoreError};
+use rusqlite::Connection;
 
+use crate::{
+    ensure_wal, import, seat_record, Cooldown, EntryId, ImportError, NewEntry, QueueEntry,
+    SeatRecordVersion, StoreError, VerifyError, BUSY_TIMEOUT,
+};
+
+mod fs_log;
 mod journal;
 mod sqlite;
+mod sqlite_coordination;
+mod sqlite_projection;
 
+pub use fs_log::FsEventLog;
 pub use journal::{Journal, NewEvent};
 pub use sqlite::SqlitePorts;
+pub use sqlite_coordination::SqliteCoordinationStore;
+pub use sqlite_projection::SqliteProjectionStore;
 
 /// Why a run manifest was refused at the storage port boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -90,6 +106,116 @@ pub(crate) fn validate_started_manifest(
         }
     }
     Ok(())
+}
+
+pub(crate) fn validate_started_manifests(
+    run_id: &str,
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    for envelope in envelopes {
+        validate_started_manifest(run_id, envelope.event_type, &envelope.payload)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn checked_seq(seq: u64) -> Result<i64, StoreError> {
+    i64::try_from(seq).map_err(|_| {
+        StoreError::Chain(ChainError::SeqOverflow {
+            after: i64::MAX as u64,
+        })
+    })
+}
+
+pub(crate) fn verify_chain_checked(
+    run_id: &str,
+    expected_head: (u64, &str),
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    for envelope in envelopes {
+        let _ = checked_seq(envelope.seq)?;
+    }
+    verify_chain_after(run_id, expected_head.0, expected_head.1, envelopes)?;
+    Ok(())
+}
+
+pub(crate) fn validate_import_stream(
+    run_id: &str,
+    manifest: &Value,
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    import::admit_run_id(run_id).map_err(|err| StoreError::Import(Box::new(err)))?;
+    validate_manifest(run_id, manifest)?;
+    verify_chain_checked(run_id, (0, ZERO_HASH), envelopes)?;
+    let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
+    refuse_after_terminal(run_id, &[], &incoming)?;
+    validate_started_manifests(run_id, envelopes)?;
+    validate_seat_records(manifest, &[], envelopes)?;
+    brokkr_core::fold(envelopes)
+        .map_err(|err| StoreError::Import(Box::new(ImportError::Verify(VerifyError::Fold(err)))))?;
+    Ok(())
+}
+
+pub(crate) fn open_standalone_sqlite(path: &Path) -> Result<Connection, StoreError> {
+    let _ = std::fs::create_dir_all(path.parent().unwrap_or(path));
+    let conn = Connection::open(path)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
+    ensure_wal(&conn, path)?;
+    Ok(conn)
+}
+
+pub(crate) fn parse_clock(now: &str) -> Result<OffsetDateTime, StoreError> {
+    OffsetDateTime::parse(now, &Rfc3339).map_err(|_| StoreError::Clock {
+        now: now.to_string(),
+    })
+}
+
+pub(crate) fn divergent(run_id: &str) -> StoreError {
+    StoreError::DivergentEventLog {
+        run_id: run_id.to_string(),
+    }
+}
+
+pub(crate) fn manifest_meta(manifest: &Value) -> (&str, &str) {
+    let feature = manifest
+        .get("feature")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let bundle_name = manifest
+        .get("bundle_name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    (feature, bundle_name)
+}
+
+pub(crate) struct VerifiedRun {
+    pub(crate) run_id: String,
+    pub(crate) manifest: Value,
+    pub(crate) events: Vec<EventEnvelope>,
+}
+
+/// Read and verify every run from `log`, refusing duplicate `run_id`s with
+/// [`StoreError::DivergentEventLog`], invalid manifests with
+/// [`StoreError::InvalidManifest`], and broken chains with [`StoreError::Chain`].
+pub(crate) fn read_verified_log(log: &dyn EventLog) -> Result<Vec<VerifiedRun>, StoreError> {
+    let run_ids = log.list_run_ids()?;
+    let mut seen = BTreeSet::new();
+    let mut verified = Vec::with_capacity(run_ids.len());
+    for run_id in run_ids {
+        if !seen.insert(run_id.clone()) {
+            return Err(divergent(&run_id));
+        }
+        let manifest = log.manifest(&run_id)?;
+        validate_manifest(&run_id, &manifest)?;
+        let events = log.read_stream(&run_id, 1)?;
+        verify_chain_checked(&run_id, (0, ZERO_HASH), &events)?;
+        validate_started_manifests(&run_id, &events)?;
+        verified.push(VerifiedRun {
+            run_id,
+            manifest,
+            events,
+        });
+    }
+    Ok(verified)
 }
 
 pub(crate) fn non_empty_str(value: Option<&Value>) -> Option<&str> {

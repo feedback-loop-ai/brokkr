@@ -120,45 +120,64 @@ pub(crate) fn insert(
     recorded_at: &str,
     rows: &[Cooling],
 ) -> Result<(), StoreError> {
-    // Every append that carries no cool-downs — every non-terminal event,
-    // and `append_next`/`append_next_if_head` — leaves the table alone, so
-    // a journal whose table is gone or whose queue a newer binary stores
-    // still takes its event.
-    if rows.is_empty() {
-        return Ok(());
-    }
-    // A row belongs to version 4's table. A version 1, 2 or 3 queue holds
-    // no table, and a version this binary does not know is a newer
-    // binary's, left as found: either way the event alone lands and its
-    // `waits` stay the attempt's record (decision 0103 ruling 2(a)).
-    if !cool_downs_writable(tx)? {
-        return Ok(());
+    let _ = insert_rows(tx, run_id, event_seq, recorded_at, rows, false)?;
+    Ok(())
+}
+
+/// Idempotently write `rows` as the cool-downs of `(run_id, event_seq)` at
+/// `recorded_at`, returning the count of newly inserted rows (decision 0126
+/// ruling 3). Already-expired rows (`until <= recorded`) are skipped, matching
+/// [`insert`], and duplicate `(run_id, event_seq, site, rounds)` rows are
+/// ignored without error while CHECK constraints remain enforced.
+pub(crate) fn insert_idempotent(
+    tx: &Connection,
+    run_id: &str,
+    event_seq: u64,
+    recorded_at: &str,
+    rows: &[Cooling],
+) -> Result<u64, StoreError> {
+    insert_rows(tx, run_id, event_seq, recorded_at, rows, true)
+}
+
+fn insert_rows(
+    tx: &Connection,
+    run_id: &str,
+    event_seq: u64,
+    recorded_at: &str,
+    rows: &[Cooling],
+    idempotent: bool,
+) -> Result<u64, StoreError> {
+    if rows.is_empty() || !cool_downs_writable(tx)? {
+        return Ok(0);
     }
     let recorded = OffsetDateTime::parse(recorded_at, &Rfc3339)
-        .expect("the journal's own recorded_at is RFC 3339")
+        .map_err(|_| StoreError::Clock {
+            now: recorded_at.to_string(),
+        })?
         .unix_timestamp();
+    let mut inserted = 0u64;
     for row in rows {
         let until = until_second(row.until_at);
         if until <= recorded {
             continue;
         }
-        insert_row(
-            tx,
-            &StoredRow {
-                run_id,
-                event_seq,
-                site: &row.site,
-                provider: &row.provider,
-                route: &row.route,
-                until,
-                reason: &row.reason,
-                retry_after_seconds: row.retry_after_seconds,
-                rounds: row.rounds,
-                recorded,
-            },
-        )?;
+        let stored = StoredRow {
+            run_id,
+            event_seq,
+            site: &row.site,
+            provider: &row.provider,
+            route: &row.route,
+            until,
+            reason: &row.reason,
+            retry_after_seconds: row.retry_after_seconds,
+            rounds: row.rounds,
+            recorded,
+        };
+        if insert_row_with(tx, &stored, idempotent)? > 0 {
+            inserted += 1;
+        }
     }
-    Ok(())
+    Ok(inserted)
 }
 
 /// One `provider_cooldowns` row as the table's one writer spells it:
@@ -179,11 +198,29 @@ struct StoredRow<'a> {
 
 /// Insert one row. The table's CHECK constraints and unique index judge it.
 fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<(), StoreError> {
-    conn.execute(
+    insert_row_with(conn, row, false)?;
+    Ok(())
+}
+
+fn insert_row_with(
+    conn: &Connection,
+    row: &StoredRow<'_>,
+    idempotent: bool,
+) -> Result<usize, StoreError> {
+    let sql = if idempotent {
         "INSERT INTO provider_cooldowns
             (run_id, event_seq, site, provider, route, until_at, reason,
              retry_after_seconds, rounds, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         ON CONFLICT (run_id, event_seq, site, rounds) DO NOTHING"
+    } else {
+        "INSERT INTO provider_cooldowns
+            (run_id, event_seq, site, provider, route, until_at, reason,
+             retry_after_seconds, rounds, recorded_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+    };
+    Ok(conn.execute(
+        sql,
         params![
             row.run_id,
             row.event_seq as i64,
@@ -196,8 +233,19 @@ fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<(), StoreError> 
             row.rounds as i64,
             row.recorded,
         ],
-    )?;
-    Ok(())
+    )?)
+}
+
+/// Every cool-down row in force at `now` on `conn`, checking the queue version.
+pub(crate) fn active_in_force(
+    conn: &Connection,
+    now: OffsetDateTime,
+) -> Result<Vec<Cooldown>, StoreError> {
+    if cool_downs_held(conn)? {
+        in_force(conn, now.unix_timestamp())
+    } else {
+        Ok(Vec::new())
+    }
 }
 
 /// The last whole second an RFC 3339 instant can name:
@@ -566,11 +614,7 @@ impl Store {
     /// queue's version is judged first, as [`Store::cooldown`] does.
     pub fn cooldowns_in_force(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_in_force", self.patience, &self.path, || {
-            if cool_downs_held(&self.conn)? {
-                in_force(&self.conn, now.unix_timestamp())
-            } else {
-                Ok(Vec::new())
-            }
+            active_in_force(&self.conn, now)
         })
     }
 

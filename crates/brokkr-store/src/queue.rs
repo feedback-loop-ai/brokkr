@@ -39,7 +39,10 @@ pub(crate) mod storage;
 pub use beside::Seen;
 use beside::{beside_once, Beside};
 pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Disposal, Generation, StartRefusal};
-pub(crate) use cooldown::insert as insert_cooldowns;
+pub(crate) use cooldown::{
+    active_in_force as cooldowns_in_force_conn, insert as insert_cooldowns,
+    insert_idempotent as insert_cooldowns_idempotent,
+};
 pub use cooldown::{Cooldown, CooldownAggregate, CooldownRound, Cooling, RoundAppend};
 #[cfg(test)]
 use entry::UnknownWord;
@@ -464,7 +467,10 @@ fn entries(
 
 /// The queue under one read snapshot, `between` run inside it as
 /// [`entries`] says.
-fn list_once(conn: &Connection, between: &mut dyn FnMut()) -> Result<Vec<QueueEntry>, StoreError> {
+pub(crate) fn list_once(
+    conn: &Connection,
+    between: &mut dyn FnMut(),
+) -> Result<Vec<QueueEntry>, StoreError> {
     let _snapshot = conn.unchecked_transaction()?;
     match queue_stored(conn)? {
         Some(stored) => entries(

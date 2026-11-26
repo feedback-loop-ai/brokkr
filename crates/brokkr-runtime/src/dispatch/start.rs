@@ -423,7 +423,10 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::Sqlite(_)
         | StoreError::TokenCountOutOfRange(..)
         | StoreError::UnknownHead { .. }
-        | StoreError::Unparsed { .. }) => Refused::Store(other),
+        | StoreError::Unparsed { .. }
+        | StoreError::Io(_)
+        | StoreError::UnsafeRunId(_)
+        | StoreError::SymlinkRefused(_)) => Refused::Store(other),
     }
 }
 

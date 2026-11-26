@@ -11,7 +11,7 @@
 use clap::{ArgGroup, Parser, Subcommand};
 
 use super::*;
-use crate::verbs::{analytics, backup, evidence, graph};
+use crate::verbs::{analytics, backup, evidence, graph, split};
 use crate::{AgentsCmd, Cli, Cmd, KeepRefsCmd, MuninnCmd, RecipesCmd};
 
 /// The command line as typed. Its exit codes are [`crate::exit::Exit`]'s.
@@ -189,6 +189,13 @@ enum JournalCmd {
     /// the snapshot's digest, SQLite's integrity, every chain and the
     /// counts all pass. It starts nothing.
     Restore(backup::RestoreArgs),
+    /// Rebuild a disposable SQLite projection index (`index.db`) from a
+    /// filesystem event-log runs directory.
+    Reindex(split::ReindexArgs),
+    /// Migrate all runs from a monolithic SQLite journal (`forge.db`) into a
+    /// split layout (`<to>/runs` and rebuilt `<to>/index.db`), verifying
+    /// canonical NDJSON parity atomically without modifying the source.
+    Migrate(split::MigrateArgs),
     /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
     /// or verify the existing anchor with --check.
     Anchor(AnchorArgs),
@@ -366,6 +373,8 @@ impl From<JournalCmd> for Cmd {
             JournalCmd::Verify(args) => Cmd::VerifyRun(args),
             JournalCmd::Backup(args) => Cmd::Backup(args),
             JournalCmd::Restore(args) => Cmd::Restore(args),
+            JournalCmd::Reindex(args) => Cmd::Reindex(args),
+            JournalCmd::Migrate(args) => Cmd::Migrate(args),
             JournalCmd::Anchor(args) => Cmd::Anchor(args),
             JournalCmd::KeepRefs { command } => Cmd::KeepRefs { command },
             JournalCmd::Evidence { command } => Cmd::Evidence { command },

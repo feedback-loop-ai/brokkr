@@ -111,7 +111,7 @@ pub(crate) fn admit_run_id(run_id: &str) -> Result<(), ImportError> {
 /// sentence that turns it away. The predicate is adoption's own, the
 /// stricter of the two gates that print by it, so those two can never
 /// drift apart and a writer's refusal is ASCII too.
-fn escaped(run_id: &str) -> String {
+pub(crate) fn escaped(run_id: &str) -> String {
     run_id
         .chars()
         .map(|character| {
