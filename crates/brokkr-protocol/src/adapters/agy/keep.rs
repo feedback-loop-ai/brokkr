@@ -42,20 +42,26 @@
 //! remain; it is readable only by the operator, and the reaper of issue #1323
 //! removes kept files that no journal names.
 //!
-//! **Same-user directory limit (#1227 L1, operator ruling 2026-11-25):** the
-//! limit is the class of processes running as the operator's own user that
-//! create, rename, move, replace or remove entries under the operator's
-//! `agy-conversations` directory while a keep is in progress. The keeper runs
-//! as that same user: everything such a process can make the keeper do — write
-//! a file into a directory it controls, set a directory it owns to mode 0700,
-//! remove an entry it owns — that process can already do itself with the same
-//! system calls. No privilege boundary is crossed and nothing of another user's
-//! is reachable.
+//! **Same-user directory limit (#1227 L1, operator rulings 2026-11-25 and
+//! 2026-11-26):** the limit is the class of processes running as the operator's
+//! own user that create, rename, move, replace, rewrite or remove entries under
+//! the engine's HOME for the turn or under the operator's `agy-conversations`
+//! directory while a keep is in progress. The keeper runs as that same user,
+//! the engine HOME is a mode 0700 directory the driver made owned by the
+//! operator, the turn's `agy` process has exited when keeping begins, and a
+//! boxed seat's tools ran in the box and cannot reach it. No privilege boundary
+//! is crossed and nothing of another user's is reachable.
 //!
-//! Against that class, the keeper promises no outcome — for example, not where
-//! the transcript ends up if that process moves the directory, not which entry
-//! is removed if that process swaps one in between `statat` and `unlinkat`,
-//! and not what the record's home names if that process renames a parent. What
+//! Against that class, the keeper promises no outcome — on the kept side, for
+//! example, where kept state lands if the directory is moved, which entry is
+//! removed if one is swapped between `statat` and `unlinkat`, or what the
+//! record's home names if a parent is renamed; on the source side, a source
+//! directory detached by a replaced parent, a database or subtree changed after
+//! its own final check before publication, or a same-length in-place rewrite
+//! that restores the recorded modification time. Promises are against
+//! accidents (a turn still writing when killed, a partial tree, a link, a
+//! non-regular entry, a tree over its bounds, a bound value in a file or name,
+//! or an unconfirmed model pin). What
 //! the code holds are four mechanisms, each checkable by reading it and held
 //! by tests:
 //! (m1) every open the keeper makes for the kept place is an `openat` relative

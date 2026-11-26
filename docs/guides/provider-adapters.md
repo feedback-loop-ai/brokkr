@@ -944,23 +944,34 @@ no record can remain; it is readable only by the operator, and the reaper of
 issue #1323 removes kept files that no journal names.
 
 **Same-user directory limit.** A process running as the operator's own user
-that creates, renames, moves, replaces or removes entries under
-`agy-conversations` while a keep is in progress is a stated limit (operator
-ruling of 2026-11-25 on #1227): the keeper runs as that same user, so
-everything it can be made to do — write into a controlled directory, set an
-owned directory to 0700, remove an owned entry — that process can do itself
-with the same system calls, crossing no privilege boundary and reaching nothing
-of another user's. Against that class the keeper promises no outcome (examples:
-where the transcript lands if the directory is moved, which entry is removed if
-one is swapped between `statat` and `unlinkat`, or what the record's home names
-if a parent is renamed). Instead the code holds four mechanisms: (m1) every
-open for the kept place is `openat` relative to a held handle with `O_NOFOLLOW`
-on the final component; (m2) modes change only through `fchmod` on a handle,
-never by pathname; (m3) the transcript is created with `O_CREAT | O_EXCL |
-O_NOFOLLOW` relative to the conversation directory's handle; and (m4) every
-`unlinkat` is preceded by `statat` through the same parent handle matching
-recorded `(st_dev, st_ino)` and skipped when they differ. When no such process
-acts during a keep, all guarantees above hold.
+that creates, renames, moves, replaces, rewrites or removes entries under the
+engine's HOME for the turn or under `agy-conversations` while a keep is in
+progress is a stated limit (operator rulings of 2026-11-25 and 2026-11-26 on
+#1227): the keeper runs as that same user, the engine HOME is a mode `0700`
+directory the driver made owned by the operator, the turn's `agy` process has
+exited when keeping begins, and a boxed seat's tools ran in the box and cannot
+reach it. No privilege boundary is crossed and nothing of another user's is
+reachable. Against that class the keeper promises no outcome (examples on the
+kept side: where kept state lands if the directory is moved, which entry is
+removed if one is swapped between `statat` and `unlinkat`, or what the record's
+home names if a parent is renamed; examples on the source side: a source
+directory detached by a replaced parent before the final check, a database or
+subtree changed after its own final check and before publication, or a
+same-length in-place rewrite that restores the recorded modification time).
+The keeper's promises are against accidents: a turn still writing when killed,
+a partial tree, a link, something that is not a regular file or a directory, a
+tree over its bounds, a bound value in a file or a name, or a turn whose model
+pin was not confirmed. Instead the code holds its testable mechanisms — (m1)
+every open for the kept place is `openat` relative to a held handle with
+`O_NOFOLLOW` on the final component; (m2) modes change only through `fchmod` on
+a handle, never by pathname; (m3) kept files are created with `O_CREAT | O_EXCL
+| O_NOFOLLOW` relative to the parent directory's handle; (m4) every `unlinkat`
+is preceded by `statat` through the same parent handle matching recorded
+`(st_dev, st_ino)` and skipped when they differ; plus no link-following on the
+source, reading from the classified handle, the final check at the end of the
+walk, name screening, pin confirmation, and bounded descriptors — which make
+accidents visible and are not claimed to defeat a same-user process. When no
+such process acts during a keep, all guarantees above hold.
 
 Because an unboxed seat's own commands can write inside the engine HOME, the
 driver treats the source as untrusted: `<id>` is read beside the fold without

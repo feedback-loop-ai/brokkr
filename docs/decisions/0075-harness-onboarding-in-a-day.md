@@ -511,10 +511,30 @@ addendum (`#1227`, decision 0075 level 2, slice 1 of 2; launch is slice 2).
   and `<engine HOME>/.gemini/antigravity-cli/brain/<id>/` as
   `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/brain/`.
   The engine HOME is still removed when the turn ends. The keeper's existing
-  guarantees, four testable mechanisms (m1)–(m4), and stated same-user
-  directory limit from the 2026-11-24 addendum (operator ruling 2026-11-25)
-  apply unchanged by reference, with no second kept place and no second set of
-  guarantees.
+  guarantees and four testable mechanisms (m1)–(m4) from the 2026-11-24
+  addendum apply unchanged by reference, with no second kept place and no
+  second set of guarantees.
+- **Same-user limit on both sides (operator rulings 2026-11-25 and
+  2026-11-26).** Ruling "A" of 2026-11-25 holds for the source engine HOME as
+  it does for the kept tree: against a process of the operator's own user that
+  changes the engine's HOME for the turn, or the kept tree, during a keep, the
+  keeper promises no outcome. No privilege boundary is crossed: the engine HOME
+  is a mode `0700` directory the driver made, owned by the operator; the turn's
+  `agy` process has exited when the keep begins; and a boxed seat's tools ran
+  in the box and cannot reach it. Examples of that stated limit on the source
+  side include a source directory detached by a replaced parent before the
+  final check, a database or subtree changed after its own final check and
+  before publication, and a same-length in-place rewrite that restores the
+  recorded modification time (changing bytes while leaving every compared stat
+  field equal), as well as any change undone before the final check. The
+  keeper's promises are against accidents: a turn still writing when it was
+  killed, a partial tree, a symbolic link, something that is not a regular file
+  or a directory, a tree over its bounds, a bound value in a file or a name, or
+  a turn whose model pin was not confirmed. Its mechanisms (no following of
+  links, reading from the handle that was classified, the final check at the
+  end of the walk, name screening, pin confirmation, bounded descriptors, and
+  (m1)–(m4) on the kept side) make accidents visible; they are not claimed to
+  defeat a same-user process or to prove the kept state unchanged.
 - **Operator-only modes.** Every directory created under `rejoin/` is mode
   `0700` and every file is mode `0600` through `fchmod`, tightening the `0644`
   mode agy writes on brain files.
@@ -539,14 +559,14 @@ addendum (`#1227`, decision 0075 level 2, slice 1 of 2; launch is slice 2).
   `fstat` on that handle rather than by name; only directories and regular
   files are copied, each regular file is read from the handle that was
   classified, and after the last entry is copied (before publishing) one final
-  proof re-checks the whole source — the database and, under the brain, every
+  check re-stats the database and walks the brain tree to compare every
   directory's membership and every entry's type, size, `(st_dev, st_ino)`, and
   modification time to the depth walked. Over any bound, or if the brain is
-  empty or any part is missing, unreadable, not a regular file, or changed
-  underfoot, nothing is kept for rejoin and every created rejoin file and
+  empty or any part is missing, unreadable, not a regular file, or fails that
+  check, nothing is kept for rejoin and every created rejoin file and
   directory is removed in reverse order through `unlink_if_same`, leaving any
-  kept `transcript.jsonl` untouched. What even this final proof cannot see is a
-  change undone before the final proof runs.
+  kept `transcript.jsonl` untouched (subject to the stated same-user limit
+  above).
 - **Root session and `persistent`.** For a declaring work turn that did not
   refuse to start, whose `init` row confirmed the seat's pinned model, and that
   named a lowercase UUID conversation id, the driver asks

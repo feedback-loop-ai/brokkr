@@ -4,8 +4,10 @@
 //!
 //! One kept place, one rule: every file and directory kept for rejoin lives
 //! under `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/`,
-//! obeying the same four mechanisms (m1)–(m4) and the same-user directory limit
-//! documented in [`super::keep`] (operator ruling 2026-11-25).
+//! obeying (m1)–(m4) and the same-user limit for both the engine HOME and kept
+//! tree in [`super::keep`] (operator rulings 2026-11-25 and 2026-11-26): the
+//! mechanisms here make accidents visible and are not claimed to defeat a
+//! same-user process or prove kept state unchanged.
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -209,7 +211,7 @@ pub(super) enum CopyPoint<'a> {
 }
 
 /// Copy `<id>.db` and `brain/<id>/` into `rejoin/` under `caps`, operator-only
-/// modes, no-symlink traversal, bound-value screening, final verification, and
+/// modes, no-symlink traversal, bound-value screening, final source check, and
 /// all-or-nothing rollback.
 pub(super) fn keep_rejoin(
     conversation_id: &str,
@@ -501,7 +503,7 @@ fn read_sorted_names(fd: &OwnedFd, expected_len: usize) -> Result<Vec<OsString>,
     Ok(after_names)
 }
 
-fn same_stamp(expected: &Stat, actual: &Stat) -> bool {
+pub(super) fn same_stamp(expected: &Stat, actual: &Stat) -> bool {
     FileType::from_raw_mode(expected.st_mode) == FileType::from_raw_mode(actual.st_mode)
         && keep::same_entry(expected, actual)
         && (expected.st_size, expected.st_mtime, expected.st_mtime_nsec)

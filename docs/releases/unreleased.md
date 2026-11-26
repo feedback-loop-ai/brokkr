@@ -15,7 +15,11 @@ Changes merged since v0.16.1 that the next release's notes carry.
   bound secret value appeared in the conversation) and records a
   `harness-started` checkpoint with `root_session` (`kind: "agy-conversation"`,
   the conversation UUID, the version from `agy --version`, and
-  `persistent: true` only when kept whole). Probes, gate seats, turns whose
+  `persistent: true` only when kept whole). Keeping guards against accidents
+  (partial, linked, non-regular, over-bound, secret-bearing, or unpinned state)
+  and promises no outcome against a same-user process modifying the engine HOME
+  or kept tree during the keep (operator rulings of 2026-11-25 and 2026-11-26).
+  Probes, gate seats, turns whose
   `init` did not confirm the pinned model, turns without a UUID, and undeclared
   seats are unchanged, and every offered session is still
   refused before launch because `--conversation` rejoin is not built yet
