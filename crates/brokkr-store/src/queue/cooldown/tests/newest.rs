@@ -2,6 +2,7 @@
 //! exactly the rows the correlated `NOT EXISTS` it replaced answered, in
 //! the same order, and its VM steps grow with the table, not its square.
 
+use super::super::readout::{newest, newest_steps, newest_with};
 use super::*;
 
 /// The statement `newest` ran before #1112, kept as the oracle the scan is

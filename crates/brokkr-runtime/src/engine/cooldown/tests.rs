@@ -25,6 +25,32 @@ fn base() -> OffsetDateTime {
     OffsetDateTime::parse("2026-11-01T00:00:00Z", &Rfc3339).unwrap()
 }
 
+/// The end of the ordinary rows `aggregate` shows, where a test reads a
+/// route an ordinary row holds.
+fn ordinary_end(aggregate: brokkr_store::CooldownAggregate) -> OffsetDateTime {
+    aggregate
+        .ordinary()
+        .expect("an ordinary row holds the route")
+        .until
+}
+
+// A test's clock: one shared instant, advanced by each slice, so a wait is
+// exercised with no real sleep. The stop test builds its own sleep that
+// also journals the operator's command.
+impl Clock {
+    pub(crate) fn advancing(start: OffsetDateTime) -> (Clock, Arc<Mutex<OffsetDateTime>>) {
+        let shared = Arc::new(Mutex::new(start));
+        let (read, write) = (Arc::clone(&shared), Arc::clone(&shared));
+        let clock = Clock {
+            now: Box::new(move || *read.lock().unwrap()),
+            sleep: Box::new(move |slice| {
+                *write.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64)
+            }),
+        };
+        (clock, shared)
+    }
+}
+
 /// How far past the journal's real recording instant a fixture keeps every
 /// end that must be in force when it is written or read (#857). The store
 /// keeps a row only while its `until` is past the event's `recorded_at`,
@@ -45,11 +71,22 @@ fn ahead_of(real: OffsetDateTime) -> OffsetDateTime {
 
 /// A seat with the limits this test needs.
 fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
-    std::fs::create_dir_all(dir.join("work")).unwrap();
+    started_in(dir, "work", body, limits)
+}
+
+/// A seat with the limits this test needs, whose worktree is `tree` under
+/// `dir`, over `dir`'s one journal: two runs in two worktrees share it.
+fn started_in(dir: &Path, tree: &str, body: SeatBody, limits: Limits) -> Engine {
+    std::fs::create_dir_all(dir.join(tree)).unwrap();
     let store = brokkr_store::Store::open(&dir.join("forge.db")).unwrap();
     let mut compiled = bundle(dir, body);
     compiled.seats.get_mut("work").unwrap().limits = limits;
-    Engine::start(store, compiled, "Feature", Some(dir.join("work"))).unwrap()
+    // A capability record that seats no lane and grants nothing, as a
+    // compile under no realm pins: admission's census measures the run, so
+    // the production pass and claim can judge its journal (fix round
+    // 0106b1r5, M1).
+    compiled.manifest["capabilities"] = json!({"sites": {}});
+    Engine::start(store, compiled, "Feature", Some(dir.join(tree))).unwrap()
 }
 
 /// A single-seat engine over the unused command, with `attempts` allowed:
@@ -157,6 +194,12 @@ enum Probed {
     /// The probe waits for its release marker, then refuses with a rate
     /// limit: a stop can land while it runs (this round's stop case).
     BarrierRefuse,
+    /// The probe answers, marks it, then lingers past its shutdown, so its
+    /// tree is killed only once the grace is spent (fix round 0106b1r10).
+    AnswerThenLinger,
+    /// As `AnswerThenLinger`, having first left a descendant outside its
+    /// group by `setsid`, whose pid it records (fix round 0106b1r10).
+    DescendantThenLinger,
 }
 
 /// A `forge-driver/v1` participant in `sh`: its attempts read a verdict
@@ -257,6 +300,14 @@ read -r bye
         ("@PIDLOG@", pidlog.display().to_string()),
         ("@DONE@", done.display().to_string()),
         ("@PROBECOUNT@", probecount.display().to_string()),
+        (
+            "@ANSWERED@",
+            dir.join(format!("{tag}.answered")).display().to_string(),
+        ),
+        (
+            "@DESCPID@",
+            dir.join(format!("{tag}.descendant")).display().to_string(),
+        ),
         ("@GLOG@", dir.join("all.log").display().to_string()),
         ("@TAG@", tag.to_string()),
     ] {
@@ -366,6 +417,12 @@ fn drive_to_stop(engine: &mut Engine) {
 fn drove(engine: &mut Engine, dir: &Path, expected: &[&str]) {
     engine.drive().unwrap();
     assert_eq!(logs(dir, "work"), expected);
+}
+
+/// Start on a whole-second boundary, `LONG_WAIT` ahead of the wall clock,
+/// so a terminal stamped under load still writes the simulated wait's row.
+fn live_row_clock_start() -> OffsetDateTime {
+    ahead_of(OffsetDateTime::now_utc().replace_nanosecond(0).unwrap())
 }
 
 fn with_clock_at(mut engine: Engine, at: OffsetDateTime) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
@@ -742,6 +799,7 @@ fn a_stop_already_journaled_is_seen_before_the_first_slice() {
     {
         super::Waited::Stopped => {}
         super::Waited::Proceed(_) => panic!("a stopped run proceeded to the probe"),
+        super::Waited::Held => panic!("a stopped run held a probe's round"),
         super::Waited::Parked(reason) => panic!("a stopped run parked: {reason}"),
     }
     assert_eq!(
@@ -750,20 +808,6 @@ fn a_stop_already_journaled_is_seen_before_the_first_slice() {
         "a journaled stop must be seen before the first slice"
     );
     assert!(logs(dir.path(), "work").is_empty(), "no probe may run");
-}
-
-#[test]
-fn a_wait_past_the_maximum_parks_with_the_words_and_the_maximum() {
-    own_engine!();
-    let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, Some(5), 2);
-    engine.cooldown.host = Some(host(dir.path(), 1, 2));
-    engine.drive().unwrap();
-    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
-    assert_eq!(starts(&engine).len(), 1);
-    let reason = park_reason(&engine);
-    assert!(reason.contains("5s"), "{reason}");
-    assert!(reason.contains("declared 2s maximum"), "{reason}");
-    assert!(reason.contains("rate_limit: slow down"), "{reason}");
 }
 
 #[test]
@@ -918,12 +962,23 @@ fn append_failed_payload(engine: &mut Engine, payload: Value) {
 /// An engine at the start of `effect`, with the answering driver a resume
 /// would invoke and `attempts` allowed.
 fn engine_for(dir: &Path, attempts: u64) -> (Engine, crate::bundle::Bundle) {
+    engine_probing(dir, attempts, Probed::Answer, None)
+}
+
+/// [`engine_for`], its driver's probes doing `probed` with the stated
+/// `retry_after`.
+fn engine_probing(
+    dir: &Path,
+    attempts: u64,
+    probed: Probed,
+    retry_after: Option<u64>,
+) -> (Engine, crate::bundle::Bundle) {
     let command = driver(
         dir,
         "work",
         &["succeed"],
-        Probed::Answer,
-        None,
+        probed,
+        retry_after,
         "claude",
         "first",
     );
@@ -1232,7 +1287,7 @@ fn a_past_maximum_record_with_no_readable_episode_states_the_maximum() {
 }
 
 #[test]
-fn a_resume_waits_the_remainder() {
+fn an_ordinary_wait_resumed_before_its_until_waits_the_remainder_and_probes() {
     own_engine!();
     let (dir, mut engine, now) = resumed(&["succeed"], base() + time::Duration::seconds(3), 3);
     // No declaration on the resume: the recorded end is the wait's.
@@ -1245,7 +1300,7 @@ fn a_resume_waits_the_remainder() {
 }
 
 #[test]
-fn a_resume_parks_when_the_recorded_wait_passes_the_maximum() {
+fn an_ordinary_resume_past_the_engine_computed_maximum_parks() {
     let (dir, mut engine, _now) = resumed(&["succeed"], base() + time::Duration::seconds(5), 5);
     engine.cooldown.host = Some(host(dir.path(), 1, 1));
     engine.drive().unwrap();
@@ -1356,6 +1411,23 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
     assert!(reason.contains("does not advertise the probe"), "{reason}");
 }
 
+// A protected root's lease is Linux only, as `lease.rs` says.
+mod held_budget;
+mod held_charge;
+mod held_contention;
+mod held_deadline;
+#[cfg(target_os = "linux")]
+mod held_instance;
+mod held_launch;
+#[cfg(target_os = "linux")]
+mod held_lease;
+mod held_panel;
+mod held_park;
+mod held_probe;
+mod held_route;
+mod held_settlement;
+pub(super) mod held_start;
+mod held_wait;
 mod lease;
 mod probe_driver;
 mod probe_rounds;
@@ -1691,6 +1763,7 @@ fn wait() -> super::ProviderWait {
         seconds: 1,
         until: base(),
         rounds: 1,
+        held: None,
     }
 }
 
@@ -1699,6 +1772,7 @@ fn probe_reason(engine: &mut Engine, report: brokkr_protocol::AttemptReport) -> 
         super::Probe::Parked(park) => park.reason().to_string(),
         super::Probe::Answered(_) => panic!("a probe that never answered is not an answer"),
         super::Probe::Extended(_) => panic!("a probe with no rate limit extended the wait"),
+        super::Probe::Held => panic!("a probe that ran was held from its route"),
     }
 }
 
@@ -1861,78 +1935,7 @@ fn one_seat_has_one_wait_and_no_host_spells_its_own_absence() {
     assert_eq!(engine.host_spelling(), file.display().to_string());
 }
 
-/// Each `CooldownError` variant pins its `Display` once: the operator's
-/// text is the variant's, never a string built at the park.
-#[test]
-fn a_cooldown_error_names_an_unreadable_host() {
-    let error = super::CooldownError::HostUnreadable {
-        path: "/tmp/host.json".into(),
-        kind: std::io::ErrorKind::PermissionDenied,
-    };
-    assert_eq!(
-        error.to_string(),
-        "the host configuration at /tmp/host.json cannot be read: permission denied"
-    );
-}
-
-#[test]
-fn a_cooldown_error_names_an_invalid_host() {
-    let source = crate::admission::HostError::Unplaced;
-    let error = super::CooldownError::HostInvalid { source };
-    assert_eq!(
-        error.to_string(),
-        "no host configuration can be found: neither XDG_CONFIG_HOME nor HOME names an absolute \
-         directory"
-    );
-}
-
-#[test]
-fn a_cooldown_error_names_an_unreadable_last_wait() {
-    let error = super::CooldownError::LastWaitUnreadable(brokkr_core::ProviderWaitError::Field {
-        seq: 4,
-        field: "provider".into(),
-    });
-    assert_eq!(
-        error.to_string(),
-        "event 4: the waits entry does not read: provider"
-    );
-}
-
-#[test]
-fn a_cooldown_error_names_too_many_waits() {
-    let error = super::CooldownError::TooManyWaits { seq: 5, count: 2 };
-    assert_eq!(
-        error.to_string(),
-        "event 5: a single seat carries at most one wait, not 2"
-    );
-}
-
-#[test]
-fn a_cooldown_error_names_an_unreadable_earlier_wait() {
-    let error = super::CooldownError::EarlierWaitUnreadable {
-        seq: 3,
-        source: brokkr_core::ProviderWaitError::Field {
-            seq: 3,
-            field: "seconds".into(),
-        },
-    };
-    assert_eq!(
-        error.to_string(),
-        "an earlier wait does not read: event 3: the waits entry does not read: seconds"
-    );
-}
-
-#[test]
-fn a_cooldown_error_names_an_unreadable_refusal() {
-    let error = super::CooldownError::RefusedUnreadable(brokkr_core::ProviderRefusalError::Field {
-        seq: 6,
-        field: "cause".into(),
-    });
-    assert_eq!(
-        error.to_string(),
-        "the failed event's refusal does not read: event 6: the refused record does not read: cause"
-    );
-}
+mod errors;
 
 mod coverage;
 mod coverage_430s4d2d;

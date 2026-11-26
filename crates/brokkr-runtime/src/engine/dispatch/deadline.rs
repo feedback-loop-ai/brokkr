@@ -33,6 +33,7 @@ use std::time::Duration;
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 
 use super::super::carry::Panelled;
+use super::super::marks::outcome_at;
 use super::super::{site_label, DriverRun, Selection};
 use crate::admission::{read_host, HostError, Hosting};
 use crate::agents::Candidate;
@@ -326,9 +327,28 @@ fn route_of(
     candidate: &Candidate,
 ) -> Option<String> {
     let facts = sites.get(&site_label(site_name, site))?;
-    let index = facts.chain.iter().position(|link| link == candidate)?;
-    match facts.pins.get(index)? {
-        ModelPins::Read(served) => served.iter().find_map(|served| served.route.clone()),
-        ModelPins::Unreadable(_) => None,
-    }
+    let (_, mut routes) = served_routes(facts, Some(candidate))?;
+    routes.next().map(str::to_owned)
+}
+
+/// The compiled routes served by the selected chain link or the inline
+/// site's single outcome, primary first, as admission seats its lanes.
+pub(super) fn served_routes<'a>(
+    facts: &'a SiteFacts,
+    candidate: Option<&'a Candidate>,
+) -> Option<(&'a str, impl Iterator<Item = &'a str>)> {
+    let (index, provider) = match candidate {
+        Some(candidate) => (
+            facts.chain.iter().position(|link| link == candidate)?,
+            candidate.provider.as_str(),
+        ),
+        None => (0, outcome_at(Some(facts), None)?.provider.as_str()),
+    };
+    let ModelPins::Read(served) = facts.pins.get(index)? else {
+        return None;
+    };
+    Some((
+        provider,
+        served.iter().filter_map(|served| served.route.as_deref()),
+    ))
 }

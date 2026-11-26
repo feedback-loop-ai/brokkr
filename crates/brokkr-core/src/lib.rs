@@ -33,7 +33,7 @@ pub use fold::{fold, Cursor, FoldError, RunState, Status};
 pub use keep_refs::cited_shas;
 pub use park::{CauseRead, FailureClass, ParkCause, ParkCauseError, ProviderLimitRefusal};
 pub use payload::{
-    accepted_command, operator_command, provider_refusal, provider_waits, succeeded_effect,
+    accepted_command, operator_command, provider_refusal, provider_waits, succeeded_effect, Held,
     ProbeAnswer, ProviderRefusal, ProviderRefusalError, ProviderWait, ProviderWaitError,
     RefusalCause,
 };

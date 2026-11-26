@@ -35,11 +35,20 @@ pub(crate) struct Fixture {
     _dir: tempfile::TempDir,
     pub(crate) root: PathBuf,
     pub(crate) store: Store,
+    /// The journal its store opened and its launches name.
+    journal: PathBuf,
 }
 
 impl Fixture {
     pub(crate) fn new() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().canonicalize().unwrap().join("forge.db");
+        Fixture::opened(dir, journal)
+    }
+
+    /// The fixture's workspace over the journal at `journal`, another
+    /// connection's, and the store it opened there.
+    fn opened(dir: tempfile::TempDir, journal: PathBuf) -> Fixture {
         let root = dir.path().canonicalize().unwrap();
         for sub in ["agents/charters", "adapters", "bundle/roles"] {
             std::fs::create_dir_all(root.join(sub)).unwrap();
@@ -56,7 +65,7 @@ impl Fixture {
                    "tool_permissions": "unsupported", "mcp": "unsupported",
                    "native_capabilities": {"known": {}}})
         };
-        let mut store = Store::open(&root.join("forge.db")).unwrap();
+        let mut store = Store::open(&journal).unwrap();
         // The dispatcher its rooms claim as: generation 1 (decision 0095
         // ruling 2).
         store.dispatch_hold(1).unwrap();
@@ -64,6 +73,7 @@ impl Fixture {
             store,
             _dir: dir,
             root,
+            journal,
         };
         fixture.write(
             "adapters/alpha.json",
@@ -124,7 +134,7 @@ impl Fixture {
             workspace: self.root.clone(),
             bundle: BundleSource::Dir(bundle.into()),
             shelf: None,
-            journal: self.root.join("forge.db"),
+            journal: self.journal.clone(),
             repo: None,
             secrets: None,
             host_path: OsString::new(),
@@ -287,6 +297,7 @@ pub(crate) fn refused_rows(store: &mut Store, run: &str, rows: &[Row]) -> EventE
             rows,
         )
         .unwrap()
+        .envelope
 }
 
 /// Write one beta/cloud cool-down row through the store's own writer, in
@@ -304,6 +315,7 @@ pub(crate) fn write_cooling(store: &mut Store, run: &str) {
             reason: "cooling".into(),
             retry_after_seconds: None,
             rounds: 1,
+            held: None,
         }],
     );
 }
@@ -1345,8 +1357,12 @@ fn every_capacity_reason_has_its_word() {
         Capacity::CoolingDown {
             provider: "p".into(),
             route: "r".into(),
-            until: Stamp::UNIX_EPOCH,
-            words: "w".into(),
+            standing: Box::new(brokkr_store::CooldownAggregate::Ordinary(
+                brokkr_store::RowEnd {
+                    until: Stamp::UNIX_EPOCH,
+                    reason: "w".into(),
+                },
+            )),
         },
     ];
     let words = reasons.map(|reason| {
@@ -1415,12 +1431,20 @@ fn retry() -> Value {
 }
 
 /// Append each of `events` to `run`.
-fn appended(fixture: &mut Fixture, run: &str, events: Vec<(EventType, Value)>) {
+pub(crate) fn appended(fixture: &mut Fixture, run: &str, events: Vec<(EventType, Value)>) {
     for (event, payload) in events {
         (fixture.store)
             .append_next(run, event, payload, None, None)
             .unwrap();
     }
+}
+
+/// `run` enters its `work` phase and requests `effect` of its `work` seat.
+pub(crate) fn requested(fixture: &mut Fixture, run: &str, effect: &str) {
+    let entered = (EventType::PhaseEntered, json!({"phase": "work"}));
+    let request = json!({"effect_id": effect, "seat": "work"});
+    let request = (EventType::EffectRequested, request);
+    appended(fixture, run, vec![entered, request]);
 }
 
 /// Under a ceiling of 1, a parked run retried and a run started between
@@ -1438,14 +1462,12 @@ fn a_run_retried_or_started_after_the_pass_refuses_the_claim_on_capacity() {
         let file = fixture.declare(&ceilings(1, 1, json!({})));
         fixture.seating("r1", &[("alpha", "a-1")], false);
         // Parked where its seat's attempts ran out, so a retry returns it.
-        let entered = (EventType::PhaseEntered, json!({"phase": "work"}));
-        let requested = json!({"effect_id": "e", "seat": "work"});
-        let requested = (EventType::EffectRequested, requested);
+        requested(&mut fixture, "r1", "e");
         let parked = (
             EventType::RunParked,
             json!({"reason": "attempts exhausted"}),
         );
-        appended(&mut fixture, "r1", vec![entered, requested, parked]);
+        appended(&mut fixture, "r1", vec![parked]);
         let judged = passed(&fixture.store, &file).unwrap();
         let rooms: Vec<bool> = judged.iter().map(|judged| judged.room.is_some()).collect();
         assert_eq!(rooms, [true, false]);
@@ -1882,3 +1904,5 @@ fn a_claim_is_refused_while_a_wait_of_its_entry_does_not_hold() {
     let state = fixture.store.queue_entry(waiting).unwrap().state;
     assert_eq!(state, brokkr_store::EntryState::Launching);
 }
+
+pub(crate) mod gates;

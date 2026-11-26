@@ -71,7 +71,9 @@ pub(super) fn limits_for(probed: Probed, attempts: u64) -> Limits {
         | Probed::RefuseThenAnswer
         | Probed::OtherRefusal
         | Probed::MalformedRefusal
-        | Probed::BarrierRefuse => work(attempts),
+        | Probed::BarrierRefuse
+        | Probed::AnswerThenLinger
+        | Probed::DescendantThenLinger => work(attempts),
     }
 }
 

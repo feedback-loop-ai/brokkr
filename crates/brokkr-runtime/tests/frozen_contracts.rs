@@ -6,6 +6,11 @@
 
 use std::path::PathBuf;
 
+#[path = "frozen_contracts/park_cause.rs"]
+mod park_cause;
+#[path = "frozen_contracts/provider_wait_v2.rs"]
+mod provider_wait_v2;
+
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -24,7 +29,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 42] = [
+const FROZEN: [(&str, &str); 43] = [
     // Decision 0075 ruling 2 lands seat-record v8 beside v7, frozen here.
     (
         "contracts/seat-record.v7.schema.json",
@@ -235,6 +240,14 @@ const FROZEN: [(&str, &str); 42] = [
         "contracts/provider-wait.v1.schema.json",
         "7f3b018dd5e50abea8735ecd8c7c8c96684f519e370d9a291c74a77975986dfc",
     ),
+    // Decision 0106 ruling 2 mints `provider-wait/v2` beside v1, whose
+    // bytes did not move: v2 is v1 plus a held entry's two fields. Fix
+    // round 0106b1r10 adds `effect/indeterminate.wait_unwritten`, so the
+    // unreleased file is re-pinned in place.
+    (
+        "contracts/provider-wait.v2.schema.json",
+        "083fadf8836c72abbf301eac3d4abaa5ac2a4dd5191b90a0e5fffb4231aa0f50",
+    ),
     // Decision 0106 ruling 1 mints `park-cause/v1` as an additive
     // extension at event_schema 1; its bytes are pinned from birth.
     (
@@ -303,6 +316,10 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         (
             "contracts/provider-wait.v1.schema.json",
             "Forge provider wait v1",
+        ),
+        (
+            "contracts/provider-wait.v2.schema.json",
+            "Forge provider wait v2",
         ),
         ("contracts/park-cause.v1.schema.json", "Forge park cause v1"),
         (
@@ -1937,60 +1954,6 @@ fn the_refused_record_is_closed_and_reads_back() {
         assert_eq!(
             reader, admitted,
             "{case}: the reader said {reader}, not {admitted}"
-        );
-    }
-}
-
-/// Decision 0106 ruling 1: the park-cause extension's four words, each
-/// closed to exactly the fields its variant has, and the five provider
-/// refusal variants with their conditional fields.
-#[test]
-fn the_park_cause_extension_is_closed_field_for_field() {
-    let validator = contract("contracts/park-cause.v1.schema.json");
-    for valid in [
-        serde_json::json!({"kind": "ruled", "rule_id": "IMPL-BLOCKED", "detail": "blocked"}),
-        serde_json::json!({"kind": "ruled", "detail": "no rule matched"}),
-        serde_json::json!({"kind": "attempt-cap", "failure_class": "start-failure",
-            "detail": "cap"}),
-        serde_json::json!({"kind": "infrastructure", "retryable": false,
-            "detail": "indeterminate"}),
-        serde_json::json!({"kind": "provider-limit", "provider": "dsh", "detail": "refused",
-            "refusal": {"kind": "route-unresolved"}}),
-        serde_json::json!({"kind": "provider-limit", "provider": "dsh", "detail": "refused",
-            "refusal": {"kind": "host-unreadable", "route": "dsh:a"}}),
-        serde_json::json!({"kind": "provider-limit", "provider": "dsh", "detail": "refused",
-            "refusal": {"kind": "episode-unreadable", "route": "dsh:a"}}),
-        serde_json::json!({"kind": "provider-limit", "provider": "dsh", "detail": "refused",
-            "refusal": {"kind": "past-maximum", "route": "dsh:a",
-                "until": "2026-11-01T00:00:03Z", "seconds": 7201, "max_seconds": 7200}}),
-        serde_json::json!({"kind": "provider-limit", "provider": "dsh", "detail": "refused",
-            "refusal": {"kind": "no-end", "route": "dsh:a",
-                "seconds": 7201, "max_seconds": 7200}}),
-    ] {
-        assert!(validator.is_valid(&valid), "the extension refused {valid}");
-    }
-    for invalid in [
-        serde_json::json!({"kind": "unknown", "detail": "a fifth word"}),
-        serde_json::json!({"kind": "ruled"}),
-        serde_json::json!({"kind": "ruled", "detail": "x", "route": "dsh:a"}),
-        serde_json::json!({"kind": "attempt-cap", "failure_class": "other", "detail": "x"}),
-        serde_json::json!({"kind": "infrastructure", "detail": "x"}),
-        serde_json::json!({"kind": "provider-limit", "provider": "dsh", "detail": "x",
-            "refusal": {"kind": "route-unresolved", "route": "dsh:a"}}),
-        serde_json::json!({"kind": "provider-limit", "provider": "dsh", "detail": "x",
-            "refusal": {"kind": "host-unreadable"}}),
-        serde_json::json!({"kind": "provider-limit", "provider": "dsh", "detail": "x",
-            "refusal": {"kind": "past-maximum", "route": "dsh:a",
-                "seconds": 7201, "max_seconds": 7200}}),
-        serde_json::json!({"kind": "provider-limit", "provider": "dsh", "detail": "x",
-            "refusal": {"kind": "no-end", "route": "dsh:a",
-                "until": "2026-11-01T00:00:03Z", "seconds": 7201, "max_seconds": 7200}}),
-        serde_json::json!({"kind": "provider-limit", "provider": "dsh", "detail": "x",
-            "refusal": {"kind": "route-unresolved", "until": "2026-11-01T00:00:03Z"}}),
-    ] {
-        assert!(
-            !validator.is_valid(&invalid),
-            "the extension admitted {invalid}"
         );
     }
 }

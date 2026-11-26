@@ -28,9 +28,13 @@ use crate::{Disagreement, IndexFault, Store};
 pub mod damaged;
 mod generated;
 mod older;
+#[cfg(feature = "test-support")]
+mod statement;
 
 pub use generated::{fleet, generate, Generated, Standing, Width};
 pub use older::{unindex, unmigrate, unname, unseat};
+#[cfg(feature = "test-support")]
+pub use statement::before_statement;
 
 /// The folded columns at the head a row names, so a planted row is not
 /// `behind`: the caller names the hash, and every stamped part stands at

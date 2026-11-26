@@ -1763,6 +1763,8 @@ pub brokkr_core::EventEnvelope::seq: u64
 impl brokkr_core::envelope::EventEnvelope
 pub fn brokkr_core::envelope::EventEnvelope::compute_hash(&self) -> alloc::string::String
 pub fn brokkr_core::envelope::EventEnvelope::sealed(self) -> Self
+pub struct brokkr_core::Held
+pub brokkr_core::Held::max_seconds: u64
 pub struct brokkr_core::Machine
 pub brokkr_core::Machine::initial: alloc::string::String
 pub brokkr_core::Machine::phases: alloc::vec::Vec<alloc::string::String>
@@ -1798,6 +1800,7 @@ pub brokkr_core::ProviderRefusal::seconds: core::option::Option<u64>
 pub brokkr_core::ProviderRefusal::site: core::option::Option<alloc::string::String>
 pub brokkr_core::ProviderRefusal::words: alloc::string::String
 pub struct brokkr_core::ProviderWait
+pub brokkr_core::ProviderWait::held: core::option::Option<brokkr_core::Held>
 pub brokkr_core::ProviderWait::provider: alloc::string::String
 pub brokkr_core::ProviderWait::retry_after_seconds: core::option::Option<u64>
 pub brokkr_core::ProviderWait::rounds: u64

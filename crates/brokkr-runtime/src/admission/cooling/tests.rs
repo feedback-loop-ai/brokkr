@@ -7,8 +7,12 @@
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_store::{Cooling as Row, QueueRefusal, Store, StoreError};
+use brokkr_store::{
+    CooldownAggregate, Cooling as Row, Generation, QueueRefusal, RowEnd, Store, StoreError,
+};
 use serde_json::json;
+
+use crate::admission::capacity::Unclaimed;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
@@ -39,6 +43,7 @@ fn row(provider: &str, route: &str, until: OffsetDateTime, words: &str) -> Row {
         reason: words.into(),
         retry_after_seconds: None,
         rounds: 1,
+        held: None,
     }
 }
 
@@ -79,6 +84,11 @@ fn admitted_at(fixture: &Fixture, file: &Path, now: OffsetDateTime) -> Vec<Reaso
 
 /// Every entry the pass judged at `now`.
 fn judged_at(fixture: &Fixture, file: &Path, now: OffsetDateTime) -> Vec<Judged> {
+    judged_in(&fixture.store, file, now)
+}
+
+/// Every entry the pass over `store` judged at `now`.
+fn judged_in(store: &Store, file: &Path, now: OffsetDateTime) -> Vec<Judged> {
     let probe = |_: &Path| Ok(PLENTY);
     let host = Host {
         file,
@@ -86,17 +96,38 @@ fn judged_at(fixture: &Fixture, file: &Path, now: OffsetDateTime) -> Vec<Judged>
         free: &probe,
         machine: None,
     };
-    pass_within_at(&fixture.store, &host, now).unwrap().0
+    pass_within_at(store, &host, now).unwrap().0
 }
 
 /// The capacity reason a lane stands at.
 fn cooling(provider: &str, route: &str, until: OffsetDateTime, words: &str) -> Reason {
+    let standing = CooldownAggregate::Ordinary(ending(until, words));
+    cooling_by((provider, route), standing)
+}
+
+/// One row's end and words, as the aggregate shows them.
+fn ending(until: OffsetDateTime, words: &str) -> RowEnd {
+    RowEnd {
+        until,
+        reason: words.into(),
+    }
+}
+
+/// The capacity reason a lane stands at, `standing`.
+fn cooling_by((provider, route): (&str, &str), standing: CooldownAggregate) -> Reason {
     Reason::Capacity(Capacity::CoolingDown {
         provider: provider.into(),
         route: route.into(),
-        until,
-        words: words.into(),
+        standing: Box::new(standing),
     })
+}
+
+/// A probe's hold alone, its deadline's second and words.
+fn hold_alone(until: OffsetDateTime, words: &str) -> CooldownAggregate {
+    CooldownAggregate::Held {
+        probe: ending(until, words),
+        ordinary: None,
+    }
 }
 
 /// The host this file declares: two places for each provider, beta's two
@@ -162,6 +193,96 @@ fn a_cooling_entry_is_not_admitted_and_its_lane_never_latches() {
         format!(
             "provider beta is cooling on route cloud until {}: {words}",
             until.format(&Rfc3339).unwrap()
+        )
+    );
+}
+
+/// A probe's hold read a day past its probe's deadline still holds the
+/// lane, and its refusal says no time ends the hold, never that the route
+/// cools "until" a time already gone (the return of fix round 0106b1r12).
+/// It names the second the deadline falls before, the first whole second
+/// strictly after it: for a deadline at an exact second, thirty seconds in,
+/// that is the thirty-first, never named as the deadline itself (fix round
+/// 0106b1r13, L1); a deadline half a second later falls before the same
+/// second.
+#[test]
+fn a_probe_holds_refusal_names_the_second_its_deadline_falls_before() {
+    for deadline in [at(30), at(30) + time::Duration::milliseconds(500)] {
+        let (fixture, file) = probe_held(deadline);
+        let words = HOLD_WORDS;
+        let reasons = reasons_at(&fixture, &file, at(86_400));
+        let probing = cooling_by(("beta", "cloud"), hold_alone(at(31), words));
+        assert_eq!(reasons, vec![vec![probing]], "{deadline}");
+        assert_eq!(
+            reasons[0][0].to_string(),
+            format!(
+                "provider beta is held on route cloud by a cool-down probe whose deadline falls \
+                 before {}, and no time ends that hold: {words}",
+                at(31).format(&Rfc3339).unwrap()
+            ),
+            "{deadline}"
+        );
+    }
+}
+
+/// The words the probe [`probe_held`] writes holds its route with.
+const HOLD_WORDS: &str = "a cool-down probe of run run-probe (attempt a-1) holds the route until \
+                          it answers, its renewed cool-down commits, or its process tree is \
+                          settled";
+
+/// The fixture with no row, and a probe of run `run-probe` (attempt `a-1`)
+/// holding beta/cloud from the base instant to `deadline`.
+fn probe_held(deadline: OffsetDateTime) -> (Fixture, PathBuf) {
+    let (mut fixture, file) = refused(&[]);
+    stopped_run(&mut fixture.store, "run-probe");
+    let hold = brokkr_store::ProbeHold {
+        run_id: "run-probe",
+        attempt_id: "a-1",
+        site: "",
+        provider: "beta",
+        route: "cloud",
+        deadline,
+    };
+    fixture.store.hold_probe(&hold, base()).unwrap();
+    (fixture, file)
+}
+
+/// Fix round 0106b1r14, L1: a standing hold beside a longer ordinary row,
+/// read through both callers of the one fold of a route's latest end, the
+/// engine's `Store::cooldown` and the pass, reports the hold. Each end
+/// keeps the row it came from (fix round 0106b1r15, L1): the ordinary
+/// row's 600 seconds and "longer" are named as the ordinary row's, and the
+/// hold's own deadline second and words as the probe's, so the refusal
+/// never shows the ordinary row's end or words as the probe's. Removal
+/// controls: fold admission's rows its own way again, keeping only the
+/// winning row's flag, and the pass names the route cooling, unheld; keep
+/// the latest row's end and words under the probe flag, as r14's fold did,
+/// and the hold reads "longer" at 600 seconds as the probe's.
+#[test]
+fn a_hold_beside_a_longer_ordinary_row_reads_held_through_both_callers() {
+    let (mut fixture, file) = probe_held(at(30));
+    refuse(
+        &mut fixture.store,
+        "run-a",
+        &[row("beta", "cloud", at(600), "longer")],
+    );
+    let engine = fixture.store.cooldown("beta", "cloud", at(10)).unwrap();
+    let aggregate = CooldownAggregate::Held {
+        probe: ending(at(31), HOLD_WORDS),
+        ordinary: Some(ending(at(600), "longer")),
+    };
+    assert_eq!(engine, Some(aggregate.clone()));
+    let held = cooling_by(("beta", "cloud"), aggregate);
+    let reasons = reasons_at(&fixture, &file, at(10));
+    assert_eq!(reasons, vec![vec![held]]);
+    assert_eq!(
+        reasons[0][0].to_string(),
+        format!(
+            "provider beta is held on route cloud by a cool-down probe whose deadline falls \
+             before {}, and no time ends that hold: {HOLD_WORDS}; a cool-down beside it holds \
+             the route until {}: longer",
+            at(31).format(&Rfc3339).unwrap(),
+            at(600).format(&Rfc3339).unwrap()
         )
     );
 }
@@ -248,6 +369,50 @@ fn two_overlapping_refusals_hold_until_the_longer_ends() {
     );
     // The longer row alone holds the lane to its end, and no further.
     assert_eq!(reasons_at(&fixture, &file, longer), vec![vec![]]);
+}
+
+/// A held wait's stated end lies past any declared maximum, and admission
+/// holds the lane to it; a later, shorter row on the lane never shortens it
+/// (decision 0106 ruling 2). The long row is planted held-kind, with the
+/// maximum it passed, and both the pass and the claim judge it (fix round
+/// 0106b1r3, R4).
+#[test]
+fn admission_holds_a_held_wait_to_its_stated_end_and_a_later_shorter_row_does_not_shorten_it() {
+    let held = at(259_200);
+    let words = "usage limit, three days";
+    let mut long = row("beta", "cloud", held, words);
+    long.held = Some(brokkr_core::Held { max_seconds: 7_200 });
+    let shorter = row("beta", "cloud", at(60), "the later, shorter");
+    let (fixture, file) = refused(&[long.clone(), shorter.clone()]);
+    let seq = fixture.store.load("run-0").unwrap().last().unwrap().seq;
+    let kinds = fixture
+        .store
+        .cooldown_held_rounds("run-0", seq, "")
+        .unwrap();
+    assert_eq!(
+        kinds.into_iter().collect::<Vec<_>>(),
+        [(1, brokkr_core::Held { max_seconds: 7_200 })]
+    );
+    let holding = vec![vec![cooling("beta", "cloud", held, words)]];
+    for now in [base(), at(120), at(7_201)] {
+        assert_eq!(reasons_at(&fixture, &file, now), holding, "at {now}");
+    }
+    assert_eq!(reasons_at(&fixture, &file, held), vec![vec![]]);
+
+    // The claim's own read refuses the held row's lane too.
+    let (mut fixture, _file, room) = room_before_rows();
+    refuse(&mut fixture.store, "run-held", &[long]);
+    refuse(&mut fixture.store, "run-shorter", &[shorter]);
+    match room
+        .claim(&mut fixture.store, Generation(1), "admitted", &mut || true)
+        .unwrap()
+    {
+        Err(Unclaimed::Refused(reason)) => {
+            assert_eq!(reason, cooling("beta", "cloud", held, words))
+        }
+        Err(Unclaimed::Stopped) => panic!("nothing asked the claim to stop"),
+        Ok(claim) => panic!("the claim took {claim:?} over a held cool-down"),
+    }
 }
 
 /// At one end, the latest row speaks for the lane (decision 0103 ruling 2):
@@ -392,3 +557,5 @@ fn the_claim_refuses_a_row_recorded_after_the_pass_read() {
         Ok(claim) => panic!("the claim took {claim:?} over a cool-down"),
     }
 }
+
+mod snapshot;

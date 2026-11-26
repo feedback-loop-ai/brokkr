@@ -155,27 +155,32 @@ fn a_crash_before_an_episode_unreadable_park_resumes_the_refusal() {
 #[test]
 fn a_crash_before_a_past_maximum_park_resumes_the_refusal() {
     let dir = tempfile::tempdir().unwrap();
-    let refusal = a_rate_limit_with(Some("first"), Some(5));
+    // An earlier 2s wait and a stated 1s reset: the episode's 3s passes the
+    // 2s maximum, the engine's to bound (a stated reset alone past it is
+    // held, decision 0106 ruling 2).
+    let refusal = a_rate_limit_with(Some("first"), Some(1));
+    let earlier = json!({"effect_id": "effect", "attempt_id": "a0", "error": "refused",
+        "waits": wait_value(base() + time::Duration::seconds(2), 2)});
     let (mut engine, _now) = terminal_case(
         dir.path(),
-        2,
+        3,
         Some(host(dir.path(), 1, 2)),
         &refusal,
-        None,
+        Some(earlier),
         TerminalMode::Crashed,
     );
     engine.drive().unwrap();
     assert!(logs(dir.path(), "work").is_empty(), "a resume ran a driver");
     let reason = park_reason(&engine);
-    assert!(reason.contains("would wait 5s"), "{reason}");
+    assert!(reason.contains("would wait 1s"), "{reason}");
     assert!(
-        reason.contains("episode 5s is past the declared 2s maximum"),
+        reason.contains("episode 3s is past the declared 2s maximum"),
         "{reason}"
     );
     assert!(reason.contains("rate_limit: slow down"), "{reason}");
     // The cause names the wait's own recorded end, read back from the
     // failed event the crash left, not a guess.
-    let recorded = failed(&engine)[0].payload["waits"][0]["until"]
+    let recorded = failed(&engine)[1].payload["waits"][0]["until"]
         .as_str()
         .unwrap()
         .to_string();
@@ -185,7 +190,7 @@ fn a_crash_before_a_past_maximum_park_resumes_the_refusal() {
         brokkr_core::ProviderLimitRefusal::PastMaximum {
             route: "first".into(),
             until,
-            seconds: 5,
+            seconds: 1,
             max_seconds: 2,
         }
     );

@@ -5,6 +5,7 @@
 //! [`Engine::execute`] reads as that sequence, in order; the pieces it is
 //! split into stand beside it here, in the order it reaches them.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -23,14 +24,16 @@ use super::carry::{CarryPlan, CarryRefusal};
 use super::panel::PanelAt;
 use super::sequence::SequenceAt;
 use super::{
-    argv_for, arms_effect_gate_head, phase_of, select_candidates, verify_record, Engine,
-    EngineError, Selection, SiteSpawn, RESULTS,
+    argv_for, arms_effect_gate_head, invocation_sites, phase_of, select_candidates, site_label,
+    verify_record, Engine, EngineError, Selection, SiteSpawn, RESULTS,
 };
 use crate::bundle::{
     layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation, Seat, SeatClass,
 };
 
 pub(super) mod deadline;
+mod kill;
+pub(super) use kill::{ProbeDeadline, SpawnDeadline, Unspawned};
 
 /// One attempt of a requested effect, as [`Engine::execute`] names it
 /// before anything spawns: the effect, the attempt, the seat and the case
@@ -165,11 +168,16 @@ impl Engine {
                 .selected_is_gate(state.strategy.as_deref(), seat.has_gate()),
         };
         let (selection, started) = self.plan_attempt(events, &at, &mut input, carry)?;
+        // A retry is admitted over every route it launches, read from the
+        // selection its launch runs (fix round 0106b1r15, R1).
+        let launched = self.launch_routes(&at, &selection);
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         let protected = phase == self.bundle.protected_phase;
         self.arm_observation(&body, &seat, state.strategy.as_deref(), protected);
-        self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
+        if !self.start_admitted(started, &attempt_id, &launched)? {
+            return Ok(());
+        }
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
         let deadline = deadline::Deadline::of(
             self.cooldown.host.as_deref(),
@@ -319,6 +327,30 @@ impl Engine {
         let link = selection.get(&None);
         self.mark_serving(at.site_name, link, (brokers, hands), single.as_mut(), input);
         single
+    }
+
+    /// The routes a retry is admitted over. The selected body names its
+    /// launch sites and the selection names each agent-backed site's link.
+    /// Inline sites serve their own compiled pins. Keep the refused routes
+    /// as well, including those reported by an inline driver with no pins.
+    fn launch_routes(&self, at: &Dispatch<'_>, selection: &Selection) -> Vec<(String, String)> {
+        if self.cooldown.refused.is_empty() {
+            return Vec::new();
+        }
+        let mut routes: BTreeSet<(String, String)> =
+            self.cooldown.refused.iter().cloned().collect();
+        for (site, _) in invocation_sites(at.body) {
+            let label = site_label(at.site_name, &site);
+            let Some(facts) = self.bundle.sites.get(&label) else {
+                continue;
+            };
+            let Some((provider, served)) = deadline::served_routes(facts, selection.get(&site))
+            else {
+                continue;
+            };
+            routes.extend(served.map(|route| (provider.to_string(), route.to_string())));
+        }
+        routes.into_iter().collect()
     }
 
     /// Everything the attempt decides before its durable start: the
@@ -500,16 +532,45 @@ pub(super) fn spawn_site(
     deadline: std::time::Duration,
     door: Option<Door<'_>>,
 ) -> Result<(DriverProcess, Value), String> {
+    let deadline = SpawnDeadline::After(deadline);
+    spawn_site_by(bundle, spawn, input, workdir, deadline, door).map_err(|not| not.to_string())
+}
+
+/// [`spawn_site`] under `deadline`, which a probe gives as its one
+/// absolute instant: checked again immediately before the fork, and the
+/// instant its watchdog kills at (fix round 0106b1r6, D1).
+pub(super) fn spawn_site_by(
+    bundle: &Bundle,
+    spawn: &SiteSpawn,
+    input: &Value,
+    workdir: &Path,
+    deadline: SpawnDeadline<'_>,
+    door: Option<Door<'_>>,
+) -> Result<(DriverProcess, Value), Unspawned> {
+    let input = checked_input(bundle, spawn, input, door)?;
+    spawned(spawn, workdir, deadline, door).map(|process| (process, input))
+}
+
+/// Every check [`spawn_site`] takes before its driver is spawned, and the
+/// input it is told: the door's recheck, the launch record, the charter
+/// and the layer's re-walk. A check that refuses is
+/// [`Unspawned::Refused`] in its own words (fix round 0106b1r9, E5).
+fn checked_input(
+    bundle: &Bundle,
+    spawn: &SiteSpawn,
+    input: &Value,
+    door: Option<Door<'_>>,
+) -> Result<Value, Unspawned> {
     if let Some(reason) = &spawn.refusal {
-        return Err(reason.clone());
+        return Err(Unspawned::Refused(reason.clone()));
     }
     if let Some(door) = door {
-        admission::recheck(door.held).map_err(|refusal| refusal.to_string())?;
+        admission::recheck(door.held).map_err(|refusal| Unspawned::Refused(refusal.to_string()))?;
     }
     // The input arrives here after its last merge: the launch record in it
     // must be the one sealed for this spawn, and reassemble the argv about
     // to be launched (design D5.7).
-    verify_record(spawn, input)?;
+    verify_record(spawn, input).map_err(Unspawned::Refused)?;
     // Decision 0066 ruling 5: the driver renders the prompt from the role
     // file it is handed, so the file is judged here, against the pin the
     // compile took, immediately before the driver that will read it.
@@ -531,33 +592,33 @@ pub(super) fn spawn_site(
         .get(brokkr_protocol::native_controls::ROLE_TEXT)
         .is_some()
     {
-        return Err(format!(
+        return Err(Unspawned::Refused(format!(
             "dispatch refused: the input arrived carrying charter text ('{}') before the \
              dispatch door read one; what a seat is told is read only here, from the charter \
              the compile bound to its site (decision 0066 ruling 5)",
             brokkr_protocol::native_controls::ROLE_TEXT
-        ));
+        )));
     }
     let mut input = input.clone();
     let role = input["role_path"].as_str().unwrap_or_default().to_string();
     if !role.is_empty() || spawn.charter.is_some() {
         match site_charter_text(bundle, spawn.charter.as_ref(), Path::new(&role)) {
             Err((owner, key)) => {
-                return Err(format!(
+                return Err(Unspawned::Refused(format!(
                     "dispatch refused: a charter of {owner} moved since the compile ({key}); \
                      what a seat is told must be the bytes the bundle's identity names \
                      (decision 0066 ruling 5)"
-                ))
+                )))
             }
             Ok(text) => input[brokkr_protocol::native_controls::ROLE_TEXT] = Value::String(text),
         }
     }
     if let Some(layer) = &spawn.rewalk {
         if let Some(moved) = layer_drift(bundle, layer) {
-            return Err(rewalk_refusal(bundle, spawn, moved));
+            return Err(Unspawned::Refused(rewalk_refusal(bundle, spawn, moved)));
         }
     }
-    spawned(spawn, workdir, deadline, door).map(|process| (process, input))
+    Ok(input)
 }
 
 /// The driver `spawn` names, spawned. Under a door, its settlement record
@@ -566,18 +627,18 @@ pub(super) fn spawn_site(
 /// a later release asks the host about every driver that is not settled and
 /// never about a sibling's group (decision 0108 ruling 3). A seal that fails
 /// leaves this driver without a group: the release refuses for it and never
-/// guesses.
+/// guesses. A probe's deadline is read last, at the fork itself.
 fn spawned(
     spawn: &SiteSpawn,
     workdir: &Path,
-    deadline: std::time::Duration,
+    deadline: SpawnDeadline<'_>,
     door: Option<Door<'_>>,
-) -> Result<DriverProcess, String> {
+) -> Result<DriverProcess, Unspawned> {
     if let Some(Door { held, site, begun }) = door {
-        settlement::spawning(held, site, begun).map_err(|refusal| refusal.to_string())?;
+        settlement::spawning(held, site, begun)
+            .map_err(|refusal| Unspawned::Refused(refusal.to_string()))?;
     }
-    let process = DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
-        .map_err(|error| error.to_string())?;
+    let process = deadline.spawn(&spawn.argv, workdir, &spawn.env)?;
     if let Some(Door { held, site, .. }) = door {
         settlement::release::spawned(held, site, process.group());
     }

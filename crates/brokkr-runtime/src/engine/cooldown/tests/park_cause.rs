@@ -8,6 +8,25 @@ use brokkr_core::{ParkCause, ProviderLimitRefusal};
 use super::park_cause_of as cause_of;
 use super::*;
 
+#[test]
+fn a_round_with_no_end_names_where_its_length_stands_against_the_maximum() {
+    for (seconds, side) in [(2, "within"), (3, "past")] {
+        let error = super::super::CooldownError::RoundNoEnd {
+            provider: "claude".into(),
+            route: "first".into(),
+            seconds,
+            max_seconds: 2,
+        };
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "the cool-down probe for claude/first was refused again with a wait of {seconds}s, \
+                 {side} the declared 2s maximum, whose end the journal cannot spell"
+            )
+        );
+    }
+}
+
 /// A probe that spawned a process and ended with no answer may have run, so
 /// a budget retry as a new effect would evade the original wait and probe:
 /// the cause is `infrastructure`, never retryable (rulings 1 and 4). Before
@@ -156,9 +175,10 @@ fn a_provider_limit_cause_never_copies_the_providers_words() {
     };
     assert!(!detail.contains(MARKER), "{detail}");
 
-    // The same through a park the run wrote: a wait past the maximum.
-    let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, Some(5), 2);
-    engine.cooldown.host = Some(host(dir.path(), 1, 2));
+    // The same through a park the run wrote: a computed wait past the
+    // maximum (a stated reset past it is held, decision 0106 ruling 2).
+    let (dir, mut engine, _now) = seated!(&["refuse", "refuse"], Probed::Answer, None, 3);
+    engine.cooldown.host = Some(host(dir.path(), 2, 3));
     engine.drive().unwrap();
     assert!(park_reason(&engine).contains("rate_limit: slow down"));
     let ParkCause::ProviderLimit {
