@@ -1440,8 +1440,10 @@ fragment keeps working. A server named `brokkr` proves nothing, so an inline mod
 that authored the box's hands tokens itself is refused the same way; the
 way out is to seat the office through an agent, whose adapter owns that
 fragment. DSH's one `--patch` stays: a bound, contained, digest-matched
-route overlay under a closed grammar, re-read and re-validated before it
-is staged.
+route overlay, re-read and re-validated before it is staged. The closed
+route grammar admits only the `llm-pi-ai` row and refuses a `tool-web` or
+web backend row (`NotTheRouteRow`). It checks the YAML independently of
+the `authored` argument guard.
 
 ### The command is parsed, not scanned
 
