@@ -221,13 +221,19 @@ fn printed(layout: &[(&str, &[usize])]) -> String {
         .collect()
 }
 
-/// ci.yml's job `id`.
-fn job(workflow: &str, id: &str) -> String {
-    crate::workflow::jobs(workflow)
+/// Parsed `matrix.machine` list of `id` in `workflow`.
+fn matrix_machines(workflow: &str, file: &str, id: &str) -> Vec<String> {
+    let wf =
+        crate::workflow::Workflow::parse(workflow).unwrap_or_else(|e| panic!("{file} parses: {e}"));
+    wf.require_job(file, id)
+        .unwrap()
+        .matrix
+        .as_ref()
+        .and_then(|m| m.axis_strings("machine"))
+        .unwrap_or_else(|| panic!("{file}'s {id} has no matrix.machine list"))
         .into_iter()
-        .find_map(|(job, body)| (job == id).then_some(body))
-        .unwrap_or_else(|| panic!("ci.yml's {id} job"))
-        .to_string()
+        .map(str::to_string)
+        .collect()
 }
 
 /// The test and coverage jobs run exactly the layouts' machines: ci.yml's
@@ -279,10 +285,9 @@ fn the_test_jobs_machines_are_the_layouts() {
         .iter()
         .map(|(machine, _)| *machine)
         .collect();
-    assert!(
-        job(&workflow, "coverage-machines")
-            .lines()
-            .any(|line| line.trim() == format!("machine: [{}]", coverage.join(", "))),
+    assert_eq!(
+        matrix_machines(&workflow, "ci.yml", "coverage-machines"),
+        coverage,
         "coverage-machines lists {coverage:?}"
     );
     let linux: Vec<&str> = MACHINES
@@ -290,10 +295,9 @@ fn the_test_jobs_machines_are_the_layouts() {
         .map(|(machine, _)| *machine)
         .filter(|machine| machine.starts_with("linux/"))
         .collect();
-    assert!(
-        job(&workflow, "engine-machines")
-            .lines()
-            .any(|line| line.trim() == format!("machine: [{}]", linux.join(", "))),
+    assert_eq!(
+        matrix_machines(&workflow, "ci.yml", "engine-machines"),
+        linux,
         "ci.yml's engine-machines lists {linux:?}"
     );
     let macos_workflow =
@@ -304,10 +308,9 @@ fn the_test_jobs_machines_are_the_layouts() {
         .map(|(machine, _)| *machine)
         .filter(|machine| machine.starts_with("macos/"))
         .collect();
-    assert!(
-        job(&macos_workflow, "macos-machines")
-            .lines()
-            .any(|line| line.trim() == format!("machine: [{}]", macos_machines.join(", "))),
+    assert_eq!(
+        matrix_machines(&macos_workflow, "macos-test-shards.yml", "macos-machines"),
+        macos_machines,
         "macos-test-shards.yml's macos-machines lists {macos_machines:?}"
     );
 }

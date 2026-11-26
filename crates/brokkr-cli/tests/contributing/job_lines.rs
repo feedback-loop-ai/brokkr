@@ -3,7 +3,7 @@
 //! line of each required job, and of each job it needs, is held here, and a
 //! changed one fails until the guide's row is re-read.
 
-use super::{needs_of, workspace, MAIN_REQUIRES};
+use super::{workspace, MAIN_REQUIRES};
 use crate::workflow;
 
 /// Every line of each job behind the twelve checks, in `MAIN_REQUIRES`'s
@@ -426,27 +426,41 @@ const JOB_LINES: [(&str, &str); 17] = [
     ),
 ];
 
-/// The `key: value` pairs written at `indent` among `lines`, comments
-/// and deeper lines skipped.
-fn keys_at<'a>(lines: &[&'a str], indent: &str) -> Vec<(&'a str, &'a str)> {
-    lines
-        .iter()
-        .filter_map(|line| line.strip_prefix(indent))
-        .filter(|line| !line.starts_with([' ', '#']) && !line.is_empty())
-        .map(|line| {
-            let (key, value) = line.split_once(':').unwrap_or((line, ""));
-            (key, value.trim())
-        })
-        .collect()
-}
-
-/// A workflow's top-level keys, in order: a workflow-wide `defaults:` or
-/// `env:` would reach every step.
-fn top_level_keys(workflow: &str) -> Vec<&str> {
-    keys_at(&workflow.lines().collect::<Vec<_>>(), "")
-        .into_iter()
-        .map(|(key, _)| key)
-        .collect()
+/// Verbatim raw YAML lines of job `id` in `workflow`, for the line-by-line
+/// snapshot tests (`JOB_LINES`, `CPU_BUDGETS_LINES`) that intentionally pin
+/// trailing action release comments and exact line formatting.
+fn raw_job_body(workflow: &str, file: &str, id: &str) -> String {
+    let mut lines = workflow.lines();
+    assert!(
+        lines.any(|line| line.trim_end() == "jobs:"),
+        "{file} has no jobs: map"
+    );
+    let mut body = String::new();
+    let mut in_job = false;
+    let target = format!("  {id}:");
+    for line in lines {
+        if !line.is_empty() && !line.starts_with([' ', '\t', '#']) {
+            break;
+        }
+        let head = line.split_once('#').map_or(line, |(h, _)| h).trim_end();
+        let is_job_header = line.starts_with("  ")
+            && !line.starts_with("   ")
+            && !line[2..].starts_with('#')
+            && head.ends_with(':');
+        if is_job_header {
+            if in_job {
+                break;
+            }
+            if head == target {
+                in_job = true;
+            }
+        } else if in_job {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    assert!(in_job, "{file} has no {id} job");
+    body
 }
 
 /// The steps several required jobs take word for word, held once.
@@ -618,16 +632,17 @@ const CPU_BUDGETS_LINES: &str = r#"
 fn the_nightly_cpu_budgets_run_every_step_unsoftened() {
     let text =
         std::fs::read_to_string(workspace().join(".github/workflows/cpu-budgets.yml")).unwrap();
+    let wf = workflow::Workflow::parse(&text).expect("cpu-budgets.yml parses");
     assert_eq!(
-        top_level_keys(&text),
+        wf.top_level_keys,
         ["name", "on", "permissions", "concurrency", "jobs"],
         "cpu-budgets.yml's top-level keys"
     );
-    let jobs = workflow::jobs(&text);
-    let ids: Vec<&str> = jobs.iter().map(|(id, _)| id.as_str()).collect();
+    let ids: Vec<&str> = wf.jobs.iter().map(|j| j.id.as_str()).collect();
     assert_eq!(ids, ["cpu-budgets"], "cpu-budgets.yml's jobs");
+    let raw = raw_job_body(&text, "cpu-budgets.yml", "cpu-budgets");
     assert_eq!(
-        held_lines(&jobs[0].1),
+        held_lines(&raw),
         expected_lines(CPU_BUDGETS_LINES),
         "a line of cpu-budgets.yml's job changed: re-read what its red status signals"
     );
@@ -643,6 +658,7 @@ fn the_required_jobs_run_every_step_unsoftened() {
     let root = workspace();
     let read =
         |file: &str| std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
+    let mut parsed = std::collections::BTreeMap::new();
     for (file, top) in [
         (
             "pr-gates.yml",
@@ -657,33 +673,31 @@ fn the_required_jobs_run_every_step_unsoftened() {
             ["name", "on", "permissions", "concurrency", "jobs"],
         ),
     ] {
-        assert_eq!(top_level_keys(&read(file)), top, "{file}'s top-level keys");
+        let text = read(file);
+        let wf = workflow::Workflow::parse(&text).unwrap_or_else(|e| panic!("{file} parses: {e}"));
+        assert_eq!(wf.top_level_keys, top, "{file}'s top-level keys");
+        parsed.insert(file, (text, wf));
     }
-    let body_of = |id: &str, file: &str| {
-        workflow::jobs(&read(file))
-            .into_iter()
-            .find_map(|(job, body)| (job == id).then_some(body))
-            .unwrap_or_else(|| panic!("{file} has no {id} job"))
-    };
     // Each required job after every job it needs, and each of those after
     // its own, each once: a verdict judges what its needs ran (#1295).
     fn hold<'f>(
         id: &str,
         file: &'f str,
-        body_of: &dyn Fn(&str, &str) -> String,
+        parsed: &std::collections::BTreeMap<&'f str, (String, workflow::Workflow)>,
         required: &mut Vec<(String, &'f str)>,
     ) {
         if required.iter().any(|(held, _)| held == id) {
             return;
         }
-        for needed in needs_of(&body_of(id, file), id) {
-            hold(&needed, file, body_of, required);
+        let job = parsed[file].1.require_job(file, id).unwrap();
+        for needed in &job.needs {
+            hold(needed, file, parsed, required);
         }
         required.push((id.to_string(), file));
     }
     let mut required: Vec<(String, &str)> = Vec::new();
     for &(_, id, file) in &MAIN_REQUIRES {
-        hold(id, file, &body_of, &mut required);
+        hold(id, file, &parsed, &mut required);
     }
     let held: Vec<&str> = JOB_LINES.iter().map(|(id, _)| *id).collect();
     let ids: Vec<&str> = required.iter().map(|(id, _)| id.as_str()).collect();
@@ -692,9 +706,9 @@ fn the_required_jobs_run_every_step_unsoftened() {
         "JOB_LINES holds each required job and each job it needs once, in order"
     );
     for ((id, file), (_, lines)) in required.into_iter().zip(JOB_LINES) {
-        let body = body_of(&id, file);
+        let raw = raw_job_body(&parsed[file].0, file, &id);
         assert_eq!(
-            held_lines(&body),
+            held_lines(&raw),
             expected_lines(lines),
             "a line of {file}'s {id} changed: re-read its row and the sections the row links"
         );
