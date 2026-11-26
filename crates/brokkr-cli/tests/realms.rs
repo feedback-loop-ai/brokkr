@@ -1517,19 +1517,19 @@ fn the_repository_carries_the_bootstrap_map() {
     assert_eq!(
         content,
         json!({
-            "schema": "forge.realms/v6",
+            "schema": "forge.realms/v9",
             "realms": [{"name": "brokkr", "path": ".", "default_branch": "main",
                         "house": "docs/house-rules.md", "dialect": "openspec",
                         "capabilities": {
-                            "web-fetch": {"dialect": "claude-native-fetch",
+                            "web-fetch": {"dialects": {"claude": "claude-native-fetch", "dsh": "dsh-native-fetch"},
                                           "offices": ["researcher"]},
-                            "web-search": {"dialect": "claude-native-search",
+                            "web-search": {"dialects": {"claude": "claude-native-search", "dsh": "dsh-native-search"},
                                            "offices": ["researcher"]},
                         }}],
             "journal": ".forge/forge.db",
         })
     );
-    assert_eq!(map.schema, "forge.realms/v6");
+    assert_eq!(map.schema, "forge.realms/v9");
     assert_eq!(map.journal, ".forge/forge.db");
     assert_eq!(map.realms.len(), 1, "the bootstrap map names one realm");
     let realm = &map.realms[0];
@@ -1549,12 +1549,24 @@ fn the_repository_carries_the_bootstrap_map() {
         [
             (
                 "web-fetch",
-                &GrantDialect::from("claude-native-fetch"),
+                &GrantDialect::PerProvider(
+                    [
+                        ("claude".into(), "claude-native-fetch".into()),
+                        ("dsh".into(), "dsh-native-fetch".into())
+                    ]
+                    .into()
+                ),
                 Some(&researcher[..])
             ),
             (
                 "web-search",
-                &GrantDialect::from("claude-native-search"),
+                &GrantDialect::PerProvider(
+                    [
+                        ("claude".into(), "claude-native-search".into()),
+                        ("dsh".into(), "dsh-native-search".into())
+                    ]
+                    .into()
+                ),
                 Some(&researcher[..])
             ),
         ],
