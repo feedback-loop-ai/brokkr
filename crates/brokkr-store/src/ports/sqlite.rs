@@ -17,8 +17,8 @@ use crate::damage;
 use crate::start::Row;
 use crate::summary::Listed;
 use crate::{
-    head_of, import, origin, patiently, queue, refuse_existing, start, terminal, Attribution,
-    Cooldown, EntryId, NewEntry, QueueEntry, Store, StoreError,
+    head_of, import, origin, patiently, queue, refuse_existing, schema, start, terminal,
+    Attribution, Cooldown, EntryId, NewEntry, QueueEntry, Store, StoreError,
 };
 
 use super::{CoordinationStore, EventLog, ProjectionStore};
@@ -59,10 +59,22 @@ const UPDATE_STARTED_META: &str = "UPDATE runs
      SET created_at = ?2,
          feature = CASE WHEN ?3 != '' THEN ?3 ELSE feature END
      WHERE run_id = ?1";
+pub(crate) const LIST_RUNS_LOCAL: &str =
+    "SELECT run_id, feature, created_at FROM runs ORDER BY created_at";
 const LIST_RUNS_SUMMARY: &str =
     "SELECT run_id, COALESCE(feature, ''), COALESCE(created_at_whole, created_at, '')
      FROM run_summary
      ORDER BY COALESCE(created_at_whole, created_at, ''), run_id";
+
+pub(crate) fn query_listed_runs(
+    conn: &Connection,
+    sql: &str,
+) -> Result<Vec<(String, String, String)>, StoreError> {
+    Ok(conn
+        .prepare(sql)?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<Vec<_>, _>>()?)
+}
 const HAS_LOCAL_RUNS_OR_EVENTS: &str =
     "SELECT EXISTS(SELECT 1 FROM runs) OR EXISTS(SELECT 1 FROM events)";
 
@@ -89,8 +101,8 @@ pub(super) fn started_feature(payload: &Value) -> Option<&str> {
 
 pub(super) fn started_feature_of(events: &[EventEnvelope]) -> Option<&str> {
     events
-        .iter()
-        .find(|event| event.event_type == EventType::RunStarted)
+        .first()
+        .filter(|event| event.seq == 1 && event.event_type == EventType::RunStarted)
         .and_then(|event| started_feature(&event.payload))
 }
 
@@ -173,8 +185,8 @@ fn has_local_runs_or_events(tx: &Connection) -> Result<bool, StoreError> {
 }
 
 const HAS_RUNLESS_PROJECTION: &str = "SELECT
-        EXISTS(SELECT 1 FROM run_summary WHERE run_id NOT IN (SELECT run_id FROM runs))
-    OR  EXISTS(SELECT 1 FROM projection_hashes WHERE run_id NOT IN (SELECT run_id FROM runs))";
+        EXISTS(SELECT 1 FROM run_summary t WHERE NOT EXISTS (SELECT 1 FROM runs r WHERE r.run_id = t.run_id))
+    OR  EXISTS(SELECT 1 FROM projection_hashes t WHERE NOT EXISTS (SELECT 1 FROM runs r WHERE r.run_id = t.run_id))";
 const HAS_SECONDARY_PROJECTION: &str = "SELECT
         EXISTS(SELECT 1 FROM seat_summary)
     OR  EXISTS(SELECT 1 FROM seat_head)
@@ -464,19 +476,18 @@ impl ProjectionStore for SqlitePorts<'_> {
     }
 
     fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
-        let colocated = patiently("list_runs", self.0.patience, &self.0.path, || {
-            has_local_runs_or_events(&self.0.conn)
-        })?;
-        if colocated {
-            return self.0.list_runs();
-        }
         patiently("list_runs", self.0.patience, &self.0.path, || {
-            Ok(self
-                .0
-                .conn
-                .prepare(LIST_RUNS_SUMMARY)?
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-                .collect::<Result<Vec<_>, _>>()?)
+            let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Deferred)?;
+            let sql = if has_local_runs_or_events(&tx)?
+                || !schema::all_present(&tx, "table", &["run_summary"])?
+            {
+                LIST_RUNS_LOCAL
+            } else {
+                LIST_RUNS_SUMMARY
+            };
+            let rows = query_listed_runs(&tx, sql)?;
+            tx.commit()?;
+            Ok(rows)
         })
     }
 

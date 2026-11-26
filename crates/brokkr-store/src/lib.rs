@@ -621,11 +621,7 @@ impl Store {
 
     pub fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
         patiently("list_runs", self.patience, &self.path, || {
-            Ok(self
-                .conn
-                .prepare("SELECT run_id, feature, created_at FROM runs ORDER BY created_at")?
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-                .collect::<Result<Vec<_>, _>>()?)
+            ports::query_listed_runs(&self.conn, ports::LIST_RUNS_LOCAL)
         })
     }
 

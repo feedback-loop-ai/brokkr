@@ -59,11 +59,14 @@ const CURRENT_SUMMARY_HEAD: &str =
     "SELECT COALESCE(MAX(head_seq), 0) FROM run_summary WHERE run_id = ?1";
 const SECONDARY_PROJECTIONS_INTACT: &str = "SELECT
         (SELECT COUNT(*) FROM event_index WHERE run_id = ?1) = ?2
+    AND (SELECT COUNT(*) FROM projection_hashes WHERE run_id = ?1) = ?2
     AND NOT EXISTS(
         SELECT 1 FROM event_index
         WHERE run_id = ?1
-          AND type IN ('effect/checkpointed', 'run/parked')
-          AND facts_seq IS NULL
+          AND (
+              (type = 'effect/checkpointed' AND (facts_seq IS NULL OR facts_seq != seq))
+              OR (type = 'run/parked' AND (facts_seq IS NULL OR facts_seq != ?2))
+          )
     )
     AND EXISTS(
         SELECT 1 FROM seat_head
@@ -83,9 +86,8 @@ pub(super) enum ProjectionPlan {
     Decoupled(Vec<EventEnvelope>),
 }
 
-enum DecoupledPlan {
-    Ahead,
-    Current,
+enum DecoupledAction {
+    Skip,
     Project,
 }
 
@@ -165,6 +167,10 @@ fn insert_projection_hashes(
     run_id: &str,
     envelopes: &[EventEnvelope],
 ) -> Result<(), StoreError> {
+    tx.execute(
+        "DELETE FROM projection_hashes WHERE run_id = ?1 AND seq < 1",
+        params![run_id],
+    )?;
     let mut insert = tx.prepare_cached(INSERT_PROJECTION_HASH)?;
     for envelope in envelopes {
         let seq = checked_seq(envelope.seq)?;
@@ -304,6 +310,12 @@ fn max_projection_hash_seq(tx: &Connection, run_id: &str) -> Result<i64, StoreEr
     Ok(tx.query_row(MAX_PROJECTION_HASH_SEQ, params![run_id], |row| row.get(0))?)
 }
 
+fn max_known_from(progress: Option<&SummaryProgress>, max_hash_seq: i64) -> i64 {
+    let (head_seq, folded_seq) =
+        progress.map_or((0, 0), |p| (p.head_seq, p.folded_seq.unwrap_or(0)));
+    head_seq.max(folded_seq).max(max_hash_seq)
+}
+
 fn is_colocated_projection_current(
     tx: &Connection,
     run_id: &str,
@@ -376,7 +388,7 @@ fn plan_decoupled_projection(
     tx: &Connection,
     run_id: &str,
     envelopes: &[EventEnvelope],
-) -> Result<DecoupledPlan, StoreError> {
+) -> Result<DecoupledAction, StoreError> {
     let incoming_max = checked_seq(envelopes.len() as u64)?;
     let stored_count = verify_overlapping_hashes(tx, run_id, envelopes, incoming_max)?;
     let max_hash_seq = max_projection_hash_seq(tx, run_id)?;
@@ -401,12 +413,12 @@ fn plan_decoupled_projection(
         }
         None => (0, None),
     };
-    let max_known = head_seq.max(folded_seq.unwrap_or(0)).max(max_hash_seq);
+    let max_known = max_known_from(progress.as_ref(), max_hash_seq);
     if incoming_max < max_known {
         if stored_count != envelopes.len() {
             return Err(divergent(run_id));
         }
-        return Ok(DecoupledPlan::Ahead);
+        return Ok(DecoupledAction::Skip);
     }
     if incoming_max == max_known
         && head_seq == incoming_max
@@ -419,9 +431,9 @@ fn plan_decoupled_projection(
             &envelopes[envelopes.len() - 1].event_hash,
         )?
     {
-        return Ok(DecoupledPlan::Current);
+        return Ok(DecoupledAction::Skip);
     }
-    Ok(DecoupledPlan::Project)
+    Ok(DecoupledAction::Project)
 }
 
 pub(super) fn resolve_projection_plan(
@@ -449,8 +461,8 @@ pub(super) fn resolve_projection_plan(
     } else {
         verify_chain_for_sqlite(run_id, (0, ZERO_HASH), envelopes)?;
         match plan_decoupled_projection(tx, run_id, envelopes)? {
-            DecoupledPlan::Ahead | DecoupledPlan::Current => Ok(ProjectionPlan::Skip),
-            DecoupledPlan::Project => Ok(ProjectionPlan::Decoupled(envelopes.to_vec())),
+            DecoupledAction::Skip => Ok(ProjectionPlan::Skip),
+            DecoupledAction::Project => Ok(ProjectionPlan::Decoupled(envelopes.to_vec())),
         }
     }
 }
@@ -500,20 +512,21 @@ pub(super) fn rebuild_decoupled(
     verified: &[VerifiedRun],
     pre_existing: &[(String, i64)],
 ) -> Result<u64, StoreError> {
-    let keep: BTreeSet<&str> = verified
-        .iter()
-        .filter(|run| !run.events.is_empty())
-        .map(|run| run.run_id.as_str())
-        .collect();
+    let keep: BTreeSet<&str> = verified.iter().map(|run| run.run_id.as_str()).collect();
     clear_stale_projections(tx, pre_existing, &keep)?;
     let mut total = 0u64;
     for run in verified {
         if run.events.is_empty() {
+            let progress = summary_progress(tx, &run.run_id)?;
+            let max_hash = max_projection_hash_seq(tx, &run.run_id)?;
+            if max_known_from(progress.as_ref(), max_hash) > 0 {
+                return Err(divergent(&run.run_id));
+            }
             continue;
         }
         match plan_decoupled_projection(tx, &run.run_id, &run.events)? {
-            DecoupledPlan::Ahead => continue,
-            DecoupledPlan::Current | DecoupledPlan::Project => {
+            DecoupledAction::Skip => {}
+            DecoupledAction::Project => {
                 clear_run_projections(tx, &run.run_id)?;
                 write_decoupled_projection(
                     tx,
@@ -522,9 +535,9 @@ pub(super) fn rebuild_decoupled(
                     &run.account,
                     &run.listed,
                 )?;
-                total += run.events.len() as u64;
             }
         }
+        total += run.events.len() as u64;
     }
     Ok(total)
 }

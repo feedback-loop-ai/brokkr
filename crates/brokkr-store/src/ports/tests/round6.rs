@@ -143,7 +143,7 @@ fn decoupled_rebuild_from_refuses_forked_behind_log_against_ahead_projection() {
     matching
         .import_run_stream("r1", &sample_manifest("ahead-fork"), &[e1, e2_phase])
         .unwrap();
-    assert_eq!(ports.rebuild_from(&matching).unwrap(), 0);
+    assert_eq!(ports.rebuild_from(&matching).unwrap(), 2);
     assert_eq!(summary_snapshot(&path, "r1").0, 3);
 }
 
@@ -284,22 +284,20 @@ fn decoupled_apply_envelopes_preserves_unfolded_head_on_shorter_prefix_and_folds
 }
 
 #[test]
-fn decoupled_rebuild_from_clears_stale_projection_for_empty_log_stream() {
+fn decoupled_rebuild_from_clears_omitted_stale_projection() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("empty-stale.db");
     let store = Store::open(&path).unwrap();
     let ports = SqlitePorts::new(&store);
 
-    let stale_e1 = started_event("r-empty", "stale", "2026-11-25T09:00:00Z");
+    let stale_e1 = started_event("r-omitted", "stale", "2026-11-25T09:00:00Z");
     let live_e1 = started_event("r-live", "live", "2026-11-25T10:00:00Z");
-    ports.apply_envelopes("r-empty", &[stale_e1]).unwrap();
+    ports.apply_envelopes("r-omitted", &[stale_e1]).unwrap();
     ports
         .apply_envelopes("r-live", std::slice::from_ref(&live_e1))
         .unwrap();
 
     let log = MemEventLog::default();
-    log.create_run("r-empty", &sample_manifest("stale"))
-        .unwrap();
     log.import_run_stream("r-live", &sample_manifest("live"), &[live_e1])
         .unwrap();
 
@@ -312,7 +310,7 @@ fn decoupled_rebuild_from_clears_stale_projection_for_empty_log_stream() {
             "2026-11-25T10:00:00Z".to_string(),
         )]
     );
-    assert!(projection_hashes(&path, "r-empty").is_empty());
+    assert!(projection_hashes(&path, "r-omitted").is_empty());
     assert_eq!(sqlite_table_count(&path, "run_summary"), 1);
     assert_eq!(sqlite_table_count(&path, "event_index"), 1);
     assert_eq!(sqlite_table_count(&path, "projection_hashes"), 1);

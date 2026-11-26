@@ -505,7 +505,6 @@ fn decoupled_rebuild_preserves_run_advanced_from_empty_scan() {
         .unwrap();
 
     let inner = MemEventLog::default();
-    inner.create_run("r-adv", &sample_manifest("adv")).unwrap();
 
     let store_ref = &store;
     let e1_conc = e1.clone();

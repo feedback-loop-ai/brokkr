@@ -24,7 +24,8 @@ mod sqlite;
 pub use journal::{Journal, NewEvent};
 pub use sqlite::SqlitePorts;
 pub(crate) use sqlite::{
-    migrate_projection_hashes, projection_hashes_intact, refuse_if_decoupled_projection_db,
+    migrate_projection_hashes, projection_hashes_intact, query_listed_runs,
+    refuse_if_decoupled_projection_db, LIST_RUNS_LOCAL,
 };
 
 /// Persistence seam for durable per-run manifests and append-only event

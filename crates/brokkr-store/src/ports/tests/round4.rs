@@ -392,7 +392,7 @@ fn decoupled_feature_consistency_and_monotonic_rebuild_from() {
 
     // rebuild_from must NOT regress feat-1 back to seq 1, MUST clear stale-1,
     // and MUST project feat-2 with manifest fallback.
-    assert_eq!(dec_ports.rebuild_from(&stale_log).unwrap(), 1);
+    assert_eq!(dec_ports.rebuild_from(&stale_log).unwrap(), 2);
     let (head_seq, folded_seq, _, _, _) = summary_snapshot(&dec_path, "feat-1");
     assert_eq!((head_seq, folded_seq), (2, Some(2)));
     assert_eq!(sqlite_table_count(&dec_path, "event_index"), 3);

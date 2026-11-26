@@ -226,7 +226,7 @@ fn colocated_apply_envelopes_folds_unfolded_summary_and_repairs_stale_head_hash(
     let mem = MemEventLog::default();
     mem.import_run_stream("d1", &manifest, std::slice::from_ref(&d1))
         .unwrap();
-    assert_eq!(dec_ports.rebuild_from(&mem).unwrap(), 0);
+    assert_eq!(dec_ports.rebuild_from(&mem).unwrap(), 1);
     assert_eq!(summary_snapshot(&dec_path, "d1").0, 2);
     mem.append_envelopes("d1", (1, &d1.event_hash), &[d2])
         .unwrap();

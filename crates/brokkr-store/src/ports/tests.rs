@@ -1209,6 +1209,7 @@ fn query_run_pairs<T: rusqlite::types::FromSql>(
 }
 
 mod regressions;
+mod round10;
 mod round3;
 mod round4;
 mod round5;

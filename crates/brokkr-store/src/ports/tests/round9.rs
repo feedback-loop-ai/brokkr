@@ -17,7 +17,10 @@ use super::round7::{exec_raw_sql, projection_hash_rows, sqlite_journal};
 use super::round8::checkpoint_event;
 use super::*;
 
-fn three_step_stream(run_id: &str, feature: &str) -> (EventEnvelope, EventEnvelope, EventEnvelope) {
+pub(super) fn three_step_stream(
+    run_id: &str,
+    feature: &str,
+) -> (EventEnvelope, EventEnvelope, EventEnvelope) {
     let (e1, _, e2_phase) = completed_vs_phase_pair(run_id, feature);
     let e3 = sealed_event(
         run_id,
@@ -30,14 +33,14 @@ fn three_step_stream(run_id: &str, feature: &str) -> (EventEnvelope, EventEnvelo
     (e1, e2_phase, e3)
 }
 
-fn mem_log_with(run_id: &str, feature: &str, events: &[EventEnvelope]) -> MemEventLog {
+pub(super) fn mem_log_with(run_id: &str, feature: &str, events: &[EventEnvelope]) -> MemEventLog {
     let log = MemEventLog::default();
     log.import_run_stream(run_id, &sample_manifest(feature), events)
         .unwrap();
     log
 }
 
-fn checkpoint_facts_seq(path: &Path, run_id: &str, seq: i64) -> Option<i64> {
+pub(super) fn checkpoint_facts_seq(path: &Path, run_id: &str, seq: i64) -> Option<i64> {
     Connection::open(path)
         .unwrap()
         .query_row(
@@ -127,7 +130,7 @@ fn trigger_dropped_decoupled_rebuild_skips_shorter_prefix_and_refuses_unproven()
     let reopened = Store::open(&path).unwrap();
     assert_eq!(
         SqlitePorts::new(&reopened).rebuild_from(&shorter).unwrap(),
-        0
+        2
     );
     assert_eq!(summary_snapshot(&path, "r-trig-reb").1, Some(3));
     assert_eq!(projection_hash_rows(&path, "r-trig-reb").len(), 3);
@@ -195,24 +198,17 @@ fn decoupled_same_head_apply_heals_event_index_checkpoint_facts_and_seat_head() 
     assert_eq!(seat_head_seq(&path, "r-heal"), Some(3));
 }
 
-#[test]
-fn decoupled_db_refuses_authoritative_writes_with_unrelated_local_run_or_secondary_only() {
+pub(super) fn assert_decoupled_refuses_after_sql(db_name: &str, feature: &str, sql: &str) {
     let dir = tempdir().unwrap();
-    let path = dir.path().join("mixed-decoupled.db");
+    let path = dir.path().join(db_name);
     let store = Store::open(&path).unwrap();
-    let manifest = sample_manifest("dec-mixed");
-    let e1 = started_event("r", "dec-mixed", "2026-11-25T10:00:00Z");
-    SqlitePorts::new(&store)
+    let manifest = sample_manifest(feature);
+    let e1 = started_event("r", feature, "2026-11-25T10:00:00Z");
+    let ports = SqlitePorts::new(&store);
+    ports
         .apply_envelopes("r", std::slice::from_ref(&e1))
         .unwrap();
-
-    // Seed an unrelated local runs row: runless run_summary / projection_hashes must still refuse.
-    exec_raw_sql(
-        &path,
-        "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-         VALUES ('other-local', 'local', 'self', '{}', '2026-11-25T10:00:00Z');",
-    );
-    let ports = SqlitePorts::new(&store);
+    exec_raw_sql(&path, sql);
     assert!(matches!(
         ports.create_run("r", &manifest),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "r"
@@ -221,6 +217,21 @@ fn decoupled_db_refuses_authoritative_writes_with_unrelated_local_run_or_seconda
         ports.import_run_stream("r", &manifest, std::slice::from_ref(&e1)),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "r"
     ));
+}
+
+#[test]
+fn decoupled_db_refuses_authoritative_writes_with_unrelated_local_run_or_secondary_only() {
+    let dir = tempdir().unwrap();
+    let manifest = sample_manifest("dec-mixed");
+    let e1 = started_event("r", "dec-mixed", "2026-11-25T10:00:00Z");
+
+    // Seed an unrelated local runs row: runless run_summary / projection_hashes must still refuse.
+    assert_decoupled_refuses_after_sql(
+        "mixed-decoupled.db",
+        "dec-mixed",
+        "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+         VALUES ('other-local', 'local', 'self', '{}', '2026-11-25T10:00:00Z');",
+    );
 
     // Empty runs/events with both run_summary and projection_hashes dropped still refuses via
     // secondary projection tables (event_index / seat_head).
