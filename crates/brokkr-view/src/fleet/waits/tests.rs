@@ -51,9 +51,12 @@ fn two_waits() -> EventEnvelope {
 
 /// The row of `event` named `r1`, its journal last moved at `LAST`.
 fn row_of(event: &EventEnvelope, cooling: &[Cooling]) -> crate::RunRow {
+    row_with_state(event, cooling, &state(Some("work"), Status::Running, None))
+}
+
+fn row_with_state(event: &EventEnvelope, cooling: &[Cooling], state: &RunState) -> crate::RunRow {
     let mut entry = listed("r1", "feature", "2026-01-01T00:00:00Z", None);
-    let running = state(Some("work"), Status::Running, None);
-    entry.state = Some(&running);
+    entry.state = Some(state);
     entry.last_recorded_at = Some(LAST);
     entry.waits = WaitFact::of(Some(event));
     crate::run_rows(&[entry], cooling).runs.remove(0)
@@ -69,11 +72,12 @@ fn cooling(provider: &str, route: &str, until: &str) -> Cooling {
 }
 
 #[test]
-fn a_last_event_with_waits_reads_running_with_every_wait_and_its_words() {
+fn a_last_event_with_waits_reads_waiting_with_every_wait_and_its_words() {
     let event = two_waits();
     let row = row_of(&event, &[]);
-    assert_eq!(row.status_word(), "running");
-    assert_eq!(row.verdict.standing, Standing::Running);
+    assert_eq!(row.status_word(), "waiting");
+    assert_eq!(row.wants, None);
+    assert_eq!(row.verdict.standing, Standing::Waiting);
     assert_eq!(row.waits.waits.len(), 2);
     assert_eq!(row.waits.waits[0].site.as_deref(), Some("a"));
     assert_eq!(row.waits.waits[0].provider, "claude");
@@ -129,7 +133,7 @@ fn an_earlier_aggregate_never_shortens_a_wait() {
 fn an_ended_wait_still_reads_as_the_wait_and_says_it_has_ended() {
     let event = failed(json!([entry("a", "claude", "anthropic", FIRST_END, WORDS)]));
     let row = row_of(&event, &[]);
-    assert_eq!(row.verdict.standing, Standing::Running);
+    assert_eq!(row.verdict.standing, Standing::Waiting);
     assert_eq!(row.waits.waits.len(), 1, "the ended wait is still the wait");
     assert_eq!(
         row.waits.lines("2026-01-02T00:25:00Z"),
@@ -145,29 +149,26 @@ fn an_ended_wait_still_reads_as_the_wait_and_says_it_has_ended() {
 }
 
 #[test]
-fn a_wait_holds_the_staleness_bound_until_its_end_passes() {
-    let event = failed(json!([entry(
-        "a",
-        "claude",
-        "anthropic",
-        "2026-01-02T05:00:00Z",
-        WORDS
-    )]));
-    let row = row_of(&event, &[]);
-    // Three and a half hours of silence, past the bound, but the wait
-    // has not ended: still running, and the guard is what holds it.
-    assert!(need(&row, "2026-01-02T03:30:00Z").is_none());
+fn a_waiting_run_is_not_stale_before_its_until_and_is_stale_after() {
+    let mut wait = entry("a", "claude", "anthropic", "2026-01-02T05:00:00Z", WORDS);
+    wait["held"] = json!(true);
+    wait["max_seconds"] = json!(300);
+    wait["retry_after_seconds"] = json!(600);
+    let row = row_of(&failed(json!([wait])), &[]);
+    assert_eq!(row.verdict.standing, Standing::Waiting);
+    assert_eq!(need(&row, "2026-01-02T03:30:00Z"), None);
     assert_eq!(section_of(&row, "2026-01-02T03:30:00Z"), Section::Running);
-    // Past the wait's end and the ordinary bound: stale, as before.
-    assert!(matches!(
-        need(&row, "2026-01-02T05:30:00Z"),
-        Some(crate::Need::Stale { .. })
-    ));
-    assert_eq!(section_of(&row, "2026-01-02T05:30:00Z"), Section::NeedsYou);
+    assert_eq!(
+        need(&row, "2026-01-02T05:00:00Z"),
+        Some(crate::Need::Stale {
+            silent: "5h01m".to_string()
+        }),
+    );
+    assert_eq!(section_of(&row, "2026-01-02T05:00:00Z"), Section::NeedsYou);
 }
 
 #[test]
-fn an_unreadable_wait_refuses_by_name_never_as_no_wait() {
+fn an_unreadable_wait_stays_running_with_its_refusal() {
     let event = failed(json!([{
         "site": "a",
         "provider": "claude",
@@ -177,6 +178,13 @@ fn an_unreadable_wait_refuses_by_name_never_as_no_wait() {
         "rounds": 1
     }]));
     let row = row_of(&event, &[]);
+    assert_eq!(row.verdict.standing, Standing::Running);
+    assert_eq!(
+        need(&row, "2026-01-02T05:00:00Z"),
+        Some(crate::Need::Stale {
+            silent: "5h01m".to_string()
+        }),
+    );
     let refused = row.waits.refused.as_deref().expect("the entry refuses");
     assert_eq!(refused, "event 8: the waits entry does not read: until");
     assert!(row.waits.waits.is_empty());
@@ -273,4 +281,14 @@ fn an_inline_wait_names_no_site_and_an_unreadable_clock_ends_none() {
         wait.line("2026-02-01T00:00:00Z"),
         "wait      dsh/flash until 2026-01-01T00:00:00Z (ended): slow down"
     );
+}
+
+#[test]
+fn a_stopping_run_in_a_wait_stays_stopping() {
+    let mut stopping = state(Some("work"), Status::Running, None);
+    stopping.run = brokkr_core::fold::Run::Running(brokkr_core::fold::Cursor::Stop);
+    stopping.stop_accepted_seq = Some(8);
+    let row = row_with_state(&two_waits(), &[], &stopping);
+    assert_eq!(row.verdict.standing, Standing::Stopping);
+    assert_eq!(row.waits.waits.len(), 2);
 }

@@ -557,7 +557,7 @@ fn lists_here(
     stale: Option<i64>,
 ) -> bool {
     if summary {
-        return row.verdict.standing != Standing::Running
+        return !matches!(row.verdict.standing, Standing::Running | Standing::Waiting)
             || brokkr_view::section_of(row, now) == section;
     }
     if !lane_running {

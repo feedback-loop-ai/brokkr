@@ -158,8 +158,10 @@ pub fn need(row: &RunRow, now: &str) -> Option<Need> {
             .map(|detail| Need::Stopping { detail }),
         // A wait is not a park: a run standing in one is never "needs you"
         // while its end has not passed (decision 0103 ruling 2(a)).
-        Standing::Running if row.waits.live(now) => None,
-        Standing::Running => silence(row, now).map(|silent| Need::Stale { silent }),
+        Standing::Waiting if row.waits.live(now) => None,
+        Standing::Running | Standing::Waiting => {
+            silence(row, now).map(|silent| Need::Stale { silent })
+        }
         Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => None,
     }
 }

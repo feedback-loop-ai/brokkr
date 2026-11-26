@@ -838,7 +838,7 @@ fn read_as(row: &RunRow) -> Result<Status, Quarantine> {
     match row.verdict.standing {
         Standing::Quarantined => Err(row.quarantine.expect("a quarantined row names it")),
         Standing::Parked => Ok(Status::AwaitingOperator),
-        Standing::Running | Standing::Stopping => Ok(Status::Running),
+        Standing::Running | Standing::Waiting | Standing::Stopping => Ok(Status::Running),
         Standing::Shipped => Ok(Status::Completed),
         Standing::Stopped | Standing::OperatorStopped => Ok(Status::Stopped),
     }
@@ -1505,7 +1505,13 @@ fn a_cooling_run_s_row_paints_the_aggregate_s_wait() {
         .iter()
         .find(|row| row.run_id == "r1")
         .expect("the cooling run is listed");
-    let tui = Tui::new(None);
+    let mut tui = Tui::new(None);
+    tui.cursor[0] = Some(row.run_id.clone());
+    assert!(frame_of(&tui, &views, 160, 48).contains("◐ waiting"));
+    assert!(footer_for(&tui, &views).contains("→ expand"));
+    apply(&mut tui, &views, Key::Right);
+    assert!(super::movement::opened(&tui, row));
+    assert!(footer_for(&tui, &views).contains("← fold"));
     let lines = panes::title_lines(&tui, &views, row).join("\n");
     assert_painted(&lines);
     // The run's own column paints it too, from the same field.

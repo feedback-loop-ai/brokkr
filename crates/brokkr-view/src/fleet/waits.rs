@@ -5,7 +5,7 @@
 //! carries every later round a probe appended, and its `until` for that
 //! provider and route is the end the readout paints. A later, shorter row
 //! never shortens one: the aggregate is a MAX. A wait is not a park, so a
-//! run standing in one reads `running`, never "needs you", and the
+//! run standing in one reads `waiting`, and the
 //! staleness bound waits for the latest end before it may call the run
 //! dead. An entry the event's own reader refuses is named here, never read
 //! as no wait.
@@ -16,6 +16,7 @@ use brokkr_core::EventEnvelope;
 use brokkr_core::{provider_waits, ProviderWait, ProviderWaitError};
 use serde::Serialize;
 
+use super::Standing;
 use crate::RunView;
 
 /// One cool-down the store's aggregate holds for a provider and route, as
@@ -122,6 +123,15 @@ pub struct Waits {
 }
 
 impl Waits {
+    /// The standing of a running run without an accepted stop.
+    pub(super) fn standing(&self) -> Standing {
+        if self.waits.is_empty() {
+            Standing::Running
+        } else {
+            Standing::Waiting
+        }
+    }
+
     /// The waits `fact` states, each ended at the aggregate's `until` for
     /// its provider and route when `cooling` holds a later one, else at
     /// the event's own `until`.

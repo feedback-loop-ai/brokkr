@@ -352,7 +352,7 @@ fn glyph_of(standing: Standing, need: Option<&Need>) -> &'static str {
     match standing {
         Standing::Quarantined => "?",
         Standing::Parked => "●",
-        Standing::Running => "◐",
+        Standing::Running | Standing::Waiting => "◐",
         Standing::Stopping => "◼",
         Standing::Shipped => "✓",
         Standing::Stopped => "✗",
@@ -373,6 +373,7 @@ fn standing_word<'a>(row: &'a RunRow, need: Option<&Need>) -> &'a str {
             Some(Need::Parked | Need::Quarantined(_) | Need::Stopping { .. }) | None,
             Standing::Quarantined
             | Standing::Parked
+            | Standing::Waiting
             | Standing::Stopping
             | Standing::Shipped
             | Standing::Stopped

@@ -1035,3 +1035,59 @@ fn a_kept_wait_survives_a_refresh_that_lands_nothing_for_its_run() {
         "r1 landed nothing and keeps the wait it stood in"
     );
 }
+
+#[test]
+fn a_wait_retires_at_its_retry_effect_started_on_whole_paged_and_kept_reads() {
+    use brokkr_view::Standing;
+
+    let dir = tempfile::tempdir().unwrap();
+    let at = "2099-01-01T00:00:00Z";
+    let (db, mut kept) = kept_in_wait(dir.path(), "2099-01-01T00:10:00Z");
+    let check = |kept: &KeptFleet, expected| {
+        let store = Store::open_read_only(&db).unwrap();
+        let whole = super::one(&store, "r1", at).unwrap();
+        let pages = super::Pages::listing(&store, Journal::at(&db), at).unwrap();
+        let ask = super::Ask {
+            now: at,
+            whole: &|_| false,
+            keep: &|_| true,
+        };
+        let page = pages.page(&store, ask, None, 1).unwrap();
+        let carried = brokkr_view::run_rows(&kept.entries(), &[]).runs;
+        for row in [&whole, &page.rows[0].1, &carried[0]] {
+            assert_eq!(row.verdict.standing, expected);
+            assert_eq!(
+                row.waits.waits.len(),
+                usize::from(expected == Standing::Waiting)
+            );
+        }
+    };
+    check(&kept, Standing::Waiting);
+    for (event_type, payload) in [
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "eff", "attempt_id": "retry"}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "eff", "attempt_id": "retry", "result": {"result": "ok"}}),
+        ),
+        (
+            EventType::TransitionDecided,
+            json!({"from": "work", "result": "ok", "rule_id": "WORK-OK", "next": "next", "severity": null, "problem": null, "inputs": {}}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "next"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "later", "seat": "next", "phase": "next"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "later", "attempt_id": "third"}),
+        ),
+    ] {
+        append(&db, "r1", event_type, payload);
+        assert_eq!(refreshed(&mut kept, &db), 1);
+        check(&kept, Standing::Running);
+    }
+}

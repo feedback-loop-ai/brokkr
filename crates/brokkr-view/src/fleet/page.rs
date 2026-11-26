@@ -117,7 +117,12 @@ pub fn summary_row(
     });
     let refused = row.refused.as_ref();
     let status = row.status.map(|status| status.as_str().to_string());
-    let verdict = verdict_of(facts, row.residual_open);
+    // A refused summary has no applied head to read waits from.
+    let waits = match refused {
+        Some(_) => Waits::default(),
+        None => Waits::of(waits, cooling),
+    };
+    let verdict = verdict_of(facts, row.residual_open, &waits);
     let acknowledged = refused.and(copied).is_some();
     let said = said(
         verdict.standing,
@@ -165,12 +170,7 @@ pub fn summary_row(
         }),
         order_at: row.order_at,
         paged_at: None,
-        // A row the summary already refuses paints no wait: the fold the
-        // wait would be read from is the one the refusal names.
-        waits: match refused {
-            Some(_) => Waits::default(),
-            None => Waits::of(waits, cooling),
-        },
+        waits,
     }
 }
 

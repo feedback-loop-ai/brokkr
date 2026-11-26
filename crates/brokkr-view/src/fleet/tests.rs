@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 /// The verdict `state` and `residuals` derive, with no park cause.
 fn verdict(state: Option<&RunState>, residuals: &[ResidualFinding]) -> Verdict {
-    verdict_with(state, None, residuals)
+    verdict_with(state, None, residuals, &Waits::default())
 }
 
 const NOW: &str = "2026-01-02T00:00:00Z";
@@ -492,6 +492,7 @@ fn each_standing_and_section_has_one_word() {
         Standing::Quarantined,
         Standing::Parked,
         Standing::Running,
+        Standing::Waiting,
         Standing::Stopping,
         Standing::Shipped,
         Standing::Stopped,
@@ -503,6 +504,7 @@ fn each_standing_and_section_has_one_word() {
             "quarantined",
             "parked",
             "running",
+            "waiting",
             "stopping",
             "shipped",
             "stopped",

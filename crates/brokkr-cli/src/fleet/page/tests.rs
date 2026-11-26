@@ -1784,6 +1784,24 @@ fn a_clock_that_does_not_read_refuses_by_name() {
     );
 }
 
+#[test]
+fn a_waiting_run_sits_in_the_running_section_on_whole_and_paged_reads() {
+    let (_dir, db) = crate::tests::cooling::cooling_journal();
+    let (store, pages, _) = refreshed(&db, AHEAD_ROWS);
+    assert!(matches!(pages, Pages::Summary(_)));
+    let at = "2098-12-31T23:59:00Z";
+    let expected = (Section::Running, vec!["r1".to_string()]);
+    let whole = sectioned(&whole_rows(&db), at);
+    let listed = paged(&pages, &store, at, 1, false);
+    assert_eq!(whole[1], expected);
+    assert_eq!(by_section(&listed)[1], expected);
+    // The same row is scanned below the stale bound in the NeedsYou lane.
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].1.verdict.standing, Standing::Waiting);
+    assert_eq!(whole_rows(&db)[0].verdict.standing, Standing::Waiting);
+    assert_eq!(store.load("r1").unwrap().last().unwrap().seq, 5);
+}
+
 /// The wait the behind lane's kept row for `r1` paints.
 fn kept_wait(pages: &Pages) -> String {
     match pages {

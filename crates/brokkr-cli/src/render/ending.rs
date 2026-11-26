@@ -57,7 +57,7 @@ pub(crate) fn painted_as(
         Some(Wants::Ruling) => (Shade::Toned(Tone::Yellow), '!'),
         Some(Wants::Action) => (Shade::Toned(Tone::Cyan), '>'),
         None => match standing {
-            Standing::Running => (Shade::Live, ' '),
+            Standing::Running | Standing::Waiting => (Shade::Live, ' '),
             Standing::Quarantined
             | Standing::Parked
             | Standing::Stopping
@@ -141,6 +141,7 @@ pub(crate) fn ended_line(row: &RunRow, style: &Style) -> Option<String> {
             Standing::Quarantined
             | Standing::Parked
             | Standing::Running
+            | Standing::Waiting
             | Standing::Stopping
             | Standing::Shipped
             | Standing::OperatorStopped => None,
