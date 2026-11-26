@@ -105,6 +105,12 @@ pub(super) struct Kept {
     transcript: crate::transcript::Transcript,
 }
 
+impl Kept {
+    pub(super) fn transcript_value(&self) -> serde_json::Value {
+        self.transcript.value()
+    }
+}
+
 #[cfg(test)]
 impl Kept {
     pub(super) fn home(&self) -> &Path {
@@ -145,7 +151,7 @@ pub(super) enum SourceErrno {
     #[error("a required conversation file or directory is absent")]
     Absent,
     #[error(
-        "a path component under the engine HOME is a symbolic link or not of the expected file          type"
+        "a path component under the engine HOME is a symbolic link or not of the expected file type"
     )]
     Unsafe,
     #[error("could not read source: {}", io::Error::from(*.0))]
@@ -413,15 +419,17 @@ pub(super) fn same_entry(one: &Stat, other: &Stat) -> bool {
     (one.st_dev, one.st_ino) == (other.st_dev, other.st_ino)
 }
 
+pub(super) fn same_entry_at(dir_fd: BorrowedFd<'_>, name: &OsStr, expected: &Stat) -> bool {
+    statat(dir_fd, name, AtFlags::SYMLINK_NOFOLLOW).is_ok_and(|entry| same_entry(expected, &entry))
+}
+
 pub(super) fn unlink_if_same(
     dir_fd: BorrowedFd<'_>,
     name: &OsStr,
     expected: &Stat,
     flags: AtFlags,
 ) {
-    if statat(dir_fd, name, AtFlags::SYMLINK_NOFOLLOW)
-        .is_ok_and(|entry| same_entry(expected, &entry))
-    {
+    if same_entry_at(dir_fd, name, expected) {
         let _ = unlinkat(dir_fd, name, flags);
     }
 }
@@ -687,36 +695,45 @@ pub(super) struct KeepContext<'a> {
     pub(super) bindings: &'a [crate::secret::BoundSecret],
 }
 
+/// Typed outcome of publishing an agy turn's transcript before the engine HOME
+/// is removed, carried directly to rejoin publication instead of reading back
+/// string-keyed `session_meta` (decision 0071 rulings 3 and 7).
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum TranscriptOutcome {
+    Kept(Kept),
+    NotKept(Option<KeepNotice>),
+}
+
 /// Keep the conversation's `transcript.jsonl` before the engine HOME is
 /// removed and publish the transcript row (#1227).
 pub(super) fn publish_transcript(
     ctx: KeepContext<'_>,
     session_meta: &mut serde_json::Map<String, serde_json::Value>,
     emit: &mut impl FnMut(&crate::adapters::Emitted),
-) -> Option<KeepNotice> {
+) -> TranscriptOutcome {
     use super::fold::Conversation;
     // Probe turns, undeclared launches, and turns with no init each match main
     // to the byte: keep nothing, emit no notice, record `none` (#1227 W4).
     if !ctx.declared || ctx.probe || matches!(ctx.conversation, Conversation::None) {
         record_none(session_meta, emit);
-        return None;
+        return TranscriptOutcome::NotKept(None);
     }
     if ctx.refused_to_start {
         record_none(session_meta, emit);
-        return Some(KeepNotice::RefusedToStart);
+        return TranscriptOutcome::NotKept(Some(KeepNotice::RefusedToStart));
     }
     let Conversation::Named(id) = ctx.conversation else {
         record_none(session_meta, emit);
-        return Some(KeepNotice::InvalidId);
+        return TranscriptOutcome::NotKept(Some(KeepNotice::InvalidId));
     };
     match keep(id, ctx.engine_home, ctx.operator_home, ctx.bindings) {
         Ok(mut kept) => {
             kept.transcript.finish(session_meta, emit);
-            None
+            TranscriptOutcome::Kept(kept)
         }
         Err(notice) => {
             record_none(session_meta, emit);
-            Some(notice)
+            TranscriptOutcome::NotKept(Some(notice))
         }
     }
 }

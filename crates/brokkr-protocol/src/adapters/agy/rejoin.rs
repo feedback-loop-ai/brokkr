@@ -13,7 +13,6 @@ use std::io;
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 use brokkr_core::seat::{is_agy_uuid, AGY_TRANSCRIPT_KIND};
 use rustix::fs::{fchmod, fstat, mkdirat, openat, statat, AtFlags, Dir, FileType, Mode, Stat};
@@ -23,7 +22,6 @@ use thiserror::Error;
 
 use super::fold::Conversation;
 use super::keep::{self, ParentError, SourceErrno};
-use crate::adapters::lost;
 use crate::adapters::{Emitted, Invocation, RootSession, Step};
 use crate::secret::{BoundSecret, SecretMatcher};
 
@@ -81,38 +79,14 @@ pub(super) enum RejoinNotice {
     TooManyEntries(usize),
     #[error("agy rejoin state not kept: conversation brain exceeds the {0}-level depth limit")]
     TooDeep(usize),
+    #[error("agy rejoin state not kept: conversation brain directory is empty")]
+    EmptyBrain,
     #[error("agy rejoin state not kept: a conversation file changed while it was being copied")]
     ChangedUnderfoot,
     #[error("agy rejoin state not kept: rejoin state for this conversation already exists")]
     AlreadyKept,
     #[error("agy rejoin state not kept: could not copy rejoin state: {}", io::Error::from(*.0))]
     Io(io::ErrorKind),
-}
-
-/// Ask the agy binary this turn launches for its version via `bin --version`,
-/// under the engine's owned environment (`HOME`, `PWD`, and
-/// `AGY_CLI_DISABLE_AUTO_UPDATE=true`, decision 0124) and with no bound
-/// secrets. Parses stdout through the same rule as every other driver
-/// ([`crate::adapters::parse_observed_version`]).
-pub(super) fn observe_version(bin: &str, workdir: &str, owned: &[(&str, &str)]) -> Option<String> {
-    let output = lost::observing(|| {
-        let mut command = Command::new(bin);
-        command
-            .arg("--version")
-            .current_dir(workdir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        for (name, value) in owned {
-            command.env(name, value);
-        }
-        command.output()
-    })
-    .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    super::super::parse_observed_version(&output.stdout)
 }
 
 /// Adapter-declared `agy-conversation` kinds carried into post-turn keeping.
@@ -146,7 +120,7 @@ pub(super) fn publish_turn(
         Ok(invocation) => &mut invocation.session_meta,
         Err(_) => &mut fallback_meta,
     };
-    let transcript_notice = keep::publish_transcript(
+    let transcript_outcome = keep::publish_transcript(
         keep::KeepContext {
             declared: turn.declared.transcript,
             probe: turn.probe,
@@ -159,21 +133,23 @@ pub(super) fn publish_turn(
         target_meta,
         emit,
     );
-    let kept_transcript = target_meta
-        .get("transcript")
-        .filter(|t| t.get("kind").and_then(Value::as_str) == Some(AGY_TRANSCRIPT_KIND))
-        .cloned();
-    if let Some(notice) = transcript_notice {
-        keep::report_notice(outcome, &notice);
-    }
-    if let Some(notice) = publish_root_session(&turn, kept_transcript.as_ref(), emit) {
+    let kept_transcript = match &transcript_outcome {
+        keep::TranscriptOutcome::Kept(kept) => Some(kept),
+        keep::TranscriptOutcome::NotKept(notice) => {
+            if let Some(notice) = notice {
+                keep::report_notice(outcome, notice);
+            }
+            None
+        }
+    };
+    if let Some(notice) = publish_root_session(&turn, kept_transcript, emit) {
         keep::report_notice(outcome, &notice);
     }
 }
 
 fn publish_root_session(
     turn: &TurnKeep<'_>,
-    kept_transcript: Option<&Value>,
+    kept_transcript: Option<&keep::Kept>,
     emit: &mut impl FnMut(&Emitted),
 ) -> Option<RejoinNotice> {
     if !turn.declared.root || turn.probe || turn.refused_to_start {
@@ -183,7 +159,8 @@ fn publish_root_session(
         return None;
     };
     let version = turn.harness_version?;
-    let candidate = root_row(id, version, true, kept_transcript);
+    let transcript_address = kept_transcript.map(keep::Kept::transcript_value);
+    let candidate = root_row(id, version, true, transcript_address.as_ref());
     if keep::row_would_mask(&candidate, turn.bindings) {
         return Some(RejoinNotice::ReferenceMasked);
     }
@@ -199,7 +176,7 @@ fn publish_root_session(
         Ok(()) => (true, None),
         Err(notice) => (false, Some(notice)),
     };
-    let address = persistent.then_some(kept_transcript).flatten();
+    let address = persistent.then_some(transcript_address.as_ref()).flatten();
     emit(&root_row(id, version, persistent, address));
     notice
 }
@@ -221,10 +198,20 @@ fn root_row(id: &str, version: &str, persistent: bool, address: Option<&Value>) 
     Emitted::new(Step::HarnessStarted, Value::Object(row))
 }
 
+/// Deterministic observation points inside [`keep_rejoin_with`] so tests can
+/// exercise source TOCTOU races without sleeping (decision 0071 ruling 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CopyPoint<'a> {
+    OpenFile(&'a OsStr),
+    ReadFile(&'a OsStr),
+    OpenDir(&'a OsStr),
+    VerifyDir(&'a OsStr),
+}
+
 /// Copy `<engine_home>/.gemini/antigravity-cli/{conversations/<id>.db,brain/<id>/}`
 /// into `<operator_home>/.local/state/brokkr/agy-conversations/<id>/rejoin/`
 /// under `caps`, operator-only modes, no-symlink traversal, bound-value
-/// screening, and all-or-nothing rollback.
+/// screening (names and contents), and all-or-nothing rollback.
 pub(super) fn keep_rejoin(
     conversation_id: &str,
     engine_home: &Path,
@@ -240,15 +227,15 @@ pub(super) fn keep_rejoin(
         bindings,
         conv_exists,
         caps,
-        &mut noop_before_copy,
+        &mut noop_hook,
     )
 }
 
-fn noop_before_copy(_: &OsStr) {}
+fn noop_hook(_: CopyPoint<'_>) {}
 
-/// [`keep_rejoin`] with a per-file hook run after opening a source file and
-/// before reading its bytes, so unit tests deterministically exercise the
-/// changed-underfoot rollback path (decision 0071 ruling 2).
+/// [`keep_rejoin`] with a per-step hook so unit tests deterministically
+/// exercise changed-underfoot races on source files and directories (decision
+/// 0071 ruling 2).
 pub(super) fn keep_rejoin_with(
     conversation_id: &str,
     engine_home: &Path,
@@ -256,7 +243,7 @@ pub(super) fn keep_rejoin_with(
     bindings: &[BoundSecret],
     conv_exists: bool,
     caps: RejoinCaps,
-    before_copy: &mut dyn FnMut(&OsStr),
+    on_point: &mut dyn FnMut(CopyPoint<'_>),
 ) -> Result<(), RejoinNotice> {
     if !is_agy_uuid(conversation_id) {
         return Err(RejoinNotice::InvalidId);
@@ -274,30 +261,49 @@ pub(super) fn keep_rejoin_with(
     let mut state = CopyState {
         caps,
         used_bytes: 0,
-        used_entries: 1,
+        used_entries: 0,
         matcher: SecretMatcher::new(bindings),
-        before_copy,
+        on_point,
     };
+    state.charge_entry()?;
     let db_name = format!("{conversation_id}.db");
     copy_regular_file(
         FileTarget {
             src_dir: &source.conversations_dir,
             src_name: OsStr::new(&db_name),
+            classified: &source.db_stat,
             dest_dir_idx: rejoin_idx,
             dest_name: OsStr::new(REJOIN_DB_FILE),
         },
         &mut guard,
         &mut state,
     )?;
+    state.charge_entry()?;
     let brain_dest_idx = guard.create_dir(rejoin_idx, OsStr::new(REJOIN_BRAIN_DIR))?;
-    copy_brain_dir(&source.brain_dir, &mut guard, brain_dest_idx, 0, &mut state)?;
+    copy_brain_dir(
+        SourceDir {
+            parent: &source.brain_root,
+            name: OsStr::new(conversation_id),
+            fd: &source.brain_dir,
+            stat: &source.brain_stat,
+        },
+        &mut guard,
+        DestDir {
+            idx: brain_dest_idx,
+            depth: 0,
+        },
+        &mut state,
+    )?;
     guard.defuse();
     Ok(())
 }
 
 struct RejoinSource {
     conversations_dir: OwnedFd,
+    db_stat: Stat,
+    brain_root: OwnedFd,
     brain_dir: OwnedFd,
+    brain_stat: Stat,
 }
 
 fn open_rejoin_source(
@@ -332,9 +338,13 @@ fn open_rejoin_source(
         Mode::empty(),
     )
     .map_err(classify_dir_errno)?;
+    let brain_stat = fstat(&brain_dir).map_err(io_errno)?;
     Ok(RejoinSource {
         conversations_dir,
+        db_stat,
+        brain_root,
         brain_dir,
+        brain_stat,
     })
 }
 
@@ -343,7 +353,7 @@ struct CopyState<'a> {
     used_bytes: u64,
     used_entries: usize,
     matcher: SecretMatcher,
-    before_copy: &'a mut dyn FnMut(&OsStr),
+    on_point: &'a mut dyn FnMut(CopyPoint<'_>),
 }
 
 impl CopyState<'_> {
@@ -354,43 +364,60 @@ impl CopyState<'_> {
         }
         Ok(())
     }
+
+    fn screen_name(&mut self, name: &OsStr) -> Result<(), RejoinNotice> {
+        self.matcher.reset();
+        if self.matcher.feed(name.as_bytes()) {
+            return Err(RejoinNotice::BoundValueAppeared);
+        }
+        Ok(())
+    }
+}
+
+struct SourceDir<'a> {
+    parent: &'a OwnedFd,
+    name: &'a OsStr,
+    fd: &'a OwnedFd,
+    stat: &'a Stat,
+}
+
+#[derive(Clone, Copy)]
+struct DestDir {
+    idx: usize,
+    depth: usize,
 }
 
 struct FileTarget<'a> {
     src_dir: &'a OwnedFd,
     src_name: &'a OsStr,
+    classified: &'a Stat,
     dest_dir_idx: usize,
     dest_name: &'a OsStr,
 }
 
 fn copy_brain_dir(
-    src_dir: &OwnedFd,
+    dir: SourceDir<'_>,
     guard: &mut RejoinRollback,
-    dest_dir_idx: usize,
-    depth: usize,
+    dest: DestDir,
     state: &mut CopyState<'_>,
 ) -> Result<(), RejoinNotice> {
-    let names = list_dir_sorted(src_dir)?;
-    for name in names {
+    let mut seen = Vec::new();
+    for_each_dir_entry(dir.fd, |name| {
         state.charge_entry()?;
+        state.screen_name(&name)?;
         let entry_stat =
-            statat(src_dir, &name, AtFlags::SYMLINK_NOFOLLOW).map_err(classify_file_errno)?;
+            statat(dir.fd, &name, AtFlags::SYMLINK_NOFOLLOW).map_err(classify_file_errno)?;
         match FileType::from_raw_mode(entry_stat.st_mode) {
             FileType::Directory => {
-                if depth + 1 > state.caps.depth {
-                    return Err(RejoinNotice::TooDeep(state.caps.depth));
-                }
-                let child_src = openat(src_dir, &name, keep::dir_flags(), Mode::empty())
-                    .map_err(classify_dir_errno)?;
-                let child_dest_idx = guard.create_dir(dest_dir_idx, &name)?;
-                copy_brain_dir(&child_src, guard, child_dest_idx, depth + 1, state)?;
+                copy_child_dir(dir.fd, &name, &entry_stat, guard, dest, state)?;
             }
             FileType::RegularFile => {
                 copy_regular_file(
                     FileTarget {
-                        src_dir,
+                        src_dir: dir.fd,
                         src_name: &name,
-                        dest_dir_idx,
+                        classified: &entry_stat,
+                        dest_dir_idx: dest.idx,
                         dest_name: &name,
                     },
                     guard,
@@ -399,21 +426,107 @@ fn copy_brain_dir(
             }
             _ => return Err(RejoinNotice::Source(SourceErrno::Unsafe)),
         }
+        seen.push((name, entry_stat));
+        Ok(())
+    })?;
+    if dest.depth == 0 && seen.is_empty() {
+        return Err(RejoinNotice::EmptyBrain);
+    }
+    (state.on_point)(CopyPoint::VerifyDir(dir.name));
+    verify_dir_unchanged(&dir, &seen)
+}
+
+fn copy_child_dir(
+    parent_src: &OwnedFd,
+    name: &OsStr,
+    classified: &Stat,
+    guard: &mut RejoinRollback,
+    dest: DestDir,
+    state: &mut CopyState<'_>,
+) -> Result<(), RejoinNotice> {
+    if dest.depth + 1 > state.caps.depth {
+        return Err(RejoinNotice::TooDeep(state.caps.depth));
+    }
+    (state.on_point)(CopyPoint::OpenDir(name));
+    let child_src =
+        openat(parent_src, name, keep::dir_flags(), Mode::empty()).map_err(classify_dir_errno)?;
+    let child_stat = fstat(&child_src).map_err(io_errno)?;
+    if !keep::same_entry(classified, &child_stat) {
+        return Err(RejoinNotice::ChangedUnderfoot);
+    }
+    let child_dest_idx = guard.create_dir(dest.idx, name)?;
+    copy_brain_dir(
+        SourceDir {
+            parent: parent_src,
+            name,
+            fd: &child_src,
+            stat: &child_stat,
+        },
+        guard,
+        DestDir {
+            idx: child_dest_idx,
+            depth: dest.depth + 1,
+        },
+        state,
+    )
+}
+
+fn verify_dir_unchanged(
+    dir: &SourceDir<'_>,
+    seen: &[(OsString, Stat)],
+) -> Result<(), RejoinNotice> {
+    if !keep::same_entry_at(dir.parent.as_fd(), dir.name, dir.stat) {
+        return Err(RejoinNotice::ChangedUnderfoot);
+    }
+    let mut after_names = Vec::with_capacity(seen.len());
+    for_each_dir_entry(dir.fd, |name| {
+        if after_names.len() == seen.len() {
+            return Err(RejoinNotice::ChangedUnderfoot);
+        }
+        after_names.push(name);
+        Ok(())
+    })?;
+    if after_names.len() != seen.len() {
+        return Err(RejoinNotice::ChangedUnderfoot);
+    }
+    after_names.sort_unstable();
+    let mut expected: Vec<(&OsStr, &Stat)> = seen.iter().map(|(n, s)| (n.as_os_str(), s)).collect();
+    expected.sort_unstable_by_key(|(n, _)| *n);
+    let matched = after_names
+        .iter()
+        .zip(expected)
+        .all(|(after_name, (name, stat))| {
+            after_name.as_os_str() == name && keep::same_entry_at(dir.fd.as_fd(), after_name, stat)
+        });
+    if !matched {
+        return Err(RejoinNotice::ChangedUnderfoot);
     }
     Ok(())
 }
 
-pub(super) fn list_dir_sorted(dir: &OwnedFd) -> Result<Vec<OsString>, RejoinNotice> {
-    let mut names = Vec::new();
-    for entry in Dir::read_from(dir).map_err(io_errno)? {
-        let entry = entry.map_err(io_errno)?;
-        let bytes = entry.file_name().to_bytes();
-        if bytes != b"." && bytes != b".." {
-            names.push(OsStr::from_bytes(bytes).to_owned());
+fn dir_entry_name(entry: rustix::fs::DirEntry) -> OsString {
+    OsStr::from_bytes(entry.file_name().to_bytes()).to_owned()
+}
+
+pub(super) fn for_each_dir_entry(
+    dir: &OwnedFd,
+    visit: impl FnMut(OsString) -> Result<(), RejoinNotice>,
+) -> Result<(), RejoinNotice> {
+    let listing = Dir::read_from(dir).map_err(io_errno)?;
+    for_each_listed_entry(listing.map(|entry| entry.map(dir_entry_name)), visit)
+}
+
+pub(super) fn for_each_listed_entry(
+    entries: impl IntoIterator<Item = Result<OsString, Errno>>,
+    mut visit: impl FnMut(OsString) -> Result<(), RejoinNotice>,
+) -> Result<(), RejoinNotice> {
+    for entry in entries {
+        let name = entry.map_err(io_errno)?;
+        if name != OsStr::new(".") && name != OsStr::new("..") {
+            visit(name)?;
         }
     }
-    names.sort_unstable();
-    Ok(names)
+    Ok(())
 }
 
 fn copy_regular_file(
@@ -421,6 +534,7 @@ fn copy_regular_file(
     guard: &mut RejoinRollback,
     state: &mut CopyState<'_>,
 ) -> Result<(), RejoinNotice> {
+    (state.on_point)(CopyPoint::OpenFile(target.src_name));
     let src_fd = openat(
         target.src_dir,
         target.src_name,
@@ -429,15 +543,18 @@ fn copy_regular_file(
     )
     .map_err(classify_file_errno)?;
     let before = fstat(&src_fd).map_err(io_errno)?;
-    // `statat` already verified `FileType::RegularFile` before `openat` with
-    // `O_NOFOLLOW`, and `verify_unchanged` checks `(st_dev, st_ino)` after EOF
-    // (tested by `changed_underfoot_and_streaming_overflow_roll_back_and_spare_transcript`).
+    if FileType::from_raw_mode(before.st_mode) != FileType::RegularFile {
+        return Err(RejoinNotice::Source(SourceErrno::Unsafe));
+    }
+    if !keep::same_entry(target.classified, &before) {
+        return Err(RejoinNotice::ChangedUnderfoot);
+    }
     let apparent = before.st_size.unsigned_abs();
     if state.used_bytes.saturating_add(apparent) > state.caps.bytes {
         return Err(RejoinNotice::TooLarge(state.caps.bytes));
     }
     let dest_fd = guard.create_file(target.dest_dir_idx, target.dest_name)?;
-    (state.before_copy)(target.src_name);
+    (state.on_point)(CopyPoint::ReadFile(target.src_name));
     let mut src = File::from(src_fd);
     let mut dest = File::from(dest_fd);
     let copied = stream_copy_and_screen(&mut src, &mut dest, state)?;
@@ -489,7 +606,7 @@ pub(super) fn stream_copy_for_test(
         used_bytes: 0,
         used_entries: 0,
         matcher: SecretMatcher::new(&[]),
-        before_copy: &mut noop_before_copy,
+        on_point: &mut noop_hook,
     };
     stream_copy_and_screen(src, dest, &mut state)
 }
@@ -503,9 +620,7 @@ fn verify_unchanged(
     copied: u64,
 ) -> Result<(), RejoinNotice> {
     let after = fstat(src).map_err(io_errno)?;
-    let entry_after = statat(src_dir, src_name, AtFlags::SYMLINK_NOFOLLOW)
-        .map_err(|_| RejoinNotice::ChangedUnderfoot)?;
-    let unchanged = keep::same_entry(before, &entry_after)
+    let unchanged = keep::same_entry_at(src_dir.as_fd(), src_name, before)
         && (copied, after.st_size, after.st_mtime, after.st_mtime_nsec)
             == (
                 apparent,

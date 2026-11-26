@@ -1,7 +1,7 @@
 //! Rejoin state retention and `root_session` tests for `brokkr driver agy`
 //! (#1227, decision 0075 level 2 slice 1).
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io::ErrorKind;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
@@ -12,9 +12,10 @@ use super::keep::{kept_parent, run_seat_agy, OK_RES, STEP_DONE, UUID};
 use super::*;
 use crate::adapters::agy::keep::{self as agy_keep, KeepNotice, ParentError, SourceErrno};
 use crate::adapters::agy::rejoin::{
-    keep_rejoin, keep_rejoin_with, list_dir_sorted, observe_version, RejoinCaps, RejoinNotice,
-    RejoinRollback, REJOIN_BRAIN_DIR, REJOIN_DB_FILE, REJOIN_DIR,
+    for_each_dir_entry, for_each_listed_entry, keep_rejoin, keep_rejoin_with, CopyPoint,
+    RejoinCaps, RejoinNotice, RejoinRollback, REJOIN_BRAIN_DIR, REJOIN_DB_FILE, REJOIN_DIR,
 };
+use crate::adapters::spawn::observed_version_in;
 use crate::secret::SecretMatcher;
 use crate::DeclaredTranscriptKind;
 
@@ -315,22 +316,40 @@ fn bounds_and_missing_parts_roll_back_cleanly() {
         Err(RejoinNotice::TooLarge(9))
     );
     assert!(!conv_dir(&op, UUID).exists());
-    assert_eq!(
-        keep_rejoin(
-            UUID,
-            &eng,
-            Some(&op),
-            &[],
-            false,
-            RejoinCaps {
-                bytes: 100,
-                entries: 1,
-                depth: 4
-            }
-        ),
-        Err(RejoinNotice::TooManyEntries(1))
-    );
-    assert!(!conv_dir(&op, UUID).exists());
+    // Budget charges conversation.db (1) + brain root (2) + a.txt (3) = 3 entries.
+    for entry_cap in [0, 1, 2] {
+        assert_eq!(
+            keep_rejoin(
+                UUID,
+                &eng,
+                Some(&op),
+                &[],
+                false,
+                RejoinCaps {
+                    bytes: 100,
+                    entries: entry_cap,
+                    depth: 4
+                }
+            ),
+            Err(RejoinNotice::TooManyEntries(entry_cap)),
+            "entry_cap={entry_cap}"
+        );
+        assert!(!conv_dir(&op, UUID).exists(), "entry_cap={entry_cap}");
+    }
+    keep_rejoin(
+        UUID,
+        &eng,
+        Some(&op),
+        &[],
+        false,
+        RejoinCaps {
+            bytes: 100,
+            entries: 3,
+            depth: 4,
+        },
+    )
+    .unwrap();
+    std::fs::remove_dir_all(conv_dir(&op, UUID)).unwrap();
 
     let deep = dir.path().join("eng-deep");
     plant_conversation(&deep, UUID, b"db", &[("a/b/c.txt", b"ok")]);
@@ -533,15 +552,6 @@ fn unreadable_sources_and_dest_io_errors_bind() {
     );
     assert!(!conv_dir(&op, UUID).exists());
 
-    // Listing a non-directory fd exercises Dir::read_from's error arm.
-    let not_a_dir = dir.path().join("not-a-dir.txt");
-    std::fs::write(&not_a_dir, b"file").unwrap();
-    let file_fd: std::os::fd::OwnedFd = std::fs::File::open(&not_a_dir).unwrap().into();
-    assert_eq!(
-        list_dir_sorted(&file_fd),
-        Err(RejoinNotice::Io(ErrorKind::NotADirectory))
-    );
-
     // Read-only conversation directory exercises RejoinRollback io_errno.
     let ro_op = dir.path().join("ro-op");
     let ro_conv = prep_kept_transcript(&ro_op, UUID, b"keep");
@@ -580,8 +590,8 @@ fn changed_underfoot_and_streaming_overflow_roll_back_and_spare_transcript() {
         .join("a.txt");
 
     let run_mut = |caps: RejoinCaps, mut mutate: Box<dyn FnMut()>| {
-        keep_rejoin_with(UUID, &engine, Some(&op), &[], true, caps, &mut |name| {
-            if name == OsStr::new("a.txt") {
+        keep_rejoin_with(UUID, &engine, Some(&op), &[], true, caps, &mut |point| {
+            if point == CopyPoint::ReadFile(OsStr::new("a.txt")) {
                 mutate();
             }
         })
@@ -738,34 +748,100 @@ fn parent_errors_and_notice_display_bind() {
         ),
         Err(RejoinNotice::Parent(ParentError::UnownedParent))
     );
+}
 
-    let notices = [
-        RejoinNotice::InvalidId,
-        RejoinNotice::Parent(ParentError::NoOperatorHome),
-        RejoinNotice::Parent(ParentError::InvalidReference),
-        RejoinNotice::Parent(ParentError::NonUtf8Home),
-        RejoinNotice::Parent(ParentError::UnownedParent),
-        RejoinNotice::Parent(ParentError::ParentIo(ErrorKind::PermissionDenied)),
-        RejoinNotice::Parent(ParentError::ReplacedDirectory),
-        RejoinNotice::ReferenceMasked,
-        RejoinNotice::BoundValueAppeared,
-        RejoinNotice::Source(SourceErrno::Absent),
-        RejoinNotice::Source(SourceErrno::Unsafe),
-        RejoinNotice::Source(SourceErrno::Io(ErrorKind::PermissionDenied)),
-        RejoinNotice::TooLarge(128),
-        RejoinNotice::TooManyEntries(4),
-        RejoinNotice::TooDeep(2),
-        RejoinNotice::ChangedUnderfoot,
-        RejoinNotice::AlreadyKept,
-        RejoinNotice::Io(ErrorKind::Other),
+#[test]
+fn rejoin_notice_display_messages_bind() {
+    let perm = std::io::Error::from(ErrorKind::PermissionDenied);
+    let other = std::io::Error::from(ErrorKind::Other);
+    let notices: [(RejoinNotice, String); 19] = [
+        (
+            RejoinNotice::InvalidId,
+            "agy rejoin state not kept: init's conversation id is not a lowercase UUID".into(),
+        ),
+        (
+            RejoinNotice::Parent(ParentError::NoOperatorHome),
+            "agy rejoin state not kept: the operator has no HOME to keep it under".into(),
+        ),
+        (
+            RejoinNotice::Parent(ParentError::InvalidReference),
+            "agy rejoin state not kept: the reference does not pass the run view's reference rule"
+                .into(),
+        ),
+        (
+            RejoinNotice::Parent(ParentError::NonUtf8Home),
+            "agy rejoin state not kept: the kept-conversations directory path is not UTF-8".into(),
+        ),
+        (
+            RejoinNotice::Parent(ParentError::UnownedParent),
+            "agy rejoin state not kept: the kept-conversations parent is not an owner-only directory of this user's"
+                .into(),
+        ),
+        (
+            RejoinNotice::Parent(ParentError::ParentIo(ErrorKind::PermissionDenied)),
+            format!(
+                "agy rejoin state not kept: could not prepare the kept-conversations parent: {perm}"
+            ),
+        ),
+        (
+            RejoinNotice::Parent(ParentError::ReplacedDirectory),
+            "agy rejoin state not kept: a newly created kept directory was replaced before it could be opened"
+                .into(),
+        ),
+        (
+            RejoinNotice::ReferenceMasked,
+            "agy rejoin state not kept: masking the turn's secret bindings would rewrite the root session row"
+                .into(),
+        ),
+        (
+            RejoinNotice::BoundValueAppeared,
+            "agy rejoin state not kept: a bound secret value appeared in the conversation".into(),
+        ),
+        (
+            RejoinNotice::Source(SourceErrno::Absent),
+            "agy rejoin state not kept: a required conversation file or directory is absent".into(),
+        ),
+        (
+            RejoinNotice::Source(SourceErrno::Unsafe),
+            "agy rejoin state not kept: a path component under the engine HOME is a symbolic link or not of the expected file type"
+                .into(),
+        ),
+        (
+            RejoinNotice::Source(SourceErrno::Io(ErrorKind::PermissionDenied)),
+            format!("agy rejoin state not kept: could not read source: {perm}"),
+        ),
+        (
+            RejoinNotice::TooLarge(128),
+            "agy rejoin state not kept: conversation state exceeds the 128-byte copy limit".into(),
+        ),
+        (
+            RejoinNotice::TooManyEntries(4),
+            "agy rejoin state not kept: conversation state exceeds the 4-entry limit".into(),
+        ),
+        (
+            RejoinNotice::TooDeep(2),
+            "agy rejoin state not kept: conversation brain exceeds the 2-level depth limit".into(),
+        ),
+        (
+            RejoinNotice::EmptyBrain,
+            "agy rejoin state not kept: conversation brain directory is empty".into(),
+        ),
+        (
+            RejoinNotice::ChangedUnderfoot,
+            "agy rejoin state not kept: a conversation file changed while it was being copied"
+                .into(),
+        ),
+        (
+            RejoinNotice::AlreadyKept,
+            "agy rejoin state not kept: rejoin state for this conversation already exists".into(),
+        ),
+        (
+            RejoinNotice::Io(ErrorKind::Other),
+            format!("agy rejoin state not kept: could not copy rejoin state: {other}"),
+        ),
     ];
-    for notice in notices {
-        assert!(
-            notice
-                .to_string()
-                .starts_with("agy rejoin state not kept: "),
-            "{notice}"
-        );
+    for (notice, expected) in notices {
+        assert_eq!(notice.to_string(), expected);
     }
 }
 
@@ -777,15 +853,24 @@ fn rollback_refuses_replaced_created_directory() {
     let parent_fd = agy_keep::owned_parent_raw(&swap_parent).unwrap();
     let target_dir = swap_parent.join(UUID);
     let moved_dir = swap_parent.join("moved-aside");
+    let sentinel = target_dir.join("keep-replacement");
+    let mut replaced_id = None;
     let mut rollback = RejoinRollback::begin(parent_fd);
     assert_eq!(
         rollback.create_dir_with(0, OsStr::new(UUID), || {
             std::fs::rename(&target_dir, &moved_dir).unwrap();
             std::fs::create_dir(&target_dir).unwrap();
+            std::fs::write(&sentinel, b"owner").unwrap();
+            let meta = std::fs::symlink_metadata(&target_dir).unwrap();
+            replaced_id = Some((meta.dev(), meta.ino()));
         }),
         Err(RejoinNotice::Parent(ParentError::ReplacedDirectory))
     );
+    drop(rollback);
     assert!(target_dir.is_dir());
+    let after = std::fs::symlink_metadata(&target_dir).unwrap();
+    assert_eq!(Some((after.dev(), after.ino())), replaced_id);
+    assert_eq!(std::fs::read(&sentinel).unwrap(), b"owner");
 }
 
 #[test]
@@ -799,35 +884,44 @@ fn version_observer_and_refused_to_start_bind() {
     };
     let wd = vdir.path().to_str().unwrap();
     let owned = [("AGY_CLI_DISABLE_AUTO_UPDATE", "true")];
+    let ver_cmd = |bin: &str| [bin.to_string(), "--version".to_string()];
     assert_eq!(
-        observe_version(
-            make_v("ok", "printf '1.5.14\\n'").to_str().unwrap(),
+        observed_version_in(
+            &ver_cmd(make_v("ok", "printf '1.5.14\\n'").to_str().unwrap()),
             wd,
             &owned
         ),
         Some("1.5.14".into())
     );
     assert_eq!(
-        observe_version(make_v("fail", "exit 1").to_str().unwrap(), wd, &owned),
-        None
-    );
-    assert_eq!(
-        observe_version(
-            make_v("bad_utf8", "printf '\\377\\n'").to_str().unwrap(),
+        observed_version_in(
+            &ver_cmd(make_v("fail", "exit 1").to_str().unwrap()),
             wd,
             &owned
         ),
         None
     );
     assert_eq!(
-        observe_version(
-            make_v("words", "printf 'no-version\\n'").to_str().unwrap(),
+        observed_version_in(
+            &ver_cmd(make_v("bad_utf8", "printf '\\377\\n'").to_str().unwrap()),
             wd,
             &owned
         ),
         None
     );
-    assert_eq!(observe_version("/no/such/agy-bin", wd, &owned), None);
+    assert_eq!(
+        observed_version_in(
+            &ver_cmd(make_v("words", "printf 'no-version\\n'").to_str().unwrap()),
+            wd,
+            &owned
+        ),
+        None
+    );
+    assert_eq!(
+        observed_version_in(&ver_cmd("/no/such/agy-bin"), wd, &owned),
+        None
+    );
+    assert_eq!(observed_version_in(&[], wd, &owned), None);
 
     // Refused-to-start turn with declared root emits no root_session and keeps no rejoin state.
     let mut outcome = Err(super::super::Ended::Driver(String::new()));
@@ -1086,4 +1180,355 @@ fn bad_or_absent_conversation_id_and_invalid_declared_root_kind_bind() {
         "{launch_err}"
     );
     assert!(world.homes_gone());
+}
+
+#[test]
+fn empty_brain_is_refused_and_rolled_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, op) = (dir.path().join("empty-brain"), dir.path().join("op"));
+    std::fs::create_dir_all(&op).unwrap();
+    plant_conversation(&engine, UUID, b"db", &[]);
+    assert_eq!(
+        keep_rejoin(UUID, &engine, Some(&op), &[], false, RejoinCaps::DEFAULT),
+        Err(RejoinNotice::EmptyBrain)
+    );
+    assert!(!conv_dir(&op, UUID).exists());
+}
+
+fn expect_configured_refusal(world: &mut World, bin: &Path, expected_path: &str) {
+    world.set(bin);
+    let input = declared_work_input(world);
+    let err = super::drive_flash(bin, StartMode::default(), &input, &[])
+        .err()
+        .expect("workspace config must refuse launch");
+    assert!(err.contains(expected_path), "{err}");
+    assert!(world.homes_gone());
+}
+
+#[test]
+fn version_probe_applies_sealed_removals_and_readmits_workspace_before_launch() {
+    let mut env = crate::env_guard::EnvGuard::lock();
+    env.set("BROKKR_TEST_REJOIN_REMOVED", "must-not-leak");
+    let vdir = tempfile::tempdir().unwrap();
+    let leaked_path = vdir.path().join("seen.env");
+    let spy_bin = write_exec(
+        &vdir.path().join("agy-ver"),
+        &format!(
+            "#!/bin/sh\nprintf '%s' \"${{BROKKR_TEST_REJOIN_REMOVED:-ABSENT}}\" > '{}'\n\
+             printf '1.5.14\\n'\n",
+            leaked_path.display()
+        ),
+    );
+    let mut serving = sealed(
+        crate::native_controls::SealedBoundary::Namespace,
+        "empty",
+        json!("measured"),
+        "standing",
+    );
+    serving["isolation"]["servers"] = json!({"brokered": [{
+        "capability": "library-docs",
+        "plan": "/state/plans/library-docs.json",
+        "plan_digest": "a".repeat(64),
+        "removals": ["BROKKR_TEST_REJOIN_REMOVED"],
+    }]});
+    let removal_input = json!({ crate::native_controls::SERVING_INPUTS: serving });
+    let _removing = crate::adapters::mcp::Removing::attempt(&removal_input);
+    let cmd = [spy_bin.to_string_lossy().into_owned(), "--version".into()];
+    assert_eq!(
+        observed_version_in(
+            &cmd,
+            vdir.path().to_str().unwrap(),
+            &[("AGY_CLI_DISABLE_AUTO_UPDATE", "true")],
+        ),
+        Some("1.5.14".into())
+    );
+    assert_eq!(std::fs::read_to_string(&leaked_path).unwrap(), "ABSENT");
+    drop(_removing);
+    drop(env);
+
+    // Config planted during `agy --version` refuses before turn spawn.
+    let mut w_during = World::new();
+    let seat_during = w_during.seat();
+    let turn_marker = seat_during.join("turn-started.marker");
+    let bin_during = write_exec(
+        &seat_during.join("agy"),
+        &format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n\
+               mkdir -p \"$PWD/.agents\" && : > \"$PWD/.agents/hooks.json\"\n\
+               printf '1.5.14\\n'; exit 0\n\
+             fi\n: > '{}'; exit 0\n",
+            turn_marker.display()
+        ),
+    );
+    expect_configured_refusal(&mut w_during, &bin_during, ".agents/hooks.json");
+    assert!(!turn_marker.exists(), "model turn must never spawn");
+    drop(w_during);
+
+    // Pre-existing workspace config spawns nothing, not even --version.
+    let mut w_before = World::new();
+    let seat_before = w_before.seat();
+    let any_marker = seat_before.join("any-started.marker");
+    let bin_before = write_exec(
+        &seat_before.join("agy"),
+        &format!("#!/bin/sh\n: > '{}'\nexit 0\n", any_marker.display()),
+    );
+    let planted = plant(&seat_before, ".agents/hooks.json");
+    expect_configured_refusal(&mut w_before, &bin_before, &planted.display().to_string());
+    assert!(!any_marker.exists(), "--version must not spawn");
+}
+
+fn run_before_open_case(
+    engine: &Path,
+    op: &Path,
+    conv: &Path,
+    trigger_name: &OsStr,
+    expected: RejoinNotice,
+    mut mutate: impl FnMut(),
+) {
+    let mut fired = false;
+    let res = keep_rejoin_with(
+        UUID,
+        engine,
+        Some(op),
+        &[],
+        true,
+        RejoinCaps::DEFAULT,
+        &mut |point| {
+            if point == CopyPoint::OpenFile(trigger_name) && !fired {
+                fired = true;
+                mutate();
+            }
+        },
+    );
+    assert!(fired);
+    assert_eq!(res, Err(expected));
+    assert!(!conv.join(REJOIN_DIR).exists());
+}
+
+#[test]
+fn file_replaced_after_classification_is_refused_and_rolled_back() {
+    let (_dir, engine, op, conv) =
+        setup_planted_with_transcript(b"db12", &[("a.txt", b"hello")], b"keep-me");
+    let brain_file = engine
+        .join(".gemini/antigravity-cli/brain")
+        .join(UUID)
+        .join("a.txt");
+
+    run_before_open_case(
+        &engine,
+        &op,
+        &conv,
+        OsStr::new("a.txt"),
+        RejoinNotice::ChangedUnderfoot,
+        || {
+            std::fs::remove_file(&brain_file).unwrap();
+            std::fs::write(&brain_file, b"hello").unwrap();
+        },
+    );
+    run_before_open_case(
+        &engine,
+        &op,
+        &conv,
+        OsStr::new("a.txt"),
+        RejoinNotice::Source(SourceErrno::Unsafe),
+        || {
+            std::fs::remove_file(&brain_file).unwrap();
+            std::fs::create_dir(&brain_file).unwrap();
+        },
+    );
+    std::fs::remove_dir(&brain_file).unwrap();
+    std::fs::write(&brain_file, b"hello").unwrap();
+
+    let db_path = engine
+        .join(".gemini/antigravity-cli/conversations")
+        .join(format!("{UUID}.db"));
+    let db_name = OsString::from(format!("{UUID}.db"));
+    run_before_open_case(
+        &engine,
+        &op,
+        &conv,
+        db_name.as_os_str(),
+        RejoinNotice::ChangedUnderfoot,
+        || {
+            std::fs::remove_file(&db_path).unwrap();
+            std::fs::write(&db_path, b"db12").unwrap();
+        },
+    );
+    assert_eq!(
+        std::fs::read(conv.join("transcript.jsonl")).unwrap(),
+        b"keep-me"
+    );
+}
+
+type DirMutator = fn(&Path, &Path);
+
+fn swap_sub(brain: &Path, scratch: &Path) {
+    let sub = brain.join("sub");
+    std::fs::rename(&sub, scratch.join("moved")).unwrap();
+    std::fs::create_dir(&sub).unwrap();
+    std::fs::write(sub.join("file.txt"), b"ok").unwrap();
+}
+
+#[test]
+fn source_directory_substituted_removed_or_added_during_walk_refuses_and_rolls_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let cases: [(&str, CopyPoint<'static>, DirMutator); 7] = [
+        (
+            "substitute-before-open",
+            CopyPoint::OpenDir(OsStr::new("sub")),
+            swap_sub,
+        ),
+        (
+            "substitute-subtree",
+            CopyPoint::VerifyDir(OsStr::new("sub")),
+            swap_sub,
+        ),
+        (
+            "remove-subtree",
+            CopyPoint::VerifyDir(OsStr::new("sub")),
+            |b, _| {
+                std::fs::remove_dir_all(b.join("sub")).unwrap();
+            },
+        ),
+        (
+            "add-entry",
+            CopyPoint::VerifyDir(OsStr::new("sub")),
+            |b, _| {
+                std::fs::write(b.join("sub/extra.txt"), b"new").unwrap();
+            },
+        ),
+        (
+            "remove-entry",
+            CopyPoint::VerifyDir(OsStr::new("sub")),
+            |b, _| {
+                std::fs::remove_file(b.join("sub/file.txt")).unwrap();
+            },
+        ),
+        (
+            "rename-entry",
+            CopyPoint::VerifyDir(OsStr::new("sub")),
+            |b, _| {
+                std::fs::rename(b.join("sub/file.txt"), b.join("sub/other.txt")).unwrap();
+            },
+        ),
+        (
+            "substitute-member-in-parent",
+            CopyPoint::VerifyDir(OsStr::new(UUID)),
+            swap_sub,
+        ),
+    ];
+
+    for (label, trigger, mutate) in cases {
+        let root = dir.path().join(label);
+        let (engine, op, scratch) = (root.join("eng"), root.join("op"), root.join("tmp"));
+        std::fs::create_dir_all(&scratch).unwrap();
+        plant_conversation(
+            &engine,
+            UUID,
+            b"db",
+            &[("sub/file.txt", b"ok"), ("keep.txt", b"ok")],
+        );
+        let conv = prep_kept_transcript(&op, UUID, b"keep-transcript");
+        let brain = engine.join(".gemini/antigravity-cli/brain").join(UUID);
+        let mut fired = false;
+        let res = keep_rejoin_with(
+            UUID,
+            &engine,
+            Some(&op),
+            &[],
+            true,
+            RejoinCaps::DEFAULT,
+            &mut |point| {
+                if point == trigger && !fired {
+                    fired = true;
+                    mutate(&brain, &scratch);
+                }
+            },
+        );
+        assert!(fired, "{label}");
+        assert_eq!(res, Err(RejoinNotice::ChangedUnderfoot), "{label}");
+        assert!(!conv.join(REJOIN_DIR).exists(), "{label}");
+        assert_eq!(
+            std::fs::read(conv.join("transcript.jsonl")).unwrap(),
+            b"keep-transcript",
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn bound_value_in_brain_file_or_dir_name_refuses_rejoin_and_spares_transcript() {
+    let secret_val = "name-sentinel-9a4b7c";
+    let hex_secret: String = secret_val.bytes().map(|b| format!("{b:02x}")).collect();
+    let cases = [
+        ("file-raw", format!("note-{secret_val}.txt")),
+        ("dir-raw", format!("dir-{secret_val}/clean.txt")),
+        ("file-hex", format!("encoded-{hex_secret}.txt")),
+    ];
+    for (label, rel_path) in cases {
+        let (_dir, engine, op, conv) =
+            setup_planted_with_transcript(b"clean-db", &[(&rel_path, b"clean-content")], b"keep");
+        assert_eq!(
+            keep_rejoin(
+                UUID,
+                &engine,
+                Some(&op),
+                &[bound("NAME_SECRET", secret_val)],
+                true,
+                RejoinCaps::DEFAULT,
+            ),
+            Err(RejoinNotice::BoundValueAppeared),
+            "{label}"
+        );
+        assert!(!conv.join(REJOIN_DIR).exists(), "{label}");
+        assert_eq!(
+            std::fs::read(conv.join("transcript.jsonl")).unwrap(),
+            b"keep",
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn listing_setup_fails_on_non_directory_fd() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("not-a-dir.txt");
+    std::fs::write(&file, b"plain").unwrap();
+    let fd: std::os::fd::OwnedFd = std::fs::File::open(&file).unwrap().into();
+    assert_eq!(
+        for_each_dir_entry(&fd, |_| Ok(())),
+        Err(RejoinNotice::Io(ErrorKind::NotADirectory))
+    );
+}
+
+#[test]
+fn listing_iteration_fails_on_entry_errno() {
+    let mut visited = Vec::new();
+    let entries = [
+        Ok(OsString::from(".")),
+        Ok(OsString::from("..")),
+        Ok(OsString::from("first.txt")),
+        Err(rustix::io::Errno::ACCESS),
+    ];
+    let err = for_each_listed_entry(entries, |name| {
+        visited.push(name);
+        Ok(())
+    });
+    assert_eq!(err, Err(RejoinNotice::Io(ErrorKind::PermissionDenied)));
+    assert_eq!(visited, vec![OsString::from("first.txt")]);
+}
+
+#[test]
+fn open_existing_conversation_dir_fails_when_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, op) = (dir.path().join("engine"), dir.path().join("op"));
+    plant_conversation(&engine, UUID, b"db", &[("a.txt", b"ok")]);
+    let parent = kept_parent(&op);
+    std::fs::create_dir_all(&parent).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        keep_rejoin(UUID, &engine, Some(&op), &[], true, RejoinCaps::DEFAULT),
+        Err(RejoinNotice::Io(ErrorKind::NotFound))
+    );
+    assert!(!conv_dir(&op, UUID).exists());
 }

@@ -522,23 +522,31 @@ addendum (`#1227`, decision 0075 level 2, slice 1 of 2; launch is slice 2).
   values printed by tools land in clear in both `conversations/<id>.db` and
   `brain/<id>/`. Because the SQLite database cannot be masked and still be read
   by `agy`, a conversation in which any bound secret value appears (checked
-  across every copied byte using the turn's own masker encodings plus
-  JSON-string escaping across chunk boundaries, and on the emitted
-  `root_session` row through `probe::seat_row`) is not kept for rejoin. Any
-  partial rejoin files are rolled back while the kept transcript's own rule
-  stays unaffected.
+  across every copied byte and every file and directory name under `brain/<id>/`
+  using the shared projected masker encodings across chunk boundaries, and on
+  the emitted `root_session` row through `probe::seat_row`) is not kept for
+  rejoin. Any partial rejoin files are rolled back while the kept transcript's
+  own rule stays unaffected.
 - **Bounded and all or nothing.** Rejoin keeping is bounded at 128 MiB total
   bytes (4× `TRANSCRIPT_SOURCE_CAP`, fitting `transcript.jsonl`,
   `transcript_full.jsonl`, `chunks/`, `steps/`, and `conversations/<id>.db`
   while capping per-turn disk growth well above the 384–672 KiB database and
   3–48 KiB brain sizes measured across 113 short lab turns), 4,096 total
-  entries, and 16 directory levels under `brain/<id>/` (4× the measured lab
-  depth of 4). Every source path component is opened with `O_NOFOLLOW`; only
-  directories and regular files are copied. Over any bound, or if any part is
-  missing, unreadable, not a regular file, or changed underfoot (checked via
-  `(st_dev, st_ino)`, size, and mtime across the copy), nothing is kept for
-  rejoin and every created rejoin file and directory is removed in reverse
-  order through `unlink_if_same`, leaving any kept `transcript.jsonl` untouched.
+  entries (charging `conversation.db`, the `brain/<id>/` root, and each brain
+  entry as it is met during traversal), and 16 directory levels under
+  `brain/<id>/` (4× the measured lab depth of 4). Every source path component
+  is opened from its parent handle with `O_NOFOLLOW`; only directories and
+  regular files are copied, every opened file is verified by file type and
+  `(st_dev, st_ino)` against its classification before reading, and every
+  directory's identity and membership are re-checked after its entries are
+  copied. Over any bound, or if the brain is empty or any part is missing,
+  unreadable, not a regular file, or changed underfoot (checked via
+  `(st_dev, st_ino)`, size, and mtime across each file copy and directory
+  identity and membership across the walk), nothing is kept for rejoin and
+  every created rejoin file and directory is removed in reverse order through
+  `unlink_if_same`, leaving any kept `transcript.jsonl` untouched. What the
+  keeper cannot see on the source is a change that restores the same identity
+  and content between two checks.
 - **Root session and `persistent`.** For a declaring work turn that did not
   refuse to start and named a lowercase UUID conversation id, the driver asks
   the launched binary for its version via `agy --version` under the engine HOME

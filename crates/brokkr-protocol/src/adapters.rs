@@ -1303,18 +1303,14 @@ pub fn resume_enabled(input: &Value, shape: &str) -> bool {
 /// cold invocation of an unmeasured shape spawns exactly what it spawned
 /// before this ruling.
 fn observed_version(command: &[String]) -> Option<String> {
-    let output = lost::observing(|| run_cli(command, None, "", &[])).ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    parse_observed_version(&output.stdout)
+    spawn::observed_version_in(command, "", &[])
 }
 
 /// Strictly decode `stdout` from a harness's `--version` probe and pick the
 /// first token of the first non-empty line that begins with an ASCII digit and
 /// fits [`recordable_version`]. Shared by every driver that observes its
 /// harness's version (decision 0071 ruling 5).
-fn parse_observed_version(stdout: &[u8]) -> Option<String> {
+pub(super) fn parse_observed_version(stdout: &[u8]) -> Option<String> {
     // Strictly decoded: output that is not valid UTF-8 is unreadable, and
     // an unreadable answer observes no version even where the bytes also
     // carry one (tasks 5302–5306). A lossy read would substitute and

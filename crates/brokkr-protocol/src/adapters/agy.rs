@@ -634,13 +634,18 @@ fn invoke(
         (AUTO_UPDATE, NO_UPDATE),
     ];
     let line = stdin_line(prompt);
-    // The workspace check, once, last before agy starts (M1): it narrows
-    // the time a writer has to plant agy's configuration, and does not close
-    // it (#1217).
+    // Admit the workspace before spawning anything (M1), and when the
+    // version probe runs, admit it again directly before launching the turn
+    // so configuration planted during `agy --version` cannot reach the launch.
     home::unconfigured(workdir)?;
-    let harness_version = (*declared_root && !probe)
-        .then(|| rejoin::observe_version(&launch.command[0], workdir, &owned))
-        .flatten();
+    let harness_version = if *declared_root && !probe {
+        let probe_cmd = [launch.command[0].clone(), "--version".to_string()];
+        let version = super::spawn::observed_version_in(&probe_cmd, workdir, &owned);
+        home::unconfigured(workdir)?;
+        version
+    } else {
+        None
+    };
     let fed = spawn_fed_in(&launch.command, &line, (workdir, &owned), bindings)?;
     let mut session_meta = Map::new();
     let ended = streamed_lines(fed, |line| {

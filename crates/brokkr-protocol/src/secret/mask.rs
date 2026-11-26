@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 use super::{
-    advance, covered, enc_json_string, needles, BoundSecret, Encoder, MIN_VALUE_BYTES,
+    advance, covered, needles, projected_encodings, BoundSecret, Encoder, MIN_VALUE_BYTES,
     NEEDLE_ENCODINGS,
 };
 use crate::adapters::escapes::{without_ansi, without_ansi_with_offsets};
@@ -190,8 +190,7 @@ impl SecretMatcher {
                 needles: Vec::new(),
             };
         }
-        let mut encodings = NEEDLE_ENCODINGS.to_vec();
-        encodings.push(("json-string", enc_json_string));
+        let encodings = projected_encodings();
         let needles = needles(bindings, &encodings)
             .into_iter()
             .map(|(needle, _)| {

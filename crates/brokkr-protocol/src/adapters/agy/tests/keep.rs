@@ -832,9 +832,9 @@ fn foreign_drive_and_unc_homes_keep_nothing_and_record_none() {
             "{label}: rejected non-native HOME must create no host-relative path"
         );
 
-        let mut meta = serde_json::Map::new();
-        let mut emitted = Vec::new();
-        let notice = super::super::keep::publish_transcript(
+        use super::super::keep::TranscriptOutcome::NotKept;
+        let (mut meta, mut emitted) = (serde_json::Map::new(), Vec::new());
+        let out = super::super::keep::publish_transcript(
             super::super::keep::KeepContext {
                 declared: true,
                 probe: false,
@@ -847,7 +847,7 @@ fn foreign_drive_and_unc_homes_keep_nothing_and_record_none() {
             &mut meta,
             &mut |row| emitted.push(row.row.clone()),
         );
-        assert_eq!(notice, Some(KeepNotice::InvalidReference), "{label}");
+        assert_eq!(out, NotKept(Some(KeepNotice::InvalidReference)), "{label}");
         let expected_none = json!({"kind": "none", "locator": "", "home": ""});
         assert_eq!(meta.get("transcript"), Some(&expected_none), "{label}");
         assert!(
