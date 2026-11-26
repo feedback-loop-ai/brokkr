@@ -4,7 +4,7 @@
 
 use serde_json::{json, Value};
 
-use crate::bundle::{Aggregate, GateAssessment, Invocation, SeatBody, SiteKey};
+use crate::bundle::{Aggregate, GateAssessment, Invocation, Limits, SeatBody, SiteKey};
 use crate::engine::heads::HeadReads;
 use crate::engine::tests::{accepted, bundle, capabilities, git_commit, member, single_body, wire};
 use crate::engine::Engine;
@@ -115,6 +115,18 @@ pub(super) fn driven_over(
     (dir, events)
 }
 
+/// The bundle's `work` seat given the default timeout in place of the
+/// fixture's two seconds, so scripted drivers have time on a loaded host
+/// in every drive the verdict harness makes.
+pub(super) fn unhurried(compiled: &mut crate::bundle::Bundle) {
+    compiled
+        .seats
+        .get_mut("work")
+        .unwrap()
+        .limits
+        .timeout_seconds = Limits::default().timeout_seconds;
+}
+
 /// The engine [`driven_over`] drives, started and not yet driven.
 pub(super) fn begun(
     body: SeatBody,
@@ -126,6 +138,7 @@ pub(super) fn begun(
     git_commit(&work, "base");
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let mut compiled = bundle(dir.path(), body);
+    unhurried(&mut compiled);
     shape(&mut compiled);
     let heads = heads(&work);
     let mut engine = Engine::start(store, compiled, "findings", Some(work)).unwrap();
@@ -152,6 +165,33 @@ pub(super) fn ended_in(events: &[EventEnvelope], phase: &str, kind: EventType) -
         .filter(|event| event.event_type == kind && event.payload["effect_id"] == effect)
         .map(|event| event.payload.clone())
         .collect()
+}
+
+#[test]
+fn the_harness_seats_work_unhurried() {
+    let work = single_body(driver(&json!({"result": "complete"})));
+    let (_dir, engine) = begun(work.clone(), |_| {}, |_| HeadReads::default());
+    assert_eq!(
+        engine.bundle.seats["work"].limits.timeout_seconds,
+        Limits::default().timeout_seconds,
+        "the harness gives work the default deadline"
+    );
+
+    let (_dir, engine) = begun(
+        work,
+        |compiled| {
+            let work = compiled
+                .seats
+                .get_mut("work")
+                .expect("the fixture has a work seat");
+            work.limits.timeout_seconds = 2;
+        },
+        |_| HeadReads::default(),
+    );
+    assert_eq!(
+        engine.bundle.seats["work"].limits.timeout_seconds, 2,
+        "the test shape can shorten the deadline"
+    );
 }
 
 #[test]

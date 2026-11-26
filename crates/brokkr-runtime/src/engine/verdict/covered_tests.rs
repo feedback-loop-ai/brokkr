@@ -6,7 +6,7 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
-use super::tests::{driven, driven_over, driver, ended, ended_in, reported};
+use super::tests::{driven, driven_over, driver, ended, ended_in, reported, unhurried};
 use crate::bundle::{GateAssessment, SeatClass};
 use crate::engine::heads::{HeadReads, Observed};
 use crate::engine::tests::{bundle, git_commit, single_body, state};
@@ -215,10 +215,10 @@ fn the_reviewed_head_is_the_one_the_stable_head_check_accepted() {
 fn a_protected_result_without_one_consistent_checked_head_refuses_at_decide() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
-    std::fs::create_dir(&repo).unwrap();
     let head = git_commit(&repo, "reviewed");
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let mut compiled = bundle(dir.path(), single_body(vec!["driver".into()]));
+    unhurried(&mut compiled);
     compiled.seats.get_mut("review").unwrap().gate = GateAssessment::AllGate;
     let mut engine = Engine::start(store, compiled, "pinned", Some(repo.clone())).unwrap();
     let covered = |head: &str| json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});

@@ -8,10 +8,10 @@
 use serde_json::{json, Value};
 
 use super::stop_tests::{clean, decided, shipped, steps_of};
-use super::tests::{driven_with, driver};
+use super::tests::{driven, driven_with, driver};
 use crate::bundle::{
-    Aggregate, Bundle, GateAssessment, Invocation, Limits, MemberLaw, PanelMember, SeatBody,
-    SeatClass, SequenceStep, StepBody,
+    Aggregate, Bundle, GateAssessment, Invocation, MemberLaw, PanelMember, SeatBody, SeatClass,
+    SequenceStep, StepBody,
 };
 use crate::engine::tests::{single_body, step_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -54,22 +54,9 @@ fn review_table() -> Machine {
     .unwrap()
 }
 
-/// The bundle's `work` seat given the default timeout in place of the
-/// fixture's two seconds, so its scripted driver is never timed out under
-/// a loaded host before the run reaches the phase these tests judge.
-fn unhurried(compiled: &mut Bundle) {
-    compiled
-        .seats
-        .get_mut("work")
-        .unwrap()
-        .limits
-        .timeout_seconds = Limits::default().timeout_seconds;
-}
-
 /// The bundle reshaped so `review` is a gate of `body` compiling `inputs`,
 /// answering every ranked word, before a ship that ships.
 fn reviewing(compiled: &mut Bundle, body: SeatBody, inputs: &[&str]) {
-    unhurried(compiled);
     compiled.machine = review_table();
     let review = compiled.seats.get_mut("review").unwrap();
     review.body = body;
@@ -164,7 +151,7 @@ fn the_shipped_design_positions_pass_and_reach_their_chief() {
         let work = SeatBody::Sequence {
             steps: vec![positions, chief],
         };
-        let (_dir, events) = driven_with(work, unhurried);
+        let (_dir, events) = driven(work, false);
         let work = &decided(&events, "work")[0];
         assert_eq!(
             work["result"], "complete",
