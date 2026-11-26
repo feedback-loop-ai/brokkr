@@ -280,7 +280,7 @@ function toneOf(model) {
   if (model.ending) return lookup(ENDING_TONE, model.ending);
   if (model.wants) return lookup(WANTS_TONE, model.wants);
   const standing = model.verdict ? model.verdict.standing : model.standing;
-  return standing === 'running' ? 'bold' : 'dim';
+  return ['running', 'waiting'].includes(standing) ? 'bold' : 'dim';
 }
 // The fleet's three groups, in the order the list draws them: the runs
 // that want the operator, the live ones, and every other, settled.

@@ -513,7 +513,10 @@ fn the_run_list_reads_a_stopping_run_from_the_shared_standing() {
 fn the_console_paints_every_row_in_its_tone_class_and_groups_the_fleet() {
     use crate::render::ending::{group, painted, Group, Shade};
     use brokkr_core::ending::Tone;
-    let rows = crate::render::ending::tests::every_row();
+    let mut rows = crate::render::ending::tests::every_row();
+    let (_dir, db) = crate::tests::cooling::mixed_cooling_journal();
+    let store = Store::open_read_only(&db).unwrap();
+    rows.push(crate::fleet::one(&store, "r1", "2098-12-31T23:59:00Z").unwrap());
     let mut boa = boa_engine::Context::default();
     let polyfill = RUN_LIST
         .lines()
@@ -575,6 +578,7 @@ fn the_console_paints_every_row_in_its_tone_class_and_groups_the_fleet() {
         "live",
         "run-running",
         "run-cooling",
+        "r1waiting work seq 5",
         "settled",
         "run-shipped",
         "run-shipped-flagged",

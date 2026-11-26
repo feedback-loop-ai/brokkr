@@ -15,7 +15,8 @@ use brokkr_core::ending::{closing, Closing};
 use brokkr_core::fold::{fold, FoldError, RunState};
 use brokkr_core::EventEnvelope;
 use brokkr_runtime::realms::Hearth;
-use brokkr_store::Store;
+use brokkr_store::{Store, StoreError};
+use brokkr_view::{Cooling, RunRow, WaitFact, WaitRefusal, WaitRound, Waits};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -63,6 +64,106 @@ pub(crate) fn cooling(
         .collect())
 }
 
+/// Read the latest stored round and its held maximum for each recorded site.
+fn read_rounds(store: &Store, run_id: &str, fact: WaitFact) -> WaitFact {
+    let WaitFact::Waits {
+        event_seq, sites, ..
+    } = fact
+    else {
+        return fact;
+    };
+    let read = store.read_snapshot(|| {
+        sites
+            .iter()
+            .filter_map(|site| {
+                latest_round(store, run_id, event_seq, site.site.as_deref()).transpose()
+            })
+            .collect::<Result<_, StoreError>>()
+    });
+    match read {
+        Ok(rounds) => WaitFact::Waits {
+            event_seq,
+            sites,
+            rounds,
+        },
+        Err(error) => WaitFact::Unreadable(WaitRefusal::Store(error.to_string())),
+    }
+}
+
+/// Read a site's ordered rounds once and look up the last round's maximum.
+fn latest_round(
+    store: &Store,
+    run_id: &str,
+    event_seq: u64,
+    site: Option<&str>,
+) -> Result<Option<(Option<String>, WaitRound)>, StoreError> {
+    let key = site.unwrap_or_default();
+    let rounds = store.cooldown_rounds(run_id, event_seq, key)?;
+    let held = store.cooldown_held_rounds(run_id, event_seq, key)?;
+    Ok(rounds.last().map(|row| {
+        let round = WaitRound {
+            rounds: row.rounds,
+            until_seconds: row.until_at.unix_timestamp(),
+            held: held.get(&row.rounds).copied(),
+        };
+        (site.map(str::to_string), round)
+    }))
+}
+
+/// The applied event's waits, kept beside the current readout so a console
+/// refresh can see table-only changes at the same journal head.
+pub(crate) struct RunWaits {
+    recorded: WaitFact,
+    pub(crate) painted: Waits,
+}
+
+impl RunWaits {
+    pub(crate) fn read(
+        store: &Store,
+        run_id: &str,
+        now: &str,
+        events: &[EventEnvelope],
+        state: Option<&RunState>,
+    ) -> Result<Self, StoreError> {
+        let mut waits = Self {
+            recorded: WaitFact::applied(events, state),
+            painted: Waits::default(),
+        };
+        waits.refresh(store, run_id, now)?;
+        Ok(waits)
+    }
+
+    pub(crate) fn refresh(
+        &mut self,
+        store: &Store,
+        run_id: &str,
+        now: &str,
+    ) -> Result<(), StoreError> {
+        let paint = || -> Result<Waits, StoreError> {
+            let cooling = cooling(store, now)?;
+            let fact = read_rounds(store, run_id, self.recorded.clone());
+            Ok(Waits::of(&fact, &cooling))
+        };
+        self.painted = match self.recorded {
+            WaitFact::Waits { .. } => store.read_snapshot(paint),
+            WaitFact::NoWait | WaitFact::Unreadable(_) => paint(),
+        }?;
+        Ok(())
+    }
+}
+
+/// A kept behind row can gain a new kind at the same head and route end.
+fn refresh_row(store: &Store, row: RunRow, seq: u64, cooling: &[Cooling]) -> RunRow {
+    if row.waits == Waits::default() {
+        return row;
+    }
+    let fact = match store.last_event(&row.run_id, seq) {
+        Ok(event) => read_rounds(store, &row.run_id, WaitFact::of(event.as_ref())),
+        Err(error) => WaitFact::Unreadable(WaitRefusal::Store(error.to_string())),
+    };
+    row.with_waits(Waits::of(&fact, cooling))
+}
+
 /// Why a listed run carries no state, and where its citation points.
 pub(crate) struct Quarantine {
     /// Which refused it: the store, or the fold (#503).
@@ -90,9 +191,33 @@ pub(crate) struct ListedRun {
     pub events: Vec<EventEnvelope>,
     pub state: Result<RunState, Quarantine>,
     pub residuals: Vec<brokkr_view::ResidualFinding>,
+    pub waits: WaitFact,
 }
 
+/// A run's journal and its fold or refusal.
+type Judged = (Vec<EventEnvelope>, Result<RunState, Quarantine>);
+
 impl ListedRun {
+    fn new(store: &Store, listing: (String, String, String), read: Judged) -> Self {
+        let (run_id, feature, created_at) = listing;
+        let (events, state) = read;
+        let residuals = brokkr_view::residual_findings_at(&run_id, &events, state.as_ref().ok());
+        let waits = read_rounds(
+            store,
+            &run_id,
+            WaitFact::applied(&events, state.as_ref().ok()),
+        );
+        Self {
+            run_id,
+            feature,
+            created_at,
+            events,
+            state,
+            residuals,
+            waits,
+        }
+    }
+
     /// The row every fleet surface builds this run's listing from.
     pub(crate) fn entry(&self) -> brokkr_view::RunEntry<'_> {
         let state = self.state.as_ref();
@@ -105,10 +230,7 @@ impl ListedRun {
             self.events.last().map(|event| event.recorded_at.as_str()),
             state,
             (&self.residuals, ended(&self.events, state)),
-            // The fold's own trail, never the journal's last row: a late
-            // tail is kept and shown and stands no wait (decision 0108
-            // ruling 4).
-            &brokkr_view::WaitFact::applied(&self.events, state.ok()),
+            &self.waits,
             brokkr_core::CauseRead::latest(&self.events).map(Box::new),
         )
     }
@@ -191,18 +313,9 @@ pub(crate) fn read_hearth(store: &Store) -> HearthRead {
     };
     let runs = listed
         .into_iter()
-        .map(|(run_id, feature, created_at)| {
-            let (events, state) = read_run(store, &run_id);
-            let residuals =
-                brokkr_view::residual_findings_at(&run_id, &events, state.as_ref().ok());
-            ListedRun {
-                run_id,
-                feature,
-                created_at,
-                events,
-                state,
-                residuals,
-            }
+        .map(|listing| {
+            let read = read_run(store, &listing.0);
+            ListedRun::new(store, listing, read)
         })
         .collect();
     HearthRead { runs, detail: None }

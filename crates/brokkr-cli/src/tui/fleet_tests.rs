@@ -1481,9 +1481,9 @@ fn two_refused_ids_cut_alike_are_selected_and_opened_apart() {
 /// the event's first end (decision 0103 slice 4f).
 #[test]
 fn a_cooling_run_s_row_paints_the_aggregate_s_wait() {
-    use crate::tests::cooling::{assert_painted, cooling_journal};
+    use crate::tests::cooling::{assert_painted, mixed_cooling_journal};
 
-    let (_dir, db) = cooling_journal();
+    let (_dir, db) = mixed_cooling_journal();
     let store = brokkr_store::Store::open_read_only(&db).unwrap();
     let mut kept = crate::tui_read::Kept::default();
     let listed = crate::tui_read::fleet_page(

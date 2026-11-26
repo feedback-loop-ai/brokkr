@@ -102,6 +102,8 @@ pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
     GRAPH_VIEW_VERSION,
 };
+
+pub use fleet::{WaitKind, WaitRefusal, WaitRound};
 pub use participant::{label_of as participant_label, Subject};
 pub use run_summary::{summary, Summary};
 pub use scope::{
@@ -179,7 +181,8 @@ use serde_json::Value;
 /// Bumped to 30 by decision 0108 ruling 4: a row and a summary carry the late
 /// tail an operator's repair named, kept and never applied.
 /// Bumped to 31 by 0103 slice 4f (a row and the run view carry `waits`), 32 by 0106 (park cause).
-pub const VIEW_VERSION: u32 = 32;
+/// Bumped to 33 by 0106b2 (a waiting standing, each wait's kind).
+pub const VIEW_VERSION: u32 = 33;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a

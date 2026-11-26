@@ -88,8 +88,8 @@ fn a_last_event_with_waits_reads_waiting_with_every_wait_and_its_words() {
     assert_eq!(
         row.waits.lines(AT),
         vec![
-            format!("wait      claude/anthropic at a until {FIRST_END}: {WORDS}"),
-            "wait      codex/openai at b until 2026-01-02T00:10:00Z: usage limit".to_string(),
+            format!("wait      claude/anthropic at a until {FIRST_END} · ordinary · the engine: {WORDS}"),
+            "wait      codex/openai at b until 2026-01-02T00:10:00Z · ordinary · the engine: usage limit".to_string(),
         ]
     );
     assert!(need(&row, AT).is_none(), "a wait is not a park");
@@ -113,7 +113,7 @@ fn a_probe_s_later_round_is_the_end_and_a_shorter_row_never_shortens_it() {
     assert_eq!(
         row.waits.lines(AT),
         vec![format!(
-            "wait      claude/anthropic at a until {LATER_END}: {WORDS}"
+            "wait      claude/anthropic at a until {LATER_END} · ordinary · the engine: {WORDS}"
         )]
     );
 }
@@ -138,7 +138,7 @@ fn an_ended_wait_still_reads_as_the_wait_and_says_it_has_ended() {
     assert_eq!(
         row.waits.lines("2026-01-02T00:25:00Z"),
         vec![format!(
-            "wait      claude/anthropic at a until {FIRST_END} (ended): {WORDS}"
+            "wait      claude/anthropic at a until {FIRST_END} (ended) · ordinary · the engine: {WORDS}"
         )]
     );
     assert!(
@@ -198,14 +198,21 @@ fn an_unreadable_wait_stays_running_with_its_refusal() {
 fn a_wait_whose_end_core_cannot_write_refuses_by_name() {
     let event = failed(json!([entry("a", "claude", "anthropic", FIRST_END, WORDS)]));
     let mut wait = match WaitFact::of(Some(&event)) {
-        WaitFact::Waits(waits) => waits.into_iter().next().expect("one wait"),
+        WaitFact::Waits { sites, .. } => sites.into_iter().next().expect("one wait"),
         fact => panic!("expected waits, got {fact:?}"),
     };
     wait.until = wait
         .until
         .replace_year(-1)
         .expect("a year the RFC cannot spell");
-    let painted = Waits::of(&WaitFact::Waits(vec![wait]), &[]);
+    let painted = Waits::of(
+        &WaitFact::Waits {
+            event_seq: event.seq,
+            sites: vec![wait],
+            rounds: BTreeMap::new(),
+        },
+        &[],
+    );
     assert!(painted.waits.is_empty(), "the unspellable wait is no wait");
     assert_eq!(
         painted.refused.as_deref(),
@@ -257,7 +264,7 @@ fn the_run_view_derives_the_same_wait_and_the_same_later_end() {
     assert_eq!(
         view.waits.lines(AT),
         vec![format!(
-            "wait      claude/anthropic at a until {LATER_END}: {WORDS}"
+            "wait      claude/anthropic at a until {LATER_END} · ordinary · the engine: {WORDS}"
         )]
     );
 }
@@ -267,6 +274,8 @@ fn the_run_view_derives_the_same_wait_and_the_same_later_end() {
 #[test]
 fn an_inline_wait_names_no_site_and_an_unreadable_clock_ends_none() {
     let wait = Wait {
+        kind: WaitKind::Ordinary,
+        driver: WaitKind::Ordinary.driver(),
         site: None,
         provider: "dsh".to_string(),
         route: "flash".to_string(),
@@ -275,11 +284,11 @@ fn an_inline_wait_names_no_site_and_an_unreadable_clock_ends_none() {
     };
     assert_eq!(
         wait.line("not a clock"),
-        "wait      dsh/flash until 2026-01-01T00:00:00Z: slow down"
+        "wait      dsh/flash until 2026-01-01T00:00:00Z · ordinary · the engine: slow down"
     );
     assert_eq!(
         wait.line("2026-02-01T00:00:00Z"),
-        "wait      dsh/flash until 2026-01-01T00:00:00Z (ended): slow down"
+        "wait      dsh/flash until 2026-01-01T00:00:00Z (ended) · ordinary · the engine: slow down"
     );
 }
 
@@ -291,4 +300,45 @@ fn a_stopping_run_in_a_wait_stays_stopping() {
     let row = row_with_state(&two_waits(), &[], &stopping);
     assert_eq!(row.verdict.standing, Standing::Stopping);
     assert_eq!(row.waits.waits.len(), 2);
+}
+
+#[test]
+fn the_rounded_own_row_keeps_the_event_kind_and_a_same_number_probe_can_replace_it() {
+    let at = "2026-01-02T00:10:00.5Z";
+    let mut wait = entry("a", "claude", "anthropic", at, WORDS);
+    wait["held"] = json!(true);
+    wait["max_seconds"] = json!(300);
+    wait["retry_after_seconds"] = json!(600);
+    let event = failed(json!([wait]));
+    let paint = |until| {
+        let mut fact = WaitFact::of(Some(&event));
+        let WaitFact::Waits { rounds, .. } = &mut fact else {
+            panic!("the terminal event carries a wait");
+        };
+        rounds.insert(
+            Some("a".to_string()),
+            WaitRound {
+                rounds: 1,
+                until_seconds: parse_millis(until).unwrap() / 1000,
+                held: None,
+            },
+        );
+        Waits::of(&fact, &[]).waits.remove(0)
+    };
+    let own = paint("2026-01-02T00:10:01Z");
+    let probe = paint(LATER_END);
+    assert_eq!(
+        serde_json::to_value(own).unwrap(),
+        json!({
+            "site": "a", "provider": "claude", "route": "anthropic", "words": WORDS,
+            "until": at, "kind": "held", "max_seconds": 300, "driver": "brokkr resume"
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(probe).unwrap(),
+        json!({
+            "site": "a", "provider": "claude", "route": "anthropic", "words": WORDS,
+            "until": at, "kind": "ordinary", "driver": "the engine"
+        })
+    );
 }

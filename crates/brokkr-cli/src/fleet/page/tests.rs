@@ -18,6 +18,9 @@ use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+mod wait_rounds;
+
+use super::rows::lists_here;
 use super::*;
 use crate::fleet::listing::{list_hearth_in, Lister};
 use crate::fleet::{list_hearth, read_hearth, Called, Filter, ListedRun, AHEAD_ROWS, PAGE_ROWS};
@@ -1760,7 +1763,7 @@ fn a_passed_probe_end_is_kept_and_reads_ended_at_the_caller_s_instant() {
     assert_eq!(
         late.waits.lines("2100-01-01T00:00:00Z"),
         vec![format!(
-            "wait      claude/anthropic at a until {} (ended): {}",
+            "wait      claude/anthropic at a until {} (ended) · ordinary · the engine: {}",
             crate::tests::cooling::COOLING_LATER,
             crate::tests::cooling::COOLING_WORDS
         )]
