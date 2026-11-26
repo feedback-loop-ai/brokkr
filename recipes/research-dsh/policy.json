@@ -1,0 +1,30 @@
+{
+  "schema": "forge.phase-machine/v2",
+  "phases": [
+    "researcher"
+  ],
+  "initial": "researcher",
+  "rules": [
+    {
+      "id": "RESEARCH-INTAKE",
+      "from": "researcher",
+      "result": "intake",
+      "next": "verify",
+      "reason": "Entries were written; the registry test and the cap decide whether they are well-formed proposals."
+    },
+    {
+      "id": "RESEARCH-NOTHING-NEW",
+      "from": "researcher",
+      "result": "nothing-new",
+      "next": "verify",
+      "reason": "Every article was already in the index; the gate still proves the tree is as it was."
+    },
+    {
+      "id": "RESEARCH-ESCALATE",
+      "from": "researcher",
+      "result": "escalate",
+      "park": true,
+      "reason": "The commission or a source could not be read as given; the question is in the notes for the operator."
+    }
+  ]
+}
