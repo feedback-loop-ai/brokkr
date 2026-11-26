@@ -20,30 +20,31 @@ fn fetch_inventory(on: launch::Overlay, off: launch::Overlay) -> NativeInventory
     .unwrap()
 }
 
-fn mismatch(half: &str) -> Result<(), String> {
-    Err(format!(
+fn assert_mismatch(native: NativeInventory, harness: &str, half: &str) {
+    let expected = format!(
         "{ADAPTER} 'native_capabilities' key '{KEY}' {half} overlay does not match the DSH \
          capability and state it declares"
-    ))
+    );
+    assert_eq!(native.check_declared(ADAPTER, harness), Err(expected));
 }
 
 #[test]
 fn a_dsh_overlay_under_another_harness_is_refused() {
     use launch::Overlay::DshWebFetch;
     let native = fetch_inventory(DshWebFetch(true), DshWebFetch(false));
-    assert_eq!(native.check_declared(ADAPTER, "claude"), mismatch("ON"));
+    assert_mismatch(native, "claude", "ON");
 }
 
 #[test]
 fn a_dsh_overlay_switching_another_capability_is_refused() {
     use launch::Overlay::{DshWebFetch, DshWebSearch};
     let native = fetch_inventory(DshWebSearch(true), DshWebFetch(false));
-    assert_eq!(native.check_declared(ADAPTER, "dsh"), mismatch("ON"));
+    assert_mismatch(native, "dsh", "ON");
 }
 
 #[test]
 fn a_dsh_overlay_with_the_other_halfs_polarity_is_refused() {
     use launch::Overlay::DshWebFetch;
     let native = fetch_inventory(DshWebFetch(true), DshWebFetch(true));
-    assert_eq!(native.check_declared(ADAPTER, "dsh"), mismatch("OFF"));
+    assert_mismatch(native, "dsh", "OFF");
 }

@@ -105,7 +105,6 @@
  114 crates/brokkr-protocol/src/adapters/tests.rs:16707 a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag
  103 crates/brokkr-protocol/src/adapters/tests.rs:16876 an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list
  209 crates/brokkr-protocol/src/adapters/tests.rs:17258 the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it
- 135 crates/brokkr-protocol/src/adapters/tests.rs:17490 a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it
  177 crates/brokkr-protocol/src/adapters/tests.rs:17778 an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked
  112 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:180 the_runner_adds_the_scoped_git_binds_and_nothing_wider
  134 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:472 every_known_bubblewrap_option_is_stepped_over_by_its_own_arity

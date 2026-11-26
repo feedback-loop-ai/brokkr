@@ -67,15 +67,16 @@ pub(super) enum PlanRefusal {
     Provenance(String),
 }
 
-/// Finish decoding a known plan, checking the overlay before provenance.
-pub(super) fn decode(plan: &Value, mut controls: Controls) -> Result<Controls, PlanRefusal> {
-    controls.overlay = plan
-        .get("overlay")
-        .cloned()
+fn decode(raw: Option<&Value>) -> serde_json::Result<Vec<Overlay>> {
+    raw.cloned()
         .map(serde_json::from_value)
         .transpose()
-        .map_err(|_| PlanRefusal::Overlay)?
-        .unwrap_or_default();
+        .map(Option::unwrap_or_default)
+}
+
+/// Finish decoding a known plan, checking the overlay before provenance.
+pub(super) fn complete_plan(plan: &Value, mut controls: Controls) -> Result<Controls, PlanRefusal> {
+    controls.overlay = decode(plan.get("overlay")).map_err(|_| PlanRefusal::Overlay)?;
     controls.provenance = super::provenance(plan).map_err(PlanRefusal::Provenance)?;
     Ok(controls)
 }

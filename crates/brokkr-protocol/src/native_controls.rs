@@ -310,7 +310,7 @@ fn decode(plan: &Value) -> Result<Controls, String> {
         guards,
         ..Controls::default()
     };
-    dsh::decode(plan, controls).map_err(|cause| cause.to_string())
+    dsh::complete_plan(plan, controls).map_err(|cause| cause.to_string())
 }
 
 /// The provenance a plan of either inventory carries. Absent, the plan

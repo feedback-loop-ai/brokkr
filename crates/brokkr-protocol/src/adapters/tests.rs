@@ -17431,10 +17431,6 @@ fn launch_for_dsh_final_check(workdir: &str, input: &Value) -> DshLaunch {
 /// engine's plan sealed with neither (rebuild unit 15-fix-b).
 #[cfg(unix)]
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     let (_env, _dir, root) = dsh_test_home();
     let workdir = root.to_str().unwrap();
