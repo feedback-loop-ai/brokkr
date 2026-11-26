@@ -15,14 +15,16 @@
 
 Brokkr is a deterministic delivery engine for autonomous multi-agent software delivery: you give it a feature and a reviewable recipe, its agents implement, verify, review and ship, and its event-sourced phase machine records every result and ruling in a journal you can replay and audit.
 
-The [v0.16.0 “Draupnir” release](docs/releases/v0.16.0.md) brings
-Antigravity CLI in as a trusted harness with boxed hands and kept
-transcripts, and Qoder CLI as a provisional one. It starts a queued entry
-when its recipe's measured demand fits what the machine has free, nests
-the command line into thirteen roots that complete themselves in the
-shell, and lets a boxed dsh seat with workspace hands launch again.
-[v0.15.2](docs/releases/v0.15.2.md) opens every journal path as the
-literal file it names, never as a SQLite URI.
+The [v0.16.1 release](docs/releases/v0.16.1.md) adds `brokkr orders` for
+journaled work orders as the fourteenth command-line root, lets a
+`forge.realms/v9` grant name a tool dialect per provider, maps Claude
+5.5 work models on Antigravity CLI and Qwen 4.0 Max on `dsh`, joins a
+residual panel member's unreadable safety fact as unknown rather than
+safe, keeps a contended step checkpoint's stderr, and lets one
+`workspace` call ask for up to an hour.
+[v0.16.0 “Draupnir”](docs/releases/v0.16.0.md) brought Antigravity CLI
+as a trusted harness, Qoder CLI as a provisional one, admission by
+measured demand, and the nested, self-completing command line.
 
 ## Install
 
