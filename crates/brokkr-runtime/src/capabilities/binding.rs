@@ -11,6 +11,7 @@
 //! [`Admitted`] facts (U7c0).
 
 use brokkr_core::canonical::{sha256_bytes, to_bytes};
+use brokkr_core::realms::GrantDialect;
 use brokkr_core::realms::{CapabilityGrant, GrantRetention};
 use brokkr_protocol::broker::{Clearance, Network};
 use serde_json::{Map, Value};
@@ -413,7 +414,7 @@ impl Authority {
     /// fence (`McpFence`) stands. None of these can become an optional drop.
     pub fn load(context: CapabilityContext) -> Result<Authority, String> {
         let authority = Authority::validated(context)?;
-        for (capability, dialect) in &authority.dialects {
+        for (capability, dialect) in authority.all_dialects() {
             let realm = &authority.context.realm;
             let carried = match bound(realm, capability, dialect) {
                 Ok(Binding::Mcp(_)) if stands(authority.fence) => {
@@ -501,17 +502,39 @@ impl Authority {
         }))
     }
 
-    /// The holding the realm's grant of `capability` seals at `site`,
-    /// before any provider is asked to carry it: the grant reaching the
-    /// site's office, its loaded dialect, the tools it admits, GP1's gates
-    /// and the binding's own reading (design D3 steps 5 and 6). What MB4's
-    /// comparison admitted for an `mcp` binding is sealed on it here, the
-    /// one place a holding gets it (U7c0).
-    pub(super) fn sealed(&self, site: &SiteAsks, capability: &str) -> Result<Holding, Unheld> {
+    /// Choose a validated dialect for the candidate's adapter provider.
+    pub(super) fn seat_dialect(
+        &self,
+        capability: &str,
+        grant: &CapabilityGrant,
+        provider: &str,
+    ) -> Result<&ToolDialect, Cause> {
+        match &grant.dialect {
+            GrantDialect::Single(name) => self
+                .dialect(capability)
+                .map_err(|missing| Cause::incompatible(name, missing.to_string())),
+            GrantDialect::PerProvider(names) => self
+                .provider_dialects
+                .get(capability)
+                .and_then(|dialects| dialects.get(provider))
+                .ok_or_else(|| Cause::ProviderUnavailable {
+                    provider: provider.into(),
+                    served: names.keys().cloned().collect(),
+                }),
+        }
+    }
+
+    /// Seal the holding after the grant reaches the office and the
+    /// candidate's provider has selected its dialect. GP1's gates, the
+    /// tool set and the binding's own reading apply to that dialect.
+    pub(super) fn sealed(
+        &self,
+        site: &SiteAsks,
+        capability: &str,
+        provider: &str,
+    ) -> Result<Holding, Unheld> {
         let grant = self.reaching(site, capability)?;
-        let dialect = self
-            .dialect(capability)
-            .map_err(|missing| Cause::incompatible(&grant.dialect, missing.to_string()))?;
+        let dialect = self.seat_dialect(capability, grant, provider)?;
         let tools = grant.tools.clone().unwrap_or_else(|| dialect.tools.clone());
         if tools.is_empty() {
             let none = "the realm's grant admits no tool".to_string();
@@ -549,7 +572,7 @@ impl Authority {
             })
     }
 
-    /// The native binding of a granted capability — what `brokkr doctor`
+    /// The native binding of a single-dialect grant — what `brokkr doctor`
     /// compares an installed harness's native declarations against — or
     /// the typed reason it has none. A same-name grant bound to another
     /// provider covers nothing of this one's.
@@ -561,5 +584,26 @@ impl Authority {
             provider,
             adapter_key,
         })
+    }
+
+    /// The native bindings a per-provider grant names, for the doctor's
+    /// comparison with each installed adapter. MCP bindings carry no native power.
+    pub fn provider_native_bindings<'a>(
+        &'a self,
+        capability: &'a str,
+    ) -> impl Iterator<Item = Native<'a>> {
+        self.provider_dialects
+            .get(capability)
+            .into_iter()
+            .flat_map(|dialects| dialects.values())
+            .filter_map(move |dialect| {
+                let (provider, adapter_key) =
+                    native(&self.context.realm, capability, dialect).ok()?;
+                Some(Native {
+                    dialect,
+                    provider,
+                    adapter_key,
+                })
+            })
     }
 }

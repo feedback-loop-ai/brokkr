@@ -148,3 +148,5 @@ fn a_v8_map_keeps_the_v7_provisional_offices_and_its_refusals() {
         }
     );
 }
+
+mod provider_dialects;

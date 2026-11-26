@@ -894,6 +894,25 @@ restriction schema names `retain` directly: "tool dialect '<dialect>'
 restriction schema redefines reserved grant key 'retain'"
 (`capabilities/dialect.rs`).
 
+Decision 0126 (rulings 1 to 5) adds one grant form beside the one that
+v8 writes. v1 to v8 stay frozen, with v8's bytes pinned by digest:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with a tool dialect for each provider of a grant | `realms.v9.schema.json` | brokkr-core (shape), brokkr-runtime (binding) |
+
+A `forge.realms/v9` grant writes exactly one of `dialect` and `dialects`.
+The latter is a non-empty object keyed by provider name, with one tool
+dialect name at each key. A per-provider grant may also write `offices`
+and the `retain: false` veto. The schema and loader refuse both forms
+written together, neither form, an empty map, an invalid name, or
+`tools` or any other restriction key on a per-provider grant. Each
+dialect serves the granted capability, and a native dialect belongs
+under its own provider's key. A seat holds the dialect under its own
+key, and the manifest's realms pin carries the grant as written. A v9
+grant with `dialect` reads as it does in v8. Under v6 to v8 a written
+`dialects` stays the selected dialect's restriction.
+
 Decision 0065's slice two (SC3 and CR1, U5f) adds one more file and changes
 none of the bytes above — `run-manifest.v11`'s included, which is now
 pinned by digest beside the frozen files:

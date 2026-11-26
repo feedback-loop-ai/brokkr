@@ -42,6 +42,7 @@ mod attribution;
 mod binding;
 mod dialect;
 mod gates;
+mod grants;
 pub(crate) mod manifest;
 use crate::bundle::SeatClass;
 use binding::Unserved;
@@ -1086,8 +1087,9 @@ pub fn restriction_names(prefix: &str, restrictions: &Map<String, Value>) -> Vec
 pub struct Authority {
     pub context: CapabilityContext,
     pub definitions: Definitions,
-    /// Capability to the dialect its grant selected.
+    /// Capability to the dialect its single-dialect grant selected.
     pub dialects: BTreeMap<String, ToolDialect>,
+    provider_dialects: BTreeMap<String, BTreeMap<String, ToolDialect>>,
     /// The bundle's binding minimum an `mcp` dialect's egress meets (MB4).
     minimum: crate::agents::EgressClass,
     pub(crate) fence: McpFence,
@@ -1130,85 +1132,6 @@ fn native_serving<'a>(
 }
 
 impl Authority {
-    /// Every grant of the operated realm validated BEFORE any seat is
-    /// looked at (design D4 steps 1 and 2): the definition exists, the
-    /// dialect loads, serves the capability and agrees on its classes, the
-    /// tool subset is a subset, the restriction keys pass the dialect's
-    /// schema. What [`Authority::load`] refuses realm-wide follows it.
-    fn validated(context: CapabilityContext) -> Result<Authority, String> {
-        let realm = &context.realm;
-        let definitions = Definitions::load(&context.root)?;
-        let mut dialects = BTreeMap::new();
-        for (capability, grant) in &context.grants {
-            let definition = definitions.get(capability).ok_or_else(|| {
-                format!(
-                    "realm '{realm}': capability '{capability}' has no abstract definition at \
-                     '{}' in the operator configuration; declare its classes before granting it",
-                    Definition::source_of(capability)
-                )
-            })?;
-            // Which keys the grant reserves is its map version's (SC2).
-            let dialect = ToolDialect::load(&context.root, &grant.dialect)
-                .and_then(|dialect| {
-                    let reserved = dialect.reserves(grant.retention);
-                    reserved
-                        .map(|()| dialect)
-                        .map_err(|collision| collision.to_string())
-                })
-                .map_err(|problem| {
-                    format!("realm '{realm}': capability '{capability}': {problem}")
-                })?;
-            if dialect.serves != *capability {
-                return Err(format!(
-                    "realm '{realm}' grants capability '{capability}' through dialect '{}', \
-                     which serves '{}'",
-                    dialect.name, dialect.serves
-                ));
-            }
-            if let Some(classes) = &dialect.classes {
-                if sorted(classes) != sorted(&definition.classes) {
-                    return Err(format!(
-                        "realm '{realm}': capability '{capability}' in dialect '{}' declares \
-                         classes [{}], conflicting with abstract definition '{}' classes [{}]",
-                        dialect.name,
-                        classes.join(", "),
-                        definition.source,
-                        definition.classes.join(", ")
-                    ));
-                }
-            }
-            for tool in grant.tools.iter().flatten() {
-                if !dialect.tools.contains(tool) {
-                    return Err(format!(
-                        "realm '{realm}' grants capability '{capability}' tool '{tool}', which \
-                         dialect '{}' does not name; its tools are [{}]",
-                        dialect.name,
-                        dialect.tools.join(", ")
-                    ));
-                }
-            }
-            violation(
-                &dialect.restrictions,
-                &Value::Object(grant.restrictions.clone()),
-            )
-            .map_err(|problem| {
-                format!(
-                    "realm '{realm}' grants capability '{capability}' through dialect '{}' with \
-                     an invalid restriction {problem}",
-                    dialect.name
-                )
-            })?;
-            dialects.insert(capability.clone(), dialect);
-        }
-        Ok(Authority {
-            context,
-            definitions,
-            dialects,
-            minimum: ABSENT_EGRESS_MINIMUM,
-            fence: McpFence::current(),
-        })
-    }
-
     /// An authority that grants and defines nothing: what a readout reads
     /// a realm as when its declared grants did not validate, so the lines
     /// that do not depend on them can still be printed. Never what a
@@ -1218,6 +1141,7 @@ impl Authority {
             context: CapabilityContext::no_grants(realm, root),
             definitions: Definitions::default(),
             dialects: BTreeMap::new(),
+            provider_dialects: BTreeMap::new(),
             minimum: ABSENT_EGRESS_MINIMUM,
             fence: McpFence::current(),
         }
@@ -1241,7 +1165,7 @@ impl Authority {
         capability: &str,
         serving: &Serving<'_>,
     ) -> Result<(Holding, Option<String>), Unheld> {
-        let holding = self.sealed(site, capability)?;
+        let holding = self.sealed(site, capability, serving.provider)?;
         (holding.collision(serving.auth)).map_err(|unserved| unserved.unheld(&holding.dialect))?;
         let through = |but| Unheld::Cause(Cause::incompatible(&holding.dialect, but));
         let (tools, provider, realm) = (&holding.tools, serving.provider, &self.context.realm);
@@ -1333,7 +1257,7 @@ impl Authority {
                     return Err(cause.required(who, capability));
                 }
                 Err(Unheld::Cause(cause)) => {
-                    // `through` is empty where no grant was found at all.
+                    // `through` names the grant when the cause carries one.
                     dropped.push((capability.clone(), cause.through(), cause.but()));
                     not_held.insert(capability.clone(), cause.but());
                 }
