@@ -15,6 +15,7 @@
 //! the shipped declaration that it has no model MCP surface, never a
 //! strictness of its own.
 
+use brokkr_protocol::native_controls::Overlay;
 use serde_json::{json, Map, Value};
 
 use super::{Cli, Grants};
@@ -24,7 +25,7 @@ pub(super) fn declaration(cli: Cli, grants: &Grants) -> String {
     match cli {
         Cli::Claude => claude(grants),
         Cli::Codex => CODEX.to_string(),
-        Cli::Dsh => DSH.to_string(),
+        Cli::Dsh => dsh(),
     }
 }
 
@@ -544,11 +545,74 @@ const DSH: &str = r#"{
       }
     ]
   },
-  "native_capabilities": {
-    "unmeasured": "dsh's tool_permissions and mcp declarations cover command-line narrowing, ambient MCP exclusion and engine-server carriage only, which does not establish that dsh has no native egress. U0 and U0c listed native web_fetch and web_search under an engine-only DSH_HOME, and the web_search row (web-search-deepseek) reads DEEPSEEK_API_KEY on every route family; no cell exercised either. dsh 0.2's web-deepseek-api row (the Search and Fetch APIs, billed from 2026-11-01) reads it too. No OFF control is measured: nothing is granted through dsh and no native denial is claimed (decision 0065 slice one; owed to the controller)"
-  },
   "hands": {
     "unsupported": "dsh replaces its tool surface only through a profile plugin; no CLI flag disables its shell and file tools or adds an MCP server"
   }
 }
 "#;
+
+/// Write the starter's DSH adapter with the measured native controls.
+fn dsh() -> String {
+    let mut adapter: Value =
+        serde_json::from_str(DSH).expect("the scaffold's dsh template is JSON");
+    adapter["native_capabilities"] = dsh_native_capabilities();
+    format!("{adapter:#}\n")
+}
+
+/// The shipped DSH tool-web controls (decision 0126 ruling 6). The
+/// scaffold carries this copy so the installed binary can write a
+/// starter without the repository. The `init_doctor` suite pins it to
+/// `adapters/dsh.json`, including its authored guards and evidence.
+fn dsh_native_capabilities() -> Value {
+    let native = |tool: &str,
+                  on: Overlay,
+                  off: Overlay,
+                  restriction: &str,
+                  limitations: [&str; 4]| {
+        json!({
+            "capability": on.capability(),
+            "tools": [tool],
+            "on": {"overlay": on},
+            "off": {"overlay": off},
+            "restrictions": {"unsupported": restriction},
+            "evidence": {
+                "source": "docs/evidence/adapters/dsh-native-web-2026-11-24.md",
+                "scope": "dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled",
+                "limitations": limitations,
+            },
+            "authored": {
+                "config_keys": [
+                    "tool-web", "web", "web-fetch-http", "web-search-deepseek", "web-deepseek-api",
+                ],
+            },
+        })
+    };
+    json!({
+        "known": {
+            "web-fetch": native(
+                "web_fetch",
+                Overlay::DshWebFetch(true),
+                Overlay::DshWebFetch(false),
+                "The fetch key switches the whole tool and carries no URL restriction.",
+                [
+                    "Children of subagent, subagent_fork and workflow are unmeasured.",
+                    "Releases other than 0.2.1-rc.2 are unmeasured.",
+                    "The shell can reach the web without a grant and is an operator-accepted residual (#1329, 'accept it as known risk for now').",
+                    "Disabling backend rows does not control tool availability.",
+                ],
+            ),
+            "web-search": native(
+                "web_search",
+                Overlay::DshWebSearch(true),
+                Overlay::DshWebSearch(false),
+                "The search key switches the whole tool and carries no query restriction.",
+                [
+                    "Search by a child of subagent, subagent_fork or workflow was outside the measurement.",
+                    "The search control was measured only on 0.2.1-rc.2.",
+                    "The operator accepted that the shell can still reach the web without a grant (#1329, 'accept it as known risk for now').",
+                    "Search stays in the catalog when backend rows are disabled and the search key is on.",
+                ],
+            ),
+        },
+    })
+}
