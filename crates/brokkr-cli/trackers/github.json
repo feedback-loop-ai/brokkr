@@ -1,0 +1,5 @@
+{
+  "tracker": "github",
+  "hosts": ["github.com"],
+  "description": "For GitHub Enterprise Server, add your installation's exact host to this list."
+}

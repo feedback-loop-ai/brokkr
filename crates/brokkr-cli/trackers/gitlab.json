@@ -1,0 +1,5 @@
+{
+  "tracker": "gitlab",
+  "hosts": ["gitlab.com"],
+  "description": "For a self-managed GitLab instance, add your installation's exact host to this list."
+}

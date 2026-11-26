@@ -442,7 +442,7 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         } => true,
         StoreError::Sqlite(_)
         | StoreError::Damaged {
-            damage: Damage::Malformed | Damage::NotADatabase | Damage::NoSchema,
+            damage: Damage::Malformed | Damage::NotADatabase | Damage::NoSchema | Damage::Orders,
             ..
         }
         | StoreError::RunNotFound(_)
@@ -456,6 +456,7 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         | StoreError::AfterTerminal { .. }
         | StoreError::UnknownHead { .. }
         | StoreError::Queue(_)
+        | StoreError::Orders(_)
         | StoreError::SeatTree(_)
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::TokenCountOutOfRange(..)

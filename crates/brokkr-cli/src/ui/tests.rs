@@ -388,18 +388,18 @@ fn the_page_paints_and_derives_nothing() {
 }
 
 #[test]
-fn the_page_strips_directional_formatting_at_the_display_boundary() {
-    // L3: the browser is a display boundary too. Its text nodes are
-    // inert, but bidi/directional formatting characters reorder visible
-    // text, so the page removes them without touching machine JSON.
-    assert!(
-        PAGE.contains("\\u061C"),
-        "the Arabic letter mark is named in the browser sanitizer"
+fn the_page_marks_invisible_formatting_at_the_display_boundary() {
+    let served = page();
+    let ranges = served
+        .lines()
+        .find(|line| line.starts_with("const DISPLAY_FORMAT_MARKS"));
+    let pattern = format!(
+        "const DISPLAY_FORMAT_MARKS = /{}/gu;",
+        crate::render::display_format_pattern()
     );
-    assert!(
-        PAGE.contains("function displayText"),
-        "one browser display sanitizer exists"
-    );
+    assert_eq!(ranges, Some(pattern.as_str()));
+    assert!(served.contains(r"\u{E0000}-\u{E007F}"));
+    assert!(served.contains("character.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')"));
     assert!(
         PAGE.contains("node.textContent = displayText(text)"),
         "el() and svgEl() route their text through it"

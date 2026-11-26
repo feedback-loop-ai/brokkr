@@ -268,3 +268,18 @@ them:
 
 A refusal to open a journal names the path as the operator gave it, not
 the absolute path SQLite was handed.
+
+## Addendum — 2026-11-24, accepted 2026-11-24: work-order storage in the inventory (#1272)
+
+Under ruling 2, a backup now writes `brokkr.journal-backup.v2`. Its
+`schemas.orders` records the work-order schema from the snapshot, with
+JSON `null` when the snapshot has no work-order schema marker. A damaged
+marker or missing table with a recorded marker refuses the backup.
+
+A v2 build restores both `brokkr.journal-backup.v1` inventories, which
+omit `schemas.orders`, and v2 inventories, which require it. For v2,
+the stated work-order schema must agree with the snapshot's recorded
+version, including absence of the marker for a stated `null`.
+
+The operator accepted the backup inventory under ask 7 on 2026-11-24.
+[Operator ruling on #1272](https://github.com/feedback-loop-ai/brokkr/issues/1272#issuecomment-7143427836)

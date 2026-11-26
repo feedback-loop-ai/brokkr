@@ -1,5 +1,5 @@
 //! The command tree an operator types (decision 0113): the six daily verbs
-//! at the root, six families holding the rest by what each verb acts on,
+//! at the root, families holding the rest by what each verb acts on,
 //! and the engine's own verbs hidden beside them. Every verb's arguments
 //! are still built by its own `Args` type, one builder per verb, as the
 //! parent module says, and each family is one more builder of its own.
@@ -75,15 +75,8 @@ enum Root {
         #[command(subcommand)]
         command: LibraryCmd,
     },
-    /// The dispatcher's queue: runs waiting to start, in
-    /// the journal's own database. Add, list, judge, move, hold, release,
-    /// re-pin and drop entries; each change is journaled with its reason.
-    /// `dispatch` starts what admission admits, and `sweep` frees what the
-    /// finished runs left behind.
-    Queue {
-        #[command(subcommand)]
-        command: QueueFamily,
-    },
+    #[command(flatten)]
+    QueueAndOrders(QueueAndOrders),
     /// What the runs did, read across them: analytics, a recipe's graph,
     /// a run's costs and its delivery ledger.
     Stats {
@@ -98,6 +91,23 @@ enum Root {
     },
     #[command(flatten)]
     Engine(EngineCmd),
+}
+
+// These adjacent roots share a fold so the root match stays within its ceiling.
+#[derive(Subcommand)]
+enum QueueAndOrders {
+    /// The dispatcher's queue: runs waiting to start, in
+    /// the journal's own database. Add, list, judge, move, hold, release,
+    /// re-pin and drop entries; each change is journaled with its reason.
+    /// `dispatch` starts what admission admits, and `sweep` frees what the
+    /// finished runs left behind.
+    Queue {
+        #[command(subcommand)]
+        command: QueueFamily,
+    },
+    /// Work orders in the journal: list them (the default), show one,
+    /// propose or edit its text, or record the operator's ruling.
+    Orders(OrdersFamily),
 }
 
 /// `brokkr runs`: bare, it lists runs, as it did before it was a family.
@@ -328,10 +338,22 @@ impl From<Root> for Cmd {
             }
             Root::Journal { command } => command.into(),
             Root::Library { command } => command.into(),
-            Root::Queue { command } => command.into(),
+            Root::QueueAndOrders(command) => command.into(),
             Root::Stats { command } => command.into(),
             Root::System { command } => command.into(),
             Root::Engine(command) => command.into(),
+        }
+    }
+}
+
+impl From<QueueAndOrders> for Cmd {
+    fn from(command: QueueAndOrders) -> Cmd {
+        match command {
+            QueueAndOrders::Queue { command } => command.into(),
+            QueueAndOrders::Orders(OrdersFamily { list, command }) => Cmd::Grouped(command.map_or(
+                GroupedCmd::Orders(OrdersCmd::List(list)),
+                GroupedCmd::Orders,
+            )),
         }
     }
 }

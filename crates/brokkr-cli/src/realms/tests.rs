@@ -70,6 +70,7 @@ fn a_map_cannot_smuggle_an_escape_sequence_into_the_frame() {
     assert!(!out.contains('\u{1b}'), "{out:?}");
     assert!(!out.contains('\u{202e}'), "{out:?}");
     assert!(out.contains("m[2J.json"), "{out}");
+    assert!(out.contains("a<U+202E>b"), "{out}");
 }
 
 /// The rows come from the map, and the HEAD from the tree the map names.
@@ -493,6 +494,8 @@ fn a_crossing_cannot_smuggle_a_control_sequence_into_the_frame() {
     assert!(!out.contains('\u{1b}'), "{out:?}");
     assert!(!out.contains('\r'), "{out:?}");
     assert!(!out.contains('\u{202e}'), "{out:?}");
+    assert!(out.contains("orders<U+202E>.api"), "{out}");
+    assert!(out.contains("r<U+202E>"), "{out}");
 }
 
 /// [`rows`] reads every pin's state off the ONE report `World::load`

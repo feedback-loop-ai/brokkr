@@ -80,6 +80,7 @@ mod import;
 mod literal;
 pub mod metered;
 mod opening;
+mod orders;
 mod origin;
 mod page;
 mod patience;
@@ -107,6 +108,7 @@ pub use demand::{Unended, UsageEvent, UsageRow};
 pub use event_index::IndexFault;
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
 pub use opening::Opened;
+pub use orders::OrderRefusal;
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
     claim_stands, Attribution, Claim, ClaimFacts, Claiming, Cooldown, CooldownAggregate,
@@ -235,6 +237,9 @@ pub enum StoreError {
     /// The queue refused an operator command or a claim (decision 0068).
     #[error(transparent)]
     Queue(#[from] QueueRefusal),
+    /// A work-order read or operator command refused (decision 0116).
+    #[error(transparent)]
+    Orders(#[from] OrderRefusal),
     /// A seat-tree append or repair refused (decision 0104 ruling 6).
     #[error(transparent)]
     SeatTree(#[from] SeatTreeRefusal),

@@ -293,15 +293,14 @@ fn seats_is_sized_by_columns_else_eighty_and_never_by_the_terminal() {
 }
 
 /// Off a terminal, a response is written exactly, a byte that is not
-/// text and an escape included; on one, its text loses every control and
-/// reordering character, C1 and bidirectional marks included, and its
-/// line is ended.
+/// text and an escape included. On a terminal, controls are dropped,
+/// invisible format characters are marked, and the line is ended.
 #[test]
 fn a_response_is_exact_off_a_terminal_and_cannot_steer_one() {
     let bytes = "{\"t\":\"a\u{1b}[2Jb\u{9b}c\u{202e}d\u{2066}e\"}\n".as_bytes();
     let bytes = [bytes, &[0xff]].concat();
     assert_eq!(&*shown(&bytes, false), &bytes[..]);
-    let painted = "{\"t\":\"a[2Jbcde\"}\u{fffd}\n";
+    let painted = "{\"t\":\"a[2Jbc<U+202E>d<U+2066>e\"}\u{fffd}\n";
     assert_eq!(&*shown(&bytes, true), painted.as_bytes());
 }
 
