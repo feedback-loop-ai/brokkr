@@ -291,6 +291,11 @@ fn carried(events: &[EventEnvelope]) -> Vec<Vec<String>> {
 /// retry of `b` and `c` carries `a` and runs `b` and `c` only.
 #[test]
 fn one_refused_settled_member_keeps_every_admitted_sibling() {
+    if !crate::engine::tests::in_its_own_engine(
+        "engine::verdict::inspect_tests::one_refused_settled_member_keeps_every_admitted_sibling",
+    ) {
+        return;
+    }
     let (_dir, events) = retried(three_members("b"), &["b", "c"], |events| {
         settled_beside(events, "b");
         assert!(kept(events, Scope::Seat("review:b".into())).is_empty());
