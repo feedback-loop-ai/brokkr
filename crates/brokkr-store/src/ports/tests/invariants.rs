@@ -360,10 +360,20 @@ fn import_run_stream_is_atomic_on_failure_and_allows_retry() {
         assert_eq!(log.head("atomic-1").unwrap(), (1, e1.event_hash.clone()));
     }
     assert!(!store.started_here("atomic-1").unwrap());
-    ports
-        .import_run_stream("empty-import", &manifest, &[])
-        .unwrap();
-    assert!(!store.started_here("empty-import").unwrap());
+    assert!(matches!(
+        ports.import_run_stream("empty-import", &manifest, &[]),
+        Err(StoreError::Import(ref inner))
+            if matches!(**inner, ImportError::Verify(VerifyError::Fold(FoldError::Empty)))
+    ));
+    assert!(matches!(
+        ports.manifest("empty-import"),
+        Err(StoreError::RunNotFound(ref id)) if id == "empty-import"
+    ));
+    assert!(!ports
+        .list_run_ids()
+        .unwrap()
+        .iter()
+        .any(|id| id == "empty-import"));
 }
 
 #[test]

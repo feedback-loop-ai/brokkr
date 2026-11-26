@@ -5,11 +5,12 @@
 use std::cell::Cell;
 use std::path::Path;
 
-use brokkr_core::fold::Status;
+use brokkr_core::fold::{FoldError, Status};
 use rusqlite::{params, Connection};
 
 use super::*;
 use crate::damage::Damage;
+use crate::event_index::{first_unindexed, IndexFault, IndexReading};
 use crate::{Attribution, ManifestRefusal, SeatRecordVersion};
 
 fn summary_feature(path: &Path, run_id: &str) -> Option<String> {
@@ -1641,6 +1642,11 @@ fn sqlite_import_run_stream_enforces_adoptable_id_fold_and_post_terminal() {
         "2026-11-25T10:00:00Z",
     );
     assert!(matches!(
+        ports.import_run_stream("imp-empty", &manifest, &[]),
+        Err(StoreError::Import(ref inner))
+            if matches!(**inner, ImportError::Verify(VerifyError::Fold(FoldError::Empty)))
+    ));
+    assert!(matches!(
         ports.import_run_stream("imp-fold", &manifest, &[bad_first]),
         Err(StoreError::Import(ref inner))
             if matches!(**inner, ImportError::Verify(VerifyError::Fold(_)))
@@ -1825,7 +1831,7 @@ fn append_and_assert_checkpoint_scope(
         };
         assert_eq!(
             updated, expected,
-            "unexpected event_index UPDATEs at seq {seq}"
+            "unexpected event_index updates at seq {seq}"
         );
         head = (event.seq, event.event_hash);
     }
@@ -1865,7 +1871,14 @@ fn colocated_apply_envelopes_updates_only_stale_checkpoints_and_repairs_ordinals
             .unwrap()
     };
     assert_eq!(rank_one(), Some(6));
-    for (ordinal_sql, expect_deletes) in [("99", None), ("NULL", Some(0))] {
+    let rebuild_count = all.len() as i64;
+    for (ordinal_sql, expected_deletes) in [
+        ("99", rebuild_count),
+        ("'corrupt-text'", rebuild_count),
+        ("1.5", rebuild_count),
+        ("X'deadbeef'", rebuild_count),
+        ("NULL", 0),
+    ] {
         exec_raw_sql(
             &path,
             &format!(
@@ -1876,12 +1889,19 @@ fn colocated_apply_envelopes_updates_only_stale_checkpoints_and_repairs_ordinals
         );
         assert_eq!(rank_one(), None);
         ports.apply_envelopes("scope-1", None, &all).unwrap();
-        if let Some(expected_deletes) = expect_deletes {
-            assert_eq!(
-                sqlite_table_count(&path, "test_deleted_seqs"),
-                expected_deletes
-            );
-        }
+        assert_eq!(
+            sqlite_table_count(&path, "test_deleted_seqs"),
+            expected_deletes
+        );
+        let repaired: Option<i64> = Connection::open(&path)
+            .unwrap()
+            .query_row(
+                "SELECT stream_ordinal FROM event_index WHERE run_id = 'scope-1' AND seq = 6",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(repaired, Some(2));
         assert_eq!(rank_one(), Some(6));
     }
 
@@ -1892,5 +1912,76 @@ fn colocated_apply_envelopes_updates_only_stale_checkpoints_and_repairs_ordinals
          DROP TABLE test_deleted_seqs;
          DROP TABLE test_updated_seqs;",
     );
+    assert!(store.summary_disagreements().unwrap().is_empty());
+}
+
+#[test]
+fn colocated_apply_envelopes_rebuilds_lagging_rows_with_cross_kind_corruption() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("cross-kind-repair.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let manifest = sample_manifest("cross-kind");
+    ports.create_run("cross-1", &manifest).unwrap();
+
+    let e1 = started_event("cross-1", "cross-kind", "2026-11-25T10:00:00Z");
+    let e2 = sealed_event(
+        "cross-1",
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "implement"}),
+        &e1.event_hash,
+        "2026-11-25T10:00:01Z",
+    );
+    let e3 = sealed_event(
+        "cross-1",
+        3,
+        EventType::RunParked,
+        json!({"reason": "waiting"}),
+        &e2.event_hash,
+        "2026-11-25T10:00:02Z",
+    );
+    let e4 = sealed_event(
+        "cross-1",
+        4,
+        EventType::EffectCheckpointed,
+        valid_checkpoint_payload(),
+        &e3.event_hash,
+        "2026-11-25T10:00:03Z",
+    );
+    let all = [e1, e2, e3, e4];
+    ports
+        .append_envelopes("cross-1", (0, ZERO_HASH), &all)
+        .unwrap();
+    ports
+        .apply_envelopes("cross-1", Some(&manifest), &all)
+        .unwrap();
+
+    let conn = Connection::open(&path).unwrap();
+    for (seq, tamper_sql, column) in [
+        (3u64, "facts_seq = 3, usd = 9.99", "usd"),
+        (4u64, "facts_seq = 1, answered_ms = 12345", "answered_ms"),
+    ] {
+        exec_raw_sql(
+            &path,
+            &format!(
+                "UPDATE event_index SET {tamper_sql} WHERE run_id = 'cross-1' AND seq = {seq};"
+            ),
+        );
+        assert_eq!(
+            first_unindexed(&conn, "cross-1", &all).unwrap(),
+            IndexReading::Parted(seq, IndexFault::Column(column))
+        );
+        ports.apply_envelopes("cross-1", None, &all).unwrap();
+        let (cleared, facts_seq): (rusqlite::types::Value, Option<i64>) = conn
+            .query_row(
+                &format!("SELECT {column}, facts_seq FROM event_index WHERE run_id = 'cross-1' AND seq = {seq}"),
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(cleared, rusqlite::types::Value::Null);
+        assert_eq!(facts_seq, Some(4));
+    }
     assert!(store.summary_disagreements().unwrap().is_empty());
 }

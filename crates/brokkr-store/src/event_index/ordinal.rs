@@ -38,6 +38,7 @@ use std::sync::LazyLock;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::event_index::Indexed;
+use rusqlite::types::ValueRef;
 use rusqlite::{params_from_iter, Connection, OptionalExtension};
 
 use crate::event_index::{finished, mark_finished, payload, CHECKPOINTED};
@@ -332,7 +333,13 @@ pub(crate) fn check(
     let mut stale = false;
     while let Some(row) = rows.next()? {
         let seq = row.get::<_, i64>(0)? as u64;
-        let found: Option<i64> = row.get(1)?;
+        let found = match row.get_ref(1)? {
+            ValueRef::Null => None,
+            ValueRef::Integer(n) => Some(n),
+            ValueRef::Real(_) | ValueRef::Text(_) | ValueRef::Blob(_) => {
+                return Ok(OrdinalState::Corrupt);
+            }
+        };
         let want = expected.get(&seq).copied();
         if found == want {
             continue;

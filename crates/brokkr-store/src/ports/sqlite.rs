@@ -243,11 +243,41 @@ fn insert_events(
 }
 
 fn max_indexed_seq(tx: &Connection, run_id: &str) -> Result<Option<i64>, StoreError> {
-    Ok(tx.query_row(
+    tx.query_row(
         "SELECT MAX(seq) FROM event_index WHERE run_id = ?1",
         params![run_id],
         |row| row.get(0),
-    )?)
+    )
+    .map_err(StoreError::from)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IndexSyncPlan {
+    Current,
+    Refresh,
+    Incremental,
+    Rebuild,
+}
+
+fn plan_index_sync(
+    tx: &Connection,
+    run_id: &str,
+    reading: IndexReading,
+    ordinals: OrdinalState,
+) -> Result<IndexSyncPlan, StoreError> {
+    if ordinals == OrdinalState::Corrupt {
+        return Ok(IndexSyncPlan::Rebuild);
+    }
+    match reading {
+        IndexReading::Agrees if ordinals == OrdinalState::Agrees => Ok(IndexSyncPlan::Current),
+        IndexReading::Agrees | IndexReading::Behind => Ok(IndexSyncPlan::Refresh),
+        IndexReading::Parted(first_missing, IndexFault::Missing)
+            if max_indexed_seq(tx, run_id)?.is_none_or(|max| max < first_missing as i64) =>
+        {
+            Ok(IndexSyncPlan::Incremental)
+        }
+        IndexReading::Parted(_, _) => Ok(IndexSyncPlan::Rebuild),
+    }
 }
 
 fn sync_event_index(
@@ -258,27 +288,17 @@ fn sync_event_index(
 ) -> Result<(), StoreError> {
     let reading = event_index::first_unindexed(tx, run_id, events)?;
     let ordinals = event_index::ordinal::check(tx, run_id, events)?;
-    let mut rebuilt = false;
-    match (reading, ordinals) {
-        (IndexReading::Agrees, OrdinalState::Agrees) => return Ok(()),
-        (
-            IndexReading::Agrees | IndexReading::Behind,
-            OrdinalState::Agrees | OrdinalState::Behind,
-        ) => {}
-        (
-            IndexReading::Parted(first_missing, IndexFault::Missing),
-            OrdinalState::Agrees | OrdinalState::Behind,
-        ) if max_indexed_seq(tx, run_id)?.is_none_or(|max| max < first_missing as i64) => {
-            event_index::index_run(tx, run_id)?;
-        }
-        (IndexReading::Parted(_, _), _)
-        | (IndexReading::Agrees | IndexReading::Behind, OrdinalState::Corrupt) => {
+    let plan = plan_index_sync(tx, run_id, reading, ordinals)?;
+    match plan {
+        IndexSyncPlan::Current => return Ok(()),
+        IndexSyncPlan::Refresh => {}
+        IndexSyncPlan::Incremental => event_index::index_run(tx, run_id)?,
+        IndexSyncPlan::Rebuild => {
             tx.execute("DELETE FROM event_index WHERE run_id = ?1", params![run_id])?;
             event_index::index_run(tx, run_id)?;
-            rebuilt = true;
         }
     }
-    if !rebuilt && ordinals == OrdinalState::Behind {
+    if plan != IndexSyncPlan::Rebuild && ordinals == OrdinalState::Behind {
         event_index::ordinal::renumber(tx, run_id)?;
     }
     event_index::write_parks(tx, account)?;
@@ -441,40 +461,26 @@ impl EventLog for SqlitePorts<'_> {
         refuse_after_terminal(run_id, &[], &incoming)?;
         validate_started_manifests(run_id, envelopes)?;
         validate_seat_records(manifest, &[], envelopes)?;
-        if !envelopes.is_empty() {
-            brokkr_core::fold(envelopes).map_err(|err| {
-                StoreError::Import(Box::new(ImportError::Verify(VerifyError::Fold(err))))
-            })?;
-        }
+        brokkr_core::fold(envelopes).map_err(|err| {
+            StoreError::Import(Box::new(ImportError::Verify(VerifyError::Fold(err))))
+        })?;
         let (manifest_feature, bundle_name) = manifest_meta(manifest);
         let feature = started_feature_of(envelopes).unwrap_or(manifest_feature);
         let manifest_json = serde_json::to_string(manifest)?;
+        // `brokkr_core::fold` above refuses empty streams with `FoldError::Empty`,
+        // proved by `sqlite_import_run_stream_enforces_adoptable_id_fold_and_post_terminal`.
+        let created_at = envelopes
+            .first()
+            .map_or("", |first| first.recorded_at.as_str());
         patiently("import_run", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
-            if let Some(first) = envelopes.first() {
-                refuse_existing(&tx, run_id)?;
-                tx.execute(
-                    "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![
-                        run_id,
-                        feature,
-                        bundle_name,
-                        manifest_json,
-                        first.recorded_at
-                    ],
-                )?;
-                insert_events(&tx, run_id, envelopes)?;
-            } else {
-                let row = Row {
-                    run_id,
-                    feature,
-                    bundle_name,
-                    manifest: &manifest_json,
-                    origin: None,
-                };
-                start::insert_run(&tx, &row)?;
-            }
+            refuse_existing(&tx, run_id)?;
+            tx.execute(
+                "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![run_id, feature, bundle_name, manifest_json, created_at],
+            )?;
+            insert_events(&tx, run_id, envelopes)?;
             tx.commit()?;
             Ok(())
         })
