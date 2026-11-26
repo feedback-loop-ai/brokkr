@@ -596,7 +596,7 @@ fn changed_underfoot_and_streaming_overflow_roll_back_and_spare_transcript() {
 
     let run_mut = |caps: RejoinCaps, mut mutate: Box<dyn FnMut()>| {
         keep_rejoin_with(UUID, &engine, Some(&op), &[], true, caps, &mut |point| {
-            if point == CopyPoint::ReadFile(OsStr::new("a.txt")) {
+            if matches!(point, CopyPoint::ReadFile(n) if n == OsStr::new("a.txt")) {
                 mutate();
             }
         })
@@ -1127,7 +1127,7 @@ fn offered_session_refused_before_spawn_and_non_keeping_seats_emit_no_root_sessi
         )
         .err()
         .expect("offered session refused");
-        assert!(err.contains("declares no resume"), "{err}");
+        assert_eq!(err, LaunchError::Resumed.to_string());
         assert!(!marker.exists(), "offered session must spawn no process");
     }
 
@@ -1194,19 +1194,20 @@ fn bad_or_absent_conversation_id_and_invalid_declared_root_kind_bind() {
         assert_no_root_session(&msgs);
     }
 
+    let invalid_root = crate::declared_transcript::InvalidDeclaredRootSessionKind;
+    assert_eq!(
+        invalid_root.to_string(),
+        "resume_context.declared_root_session_kind is not a valid declared root session kind"
+    );
     for bad_ctx in [
         json!({"declared_root_session_kind": 42}),
         json!({"declared_root_session_kind": "none"}),
         json!({"declared_root_session_kind": "AGY"}),
         json!("not-an-object"),
     ] {
-        let err =
-            DeclaredTranscriptKind::read_root_session_from(&json!({"resume_context": bad_ctx}))
-                .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("resume_context.declared_root_session_kind"),
-            "{err}"
+        assert_eq!(
+            DeclaredTranscriptKind::read_root_session_from(&json!({"resume_context": bad_ctx})),
+            Err(invalid_root)
         );
     }
 
@@ -1218,9 +1219,13 @@ fn bad_or_absent_conversation_id_and_invalid_declared_root_kind_bind() {
     let launch_err = super::drive_flash(&bin, StartMode::default(), &bad_input, &[])
         .err()
         .expect("bad declared_root_session_kind refused");
-    assert!(
-        launch_err.contains("resume_context.declared_root_session_kind"),
-        "{launch_err}"
+    assert_eq!(
+        launch_err,
+        LaunchError::DeclaredRootSessionKind(invalid_root).to_string()
+    );
+    assert_eq!(
+        launch_err,
+        "refusing to invoke the agent CLI: resume_context.declared_root_session_kind is not a valid declared root session kind"
     );
     assert!(world.homes_gone());
 }
@@ -1238,13 +1243,16 @@ fn empty_brain_is_refused_and_rolled_back() {
     assert!(!conv_dir(&op, UUID).exists());
 }
 
-fn expect_configured_refusal(world: &mut World, bin: &Path, expected_path: &str) {
+fn expect_configured_refusal(world: &mut World, bin: &Path, expected_path: &Path) {
     world.set(bin);
     let input = declared_work_input(world);
     let err = super::drive_flash(bin, StartMode::default(), &input, &[])
         .err()
         .expect("workspace config must refuse launch");
-    assert!(err.contains(expected_path), "{err}");
+    assert_eq!(
+        err,
+        LaunchError::Configured(expected_path.to_path_buf()).to_string()
+    );
     assert!(world.homes_gone());
 }
 
@@ -1303,7 +1311,11 @@ fn version_probe_applies_sealed_removals_and_readmits_workspace_before_launch() 
             turn_marker.display()
         ),
     );
-    expect_configured_refusal(&mut w_during, &bin_during, ".agents/hooks.json");
+    let planted_during = seat_during
+        .canonicalize()
+        .unwrap()
+        .join(".agents/hooks.json");
+    expect_configured_refusal(&mut w_during, &bin_during, &planted_during);
     assert!(!turn_marker.exists(), "model turn must never spawn");
     drop(w_during);
 
@@ -1315,8 +1327,10 @@ fn version_probe_applies_sealed_removals_and_readmits_workspace_before_launch() 
         &seat_before.join("agy"),
         &format!("#!/bin/sh\n: > '{}'\nexit 0\n", any_marker.display()),
     );
-    let planted = plant(&seat_before, ".agents/hooks.json");
-    expect_configured_refusal(&mut w_before, &bin_before, &planted.display().to_string());
+    let planted = plant(&seat_before, ".agents/hooks.json")
+        .canonicalize()
+        .unwrap();
+    expect_configured_refusal(&mut w_before, &bin_before, &planted);
     assert!(!any_marker.exists(), "--version must not spawn");
 }
 
@@ -1354,14 +1368,16 @@ fn assert_post_open_replacement_copies_opened_handle(
         &[],
         true,
         RejoinCaps::DEFAULT,
-        &mut |point| {
-            if point == CopyPoint::ReadFile(trigger) && !replaced {
+        &mut |point| match point {
+            CopyPoint::ReadFile(name) if name == trigger && !replaced => {
                 replaced = true;
                 std::fs::rename(&src_path, &pinned).unwrap();
                 std::fs::write(&src_path, replacement).unwrap();
-            } else if point == CopyPoint::FinalVerify {
+            }
+            CopyPoint::FinalVerify => {
                 copied_bytes = Some(std::fs::read(&dest_path).unwrap());
             }
+            _ => {}
         },
     );
     assert!(replaced, "{label}");
@@ -1401,13 +1417,15 @@ fn file_opened_once_copies_opened_handle_and_catches_later_replacement() {
             true,
             RejoinCaps::DEFAULT,
             &mut |point| {
-                if point == CopyPoint::OpenEntry(db_name.as_os_str()) && !fired_db {
-                    fired_db = true;
-                    std::fs::rename(&db_path, scratch.join("before-open-db")).unwrap();
-                    std::fs::write(&db_path, b"db-after-open").unwrap();
-                } else if point == CopyPoint::OpenEntry(OsStr::new("a.txt")) && !fired_a {
-                    fired_a = true;
-                    std::fs::write(&brain_file, b"after-open").unwrap();
+                if let CopyPoint::OpenEntry(name) = point {
+                    if name == db_name.as_os_str() && !fired_db {
+                        fired_db = true;
+                        std::fs::rename(&db_path, scratch.join("before-open-db")).unwrap();
+                        std::fs::write(&db_path, b"db-after-open").unwrap();
+                    } else if name == OsStr::new("a.txt") && !fired_a {
+                        fired_a = true;
+                        std::fs::write(&brain_file, b"after-open").unwrap();
+                    }
                 }
             },
         )
@@ -1445,10 +1463,28 @@ fn file_opened_once_copies_opened_handle_and_catches_later_replacement() {
     );
 }
 
+#[derive(Clone, Copy)]
+enum RefusalTrigger<'a> {
+    OpenEntry(&'a OsStr),
+    ReadFile(&'a OsStr),
+    FinalVerify,
+}
+
+impl RefusalTrigger<'_> {
+    fn matches(self, point: &CopyPoint<'_>) -> bool {
+        match (self, point) {
+            (Self::OpenEntry(want), CopyPoint::OpenEntry(got)) => want == *got,
+            (Self::ReadFile(want), CopyPoint::ReadFile(got)) => want == *got,
+            (Self::FinalVerify, CopyPoint::FinalVerify) => true,
+            _ => false,
+        }
+    }
+}
+
 fn assert_refused_rejoin(
     (engine, op, conv): (&Path, &Path, &Path),
     bindings: &[crate::secret::BoundSecret],
-    trigger: CopyPoint<'_>,
+    trigger: RefusalTrigger<'_>,
     expected: RejoinNotice,
     label: &str,
     mut mutate: impl FnMut(),
@@ -1462,7 +1498,7 @@ fn assert_refused_rejoin(
         true,
         RejoinCaps::DEFAULT,
         &mut |point| {
-            if point == trigger && !fired {
+            if trigger.matches(&point) && !fired {
                 fired = true;
                 mutate();
             }
@@ -1505,7 +1541,7 @@ fn unsafe_before_open_and_replacement_after_open_are_refused() {
         assert_refused_rejoin(
             (&engine, &op, &conv),
             &[],
-            CopyPoint::OpenEntry(OsStr::new("a.txt")),
+            RefusalTrigger::OpenEntry(OsStr::new("a.txt")),
             RejoinNotice::Source(SourceErrno::Unsafe),
             "fifo-before-open",
             || {
@@ -1524,7 +1560,7 @@ fn unsafe_before_open_and_replacement_after_open_are_refused() {
         assert_refused_rejoin(
             (&engine, &op, &conv),
             &[],
-            CopyPoint::OpenEntry(db_name.as_os_str()),
+            RefusalTrigger::OpenEntry(db_name.as_os_str()),
             RejoinNotice::Source(SourceErrno::Unsafe),
             "dir-db-before-open",
             || {
@@ -1545,7 +1581,7 @@ fn unsafe_before_open_and_replacement_after_open_are_refused() {
         assert_refused_rejoin(
             (&engine, &op, &conv),
             &[],
-            CopyPoint::FinalVerify,
+            RefusalTrigger::FinalVerify,
             RejoinNotice::ChangedUnderfoot,
             "replaced-regular-db",
             || {
@@ -1558,25 +1594,39 @@ fn unsafe_before_open_and_replacement_after_open_are_refused() {
 
 #[test]
 fn final_check_refuses_database_replaced_with_directory_at_type_check() {
-    let dir = tempfile::tempdir().unwrap();
-    let scratch = dir.path().join("scratch");
-    std::fs::create_dir_all(&scratch).unwrap();
     let (_d, engine, op, conv) =
         setup_planted_with_transcript(b"db12", &[("a.txt", b"hello")], b"keep-me");
-    let pinned = scratch.join("pinned-db");
-    let db_path = engine.join(format!(".gemini/antigravity-cli/conversations/{UUID}.db"));
-    // The final check inspects `<uuid>.db` first via `same_stamp_at`, with no
-    // parent check ahead of it, taking the false file-type branch in `same_stamp`.
-    assert_refused_rejoin(
-        (&engine, &op, &conv),
+    let db_name = OsString::from(format!("{UUID}.db"));
+    let mut fired = false;
+    // The final check inspects `<uuid>.db` first via `same_stamp_at`. Flipping
+    // only `actual.st_mode`'s file type keeps `(st_dev, st_ino, st_size, mtime)`
+    // identical, so only the file-type comparison in `same_stamp` can refuse.
+    let res = keep_rejoin_with(
+        UUID,
+        &engine,
+        Some(&op),
         &[],
-        CopyPoint::FinalVerify,
-        RejoinNotice::ChangedUnderfoot,
-        "db-replaced-with-dir",
-        || {
-            std::fs::rename(&db_path, &pinned).unwrap();
-            std::fs::create_dir(&db_path).unwrap();
+        true,
+        RejoinCaps::DEFAULT,
+        &mut |point| {
+            if let CopyPoint::FinalStat(name, actual) = point {
+                if name == db_name.as_os_str() && !fired {
+                    fired = true;
+                    actual.st_mode = (actual.st_mode & !0o170_000) | 0o040_000;
+                    assert_eq!(
+                        rustix::fs::FileType::from_raw_mode(actual.st_mode),
+                        rustix::fs::FileType::Directory
+                    );
+                }
+            }
         },
+    );
+    assert!(fired, "db-type-changed-in-final-stat");
+    assert_rolled_back(
+        res,
+        &conv,
+        RejoinNotice::ChangedUnderfoot,
+        "db-type-changed-in-final-stat",
     );
 }
 
@@ -1610,7 +1660,7 @@ fn final_check_refuses_removed_brain_directory_at_open() {
     assert_refused_rejoin(
         (&engine, &op, &conv),
         &[],
-        CopyPoint::FinalVerify,
+        RefusalTrigger::FinalVerify,
         RejoinNotice::ChangedUnderfoot,
         "removed-brain-root",
         || {
@@ -1667,7 +1717,7 @@ fn source_directory_substituted_removed_or_added_during_walk_refuses_and_rolls_b
         assert_refused_rejoin(
             (&engine, &op, &conv),
             &[],
-            CopyPoint::ReadFile(OsStr::new("z-keep.txt")),
+            RefusalTrigger::ReadFile(OsStr::new("z-keep.txt")),
             RejoinNotice::ChangedUnderfoot,
             label,
             || mutate(&brain, &scratch),
@@ -1726,7 +1776,7 @@ fn final_check_catches_changes_during_walk_after_subtree_left_and_database_rewri
         assert_refused_rejoin(
             (&engine, &op, &conv),
             &bindings,
-            CopyPoint::ReadFile(OsStr::new("z-after.txt")),
+            RefusalTrigger::ReadFile(OsStr::new("z-after.txt")),
             RejoinNotice::ChangedUnderfoot,
             label,
             || mutate(&brain, &db),
@@ -1834,7 +1884,7 @@ fn keep_and_rollback_many_step_directories_under_low_nofile_limit() {
         false,
         RejoinCaps::DEFAULT,
         &mut |point| {
-            if point == CopyPoint::FinalVerify && !fired {
+            if matches!(point, CopyPoint::FinalVerify) && !fired {
                 fired = true;
                 std::fs::write(&last_step, b"step-mutated").unwrap();
             }

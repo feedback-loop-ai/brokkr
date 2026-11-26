@@ -543,6 +543,11 @@ pub fn mask_bytes(bytes: &[u8], bindings: &[BoundSecret]) -> Vec<u8> {
 /// JSON string escaping, the same bytes the projector's serialiser
 /// writes. It stays off the shared [`NEEDLE_ENCODINGS`]: the surfaces
 /// the driver masks decode JSON before masking instead.
+pub fn mask_projected(text: &str, bindings: &[BoundSecret]) -> String {
+    let encodings = projected_encodings();
+    String::from_utf8_lossy(&mask_needles(text.as_bytes(), bindings, &encodings)).into_owned()
+}
+
 /// The shared [`NEEDLE_ENCODINGS`] plus JSON-string escaping, used by both
 /// [`mask_projected`] and [`SecretMatcher`] so the two masking paths cannot
 /// drift apart (decision 0071 ruling 5).
@@ -550,11 +555,6 @@ fn projected_encodings() -> [(&'static str, Encoder); NEEDLE_ENCODINGS.len() + 1
     let mut encodings = [("json-string", enc_json_string as Encoder); NEEDLE_ENCODINGS.len() + 1];
     encodings[..NEEDLE_ENCODINGS.len()].copy_from_slice(&NEEDLE_ENCODINGS);
     encodings
-}
-
-pub fn mask_projected(text: &str, bindings: &[BoundSecret]) -> String {
-    let encodings = projected_encodings();
-    String::from_utf8_lossy(&mask_needles(text.as_bytes(), bindings, &encodings)).into_owned()
 }
 
 /// A value as it reads between the quotes of a serialised JSON string.

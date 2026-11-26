@@ -203,12 +203,15 @@ fn root_row(id: &str, version: &str, persistent: bool, address: Option<&Value>) 
 
 /// Deterministic observation points inside [`keep_rejoin_with`] so tests can
 /// exercise source races without sleeping (decision 0071 ruling 2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub(super) enum CopyPoint<'a> {
     OpenEntry(&'a OsStr),
     ReadFile(&'a OsStr),
     FinalVerify,
+    FinalStat(&'a OsStr, &'a mut Stat),
 }
+
+type Hook<'a> = &'a mut dyn FnMut(CopyPoint<'_>);
 
 /// Copy `<id>.db` and `brain/<id>/` into `rejoin/` under `caps`, operator-only
 /// modes, no-symlink traversal, bound-value screening, final source check, and
@@ -232,7 +235,13 @@ pub(super) fn keep_rejoin(
     )
 }
 
-fn noop_hook(_: CopyPoint<'_>) {}
+fn noop_hook(point: CopyPoint<'_>) {
+    let _ = match point {
+        CopyPoint::OpenEntry(n) | CopyPoint::ReadFile(n) => (Some(n), None),
+        CopyPoint::FinalStat(n, s) => (Some(n), Some(s)),
+        CopyPoint::FinalVerify => (None, None),
+    };
+}
 
 /// [`keep_rejoin`] with a deterministic hook for race tests (decision 0071 ruling 2).
 pub(super) fn keep_rejoin_with(
@@ -260,14 +269,12 @@ pub(super) fn keep_rejoin_with(
         };
         let (rejoin_fd, rejoin_node) =
             guard.create_dir(conv_fd.as_fd(), conv_node, OsStr::new(REJOIN_DIR))?;
-        let rejoin_dest = DestDir {
-            fd: rejoin_fd.as_fd(),
-            node: rejoin_node,
-            depth: 0,
-        };
+        let dest = |fd, node| DestDir { fd, node, depth: 0 };
         state.charge_entry()?;
+        let db = (src.db_fd, OsStr::new(&db_name), &src.db_stat);
+        let rejoin_dest = dest(rejoin_fd.as_fd(), rejoin_node);
         copy_opened_file(
-            (src.db_fd, OsStr::new(&db_name), &src.db_stat),
+            db,
             rejoin_dest,
             OsStr::new(REJOIN_DB_FILE),
             &mut guard,
@@ -276,11 +283,7 @@ pub(super) fn keep_rejoin_with(
         state.charge_entry()?;
         let (brain_fd, brain_node) =
             guard.create_dir(rejoin_fd.as_fd(), rejoin_node, OsStr::new(REJOIN_BRAIN_DIR))?;
-        let brain_dest = DestDir {
-            fd: brain_fd.as_fd(),
-            node: brain_node,
-            depth: 0,
-        };
+        let brain_dest = dest(brain_fd.as_fd(), brain_node);
         copy_brain_dir(
             src.brain_dir,
             src.brain_stat,
@@ -294,10 +297,16 @@ pub(super) fn keep_rejoin_with(
         src.conversations_dir.as_fd(),
         OsStr::new(&db_name),
         &src.db_stat,
+        state.on_point,
     ) {
         return Err(RejoinNotice::ChangedUnderfoot);
     }
-    verify_dir_tree(src.brain_root.as_fd(), conv_name, &recorded_brain)?;
+    verify_dir_tree(
+        src.brain_root.as_fd(),
+        conv_name,
+        &recorded_brain,
+        state.on_point,
+    )?;
     guard.armed = false;
     Ok(())
 }
@@ -356,11 +365,7 @@ struct CopyState<'a> {
 }
 
 impl<'a> CopyState<'a> {
-    fn new(
-        caps: RejoinCaps,
-        bindings: &[BoundSecret],
-        on_point: &'a mut dyn FnMut(CopyPoint<'_>),
-    ) -> Self {
+    fn new(caps: RejoinCaps, bindings: &[BoundSecret], on_point: Hook<'a>) -> Self {
         Self {
             caps,
             used_bytes: 0,
@@ -459,6 +464,7 @@ fn verify_dir_tree(
     parent: BorrowedFd<'_>,
     name: &OsStr,
     expected: &RecordedDir,
+    on_point: Hook<'_>,
 ) -> Result<(), RejoinNotice> {
     let Ok(fd) = openat(parent, name, keep::dir_flags(), Mode::empty()) else {
         return Err(RejoinNotice::ChangedUnderfoot);
@@ -477,11 +483,11 @@ fn verify_dir_tree(
     for (entry_name, entry) in &expected.entries {
         match entry {
             RecordedEntry::File(stat) => {
-                if !same_stamp_at(fd.as_fd(), entry_name, stat) {
+                if !same_stamp_at(fd.as_fd(), entry_name, stat, on_point) {
                     return Err(RejoinNotice::ChangedUnderfoot);
                 }
             }
-            RecordedEntry::Dir(sub) => verify_dir_tree(fd.as_fd(), entry_name, sub)?,
+            RecordedEntry::Dir(sub) => verify_dir_tree(fd.as_fd(), entry_name, sub, on_point)?,
         }
     }
     Ok(())
@@ -510,9 +516,11 @@ pub(super) fn same_stamp(expected: &Stat, actual: &Stat) -> bool {
             == (actual.st_size, actual.st_mtime, actual.st_mtime_nsec)
 }
 
-fn same_stamp_at(dir_fd: BorrowedFd<'_>, name: &OsStr, expected: &Stat) -> bool {
-    statat(dir_fd, name, AtFlags::SYMLINK_NOFOLLOW)
-        .is_ok_and(|actual| same_stamp(expected, &actual))
+fn same_stamp_at(dir: BorrowedFd<'_>, name: &OsStr, expected: &Stat, hook: Hook<'_>) -> bool {
+    statat(dir, name, AtFlags::SYMLINK_NOFOLLOW).is_ok_and(|mut actual| {
+        hook(CopyPoint::FinalStat(name, &mut actual));
+        same_stamp(expected, &actual)
+    })
 }
 
 pub(super) fn for_each_dir_entry(

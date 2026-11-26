@@ -554,14 +554,15 @@ addendum (`#1227`, decision 0075 level 2, slice 1 of 2; launch is slice 2).
   3–48 KiB brain sizes measured across 113 short lab turns), 4,096 total
   entries (charging `conversation.db`, the `brain/<id>/` root, and each brain
   entry as it is met during traversal), and 16 directory levels under
-  `brain/<id>/` (4× the measured lab depth of 4). Every source path component
-  is opened once from its parent handle with `O_NOFOLLOW` and classified by
-  `fstat` on that handle rather than by name; only directories and regular
-  files are copied, each regular file is read from the handle that was
-  classified, and after the last entry is copied (before publishing) one final
-  check re-stats the database and walks the brain tree to compare every
-  directory's membership and every entry's type, size, `(st_dev, st_ino)`, and
-  modification time to the depth walked. Over any bound, or if the brain is
+  `brain/<id>/` (4× the measured lab depth of 4). During the copy walk, every
+  source path component is opened once from its parent handle with `O_NOFOLLOW`
+  and classified by `fstat` on that handle rather than by name; only
+  directories and regular files are copied, each regular file is read from the
+  handle that was classified, and after the last entry is copied (before
+  publishing) one final check re-stats the database and reopens the brain root
+  and its subdirectories to compare every directory's membership and every
+  entry's type, size, `(st_dev, st_ino)`, and modification time to the depth
+  walked. Over any bound, or if the brain is
   empty or any part is missing, unreadable, not a regular file, or fails that
   check, nothing is kept for rejoin and every created rejoin file and
   directory is removed in reverse order through `unlink_if_same`, leaving any
