@@ -1,0 +1,10 @@
+- id: web
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: web-fetch-http
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: web-deepseek-api
+  disabled: true

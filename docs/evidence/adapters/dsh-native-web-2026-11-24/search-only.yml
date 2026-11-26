@@ -1,0 +1,6 @@
+- id: tool-web
+  config:
+    fetch: false
+    searchTimeoutMs: 60000
+- id: web-fetch-http
+  disabled: true
