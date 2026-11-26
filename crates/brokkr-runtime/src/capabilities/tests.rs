@@ -1967,6 +1967,7 @@ fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
 mod attribution;
 pub(crate) mod binding;
 mod dialect_policy;
+mod dsh_overlay;
 mod fence;
 mod gate_class;
 pub(crate) mod manifest;

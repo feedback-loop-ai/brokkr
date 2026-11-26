@@ -9537,28 +9537,7 @@ fn every_known_native_power_is_answered_before_a_command_checks() {
         ))
     );
 
-    let mut uncertain = claude_local();
-    uncertain.harness = "lanetally";
-    uncertain.controls = Controls {
-        provider: "lanetally".into(),
-        harness: "lanetally".into(),
-        inventory: Inventory::Unmeasured("not measured".into()),
-        held: Vec::new(),
-        denied: Vec::new(),
-        admits: admits(&[]),
-        selection: Selection {
-            flags: claude_flags(),
-            ..Selection::default()
-        },
-        guards: Vec::new(),
-        ..uncertain.controls
-    };
-    uncertain.expected.identity = Identity {
-        provider: "lanetally".into(),
-        harness: "lanetally".into(),
-        model: None,
-    };
-    uncertain.expected.native = NativeExpectation::Unmeasured("not measured".into());
+    let uncertain = inventory::unmeasured_lanetally();
     let served = uncertain.served(&CLAUDE_LEAD);
     assert_eq!(
         served,
@@ -12542,3 +12521,5 @@ use isolation::UNCLASSED;
 mod transport;
 use transport::{escaped_transport, transport, ESCAPED_ARGUMENTS, ESCAPED_COMMAND};
 use transport::{MCP_DOCUMENT, REACH, SERVER_ARGUMENTS, SPEC};
+
+mod inventory;
