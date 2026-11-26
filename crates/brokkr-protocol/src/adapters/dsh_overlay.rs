@@ -176,15 +176,8 @@ fn stage(
     if let Some(sandbox) = sandbox {
         rows.push_str(sandbox);
     }
-    let mut body = String::new();
-    if let Some(route) = route {
-        let text = std::str::from_utf8(route)
-            .map_err(|_| "dsh driver: validated route overlay is not UTF-8".to_string())?;
-        body.push_str(text);
-        if !text.ends_with('\n') {
-            body.push('\n');
-        }
-    }
+    let mut body = route_prefix(route)
+        .map_err(|_| "dsh driver: validated route overlay is not UTF-8".to_string())?;
     if let Some(model) = model {
         body.push_str(&dsh_effort::model_row(model, effort)?);
     }
@@ -201,6 +194,18 @@ fn stage(
         "could not write the dsh seat overlay",
     )?;
     Ok(DshSeatOverlay { patch, settings })
+}
+
+fn route_prefix(route: Option<&[u8]>) -> Result<String, std::str::Utf8Error> {
+    let mut body = String::new();
+    if let Some(route) = route {
+        let text = std::str::from_utf8(route)?;
+        body.push_str(text);
+        if !text.ends_with('\n') {
+            body.push('\n');
+        }
+    }
+    Ok(body)
 }
 
 #[cfg(test)]

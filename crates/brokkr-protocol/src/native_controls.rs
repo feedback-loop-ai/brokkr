@@ -298,7 +298,7 @@ fn decode(plan: &Value) -> Result<Controls, String> {
             );
         }
     }
-    Ok(Controls {
+    let controls = Controls {
         provider: text(plan.get("provider"), "provider")?,
         harness: text(plan.get("harness"), "harness")?,
         inventory: Inventory::Known,
@@ -307,11 +307,10 @@ fn decode(plan: &Value) -> Result<Controls, String> {
         admits,
         argv: required(plan, "argv", "argv")?,
         selection,
-        overlay: dsh::decode(plan.get("overlay"))
-            .map_err(|_| "'overlay' is not a list of DSH web keys")?,
         guards,
-        provenance: provenance(plan)?,
-    })
+        ..Controls::default()
+    };
+    dsh::decode(plan, controls).map_err(|cause| cause.to_string())
 }
 
 /// The provenance a plan of either inventory carries. Absent, the plan

@@ -59,11 +59,25 @@ impl Web {
     }
 }
 
-pub(super) fn decode(raw: Option<&Value>) -> serde_json::Result<Vec<Overlay>> {
-    raw.cloned()
+#[derive(Debug, thiserror::Error)]
+pub(super) enum PlanRefusal {
+    #[error("'overlay' is not a list of DSH web keys")]
+    Overlay,
+    #[error("{0}")]
+    Provenance(String),
+}
+
+/// Finish decoding a known plan, checking the overlay before provenance.
+pub(super) fn decode(plan: &Value, mut controls: Controls) -> Result<Controls, PlanRefusal> {
+    controls.overlay = plan
+        .get("overlay")
+        .cloned()
         .map(serde_json::from_value)
         .transpose()
-        .map(Option::unwrap_or_default)
+        .map_err(|_| PlanRefusal::Overlay)?
+        .unwrap_or_default();
+    controls.provenance = super::provenance(plan).map_err(PlanRefusal::Provenance)?;
+    Ok(controls)
 }
 
 pub(super) fn argv_free(harness: &str, controls: &Controls) -> Result<(), Refusal> {
