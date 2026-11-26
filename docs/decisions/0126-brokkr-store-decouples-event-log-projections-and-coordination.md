@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-11-25 ("go with recommended on all questions")
 Date: 2026-11-25
 
-Built: partial (#1362) — Slice 1 (ports and Journal facade over SQLite) built; Slice 2 (local fs-log + disposable index.db + isolated queue.db) and Slice 3 (brokkr-store-pg) follow.
+Built: partial (#1362) — Slice 1 (ports, backend-agnostic Journal facade, and co-located SqlitePorts adapter over Store) built; Slice 2 (local fs-log + trigger-free disposable index.db + isolated queue.db) and Slice 3 (brokkr-store-pg) follow.
 
 ## Context
 
@@ -64,8 +64,10 @@ the storage edge are warranted.
    - Per-run append-only `FsEventLog` storing
      `.forge/runs/<run-id>/manifest.json` and `events.ndjson`, using
      `O_APPEND`, `sync_data()`, and Rust 1.89's `std::fs::File::lock()`.
-   - Disposable `SqliteProjectionStore` (`index.db`), rebuildable from
-     `EventLog` via `brokkr journal reindex`.
+   - Dedicated trigger-free disposable `SqliteProjectionStore` (`index.db`),
+     rebuildable from any `EventLog` via `brokkr journal reindex` (replacing
+     Slice 1's co-located `SqlitePorts` projection role when the event log
+     lives outside SQLite).
    - Isolated `SqliteCoordinationStore` (`queue.db`).
 
 5. **R5 — Future service backend (Slice 3).**
@@ -78,10 +80,12 @@ the storage edge are warranted.
 ## Delivery slices
 
 - **Slice 1 (#1362):** Define `EventLog`, `ProjectionStore`,
-  `CoordinationStore`, and `Journal<E, P, C>` in `brokkr-store::ports`,
-  backed by the existing SQLite `Store` with zero breaking changes to existing
-  callers and zero new crate dependencies.
-- **Slice 2:** Implement the local split backend (`FsEventLog`, disposable
-  `index.db` `SqliteProjectionStore`, isolated `queue.db`
-  `SqliteCoordinationStore`) and `brokkr journal reindex`.
+  `CoordinationStore`, and `Journal<E, P, C>` in `brokkr-store::ports`.
+  `Journal<E, P, C>` proves full storage decoupling against in-memory port
+  backends, while `SqlitePorts<'a>(&'a Store)` is strictly the co-located
+  adapter over the existing SQLite `Store` — zero breaking changes to existing
+  callers, zero extra schema tables, and zero new crate dependencies.
+- **Slice 2:** Implement the local split backend (`FsEventLog`, dedicated
+  trigger-free `SqliteProjectionStore` on `index.db`, and isolated
+  `SqliteCoordinationStore` on `queue.db`) and `brokkr journal reindex`.
 - **Slice 3:** Implement `brokkr-store-pg` behind the same three traits.

@@ -303,3 +303,15 @@ pub(crate) fn first_unindexed(
         None => IndexReading::Agrees,
     })
 }
+
+/// Populate any missing `event_index` rows for `run_id` from `events` inside
+/// the caller's transaction, firing the table's own ordinal and stamp-bounding
+/// triggers in sequence order.
+pub(crate) fn index_run(tx: &Connection, run_id: &str) -> Result<(), StoreError> {
+    let rows = super::unindexed(tx, run_id)?;
+    let mut insert = tx.prepare_cached(&super::INSERT_ROW)?;
+    for row in &rows {
+        insert.execute(rusqlite::params_from_iter(row))?;
+    }
+    Ok(())
+}

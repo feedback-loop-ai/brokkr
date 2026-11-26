@@ -13,10 +13,7 @@ use brokkr_core::envelope::{
 use brokkr_core::fold::{lawful_after_terminal, terminal_event};
 use serde_json::Value;
 
-use crate::{
-    format_canonical_ndjson, import, seat_record, ImportError, SeatRecordVersion, StoreError,
-    VerifyError,
-};
+use crate::{import, seat_record, ImportError, SeatRecordVersion, StoreError, VerifyError};
 
 use super::{CoordinationStore, EventLog, ProjectionStore};
 
@@ -65,9 +62,11 @@ impl<E, P, C> Journal<E, P, C> {
 }
 
 impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
-    /// Admit a new run id and persist its manifest in the event log.
+    /// Admit a new run id, validate its manifest shape, and persist it in the
+    /// event log.
     pub fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError> {
         import::recordable(run_id)?;
+        super::validate_manifest(run_id, manifest)?;
         self.event_log.create_run(run_id, manifest)
     }
 
@@ -107,7 +106,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
     pub fn export_ndjson(&self, run_id: &str) -> Result<String, StoreError> {
         let events = self.load_verified(run_id)?;
         seat_record::validate_events(&events)?;
-        format_canonical_ndjson(&events)
+        super::format_canonical_ndjson(&events)
     }
 
     /// Verify and adopt an exported NDJSON stream under all adoption gates,

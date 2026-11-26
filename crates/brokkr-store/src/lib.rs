@@ -109,6 +109,7 @@ pub use event_index::IndexFault;
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
 pub use opening::Opened;
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
+pub use ports::ManifestRefusal;
 pub use queue::{
     claim_stands, Attribution, Claim, ClaimFacts, Claiming, Cooldown, CooldownAggregate,
     CooldownDuplicate, CooldownRound, CooldownRoundMismatch, Cooling, Disposal, EntryId,
@@ -275,10 +276,17 @@ pub enum StoreError {
         source: Box<StoreError>,
     },
     /// An event log or projection update diverges from this store's local
-    /// state (co-located `events`/`runs` mismatch, forked decoupled projection
-    /// chain, or mixing co-located and decoupled modes).
+    /// `runs`/`events` state.
     #[error("event log for run '{run_id}' diverges from local store state")]
     DivergentEventLog { run_id: String },
+    /// A run manifest passed to [`ports::Journal::create_run`] or
+    /// [`ports::EventLog`] is not a JSON object or carries a non-string
+    /// `"engine"` field; nothing was recorded.
+    #[error("invalid manifest for run '{run_id}': {reason}; nothing was recorded")]
+    InvalidManifest {
+        run_id: String,
+        reason: ManifestRefusal,
+    },
 }
 
 impl StoreError {
@@ -621,7 +629,11 @@ impl Store {
 
     pub fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
         patiently("list_runs", self.patience, &self.path, || {
-            ports::query_listed_runs(&self.conn, ports::LIST_RUNS_LOCAL)
+            Ok(self
+                .conn
+                .prepare("SELECT run_id, feature, created_at FROM runs ORDER BY created_at")?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect::<Result<Vec<_>, _>>()?)
         })
     }
 
@@ -759,22 +771,13 @@ impl Store {
     pub fn export_ndjson(&self, run_id: &str) -> Result<String, StoreError> {
         let events = self.load(run_id)?;
         seat_record::validate_events(&events)?;
-        format_canonical_ndjson(&events)
+        ports::format_canonical_ndjson(&events)
     }
 
     /// The journal head hash — cheap identity for fencing and anchors.
     pub fn head_hash(&self, run_id: &str) -> Result<(u64, String), StoreError> {
         self.head(run_id)
     }
-}
-
-pub(crate) fn format_canonical_ndjson(events: &[EventEnvelope]) -> Result<String, StoreError> {
-    let mut out = String::new();
-    for event in events {
-        out.push_str(&serde_json::to_string(&serde_json::to_value(event)?)?);
-        out.push('\n');
-    }
-    Ok(out)
 }
 
 fn now_rfc3339() -> String {

@@ -496,25 +496,13 @@ fn refold_behind(conn: &Connection, run_id: &str) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// Whether `run_id` belongs to this journal's own `runs` table (false for a
-/// decoupled projection-only database whose `runs` and `events` tables are
-/// empty).
-fn has_run(conn: &Connection, run_id: &str) -> Result<bool, StoreError> {
-    Ok(conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM runs WHERE run_id = ?1)",
-        [run_id],
-        |row| row.get(0),
-    )?)
-}
-
 /// One run of the session refold, in its own transaction: the read and the
 /// write are one immediate lock, so a peer's append appears whole or not at
-/// all. A peer's unwritten facts found under the lock, or a runless row in a
-/// decoupled projection database, are left for the next open, so the
-/// completion claim never stands over a row this pass skipped.
+/// all. A peer's unwritten facts found under the lock are left for the next
+/// open, so the completion claim never stands over a row this pass skipped.
 fn refold_once(conn: &mut Connection, run_id: &str) -> Result<bool, StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let wrote = has_run(&tx, run_id)? && !unwritten(&tx, run_id)?;
+    let wrote = !unwritten(&tx, run_id)?;
     if wrote {
         refold_behind(&tx, run_id)?;
     }

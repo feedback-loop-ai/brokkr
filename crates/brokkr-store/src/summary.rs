@@ -27,7 +27,7 @@ use brokkr_core::EventEnvelope;
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::acknowledgement::{standing, standing_at};
+use crate::acknowledgement::standing;
 use crate::event_index::{
     finished, first_unindexed, runless, write_all_available, write_checkpoints, write_parks,
     write_sealed, IndexReading,
@@ -308,7 +308,7 @@ pub(crate) fn write(tx: &Connection, run_id: &str, summary: &Summary) -> Result<
 /// Insert or replace `run_id`'s summary row with both its folded and
 /// trigger-kept columns, inside the caller's transaction.
 pub(crate) fn upsert(tx: &Connection, run_id: &str, summary: &Summary) -> Result<(), StoreError> {
-    let standing = standing_at(tx, run_id, summary.head_seq, &summary.head_hash)?;
+    let standing = standing(tx, run_id)?;
     let mut columns = written(summary);
     columns.extend(kept(summary, standing.as_ref()));
     let names: Vec<&str> = std::iter::once("run_id")

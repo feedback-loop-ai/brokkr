@@ -294,9 +294,7 @@ fn repair_projections(conn: &mut Connection) -> Result<(), StoreError> {
     // index, gets them, and its set filled from the rule the seat summary
     // keeps, so the whole-run fallback visits the stale runs alone.
     let missing = !stale_intact(conn)?;
-    repair_if(conn, missing, migrate_stale)?;
-    let missing = !crate::ports::projection_hashes_intact(conn)?;
-    repair_if(conn, missing, crate::ports::migrate_projection_hashes)
+    repair_if(conn, missing, migrate_stale)
 }
 
 /// Apply `fix` under the immediate transaction, and only when `missing`:
@@ -361,7 +359,6 @@ fn initialize_additions(conn: &Connection) -> Result<(), StoreError> {
     // it does after them on an older one; the seat migration no longer
     // makes the set, so this is its one call site on the creation path.
     migrate_stale(conn)?;
-    crate::ports::migrate_projection_hashes(conn)?;
     Ok(())
 }
 

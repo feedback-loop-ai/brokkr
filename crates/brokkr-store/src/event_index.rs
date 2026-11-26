@@ -74,7 +74,7 @@ pub(crate) use checkpoint::{
     write_all as write_all_checkpoints, write_all_available, write_appended as write_checkpoints,
     write_sealed,
 };
-pub(crate) use compare::{first_parted, first_unindexed, place, IndexReading};
+pub(crate) use compare::{first_parted, first_unindexed, index_run, place, IndexReading};
 use park_walk::ParkWalk;
 
 /// The checkpoints one page of a seat's stream holds (ruling 7).
@@ -456,12 +456,12 @@ static UNINDEXED: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-static INSERT_ROW: LazyLock<String> = LazyLock::new(|| {
+pub(super) static INSERT_ROW: LazyLock<String> = LazyLock::new(|| {
     format!("INSERT OR IGNORE INTO event_index ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
 });
 
 /// `run_id`'s rows yet to write, read without the write lock.
-fn unindexed(conn: &Connection, run_id: &str) -> Result<Vec<Vec<Value>>, StoreError> {
+pub(super) fn unindexed(conn: &Connection, run_id: &str) -> Result<Vec<Vec<Value>>, StoreError> {
     let mut statement = conn.prepare_cached(&UNINDEXED)?;
     let rows = statement.query_map([run_id], |row| (0..7).map(|at| row.get(at)).collect())?;
     Ok(rows.collect::<Result<_, _>>()?)

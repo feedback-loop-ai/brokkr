@@ -5,16 +5,20 @@
 //! synchronous traits — [`EventLog`], [`ProjectionStore`], and
 //! [`CoordinationStore`] — with no async runtime dependency. Each trait
 //! marks a persistence seam whose operations must stay mutually consistent
-//! across a storage backend boundary (decision 0071 ruling 2): SQLite today
-//! (Slice 1, via [`SqlitePorts`]), local split files and disposable indexes
-//! in Slice 2, and a PostgreSQL service backend in Slice 3.
+//! across a storage backend boundary (decision 0071 ruling 2): a co-located
+//! SQLite adapter over [`crate::Store`] today (Slice 1, via [`SqlitePorts`]),
+//! local split files and trigger-free disposable indexes in Slice 2, and a
+//! PostgreSQL service backend in Slice 3.
 //!
-//! Domain invariants (run-id admission, hash-chain continuity, optimistic
-//! `expected_head` fencing, post-terminal refusal, seat-record schema
-//! validation, and canonical NDJSON export/import) live once in [`Journal`].
+//! Domain invariants (run-id and manifest admission, hash-chain continuity,
+//! optimistic `expected_head` fencing, post-terminal refusal, seat-record
+//! schema validation, and canonical NDJSON export/import) live once in
+//! [`Journal`].
 
 use brokkr_core::envelope::EventEnvelope;
 use serde_json::Value;
+
+use thiserror::Error;
 
 use crate::{Cooldown, EntryId, NewEntry, QueueEntry, StoreError};
 
@@ -23,10 +27,45 @@ mod sqlite;
 
 pub use journal::{Journal, NewEvent};
 pub use sqlite::SqlitePorts;
-pub(crate) use sqlite::{
-    migrate_projection_hashes, projection_hashes_intact, query_listed_runs,
-    refuse_if_decoupled_projection_db, LIST_RUNS_LOCAL,
-};
+
+/// Why a run manifest was refused at the storage port boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum ManifestRefusal {
+    #[error("manifest must be a JSON object")]
+    NotAnObject,
+    #[error("manifest field 'engine' must be a JSON string")]
+    EngineNotString,
+}
+
+pub(crate) fn format_canonical_ndjson(events: &[EventEnvelope]) -> Result<String, StoreError> {
+    let mut out = String::new();
+    for event in events {
+        out.push_str(&serde_json::to_string(&serde_json::to_value(event)?)?);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+/// Validate that `manifest` is a JSON object and, if `"engine"` is present,
+/// that it is a JSON string (refusing non-string `"engine"` rather than
+/// silently treating it as absent/V1).
+pub(crate) fn validate_manifest(run_id: &str, manifest: &Value) -> Result<(), StoreError> {
+    let Some(object) = manifest.as_object() else {
+        return Err(StoreError::InvalidManifest {
+            run_id: run_id.to_string(),
+            reason: ManifestRefusal::NotAnObject,
+        });
+    };
+    if let Some(engine) = object.get("engine") {
+        if !engine.is_string() {
+            return Err(StoreError::InvalidManifest {
+                run_id: run_id.to_string(),
+                reason: ManifestRefusal::EngineNotString,
+            });
+        }
+    }
+    Ok(())
+}
 
 /// Persistence seam for durable per-run manifests and append-only event
 /// streams (decision 0126 ruling 1; decision 0071 ruling 2).
@@ -36,7 +75,9 @@ pub(crate) use sqlite::{
 /// domain validation and hashing remain in [`Journal`].
 pub trait EventLog {
     /// Persist a new run record with its immutable manifest, refusing a
-    /// duplicate `run_id` with [`StoreError::RunExists`].
+    /// duplicate `run_id` with [`StoreError::RunExists`] and a non-object
+    /// manifest or non-string `"engine"` field with
+    /// [`StoreError::InvalidManifest`].
     fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError>;
 
     /// Atomically append pre-sealed `envelopes` to `run_id` only while the
@@ -84,17 +125,16 @@ pub trait EventLog {
 /// [`EventLog`] (decision 0126 ruling 1; decision 0071 ruling 2).
 ///
 /// Every row managed behind this trait is disposable and can be
-/// reconstructed from any [`EventLog`] via [`ProjectionStore::rebuild_from`].
+/// reconstructed from an [`EventLog`] via [`ProjectionStore::rebuild_from`].
 pub trait ProjectionStore {
     /// Project committed `envelopes` for `run_id` into read models.
     ///
-    /// Decoupled implementations require a verified complete prefix starting at
-    /// sequence 1 (refusing a suffix starting past sequence 1 with
-    /// [`brokkr_core::envelope::ChainError::SeqGap`]); co-located
-    /// implementations may also accept a committed suffix matching their local
-    /// event stream. Implementations must remain monotonic and never regress a
-    /// run whose projection is already at or past the batch's highest sequence
-    /// number.
+    /// Co-located adapters such as [`SqlitePorts`] require `run_id` to exist
+    /// in their local event log and verify that `envelopes` matches the local
+    /// verified stream; decoupled projection stores require a verified prefix
+    /// starting at sequence 1. Implementations must remain monotonic and never
+    /// regress a run whose projection is already at or past the batch's highest
+    /// sequence number.
     fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError>;
 
     /// List known runs as `(run_id, feature, created_at)` triples.

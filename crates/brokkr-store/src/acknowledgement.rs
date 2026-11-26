@@ -59,20 +59,6 @@ const STANDING: &str = "SELECT ack.head_seq, ack.head_hash, ack.operator, ack.re
       AND ack.head_hash = COALESCE((SELECT event_hash FROM events WHERE run_id = ?1
           ORDER BY seq DESC LIMIT 1), ?2)";
 
-const STANDING_AT: &str = "SELECT head_seq, head_hash, operator, reason, recorded_at
-    FROM quarantine_acknowledgements
-    WHERE run_id = ?1 AND head_seq = ?2 AND head_hash = ?3";
-
-fn read_ack(row: &rusqlite::Row<'_>) -> rusqlite::Result<Acknowledgement> {
-    Ok(Acknowledgement {
-        seq: row.get::<_, i64>(0)? as u64,
-        event_hash: row.get(1)?,
-        operator: row.get(2)?,
-        reason: row.get(3)?,
-        recorded_at: row.get(4)?,
-    })
-}
-
 /// An operator's acknowledgement of a quarantined run, at the event that
 /// was its last when it was made.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,26 +93,15 @@ pub(crate) fn standing(
         return Ok(None);
     }
     Ok(conn
-        .query_row(STANDING, params![run_id, ZERO_HASH], read_ack)
-        .optional()?)
-}
-
-/// The acknowledgement standing on `run_id` at the caller-supplied `(head_seq,
-/// head_hash)`, used by [`crate::summary::upsert`] so decoupled projection
-/// stores (whose `events` table is empty) compare against the summary's own
-/// head rather than `SELECT MAX(seq) FROM events`.
-pub(crate) fn standing_at(
-    conn: &Connection,
-    run_id: &str,
-    head_seq: u64,
-    head_hash: &str,
-) -> Result<Option<Acknowledgement>, StoreError> {
-    Ok(conn
-        .query_row(
-            STANDING_AT,
-            params![run_id, head_seq as i64, head_hash],
-            read_ack,
-        )
+        .query_row(STANDING, params![run_id, ZERO_HASH], |row| {
+            Ok(Acknowledgement {
+                seq: row.get::<_, i64>(0)? as u64,
+                event_hash: row.get(1)?,
+                operator: row.get(2)?,
+                reason: row.get(3)?,
+                recorded_at: row.get(4)?,
+            })
+        })
         .optional()?)
 }
 

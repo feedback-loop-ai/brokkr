@@ -827,322 +827,132 @@ fn memory_journal_coordination_enqueue_list_and_cooldowns() {
 }
 
 // ---------------------------------------------------------------------------
-// SQLite Store conformance & end-to-end Journal tests
+
+// ---------------------------------------------------------------------------
+// Shared test helpers & interceptors
 // ---------------------------------------------------------------------------
 
-#[test]
-fn sqlite_store_satisfies_event_log_and_projection_ports() {
-    let dir = tempdir().unwrap();
-    let store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let ports = SqlitePorts::new(&store);
-    let manifest = sample_manifest("sqlite-conformance");
-
-    assert!(matches!(
-        ports.head("absent"),
-        Err(StoreError::RunNotFound(id)) if id == "absent"
-    ));
-    assert!(matches!(
-        ports.read_stream("absent", 1),
-        Err(StoreError::RunNotFound(id)) if id == "absent"
-    ));
-    assert!(matches!(
-        ports.append_envelopes("absent", (0, ZERO_HASH), &[]),
-        Err(StoreError::RunNotFound(id)) if id == "absent"
-    ));
-    ports.apply_envelopes("absent", &[]).unwrap();
-
-    ports.create_run("sql-1", &manifest).unwrap();
-    assert_eq!(ports.head("sql-1").unwrap(), (0, ZERO_HASH.to_string()));
-    assert_eq!(ports.manifest("sql-1").unwrap(), manifest);
-    assert_eq!(ports.list_run_ids().unwrap(), vec!["sql-1".to_string()]);
-    assert!(matches!(
-        ports.create_run("sql-1", &manifest),
-        Err(StoreError::RunExists(id)) if id == "sql-1"
-    ));
-
-    let e1 = EventEnvelope {
-        run_id: "sql-1".to_string(),
-        seq: 1,
-        event_id: "ev-1".to_string(),
+fn sealed_event(
+    run_id: &str,
+    seq: u64,
+    event_type: EventType,
+    payload: Value,
+    previous_hash: &str,
+    ts: &str,
+) -> EventEnvelope {
+    EventEnvelope {
+        run_id: run_id.to_string(),
+        seq,
+        event_id: format!("ev-{run_id}-{seq}"),
         event_schema_version: 1,
-        event_type: EventType::RunStarted,
-        payload: started_payload("sqlite-conformance"),
+        event_type,
+        payload,
         causation_id: None,
-        correlation_id: "sql-1".to_string(),
+        correlation_id: run_id.to_string(),
         attempt_id: None,
-        recorded_at: "2026-11-25T13:00:00Z".to_string(),
-        previous_hash: ZERO_HASH.to_string(),
+        recorded_at: ts.to_string(),
+        previous_hash: previous_hash.to_string(),
         event_hash: String::new(),
     }
-    .sealed();
-    let e2 = EventEnvelope {
-        run_id: "sql-1".to_string(),
-        seq: 2,
-        event_id: "ev-2".to_string(),
-        event_schema_version: 1,
-        event_type: EventType::PhaseEntered,
-        payload: json!({"phase": "implement"}),
-        causation_id: Some("ev-1".to_string()),
-        correlation_id: "sql-1".to_string(),
-        attempt_id: None,
-        recorded_at: "2026-11-25T13:00:05Z".to_string(),
-        previous_hash: e1.event_hash.clone(),
-        event_hash: String::new(),
-    }
-    .sealed();
-
-    assert!(matches!(
-        ports.append_envelopes("sql-1", (1, ZERO_HASH), std::slice::from_ref(&e1)),
-        Err(StoreError::HeadMoved {
-            expected_seq: 1,
-            found_seq: 0
-        })
-    ));
-    assert!(matches!(
-        ports.append_envelopes("sql-1", (0, "bad-hash"), std::slice::from_ref(&e1)),
-        Err(StoreError::HeadMoved {
-            expected_seq: 0,
-            found_seq: 0
-        })
-    ));
-    assert!(matches!(
-        ports.append_envelopes("sql-1", (0, ZERO_HASH), &[e1.clone(), e1.clone()]),
-        Err(StoreError::Chain(ChainError::SeqGap {
-            seq: 1,
-            expected: 2
-        }))
-    ));
-
-    ports
-        .append_envelopes("sql-1", (0, ZERO_HASH), &[e1.clone(), e2.clone()])
-        .unwrap();
-    ports.apply_envelopes("sql-1", &[e1, e2.clone()]).unwrap();
-    assert_eq!(ports.head("sql-1").unwrap(), (2, e2.event_hash.clone()));
-    assert_eq!(ports.read_stream("sql-1", 1).unwrap().len(), 2);
-    assert_eq!(ports.read_stream("sql-1", 2).unwrap().len(), 1);
-    assert!(ports.read_stream("sql-1", u64::MAX).unwrap().is_empty());
-    assert_eq!(ports.list_runs().unwrap().len(), 1);
-    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    .sealed()
 }
 
-#[test]
-fn sqlite_projection_rebuilds_from_external_memory_event_log() {
-    let dir = tempdir().unwrap();
-    let mem_log = MemEventLog::default();
-    let mem_journal = Journal::new(
-        &mem_log,
-        MemProjectionStore::default(),
-        MemCoordinationStore::default(),
-    );
-    mem_journal
-        .create_run("from-mem", &sample_manifest("external"))
-        .unwrap();
-    mem_journal
-        .append_event(
-            "from-mem",
-            plain_event(
-                EventType::RunStarted,
-                started_payload("external"),
-                None,
-                "2026-11-25T13:10:00Z",
-            ),
-        )
-        .unwrap();
-    let fresh_sql = Store::open(&dir.path().join("rebuilt.db")).unwrap();
-    let fresh_ports = SqlitePorts::new(&fresh_sql);
-    let rebuilt_count = fresh_ports.rebuild_from(&mem_log).unwrap();
-    assert_eq!(rebuilt_count, 1);
-    assert_eq!(
-        fresh_ports.list_runs().unwrap(),
-        vec![(
-            "from-mem".to_string(),
-            "external".to_string(),
-            "2026-11-25T13:10:00Z".to_string(),
-        )]
-    );
-    assert!(fresh_ports.list_run_ids().unwrap().is_empty());
-    assert!(fresh_sql.list_runs().unwrap().is_empty());
+fn started_event(run_id: &str, feature: &str, ts: &str) -> EventEnvelope {
+    sealed_event(
+        run_id,
+        1,
+        EventType::RunStarted,
+        started_payload(feature),
+        ZERO_HASH,
+        ts,
+    )
 }
 
-#[test]
-fn sqlite_store_satisfies_coordination_port() {
-    let dir = tempdir().unwrap();
-    let mut store = Store::open(&dir.path().join("coord.db")).unwrap();
+fn single_ndjson(event: &EventEnvelope) -> String {
+    format!(
+        "{}\n",
+        serde_json::to_string(&serde_json::to_value(event).unwrap()).unwrap()
+    )
+}
 
-    let entry = NewEntry {
-        payload: r#"{"recipe":"self"}"#,
-        priority: 5,
-        waits: &[],
-    };
-    assert!(matches!(
-        SqlitePorts::new(&store).enqueue(&entry, "not-a-timestamp"),
-        Err(StoreError::Clock { ref now }) if now == "not-a-timestamp"
-    ));
+fn sqlite_journal(store: &Store) -> Journal<SqlitePorts<'_>, SqlitePorts<'_>, SqlitePorts<'_>> {
+    Journal::new(
+        SqlitePorts::new(store),
+        SqlitePorts::new(store),
+        SqlitePorts::new(store),
+    )
+}
 
-    let id = SqlitePorts::new(&store)
-        .enqueue(&entry, "2026-11-25T14:00:00Z")
-        .unwrap();
-    let listed = SqlitePorts::new(&store).list_queue().unwrap();
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].id, id);
-    assert_eq!(listed[0].added_at, "2026-11-25T14:00:00Z");
-    assert_eq!(listed[0].payload, entry.payload);
+fn sqlite_table_count(path: &std::path::Path, table: &str) -> i64 {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+        row.get(0)
+    })
+    .unwrap()
+}
 
-    let manifest = sample_manifest("cool");
-    Store::create_run(&mut store, "cool-run", "cool", "self", &manifest).unwrap();
-    store
-        .append_next(
-            "cool-run",
-            EventType::RunStarted,
-            started_payload("cool"),
-            None,
-            None,
-        )
-        .unwrap();
-    let until = OffsetDateTime::now_utc() + time::Duration::hours(2);
-    let cooling = Cooling {
-        site: "implement".to_string(),
-        provider: "claude".to_string(),
-        route: "primary".to_string(),
-        until_at: until,
-        reason: "429 rate limited".to_string(),
-        retry_after_seconds: Some(7200),
-        rounds: 1,
-    };
-    store
-        .append_with_cooldowns(
-            CooldownAppend {
-                run_id: "cool-run",
-                fenced: None,
-                event_type: EventType::EffectFailed,
-                payload: json!({"effect_id": "e1", "attempt_id": "a1", "reason": "429"}),
-                causation_id: None,
-                attempt_id: Some("a1".to_string()),
-            },
-            &[cooling],
-        )
-        .unwrap();
-
-    let before = (until - time::Duration::hours(1))
-        .replace_nanosecond(0)
+fn exec_raw_sql(path: &std::path::Path, sql: &str) {
+    rusqlite::Connection::open(path)
         .unwrap()
-        .format(&Rfc3339)
+        .execute_batch(sql)
         .unwrap();
-    let after = (until + time::Duration::hours(1))
-        .replace_nanosecond(0)
-        .unwrap()
-        .format(&Rfc3339)
-        .unwrap();
-
-    let ports = SqlitePorts::new(&store);
-    let active = ports.active_cooldowns(&before).unwrap();
-    assert_eq!(active.len(), 1);
-    assert_eq!(active[0].provider, "claude");
-    assert_eq!(active[0].route, "primary");
-
-    assert!(ports.active_cooldowns(&after).unwrap().is_empty());
-    assert!(matches!(
-        ports.active_cooldowns("bad-clock"),
-        Err(StoreError::Clock { ref now }) if now == "bad-clock"
-    ));
 }
 
-#[test]
-fn journal_end_to_end_over_sqlite_references() {
-    let dir = tempdir().unwrap();
-    let store = Store::open(&dir.path().join("primary.db")).unwrap();
-    let ports = SqlitePorts::new(&store);
-    let journal = Journal::new(&ports, &ports, &ports);
-
-    let manifest = sample_manifest("e2e-sqlite");
-    journal.create_run("e2e-1", &manifest).unwrap();
-    assert_eq!(
-        journal.event_log().list_run_ids().unwrap(),
-        vec!["e2e-1".to_string()]
-    );
-
-    let e5 = append_valid_checkpoint_flow(&journal, "e2e-1", "e2e-sqlite");
-    assert_eq!(e5.seq, 5);
-
-    assert!(matches!(
-        journal.append_event("e2e-1", plain_event(EventType::EffectCheckpointed, invalid_checkpoint_payload(), None, "2026-11-25T15:00:15Z")),
-        Err(StoreError::SeatRecord(ref err)) if err.seq == 6
-    ));
-
-    assert!(matches!(
-        journal.append_if_head(
-            "e2e-1",
-            (1, &e5.previous_hash),
-            plain_event(
-                EventType::PhaseEntered,
-                json!({"phase": "verify"}),
-                None,
-                "2026-11-25T15:00:20Z"
-            )
-        ),
-        Err(StoreError::HeadMoved {
-            expected_seq: 1,
-            found_seq: 5
-        })
-    ));
-
-    let verified = journal.load_verified("e2e-1").unwrap();
-    assert_eq!(verified.len(), 5);
-    assert_eq!(journal.projections().list_runs().unwrap().len(), 1);
-    assert_eq!(journal.reindex().unwrap(), 5);
-    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
-
-    let entry = NewEntry {
-        payload: r#"{"recipe":"verify"}"#,
-        priority: 3,
-        waits: &[],
-    };
-    let id = journal
-        .coordination()
-        .enqueue(&entry, "2026-11-25T15:01:00Z")
-        .unwrap();
-    assert_eq!(journal.coordination().list_queue().unwrap()[0].id, id);
-    assert!(journal
-        .coordination()
-        .active_cooldowns("2026-11-25T15:01:00Z")
-        .unwrap()
-        .is_empty());
-
-    let ndjson = journal.export_ndjson("e2e-1").unwrap();
-    assert_eq!(ndjson, store.export_ndjson("e2e-1").unwrap());
-
-    let replica = Store::open(&dir.path().join("replica.db")).unwrap();
-    let replica_ports = SqlitePorts::new(&replica);
-    let replica_journal = Journal::new(&replica_ports, &replica_ports, &replica_ports);
-    let imported = replica_journal
-        .import_ndjson("e2e-1", &manifest, &ndjson)
-        .unwrap();
-    assert_eq!(imported, 5);
-    assert_eq!(replica_journal.export_ndjson("e2e-1").unwrap(), ndjson);
-    assert!(!replica.started_here("e2e-1").unwrap());
-    assert_eq!(every_run_reads_as_its_fold(&replica), Vec::<String>::new());
+fn summary_snapshot(
+    path: &std::path::Path,
+    run_id: &str,
+) -> (
+    i64,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+) {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.query_row(
+        "SELECT head_seq, folded_seq, status, head_hash, acknowledged
+         FROM run_summary WHERE run_id = ?1",
+        [run_id],
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        },
+    )
+    .unwrap()
 }
 
-fn open_split_journal<'a>(
-    store: &'a Store,
+fn completed_vs_phase_pair(
     run_id: &str,
     feature: &str,
-) -> Journal<MemEventLog, SqlitePorts<'a>, MemCoordinationStore> {
-    let journal = Journal::new(
-        MemEventLog::default(),
-        SqlitePorts::new(store),
-        MemCoordinationStore::default(),
+) -> (EventEnvelope, EventEnvelope, EventEnvelope) {
+    let e1 = started_event(run_id, feature, "2026-11-25T10:00:00Z");
+    let completed = sealed_event(
+        run_id,
+        2,
+        EventType::RunCompleted,
+        json!({}),
+        &e1.event_hash,
+        "2026-11-25T10:00:05Z",
     );
-    journal
-        .create_run(run_id, &sample_manifest(feature))
-        .unwrap();
-    journal
+    let phase = sealed_event(
+        run_id,
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "implement"}),
+        &e1.event_hash,
+        "2026-11-25T10:00:05Z",
+    );
+    (e1, completed, phase)
 }
 
 struct InterceptingMemLog<'a> {
     inner: MemEventLog,
     on_head: Option<Box<dyn Fn() + 'a>>,
-    on_list_run_ids: Option<Box<dyn Fn() -> Result<(), StoreError> + 'a>>,
 }
 
 impl EventLog for InterceptingMemLog<'_> {
@@ -1185,35 +995,23 @@ impl EventLog for InterceptingMemLog<'_> {
     }
 
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
-        if let Some(hook) = &self.on_list_run_ids {
-            hook()?;
-        }
         self.inner.list_run_ids()
     }
 }
 
-fn query_run_pairs<T: rusqlite::types::FromSql>(
-    path: &std::path::Path,
-    sql: &str,
-    run_id: &str,
-) -> Vec<(i64, T)> {
-    let conn = rusqlite::Connection::open(path).unwrap();
-    let rows = conn
-        .prepare(sql)
-        .unwrap()
-        .query_map([run_id], |row| Ok((row.get(0)?, row.get(1)?)))
-        .unwrap()
-        .collect::<Result<_, _>>()
+#[test]
+fn mem_event_log_append_envelopes_batch_is_atomic() {
+    let log = MemEventLog::default();
+    log.create_run("batch-1", &sample_manifest("batch"))
         .unwrap();
-    rows
+    let e1 = started_event("batch-1", "batch", "2026-11-25T10:00:00Z");
+    assert!(matches!(
+        log.append_envelopes("batch-1", (0, ZERO_HASH), &[e1.clone(), e1]),
+        Err(StoreError::AppendConflict { seq: 1 })
+    ));
+    assert_eq!(log.head("batch-1").unwrap(), (0, ZERO_HASH.to_string()));
+    assert!(log.read_stream("batch-1", 1).unwrap().is_empty());
 }
 
-mod regressions;
-mod round10;
-mod round3;
-mod round4;
-mod round5;
-mod round6;
-mod round7;
-mod round8;
-mod round9;
+mod invariants;
+mod sqlite;

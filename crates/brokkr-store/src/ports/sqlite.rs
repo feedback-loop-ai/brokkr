@@ -1,57 +1,46 @@
-//! SQLite [`SqlitePorts`] implementations of [`EventLog`],
-//! [`ProjectionStore`], and [`CoordinationStore`] (decision 0126, Slice 1).
+//! Co-located SQLite [`SqlitePorts`] implementations of [`EventLog`],
+//! [`ProjectionStore`], and [`CoordinationStore`] over [`Store`] (decision
+//! 0126, Slice 1).
 //!
 //! Wrapped behind [`SqlitePorts`] rather than implemented directly on
 //! [`Store`] so importing `brokkr_store::ports::*` never shadows inherent
 //! [`Store`] methods (`create_run`, `list_runs`, `manifest`).
+//!
+//! `SqlitePorts` is strictly co-located with its wrapped [`Store`]: its
+//! projection methods verify that inputs match the local `runs`/`events`
+//! tables and refresh [`Store`]'s own read-model tables cleanly. Dedicated
+//! decoupled SQLite projections (`index.db`) belong to Slice 2 (decision 0126
+//! ruling 4).
+
+use std::collections::BTreeMap;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope, EventType};
-use brokkr_core::summary::Account;
+use brokkr_core::summary::{Account, Summary};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::damage;
 use crate::start::Row;
 use crate::summary::Listed;
 use crate::{
-    head_of, import, origin, patiently, queue, refuse_existing, schema, start, terminal,
-    Attribution, Cooldown, EntryId, NewEntry, QueueEntry, Store, StoreError,
+    damage, event_index, head_of, import, origin, patiently, queue, refuse_existing, seat_summary,
+    start, summary, terminal, Attribution, Cooldown, EntryId, NewEntry, QueueEntry, Store,
+    StoreError,
 };
 
-use super::{CoordinationStore, EventLog, ProjectionStore};
+use super::{validate_manifest, CoordinationStore, EventLog, ProjectionStore};
 
-mod projection;
-
-pub(crate) use projection::{migrate_projection_hashes, projection_hashes_intact};
-use projection::{
-    rebuild_colocated, rebuild_decoupled, resolve_projection_plan, verify_local_events_match,
-    write_decoupled_projection, write_full_projection, ProjectionPlan, VerifiedRun,
-    EXISTING_PROJECTED_RUNS,
-};
-
-/// Thin adapter exposing a SQLite [`Store`] through the [`EventLog`],
-/// [`ProjectionStore`], and [`CoordinationStore`] traits without shadowing
-/// [`Store`]'s inherent methods.
+/// Thin co-located adapter exposing a SQLite [`Store`] through the
+/// [`EventLog`], [`ProjectionStore`], and [`CoordinationStore`] traits without
+/// shadowing [`Store`]'s inherent methods.
 pub struct SqlitePorts<'a>(&'a Store);
 
 impl<'a> SqlitePorts<'a> {
-    /// Wrap a [`Store`] reference as a port implementation.
+    /// Wrap a [`Store`] reference as a co-located port implementation.
     pub fn new(store: &'a Store) -> Self {
         Self(store)
-    }
-
-    fn projected_runs(&self) -> Result<Vec<(String, i64)>, StoreError> {
-        patiently("rebuild", self.0.patience, &self.0.path, || {
-            Ok(self
-                .0
-                .conn
-                .prepare(EXISTING_PROJECTED_RUNS)?
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-                .collect::<Result<Vec<_>, _>>()?)
-        })
     }
 }
 
@@ -59,24 +48,16 @@ const UPDATE_STARTED_META: &str = "UPDATE runs
      SET created_at = ?2,
          feature = CASE WHEN ?3 != '' THEN ?3 ELSE feature END
      WHERE run_id = ?1";
-pub(crate) const LIST_RUNS_LOCAL: &str =
-    "SELECT run_id, feature, created_at FROM runs ORDER BY created_at";
-const LIST_RUNS_SUMMARY: &str =
-    "SELECT run_id, COALESCE(feature, ''), COALESCE(created_at_whole, created_at, '')
-     FROM run_summary
-     ORDER BY COALESCE(created_at_whole, created_at, ''), run_id";
-
-pub(crate) fn query_listed_runs(
-    conn: &Connection,
-    sql: &str,
-) -> Result<Vec<(String, String, String)>, StoreError> {
-    Ok(conn
-        .prepare(sql)?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-        .collect::<Result<Vec<_>, _>>()?)
-}
-const HAS_LOCAL_RUNS_OR_EVENTS: &str =
-    "SELECT EXISTS(SELECT 1 FROM runs) OR EXISTS(SELECT 1 FROM events)";
+const LOCAL_RUNS: &str = "SELECT run_id FROM runs
+     UNION SELECT DISTINCT run_id FROM events
+     ORDER BY run_id";
+const PROJECTION_TABLES: [&str; 5] = [
+    "run_summary",
+    "seat_summary",
+    "seat_head",
+    "seat_lag",
+    "event_index",
+];
 
 fn manifest_meta(manifest: &Value) -> (&str, &str) {
     let feature = manifest
@@ -94,7 +75,7 @@ fn non_empty_str(value: Option<&Value>) -> Option<&str> {
     value.and_then(Value::as_str).filter(|s| !s.is_empty())
 }
 
-pub(super) fn started_feature(payload: &Value) -> Option<&str> {
+fn started_feature(payload: &Value) -> Option<&str> {
     non_empty_str(payload.get("feature"))
         .or_else(|| non_empty_str(payload.pointer("/manifest/feature")))
 }
@@ -104,17 +85,6 @@ pub(super) fn started_feature_of(events: &[EventEnvelope]) -> Option<&str> {
         .first()
         .filter(|event| event.seq == 1 && event.event_type == EventType::RunStarted)
         .and_then(|event| started_feature(&event.payload))
-}
-
-fn listing_from(manifest: Option<&Value>, events: &[EventEnvelope]) -> Listed {
-    let feature = started_feature_of(events)
-        .or_else(|| manifest.and_then(|value| non_empty_str(value.get("feature"))))
-        .unwrap_or_default();
-    let created_at = events
-        .first()
-        .map(|event| event.recorded_at.as_str())
-        .unwrap_or_default();
-    Listed::new(feature, created_at)
 }
 
 fn checked_seq(seq: u64) -> Result<i64, StoreError> {
@@ -166,6 +136,14 @@ fn has_run(conn: &Connection, run_id: &str) -> Result<bool, StoreError> {
     Ok(found.is_some())
 }
 
+fn ensure_run_exists(conn: &Connection, run_id: &str) -> Result<(), StoreError> {
+    if has_run(conn, run_id)? {
+        Ok(())
+    } else {
+        Err(StoreError::RunNotFound(run_id.to_string()))
+    }
+}
+
 fn divergent(run_id: &str) -> StoreError {
     StoreError::DivergentEventLog {
         run_id: run_id.to_string(),
@@ -177,46 +155,6 @@ fn query_strings(conn: &Connection, sql: &str) -> Result<Vec<String>, StoreError
         .prepare(sql)?
         .query_map([], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()?)
-}
-
-fn has_local_runs_or_events(tx: &Connection) -> Result<bool, StoreError> {
-    let found: i64 = tx.query_row(HAS_LOCAL_RUNS_OR_EVENTS, [], |row| row.get(0))?;
-    Ok(found != 0)
-}
-
-const HAS_RUNLESS_PROJECTION: &str = "SELECT
-        EXISTS(SELECT 1 FROM run_summary t WHERE NOT EXISTS (SELECT 1 FROM runs r WHERE r.run_id = t.run_id))
-    OR  EXISTS(SELECT 1 FROM projection_hashes t WHERE NOT EXISTS (SELECT 1 FROM runs r WHERE r.run_id = t.run_id))";
-const HAS_SECONDARY_PROJECTION: &str = "SELECT
-        EXISTS(SELECT 1 FROM seat_summary)
-    OR  EXISTS(SELECT 1 FROM seat_head)
-    OR  EXISTS(SELECT 1 FROM seat_lag)
-    OR  EXISTS(SELECT 1 FROM event_index)";
-
-/// Refuse authoritative `runs`/`events` writes into a SQLite database carrying
-/// decoupled projections: always refuse when `run_summary` or
-/// `projection_hashes` holds a run absent from `runs`, and when `runs` and
-/// `events` are empty also check the remaining projection tables.
-pub(crate) fn refuse_if_decoupled_projection_db(
-    tx: &Connection,
-    run_id: &str,
-) -> Result<(), StoreError> {
-    let has_runless: i64 = tx.query_row(HAS_RUNLESS_PROJECTION, [], |row| row.get(0))?;
-    if has_runless != 0
-        || (!has_local_runs_or_events(tx)?
-            && tx.query_row(HAS_SECONDARY_PROJECTION, [], |row| row.get::<_, i64>(0))? != 0)
-    {
-        return Err(divergent(run_id));
-    }
-    Ok(())
-}
-
-fn ensure_run_exists(conn: &Connection, run_id: &str) -> Result<(), StoreError> {
-    if has_run(conn, run_id)? {
-        Ok(())
-    } else {
-        Err(StoreError::RunNotFound(run_id.to_string()))
-    }
 }
 
 fn refuse_row_before_chain(conn: &Connection, run_id: &str) -> Result<(), StoreError> {
@@ -322,9 +260,81 @@ fn insert_events(
     Ok(())
 }
 
+fn listed_for_projection(
+    tx: &Connection,
+    run_id: &str,
+    events: &[EventEnvelope],
+) -> Result<Listed, StoreError> {
+    let (feature, created_at): (String, String) = tx.query_row(
+        "SELECT feature, created_at FROM runs WHERE run_id = ?1",
+        params![run_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if let Some(started) = started_feature_of(events) {
+        if feature != started {
+            tx.execute(
+                "UPDATE runs SET feature = ?2 WHERE run_id = ?1",
+                params![run_id, started],
+            )?;
+        }
+        return Ok(Listed::new(started, &created_at));
+    }
+    Ok(Listed::new(&feature, &created_at))
+}
+
+fn write_colocated_projection(
+    tx: &Connection,
+    run_id: &str,
+    events: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    let listed = listed_for_projection(tx, run_id, events)?;
+    let account = Account::whole(run_id, events);
+    summary::upsert(tx, run_id, &Summary::of(&account, listed.listing()))?;
+    seat_summary::write(tx, &account, None)?;
+    event_index::index_run(tx, run_id)?;
+    event_index::write_parks(tx, &account)?;
+    event_index::write_all_checkpoints(tx, &account)?;
+    Ok(())
+}
+
+fn clear_projections(tx: &Connection) -> Result<(), StoreError> {
+    for table in PROJECTION_TABLES {
+        tx.execute(&format!("DELETE FROM {table}"), [])?;
+    }
+    Ok(())
+}
+
+fn verify_local_events_match(
+    tx: &Connection,
+    verified: &[(String, Vec<EventEnvelope>)],
+) -> Result<(), StoreError> {
+    let local_runs = query_strings(tx, LOCAL_RUNS)?;
+    let mut expected: BTreeMap<&str, &[EventEnvelope]> = verified
+        .iter()
+        .map(|(run_id, events)| (run_id.as_str(), events.as_slice()))
+        .collect();
+    for run_id in local_runs {
+        if !has_run(tx, &run_id)? {
+            return Err(StoreError::DivergentEventLog { run_id });
+        }
+        let local = load_verified_local(tx, &run_id)?;
+        let Some(external) = expected.remove(run_id.as_str()) else {
+            return Err(StoreError::DivergentEventLog { run_id });
+        };
+        if serde_json::to_vec(&local)? != serde_json::to_vec(external)? {
+            return Err(StoreError::DivergentEventLog { run_id });
+        }
+    }
+    if let Some((extra, _)) = expected.into_iter().next() {
+        return Err(divergent(extra));
+    }
+    Ok(())
+}
+
 impl EventLog for SqlitePorts<'_> {
     fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError> {
         import::recordable(run_id)?;
+        validate_manifest(run_id, manifest)?;
         let (feature, bundle_name) = manifest_meta(manifest);
         let manifest_json = serde_json::to_string(manifest)?;
         let host = origin::local_host();
@@ -374,15 +384,29 @@ impl EventLog for SqlitePorts<'_> {
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
         import::recordable(run_id)?;
+        validate_manifest(run_id, manifest)?;
         verify_chain_for_sqlite(run_id, (0, ZERO_HASH), envelopes)?;
-        let listed = listing_from(Some(manifest), envelopes);
-        let (_, bundle_name) = manifest_meta(manifest);
+        let (manifest_feature, bundle_name) = manifest_meta(manifest);
+        let feature = started_feature_of(envelopes).unwrap_or(manifest_feature);
         let manifest_json = serde_json::to_string(manifest)?;
-        let feature = listed.listing().feature;
-        let created_at = listed.listing().created_at;
         patiently("import_run", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
-            if envelopes.is_empty() {
+            if let Some(first) = envelopes.first() {
+                refuse_existing(&tx, run_id)?;
+                tx.execute(
+                    "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        run_id,
+                        feature,
+                        bundle_name,
+                        manifest_json,
+                        first.recorded_at
+                    ],
+                )?;
+                let mut head_seq = 0;
+                insert_events(&tx, run_id, &mut head_seq, envelopes, false)?;
+            } else {
                 let row = Row {
                     run_id,
                     feature,
@@ -391,16 +415,6 @@ impl EventLog for SqlitePorts<'_> {
                     origin: None,
                 };
                 start::insert_run(&tx, &row)?;
-            } else {
-                refuse_if_decoupled_projection_db(&tx, run_id)?;
-                refuse_existing(&tx, run_id)?;
-                tx.execute(
-                    "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![run_id, feature, bundle_name, manifest_json, created_at],
-                )?;
-                let mut head_seq = 0;
-                insert_events(&tx, run_id, &mut head_seq, envelopes, false)?;
             }
             tx.commit()?;
             Ok(())
@@ -448,73 +462,47 @@ impl ProjectionStore for SqlitePorts<'_> {
     fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
         verify_batch_envelopes(run_id, envelopes)?;
         patiently("apply_envelopes", self.0.patience, &self.0.path, || {
-            if envelopes.is_empty() {
-                if has_local_runs_or_events(&self.0.conn)? && !has_run(&self.0.conn, run_id)? {
+            let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
+            ensure_run_exists(&tx, run_id)?;
+            let local = load_verified_local(&tx, run_id)?;
+            if !envelopes.is_empty() {
+                let matched: Vec<EventEnvelope> = local
+                    .iter()
+                    .skip_while(|event| event.seq < envelopes[0].seq)
+                    .take(envelopes.len())
+                    .cloned()
+                    .collect();
+                if serde_json::to_vec(&matched)? != serde_json::to_vec(envelopes)? {
                     return Err(divergent(run_id));
                 }
-                return Ok(());
             }
-            let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
-            match resolve_projection_plan(&tx, run_id, envelopes)? {
-                ProjectionPlan::Skip => Ok(()),
-                ProjectionPlan::Colocated(stream) => {
-                    let listed = listing_from(None, &stream);
-                    let account = Account::whole(run_id, &stream);
-                    write_full_projection(&tx, run_id, &stream, &account, &listed)?;
-                    tx.commit()?;
-                    Ok(())
-                }
-                ProjectionPlan::Decoupled(stream) => {
-                    let listed = listing_from(None, &stream);
-                    let account = Account::whole(run_id, &stream);
-                    write_decoupled_projection(&tx, run_id, &stream, &account, &listed)?;
-                    tx.commit()?;
-                    Ok(())
-                }
-            }
+            write_colocated_projection(&tx, run_id, &local)?;
+            tx.commit()?;
+            Ok(())
         })
     }
 
     fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
-        patiently("list_runs", self.0.patience, &self.0.path, || {
-            let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Deferred)?;
-            let sql = if has_local_runs_or_events(&tx)?
-                || !schema::all_present(&tx, "table", &["run_summary"])?
-            {
-                LIST_RUNS_LOCAL
-            } else {
-                LIST_RUNS_SUMMARY
-            };
-            let rows = query_listed_runs(&tx, sql)?;
-            tx.commit()?;
-            Ok(rows)
-        })
+        self.0.list_runs()
     }
 
     fn rebuild_from(&self, log: &dyn EventLog) -> Result<u64, StoreError> {
-        let pre_existing = self.projected_runs()?;
         let run_ids = log.list_run_ids()?;
         let mut verified = Vec::with_capacity(run_ids.len());
         for run_id in run_ids {
-            let manifest = log.manifest(&run_id)?;
             let events = log.read_stream(&run_id, 1)?;
             verify_chain_for_sqlite(&run_id, (0, ZERO_HASH), &events)?;
-            let account = Account::whole(&run_id, &events);
-            let listed = listing_from(Some(&manifest), &events);
-            verified.push(VerifiedRun {
-                run_id,
-                events,
-                account,
-                listed,
-            });
+            verified.push((run_id, events));
         }
         patiently("rebuild", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
-            let total = if verify_local_events_match(&tx, &verified)? {
-                rebuild_colocated(&tx, &verified)?
-            } else {
-                rebuild_decoupled(&tx, &verified, &pre_existing)?
-            };
+            verify_local_events_match(&tx, &verified)?;
+            clear_projections(&tx)?;
+            let mut total = 0u64;
+            for (run_id, events) in &verified {
+                write_colocated_projection(&tx, run_id, events)?;
+                total += events.len() as u64;
+            }
             tx.commit()?;
             Ok(total)
         })
