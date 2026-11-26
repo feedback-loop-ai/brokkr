@@ -208,6 +208,19 @@ impl SeatKinds {
             })
     }
 
+    /// The root session kind this seat's loaded adapter declares in
+    /// `record_kinds`, if any (#1227). Carried to the driver for work seats so
+    /// a built-in driver writes a v8 adapter-declared `root_session` kind only
+    /// when the seat's adapter declares it.
+    pub(crate) fn declared_root_session_kind(
+        &self,
+    ) -> Option<brokkr_protocol::DeclaredTranscriptKind> {
+        (self.adapter.as_ref())
+            .and_then(|adapter| adapter.declared.as_ref())
+            .and_then(|declared| declared.root_session.as_ref())
+            .and_then(|root| brokkr_protocol::DeclaredTranscriptKind::parse(&root.kind).ok())
+    }
+
     /// Whether this harness's adapter declares its kinds (`record_kinds`),
     /// so its only road to an offer is its declared root session kind and
     /// never decision 0030's flat session id (the controller's ruling R5).

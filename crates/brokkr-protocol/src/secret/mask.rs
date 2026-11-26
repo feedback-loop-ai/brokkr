@@ -2,7 +2,10 @@
 
 use std::ops::Range;
 
-use super::{covered, needles, BoundSecret, Encoder, MIN_VALUE_BYTES, NEEDLE_ENCODINGS};
+use super::{
+    advance, covered, enc_json_string, needles, BoundSecret, Encoder, MIN_VALUE_BYTES,
+    NEEDLE_ENCODINGS,
+};
 use crate::adapters::escapes::{without_ansi, without_ansi_with_offsets};
 
 type Run<'a> = (usize, usize, &'a str);
@@ -163,5 +166,71 @@ pub(crate) fn mask_split(
             right: decoded(&bytes[cut.end..]),
         },
         None => MaskedSplit::Whole(decoded(&bytes)),
+    }
+}
+
+/// Streaming matcher for any bound secret across chunk boundaries (#1227).
+/// Holds one KMP automaton per encoded needle (all [`NEEDLE_ENCODINGS`] plus
+/// JSON-string escaping, matching [`super::mask_projected`]) so a bound value
+/// split across two read buffers still matches without buffering whole files.
+pub(crate) struct SecretMatcher {
+    needles: Vec<NeedleState>,
+}
+
+struct NeedleState {
+    needle: Vec<u8>,
+    border: Vec<usize>,
+    matched: usize,
+}
+
+impl SecretMatcher {
+    pub(crate) fn new(bindings: &[BoundSecret]) -> Self {
+        if bindings.is_empty() {
+            return Self {
+                needles: Vec::new(),
+            };
+        }
+        let mut encodings = NEEDLE_ENCODINGS.to_vec();
+        encodings.push(("json-string", enc_json_string));
+        let needles = needles(bindings, &encodings)
+            .into_iter()
+            .map(|(needle, _)| {
+                let mut border = vec![0; needle.len()];
+                let mut matched = 0;
+                for i in 1..needle.len() {
+                    matched = advance(&needle, &border, matched, needle[i]);
+                    border[i] = matched;
+                }
+                NeedleState {
+                    needle,
+                    border,
+                    matched: 0,
+                }
+            })
+            .collect();
+        Self { needles }
+    }
+
+    pub(crate) fn reset(&mut self) {
+        for state in &mut self.needles {
+            state.matched = 0;
+        }
+    }
+
+    /// Feed the next chunk of bytes from the current file. Returns `true` as
+    /// soon as any bound needle matches across the bytes fed since [`Self::reset`].
+    pub(crate) fn feed(&mut self, bytes: &[u8]) -> bool {
+        if self.needles.is_empty() {
+            return false;
+        }
+        for &byte in bytes {
+            for state in &mut self.needles {
+                state.matched = advance(&state.needle, &state.border, state.matched, byte);
+                if state.matched == state.needle.len() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }

@@ -488,3 +488,86 @@ level 2).
 - **Follow-ups.** Rejoin (`--conversation`, serialized per conversation) is the
   next story; applied effort from per-row model slugs is `#1324`; the shared
   reaper is `#1323`.
+
+## Addendum — 2026-11-26, Antigravity CLI level 2 kept rejoin state and root session
+
+Addendum status: proposed
+
+Keeping the conversation files a later Antigravity CLI turn needs to rejoin
+and recording the turn's `root_session` extend the 2026-11-24 kept-transcript
+addendum (`#1227`, decision 0075 level 2, slice 1 of 2; launch is slice 2).
+
+- **One kept place, one rule.** After a work turn whose loaded adapter declares
+  `record_kinds.root_session: "agy-conversation"` (carried from the engine for
+  work seats alone in `resume_context.declared_root_session_kind` through the
+  shared `DeclaredTranscriptKind` carrier and validated under the same
+  `brokkr-core` kind grammar), `brokkr driver agy` keeps the two conversation
+  parts measured as sufficient for a rejoin in a fresh HOME
+  (`l2-07-rejoin-moved-files`, `l2-10-box-cold`, `l2-11-box-rejoin`,
+  `l2b-01-iso-cold` through `l2b-03-iso-rejoin-same-home-empty-set` on
+  Antigravity CLI 1.5.14):
+  `<engine HOME>/.gemini/antigravity-cli/conversations/<id>.db` as
+  `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/conversation.db`
+  and `<engine HOME>/.gemini/antigravity-cli/brain/<id>/` as
+  `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/brain/`.
+  The engine HOME is still removed when the turn ends. The keeper's existing
+  guarantees, four testable mechanisms (m1)–(m4), and stated same-user
+  directory limit from the 2026-11-24 addendum (operator ruling 2026-11-25)
+  apply unchanged by reference, with no second kept place and no second set of
+  guarantees.
+- **Operator-only modes.** Every directory created under `rejoin/` is mode
+  `0700` and every file is mode `0600` through `fchmod`, tightening the `0644`
+  mode agy writes on brain files.
+- **Bound values exclude rejoin.** As measured in `l2b-09-printed-value-allowed`,
+  values printed by tools land in clear in both `conversations/<id>.db` and
+  `brain/<id>/`. Because the SQLite database cannot be masked and still be read
+  by `agy`, a conversation in which any bound secret value appears (checked
+  across every copied byte using the turn's own masker encodings plus
+  JSON-string escaping across chunk boundaries, and on the emitted
+  `root_session` row through `probe::seat_row`) is not kept for rejoin. Any
+  partial rejoin files are rolled back while the kept transcript's own rule
+  stays unaffected.
+- **Bounded and all or nothing.** Rejoin keeping is bounded at 128 MiB total
+  bytes (4× `TRANSCRIPT_SOURCE_CAP`, fitting `transcript.jsonl`,
+  `transcript_full.jsonl`, `chunks/`, `steps/`, and `conversations/<id>.db`
+  while capping per-turn disk growth well above the 384–672 KiB database and
+  3–48 KiB brain sizes measured across 113 short lab turns), 4,096 total
+  entries, and 16 directory levels under `brain/<id>/` (4× the measured lab
+  depth of 4). Every source path component is opened with `O_NOFOLLOW`; only
+  directories and regular files are copied. Over any bound, or if any part is
+  missing, unreadable, not a regular file, or changed underfoot (checked via
+  `(st_dev, st_ino)`, size, and mtime across the copy), nothing is kept for
+  rejoin and every created rejoin file and directory is removed in reverse
+  order through `unlink_if_same`, leaving any kept `transcript.jsonl` untouched.
+- **Root session and `persistent`.** For a declaring work turn that did not
+  refuse to start and named a lowercase UUID conversation id, the driver asks
+  the launched binary for its version via `agy --version` under the engine HOME
+  and `AGY_CLI_DISABLE_AUTO_UPDATE=true` (decision 0124), parsing stdout with
+  the same version-token rule the other built-in drivers share. When a
+  recordable version is observed and masking does not rewrite the row, the
+  driver publishes a `harness-started` checkpoint with `harness: "agy"`,
+  `launch: "cold"`, and `root_session: {"kind": "agy-conversation", "id":
+  "<uuid>", "harness_version": "<observed>", "persistent": <bool>}`, where
+  `persistent` is `true` only when rejoin state was kept whole (carrying the
+  kept `transcript` coordinates on the same row when `transcript.jsonl` was
+  also kept) and `false` on every rejoin keep failure. When `agy --version`
+  yields no recordable version or masking would rewrite the row, no
+  `root_session` is recorded and no rejoin state is kept, matching the other
+  built-in drivers' rule.
+- **Unchanged non-keeping seats and still no rejoin offer.** Probes, gate
+  seats, adapterless or undeclared seats, turns with no conversation id, and
+  turns with a non-UUID id keep no rejoin state and emit no `root_session`,
+  recording what they recorded before. `docs/examples/adapters/agy.json`
+  declares `record_kinds.root_session: "agy-conversation"` and
+  `resume_shape: "stream-work-site"` while keeping `stream-work-site` at
+  `status: "unsupported"`, so the engine offers an agy seat no session and an
+  offered session is still refused before any process starts.
+- **Not built in this slice.** The `--conversation` launch, restoring kept
+  state into an engine HOME, confirming the returned conversation id and
+  handling an unknown id, serializing concurrent turns on one conversation, an
+  MCP isolation row for rejoin, flipping `stream-work-site` to `supported`, and
+  the shared reaper of `#1323` (which now also has `rejoin/` beside
+  `transcript.jsonl` to reap).
+- **Not measured.** Real work-seat database and brain sizes (the 113 measured
+  conversations were short lab turns); macOS; and any Antigravity CLI version
+  other than 1.5.14 for rejoin.

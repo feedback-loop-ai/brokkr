@@ -35,6 +35,7 @@ mod fold;
 mod gate;
 mod home;
 mod keep;
+mod rejoin;
 
 use super::stream_turn::{plain, Line, Observed, PLAIN_ID_LIMIT};
 use crate::native_controls::SealedBoundary;
@@ -292,6 +293,10 @@ pub(super) enum LaunchError {
     /// driver cannot read as [`crate::DeclaredTranscriptKind`] (#1227 W6).
     #[error("refusing to invoke the agent CLI: {0}")]
     DeclaredTranscriptKind(#[source] crate::InvalidDeclaredTranscriptKind),
+    /// `resume_context.declared_root_session_kind` was present with a value the
+    /// driver cannot read as a declared root session kind (#1227).
+    #[error("refusing to invoke the agent CLI: {0}")]
+    DeclaredRootSessionKind(#[source] crate::declared_transcript::InvalidDeclaredRootSessionKind),
 }
 
 /// How a seat ended with no invocation, typed until [`drive`] renders it
@@ -524,6 +529,7 @@ struct Prepared {
     home: Home,
     operator_home: Option<PathBuf>,
     declared: bool,
+    declared_root: bool,
     launch: Launch,
     workdir: String,
 }
@@ -576,12 +582,16 @@ fn prepared_with(
     let declared = crate::DeclaredTranscriptKind::read_from(input)
         .map_err(LaunchError::DeclaredTranscriptKind)?
         .is_some_and(|kind| kind.is_agy_conversation());
+    let declared_root = crate::DeclaredTranscriptKind::read_root_session_from(input)
+        .map_err(LaunchError::DeclaredRootSessionKind)?
+        .is_some_and(|kind| kind.is_agy_conversation());
     let operator_home = homes.operator.map(Path::to_path_buf);
     let home = made(homes, written)?;
     Ok(Prepared {
         home,
         operator_home,
         declared,
+        declared_root,
         launch,
         workdir,
     })
@@ -610,6 +620,7 @@ fn invoke(
         home,
         operator_home,
         declared,
+        declared_root,
         launch,
         workdir,
     } = prepared;
@@ -627,6 +638,9 @@ fn invoke(
     // the time a writer has to plant agy's configuration, and does not close
     // it (#1217).
     home::unconfigured(workdir)?;
+    let harness_version = (*declared_root && !probe)
+        .then(|| rejoin::observe_version(&launch.command[0], workdir, &owned))
+        .flatten();
     let fed = spawn_fed_in(&launch.command, &line, (workdir, &owned), bindings)?;
     let mut session_meta = Map::new();
     let ended = streamed_lines(fed, |line| {
@@ -651,27 +665,23 @@ fn invoke(
         )
         .is_some()
     });
-    let mut fallback_meta = Map::new();
-    let target_meta = match &mut outcome {
-        Ok(invocation) => &mut invocation.session_meta,
-        Err(_) => &mut fallback_meta,
-    };
-    let notice = keep::publish_transcript(
-        keep::KeepContext {
-            declared: *declared,
+    rejoin::publish_turn(
+        rejoin::TurnKeep {
+            declared: rejoin::DeclaredKinds {
+                transcript: *declared,
+                root: *declared_root,
+            },
             probe,
             refused_to_start,
             conversation: &conversation,
+            harness_version: harness_version.as_deref(),
             engine_home: Path::new(home.path()),
             operator_home: operator_home.as_deref(),
             bindings,
         },
-        target_meta,
+        &mut outcome,
         emit,
     );
-    if let Some(notice) = notice {
-        keep::report_notice(&mut outcome, &notice);
-    }
     outcome
 }
 

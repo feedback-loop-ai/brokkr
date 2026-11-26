@@ -1283,6 +1283,7 @@ impl brokkr_protocol::DeclaredTranscriptKind
 pub fn brokkr_protocol::DeclaredTranscriptKind::parse(&str) -> core::result::Result<Self, brokkr_protocol::InvalidDeclaredTranscriptKind>
 pub fn brokkr_protocol::DeclaredTranscriptKind::read_from(&serde_json::value::Value) -> core::result::Result<core::option::Option<Self>, brokkr_protocol::InvalidDeclaredTranscriptKind>
 pub fn brokkr_protocol::DeclaredTranscriptKind::write_into(&self, &mut serde_json::map::Map<alloc::string::String, serde_json::value::Value>)
+pub fn brokkr_protocol::DeclaredTranscriptKind::write_root_session_into(&self, &mut serde_json::map::Map<alloc::string::String, serde_json::value::Value>)
 pub enum brokkr_protocol::DshServed
 pub brokkr_protocol::DshServed::Engine
 pub brokkr_protocol::DshServed::Operator

@@ -868,9 +868,11 @@ or timed out", which refuses the seat with the same instruction. The record
 names six environment variables in the binary and exercised none.
 
 
-**Kept transcripts (`agy-conversation`).** Agy's example adapter declares
-`record_kinds: {"transcript": "agy-conversation"}` (with no `root_session`
-kind and no `resume_shape`, because rejoin is not built yet). `agy-conversation`
+**Kept transcripts and rejoin state (`agy-conversation`).** Agy's example adapter declares
+`record_kinds: {"transcript": "agy-conversation", "root_session": "agy-conversation", "resume_shape": "stream-work-site"}`
+while keeping `resume.stream-work-site.status` at `"unsupported"`, because the
+`--conversation` rejoin launch is not built yet and any offered session is still
+refused before a process starts. `agy-conversation`
 is admitted only where the seat's loaded adapter declares it in `record_kinds`,
 carried from the engine to the driver through one shared type
 (`DeclaredTranscriptKind` under `resume_context.declared_transcript_kind`,
@@ -887,8 +889,29 @@ HOME is removed, `brokkr driver agy` copies only
 out of the engine HOME into
 `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/transcript.jsonl`
 and records `transcript: {"kind": "agy-conversation", "locator": "<id>", "home": "<operator HOME>/.local/state/brokkr/agy-conversations"}`
-(beside `~/.local/state/brokkr/dsh-homes/`, dsh's precedent). The database,
-the full transcript log, `chunks/` and `steps/` are not kept.
+(beside `~/.local/state/brokkr/dsh-homes/`, dsh's precedent).
+
+For a **work seat** whose adapter declares `record_kinds.root_session: "agy-conversation"`
+(carried from the engine for work seats alone in
+`resume_context.declared_root_session_kind`), the driver also asks the launched
+`agy` binary for its version via `agy --version` (under the engine HOME and
+`AGY_CLI_DISABLE_AUTO_UPDATE=true`), copies `conversations/<id>.db` and
+`brain/<id>/` beside the kept transcript into
+`<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/`
+(`conversation.db` and `brain/`, every directory mode `0700` and every file
+mode `0600` through `fchmod`, bounded at 128 MiB total, 4,096 entries, and 16
+directory levels, all or nothing with rollback on any missing, unreadable,
+non-regular, over-bound, or changed-underfoot part), and records a
+`harness-started` checkpoint with `root_session` of kind `agy-conversation`,
+the conversation UUID, the observed `harness_version`, and `persistent: true`
+only when rejoin state was kept whole (`persistent: false` otherwise; no
+`root_session` and no kept rejoin state when `agy --version` produces no
+recordable version or masking would rewrite the row). Because the conversation
+database cannot be masked and still be read by `agy`, a conversation in which a
+bound secret value appeared is not kept for rejoin (`persistent: false`) while
+the kept transcript's own rule stays unaffected. Probes, gate seats,
+undeclared seats, turns with no conversation id, and turns with a non-UUID id
+keep no rejoin state and emit no `root_session`.
 
 Because the driver and the engine are two processes, the driver can only keep
 nothing in the cases it can see. Those are: a probe (unchanged from main:
@@ -987,11 +1010,14 @@ absent member is not counted. Nothing reaps
 `~/.local/state/brokkr/dsh-homes/`; a shared reaper is tracked as #1323
 (decision 0075 addendum of 2026-11-24, proposed).
 
-**Out of scope for level 2 transcripts (follow-ups).** Rejoin
-(`--conversation`), reporting applied effort from a transcript row's `model`
-slug (#1324), a shared reaper for kept conversations and dsh homes (#1323), and
-an unboxed seat's command that outlives a hard kill (`l2-14-kill-group`,
-#1245's family).
+**Out of scope for level 2 slice 1 (follow-ups).** The `--conversation` rejoin
+launch (restoring kept state into an engine HOME, confirming the returned id,
+serializing concurrent turns on one conversation, MCP isolation on rejoin, and
+enabling `stream-work-site`), reporting applied effort from a transcript row's
+`model` slug (#1324), a shared reaper for kept transcripts, rejoin state, and
+dsh homes (#1323), and an unboxed seat's command that outlives a hard kill
+(`l2-14-kill-group`, #1245's family) (decision 0075 addenda of 2026-11-24 and
+2026-11-26, proposed).
 
 **MCP isolation.** Agy's cold and replacement shapes, without hands on
 1.5.13 and boxed on 1.5.14, are measured on Linux

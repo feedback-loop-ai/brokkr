@@ -753,7 +753,7 @@ mod refusal;
 mod store;
 
 use mask::mask_needles;
-pub(crate) use mask::{mask_intersects, mask_split, MaskedSplit};
+pub(crate) use mask::{mask_intersects, mask_split, MaskedSplit, SecretMatcher};
 use refusal::{NameRefusal, ReferenceRefusal, ValueRefusal};
 
 #[cfg(test)]

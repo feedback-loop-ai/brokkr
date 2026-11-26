@@ -1728,5 +1728,6 @@ mod boxed;
 mod judged;
 mod keep;
 mod last;
+mod rejoin;
 mod resolved;
 mod whole;

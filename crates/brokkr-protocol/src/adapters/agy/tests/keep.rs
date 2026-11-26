@@ -12,7 +12,7 @@ use crate::adapters::agy::keep::{keep, keep_with_cap, owned_parent_with, ConvGua
 use crate::transcript::driver_kind;
 use brokkr_core::seat::is_agy_uuid;
 
-const UUID: &str = "32786eb8-d649-4c35-9110-c8c87a1cdb7d";
+pub(super) const UUID: &str = "32786eb8-d649-4c35-9110-c8c87a1cdb7d";
 /// `l2b-printed-value.transcript.ndjson`, read at test run time: the evidence
 /// lives outside `crates/brokkr-protocol`, so no `include_str!` in `src/` reaches
 /// it (`packaging::no_crate_includes_a_file_from_outside_itself`).
@@ -263,7 +263,12 @@ fn run_seat_with_input(input: Value, probe: bool) -> Vec<crate::Body> {
     messages
 }
 
-fn run_seat_agy(world: &mut World, bin: &Path, input: Value, probe: bool) -> Vec<crate::Body> {
+pub(super) fn run_seat_agy(
+    world: &mut World,
+    bin: &Path,
+    input: Value,
+    probe: bool,
+) -> Vec<crate::Body> {
     world.set(bin);
     run_seat_with_input(input, probe)
 }
@@ -274,9 +279,9 @@ fn init_row(model: &str) -> String {
     )
 }
 
-const STEP_DONE: &str =
+pub(super) const STEP_DONE: &str =
     r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":"DONE"}}"#;
-const OK_RES: &str =
+pub(super) const OK_RES: &str =
     r#"{"event":"result","result":{"status":"SUCCESS","response":"DONE","num_turns":1}}"#;
 
 fn clean_turn_stdout() -> String {
@@ -305,7 +310,7 @@ fn no_model_ok_stdout() -> String {
     format!("{init_no_model}\n{ok_res}\n")
 }
 
-fn kept_parent(operator_home: &Path) -> PathBuf {
+pub(super) fn kept_parent(operator_home: &Path) -> PathBuf {
     operator_home.join(".local/state/brokkr/agy-conversations")
 }
 
