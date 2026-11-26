@@ -889,6 +889,7 @@ impl Engine {
         &mut self,
         error: EngineError,
     ) -> Result<Option<DriveEnd>, EngineError> {
+        let kept_stderr = self.stderr.take_contended();
         let Some(store_error) = error.contention() else {
             return Err(error);
         };
@@ -908,7 +909,7 @@ impl Engine {
             }
             let settled =
                 json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
-            self.append(EventType::EffectIndeterminate, settled, Some(attempt_id))?;
+            self.settle_contended_attempt(kept_stderr, settled, attempt_id)?;
             state = self.replay.caught_up(&mut self.store, &self.run_id)?;
         }
         if !matches!(

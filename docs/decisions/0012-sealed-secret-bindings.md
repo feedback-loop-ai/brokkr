@@ -155,6 +155,8 @@ keeps its tail until the event lands and its turn's appends finish.
 The engine tells a held outcome's tail before waiting, probing or retrying
 if no park is due, and a drive that returns with a tail still queued tells
 it as it returns, after letting the run go.
+An attempt whose step checkpoint the lock outlasts keeps its tail for the
+indeterminate the lawful end settles it with.
 
 **2026-11-21, pointer (#1242; accepted 2026-11-23).** How a built-in fold reads a stream row that layer 5 masks, its structure raw and its text masked, is decided in [0114](0114-a-fold-reads-a-rows-structure-as-written-and-its-text-masked.md).
 
