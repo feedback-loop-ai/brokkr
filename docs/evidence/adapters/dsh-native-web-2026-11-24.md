@@ -47,8 +47,30 @@ typos exclusion covers it). All of them are in
 - **Releases:** any dsh release other than 0.2.1-rc.2.
 - **The shell:** the accepted residual.
 
+## Key-only compositions (2026-11-26)
+
+For a dsh seat without a grant, brokkr composes OFF as the tool-web row's two keys and nothing else: no backend row is disabled. The row it writes is the one in
+`crates/brokkr-protocol/src/native_controls/dsh.rs`.
+
+Every OFF run above also disabled backend rows, so this shape rested on inference. The review chief of 0126b's round 4 (run
+story-0126b-round-4-for-issue-13-62ca24ad) raised that as finding 1.
+
+The controller measured the shape on 2026-11-26. The setup was the same: dsh 0.2.1-rc.2, the scratch `DSH_HOME`, no-shell.yml, and the same two tasks.
+
+| Run | Overlay beside no-shell.yml (backend rows all enabled) | Task | Web tools in catalog | Answer |
+|---|---|---|---|---|
+| keyoff-fetch | [key-off.yml](dsh-native-web-2026-11-24/key-off.yml) | fetch | none | NO-WEB-TOOL |
+| keyoff-search | [key-off.yml](dsh-native-web-2026-11-24/key-off.yml) | search | none | NO-SEARCH-TOOL |
+| keyfetch-search | [key-fetch.yml](dsh-native-web-2026-11-24/key-fetch.yml) | search | web_fetch only | NO-SEARCH-TOOL |
+| keysearch-fetch | [key-search.yml](dsh-native-web-2026-11-24/key-search.yml) | fetch | web_search only | NO-WEB-TOOL |
+
+**What the four runs show.**
+- **No run called a tool.**
+- **The catalogs match.** key-off's catalog is the same 22 tools as web-off's. Each one-key overlay's catalog is key-off's plus exactly the tool its key keeps.
+- **The keys alone are the control.** With every backend row enabled, `fetch: false` and `search: false` each remove their own tool. So the composed OFF, and each composition that keeps one capability, holds as measured.
+
 **Scrubbing.** The files hold no key, no home path and no host name. Their
 only path is the measurement's scratch working directory under
 `/var/tmp/cap-gates/`.
 
-**Cost:** ten deepseek-flash calls and two DeepSeek search requests.
+**Cost:** on 2026-11-24, ten deepseek-flash calls and two DeepSeek search requests; on 2026-11-26, four deepseek-flash calls and no search request.

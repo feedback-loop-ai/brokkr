@@ -1,0 +1,8 @@
+{"type":"session","sessionId":"session-a664505b-7a50-4436-88a9-cb5f007e2167","cwd":"/var/tmp/cap-gates/dsh-web-measure/work"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"thinking","text":"The user asks to fetch https://example.com with a web fetch tool. I don't have a web fetch tool in my available tools. The instruction says reply exactly NO-WEB-TOOL if no tool that can fetch a web page. And do not try any other way.\n\nSo answer: NO-WEB-TOOL.\n\nI must not use shell curl etc. Just reply exactly NO-WEB-TOOL."}
+{"type":"text","text":"NO-WEB-TOOL"}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":199,"outputTokens":92,"cacheReadTokens":4736,"cacheWriteTokens":0,"totalTokens":5027}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"type":"final","text":"NO-WEB-TOOL"}

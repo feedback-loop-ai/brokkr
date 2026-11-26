@@ -1,0 +1,8 @@
+{"type":"session","sessionId":"session-25e5256b-4e3d-4450-9aca-06dcfca9e9b0","cwd":"/var/tmp/cap-gates/dsh-web-measure/work"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"thinking","text":"The user asks me to search the web with a web search tool. I need to check if I have a web search tool available. Looking at my available tools: create_goal, edit, exit_plan_mode, get_goal, glob, grep, interrupt_agent, job_kill, job_list, job_output, list_agents, read, read_image, send_message, skill, subagent, subagent_fork, todo_write, update_goal, workflow, working_directory, write.\n\nThere is no web search tool. The instruction says: \"If you have no web search tool, reply exactly NO-SEARCH-TOOL. Do not try any other way.\"\n\nSo I should reply exactly NO-SEARCH-TOOL."}
+{"type":"text","text":"NO-SEARCH-TOOL"}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":197,"outputTokens":157,"cacheReadTokens":4736,"cacheWriteTokens":0,"totalTokens":5090}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"type":"final","text":"NO-SEARCH-TOOL"}

@@ -1,0 +1,4 @@
+- id: tool-web
+  config:
+    fetch: false
+    search: true
