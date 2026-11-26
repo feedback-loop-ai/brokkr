@@ -27,6 +27,7 @@ fn rate_limit_wait(site: Option<&str>) -> ProviderWait {
         seconds: 1,
         until: base() + time::Duration::seconds(1),
         rounds: 1,
+        held: None,
     }
 }
 
@@ -110,8 +111,10 @@ fn a_park_that_cannot_journal_propagates_the_store_error() {
 fn a_journal_append_that_cannot_journal_propagates_the_store_error() {
     own_engine!();
     for (event_type, journaled) in [("effect/failed", 0usize), ("run/parked", 1)] {
-        let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, Some(5), 2);
-        engine.cooldown.host = Some(host(dir.path(), 1, 2));
+        // A host that does not read parks at the terminal (a stated reset
+        // past the maximum is held, decision 0106 ruling 2).
+        let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, None, 2);
+        invalid_host(dir.path(), &mut engine);
         fail_event(&dir.path().join("forge.db"), event_type);
         let error = engine.drive().unwrap_err();
         assert!(
@@ -206,6 +209,7 @@ fn a_second_runs_append_does_not_stop_the_wait() {
     {
         Waited::Proceed(_) => {}
         Waited::Stopped => panic!("a second run's append stopped this run's wait"),
+        Waited::Held => panic!("the wait held a probe's round"),
         Waited::Parked(reason) => panic!("the wait parked: {reason}"),
     }
     assert_eq!(logs(dir.path(), "work"), ["probe"]);
@@ -278,6 +282,7 @@ fn the_probe_names_a_cased_site_as_the_attempt_does() {
             panic!("the probe parked: {reason}")
         }
         super::super::probe::Probe::Extended(_) => panic!("the probe extended the wait"),
+        super::super::probe::Probe::Held => panic!("the probe was held from its route"),
     }
     assert_eq!(probe_seat(dir.path(), "work"), "work:chore");
 }

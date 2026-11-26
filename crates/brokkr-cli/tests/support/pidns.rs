@@ -14,7 +14,6 @@
 #![cfg(target_os = "linux")]
 
 use std::ffi::{OsStr, OsString};
-use std::fmt;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::OnceLock;
@@ -45,16 +44,19 @@ pub(crate) const REFUSED: &str =
     "a test that delivers a real signal refused before it delivered anything";
 
 /// Why no namespace can be built here.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum Unavailable {
     /// No bwrap to build one, in its finder's words.
+    #[error("{0}")]
     NoBwrap(String),
     /// The bwrap found does not start.
+    #[error("{bwrap} does not run: {error}")]
     DoesNotRun {
         bwrap: String,
         error: std::io::Error,
     },
     /// The bwrap ran and could not build one, as a nesting box refuses.
+    #[error("{bwrap} cannot build one here ({status}): {said}")]
     Refused {
         bwrap: String,
         status: ExitStatus,
@@ -62,53 +64,19 @@ pub(crate) enum Unavailable {
     },
 }
 
-impl fmt::Display for Unavailable {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unavailable::NoBwrap(reason) => write!(f, "{reason}"),
-            Unavailable::DoesNotRun { bwrap, error } => write!(f, "{bwrap} does not run: {error}"),
-            Unavailable::Refused {
-                bwrap,
-                status,
-                said,
-            } => write!(f, "{bwrap} cannot build one here ({status}): {said}"),
-        }
-    }
-}
-
-impl std::error::Error for Unavailable {}
-
 /// Why a process is not proved isolated: each refuses delivery.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum Isolation {
     /// A namespace's identity could not be read, and what was read.
+    #[error("a PID namespace identity is unreadable: {0}")]
     Unreadable(String),
     /// A namespace's identity read as something other than `pid:[N]`.
+    #[error("a PID namespace identity reads {0:?}, not pid:[N]")]
     Unparsable(String),
     /// The child's is the parent's.
+    #[error("it runs in its parent's PID namespace, pid:[{0}]")]
     Shared(u64),
 }
-
-impl fmt::Display for Isolation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Isolation::Unreadable(what) => {
-                write!(f, "a PID namespace identity is unreadable: {what}")
-            }
-            Isolation::Unparsable(read) => {
-                write!(f, "a PID namespace identity reads {read:?}, not pid:[N]")
-            }
-            Isolation::Shared(namespace) => {
-                write!(
-                    f,
-                    "it runs in its parent's PID namespace, pid:[{namespace}]"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for Isolation {}
 
 /// The number of the PID namespace `link` names (#1137i, Z2).
 /// Its identity is exactly `pid:[N]`, where N is a canonical ASCII
@@ -189,16 +157,9 @@ pub(crate) enum Demand {
 }
 
 /// A [`REQUIRE`] value that is neither `1` nor absent.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{require} is `1` or absent, not {0:?}", require = REQUIRE)]
 pub(crate) struct Undeclared(pub(crate) OsString);
-
-impl fmt::Display for Undeclared {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{REQUIRE} is `1` or absent, not {:?}", self.0)
-    }
-}
-
-impl std::error::Error for Undeclared {}
 
 /// The demand [`REQUIRE`]'s `value` makes. Only an absent one is
 /// optional: an empty value, as a workflow expression that yields nothing

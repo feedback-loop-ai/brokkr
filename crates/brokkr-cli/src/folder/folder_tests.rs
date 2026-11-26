@@ -383,6 +383,25 @@ fn a_root_layout_without_state_moves_no_state() {
     assert_eq!(layout.agents(None), PathBuf::from("agents"));
 }
 
+#[test]
+fn trackers_have_a_place_in_a_found_folder_and_a_library() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let child = root.join("inside");
+    std::fs::create_dir(&child).unwrap();
+    std::fs::create_dir(root.join(".git")).unwrap();
+    let trackers = Layout::discover(&child).unwrap().trackers();
+    assert_eq!(trackers, None);
+
+    std::fs::create_dir(root.join(".brokkr")).unwrap();
+    let trackers = Layout::discover(&child).unwrap().trackers();
+    assert_eq!(trackers, Some(root.join(".brokkr/trackers")));
+
+    plant_library(&root);
+    let trackers = Layout::discover(&child).unwrap().trackers();
+    assert_eq!(trackers, Some(child.join("trackers")));
+}
+
 /// The refusal an old layout's `.forge` gives in place of its moves.
 fn refused(root: &Path) -> FolderError {
     Layout::discover(root).unwrap().refuse_old().unwrap_err()

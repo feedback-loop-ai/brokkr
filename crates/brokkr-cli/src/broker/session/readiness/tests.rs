@@ -871,9 +871,15 @@ type Proved = (
 
 /// A bound plan's lifetime whose session delivers `DOCS_TOKEN`, stored as
 /// `value`, on the control pipe `writer`, which is full and which no one
-/// reads ([`probed`]), within `startup`, its bindings given to the
-/// lifetime's binder: how the lifetime ended, and what its ledger proves.
-fn given_up(value: &str, writer: PipeWriter, startup: Startup<'_>) -> (Result<(), Ended>, Proved) {
+/// reads ([`probed`]). The startup budget `within` begins once the ledger
+/// is open, and `cancelled` tells the session when to give up. Its bindings
+/// go to the binder. Returns the session's ending and what its ledger proves.
+fn given_up(
+    value: &str,
+    writer: PipeWriter,
+    within: Duration,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> (Result<(), Ended>, Proved) {
     let dir = tempfile::tempdir().unwrap();
     let admitted = admitted_store(dir.path(), &format!("DOCS_TOKEN={value}\n"));
     let attempt: OwnedFd = std::fs::File::open(dir.path()).unwrap().into();
@@ -881,6 +887,7 @@ fn given_up(value: &str, writer: PipeWriter, startup: Startup<'_>) -> (Result<()
     let ended = plan_lived(&attempt, &plan, |binder| {
         let pipes = (&mut Some(writer), &mut written(b""));
         let bind = |found| binder.bind(found);
+        let startup = (Instant::now() + within, cancelled);
         delivered(pipes, (&admitted, &plan), startup, (|| (), bind)).map(drop)
     });
     (ended, proved(dir.path(), &plan))
@@ -927,17 +934,19 @@ fn seen(probe: &PipeWriter) -> bool {
     flags.contains(rustix::fs::OFlags::NONBLOCK)
 }
 
-/// Never cancelled, but answering only once the lookup on `probe`'s pipe
-/// is [`seen`], or 30 s on, so no deadline is read as passed before it,
-/// however late a loaded host runs the sender.
-fn after_lookup(probe: &PipeWriter) -> impl Fn() -> bool + Sync + '_ {
+/// Let the deadline end the wait once the lookup on `probe`'s pipe is
+/// [`seen`]. Bound this wait from the supervisor's first poll, after the
+/// fixture's writes and the sender's launch.
+fn after_lookup(probe: &PipeWriter) -> bool {
     let bound = Instant::now() + Duration::from_secs(30);
-    move || {
-        while !seen(probe) & (Instant::now() < bound) {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        false
+    while !seen(probe) {
+        assert!(
+            Instant::now() < bound,
+            "the sender did not publish its lookup"
+        );
+        std::thread::sleep(Duration::from_millis(1));
     }
+    false
 }
 
 #[test]
@@ -950,17 +959,17 @@ fn bindings_looked_up_before_a_stalled_write_still_guard_the_closure_given_up_on
     // `closed` its record's name, so the Closed the handoff cause would
     // close with is refused and never appended, and the lifetime ends with
     // the masking cause.
-    let soon = || Instant::now() + Duration::from_millis(500);
+    let soon = Duration::from_millis(500);
     let unclosed = || (vec![], None, Some(Invalid::Lifecycle));
     let masking = || Err(Ended::Failed(Fatal::Failed(Failure::Masking)));
     for value in ["0002", "closed"] {
         let (_reader, writer, probe) = probed();
-        let ran = given_up(value, writer, (soon(), &after_lookup(&probe)));
+        let ran = given_up(value, writer, soon, &|| after_lookup(&probe));
         let deadline = (value, "deadline", ran);
         assert_eq!(deadline, (value, "deadline", (masking(), unclosed())));
         let (_reader, writer, probe) = probed();
-        let far = Instant::now() + Duration::from_secs(30);
-        let ran = given_up(value, writer, (far, &|| seen(&probe)));
+        let far = Duration::from_secs(30);
+        let ran = given_up(value, writer, far, &|| seen(&probe));
         let cancelled = (value, "cancelled", ran);
         assert_eq!(cancelled, (value, "cancelled", (masking(), unclosed())));
     }
@@ -969,8 +978,8 @@ fn bindings_looked_up_before_a_stalled_write_still_guard_the_closure_given_up_on
     let handoff = Failure::Refused(Refusal::Handoff);
     let closed = (vec![], Some(Disposition::Failed(handoff)), None);
     let (_reader, writer, probe) = probed();
-    let deadline = Instant::now() + Duration::from_millis(300);
-    let ran = given_up("unrelated", writer, (deadline, &after_lookup(&probe)));
+    let deadline = Duration::from_millis(300);
+    let ran = given_up("unrelated", writer, deadline, &|| after_lookup(&probe));
     assert_eq!(ran, (Err(Ended::Refused(Refusal::Handoff)), closed));
 }
 

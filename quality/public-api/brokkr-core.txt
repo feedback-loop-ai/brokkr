@@ -1017,7 +1017,7 @@ pub const brokkr_core::policy::CHANGE: &str
 pub const brokkr_core::policy::CONSECUTIVE_FAILURES: &str
 pub const brokkr_core::policy::COUNTER_INPUTS: [&str; 1]
 pub const brokkr_core::policy::DRIFT_PHASES: [&str; 3]
-pub const brokkr_core::policy::ENGINE_OWNED_INPUTS: [&str; 7]
+pub const brokkr_core::policy::ENGINE_OWNED_INPUTS: [&str; 8]
 pub const brokkr_core::policy::IDENTIFIER_INPUTS: [&str; 1]
 pub const brokkr_core::policy::REALM_FACTS: &str
 pub const brokkr_core::policy::RULING_SEVERITIES: [&str; 3]
@@ -1060,10 +1060,25 @@ pub fn brokkr_core::realms::CrossingList<T>::is_null(&self) -> bool
 pub fn brokkr_core::realms::CrossingList<T>::is_written(&self) -> bool
 impl<'de, T: serde_core::de::Deserialize<'de>> serde_core::de::Deserialize<'de> for brokkr_core::realms::CrossingList<T>
 pub fn brokkr_core::realms::CrossingList<T>::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub enum brokkr_core::realms::GrantDialect
+pub brokkr_core::realms::GrantDialect::PerProvider(alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>)
+pub brokkr_core::realms::GrantDialect::Single(alloc::string::String)
+impl core::convert::From<&str> for brokkr_core::realms::GrantDialect
+pub fn brokkr_core::realms::GrantDialect::from(&str) -> Self
 pub enum brokkr_core::realms::GrantError
+pub brokkr_core::realms::GrantError::BothDialects
+pub brokkr_core::realms::GrantError::BothDialects::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::BothDialects::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::Dialect
 pub brokkr_core::realms::GrantError::Dialect::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::Dialect::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::DialectProvider
+pub brokkr_core::realms::GrantError::DialectProvider::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::DialectProvider::provider: alloc::string::String
+pub brokkr_core::realms::GrantError::DialectProvider::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::Dialects
+pub brokkr_core::realms::GrantError::Dialects::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::Dialects::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::List
 pub brokkr_core::realms::GrantError::List::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::List::list: brokkr_core::realms::GrantList
@@ -1071,6 +1086,9 @@ pub brokkr_core::realms::GrantError::List::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::Name
 pub brokkr_core::realms::GrantError::Name::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::Name::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::NoDialect
+pub brokkr_core::realms::GrantError::NoDialect::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::NoDialect::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::NotAGrant
 pub brokkr_core::realms::GrantError::NotAGrant::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::NotAGrant::grant: alloc::string::String
@@ -1078,6 +1096,14 @@ pub brokkr_core::realms::GrantError::NotAGrant::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::NotAMap
 pub brokkr_core::realms::GrantError::NotAMap::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::NotAMap::written: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderDialect
+pub brokkr_core::realms::GrantError::ProviderDialect::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderDialect::provider: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderDialect::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderGrantKey
+pub brokkr_core::realms::GrantError::ProviderGrantKey::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderGrantKey::key: alloc::string::String
+pub brokkr_core::realms::GrantError::ProviderGrantKey::realm: alloc::string::String
 pub brokkr_core::realms::GrantError::Retain
 pub brokkr_core::realms::GrantError::Retain::capability: alloc::string::String
 pub brokkr_core::realms::GrantError::Retain::realm: alloc::string::String
@@ -1166,7 +1192,7 @@ pub brokkr_core::realms::Word::Journal
 pub brokkr_core::realms::Word::Publishes
 pub struct brokkr_core::realms::BoundaryError(pub alloc::string::String)
 pub struct brokkr_core::realms::CapabilityGrant
-pub brokkr_core::realms::CapabilityGrant::dialect: alloc::string::String
+pub brokkr_core::realms::CapabilityGrant::dialect: brokkr_core::realms::GrantDialect
 pub brokkr_core::realms::CapabilityGrant::offices: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub brokkr_core::realms::CapabilityGrant::restrictions: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub brokkr_core::realms::CapabilityGrant::retention: brokkr_core::realms::GrantRetention
@@ -1211,7 +1237,7 @@ pub const brokkr_core::realms::DEFAULT_MAP_FILE: &str
 pub const brokkr_core::realms::GRANT_KEYS: [&str; 3]
 pub const brokkr_core::realms::LEGACY_REALM_KEY: &str
 pub const brokkr_core::realms::NOT_APPLICABLE: &str
-pub const brokkr_core::realms::SCHEMAS: [&str; 8]
+pub const brokkr_core::realms::SCHEMAS: [&str; 9]
 pub const brokkr_core::realms::SCHEMA_V1: &str
 pub const brokkr_core::realms::SCHEMA_V2: &str
 pub const brokkr_core::realms::SCHEMA_V3: &str
@@ -1220,6 +1246,7 @@ pub const brokkr_core::realms::SCHEMA_V5: &str
 pub const brokkr_core::realms::SCHEMA_V6: &str
 pub const brokkr_core::realms::SCHEMA_V7: &str
 pub const brokkr_core::realms::SCHEMA_V8: &str
+pub const brokkr_core::realms::SCHEMA_V9: &str
 pub fn brokkr_core::realms::is_name(&str) -> bool
 pub mod brokkr_core::residual
 pub enum brokkr_core::residual::Claim
@@ -1512,6 +1539,52 @@ pub fn brokkr_core::summary::entered_phase(&brokkr_core::envelope::EventEnvelope
 pub fn brokkr_core::summary::feature_line(&str) -> &str
 pub fn brokkr_core::summary::parks(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Park>
 pub fn brokkr_core::summary::sites(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Site>
+pub mod brokkr_core::work_order
+pub enum brokkr_core::work_order::WorkOrderState
+pub brokkr_core::work_order::WorkOrderState::DeliveredElsewhere
+pub brokkr_core::work_order::WorkOrderState::InProgress
+pub brokkr_core::work_order::WorkOrderState::Merged
+pub brokkr_core::work_order::WorkOrderState::Proposed
+pub brokkr_core::work_order::WorkOrderState::Queued
+pub brokkr_core::work_order::WorkOrderState::Ruled
+pub brokkr_core::work_order::WorkOrderState::Shipped
+pub brokkr_core::work_order::WorkOrderState::Superseded
+pub brokkr_core::work_order::WorkOrderState::Withdrawn
+pub struct brokkr_core::work_order::Reference
+pub brokkr_core::work_order::Reference::item: alloc::string::String
+pub brokkr_core::work_order::Reference::link: alloc::string::String
+pub brokkr_core::work_order::Reference::tracker: alloc::string::String
+pub struct brokkr_core::work_order::Trackers(_)
+impl brokkr_core::work_order::Trackers
+pub fn brokkr_core::work_order::Trackers::from_definitions<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a str>) -> core::result::Result<Self, brokkr_core::work_order::WorkOrderError>
+pub struct brokkr_core::work_order::WorkOrder
+impl brokkr_core::work_order::WorkOrder
+pub fn brokkr_core::work_order::WorkOrder::acceptance(&self) -> &[alloc::string::String]
+pub fn brokkr_core::work_order::WorkOrder::digest(&self) -> &str
+pub fn brokkr_core::work_order::WorkOrder::id(&self) -> core::option::Option<&brokkr_core::work_order::WorkOrderId>
+pub fn brokkr_core::work_order::WorkOrder::intent(&self) -> &str
+pub fn brokkr_core::work_order::WorkOrder::journaled_open_asks(&str) -> core::result::Result<usize, brokkr_core::work_order::WorkOrderError>
+pub fn brokkr_core::work_order::WorkOrder::open_asks(&self) -> usize
+pub fn brokkr_core::work_order::WorkOrder::parse(&str, &brokkr_core::work_order::Trackers) -> core::result::Result<Self, brokkr_core::work_order::WorkOrderError>
+pub fn brokkr_core::work_order::WorkOrder::references(&self) -> &[brokkr_core::work_order::Reference]
+pub fn brokkr_core::work_order::WorkOrder::render(&self) -> alloc::string::String
+pub fn brokkr_core::work_order::WorkOrder::state(&self) -> brokkr_core::work_order::WorkOrderState
+pub fn brokkr_core::work_order::WorkOrder::title(&self) -> &str
+pub fn brokkr_core::work_order::WorkOrder::with_id(self, brokkr_core::work_order::WorkOrderId) -> Self
+pub fn brokkr_core::work_order::WorkOrder::with_state(self, brokkr_core::work_order::WorkOrderState) -> Self
+pub struct brokkr_core::work_order::WorkOrderError(_)
+pub struct brokkr_core::work_order::WorkOrderId(_)
+impl brokkr_core::work_order::WorkOrderId
+pub fn brokkr_core::work_order::WorkOrderId::from_number(u32) -> core::result::Result<Self, brokkr_core::work_order::WorkOrderError>
+pub fn brokkr_core::work_order::WorkOrderId::number(&self) -> u32
+impl core::fmt::Display for brokkr_core::work_order::WorkOrderId
+pub fn brokkr_core::work_order::WorkOrderId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::str::traits::FromStr for brokkr_core::work_order::WorkOrderId
+pub type brokkr_core::work_order::WorkOrderId::Err = brokkr_core::work_order::WorkOrderError
+pub fn brokkr_core::work_order::WorkOrderId::from_str(&str) -> core::result::Result<Self, Self::Err>
+impl serde_core::ser::Serialize for brokkr_core::work_order::WorkOrderId
+pub fn brokkr_core::work_order::WorkOrderId::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+pub fn brokkr_core::work_order::text_digest(&str) -> alloc::string::String
 pub enum brokkr_core::CauseRead
 pub brokkr_core::CauseRead::Refused(alloc::string::String)
 pub brokkr_core::CauseRead::Stated(brokkr_core::park::ParkCause)
@@ -1717,6 +1790,8 @@ pub brokkr_core::EventEnvelope::seq: u64
 impl brokkr_core::envelope::EventEnvelope
 pub fn brokkr_core::envelope::EventEnvelope::compute_hash(&self) -> alloc::string::String
 pub fn brokkr_core::envelope::EventEnvelope::sealed(self) -> Self
+pub struct brokkr_core::Held
+pub brokkr_core::Held::max_seconds: u64
 pub struct brokkr_core::Machine
 pub brokkr_core::Machine::initial: alloc::string::String
 pub brokkr_core::Machine::phases: alloc::vec::Vec<alloc::string::String>
@@ -1752,6 +1827,7 @@ pub brokkr_core::ProviderRefusal::seconds: core::option::Option<u64>
 pub brokkr_core::ProviderRefusal::site: core::option::Option<alloc::string::String>
 pub brokkr_core::ProviderRefusal::words: alloc::string::String
 pub struct brokkr_core::ProviderWait
+pub brokkr_core::ProviderWait::held: core::option::Option<brokkr_core::Held>
 pub brokkr_core::ProviderWait::provider: alloc::string::String
 pub brokkr_core::ProviderWait::retry_after_seconds: core::option::Option<u64>
 pub brokkr_core::ProviderWait::rounds: u64

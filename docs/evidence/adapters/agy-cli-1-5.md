@@ -2,15 +2,19 @@
 
 Issue #1200. This record backs an `agy` adapter and `brokkr driver agy` (decision 0075,
 level 1 and after). `brokkr probe harness` knows only claude, codex and dsh,
-so every figure here was measured by hand. The recorded stdout and stderr of
-each turn sit beside this file in [`agy-cli-1-5/`](agy-cli-1-5/), byte for
-byte as the CLI wrote them.
+so the lab turns here were measured by hand, with each turn's CLI stdout and
+stderr sitting beside this file in [`agy-cli-1-5/`](agy-cli-1-5/) byte for
+byte as the CLI wrote them. For the eighth measurement's two engine seats
+(`claude-engine-0160-*`), the directory instead holds each launch's `.argv`
+and `.mcp_config.json`, the reader's rendering of the kept transcript
+(`brokkr runs transcript`, `.transcript.txt`), and the controller's extract of
+the run view's seat row (`.seat.json`).
 
 ## Provenance
 
 | Figure | Source |
 | --- | --- |
-| Every live turn below | controller, 2026-11-20, Linux workstation |
+| Live turns of the first three measurements | controller, 2026-11-20, Linux workstation (the fourth through eighth measurements carry their own dates, versions and slugs below) |
 | The flag list | `agy --help`, recorded as `help.txt` |
 | The model list | `agy models`, recorded as `models.txt` |
 | The environment names | `strings` of the installed 1.5.13 binary, 2026-11-20 |
@@ -24,10 +28,10 @@ No implementing seat can re-run these figures, because none has a signed-in
 | Item | Value |
 | --- | --- |
 | Host | Linux x86-64, Ubuntu, `kernel.apparmor_restrict_unprivileged_userns = 1`. macOS: pending |
-| Antigravity CLI | 1.5.13 (`version.txt`) for everything but the fifth, sixth and seventh measurements, which ran on 1.5.14; one native binary of 270,103,240 bytes that Google's installer (`https://antigravity.google/cli/install.sh`, SHA-512 checked against its manifest) put at `~/.local/bin/agy` |
+| Antigravity CLI | 1.5.13 (`version.txt`) for everything but the fifth, sixth and seventh measurements, which ran on 1.5.14, and the eighth, which ran on 1.5.17; one native binary of 270,103,240 bytes that Google's installer (`https://antigravity.google/cli/install.sh`, SHA-512 checked against its manifest) put at `~/.local/bin/agy` |
 | Account | a personal Google account on the Google AI Ultra plan, signed in through the browser; the login is one file, `~/.gemini/antigravity-cli/antigravity-oauth-token`, mode 0600 |
-| Working directory | a scratch directory under `/var/tmp/probe-agy/` for each turn |
-| Model | `--model gemini-3.8-flash-low` for every turn, except the named-model and model-refusal turns |
+| Working directory | a scratch directory under `/var/tmp/probe-agy/` for each lab turn (the eighth measurement's two engine seats ran in linked git worktrees) |
+| Model | `--model gemini-3.8-flash-low` for the first through seventh measurements, except the named-model and model-refusal turns; the eighth measurement ran on `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-sonnet-5-5-high` and `claude-sonnet-5-5-low` as its section states |
 | HOME | the operator's own for the turns of the first table; a scratch HOME holding only a link to the login file for every isolation, web and hook turn |
 
 `turns.log` is the controller's own list of each turn's name, exit code and
@@ -113,9 +117,15 @@ The prompt is the value of `-p` unless the row says otherwise.
 - **Models.** `models.txt` lists 27 slugs. The four Gemini 4 models take a base
   slug and `--effort`: `gemini-4-neon` and `gemini-4-hydrogen` take low,
   medium, high and xhigh; `gemini-4-carbon` and `gemini-4-argon` take low,
-  medium and high. No listed model takes `max`. The list also serves
-  `gemini-3.8-flash`, three `gemini-pro-orchestrator` slugs,
-  `claude-opus-5-5`, `claude-sonnet-5-5` and `gpt-oss-120b`.
+  medium and high. In the eighth measurement on 1.5.17, `claude-opus-5-5` and
+  `claude-sonnet-5-5` were measured as far as that section goes: each takes a
+  base slug and `--effort` `low`, `medium` and `high` (refusing `xhigh` and
+  `max`), `claude-sonnet-5-5-low` alone ran the short security set, and each
+  ran one boxed work seat at `low` effort on a four-step task through the
+  released 0.16.0 engine. No listed
+  model takes `max`. The list also serves `gemini-3.8-flash`, three
+  `gemini-pro-orchestrator` slugs and `gpt-oss-120b`; `gpt-oss-*` and the
+  orchestrator slugs remain unmeasured.
 - **The prompt.** `-p` takes the prompt as its value, where every process on
   the host can read it. `--input-format stream-json` without `-p` reads one
   `{"event":"user","message":{"content":"…"}}` line per turn from stdin
@@ -618,6 +628,134 @@ So whatever the engine keeps of a conversation holds bound secrets unmasked, in 
 
 `l2b-06` (ALPHA) and `l2b-07` (BETA) rejoined one conversation in one HOME concurrently (`l2b-05` cold, `l2b-08` after). Both exited 0 with `SUCCESS` and empty stderr despite `presence/<id>.lock`; BETA's response held both `ALPHA LIME-8802` and `BETA LIME-8802` (`num_turns` 3); `l2b-two-rejoins.transcript.ndjson` carries two rows with `step_index` 4, one after row 6; and `l2b-08` listed only three of the four sent messages. Therefore `step_index` is neither unique nor ordered, and a future rejoin must serialize access per conversation.
 
+## Eighth measurement, on 1.5.17: the two Claude slugs (2026-11-25 and 2026-11-26)
+
+**Provenance.** Two passes by the controller on the Linux workstation with
+Antigravity CLI 1.5.17 (#1382): on 2026-11-25, twenty-four live lab turns by
+hand (`claude-opus-5-5`, `claude-sonnet-5-5` and `claude-sonnet-5-5-high` for
+the fourteen effort-grammar turns; `claude-sonnet-5-5-low` alone for the ten
+short-security-set turns); and on 2026-11-26, two boxed work seats through the
+released `brokkr` 0.16.0 binary (one on `claude-opus-5-5` and one on
+`claude-sonnet-5-5`, each at `--effort low`). The Gemini seats have run on agy
+1.5.16 and 1.5.17 without a re-measurement, by the operator's call of
+2026-11-25.
+
+**How.** Fourteen turns exercised the effort grammar of `claude-sonnet-5-5` and
+`claude-opus-5-5` with `--output-format stream-json`. Ten further turns ran the
+short security set on `claude-sonnet-5-5-low` through
+`security-set-claude-sonnet-v17.sh`, each with
+`AGY_CLI_DISABLE_AUTO_UPDATE=true` and `--print-timeout 150s`, using the HOME
+documents, sentinel servers, gate hook and hands server of the sixth
+measurement. `claude-sonnet-v17-turns.log` holds each security-set turn's exit
+code and argv, and `box-engine-workspace-tool-sonnet-v17.transcript.ndjson`
+holds the kept conversation log of the boxed workspace-tool turn.
+
+| Recording | What was asked | Exit | Result |
+| --- | --- | --- | --- |
+| `claude-sonnet-first.ndjson` | `--model claude-sonnet-5-5`, no `--effort`, one-word reply | 0 | `SUCCESS`; init `model` is `claude-sonnet-5-5`; response `ready` |
+| `claude-sonnet-suffix.ndjson` | `--model claude-sonnet-5-5-high`, effort appended to slug, one-word reply | 0 | `SUCCESS`; init `model` is `claude-sonnet-5-5-high`; response `ready` |
+| `claude-sonnet-effort-low.ndjson`, `claude-sonnet-effort-medium.ndjson`, `claude-sonnet-effort-high.ndjson` | `--model claude-sonnet-5-5` with `--effort low`, `medium` and `high`, one-word reply | 0 | `SUCCESS` each; init `model` is `claude-sonnet-5-5`; response `ready` |
+| `claude-sonnet-effort-xhigh.ndjson`, `claude-sonnet-effort-xhigh.stderr` | `--model claude-sonnet-5-5 --effort xhigh` | 1 | `ERROR` result before any turn: `claude-sonnet-5-5 has no "xhigh" effort (available: low, medium, high)` |
+| `claude-sonnet-effort-max.ndjson`, `claude-sonnet-effort-max.stderr` | `--model claude-sonnet-5-5 --effort max` | 1 | `ERROR` result before any turn: `claude-sonnet-5-5 has no "max" effort (available: low, medium, high)` |
+| `claude-sonnet-effort-bogus.ndjson`, `claude-sonnet-effort-bogus.stderr` | `--model claude-sonnet-5-5 --effort bogus` | 1 | `ERROR` result before any turn: `invalid --effort "bogus" (valid: low, medium, high, xhigh, max)` |
+| `claude-opus-noeffort.ndjson` | `--model claude-opus-5-5`, no `--effort`, one-word reply | 0 | `SUCCESS`; init `model` is `claude-opus-5-5`; response `ready` |
+| `claude-opus-effort-low.ndjson`, `claude-opus-effort-medium.ndjson`, `claude-opus-effort-high.ndjson` | `--model claude-opus-5-5` with `--effort low`, `medium` and `high`, one-word reply | 0 | `SUCCESS` each; init `model` is `claude-opus-5-5`; response `ready` |
+| `claude-opus-effort-xhigh.ndjson`, `claude-opus-effort-xhigh.stderr` | `--model claude-opus-5-5 --effort xhigh` | 1 | `ERROR` result before any turn: `claude-opus-5-5 has no "xhigh" effort (available: low, medium, high)` |
+| `claude-opus-effort-max.ndjson`, `claude-opus-effort-max.stderr` | `--model claude-opus-5-5 --effort max` | 1 | `ERROR` result before any turn: `claude-opus-5-5 has no "max" effort (available: low, medium, high)` |
+| `iso-01-positive-control-sonnet-v17.ndjson`, `iso-01-positive-control-sonnet-v17.starts` | operator-like HOME with `--add-dir` on `claude-sonnet-5-5-low` | 0 | `READY`; all six sentinels started (`user`, `plugin`, `adddir`, `workspace`, `wsplugin`, `parent`) |
+| `iso-02-engine-home-workspace-cwd-sonnet-v17.ndjson`, `iso-02-engine-home-workspace-cwd-sonnet-v17.starts` | scratch HOME, seeded workspace as cwd | 0 | `READY`; `workspace`, `parent` and `wsplugin` started; none of the user's |
+| `iso-05-above-git-root-sonnet-v17.ndjson`, `iso-06-parent-without-git-sonnet-v17.ndjson` | scratch HOME, clean workspace | 0 | `READY` each; no sentinel started |
+| `iso-07-engine-carriage-cold-sonnet-v17.ndjson`, `iso-07-engine-carriage-cold-sonnet-v17.starts`, `iso-07-engine-carriage-cold-sonnet-v17.hooklog` | engine server in scratch HOME `mcp_config.json`, cold turn | 0 | `SENTINEL-NONCE-ENGINE`; server started and tool answered |
+| `hook-crash-sonnet-v17.ndjson`, `hook-crash-sonnet-v17.hooklog` | crashing gate hook and a web search | 0 | `NO SEARCH`; crashing gate denied the call |
+| `hook-timeout-sonnet-v17.ndjson`, `hook-timeout-sonnet-v17.hooklog` | hanging gate hook and `uname -s` | 0 | `REFUSED` with `JSON hook "jsonhook__brokkr-gate_PreToolUse_0_0" failed: command failed: signal: killed` |
+| `box-engine-workspace-tool-sonnet-v17.ndjson`, `box-engine-workspace-tool-sonnet-v17.transcript.ndjson` | three workspace-tool commands, then native `run_command` and `write_file` | 0 | three workspace commands ran (`seeded-by-controller`, `agy-was-here`, `0`); both natives `REFUSED` by the pre-tool hook |
+| `box-reach-sonnet-v17.ndjson` | box reach via the workspace tool (six checks) | 0 | 4 entries in `/proc`, pid 1 is `bwrap`, empty home, only `box3` under the parent, no network (`curl` exit 6, status `000`), uid `1000` in the worktree |
+| `box-other-natives-sonnet-v17.ndjson` | ten other native tools by name | 0 | nine refused by the gate by name; `browser_get_dom` reported `NOT-AVAILABLE` |
+
+**Facts.**
+
+- Both `claude-opus-5-5` and `claude-sonnet-5-5` accept `--effort low`, `medium`
+  and `high` and run with no `--effort`. `xhigh` and `max` exit 1 before any
+  turn with an `ERROR` result and the same `has no "<effort>" effort
+  (available: low, medium, high)` wording `gemini-4-carbon` receives. An
+  unknown effort exits 1 naming all five words agy knows (`low, medium, high,
+  xhigh, max`).
+- A slug with the effort appended (`claude-sonnet-5-5-high`) is accepted and
+  init's `model` repeats it as given.
+- The stream has the Gemini turns' shape (`init`, `step_update`, `result`), and
+  init's `model` is the slug asked for.
+- Every turn of the short security set on `claude-sonnet-5-5-low` gave the
+  result the sixth measurement recorded for Gemini.
+- The kept conversation log of the boxed workspace-tool turn
+  (`box-engine-workspace-tool-sonnet-v17.transcript.ndjson`) has the row types
+  and key sets a Gemini turn's has (10 rows across `USER_INPUT`,
+  `PLANNER_RESPONSE` and `GENERIC`, including `thinking` on one
+  `PLANNER_RESPONSE` row).
+- Which upstream serves a Claude turn was not measured.
+
+**Token totals (lab pass).** As agy reported them, the 24 lab turns took
+125,592 input tokens, 5,128 output tokens and 313,438 cache read tokens;
+`claude-opus-5-5` took four one-word turns of that (23,936 input, 16 output and
+34,076 cache read, plus two zero-token effort refusals).
+
+### Boxed work seats through the released 0.16.0 engine (2026-11-26)
+
+One boxed `implement` work seat per Claude slug ran through the released
+`brokkr` 0.16.0 binary (`/var/tmp/probe-agy/bin-0160/brokkr`) on Antigravity
+CLI 1.5.17 (Linux), using the shipped `agy` adapter plus the two Claude entries
+(`agy-claude-opus` and `agy-claude-sonnet`), each pinned at `--effort low` on a
+four-step task (read the first three lines of `README.md`, write `measured` to
+`notes/claude-on-agy.txt`, commit it as `probe: one line (#1382)`, and write
+the `complete` result JSON through the workspace tool). In all eight committed
+files the home directory's name is replaced by `operator`, and each
+`.seat.json` is the controller's extract of the run view's seat row.
+
+| Model | Recorded files | Launch (`.argv`) |
+| --- | --- | --- |
+| `claude-opus-5-5` | `claude-engine-0160-opus.argv`, `claude-engine-0160-opus.mcp_config.json`, `claude-engine-0160-opus.seat.json`, `claude-engine-0160-opus.transcript.txt` | `agy --input-format stream-json --output-format stream-json --model claude-opus-5-5 --effort low --settings {"permissions":{"allow":["mcp(brokkr/workspace)"]}}` |
+| `claude-sonnet-5-5` | `claude-engine-0160-sonnet.argv`, `claude-engine-0160-sonnet.mcp_config.json`, `claude-engine-0160-sonnet.seat.json`, `claude-engine-0160-sonnet.transcript.txt` | `agy --input-format stream-json --output-format stream-json --model claude-sonnet-5-5 --effort low --settings {"permissions":{"allow":["mcp(brokkr/workspace)"]}}` |
+
+Each `.mcp_config.json` (`claude-engine-0160-opus.mcp_config.json` and
+`claude-engine-0160-sonnet.mcp_config.json`) registers one MCP server,
+`brokkr`, running `/var/tmp/probe-agy/bin-0160/brokkr hands serve` against the
+seat's linked worktree and `.forge/artifacts`, with `--spec` `kind: "workspace"`,
+`network: false`, and three binds (`~/.cargo` overlay masking
+`credentials.toml` and `credentials`, `~/.rustup` read-only, and
+`~/.cache/forge-fires/bin` read-only).
+
+| Model | Run | Outcome & rule | Turns | Boundary | Tokens (in / out / cache read / total) | Transcript kind |
+| --- | --- | --- | --- | --- | --- | --- |
+| `claude-opus-5-5` | `one-turn-measurement-not-a-story-0fb3de13` | `succeeded` (1 attempt, ruled `passed` / `IMPL-OK`, `28s`) | 5 | `namespace` | 109,065 / 1,160 / 88,680 / 110,225 (`cache_write_tokens` and `reasoning_output_tokens` `null`) | `agy-conversation` |
+| `claude-sonnet-5-5` | `one-turn-measurement-not-a-story-cd3129f5` | `succeeded` (1 attempt, ruled `passed` / `IMPL-OK`, `26s`) | 6 | `namespace` | 131,858 / 1,288 / 110,932 / 133,146 (`cache_write_tokens` and `reasoning_output_tokens` `null`) | `agy-conversation` |
+
+What the kept transcripts show:
+
+- Both conversations were kept as `agy-conversation` under
+  `/home/operator/.local/state/brokkr/agy-conversations/<id>/transcript.jsonl`
+  and read back through `brokkr runs transcript`
+  (`claude-engine-0160-opus.transcript.txt`,
+  `claude-engine-0160-sonnet.transcript.txt`). Each `.seat.json` records
+  `ruled.model` as `"<slug>, not reported"`.
+- In `claude-engine-0160-opus.transcript.txt`, Opus's first tool call (turn 2)
+  was its native `read_file` on the `workspace.json` schema path, which was
+  denied by the gate by name (`tool call denied by pre-tool hook: the engine's
+  gate does not offer the tool read_file`); every later tool call (turns 4, 7
+  and 9) went through `call_mcp_tool` on `brokkr/workspace`, combining steps 2
+  and 3 into one chained command (`8c1ebbf75 probe: one line (#1382)`) and
+  writing the `complete` result file.
+- In `claude-engine-0160-sonnet.transcript.txt`, Sonnet's first tool call (turn
+  2) was likewise native `read_file` on the `workspace.json` schema path and
+  received the same gate denial by name; every later tool call (turns 4, 7, 9
+  and 12) went through `call_mcp_tool` on `brokkr/workspace` (`509d8c0e1 probe:
+  one line (#1382)`) and wrote the `complete` result file.
+
+**Not measured in this pass.** A seat through the engine on either Claude slug
+is measured at `low` on a four-step boxed task only; still not measured are any
+other effort (`medium` or `high`) through the engine, a real story on either
+model, a resume (including `iso-09`), the short security set on
+`claude-opus-5-5` (whose lab pass was four one-word turns and two effort
+refusals), which upstream serves a Claude turn, and macOS.
+
 ## Not measured
 
 - macOS.
@@ -633,7 +771,14 @@ So whatever the engine keeps of a conversation holds bound secrets unmasked, in 
   the settings member `AutoUpdate`. The fifth measurement has the rest.
 - The launch grammar, the stream's shape and the refusals of the first
   measurement, on 1.5.14.
-- The `claude-*`, `gpt-oss-*` and orchestrator slugs.
+- The `gpt-oss-*` and orchestrator slugs. `claude-opus-5-5` and
+  `claude-sonnet-5-5` are measured as far as the eighth measurement goes
+  (effort grammar on both, the short security set on `claude-sonnet-5-5-low`
+  alone, and one boxed work seat per model at `low` on a four-step task through
+  the released 0.16.0 engine); still not measured for them are any other effort
+  through the engine, a real story on either model, a resume (including a
+  resume of the engine-carriage turn), the short security set on
+  `claude-opus-5-5`, which upstream serves a Claude turn, and macOS.
 - `agy acp`, the Agent Client Protocol server.
 - Rules files (`AGENTS.md`, `GEMINI.md`) above the working directory, and any
   switch for them.

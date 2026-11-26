@@ -80,6 +80,7 @@ mod import;
 mod literal;
 pub mod metered;
 mod opening;
+mod orders;
 mod origin;
 mod page;
 mod patience;
@@ -101,18 +102,20 @@ mod terminal;
 pub mod test_support;
 mod untouched;
 pub use acknowledgement::Acknowledgement;
-pub use chain::{Chain, Rows};
+pub use chain::{Chain, Landed, Rows};
 pub use damage::Damage;
 pub use demand::{Unended, UsageEvent, UsageRow};
 pub use event_index::IndexFault;
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
 pub use opening::Opened;
+pub use orders::OrderRefusal;
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
     claim_stands, Attribution, Claim, ClaimFacts, Claiming, Cooldown, CooldownAggregate,
     CooldownDuplicate, CooldownRound, CooldownRoundMismatch, Cooling, Disposal, EntryId,
-    EntryState, Generation, Latch, NewEntry, NotAWait, QueueCommand, QueueEntry, QueueRefusal,
-    RoundAppend, Seen, StartRefusal, Wait, WaitOn,
+    EntryState, Generation, Latch, NewEntry, NotAWait, ProbeHold, ProbeHoldId, QueueCommand,
+    QueueEntry, QueueRefusal, RoundAppend, RowEnd, Seen, StartRefusal, UnsettledHold,
+    UnwrittenHold, UnwrittenRow, Wait, WaitOn,
 };
 pub use redact::{redact_export, Redactor};
 pub use run_read::RunRead;
@@ -235,6 +238,9 @@ pub enum StoreError {
     /// The queue refused an operator command or a claim (decision 0068).
     #[error(transparent)]
     Queue(#[from] QueueRefusal),
+    /// A work-order read or operator command refused (decision 0116).
+    #[error(transparent)]
+    Orders(#[from] OrderRefusal),
     /// A seat-tree append or repair refused (decision 0104 ruling 6).
     #[error(transparent)]
     SeatTree(#[from] SeatTreeRefusal),
@@ -637,17 +643,14 @@ impl Store {
         causation_id: Option<String>,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, StoreError> {
-        self.append(
-            CooldownAppend {
-                run_id,
-                fenced: None,
-                event_type,
-                payload,
-                causation_id,
-                attempt_id,
-            },
-            &[],
-        )
+        self.append(CooldownAppend {
+            run_id,
+            fenced: None,
+            event_type,
+            payload,
+            causation_id,
+            attempt_id,
+        })
     }
 
     /// Append, but only onto the head the caller decided against —
@@ -683,17 +686,14 @@ impl Store {
         causation_id: Option<String>,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, StoreError> {
-        self.append(
-            CooldownAppend {
-                run_id,
-                fenced: Some((expected_seq, expected_hash)),
-                event_type,
-                payload,
-                causation_id,
-                attempt_id,
-            },
-            &[],
-        )
+        self.append(CooldownAppend {
+            run_id,
+            fenced: Some((expected_seq, expected_hash)),
+            event_type,
+            payload,
+            causation_id,
+            attempt_id,
+        })
     }
 
     /// Append `event` and `cooldowns` as one: the event and every row of
@@ -702,26 +702,24 @@ impl Store {
     /// each row's `event_seq` with the seq the event takes inside that
     /// transaction, so the caller never guesses it; a row the table refuses
     /// rolls the event back with it, and a fence that moved writes nothing
-    /// at all.
+    /// at all. What landed is the store's own evidence ([`Landed`]).
     pub fn append_with_cooldowns(
         &mut self,
         event: CooldownAppend<'_>,
         cooldowns: &[Cooling],
-    ) -> Result<EventEnvelope, StoreError> {
-        self.append(event, cooldowns)
-    }
-
-    fn append(
-        &mut self,
-        event: CooldownAppend<'_>,
-        cooldowns: &[Cooling],
-    ) -> Result<EventEnvelope, StoreError> {
+    ) -> Result<Landed, StoreError> {
         let (conn, carried) = (&mut self.conn, self.carried.as_ref());
-        let (envelope, settled) = patiently("append", self.patience, &self.path, || {
-            chain::append_once((conn, carried), &event, cooldowns)
+        let (landed, settled) = patiently("append", self.patience, &self.path, || {
+            chain::append_once((conn, carried), &event, cooldowns, &|_| Ok(()))
         })?;
         self.settle((event.run_id, 1), settled);
-        Ok(envelope)
+        Ok(landed)
+    }
+
+    /// An event alone, with no cool-down rows.
+    fn append(&mut self, event: CooldownAppend<'_>) -> Result<EventEnvelope, StoreError> {
+        self.append_with_cooldowns(event, &[])
+            .map(|landed| landed.envelope)
     }
 
     /// Load and verify the full journal of a run. A journal that fails

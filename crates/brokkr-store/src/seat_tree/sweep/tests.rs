@@ -327,7 +327,7 @@ fn an_unknown_queue_version_writes_nothing_and_says_so() {
     let (mut store, seq, generation) = seated(dir.path());
     store
         .conn
-        .execute("UPDATE meta SET value = '7' WHERE key = 'queue_schema'", [])
+        .execute("UPDATE meta SET value = '8' WHERE key = 'queue_schema'", [])
         .unwrap();
     assert_eq!(
         store
@@ -346,7 +346,7 @@ fn an_unknown_queue_version_writes_nothing_and_says_so() {
         .unwrap();
     assert_eq!(count, 0);
     let refused = store.open_seat_trees().unwrap_err();
-    assert_eq!(refused.to_string(), "queue storage 7 unsupported (want 6)");
+    assert_eq!(refused.to_string(), "queue storage 8 unsupported (want 7)");
 }
 
 #[test]
@@ -457,6 +457,7 @@ fn a_v6_journal_writes_its_cool_downs_and_seat_trees() {
         reason: "rate_limit: slow down".into(),
         retry_after_seconds: Some(30),
         rounds: 1,
+        held: None,
     };
     store
         .append_with_cooldowns(

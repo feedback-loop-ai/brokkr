@@ -408,6 +408,7 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::Damaged { .. }
         | StoreError::HeadMoved { .. }
         | StoreError::Json(_)
+        | StoreError::Orders(_)
         | StoreError::RowBeforeChain { .. }
         | StoreError::RunExists(_)
         | StoreError::RunIdTooLong { .. }
@@ -457,6 +458,15 @@ fn queue_refusal(refusal: QueueRefusal) -> Queue {
         | QueueRefusal::CooldownRoundEvent { .. }
         | QueueRefusal::CooldownRoundWait { .. }
         | QueueRefusal::CooldownRoundNotNext(_)
+        | QueueRefusal::CooldownRoundUnwritten(_)
+        | QueueRefusal::CooldownRowUnwritten(_)
+        | QueueRefusal::ProbeHoldUnwritten(_)
+        | QueueRefusal::ProbeHoldUnending(_)
+        | QueueRefusal::ProbeHoldUnstorable(_)
+        | QueueRefusal::ProbeHoldContended(_)
+        | QueueRefusal::StartHeld(_)
+        | QueueRefusal::ProbeHoldUnsettled(_)
+        | QueueRefusal::ProbeHoldUnended(_)
         | QueueRefusal::Launching(_)
         | QueueRefusal::InFlight(_)
         | QueueRefusal::Unseen(_)
@@ -577,6 +587,7 @@ fn engine_class(error: EngineError) -> Class {
         | EngineError::CauseRefused(_)
         | EngineError::JournalMoved { .. }
         | EngineError::Invariant(..)
+        | EngineError::HeldWait(_)
         | EngineError::Dispatch(_)
         | EngineError::Unreleased(_)
         | EngineError::Unspelled(_)) => Class::Start(LaunchError::Engine(error)),

@@ -101,10 +101,14 @@ pub const SCHEMA_V7: &str = "forge.realms/v7";
 /// grant key, `retain`, and nothing else.
 pub const SCHEMA_V8: &str = "forge.realms/v8";
 
+/// A grant may name a tool dialect for each provider (decision 0126).
+pub const SCHEMA_V9: &str = "forge.realms/v9";
+
 /// Every label this build reads, oldest first — the one list a refusal
 /// spells out and the version gates are written against.
-pub const SCHEMAS: [&str; 8] = [
+pub const SCHEMAS: [&str; 9] = [
     SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
+    SCHEMA_V9,
 ];
 
 /// What stands between a box's hands and the machine (decision 0046
@@ -493,11 +497,11 @@ impl RealmMap {
             })?;
         // A v6 map carries grants, and a grant written twice would be
         // granted as whichever copy came second (decision 0065). The rule
-        // arrives WITH the version, and v7 and v8 keep it: an older map
+        // arrives WITH the version, and later versions keep it: an older map
         // keeps the reading it has always had.
         if matches!(
             content.get("schema").and_then(Value::as_str),
-            Some(SCHEMA_V6 | SCHEMA_V7 | SCHEMA_V8)
+            Some(SCHEMA_V6 | SCHEMA_V7 | SCHEMA_V8 | SCHEMA_V9)
         ) {
             crate::canonical::parse_strict(text).map_err(|detail| RealmsError::Malformed {
                 path: path.to_string(),
@@ -543,7 +547,9 @@ mod labels;
 mod provisional;
 mod unusable;
 
-pub use grants::{CapabilityGrant, GrantError, GrantList, GrantRetention, GRANT_KEYS};
+pub use grants::{
+    CapabilityGrant, GrantDialect, GrantError, GrantList, GrantRetention, GRANT_KEYS,
+};
 pub use unusable::{Unusable, Word};
 
 #[cfg(test)]

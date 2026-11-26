@@ -40,12 +40,18 @@ pub use beside::Seen;
 use beside::{beside_once, Beside};
 pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Disposal, Generation, StartRefusal};
 pub(crate) use cooldown::insert as insert_cooldowns;
-pub use cooldown::{Cooldown, CooldownAggregate, CooldownRound, Cooling, RoundAppend};
+pub use cooldown::{
+    Cooldown, CooldownAggregate, CooldownRound, Cooling, ProbeHold, ProbeHoldId, RoundAppend,
+    RowEnd,
+};
 #[cfg(test)]
 use entry::UnknownWord;
 use entry::{read_word, Standing};
 pub use entry::{EntryState, Latch, NewEntry, NotAWait, QueueCommand, WaitOn};
-pub use refusal::{CooldownDuplicate, CooldownRoundMismatch, QueueRefusal};
+pub use refusal::{
+    CooldownDuplicate, CooldownRoundMismatch, QueueRefusal, UnsettledHold, UnwrittenHold,
+    UnwrittenRow,
+};
 #[cfg(test)]
 use storage::QUEUE_SCHEMA;
 use storage::{
@@ -416,7 +422,7 @@ fn entries(
     between: &mut dyn FnMut(),
 ) -> Result<Vec<QueueEntry>, StoreError> {
     let (payload, pin, latched) = match stored {
-        Stored::V2 | Stored::V3 | Stored::V4 | Stored::V5 | Stored::V6 => {
+        Stored::V2 | Stored::V3 | Stored::V4 | Stored::V5 | Stored::V6 | Stored::V7 => {
             (PINNED_PAYLOAD, PINNED_SEQ, true)
         }
         Stored::V1 => ("payload", "NULL", false),

@@ -1090,40 +1090,94 @@ fn assert_agy_neon_launch(bundle: &Bundle, tail: &[&str]) {
     assert_eq!(candidates[0].argv[1..], [&head[..], tail].concat());
 }
 
-/// [`agy_workspace`] with its `researcher` office hiring `model` alone, at
-/// `high`, an effort all four models take.
-fn agy_office(model: &str) -> Workspace {
+/// [`agy_workspace`] with its `researcher` office hiring `model` alone at
+/// `effort`.
+fn agy_office_with_effort(model: &str, effort: &str) -> Workspace {
     let workspace = agy_workspace();
     let office = workspace.path("agents/researcher.json");
     let mut hired: Value = serde_json::from_slice(&std::fs::read(&office).unwrap()).unwrap();
     hired["models"] = json!([model]);
-    hired["efforts"] = json!({ model: "high" });
+    hired["efforts"] = json!({ model: effort });
     std::fs::write(office, hired.to_string()).unwrap();
     workspace
 }
 
-/// Decision 0021's addendum of 2026-11-22 (#1252): every agy model is
-/// promoted, so each holds a work office the realm does not list.
+/// [`agy_workspace`] with its `researcher` office hiring `model` alone, at
+/// `high`, an effort all six models take.
+fn agy_office(model: &str) -> Workspace {
+    agy_office_with_effort(model, "high")
+}
+
+/// Decision 0021's addendum of 2026-11-22 (#1252) and #1382: every agy model
+/// holds a work office the realm does not list.
 #[test]
 fn every_agy_model_holds_an_office_no_provisional_list_names() {
-    for model in ["agy-argon", "agy-carbon", "agy-hydrogen", "agy-neon"] {
+    for model in [
+        "agy-argon",
+        "agy-carbon",
+        "agy-claude-opus",
+        "agy-claude-sonnet",
+        "agy-hydrogen",
+        "agy-neon",
+    ] {
         let workspace = agy_office(model);
         let compiled = workspace.compile(seat("researcher", "work"), &[]);
         assert_eq!(chain(&compiled.unwrap()), [model]);
     }
 }
 
-/// The same addendum: Neon and Carbon are agy's judges, so a gate seats
-/// either, and Hydrogen and Argon draw the refusal of a model outside
-/// `judges` (decision 0041 ruling 3), no longer the provisional one.
+/// #1382: the two Claude 5.5 aliases compose `brokkr driver agy` launches for
+/// each of their three measured efforts (`low`, `medium`, `high`).
 #[test]
-fn an_agy_gate_seats_neon_and_carbon_and_refuses_hydrogen_and_argon_as_no_judge() {
+fn the_agy_claude_models_launch_at_their_three_measured_efforts() {
+    for (alias, slug) in [
+        ("agy-claude-opus", "claude-opus-5-5"),
+        ("agy-claude-sonnet", "claude-sonnet-5-5"),
+    ] {
+        for effort in ["low", "medium", "high"] {
+            let workspace = agy_office_with_effort(alias, effort);
+            let bundle = workspace.compile(seat("researcher", "work"), &[]).unwrap();
+            assert_eq!(chain(&bundle), [alias]);
+            let SeatBody::Invocation(Invocation::Single { candidates, .. }) =
+                &bundle.seats["work"].body
+            else {
+                panic!("one agy seat");
+            };
+            assert_eq!(
+                candidates[0].argv[1..],
+                [
+                    "driver",
+                    "agy",
+                    "--",
+                    "--model",
+                    slug,
+                    "--effort",
+                    effort,
+                    "--allow",
+                    "command(git),command(gh pr view)",
+                ]
+            );
+        }
+    }
+}
+
+/// Decision 0021's addendum (#1252) and #1382: Neon and Carbon are agy's
+/// judges, so a gate seats either, while Hydrogen, Argon, Claude Opus and
+/// Claude Sonnet draw the refusal of a model outside `judges` (decision 0041
+/// ruling 3).
+#[test]
+fn an_agy_gate_seats_neon_and_carbon_and_refuses_its_other_models_as_no_judge() {
     for judge in ["agy-neon", "agy-carbon"] {
         let workspace = agy_office(judge);
         let compiled = workspace.compile(seat("researcher", "gate"), &[]);
         assert_eq!(chain(&compiled.unwrap()), [judge]);
     }
-    for model in ["agy-hydrogen", "agy-argon"] {
+    for model in [
+        "agy-hydrogen",
+        "agy-argon",
+        "agy-claude-opus",
+        "agy-claude-sonnet",
+    ] {
         let workspace = agy_office(model);
         let refused = workspace.compile(seat("researcher", "gate"), &[]);
         let Err(CompileError::Invalid(words)) = refused else {
@@ -1139,11 +1193,13 @@ fn an_agy_gate_seats_neon_and_carbon_and_refuses_hydrogen_and_argon_as_no_judge(
     }
 }
 
-/// Agy's example maps its four Gemini 4 models to their base slugs, each
-/// promoted, Carbon and Neon its judges, and declares hands that ride no
-/// argument (#1224): the engine HOME's document carries the server.
+/// Agy's example maps six aliases to their base slugs — four Gemini 4 models
+/// holding decision 0021's promotion ruling (#1252) and two Claude 5.5 work
+/// models without a promotion ruling (#1382) — with none marked `provisional`,
+/// Carbon and Neon its judges, and hands that ride no argument (#1224): the
+/// engine HOME's document carries the server.
 #[test]
-fn the_agy_example_declares_four_promoted_models_two_judges_and_argumentless_hands() {
+fn the_agy_example_maps_six_aliases_no_provisional_two_judges_and_argumentless_hands() {
     let workspace = agy_workspace();
     let loaded = Adapters::load(&workspace.path("adapters")).unwrap();
     let agy = loaded.adapter("agy").unwrap();
@@ -1153,6 +1209,8 @@ fn the_agy_example_declares_four_promoted_models_two_judges_and_argumentless_han
     let expected = [
         ("agy-argon", "gemini-4-argon"),
         ("agy-carbon", "gemini-4-carbon"),
+        ("agy-claude-opus", "claude-opus-5-5"),
+        ("agy-claude-sonnet", "claude-sonnet-5-5"),
         ("agy-hydrogen", "gemini-4-hydrogen"),
         ("agy-neon", "gemini-4-neon"),
     ];

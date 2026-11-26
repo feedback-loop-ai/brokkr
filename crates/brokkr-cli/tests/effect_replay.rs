@@ -132,16 +132,15 @@ fn a_deadline_kill_with_attempts_left_parks_after_one_attempt() {
 }
 
 /// The issue's acceptance: an executor commits a marker outside the
-/// worktree and its result is lost, by a deadline kill, by an exit 0 with
-/// no result file, and by a prompt write that fails after the spawn. Each
-/// run parks after one attempt, and the marker was committed once.
+/// worktree and its result is lost after a deadline kill or an exit 0 with
+/// no result file, including when the command declines its prompt (#1247
+/// ruling (a)). Each run parks after one attempt, and the marker was
+/// committed once.
 #[test]
 fn a_marker_committed_then_lost_parks_and_is_never_committed_twice() {
     let killed = killed();
     // Past a pipe's 64 KiB and within one argument's 128 KiB.
     let large = "x".repeat(100 * 1024);
-    let unwritten = "could not write the prompt: Broken pipe (os error 32); the command was \
-                     spawned, so no result is sent\n";
     let unread = "seat wrote no result file (the result contract was not met), so no result \
                   is sent\n";
     for (case, then, feature, reason, tail) in [
@@ -154,11 +153,11 @@ fn a_marker_committed_then_lost_parks_and_is_never_committed_twice() {
         ),
         ("no result file", "cat >/dev/null", "replay", LOST, unread),
         (
-            "prompt unread",
+            "prompt declined",
             "exec 0<&-; sleep 1",
             &large,
             LOST,
-            unwritten,
+            unread,
         ),
     ] {
         let (dir, outside) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());

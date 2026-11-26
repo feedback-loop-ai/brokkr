@@ -1164,7 +1164,37 @@ every entry reads the default budget of 3; a direct run always has none.
    slice's `WaitRows` reads the latest unexpired row for admission and the latest row of any age
    for the readout, so an expired-but-unanswered wait still keeps the run `waiting` for the stale
    bound; the answered probe's snapshot, and the test that a cleared row leaves the readout, are
-   0106c's, so 0106b needs no lift table to pass its own list.
+   0106c's, so 0106b needs no lift table to pass its own list. A probe's hold on its route
+   (0103 ruling 2 as the operator amended it on 2026-11-18, #1035) ends on evidence: its
+   driver's tree proven ended by the engine's settlement, its answer, or its renewed round's
+   commit, and by nothing else (fix round 0106b1r12): no stored end, margin, clock or lock state
+   ends it, so a hold stands through any journal name and a run lock missing, free or replaced,
+   and both gates read it by one predicate, the hold's ended stamp. An admitted run's wait, its
+   retry and its probe read the route through that same in-force read, so a standing hold holds
+   them as it holds the gates, an earlier drive's hold of the same run included, and a waiting run
+   reads it again each slice, counting the slices as waited (fix round 0106b1r13). No second
+   hold is written while one stands: a probe's hold re-reads the route in the transaction that
+   writes it, and a route another hold or an unexpired cool-down holds takes none, so the probe
+   spawns nothing and its run waits on the route again. A probe that was never
+   forked, refused or late before the fork, has an empty tree, settled as it is refused, and its
+   hold ends then. The stored end, the first whole second after the probe's deadline, is a
+   readout only, and no margin is kept; no gate reads it, so no host suspend, clock step or
+   crash lapses a hold while its tree may run, and a probe that parks while its tree may still
+   run keeps its hold through the park. After a crash, an unended hold stands until a
+   settlement proves its probe's tree over: the restarted engine's reaper, the recovery that
+   runs at a resumed engine's first turn whatever its cursor and again before any probe of the
+   run, seals a crashed probe's attempt Settled where every driver it recorded is sealed so and
+   releases it, and every hold naming an attempt the run's reservation then names settled
+   ends; or an operator's `settle` record ends the holds of the attempts it proves, and a settle
+   whose holds' end was interrupted ends them from its record when run again. The hold is
+   written only once the probe's reservation names its attempt, so a crash leaves no hold that
+   no reservation names. The stated trade (fix round 0106b1r12, operator 2026-11-23): until
+   then the route stays cooled, for every run on the host. Three cases have no route to that
+   settlement yet, and a hold in them stands, its route cooled, with no supported way to end
+   it: a host with no protected coordination root, where no reservation records the probe; a
+   cleanup witnessed unresolved, which `settle` refuses and `release` cannot reach, since a
+   probe journals no attempt ending; and a crashed probe's attempt whose driver no seal proves.
+   An operator route for those is a follow-up this slice does not build.
 3. **0106c — the operator lift, its consumption and its clearing rule.** Depends on 0106b. Files:
    `crates/brokkr-core/src/fold.rs`, `crates/brokkr-core/src/fold/operator.rs`,
    `crates/brokkr-runtime/src/engine/operator.rs`,

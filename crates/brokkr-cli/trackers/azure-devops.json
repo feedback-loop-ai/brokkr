@@ -1,0 +1,5 @@
+{
+  "tracker": "azure-devops",
+  "hosts": ["dev.azure.com", "*.visualstudio.com"],
+  "description": "The wildcard covers subdomains for legacy hosted projects. For Azure DevOps Server, add the exact host of your installation or a *. suffix for a domain you control."
+}

@@ -4,10 +4,10 @@ This document states what you can build against, what may still move,
 and how a change to a frozen thing is made when it has to happen.
 
 **Where the tree is right now:** the workspace version in `Cargo.toml`
-is **0.16.0**. This is pre-1.0 software. The contracts under
+is **0.16.1**. This is pre-1.0 software. The contracts under
 `contracts/` are nonetheless already frozen and have been since the
 first implementation — the freeze is older than the version number and
-does not wait for it. See the [v0.16.0 release notes](../releases/v0.16.0.md)
+does not wait for it. See the [v0.16.1 release notes](../releases/v0.16.1.md)
 for what changed and current platform limitations, and the
 [v0.10.0 notes](../releases/v0.10.0.md) for the boundary migration.
 
@@ -28,7 +28,7 @@ other is not yet.
 | | Frozen contracts | The CLI surface |
 |---|---|---|
 | **Promise** | A version's bytes never change. A change is a new numbered version file beside the old one. | Semver from 1.0: breaking changes to subcommands and flags need a major bump. |
-| **In force** | **Now**, and since the first implementation. Independent of the crate version. | **From 1.0.** Today, at 0.16.0, flags may still move. |
+| **In force** | **Now**, and since the first implementation. Independent of the crate version. | **From 1.0.** Today, at 0.16.1, flags may still move. |
 | **Enforced by** | CI compiles the frozen and additive contracts; the fixtures corpus differential-tests the evaluator; manifest schemas pin `{"const": 1}` on `event_schema`. | Convention today; release process from 1.0. |
 
 The contracts freeze is the load-bearing one, because it is what a
@@ -133,14 +133,16 @@ is the mistake to avoid.
   bundle that does, and the comparison refuses the difference rather
   than restoring a harness's old default. Historical runs are not
   rewritten.
-- Realm maps now reach `forge.realms/v8`: v3 added house and dialect
+- Realm maps now reach `forge.realms/v9`: v3 added house and dialect
   declarations, v4 adds the realm's boundary, v5 adds the crossings a
   realm publishes and the ones it consumes, each pinned by a sha256 over
   the published file's raw bytes (decision 0057), and v6 adds the
   capabilities a realm grants (decision 0065), v7 adds the provisional
   tier (decision 0075), and v8 adds the retention veto (decision 0065
-  slice two). House content and its digest are pinned in the run's realms
-  record. Every older version keeps loading and grants nothing.
+  slice two). v9 lets a grant name a tool dialect for each provider under
+  `dialects` (decision 0126). House content and its digest are pinned in
+  the run's realms record. Every older version keeps loading. Maps before
+  v6 grant nothing.
 
 **The Looper-bound lineage: `run-manifest.v2`, unchanged.** Its
 round-trip reconstructs a bundle manifest from six named keys and drops
@@ -195,7 +197,8 @@ and the release window in that ruling's slice 2.
 | `forge.realms/v5` | `contracts/realms.v5.schema.json` | input | 0057, enacted, pending acceptance | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v6` | `contracts/realms.v6.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v7` | `contracts/realms.v7.schema.json` | input | 0075 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
-| `forge.realms/v8` | `contracts/realms.v8.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | current | | decision |
+| `forge.realms/v8` | `contracts/realms.v8.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
+| `forge.realms/v9` | `contracts/realms.v9.schema.json` | input | 0126 | operator | set brokkr_core::realms::SCHEMAS | current | | decision |
 | `brokkr.dialect/v1` | `contracts/dialect.v1.schema.json` | journal | 0042 | none | set brokkr_runtime::dialect::SCHEMAS | reader | 0.8 | 0.12 |
 | `brokkr.dialect/v2` | `contracts/dialect.v2.schema.json` | journal | 0042 (2026-09-04 addendum) | none | set brokkr_runtime::dialect::SCHEMAS | reader | 0.10 | 0.13 |
 | `brokkr.dialect/v3` | `contracts/dialect.v3.schema.json` | journal | 0042 (2026-09-06 addendum) | shipped dialects/openspec.json | set brokkr_runtime::dialect::SCHEMAS | current | | |
@@ -221,10 +224,18 @@ and the release window in that ruling's slice 2.
 | `forge.host/v4` | `contracts/host.v4.schema.json` | input | 0110 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
 | `forge.host/v5` | `contracts/host.v5.schema.json` | input | 0125 | operator | load brokkr_runtime::admission::host::read | current | | decision |
 | `panel-carry/v1` | `contracts/panel-carry.v1.schema.json` | journal | 0093 | engine crates/brokkr-runtime/src/engine/dispatch.rs | load brokkr_runtime::engine::carry::facts::terminal_record | current | | |
-| `provider-wait/v1` | `contracts/provider-wait.v1.schema.json` | journal | 0103 | engine crates/brokkr-runtime/src/engine/cooldown.rs | load brokkr_core::provider_waits | current | | |
+| `provider-wait/v1` | `contracts/provider-wait.v1.schema.json` | journal | 0103 | engine crates/brokkr-runtime/src/engine/cooldown.rs | load brokkr_core::provider_waits | reader | | |
+| `provider-wait/v2` | `contracts/provider-wait.v2.schema.json` | journal | 0106 | engine crates/brokkr-runtime/src/engine/cooldown.rs | load brokkr_core::provider_waits | current | | |
 | `park-cause/v1` | `contracts/park-cause.v1.schema.json` | journal | 0106 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::ParkCause::read | current | | |
 | `effect-usage/v1` | `contracts/effect-usage.v1.schema.json` | journal | 0112 | engine crates/brokkr-runtime/src/engine/usage.rs | load brokkr_view::recipe_usage | current | | |
 | `brokkr.evidence-archive/v1` | `contracts/evidence-archive.v1.schema.json` | input | 0105 | operator | load brokkr_runtime::engine::evidence::read_archive | current | | decision |
+| `work-order/v1` | `contracts/work-order.v1.schema.json` | input | 0116 | engine crates/brokkr-core/src/work_order.rs | load brokkr_core::work_order::Header::read | current | | decision |
+
+Journal backups write `brokkr.journal-backup.v2`. Its closed inventory
+adds `schemas.orders`, the work-order schema recorded in the snapshot or
+`null` when no marker is recorded. Restore reads v1 and v2 inventories
+and checks the v2 field against the snapshot.
+[Decision 0100](../decisions/0100-a-journals-backup-is-one-consistent-snapshot-with-a-versioned-inventory.md)
 
 `fixtures/evaluator/corpus.ndjson` is frozen contract data, never
 regenerated, only versioned; it is not a file under `contracts/` and so
@@ -235,7 +246,7 @@ The binary reports the versions it was built against:
 ```console
 $ brokkr doctor
 …
-ok       contracts: engine 0.16.0, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.16.1, event_schema 1, database_schema 1, driver_protocol 1
 …
 ```
 
@@ -302,7 +313,7 @@ Stated plainly, because this is a 0.x tree:
 - **What does *not* break, even pre-1.0:** the frozen contracts. Every
   decision that has touched them so far — 0016, 0022, 0023 — added a new
   numbered version beside the old one and left the old bytes alone. That
-  is the one guarantee that is already load-bearing at 0.16.0, and it is
+  is the one guarantee that is already load-bearing at 0.16.1, and it is
   the one to build against.
 
 ## The closed deprecation window

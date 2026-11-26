@@ -526,3 +526,58 @@ fn the_agy_examples_boxed_store_read_is_measured_and_a_secret_passes_the_store_r
         assert_eq!([judge(agy), judge(&unsealed)], [Ok(()), Err(refused)]);
     }
 }
+
+/// The provider-adapters guide's agy model table matches every alias in
+/// `docs/examples/adapters/agy.json` and records the measured efforts for each
+/// (#1382).
+#[test]
+fn the_guide_table_names_every_agy_model_and_its_measured_efforts() {
+    let (_dir, adapters) = agy_example();
+    let agy = adapters.adapter("agy").unwrap();
+    let guide =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/guides/provider-adapters.md");
+    let guide = std::fs::read_to_string(guide).unwrap();
+    let expected = [
+        ("agy-neon", "`low`, `medium`, `high`, `xhigh`"),
+        ("agy-carbon", "`low`, `medium`, `high`"),
+        ("agy-hydrogen", "`low`, `medium`, `high`, `xhigh`"),
+        ("agy-argon", "`low`, `medium`, `high`"),
+        ("agy-claude-opus", "`low`, `medium`, `high`"),
+        ("agy-claude-sonnet", "`low`, `medium`, `high`"),
+    ];
+    assert_eq!(agy.models.len(), expected.len());
+    for (alias, efforts) in expected {
+        let slug = agy
+            .models
+            .get(alias)
+            .unwrap_or_else(|| panic!("missing adapter alias {alias}"));
+        let start = format!("| `{alias}` |");
+        let mut rows = guide.lines().filter(|line| line.starts_with(&start));
+        let row: Vec<&str> = rows
+            .next()
+            .unwrap_or_else(|| panic!("no row {start}"))
+            .split(" | ")
+            .collect();
+        assert_eq!(rows.next(), None, "duplicate row {start}");
+        assert_eq!(
+            row,
+            [
+                format!("| `{alias}`"),
+                format!("`{slug}`"),
+                format!("{efforts} |"),
+            ],
+            "{alias}"
+        );
+    }
+    let table_rows = guide
+        .lines()
+        .skip_while(|line| *line != "| Alias | Agy model | Efforts |")
+        .skip(2)
+        .take_while(|line| line.starts_with('|'))
+        .count();
+    assert_eq!(
+        table_rows,
+        expected.len(),
+        "unexpected row count in agy model table"
+    );
+}

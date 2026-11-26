@@ -402,6 +402,16 @@ impl Layout {
             .unwrap_or_else(|| brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR.into())
     }
 
+    /// The adopter's trackers in the folder or library.
+    pub(crate) fn trackers(&self) -> Option<PathBuf> {
+        let base = match self.0.kind() {
+            Kind::Folder => self.0.root().join(FOLDER),
+            Kind::Library => self.0.workspace(),
+            Kind::Bare => return None,
+        };
+        Some(base.join("trackers"))
+    }
+
     /// The recipe library a verb reads named recipes from ([`Layout::listing`]).
     pub(crate) fn recipes(&self, flag: Option<PathBuf>) -> ShelfPath {
         self.listing(flag).0

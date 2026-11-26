@@ -186,6 +186,39 @@ table is measured (see the `qwen-max` note above). All three new lanes —
 these two and `glm-flash` — sealed a result through `brokkr driver dsh`
 on 2026-09-21 with no effort pinned.
 
+The `qwen4-max` alias pins `dashscope/qwen4-max` (Qwen 4.0 Max) on the
+Model Studio route as a work model and review-panel member; `judges`
+stays empty, `trust_tier` stays `untrusted` and `dashscope` stays
+`uncontracted` by silence, so a gate seat naming it is refused like any
+other `dsh` model. The shipped adapter declares no route overlay or
+endpoint for `dashscope`. For the route to serve this model, an
+operator's dsh needs the `dashscope` provider row in `llm-pi-ai`, the
+key by name (`apiKeyEnv: DASHSCOPE_API_KEY`), `compat` (`thinkingFormat:
+qwen`, `supportsDeveloperRole: false`, `supportsReasoningEffort: true`),
+and the `qwen4-max` model row with its three measured `reasoningEfforts`
+levels (`low`, `high` and `xhigh`, measured 2026-11-16 and 2026-11-19).
+[`docs/evidence/adapters/dsh-hands-1277/overlay-base64url.yml`](../evidence/adapters/dsh-hands-1277/overlay-base64url.yml)
+is the measured example; the endpoint it names is one operator's,
+evidence rather than a default. A seat that pins a level the model row
+does not declare behaves by where the check lives: `adapters/dsh.json`
+declares the adapter-wide vocabulary `low`, `medium`, `high` and `xhigh`,
+so an agent seat pinning `max` is refused at compile (outside that
+vocabulary), while an inline seat pinning `--effort max`, and any seat
+(agent or inline) pinning `medium`, compiles — compile checks an inline
+`--effort` only as one bounded word and `medium` is in dsh's
+adapter-wide vocabulary — passes `brokkr doctor` silently (doctor does
+not check per-model `reasoningEfforts`), and is refused at start by
+`dsh` (`UNSUPPORTED_REASONING_EFFORT`). Not measured: a run of
+`qwen4-max` from the shipped adapter alone (the composed configuration
+dump in [`dsh-hands-1277`](../evidence/adapters/dsh-hands-1277/README.md)
+and the completed keyed turn
+[`dsh-hands-0-2-2.md`](../evidence/adapters/dsh-hands-0-2-2.md) records
+both came from a library of their own); macOS; and any `dsh` model-row reasoning
+level other than `low`, `high` and `xhigh` (the linked overlay records
+direct API probes at `medium` and `max` as well, matching Model Studio's
+mapping of `medium` to `high` and `max` to `xhigh`, so the `dsh` model
+row declares only the three distinct levels).
+
 The `flash` alias pins `deepseek-flash` on DeepSeek's own API: the name
 DeepSeek's [pricing page](https://api-docs.deepseek.com/quick_start/pricing/)
 gives DeepSeek-V4.1-Flash, and dsh's own default model. The earlier
@@ -340,7 +373,7 @@ now hires or the adapter no longer maps.
 |---|---|
 | `claude` | `haiku` |
 | `codex` | `luna`, `terra` |
-| `dsh` | `glm`, `glm53`, `muse`, `pro`, `qwen-flash`, `qwen-max`, `qwen-plus`, `qwen36-flash`, `qwen37-max`, `spark-flash`, `studio-flash`, `studio-flash41`, `studio-pro` |
+| `dsh` | `glm`, `glm53`, `muse`, `pro`, `qwen-flash`, `qwen-max`, `qwen-plus`, `qwen36-flash`, `qwen37-max`, `qwen4-max`, `spark-flash`, `studio-flash`, `studio-flash41`, `studio-pro` |
 | `lanetally` | `fable-tallied`, `opus-tallied`, `sonnet-tallied` |
 
 Adding an alias is therefore an edit to its adapter file and, until an
@@ -528,18 +561,21 @@ controller's ruling of 2026-11-20. Level 1 is an adapter and a driver,
 its site boxes its hands: there it is boxed at level 3 (#1224), as
 [below](#a-boxed-agy-seat). It is never resumed yet, because the HOME it runs
 under is the engine's for one turn (only its transcript file is kept
-past the turn for the run view, #1227). Its trust tier is `trusted` and every
-model it serves is promoted, so no agy model is held to
-`provisional_offices` any longer; which offices a seat holds is still
-ruled by its gates, realms and capabilities. `agy-neon` and
-`agy-carbon` are its judges: a gate refuses `agy-hydrogen` and
-`agy-argon`, which are not in `judges`. A judge's seat may be boxed or
-unboxed, and unboxed, agy's write tools are on and an edit it leaves
-uncommitted is not caught, as for a claude gate under `acceptEdits`
-([#1260](https://github.com/feedback-loop-ai/brokkr/issues/1260)). The operator
-ruled all three on 2026-11-22, recorded in decision 0021's
+past the turn for the run view, #1227). Its trust tier is `trusted`; on
+2026-11-22 the operator ruled `agy` trusted, promoted the four Gemini 4
+aliases it named (`agy-neon`, `agy-carbon`, `agy-hydrogen` and
+`agy-argon`), and named `agy-neon` and `agy-carbon` its judges, recorded
+in decision 0021's
 [addendum](../decisions/0021-model-policy.md#addendum--2026-11-22-operator-ruled-agy-is-trusted-its-four-models-are-promoted-and-neon-and-carbon-are-its-judges)
-(#1252). Its route is class `contracted`, the operator's
+(#1252). `agy-claude-opus` and `agy-claude-sonnet` are work models
+(#1382), and promoting either needs its own ruling after an eval. None of
+the six is held to `provisional_offices`; which offices a seat holds is
+ruled by its gates, realms and capabilities, and a gate refuses
+`agy-hydrogen`, `agy-argon`, `agy-claude-opus` and `agy-claude-sonnet`,
+which are not in `judges`. A judge's seat may be boxed or unboxed, and
+unboxed, agy's write tools are on and an edit it leaves uncommitted is not
+caught, as for a claude gate under `acceptEdits`
+([#1260](https://github.com/feedback-loop-ai/brokkr/issues/1260)). Its route is class `contracted`, the operator's
 ruling recorded in decision
 [0036](../decisions/0036-egress-is-a-property-of-the-route.md). Every figure behind it was measured by hand on Linux
 ([the record](../evidence/adapters/agy-cli-1-5.md)): the first four
@@ -552,7 +588,7 @@ stdin. Which fact is from which version is
 The adapter ships as an example, `docs/examples/adapters/agy.json`, for
 the reason Qoder's does: `brokkr init` does not write it, and a world
 copies it into its adapters directory. It maps the four Gemini 4 models
-to their base slugs:
+and the two Claude 5.5 models to their base slugs:
 
 | Alias | Agy model | Efforts |
 |---|---|---|
@@ -560,14 +596,20 @@ to their base slugs:
 | `agy-carbon` | `gemini-4-carbon` | `low`, `medium`, `high` |
 | `agy-hydrogen` | `gemini-4-hydrogen` | `low`, `medium`, `high`, `xhigh` |
 | `agy-argon` | `gemini-4-argon` | `low`, `medium`, `high` |
+| `agy-claude-opus` | `claude-opus-5-5` | `low`, `medium`, `high` |
+| `agy-claude-sonnet` | `claude-sonnet-5-5` | `low`, `medium`, `high` |
+
+`agy-claude-opus` and `agy-claude-sonnet` are work models, not judges,
+and promotion is a separate ruling under decision
+[0021](../decisions/0021-model-policy.md) after an eval (#1382).
 
 The model flag is `--model` and the effort flag `--effort`. The adapter
 declares `low`, `medium`, `high` and `xhigh`, because an adapter's
-efforts are one list for all its models. Carbon and Argon have no
-`xhigh`: the CLI refuses it with exit 1, and the seat is refused as a
-launch refusal. A slug that already names an effort, such as
-`gemini-4-neon-high`, beside a different `--effort`, is refused by the CLI
-too, so the aliases name the base slugs. The Claude, GPT-OSS and
+efforts are one list for all its models. Carbon, Argon, Claude Opus and
+Claude Sonnet have no `xhigh`: the CLI refuses it with exit 1, and the
+seat is refused as a launch refusal. A slug that already names an effort,
+such as `gemini-4-neon-high`, beside a different `--effort`, is refused
+by the CLI too, so the aliases name the base slugs. The GPT-OSS and
 orchestrator slugs agy also serves are not mapped.
 
 **The launch.** The driver runs `agy --input-format stream-json
@@ -735,8 +777,11 @@ office's grants.
 
 The boxed seat stands as the unboxed one does since decision 0021's
 [addendum](../decisions/0021-model-policy.md#addendum--2026-11-22-operator-ruled-agy-is-trusted-its-four-models-are-promoted-and-neon-and-carbon-are-its-judges):
-trusted, its models promoted, a gate open to Neon and Carbon alone, and
-never resumed.
+trusted, the four Gemini 4 aliases it named (`agy-neon`, `agy-carbon`,
+`agy-hydrogen` and `agy-argon`) promoted (while `agy-claude-opus` and
+`agy-claude-sonnet` are work models whose promotion needs its own ruling
+after an eval, #1382), a gate open to Neon and Carbon alone, and never
+resumed.
 Store reads are measured boxed, on 1.5.14, the version of every boxed
 axis, as two facts kept apart. The box's reach: with the store sealed at
 its production path, the hands tool was denied it (`box-store-drive`),
@@ -745,12 +790,21 @@ gate: the native `read_file` and `run_command` were refused by name
 before either reached the path (`box-store`), which shows the gate, not
 the seal. So an MCP capability that binds a secret is not refused at a
 boxed agy seat for want of a store measurement. Not measured on any
-version: a box whose reach names a bind or the network. Every recorded
-boxed turn ran agy by hand, not through `brokkr driver agy`; on 1.5.14 the
-three boxed turns of the security set and `box-store` ran under the
-driver's own gate. No recorded boxed turn ran on Neon or Argon, and one,
-`box-store`, on Hydrogen; four boxed runs through the driver, one per
-model, are engine runs named on #1224, not recorded turns.
+version: a box whose reach names a bind or the network (neither of the
+eighth measurement's engine seats probed bind or network reach). Every
+recorded lab boxed turn ran agy by hand, not through `brokkr driver agy`;
+on 1.5.14 the three boxed turns of the security set and `box-store` ran
+under the driver's own gate (as did the eighth measurement's three boxed
+turns on `claude-sonnet-5-5-low` on 1.5.17). No recorded boxed turn ran
+on Neon or Argon, and one, `box-store`, on Hydrogen; four boxed runs
+through the driver on the Gemini 4 models, one per model, are engine runs
+named on #1224, not recorded turns. For the Claude 5.5 models, the eighth
+measurement (on 1.5.17) records two `low`-effort boxed work-seat driver
+runs through the released 0.16.0 engine (`claude-engine-0160-*`, one each
+on `claude-opus-5-5` and `claude-sonnet-5-5` over a four-step task,
+captured as launch argv, MCP config, the reader's rendered kept
+transcript and a run-view seat extract); no driver run is recorded for
+either Claude model at `medium` or `high`.
 
 **A turn agy stopped at a denial is not an answer.** When agy cannot ask
 for an approval, it stops the turn, exits 0 with status `SUCCESS` and an
@@ -965,6 +1019,9 @@ turn. Each shape names the version its recordings are from:
 
 | Fact | Version |
 |---|---|
+| Effort grammar for `claude-opus-5-5` (four one-word turns and two effort refusals) and `claude-sonnet-5-5` (`claude-opus-*`, `claude-sonnet-*`, eighth measurement) | 1.5.17 |
+| Short security set on `claude-sonnet-5-5-low` (`*-sonnet-v17`, eighth measurement) | 1.5.17 |
+| One boxed work seat per Claude slug (`claude-opus-5-5` and `claude-sonnet-5-5`) at `low` effort on a four-step task through the released 0.16.0 engine (`claude-engine-0160-*`, eighth measurement) | 1.5.17 |
 | The boxed shapes' four axes, cold and replacement, and the MCP carriage (`iso-*-v14`, `box-*-v14`, `box-store-drive`, `box-store`) | 1.5.14 |
 | A gate that crashes or hangs denies (`hook-crash-v14`, `hook-timeout-v14`) | 1.5.14 |
 | The self-update, and `AGY_CLI_DISABLE_AUTO_UPDATE=true` stopping it | 1.5.14 |
@@ -1482,7 +1539,7 @@ stands and nothing here is claimed. The evidence is
 | `lanetally` | Cold and replacement without hands, through the wrapper itself: launcher sha256 `b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb` running LaneTally's session-wrapper.sh at 4614bb7, sha256 `ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7`, over Claude Code 2.1.287 (cold) and 2.1.308 (replacement). | Process reads; store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. A different wrapper is a different measurement. |
 | `exec` | `inapplicable`: no model MCP surface. | — |
 | `qoder` (example) | Cold and replacement without hands: Qoder CLI 1.1.92, against planted user, local, project and plugin sentinels (Q07, Q10, Q11, Q14, Q15 in [`qoder-cli-1-1.md`](../evidence/adapters/qoder-cli-1-1.md#mcp-isolation-si2)). Every launch carries `--strict-mcp-config --mcp-config <the engine's file> --setting-sources ""`: either flag alone still started a planted server. | Native write, store read and process read: Qoder's permission check refused the attempts, and that check is not an isolation mechanism. No boxed shape, so a site that boxes its hands refuses the seat. A managed or enterprise MCP configuration. |
-| `agy` (example) | Cold and replacement without hands: Antigravity CLI 1.5.13, against planted user, plugin, workspace, parent, workspace-plugin and added-directory sentinels (`iso-01` to `iso-06` in [`agy-cli-1-5.md`](../evidence/adapters/agy-cli-1-5.md#mcp-isolation-si2)). Every launch runs under an engine HOME of its own, which started none of the user's servers, and a workspace carrying `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` in the working directory or any directory above it is refused before spawn, because agy starts those in a workspace nobody trusted (`iso-02`). Cold and replacement, boxed: Antigravity CLI 1.5.14, under a HOME whose one server is the engine's, which started and answered (`iso-07-engine-carriage-cold-v14`, `box-engine-workspace-tool-v14`); under the driver's gate listing `call_mcp_tool` alone, native writes and the native shell were refused by name, and the hands tool's command saw 4 entries in `/proc` (`box-other-natives-v14`, `box-reach-v14`, in the [sixth measurement](../evidence/adapters/agy-cli-1-5.md#sixth-measurement-on-1514-the-short-security-set-and-a-commands-stdin-2026-11-21)). Store read is two facts, kept apart as the [boxed seat's paragraph](#a-boxed-agy-seat) keeps them: the box's seal denied a store at its production path to the hands tool, which read it with no seal (`box-store-drive`, `box-store-drive-control`); and the driver's gate refused the native `read_file` and `run_command` by name before either reached the path (`box-store`), which shows the gate, not the seal. The native denial is the gate's, in agy's own process on the host, not a boundary of the operating system. | Without hands: native write, store read and process read, since the record's host has no terminal sandbox. Boxed: a box whose reach names a bind or the network; a boxed turn on Neon or Argon; and any recorded turn through `brokkr driver agy` itself (the record's boxed turns ran agy by hand, those on 1.5.14 under the driver's gate; four boxed driver runs, one per model, are engine runs on #1224, not recorded turns). macOS. |
+| `agy` (example) | Cold and replacement without hands: Antigravity CLI 1.5.13, against planted user, plugin, workspace, parent, workspace-plugin and added-directory sentinels (`iso-01` to `iso-06` in [`agy-cli-1-5.md`](../evidence/adapters/agy-cli-1-5.md#mcp-isolation-si2)). Every launch runs under an engine HOME of its own, which started none of the user's servers, and a workspace carrying `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` in the working directory or any directory above it is refused before spawn, because agy starts those in a workspace nobody trusted (`iso-02`). Cold and replacement, boxed: Antigravity CLI 1.5.14, under a HOME whose one server is the engine's, which started and answered (`iso-07-engine-carriage-cold-v14`, `box-engine-workspace-tool-v14`); under the driver's gate listing `call_mcp_tool` alone, native writes and the native shell were refused by name, and the hands tool's command saw 4 entries in `/proc` (`box-other-natives-v14`, `box-reach-v14`, in the [sixth measurement](../evidence/adapters/agy-cli-1-5.md#sixth-measurement-on-1514-the-short-security-set-and-a-commands-stdin-2026-11-21)). Store read is two facts, kept apart as the [boxed seat's paragraph](#a-boxed-agy-seat) keeps them: the box's seal denied a store at its production path to the hands tool, which read it with no seal (`box-store-drive`, `box-store-drive-control`); and the driver's gate refused the native `read_file` and `run_command` by name before either reached the path (`box-store`), which shows the gate, not the seal. The native denial is the gate's, in agy's own process on the host, not a boundary of the operating system. | Without hands: native write, store read and process read, since the record's host has no terminal sandbox. Boxed: a box whose reach names a bind or the network; a boxed turn on Neon or Argon; any recorded turn through `brokkr driver agy` on the four Gemini 4 models (their recorded boxed turns ran agy by hand, those on 1.5.14 under the driver's gate; four boxed driver runs, one per Gemini 4 model, are engine runs on #1224, not recorded turns); and any recorded driver run on `claude-opus-5-5` or `claude-sonnet-5-5` above `low` effort (the eighth measurement on 1.5.17 records two `low`-effort boxed work-seat driver runs through the released 0.16.0 engine, `claude-engine-0160-*`, captured as launch argv, MCP config, the reader's rendered kept transcript and a run-view seat extract, without probing bind or network reach). macOS. |
 
 A shape's `measured_on.version` is not compared with the version of
 the harness installed: a measurement stays applied after the binary

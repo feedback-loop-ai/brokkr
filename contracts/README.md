@@ -172,6 +172,7 @@ this contract was minted, was accepted by the operator on 2026-10-30.
 | --- | --- |
 | `panel-carry.v1.schema.json` | 0093 |
 | `provider-wait.v1.schema.json` | 0103 |
+| `provider-wait.v2.schema.json` | 0106 |
 | `park-cause.v1.schema.json` | 0106 |
 | `effect-usage.v1.schema.json` | 0112 |
 
@@ -200,6 +201,19 @@ under the amended rule above, and `fold` reads none of them: the engine
 reads the effect's own events and `RunState` gains nothing. A present entry
 that cannot be read refuses by name, never as absent. Decision 0103, under
 which this contract was minted, was accepted by the operator on 2026-10-31.
+
+`provider-wait.v2.schema.json` (decision 0106 ruling 2) is v1 plus a held
+entry: a `waits` entry may carry `held: true` and `max_seconds`, the
+declared maximum that the provider's stated `retry_after_seconds` alone
+exceeded. A held wait is not a park. The run stays `running` with its effect
+open, its length is not counted in the episode the maximum bounds, and the
+event carries no `refused`, which keeps v1's meaning. A held entry with no
+maximum, a maximum with no `held`, and a held wait beside `refused` each
+refuse by name. v2 reads a v1 entry as not held; a v1 reader refuses a held
+entry by its closed key list. v1's bytes do not move. An `effect/indeterminate`
+may also carry `wait_unwritten: true`: the engine's settlement of an attempt
+whose terminal the store refused for a wait row it did not write, so a replay
+that finds no park after it parks `ruled`, as the live path does.
 
 ## Event vocabulary (v1)
 
@@ -894,6 +908,25 @@ restriction schema names `retain` directly: "tool dialect '<dialect>'
 restriction schema redefines reserved grant key 'retain'"
 (`capabilities/dialect.rs`).
 
+Decision 0126 (rulings 1 to 5) adds one grant form beside the one that
+v8 writes. v1 to v8 stay frozen, with v8's bytes pinned by digest:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with a tool dialect for each provider of a grant | `realms.v9.schema.json` | brokkr-core (shape), brokkr-runtime (binding) |
+
+A `forge.realms/v9` grant writes exactly one of `dialect` and `dialects`.
+The latter is a non-empty object keyed by provider name, with one tool
+dialect name at each key. A per-provider grant may also write `offices`
+and the `retain: false` veto. The schema and loader refuse both forms
+written together, neither form, an empty map, an invalid name, or
+`tools` or any other restriction key on a per-provider grant. Each
+dialect serves the granted capability, and a native dialect belongs
+under its own provider's key. A seat holds the dialect under its own
+key, and the manifest's realms pin carries the grant as written. A v9
+grant with `dialect` reads as it does in v8. Under v6 to v8 a written
+`dialects` stays the selected dialect's restriction.
+
 Decision 0065's slice two (SC3 and CR1, U5f) adds one more file and changes
 none of the bytes above — `run-manifest.v11`'s included, which is now
 pinned by digest beside the frozen files:
@@ -1294,3 +1327,17 @@ not know as its kind, locator and home, and acts on nothing of it.
 v8 stands at v7's own engine line: the store dispatches the 0.14 line
 and later to v8, and the 0.12 and 0.13 lines to v6. As with v2, no engine
 string selects v7; it stays published, pinned and nameable.
+
+## Work order (decision 0116)
+
+| Contract | File | Consumers |
+|---|---|---|
+| Work order JSON header | `work-order.v1.schema.json` | brokkr-core's work order reader and Markdown renderer |
+
+The CLI validates references against six shipped trackers (Azure DevOps,
+GitHub, GitLab, Jira, Linear and ZenHub) and adopter definitions in
+`.brokkr/trackers/` for a found folder or `./trackers/` for a recipe library.
+Each `.json` file holds one definition with the same shape as a shipped file
+under `crates/brokkr-cli/trackers/`. Adopter files extend the shipped set
+in filename byte order. A duplicate tracker word, invalid definition or
+unreadable path refuses the command. Bare workspaces use the shipped set.

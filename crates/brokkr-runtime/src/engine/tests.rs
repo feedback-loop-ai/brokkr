@@ -2025,7 +2025,8 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
         "residual",
         json!({"result":"residual","inputs":{"max_residual_severity":"invented"}}),
     )]));
-    assert_eq!(unknown_severity["inputs"]["max_residual_severity"], "none");
+    // Decision 0120 ruling 1: a residual's unreadable severity is unknown.
+    assert!(unknown_severity["inputs"]["max_residual_severity"].is_null());
 
     assert_eq!(
         tag_member(json!({"step":"x"}), "member")["member"],
@@ -5001,9 +5002,9 @@ fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String
     git_head(repo).unwrap()
 }
 
-const CLASSES: &str = ".github/delivery-classes.json";
+pub(super) const CLASSES: &str = ".github/delivery-classes.json";
 
-const DOCS_CLASS: &str = r#"{"schema":"forge.delivery-classes/v1","classes":{"docs":{"paths":["(^|/)[^/]+\\.md$","^docs/","^assets/"]}}}"#;
+pub(super) const DOCS_CLASS: &str = r#"{"schema":"forge.delivery-classes/v1","classes":{"docs":{"paths":["(^|/)[^/]+\\.md$","^docs/","^assets/"]}}}"#;
 
 /// A class whose one pattern matches every path — what a phase would
 /// commit if it could choose the class its own fixes are judged by.

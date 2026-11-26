@@ -2,22 +2,15 @@
 //! entry nothing else stops starts only when the machine has room for it,
 //! as its host configuration ([`super::host`]) declares that room.
 //!
-//! What a run seats is read from its manifest, one derivation for both
-//! sides: the entry's, compiled as its start would compile it, and each
-//! running run's, as the journal pinned it. A seat is each candidate the
-//! manifest's capability records name, fallbacks included, since any of
-//! them may be seated: its provider, and the route its compile pinned for
-//! each concrete model id it may be served (`run-manifest/v14`): the one
-//! its driver serves the id on, the id's own prefix before the first `/`
-//! (decision 0036 ruling 2) or the driver's default route, as dsh serves a
-//! bare id on `deepseek-official`. Nothing is resolved again through
-//! anyone's adapters, so a run is counted by what its own compile seated
-//! whichever workspace admits beside it; a manifest that does not pin what
-//! it seats, or pins it unreadably, cannot be measured. A run counts once
-//! against each provider and route it seats; a seat on a `shared-local`
-//! route counts against that route alone, in place of its provider (ruling
-//! 5). A run builds in a box when any of its hands sites stands behind a
-//! boxed boundary.
+//! One manifest reader measures both the entry, compiled as it would be at start, and
+//! each running run, as pinned in the journal. Each candidate, including a fallback, names
+//! its provider and the route pinned for each concrete model id (`run-manifest/v14`).
+//! That route is the id's prefix before the first `/` (decision 0036 ruling 2) or the
+//! driver's default, as dsh serves a bare id on `deepseek-official`. The admitting
+//! workspace uses those pins directly. Missing or unreadable pins refuse measurement.
+//! A run counts once against each provider and route it seats. A `shared-local` seat
+//! counts only against its route (ruling 5). A run builds in a box when any hands site
+//! has a boxed boundary.
 //!
 //! The checks run in a fixed order, and the first unmet one is the reason
 //! recorded: the host configuration is declared and readable; the entry's
@@ -44,7 +37,9 @@ use std::sync::Arc;
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::fold::{fold, Status};
 use brokkr_core::realms::Boundary;
-use brokkr_store::{Claim, Claiming, Cooldown, EntryState, Generation, QueueEntry, Store, Wait};
+use brokkr_store::{
+    Claim, Claiming, Cooldown, CooldownAggregate, EntryState, Generation, QueueEntry, Store, Wait,
+};
 use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
@@ -135,8 +130,12 @@ pub enum Capacity {
     CoolingDown {
         provider: String,
         route: String,
-        until: Stamp,
-        words: String,
+        /// What the route stands at, each end with the row it came from: a
+        /// probe's hold, which no time ends (the return of fix round
+        /// 0106b1r12), with its own deadline and words, and the latest
+        /// ordinary row with its own (fix round 0106b1r15, L1). Boxed, so
+        /// every other refusal stays small.
+        standing: Box<CooldownAggregate>,
     },
 }
 
@@ -423,12 +422,26 @@ impl Room {
         reason: &str,
         claims: &mut dyn FnMut() -> bool,
     ) -> Result<Result<Claim, Unclaimed>, AdmissionError> {
+        self.claim_at(store, generation, reason, claims, Stamp::now_utc())
+    }
+
+    /// [`Room::claim`] at `now`, as [`super::pass_within_at`] holds the
+    /// pass's: the tests judge a cool-down's end on both gates at one
+    /// instant (fix round 0106b1r5, M1).
+    pub(crate) fn claim_at(
+        &self,
+        store: &mut Store,
+        generation: Generation,
+        reason: &str,
+        claims: &mut dyn FnMut() -> bool,
+        now: Stamp,
+    ) -> Result<Result<Claim, Unclaimed>, AdmissionError> {
         let over = Claiming {
             entry: &self.entry,
             high_water: self.high_water,
             digest: &self.digest,
             generation,
-            now: Stamp::now_utc(),
+            now,
         };
         let claimed = store.queue_claim_with(&over, reason, self.judge(store.path(), claims));
         match claimed? {

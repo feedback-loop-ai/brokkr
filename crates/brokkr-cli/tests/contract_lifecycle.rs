@@ -10,7 +10,13 @@
 //! ruling 6).
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use brokkr_core::{
+    ending::Ending,
+    work_order::{Trackers, WorkOrder, WorkOrderState},
+};
+use serde_json::{json, Value};
 
 /// The guide that holds the table, from the workspace root.
 pub(crate) const GUIDE: &str = "docs/guides/versioning.md";
@@ -20,7 +26,11 @@ pub(crate) const FILELESS: &str = "none (decision 0082 ruling 5)";
 
 /// A reader private to its crate, with the row its file names. The owning
 /// crate's tests drive it; this module only admits the name.
-pub(crate) const PRIVATE: [(&str, &str); 11] = [
+pub(crate) const PRIVATE: [(&str, &str); 12] = [
+    (
+        "contracts/work-order.v1.schema.json",
+        "load brokkr_core::work_order::Header::read",
+    ),
     (
         "contracts/operator-ending.v1.schema.json",
         "load brokkr_core::ending::operator_ending",
@@ -874,12 +884,19 @@ fn instance_satisfies_row(row: &Row, instance: &serde_json::Value) -> Option<Str
 /// (with its `probes` answer beside it) loads, and the row's own schema
 /// admits the instance first.
 fn drive_provider_waits(row: &Row) -> Vec<String> {
+    let mut wait = serde_json::json!({
+        "provider": "claude", "route": "first", "words": "rate_limit",
+        "retry_after_seconds": 30, "seconds": 30,
+        "until": "2026-11-01T00:00:30Z", "rounds": 2
+    });
+    // v2's row drives the held entry only v2 writes (decision 0106 ruling 2).
+    let held = row.version == "provider-wait/v2";
+    if held {
+        wait["held"] = serde_json::json!(true);
+        wait["max_seconds"] = serde_json::json!(10);
+    }
     let payload = serde_json::json!({
-        "waits": [{
-            "provider": "claude", "route": "first", "words": "rate_limit",
-            "retry_after_seconds": 30, "seconds": 30,
-            "until": "2026-11-01T00:00:30Z", "rounds": 2
-        }],
+        "waits": [wait],
         "probes": [{
             "provider": "claude", "route": "first",
             "answered_at": "2026-11-01T00:00:31Z"
@@ -890,10 +907,11 @@ fn drive_provider_waits(row: &Row) -> Vec<String> {
     }
     let event = envelope(brokkr_core::EventType::EffectFailed, payload, 1);
     let waits = brokkr_core::provider_waits(&event)
-        .expect("a v1 wait loads")
+        .expect("a wait loads")
         .expect("the extension is present");
     assert_eq!(waits.len(), 1, "one wait entry loads");
     assert_eq!(waits[0].rounds, 2);
+    assert_eq!(waits[0].held.is_some(), held);
     Vec::new()
 }
 
@@ -1410,4 +1428,226 @@ fn the_private_rows_are_exactly_the_ones_their_crates_check() {
         PRIVATE.len(),
         "a private reader has no row in the table"
     );
+}
+
+fn work_order_schema(root: &Path) -> Value {
+    let schema = std::fs::read_to_string(root.join("contracts/work-order.v1.schema.json")).unwrap();
+    serde_json::from_str(&schema).unwrap()
+}
+
+fn work_order_validator(schema: &Value) -> jsonschema::Validator {
+    jsonschema::draft7::options()
+        .should_validate_formats(true)
+        .build(schema)
+        .unwrap()
+}
+
+fn work_order_trackers(root: &Path) -> Trackers {
+    let definitions: Vec<String> = std::fs::read_dir(root.join("crates/brokkr-cli/trackers"))
+        .unwrap()
+        .map(|file| std::fs::read_to_string(file.unwrap().path()).unwrap())
+        .collect();
+    Trackers::from_definitions(definitions.iter().map(String::as_str)).unwrap()
+}
+
+fn work_order_header(document: &str) -> Value {
+    let json = document
+        .lines()
+        .skip_while(|line| *line != "```json")
+        .skip(1)
+        .take_while(|line| *line != "```")
+        .collect::<Vec<_>>()
+        .join("\n");
+    serde_json::from_str(&json).unwrap_or_else(|error| panic!("{error} in {document}"))
+}
+
+const WORK_ORDER_DRAFT: &str = include_str!("../../../fixtures/work-order/draft.md");
+
+fn check_work_order_header(
+    validator: &jsonschema::Validator,
+    trackers: &Trackers,
+    header: &Value,
+    expected: (bool, bool),
+) {
+    let (_, body) = WORK_ORDER_DRAFT.split_once("\n```\n").unwrap();
+    let document = format!("```json\n{header}\n```\n{body}");
+    let schema_accepts = validator.is_valid(header);
+    let reader_accepts = WorkOrder::parse(&document, trackers).is_ok();
+    assert_eq!((schema_accepts, reader_accepts), expected, "{header}");
+}
+
+#[test]
+fn work_order_fixtures_agree_with_the_header_schema() {
+    let root = workspace();
+    let validator = work_order_validator(&work_order_schema(&root));
+    let trackers = work_order_trackers(&root);
+
+    // These headers are valid. The document reader also checks its
+    // framing, ruling positions, and its realm's tracker vocabulary.
+    let mut context_refusals = BTreeSet::from([
+        "bad-acceptance.md",
+        "before-header.md",
+        "empty-acceptance.md",
+        "empty-intent.md",
+        "lone-carriage-return.md",
+        "missing-acceptance.md",
+        "missing-intent.md",
+        "missing-ruling.md",
+        "other-section.md",
+        "repeated-acceptance.md",
+        "repeated-intent.md",
+        "unclosed-header.md",
+        "unknown-tracker.md",
+    ]);
+    let mut admitted = BTreeSet::new();
+    for file in std::fs::read_dir(root.join("fixtures/work-order")).unwrap() {
+        let file = file.unwrap();
+        let name = file.file_name().into_string().unwrap();
+        let document = std::fs::read_to_string(file.path()).unwrap();
+        let header = work_order_header(&document);
+        let contextual = context_refusals.remove(name.as_str());
+        let accepted = WorkOrder::parse(&document, &trackers).is_ok();
+        assert_eq!(
+            validator.is_valid(&header),
+            accepted || contextual,
+            "{name}"
+        );
+        if accepted {
+            admitted.insert(name);
+        }
+    }
+    assert_eq!(context_refusals, BTreeSet::new());
+    assert_eq!(
+        admitted,
+        BTreeSet::from([
+            "complete.md".into(),
+            "draft.md".into(),
+            "noncanonical.md".into()
+        ])
+    );
+}
+
+#[test]
+fn work_order_links_agree_with_the_header_schema() {
+    let root = workspace();
+    let validator = work_order_validator(&work_order_schema(&root));
+    let trackers = work_order_trackers(&root);
+    let mut header = work_order_header(WORK_ORDER_DRAFT);
+    for (link, syntax, tracked) in [
+        ("https://github.com/a<b>", false, false),
+        ("https://github.com/x\"quoted", false, false),
+        ("https://github.com/ü", false, false),
+        ("https://github.com/%zz", false, false),
+        ("https://github.com/%1", false, false),
+        ("https://github.com/a{b}|^`", false, false),
+        ("https://github.com/a#b#c", false, false),
+        ("https://github.com/a[0]", false, false),
+        ("https://github.com/space here", false, false),
+        ("https://github.com/#trailing\n", false, false),
+        ("https://github.com:65536/x", false, false),
+        ("https://github.com:99999/x", false, false),
+        ("https://github.com:+1/x", false, false),
+        ("https://github.com", true, true),
+        ("https://github.com:0/x", true, true),
+        ("https://github.com:65535/x", true, true),
+        ("https://github.com:0008443/x", true, true),
+        ("https://github.com:/x", true, true),
+        ("hTTps://github.com/a%3Cb?x=!$&'()*+,;=:#y%23z", true, true),
+        ("https://%67ithub.com/x", true, true),
+        ("https://name:secret@github.com/x", false, false),
+        ("https://github.com/a@b", true, true),
+        ("https://a@b@github.com/x", false, false),
+        ("https://na%zzme@github.com/x", false, false),
+        ("https://:443/x", false, false),
+        ("https://name@:443/x", false, false),
+        ("https://%FF/x", true, false),
+        ("https://[::1]:443/x", true, false),
+        ("https://[::1/x", false, false),
+        ("https://[1234]/x", false, false),
+        ("https://[::1]extra/x", false, false),
+        ("https://[v1.x]/x", false, false),
+        ("javascript:alert(1)", false, false),
+        ("data:text/plain,hello", false, false),
+        ("file:///etc/hosts", false, false),
+        ("http://github.com/x", false, false),
+    ] {
+        header["references"] = json!([{"tracker": "github", "item": "T-1", "link": link}]);
+        check_work_order_header(&validator, &trackers, &header, (syntax, tracked));
+        header["references"] = json!([]);
+        header["rulings"] =
+            json!([{"words": "Use one order.", "date": "2024-02-29", "cite": link}]);
+        check_work_order_header(&validator, &trackers, &header, (syntax, syntax));
+        header["rulings"] = json!([]);
+    }
+}
+
+#[test]
+fn work_order_titles_agree_with_the_header_schema() {
+    let root = workspace();
+    let validator = work_order_validator(&work_order_schema(&root));
+    let trackers = work_order_trackers(&root);
+    let mut header = work_order_header(WORK_ORDER_DRAFT);
+    for title in [
+        "",
+        " \t",
+        "\u{85}",
+        "\u{a0}",
+        "\u{1680}",
+        "\u{2000}",
+        "\u{200a}",
+        "\u{2028}",
+        "\u{2029}",
+        "\u{202f}",
+        "\u{205f}",
+        "\u{3000}",
+        "Two\r lines",
+        "Two\nlines",
+    ] {
+        header["title"] = json!(title);
+        check_work_order_header(&validator, &trackers, &header, (false, false));
+    }
+    for title in ["\u{feff}", "\u{200b}", " \u{85}Order\u{a0} "] {
+        header["title"] = json!(title);
+        check_work_order_header(&validator, &trackers, &header, (true, true));
+    }
+}
+
+#[test]
+fn work_order_vocabularies_agree_with_the_header_schema() {
+    use WorkOrderState::*;
+
+    let root = workspace();
+    let schema = work_order_schema(&root);
+    let validator = work_order_validator(&schema);
+    let trackers = work_order_trackers(&root);
+    let mut header = work_order_header(WORK_ORDER_DRAFT);
+    let states = [
+        Proposed,
+        Ruled,
+        Queued,
+        InProgress,
+        Shipped,
+        Merged,
+        Withdrawn,
+        Superseded,
+        DeliveredElsewhere,
+    ];
+    for state in states {
+        header["state"] = json!(state);
+        check_work_order_header(&validator, &trackers, &header, (true, true));
+    }
+    let state_enum = &schema["properties"]["state"]["enum"];
+    assert_eq!(state_enum.as_array().unwrap().len(), states.len());
+
+    let endings = Ending::ALL
+        .into_iter()
+        .filter(|ending| *ending != Ending::Unclassified)
+        .map(Ending::word);
+    let conditions = ["completed", "ended", "merged"].into_iter().chain(endings);
+    for condition in conditions.clone() {
+        header["edges"] = json!([{"awaits": "WO-1", "condition": condition}]);
+        check_work_order_header(&validator, &trackers, &header, (true, true));
+    }
+    let condition_enum = &schema["properties"]["edges"]["items"]["properties"]["condition"]["enum"];
+    assert_eq!(condition_enum.as_array().unwrap().len(), conditions.count());
 }

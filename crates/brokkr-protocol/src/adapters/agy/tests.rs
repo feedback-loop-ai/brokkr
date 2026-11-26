@@ -27,6 +27,15 @@ const NEON: &str = recorded!("named-model-neon-base.ndjson");
 const CARBON: &str = recorded!("named-model-carbon-base.ndjson");
 const HYDROGEN: &str = recorded!("named-model-hydrogen-base.ndjson");
 const ARGON: &str = recorded!("named-model-argon-base.ndjson");
+const CLAUDE_SONNET_FIRST: &str = recorded!("claude-sonnet-first.ndjson");
+const CLAUDE_SONNET_SUFFIX: &str = recorded!("claude-sonnet-suffix.ndjson");
+const CLAUDE_SONNET_LOW: &str = recorded!("claude-sonnet-effort-low.ndjson");
+const CLAUDE_SONNET_MEDIUM: &str = recorded!("claude-sonnet-effort-medium.ndjson");
+const CLAUDE_SONNET_HIGH: &str = recorded!("claude-sonnet-effort-high.ndjson");
+const CLAUDE_OPUS_NOEFFORT: &str = recorded!("claude-opus-noeffort.ndjson");
+const CLAUDE_OPUS_LOW: &str = recorded!("claude-opus-effort-low.ndjson");
+const CLAUDE_OPUS_MEDIUM: &str = recorded!("claude-opus-effort-medium.ndjson");
+const CLAUDE_OPUS_HIGH: &str = recorded!("claude-opus-effort-high.ndjson");
 pub(in crate::adapters) const TOOLS_TURN: &str = recorded!("tools-turn.ndjson");
 const GATE_PRIOR: &str = recorded!("gate-prior-grant.ndjson");
 const DENIED_DEFAULT: &str = recorded!("denied-command-default.ndjson");
@@ -59,6 +68,37 @@ const MODEL_REFUSALS: [(&str, &str); 4] = [
     (
         recorded!("effort-conflicts-with-slug.ndjson"),
         recorded!("effort-conflicts-with-slug.stderr"),
+    ),
+];
+
+/// The five Claude effort-refusal turns from the eighth measurement (#1382):
+/// `xhigh` and `max` on both slugs, plus an unknown effort, each exiting 1
+/// with an `ERROR` result before any turn.
+const CLAUDE_EFFORT_REFUSALS: [(&str, &str, &str); 5] = [
+    (
+        "claude-sonnet-5-5",
+        recorded!("claude-sonnet-effort-xhigh.ndjson"),
+        recorded!("claude-sonnet-effort-xhigh.stderr"),
+    ),
+    (
+        "claude-sonnet-5-5",
+        recorded!("claude-sonnet-effort-max.ndjson"),
+        recorded!("claude-sonnet-effort-max.stderr"),
+    ),
+    (
+        "claude-sonnet-5-5",
+        recorded!("claude-sonnet-effort-bogus.ndjson"),
+        recorded!("claude-sonnet-effort-bogus.stderr"),
+    ),
+    (
+        "claude-opus-5-5",
+        recorded!("claude-opus-effort-xhigh.ndjson"),
+        recorded!("claude-opus-effort-xhigh.stderr"),
+    ),
+    (
+        "claude-opus-5-5",
+        recorded!("claude-opus-effort-max.ndjson"),
+        recorded!("claude-opus-effort-max.stderr"),
     ),
 ];
 
@@ -109,24 +149,32 @@ fn response(stdout: &str) -> Value {
     last["result"]["response"].clone()
 }
 
-/// Each answer is the one the fold's verdict carries (J7).
-#[test]
-fn the_tool_less_stdin_and_named_model_turns_answer_ready_on_their_pins() {
-    let turns = [
-        (TOOL_LESS, FLASH),
-        (STDIN_TURN, FLASH),
-        (NEON, "gemini-4-neon"),
-        (CARBON, "gemini-4-carbon"),
-        (HYDROGEN, "gemini-4-hydrogen"),
-        (ARGON, "gemini-4-argon"),
-    ];
-    for (stdout, pin) in turns {
+/// Each `(stdout, pin)` in `turns` finishes cleanly with `expected`, one turn
+/// row on `pin`, and `pin` recorded as its model.
+fn assert_answers(turns: &[(&str, &str)], expected: &str) {
+    for &(stdout, pin) in turns {
         let read = read(stdout, pin);
         assert_eq!(read.stopped, None, "{pin}");
-        assert_eq!(answer(read.fold.verdict(0, false)), "READY\n", "{pin}");
+        assert_eq!(answer(read.fold.verdict(0, false)), expected, "{pin}");
         assert_eq!(read.rows, [turn_row(1, pin)], "{pin}");
         assert_eq!(read.record["model"], pin);
     }
+}
+
+/// Each answer is the one the fold's verdict carries (J7).
+#[test]
+fn the_tool_less_stdin_and_named_model_turns_answer_ready_on_their_pins() {
+    assert_answers(
+        &[
+            (TOOL_LESS, FLASH),
+            (STDIN_TURN, FLASH),
+            (NEON, "gemini-4-neon"),
+            (CARBON, "gemini-4-carbon"),
+            (HYDROGEN, "gemini-4-hydrogen"),
+            (ARGON, "gemini-4-argon"),
+        ],
+        "READY\n",
+    );
 }
 
 /// The tools turn and the gate's own turn answer; the gate's refused
@@ -213,6 +261,66 @@ fn a_named_model_turn_pinned_to_another_id_is_refused_naming_both() {
     );
     assert_eq!(read.rows, Vec::<Value>::new());
     assert!(!read.fold.worked());
+}
+
+/// The Claude 5.5 turns from the eighth measurement (#1382) answer on their
+/// pinned slugs across no-effort, `low`, `medium`, `high` and a suffixed slug,
+/// and a pin mismatch on either slug is refused naming both.
+#[test]
+fn the_claude_turns_answer_on_their_pins_and_substitution_is_refused() {
+    assert_answers(
+        &[
+            (CLAUDE_SONNET_FIRST, "claude-sonnet-5-5"),
+            (CLAUDE_SONNET_LOW, "claude-sonnet-5-5"),
+            (CLAUDE_SONNET_MEDIUM, "claude-sonnet-5-5"),
+            (CLAUDE_SONNET_HIGH, "claude-sonnet-5-5"),
+            (CLAUDE_SONNET_SUFFIX, "claude-sonnet-5-5-high"),
+            (CLAUDE_OPUS_NOEFFORT, "claude-opus-5-5"),
+            (CLAUDE_OPUS_LOW, "claude-opus-5-5"),
+            (CLAUDE_OPUS_MEDIUM, "claude-opus-5-5"),
+            (CLAUDE_OPUS_HIGH, "claude-opus-5-5"),
+        ],
+        "ready\n",
+    );
+    let mismatches = [
+        (CLAUDE_SONNET_FIRST, "claude-opus-5-5", "claude-sonnet-5-5"),
+        (CLAUDE_OPUS_LOW, "claude-sonnet-5-5", "claude-opus-5-5"),
+        (
+            CLAUDE_SONNET_SUFFIX,
+            "claude-sonnet-5-5",
+            "claude-sonnet-5-5-high",
+        ),
+    ];
+    for (stdout, pin, served) in mismatches {
+        let read = read(stdout, pin);
+        let refused = read.stopped.unwrap();
+        assert_eq!(refused.class(), RefusalClass::Other);
+        assert_eq!(
+            refused.words(),
+            format!("model_substituted: the seat pinned \"{pin}\" and agy served \"{served}\"")
+        );
+        assert_eq!(read.rows, Vec::<Value>::new());
+        assert!(!read.fold.worked());
+    }
+}
+
+/// `xhigh`, `max` and an unknown effort on the two Claude 5.5 slugs end as
+/// launch refusals quoting nothing from stdout or stderr, by the same path as
+/// `gemini-4-carbon` (#1382).
+#[test]
+fn the_claude_effort_refusals_are_launch_refusals_quoting_nothing() {
+    let expected = "launch_refused: agy's result had status ERROR; agy exited 1 before any turn: \
+                    it does not serve the model or the effort the seat named";
+    for (pin, stdout, stderr) in CLAUDE_EFFORT_REFUSALS {
+        let Verdict::Refused(refused) = read(stdout, pin).fold.verdict(1, false) else {
+            panic!("not a refusal for {pin}");
+        };
+        assert_eq!(
+            (refused.class(), refused.words()),
+            (RefusalClass::Other, expected)
+        );
+        quotes_nothing(refused.words(), stdout, stderr);
+    }
 }
 
 /// With no init row there is no answer: a step before it refuses, and a
@@ -988,8 +1096,15 @@ fn dot_git(dir: &Path, between: Option<&str>) {
 /// directory, refuses, naming it, with no `.git` between and with a `.git`
 /// directory or file between; a clean chain is admitted. No git is on the
 /// PATH, so none is asked (L1).
+/// This test empties `PATH`, which every sibling that starts a tool by name
+/// or re-executes this binary reads, so it runs in an engine of its own (#1368).
 #[test]
 fn a_workspace_carrying_agys_configuration_anywhere_above_is_refused_with_no_git() {
+    if !crate::process::in_its_own_engine(
+        "adapters::agy::tests::a_workspace_carrying_agys_configuration_anywhere_above_is_refused_with_no_git",
+    ) {
+        return;
+    }
     let mut env = crate::env_guard::EnvGuard::lock();
     let empty = tempfile::tempdir().unwrap();
     env.set("PATH", empty.path());

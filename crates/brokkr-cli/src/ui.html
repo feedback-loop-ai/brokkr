@@ -293,13 +293,11 @@ function groupOf(model) {
 const NODE_CLASS = { 'on-phosphor': 'on-phosphor', 'in-active': 'in-active',
                      'on-halt': 'on-halt', 'on-park': 'on-park' };
 
-// The browser twin of the terminal Safe(): a text node is inert, but the
-// bidi/directional formatting characters reorder visible text without
-// being control characters, so they are removed at the display boundary.
-// Machine JSON keeps the original strings.
-const DISPLAY_REORDERS = /[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+// The server supplies the terminal renderer's ranges for format marks.
+const DISPLAY_FORMAT_MARKS = /(?!format-marks)(?!)/gu;
 function displayText(value) {
-  return String(value).replace(DISPLAY_REORDERS, '');
+  return String(value).replace(DISPLAY_FORMAT_MARKS, character =>
+    '<U+' + character.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '>');
 }
 
 function el(tag, className, text) {
@@ -340,7 +338,7 @@ function tableWrap(table) {
 // lives in brokkr-view, where it is tested.
 function targetSpan(short, full) {
   const span = el('span', null, short);
-  if (full !== null) span.title = full;
+  if (full !== null) span.title = displayText(full);
   return span;
 }
 
@@ -348,7 +346,7 @@ function targetSpan(short, full) {
 // dim mark with the reason on hover, not an empty cell.
 function absentMark(text, why) {
   const mark = el('span', 'absent', text);
-  if (why) mark.title = why;
+  if (why) mark.title = displayText(why);
   return mark;
 }
 
@@ -401,7 +399,7 @@ function decisionStrip(ruling) {
   const rule = badge(ruling.rule_id, ruling.severity_class);
   if (ruling.inputs.length) {
     rule.title = 'inputs\n' +
-      ruling.inputs.map((pair) => pair[0] + ': ' + pair[1]).join('\n');
+      ruling.inputs.map((pair) => displayText(pair[0] + ': ' + pair[1])).join('\n');
   }
   line.appendChild(rule);
   line.appendChild(el('span', 'arrow', ' ' + ruling.from + ' → ' + ruling.next + ' '));
@@ -447,8 +445,8 @@ function runItem(run) {
     item.appendChild(dot);
     const idEl = el('span', 'id line', run.run_id);
     item.appendChild(idEl);
-    item.title = run.run_id + '\n' + word +
-      ' · phase ' + (run.phase ?? '-') + ' · seq ' + (run.seq ?? 0);
+    item.title = displayText(run.run_id) + '\n' + displayText(word) +
+      ' · phase ' + displayText(run.phase ?? '-') + ' · seq ' + (run.seq ?? 0);
   }
   item.onclick = (ev) => {
     // Don't bubble into the pane's expand-on-click handler — the

@@ -371,12 +371,51 @@ fn a_driver_of_a_claim_with_no_spawn_row_refuses_and_writes_nothing() {
     );
 }
 
+/// How many times a replaced-binary test stages its machine before it
+/// takes "no room" for an answer. Admission measures the real machine
+/// (decision 0125), and on macOS its memory pressure can read `warn` for
+/// the dispatcher's pass and `normal` a moment later, so a second reading
+/// cannot excuse the first: a pass that claimed nothing and ended 0 is
+/// staged again, on a fresh machine, and the last staging is excused only by
+/// that pass's own `waiting:` lines (#1374), never by a second reading.
+const REPLACED_BINARY_STAGINGS: usize = 3;
+
 /// Decision 0110 ruling 4 on a machine with one entry queued: `brokkr
 /// dispatch` given `mode`, started from a copy of the binary, records its
 /// binary as it starts, then waits on the journal's write lock, which the
 /// test holds until the copy is replaced. It claims nothing, ends in the
-/// ruling's words and exits 1. What it said.
+/// ruling's words and exits 1. What it said, or nothing when every staging's
+/// pass claimed nothing while its own report says it waited on the
+/// machine, so no claim was tried.
 fn ended_on_its_replaced_binary(test: &str, mode: &[&str]) -> Option<String> {
+    for staging in 1..=REPLACED_BINARY_STAGINGS {
+        match staged_replaced_binary(mode) {
+            Staged::Ended(stdout) => return Some(stdout),
+            Staged::Claimless(stdout) => {
+                if staging < REPLACED_BINARY_STAGINGS {
+                    eprintln!(
+                        "{test}: staging {staging} claimed nothing while waiting on the machine; staged again"
+                    );
+                    continue;
+                }
+                say_wait(test, &stdout);
+            }
+        }
+    }
+    None
+}
+
+/// What one staging of [`ended_on_its_replaced_binary`] came to: the
+/// ruling's ending, or a pass that claimed nothing and ended 0 while its own
+/// `waiting:` lines name only the machine, with that report kept for the
+/// last staging's skip line.
+enum Staged {
+    Ended(String),
+    Claimless(String),
+}
+
+/// One staging of [`ended_on_its_replaced_binary`] on a fresh machine.
+fn staged_replaced_binary(mode: &[&str]) -> Staged {
     let machine = Machine::new();
     machine.queued();
     let copy = machine.base.join("bin/brokkr");
@@ -399,8 +438,7 @@ fn ended_on_its_replaced_binary(test: &str, mode: &[&str]) -> Option<String> {
     let stderr = String::from_utf8_lossy(&ended.stderr);
     assert_commands(&machine, &stdout, &stderr, &["add"]);
     if ended.status.code() == Some(0) && machine_only_wait(&stdout) {
-        say_wait(test, &stdout);
-        return None;
+        return Staged::Claimless(stdout);
     }
     assert_eq!(
         ended.status.code(),
@@ -418,7 +456,7 @@ fn ended_on_its_replaced_binary(test: &str, mode: &[&str]) -> Option<String> {
         "{}",
         diagnostics(&machine, &stdout, &stderr)
     );
-    Some(stdout)
+    Staged::Ended(stdout)
 }
 
 /// Decision 0110 ruling 4: the dispatcher started from a copy of the

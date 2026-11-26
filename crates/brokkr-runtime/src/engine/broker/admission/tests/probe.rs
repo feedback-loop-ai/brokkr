@@ -22,6 +22,7 @@ fn wait() -> brokkr_core::ProviderWait {
         seconds: 1,
         until: OffsetDateTime::parse("2026-11-01T00:00:01Z", &Rfc3339).unwrap(),
         rounds: 1,
+        held: None,
     }
 }
 

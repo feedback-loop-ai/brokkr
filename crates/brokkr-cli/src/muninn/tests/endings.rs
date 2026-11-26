@@ -137,6 +137,6 @@ fn e6_chief_recorded_offer_preserves_layout_and_sanitizes_its_field() {
     assert_eq!(
         rendered,
         "— · 0 proposals for parked runs · 1 findings queued\n  summary: —\n  queue \
-         outage-run seq 5 · offered as re[2Jtry · f · r\n  cites: \n"
+         outage-run seq 5 · offered as re[2Jtry<U+202E> · f · r\n  cites: \n"
     );
 }

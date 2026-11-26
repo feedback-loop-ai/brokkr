@@ -237,17 +237,10 @@ pub(super) fn assert_first_words_listed(root: &Path, runs: &[Vec<String>]) {
 /// its row's leg does not run, each with its reason, by the section's
 /// anchor: an entry no span writes is stale, and
 /// `assert_inline_only_used` refuses it.
-const INLINE_ONLY: [(&str, &str); 8] = [
+const INLINE_ONLY: [(&str, &str); 5] = [
     // A test binary's summary line, quoted as output: "reported `test
     // result: ok` for every one of them".
     ("the-workspace-suite", "test result: ok"),
-    // The same output line: "a name that selects nothing still prints
-    // `test result: ok`".
-    ("the-macos-startup-gate", "test result: ok"),
-    // The shell to paste the block into: "start `bash` first".
-    ("the-macos-startup-gate", "bash"),
-    // The block's checks, named as a tool: "the quiet `grep`s".
-    ("the-macos-startup-gate", "grep"),
     // The fix for a refusal, not the check: "The fix is `cargo fmt --all`".
     ("formatting", "cargo fmt --all"),
     // A step the coverage script takes itself, named to say whose report it is.
@@ -370,18 +363,17 @@ pub(super) fn assert_inline_only_used(rows: &[CheckRow], guide: &str) {
 }
 
 /// The one-word arm pinned by exact values: a word one edit from a line
-/// `LEG_LINES` holds — the insertion `sw_verss`, the deletion
-/// `sw_ver`, the substitution `sw_vars`, the transposition `sw_vesr` —
-/// reads as a command, and `tee`, `rustfmt` and `ok` are no copy of
-/// anything held and stay names. A change that stops reading a drifted
-/// copy, or reads a name as one, fails here rather than leaving a copy
-/// in the guide unread.
+/// `LEG_LINES` holds — the insertion `esacc`, the deletion `esa`, the
+/// substitution `esax`, the transposition `esca` of `esac` — reads as a
+/// command, and `tee`, `rustfmt` and `ok` are no copy of anything held and
+/// stay names. A change that stops reading a drifted copy, or reads a name
+/// as one, fails here rather than leaving a copy in the guide unread.
 #[test]
 fn a_drifted_copy_of_a_held_line_reads_as_a_command() {
-    assert!(text_reads_as_command("sw_verss"));
-    assert!(text_reads_as_command("sw_ver"));
-    assert!(text_reads_as_command("sw_vars"));
-    assert!(text_reads_as_command("sw_vesr"));
+    assert!(text_reads_as_command("esacc"));
+    assert!(text_reads_as_command("esa"));
+    assert!(text_reads_as_command("esax"));
+    assert!(text_reads_as_command("esca"));
     assert!(!text_reads_as_command("tee"));
     assert!(!text_reads_as_command("rustfmt"));
     assert!(!text_reads_as_command("ok"));

@@ -23,7 +23,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use brokkr_runtime::agents::Adapter;
-use brokkr_runtime::{resolve_agent, resolve_route, Adapters, Availability, EgressClass, Library};
+use brokkr_runtime::{
+    resolve_agent, resolve_route, Adapters, Aggregate, Availability, Bundle, CompileError,
+    EgressClass, Invocation, Library, SeatBody, SeatClass, TrustTier,
+};
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -870,5 +873,325 @@ fn the_migration_allowances_lower_to_the_inline_lists_they_replace() {
             (vec![expected("claude"), expected("lanetally")], 0),
             "{agent}"
         );
+    }
+}
+
+/// Which seat layout [`qwen4_bundle_tree`] writes for `implement` and `review`.
+enum Qwen4Seats<'a> {
+    /// `qwen4-worker` work seat at the given effort and `opus-judge` gate seat.
+    WorkAndGate(&'a str),
+    /// `qwen4-worker` work seat at the given effort and a work `review-panel`
+    /// with `qwen4-worker` as a member beside `opus-judge`.
+    WorkAndPanel(&'a str),
+    /// `qwen4-worker` seated as both the work seat (at the given effort) and
+    /// the `review` gate (refused as untrusted).
+    UntrustedGate(&'a str),
+    /// Inline `dsh` work seat pinning `dashscope/qwen4-max` at the given effort
+    /// beside an `opus-judge` gate seat.
+    InlineEffort(&'a str),
+}
+
+/// Construct the common worker and gate seat payloads once so their result
+/// declarations cannot drift across `qwen4-max` tests.
+fn qwen4_seats_json(seats: &Qwen4Seats<'_>) -> (serde_json::Value, serde_json::Value) {
+    const WORK_RESULTS: [&str; 1] = ["pass"];
+    const REVIEW_RESULTS: [&str; 3] = ["clean", "residual", "security-hold"];
+
+    let default_work = serde_json::json!({
+        "agent": "qwen4-worker",
+        "class": "work",
+        "results": WORK_RESULTS,
+    });
+    let default_gate = serde_json::json!({
+        "agent": "opus-judge",
+        "class": "gate",
+        "results": REVIEW_RESULTS,
+    });
+    match seats {
+        Qwen4Seats::WorkAndGate(_) => (default_work, default_gate),
+        Qwen4Seats::WorkAndPanel(_) => (
+            default_work,
+            serde_json::json!({
+                "results": REVIEW_RESULTS,
+                "aggregate": "review-panel",
+                "panel": {
+                    "correctness": {"agent": "qwen4-worker", "class": "work"},
+                    "security": {"agent": "opus-judge", "class": "work"},
+                },
+            }),
+        ),
+        Qwen4Seats::UntrustedGate(_) => (
+            default_work,
+            serde_json::json!({
+                "agent": "qwen4-worker",
+                "class": "gate",
+                "results": REVIEW_RESULTS,
+            }),
+        ),
+        Qwen4Seats::InlineEffort(inline_effort) => (
+            serde_json::json!({
+                "role": "role.md",
+                "class": "work",
+                "results": WORK_RESULTS,
+                "driver": {
+                    "command": [
+                        "{brokkr}", "driver", "dsh", "--",
+                        "--model", "dashscope/qwen4-max",
+                        "--effort", inline_effort,
+                    ]
+                }
+            }),
+            default_gate,
+        ),
+    }
+}
+
+/// Build a minimal two-phase bundle under `root` for exercising `qwen4-max`
+/// against the shipped `adapters/` directory, writing only the agent and role
+/// files that `seats` actually references.
+fn qwen4_bundle_tree(root: &std::path::Path, seats: Qwen4Seats<'_>) -> (PathBuf, PathBuf) {
+    let agents = root.join("agents");
+    let bundle = root.join("bundle");
+    std::fs::create_dir_all(agents.join("charters")).unwrap();
+    std::fs::create_dir_all(&bundle).unwrap();
+    std::fs::write(agents.join("charters/qwen4.md"), "Probe charter.\n").unwrap();
+    if matches!(seats, Qwen4Seats::InlineEffort(_)) {
+        std::fs::write(bundle.join("role.md"), "Inline role.\n").unwrap();
+    }
+    let worker_effort = match seats {
+        Qwen4Seats::WorkAndGate(effort)
+        | Qwen4Seats::WorkAndPanel(effort)
+        | Qwen4Seats::UntrustedGate(effort) => Some(effort),
+        Qwen4Seats::InlineEffort(_) => None,
+    };
+    if let Some(effort) = worker_effort {
+        let worker = serde_json::json!({
+            "description": "Probes qwen4-max on the shipped dsh adapter.",
+            "charter": "charters/qwen4.md",
+            "models": ["qwen4-max"],
+            "efforts": {"qwen4-max": effort},
+        });
+        std::fs::write(
+            agents.join("qwen4-worker.json"),
+            serde_json::to_vec_pretty(&worker).unwrap(),
+        )
+        .unwrap();
+    }
+    if !matches!(seats, Qwen4Seats::UntrustedGate(_)) {
+        let judge = serde_json::json!({
+            "description": "Trusted judge standing beside the qwen4-max work seat.",
+            "charter": "charters/qwen4.md",
+            "models": ["opus"],
+            "efforts": {"opus": "high"},
+        });
+        std::fs::write(
+            agents.join("opus-judge.json"),
+            serde_json::to_vec_pretty(&judge).unwrap(),
+        )
+        .unwrap();
+    }
+    let (work_seat, review_seat) = qwen4_seats_json(&seats);
+    let table = serde_json::json!({
+        "phases": ["implement", "review", "done"],
+        "initial": "implement",
+        "terminal": ["done"],
+        "shippable_from": ["review"],
+        "rules": [
+            {"id": "Q-WORK", "from": "implement", "result": "pass", "next": "review", "reason": "to review"},
+            {"id": "Q-REVIEW", "from": "review", "result": "clean", "next": "done", "reason": "reviewed"},
+            {"id": "Q-RESIDUAL", "from": "review", "result": "residual", "next": "implement", "reason": "rework"},
+            {"id": "Q-HOLD", "from": "review", "result": "security-hold", "next": "done", "reason": "held"}
+        ]
+    });
+    std::fs::write(
+        bundle.join("phase-machine.json"),
+        serde_json::to_vec_pretty(&table).unwrap(),
+    )
+    .unwrap();
+    let manifest = serde_json::json!({
+        "name": "qwen4-probe",
+        "description": "Probes qwen4-max compilation against the shipped dsh adapter.",
+        "policy": "phase-machine.json",
+        "seats": {
+            "implement": work_seat,
+            "review": review_seat,
+        }
+    });
+    std::fs::write(
+        bundle.join("bundle.json"),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    (bundle, agents)
+}
+
+fn assert_dsh_qwen4_command(command: &[String], effort: &str) {
+    assert_eq!(
+        command[1..],
+        [
+            "driver",
+            "dsh",
+            "--",
+            "--model",
+            "dashscope/qwen4-max",
+            "--effort",
+            effort,
+        ]
+    );
+}
+
+fn assert_dsh_qwen4_candidate(
+    candidates: &[brokkr_runtime::Candidate],
+    command: &[String],
+    effort: &str,
+) {
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].provider, "dsh");
+    assert_eq!(candidates[0].model, "qwen4-max");
+    assert_eq!(candidates[0].effort.as_deref(), Some(effort));
+    assert_dsh_qwen4_command(command, effort);
+}
+
+/// Issue #1395: `adapters/dsh.json` maps `qwen4-max` to `dashscope/qwen4-max`
+/// as a work model and review-panel member without promoting `dsh`, adding a
+/// judge, or shipping a `dashscope` route overlay. A gate seat naming
+/// `qwen4-max` is refused like any other dsh model.
+#[test]
+fn dsh_maps_qwen4_max_as_a_work_model_and_refuses_it_on_a_gate() {
+    let adapters = adapters();
+    let (dsh, concrete) = adapters
+        .serving("qwen4-max")
+        .expect("shipped dsh adapter maps qwen4-max");
+    assert_eq!(dsh.provider, "dsh");
+    assert_eq!(concrete, "dashscope/qwen4-max");
+    assert_eq!(dsh.trust_tier, TrustTier::Untrusted);
+    assert_eq!(dsh.egress, EgressClass::Uncontracted);
+    assert_eq!(
+        resolve_route(dsh, concrete),
+        (Some("dashscope"), EgressClass::Uncontracted)
+    );
+    assert_eq!(
+        dsh.credentials.get("dashscope").map(String::as_str),
+        Some("DASHSCOPE_API_KEY")
+    );
+    assert!(
+        !dsh.routes.contains_key("dashscope"),
+        "dashscope stays unclassed with no shipped route overlay"
+    );
+    assert!(
+        dsh.judges.is_empty(),
+        "dsh declares no judge, qwen4-max included: {:?}",
+        dsh.judges
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let shipped = workspace().join("adapters");
+
+    let (panel_bundle, panel_agents) =
+        qwen4_bundle_tree(&root.join("panel"), Qwen4Seats::WorkAndPanel("high"));
+    assert!(!panel_bundle.join("role.md").exists());
+    let compiled = Bundle::compile_with(&panel_bundle, &panel_agents, &shipped)
+        .expect("qwen4-max compiles as a work seat and review-panel work member");
+    let SeatBody::Invocation(Invocation::Single {
+        command,
+        candidates,
+        ..
+    }) = &compiled.seats["implement"].body
+    else {
+        panic!("expected a single resolved invocation for qwen4-worker");
+    };
+    assert_dsh_qwen4_candidate(candidates, command, "high");
+
+    let SeatBody::Invocation(Invocation::Panel { members, aggregate }) =
+        &compiled.seats["review"].body
+    else {
+        panic!("expected a review panel with a qwen4-max work member");
+    };
+    assert_eq!(*aggregate, Aggregate::ReviewPanel);
+    let correctness = members
+        .iter()
+        .find(|member| member.name == "correctness")
+        .expect("review panel includes the qwen4-max correctness member");
+    assert_eq!(correctness.class, SeatClass::Work);
+    assert_dsh_qwen4_candidate(&correctness.candidates, &correctness.command, "high");
+
+    let (gate_bundle, gate_agents) =
+        qwen4_bundle_tree(&root.join("gate"), Qwen4Seats::UntrustedGate("high"));
+    assert!(!gate_agents.join("opus-judge.json").exists());
+    assert!(!gate_bundle.join("role.md").exists());
+    let refusal = match Bundle::compile_with(&gate_bundle, &gate_agents, &shipped) {
+        Err(CompileError::Invalid(message)) => message,
+        other => panic!("a gate seat naming qwen4-max must refuse as untrusted: {other:?}"),
+    };
+    assert!(refusal.contains("seat 'review' is gate class"), "{refusal}");
+    assert!(refusal.contains("driver 'dsh'"), "{refusal}");
+    assert!(
+        refusal.contains("does not hold the trusted tier"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("0021 ruling 2"), "{refusal}");
+}
+
+/// Issue #1395: compile-time effort checks for `qwen4-max` follow
+/// `adapters/dsh.json`'s adapter-wide vocabulary (`low`, `medium`, `high`,
+/// `xhigh`): an agent seat pinning `max` refuses at compile, whereas `medium`
+/// (and any inline `--effort <word>`, including `medium` and `max`) compiles
+/// with its emitted pin and reaches `dsh` at start.
+#[test]
+fn dsh_qwen4_max_effort_bounds_at_compile() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let shipped = workspace().join("adapters");
+
+    for level in ["low", "medium", "high", "xhigh"] {
+        let (bundle, agents_dir) = qwen4_bundle_tree(
+            &root.join(format!("agent-{level}")),
+            Qwen4Seats::WorkAndGate(level),
+        );
+        assert!(!bundle.join("role.md").exists());
+        let compiled = Bundle::compile_with(&bundle, &agents_dir, &shipped)
+            .unwrap_or_else(|e| panic!("qwen4-max at {level} must compile: {e}"));
+        let SeatBody::Invocation(Invocation::Single {
+            command,
+            candidates,
+            ..
+        }) = &compiled.seats["implement"].body
+        else {
+            panic!("expected a single resolved invocation for qwen4-worker at {level}");
+        };
+        assert_dsh_qwen4_candidate(candidates, command, level);
+    }
+
+    let (max_bundle, max_agents) =
+        qwen4_bundle_tree(&root.join("agent-max"), Qwen4Seats::WorkAndGate("max"));
+    assert!(!max_bundle.join("role.md").exists());
+    let refusal = match Bundle::compile_with(&max_bundle, &max_agents, &shipped) {
+        Err(CompileError::Invalid(message)) => message,
+        other => panic!("an agent seat pinning max on dsh must refuse at compile: {other:?}"),
+    };
+    assert_eq!(
+        refusal,
+        "seat 'implement': agent 'qwen4-worker' cannot be served by provider 'dsh' \
+         on model 'qwen4-max': the provider declares no effort 'max'; its vocabulary is \
+         low, medium, high, xhigh. A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
+    );
+
+    for level in ["medium", "max"] {
+        let (inline_bundle, inline_agents) = qwen4_bundle_tree(
+            &root.join(format!("inline-{level}")),
+            Qwen4Seats::InlineEffort(level),
+        );
+        assert!(!inline_agents.join("qwen4-worker.json").exists());
+        assert!(inline_bundle.join("role.md").exists());
+        let compiled = Bundle::compile_with(&inline_bundle, &inline_agents, &shipped)
+            .unwrap_or_else(|e| panic!("inline --effort {level} must compile: {e}"));
+        let SeatBody::Invocation(Invocation::Single { command, .. }) =
+            &compiled.seats["implement"].body
+        else {
+            panic!("expected a single inline invocation at {level}");
+        };
+        assert_dsh_qwen4_command(command, level);
     }
 }

@@ -10,6 +10,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
 use crate::aggregate;
 use crate::event_index::{index_intact, migrate_index};
+use crate::orders::{migrate_orders, orders_intact};
 use crate::queue::{migrate_queue, queue_intact};
 use crate::run_select;
 use crate::seat_summary::{
@@ -206,57 +207,57 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Eleven additive repairs, each a READ in the steady state — the
+    // Thirteen additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
-    // First: a journal that predates the sidecar columns (arrival,
-    // decision 0027; origin, decision 0030) grows them, presence
-    // re-asked inside the transaction. Second: a journal whose append
-    // guards predate compare-and-append re-runs the idempotent migration
-    // batch that carries them.
     repair_tables(conn)?;
     repair_projections(conn)?;
     // Ninth: a journal from before it named itself (decision 0095, #430)
     // gets its id, once; a peer that named it first keeps its own.
     let missing = journal_named(conn)?.is_none();
     repair_if(conn, missing, name_journal)?;
+    // Tenth: restore missing append guards with their idempotent batch.
     let missing = !guards_intact(conn)?;
     repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))?;
-    // Tenth: the run selector's `runs (created_at)` index (decision 0089
+    // Eleventh: the run selector's `runs (created_at)` index (decision 0089
     // slice 4). A journal read-only without it still resolves — SQLite
     // scans — and the next writable open adds it.
     let missing = !run_select::intact(conn)?;
     repair_if(conn, missing, run_select::migrate)?;
-    // Eleventh: the partial index the aggregates' readiness probe reads
+    // Twelfth: the partial index the aggregates' readiness probe reads
     // over the `runs` rows the listing cannot read (decision 0089 slice 4,
     // U5a). A journal read-only without it still answers — SQLite scans —
     // and the next writable open adds it.
     let missing = !aggregate::unreadable_intact(conn)?;
     repair_if(conn, missing, aggregate::migrate_unreadable)?;
-    // Twelfth: the terminal index the append's gate reads after a summary
+    // Thirteenth: the terminal index the append's gate reads after a summary
     // absent or behind (#440). Additive and definition-checked, so a
     // journal a writable open finds without it gets it.
     let missing = !crate::terminal::intact(conn)?;
     repair_if(conn, missing, crate::terminal::migrate)
 }
 
-/// The first, third and fourth of [`repair`]'s additive repairs, in its
-/// order: the sidecar columns, the queue, the acknowledgements.
+/// The first four of [`repair`]'s additive repairs, in its
+/// order: the sidecar columns, the queue, the acknowledgements and work orders.
 fn repair_tables(conn: &mut Connection) -> Result<(), StoreError> {
+    // First: grow the sidecar columns (decisions 0027 and 0030).
     let missing = sidecar_columns_missing(conn)?;
     repair_if(conn, missing, migrate_sidecar_columns)?;
-    // Third: a journal from before the queue (decision 0068), or one that
+    // Second: a journal from before the queue (decision 0068), or one that
     // lost a queue guard, gets the queue's tables and guards, on the same
     // terms; one that lost a queue table is refused. `DATABASE_SCHEMA`
     // does not move for it, for the reason it did not move for the
     // sidecar columns.
     let missing = !queue_intact(conn)?;
     repair_if(conn, missing, migrate_queue)?;
-    // Fourth: a journal from before quarantine acknowledgements (#511),
+    // Third: a journal from before quarantine acknowledgements (#511),
     // or one that lost the table or a guard on it, gets them.
     let missing = !acknowledgements_intact(conn)?;
-    repair_if(conn, missing, migrate_acknowledgements)
+    repair_if(conn, missing, migrate_acknowledgements)?;
+    // Fourth: the additive work-order journal (decision 0116).
+    let missing = !orders_intact(conn)?;
+    repair_if(conn, missing, migrate_orders)
 }
 
 /// The fifth to eighth of [`repair`]'s additive repairs, in its order:
@@ -330,14 +331,15 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     schema_supported(found)
 }
 
-/// [`initialize`]'s additive pieces, in [`repair`]'s order: the sidecar
-/// columns, the queue, the acknowledgements, the run summary, the event
-/// index and the seat summary with the stale-seat set beside it, with the
-/// summary and seat marks a fresh journal seeds.
+/// [`initialize`]'s additive tables: the sidecar
+/// columns, the queue, the acknowledgements, work orders, the run summary,
+/// the event index and the seat summary with the stale-seat set beside it.
+/// A fresh journal also seeds its summary and seat marks.
 fn initialize_additions(conn: &Connection) -> Result<(), StoreError> {
     migrate_sidecar_columns(conn)?;
     migrate_queue(conn)?;
     migrate_acknowledgements(conn)?;
+    migrate_orders(conn)?;
     migrate_summary(conn)?;
     mark_backfilled(conn)?;
     // The selector's index is additive like the ones above, so a fresh

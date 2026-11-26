@@ -167,6 +167,7 @@ pub use boxed::Unrooted;
 pub use broker::admission::{Conflict, Unadmitted, Unknown};
 pub use broker::settlement::release::{Live, UnprovenWhy};
 pub use broker::Unroutable;
+pub use cooldown::HeldWait;
 /// The typed refusal `settle` carries, defined where the verb is: the host's
 /// answer, the unread reservation's typed refusal, and the run's own
 /// pre-proof reasons (decision 0071 rulings 6 and 8; S8, R4). Its payloads
@@ -273,6 +274,9 @@ pub enum EngineError {
     /// refusal: its name, and the words the operator has always read.
     #[error("engine: {1}")]
     Invariant(&'static str, String),
+    /// A resume before a held wait's end (decision 0106 ruling 2).
+    #[error(transparent)]
+    HeldWait(Box<cooldown::HeldWait>),
     #[error("dispatch: {0}")]
     Dispatch(#[from] brokkr_core::dispatch::DispatchError),
     /// Decision 0065 slice two, U8a2a (D6, M1): an attempt's settlement
@@ -501,13 +505,10 @@ pub struct Engine {
     /// sleep the wait reads (decision 0071 ruling 1), and the probe's
     /// answer the retry journals (decision 0103 rulings 3 and 5).
     pub(crate) cooldown: cooldown::Seam,
-    /// The checked spans of the effect this process is executing: the
-    /// head each armed span began on, compared at the end of the span
-    /// that armed it, where only a mismatch is journaled, as the raw
-    /// evidence on the resulting park, and the observations the matches
-    /// kept (heads.rs). A span that ends through an `Err`, appending no
-    /// terminal event, is abandoned rather than left for the next effect
-    /// to spend.
+    /// The running effect's checked spans and their observations (`heads.rs`).
+    /// Each armed span compares its start and end heads, keeps a match as an
+    /// observation, or journals a mismatch as evidence on the resulting park.
+    /// An `Err` with no terminal event abandons the span before the next effect.
     spans: heads::Spans,
     /// What the dispatched gate effect's success records as `covered`
     /// (decision 0109 ruling 7), spent by its terminal event.
@@ -847,6 +848,10 @@ impl Engine {
             }
             Run::Running(cursor) => {
                 self.advance_running(&replay.events, cursor.clone(), state)?;
+                if let Some(end) = self.held_drive_end(&mut replay)? {
+                    self.replay = replay;
+                    return Ok(Some(end));
+                }
             }
         }
         self.replay = replay;
@@ -889,6 +894,7 @@ impl Engine {
         &mut self,
         error: EngineError,
     ) -> Result<Option<DriveEnd>, EngineError> {
+        let kept_stderr = self.stderr.take_contended();
         let Some(store_error) = error.contention() else {
             return Err(error);
         };
@@ -908,7 +914,7 @@ impl Engine {
             }
             let settled =
                 json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
-            self.append(EventType::EffectIndeterminate, settled, Some(attempt_id))?;
+            self.settle_contended_attempt(kept_stderr, settled, attempt_id)?;
             state = self.replay.caught_up(&mut self.store, &self.run_id)?;
         }
         if !matches!(
@@ -3174,16 +3180,7 @@ impl Engine {
         if entered == head {
             return None;
         }
-        let class = docs_class(repo, entered)?;
-        let paths = crate::anchor::changed_paths(repo, entered, head)?;
-        if paths.is_empty() {
-            return None;
-        }
-        Some(
-            paths
-                .iter()
-                .all(|path| class.iter().any(|pattern| pattern.is_match(path))),
-        )
+        decide::docs_only_between(repo, entered, head)
     }
 }
 

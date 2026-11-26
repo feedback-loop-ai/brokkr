@@ -1825,6 +1825,8 @@ fn a_launch_refused_for_an_unread_table_says_so() {
         refused.to_string(),
         "the process table could not be read: no rows"
     );
+    let late = std::io::Error::from(Unspawned::Late);
+    assert_eq!(late.to_string(), "its deadline passed before the fork");
 }
 
 #[test]

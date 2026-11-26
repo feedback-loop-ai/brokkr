@@ -234,7 +234,7 @@ fn a_spawn_failures_resume_command_parses_as_the_shell_splits_it() {
 
 /// A journal path that the safe renderer would alter is never printed as
 /// the command's value, since the pasted command would then name another
-/// journal: a path holding a newline or a reordering mark, or one that is
+/// journal: a path holding a control or an invisible format character, or one that is
 /// not UTF-8. The line says why instead.
 #[test]
 fn a_journal_this_line_cannot_print_is_never_offered_as_a_command() {
@@ -254,7 +254,10 @@ fn a_journal_this_line_cannot_print_is_never_offered_as_a_command() {
              journal by hand with --db: its path holds characters this line cannot print"
         );
         assert!(said.ends_with(&words), "{said:?}");
-        assert!(!said.contains("--db="), "{said:?}");
+        assert!(
+            !said.contains("--db=") && !said.contains('\u{202e}'),
+            "{said:?}"
+        );
     }
 }
 

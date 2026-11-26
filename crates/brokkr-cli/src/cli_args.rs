@@ -11,6 +11,11 @@ pub(crate) use dispatch::{DispatchArgs, DispatchCmd, DriveArgs, SetBoundArgs, St
 mod entry;
 use entry::EntryArgs;
 mod member_retry;
+mod orders;
+pub(crate) use orders::{
+    OrderAddArgs, OrderEditArgs, OrderListArgs, OrderRuleArgs, OrderShowArgs, OrderWriteArgs,
+    OrdersCmd, OrdersFamily,
+};
 mod queue;
 pub(crate) use member_retry::MemberRetryArgs;
 pub(crate) use queue::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
@@ -674,6 +679,7 @@ pub(super) enum GroupedCmd {
     Configuration(crate::verbs::setup::ConfigurationCmd),
     Sweep(SweepArgs),
     Dispatch(DispatchArgs),
+    Orders(OrdersCmd),
     Completions(crate::completion::CompletionsArgs),
 }
 
