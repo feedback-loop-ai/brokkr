@@ -754,7 +754,7 @@ pub use page::{
     behind_line, page, ranges, section_of_rows, summary_row, window, Cursor, CursorError, Page,
     Paged, AHEAD_ROWS, PAGE_ROWS,
 };
-pub use waits::{run_view_with, Cooling, Wait, WaitFact, WaitKind, WaitRefusal, WaitRound, Waits};
+pub use waits::{Cooling, Wait, WaitFact, WaitKind, WaitRefusal, WaitRound, Waits};
 
 #[cfg(test)]
 pub(crate) mod tests;

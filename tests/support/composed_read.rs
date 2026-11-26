@@ -6,7 +6,7 @@
 //! read a run so.
 
 use brokkr_store::{Opened, RunRead, Store, StoreError};
-use brokkr_view::{composed_view, Parts, RunView};
+use brokkr_view::{composed_view, Parts, RunView, WaitFact, Waits};
 
 /// `run`'s view composed from the store's read at `opened`, its journal
 /// page past seq `after`, and the seq that page ends at; `None` where the
@@ -28,6 +28,7 @@ pub(crate) fn page(
     else {
         return Ok(None);
     };
+    let waits = Waits::of(&WaitFact::applied(&trail, state.as_deref()), &[]);
     let parts = Parts {
         trail: &trail,
         seats: &seats,
@@ -35,7 +36,7 @@ pub(crate) fn page(
         causes: &causes,
         head_seq: opened.seq,
         last_at: &last_at,
-        cooling: Vec::new(),
+        waits: &waits,
     };
     let view = composed_view(&parts, state.as_deref()).expect("rows a writer keeps compose");
     let ends = page.last().map_or(opened.seq, |event| event.seq);

@@ -234,7 +234,7 @@ fn a_late_tail_stands_no_wait_on_the_run_view() {
     let events = late_wait::trail("late");
     let mut running = state(Some("work"), Status::Running, None);
     running.late_tail = Some(late_wait::tail());
-    let view = crate::run_view_with(&events, Some(&running), &[]);
+    let view = crate::run_view(&events, Some(&running));
     assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
     assert_eq!(view.waits.refused, None);
 }
@@ -247,7 +247,7 @@ fn a_refused_fold_stands_no_wait_over_its_late_event() {
     // reading it instead paints a wait on a run the fold refused.
     let events = late_wait::trail("late");
     assert_eq!(WaitFact::applied(&events, None), WaitFact::NoWait);
-    let view = crate::run_view_with(&events, None, &[]);
+    let view = crate::run_view(&events, None);
     assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
     assert_eq!(view.waits.refused, None);
 }
@@ -258,7 +258,13 @@ fn the_run_view_derives_the_same_wait_and_the_same_later_end() {
     let cooling = [cooling("claude", "anthropic", LATER_END)];
     let row = row_of(&event, &cooling);
     let running = state(Some("work"), Status::Running, None);
-    let view = crate::run_view_with(&[event], Some(&running), &cooling);
+    let waits = Waits::of(&WaitFact::of(Some(&event)), &cooling);
+    let view = crate::RunView::from_events(&[event], Some(&running), waits);
+    let summary = view.summary.as_ref().unwrap();
+    assert_eq!(
+        (summary.standing, summary.status_word()),
+        (Standing::Waiting, "waiting")
+    );
     assert_eq!(view.waits, row.waits);
     assert_eq!(view.waits.waits[0].until, LATER_END);
     assert_eq!(

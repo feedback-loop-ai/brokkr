@@ -42,7 +42,7 @@ fn composed_late_wait(state: Option<&RunState>) -> RunView {
         causes: &BTreeMap::new(),
         head_seq: 8,
         last_at: AT,
-        cooling: Vec::new(),
+        waits: &Waits::of(&crate::WaitFact::applied(&events, state), &[]),
     };
     composed_view(&parts, state).expect("the run composes")
 }
@@ -215,7 +215,7 @@ fn rows_naming_a_request_the_trail_does_not_ask_compose_no_view() {
             causes: &causes,
             head_seq: 3,
             last_at: at,
-            cooling: Vec::new(),
+            waits: &Waits::default(),
         };
         composed_view(&parts, None).map(|view| view.participants.len())
     };
@@ -267,7 +267,7 @@ fn a_run_composed_whole_is_its_run_view() {
     };
     let whole = |events: &[EventEnvelope], trail: &[EventEnvelope]| {
         let account = Account::whole("r", events);
-        let view = composed_whole(trail, account.seats(), events, at, None, &[]);
+        let view = composed_whole(trail, account.seats(), events, at, None, &Waits::default());
         view.map(|view| serde_json::to_string(&view).unwrap())
     };
     events.push(checkpoint(8, "e:x", None));
@@ -329,7 +329,7 @@ fn a_page_holding_the_acceptance_keeps_the_command_its_trail_holds() {
         causes: &causes,
         head_seq: 4,
         last_at: at,
-        cooling: Vec::new(),
+        waits: &Waits::default(),
     };
     let composed = composed_view(&parts, None).unwrap();
     let whole = crate::run_view(&events, None);
@@ -404,7 +404,7 @@ fn a_reused_command_id_keeps_each_disposition_at_its_own_time() {
         causes: &causes,
         head_seq: 8,
         last_at: AT,
-        cooling: Vec::new(),
+        waits: &Waits::default(),
     };
     let composed = composed_view(&parts, None).unwrap();
     let whole = crate::run_view(&events, None);
@@ -450,7 +450,15 @@ fn an_early_checkpoint_keeps_its_journal_time_label() {
         !account.seats_kept(),
         "a checkpoint before its request keeps no seat head"
     );
-    let composed = composed_whole(&trail, account.seats(), &events, AT, None, &[]).unwrap();
+    let composed = composed_whole(
+        &trail,
+        account.seats(),
+        &events,
+        AT,
+        None,
+        &Waits::default(),
+    )
+    .unwrap();
     let whole = crate::run_view(&events, None);
     let lines = |view: &RunView| {
         view.live

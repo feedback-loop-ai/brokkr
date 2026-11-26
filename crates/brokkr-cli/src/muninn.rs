@@ -42,7 +42,7 @@ use brokkr_runtime::realms::{Hearth, World};
 use brokkr_runtime::{argv::Executable, bundle::expand_command};
 use brokkr_runtime::{Adapters, Availability, Library};
 use brokkr_store::Store;
-use brokkr_view::{run_view, Standing, Waits};
+use brokkr_view::{RunView, Standing, Waits};
 use serde_json::{json, Value};
 
 use crate::realms::{Consumed, ConsumedView, Pin, Published};
@@ -304,7 +304,7 @@ pub(crate) fn dossier_of(
                     continue;
                 }
             };
-            let view = run_view(&events, Some(&state)).with_waits(Waits::of(&waits, &[]));
+            let view = RunView::from_events(&events, Some(&state), Waits::of(&waits, &[]));
             let summary = view.summary.as_ref().expect("a folded state summarizes");
             let admits = brokkr_view::operator_commands(&state);
             // The fleet counts a finished run by the fold's word; its row says its ending.

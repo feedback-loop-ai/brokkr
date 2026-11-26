@@ -19,7 +19,6 @@ use brokkr_core::{provider_waits, Held, ProviderWait, ProviderWaitError};
 use serde::Serialize;
 
 use super::{RunRow, Standing};
-use crate::RunView;
 
 /// One cool-down the store's aggregate holds for a provider and route, as
 /// a reader hands it in: the instant the row that ends last writes.
@@ -300,17 +299,6 @@ fn wait_of(
 #[cfg(test)]
 mod tests;
 
-/// [`run_view`](crate::run_view), its waits given the aggregate `cooling`
-/// the caller read: a probe's later round paints the later end (decision
-/// 0103 slice 4f).
-pub fn run_view_with(
-    events: &[EventEnvelope],
-    state: Option<&RunState>,
-    cooling: &[Cooling],
-) -> RunView {
-    crate::run_view(events, state).with_waits(Waits::of(&WaitFact::applied(events, state), cooling))
-}
-
 impl RunRow {
     /// Replace waits from a fresh read at the same journal head.
     pub fn with_waits(mut self, waits: Waits) -> Self {
@@ -320,21 +308,6 @@ impl RunRow {
             .standing
             .status_word(self.status.as_deref(), self.ending)
             .to_string();
-        self.waits = waits;
-        self
-    }
-}
-
-impl RunView {
-    /// Carry the reader's painted waits into the view and its summary.
-    pub fn with_waits(mut self, waits: Waits) -> Self {
-        if let Some(summary) = &mut self.summary {
-            summary.standing = waits.standing_for(summary.standing);
-            summary.status_word = summary
-                .standing
-                .status_word(Some(&summary.status), summary.ending)
-                .to_string();
-        }
         self.waits = waits;
         self
     }

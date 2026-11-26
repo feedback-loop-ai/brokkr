@@ -130,7 +130,7 @@ fn whole(store: &Store, run: &str, now: &str) -> Result<Viewed, StoreError> {
     let folded = fold(&events);
     let state = folded.as_ref().ok();
     let waits = RunWaits::read(store, run, now, &events, state)?;
-    let view = brokkr_view::run_view(&events, state).with_waits(waits.painted);
+    let view = RunView::from_events(&events, state, waits.painted);
     Ok(Viewed {
         view,
         folded,
@@ -195,10 +195,9 @@ impl Frame {
             causes: &self.causes,
             head_seq: self.head,
             last_at: &self.last_at,
-            cooling: Vec::new(),
+            waits: &self.waits.painted,
         };
         composed_view(&parts, Some(&self.state))
-            .map(|view| view.with_waits(self.waits.painted.clone()))
     }
 }
 
@@ -221,8 +220,14 @@ fn composed(
     let view = match journal {
         Some(journal) => {
             let (trail, seats, state) = (&frame.trail, &frame.seats, Some(&*frame.state));
-            composed_whole(trail, seats, journal, &frame.last_at, state, &[])
-                .map(|view| view.with_waits(frame.waits.painted))
+            composed_whole(
+                trail,
+                seats,
+                journal,
+                &frame.last_at,
+                state,
+                &frame.waits.painted,
+            )
         }
         None => frame.view(),
     };
@@ -300,7 +305,7 @@ impl Shown {
                 view
             }
             Held::Whole(events, state, waits) => {
-                brokkr_view::run_view(events, state.as_deref()).with_waits(waits.painted.clone())
+                RunView::from_events(events, state.as_deref(), waits.painted.clone())
             }
         }
     }
