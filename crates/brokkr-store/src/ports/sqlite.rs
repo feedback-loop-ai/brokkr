@@ -26,11 +26,12 @@ use crate::start::Row;
 use crate::summary::Listed;
 use crate::{
     damage, event_index, head_of, import, origin, patiently, queue, refuse_existing, seat_summary,
-    start, summary, terminal, Attribution, Cooldown, EntryId, NewEntry, QueueEntry, Store,
-    StoreError,
+    start, summary, Attribution, Cooldown, EntryId, NewEntry, QueueEntry, Store, StoreError,
 };
 
-use super::{validate_manifest, CoordinationStore, EventLog, ProjectionStore};
+use super::{
+    refuse_after_terminal, validate_manifest, CoordinationStore, EventLog, ProjectionStore,
+};
 
 /// Thin co-located adapter exposing a SQLite [`Store`] through the
 /// [`EventLog`], [`ProjectionStore`], and [`CoordinationStore`] traits without
@@ -223,9 +224,7 @@ fn load_verified_local(
 fn insert_events(
     tx: &Connection,
     run_id: &str,
-    head_seq: &mut u64,
     envelopes: &[EventEnvelope],
-    check_terminal: bool,
 ) -> Result<(), StoreError> {
     // Plain `INSERT` (not `INSERT OR IGNORE`) so duplicate `(run_id, seq)` is
     // never silently ignored; `verify_chain_for_sqlite` rules out duplicates
@@ -233,9 +232,6 @@ fn insert_events(
     // redundant `inserted == 0` guard would be unreachable under exact coverage.
     let mut insert = tx.prepare_cached(import::INSERT_EVENT)?;
     for envelope in envelopes {
-        if check_terminal {
-            terminal::refuse(tx, run_id, envelope.event_type, *head_seq)?;
-        }
         let seq = checked_seq(envelope.seq)?;
         let serialized = serde_json::to_string(envelope)?;
         insert.execute(params![run_id, seq, envelope.event_hash, serialized])?;
@@ -247,7 +243,6 @@ fn insert_events(
             let args = params![run_id, envelope.recorded_at, feature];
             tx.execute(UPDATE_STARTED_META, args)?;
         }
-        *head_seq = envelope.seq;
     }
     Ok(())
 }
@@ -275,7 +270,27 @@ fn clear_projections(tx: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn read_verified_log(log: &dyn EventLog) -> Result<Vec<(String, Vec<EventEnvelope>)>, StoreError> {
+struct VerifiedRun {
+    run_id: String,
+    manifest: Value,
+    events: Vec<EventEnvelope>,
+}
+
+fn load_local_manifest(tx: &Connection, run_id: &str) -> Result<Option<Value>, StoreError> {
+    let raw: Option<String> = tx
+        .query_row(
+            "SELECT manifest FROM runs WHERE run_id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    Ok(Some(serde_json::from_str(&raw)?))
+}
+
+fn read_verified_log(log: &dyn EventLog) -> Result<Vec<VerifiedRun>, StoreError> {
     let run_ids = log.list_run_ids()?;
     let mut seen = BTreeSet::new();
     let mut verified = Vec::with_capacity(run_ids.len());
@@ -283,31 +298,35 @@ fn read_verified_log(log: &dyn EventLog) -> Result<Vec<(String, Vec<EventEnvelop
         if !seen.insert(run_id.clone()) {
             return Err(StoreError::DivergentEventLog { run_id });
         }
+        let manifest = log.manifest(&run_id)?;
         let events = log.read_stream(&run_id, 1)?;
         verify_chain_for_sqlite(&run_id, (0, ZERO_HASH), &events)?;
-        verified.push((run_id, events));
+        verified.push(VerifiedRun {
+            run_id,
+            manifest,
+            events,
+        });
     }
     Ok(verified)
 }
 
-fn verify_local_events_match(
-    tx: &Connection,
-    verified: &[(String, Vec<EventEnvelope>)],
-) -> Result<(), StoreError> {
+fn verify_local_events_match(tx: &Connection, verified: &[VerifiedRun]) -> Result<(), StoreError> {
     let local_runs = query_strings(tx, LOCAL_RUNS)?;
-    let mut expected: BTreeMap<&str, &[EventEnvelope]> = verified
+    let mut expected: BTreeMap<&str, &VerifiedRun> = verified
         .iter()
-        .map(|(run_id, events)| (run_id.as_str(), events.as_slice()))
+        .map(|run| (run.run_id.as_str(), run))
         .collect();
     for run_id in local_runs {
-        if !has_run(tx, &run_id)? {
+        let Some(local_manifest) = load_local_manifest(tx, &run_id)? else {
             return Err(StoreError::DivergentEventLog { run_id });
-        }
+        };
         let local = load_verified_local(tx, &run_id, &|_| divergent(&run_id))?;
         let Some(external) = expected.remove(run_id.as_str()) else {
             return Err(StoreError::DivergentEventLog { run_id });
         };
-        if serde_json::to_vec(&local)? != serde_json::to_vec(external)? {
+        if local_manifest != external.manifest
+            || serde_json::to_vec(&local)? != serde_json::to_vec(&external.events)?
+        {
             return Err(StoreError::DivergentEventLog { run_id });
         }
     }
@@ -349,7 +368,7 @@ impl EventLog for SqlitePorts<'_> {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
             ensure_run_exists(&tx, run_id)?;
             let local = load_verified_local(&tx, run_id, &StoreError::Chain)?;
-            let (mut head_seq, found_hash) = local
+            let (head_seq, found_hash) = local
                 .last()
                 .map_or((0, ZERO_HASH), |last| (last.seq, last.event_hash.as_str()));
             if head_seq != expected_head.0 || found_hash != expected_head.1 {
@@ -359,7 +378,9 @@ impl EventLog for SqlitePorts<'_> {
                 });
             }
             verify_chain_for_sqlite(run_id, expected_head, envelopes)?;
-            insert_events(&tx, run_id, &mut head_seq, envelopes, true)?;
+            let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
+            refuse_after_terminal(run_id, &local, &incoming)?;
+            insert_events(&tx, run_id, envelopes)?;
             tx.commit()?;
             Ok(())
         })
@@ -392,8 +413,7 @@ impl EventLog for SqlitePorts<'_> {
                         first.recorded_at
                     ],
                 )?;
-                let mut head_seq = 0;
-                insert_events(&tx, run_id, &mut head_seq, envelopes, false)?;
+                insert_events(&tx, run_id, envelopes)?;
             } else {
                 let row = Row {
                     run_id,
@@ -483,9 +503,9 @@ impl ProjectionStore for SqlitePorts<'_> {
             verify_local_events_match(&tx, &verified)?;
             clear_projections(&tx)?;
             let mut total = 0u64;
-            for (run_id, events) in &verified {
-                write_colocated_projection(&tx, run_id, events)?;
-                total += events.len() as u64;
+            for run in &verified {
+                write_colocated_projection(&tx, &run.run_id, &run.events)?;
+                total += run.events.len() as u64;
             }
             tx.commit()?;
             Ok(total)

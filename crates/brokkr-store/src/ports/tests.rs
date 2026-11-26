@@ -953,6 +953,7 @@ fn completed_vs_phase_pair(
 struct InterceptingLog<'a, E> {
     inner: E,
     on_head: Option<Box<dyn Fn() + 'a>>,
+    on_list_run_ids: Option<Box<dyn Fn() + 'a>>,
     on_read_stream: Option<Box<dyn Fn() + 'a>>,
     override_run_ids: Option<Vec<String>>,
 }
@@ -1001,6 +1002,9 @@ impl<E: EventLog> EventLog for InterceptingLog<'_, E> {
     }
 
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
+        if let Some(hook) = &self.on_list_run_ids {
+            hook();
+        }
         if let Some(ids) = &self.override_run_ids {
             return Ok(ids.clone());
         }

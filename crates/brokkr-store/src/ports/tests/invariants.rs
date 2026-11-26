@@ -97,62 +97,61 @@ fn manifest_validation_refuses_non_object_and_non_string_engine() {
         MemCoordinationStore::default(),
     );
 
-    for (idx, bad) in [json!(null), json!(42), json!("v1"), json!(["a"])]
-        .into_iter()
-        .enumerate()
-    {
-        let id = format!("non-obj-{idx}");
-        let msg = assert_invalid_manifest(
-            &mem_journal,
-            &ports,
-            &id,
-            &bad,
+    let groups = [
+        (
+            "non-obj",
             ManifestRefusal::NotAnObject,
-        );
-        if idx == 0 {
-            assert_eq!(
-                msg,
-                "invalid manifest for run 'non-obj-0': manifest must be a JSON object; nothing was recorded"
-            );
-        }
-    }
-    for (idx, bad_engine) in [
-        json!({"engine": 15}),
-        json!({"engine": null}),
-        json!({"engine": true}),
-        json!({"engine": ["0.15.0"]}),
-        json!({"engine": {"major": 15}}),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let id = format!("bad-eng-{idx}");
-        let msg = assert_invalid_manifest(
-            &mem_journal,
-            &ports,
-            &id,
-            &bad_engine,
+            "invalid manifest for run 'non-obj-0': manifest must be a JSON object; nothing was recorded",
+            vec![json!(null), json!(42), json!("v1"), json!(["a"])],
+        ),
+        (
+            "bad-eng",
             ManifestRefusal::EngineNotString,
-        );
-        if idx == 0 {
-            assert_eq!(
-                msg,
-                "invalid manifest for run 'bad-eng-0': manifest field 'engine' must be a JSON string; nothing was recorded"
-            );
+            "invalid manifest for run 'bad-eng-0': manifest field 'engine' must be a JSON string; nothing was recorded",
+            vec![
+                json!({"engine": 15}),
+                json!({"engine": null}),
+                json!({"engine": true}),
+                json!({"engine": ["0.15.0"]}),
+                json!({"engine": {"major": 15}}),
+            ],
+        ),
+        (
+            "bad-feat",
+            ManifestRefusal::FeatureNotString,
+            "invalid manifest for run 'bad-feat-0': manifest field 'feature' must be a JSON string; nothing was recorded",
+            vec![
+                json!({"engine": "0.15.0", "feature": 42}),
+                json!({"engine": "0.15.0", "feature": null}),
+                json!({"engine": "0.15.0", "feature": true}),
+                json!({"feature": ["feat"]}),
+                json!({"feature": {"name": "feat"}}),
+            ],
+        ),
+    ];
+    for (prefix, reason, first_msg, cases) in groups {
+        for (idx, bad) in cases.iter().enumerate() {
+            let id = format!("{prefix}-{idx}");
+            let msg = assert_invalid_manifest(&mem_journal, &ports, &id, bad, reason);
+            if idx == 0 {
+                assert_eq!(msg, first_msg);
+            }
         }
     }
 
     assert!(mem_journal.event_log().list_run_ids().unwrap().is_empty());
     assert!(ports.list_run_ids().unwrap().is_empty());
 
-    // Valid manifests: object without `"engine"` and object with string `"engine"`.
+    // Valid manifests: missing `"engine"`, missing `"feature"`, and both strings.
     let no_engine = json!({"feature": "legacy", "bundle_name": "self"});
+    let no_feature = json!({"engine": "0.15.0"});
     mem_journal.create_run("ok-no-eng", &no_engine).unwrap();
     ports.create_run("ok-no-eng", &no_engine).unwrap();
+    ports.create_run("ok-no-feat", &no_feature).unwrap();
     ports
         .create_run("ok-str-eng", &sample_manifest("ok"))
         .unwrap();
-    assert_eq!(ports.list_run_ids().unwrap().len(), 2);
+    assert_eq!(ports.list_run_ids().unwrap().len(), 3);
 }
 
 #[test]
@@ -174,6 +173,10 @@ fn journal_refuses_invalid_run_started_and_attested_manifests() {
     let ts = "2026-11-25T10:00:00Z";
     for (bad_manifest, reason) in [
         (json!({"engine": 15}), ManifestRefusal::EngineNotString),
+        (
+            json!({"engine": "0.15.0", "feature": 42}),
+            ManifestRefusal::FeatureNotString,
+        ),
         (json!(42), ManifestRefusal::NotAnObject),
     ] {
         let payload = json!({"feature": "ok", "manifest": bad_manifest});
@@ -640,6 +643,7 @@ fn seq_overflow_and_single_head_call_in_append_event() {
     let counting = InterceptingLog {
         inner: MemEventLog::default(),
         on_head: Some(Box::new(|| head_calls.set(head_calls.get() + 1))),
+        on_list_run_ids: None,
         on_read_stream: None,
         override_run_ids: None,
     };

@@ -2,6 +2,7 @@
 //! feature-sync, coordination, and end-to-end [`Journal`] tests (decision 0126,
 //! Slice 1).
 
+use std::cell::Cell;
 use std::path::Path;
 
 use brokkr_core::fold::Status;
@@ -591,26 +592,7 @@ fn colocated_apply_envelopes_verifies_local_stream_and_heals_projections() {
         ports.apply_envelopes("ca-1", &[e1.clone(), divergent_phase]),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "ca-1"
     ));
-    let after_terminal = sealed_event(
-        "ca-1",
-        3,
-        EventType::PhaseEntered,
-        json!({"phase": "illegal"}),
-        &completed.event_hash,
-        "2026-11-25T10:00:10Z",
-    );
-    assert!(matches!(
-        ports.append_envelopes(
-            "ca-1",
-            (2, &completed.event_hash),
-            std::slice::from_ref(&after_terminal),
-        ),
-        Err(StoreError::AfterTerminal {
-            ref run_id,
-            status: Status::Completed,
-            event_type: EventType::PhaseEntered,
-        }) if run_id == "ca-1"
-    ));
+    assert_refuses_phase_after_completed(&ports, "ca-1", &completed);
 
     // Corrupting summary & deleting event_index rows heals via apply_envelopes.
     exec_raw_sql(
@@ -1236,32 +1218,59 @@ fn sqlite_append_envelopes_refuses_tampered_and_damaged_local_prefix() {
     assert_eq!(sqlite_table_count(&path, "events"), 2);
 }
 
-#[test]
-fn colocated_rebuild_from_refuses_duplicate_run_ids_and_serializes_concurrent_append() {
-    use std::sync::mpsc;
-    use std::time::Duration;
+fn assert_refuses_phase_after_completed(
+    ports: &SqlitePorts<'_>,
+    expected_run_id: &str,
+    completed: &EventEnvelope,
+) {
+    let after_terminal = sealed_event(
+        expected_run_id,
+        completed.seq + 1,
+        EventType::PhaseEntered,
+        json!({"phase": "illegal"}),
+        &completed.event_hash,
+        "2026-11-25T10:00:10Z",
+    );
+    assert!(matches!(
+        ports.append_envelopes(
+            expected_run_id,
+            (completed.seq, &completed.event_hash),
+            std::slice::from_ref(&after_terminal),
+        ),
+        Err(StoreError::AfterTerminal {
+            ref run_id,
+            status: Status::Completed,
+            event_type: EventType::PhaseEntered,
+        }) if run_id == expected_run_id
+    ));
+}
 
+fn assert_write_locked(path: &Path) {
+    let probe = Connection::open(path).unwrap();
+    probe.busy_timeout(std::time::Duration::ZERO).unwrap();
+    let err = probe.execute_batch("BEGIN IMMEDIATE").unwrap_err();
+    assert_eq!(
+        err.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::DatabaseBusy)
+    );
+}
+
+#[test]
+fn colocated_rebuild_from_refuses_duplicate_run_ids_and_holds_write_lock() {
     let dir = tempdir().unwrap();
-    let path = dir.path().join("rebuild-dup-race.db");
+    let path = dir.path().join("rebuild-dup-lock.db");
     let store = Store::open(&path).unwrap();
     let ports = SqlitePorts::new(&store);
-    let e1 = started_event("r1", "race", "2026-11-25T10:00:00Z");
-    let e2 = sealed_event(
-        "r1",
-        2,
-        EventType::PhaseEntered,
-        json!({"phase": "implement"}),
-        &e1.event_hash,
-        "2026-11-25T10:00:05Z",
-    );
+    let e1 = started_event("r1", "lock", "2026-11-25T10:00:00Z");
     ports
-        .import_run_stream("r1", &sample_manifest("race"), std::slice::from_ref(&e1))
+        .import_run_stream("r1", &sample_manifest("lock"), std::slice::from_ref(&e1))
         .unwrap();
 
     // Duplicate run_ids from list_run_ids() are refused with DivergentEventLog.
     let dup_log = InterceptingLog {
         inner: &ports,
         on_head: None,
+        on_list_run_ids: None,
         on_read_stream: None,
         override_run_ids: Some(vec!["r1".to_string(), "r1".to_string()]),
     };
@@ -1270,39 +1279,93 @@ fn colocated_rebuild_from_refuses_duplicate_run_ids_and_serializes_concurrent_ap
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "r1"
     ));
 
-    // Concurrent append during self-reindex serializes on BEGIN IMMEDIATE with no false divergence.
-    let (go_tx, go_rx) = mpsc::channel::<()>();
-    let (entering_tx, entering_rx) = mpsc::channel::<()>();
-    let (done_tx, done_rx) = mpsc::channel::<()>();
-    let bg_path = path.clone();
-    let e1_hash = e1.event_hash.clone();
-    let bg_e2 = e2.clone();
-    let handle = std::thread::spawn(move || {
-        let writer = Store::open(&bg_path).unwrap();
-        let writer_ports = SqlitePorts::new(&writer);
-        go_rx.recv().unwrap();
-        entering_tx.send(()).unwrap();
-        let res = writer_ports.append_envelopes("r1", (1, &e1_hash), &[bg_e2]);
-        let _ = done_tx.send(());
-        res
-    });
-
+    // Deterministically prove rebuild_from already holds BEGIN IMMEDIATE during log scans.
+    let list_checks = Cell::new(0usize);
+    let read_checks = Cell::new(0usize);
     let hooked = InterceptingLog {
         inner: &ports,
         on_head: None,
-        on_read_stream: Some(Box::new(move || {
-            go_tx.send(()).unwrap();
-            entering_rx.recv().unwrap();
-            let _ = done_rx.recv_timeout(Duration::from_millis(50));
+        on_list_run_ids: Some(Box::new(|| {
+            assert_write_locked(&path);
+            list_checks.set(list_checks.get() + 1);
+        })),
+        on_read_stream: Some(Box::new(|| {
+            assert_write_locked(&path);
+            read_checks.set(read_checks.get() + 1);
         })),
         override_run_ids: None,
     };
     assert_eq!(ports.rebuild_from(&hooked).unwrap(), 1);
-    handle.join().unwrap().unwrap();
+    assert_eq!(list_checks.get(), 1);
+    assert_eq!(read_checks.get(), 1);
 
-    // Rebuilding from a second SQLite connection on the same DB sees both events cleanly.
+    // After rebuild_from commits, another connection can append and rebuild sees both events.
+    let e2 = sealed_event(
+        "r1",
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "implement"}),
+        &e1.event_hash,
+        "2026-11-25T10:00:05Z",
+    );
     let reader = Store::open(&path).unwrap();
     let reader_ports = SqlitePorts::new(&reader);
+    reader_ports
+        .append_envelopes("r1", (1, &e1.event_hash), &[e2])
+        .unwrap();
     assert_eq!(ports.rebuild_from(&reader_ports).unwrap(), 2);
     assert!(store.summary_disagreements().unwrap().is_empty());
+}
+
+#[test]
+fn sqlite_append_envelopes_refuses_after_terminal_despite_damaged_summary() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("damaged-summary-terminal.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let (e1, completed, _) = completed_vs_phase_pair("term-dmg", "term-dmg");
+    ports
+        .import_run_stream(
+            "term-dmg",
+            &sample_manifest("term-dmg"),
+            &[e1.clone(), completed.clone()],
+        )
+        .unwrap();
+    ports
+        .apply_envelopes("term-dmg", &[e1, completed.clone()])
+        .unwrap();
+    assert_eq!(
+        summary_snapshot(&path, "term-dmg").2.as_deref(),
+        Some("completed")
+    );
+
+    // Damage run_summary to claim status='running' at head seq 2.
+    exec_raw_sql(
+        &path,
+        "UPDATE run_summary SET status = 'running', folded_seq = 2 WHERE run_id = 'term-dmg';",
+    );
+
+    assert_refuses_phase_after_completed(&ports, "term-dmg", &completed);
+    assert_eq!(sqlite_table_count(&path, "events"), 2);
+}
+
+#[test]
+fn colocated_rebuild_from_refuses_empty_run_manifest_mismatch() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("empty-manifest-mismatch.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    ports
+        .create_run("empty-same-id", &sample_manifest("local-feature"))
+        .unwrap();
+
+    let external = MemEventLog::default();
+    external
+        .create_run("empty-same-id", &sample_manifest("other-feature"))
+        .unwrap();
+
+    assert!(matches!(
+        ports.rebuild_from(&external),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "empty-same-id"
+    ));
 }

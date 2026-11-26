@@ -15,7 +15,8 @@
 //! schema validation, and canonical NDJSON export/import) live once in
 //! [`Journal`].
 
-use brokkr_core::envelope::EventEnvelope;
+use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::fold::{lawful_after_terminal, terminal_event};
 use serde_json::Value;
 
 use thiserror::Error;
@@ -35,6 +36,8 @@ pub enum ManifestRefusal {
     NotAnObject,
     #[error("manifest field 'engine' must be a JSON string")]
     EngineNotString,
+    #[error("manifest field 'feature' must be a JSON string")]
+    FeatureNotString,
 }
 
 pub(crate) fn format_canonical_ndjson(events: &[EventEnvelope]) -> Result<String, StoreError> {
@@ -46,9 +49,10 @@ pub(crate) fn format_canonical_ndjson(events: &[EventEnvelope]) -> Result<String
     Ok(out)
 }
 
-/// Validate that `manifest` is a JSON object and, if `"engine"` is present,
-/// that it is a JSON string (refusing non-string `"engine"` rather than
-/// silently treating it as absent/V1).
+/// Validate that `manifest` is a JSON object and, if `"engine"` or `"feature"`
+/// is present, that each is a JSON string (refusing non-string `"engine"`
+/// rather than silently treating it as absent/V1, and refusing non-string
+/// `"feature"` rather than projecting an empty feature).
 pub(crate) fn validate_manifest(run_id: &str, manifest: &Value) -> Result<(), StoreError> {
     let Some(object) = manifest.as_object() else {
         return Err(StoreError::InvalidManifest {
@@ -56,12 +60,42 @@ pub(crate) fn validate_manifest(run_id: &str, manifest: &Value) -> Result<(), St
             reason: ManifestRefusal::NotAnObject,
         });
     };
-    if let Some(engine) = object.get("engine") {
-        if !engine.is_string() {
+    for (field, reason) in [
+        ("engine", ManifestRefusal::EngineNotString),
+        ("feature", ManifestRefusal::FeatureNotString),
+    ] {
+        if object.get(field).is_some_and(|value| !value.is_string()) {
             return Err(StoreError::InvalidManifest {
                 run_id: run_id.to_string(),
-                reason: ManifestRefusal::EngineNotString,
+                reason,
             });
+        }
+    }
+    Ok(())
+}
+
+/// Refuse any non-annotation event in `incoming` once `existing` or an earlier
+/// event in `incoming` has reached a terminal event.
+pub(crate) fn refuse_after_terminal(
+    run_id: &str,
+    existing: &[EventEnvelope],
+    incoming: &[EventType],
+) -> Result<(), StoreError> {
+    let mut terminal = existing
+        .iter()
+        .rev()
+        .find_map(|event| terminal_event(event.event_type));
+    for &event_type in incoming {
+        if let Some(status) = terminal {
+            if !lawful_after_terminal(event_type) {
+                return Err(StoreError::AfterTerminal {
+                    run_id: run_id.to_string(),
+                    status,
+                    event_type,
+                });
+            }
+        } else {
+            terminal = terminal_event(event_type);
         }
     }
     Ok(())
@@ -76,7 +110,7 @@ pub(crate) fn validate_manifest(run_id: &str, manifest: &Value) -> Result<(), St
 pub trait EventLog {
     /// Persist a new run record with its immutable manifest, refusing a
     /// duplicate `run_id` with [`StoreError::RunExists`] and a non-object
-    /// manifest or non-string `"engine"` field with
+    /// manifest or non-string `"engine"` / `"feature"` field with
     /// [`StoreError::InvalidManifest`].
     fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError>;
 

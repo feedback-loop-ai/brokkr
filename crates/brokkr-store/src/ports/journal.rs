@@ -10,7 +10,6 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{
     verify_chain_after, ChainError, EventEnvelope, EventType, EVENT_SCHEMA_VERSION,
 };
-use brokkr_core::fold::{lawful_after_terminal, terminal_event};
 use serde_json::Value;
 
 use crate::{import, seat_record, ImportError, SeatRecordVersion, StoreError, VerifyError};
@@ -184,7 +183,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
                 found_seq,
             });
         }
-        refuse_after_terminal(run_id, &events, event.event_type)?;
+        super::refuse_after_terminal(run_id, &events, &[event.event_type])?;
         validate_started_manifest(run_id, event.event_type, &event.payload)?;
         validate_record(
             &self.event_log,
@@ -243,28 +242,6 @@ fn validate_started_manifest(
         if let Some(manifest) = payload.get("manifest") {
             super::validate_manifest(run_id, manifest)?;
         }
-    }
-    Ok(())
-}
-
-fn refuse_after_terminal(
-    run_id: &str,
-    events: &[EventEnvelope],
-    event_type: EventType,
-) -> Result<(), StoreError> {
-    if lawful_after_terminal(event_type) {
-        return Ok(());
-    }
-    if let Some(status) = events
-        .iter()
-        .rev()
-        .find_map(|event| terminal_event(event.event_type))
-    {
-        return Err(StoreError::AfterTerminal {
-            run_id: run_id.to_string(),
-            status,
-            event_type,
-        });
     }
     Ok(())
 }
