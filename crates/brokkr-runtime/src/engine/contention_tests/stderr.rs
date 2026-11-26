@@ -27,15 +27,17 @@ fn a_step_checkpoint_the_lock_outlasts_settles_indeterminate_and_names_and_tells
     let mut reason = None;
     let end = engine
         .drive_racing(|error| {
-            let Some(
-                contended @ StoreError::Contended {
-                    operation: "append",
-                    ..
-                },
-            ) = error.contention()
-            else {
-                panic!("expected append contention, got {error:?}");
-            };
+            assert!(
+                matches!(
+                    error.contention(),
+                    Some(StoreError::Contended {
+                        operation: "append",
+                        ..
+                    })
+                ),
+                "expected append contention, got {error:?}"
+            );
+            let contended = error.contention().expect("the append contended");
             reason = Some(format!("journal contention: {contended}"));
             drop(
                 peer.borrow_mut()
