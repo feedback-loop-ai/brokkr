@@ -1,6 +1,6 @@
 # 0121 — A review panel's scope and fixes flags are read, never defaulted
 
-Status: accepted — operator ruled 2026-11-25, accepting it with its three sibling engine patches from feedback-loop-ai/swarmail (decisions 0120 to 0123, pull requests #1291 to #1294) and landing each by hand
+Status: accepted — operator ruled 2026-11-25 on the review panel's scope and fixes flags, landing #1293 by hand; decision 0121 is one of the four engine patches feedback-loop-ai/swarmail carried on brokkr 0.12.0, accepted together as 0120 to 0123
 Date: 2026-11-23
 
 Built: built
