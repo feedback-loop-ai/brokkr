@@ -10,7 +10,6 @@
 //! dead. An entry the event's own reader refuses is named here, never read
 //! as no wait.
 
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use brokkr_core::fold::RunState;
@@ -131,10 +130,10 @@ pub enum WaitKind {
 }
 
 impl WaitKind {
-    fn description(self) -> Cow<'static, str> {
+    fn description(self) -> String {
         match self {
-            WaitKind::Ordinary => "ordinary".into(),
-            WaitKind::Held { max_seconds } => format!("held (maximum {max_seconds}s)").into(),
+            WaitKind::Ordinary => "ordinary".to_owned(),
+            WaitKind::Held { max_seconds } => format!("held (maximum {max_seconds}s)"),
         }
     }
 
