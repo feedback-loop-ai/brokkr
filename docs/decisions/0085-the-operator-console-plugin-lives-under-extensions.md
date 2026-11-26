@@ -1,9 +1,9 @@
 # 0085 — The DSH operator console plugin lives under `extensions/dsh/brokkr-console/`, with its own source and tests
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "accept 0066 and 0085" (https://github.com/feedback-loop-ai/brokkr/issues/1428#issuecomment-7202776018)
 Date: 2026-10-13
 
-Built: unbuilt (#568) — the Brokkr side of the change ships first; the plugin waits on task 0.2's measurement of DSH `0.2.0-rc.2`
+Built: built — the plugin lives under extensions/dsh/brokkr-console/ with its own source and tests; the console's features are #568's
 
 ## Context
 

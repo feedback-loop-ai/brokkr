@@ -1,6 +1,6 @@
 # 0090 — Another build's reservation is read through the view every build writes
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-10-20
 
 Built: built

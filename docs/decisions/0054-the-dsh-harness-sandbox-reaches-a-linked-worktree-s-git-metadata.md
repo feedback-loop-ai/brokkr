@@ -1,6 +1,6 @@
 # 0054 — A linked worktree's git metadata: the seat writes a private common directory and the driver promotes the one ref its worktree owns
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-09-09
 
 > **Number.** This decision was drafted as 0053 and renumbered to 0054 on

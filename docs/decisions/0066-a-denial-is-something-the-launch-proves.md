@@ -1,9 +1,9 @@
 # 0066 — A denial is something the launch proves
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "accept 0066 and 0085" (https://github.com/feedback-loop-ai/brokkr/issues/1428#issuecomment-7202776018)
 Date: 2026-09-22
 
-Built: unbuilt (#319) — built with decision 0065's slice one
+Built: built — with decision 0065's slice one (#319)
 
 ## Context
 

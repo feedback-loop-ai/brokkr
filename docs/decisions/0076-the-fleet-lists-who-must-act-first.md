@@ -1,6 +1,6 @@
 # 0076 — The fleet lists who must act first
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-09-30
 
 Built: built

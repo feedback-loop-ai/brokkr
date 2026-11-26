@@ -1,6 +1,6 @@
 # 0060 — Review-first is found-branch delivery entered at verify, with a forced Muse/Astra crew
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-09-12
 
 Built: built
