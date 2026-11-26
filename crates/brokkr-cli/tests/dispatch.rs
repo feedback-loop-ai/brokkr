@@ -376,12 +376,52 @@ fn a_driver_of_a_claim_with_no_spawn_row_refuses_and_writes_nothing() {
     assert_eq!(machine.commands(), ["add"]);
 }
 
+/// How many times a replaced-binary test stages its machine before it
+/// takes "no room" for an answer. Admission measures the real machine
+/// (decision 0125), and on macOS its memory pressure can read `warn` for
+/// the dispatcher's pass and `normal` a moment later, so a second reading
+/// cannot excuse the first: a pass that claimed nothing and ended 0 is
+/// staged again, on a fresh machine, and only the last staging falls back
+/// to that second reading.
+const REPLACED_BINARY_STAGINGS: usize = 3;
+
 /// Decision 0110 ruling 4 on a machine with one entry queued: `brokkr
 /// dispatch` given `mode`, started from a copy of the binary, records its
 /// binary as it starts, then waits on the journal's write lock, which the
 /// test holds until the copy is replaced. It claims nothing, ends in the
-/// ruling's words and exits 1. What it said.
+/// ruling's words and exits 1. What it said, or nothing when no staging's
+/// machine had room for the entry, so no claim was tried.
 fn ended_on_its_replaced_binary(mode: &[&str]) -> Option<String> {
+    for staging in 1..=REPLACED_BINARY_STAGINGS {
+        match staged_replaced_binary(mode) {
+            Staged::Ended(stdout) => return Some(stdout),
+            Staged::Claimless(machine, ended) => {
+                if staging < REPLACED_BINARY_STAGINGS {
+                    eprintln!(
+                        "{mode:?}: staging {staging} claimed nothing and ended 0; staged again"
+                    );
+                    continue;
+                }
+                assert!(short_of_this_machine(&machine), "{mode:?}: {ended:?}");
+                eprintln!(
+                    "{mode:?}: this machine had no room for the entry, so no claim was tried"
+                );
+            }
+        }
+    }
+    None
+}
+
+/// What one staging of [`ended_on_its_replaced_binary`] came to: the
+/// ruling's ending, or a pass that claimed nothing and ended 0, with its
+/// machine and output kept for the last staging's fallback.
+enum Staged {
+    Ended(String),
+    Claimless(Machine, std::process::Output),
+}
+
+/// One staging of [`ended_on_its_replaced_binary`] on a fresh machine.
+fn staged_replaced_binary(mode: &[&str]) -> Staged {
     let machine = Machine::new();
     machine.queued();
     let copy = machine.base.join("bin/brokkr");
@@ -397,10 +437,9 @@ fn ended_on_its_replaced_binary(mode: &[&str]) -> Option<String> {
     holder.execute_batch("ROLLBACK").unwrap();
 
     let ended = dispatcher.ended();
-    if ended.status.code() == Some(0) && short_of_this_machine(&machine) {
+    if ended.status.code() == Some(0) {
         assert_eq!(machine.commands(), ["add"], "{mode:?}: nothing claimed");
-        eprintln!("{mode:?}: this machine had no room for the entry, so no claim was tried");
-        return None;
+        return Staged::Claimless(machine, ended);
     }
     assert_eq!(ended.status.code(), Some(1), "{ended:?}");
     let stdout = String::from_utf8_lossy(&ended.stdout).into_owned();
@@ -411,7 +450,7 @@ fn ended_on_its_replaced_binary(mode: &[&str]) -> Option<String> {
     );
     assert!(stdout.ends_with(&words), "{mode:?}: {stdout}");
     assert_eq!(machine.commands(), ["add"], "{mode:?}: nothing claimed");
-    Some(stdout)
+    Staged::Ended(stdout)
 }
 
 /// Decision 0110 ruling 4: the dispatcher started from a copy of the
