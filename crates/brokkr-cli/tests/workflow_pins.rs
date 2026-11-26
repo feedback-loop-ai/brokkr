@@ -280,13 +280,22 @@ fn judge_uses(root: &Path, value: &str) -> Option<Unpinned> {
     let (action, comment) = value.split_once(" # ").unwrap_or((value, ""));
     let action = unquote(action.trim());
     if let Some(local) = action.strip_prefix("./") {
-        // Only a directory directly under `.github/actions/` is one of the
-        // actions [`local_actions`] lists, and so one this scan reads.
-        let own = local
+        // Only a directory directly under `.github/actions/` or a reusable
+        // workflow directly under `.github/workflows/` is one of the files
+        // [`local_actions`] and [`workflows`] list, and so one this scan reads.
+        let own_action = local
             .strip_prefix(".github/actions/")
-            .is_some_and(|name| !name.is_empty() && !name.contains('/') && !name.starts_with('.'));
-        let present = own && action_file(&root.join(local)).is_some();
-        return (!present).then(|| Unpinned::LocalAction(action.to_string()));
+            .is_some_and(|name| !name.is_empty() && !name.contains('/') && !name.starts_with('.'))
+            && action_file(&root.join(local)).is_some();
+        let own_workflow = local
+            .strip_prefix(".github/workflows/")
+            .is_some_and(|name| {
+                !name.contains('/')
+                    && !name.starts_with('.')
+                    && (name.ends_with(".yml") || name.ends_with(".yaml"))
+            })
+            && root.join(local).is_file();
+        return (!(own_action || own_workflow)).then(|| Unpinned::LocalAction(action.to_string()));
     }
     let reference = action
         .split_once('@')
@@ -1088,6 +1097,63 @@ fn a_loose_label_a_floating_runtime_or_a_stray_local_action_is_refused() {
     );
 }
 
+/// A local reusable workflow under `.github/workflows/<name>.yml` is accepted
+/// only when it sits directly in `.github/workflows/`, is not a dotfile, ends
+/// in `.yml` or `.yaml`, and exists on disk.
+#[test]
+fn a_local_reusable_workflow_must_be_a_direct_existing_yaml_file() {
+    let root = std::env::temp_dir().join(format!("workflow-pins-reusable-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join(".github/workflows/nested")).expect("workflows dir");
+    for file in [
+        ".github/workflows/own.yml",
+        ".github/workflows/nested/own.yml",
+        ".github/workflows/.hidden.yml",
+        ".github/workflows/own.txt",
+    ] {
+        std::fs::write(root.join(file), "name: planted\n").expect(file);
+    }
+    for pin in ["rust-toolchain.toml", "Cargo.toml"] {
+        std::fs::copy(workspace().join(pin), root.join(pin)).expect(pin);
+    }
+    let planted = "\
+  a:
+    uses: ./.github/workflows/own.yml
+  b:
+    uses: ./.github/workflows/missing.yml
+  c:
+    uses: ./.github/workflows/nested/own.yml
+  d:
+    uses: ./.github/workflows/.hidden.yml
+  e:
+    uses: ./.github/workflows/own.txt
+";
+    let offenses = offenses_in(&root, planted);
+    std::fs::remove_dir_all(&root).expect("scratch workspace");
+    let at = |line, what| Offense { line, what };
+    assert_eq!(
+        offenses,
+        [
+            at(
+                4,
+                Unpinned::LocalAction("./.github/workflows/missing.yml".into())
+            ),
+            at(
+                6,
+                Unpinned::LocalAction("./.github/workflows/nested/own.yml".into())
+            ),
+            at(
+                8,
+                Unpinned::LocalAction("./.github/workflows/.hidden.yml".into())
+            ),
+            at(
+                10,
+                Unpinned::LocalAction("./.github/workflows/own.txt".into())
+            ),
+        ]
+    );
+}
+
 /// The Renovate image has one home, [`RENOVATE_IMAGE_FILE`], naming an
 /// exact release and its digest. Every workflow reaches it through that
 /// file: the Renovate step through [`RENOVATE_IMAGE`]'s output in its own
@@ -1570,6 +1636,81 @@ fn run_steps(job: &str) -> Vec<String> {
     steps
 }
 
+/// True when a job itself calls a reusable workflow (a job-level `uses:` at
+/// four-space indentation and no job-level `runs-on:`). A step-level
+/// `        uses:` is indented eight spaces and never exempts a job.
+fn is_reusable_workflow_caller(body: &str) -> bool {
+    let has_job_uses = body.lines().any(|line| line.starts_with("    uses: "));
+    let has_runs_on = body.lines().any(|line| line.starts_with("    runs-on: "));
+    has_job_uses && !has_runs_on
+}
+
+/// Every job in `text` that runs on a runner of its own (not a
+/// reusable-workflow caller) and lacks a job-level `timeout-minutes:`.
+fn unbounded_jobs(file: &str, text: &str) -> Vec<String> {
+    workflow::jobs(text)
+        .into_iter()
+        .filter(|(_, body)| !is_reusable_workflow_caller(body))
+        .filter(|(_, body)| {
+            !body.lines().any(|line| {
+                line.strip_prefix("    timeout-minutes: ")
+                    .map(|rest| rest.split('#').next().unwrap_or(rest).trim())
+                    .is_some_and(|value| !value.is_empty())
+            })
+        })
+        .map(|(id, _)| format!("{file}'s {id} is unbounded"))
+        .collect()
+}
+
+/// Removing `timeout-minutes` from a runner job fails even when its steps
+/// carry an indented `uses:` line, or when a comment or script line mentions
+/// `timeout-minutes:` (decision 0071 rulings 5 and 9, #1383).
+#[test]
+fn timeout_rule_exempts_only_reusable_workflow_callers() {
+    let shards = read(".github/workflows/macos-test-shards.yml");
+    let no_shard_timeout = shards.replacen(
+        "    timeout-minutes: 60
+",
+        "",
+        1,
+    );
+    assert_ne!(no_shard_timeout, shards);
+    assert_eq!(
+        unbounded_jobs(".github/workflows/macos-test-shards.yml", &no_shard_timeout),
+        [".github/workflows/macos-test-shards.yml's macos-machines is unbounded"]
+    );
+
+    let ci = read(".github/workflows/ci.yml");
+    // `seatbelt-lifetime` has a step-level `        uses: actions/upload-artifact@...`
+    // and must still fail when its job-level timeout is removed.
+    let no_ci_timeout = ci.replacen(
+        "    runs-on: macos-latest
+    timeout-minutes: 20
+",
+        "    runs-on: macos-latest
+",
+        1,
+    );
+    assert_ne!(no_ci_timeout, ci);
+    assert_eq!(
+        unbounded_jobs(".github/workflows/ci.yml", &no_ci_timeout),
+        [".github/workflows/ci.yml's seatbelt-lifetime is unbounded"]
+    );
+
+    let pr_gates = read(".github/workflows/pr-gates.yml");
+    for fake in [
+        "    #     timeout-minutes: 20\n",
+        "        # echo \"    timeout-minutes: 20\"\n",
+    ] {
+        let mutated = pr_gates.replacen("    timeout-minutes: 20\n", fake, 1);
+        assert_ne!(mutated, pr_gates);
+        assert_eq!(
+            unbounded_jobs(".github/workflows/pr-gates.yml", &mutated),
+            [".github/workflows/pr-gates.yml's delivered-by-brokkr is unbounded"]
+        );
+    }
+}
+
 /// The rest of issue #340's CI shape: superseded pull request runs are
 /// cancelled, every job is bounded, the Linux release binary is built
 /// once and shared, and the reporting Gate B probe is off the required
@@ -1595,9 +1736,6 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
     let gates = workflow::jobs(&read(".github/workflows/pr-gates.yml"));
     let ids: Vec<&str> = gates.iter().map(|(id, _)| id.as_str()).collect();
     assert_eq!(ids, ["delivered-by-brokkr", "ratchets"]);
-    for (id, body) in &gates {
-        assert!(body.contains("    timeout-minutes: "), "{id} is unbounded");
-    }
 
     let jobs = ci_jobs();
     let ids: Vec<&str> = jobs.iter().map(|(id, _)| id.as_str()).collect();
@@ -1611,6 +1749,9 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "docs-lane",
             "engine-machines",
             "engine",
+            "build-macos",
+            "macos-machines",
+            "macos-tests",
             "seatbelt-lifetime",
             "coverage-machines",
             "coverage",
@@ -1626,8 +1767,13 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "pr-caches",
         ]
     );
-    for (id, body) in &jobs {
-        assert!(body.contains("    timeout-minutes: "), "{id} is unbounded");
+    for file in [
+        ".github/workflows/pr-gates.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/macos-test-shards.yml",
+        ".github/workflows/macos-tests.yml",
+    ] {
+        assert_eq!(unbounded_jobs(file, &read(file)), Vec::<String>::new());
     }
 
     let job = |wanted: &str| ci_job(&jobs, wanted);
