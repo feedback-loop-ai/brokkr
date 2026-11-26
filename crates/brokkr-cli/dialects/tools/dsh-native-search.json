@@ -1,0 +1,19 @@
+{
+  "schema": "brokkr.tool-dialect/v1",
+  "name": "dsh-native-search",
+  "serves": "web-search",
+  "kind": "provider-native",
+  "provider": "dsh",
+  "adapter_key": "web-search",
+  "tools": ["web_search"],
+  "classes": ["reads", "egress"],
+  "egress": "uncontracted",
+  "sends": {
+    "description": "The web-search-deepseek backend sends the free-text query the model composes to DeepSeek's search API using DEEPSEEK_API_KEY; DeepSeek sees the query and the authenticated request.",
+    "seat_composed": true
+  },
+  "restrictions": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}
