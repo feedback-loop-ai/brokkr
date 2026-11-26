@@ -23,6 +23,8 @@
   "models": {
     "agy-argon": "gemini-4-argon",
     "agy-carbon": "gemini-4-carbon",
+    "agy-claude-opus": "claude-opus-5-5",
+    "agy-claude-sonnet": "claude-sonnet-5-5",
     "agy-hydrogen": "gemini-4-hydrogen",
     "agy-neon": "gemini-4-neon"
   },

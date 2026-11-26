@@ -4,6 +4,25 @@ Changes merged since v0.16.0 that the next release's notes carry.
 
 ## Added
 
+- **`dsh` maps `qwen4-max` to `dashscope/qwen4-max`** (#1395). The
+  shipped `dsh` adapter adds Qwen 4.0 Max as a work model and
+  review-panel member on the Model Studio (`dashscope`) route, with
+  `judges` empty, `trust_tier` unchanged (`untrusted`) and no route
+  overlay or endpoint shipped. A host serving the route declares the
+  `dashscope` provider, `DASHSCOPE_API_KEY` by name and the `qwen4-max`
+  model row with its three measured `reasoningEfforts` levels (`low`,
+  `high` and `xhigh`) ([provider
+  adapters](../guides/provider-adapters.md#the-alias-catalogue)).
+- **Antigravity CLI maps its two Claude 5.5 models as work models**
+  (#1382). `docs/examples/adapters/agy.json` adds `agy-claude-opus`
+  (`claude-opus-5-5`) and `agy-claude-sonnet` (`claude-sonnet-5-5`) for
+  work seats at `low`, `medium` and `high` effort; `xhigh` is refused as
+  a launch refusal, as for `agy-carbon` and `agy-argon`. Neither is in
+  `judges`, and promotion is a separate ruling under decision 0021 after
+  an eval ([provider
+  adapters](../guides/provider-adapters.md#antigravity-cli-a-trusted-harness),
+  [evidence
+  record](../evidence/adapters/agy-cli-1-5.md#eighth-measurement-on-1517-the-two-claude-slugs-2026-11-25-and-2026-11-26)).
 - `brokkr orders` lists work orders and can show, propose, edit and rule on them in the journal (#1272).
 
 ## Changed

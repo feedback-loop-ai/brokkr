@@ -1,0 +1,1 @@
+error: invalid model selection (--model "claude-sonnet-5-5" --effort "bogus"): invalid --effort "bogus" (valid: low, medium, high, xhigh, max)

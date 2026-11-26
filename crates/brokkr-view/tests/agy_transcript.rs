@@ -20,6 +20,9 @@ const L2B_PRINTED_VALUE: &str =
     include_str!("../../../docs/evidence/adapters/agy-cli-1-5/l2b-printed-value.transcript.ndjson");
 const L2B_TWO_REJOINS: &str =
     include_str!("../../../docs/evidence/adapters/agy-cli-1-5/l2b-two-rejoins.transcript.ndjson");
+const BOX_SONNET_V17: &str = include_str!(
+    "../../../docs/evidence/adapters/agy-cli-1-5/box-engine-workspace-tool-sonnet-v17.transcript.ndjson"
+);
 
 fn project_agy(text: &str) -> Projection {
     project(
@@ -32,14 +35,19 @@ fn project_agy(text: &str) -> Projection {
     )
 }
 
-#[test]
-fn evidence_l2_box_shows_denied_native_tool_and_workspace_calls() {
-    let p = project_agy(L2_BOX);
+fn project_clean(text: &str, expected_turns: usize) -> Projection {
+    let p = project_agy(text);
     assert_eq!(p.unavailable, None);
     assert_eq!(p.skipped_lines, 0);
     assert_eq!(p.unrecognized_records, 0);
     assert!(!p.truncated);
-    assert_eq!(p.turns.len(), 12);
+    assert_eq!(p.turns.len(), expected_turns);
+    p
+}
+
+#[test]
+fn evidence_l2_box_shows_denied_native_tool_and_workspace_calls() {
+    let p = project_clean(L2_BOX, 12);
 
     // User input keeps agy's wrapper tags verbatim.
     assert_eq!(p.turns[0].role, "user");
@@ -173,4 +181,49 @@ fn evidence_l2_neon_effort_and_rejoins_and_printed_value_bind() {
         .text
         .contains("l2b-sentinel-value-7f3a9c2e41d8"));
     assert_eq!(printed.turns[3].blocks, vec![Block::text("DONE")]);
+}
+
+#[test]
+fn evidence_box_sonnet_v17_shows_thinking_workspace_calls_and_denied_natives() {
+    let p = project_clean(BOX_SONNET_V17, 10);
+
+    // Denied initial read_file on the workspace tool schema.
+    assert_eq!(p.turns[1].role, "assistant");
+    assert_eq!(p.turns[1].blocks[0].kind, BlockKind::Tool);
+    assert!(p.turns[1].blocks[0].text.starts_with("read_file "));
+    assert_eq!(p.turns[2].role, "tool");
+    assert_eq!(
+        p.turns[2].blocks,
+        vec![Block::tool_result(
+            "tool call denied by pre-tool hook: the engine's gate does not offer the tool read_file"
+        )]
+    );
+
+    // Row 3 carries a thinking block followed by three workspace MCP calls and
+    // two denied native calls (run_command, write_file).
+    assert_eq!(p.turns[3].role, "assistant");
+    assert_eq!(p.turns[3].blocks[0].kind, BlockKind::Reasoning);
+    assert!(p.turns[3].blocks[0]
+        .text
+        .contains("switch to the workspace tool"));
+    assert_eq!(p.turns[3].blocks.len(), 6);
+    assert_eq!(
+        p.turns[3].blocks[1].text,
+        r#"call_mcp_tool Arguments={"command":"cat seed.txt"}, ServerName="brokkr", ToolName="workspace""#
+    );
+    assert_eq!(
+        p.turns[7].blocks,
+        vec![Block::tool_result(
+            "tool call denied by pre-tool hook: the engine's gate does not offer the tool run_command"
+        )]
+    );
+    assert_eq!(
+        p.turns[8].blocks,
+        vec![Block::tool_result(
+            "tool call denied by pre-tool hook: the engine's gate does not offer the tool write_file"
+        )]
+    );
+    assert_eq!(p.turns[9].role, "assistant");
+    assert!(p.turns[9].blocks[0].text.contains("seeded-by-controller"));
+    assert!(p.turns[9].blocks[0].text.contains("agy-was-here"));
 }
