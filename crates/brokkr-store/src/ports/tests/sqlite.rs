@@ -1641,10 +1641,13 @@ fn sqlite_import_run_stream_enforces_adoptable_id_fold_and_post_terminal() {
         ZERO_HASH,
         "2026-11-25T10:00:00Z",
     );
+    let empty_err = ports
+        .import_run_stream("imp-empty", &manifest, &[])
+        .unwrap_err();
     assert!(matches!(
-        ports.import_run_stream("imp-empty", &manifest, &[]),
-        Err(StoreError::Import(ref inner))
-            if matches!(**inner, ImportError::Verify(VerifyError::Fold(FoldError::Empty)))
+        empty_err,
+        StoreError::Import(inner)
+            if matches!(*inner, ImportError::Verify(VerifyError::Fold(FoldError::Empty)))
     ));
     assert!(matches!(
         ports.import_run_stream("imp-fold", &manifest, &[bad_first]),

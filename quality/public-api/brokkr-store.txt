@@ -147,6 +147,99 @@ pub brokkr_store::metered::WindowSpend::phase: core::option::Option<&'a str>
 pub brokkr_store::metered::WindowSpend::realm: core::option::Option<&'a str>
 pub brokkr_store::metered::WindowSpend::run_id: &'a str
 pub brokkr_store::metered::WindowSpend::usd: f64
+pub mod brokkr_store::ports
+pub enum brokkr_store::ports::ManifestRefusal
+pub brokkr_store::ports::ManifestRefusal::BundleNameNotString
+pub brokkr_store::ports::ManifestRefusal::EngineNotString
+pub brokkr_store::ports::ManifestRefusal::FeatureNotString
+pub brokkr_store::ports::ManifestRefusal::NotAnObject
+pub struct brokkr_store::ports::Journal<E, P, C>
+impl<E, P, C> brokkr_store::ports::Journal<E, P, C>
+pub fn brokkr_store::ports::Journal<E, P, C>::coordination(&self) -> &C
+pub fn brokkr_store::ports::Journal<E, P, C>::event_log(&self) -> &E
+pub fn brokkr_store::ports::Journal<E, P, C>::new(E, P, C) -> Self
+pub fn brokkr_store::ports::Journal<E, P, C>::projections(&self) -> &P
+impl<E: brokkr_store::ports::EventLog, P: brokkr_store::ports::ProjectionStore, C: brokkr_store::ports::CoordinationStore> brokkr_store::ports::Journal<E, P, C>
+pub fn brokkr_store::ports::Journal<E, P, C>::append_event(&self, &str, brokkr_store::ports::NewEvent<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
+pub fn brokkr_store::ports::Journal<E, P, C>::append_if_head(&self, &str, (u64, &str), brokkr_store::ports::NewEvent<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
+pub fn brokkr_store::ports::Journal<E, P, C>::create_run(&self, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::Journal<E, P, C>::export_ndjson(&self, &str) -> core::result::Result<alloc::string::String, brokkr_store::StoreError>
+pub fn brokkr_store::ports::Journal<E, P, C>::import_ndjson(&self, &str, &serde_json::value::Value, &str) -> core::result::Result<u64, brokkr_store::ImportError>
+pub fn brokkr_store::ports::Journal<E, P, C>::load_verified(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub fn brokkr_store::ports::Journal<E, P, C>::reindex(&self) -> core::result::Result<u64, brokkr_store::StoreError>
+pub struct brokkr_store::ports::NewEvent<'a>
+pub brokkr_store::ports::NewEvent::attempt_id: core::option::Option<&'a str>
+pub brokkr_store::ports::NewEvent::causation_id: core::option::Option<&'a str>
+pub brokkr_store::ports::NewEvent::event_type: brokkr_core::envelope::EventType
+pub brokkr_store::ports::NewEvent::payload: serde_json::value::Value
+pub brokkr_store::ports::NewEvent::ts: &'a str
+pub struct brokkr_store::ports::SqlitePorts<'a>(_)
+impl<'a> brokkr_store::ports::SqlitePorts<'a>
+pub fn brokkr_store::ports::SqlitePorts<'a>::new(&'a brokkr_store::Store) -> Self
+impl brokkr_store::ports::CoordinationStore for brokkr_store::ports::SqlitePorts<'_>
+pub fn brokkr_store::ports::SqlitePorts<'_>::active_cooldowns(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::enqueue(&self, &brokkr_store::NewEntry<'_>, &str) -> core::result::Result<brokkr_store::EntryId, brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::list_queue(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
+impl brokkr_store::ports::EventLog for brokkr_store::ports::SqlitePorts<'_>
+pub fn brokkr_store::ports::SqlitePorts<'_>::append_envelopes(&self, &str, (u64, &str), &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::create_run(&self, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::head(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::import_run_stream(&self, &str, &serde_json::value::Value, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::list_run_ids(&self) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::manifest(&self, &str) -> core::result::Result<serde_json::value::Value, brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::read_stream(&self, &str, u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+impl brokkr_store::ports::ProjectionStore for brokkr_store::ports::SqlitePorts<'_>
+pub fn brokkr_store::ports::SqlitePorts<'_>::apply_envelopes(&self, &str, core::option::Option<&serde_json::value::Value>, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::list_runs(&self) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::rebuild_from(&self, &dyn brokkr_store::ports::EventLog) -> core::result::Result<u64, brokkr_store::StoreError>
+pub trait brokkr_store::ports::CoordinationStore
+pub fn brokkr_store::ports::CoordinationStore::active_cooldowns(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
+pub fn brokkr_store::ports::CoordinationStore::enqueue(&self, &brokkr_store::NewEntry<'_>, &str) -> core::result::Result<brokkr_store::EntryId, brokkr_store::StoreError>
+pub fn brokkr_store::ports::CoordinationStore::list_queue(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
+impl brokkr_store::ports::CoordinationStore for brokkr_store::ports::SqlitePorts<'_>
+pub fn brokkr_store::ports::SqlitePorts<'_>::active_cooldowns(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::enqueue(&self, &brokkr_store::NewEntry<'_>, &str) -> core::result::Result<brokkr_store::EntryId, brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::list_queue(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
+impl<T: brokkr_store::ports::CoordinationStore + ?core::marker::Sized> brokkr_store::ports::CoordinationStore for &T
+pub fn &T::active_cooldowns(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
+pub fn &T::enqueue(&self, &brokkr_store::NewEntry<'_>, &str) -> core::result::Result<brokkr_store::EntryId, brokkr_store::StoreError>
+pub fn &T::list_queue(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
+pub trait brokkr_store::ports::EventLog
+pub fn brokkr_store::ports::EventLog::append_envelopes(&self, &str, (u64, &str), &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::EventLog::create_run(&self, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::EventLog::head(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::StoreError>
+pub fn brokkr_store::ports::EventLog::import_run_stream(&self, &str, &serde_json::value::Value, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::EventLog::list_run_ids(&self) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, brokkr_store::StoreError>
+pub fn brokkr_store::ports::EventLog::manifest(&self, &str) -> core::result::Result<serde_json::value::Value, brokkr_store::StoreError>
+pub fn brokkr_store::ports::EventLog::read_stream(&self, &str, u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+impl brokkr_store::ports::EventLog for brokkr_store::ports::SqlitePorts<'_>
+pub fn brokkr_store::ports::SqlitePorts<'_>::append_envelopes(&self, &str, (u64, &str), &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::create_run(&self, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::head(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::import_run_stream(&self, &str, &serde_json::value::Value, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::list_run_ids(&self) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::manifest(&self, &str) -> core::result::Result<serde_json::value::Value, brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::read_stream(&self, &str, u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+impl<T: brokkr_store::ports::EventLog + ?core::marker::Sized> brokkr_store::ports::EventLog for &T
+pub fn &T::append_envelopes(&self, &str, (u64, &str), &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn &T::create_run(&self, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn &T::head(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::StoreError>
+pub fn &T::import_run_stream(&self, &str, &serde_json::value::Value, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn &T::list_run_ids(&self) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, brokkr_store::StoreError>
+pub fn &T::manifest(&self, &str) -> core::result::Result<serde_json::value::Value, brokkr_store::StoreError>
+pub fn &T::read_stream(&self, &str, u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub trait brokkr_store::ports::ProjectionStore
+pub fn brokkr_store::ports::ProjectionStore::apply_envelopes(&self, &str, core::option::Option<&serde_json::value::Value>, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::ProjectionStore::list_runs(&self) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::ports::ProjectionStore::rebuild_from(&self, &dyn brokkr_store::ports::EventLog) -> core::result::Result<u64, brokkr_store::StoreError>
+impl brokkr_store::ports::ProjectionStore for brokkr_store::ports::SqlitePorts<'_>
+pub fn brokkr_store::ports::SqlitePorts<'_>::apply_envelopes(&self, &str, core::option::Option<&serde_json::value::Value>, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::list_runs(&self) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::ports::SqlitePorts<'_>::rebuild_from(&self, &dyn brokkr_store::ports::EventLog) -> core::result::Result<u64, brokkr_store::StoreError>
+impl<T: brokkr_store::ports::ProjectionStore + ?core::marker::Sized> brokkr_store::ports::ProjectionStore for &T
+pub fn &T::apply_envelopes(&self, &str, core::option::Option<&serde_json::value::Value>, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn &T::list_runs(&self) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn &T::rebuild_from(&self, &dyn brokkr_store::ports::EventLog) -> core::result::Result<u64, brokkr_store::StoreError>
 pub enum brokkr_store::Damage
 pub brokkr_store::Damage::Envelope
 pub brokkr_store::Damage::Envelope::run_id: alloc::string::String
@@ -203,6 +296,11 @@ pub enum brokkr_store::IndexFault
 pub brokkr_store::IndexFault::Column(&'static str)
 pub brokkr_store::IndexFault::Missing
 pub brokkr_store::IndexFault::Stray
+pub enum brokkr_store::ManifestRefusal
+pub brokkr_store::ManifestRefusal::BundleNameNotString
+pub brokkr_store::ManifestRefusal::EngineNotString
+pub brokkr_store::ManifestRefusal::FeatureNotString
+pub brokkr_store::ManifestRefusal::NotAnObject
 pub enum brokkr_store::QueueCommand
 pub brokkr_store::QueueCommand::Drop
 pub brokkr_store::QueueCommand::Hold
@@ -345,10 +443,19 @@ pub brokkr_store::StoreError::Contended::waited_ms: u128
 pub brokkr_store::StoreError::Damaged
 pub brokkr_store::StoreError::Damaged::damage: brokkr_store::Damage
 pub brokkr_store::StoreError::Damaged::journal: std::path::PathBuf
+pub brokkr_store::StoreError::DivergentEventLog
+pub brokkr_store::StoreError::DivergentEventLog::run_id: alloc::string::String
 pub brokkr_store::StoreError::HeadMoved
 pub brokkr_store::StoreError::HeadMoved::expected_seq: u64
 pub brokkr_store::StoreError::HeadMoved::found_seq: u64
+pub brokkr_store::StoreError::Import(alloc::boxed::Box<brokkr_store::ImportError>)
+pub brokkr_store::StoreError::InvalidManifest
+pub brokkr_store::StoreError::InvalidManifest::reason: brokkr_store::ports::ManifestRefusal
+pub brokkr_store::StoreError::InvalidManifest::run_id: alloc::string::String
 pub brokkr_store::StoreError::Json(serde_json::error::Error)
+pub brokkr_store::StoreError::ProjectionLag
+pub brokkr_store::StoreError::ProjectionLag::run_id: alloc::string::String
+pub brokkr_store::StoreError::ProjectionLag::source: alloc::boxed::Box<brokkr_store::StoreError>
 pub brokkr_store::StoreError::Queue(brokkr_store::QueueRefusal)
 pub brokkr_store::StoreError::RowBeforeChain
 pub brokkr_store::StoreError::RowBeforeChain::run_id: alloc::string::String
