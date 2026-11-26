@@ -183,8 +183,9 @@ Brokkr's broker runs ([below](#mcp-capabilities-through-the-broker)).
 response, never a demand for it; omitting it inherits the dialect's
 declaration. In a v6 or v7 file a `retain` key is still an ordinary
 restriction, never the veto, so moving to the veto means moving the
-file to v8 ([contracts](../contracts/README.md)). This repository's own
-`realms.json` grants nothing.
+file to v8 ([contracts](../contracts/README.md)). This repository's v9
+`realms.json` grants `web-fetch` and `web-search` only to the
+`researcher` office, through the Claude and DSH dialects.
 
 A harness's own powers are declared in its adapter's
 `native_capabilities` (decision 0065 ruling 4; `NativeInventory`,
@@ -209,8 +210,9 @@ A grant's restriction keys, such as a host allow-list, reach no harness
 yet: no adapter declares a restriction transport, so a grant with a
 nonempty restriction refuses a `requires` and drops a `wants` with the
 power off. Codex's OFF was measured live on codex-cli 0.154.0's cold
-`codex exec`. DSH's two `tool-web` keys were measured ON and OFF
-independently on 0.2.1-rc.2. Claude's evidence covers composition.
+`codex exec`. DSH composes its native web tools ON or OFF through the
+two `tool-web` keys measured on 0.2.1-rc.2 with the backend rows enabled.
+Claude's evidence covers composition.
 [Status page notes](status.md#notes-on-native-powers). `brokkr doctor`
 says per realm what is granted and which native powers are switched off.
 

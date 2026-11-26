@@ -113,7 +113,8 @@ dialect under [`dialects/tools/`](../dialects/tools/). A grant with no
 `offices` list reaches every office that asks, one with `"offices": []`
 reaches none, and one with a list reaches only the offices it names
 (`CapabilityGrant::reaches`, `realms.rs`). A recipe or an agent only asks, by name, under
-`capabilities`. This repository's own `realms.json` grants nothing.
+`capabilities`. This repository's own `realms.json` grants `web-fetch` and `web-search`
+only to the `researcher` office, through the Claude and DSH dialects.
 
 The same test renders this block from the adapters' `native_capabilities`
 and the shipped dialects, through the engine's own loaders. For a power
@@ -122,10 +123,10 @@ composed into the command, boxed or not, and the
 [security model](security-model.md#the-final-launch-check) says how the
 launch proves it. A seat whose OFF is `unsupported` or `unmeasured` is
 refused (decision 0066 ruling 1). An `unmeasured` inventory switches
-nothing off and claims no denial: what dsh, LaneTally and an `exec`
-command reach on their own, Brokkr does not bound. The notes below say
-what each declaration's evidence covers. Only Codex's OFF was measured
-live, and only on a cold `codex exec`; Claude's is composition.
+nothing off and claims no denial for LaneTally or an `exec` command.
+Codex's OFF was measured on a cold `codex exec`. DSH's key-only web
+controls were measured on dsh 0.2.1-rc.2. Claude's evidence covers
+composition.
 
 <!-- native-powers:start -->
 | Harness | Native power | Tools | Off, in every seat the realm does not grant it | On, where the realm grants it | Shipped dialect a realm grants it through | Restriction transport |
@@ -150,9 +151,9 @@ live, and only on a cold `codex exec`; Claude's is composition.
 - `codex` `web-search` ON: codex-cli 0.154.0 cold `codex exec` has server-side web search ON with no flag: the default run of the 2026-09-21 controller measurement issued a web_search item and answered with a cited version. No explicit ON value is declared because none was measured.
 - `codex` `web-search` evidence: codex-cli 0.154.0, cold `codex exec` only: with `-c web_search="disabled"` the model answered NO SEARCH TOOL; without it the tool ran
 - `dsh` `web-fetch` restrictions: The fetch key switches the whole tool and carries no URL restriction.
-- `dsh` `web-fetch` evidence: dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled
+- `dsh` `web-fetch` evidence: dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled by no-shell.yml. Key-only compositions (2026-11-26), with every backend row enabled: keyoff-fetch and keyoff-search measure both OFF; keyfetch-search measures fetch ON and search OFF; keysearch-fetch measures search ON and fetch OFF. No key-only run called a tool.
 - `dsh` `web-search` restrictions: The search key switches the whole tool and carries no query restriction.
-- `dsh` `web-search` evidence: dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled
+- `dsh` `web-search` evidence: dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled by no-shell.yml. Key-only compositions (2026-11-26), with every backend row enabled: keyoff-fetch and keyoff-search measure both OFF; keyfetch-search measures fetch ON and search OFF; keysearch-fetch measures search ON and fetch OFF. No key-only run called a tool.
 - `exec` native inventory: exec runs whatever command the bundle names; the engine cannot certify what an arbitrary child program reaches on its own, so its native inventory is unmeasured. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged
 - `lanetally` native inventory: the LaneTally wrapper forwards argv to claude, and forwarding is not confinement: whether Claude Code's native WebSearch and WebFetch controls hold through the wrapper, which owns its own per-session settings layer, has not been verified. Claude's declarations and evidence are not inherited; this wrapper's native inventory and controls are unmeasured on their own terms (decision 0065 slice one; owed to the controller)
 <!-- native-notes:end -->

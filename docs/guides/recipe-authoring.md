@@ -304,7 +304,7 @@ the adapter models: a power no typed declaration or grant expresses is
 never composed into the command, and a native power the adapter knows
 is switched off unless held. It is not a measurement of what the
 provider can reach on its own. A harness whose adapter declares its
-native capabilities `unmeasured` (dsh, lanetally and exec today) is
+native capabilities `unmeasured` (lanetally and exec today) is
 seated with no local restriction composed: the seat is told nothing is
 claimed about its native reach, and a typed `tools.allow` on it refuses
 at compile (ruling R5 of 2026-09-29). What each shipped adapter has

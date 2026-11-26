@@ -1321,6 +1321,7 @@ one **disposition**:
 | `{"argv": […]}` | Non-empty argv that switches it. |
 | `{"default": "<reason>"}` | Nothing to write: this IS the harness's measured default. |
 | `{"selection": {"include": […], "allow": […], "deny": […]}}` | Contributions to the harness's own tool lists; the adapter's sibling `selection` names the three list flags and separators. |
+| `{"overlay": {"dsh-web-fetch": false}}` | A Boolean key in DSH's staged `tool-web` row. `dsh-web-fetch` switches fetch and `dsh-web-search` switches search. |
 | `{"unsupported": "<measured reason>"}` | Measured: it cannot be switched this way. |
 | `{"unmeasured": "<reason>"}` | Nobody has measured whether it can. |
 
@@ -1353,7 +1354,7 @@ an adapter written before the ruling reads that way too, with the
 absence as its reason. Unmeasured is not an empty inventory: nothing can
 be granted through it and no native denial is claimed for it. For a
 harness the engine KNOWS to carry a native power — Codex `web-search`,
-Claude `web-search` and `web-fetch` — unmeasured is not enough (decision
+Claude and DSH `web-search` and `web-fetch` — unmeasured is not enough (decision
 0066 ruling 1): a seat on it compiles only with a valid, delivered
 control for each such power. An adapter written before the ruling, one
 whose `native_capabilities` is omitted, empty or missing the power, an
@@ -1362,7 +1363,7 @@ directory included, since the directory loads whole — and an OFF nobody
 measured each refuse the seat, naming the site, the office, the realm,
 the provider, the capability and the original cause. That floor grants
 nothing and supplies no switch; the control is still the adapter's
-data. DSH, LaneTally and an opaque custom driver keep their own declared
+data. LaneTally and an opaque custom driver keep their own declared
 uncertainty and inherit nobody's inventory.
 
 What the compiler does with a declaration, per seat and per provider
@@ -1381,7 +1382,8 @@ candidate, independently of anything the office asks:
   restriction is never discarded to make the grant usable.
 
 The resolved controls ride the driver input (`native_controls`) the
-engine writes, and the adapter composes them into the final argv: last on
+engine writes. DSH stages its two Boolean keys in the launch overlay.
+Codex composes its controls last on
 a cold Codex command, before the session and stdin positionals on an
 eligible `exec resume` (an AUTHORED `-c` still turns a rejoin cold). On
 Claude and LaneTally they are composed with the engine's OWN lists — the
@@ -1399,13 +1401,14 @@ so a control the compiler accepted reaches the final argv or the compile
 refuses that representation (decision 0066 ruling 3): a Claude OFF
 declared as argv — `--disallowedTools WebSearch` — is folded into the
 same engine-owned deny list a selection feeds, each list flag once; a
-selection for Codex, or anything for dsh, is refused rather than recorded
-and dropped. **The launch then proves itself** (operator ruling 2 of
+selection for Codex is refused rather than recorded and dropped. DSH
+requires both overlay keys to agree with the plan. **The launch then proves itself** (operator ruling 2 of
 2026-09-23): the complete final command, after every prefix, expansion,
 session argument and prompt, is parsed back under the harness's grammar,
 the capability state it expresses is compared with the state the plan
-recorded, and it must equal the engine's recomposition from the sealed
-typed inputs token for token. A mismatch refuses the launch. The adapter's
+recorded, and the command must equal the engine's recomposition from the
+sealed typed inputs token for token. For DSH that command carries the
+staged overlay path. A mismatch refuses the launch. The adapter's
 ON and OFF argv are parsed when the adapter data loads, and a declaration
 that does not parse refuses the load. What a recipe AUTHORED and what the
 engine appended are carried apart as provenance, from composition through
