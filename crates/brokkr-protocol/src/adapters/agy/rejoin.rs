@@ -10,14 +10,13 @@
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io;
-use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use brokkr_core::seat::{is_agy_uuid, AGY_TRANSCRIPT_KIND};
-use rustix::fs::{fchmod, fstat, mkdirat, openat, statat, AtFlags, FileType, Mode, RawDir, Stat};
+use rustix::fs::{fchmod, fstat, mkdirat, openat, statat, AtFlags, Dir, FileType, Mode, Stat};
 use rustix::io::Errno;
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -42,8 +41,6 @@ pub(super) const REJOIN_SOURCE_CAP: u64 = 128 * 1024 * 1024;
 pub(super) const REJOIN_ENTRY_CAP: usize = 4_096;
 /// Maximum directory nesting depth under `brain/<id>/` (lab depth is 4).
 pub(super) const REJOIN_DEPTH_CAP: usize = 16;
-
-const RAW_DIR_BUF_BYTES: usize = 8_192;
 
 /// Copy bounds for keeping rejoin state; overridable in unit tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -243,9 +240,11 @@ pub(super) fn keep_rejoin(
         bindings,
         conv_exists,
         caps,
-        &mut |_| {},
+        &mut noop_before_copy,
     )
 }
+
+fn noop_before_copy(_: &OsStr) {}
 
 /// [`keep_rejoin`] with a per-file hook run after opening a source file and
 /// before reading its bytes, so unit tests deterministically exercise the
@@ -265,7 +264,7 @@ pub(super) fn keep_rejoin_with(
     let parent_path = keep::resolve_parent_path(operator_home)?;
     let source = open_rejoin_source(engine_home, conversation_id)?;
     let parent_fd = keep::owned_parent_raw(&parent_path)?;
-    let mut guard = RejoinGuard::new(parent_fd);
+    let mut guard = RejoinRollback::begin(parent_fd);
     let conv_idx = if conv_exists {
         guard.open_existing_dir(0, OsStr::new(conversation_id))?
     } else {
@@ -366,7 +365,7 @@ struct FileTarget<'a> {
 
 fn copy_brain_dir(
     src_dir: &OwnedFd,
-    guard: &mut RejoinGuard,
+    guard: &mut RejoinRollback,
     dest_dir_idx: usize,
     depth: usize,
     state: &mut CopyState<'_>,
@@ -404,11 +403,9 @@ fn copy_brain_dir(
     Ok(())
 }
 
-fn list_dir_sorted(dir: &OwnedFd) -> Result<Vec<OsString>, RejoinNotice> {
+pub(super) fn list_dir_sorted(dir: &OwnedFd) -> Result<Vec<OsString>, RejoinNotice> {
     let mut names = Vec::new();
-    let mut buf = [MaybeUninit::<u8>::uninit(); RAW_DIR_BUF_BYTES];
-    let mut listing = RawDir::new(dir, &mut buf);
-    while let Some(entry) = listing.next() {
+    for entry in Dir::read_from(dir).map_err(io_errno)? {
         let entry = entry.map_err(io_errno)?;
         let bytes = entry.file_name().to_bytes();
         if bytes != b"." && bytes != b".." {
@@ -421,7 +418,7 @@ fn list_dir_sorted(dir: &OwnedFd) -> Result<Vec<OsString>, RejoinNotice> {
 
 fn copy_regular_file(
     target: FileTarget<'_>,
-    guard: &mut RejoinGuard,
+    guard: &mut RejoinRollback,
     state: &mut CopyState<'_>,
 ) -> Result<(), RejoinNotice> {
     let src_fd = openat(
@@ -434,7 +431,7 @@ fn copy_regular_file(
     let before = fstat(&src_fd).map_err(io_errno)?;
     // `statat` already verified `FileType::RegularFile` before `openat` with
     // `O_NOFOLLOW`, and `verify_unchanged` checks `(st_dev, st_ino)` after EOF
-    // (tested by `changed_underfoot_rolls_back_rejoin_and_spares_transcript`).
+    // (tested by `changed_underfoot_and_streaming_overflow_roll_back_and_spare_transcript`).
     let apparent = before.st_size.unsigned_abs();
     if state.used_bytes.saturating_add(apparent) > state.caps.bytes {
         return Err(RejoinNotice::TooLarge(state.caps.bytes));
@@ -483,7 +480,6 @@ pub(super) fn stream_copy_for_test(
     dest: &mut File,
     cap: u64,
 ) -> Result<u64, RejoinNotice> {
-    let mut noop = |_: &OsStr| {};
     let mut state = CopyState {
         caps: RejoinCaps {
             bytes: cap,
@@ -493,7 +489,7 @@ pub(super) fn stream_copy_for_test(
         used_bytes: 0,
         used_entries: 0,
         matcher: SecretMatcher::new(&[]),
-        before_copy: &mut noop,
+        before_copy: &mut noop_before_copy,
     };
     stream_copy_and_screen(src, dest, &mut state)
 }
@@ -510,10 +506,13 @@ fn verify_unchanged(
     let entry_after = statat(src_dir, src_name, AtFlags::SYMLINK_NOFOLLOW)
         .map_err(|_| RejoinNotice::ChangedUnderfoot)?;
     let unchanged = keep::same_entry(before, &entry_after)
-        && copied == apparent
-        && after.st_size == before.st_size
-        && after.st_mtime == before.st_mtime
-        && after.st_mtime_nsec == before.st_mtime_nsec;
+        && (copied, after.st_size, after.st_mtime, after.st_mtime_nsec)
+            == (
+                apparent,
+                before.st_size,
+                before.st_mtime,
+                before.st_mtime_nsec,
+            );
     match unchanged {
         true => Ok(()),
         false => Err(RejoinNotice::ChangedUnderfoot),
@@ -523,14 +522,14 @@ fn verify_unchanged(
 /// RAII rollback guard for every directory and file created during one rejoin
 /// keep, unlinking entries in reverse creation order through
 /// [`keep::unlink_if_same`] (mechanism (m4)).
-struct RejoinGuard {
+pub(super) struct RejoinRollback {
     armed: bool,
     dirs: Vec<OwnedFd>,
     entries: Vec<(usize, OsString, Stat, AtFlags)>,
 }
 
-impl RejoinGuard {
-    fn new(parent_fd: OwnedFd) -> Self {
+impl RejoinRollback {
+    pub(super) fn begin(parent_fd: OwnedFd) -> Self {
         Self {
             armed: true,
             dirs: vec![parent_fd],
@@ -561,6 +560,15 @@ impl RejoinGuard {
     }
 
     fn create_dir(&mut self, parent_idx: usize, name: &OsStr) -> Result<usize, RejoinNotice> {
+        self.create_dir_with(parent_idx, name, || {})
+    }
+
+    pub(super) fn create_dir_with(
+        &mut self,
+        parent_idx: usize,
+        name: &OsStr,
+        before_open: impl FnOnce(),
+    ) -> Result<usize, RejoinNotice> {
         let mode = Mode::from_raw_mode(0o700);
         mkdirat(&self.dirs[parent_idx], name, mode).map_err(|errno| match errno {
             Errno::EXIST => RejoinNotice::AlreadyKept,
@@ -568,6 +576,7 @@ impl RejoinGuard {
         })?;
         let created_stat =
             statat(&self.dirs[parent_idx], name, AtFlags::SYMLINK_NOFOLLOW).map_err(io_errno)?;
+        before_open();
         let (fd, stat) = keep::open_created_dir(
             self.dirs[parent_idx].as_fd(),
             name,
@@ -599,7 +608,7 @@ impl RejoinGuard {
     }
 }
 
-impl Drop for RejoinGuard {
+impl Drop for RejoinRollback {
     fn drop(&mut self) {
         if !self.armed {
             return;

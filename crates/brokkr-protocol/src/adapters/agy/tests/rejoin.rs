@@ -10,10 +10,10 @@ use std::path::{Path, PathBuf};
 use super::judged::bound;
 use super::keep::{kept_parent, run_seat_agy, OK_RES, STEP_DONE, UUID};
 use super::*;
-use crate::adapters::agy::keep::{ParentError, SourceErrno};
+use crate::adapters::agy::keep::{self as agy_keep, KeepNotice, ParentError, SourceErrno};
 use crate::adapters::agy::rejoin::{
-    keep_rejoin, keep_rejoin_with, observe_version, RejoinCaps, RejoinNotice, REJOIN_BRAIN_DIR,
-    REJOIN_DB_FILE, REJOIN_DIR,
+    keep_rejoin, keep_rejoin_with, list_dir_sorted, observe_version, RejoinCaps, RejoinNotice,
+    RejoinRollback, REJOIN_BRAIN_DIR, REJOIN_DB_FILE, REJOIN_DIR,
 };
 use crate::secret::SecretMatcher;
 use crate::DeclaredTranscriptKind;
@@ -222,6 +222,10 @@ fn keep_rejoin_copies_whole_tree_operator_only_and_refuses_duplicate_or_bad_id()
         keep_rejoin(UUID, &engine, Some(&op), &[], true, RejoinCaps::DEFAULT),
         Err(RejoinNotice::AlreadyKept)
     );
+    assert_eq!(
+        keep_rejoin(UUID, &engine, Some(&op), &[], false, RejoinCaps::DEFAULT),
+        Err(RejoinNotice::AlreadyKept)
+    );
 }
 
 #[test]
@@ -393,29 +397,31 @@ fn unsafe_sources_roll_back_rejoin_cleanly() {
         Err(RejoinNotice::Source(SourceErrno::Unsafe))
     );
 
-    // Symlink inside brain rolls back already-copied conversation.db.
-    let link_brain_file = dir.path().join("link-bf");
-    plant_conversation(&link_brain_file, UUID, b"db", &[("good.txt", b"ok")]);
-    symlink(
-        &decoy,
-        link_brain_file
-            .join(".gemini/antigravity-cli/brain")
-            .join(UUID)
-            .join("evil.txt"),
-    )
-    .unwrap();
-    assert_eq!(
-        keep_rejoin(
-            UUID,
-            &link_brain_file,
-            Some(&op),
-            &[],
-            false,
-            RejoinCaps::DEFAULT
-        ),
-        Err(RejoinNotice::Source(SourceErrno::Unsafe))
-    );
-    assert!(!conv_dir(&op, UUID).exists());
+    // Symlinked file and symlinked directory inside brain each roll back
+    // already-copied conversation.db without following the link.
+    let outside_dir = dir.path().join("outside-dir");
+    std::fs::create_dir_all(&outside_dir).unwrap();
+    std::fs::write(outside_dir.join("leak.txt"), b"outside").unwrap();
+    for (case_dir, link_name, target) in [
+        ("link-bf", "evil.txt", &decoy),
+        ("link-bsub", "sublink", &outside_dir),
+    ] {
+        let eng = dir.path().join(case_dir);
+        plant_conversation(&eng, UUID, b"db", &[("good.txt", b"ok")]);
+        symlink(
+            target,
+            eng.join(".gemini/antigravity-cli/brain")
+                .join(UUID)
+                .join(link_name),
+        )
+        .unwrap();
+        assert_eq!(
+            keep_rejoin(UUID, &eng, Some(&op), &[], false, RejoinCaps::DEFAULT),
+            Err(RejoinNotice::Source(SourceErrno::Unsafe)),
+            "{case_dir}"
+        );
+        assert!(!conv_dir(&op, UUID).exists(), "{case_dir}");
+    }
 
     // Symlink at db and symlink at brain root.
     let link_db = dir.path().join("link-db");
@@ -503,7 +509,40 @@ fn unreadable_sources_and_dest_io_errors_bind() {
         )))
     );
 
-    // Read-only conversation directory exercises RejoinGuard io_errno.
+    let locked_sub_eng = dir.path().join("unreadable-sub");
+    plant_conversation(&locked_sub_eng, UUID, b"db", &[("sub/file.txt", b"ok")]);
+    let locked_sub = locked_sub_eng
+        .join(".gemini/antigravity-cli/brain")
+        .join(UUID)
+        .join("sub");
+    std::fs::set_permissions(&locked_sub, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let sub_err = keep_rejoin(
+        UUID,
+        &locked_sub_eng,
+        Some(&op),
+        &[],
+        false,
+        RejoinCaps::DEFAULT,
+    );
+    std::fs::set_permissions(&locked_sub, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        sub_err,
+        Err(RejoinNotice::Source(SourceErrno::Io(
+            ErrorKind::PermissionDenied
+        )))
+    );
+    assert!(!conv_dir(&op, UUID).exists());
+
+    // Listing a non-directory fd exercises Dir::read_from's error arm.
+    let not_a_dir = dir.path().join("not-a-dir.txt");
+    std::fs::write(&not_a_dir, b"file").unwrap();
+    let file_fd: std::os::fd::OwnedFd = std::fs::File::open(&not_a_dir).unwrap().into();
+    assert_eq!(
+        list_dir_sorted(&file_fd),
+        Err(RejoinNotice::Io(ErrorKind::NotADirectory))
+    );
+
+    // Read-only conversation directory exercises RejoinRollback io_errno.
     let ro_op = dir.path().join("ro-op");
     let ro_conv = prep_kept_transcript(&ro_op, UUID, b"keep");
     std::fs::set_permissions(&ro_conv, std::fs::Permissions::from_mode(0o500)).unwrap();
@@ -589,6 +628,38 @@ fn changed_underfoot_and_streaming_overflow_roll_back_and_spare_transcript() {
         Err(RejoinNotice::ChangedUnderfoot)
     );
     assert!(!conv.join(REJOIN_DIR).exists());
+    // Replaced inode with identical contents -> same_entry == false.
+    std::fs::write(&target, b"123").unwrap();
+    let t4 = target.clone();
+    assert_eq!(
+        run_mut(
+            RejoinCaps::DEFAULT,
+            Box::new(move || {
+                std::fs::remove_file(&t4).unwrap();
+                std::fs::write(&t4, b"123").unwrap();
+            })
+        ),
+        Err(RejoinNotice::ChangedUnderfoot)
+    );
+    assert!(!conv.join(REJOIN_DIR).exists());
+
+    // Same inode and size, modified mtime -> metadata tuple != before.
+    std::fs::write(&target, b"123").unwrap();
+    let t5 = target.clone();
+    assert_eq!(
+        run_mut(
+            RejoinCaps::DEFAULT,
+            Box::new(move || {
+                let f = std::fs::OpenOptions::new().write(true).open(&t5).unwrap();
+                f.set_modified(
+                    std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
+                )
+                .unwrap();
+            })
+        ),
+        Err(RejoinNotice::ChangedUnderfoot)
+    );
+    assert!(!conv.join(REJOIN_DIR).exists());
     assert_eq!(
         std::fs::read(conv.join("transcript.jsonl")).unwrap(),
         b"keep-me"
@@ -606,6 +677,10 @@ fn parent_errors_and_notice_display_bind() {
         Err(RejoinNotice::Parent(ParentError::NoOperatorHome))
     );
     assert_eq!(
+        agy_keep::keep(UUID, &engine, None, &[]),
+        Err(KeepNotice::NoOperatorHome)
+    );
+    assert_eq!(
         keep_rejoin(
             UUID,
             &engine,
@@ -616,16 +691,37 @@ fn parent_errors_and_notice_display_bind() {
         ),
         Err(RejoinNotice::Parent(ParentError::InvalidReference))
     );
+    let non_utf8_home = Path::new(OsStr::from_bytes(b"/tmp/bad-\xff-home"));
     assert_eq!(
         keep_rejoin(
             UUID,
             &engine,
-            Some(Path::new(OsStr::from_bytes(b"/tmp/bad-\xff-home"))),
+            Some(non_utf8_home),
             &[],
             false,
             RejoinCaps::DEFAULT
         ),
         Err(RejoinNotice::Parent(ParentError::NonUtf8Home))
+    );
+    assert_eq!(
+        agy_keep::keep(UUID, &engine, Some(non_utf8_home), &[]),
+        Err(KeepNotice::NonUtf8Home)
+    );
+
+    let wide_parent_op = dir.path().join("op-wide-parent");
+    let wide_parent = kept_parent(&wide_parent_op);
+    std::fs::create_dir_all(&wide_parent).unwrap();
+    std::fs::set_permissions(&wide_parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        keep_rejoin(
+            UUID,
+            &engine,
+            Some(&wide_parent_op),
+            &[],
+            false,
+            RejoinCaps::DEFAULT
+        ),
+        Err(RejoinNotice::Parent(ParentError::UnownedParent))
     );
 
     let wide_op = dir.path().join("op-wide");
@@ -671,6 +767,25 @@ fn parent_errors_and_notice_display_bind() {
             "{notice}"
         );
     }
+}
+
+#[test]
+fn rollback_refuses_replaced_created_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let swap_op = dir.path().join("op-swap");
+    let swap_parent = kept_parent(&swap_op);
+    let parent_fd = agy_keep::owned_parent_raw(&swap_parent).unwrap();
+    let target_dir = swap_parent.join(UUID);
+    let moved_dir = swap_parent.join("moved-aside");
+    let mut rollback = RejoinRollback::begin(parent_fd);
+    assert_eq!(
+        rollback.create_dir_with(0, OsStr::new(UUID), || {
+            std::fs::rename(&target_dir, &moved_dir).unwrap();
+            std::fs::create_dir(&target_dir).unwrap();
+        }),
+        Err(RejoinNotice::Parent(ParentError::ReplacedDirectory))
+    );
+    assert!(target_dir.is_dir());
 }
 
 #[test]
