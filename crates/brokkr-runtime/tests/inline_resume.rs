@@ -76,7 +76,7 @@ fn the_shipped_inline_codex_work_seats_carry_the_preserved_assessment() {
 fn the_other_shipped_shapes_stay_unmeasured_at_inline_sites() {
     for (relative, seat, shape) in [
         ("recipes/preflight", "review", "boxed-workspace"),
-        ("recipes/research-dsh", "research", "headless-work"),
+        ("recipes/research-dsh", "researcher", "headless-work"),
     ] {
         let bundle = compile(relative);
         let assessment = bundle

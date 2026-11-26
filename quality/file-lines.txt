@@ -818,7 +818,7 @@
     47 crates/brokkr-runtime/tests/support/office.rs
     75 crates/brokkr-runtime/tests/support/own_home.rs
     44 crates/brokkr-runtime/tests/support/witnesses.rs
-   773 crates/brokkr-runtime/tests/table_lints.rs
+   871 crates/brokkr-runtime/tests/table_lints.rs
    198 crates/brokkr-runtime/tests/triage_shape.rs
    361 crates/brokkr-runtime/tests/two_engines_one_journal.rs
    158 crates/brokkr-runtime/tests/wager_parity.rs
