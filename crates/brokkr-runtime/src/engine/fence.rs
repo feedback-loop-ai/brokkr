@@ -79,7 +79,7 @@ impl Engine {
         let cooling = cooldown::cooldown_rows(event_type, &payload);
         let fence = self.fence.clone();
         #[cfg(test)]
-        tests::peer_between();
+        tests::peer_between(event_type);
         let appended = checkpoints::within_patiences(patiences, || {
             let (run_id, cause) = (&self.run_id, self.current_cause.clone());
             let event = CooldownAppend {
@@ -101,6 +101,10 @@ impl Engine {
                     attempt_id,
                     stderr: self.stderr.active.take(),
                 });
+                return Err(contended.into());
+            }
+            Err(contended) if contended.is_contention() => {
+                self.stderr.keep_contended(attempt_id);
                 return Err(contended.into());
             }
             Err(StoreError::HeadMoved {
