@@ -567,6 +567,24 @@ pub(crate) fn write_sealed(
     refold_sealed(tx, run_id, sealed)
 }
 
+/// Write the facts of only the stale checkpoint rows of `account`'s run
+/// (unwritten facts, turn, repeat, or off-seq `facts_seq`), sought through
+/// `event_index_checkpoint_stale`: a live append updates only the newly
+/// appended checkpoint(s) and any prior `session = 1` row at the same site,
+/// never unrelated streams or earlier non-session rows.
+pub(crate) fn write_behind(tx: &Connection, account: &Account) -> Result<(), StoreError> {
+    let seqs: Vec<u64> = {
+        let mut statement = tx.prepare_cached(&BEHIND)?;
+        let rows = statement.query_map([account.run_id()], |row| row.get::<_, u64>(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    for seq in seqs {
+        let facts = facts(account.checkpoint(seq))?;
+        write(tx, account.run_id(), seq, &facts)?;
+    }
+    Ok(())
+}
+
 /// Write the facts of every checkpoint of `account`'s run, at the head the
 /// account covers: the backfill's walk and an adoption's whole write.
 pub(crate) fn write_all(tx: &Connection, account: &Account) -> Result<(), StoreError> {

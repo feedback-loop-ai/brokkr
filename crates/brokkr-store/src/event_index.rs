@@ -64,9 +64,9 @@ const TRIGGERS: [&str; 5] = [
     "event_index_ordinal",
 ];
 
-mod checkpoint;
+pub(crate) mod checkpoint;
 mod compare;
-mod ordinal;
+pub(crate) mod ordinal;
 mod park_walk;
 
 use checkpoint::COLUMNS as CHECKPOINT_COLUMNS;

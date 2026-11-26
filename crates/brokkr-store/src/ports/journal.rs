@@ -126,7 +126,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
         if is_redacted(manifest) {
             return Err(ImportError::Redacted(run_id.to_string()));
         }
-        let (events, _state) = import::verified_events(ndjson)?;
+        let (events, state) = import::verified_events(ndjson)?;
         if events[0].run_id != run_id {
             return Err(ImportError::Verify(VerifyError::Chain(
                 ChainError::ForeignRun { seq: 1 },
@@ -140,7 +140,10 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
             return Err(ImportError::Redacted(run_id.to_string()));
         }
         super::validate_manifest(run_id, attested)?;
-        let _feature = super::started_feature(&events[0].payload)
+        let _feature = state
+            .feature
+            .as_deref()
+            .or_else(|| attested.get("feature").and_then(Value::as_str))
             .ok_or(ImportError::Unattested { field: "feature" })?;
         self.event_log
             .import_run_stream(run_id, attested, &events)

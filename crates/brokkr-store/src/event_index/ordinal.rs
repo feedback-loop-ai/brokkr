@@ -33,8 +33,11 @@
 //! it belongs to, so another member's or attempt's unnumbered rows are
 //! never scanned (M3).
 
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
+use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::event_index::Indexed;
 use rusqlite::{params_from_iter, Connection, OptionalExtension};
 
 use crate::event_index::{finished, mark_finished, payload, CHECKPOINTED};
@@ -262,6 +265,97 @@ fn stale(after: bool) -> String {
 
 static STALE_FIRST: LazyLock<String> = LazyLock::new(|| stale(false));
 static STALE_AFTER: LazyLock<String> = LazyLock::new(|| stale(true));
+
+/// Expected `stream_ordinal` for every `effect/checkpointed` event in `events`
+/// (in seq order), mirroring [`numbered`] and [`NUMBER`]: 1-based within each
+/// `(attempt_id, member)` stream restarting at 1 on `effect_id` change, and
+/// `0` for attemptless or result-only checkpoint rows.
+pub(super) fn expected(events: &[EventEnvelope]) -> BTreeMap<u64, i64> {
+    let mut out = BTreeMap::new();
+    let mut prev = BTreeMap::new();
+    for event in events {
+        if event.event_type != EventType::EffectCheckpointed {
+            continue;
+        }
+        let indexed = Indexed::of(event);
+        let cp_member = event
+            .payload
+            .get("checkpoint")
+            .and_then(|cp| cp.get("member"))
+            .and_then(serde_json::Value::as_str);
+        let ordinal = match indexed.attempt_id {
+            Some(attempt_id) if cp_member == indexed.member => {
+                let effect_id = event
+                    .payload
+                    .get("effect_id")
+                    .and_then(serde_json::Value::as_str);
+                let next = match prev.get(&(attempt_id, indexed.member)) {
+                    Some(&(prev_effect, prev_ord)) if prev_effect == effect_id => prev_ord + 1,
+                    _ => 1,
+                };
+                prev.insert((attempt_id, indexed.member), (effect_id, next));
+                next
+            }
+            _ => 0,
+        };
+        out.insert(event.seq, ordinal);
+    }
+    out
+}
+
+/// How `run_id`'s stored `event_index.stream_ordinal` rows stand against
+/// [`expected`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OrdinalState {
+    /// Every present row matches its expected ordinal.
+    Agrees,
+    /// At least one checkpoint row carries `stream_ordinal IS NULL` (lag).
+    Behind,
+    /// At least one row carries a wrong non-NULL `stream_ordinal`.
+    Corrupt,
+}
+
+static READ_ORDINALS: LazyLock<String> = LazyLock::new(|| {
+    format!("SELECT seq, {COLUMN} FROM event_index WHERE run_id = ?1 ORDER BY seq")
+});
+
+/// Compare every present `event_index.stream_ordinal` row for `run_id`
+/// against [`expected`].
+pub(crate) fn check(
+    tx: &Connection,
+    run_id: &str,
+    events: &[EventEnvelope],
+) -> Result<OrdinalState, StoreError> {
+    let expected = expected(events);
+    let mut statement = tx.prepare_cached(&READ_ORDINALS)?;
+    let mut rows = statement.query([run_id])?;
+    let mut stale = false;
+    while let Some(row) = rows.next()? {
+        let seq = row.get::<_, i64>(0)? as u64;
+        let found: Option<i64> = row.get(1)?;
+        let want = expected.get(&seq).copied();
+        if found == want {
+            continue;
+        }
+        if want.is_some() && found.is_none() {
+            stale = true;
+            continue;
+        }
+        return Ok(OrdinalState::Corrupt);
+    }
+    Ok(if stale {
+        OrdinalState::Behind
+    } else {
+        OrdinalState::Agrees
+    })
+}
+
+/// Renumber `run_id`'s checkpoints inside the caller's transaction using
+/// [`NUMBER`].
+pub(crate) fn renumber(tx: &Connection, run_id: &str) -> Result<(), StoreError> {
+    tx.execute(&NUMBER, [run_id])?;
+    Ok(())
+}
 
 /// One run of the ordinal backfill, in its own transaction.
 fn once(conn: &mut Connection, run_id: &str) -> Result<(), StoreError> {

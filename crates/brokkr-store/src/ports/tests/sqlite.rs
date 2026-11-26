@@ -1748,3 +1748,149 @@ fn colocated_apply_envelopes_updates_event_index_incrementally_and_repairs_gaps(
     );
     assert!(store.summary_disagreements().unwrap().is_empty());
 }
+
+fn sqlite_recorded_seqs(path: &Path, table: &str) -> Vec<i64> {
+    let conn = Connection::open(path).unwrap();
+    let mut stmt = conn
+        .prepare(&format!("SELECT seq FROM {table} ORDER BY rowid"))
+        .unwrap();
+    stmt.query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+fn two_stream_checkpoint_specs() -> Vec<(EventType, Value)> {
+    let cp = |eff: &str, att: &str, turn: u64| {
+        (
+            EventType::EffectCheckpointed,
+            json!({
+                "effect_id": eff,
+                "attempt_id": att,
+                "checkpoint": { "step": "seat-turn", "turn": turn }
+            }),
+        )
+    };
+    vec![
+        (EventType::RunStarted, started_payload("scope-ord")),
+        (EventType::PhaseEntered, json!({"phase": "implement"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "eff-1", "seat": "worker"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "eff-1", "attempt_id": "att-1"}),
+        ),
+        cp("eff-1", "att-1", 1),
+        cp("eff-1", "att-1", 2),
+        cp("eff-1", "att-1", 3),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "eff-2", "seat": "reviewer"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "eff-2", "attempt_id": "att-2"}),
+        ),
+        cp("eff-2", "att-2", 1),
+        cp("eff-2", "att-2", 2),
+    ]
+}
+
+fn append_and_assert_checkpoint_scope(
+    path: &Path,
+    ports: &SqlitePorts<'_>,
+    manifest: &Value,
+) -> Vec<EventEnvelope> {
+    let mut all = Vec::new();
+    let mut head = (0u64, ZERO_HASH.to_string());
+    for (idx, (kind, payload)) in two_stream_checkpoint_specs().into_iter().enumerate() {
+        let seq = (idx + 1) as u64;
+        let ts = format!("2026-11-25T10:00:{idx:02}Z");
+        let event = sealed_event("scope-1", seq, kind, payload, &head.1, &ts);
+        ports
+            .append_envelopes("scope-1", (head.0, &head.1), std::slice::from_ref(&event))
+            .unwrap();
+        exec_raw_sql(path, "DELETE FROM test_updated_seqs;");
+        all.push(event.clone());
+        ports
+            .apply_envelopes("scope-1", Some(manifest), &all)
+            .unwrap();
+        let updated = sqlite_recorded_seqs(path, "test_updated_seqs");
+        let expected = if kind == EventType::EffectCheckpointed {
+            vec![seq as i64]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(
+            updated, expected,
+            "unexpected event_index UPDATEs at seq {seq}"
+        );
+        head = (event.seq, event.event_hash);
+    }
+    all
+}
+
+#[test]
+fn colocated_apply_envelopes_updates_only_stale_checkpoints_and_repairs_ordinals() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("checkpoint-scope-ordinals.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let manifest = sample_manifest("scope-ord");
+    ports.create_run("scope-1", &manifest).unwrap();
+
+    exec_raw_sql(
+        &path,
+        "CREATE TABLE test_deleted_seqs (seq INTEGER);
+         CREATE TABLE test_updated_seqs (seq INTEGER);
+         CREATE TRIGGER test_track_index_delete AFTER DELETE ON event_index BEGIN
+             INSERT INTO test_deleted_seqs (seq) VALUES (OLD.seq);
+         END;
+         CREATE TRIGGER test_track_index_update AFTER UPDATE ON event_index BEGIN
+             INSERT INTO test_updated_seqs (seq) VALUES (NEW.seq);
+         END;",
+    );
+
+    let all = append_and_assert_checkpoint_scope(&path, &ports, &manifest);
+    assert_eq!(sqlite_table_count(&path, "test_deleted_seqs"), 0);
+
+    // Corrupting a checkpoint's stream_ordinal causes seat rank lookup to miss;
+    // apply_envelopes detects the corruption and restores exact ordinals.
+    let opened = store.open_run("scope-1").unwrap();
+    let rank_one = || {
+        store
+            .seat_seq_at("scope-1", &opened, ("eff-1", None), 1)
+            .unwrap()
+    };
+    assert_eq!(rank_one(), Some(6));
+    for (ordinal_sql, expect_deletes) in [("99", None), ("NULL", Some(0))] {
+        exec_raw_sql(
+            &path,
+            &format!(
+                "UPDATE event_index SET stream_ordinal = {ordinal_sql}
+                 WHERE run_id = 'scope-1' AND seq = 6;
+                 DELETE FROM test_deleted_seqs;"
+            ),
+        );
+        assert_eq!(rank_one(), None);
+        ports.apply_envelopes("scope-1", None, &all).unwrap();
+        if let Some(expected_deletes) = expect_deletes {
+            assert_eq!(
+                sqlite_table_count(&path, "test_deleted_seqs"),
+                expected_deletes
+            );
+        }
+        assert_eq!(rank_one(), Some(6));
+    }
+
+    exec_raw_sql(
+        &path,
+        "DROP TRIGGER test_track_index_delete;
+         DROP TRIGGER test_track_index_update;
+         DROP TABLE test_deleted_seqs;
+         DROP TABLE test_updated_seqs;",
+    );
+    assert!(store.summary_disagreements().unwrap().is_empty());
+}

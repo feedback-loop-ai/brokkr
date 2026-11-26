@@ -22,6 +22,7 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use crate::event_index::ordinal::OrdinalState;
 use crate::event_index::{IndexFault, IndexReading};
 use crate::start::Row;
 use crate::summary::Listed;
@@ -255,21 +256,33 @@ fn sync_event_index(
     events: &[EventEnvelope],
     account: &Account,
 ) -> Result<(), StoreError> {
-    match event_index::first_unindexed(tx, run_id, events)? {
-        IndexReading::Agrees => return Ok(()),
-        IndexReading::Behind => {}
-        IndexReading::Parted(first_missing, IndexFault::Missing)
-            if max_indexed_seq(tx, run_id)?.is_none_or(|max| max < first_missing as i64) =>
-        {
+    let reading = event_index::first_unindexed(tx, run_id, events)?;
+    let ordinals = event_index::ordinal::check(tx, run_id, events)?;
+    let mut rebuilt = false;
+    match (reading, ordinals) {
+        (IndexReading::Agrees, OrdinalState::Agrees) => return Ok(()),
+        (
+            IndexReading::Agrees | IndexReading::Behind,
+            OrdinalState::Agrees | OrdinalState::Behind,
+        ) => {}
+        (
+            IndexReading::Parted(first_missing, IndexFault::Missing),
+            OrdinalState::Agrees | OrdinalState::Behind,
+        ) if max_indexed_seq(tx, run_id)?.is_none_or(|max| max < first_missing as i64) => {
             event_index::index_run(tx, run_id)?;
         }
-        IndexReading::Parted(_, _) => {
+        (IndexReading::Parted(_, _), _)
+        | (IndexReading::Agrees | IndexReading::Behind, OrdinalState::Corrupt) => {
             tx.execute("DELETE FROM event_index WHERE run_id = ?1", params![run_id])?;
             event_index::index_run(tx, run_id)?;
+            rebuilt = true;
         }
     }
+    if !rebuilt && ordinals == OrdinalState::Behind {
+        event_index::ordinal::renumber(tx, run_id)?;
+    }
     event_index::write_parks(tx, account)?;
-    event_index::write_all_checkpoints(tx, account)?;
+    event_index::checkpoint::write_behind(tx, account)?;
     Ok(())
 }
 

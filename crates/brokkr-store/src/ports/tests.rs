@@ -1159,5 +1159,57 @@ fn manifest_only_feature_round_trips_and_replay_preserves_known_feature() {
     );
 }
 
+#[test]
+fn empty_top_level_feature_imports_across_store_and_journal() {
+    let attested = json!({"engine": "0.15.0", "bundle_name": "self"});
+    let started = sealed_event(
+        "run-empty-feat",
+        1,
+        EventType::RunStarted,
+        json!({"feature": "", "manifest": attested}),
+        ZERO_HASH,
+        "2026-11-25T10:00:00Z",
+    );
+    let ndjson = single_ndjson(&started);
+    let expected = vec![(
+        "run-empty-feat".to_string(),
+        String::new(),
+        "2026-11-25T10:00:00Z".to_string(),
+    )];
+
+    let dir = tempdir().unwrap();
+    let mut legacy_store = Store::open(&dir.path().join("legacy.db")).unwrap();
+    legacy_store
+        .import_run(
+            &ndjson,
+            &attested,
+            std::path::Path::new("run-empty-feat.ndjson"),
+        )
+        .unwrap();
+    assert_eq!(legacy_store.list_runs().unwrap(), expected);
+
+    let (log, proj, coord) = (
+        MemEventLog::default(),
+        MemProjectionStore::default(),
+        MemCoordinationStore::default(),
+    );
+    let mem_dest = Journal::new(log, proj, coord);
+    let imported = mem_dest
+        .import_ndjson("run-empty-feat", &attested, &ndjson)
+        .unwrap();
+    assert_eq!(imported, 1);
+    assert_eq!(mem_dest.projections().list_runs().unwrap(), expected);
+
+    let sql_store = Store::open(&dir.path().join("ports.db")).unwrap();
+    let sql_dest = sqlite_journal(&sql_store);
+    assert_eq!(
+        sql_dest
+            .import_ndjson("run-empty-feat", &attested, &ndjson)
+            .unwrap(),
+        1
+    );
+    assert_eq!(sql_dest.projections().list_runs().unwrap(), expected);
+}
+
 mod invariants;
 mod sqlite;
