@@ -12,7 +12,7 @@
 //! decoupled SQLite projections (`index.db`) belong to Slice 2 (decision 0126
 //! ruling 4).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope, EventType};
@@ -93,18 +93,6 @@ fn checked_seq(seq: u64) -> Result<i64, StoreError> {
             after: i64::MAX as u64,
         })
     })
-}
-
-fn verify_batch_envelopes(run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
-    for envelope in envelopes {
-        if envelope.run_id != run_id {
-            return Err(StoreError::Chain(ChainError::ForeignRun {
-                seq: envelope.seq,
-            }));
-        }
-        let _ = checked_seq(envelope.seq)?;
-    }
-    Ok(())
 }
 
 fn verify_chain_for_sqlite(
@@ -221,9 +209,13 @@ fn read_verified_rows(
     Ok(events)
 }
 
-fn load_verified_local(tx: &Connection, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
+fn load_verified_local(
+    tx: &Connection,
+    run_id: &str,
+    on_mismatch: &dyn Fn(ChainError) -> StoreError,
+) -> Result<Vec<EventEnvelope>, StoreError> {
     refuse_row_before_chain(tx, run_id)?;
-    let local = read_verified_rows(tx, run_id, None, &|_| divergent(run_id))?;
+    let local = read_verified_rows(tx, run_id, None, on_mismatch)?;
     verify_chain_after(run_id, 0, ZERO_HASH, &local)?;
     Ok(local)
 }
@@ -260,37 +252,16 @@ fn insert_events(
     Ok(())
 }
 
-fn listed_for_projection(
-    tx: &Connection,
-    run_id: &str,
-    events: &[EventEnvelope],
-) -> Result<Listed, StoreError> {
-    let (feature, created_at): (String, String) = tx.query_row(
-        "SELECT feature, created_at FROM runs WHERE run_id = ?1",
-        params![run_id],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    if let Some(started) = started_feature_of(events) {
-        if feature != started {
-            tx.execute(
-                "UPDATE runs SET feature = ?2 WHERE run_id = ?1",
-                params![run_id, started],
-            )?;
-        }
-        return Ok(Listed::new(started, &created_at));
-    }
-    Ok(Listed::new(&feature, &created_at))
-}
-
 fn write_colocated_projection(
     tx: &Connection,
     run_id: &str,
     events: &[EventEnvelope],
 ) -> Result<(), StoreError> {
-    let listed = listed_for_projection(tx, run_id, events)?;
+    let listed = Listed::of(tx, run_id)?;
     let account = Account::whole(run_id, events);
     summary::upsert(tx, run_id, &Summary::of(&account, listed.listing()))?;
     seat_summary::write(tx, &account, None)?;
+    tx.execute("DELETE FROM event_index WHERE run_id = ?1", params![run_id])?;
     event_index::index_run(tx, run_id)?;
     event_index::write_parks(tx, &account)?;
     event_index::write_all_checkpoints(tx, &account)?;
@@ -302,6 +273,21 @@ fn clear_projections(tx: &Connection) -> Result<(), StoreError> {
         tx.execute(&format!("DELETE FROM {table}"), [])?;
     }
     Ok(())
+}
+
+fn read_verified_log(log: &dyn EventLog) -> Result<Vec<(String, Vec<EventEnvelope>)>, StoreError> {
+    let run_ids = log.list_run_ids()?;
+    let mut seen = BTreeSet::new();
+    let mut verified = Vec::with_capacity(run_ids.len());
+    for run_id in run_ids {
+        if !seen.insert(run_id.clone()) {
+            return Err(StoreError::DivergentEventLog { run_id });
+        }
+        let events = log.read_stream(&run_id, 1)?;
+        verify_chain_for_sqlite(&run_id, (0, ZERO_HASH), &events)?;
+        verified.push((run_id, events));
+    }
+    Ok(verified)
 }
 
 fn verify_local_events_match(
@@ -317,7 +303,7 @@ fn verify_local_events_match(
         if !has_run(tx, &run_id)? {
             return Err(StoreError::DivergentEventLog { run_id });
         }
-        let local = load_verified_local(tx, &run_id)?;
+        let local = load_verified_local(tx, &run_id, &|_| divergent(&run_id))?;
         let Some(external) = expected.remove(run_id.as_str()) else {
             return Err(StoreError::DivergentEventLog { run_id });
         };
@@ -362,8 +348,10 @@ impl EventLog for SqlitePorts<'_> {
         patiently("append", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
             ensure_run_exists(&tx, run_id)?;
-            refuse_row_before_chain(&tx, run_id)?;
-            let (mut head_seq, found_hash) = head_of(&tx, run_id)?;
+            let local = load_verified_local(&tx, run_id, &StoreError::Chain)?;
+            let (mut head_seq, found_hash) = local
+                .last()
+                .map_or((0, ZERO_HASH), |last| (last.seq, last.event_hash.as_str()));
             if head_seq != expected_head.0 || found_hash != expected_head.1 {
                 return Err(StoreError::HeadMoved {
                     expected_seq: expected_head.0,
@@ -460,11 +448,13 @@ impl EventLog for SqlitePorts<'_> {
 
 impl ProjectionStore for SqlitePorts<'_> {
     fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
-        verify_batch_envelopes(run_id, envelopes)?;
+        if envelopes.iter().any(|envelope| envelope.run_id != run_id) {
+            return Err(divergent(run_id));
+        }
         patiently("apply_envelopes", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
             ensure_run_exists(&tx, run_id)?;
-            let local = load_verified_local(&tx, run_id)?;
+            let local = load_verified_local(&tx, run_id, &|_| divergent(run_id))?;
             if !envelopes.is_empty() {
                 let matched: Vec<EventEnvelope> = local
                     .iter()
@@ -487,15 +477,9 @@ impl ProjectionStore for SqlitePorts<'_> {
     }
 
     fn rebuild_from(&self, log: &dyn EventLog) -> Result<u64, StoreError> {
-        let run_ids = log.list_run_ids()?;
-        let mut verified = Vec::with_capacity(run_ids.len());
-        for run_id in run_ids {
-            let events = log.read_stream(&run_id, 1)?;
-            verify_chain_for_sqlite(&run_id, (0, ZERO_HASH), &events)?;
-            verified.push((run_id, events));
-        }
         patiently("rebuild", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
+            let verified = read_verified_log(log)?;
             verify_local_events_match(&tx, &verified)?;
             clear_projections(&tx)?;
             let mut total = 0u64;

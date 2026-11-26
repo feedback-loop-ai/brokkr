@@ -156,6 +156,73 @@ fn manifest_validation_refuses_non_object_and_non_string_engine() {
 }
 
 #[test]
+fn journal_refuses_invalid_run_started_and_attested_manifests() {
+    let dir = tempdir().unwrap();
+    let store = Store::open(&dir.path().join("run-started-manifest.db")).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let sql_journal = sqlite_journal(&store);
+    let mem_journal = Journal::new(
+        MemEventLog::default(),
+        MemProjectionStore::default(),
+        MemCoordinationStore::default(),
+    );
+    let no_engine = json!({"feature": "legacy", "bundle_name": "self"});
+    mem_journal.create_run("ok-no-eng", &no_engine).unwrap();
+    ports
+        .create_run("ok-str-eng", &sample_manifest("ok"))
+        .unwrap();
+    let ts = "2026-11-25T10:00:00Z";
+    for (bad_manifest, reason) in [
+        (json!({"engine": 15}), ManifestRefusal::EngineNotString),
+        (json!(42), ManifestRefusal::NotAnObject),
+    ] {
+        let payload = json!({"feature": "ok", "manifest": bad_manifest});
+        assert!(matches!(
+            mem_journal.append_event(
+                "ok-no-eng",
+                plain_event(EventType::RunStarted, payload.clone(), None, ts),
+            ),
+            Err(StoreError::InvalidManifest { ref run_id, reason: got })
+                if run_id == "ok-no-eng" && got == reason
+        ));
+        assert!(matches!(
+            sql_journal.append_if_head(
+                "ok-str-eng",
+                (0, ZERO_HASH),
+                plain_event(EventType::RunStarted, payload, None, ts),
+            ),
+            Err(StoreError::InvalidManifest { ref run_id, reason: got })
+                if run_id == "ok-str-eng" && got == reason
+        ));
+    }
+    assert_eq!(
+        mem_journal.event_log().head("ok-no-eng").unwrap(),
+        (0, ZERO_HASH.to_string())
+    );
+    assert_eq!(
+        ports.head("ok-str-eng").unwrap(),
+        (0, ZERO_HASH.to_string())
+    );
+
+    // Journal::import_ndjson also validates the attested RunStarted manifest across backends.
+    let bad_attested = sealed_event(
+        "bad-imp",
+        1,
+        EventType::RunStarted,
+        json!({"feature": "ok", "manifest": {"engine": 15}}),
+        ZERO_HASH,
+        ts,
+    );
+    assert!(matches!(
+        mem_journal.import_ndjson("bad-imp", &sample_manifest("ok"), &single_ndjson(&bad_attested)),
+        Err(ImportError::Store(StoreError::InvalidManifest {
+            ref run_id,
+            reason: ManifestRefusal::EngineNotString,
+        })) if run_id == "bad-imp"
+    ));
+}
+
+#[test]
 fn wildcard_ports_import_does_not_shadow_store_methods() {
     use crate::ports::*;
 
@@ -464,9 +531,9 @@ fn journal_resolves_stricter_seat_record_version_from_manifest_and_run_started()
         ),
         ("r-no-engine", &v8_manifest, json!({"feature": "no-engine"})),
         (
-            "r-num-engine",
+            "r-empty-manifest",
             &v8_manifest,
-            json!({"feature": "num-engine", "manifest": {"engine": 15}}),
+            json!({"feature": "empty-manifest", "manifest": {}}),
         ),
     ] {
         journal.create_run(run_id, persisted).unwrap();
@@ -570,9 +637,11 @@ fn settled_members_validation_on_effect_failed_and_indeterminate() {
 #[test]
 fn seq_overflow_and_single_head_call_in_append_event() {
     let head_calls = Cell::new(0usize);
-    let counting = InterceptingMemLog {
+    let counting = InterceptingLog {
         inner: MemEventLog::default(),
         on_head: Some(Box::new(|| head_calls.set(head_calls.get() + 1))),
+        on_read_stream: None,
+        override_run_ids: None,
     };
     let journal = Journal::new(
         counting,

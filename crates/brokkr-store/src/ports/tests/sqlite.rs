@@ -553,14 +553,19 @@ fn colocated_apply_envelopes_verifies_local_stream_and_heals_projections() {
     let manifest = sample_manifest("fence-apply");
     let (e1, completed, divergent_phase) = completed_vs_phase_pair("ca-1", "fence-apply");
 
-    // Foreign run_id envelope refused before touching SQLite; unknown run refused with RunNotFound.
+    // Foreign run_id envelope refused with DivergentEventLog; unknown run refused with RunNotFound.
     assert!(matches!(
         ports.apply_envelopes("other-run", std::slice::from_ref(&e1)),
-        Err(StoreError::Chain(ChainError::ForeignRun { seq: 1 }))
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "other-run"
     ));
     assert!(matches!(
         ports.apply_envelopes("ca-1", std::slice::from_ref(&e1)),
         Err(StoreError::RunNotFound(ref id)) if id == "ca-1"
+    ));
+    ports.create_run("target", &manifest).unwrap();
+    assert!(matches!(
+        ports.apply_envelopes("target", std::slice::from_ref(&e1)),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "target"
     ));
 
     ports
@@ -614,7 +619,7 @@ fn colocated_apply_envelopes_verifies_local_stream_and_heals_projections() {
          DELETE FROM event_index WHERE run_id = 'ca-1';",
     );
     ports
-        .apply_envelopes("ca-1", &[e1, completed.clone()])
+        .apply_envelopes("ca-1", &[e1.clone(), completed.clone()])
         .unwrap();
     assert_eq!(
         summary_snapshot(&path, "ca-1").2.as_deref(),
@@ -625,6 +630,17 @@ fn colocated_apply_envelopes_verifies_local_stream_and_heals_projections() {
         Some(completed.event_hash.as_str())
     );
     assert_eq!(sqlite_table_count(&path, "event_index"), 2);
+    assert!(store.summary_disagreements().unwrap().is_empty());
+
+    // Corrupting an existing event_index.event_id row in place also heals via apply_envelopes.
+    exec_raw_sql(
+        &path,
+        "UPDATE event_index SET event_id = 'corrupt-id' WHERE run_id = 'ca-1' AND seq = 1;",
+    );
+    assert!(!store.summary_disagreements().unwrap().is_empty());
+    ports
+        .apply_envelopes("ca-1", &[e1, completed.clone()])
+        .unwrap();
     assert!(store.summary_disagreements().unwrap().is_empty());
 
     // Empty local run accepts empty apply_envelopes and refuses non-empty batch.
@@ -968,7 +984,14 @@ fn colocated_feature_sync_precedence_and_late_run_started() {
     let manifest_no_feat = json!({"engine": "0.15.0", "bundle_name": "self"});
     let manifest_default = sample_manifest("manifest-default");
 
-    // Pre-existing runs with empty or stale runs.feature backfilled on reindex.
+    // Pre-existing runs keep runs.feature immutable across reindex so Store's
+    // cached carried listing never goes stale relative to runs.feature.
+    store
+        .create_run("r-empty", "", "self", &manifest_no_feat)
+        .unwrap();
+    store
+        .append_next("r-empty", EventType::RunStarted, json!({}), None, None)
+        .unwrap();
     store
         .create_run("r-pre", "manifest-default", "self", &manifest_default)
         .unwrap();
@@ -980,12 +1003,6 @@ fn colocated_feature_sync_precedence_and_late_run_started() {
             None,
             None,
         )
-        .unwrap();
-    store
-        .create_run("r-empty", "", "self", &manifest_no_feat)
-        .unwrap();
-    store
-        .append_next("r-empty", EventType::RunStarted, json!({}), None, None)
         .unwrap();
 
     let ports = SqlitePorts::new(&store);
@@ -1041,7 +1058,10 @@ fn colocated_feature_sync_precedence_and_late_run_started() {
         .into_iter()
         .map(|(id, feat, _)| (id, feat))
         .collect();
-    assert_eq!(runs.get("r-pre").map(String::as_str), Some("from-reindex"));
+    assert_eq!(
+        runs.get("r-pre").map(String::as_str),
+        Some("manifest-default")
+    );
     assert_eq!(runs.get("r-empty").map(String::as_str), Some(""));
     assert_eq!(
         runs.get("r-legacy").map(String::as_str),
@@ -1052,6 +1072,22 @@ fn colocated_feature_sync_precedence_and_late_run_started() {
         Some("manifest-default")
     );
     assert_eq!(ports.list_runs().unwrap(), store.list_runs().unwrap());
+    assert!(store.summary_disagreements().unwrap().is_empty());
+
+    // Continuing to append through Store's carried account stays consistent.
+    store
+        .append_next(
+            "r-pre",
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        summary_feature(&path, "r-pre").as_deref(),
+        Some("manifest-default")
+    );
     assert!(store.summary_disagreements().unwrap().is_empty());
 }
 
@@ -1124,4 +1160,149 @@ fn colocated_list_runs_matches_store_before_fold_tie_break_and_legacy_ro() {
         legacy_expected
     );
     assert_eq!(ro_populated.list_runs().unwrap(), legacy_expected);
+}
+
+#[test]
+fn sqlite_append_envelopes_refuses_tampered_and_damaged_local_prefix() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("append-prefix-tamper.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let e1 = started_event("r1", "prefix", "2026-11-25T10:00:00Z");
+    let e2 = sealed_event(
+        "r1",
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "plan"}),
+        &e1.event_hash,
+        "2026-11-25T10:00:05Z",
+    );
+    let e3 = sealed_event(
+        "r1",
+        3,
+        EventType::RunCompleted,
+        json!({}),
+        &e2.event_hash,
+        "2026-11-25T10:00:10Z",
+    );
+    ports
+        .import_run_stream("r1", &sample_manifest("prefix"), &[e1, e2.clone()])
+        .unwrap();
+
+    let raw = Connection::open(&path).unwrap();
+    raw.execute_batch("DROP TRIGGER events_append_only_update;")
+        .unwrap();
+
+    // Tampered SQL event_hash is refused before head comparison or commit.
+    raw.execute(
+        "UPDATE events SET event_hash = 'forged-sql-hash' WHERE run_id = 'r1' AND seq = 2",
+        [],
+    )
+    .unwrap();
+    for expected_hash in ["forged-sql-hash", e2.event_hash.as_str()] {
+        assert!(matches!(
+            ports.append_envelopes("r1", (2, expected_hash), std::slice::from_ref(&e3)),
+            Err(StoreError::Chain(ChainError::BadHash { seq: 2 }))
+        ));
+    }
+
+    // Tampered envelope JSON payload with intact SQL event_hash is refused.
+    let mut tampered = e2.clone();
+    tampered.payload = json!({"phase": "tampered"});
+    raw.execute(
+        "UPDATE events SET event_hash = ?1, envelope = ?2 WHERE run_id = 'r1' AND seq = 2",
+        params![e2.event_hash, serde_json::to_string(&tampered).unwrap()],
+    )
+    .unwrap();
+    assert!(matches!(
+        ports.append_envelopes("r1", (2, &e2.event_hash), std::slice::from_ref(&e3)),
+        Err(StoreError::Chain(ChainError::BadHash { seq: 2 }))
+    ));
+
+    // Unparseable envelope JSON is refused as Damaged rather than committing.
+    raw.execute(
+        "UPDATE events SET envelope = 'not-json' WHERE run_id = 'r1' AND seq = 2",
+        [],
+    )
+    .unwrap();
+    drop(raw);
+    assert!(matches!(
+        ports.append_envelopes("r1", (2, &e2.event_hash), std::slice::from_ref(&e3)),
+        Err(StoreError::Damaged {
+            damage: Damage::Envelope { ref run_id, seq: 2 },
+            ..
+        }) if run_id == "r1"
+    ));
+    assert_eq!(sqlite_table_count(&path, "events"), 2);
+}
+
+#[test]
+fn colocated_rebuild_from_refuses_duplicate_run_ids_and_serializes_concurrent_append() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("rebuild-dup-race.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let e1 = started_event("r1", "race", "2026-11-25T10:00:00Z");
+    let e2 = sealed_event(
+        "r1",
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "implement"}),
+        &e1.event_hash,
+        "2026-11-25T10:00:05Z",
+    );
+    ports
+        .import_run_stream("r1", &sample_manifest("race"), std::slice::from_ref(&e1))
+        .unwrap();
+
+    // Duplicate run_ids from list_run_ids() are refused with DivergentEventLog.
+    let dup_log = InterceptingLog {
+        inner: &ports,
+        on_head: None,
+        on_read_stream: None,
+        override_run_ids: Some(vec!["r1".to_string(), "r1".to_string()]),
+    };
+    assert!(matches!(
+        ports.rebuild_from(&dup_log),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "r1"
+    ));
+
+    // Concurrent append during self-reindex serializes on BEGIN IMMEDIATE with no false divergence.
+    let (go_tx, go_rx) = mpsc::channel::<()>();
+    let (entering_tx, entering_rx) = mpsc::channel::<()>();
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let bg_path = path.clone();
+    let e1_hash = e1.event_hash.clone();
+    let bg_e2 = e2.clone();
+    let handle = std::thread::spawn(move || {
+        let writer = Store::open(&bg_path).unwrap();
+        let writer_ports = SqlitePorts::new(&writer);
+        go_rx.recv().unwrap();
+        entering_tx.send(()).unwrap();
+        let res = writer_ports.append_envelopes("r1", (1, &e1_hash), &[bg_e2]);
+        let _ = done_tx.send(());
+        res
+    });
+
+    let hooked = InterceptingLog {
+        inner: &ports,
+        on_head: None,
+        on_read_stream: Some(Box::new(move || {
+            go_tx.send(()).unwrap();
+            entering_rx.recv().unwrap();
+            let _ = done_rx.recv_timeout(Duration::from_millis(50));
+        })),
+        override_run_ids: None,
+    };
+    assert_eq!(ports.rebuild_from(&hooked).unwrap(), 1);
+    handle.join().unwrap().unwrap();
+
+    // Rebuilding from a second SQLite connection on the same DB sees both events cleanly.
+    let reader = Store::open(&path).unwrap();
+    let reader_ports = SqlitePorts::new(&reader);
+    assert_eq!(ports.rebuild_from(&reader_ports).unwrap(), 2);
+    assert!(store.summary_disagreements().unwrap().is_empty());
 }

@@ -145,6 +145,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
         if is_redacted(attested) {
             return Err(ImportError::Redacted(run_id.to_string()));
         }
+        super::validate_manifest(run_id, attested)?;
         self.event_log
             .import_run_stream(run_id, attested, &events)
             .map_err(|error| match error {
@@ -184,6 +185,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
             });
         }
         refuse_after_terminal(run_id, &events, event.event_type)?;
+        validate_started_manifest(run_id, event.event_type, &event.payload)?;
         validate_record(
             &self.event_log,
             run_id,
@@ -230,6 +232,19 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
 
 fn is_redacted(manifest: &Value) -> bool {
     manifest.get("redacted") == Some(&Value::Bool(true))
+}
+
+fn validate_started_manifest(
+    run_id: &str,
+    event_type: EventType,
+    payload: &Value,
+) -> Result<(), StoreError> {
+    if event_type == EventType::RunStarted {
+        if let Some(manifest) = payload.get("manifest") {
+            super::validate_manifest(run_id, manifest)?;
+        }
+    }
+    Ok(())
 }
 
 fn refuse_after_terminal(

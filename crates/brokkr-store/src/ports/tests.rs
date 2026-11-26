@@ -950,12 +950,14 @@ fn completed_vs_phase_pair(
     (e1, completed, phase)
 }
 
-struct InterceptingMemLog<'a> {
-    inner: MemEventLog,
+struct InterceptingLog<'a, E> {
+    inner: E,
     on_head: Option<Box<dyn Fn() + 'a>>,
+    on_read_stream: Option<Box<dyn Fn() + 'a>>,
+    override_run_ids: Option<Vec<String>>,
 }
 
-impl EventLog for InterceptingMemLog<'_> {
+impl<E: EventLog> EventLog for InterceptingLog<'_, E> {
     fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError> {
         self.inner.create_run(run_id, manifest)
     }
@@ -987,7 +989,11 @@ impl EventLog for InterceptingMemLog<'_> {
     }
 
     fn read_stream(&self, run_id: &str, from_seq: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        self.inner.read_stream(run_id, from_seq)
+        let out = self.inner.read_stream(run_id, from_seq)?;
+        if let Some(hook) = &self.on_read_stream {
+            hook();
+        }
+        Ok(out)
     }
 
     fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
@@ -995,6 +1001,9 @@ impl EventLog for InterceptingMemLog<'_> {
     }
 
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
+        if let Some(ids) = &self.override_run_ids {
+            return Ok(ids.clone());
+        }
         self.inner.list_run_ids()
     }
 }
