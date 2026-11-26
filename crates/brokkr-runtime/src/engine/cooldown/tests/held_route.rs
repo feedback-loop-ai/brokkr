@@ -56,15 +56,16 @@ pub(super) fn slicing(
 /// Both legs refuse claude/first as cooling down until exactly `end`.
 pub(super) fn held_to(legs: &Legs, end: OffsetDateTime) -> bool {
     legs.iter().all(|leg| {
-        matches!(
-            leg,
-            Err(Capacity::CoolingDown { standing, .. })
-                if [standing.probe(), standing.ordinary()]
-                    .into_iter()
-                    .flatten()
-                    .map(|row| row.until)
-                    .max() == Some(end)
-        )
+        let Err(Capacity::CoolingDown { standing, .. }) = leg else {
+            return false;
+        };
+        let until = match standing.as_ref() {
+            CooldownAggregate::Ordinary(row) => row.until,
+            CooldownAggregate::Held { probe, ordinary } => ordinary
+                .as_ref()
+                .map_or(probe.until, |row| probe.until.max(row.until)),
+        };
+        until == end
     })
 }
 
@@ -324,9 +325,12 @@ pub(super) fn held_until_settled(engine: &Engine, gates: &Shared, probe_at: Offs
     for at in [probe_at, deadline_of(probe_at), end, end + day] {
         assert!(held_to(&legs(gates, at), end), "at {at}");
         let waited = engine.store.cooldown("claude", "first", at).unwrap();
-        let waited = waited.expect("the hold holds the wait's aggregate");
-        let probe = waited.probe().map(|probe| probe.until);
-        assert_eq!((probe, waited.ordinary()), (Some(end), None), "at {at}");
+        assert!(
+            matches!(&waited,
+                Some(CooldownAggregate::Held { probe, ordinary: None }) if probe.until == end
+            ),
+            "at {at}: {waited:?}"
+        );
     }
     assert_eq!(unended_holds(engine.store.path()), 1);
 }

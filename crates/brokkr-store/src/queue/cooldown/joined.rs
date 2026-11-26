@@ -65,22 +65,6 @@ impl CooldownAggregate {
             CooldownAggregate::Held { probe, ordinary } => (Some(probe), ordinary),
         }
     }
-
-    /// The standing probe hold's deadline and words, where one stands.
-    pub fn probe(&self) -> Option<&RowEnd> {
-        match self {
-            CooldownAggregate::Ordinary(_) => None,
-            CooldownAggregate::Held { probe, .. } => Some(probe),
-        }
-    }
-
-    /// The latest ordinary row's end and words, where one stands.
-    pub fn ordinary(&self) -> Option<&RowEnd> {
-        match self {
-            CooldownAggregate::Ordinary(ordinary) => Some(ordinary),
-            CooldownAggregate::Held { ordinary, .. } => ordinary.as_ref(),
-        }
-    }
 }
 
 impl RowEnd {

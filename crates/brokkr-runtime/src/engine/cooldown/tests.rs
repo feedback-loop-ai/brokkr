@@ -9,6 +9,7 @@ use brokkr_core::canonical::sha256_hex;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, Status};
 use brokkr_protocol::hands::HandsSpec;
+use brokkr_store::CooldownAggregate;
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -27,11 +28,14 @@ fn base() -> OffsetDateTime {
 
 /// The end of the ordinary rows `aggregate` shows, where a test reads a
 /// route an ordinary row holds.
-fn ordinary_end(aggregate: brokkr_store::CooldownAggregate) -> OffsetDateTime {
-    aggregate
-        .ordinary()
-        .expect("an ordinary row holds the route")
-        .until
+fn ordinary_end(aggregate: CooldownAggregate) -> OffsetDateTime {
+    let ordinary = match aggregate {
+        CooldownAggregate::Ordinary(ordinary) => ordinary,
+        CooldownAggregate::Held { ordinary, .. } => {
+            ordinary.expect("an ordinary row holds the route")
+        }
+    };
+    ordinary.until
 }
 
 // A test's clock: one shared instant, advanced by each slice, so a wait is

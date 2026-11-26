@@ -61,9 +61,8 @@ fn a_resume_never_ends_or_adopts_a_crashed_instances_hold() {
     for leg in legs(&gates, later) {
         assert!(
             matches!(&leg, Err(crate::admission::Capacity::CoolingDown { standing, .. })
-            if standing.probe().is_some_and(|probe| {
-                probe.reason.contains(&format!("(attempt {})", first[0]))
-            })),
+                if matches!(standing.as_ref(), CooldownAggregate::Held { probe, .. }
+                    if probe.reason.contains(&format!("(attempt {})", first[0])))),
             "{leg:?}"
         );
     }
