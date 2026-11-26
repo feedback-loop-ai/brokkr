@@ -552,7 +552,13 @@ fn the_guide_table_names_every_agy_model_and_its_measured_efforts() {
             .get(alias)
             .unwrap_or_else(|| panic!("missing adapter alias {alias}"));
         let start = format!("| `{alias}` |");
-        let row = guide_row(&guide, &start);
+        let mut rows = guide.lines().filter(|line| line.starts_with(&start));
+        let row: Vec<&str> = rows
+            .next()
+            .unwrap_or_else(|| panic!("no row {start}"))
+            .split(" | ")
+            .collect();
+        assert_eq!(rows.next(), None, "duplicate row {start}");
         assert_eq!(
             row,
             [
@@ -563,4 +569,15 @@ fn the_guide_table_names_every_agy_model_and_its_measured_efforts() {
             "{alias}"
         );
     }
+    let table_rows = guide
+        .lines()
+        .skip_while(|line| *line != "| Alias | Agy model | Efforts |")
+        .skip(2)
+        .take_while(|line| line.starts_with('|'))
+        .count();
+    assert_eq!(
+        table_rows,
+        expected.len(),
+        "unexpected row count in agy model table"
+    );
 }
