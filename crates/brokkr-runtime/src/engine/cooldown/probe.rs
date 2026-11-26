@@ -10,10 +10,13 @@ use brokkr_core::fold::RunState;
 use brokkr_core::park::Park;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::Cleanup;
 use serde_json::Value;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{Engine, EngineError};
+use crate::admission::spelled;
 use crate::agents::Candidate;
 use crate::bundle::{
     Aggregate, ExecutableBody, Invocation, PanelMember, Seat, SeatClass, SequenceStep, StepBody,
@@ -21,15 +24,21 @@ use crate::bundle::{
 };
 use crate::engine::broker::{observed, settlement};
 use crate::engine::carry::record::Tag;
-use crate::engine::dispatch::{site_name, Dispatch};
+use crate::engine::dispatch::{
+    site_name, spawn_site_by, Dispatch, ProbeDeadline, SpawnDeadline, Unspawned,
+};
 use crate::engine::sequence::{
     step_allowed_results, step_driver_input, StepComposition, StepInputKind,
 };
-use crate::engine::{phase_of, spawn_site, Door, Selection, SiteSpawn};
+use crate::engine::{phase_of, Door, Selection, SiteSpawn};
 
 mod end;
+mod hold;
+mod reap;
 mod sequence;
 pub(in crate::engine) use end::cleanup_failure;
+#[cfg(test)]
+pub(super) use hold::before_hold_here;
 pub(super) use sequence::step_context;
 use sequence::{probe_member_invocation, refused_index, step_site};
 
@@ -124,11 +133,40 @@ fn probe_body<'a>(picked: &'a ProbeSeat, strategy: Option<&str>) -> ExecutableBo
 }
 
 /// What an admitted probe holds before its driver composes: the attempt
-/// name, the input it runs with, and the deadline its admission shared.
+/// name, the input it runs with, and the one deadline its hold and its
+/// driver both end by (fix rounds 0106b1r5, H2, and 0106b1r9, E1).
 struct AdmittedProbe {
     attempt: String,
     input: Value,
-    deadline: Duration,
+    deadline: ProbeDeadline,
+}
+
+/// A probe whose deadline passed before its driver could be spawned (fix
+/// round 0106b1r5, H2): it is not spawned, so its process tree is settled
+/// empty and its route's hold ends (fix round 0106b1r12, S1). Its words are
+/// the park's reason.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "the cool-down probe for {provider}/{route} was not spawned: its deadline {} passed before \
+     its driver could start, so no process of it runs",
+    spelled(*ends)
+)]
+struct Late {
+    provider: String,
+    route: String,
+    ends: OffsetDateTime,
+}
+
+impl Late {
+    /// The park of `wait`'s probe, unspawned at its deadline `ends`.
+    fn park(wait: &ProviderWait, ends: OffsetDateTime) -> Probe {
+        let late = Late {
+            provider: wait.provider.clone(),
+            route: wait.route.clone(),
+            ends,
+        };
+        Probe::Parked(Park::ruled(late.to_string()))
+    }
 }
 
 impl Engine {
@@ -149,6 +187,28 @@ impl Engine {
         let observed = observed();
         let began = Instant::now();
         let deadline = Duration::from_secs(picked.seat.limits.timeout_seconds);
+        // The probe's one deadline, taken once as it begins, on the
+        // monotonic clock read above and then the engine's: the fork reads
+        // it, its watchdog kills at it, and its hold's row shows it, a
+        // readout no gate ends the hold by (fix round 0106b1r12, S1).
+        let now = self.now();
+        let ends = match ProbeDeadline::begun(began, now, deadline) {
+            Ok(ends) => ends,
+            Err(unbounded) => {
+                return Ok(Err(Probe::Parked(Park::ruled(format!(
+                    "the cool-down probe for {}/{} was not admitted: {unbounded}",
+                    wait.provider, wait.route
+                )))))
+            }
+        };
+        // The reservation first, then the hold (the return of fix round
+        // 0106b1r12): where the root is protected, every hold names an
+        // attempt its run's reservation already names, so a crash at any
+        // instant leaves a record the restarted engine's reaper, or the
+        // operator's settle, can settle the hold by. A refused admission
+        // took no hold; a hold the store refuses after the admission
+        // parks the probe unspawned, and its wait settles the lease.
+        self.cooldown.hold = None;
         if let Err(refusal) = self.admit_for_probe(
             events,
             [&attempt, &picked.site],
@@ -162,10 +222,13 @@ impl Engine {
                 wait.provider, wait.route
             )))));
         }
+        if let Err(unheld) = self.hold_the_route((wait, &attempt), now, ends.ends) {
+            return Ok(Err(hold::unheld(wait, &unheld)));
+        }
         Ok(Ok(AdmittedProbe {
             attempt,
             input,
-            deadline,
+            deadline: ends,
         }))
     }
 
@@ -197,8 +260,10 @@ impl Engine {
     /// effort and the same boundary and credential facts. It is launched as
     /// its attempt is: admission seals the reach its box is built from and,
     /// where the root is protected, takes the writer lease its door
-    /// rechecks, and settlement releases that lease once the report proved
-    /// its processes settled.
+    /// rechecks. The lease is returned standing: the wait's `probe_each`
+    /// settles it once the probe's end is recorded,
+    /// so a renewed refusal's round is committed before the release (fix
+    /// round 0106b1r3).
     pub(super) fn probe(
         &mut self,
         events: &[EventEnvelope],
@@ -246,7 +311,7 @@ impl Engine {
             admitted.deadline,
             wait,
         );
-        self.settle_probe(probe)
+        Ok(probe)
     }
 
     /// A cooled site-tagged wait's own one-turn probe: a seat-level panel
@@ -314,7 +379,7 @@ impl Engine {
                 );
                 let probe =
                     self.spawn_probe(&at, &run.spawn, run.input.clone(), prepared.deadline, wait);
-                self.settle_probe(probe)
+                Ok(probe)
             }
             ProbeForm::Sequence(steps) => {
                 let at = ProbeSite {
@@ -460,7 +525,7 @@ impl Engine {
             body,
         );
         let probe = self.spawn_probe(&dispatch, &spawn, input, prepared.deadline, at.wait);
-        self.settle_probe(probe)
+        Ok(probe)
     }
 
     /// A `<step>:<member>` wait's probe: that member through
@@ -530,7 +595,7 @@ impl Engine {
             prepared.deadline,
             at.wait,
         );
-        self.settle_probe(probe)
+        Ok(probe)
     }
 
     /// The admitted probe's one driver, composed and marked with no broker:
@@ -544,7 +609,7 @@ impl Engine {
         mut input: Value,
         hands: Option<&HandsSpec>,
         selection: &Selection,
-        deadline: Duration,
+        deadline: ProbeDeadline,
         wait: &ProviderWait,
     ) -> Probe {
         let composed = self.composed_single(at, selection, &mut input, hands, &[]);
@@ -554,29 +619,49 @@ impl Engine {
 
     /// Spawn one admitted probe's already-composed site and run it to its
     /// end: the single seat's composed spawn and the panel member's own.
+    /// `deadline`, the probe's one deadline, travels to the fork as it was
+    /// taken: a probe already past it composes no spawn, the fork reads it
+    /// again on the engine's clock and the monotonic one (the return of fix
+    /// round 0106b1r12) under the registry's lock as the last
+    /// step before the spawn, and the watchdog kills at its own instant,
+    /// never at a length sampled earlier (fix rounds 0106b1r5, H2,
+    /// 0106b1r6, D1, and 0106b1r9, E1). A probe not spawned, every refusal
+    /// here coming before the fork, has an empty tree, settled as it is
+    /// refused, so its hold ends with it (fix round 0106b1r12, S1).
     fn spawn_probe(
         &mut self,
         at: &Dispatch<'_>,
         spawn: &SiteSpawn,
         input: Value,
-        deadline: Duration,
+        deadline: ProbeDeadline,
         wait: &ProviderWait,
     ) -> Probe {
+        let ends = deadline.ends;
+        if ends <= self.now() {
+            let late = Late::park(wait, ends);
+            return self.end_the_hold(wait, late);
+        }
         let door = self
             .held
             .as_ref()
             .map(|held| Door::of(held, at.site_name, None));
         let workdir = self.workdir();
-        let (process, input) =
-            match spawn_site(&self.bundle, spawn, &input, &workdir, deadline, door) {
-                Ok(started) => started,
-                Err(reason) => {
-                    return Probe::Parked(Park::ruled(format!(
+        let now = &*self.cooldown.clock.now;
+        let by = SpawnDeadline::By { deadline, now };
+        let (process, input) = match spawn_site_by(&self.bundle, spawn, &input, &workdir, by, door)
+        {
+            Ok(started) => started,
+            Err(unspawned) => {
+                let parked = match unspawned {
+                    Unspawned::Late => Late::park(wait, ends),
+                    Unspawned::Refused(reason) => Probe::Parked(Park::ruled(format!(
                         "the cool-down probe for {}/{} did not spawn: {reason}",
                         wait.provider, wait.route
-                    )));
-                }
-            };
+                    ))),
+                };
+                return self.end_the_hold(wait, parked);
+            }
+        };
         let report = process.probing().run_attempt_resuming(
             ENGINE_VERSION,
             at.effect_id,
@@ -586,8 +671,46 @@ impl Engine {
             None,
             |_| {},
         );
-        settlement::ended(&mut self.held, at.site_name, &report.cleanup);
-        self.probe_end(at.effect_id, wait, report)
+        self.probe_ended((at.effect_id, at.site_name), wait, report)
+    }
+
+    /// What a spawned probe's `report` leaves, its settlement witnessed on
+    /// the lease at `site` first. Its hold ends here only where that report
+    /// proves the probe's whole tree ended; a probe that parks while its
+    /// tree may still run keeps its hold through the park, until a
+    /// settlement ends it (fix round 0106b1r12, S4).
+    pub(in crate::engine::cooldown) fn probe_ended(
+        &mut self,
+        (effect_id, site): (&str, &str),
+        wait: &ProviderWait,
+        report: brokkr_protocol::AttemptReport,
+    ) -> Probe {
+        settlement::ended(&mut self.held, site, &report.cleanup);
+        // The hold ends on evidence, never on a clock (fix round 0106b1r10,
+        // H1): right after the settlement above proved the driver's whole
+        // tree ended, for every probe that hands no renewed round on. A
+        // rate limit's renewal ends it with the round's commit, in one
+        // transaction, or leaves it standing where that round is not
+        // written; a refusal that parks with no renewal ends it here (fix
+        // round 0106b1r11, L4). A tree not proven ended leaves it standing
+        // until a settlement proves it (fix round 0106b1r12, S1).
+        let proven = matches!(report.cleanup, Cleanup::Settled);
+        let probe = self.probe_end(effect_id, wait, report);
+        match proven && !renews(&probe) {
+            true => self.end_the_hold(wait, probe),
+            false => probe,
+        }
+    }
+}
+
+/// Whether `probe` hands its hold on to a renewed round, whose commit ends
+/// it in the same transaction (fix round 0106b1r5, H3): only a rate limit's
+/// next round does. An answer and a park end it at settlement, and a probe
+/// another hold kept from its route wrote none.
+fn renews(probe: &Probe) -> bool {
+    match probe {
+        Probe::Extended(_) => true,
+        Probe::Answered(_) | Probe::Parked(_) | Probe::Held => false,
     }
 }
 
@@ -615,10 +738,13 @@ pub(super) struct NextRound {
 }
 
 /// What a probe leaves: an answer, a rate-limit refusal's next round the
-/// caller judges and writes before waiting and probing again, or the
-/// park's reason.
+/// caller judges and writes before waiting and probing again, the park's
+/// reason, or no probe at all, another probe's hold or a cool-down having
+/// held its route when its own hold was to be written: the run waits on the
+/// route again (fix round 0106b1r13, H2).
 pub(super) enum Probe {
     Answered(ProbeAnswer),
     Extended(NextRound),
     Parked(Park),
+    Held,
 }

@@ -10,11 +10,10 @@
 //! returns NULL and a NULL CHECK passes. Only the readers here convert
 //! them, into the `time` type the engine already carries.
 
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::provider_waits;
+use brokkr_core::{provider_waits, Held};
 use rusqlite::{params, Connection, OptionalExtension};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -22,6 +21,12 @@ use time::OffsetDateTime;
 use super::storage::{cool_downs_held, cool_downs_writable};
 use super::QueueRefusal;
 use crate::{patiently, Store, StoreError};
+
+mod hold;
+mod joined;
+mod readout;
+pub use hold::{ProbeHold, ProbeHoldId};
+pub use joined::{CooldownAggregate, RowEnd};
 
 /// One cool-down a terminal event records, as its writer derives it. The
 /// store fills `event_seq` and `recorded_at` from the event it writes the
@@ -42,6 +47,10 @@ pub struct Cooling {
     pub retry_after_seconds: Option<u64>,
     /// Which round of this site's waits within the effect's episode.
     pub rounds: u64,
+    /// Version 7's kind (decision 0106 ruling 2): the held fact the writer
+    /// parsed from the event's own `waits` entry when it derived this row,
+    /// carried here so the payload is read once (fix round 0106b1r3).
+    pub held: Option<Held>,
 }
 
 /// One `provider_cooldowns` row as a reader holds it: the cool-down the
@@ -58,16 +67,12 @@ pub struct Cooldown {
     pub retry_after_seconds: Option<u64>,
     pub rounds: u64,
     pub recorded_at: OffsetDateTime,
-}
-
-/// The aggregate one provider and route stands at, at an instant: the
-/// latest `until_at` across every unexpired row — a monotonic MAX, so a
-/// later, shorter refusal never shortens a wait — and the words of the row
-/// that ends last.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CooldownAggregate {
-    pub until: OffsetDateTime,
-    pub reason: String,
+    /// Whether the row is a probe's hold on its route (fix round
+    /// 0106b1r4, F1): no time ends it, only its answer, its renewed round
+    /// or its tree's settlement, so `until_at` is its probe's deadline, a
+    /// readout, never when the route opens (the return of fix round
+    /// 0106b1r12). A `provider_cooldowns` row is never one.
+    pub probe: bool,
 }
 
 /// One probe round appended to a terminal event's episode (decision 0103
@@ -94,6 +99,9 @@ pub struct CooldownRound<'a> {
     pub rounds: u64,
     /// The length this round's wait was computed at.
     pub seconds: u64,
+    /// The probe's hold this round ends, in the round's own transaction
+    /// (fix round 0106b1r4, F1): a round the store does not take ends none.
+    pub ends: Option<ProbeHoldId>,
 }
 
 /// What [`Store::append_cooldown_round`] did. A queue this binary may not
@@ -105,48 +113,74 @@ pub enum RoundAppend {
     NoTable,
 }
 
-/// Write `rows` as the cool-downs of `run_id`'s event `event_seq`, inside
-/// the transaction that wrote that event, which the journal recorded at
-/// `recorded_at`. A row whose end has already passed is history and is
+/// Write `rows` as the cool-downs of `event`, inside the transaction that
+/// wrote that event. A row whose end has already passed is history and is
 /// written not at all; a row that violates the table's CHECK constraints
 /// or its unique index fails the whole transaction, so the event and every
 /// row land together or not at all. No rows, or a queue that holds no
 /// table this binary may write, leaves the table untouched and the event
-/// alone lands.
+/// alone lands. A row's kind is the one its writer derived with it from the
+/// event's own `waits` entry for its site (decision 0106 ruling 2), so the
+/// payload is parsed once, by that writer. What it returns is the store's
+/// own evidence: the held rows it wrote, counting none it skipped (fix
+/// round 0106b1r10, H4).
 pub(crate) fn insert(
     tx: &Connection,
-    run_id: &str,
-    event_seq: u64,
-    recorded_at: &str,
+    event: &EventEnvelope,
     rows: &[Cooling],
-) -> Result<(), StoreError> {
+) -> Result<usize, StoreError> {
     // Every append that carries no cool-downs — every non-terminal event,
     // and `append_next`/`append_next_if_head` — leaves the table alone, so
     // a journal whose table is gone or whose queue a newer binary stores
     // still takes its event.
     if rows.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
-    // A row belongs to version 4's table. A version 1, 2 or 3 queue holds
-    // no table, and a version this binary does not know is a newer
-    // binary's, left as found: either way the event alone lands and its
-    // `waits` stay the attempt's record (decision 0103 ruling 2(a)).
-    if !cool_downs_writable(tx)? {
-        return Ok(());
-    }
-    let recorded = OffsetDateTime::parse(recorded_at, &Rfc3339)
+    let recorded = OffsetDateTime::parse(&event.recorded_at, &Rfc3339)
         .expect("the journal's own recorded_at is RFC 3339")
         .unix_timestamp();
+    // A row the table did not write rolls the event back with it: a
+    // terminal never stands over a held or cooling row the store does not
+    // hold (fix round 0106b1r6, D3).
+    let unwritten = |row: &Cooling| {
+        QueueRefusal::CooldownRowUnwritten(Box::new(super::UnwrittenRow {
+            run_id: event.run_id.clone(),
+            event_seq: event.seq,
+            site: row.site.clone(),
+            rounds: row.rounds,
+        }))
+    };
+    // A row belongs to version 4's table. A version 1, 2 or 3 queue holds
+    // no table, and a version this binary does not know is a newer
+    // binary's, left as found: either way an ordinary wait's event alone
+    // lands and its `waits` stay the attempt's record (decision 0103 ruling
+    // 2(a)). A live held row is the only thing that holds its route, so
+    // such a queue refuses its event as the table refuses an unwritten
+    // row, and nothing is recorded as held that the store did not write
+    // (fix round 0106b1r9, E3). An ordinary row it does not write is not
+    // counted written either (fix round 0106b1r10, H4).
+    if !cool_downs_writable(tx)? {
+        let live_held =
+            |row: &&Cooling| row.held.is_some() && until_second(row.until_at) > recorded;
+        return rows
+            .iter()
+            .find(live_held)
+            .map_or(Ok(0), |row| Err(unwritten(row).into()));
+    }
+    let mut held = 0;
     for row in rows {
         let until = until_second(row.until_at);
+        // A row whose end passed before the event's stamp is history, and
+        // is neither written nor counted.
         if until <= recorded {
             continue;
         }
+        let unwritten = || unwritten(row);
         insert_row(
             tx,
             &StoredRow {
-                run_id,
-                event_seq,
+                run_id: &event.run_id,
+                event_seq: event.seq,
                 site: &row.site,
                 provider: &row.provider,
                 route: &row.route,
@@ -155,10 +189,15 @@ pub(crate) fn insert(
                 retry_after_seconds: row.retry_after_seconds,
                 rounds: row.rounds,
                 recorded,
+                held: row.held,
             },
+            unwritten,
         )?;
+        // `insert_row` refused any row the table did not write, so this
+        // one landed.
+        held += usize::from(row.held.is_some());
     }
-    Ok(())
+    Ok(held)
 }
 
 /// One `provider_cooldowns` row as the table's one writer spells it:
@@ -175,15 +214,26 @@ struct StoredRow<'a> {
     retry_after_seconds: Option<u64>,
     rounds: u64,
     recorded: i64,
+    /// Version 7's kind: `Some` for a held wait's row.
+    held: Option<Held>,
 }
 
-/// Insert one row. The table's CHECK constraints and unique index judge it.
-fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<(), StoreError> {
-    conn.execute(
+/// Insert one row, refusing with `unwritten`'s words where the table wrote
+/// none, as a trigger that ignores the insert leaves it: the one check
+/// every cool-down writer takes, a terminal's rows, a resume's landing of
+/// them and a probe's renewed round alike, so no row is ever believed
+/// written that the store did not write (fix rounds 0106b1r5, H3, and
+/// 0106b1r6, D3). The table's CHECK constraints and unique index judge it.
+fn insert_row(
+    conn: &Connection,
+    row: &StoredRow<'_>,
+    unwritten: impl FnOnce() -> QueueRefusal,
+) -> Result<(), StoreError> {
+    let written = conn.execute(
         "INSERT INTO provider_cooldowns
             (run_id, event_seq, site, provider, route, until_at, reason,
-             retry_after_seconds, rounds, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             retry_after_seconds, rounds, recorded_at, held, max_seconds)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             row.run_id,
             row.event_seq as i64,
@@ -195,8 +245,13 @@ fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<(), StoreError> 
             row.retry_after_seconds.map(|retry| retry as i64),
             row.rounds as i64,
             row.recorded,
+            row.held.map(|_| 1i64),
+            row.held.map(|held| held.max_seconds as i64),
         ],
     )?;
+    if written != 1 {
+        return Err(unwritten().into());
+    }
     Ok(())
 }
 
@@ -228,185 +283,25 @@ fn until_second(at: OffsetDateTime) -> i64 {
 const ROWS: &str = "seq, site, provider, route, until_at, reason, retry_after_seconds, rounds,
                 recorded_at";
 
-/// Every row in force at `now`, in the order it was written: the claim's
-/// judge and the aggregate share this reading. A row whose stored instant
-/// this reader cannot spell refuses by name, carrying the row's `seq`.
+/// Every row in force at `now`, in the order it was written, then every
+/// probe hold no settlement has ended ([`hold::standing`], by its one
+/// predicate [`hold::standing_hold`], selected in SQL): the pass's and the claim's one
+/// reading, so a probe in flight holds its route for both (fix round
+/// 0106b1r4, F1), and no clock, margin or lock state ends a hold (fix round
+/// 0106b1r12, S1). A row whose stored instant this reader cannot spell
+/// refuses by name, carrying the row's `seq`.
+///
+/// Its two statements read one snapshot on every caller (fix round
+/// 0106b1r5, H1): the claim's `Immediate` transaction, and
+/// [`Store::cooldowns_in_force`]'s [`Store::read_snapshot`]. Read in two, a
+/// refusal that commits its renewed row and ends its hold between them
+/// leaves neither visible, and the route reads open though it was held in
+/// every committed state.
 pub(super) fn in_force(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
     let sql = format!("SELECT {ROWS} FROM provider_cooldowns WHERE until_at > ?1 ORDER BY seq");
-    read_rows(conn, &sql, now)
-}
-
-/// Every row in force at `now`, and, for a provider and route no row holds
-/// any more, the newest row that ended it: what a readout paints, so a
-/// probe's later end survives the instant it passes instead of reverting
-/// to the event's earlier one (decision 0103 slice 4f). Admission reads
-/// [`in_force`], which the expired row never joins. A row whose stored
-/// instant this reader cannot spell refuses by name, carrying the row's
-/// `seq`.
-fn newest(store: &Store, now: i64) -> Result<Vec<Cooldown>, StoreError> {
-    newest_with(store, now, |_| {}, |_| {})
-}
-
-/// [`newest_in`] under one snapshot ([`Store::read_snapshot`]): the scan
-/// and every kept row's lookup read the journal as it stood at the scan's
-/// first row, so a writer's commit at any point in the read neither grows
-/// it nor splits itself across its rows (#1112). The snapshot ends with
-/// the read, its refusal included, and a read already inside one joins it.
-/// `between` runs after each scanned row is taken, with its `seq`: the
-/// instant a peer's commit lands, which the tests stage.
-fn newest_with(
-    store: &Store,
-    now: i64,
-    between: impl FnMut(i64),
-    stepped: impl FnOnce(i64),
-) -> Result<Vec<Cooldown>, StoreError> {
-    store.read_snapshot(|| newest_in(&store.conn, now, between, stepped))
-}
-
-/// [`newest`]'s two statements (#1112). The first scans the table once in
-/// `seq` order, its primary key, reading only each row's key, provider,
-/// route and end ([`Scanned`]), so SQLite sorts nothing and never extracts
-/// a row's words; [`Newest`] decides which rows are kept. It reads one row
-/// per run, the least `seq` from `from` on, and each run's reset releases
-/// that row's names before the next is read, so a streaming scan's
-/// registers never hold one row's wide route beside the next row's wide
-/// provider. The second reads each kept row's whole projection by its
-/// `seq`, in `seq` order, so a discarded row's words never enter SQLite's
-/// heap. Every kept row is read before any is typed, so a column SQLite
-/// cannot hand over refuses before an earlier row's unreadable time, as the
-/// single statement this replaced refused. The scan reads every row's key
-/// columns before any payload, so a key column's refusal precedes an
-/// earlier kept row's payload refusal, which that statement would have
-/// reported first; both refuse. A row is append-only and never
-/// deleted, and [`newest_with`] holds both statements to one snapshot, so
-/// a kept `seq` reads back the row the scan saw. Both statements' VM steps
-/// go to `stepped`, so the test that binds the read's cost measures them.
-fn newest_in(
-    conn: &Connection,
-    now: i64,
-    mut between: impl FnMut(i64),
-    stepped: impl FnOnce(i64),
-) -> Result<Vec<Cooldown>, StoreError> {
-    let mut scan = conn.prepare(
-        "SELECT seq, provider, route, until_at FROM provider_cooldowns
-         WHERE seq >= ?1 ORDER BY seq LIMIT 1",
-    )?;
-    let mut newest = Newest::default();
-    let mut from = Some(i64::MIN);
-    while let Some(at) = from {
-        let Some(row) = scan.query_row([at], Scanned::read).optional()? else {
-            break;
-        };
-        let seq = row.seq;
-        from = seq.checked_add(1);
-        newest.take(row, now);
-        between(seq);
-    }
-    let mut payload = conn.prepare(&format!(
-        "SELECT {ROWS} FROM provider_cooldowns WHERE seq = ?1"
-    ))?;
-    let kept = newest
-        .kept()
-        .into_iter()
-        .map(|seq| payload.query_row([seq], Raw::read))
-        .collect::<Result<Vec<_>, _>>()?;
-    let steps = |statement: &rusqlite::Statement<'_>| {
-        i64::from(statement.get_status(rusqlite::StatementStatus::VmStep))
-    };
-    stepped(steps(&scan) + steps(&payload));
-    kept.into_iter().map(Raw::typed).collect()
-}
-
-/// A row as [`newest`]'s scan reads it: its key, its provider and route,
-/// and its end, never its words.
-struct Scanned {
-    seq: i64,
-    provider: String,
-    route: String,
-    until: i64,
-}
-
-impl Scanned {
-    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Scanned> {
-        Ok(Scanned {
-            seq: row.get(0)?,
-            provider: row.get(1)?,
-            route: row.get(2)?,
-            until: row.get(3)?,
-        })
-    }
-}
-
-/// Where one provider and route stands in [`Newest`]'s scan so far.
-enum Standing {
-    /// A row in force holds it: no expired row of it is kept.
-    Held,
-    /// Every row of it read so far has ended, and this, by its `seq` and
-    /// its end, is the newest.
-    Ended { seq: i64, until: i64 },
-}
-
-/// The readout's rows, decided over a scan in `seq` order: every row in
-/// force at `now`, and, for a provider and route no such row holds, the
-/// row with the latest end, the later-written on a tie. A row is kept once
-/// at most, and only its `seq` is held.
-#[derive(Default)]
-struct Newest {
-    in_force: Vec<i64>,
-    routes: HashMap<(String, String), Standing>,
-}
-
-impl Newest {
-    /// Take the scan's next row, which is later-written than every row
-    /// taken before it.
-    fn take(&mut self, row: Scanned, now: i64) {
-        let key = (row.provider, row.route);
-        if row.until > now {
-            self.routes.insert(key, Standing::Held);
-            self.in_force.push(row.seq);
-            return;
-        }
-        let ended = Standing::Ended {
-            seq: row.seq,
-            until: row.until,
-        };
-        match self.routes.entry(key) {
-            Entry::Vacant(first) => {
-                first.insert(ended);
-            }
-            Entry::Occupied(mut seen) => {
-                let later =
-                    matches!(seen.get(), Standing::Ended { until, .. } if row.until >= *until);
-                if later {
-                    seen.insert(ended);
-                }
-            }
-        }
-    }
-
-    /// The kept rows' `seq`s in the order they were written.
-    fn kept(self) -> Vec<i64> {
-        let mut kept = self.in_force;
-        kept.extend(
-            self.routes
-                .into_values()
-                .filter_map(|standing| match standing {
-                    Standing::Ended { seq, .. } => Some(seq),
-                    Standing::Held => None,
-                }),
-        );
-        kept.sort_unstable();
-        kept
-    }
-}
-
-/// The VM steps [`newest`]'s two statements take at `now`, for the test
-/// that holds the read to one scan.
-#[cfg(test)]
-fn newest_steps(store: &Store, now: i64) -> Result<i64, StoreError> {
-    let mut steps = 0;
-    newest_with(store, now, |_| {}, |taken| steps = taken)?;
-    Ok(steps)
+    let mut rows = read_rows(conn, &sql, now)?;
+    rows.extend(hold::standing(conn)?);
+    Ok(rows)
 }
 
 /// The rows `sql` selects at `now`, each read and typed once: the one
@@ -459,35 +354,29 @@ impl Raw {
             retry_after_seconds: self.retry_after.map(|retry| retry as u64),
             rounds: self.rounds as u64,
             recorded_at: time_of(self.recorded, self.seq)?,
+            probe: false,
         })
     }
 }
 
 /// The aggregate `provider` and `route` stand at, at `now`, or `None` when
-/// no row is in force: every unexpired row holds the lane, and the lane
-/// ends at the latest `until_at`.
+/// nothing holds them: every unexpired row and every standing probe hold
+/// holds the lane, and the lane ends at the latest `until_at`, the later
+/// row's words where two end together. It is [`in_force`]'s reading, the
+/// pass's and the claim's own, so an admitted run's wait, retry and probe
+/// admission judge a route exactly as the gates do, a standing hold
+/// included, whatever its stored end (fix round 0106b1r13, H1).
 fn aggregate(
     conn: &Connection,
     provider: &str,
     route: &str,
     now: i64,
 ) -> Result<Option<CooldownAggregate>, StoreError> {
-    let found: Option<(i64, i64, String)> = conn
-        .query_row(
-            "SELECT until_at, seq, reason FROM provider_cooldowns
-             WHERE provider = ?1 AND route = ?2 AND until_at > ?3
-             ORDER BY until_at DESC, seq DESC LIMIT 1",
-            params![provider, route, now],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()?;
-    let Some((until, seq, reason)) = found else {
-        return Ok(None);
-    };
-    Ok(Some(CooldownAggregate {
-        until: time_of(until, seq)?,
-        reason,
-    }))
+    let held = in_force(conn, now)?
+        .iter()
+        .filter(|row| row.provider == provider && row.route == route)
+        .fold(None, |held, row| Some(CooldownAggregate::joined(held, row)));
+    Ok(held)
 }
 
 /// A stored instant this reader can name, or the row's refusal: a whole
@@ -518,6 +407,38 @@ fn rounds(
     rows.into_iter().map(Raw::typed).collect()
 }
 
+/// One site's held rounds on an event, by round: version 7's kind, which
+/// the table's CHECK (`held_names_its_maximum`) ties to its maximum, so a
+/// present maximum is a held row. Only the version this binary writes holds
+/// the kind's columns; an older one holds no held row.
+fn held_rounds(
+    conn: &Connection,
+    run_id: &str,
+    event_seq: u64,
+    site: &str,
+) -> Result<BTreeMap<u64, Held>, StoreError> {
+    if !cool_downs_writable(conn)? {
+        return Ok(BTreeMap::new());
+    }
+    const HELD_ROUNDS: &str = "SELECT rounds, max_seconds FROM provider_cooldowns
+         WHERE run_id = ?1 AND event_seq = ?2 AND site = ?3 AND held = 1";
+    let mut statement = conn.prepare(HELD_ROUNDS)?;
+    let kinds = statement.query_map(params![run_id, event_seq as i64, site], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    kinds
+        .map(|kind| {
+            let (rounds, max) = kind?;
+            Ok((
+                rounds as u64,
+                Held {
+                    max_seconds: max as u64,
+                },
+            ))
+        })
+        .collect()
+}
+
 /// The event at `(run_id, event_seq)`, parsed, or `None`: a probe round is
 /// appended to an event that already landed, so the check reads it inside
 /// the transaction that writes the row.
@@ -540,12 +461,16 @@ fn event_at(
 
 impl Store {
     /// The aggregate `provider` and `route` stand at, at `now`: every
-    /// unexpired row is in force and the wait ends at the latest
-    /// `until_at` across them (decision 0103 ruling 2(a)). An expired row
-    /// is history and is never deleted; `None` is a route no row holds.
-    /// The queue's version is judged first: a version 1, 2 or 3 journal
-    /// holds no cool-down and answers `None`, and a version this binary
-    /// does not know refuses.
+    /// unexpired row and every standing probe hold is in force and the wait
+    /// ends at the latest `until_at` across them (decision 0103 ruling
+    /// 2(a)), or, while a hold stands, when a read finds it ended. An
+    /// expired row is history and is never deleted; `None` is a route
+    /// nothing holds. It reads [`Store::cooldowns_in_force`]'s rows, in one
+    /// snapshot that joins a caller's own, so the engine's wait, retry and
+    /// probe admission and the gates read one state (fix round 0106b1r13,
+    /// H1). The queue's version is judged first: a version 1, 2 or 3
+    /// journal holds no cool-down and answers `None`, and a version this
+    /// binary does not know refuses.
     pub fn cooldown(
         &self,
         provider: &str,
@@ -553,24 +478,30 @@ impl Store {
         now: OffsetDateTime,
     ) -> Result<Option<CooldownAggregate>, StoreError> {
         patiently("cooldown", self.patience, &self.path, || {
-            if cool_downs_held(&self.conn)? {
-                aggregate(&self.conn, provider, route, now.unix_timestamp())
-            } else {
-                Ok(None)
-            }
+            self.read_snapshot(|| {
+                if cool_downs_held(&self.conn)? {
+                    aggregate(&self.conn, provider, route, now.unix_timestamp())
+                } else {
+                    Ok(None)
+                }
+            })
         })
     }
 
     /// Every cool-down row in force at `now`, in the order it was written:
     /// the rows the claim's judge reads inside its transaction. The
-    /// queue's version is judged first, as [`Store::cooldown`] does.
+    /// queue's version is judged first, as [`Store::cooldown`] does. The
+    /// version, the rows and the probe holds are read in one snapshot,
+    /// which joins a caller's own (fix round 0106b1r5, H1).
     pub fn cooldowns_in_force(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_in_force", self.patience, &self.path, || {
-            if cool_downs_held(&self.conn)? {
-                in_force(&self.conn, now.unix_timestamp())
-            } else {
-                Ok(Vec::new())
-            }
+            self.read_snapshot(|| {
+                if cool_downs_held(&self.conn)? {
+                    in_force(&self.conn, now.unix_timestamp())
+                } else {
+                    Ok(Vec::new())
+                }
+            })
         })
     }
 
@@ -612,7 +543,7 @@ impl Store {
     pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_newest", self.patience, &self.path, || {
             if cool_downs_held(&self.conn)? {
-                newest(self, now.unix_timestamp())
+                readout::newest(self, now.unix_timestamp())
             } else {
                 Ok(Vec::new())
             }
@@ -640,6 +571,26 @@ impl Store {
         })
     }
 
+    /// One site's held rounds on a terminal event, by round, with the
+    /// maximum each passed (decision 0106 ruling 2): the rounds whose
+    /// interval the episode does not count and whose end a resume does not
+    /// sleep to. The version is judged as [`Store::cooldown_rounds`] judges
+    /// it; a queue older than version 7 holds no held row.
+    pub fn cooldown_held_rounds(
+        &self,
+        run_id: &str,
+        event_seq: u64,
+        site: &str,
+    ) -> Result<BTreeMap<u64, Held>, StoreError> {
+        patiently("cooldown_held_rounds", self.patience, &self.path, || {
+            if cool_downs_held(&self.conn)? {
+                held_rounds(&self.conn, run_id, event_seq, site)
+            } else {
+                Ok(BTreeMap::new())
+            }
+        })
+    }
+
     /// Append ONE probe round to its terminal event, in its own `Immediate`
     /// transaction (decision 0103 ruling 2(a), slice 4d2b). The queue must
     /// be version 4 (`NoTable` otherwise, and the engine parks as 4c does);
@@ -652,6 +603,29 @@ impl Store {
     pub fn append_cooldown_round(
         &mut self,
         round: CooldownRound<'_>,
+    ) -> Result<RoundAppend, StoreError> {
+        self.append_round(&round, None)
+    }
+
+    /// Append ONE probe's held round (decision 0106 ruling 2): the provider
+    /// stated a reset that alone passes the declared maximum `held` names.
+    /// The round is judged and written as [`Store::append_cooldown_round`]
+    /// writes an ordinary one, with version 7's kind on its row, so
+    /// admission holds the route to its end and the episode does not count
+    /// its interval.
+    pub fn append_held_round(
+        &mut self,
+        round: CooldownRound<'_>,
+        held: Held,
+    ) -> Result<RoundAppend, StoreError> {
+        self.append_round(&round, Some(held))
+    }
+
+    /// The one probe-round writer both appends share (0071 ruling 5).
+    fn append_round(
+        &mut self,
+        round: &CooldownRound<'_>,
+        held: Option<Held>,
     ) -> Result<RoundAppend, StoreError> {
         patiently("append_cooldown_round", self.patience, &self.path, || {
             let tx = self
@@ -710,6 +684,19 @@ impl Store {
             // bounds (decision 0071 ruling 5, one home for the length).
             let until = until_second(round.until_at);
             let recorded = until.saturating_sub(i64::try_from(round.seconds).unwrap_or(i64::MAX));
+            // The hold ends only over the renewed row the table wrote (fix
+            // round 0106b1r5, H3): a row it did not write refuses, and the
+            // dropped transaction rolls back, leaving the hold standing.
+            let unwritten = || {
+                let mismatch = super::CooldownRoundMismatch {
+                    run_id: round.run_id.to_string(),
+                    event_seq: round.event_seq,
+                    site: round.site.to_string(),
+                    rounds: round.rounds,
+                    standing,
+                };
+                QueueRefusal::CooldownRoundUnwritten(Box::new(mismatch))
+            };
             insert_row(
                 &tx,
                 &StoredRow {
@@ -723,8 +710,11 @@ impl Store {
                     retry_after_seconds: round.retry_after_seconds,
                     rounds: round.rounds,
                     recorded,
+                    held,
                 },
+                unwritten,
             )?;
+            hold::ended(&tx, round.ends, recorded)?;
             tx.commit()?;
             Ok(RoundAppend::Written)
         })

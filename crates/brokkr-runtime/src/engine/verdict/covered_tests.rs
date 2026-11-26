@@ -552,6 +552,11 @@ fn a_work_steps_record_carrying_a_head_refuses() {
 /// journaled, even from a gate whose success the engine would stamp.
 #[test]
 fn a_seat_supplied_covered_or_follow_ups_fails_the_attempt() {
+    if !crate::engine::tests::in_its_own_engine(
+        "engine::verdict::covered_tests::a_seat_supplied_covered_or_follow_ups_fails_the_attempt",
+    ) {
+        return;
+    }
     let head = json!({"kind": "head", "head": "0".repeat(40), "dirty": false});
     let checked = json!("0".repeat(40));
     for (field, value) in [

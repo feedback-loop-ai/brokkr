@@ -45,7 +45,16 @@ fn row(site: &str, provider: &str, route: &str, until: OffsetDateTime) -> Coolin
         reason: "rate_limit: slow down".into(),
         retry_after_seconds: Some(30),
         rounds: 1,
+        held: None,
     }
+}
+
+/// The aggregate of ordinary rows only, ending at `until` with `reason`.
+fn ordinary_at(until: OffsetDateTime, reason: &str) -> CooldownAggregate {
+    CooldownAggregate::Ordinary(RowEnd {
+        until,
+        reason: reason.into(),
+    })
 }
 
 /// A row of `route` whose words name it, so an aggregate's choice reads
@@ -59,6 +68,31 @@ fn named(site: &str, route: &str, until: OffsetDateTime, reason: &str, rounds: u
         reason: reason.into(),
         retry_after_seconds: None,
         rounds,
+        held: None,
+    }
+}
+
+/// The terminal event `insert` writes rows for: `run`'s event `seq`,
+/// recorded at `recorded`, carrying `payload`.
+fn recorded_at(
+    run: &str,
+    seq: u64,
+    recorded: &str,
+    payload: serde_json::Value,
+) -> brokkr_core::EventEnvelope {
+    brokkr_core::EventEnvelope {
+        run_id: run.into(),
+        seq,
+        event_id: String::new(),
+        event_schema_version: brokkr_core::envelope::EVENT_SCHEMA_VERSION,
+        event_type: EventType::EffectFailed,
+        payload,
+        causation_id: None,
+        correlation_id: run.into(),
+        attempt_id: None,
+        recorded_at: recorded.into(),
+        previous_hash: String::new(),
+        event_hash: String::new(),
     }
 }
 
@@ -68,6 +102,11 @@ fn append(
     run: &str,
     rows: &[Cooling],
 ) -> Result<brokkr_core::EventEnvelope, StoreError> {
+    landed(store, run, rows).map(|landed| landed.envelope)
+}
+
+/// [`append`], with the store's evidence of the rows that landed.
+fn landed(store: &mut Store, run: &str, rows: &[Cooling]) -> Result<crate::Landed, StoreError> {
     store.append_with_cooldowns(
         crate::CooldownAppend {
             run_id: run,
@@ -674,10 +713,7 @@ fn two_overlapping_refusals_aggregate_to_the_later_end() {
     );
     assert_eq!(
         store.cooldown("claude", "first", at(0)).unwrap(),
-        Some(CooldownAggregate {
-            until: at(30),
-            reason: "the earlier, longer".into(),
-        })
+        Some(ordinary_at(at(30), "the earlier, longer"))
     );
     // An expired row is history: neither holds, and neither is deleted.
     assert_eq!(store.cooldown("claude", "first", at(30)).unwrap(), None);
@@ -786,10 +822,7 @@ fn a_wait_is_not_shortened_by_its_rounding() {
     let now = at(10) + Duration::milliseconds(500);
     assert_eq!(
         store.cooldown("claude", "first", now).unwrap(),
-        Some(CooldownAggregate {
-            until: at(11),
-            reason: "rate_limit: slow down".into(),
-        })
+        Some(ordinary_at(at(11), "rate_limit: slow down"))
     );
     assert_eq!(store.cooldowns_in_force(now).unwrap().len(), 1);
     // The rounding lengthens the wait by under a second, never past it.
@@ -809,9 +842,7 @@ fn a_wait_ending_inside_its_recording_second_writes_its_row() {
     .unwrap();
     insert(
         &store.conn,
-        "run-a",
-        1,
-        "2026-11-01T00:00:00Z",
+        &recorded_at("run-a", 1, "2026-11-01T00:00:00Z", serde_json::json!({})),
         &[row("a", "claude", "first", until)],
     )
     .unwrap();
@@ -840,10 +871,7 @@ fn a_wait_in_the_last_second_is_stored_at_the_last_second() {
     assert_eq!(rows[0].until_at, last);
     assert_eq!(
         store.cooldown("claude", "first", at(0)).unwrap(),
-        Some(CooldownAggregate {
-            until: last,
-            reason: "rate_limit: slow down".into(),
-        })
+        Some(ordinary_at(last, "rate_limit: slow down"))
     );
 }
 
@@ -892,7 +920,7 @@ fn a_cool_down_reader_refuses_an_unknown_queue_version() {
     ] {
         assert_eq!(
             error.to_string(),
-            "queue storage 9 unsupported (want 6)",
+            "queue storage 9 unsupported (want 7)",
             "{error:?}"
         );
         assert!(matches!(
@@ -1013,6 +1041,7 @@ fn append_waited(
             &[named("a", "first", until, "rate_limit: slow down", 1)],
         )
         .unwrap()
+        .envelope
 }
 
 /// A journal with one waited terminal event for run-a, ready for a probe
@@ -1042,6 +1071,7 @@ fn next_round<'a>(
         retry_after_seconds: Some(30),
         rounds,
         seconds: 60,
+        ends: None,
     }
 }
 
@@ -1326,4 +1356,5 @@ fn the_rounds_read_refuses_a_time_it_cannot_spell() {
     ));
 }
 
+mod held;
 mod newest;
