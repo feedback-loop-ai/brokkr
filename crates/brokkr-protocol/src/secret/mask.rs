@@ -175,6 +175,7 @@ pub(crate) fn mask_split(
 /// split across two read buffers still matches without buffering whole files.
 pub(crate) struct SecretMatcher {
     needles: Vec<NeedleState>,
+    matched: bool,
 }
 
 struct NeedleState {
@@ -188,6 +189,7 @@ impl SecretMatcher {
         if bindings.is_empty() {
             return Self {
                 needles: Vec::new(),
+                matched: false,
             };
         }
         let encodings = projected_encodings();
@@ -207,18 +209,26 @@ impl SecretMatcher {
                 }
             })
             .collect();
-        Self { needles }
+        Self {
+            needles,
+            matched: false,
+        }
     }
 
     pub(crate) fn reset(&mut self) {
+        self.matched = false;
         for state in &mut self.needles {
             state.matched = 0;
         }
     }
 
     /// Feed the next chunk of bytes from the current file. Returns `true` as
-    /// soon as any bound needle matches across the bytes fed since [`Self::reset`].
+    /// soon as any bound needle matches across the bytes fed since [`Self::reset`],
+    /// and continues returning `true` on later feeds until [`Self::reset`].
     pub(crate) fn feed(&mut self, bytes: &[u8]) -> bool {
+        if self.matched {
+            return true;
+        }
         if self.needles.is_empty() {
             return false;
         }
@@ -226,6 +236,7 @@ impl SecretMatcher {
             for state in &mut self.needles {
                 state.matched = advance(&state.needle, &state.border, state.matched, byte);
                 if state.matched == state.needle.len() {
+                    self.matched = true;
                     return true;
                 }
             }

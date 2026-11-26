@@ -655,6 +655,7 @@ fn invoke(
         }
     })?;
     let conversation = fold.take_conversation();
+    let pin_confirmed = fold.pinned();
     let Concluded {
         mut outcome,
         began_work,
@@ -678,6 +679,7 @@ fn invoke(
             },
             probe,
             refused_to_start,
+            pin_confirmed,
             conversation: &conversation,
             harness_version: harness_version.as_deref(),
             engine_home: Path::new(home.path()),

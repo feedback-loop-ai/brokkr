@@ -15,7 +15,8 @@ Changes merged since v0.16.1 that the next release's notes carry.
   bound secret value appeared in the conversation) and records a
   `harness-started` checkpoint with `root_session` (`kind: "agy-conversation"`,
   the conversation UUID, the version from `agy --version`, and
-  `persistent: true` only when kept whole). Probes, gate seats, turns without a
-  UUID, and undeclared seats are unchanged, and every offered session is still
+  `persistent: true` only when kept whole). Probes, gate seats, turns whose
+  `init` did not confirm the pinned model, turns without a UUID, and undeclared
+  seats are unchanged, and every offered session is still
   refused before launch because `--conversation` rejoin is not built yet
   ([provider adapters](../guides/provider-adapters.md#antigravity-cli-a-trusted-harness)).

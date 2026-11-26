@@ -922,8 +922,9 @@ recordable version or masking would rewrite the row). Because the conversation
 database cannot be masked and still be read by `agy`, a conversation in which a
 bound secret value appeared is not kept for rejoin (`persistent: false`) while
 the kept transcript's own rule stays unaffected. Probes, gate seats,
-undeclared seats, turns with no conversation id, and turns with a non-UUID id
-keep no rejoin state and emit no `root_session`.
+undeclared seats, turns whose `init` row did not confirm the seat's pinned
+model, turns with no conversation id, and turns with a non-UUID id keep no
+rejoin state and emit no `root_session`.
 
 Because the driver and the engine are two processes, the driver can only keep
 nothing in the cases it can see. Those are: a probe (unchanged from main:

@@ -174,6 +174,10 @@ fn secret_matcher_detects_raw_json_escaped_and_split_chunks_and_resets() {
 
     matcher.reset();
     assert!(matcher.feed(br#"{"out":"tok\"en\\val-99"}"#));
+    assert!(matcher.feed(b"trailing bytes after match without reset"));
+    assert!(matcher.feed(b""));
+    matcher.reset();
+    assert!(!matcher.feed(b"clean after reset"));
 }
 
 #[test]
@@ -857,13 +861,15 @@ fn rollback_refuses_replaced_created_directory() {
     let mut replaced_id = None;
     let mut rollback = RejoinRollback::begin(parent_fd);
     assert_eq!(
-        rollback.create_dir_with(0, OsStr::new(UUID), || {
-            std::fs::rename(&target_dir, &moved_dir).unwrap();
-            std::fs::create_dir(&target_dir).unwrap();
-            std::fs::write(&sentinel, b"owner").unwrap();
-            let meta = std::fs::symlink_metadata(&target_dir).unwrap();
-            replaced_id = Some((meta.dev(), meta.ino()));
-        }),
+        rollback
+            .create_root_dir_with(OsStr::new(UUID), || {
+                std::fs::rename(&target_dir, &moved_dir).unwrap();
+                std::fs::create_dir(&target_dir).unwrap();
+                std::fs::write(&sentinel, b"owner").unwrap();
+                let meta = std::fs::symlink_metadata(&target_dir).unwrap();
+                replaced_id = Some((meta.dev(), meta.ino()));
+            })
+            .map(|_| ()),
         Err(RejoinNotice::Parent(ParentError::ReplacedDirectory))
     );
     drop(rollback);
@@ -871,6 +877,41 @@ fn rollback_refuses_replaced_created_directory() {
     let after = std::fs::symlink_metadata(&target_dir).unwrap();
     assert_eq!(Some((after.dev(), after.ino())), replaced_id);
     assert_eq!(std::fs::read(&sentinel).unwrap(), b"owner");
+
+    // Mechanism (m4) on nested rollback descent: if a created subdirectory is
+    // replaced before Drop, rollback skips descending into the replacement.
+    let nested_op = dir.path().join("op-nested-swap");
+    let nested_parent = kept_parent(&nested_op);
+    let nested_fd = agy_keep::owned_parent_raw(&nested_parent).unwrap();
+    let mut nested = RejoinRollback::begin(nested_fd);
+    let (conv_fd, conv_node) = nested
+        .create_root_dir_with(OsStr::new(UUID), || {})
+        .unwrap();
+    let (sub_fd, sub_node) = nested
+        .create_dir(
+            std::os::fd::AsFd::as_fd(&conv_fd),
+            conv_node,
+            OsStr::new("rejoin"),
+        )
+        .unwrap();
+    let file_fd = nested
+        .create_file(
+            std::os::fd::AsFd::as_fd(&sub_fd),
+            sub_node,
+            OsStr::new("conversation.db"),
+        )
+        .unwrap();
+    drop((file_fd, sub_fd, conv_fd));
+    let created_rejoin = nested_parent.join(UUID).join("rejoin");
+    let moved_rejoin = dir.path().join("moved-rejoin");
+    std::fs::rename(&created_rejoin, &moved_rejoin).unwrap();
+    std::fs::create_dir(&created_rejoin).unwrap();
+    std::fs::write(created_rejoin.join("conversation.db"), b"keep-replaced").unwrap();
+    drop(nested);
+    assert_eq!(
+        std::fs::read(created_rejoin.join("conversation.db")).unwrap(),
+        b"keep-replaced"
+    );
 }
 
 #[test]
@@ -935,6 +976,7 @@ fn version_observer_and_refused_to_start_bind() {
             },
             probe: false,
             refused_to_start: true,
+            pin_confirmed: true,
             conversation: &conv,
             harness_version: Some("1.5.14"),
             engine_home: vdir.path(),
@@ -1277,12 +1319,76 @@ fn version_probe_applies_sealed_removals_and_readmits_workspace_before_launch() 
     assert!(!any_marker.exists(), "--version must not spawn");
 }
 
-fn run_before_open_case(
-    engine: &Path,
-    op: &Path,
-    conv: &Path,
-    trigger_name: &OsStr,
+fn make_fifo(path: &Path) {
+    use std::ffi::CString;
+    let cpath = CString::new(path.as_os_str().as_bytes()).unwrap();
+    let rc = unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) };
+    assert_eq!(rc, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+}
+
+fn stamp_earlier(path: &Path) {
+    let f = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    f.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000))
+        .unwrap();
+}
+
+#[test]
+fn file_opened_once_copies_opened_handle_and_catches_later_replacement() {
+    let dir = tempfile::tempdir().unwrap();
+    let scratch = dir.path().join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+
+    // Changes BEFORE the single open are what gets opened and copied
+    // (no prior name-based classification exists).
+    {
+        let (_d, engine, op, conv) =
+            setup_planted_with_transcript(b"db-before", &[("a.txt", b"before")], b"keep-me");
+        let db_path = engine
+            .join(".gemini/antigravity-cli/conversations")
+            .join(format!("{UUID}.db"));
+        let db_name = OsString::from(format!("{UUID}.db"));
+        let brain_file = engine
+            .join(".gemini/antigravity-cli/brain")
+            .join(UUID)
+            .join("a.txt");
+        let (mut fired_db, mut fired_a) = (false, false);
+        keep_rejoin_with(
+            UUID,
+            &engine,
+            Some(&op),
+            &[],
+            true,
+            RejoinCaps::DEFAULT,
+            &mut |point| {
+                if point == CopyPoint::OpenEntry(db_name.as_os_str()) && !fired_db {
+                    fired_db = true;
+                    std::fs::rename(&db_path, scratch.join("before-open-db")).unwrap();
+                    std::fs::write(&db_path, b"db-after-open").unwrap();
+                } else if point == CopyPoint::OpenEntry(OsStr::new("a.txt")) && !fired_a {
+                    fired_a = true;
+                    std::fs::write(&brain_file, b"after-open").unwrap();
+                }
+            },
+        )
+        .unwrap();
+        assert!(fired_db && fired_a);
+        assert_eq!(
+            std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
+            b"db-after-open"
+        );
+        assert_eq!(
+            std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_BRAIN_DIR).join("a.txt")).unwrap(),
+            b"after-open"
+        );
+    }
+}
+
+fn assert_refused_rejoin(
+    (engine, op, conv): (&Path, &Path, &Path),
+    bindings: &[crate::secret::BoundSecret],
+    trigger: CopyPoint<'_>,
     expected: RejoinNotice,
+    label: &str,
     mut mutate: impl FnMut(),
 ) {
     let mut fired = false;
@@ -1290,74 +1396,97 @@ fn run_before_open_case(
         UUID,
         engine,
         Some(op),
-        &[],
+        bindings,
         true,
         RejoinCaps::DEFAULT,
         &mut |point| {
-            if point == CopyPoint::OpenFile(trigger_name) && !fired {
+            if point == trigger && !fired {
                 fired = true;
                 mutate();
             }
         },
     );
-    assert!(fired);
-    assert_eq!(res, Err(expected));
-    assert!(!conv.join(REJOIN_DIR).exists());
+    assert!(fired, "{label}");
+    assert_eq!(res, Err(expected), "{label}");
+    assert!(!conv.join(REJOIN_DIR).exists(), "{label}");
+    assert_eq!(
+        std::fs::read(conv.join("transcript.jsonl")).unwrap(),
+        b"keep-me",
+        "{label}"
+    );
 }
 
 #[test]
-fn file_replaced_after_classification_is_refused_and_rolled_back() {
-    let (_dir, engine, op, conv) =
-        setup_planted_with_transcript(b"db12", &[("a.txt", b"hello")], b"keep-me");
-    let brain_file = engine
-        .join(".gemini/antigravity-cli/brain")
-        .join(UUID)
-        .join("a.txt");
+fn unsafe_before_open_and_replacement_after_open_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let scratch = dir.path().join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
 
-    run_before_open_case(
-        &engine,
-        &op,
-        &conv,
-        OsStr::new("a.txt"),
-        RejoinNotice::ChangedUnderfoot,
-        || {
-            std::fs::remove_file(&brain_file).unwrap();
-            std::fs::write(&brain_file, b"hello").unwrap();
-        },
-    );
-    run_before_open_case(
-        &engine,
-        &op,
-        &conv,
-        OsStr::new("a.txt"),
-        RejoinNotice::Source(SourceErrno::Unsafe),
-        || {
-            std::fs::remove_file(&brain_file).unwrap();
-            std::fs::create_dir(&brain_file).unwrap();
-        },
-    );
-    std::fs::remove_dir(&brain_file).unwrap();
-    std::fs::write(&brain_file, b"hello").unwrap();
+    // Unsafe replacement before the single open (FIFO in brain, directory at db)
+    // is refused by fstat on the opened handle without blocking or leaking.
+    {
+        let (_d, engine, op, conv) =
+            setup_planted_with_transcript(b"db12", &[("a.txt", b"hello")], b"keep-me");
+        let brain_file = engine
+            .join(".gemini/antigravity-cli/brain")
+            .join(UUID)
+            .join("a.txt");
+        assert_refused_rejoin(
+            (&engine, &op, &conv),
+            &[],
+            CopyPoint::OpenEntry(OsStr::new("a.txt")),
+            RejoinNotice::Source(SourceErrno::Unsafe),
+            "fifo-before-open",
+            || {
+                std::fs::remove_file(&brain_file).unwrap();
+                make_fifo(&brain_file);
+            },
+        );
+    }
+    {
+        let (_d, engine, op, conv) =
+            setup_planted_with_transcript(b"db12", &[("a.txt", b"hello")], b"keep-me");
+        let db_path = engine
+            .join(".gemini/antigravity-cli/conversations")
+            .join(format!("{UUID}.db"));
+        let db_name = OsString::from(format!("{UUID}.db"));
+        assert_refused_rejoin(
+            (&engine, &op, &conv),
+            &[],
+            CopyPoint::OpenEntry(db_name.as_os_str()),
+            RejoinNotice::Source(SourceErrno::Unsafe),
+            "dir-db-before-open",
+            || {
+                std::fs::remove_file(&db_path).unwrap();
+                std::fs::create_dir(&db_path).unwrap();
+            },
+        );
+    }
 
-    let db_path = engine
-        .join(".gemini/antigravity-cli/conversations")
-        .join(format!("{UUID}.db"));
-    let db_name = OsString::from(format!("{UUID}.db"));
-    run_before_open_case(
-        &engine,
-        &op,
-        &conv,
-        db_name.as_os_str(),
-        RejoinNotice::ChangedUnderfoot,
-        || {
-            std::fs::remove_file(&db_path).unwrap();
-            std::fs::write(&db_path, b"db12").unwrap();
-        },
-    );
-    assert_eq!(
-        std::fs::read(conv.join("transcript.jsonl")).unwrap(),
-        b"keep-me"
-    );
+    // Replacement AFTER open (before final proof): rename the old file into
+    // scratch so its inode stays allocated and no filesystem can reuse it;
+    // also test replacement by a directory (FileType mismatch in same_stamp).
+    for (label, replace_with_dir) in [("replaced-regular", false), ("replaced-dir", true)] {
+        let (_d, engine, op, conv) =
+            setup_planted_with_transcript(b"db12", &[("a.txt", b"hello")], b"keep-me");
+        let kept_old = scratch.join(format!("pinned-{label}"));
+        let brain_file = engine.join(format!(".gemini/antigravity-cli/brain/{UUID}/a.txt"));
+        assert_refused_rejoin(
+            (&engine, &op, &conv),
+            &[],
+            CopyPoint::FinalVerify,
+            RejoinNotice::ChangedUnderfoot,
+            label,
+            || {
+                std::fs::rename(&brain_file, &kept_old).unwrap();
+                if replace_with_dir {
+                    std::fs::create_dir(&brain_file).unwrap();
+                } else {
+                    std::fs::write(&brain_file, b"hello").unwrap();
+                }
+            },
+        );
+    }
 }
 
 type DirMutator = fn(&Path, &Path);
@@ -1372,53 +1501,29 @@ fn swap_sub(brain: &Path, scratch: &Path) {
 #[test]
 fn source_directory_substituted_removed_or_added_during_walk_refuses_and_rolls_back() {
     let dir = tempfile::tempdir().unwrap();
-    let cases: [(&str, CopyPoint<'static>, DirMutator); 7] = [
-        (
-            "substitute-before-open",
-            CopyPoint::OpenDir(OsStr::new("sub")),
-            swap_sub,
-        ),
-        (
-            "substitute-subtree",
-            CopyPoint::VerifyDir(OsStr::new("sub")),
-            swap_sub,
-        ),
-        (
-            "remove-subtree",
-            CopyPoint::VerifyDir(OsStr::new("sub")),
-            |b, _| {
-                std::fs::remove_dir_all(b.join("sub")).unwrap();
-            },
-        ),
-        (
-            "add-entry",
-            CopyPoint::VerifyDir(OsStr::new("sub")),
-            |b, _| {
-                std::fs::write(b.join("sub/extra.txt"), b"new").unwrap();
-            },
-        ),
-        (
-            "remove-entry",
-            CopyPoint::VerifyDir(OsStr::new("sub")),
-            |b, _| {
-                std::fs::remove_file(b.join("sub/file.txt")).unwrap();
-            },
-        ),
-        (
-            "rename-entry",
-            CopyPoint::VerifyDir(OsStr::new("sub")),
-            |b, _| {
-                std::fs::rename(b.join("sub/file.txt"), b.join("sub/other.txt")).unwrap();
-            },
-        ),
-        (
-            "substitute-member-in-parent",
-            CopyPoint::VerifyDir(OsStr::new(UUID)),
-            swap_sub,
-        ),
+    let cases: [(&str, DirMutator); 6] = [
+        ("substitute-subtree", swap_sub),
+        ("remove-subtree", |b, _| {
+            std::fs::remove_dir_all(b.join("sub")).unwrap();
+        }),
+        ("add-entry", |b, _| {
+            std::fs::write(b.join("sub/extra.txt"), b"new").unwrap();
+        }),
+        ("remove-entry", |b, _| {
+            std::fs::remove_file(b.join("sub/file.txt")).unwrap();
+        }),
+        ("rename-entry", |b, _| {
+            std::fs::rename(b.join("sub/file.txt"), b.join("sub/other.txt")).unwrap();
+        }),
+        ("substitute-brain-root", |b, s| {
+            std::fs::rename(b, s.join("moved-brain")).unwrap();
+            std::fs::create_dir_all(b.join("sub")).unwrap();
+            std::fs::write(b.join("sub/file.txt"), b"ok").unwrap();
+            std::fs::write(b.join("keep.txt"), b"ok").unwrap();
+        }),
     ];
 
-    for (label, trigger, mutate) in cases {
+    for (label, mutate) in cases {
         let root = dir.path().join(label);
         let (engine, op, scratch) = (root.join("eng"), root.join("op"), root.join("tmp"));
         std::fs::create_dir_all(&scratch).unwrap();
@@ -1428,32 +1533,184 @@ fn source_directory_substituted_removed_or_added_during_walk_refuses_and_rolls_b
             b"db",
             &[("sub/file.txt", b"ok"), ("keep.txt", b"ok")],
         );
-        let conv = prep_kept_transcript(&op, UUID, b"keep-transcript");
+        let conv = prep_kept_transcript(&op, UUID, b"keep-me");
         let brain = engine.join(".gemini/antigravity-cli/brain").join(UUID);
-        let mut fired = false;
-        let res = keep_rejoin_with(
-            UUID,
-            &engine,
-            Some(&op),
+        assert_refused_rejoin(
+            (&engine, &op, &conv),
             &[],
-            true,
-            RejoinCaps::DEFAULT,
-            &mut |point| {
-                if point == trigger && !fired {
-                    fired = true;
-                    mutate(&brain, &scratch);
-                }
-            },
-        );
-        assert!(fired, "{label}");
-        assert_eq!(res, Err(RejoinNotice::ChangedUnderfoot), "{label}");
-        assert!(!conv.join(REJOIN_DIR).exists(), "{label}");
-        assert_eq!(
-            std::fs::read(conv.join("transcript.jsonl")).unwrap(),
-            b"keep-transcript",
-            "{label}"
+            CopyPoint::FinalVerify,
+            RejoinNotice::ChangedUnderfoot,
+            label,
+            || mutate(&brain, &scratch),
         );
     }
+}
+
+#[test]
+fn final_proof_catches_changes_after_subtree_left_and_database_rewrite() {
+    type WholeCase = (
+        &'static str,
+        Option<(&'static str, &'static str)>,
+        fn(&Path, &Path),
+    );
+    let cases: [WholeCase; 5] = [
+        ("nested-entry-removed", None, |brain, _| {
+            std::fs::remove_file(brain.join("sub/deep/file.txt")).unwrap();
+        }),
+        ("nested-entry-added", None, |brain, _| {
+            std::fs::write(brain.join("sub/deep/added.txt"), b"late").unwrap();
+        }),
+        (
+            "nested-entry-added-with-bound-value",
+            Some(("LATE_SECRET", "late-bound-secret-99")),
+            |brain, _| {
+                std::fs::write(brain.join("sub/deep/leak.txt"), b"late-bound-secret-99").unwrap();
+            },
+        ),
+        ("nested-file-rewritten-in-place", None, |brain, _| {
+            std::fs::write(brain.join("sub/deep/file.txt"), b"xxxx").unwrap();
+        }),
+        ("database-rewritten-in-place", None, |_, db| {
+            std::fs::write(db, b"db99").unwrap();
+        }),
+    ];
+
+    for (label, secret_binding, mutate) in cases {
+        let (_dir, engine, op, conv) = setup_planted_with_transcript(
+            b"db12",
+            &[("sub/deep/file.txt", b"orig"), ("other.txt", b"keep")],
+            b"keep-me",
+        );
+        let brain = engine.join(".gemini/antigravity-cli/brain").join(UUID);
+        let db = engine
+            .join(".gemini/antigravity-cli/conversations")
+            .join(format!("{UUID}.db"));
+        stamp_earlier(&brain.join("sub/deep/file.txt"));
+        stamp_earlier(&db);
+        let bindings: Vec<_> = secret_binding
+            .map(|(k, v)| bound(k, v))
+            .into_iter()
+            .collect();
+        assert_refused_rejoin(
+            (&engine, &op, &conv),
+            &bindings,
+            CopyPoint::FinalVerify,
+            RejoinNotice::ChangedUnderfoot,
+            label,
+            || mutate(&brain, &db),
+        );
+    }
+}
+
+#[test]
+fn root_session_requires_confirmed_model_pin_even_on_turn_error() {
+    let err_res = r#"{"event":"result","result":{"status":"ERROR","error":"turn failed"}}"#;
+
+    // Init naming another model then an error -> no rejoin state, no root_session.
+    let wrong_stdout = format!("{}\n{err_res}\n", init_line(UUID, "other-model"));
+    let (w_wrong, _, m_wrong) =
+        run_declared_work(("1.5.14\n", 0), Some(b"sqlite-db"), None, &wrong_stdout);
+    assert!(!conv_dir(w_wrong.operator_home(), UUID)
+        .join(REJOIN_DIR)
+        .exists());
+    assert_no_root_session(&m_wrong);
+    drop(w_wrong);
+
+    // Init with no model then an error -> no rejoin state, no root_session.
+    let no_model_stdout = format!(r#"{{"event":"init","conversation_id":"{UUID}","init":{{}}}}"#)
+        + "\n"
+        + err_res
+        + "\n";
+    let (w_none, _, m_none) =
+        run_declared_work(("1.5.14\n", 0), Some(b"sqlite-db"), None, &no_model_stdout);
+    assert!(!conv_dir(w_none.operator_home(), UUID)
+        .join(REJOIN_DIR)
+        .exists());
+    assert_no_root_session(&m_none);
+    drop(w_none);
+
+    // Init confirming the pin then an error -> rejoin state IS kept and
+    // root_session is recorded persistent: true (failed/killed pinned turns
+    // are rejoinable).
+    let ok_init_err = format!("{}\n{err_res}\n", init_line(UUID, FLASH));
+    let (w_pin, _, m_pin) =
+        run_declared_work(("1.5.14\n", 0), Some(b"sqlite-db"), None, &ok_init_err);
+    let conv_pin = conv_dir(w_pin.operator_home(), UUID);
+    assert!(conv_pin.join(REJOIN_DIR).join(REJOIN_DB_FILE).exists());
+    assert!(conv_pin
+        .join(REJOIN_DIR)
+        .join(REJOIN_BRAIN_DIR)
+        .join(".system_generated/steps/1/output.txt")
+        .exists());
+    let started = harness_started(&m_pin).expect("harness-started on pinned error turn");
+    assert_eq!(
+        started["root_session"],
+        json!({"kind": "agy-conversation", "id": UUID, "harness_version": "1.5.14", "persistent": true})
+    );
+    assert_eq!(started["transcript"]["locator"], UUID);
+}
+
+#[test]
+fn keep_and_rollback_many_step_directories_under_low_nofile_limit() {
+    if !crate::process::in_its_own_engine(
+        "adapters::agy::tests::rejoin::keep_and_rollback_many_step_directories_under_low_nofile_limit",
+    ) {
+        return;
+    }
+    let mut limit = rustix::process::getrlimit(rustix::process::Resource::Nofile);
+    limit.current = Some(256);
+    rustix::process::setrlimit(rustix::process::Resource::Nofile, limit).unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let engine = dir.path().join("engine");
+    let step_paths: Vec<String> = (1..=300)
+        .map(|i| format!(".system_generated/steps/{i}/output.txt"))
+        .collect();
+    let files: Vec<(&str, &[u8])> = step_paths
+        .iter()
+        .map(|p| (p.as_str(), b"step".as_slice()))
+        .collect();
+    plant_conversation(&engine, UUID, b"sqlite-db", &files);
+
+    let op_ok = dir.path().join("op-ok");
+    std::fs::create_dir_all(&op_ok).unwrap();
+    keep_rejoin(UUID, &engine, Some(&op_ok), &[], false, RejoinCaps::DEFAULT).unwrap();
+    let kept_brain = conv_dir(&op_ok, UUID)
+        .join(REJOIN_DIR)
+        .join(REJOIN_BRAIN_DIR);
+    assert_eq!(
+        std::fs::read(kept_brain.join(".system_generated/steps/1/output.txt")).unwrap(),
+        b"step"
+    );
+    assert_eq!(
+        std::fs::read(kept_brain.join(".system_generated/steps/300/output.txt")).unwrap(),
+        b"step"
+    );
+
+    let op_rb = dir.path().join("op-rb");
+    std::fs::create_dir_all(&op_rb).unwrap();
+    let last_step = engine
+        .join(".gemini/antigravity-cli/brain")
+        .join(UUID)
+        .join(".system_generated/steps/300/output.txt");
+    let mut fired = false;
+    let res = keep_rejoin_with(
+        UUID,
+        &engine,
+        Some(&op_rb),
+        &[],
+        false,
+        RejoinCaps::DEFAULT,
+        &mut |point| {
+            if point == CopyPoint::FinalVerify && !fired {
+                fired = true;
+                std::fs::write(&last_step, b"step-mutated").unwrap();
+            }
+        },
+    );
+    assert!(fired);
+    assert_eq!(res, Err(RejoinNotice::ChangedUnderfoot));
+    assert!(!conv_dir(&op_rb, UUID).exists());
 }
 
 #[test]

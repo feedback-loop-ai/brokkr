@@ -535,20 +535,21 @@ addendum (`#1227`, decision 0075 level 2, slice 1 of 2; launch is slice 2).
   entries (charging `conversation.db`, the `brain/<id>/` root, and each brain
   entry as it is met during traversal), and 16 directory levels under
   `brain/<id>/` (4× the measured lab depth of 4). Every source path component
-  is opened from its parent handle with `O_NOFOLLOW`; only directories and
-  regular files are copied, every opened file is verified by file type and
-  `(st_dev, st_ino)` against its classification before reading, and every
-  directory's identity and membership are re-checked after its entries are
-  copied. Over any bound, or if the brain is empty or any part is missing,
-  unreadable, not a regular file, or changed underfoot (checked via
-  `(st_dev, st_ino)`, size, and mtime across each file copy and directory
-  identity and membership across the walk), nothing is kept for rejoin and
-  every created rejoin file and directory is removed in reverse order through
-  `unlink_if_same`, leaving any kept `transcript.jsonl` untouched. What the
-  keeper cannot see on the source is a change that restores the same identity
-  and content between two checks.
+  is opened once from its parent handle with `O_NOFOLLOW` and classified by
+  `fstat` on that handle rather than by name; only directories and regular
+  files are copied, each regular file is read from the handle that was
+  classified, and after the last entry is copied (before publishing) one final
+  proof re-checks the whole source — the database and, under the brain, every
+  directory's membership and every entry's type, size, `(st_dev, st_ino)`, and
+  modification time to the depth walked. Over any bound, or if the brain is
+  empty or any part is missing, unreadable, not a regular file, or changed
+  underfoot, nothing is kept for rejoin and every created rejoin file and
+  directory is removed in reverse order through `unlink_if_same`, leaving any
+  kept `transcript.jsonl` untouched. What even this final proof cannot see is a
+  change undone before the final proof runs.
 - **Root session and `persistent`.** For a declaring work turn that did not
-  refuse to start and named a lowercase UUID conversation id, the driver asks
+  refuse to start, whose `init` row confirmed the seat's pinned model, and that
+  named a lowercase UUID conversation id, the driver asks
   the launched binary for its version via `agy --version` under the engine HOME
   and `AGY_CLI_DISABLE_AUTO_UPDATE=true` (decision 0124), parsing stdout with
   the same version-token rule the other built-in drivers share. When a
@@ -563,8 +564,9 @@ addendum (`#1227`, decision 0075 level 2, slice 1 of 2; launch is slice 2).
   `root_session` is recorded and no rejoin state is kept, matching the other
   built-in drivers' rule.
 - **Unchanged non-keeping seats and still no rejoin offer.** Probes, gate
-  seats, adapterless or undeclared seats, turns with no conversation id, and
-  turns with a non-UUID id keep no rejoin state and emit no `root_session`,
+  seats, adapterless or undeclared seats, turns whose `init` row did not
+  confirm the seat's pinned model, turns with no conversation id, and turns with
+  a non-UUID id keep no rejoin state and emit no `root_session`,
   recording what they recorded before. `docs/examples/adapters/agy.json`
   declares `record_kinds.root_session: "agy-conversation"` and
   `resume_shape: "stream-work-site"` while keeping `stream-work-site` at
