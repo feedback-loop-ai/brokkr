@@ -1722,55 +1722,6 @@ fn inherited_oracle(cwd: &Path, name: &str, path: Option<&str>, marks: &Path) ->
     }
 }
 
-/// R2 (run `09ec8d81`). Apple's absent-`PATH` search is `_PATH_DEFPATH`,
-/// `/usr/bin:/bin`, and NOT the `confstr(_CS_PATH)` answer
-/// `/usr/bin:/bin:/usr/sbin:/sbin`: a harmless system executable that
-/// lives only in `/usr/sbin` is NotFound to a native child with no
-/// `PATH`, and doctor refuses it naming the default search it walked;
-/// with the wider value as an explicit `PATH` both find it. A `sh` that
-/// both searches hold cannot make this distinction. Native macOS only;
-/// on a host without the fixture the cell is recorded pending.
-#[cfg(target_os = "macos")]
-#[test]
-fn apple_default_search_excludes_confstr_only_directories() {
-    let Some(_) = alone() else { return };
-    let workspace = shipped_workspace();
-    let cwd = workspace.path();
-    const NAME: &str = "sysctl";
-    let candidate = Path::new("/usr/sbin").join(NAME);
-    if !candidate.is_file() {
-        eprintln!(
-            "PENDING: no {} on this host; the discriminating cell did not run",
-            candidate.display()
-        );
-        return;
-    }
-    for default_dir in ["/usr/bin", "/bin"] {
-        assert!(
-            !Path::new(default_dir).join(NAME).exists(),
-            "the fixture lives outside Apple's default search"
-        );
-    }
-    let native = native_lookup(cwd, NAME, None).unwrap_err();
-    assert_eq!(native.kind(), std::io::ErrorKind::NotFound, "{native}");
-    let stdout = stdout_of(doctor(cwd).env_remove("PATH").env("BROKKR_DSH_BIN", NAME));
-    let line = dsh_line(&stdout);
-    assert!(
-        line.contains(&format!(
-            "'{NAME}' is not on the default search path /usr/bin:/bin (PATH is absent)"
-        )),
-        "doctor refuses by Apple's own default search: {line}"
-    );
-    let confstr = "/usr/bin:/bin:/usr/sbin:/sbin";
-    native_lookup(cwd, NAME, Some(confstr)).expect("the wider search finds the fixture");
-    let stdout = stdout_of(doctor(cwd).env("PATH", confstr).env("BROKKR_DSH_BIN", NAME));
-    let line = dsh_line(&stdout);
-    assert!(
-        line.contains(&candidate.display().to_string()) && !line.contains("is not on"),
-        "the explicit wider search selects the fixture: {line}"
-    );
-}
-
 /// R4 (review 2026-09-20). A 40-byte Mach-O whose one load command is
 /// `LC_LOAD_DYLINKER` with `cmdsize` 8 made the image reader panic on
 /// the offset field it had not bounded, and the built doctor exited 101

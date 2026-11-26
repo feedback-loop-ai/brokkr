@@ -10,8 +10,9 @@
 //!
 //! Only an [`Alone`] builds one, and a test has one only where this host
 //! can build the namespace, so a test cannot reach doctor without first
-//! having skipped or failed where it cannot: [`alone`]. macOS has no PID
-//! namespace, so there every such test skips with a printed notice.
+//! having skipped or failed where it cannot: [`alone`]. The house rules
+//! make these tests Linux-only (#1287), so on macOS each test skips
+//! with a printed notice.
 
 use std::ffi::OsStr;
 use std::process::Command;
@@ -129,17 +130,16 @@ impl Apart {
     }
 }
 
-/// Elsewhere there is no PID namespace, so no test holds an [`Alone`].
+/// Only on Linux can a test hold an [`Alone`].
 #[cfg(not(target_os = "linux"))]
 #[derive(Clone, Copy)]
 pub(crate) enum Alone {}
 
-/// Elsewhere every test that runs doctor skips.
+/// Skip because the house rules make built-doctor tests Linux-only (#1287).
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn alone() -> Option<Alone> {
     eprintln!(
-        "skipped: a test that runs brokkr doctor needs a PID namespace of its own, and {} has \
-         none",
+        "skipped on {} because the house rules make tests that run brokkr doctor Linux-only (#1287)",
         std::env::consts::OS
     );
     None
