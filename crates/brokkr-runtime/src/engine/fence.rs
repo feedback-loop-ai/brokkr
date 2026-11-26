@@ -115,7 +115,8 @@ impl Engine {
     /// every route a retry launches (fix round 0106b1r15, R1): `true` once
     /// it is journaled, and the launch follows it. `false` where one of
     /// them stands as the start would be journaled: nothing was written,
-    /// the gate head armed for it is dropped, and the turn ends with the run
+    /// the observation spans armed for it are abandoned and its covering
+    /// cleared, and the turn ends with the run
     /// at its effect, whose next turn's wait reads those routes with its
     /// own, so it waits rather than probing again at once (fix round
     /// 0106b1r14, R1). No other read decides a retry's start: the wait's

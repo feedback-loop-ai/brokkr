@@ -156,6 +156,15 @@ impl brokkr_store::CooldownAggregate
 pub fn brokkr_store::CooldownAggregate::joined(core::option::Option<brokkr_store::CooldownAggregate>, &brokkr_store::Cooldown) -> brokkr_store::CooldownAggregate
 pub fn brokkr_store::CooldownAggregate::ordinary(&self) -> core::option::Option<&brokkr_store::RowEnd>
 pub fn brokkr_store::CooldownAggregate::probe(&self) -> core::option::Option<&brokkr_store::RowEnd>
+pub enum brokkr_store::Damage
+pub brokkr_store::Damage::Envelope
+pub brokkr_store::Damage::Envelope::run_id: alloc::string::String
+pub brokkr_store::Damage::Envelope::seq: i64
+pub brokkr_store::Damage::Malformed
+pub brokkr_store::Damage::NoSchema
+pub brokkr_store::Damage::NotADatabase
+impl core::fmt::Display for brokkr_store::Damage
+pub fn brokkr_store::Damage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_store::Disagreement
 pub brokkr_store::Disagreement::Column
 pub brokkr_store::Disagreement::Column::column: &'static str
@@ -720,6 +729,11 @@ pub brokkr_store::UnwrittenRow::event_seq: u64
 pub brokkr_store::UnwrittenRow::rounds: u64
 pub brokkr_store::UnwrittenRow::run_id: alloc::string::String
 pub brokkr_store::UnwrittenRow::site: alloc::string::String
+pub struct brokkr_store::UsageRow
+pub brokkr_store::UsageRow::created_at: alloc::string::String
+pub brokkr_store::UsageRow::event: brokkr_store::UsageEvent
+pub brokkr_store::UsageRow::recipe: alloc::string::String
+pub brokkr_store::UsageRow::run: alloc::string::String
 pub struct brokkr_store::Wait
 pub brokkr_store::Wait::entry: brokkr_store::EntryId
 pub brokkr_store::Wait::on: brokkr_store::WaitOn
