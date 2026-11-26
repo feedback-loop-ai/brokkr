@@ -974,6 +974,7 @@ pub fn brokkr_runtime::capabilities::DialectKind::word(&self) -> &'static str
 pub enum brokkr_runtime::capabilities::Disposition
 pub brokkr_runtime::capabilities::Disposition::Argv(alloc::vec::Vec<alloc::string::String>)
 pub brokkr_runtime::capabilities::Disposition::Default(alloc::string::String)
+pub brokkr_runtime::capabilities::Disposition::Overlay(brokkr_protocol::native_controls::dsh::Overlay)
 pub brokkr_runtime::capabilities::Disposition::Selection(brokkr_runtime::capabilities::ToolLists)
 pub brokkr_runtime::capabilities::Disposition::Unmeasured(alloc::string::String)
 pub brokkr_runtime::capabilities::Disposition::Unsupported(alloc::string::String)
@@ -1043,6 +1044,7 @@ pub fn brokkr_runtime::capabilities::Authority::resolve(&self, &brokkr_runtime::
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::binding(&self, &str) -> core::result::Result<brokkr_runtime::capabilities::Native<'_>, brokkr_runtime::capabilities::Unbound>
 pub fn brokkr_runtime::capabilities::Authority::load(brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::capabilities::Authority, alloc::string::String>
+pub fn brokkr_runtime::capabilities::Authority::provider_mcp_dialects<'a>(&'a self, &str) -> impl core::iter::traits::iterator::Iterator<Item = (&'a str, &'a brokkr_runtime::capabilities::ToolDialect, &'a brokkr_runtime::capabilities::McpServer)> + use<'a>
 pub fn brokkr_runtime::capabilities::Authority::provider_native_bindings<'a>(&'a self, &'a str) -> impl core::iter::traits::iterator::Iterator<Item = brokkr_runtime::capabilities::Native<'a>>
 pub fn brokkr_runtime::capabilities::Authority::survey(brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::capabilities::Authority, brokkr_runtime::bundle::CompileError>
 impl brokkr_runtime::capabilities::Authority
@@ -1106,6 +1108,7 @@ pub struct brokkr_runtime::capabilities::NativeContribution
 pub brokkr_runtime::capabilities::NativeContribution::argv: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::capabilities::NativeContribution::denied: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::capabilities::NativeContribution::held: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::capabilities::NativeContribution::overlay: alloc::vec::Vec<brokkr_protocol::native_controls::dsh::Overlay>
 pub brokkr_runtime::capabilities::NativeContribution::selection: brokkr_protocol::native_controls::Selection
 impl brokkr_runtime::capabilities::NativeContribution
 pub fn brokkr_runtime::capabilities::NativeContribution::segment(&self, &str, &str, &brokkr_protocol::native_controls::NativeExpectation) -> core::result::Result<brokkr_protocol::native_controls::Segment, brokkr_protocol::native_controls::Refusal>

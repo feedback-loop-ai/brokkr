@@ -586,6 +586,22 @@ impl Authority {
         })
     }
 
+    /// The validated MCP dialects of a per-provider grant, with the
+    /// provider key that selects each binding.
+    pub fn provider_mcp_dialects<'a>(
+        &'a self,
+        capability: &str,
+    ) -> impl Iterator<Item = (&'a str, &'a ToolDialect, &'a McpServer)> + use<'a> {
+        self.provider_dialects
+            .get(capability)
+            .into_iter()
+            .flat_map(|dialects| dialects.iter())
+            .filter_map(|(provider, dialect)| match &dialect.kind {
+                DialectKind::Mcp(server) => Some((provider.as_str(), dialect, server)),
+                DialectKind::Native { .. } | DialectKind::Hands => None,
+            })
+    }
+
     /// The native bindings a per-provider grant names, for the doctor's
     /// comparison with each installed adapter. MCP bindings carry no native power.
     pub fn provider_native_bindings<'a>(

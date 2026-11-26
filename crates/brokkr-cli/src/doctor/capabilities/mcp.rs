@@ -77,15 +77,37 @@ pub(super) fn report_mcp(
     surveyed: Option<&Authority>,
     (minimum, boundary): (&Minimum, Boundary),
 ) {
-    let found = surveyed.and_then(|authority| authority.dialects.get(capability));
-    let Some(dialect) = found else {
+    let Some(authority) = surveyed else {
         return;
     };
-    let server = match &dialect.kind {
-        DialectKind::Mcp(server) => server,
-        DialectKind::Native { .. } | DialectKind::Hands => return,
-    };
     let line = format!("{what} '{capability}'");
+    if let Some(dialect) = authority.dialects.get(capability) {
+        match &dialect.kind {
+            DialectKind::Mcp(server) => {
+                report_dialect(report, &line, grant, (dialect, server), (minimum, boundary))
+            }
+            DialectKind::Native { .. } | DialectKind::Hands => {}
+        }
+    }
+    for (provider, dialect, server) in authority.provider_mcp_dialects(capability) {
+        let provider_line = format!("{line} provider '{}'", safe(provider));
+        report_dialect(
+            report,
+            &provider_line,
+            grant,
+            (dialect, server),
+            (minimum, boundary),
+        );
+    }
+}
+
+fn report_dialect(
+    report: &mut Report,
+    line: &str,
+    grant: &CapabilityGrant,
+    (dialect, server): (&ToolDialect, &McpServer),
+    (minimum, boundary): (&Minimum, Boundary),
+) {
     let facts = format!(
         "dialect '{}' (mcp) · tools [{}] · {} · restrictions {} · retention {} · server {} · \
          secret bindings [{}], whose values doctor never reads · no seat holds it until decision \
@@ -99,7 +121,7 @@ pub(super) fn report_mcp(
         server.secrets.join(", "),
     );
     report.warn(&format!("{line} mcp"), safe(&facts));
-    report_egress(report, &line, dialect, minimum);
+    report_egress(report, line, dialect, minimum);
     report.warn(&format!("{line} box"), box_words(boundary));
     report.warn(
         &format!("{line} host"),
