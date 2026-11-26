@@ -27,8 +27,7 @@ pub brokkr_runtime::admission::Capacity::BoxedFull::running: usize
 pub brokkr_runtime::admission::Capacity::CoolingDown
 pub brokkr_runtime::admission::Capacity::CoolingDown::provider: alloc::string::String
 pub brokkr_runtime::admission::Capacity::CoolingDown::route: alloc::string::String
-pub brokkr_runtime::admission::Capacity::CoolingDown::until: time::offset_date_time::OffsetDateTime
-pub brokkr_runtime::admission::Capacity::CoolingDown::words: alloc::string::String
+pub brokkr_runtime::admission::Capacity::CoolingDown::standing: alloc::boxed::Box<brokkr_store::queue::cooldown::joined::CooldownAggregate>
 pub brokkr_runtime::admission::Capacity::FloorLow
 pub brokkr_runtime::admission::Capacity::FloorLow::at: brokkr_runtime::admission::Measured
 pub brokkr_runtime::admission::Capacity::FloorLow::floor: u64
@@ -1649,6 +1648,7 @@ pub brokkr_runtime::engine::EngineError::Dispatch(brokkr_core::dispatch::Dispatc
 pub brokkr_runtime::engine::EngineError::Entry(brokkr_runtime::bundle::entry::EntryError)
 pub brokkr_runtime::engine::EngineError::EntryRecord(brokkr_core::entry::EntryRead)
 pub brokkr_runtime::engine::EngineError::Fold(brokkr_core::fold::FoldError)
+pub brokkr_runtime::engine::EngineError::HeldWait(alloc::boxed::Box<brokkr_runtime::engine::HeldWait>)
 pub brokkr_runtime::engine::EngineError::Invariant(&'static str, alloc::string::String)
 pub brokkr_runtime::engine::EngineError::JournalMoved
 pub brokkr_runtime::engine::EngineError::JournalMoved::expected_seq: u64
@@ -1793,6 +1793,7 @@ pub brokkr_runtime::engine::FencedCommand::expected_hash: &'a str
 pub brokkr_runtime::engine::FencedCommand::expected_seq: u64
 pub brokkr_runtime::engine::FencedCommand::operator: &'a str
 pub brokkr_runtime::engine::FencedCommand::reason: &'a str
+pub struct brokkr_runtime::engine::HeldWait
 pub struct brokkr_runtime::engine::Named<'a>
 pub brokkr_runtime::engine::Named::cause: brokkr_runtime::Cause<'a>
 pub brokkr_runtime::engine::Named::operator: &'a str
@@ -2274,6 +2275,7 @@ pub brokkr_runtime::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
 pub brokkr_runtime::EngineError::Entry(brokkr_runtime::bundle::entry::EntryError)
 pub brokkr_runtime::EngineError::EntryRecord(brokkr_core::entry::EntryRead)
 pub brokkr_runtime::EngineError::Fold(brokkr_core::fold::FoldError)
+pub brokkr_runtime::EngineError::HeldWait(alloc::boxed::Box<brokkr_runtime::engine::HeldWait>)
 pub brokkr_runtime::EngineError::Invariant(&'static str, alloc::string::String)
 pub brokkr_runtime::EngineError::JournalMoved
 pub brokkr_runtime::EngineError::JournalMoved::expected_seq: u64

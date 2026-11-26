@@ -28,7 +28,7 @@ pub(crate) use provider_wait::{provider_form, route_form};
 #[cfg(test)]
 pub(crate) use provider_wait::{provider_probes, ProviderProbeError};
 pub use provider_wait::{
-    provider_refusal, provider_waits, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
+    provider_refusal, provider_waits, Held, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
     ProviderWait, ProviderWaitError, RefusalCause,
 };
 

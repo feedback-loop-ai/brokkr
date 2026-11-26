@@ -9,6 +9,12 @@
 //! records — or, where a record proves nothing, by the process group it
 //! names being gone from the host. If they hold, one `operator/commanded`
 //! with command `settle` names them; if not, it refuses and writes nothing.
+//! Once it is written, every cool-down probe hold naming an attempt it
+//! proves ends, for the record is the operator's settlement of that probe's
+//! tree (decision 0106 slice 0106b1, fix round 0106b1r12, S2). Where a
+//! settle's record stands at the run's head, its holds' end having failed
+//! or been interrupted, the verb run again ends them from that record and
+//! writes nothing more.
 //!
 //! Nothing here folds the run: a run this verb exists for does not fold at
 //! all. The events are read by type (the chain is verified, the fold is
@@ -108,6 +114,9 @@ fn settle_with(
             run: run_id.to_string(),
         }));
     };
+    if let Some(head) = replayed(store, run_id, &events)? {
+        return Ok(head);
+    }
     let acknowledged = store.acknowledgement(run_id)?.is_some();
     // A repair moves the head past the acknowledgement and lapses it
     // (#511); the repair record is the operator's word that the run was
@@ -166,8 +175,46 @@ fn settle_with(
     // of the append's args fails it.
     let back = store.load(run_id)?;
     let read = settlement::release::record(&back).filter(|record| record.seq == written.seq);
-    let _ = read.expect("the record this verb just appended reads back");
+    let read = read.expect("the record this verb just appended reads back");
+    end_proven_holds(store, run_id, &read.args)?;
     Ok(written)
+}
+
+/// The record is the operator's settlement of each attempt it proves, a
+/// probe's tree among them: every probe hold of the run naming one ends now
+/// (fix round 0106b1r12, S2). The record is committed first, in its fenced
+/// append, so an end that fails or is interrupted leaves the record, which
+/// writer admission already honours, and the holds standing; a later
+/// settle replays the record ([`replayed`]) and ends them.
+fn end_proven_holds(store: &mut Store, run_id: &str, args: &SettleArgs) -> Result<(), EngineError> {
+    let proven: Vec<String> = (args.attempts.iter())
+        .map(|proven| proven.attempt.clone())
+        .collect();
+    store.settle_probe_holds(run_id, &proven, time::OffsetDateTime::now_utc())?;
+    Ok(())
+}
+
+/// Where the run's head is already a settle record, the one a settle wrote
+/// before its holds' end failed or was interrupted (the return of fix round
+/// 0106b1r12): its holds are ended from that durable record, under no fresh
+/// acknowledgement, for its proof was taken under the locks when it was
+/// written, and that record is returned; nothing more is appended. `None`
+/// where the head is no settle record, so the verb proves and writes anew.
+fn replayed(
+    store: &mut Store,
+    run_id: &str,
+    events: &[EventEnvelope],
+) -> Result<Option<EventEnvelope>, EngineError> {
+    let record = settlement::release::record(events);
+    let head = events.last();
+    let Some((record, head)) = record
+        .zip(head)
+        .filter(|(record, head)| record.seq == head.seq)
+    else {
+        return Ok(None);
+    };
+    end_proven_holds(store, run_id, &record.args)?;
+    Ok(Some(head.clone()))
 }
 
 /// The attempts every reservation of the run names standing, proven as the

@@ -25,14 +25,58 @@
 //! further, instead of leaving an event after `run/stopped`.
 
 use brokkr_core::envelope::EventType;
+use brokkr_core::park::ParkCause;
 use brokkr_core::EventEnvelope;
-use brokkr_store::{CooldownAppend, StoreError};
-use serde_json::Value;
+use brokkr_store::{CooldownAppend, QueueRefusal, StoreError};
+use serde::Deserialize;
+use serde_json::{json, Value};
 
 use super::{checkpoints, cooldown, Engine, EngineError};
 
 #[cfg(test)]
 pub(super) mod tests;
+
+/// The one field a settlement reads of the terminal it replaces, parsed
+/// once into its type rather than read by key (fix round 0106b1r9, E5).
+#[derive(Debug, serde::Deserialize)]
+struct Settled {
+    effect_id: String,
+}
+
+impl Settled {
+    /// The effect `terminal` closes; one that names none is the engine's
+    /// own broken invariant, for every terminal it builds names its effect.
+    fn of(terminal: &Value) -> Result<Settled, EngineError> {
+        serde::Deserialize::deserialize(terminal).map_err(|error| {
+            EngineError::Invariant("append", format!("a terminal names no effect: {error}"))
+        })
+    }
+}
+
+/// The settlement of an attempt whose terminal the store refused for a wait
+/// row it did not write (fix round 0106b1r6, D3): `effect/indeterminate`,
+/// naming the refusal, carrying no wait, and marked `wait_unwritten`
+/// (`provider-wait/v2`), so a replay that finds no park after it, the
+/// park's append refused or the engine stopped between the two, parks with
+/// the cause the live path gives (fix round 0106b1r10, H4). One type writes
+/// it and reads it back.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct UnwrittenWait {
+    effect_id: String,
+    attempt_id: Option<String>,
+    reason: String,
+    wait_unwritten: bool,
+}
+
+/// The cause a replay parks with where `event` settles an unwritten wait:
+/// the engine's own refusal, its detail the event's reason, as
+/// [`cooldown::park_of`] gives it live. `None` for any other settlement.
+pub(super) fn unwritten_cause(event: &EventEnvelope) -> Option<ParkCause> {
+    let settled = UnwrittenWait::deserialize(&event.payload).ok()?;
+    settled
+        .wait_unwritten
+        .then(|| ParkCause::ruled(None, settled.reason))
+}
 
 /// What a fold that read `events` lets the engine append on: the cause
 /// its next event names, and the head that event must still find.
@@ -64,9 +108,68 @@ impl Engine {
         payload: Value,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, EngineError> {
+        self.append_clear_of(event_type, payload, attempt_id, &[])
+    }
+
+    /// Journal an attempt's `effect/started`, admitted over `launched`,
+    /// every route a retry launches (fix round 0106b1r15, R1): `true` once
+    /// it is journaled, and the launch follows it. `false` where one of
+    /// them stands as the start would be journaled: nothing was written,
+    /// the observation spans armed for it are abandoned and its covering
+    /// cleared, and the turn ends with the run
+    /// at its effect, whose next turn's wait reads those routes with its
+    /// own, so it waits rather than probing again at once (fix round
+    /// 0106b1r14, R1). No other read decides a retry's start: the wait's
+    /// re-read only sends it here.
+    pub(super) fn start_admitted(
+        &mut self,
+        started: Value,
+        attempt_id: &str,
+        launched: &[(String, String)],
+    ) -> Result<bool, EngineError> {
+        #[cfg(test)]
+        tests::before_start();
+        let routes: Vec<(&str, &str)> = (launched.iter())
+            .map(|(provider, route)| (provider.as_str(), route.as_str()))
+            .collect();
+        let attempt = Some(attempt_id.to_string());
+        match self.append_clear_of(EventType::EffectStarted, started, attempt, &routes) {
+            Ok(_) => {
+                #[cfg(test)]
+                tests::after_start();
+                self.cooldown.fenced.clear();
+                self.cooldown.fenced_charge = Default::default();
+                Ok(true)
+            }
+            Err(EngineError::Store(StoreError::Queue(QueueRefusal::StartHeld(_)))) => {
+                // No start is journaled, so no terminal follows it: the
+                // spans armed for it are spent (decision 0106 ruling 2).
+                self.spans.abandon();
+                self.covering = None;
+                self.cooldown.fenced = launched.to_vec();
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// [`Engine::append_raw`], admitted only where none of `routes` stands:
+    /// a retry's `effect/started` over the routes its waits cooled, judged
+    /// with them all in the transaction that journals it
+    /// ([`brokkr_store::Store::append_clear`]), so its launch follows one
+    /// decision serialized with every probe hold's write (fix round
+    /// 0106b1r14, R1). With no route, it is the plain append.
+    pub(super) fn append_clear_of(
+        &mut self,
+        event_type: EventType,
+        payload: Value,
+        attempt_id: Option<String>,
+        routes: &[(&str, &str)],
+    ) -> Result<EventEnvelope, EngineError> {
         // An ending of the attempt concluding carries its usage (decision
         // 0112 ruling 3), so a held outcome holds it too.
         let payload = self.usage.stamp(event_type, attempt_id.as_deref(), payload);
+        let now = (!routes.is_empty()).then(|| self.now());
         let terminal = matches!(
             event_type,
             EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
@@ -90,10 +193,13 @@ impl Engine {
                 causation_id: cause,
                 attempt_id: attempt_id.clone(),
             };
-            self.store.append_with_cooldowns(event, &cooling)
+            match now {
+                Some(now) => self.store.append_clear(event, routes, now),
+                None => self.store.append_with_cooldowns(event, &cooling),
+            }
         });
-        let envelope = match appended {
-            Ok(envelope) => envelope,
+        let landed = match appended {
+            Ok(landed) => landed,
             Err(contended) if terminal && contended.is_contention() => {
                 self.held_outcome = Some(checkpoints::HeldOutcome {
                     event_type,
@@ -123,16 +229,58 @@ impl Engine {
             Err(error @ StoreError::AfterTerminal { .. }) => {
                 return Err(EngineError::concluded_beneath(error, attempt_id.as_deref()))
             }
+            // A held or cooling row the store did not write rolled the
+            // terminal back with it (fix round 0106b1r6, D3): no wait is
+            // journaled that the store does not hold. Only a terminal carries
+            // rows, so only a terminal meets this.
+            Err(StoreError::Queue(refusal @ QueueRefusal::CooldownRowUnwritten(_))) => {
+                let effect = Settled::of(&payload)?;
+                return self.unwritten_wait(&effect.effect_id, attempt_id, refusal);
+            }
             Err(error) => return Err(error.into()),
         };
+        let envelope = landed.envelope;
         if terminal {
             self.stderr
                 .landed(event_type, envelope.attempt_id.as_deref());
+        }
+        // A held wait this drive journaled ends the drive at its next turn
+        // (decision 0106 ruling 2): a later drive meeting it before its end
+        // is a resume, and refuses. Only a held row the store says it wrote
+        // marks it, never the rows asked for: one whose end passed before
+        // the event's stamp is not written (fix round 0106b1r10, H4).
+        if terminal && landed.held_rows > 0 {
+            self.cooldown.held = cooldown::HeldDrive::Written;
         }
         self.current_cause = Some(envelope.event_id.clone());
         self.fence = fence
             .filter(|_| event_type != EventType::EffectStarted)
             .map(|_| (envelope.seq, envelope.event_hash.clone()));
+        Ok(envelope)
+    }
+
+    /// Settle the attempt whose terminal the store refused for a wait row
+    /// it did not write: `effect/indeterminate`, naming the refusal and
+    /// carrying no wait, so it never runs on as if the wait were held (fix
+    /// round 0106b1r6, D3). The run then parks through the one
+    /// [`cooldown::park_of`], as a probe round the table did not write
+    /// parks: ruled, the engine's own refusal (fix round 0106b1r9, E4).
+    fn unwritten_wait(
+        &mut self,
+        effect_id: &str,
+        attempt_id: Option<String>,
+        refusal: QueueRefusal,
+    ) -> Result<EventEnvelope, EngineError> {
+        let error = cooldown::CooldownError::WaitUnwritten(Box::new(refusal));
+        let settled = UnwrittenWait {
+            effect_id: effect_id.to_string(),
+            attempt_id: attempt_id.clone(),
+            reason: error.to_string(),
+            wait_unwritten: true,
+        };
+        let envelope =
+            self.append_raw(EventType::EffectIndeterminate, json!(settled), attempt_id)?;
+        self.park(&cooldown::park_of(&error))?;
         Ok(envelope)
     }
 }

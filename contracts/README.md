@@ -172,6 +172,7 @@ this contract was minted, was accepted by the operator on 2026-10-30.
 | --- | --- |
 | `panel-carry.v1.schema.json` | 0093 |
 | `provider-wait.v1.schema.json` | 0103 |
+| `provider-wait.v2.schema.json` | 0106 |
 | `park-cause.v1.schema.json` | 0106 |
 | `effect-usage.v1.schema.json` | 0112 |
 
@@ -200,6 +201,19 @@ under the amended rule above, and `fold` reads none of them: the engine
 reads the effect's own events and `RunState` gains nothing. A present entry
 that cannot be read refuses by name, never as absent. Decision 0103, under
 which this contract was minted, was accepted by the operator on 2026-10-31.
+
+`provider-wait.v2.schema.json` (decision 0106 ruling 2) is v1 plus a held
+entry: a `waits` entry may carry `held: true` and `max_seconds`, the
+declared maximum that the provider's stated `retry_after_seconds` alone
+exceeded. A held wait is not a park. The run stays `running` with its effect
+open, its length is not counted in the episode the maximum bounds, and the
+event carries no `refused`, which keeps v1's meaning. A held entry with no
+maximum, a maximum with no `held`, and a held wait beside `refused` each
+refuse by name. v2 reads a v1 entry as not held; a v1 reader refuses a held
+entry by its closed key list. v1's bytes do not move. An `effect/indeterminate`
+may also carry `wait_unwritten: true`: the engine's settlement of an attempt
+whose terminal the store refused for a wait row it did not write, so a replay
+that finds no park after it parks `ruled`, as the live path does.
 
 ## Event vocabulary (v1)
 

@@ -79,12 +79,12 @@ fn a_command_that_exits_zero_without_a_result_ends_lost() {
     assert!(answered);
 }
 
+/// The command closes stdin before reading a prompt larger than the pipe.
+/// Under #1247 ruling (a), its zero exit without a result file ends lost.
 #[test]
-fn a_prompt_write_failure_after_the_spawn_ends_lost() {
+fn a_command_that_declines_its_prompt_without_a_result_ends_lost() {
     let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    // A prompt larger than a pipe holds, to a command that closes its
-    // stdin before it reads any: the write fails after the spawn.
     let start = exec_start(dir.path(), &"x".repeat(1 << 20), None);
     let (bodies, answered) = exec(&["sh", "-c", "exec 0<&-; sleep 1"], &start);
     assert_eq!(result(&bodies), None);

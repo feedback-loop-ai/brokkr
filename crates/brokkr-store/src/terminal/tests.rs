@@ -156,6 +156,7 @@ fn a_refused_append_writes_no_event_cooldown_or_projection() {
         reason: "rate".into(),
         retry_after_seconds: Some(1),
         rounds: 1,
+        held: None,
     };
     let refused = store.append_with_cooldowns(
         CooldownAppend {

@@ -106,9 +106,8 @@ impl fmt::Display for Capacity {
             Capacity::CoolingDown {
                 provider,
                 route,
-                until,
-                words,
-            } => cooling::word(f, provider, route, *until, words),
+                standing,
+            } => cooling::word(f, (provider, route), standing),
         }
     }
 }

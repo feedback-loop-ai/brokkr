@@ -2,9 +2,13 @@
 
 Issue #1200. This record backs an `agy` adapter and `brokkr driver agy` (decision 0075,
 level 1 and after). `brokkr probe harness` knows only claude, codex and dsh,
-so every figure here was measured by hand. The recorded stdout and stderr of
-each turn sit beside this file in [`agy-cli-1-5/`](agy-cli-1-5/), byte for
-byte as the CLI wrote them.
+so the lab turns here were measured by hand, with each turn's CLI stdout and
+stderr sitting beside this file in [`agy-cli-1-5/`](agy-cli-1-5/) byte for
+byte as the CLI wrote them. For the eighth measurement's two engine seats
+(`claude-engine-0160-*`), the directory instead holds each launch's `.argv`
+and `.mcp_config.json`, the reader's rendering of the kept transcript
+(`brokkr runs transcript`, `.transcript.txt`), and the controller's extract of
+the run view's seat row (`.seat.json`).
 
 ## Provenance
 

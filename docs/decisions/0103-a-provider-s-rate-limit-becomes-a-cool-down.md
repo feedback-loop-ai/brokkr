@@ -626,6 +626,38 @@ The acceptance mints `driver-refusal.v1`, `provider-wait.v1` and
 for the one adapters.rs slot, held by decision 0065 slice two until its
 U9b1b merges.
 
+### Amendment — 2026-11-18 to 2026-11-26, a probe holds its route (decision 0106 slice 0106b1, #1035)
+
+The operator amended ruling 2 for decision 0106's slice 0106b1:
+- "a." on 2026-11-18, a probe holds its route while in flight
+  (https://github.com/feedback-loop-ai/brokkr/issues/1035#issuecomment-6971424611);
+- "1 and 2 yes" on 2026-11-23, a hold ends only on settlement evidence
+  (https://github.com/feedback-loop-ai/brokkr/issues/1035#issuecomment-7089164415);
+- "1 for 0106" on 2026-11-24, a retry is admitted over every route it
+  launches (https://github.com/feedback-loop-ai/brokkr/issues/1035#issuecomment-7142026639);
+- "1" on 2026-11-26, a retry fails closed on a route it cannot read
+  (https://github.com/feedback-loop-ai/brokkr/issues/1035#issuecomment-7181585847).
+
+The operator confirmed its words on 2026-11-26
+(https://github.com/feedback-loop-ai/brokkr/issues/1035#issuecomment-7193145714):
+
+> A probe holds its provider and route from dispatch until its answer
+> commits, its refusal's renewed cool-down commits, or its probe's process
+> tree is settled, by the engine or by an operator. No clock or lock state
+> ends it. A pass, a claim, and an admitted run's wait, retry and probe
+> admission all read a standing probe hold as CoolingDown through the same
+> in-force read, and no second hold is written while one stands. A retry or
+> claim is admitted by one decision over every route it launches, in the
+> transaction that writes its admission, serialized with hold acquisition.
+> A retry that would launch a provider route the engine cannot read is
+> refused, and its run parks. A hold or cool-down row the store did not
+> write is refused, never assumed.
+
+The holds live in queue storage v7's `probe_holds`, beside the
+`provider_cooldowns` rows this ruling put in v4. Decision 0106's slice
+0106b states how each hold ends and the three cases that have no
+settlement route yet.
+
 ## What stays out
 
 - Decision 0071's rules are kept. The type is a closed enum and data, not

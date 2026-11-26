@@ -31,6 +31,36 @@ pub struct CooldownRoundMismatch {
     pub standing: u64,
 }
 
+/// The cool-down row a [`QueueRefusal::CooldownRowUnwritten`] names: the
+/// run, event seq, site and round of a terminal's row the table did not
+/// write (fix round 0106b1r6, D3), boxed so the store's error stays small.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnwrittenRow {
+    pub run_id: String,
+    pub event_seq: u64,
+    pub site: String,
+    pub rounds: u64,
+}
+
+/// The probe hold a [`QueueRefusal::ProbeHoldUnwritten`] names: the run
+/// whose probe asked, and the provider and route it would have held (fix
+/// round 0106b1r6, D2), boxed so the store's error stays small.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnwrittenHold {
+    pub run_id: String,
+    pub provider: String,
+    pub route: String,
+}
+
+/// The probe hold a [`QueueRefusal::ProbeHoldUnsettled`] names: the run and
+/// the settled attempt whose hold the table kept standing, boxed so the
+/// store's error stays small.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsettledHold {
+    pub run_id: String,
+    pub attempt_id: String,
+}
+
 /// Why the queue refused, with the operator's text. Nothing was written.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum QueueRefusal {
@@ -126,6 +156,102 @@ pub enum QueueRefusal {
         .0.run_id, .0.event_seq, .0.site, .0.standing, .0.rounds
     )]
     CooldownRoundNotNext(Box<CooldownRoundMismatch>),
+    /// A probe round the table took without writing its row, as a trigger
+    /// that ignores the insert leaves it (fix round 0106b1r5, H3): the
+    /// probe's hold is not ended over a row that was never written, and
+    /// nothing was. It carries the round and the round its site stood at,
+    /// boxed as [`QueueRefusal::CooldownRoundNotNext`]'s are.
+    #[error(
+        "the journal's provider cool-downs wrote no row for run '{}' event {} site '{}' round \
+         {}, so the probe's hold on its route stands and nothing was written",
+        .0.run_id, .0.event_seq, .0.site, .0.rounds
+    )]
+    CooldownRoundUnwritten(Box<CooldownRoundMismatch>),
+    /// A terminal event's cool-down row, held or cooling, the table took
+    /// without writing, as a trigger that ignores the insert leaves it (fix
+    /// round 0106b1r6, D3): the event is rolled back with it, so no wait is
+    /// journaled that the store does not hold, and nothing was written.
+    #[error(
+        "the journal's provider cool-downs wrote no row for run '{}' event {} site '{}' round \
+         {}, so the event that records its wait was not written either",
+        .0.run_id, .0.event_seq, .0.site, .0.rounds
+    )]
+    CooldownRowUnwritten(Box<UnwrittenRow>),
+    /// A probe's hold on its route the table took without writing its row,
+    /// as a trigger that ignores the insert leaves it (fix round 0106b1r6,
+    /// D2): no hold stands, so the probe is not dispatched, and nothing
+    /// was written.
+    #[error(
+        "the journal's probe holds wrote no row for run '{}' on {}/{}, so no probe runs on it \
+         and nothing was written",
+        .0.run_id, .0.provider, .0.route
+    )]
+    ProbeHoldUnwritten(Box<UnwrittenHold>),
+    /// A probe's hold whose end cannot be shown strictly after its probe's
+    /// deadline, because the first whole second after it is past the last
+    /// one the journal can spell (fix round 0106b1r9, E2): a hold clamped
+    /// to that second would show an end before the deadline, so none is
+    /// written and the probe is not dispatched.
+    #[error(
+        "the journal's probe holds cannot show run '{}''s hold on {}/{} ending after its \
+         deadline: the first whole second after it is past 9999-12-31T23:59:59Z, the last the \
+         journal can spell, so no probe runs on it and nothing was written",
+        .0.run_id, .0.provider, .0.route
+    )]
+    ProbeHoldUnending(Box<UnwrittenHold>),
+    /// A probe's hold on a queue whose storage holds no table this binary
+    /// may write, an older version's or a newer binary's (fix round
+    /// 0106b1r9, E3): no hold can be written, so the probe is not
+    /// dispatched, and nothing was.
+    #[error(
+        "the journal's queue storage is not one this binary writes, so it takes no probe hold \
+         for run '{}' on {}/{}, no probe runs on it, and nothing was written",
+        .0.run_id, .0.provider, .0.route
+    )]
+    ProbeHoldUnstorable(Box<UnwrittenHold>),
+    /// A probe's hold on a route another probe's standing hold, or an
+    /// unexpired cool-down, already holds, read in the transaction that
+    /// would have written it (fix round 0106b1r13, H2): no second hold is
+    /// written while one stands, so the probe is not dispatched, and its
+    /// run waits on the route again.
+    #[error(
+        "the journal's probe holds took no hold for run '{}' on {}/{}: another probe's hold or a \
+         cool-down already holds the route, so no probe runs on it and nothing was written",
+        .0.run_id, .0.provider, .0.route
+    )]
+    ProbeHoldContended(Box<UnwrittenHold>),
+    /// A retry's start over a route a standing probe hold, or an unexpired
+    /// cool-down, holds, read with every other route the start is admitted
+    /// over in the transaction that would have journaled it (fix round
+    /// 0106b1r14, R1): the retry is not started, its run waits on the
+    /// route again, and nothing was written.
+    #[error(
+        "the journal's cool-downs hold {}/{} as run '{}''s retry would start, so the retry does \
+         not start, its run waits on the route again, and nothing was written",
+        .0.provider, .0.route, .0.run_id
+    )]
+    StartHeld(Box<UnwrittenHold>),
+    /// A settlement's end of a probe's hold the table took without writing
+    /// it, as a trigger that ignores the update leaves it (the return of fix
+    /// round 0106b1r12): the hold still stands, so the settlement is not
+    /// reported as written, and none of its ends was.
+    #[error(
+        "the journal's probe holds kept run '{}''s hold for attempt '{}' standing through its \
+         settlement, so its route stays held and none of the settlement's ends was written",
+        .0.run_id, .0.attempt_id
+    )]
+    ProbeHoldUnsettled(Box<UnsettledHold>),
+    /// The end of one probe's hold, by its answer or inside its renewed
+    /// round's transaction, that the table took without writing it, as a
+    /// trigger that ignores the update leaves it (fix round 0106b1r13, M2):
+    /// the hold still stands, so the end is not reported as written, and
+    /// nothing of its transaction was.
+    #[error(
+        "the journal's probe holds kept run '{}''s hold for attempt '{}' standing through its \
+         end, so its route stays held and nothing of that end was written",
+        .0.run_id, .0.attempt_id
+    )]
+    ProbeHoldUnended(Box<UnsettledHold>),
     /// A command on an entry the dispatcher has claimed and not yet
     /// linked, returned or held (decision 0095 ruling 1).
     #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]

@@ -283,8 +283,9 @@ What a seat HOLDS is what its office asks for, minus what the seat
 subtracts, intersected with what the realm grants to that office — once
 per provider candidate, so a fallback link never borrows its primary's
 holding. The grant itself is the realm's: see the `capabilities` map in
-`realms.json` (`forge.realms/v6` or later, and `forge.realms/v8` for a
-grant's `retain: false` veto) and
+`realms.json` (`forge.realms/v6` or later, `forge.realms/v8` for a
+grant's `retain: false` veto, and `forge.realms/v9` for a per-provider
+`dialects` map) and
 [provider adapters](provider-adapters.md#native-capabilities) for the
 powers a harness already has.
 

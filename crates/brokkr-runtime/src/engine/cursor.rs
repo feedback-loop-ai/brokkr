@@ -9,6 +9,7 @@ use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderRefusal, ProviderWait};
 use serde_json::{json, Value};
 
 use super::cooldown::{CooldownError, Waited};
+use super::fence::unwritten_cause;
 use super::non_execution::{self, LastAttempt};
 use super::{gate_head_evidence, operator_stop_reason, Engine, EngineError};
 
@@ -31,6 +32,16 @@ impl Engine {
         cursor: Cursor,
         state: RunState,
     ) -> Result<(), EngineError> {
+        // A resumed engine's reaper runs once, at its first turn, whatever
+        // the cursor stands at (the return of fix round 0106b1r12): a
+        // fresh run has no earlier instance whose hold could stand, and an
+        // effect in flight is the restart's own recovery to adopt or end,
+        // never a probe's, for a probe journals no `effect/started`.
+        let first = !std::mem::replace(&mut self.cooldown.reaped, true);
+        let resumed = !matches!(cursor, Cursor::Start | Cursor::EffectInFlight { .. });
+        if first && resumed {
+            self.reap_at_start(events);
+        }
         match cursor {
             Cursor::Start => {
                 let initial = crate::bundle::entry::first_phase(&self.bundle, self.entry.as_ref())?
@@ -80,6 +91,13 @@ impl Engine {
             }
             Recorded::Parked => return Ok(()),
         };
+        // A held wait is not slept before its end: the drive that wrote it
+        // ends, and a resume refuses naming the lift (decision 0106 ruling
+        // 2). The cap above is judged first, so a held wait at the cap parks
+        // `attempt-cap`.
+        if self.held_turn(events, &wait_effect, &waits)? {
+            return Ok(());
+        }
         // Before the wait's probe and before the retry's admission, the
         // run's own reservation may name a crashed probe's attempt that no
         // journal event names. It is released only where every process it
@@ -94,7 +112,17 @@ impl Engine {
             return Ok(());
         }
         match self.take_cooldown(events, state, &wait_effect, seat, &waits)? {
-            Waited::Proceed(answers) => self.run_attempt(events, state, effect_id, seat, answers),
+            // The retry is admitted over every route it launches, its
+            // refused sites' among them (fix round 0106b1r15, R1).
+            Waited::Proceed(answers) => {
+                self.cooldown.refused = (waits.iter())
+                    .map(|wait| (wait.provider.clone(), wait.route.clone()))
+                    .collect();
+                self.run_attempt(events, state, effect_id, seat, answers)
+            }
+            // A probe's held round ended the drive with the run `running`
+            // (decision 0106 ruling 2); no attempt is spent.
+            Waited::Held => Ok(()),
             // The stop's own arm writes the ending next turn.
             Waited::Stopped => Ok(()),
             Waited::Parked(park) => self.park(&park),
@@ -272,18 +300,23 @@ impl Engine {
     /// journal event names. `Some` is the cleanup refusal to park with,
     /// after which nothing may probe or retry; `None` is every process it
     /// witnessed proven settled, so the wait may go on (decision 0103
-    /// ruling 4, this fix round).
+    /// ruling 4, this fix round). Then the reaper ends every probe hold of
+    /// the run whose attempt that settlement proved (fix round 0106b1r12,
+    /// S2), and a hold it cannot end refuses in the store's words.
     fn orphaned_probe_refusal(
-        &self,
+        &mut self,
         seat: &str,
         strategy: Option<&str>,
         events: &[EventEnvelope],
         waits: &[ProviderWait],
     ) -> Option<String> {
         let label = self.selected_label(seat, strategy);
-        self.recovered_probe(&label, events, waits, &crate::engine::broker::observed())
-            .err()
-            .map(|refusal| refusal.to_string())
+        let observed = crate::engine::broker::observed();
+        if let Err(refusal) = self.recovered_probe(&label, events, waits, &observed) {
+            return Some(refusal.to_string());
+        }
+        let reaped = self.reap_probe_holds(&observed);
+        reaped.err().map(|unreaped| unreaped.to_string())
     }
 
     /// The cap's park (decision 0006), with the facts the last failure
@@ -358,6 +391,7 @@ impl Engine {
         // gate earned.
         let dispatched = self.execute(events, state, effect_id, seat);
         self.cooldown.answers.clear();
+        self.cooldown.refused.clear();
         self.stderr.active = None;
         if dispatched.is_err() {
             self.spans.abandon();
@@ -407,10 +441,15 @@ impl Engine {
             // rule matched: `state.last_decision` is the ruling that routed
             // INTO the gate, not this park's.
             ParkReason::GateMovedHead => ParkCause::ruled(None, reason.as_str()),
-            ParkReason::Stated(_) if closed_indeterminate(events) => {
-                ParkCause::infrastructure(false, reason.as_str())
-            }
-            ParkReason::Stated(_) => ParkCause::ruled(rule_id(state), reason.as_str()),
+            // An unwritten wait's settlement carries its own typed cause,
+            // the live path's, so a park its append never wrote is replayed
+            // with it (fix round 0106b1r10, H4); any other close is
+            // `infrastructure`.
+            ParkReason::Stated(_) => match closed_indeterminate(events) {
+                Some(close) => unwritten_cause(close)
+                    .unwrap_or_else(|| ParkCause::infrastructure(false, reason.as_str())),
+                None => ParkCause::ruled(rule_id(state), reason.as_str()),
+            },
         };
         self.park_with_evidence(&Park::new(reason.as_str(), cause), evidence)
     }
@@ -435,11 +474,11 @@ fn rule_id(state: &RunState) -> Option<String> {
         .map(|rule| rule.to_string())
 }
 
-/// Whether the park was opened by an indeterminate close: the fold's
+/// The indeterminate close that opened the park, if one did: the fold's
 /// `Cursor::Park` follows the `effect/indeterminate` that reached it. An
 /// operator command or its receipt may land between the close and the park
 /// and moves nothing, so the close is the newest event that is neither.
-fn closed_indeterminate(events: &[EventEnvelope]) -> bool {
+fn closed_indeterminate(events: &[EventEnvelope]) -> Option<&EventEnvelope> {
     events
         .iter()
         .rev()
@@ -451,7 +490,7 @@ fn closed_indeterminate(events: &[EventEnvelope]) -> bool {
                     | EventType::OperatorRejected
             )
         })
-        .is_some_and(|event| event.event_type == EventType::EffectIndeterminate)
+        .filter(|event| event.event_type == EventType::EffectIndeterminate)
 }
 
 /// The recorded end a `past-maximum` refusal's wait carries, where the

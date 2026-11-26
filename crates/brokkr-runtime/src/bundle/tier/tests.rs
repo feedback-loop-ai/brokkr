@@ -1193,12 +1193,13 @@ fn an_agy_gate_seats_neon_and_carbon_and_refuses_its_other_models_as_no_judge() 
     }
 }
 
-/// Agy's example maps its four Gemini 4 models and two Claude 5.5 models to
-/// their base slugs, with Carbon and Neon its judges, and declares hands that
-/// ride no argument (#1224, #1382): the engine HOME's document carries the
-/// server.
+/// Agy's example maps six aliases to their base slugs — four Gemini 4 models
+/// holding decision 0021's promotion ruling (#1252) and two Claude 5.5 work
+/// models without a promotion ruling (#1382) — with none marked `provisional`,
+/// Carbon and Neon its judges, and hands that ride no argument (#1224): the
+/// engine HOME's document carries the server.
 #[test]
-fn the_agy_example_declares_six_promoted_models_two_judges_and_argumentless_hands() {
+fn the_agy_example_maps_six_aliases_no_provisional_two_judges_and_argumentless_hands() {
     let workspace = agy_workspace();
     let loaded = Adapters::load(&workspace.path("adapters")).unwrap();
     let agy = loaded.adapter("agy").unwrap();

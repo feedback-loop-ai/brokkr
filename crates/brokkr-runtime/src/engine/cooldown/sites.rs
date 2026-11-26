@@ -7,17 +7,20 @@
 
 use brokkr_core::envelope::{EventType, EVENT_SCHEMA_VERSION};
 use brokkr_core::park::{Park, ParkCause};
-use brokkr_core::{provider_waits, EventEnvelope, ProviderRefusal, ProviderWait, RefusalCause};
+use brokkr_core::{
+    provider_waits, EventEnvelope, Held, ProviderRefusal, ProviderWait, RefusalCause,
+};
 use brokkr_protocol::{AttemptReport, PreSessionRefusal, RefusalClass};
 use brokkr_store::Cooling;
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime};
 
+use super::held::{bound, Bound};
 use super::probe::Probe;
 use super::{
-    effect_seat, episode_by_site, note_error, past_maximum, refusal_record, refusal_text,
-    representable_end, terminal, waiter, CooldownError, Engine, EngineError, Episode,
+    effect_seat, episode_by_site, note_error, refusal_record, refusal_text, representable_end,
+    terminal, waiter, CooldownError, Engine, EngineError, Episode,
 };
 use crate::bundle::{ExecutableBody, Invocation};
 use crate::engine::carry::record::Tag;
@@ -191,10 +194,15 @@ impl Engine {
         };
         let (planned, mut causes) = self.plan_members(&episode, &mut payload, refused, retry);
         judge_total(&planned, &mut causes, episode.seconds);
+        // A member's held wait is written held only where the panel holds:
+        // a panel that parks, or an indeterminate one, keeps every wait as
+        // its evidence, and `refused` is never beside a held entry
+        // (decision 0106 ruling 2).
+        let holds = retry && causes.iter().all(Option::is_none);
         let waits: Vec<Value> = planned
             .iter()
             .flatten()
-            .filter_map(Plan::wait)
+            .filter_map(|plan| plan.wait(holds))
             .map(|wait| waiter(&wait, wait.until))
             .collect();
         if !waits.is_empty() {
@@ -329,6 +337,9 @@ impl Engine {
             rounds,
             until,
             max,
+            // Whether a wait is held reads no episode: `bound` holds a
+            // stated reset past the maximum whatever came before it.
+            held: bound(retry_after, seconds, 0, max).held(),
         })
     }
 }
@@ -348,10 +359,15 @@ struct Plan {
     rounds: u64,
     until: Option<OffsetDateTime>,
     max: u64,
+    /// The provider's stated reset alone passed `max`: not judged, and not
+    /// counted in the episode (decision 0106 ruling 2).
+    held: Option<Held>,
 }
 
 impl Plan {
-    fn wait(&self) -> Option<ProviderWait> {
+    /// The member's wait, marked held only where `holds` says the panel
+    /// holds rather than parks.
+    fn wait(&self, holds: bool) -> Option<ProviderWait> {
         self.until.map(|until| ProviderWait {
             site: Some(self.member.site.clone()),
             provider: self.member.refusal.provider().to_string(),
@@ -366,11 +382,19 @@ impl Plan {
             seconds: self.seconds,
             until,
             rounds: self.rounds,
+            held: self.held.filter(|_| holds),
         })
     }
 
+    /// The member's park where `bound` says its wait, or the panel's
+    /// `total` through it, passes the maximum; a held member is never one.
     fn past_maximum(&self, total: u64) -> Option<Cause> {
-        past_maximum(self.seconds, total, self.max).then(|| Cause {
+        let retry_after = self.member.refusal.retry_after_seconds();
+        let before = total.saturating_sub(self.seconds);
+        let Bound::Past(_) = bound(retry_after, self.seconds, before, self.max) else {
+            return None;
+        };
+        Some(Cause {
             refused: refusal_record(
                 RefusalCause::PastMaximum,
                 Some(&self.member.site),
@@ -404,6 +428,7 @@ fn judge_total(planned: &[Option<Plan>], causes: &mut [Option<Cause>], episode_s
     let total = planned
         .iter()
         .flatten()
+        .filter(|plan| plan.held.is_none())
         .fold(episode_seconds, |total, plan| {
             total.saturating_add(plan.seconds)
         });
@@ -718,7 +743,8 @@ fn record_event(event_type: EventType, payload: &Value) -> EventEnvelope {
     }
 }
 
-/// One `waits` entry as its row.
+/// One `waits` entry as its row, its held kind carried with it so the
+/// append reads the payload no second time (fix round 0106b1r3).
 fn row_of_wait(wait: &ProviderWait) -> Cooling {
     Cooling {
         site: wait.site.clone().unwrap_or_default(),
@@ -728,5 +754,6 @@ fn row_of_wait(wait: &ProviderWait) -> Cooling {
         reason: wait.words.clone(),
         retry_after_seconds: wait.retry_after_seconds,
         rounds: wait.rounds,
+        held: wait.held,
     }
 }

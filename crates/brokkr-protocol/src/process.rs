@@ -1,7 +1,5 @@
-//! Subprocess transport for `forge-driver/v1`: spawn the driver command,
-//! handshake, offer the seat's prior session to a driver that declared
-//! it can rejoin one, send `start`, and drive the attempt to a terminal
-//! outcome.
+//! Subprocess transport for `forge-driver/v1`: spawn and handshake with the driver,
+//! offer the prior session if it can rejoin, send `start`, and drive to a terminal outcome.
 //! A protocol violation in the handshake, before `start`, degrades to
 //! `Failed` (the executor never began, so a retry is a new attempt).
 //! Every end after `start` with no result read degrades to
@@ -16,11 +14,9 @@
 //! ruling 3). It is read once stdout is closed, so the refusal of
 //! anything the driver wrote before its tree ended is never missed.
 //!
-//! The attempt is the driver's whole process tree (#403, `tree`): no
-//! report is returned until the tree is proven gone, so a retry the
-//! engine starts on the report cannot overlap it. An end that cannot be
-//! proven is carried as an unresolved `Cleanup` beside the outcome the
-//! driver reached, and parks.
+//! The attempt is the driver's whole process tree (#403, `tree`). A report waits for proof
+//! that the tree is gone so retries cannot overlap. An unproven end carries unresolved
+//! `Cleanup` beside the outcome and parks.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -40,6 +36,7 @@ use crate::{
     AttemptOutcome, AttemptReport, Body, Cleanup, Message, PreSessionRefusal, Probe, PROTO,
 };
 mod attempts;
+mod deadline;
 mod evidence;
 mod launched;
 mod limits;
@@ -55,6 +52,8 @@ mod tree;
 pub mod usage;
 
 use attempts::{Attempt, Unspawned};
+pub use deadline::By;
+use deadline::{Arm, Deadline};
 pub use evidence::DriverStderr;
 pub(crate) use evidence::Evidence;
 pub(crate) use launched::Launched;
@@ -81,6 +80,11 @@ pub enum SpawnError {
     /// attempt's tree could not be told from what ran before it.
     #[error("refused to spawn driver {command}: {source}")]
     Unwatched { command: String, source: Unsettled },
+    /// An absolute deadline ([`DriverProcess::spawn_by`]) the fork found
+    /// already past, under the registry's lock as the last step before the
+    /// spawn: nothing was spawned (fix round 0106b1r9, E1).
+    #[error("refused to spawn driver {command}: its deadline passed before the fork")]
+    Late { command: String },
 }
 
 /// The environment a driver starts in (decision 0046 ruling 4; design
@@ -165,7 +169,7 @@ pub struct DriverProcess {
     /// Dropping the sender disarms the watchdog; `finish` joins the
     /// thread before it reaps, so no kill can land after the reap.
     watchdog: Option<(mpsc::Sender<()>, JoinHandle<()>)>,
-    deadline: Option<Duration>,
+    deadline: Option<Deadline>,
     started: Instant,
     bounds: Bounds,
     limits: Limits,
@@ -286,6 +290,7 @@ impl DriverProcess {
         env: &SpawnEnv,
         host: Host,
     ) -> Result<Self, SpawnError> {
+        let deadline = deadline.map(Arm::After);
         Self::spawn_limited(command, workdir, deadline, env, host, Limits::DEFAULT)
     }
 
@@ -293,7 +298,7 @@ impl DriverProcess {
     fn spawn_limited(
         command: &[String],
         workdir: &std::path::Path,
-        deadline: Option<Duration>,
+        deadline: Option<Arm<'_>>,
         env: &SpawnEnv,
         host: Host,
         limits: Limits,
@@ -309,11 +314,15 @@ impl DriverProcess {
         if let SpawnEnv::Exactly(table) = env {
             builder.env_clear().envs(table);
         }
-        let (mut child, attempt) = Attempt::spawn(&mut builder, host).map_err(|unspawned| {
+        // Armed at the fork, under the registry's lock (fix round 0106b1r9).
+        let at_fork = || deadline.map_or(Some(None), |arm| arm.at_fork().map(Some));
+        let spawned = Attempt::spawn_at(&mut builder, host, at_fork);
+        let (mut child, attempt, deadline) = spawned.map_err(|unspawned| {
             let command = command.join(" ");
             match unspawned {
                 Unspawned::Table(source) => SpawnError::Unwatched { command, source },
                 Unspawned::Spawn(source) => SpawnError::Spawn { command, source },
+                Unspawned::Late => SpawnError::Late { command },
             }
         })?;
         let stdin = child.stdin.take().expect("piped stdin");
@@ -323,21 +332,8 @@ impl DriverProcess {
             limits.stderr_bytes,
         );
         let timed_out = Arc::new(AtomicBool::new(false));
-        let key = attempt.key();
-        let watchdog = deadline.map(|deadline| {
-            let (tx, rx) = mpsc::channel::<()>();
-            let timed_out = Arc::clone(&timed_out);
-            let thread = std::thread::spawn(move || {
-                if let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(deadline) {
-                    timed_out.store(true, Ordering::SeqCst);
-                    // A refusal here is met again, and carried, by
-                    // `tree::end`, whose kill reads the table and signals
-                    // the same tree once more.
-                    drop(Attempt::kill(key, host));
-                }
-            });
-            (tx, thread)
-        });
+        let watched = (&child, attempt.key(), host);
+        let watchdog = deadline.map(|deadline| deadline.watch(&timed_out, watched));
         Ok(DriverProcess {
             child,
             attempt,
@@ -393,7 +389,7 @@ impl DriverProcess {
         match self.deadline {
             None => self.stdout.recv().ok(),
             Some(deadline) => {
-                let give_up = self.started + deadline + self.bounds.drain;
+                let give_up = deadline.kills(self.started) + self.bounds.drain;
                 let wait = give_up.checked_duration_since(Instant::now())?;
                 self.stdout.recv_timeout(wait).ok()
             }
@@ -517,7 +513,10 @@ impl DriverProcess {
     /// the attempt was accepted.
     fn eof_outcome(&self, accepted: bool) -> AttemptOutcome {
         if self.timed_out.load(Ordering::SeqCst) {
-            let secs = self.deadline.map(|d| d.as_secs()).unwrap_or_default();
+            let secs = self
+                .deadline
+                .map(|d| d.armed().as_secs())
+                .unwrap_or_default();
             return AttemptOutcome::Indeterminate {
                 reason: format!(
                     "attempt exceeded its {secs}s deadline and was killed; its process \
@@ -790,6 +789,7 @@ impl From<Unspawned> for std::io::Error {
         match unspawned {
             Unspawned::Table(unwatched) => std::io::Error::other(unwatched),
             Unspawned::Spawn(error) => error,
+            Unspawned::Late => std::io::Error::other("its deadline passed before the fork"),
         }
     }
 }

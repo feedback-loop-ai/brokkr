@@ -777,8 +777,11 @@ office's grants.
 
 The boxed seat stands as the unboxed one does since decision 0021's
 [addendum](../decisions/0021-model-policy.md#addendum--2026-11-22-operator-ruled-agy-is-trusted-its-four-models-are-promoted-and-neon-and-carbon-are-its-judges):
-trusted, its models promoted, a gate open to Neon and Carbon alone, and
-never resumed.
+trusted, the four Gemini 4 aliases it named (`agy-neon`, `agy-carbon`,
+`agy-hydrogen` and `agy-argon`) promoted (while `agy-claude-opus` and
+`agy-claude-sonnet` are work models whose promotion needs its own ruling
+after an eval, #1382), a gate open to Neon and Carbon alone, and never
+resumed.
 Store reads are measured boxed, on 1.5.14, the version of every boxed
 axis, as two facts kept apart. The box's reach: with the store sealed at
 its production path, the hands tool was denied it (`box-store-drive`),
@@ -787,12 +790,21 @@ gate: the native `read_file` and `run_command` were refused by name
 before either reached the path (`box-store`), which shows the gate, not
 the seal. So an MCP capability that binds a secret is not refused at a
 boxed agy seat for want of a store measurement. Not measured on any
-version: a box whose reach names a bind or the network. Every recorded
-boxed turn ran agy by hand, not through `brokkr driver agy`; on 1.5.14 the
-three boxed turns of the security set and `box-store` ran under the
-driver's own gate. No recorded boxed turn ran on Neon or Argon, and one,
-`box-store`, on Hydrogen; four boxed runs through the driver, one per
-model, are engine runs named on #1224, not recorded turns.
+version: a box whose reach names a bind or the network (neither of the
+eighth measurement's engine seats probed bind or network reach). Every
+recorded lab boxed turn ran agy by hand, not through `brokkr driver agy`;
+on 1.5.14 the three boxed turns of the security set and `box-store` ran
+under the driver's own gate (as did the eighth measurement's three boxed
+turns on `claude-sonnet-5-5-low` on 1.5.17). No recorded boxed turn ran
+on Neon or Argon, and one, `box-store`, on Hydrogen; four boxed runs
+through the driver on the Gemini 4 models, one per model, are engine runs
+named on #1224, not recorded turns. For the Claude 5.5 models, the eighth
+measurement (on 1.5.17) records two `low`-effort boxed work-seat driver
+runs through the released 0.16.0 engine (`claude-engine-0160-*`, one each
+on `claude-opus-5-5` and `claude-sonnet-5-5` over a four-step task,
+captured as launch argv, MCP config, the reader's rendered kept
+transcript and a run-view seat extract); no driver run is recorded for
+either Claude model at `medium` or `high`.
 
 **A turn agy stopped at a denial is not an answer.** When agy cannot ask
 for an approval, it stops the turn, exits 0 with status `SUCCESS` and an
@@ -1553,7 +1565,7 @@ stands and nothing here is claimed. The evidence is
 | `lanetally` | Cold and replacement without hands, through the wrapper itself: launcher sha256 `b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb` running LaneTally's session-wrapper.sh at 4614bb7, sha256 `ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7`, over Claude Code 2.1.287 (cold) and 2.1.308 (replacement). | Process reads; store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. A different wrapper is a different measurement. |
 | `exec` | `inapplicable`: no model MCP surface. | — |
 | `qoder` (example) | Cold and replacement without hands: Qoder CLI 1.1.92, against planted user, local, project and plugin sentinels (Q07, Q10, Q11, Q14, Q15 in [`qoder-cli-1-1.md`](../evidence/adapters/qoder-cli-1-1.md#mcp-isolation-si2)). Every launch carries `--strict-mcp-config --mcp-config <the engine's file> --setting-sources ""`: either flag alone still started a planted server. | Native write, store read and process read: Qoder's permission check refused the attempts, and that check is not an isolation mechanism. No boxed shape, so a site that boxes its hands refuses the seat. A managed or enterprise MCP configuration. |
-| `agy` (example) | Cold and replacement without hands: Antigravity CLI 1.5.13, against planted user, plugin, workspace, parent, workspace-plugin and added-directory sentinels (`iso-01` to `iso-06` in [`agy-cli-1-5.md`](../evidence/adapters/agy-cli-1-5.md#mcp-isolation-si2)). Every launch runs under an engine HOME of its own, which started none of the user's servers, and a workspace carrying `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` in the working directory or any directory above it is refused before spawn, because agy starts those in a workspace nobody trusted (`iso-02`). Cold and replacement, boxed: Antigravity CLI 1.5.14, under a HOME whose one server is the engine's, which started and answered (`iso-07-engine-carriage-cold-v14`, `box-engine-workspace-tool-v14`); under the driver's gate listing `call_mcp_tool` alone, native writes and the native shell were refused by name, and the hands tool's command saw 4 entries in `/proc` (`box-other-natives-v14`, `box-reach-v14`, in the [sixth measurement](../evidence/adapters/agy-cli-1-5.md#sixth-measurement-on-1514-the-short-security-set-and-a-commands-stdin-2026-11-21)). Store read is two facts, kept apart as the [boxed seat's paragraph](#a-boxed-agy-seat) keeps them: the box's seal denied a store at its production path to the hands tool, which read it with no seal (`box-store-drive`, `box-store-drive-control`); and the driver's gate refused the native `read_file` and `run_command` by name before either reached the path (`box-store`), which shows the gate, not the seal. The native denial is the gate's, in agy's own process on the host, not a boundary of the operating system. | Without hands: native write, store read and process read, since the record's host has no terminal sandbox. Boxed: a box whose reach names a bind or the network; a boxed turn on Neon or Argon; and any recorded turn through `brokkr driver agy` itself (the record's boxed turns ran agy by hand, those on 1.5.14 under the driver's gate; four boxed driver runs, one per model, are engine runs on #1224, not recorded turns). macOS. |
+| `agy` (example) | Cold and replacement without hands: Antigravity CLI 1.5.13, against planted user, plugin, workspace, parent, workspace-plugin and added-directory sentinels (`iso-01` to `iso-06` in [`agy-cli-1-5.md`](../evidence/adapters/agy-cli-1-5.md#mcp-isolation-si2)). Every launch runs under an engine HOME of its own, which started none of the user's servers, and a workspace carrying `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` in the working directory or any directory above it is refused before spawn, because agy starts those in a workspace nobody trusted (`iso-02`). Cold and replacement, boxed: Antigravity CLI 1.5.14, under a HOME whose one server is the engine's, which started and answered (`iso-07-engine-carriage-cold-v14`, `box-engine-workspace-tool-v14`); under the driver's gate listing `call_mcp_tool` alone, native writes and the native shell were refused by name, and the hands tool's command saw 4 entries in `/proc` (`box-other-natives-v14`, `box-reach-v14`, in the [sixth measurement](../evidence/adapters/agy-cli-1-5.md#sixth-measurement-on-1514-the-short-security-set-and-a-commands-stdin-2026-11-21)). Store read is two facts, kept apart as the [boxed seat's paragraph](#a-boxed-agy-seat) keeps them: the box's seal denied a store at its production path to the hands tool, which read it with no seal (`box-store-drive`, `box-store-drive-control`); and the driver's gate refused the native `read_file` and `run_command` by name before either reached the path (`box-store`), which shows the gate, not the seal. The native denial is the gate's, in agy's own process on the host, not a boundary of the operating system. | Without hands: native write, store read and process read, since the record's host has no terminal sandbox. Boxed: a box whose reach names a bind or the network; a boxed turn on Neon or Argon; any recorded turn through `brokkr driver agy` on the four Gemini 4 models (their recorded boxed turns ran agy by hand, those on 1.5.14 under the driver's gate; four boxed driver runs, one per Gemini 4 model, are engine runs on #1224, not recorded turns); and any recorded driver run on `claude-opus-5-5` or `claude-sonnet-5-5` above `low` effort (the eighth measurement on 1.5.17 records two `low`-effort boxed work-seat driver runs through the released 0.16.0 engine, `claude-engine-0160-*`, captured as launch argv, MCP config, the reader's rendered kept transcript and a run-view seat extract, without probing bind or network reach). macOS. |
 
 A shape's `measured_on.version` is not compared with the version of
 the harness installed: a measurement stays applied after the binary

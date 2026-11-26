@@ -22,26 +22,27 @@ use brokkr_core::{
 };
 use serde_json::Value;
 use thiserror::Error;
-use time::Duration as TimeDuration;
-use time::OffsetDateTime;
+use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::{Engine, EngineError};
 use crate::admission::{read_host, Bounds, HostError, Hosting};
 use crate::bundle::Limits;
 
+mod held;
+pub(crate) use held::HeldDrive;
+use held::HeldEnd;
+pub use held::HeldWait;
 mod probe;
 pub(in crate::engine) use probe::cleanup_failure;
 mod terminal;
 #[cfg(test)]
 use probe::Probe;
 use terminal::{record_refusal, refusal_record, refusal_text, representable_end, waiter};
-mod wait;
-
 mod sites;
+mod wait;
 pub(in crate::engine) use sites::{cooldown_rows, refused_members, RefusedMember};
 
-/// One slice of an in-process wait: the wait re-reads the run's journal
-/// after each, so an operator `stop` is honoured within a second.
+/// One in-process wait slice: the journal is re-read after each, so a `stop` lands in a second.
 const SLICE: Duration = Duration::from_secs(1);
 
 /// Time as the engine's argument (decision 0071 ruling 1). Production's
@@ -68,6 +69,21 @@ pub(crate) struct Seam {
     pub(crate) host: Option<PathBuf>,
     pub(crate) clock: Clock,
     pub(crate) answers: Vec<ProbeAnswer>,
+    /// Where this drive stands on a held wait (decision 0106 ruling 2).
+    pub(crate) held: HeldDrive,
+    /// The hold the probe in flight took on its route (fix round 0106b1r4).
+    pub(crate) hold: Option<brokkr_store::ProbeHoldId>,
+    /// Whether the first turn's reaper ran (the return of fix round 0106b1r12).
+    pub(crate) reaped: bool,
+    /// What the last wait charged, carried to the next turn's wait on the
+    /// same waits (fix round 0106b1r15, M1).
+    pub(crate) charged: Option<wait::Carried>,
+    /// The routes the retry being started was refused on, by its waits,
+    /// and those its refused start found held, which the effect's next
+    /// wait reads with its own (fix round 0106b1r15, R1).
+    pub(crate) refused: Vec<(String, String)>,
+    pub(crate) fenced: Vec<(String, String)>,
+    pub(crate) fenced_charge: wait::FencedCharges,
 }
 
 impl Default for Seam {
@@ -76,6 +92,13 @@ impl Default for Seam {
             host: None,
             clock: Clock::real(),
             answers: Vec::new(),
+            held: HeldDrive::Unheld,
+            hold: None,
+            reaped: false,
+            charged: None,
+            refused: Vec::new(),
+            fenced: Vec::new(),
+            fenced_charge: wait::FencedCharges::default(),
         }
     }
 }
@@ -197,6 +220,17 @@ pub(super) enum CooldownError {
         words: String,
     },
     #[error(
+        "the cool-down probe for {provider}/{route} was refused again with a wait of {seconds}s, \
+         {}, whose end the journal cannot spell",
+        against(*.seconds, *.max_seconds)
+    )]
+    RoundNoEnd {
+        provider: String,
+        route: String,
+        seconds: u64,
+        max_seconds: u64,
+    },
+    #[error(
         "the cool-down probe for {provider}/{route} could not record its next round: {source}"
     )]
     RoundUnwritable {
@@ -204,12 +238,24 @@ pub(super) enum CooldownError {
         route: String,
         source: Box<brokkr_store::StoreError>,
     },
+    #[error("the journal refused the attempt's outcome: {0}")]
+    WaitUnwritten(Box<brokkr_store::QueueRefusal>),
+    /// A standing probe hold read so near the clock's last instant that
+    /// its next slice cannot be named (fix round 0106b1r14, M1).
+    #[error(
+        "a cool-down wait for {provider}/{route} is held by a probe at an instant whose next \
+         slice the clock cannot name"
+    )]
+    HeldPastTheClock { provider: String, route: String },
 }
 
 /// What the engine does with a wait it read: proceed to the retry, leave
 /// a stopped run to its `Stop` arm, or park with this reason and cause.
 pub(super) enum Waited {
     Proceed(Vec<ProbeAnswer>),
+    /// A probe wrote another held round, and the drive ends with the run
+    /// `running` (decision 0106 ruling 2).
+    Held,
     Stopped,
     Parked(Park),
 }
@@ -233,6 +279,28 @@ pub(super) fn park_of(error: &CooldownError) -> Park {
         Said::Own => ParkCause::ruled(None, reason.clone()),
     };
     Park::new(reason, cause)
+}
+
+/// How a no-end round's length stands against its site's own maximum: a
+/// held round is past it, and an ordinary one from a held end near year
+/// 9999 is within it (fix round 0106b1r3, R3).
+fn against(seconds: u64, max_seconds: u64) -> String {
+    let side = if seconds > max_seconds {
+        "past"
+    } else {
+        "within"
+    };
+    format!("{side} the declared {max_seconds}s maximum")
+}
+
+/// A probe's round whose end the journal cannot spell, held or ordinary,
+/// as the provider's typed limit: the terminal's `no-end` cause.
+fn no_end(route: &str, seconds: u64, max_seconds: u64) -> ProviderLimitRefusal {
+    ProviderLimitRefusal::NoEnd {
+        route: route.to_string(),
+        seconds,
+        max_seconds,
+    }
 }
 
 /// What a cool-down error says of its park's cause.
@@ -263,6 +331,12 @@ fn said(error: &CooldownError) -> Said<'_> {
                 max_seconds: facts.max,
             },
         ),
+        CooldownError::RoundNoEnd {
+            provider,
+            route,
+            seconds,
+            max_seconds,
+        } => Said::Limit(provider, no_end(route, *seconds, *max_seconds)),
         CooldownError::WaitEpisodeUnreadable {
             provider, route, ..
         } => Said::Limit(
@@ -339,7 +413,9 @@ fn said(error: &CooldownError) -> Said<'_> {
         | CooldownError::RefusedUnreadable(_)
         | CooldownError::RoundsUnreadable { .. }
         | CooldownError::AggregateUnreadable { .. }
-        | CooldownError::RoundUnwritable { .. } => Said::Own,
+        | CooldownError::RoundUnwritable { .. }
+        | CooldownError::WaitUnwritten(_)
+        | CooldownError::HeldPastTheClock { .. } => Said::Own,
     }
 }
 
@@ -388,6 +464,10 @@ pub(super) struct Episode {
     /// read this, so a park after a written probe round names that round's
     /// length rather than the first wait's (0103 ruling 3).
     pub(super) lengths: BTreeMap<Option<String>, u64>,
+    /// The probe's held round that ends last, where the episode has one
+    /// (decision 0106 ruling 2). A terminal's own held wait is read from its
+    /// event's `waits` entry, never from its row.
+    pub(super) held: Option<HeldEnd>,
 }
 
 pub(super) fn episode_by_site(
@@ -401,6 +481,7 @@ pub(super) fn episode_by_site(
         seconds: 0,
         latest: None,
         lengths: BTreeMap::new(),
+        held: None,
     };
     for event in events {
         if !matches!(
@@ -420,31 +501,61 @@ pub(super) fn episode_by_site(
         };
         for wait in waits {
             *episode.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
-            episode.seconds = episode.seconds.saturating_add(wait.seconds);
-            episode.lengths.insert(wait.site.clone(), wait.seconds);
-            let site = wait.site.clone().unwrap_or_default();
-            let rows = store
-                .cooldown_rounds(run_id, event.seq, &site)
-                .map_err(|source| CooldownError::RoundsUnreadable {
-                    source: Box::new(source),
-                })?;
-            for row in rows {
-                episode.latest = Some(
-                    episode
-                        .latest
-                        .map_or(row.until_at, |latest| latest.max(row.until_at)),
-                );
-                if the_waits_own(&row, &wait) {
-                    continue;
-                }
-                *episode.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
-                let length = round_length(&row);
-                episode.seconds = episode.seconds.saturating_add(length);
-                episode.lengths.insert(wait.site.clone(), length);
+            // A held wait contributes its round and its `until`, but no
+            // remainder, and its own length is never judged against the
+            // maximum (decision 0106 ruling 2).
+            if wait.held.is_none() {
+                episode.seconds = episode.seconds.saturating_add(wait.seconds);
+                episode.lengths.insert(wait.site.clone(), wait.seconds);
             }
+            episode.fold_rounds(store, run_id, event.seq, &wait)?;
         }
     }
     Ok(episode)
+}
+
+impl Episode {
+    /// Fold one wait's stored rows into the episode: every row's end into
+    /// `latest`, and every probe round into its site's rounds. An ordinary
+    /// round adds its length; a probe's held round, the provider's word,
+    /// adds its round and its end but no remainder, and its end is one a
+    /// resume does not sleep to (decision 0106 ruling 2).
+    fn fold_rounds(
+        &mut self,
+        store: &brokkr_store::Store,
+        run_id: &str,
+        event_seq: u64,
+        wait: &ProviderWait,
+    ) -> Result<(), CooldownError> {
+        let site = wait.site.clone().unwrap_or_default();
+        let unreadable = |source| CooldownError::RoundsUnreadable {
+            source: Box::new(source),
+        };
+        let rows = store
+            .cooldown_rounds(run_id, event_seq, &site)
+            .map_err(unreadable)?;
+        let kinds = store
+            .cooldown_held_rounds(run_id, event_seq, &site)
+            .map_err(unreadable)?;
+        for row in rows {
+            self.latest = Some(
+                self.latest
+                    .map_or(row.until_at, |latest| latest.max(row.until_at)),
+            );
+            if the_waits_own(&row, wait) {
+                continue;
+            }
+            *self.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
+            if let Some(held) = kinds.get(&row.rounds).copied() {
+                self.hold_to(&row, held);
+                continue;
+            }
+            let length = round_length(&row);
+            self.seconds = self.seconds.saturating_add(length);
+            self.lengths.insert(wait.site.clone(), length);
+        }
+        Ok(())
+    }
 }
 
 /// Whether `row` is the terminal event's own row for `wait`: the store
@@ -670,29 +781,6 @@ impl Engine {
 
     pub(super) fn now(&self) -> OffsetDateTime {
         (self.cooldown.clock.now)()
-    }
-}
-
-// A test's clock: one shared instant, advanced by each slice, so a wait is
-// exercised with no real sleep. The stop test builds its own sleep that
-// also journals the operator's command.
-#[cfg(test)]
-impl Clock {
-    pub(crate) fn advancing(
-        start: OffsetDateTime,
-    ) -> (Clock, std::sync::Arc<std::sync::Mutex<OffsetDateTime>>) {
-        let shared = std::sync::Arc::new(std::sync::Mutex::new(start));
-        let read = std::sync::Arc::clone(&shared);
-        let write = std::sync::Arc::clone(&shared);
-        (
-            Clock {
-                now: Box::new(move || *read.lock().unwrap()),
-                sleep: Box::new(move |slice| {
-                    *write.lock().unwrap() += TimeDuration::seconds(slice.as_secs() as i64)
-                }),
-            },
-            shared,
-        )
     }
 }
 

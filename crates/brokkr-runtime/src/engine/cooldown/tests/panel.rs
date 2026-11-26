@@ -17,7 +17,7 @@ use super::*;
 use crate::agents::Candidate;
 use crate::bundle::{Aggregate, Bundle, Invocation, PanelMember, SeatBody, SeatClass};
 use crate::engine::cooldown::sites::RefusedMember;
-use crate::engine::tests::{bundle, single_body};
+use crate::engine::tests::single_body;
 use crate::engine::Engine;
 
 /// A unanimous panel of `members`.
@@ -168,7 +168,7 @@ fn start_probes(engine: &Engine) -> Vec<Value> {
 
 /// The shared log every fake driver appends its tagged line to, so a panel
 /// test can read the engine's own order across members.
-fn shared_log(dir: &Path) -> Vec<String> {
+pub(super) fn shared_log(dir: &Path) -> Vec<String> {
     std::fs::read_to_string(dir.join("all.log"))
         .unwrap_or_default()
         .lines()

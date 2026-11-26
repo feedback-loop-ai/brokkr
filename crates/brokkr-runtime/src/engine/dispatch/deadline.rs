@@ -33,6 +33,7 @@ use std::time::Duration;
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 
 use super::super::carry::Panelled;
+use super::super::marks::outcome_at;
 use super::super::{site_label, DriverRun, Selection};
 use crate::admission::{read_host, HostError, Hosting};
 use crate::agents::Candidate;
@@ -326,9 +327,50 @@ fn route_of(
     candidate: &Candidate,
 ) -> Option<String> {
     let facts = sites.get(&site_label(site_name, site))?;
-    let index = facts.chain.iter().position(|link| link == candidate)?;
-    match facts.pins.get(index)? {
-        ModelPins::Read(served) => served.iter().find_map(|served| served.route.clone()),
-        ModelPins::Unreadable(_) => None,
-    }
+    let (_, mut routes) = served_routes(facts, Some(candidate)).ok().flatten()?;
+    routes.next().map(str::to_owned)
+}
+
+/// Why the retry cannot establish a launched site's routes.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum RouteRefusal {
+    #[error("compiled site facts are missing")]
+    MissingFacts,
+    #[error("the selected candidate is absent from the compiled chain")]
+    Candidate,
+    #[error("the provider's compiled model pins are unreadable")]
+    Pins,
+}
+
+/// The compiled routes served by the selected chain link or the inline
+/// site's single outcome, primary first, as admission seats its lanes.
+/// Candidate selection walks every nonempty invocation chain. With no
+/// candidate, the inline site's outcome names its provider, if it has one.
+pub(super) fn served_routes<'a>(
+    facts: &'a SiteFacts,
+    candidate: Option<&'a Candidate>,
+) -> Result<Option<(&'a str, impl Iterator<Item = &'a str>)>, RouteRefusal> {
+    let (index, provider) = match candidate {
+        Some(candidate) => (
+            facts
+                .chain
+                .iter()
+                .position(|link| link == candidate)
+                .ok_or(RouteRefusal::Candidate)?,
+            candidate.provider.as_str(),
+        ),
+        None => {
+            let Some(outcome) = outcome_at(Some(facts), None) else {
+                return Ok(None);
+            };
+            (0, outcome.provider.as_str())
+        }
+    };
+    let Some(ModelPins::Read(served)) = facts.pins.get(index) else {
+        return Err(RouteRefusal::Pins);
+    };
+    Ok(Some((
+        provider,
+        served.iter().filter_map(|served| served.route.as_deref()),
+    )))
 }

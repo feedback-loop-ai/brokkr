@@ -120,6 +120,108 @@ fn settle_writes_the_record_its_contract_names_and_leaves_the_run_unfolded() {
     assert_eq!(read.args.run, "run-a");
 }
 
+/// Fix round 0106b1r12, S2: the settle record is the operator's settlement
+/// of each attempt it proves, a probe's tree among them, honoured as the
+/// writer exclusion honours it: a probe hold naming the proven attempt
+/// ends with the record, and one naming an attempt it does not prove
+/// stands in the in-force read.
+#[test]
+fn settle_ends_the_probe_holds_of_the_attempts_it_proves_and_no_other() {
+    let mut fixture = quarantined(&[Witnessed::Settling], Some(dead_group()));
+    let at = time::OffsetDateTime::now_utc();
+    for (attempt, provider) in [("a1", "claude"), ("a9", "codex")] {
+        let hold = brokkr_store::ProbeHold {
+            run_id: "run-a",
+            attempt_id: attempt,
+            site: "",
+            provider,
+            route: "first",
+            deadline: at,
+        };
+        fixture.store.hold_probe(&hold, at).unwrap();
+    }
+    let providers = |fixture: &Fixture| -> Vec<String> {
+        let rows = fixture.store.cooldowns_in_force(at).unwrap();
+        rows.into_iter().map(|row| row.provider).collect()
+    };
+    assert_eq!(providers(&fixture), ["claude", "codex"]);
+    operator_settle(&mut fixture.store, "run-a", &ask()).expect("the facts hold");
+    assert_eq!(providers(&fixture), ["codex"]);
+}
+
+/// The return of fix round 0106b1r12: a settle whose holds' end fails
+/// after its record committed (`interrupt`, a trigger on the hold's end)
+/// leaves the record, which writer admission honours, at the run's head
+/// and the probe's hold standing; the verb run again, the acknowledgement
+/// lapsed under the record, ends that hold from the record and appends
+/// nothing more.
+fn settle_replays_its_record_after(interrupt: &str) -> brokkr_store::StoreError {
+    let mut fixture = quarantined(&[Witnessed::Settling], Some(dead_group()));
+    let at = time::OffsetDateTime::now_utc();
+    let hold = brokkr_store::ProbeHold {
+        run_id: "run-a",
+        attempt_id: "a1",
+        site: "",
+        provider: "claude",
+        route: "first",
+        deadline: at,
+    };
+    fixture.store.hold_probe(&hold, at).unwrap();
+    let trigger = format!(
+        "CREATE TRIGGER interrupted BEFORE UPDATE OF ended_at ON probe_holds BEGIN {interrupt}; \
+         END;"
+    );
+    let journal = rusqlite::Connection::open(fixture.store.path()).unwrap();
+    journal.execute_batch(&trigger).unwrap();
+    let EngineError::Store(failed) = operator_settle(&mut fixture.store, "run-a", &ask())
+        .expect_err("the holds' end was interrupted")
+    else {
+        panic!("the interruption was not the store's");
+    };
+    let events = fixture.store.load("run-a").unwrap();
+    let record = release::record(&events).expect("the record committed before the holds' end");
+    assert_eq!(record.seq, events.last().unwrap().seq);
+    assert_eq!(fixture.store.cooldowns_in_force(at).unwrap().len(), 1);
+    assert_eq!(next(&fixture).map(drop), Ok(()), "admission honours it");
+    journal.execute_batch("DROP TRIGGER interrupted;").unwrap();
+    let replayed = operator_settle(&mut fixture.store, "run-a", &ask()).expect("it replays");
+    assert_eq!(replayed.seq, record.seq);
+    assert_eq!(fixture.store.load("run-a").unwrap().len(), events.len());
+    assert_eq!(fixture.store.cooldowns_in_force(at).unwrap(), []);
+    failed
+}
+
+/// The store fails the holds' end outright, as an interruption between the
+/// record and the end leaves it.
+#[test]
+fn a_settle_interrupted_before_its_holds_end_replays_its_record() {
+    let failed = settle_replays_its_record_after("SELECT RAISE(ABORT, 'interrupted')");
+    assert!(
+        matches!(&failed, brokkr_store::StoreError::Sqlite(error)
+            if error.to_string().contains("interrupted")),
+        "{failed:?}"
+    );
+}
+
+/// The table takes the holds' end without writing it: the store refuses by
+/// name, never reporting the hold ended.
+#[test]
+fn a_settle_whose_holds_end_the_table_skips_refuses_and_replays_its_record() {
+    let failed = settle_replays_its_record_after("SELECT RAISE(IGNORE)");
+    let brokkr_store::StoreError::Queue(brokkr_store::QueueRefusal::ProbeHoldUnsettled(held)) =
+        &failed
+    else {
+        panic!("the skipped end was not refused by name: {failed:?}");
+    };
+    assert_eq!(
+        **held,
+        brokkr_store::UnsettledHold {
+            run_id: "run-a".into(),
+            attempt_id: "a1".into(),
+        }
+    );
+}
+
 /// A run no acknowledgement stands on is refused by its typed cause,
 /// naming the command that answers it. Nothing is written.
 #[test]
