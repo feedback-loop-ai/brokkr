@@ -303,3 +303,165 @@ fn a_hold_dominates_unknowns_and_an_all_clean_panel_stays_none_and_false() {
     );
     assert_eq!(admission(&review), ruled("CLEAN", "ship"));
 }
+
+/// A table that routes a review on its scope and fixes flags: a spec
+/// defect with no fixes to triage, clean fixes to verify, and only
+/// explicitly-false flags to ship; everything else stops.
+fn scope_machine() -> brokkr_core::policy::Machine {
+    brokkr_core::policy::Machine::from_table(&json!({
+        "schema": "forge.phase-machine/v1",
+        "phases": ["review", "verify", "triage", "ship", "stop"],
+        "initial": "review", "terminal": ["ship", "stop", "verify", "triage"], "rules": [
+            {"id": "CLEAN-SCOPE", "from": "review", "result": "clean", "next": "triage",
+             "reason": "scope", "when": {"spec_defect": true, "fixes_applied": false}},
+            {"id": "CLEAN-FIXES", "from": "review", "result": "clean", "next": "verify",
+             "reason": "fixes", "when": {"spec_defect": false, "fixes_applied": true}},
+            {"id": "CLEAN-SAFE", "from": "review", "result": "clean", "next": "ship",
+             "reason": "safe", "when": {"spec_defect": false, "fixes_applied": false}},
+            {"id": "CLEAN-UNSAFE", "from": "review", "result": "clean", "next": "stop",
+             "severity": "hard", "reason": "unknown"},
+            {"id": "RESIDUAL-SCOPE", "from": "review", "result": "residual", "next": "triage",
+             "reason": "scope", "when": {"has_security_residual": false,
+             "max_residual_severity_at_most": "medium", "spec_defect": true,
+             "fixes_applied": false}},
+            {"id": "RESIDUAL-SAFE", "from": "review", "result": "residual", "next": "ship",
+             "reason": "safe", "when": {"has_security_residual": false,
+             "max_residual_severity_at_most": "medium", "spec_defect": false,
+             "fixes_applied": false}},
+            {"id": "RESIDUAL-UNSAFE", "from": "review", "result": "residual", "next": "stop",
+             "severity": "hard", "reason": "unknown"}
+        ]
+    }))
+    .unwrap()
+}
+
+/// Where [`scope_machine`] sends `review`.
+fn destination(review: &Value) -> String {
+    use brokkr_core::policy::Outcome;
+    let result = review["result"].as_str().unwrap();
+    match scope_machine().evaluate("review", result, review["inputs"].as_object().unwrap()) {
+        Outcome::Ruling { next_phase, .. } => next_phase,
+        other => panic!("expected a ruling, got {other:?}"),
+    }
+}
+
+/// A member whose word is `result`, with safe residual facts, and each
+/// flag written as given or left out.
+fn flagged(result: &str, fixes: Option<&Value>, scope: Option<&Value>) -> Value {
+    let severity = if result == "residual" {
+        "medium"
+    } else {
+        "none"
+    };
+    let mut inputs = json!({"has_security_residual": false, "max_residual_severity": severity});
+    for (name, value) in [("fixes_applied", fixes), ("spec_defect", scope)] {
+        if let Some(value) = value {
+            inputs[name] = value.clone();
+        }
+    }
+    json!({"result": result, "inputs": inputs})
+}
+
+/// Decision 0121 ruling 1: the join reads one member's flag as itself
+/// when it is a boolean, as the charter's `false` when the member left it
+/// out, and as unknown otherwise.
+fn read_as(value: Option<&Value>) -> Value {
+    match value {
+        None => json!(false),
+        Some(Value::Bool(flag)) => json!(flag),
+        Some(_) => Value::Null,
+    }
+}
+
+/// One member's `fixes` and `scope` flags, as `result`, at `position` of
+/// a panel of `count` whose other members write explicitly-false flags:
+/// joined as [`read_as`] reads them, and routed by [`scope_machine`].
+fn check_flags(
+    result: &str,
+    (count, position): (usize, usize),
+    fixes: Option<&Value>,
+    scope: Option<&Value>,
+) {
+    let quiet = flagged("clean", Some(&json!(false)), Some(&json!(false)));
+    let mut members = vec![quiet; count];
+    members[position] = flagged(result, fixes, scope);
+    let review = reviewed(members);
+    let (fixes, scope) = (read_as(fixes), read_as(scope));
+    assert_eq!(review["inputs"]["fixes_applied"], fixes, "{review}");
+    assert_eq!(review["inputs"]["spec_defect"], scope, "{review}");
+    let expected = match (result, fixes.as_bool(), scope.as_bool()) {
+        (_, Some(false), Some(false)) => "ship",
+        (_, Some(false), Some(true)) => "triage",
+        ("clean", Some(true), Some(false)) => "verify",
+        _ => "stop",
+    };
+    assert_eq!(destination(&review), expected, "{review}");
+}
+
+/// Decision 0121 ruling 1, for one, two and four members at every
+/// position: a witnessed flag is kept, `true` included, a left-out one
+/// reads `false`, and a mistyped or null one stays unknown, so the table
+/// routes on what the member said and stops on what it could not read.
+#[test]
+fn a_members_scope_and_fixes_flags_are_kept_witnessed_or_unknown_never_defaulted() {
+    let values = [
+        None,
+        Some(Value::Null),
+        Some(json!(false)),
+        Some(json!(true)),
+        Some(json!("false")),
+        Some(json!(0)),
+        Some(json!([])),
+        Some(json!({})),
+    ];
+    let seats = [1, 2, 4]
+        .into_iter()
+        .flat_map(|count| (0..count).map(move |at| (count, at)));
+    let pairs: Vec<_> = (values.iter())
+        .flat_map(|fixes| values.iter().map(move |scope| (fixes, scope)))
+        .collect();
+    for result in ["clean", "residual"] {
+        for seat in seats.clone() {
+            for (fixes, scope) in &pairs {
+                check_flags(result, seat, fixes.as_ref(), scope.as_ref());
+            }
+        }
+    }
+}
+
+/// A witnessed `true` survives a sibling's unknown flag, in every order.
+#[test]
+fn a_witnessed_true_flag_survives_a_siblings_unknown_in_every_order() {
+    let unreadable = json!("true");
+    for flag in ["fixes_applied", "spec_defect"] {
+        for result in ["clean", "residual"] {
+            for count in [2, 4] {
+                for position in 0..count {
+                    let mut members =
+                        vec![flagged("clean", Some(&unreadable), Some(&unreadable)); count];
+                    let mut witness = flagged(result, None, None);
+                    witness["inputs"][flag] = json!(true);
+                    members[position] = witness;
+                    assert_eq!(reviewed(members.clone())["inputs"][flag], true);
+                    members.reverse();
+                    assert_eq!(reviewed(members)["inputs"][flag], true);
+                }
+            }
+        }
+    }
+}
+
+/// Members that write only the residual pair, as every member charter
+/// orders, or no readable inputs at all, leave both flags `false`: the
+/// charter's shape is not an unknown (decision 0121 ruling 1).
+#[test]
+fn members_that_write_only_the_residual_pair_leave_both_flags_false() {
+    for odd in [Value::Null, json!([]), json!("inputs")] {
+        let charter = flagged("clean", None, None);
+        let bare = json!({"result": "clean", "inputs": odd});
+        let review = reviewed(vec![charter.clone(), bare, charter]);
+        assert_eq!(review["inputs"]["fixes_applied"], false, "{review}");
+        assert_eq!(review["inputs"]["spec_defect"], false, "{review}");
+        assert_eq!(destination(&review), "ship");
+    }
+}

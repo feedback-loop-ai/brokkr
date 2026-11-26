@@ -186,6 +186,39 @@ table is measured (see the `qwen-max` note above). All three new lanes —
 these two and `glm-flash` — sealed a result through `brokkr driver dsh`
 on 2026-09-21 with no effort pinned.
 
+The `qwen4-max` alias pins `dashscope/qwen4-max` (Qwen 4.0 Max) on the
+Model Studio route as a work model and review-panel member; `judges`
+stays empty, `trust_tier` stays `untrusted` and `dashscope` stays
+`uncontracted` by silence, so a gate seat naming it is refused like any
+other `dsh` model. The shipped adapter declares no route overlay or
+endpoint for `dashscope`. For the route to serve this model, an
+operator's dsh needs the `dashscope` provider row in `llm-pi-ai`, the
+key by name (`apiKeyEnv: DASHSCOPE_API_KEY`), `compat` (`thinkingFormat:
+qwen`, `supportsDeveloperRole: false`, `supportsReasoningEffort: true`),
+and the `qwen4-max` model row with its three measured `reasoningEfforts`
+levels (`low`, `high` and `xhigh`, measured 2026-11-16 and 2026-11-19).
+[`docs/evidence/adapters/dsh-hands-1277/overlay-base64url.yml`](../evidence/adapters/dsh-hands-1277/overlay-base64url.yml)
+is the measured example; the endpoint it names is one operator's,
+evidence rather than a default. A seat that pins a level the model row
+does not declare behaves by where the check lives: `adapters/dsh.json`
+declares the adapter-wide vocabulary `low`, `medium`, `high` and `xhigh`,
+so an agent seat pinning `max` is refused at compile (outside that
+vocabulary), while an inline seat pinning `--effort max`, and any seat
+(agent or inline) pinning `medium`, compiles — compile checks an inline
+`--effort` only as one bounded word and `medium` is in dsh's
+adapter-wide vocabulary — passes `brokkr doctor` silently (doctor does
+not check per-model `reasoningEfforts`), and is refused at start by
+`dsh` (`UNSUPPORTED_REASONING_EFFORT`). Not measured: a run of
+`qwen4-max` from the shipped adapter alone (the composed configuration
+dump in [`dsh-hands-1277`](../evidence/adapters/dsh-hands-1277/README.md)
+and the completed keyed turn
+[`dsh-hands-0-2-2.md`](../evidence/adapters/dsh-hands-0-2-2.md) records
+both came from a library of their own); macOS; and any `dsh` model-row reasoning
+level other than `low`, `high` and `xhigh` (the linked overlay records
+direct API probes at `medium` and `max` as well, matching Model Studio's
+mapping of `medium` to `high` and `max` to `xhigh`, so the `dsh` model
+row declares only the three distinct levels).
+
 The `flash` alias pins `deepseek-flash` on DeepSeek's own API: the name
 DeepSeek's [pricing page](https://api-docs.deepseek.com/quick_start/pricing/)
 gives DeepSeek-V4.1-Flash, and dsh's own default model. The earlier
@@ -340,7 +373,7 @@ now hires or the adapter no longer maps.
 |---|---|
 | `claude` | `haiku` |
 | `codex` | `luna`, `terra` |
-| `dsh` | `glm`, `glm53`, `muse`, `pro`, `qwen-flash`, `qwen-max`, `qwen-plus`, `qwen36-flash`, `qwen37-max`, `spark-flash`, `studio-flash`, `studio-flash41`, `studio-pro` |
+| `dsh` | `glm`, `glm53`, `muse`, `pro`, `qwen-flash`, `qwen-max`, `qwen-plus`, `qwen36-flash`, `qwen37-max`, `qwen4-max`, `spark-flash`, `studio-flash`, `studio-flash41`, `studio-pro` |
 | `lanetally` | `fable-tallied`, `opus-tallied`, `sonnet-tallied` |
 
 Adding an alias is therefore an edit to its adapter file and, until an
@@ -528,18 +561,21 @@ controller's ruling of 2026-11-20. Level 1 is an adapter and a driver,
 its site boxes its hands: there it is boxed at level 3 (#1224), as
 [below](#a-boxed-agy-seat). It is never resumed yet, because the HOME it runs
 under is the engine's for one turn (only its transcript file is kept
-past the turn for the run view, #1227). Its trust tier is `trusted` and every
-model it serves is promoted, so no agy model is held to
-`provisional_offices` any longer; which offices a seat holds is still
-ruled by its gates, realms and capabilities. `agy-neon` and
-`agy-carbon` are its judges: a gate refuses `agy-hydrogen` and
-`agy-argon`, which are not in `judges`. A judge's seat may be boxed or
-unboxed, and unboxed, agy's write tools are on and an edit it leaves
-uncommitted is not caught, as for a claude gate under `acceptEdits`
-([#1260](https://github.com/feedback-loop-ai/brokkr/issues/1260)). The operator
-ruled all three on 2026-11-22, recorded in decision 0021's
+past the turn for the run view, #1227). Its trust tier is `trusted`; on
+2026-11-22 the operator ruled `agy` trusted, promoted the four Gemini 4
+aliases it named (`agy-neon`, `agy-carbon`, `agy-hydrogen` and
+`agy-argon`), and named `agy-neon` and `agy-carbon` its judges, recorded
+in decision 0021's
 [addendum](../decisions/0021-model-policy.md#addendum--2026-11-22-operator-ruled-agy-is-trusted-its-four-models-are-promoted-and-neon-and-carbon-are-its-judges)
-(#1252). Its route is class `contracted`, the operator's
+(#1252). `agy-claude-opus` and `agy-claude-sonnet` are work models
+(#1382), and promoting either needs its own ruling after an eval. None of
+the six is held to `provisional_offices`; which offices a seat holds is
+ruled by its gates, realms and capabilities, and a gate refuses
+`agy-hydrogen`, `agy-argon`, `agy-claude-opus` and `agy-claude-sonnet`,
+which are not in `judges`. A judge's seat may be boxed or unboxed, and
+unboxed, agy's write tools are on and an edit it leaves uncommitted is not
+caught, as for a claude gate under `acceptEdits`
+([#1260](https://github.com/feedback-loop-ai/brokkr/issues/1260)). Its route is class `contracted`, the operator's
 ruling recorded in decision
 [0036](../decisions/0036-egress-is-a-property-of-the-route.md). Every figure behind it was measured by hand on Linux
 ([the record](../evidence/adapters/agy-cli-1-5.md)): the first four
@@ -552,7 +588,7 @@ stdin. Which fact is from which version is
 The adapter ships as an example, `docs/examples/adapters/agy.json`, for
 the reason Qoder's does: `brokkr init` does not write it, and a world
 copies it into its adapters directory. It maps the four Gemini 4 models
-to their base slugs:
+and the two Claude 5.5 models to their base slugs:
 
 | Alias | Agy model | Efforts |
 |---|---|---|
@@ -560,14 +596,20 @@ to their base slugs:
 | `agy-carbon` | `gemini-4-carbon` | `low`, `medium`, `high` |
 | `agy-hydrogen` | `gemini-4-hydrogen` | `low`, `medium`, `high`, `xhigh` |
 | `agy-argon` | `gemini-4-argon` | `low`, `medium`, `high` |
+| `agy-claude-opus` | `claude-opus-5-5` | `low`, `medium`, `high` |
+| `agy-claude-sonnet` | `claude-sonnet-5-5` | `low`, `medium`, `high` |
+
+`agy-claude-opus` and `agy-claude-sonnet` are work models, not judges,
+and promotion is a separate ruling under decision
+[0021](../decisions/0021-model-policy.md) after an eval (#1382).
 
 The model flag is `--model` and the effort flag `--effort`. The adapter
 declares `low`, `medium`, `high` and `xhigh`, because an adapter's
-efforts are one list for all its models. Carbon and Argon have no
-`xhigh`: the CLI refuses it with exit 1, and the seat is refused as a
-launch refusal. A slug that already names an effort, such as
-`gemini-4-neon-high`, beside a different `--effort`, is refused by the CLI
-too, so the aliases name the base slugs. The Claude, GPT-OSS and
+efforts are one list for all its models. Carbon, Argon, Claude Opus and
+Claude Sonnet have no `xhigh`: the CLI refuses it with exit 1, and the
+seat is refused as a launch refusal. A slug that already names an effort,
+such as `gemini-4-neon-high`, beside a different `--effort`, is refused
+by the CLI too, so the aliases name the base slugs. The GPT-OSS and
 orchestrator slugs agy also serves are not mapped.
 
 **The launch.** The driver runs `agy --input-format stream-json
@@ -965,6 +1007,9 @@ turn. Each shape names the version its recordings are from:
 
 | Fact | Version |
 |---|---|
+| Effort grammar for `claude-opus-5-5` (four one-word turns and two effort refusals) and `claude-sonnet-5-5` (`claude-opus-*`, `claude-sonnet-*`, eighth measurement) | 1.5.17 |
+| Short security set on `claude-sonnet-5-5-low` (`*-sonnet-v17`, eighth measurement) | 1.5.17 |
+| One boxed work seat per Claude slug (`claude-opus-5-5` and `claude-sonnet-5-5`) at `low` effort on a four-step task through the released 0.16.0 engine (`claude-engine-0160-*`, eighth measurement) | 1.5.17 |
 | The boxed shapes' four axes, cold and replacement, and the MCP carriage (`iso-*-v14`, `box-*-v14`, `box-store-drive`, `box-store`) | 1.5.14 |
 | A gate that crashes or hangs denies (`hook-crash-v14`, `hook-timeout-v14`) | 1.5.14 |
 | The self-update, and `AGY_CLI_DISABLE_AUTO_UPDATE=true` stopping it | 1.5.14 |

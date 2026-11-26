@@ -1,0 +1,1 @@
+error: invalid model selection (--model "claude-sonnet-5-5" --effort "max"): claude-sonnet-5-5 has no "max" effort (available: low, medium, high)

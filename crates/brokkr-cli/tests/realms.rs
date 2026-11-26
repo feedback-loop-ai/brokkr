@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use brokkr_core::realms::RealmMap;
+use brokkr_core::realms::{GrantDialect, RealmMap};
 use brokkr_core::EventType;
 use serde_json::{json, Value};
 
@@ -1402,11 +1402,11 @@ fn a_missing_or_malformed_map_refuses_before_any_seat_spawns() {
     // Including a map that names a version this build does not read:
     // an addition is a version, not drift inside one already published.
     let mut future = map_over(".");
-    future["schema"] = json!("forge.realms/v9");
+    future["schema"] = json!("forge.realms/v10");
     std::fs::write(ws.path().join("realms.json"), future.to_string()).unwrap();
     let (code, _, stderr) = ws.run(&["system", "realms"]);
     assert_eq!(code, Some(1));
-    assert!(stderr.contains("forge.realms/v9"), "{stderr}");
+    assert!(stderr.contains("forge.realms/v10"), "{stderr}");
 
     // And a v1 map reaching for v2's one new word: the version is the
     // promise, so the word is refused under the label that forbids it.
@@ -1538,23 +1538,25 @@ fn the_repository_carries_the_bootstrap_map() {
     assert_eq!(realm.default_branch, "main");
     assert_eq!(realm.house.as_deref(), Some("docs/house-rules.md"));
     assert_eq!(realm.dialect.as_deref(), Some("openspec"));
-    let granted: Vec<(&str, &str, Option<&[String]>)> = realm
+    let granted: Vec<_> = realm
         .grants
         .iter()
-        .map(|(name, grant)| {
-            (
-                name.as_str(),
-                grant.dialect.as_str(),
-                grant.offices.as_deref(),
-            )
-        })
+        .map(|(name, grant)| (name.as_str(), &grant.dialect, grant.offices.as_deref()))
         .collect();
     let researcher = ["researcher".to_owned()];
     assert_eq!(
         granted,
         [
-            ("web-fetch", "claude-native-fetch", Some(&researcher[..])),
-            ("web-search", "claude-native-search", Some(&researcher[..])),
+            (
+                "web-fetch",
+                &GrantDialect::from("claude-native-fetch"),
+                Some(&researcher[..])
+            ),
+            (
+                "web-search",
+                &GrantDialect::from("claude-native-search"),
+                Some(&researcher[..])
+            ),
         ],
         "the realm grants read-only web to the researcher office alone"
     );
