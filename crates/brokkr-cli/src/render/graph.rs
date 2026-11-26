@@ -86,7 +86,7 @@ pub(crate) fn mark(class: Class) -> (Paint, [&'static str; 4]) {
 /// `ui.html`, which falls through to green. The terminal declines to
 /// guess, in the manner of `render::tone`'s own `_ => Tone::Quiet`.
 pub(crate) fn class_for_phase(current: bool, status: &str) -> Class {
-    match (current, status) {
+    match (current, super::running_ink(status)) {
         (false, _) => Class::Visited,
         (true, "running" | "completed") => Class::Current,
         (true, "awaiting_operator") => Class::Park,

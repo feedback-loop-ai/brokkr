@@ -258,8 +258,6 @@ function setForging(forging) {
   document.getElementById('favicon').href = forging ? FAVICON_FORGING : FAVICON_IDLE;
 }
 
-const KNOWN_STATUS = ['completed', 'stopped', 'awaiting_operator', 'running'];
-
 // The two fixed class allowlists. A model carries a closed-set key; the
 // page looks it up here before anything touches className.
 const BADGE_CLASS = { '': '', running: 'running', completed: 'completed',
@@ -274,13 +272,14 @@ const BADGE_CLASS = { '': '', running: 'running', completed: 'completed',
 // serves the page; a run with no ending wears what it wants, and a live run
 // is bold. The keys are the model's closed words; anything else is dim.
 const ENDING_TONE = /* ending-tone */{};
+const LIVE_WORDS = ['running', 'waiting'];
 const WANTS_TONE = { ruling: 'yellow', action: 'cyan' };
 function toneOf(model) {
   const lookup = (table, key) => (Object.hasOwn(table, key) ? table[key] : 'dim');
   if (model.ending) return lookup(ENDING_TONE, model.ending);
   if (model.wants) return lookup(WANTS_TONE, model.wants);
   const standing = model.verdict ? model.verdict.standing : model.standing;
-  return ['running', 'waiting'].includes(standing) ? 'bold' : 'dim';
+  return LIVE_WORDS.includes(standing) ? 'bold' : 'dim';
 }
 // The fleet's three groups, in the order the list draws them: the runs
 // that want the operator, the live ones, and every other, settled.
@@ -290,6 +289,7 @@ function groupOf(model) {
   return toneOf(model) === 'bold' ? GROUPS[1] : GROUPS[2];
 }
 /* run-tone:end */
+const KNOWN_STATUS = ['completed', 'stopped', 'awaiting_operator', ...LIVE_WORDS];
 const NODE_CLASS = { 'on-phosphor': 'on-phosphor', 'in-active': 'in-active',
                      'on-halt': 'on-halt', 'on-park': 'on-park' };
 
@@ -412,7 +412,7 @@ function decisionStrip(ruling) {
 async function loadRuns() {
   // Already newest first: ordering is a derivation rule.
   const runs = await (await fetch('/api/runs')).json();
-  setForging(runs.some((run) => runWord(run) === 'running'));
+  setForging(runs.some((run) => LIVE_WORDS.includes(runWord(run))));
   const list = document.getElementById('runlist');
   list.replaceChildren();
   // Grouped as decision 0064 ruling 6 rules, each group keeping the
@@ -464,6 +464,7 @@ function row(cells) {
   return tr;
 }
 
+/* run-graph:start */
 // Every road back the rail can draw, as [landing, departure] pairs of
 // phase INDICES. The pairs themselves are `phase.returns` — derived
 // once in brokkr-view from the ruling that sent the run BACK, already
@@ -505,7 +506,7 @@ function renderLoops(detail, view, id) {
   const summary = view.summary ?? {};
   const word = runWord(summary);
   const status = KNOWN_STATUS.includes(word) ? word : null;
-  const pulsing = status === 'running';
+  const pulsing = LIVE_WORDS.includes(status);
   const drillable = new Set(view.participants.map((part) => part.key));
   // The rail carries structure, not the leaf's facts: a node reads as
   // its label and nothing else. The served model is a seat's field and
@@ -802,6 +803,7 @@ function renderLoops(detail, view, id) {
     + (roads.length ? ' · the arc under the rail is a reforging: the run went back' : '')));
   detail.appendChild(wrap);
 }
+/* run-graph:end */
 
 // The journal's checkpoint stream — the drill-down fallback when no
 // local transcript exists for the participant.

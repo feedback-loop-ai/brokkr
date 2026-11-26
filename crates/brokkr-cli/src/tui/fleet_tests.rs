@@ -1522,3 +1522,33 @@ fn a_cooling_run_s_row_paints_the_aggregate_s_wait() {
         .join("\n");
     assert_painted(&column);
 }
+
+#[test]
+fn a_waiting_run_pulses_on_the_full_and_compressed_rails() {
+    let (_dir, db) = crate::tests::cooling::cooling_journal();
+    let store = brokkr_store::Store::open_read_only(&db).unwrap();
+    let mut view = crate::run_pages::viewed(&store, "r1", crate::run_pages::Shows::Frame, NOW)
+        .unwrap()
+        .view;
+    for phase in &mut view.phases {
+        phase.columns.clear();
+    }
+    let mut tui = Tui::new(Some("r1".to_string()));
+    tui.animate = true;
+    let rail = painter::Rail {
+        phase: None,
+        node: None,
+    };
+    for height in [1, 7] {
+        let glyphs = [0, 2].map(|tick| {
+            tui.ticks = tick;
+            painter::graph_lines(&tui, &view, None, &rail, (80, height))
+                .iter()
+                .flat_map(|line| line.spans.iter())
+                .flat_map(|span| span.content.chars())
+                .filter(|glyph| ['∙', '⏺', '·'].contains(glyph))
+                .collect::<String>()
+        });
+        assert_eq!(glyphs, ["∙", "⏺"], "rail height {height}");
+    }
+}

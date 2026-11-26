@@ -407,6 +407,7 @@ var __list = { children: [],
   appendChild: function (child) { this.children.push(child); } };
 function __node(tag) {
   return { tag: tag, text: null, className: null, title: null, children: [],
+    setAttribute: function (name, value) { this[name] = value; },
     appendChild: function (child) { this.children.push(child); } };
 }
 var document = {
@@ -416,6 +417,7 @@ var document = {
     return { href: '', classList: { toggle: function () {} } };
   },
   createElement: function (tag) { return __node(tag); },
+  createElementNS: function (_, tag) { return __node(tag); },
   createTextNode: function (text) { return { tag: '#text', text: text, children: [] }; }
 };
 var active = 'r1';
@@ -590,4 +592,53 @@ fn the_console_paints_every_row_in_its_tone_class_and_groups_the_fleet() {
         "run-unclassified",
     ];
     assert_eq!(drawn["list"], serde_json::json!(listed));
+}
+
+#[test]
+fn a_waiting_run_keeps_the_browser_forging_and_its_current_phase_pulses() {
+    let (_dir, db) = crate::tests::cooling::mixed_cooling_journal();
+    let store = Store::open_read_only(&db).unwrap();
+    let now = "2098-12-31T23:59:00Z";
+    let row = crate::fleet::one(&store, "r1", now).unwrap();
+    let drawn = drawn_in_the_run_list(serde_json::json!([row]));
+    let mut view = crate::run_pages::viewed(&store, "r1", crate::run_pages::Shows::Frame, now)
+        .unwrap()
+        .view;
+    for phase in &mut view.phases {
+        phase.plain = true;
+        phase.columns.clear();
+    }
+    let served = format!("var view = {};", serde_json::to_string(&view).unwrap());
+    let mut boa = boa_engine::Context::default();
+    for source in [
+        page_block("run-list"),
+        RUN_LIST,
+        page_block("run-graph"),
+        &served,
+    ] {
+        boa.eval(boa_engine::Source::from_bytes(source.as_bytes()))
+            .unwrap_or_else(|error| panic!("evaluating the page: {error}"));
+    }
+    let draw = r#"
+        var selectedPhase = null;
+        var detail = __node('div');
+        renderLoops(detail, view, 'r1');
+        detail.children[0].children[0].children
+            .filter(node => node.tag === 'circle').map(node => node.class).join('|');
+    "#;
+    let classes = boa.eval(boa_engine::Source::from_bytes(draw)).unwrap();
+    assert_eq!(
+        (
+            &drawn["forging"],
+            classes
+                .as_string()
+                .unwrap()
+                .to_std_string_escaped()
+                .as_str()
+        ),
+        (
+            &serde_json::json!([true]),
+            "halo halo-on|on-phosphor loop-pulse"
+        )
+    );
 }

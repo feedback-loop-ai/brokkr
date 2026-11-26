@@ -494,7 +494,7 @@ fn width_and_colour_come_from_the_environment_through_pure_rules() {
     assert_eq!(status_code("succeeded"), GREEN);
     assert_eq!(status_code("stopped"), RED);
     assert_eq!(status_code("failed"), RED);
-    assert_eq!(status_code("running"), BOLD);
+    assert_eq!([status_code("running"), status_code("waiting")], [BOLD; 2]);
     assert_eq!(status_code("working"), BOLD);
     assert_eq!(status_code("indeterminate"), DIM);
     // One classification, expressed as ANSI here and as a ratatui style
@@ -595,11 +595,14 @@ fn the_plain_graph_shows_each_class_glyph_in_the_consoles_colour() {
 
 /// #1168: a phase without columns is the console's one rail node, so its
 /// heading leads with its phase class's still glyph — `⏺` visited, `∙`
-/// for the running current phase — in the console's colour, and with
+/// for the waiting current phase — in the console's colour, and with
 /// colour off the glyphs stay and no escape byte is written.
 #[test]
 fn a_phase_without_columns_shows_its_phase_class_glyph() {
     let mut view = view(None);
+    let summary = view.summary.as_mut().unwrap();
+    summary.standing = brokkr_view::Standing::Waiting;
+    summary.status_word = summary.standing.label().into();
     for phase in &mut view.phases {
         phase.columns.clear();
     }

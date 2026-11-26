@@ -165,11 +165,19 @@ pub(crate) enum Tone {
     Quiet,
 }
 
+/// Waiting uses the running presentation while keeping its own display word.
+pub(crate) fn running_ink(status: &str) -> &str {
+    match status {
+        "waiting" => "running",
+        other => other,
+    }
+}
+
 /// The fixed status table, the same four the console colours. A status
 /// outside the known four falls to the quiet arm; it is never guessed
 /// into one of the four (decision 0001).
 pub(crate) fn tone(status: &str) -> Tone {
-    match status {
+    match running_ink(status) {
         "completed" | "succeeded" | "carried" => Tone::Good,
         "stopped" | "failed" => Tone::Bad,
         "running" | "working" => Tone::Live,

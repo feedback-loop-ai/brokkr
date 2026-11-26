@@ -509,7 +509,7 @@ pub(super) fn plan(
         _ => 0,
     };
     let ink = Ink {
-        status,
+        status: crate::render::running_ink(status),
         node,
         rail_row: match mode {
             Mode::Compressed => 0,
@@ -540,7 +540,7 @@ pub(super) fn plan(
         &built[start..end],
         &phases[start..end],
         connector,
-        status,
+        ink.status,
         cursor,
     );
     // Both ends or neither. A pair reaching a phase the window scrolled
