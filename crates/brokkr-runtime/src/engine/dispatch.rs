@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::RunState;
+use brokkr_core::park::Park;
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::{Origin, SealedBroker};
@@ -30,6 +31,7 @@ use super::{
 use crate::bundle::{
     layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation, Seat, SeatClass,
 };
+use deadline::RouteRefusal;
 
 pub(super) mod deadline;
 mod kill;
@@ -60,6 +62,15 @@ type Provision<'a> = dyn FnOnce(
         Observed,
     ) -> Result<bool, EngineError>
     + 'a;
+
+/// A launched site whose routes could not be established for a retry.
+#[derive(Debug, thiserror::Error)]
+#[error("refusing cooled retry at site '{site}': {reason}")]
+struct RetryRefusal {
+    site: String,
+    #[source]
+    reason: RouteRefusal,
+}
 
 /// The label a seat's attempt is composed under, and so its probe, its
 /// carry's judgment and a cleanup refusal's match: the seat, or
@@ -168,14 +179,14 @@ impl Engine {
                 .selected_is_gate(state.strategy.as_deref(), seat.has_gate()),
         };
         let (selection, started) = self.plan_attempt(events, &at, &mut input, carry)?;
-        // A retry is admitted over every route it launches, read from the
-        // selection its launch runs (fix round 0106b1r15, R1).
-        let launched = self.launch_routes(&at, &selection);
-        // started is durable BEFORE the driver spawns: a crash in between
-        // recovers as indeterminate, never as a silent double-execution.
         let protected = phase == self.bundle.protected_phase;
-        self.arm_observation(&body, &seat, state.strategy.as_deref(), protected);
-        if !self.start_admitted(started, &attempt_id, &launched)? {
+        if !self.start_dispatch(
+            &at,
+            &seat,
+            (state.strategy.as_deref(), protected),
+            &selection,
+            started,
+        )? {
             return Ok(());
         }
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
@@ -199,6 +210,30 @@ impl Engine {
         let timed = (began, deadline);
         let ran = self.provisioned_body(&at, input, timed, observed, selection, provision);
         self.settle(&attempt_id, ran)
+    }
+
+    /// A retry is admitted over every route it launches, from the
+    /// selection its launch runs (fix round 0106b1r15, R1). If a route
+    /// cannot be established, park before arming or journaling the start.
+    fn start_dispatch(
+        &mut self,
+        at: &Dispatch<'_>,
+        seat: &Seat,
+        (strategy, protected): (Option<&str>, bool),
+        selection: &Selection,
+        started: Value,
+    ) -> Result<bool, EngineError> {
+        let launched = match self.launch_routes(at, selection) {
+            Ok(launched) => launched,
+            Err(refusal) => {
+                self.park(&Park::ruled(refusal.to_string()))?;
+                return Ok(false);
+            }
+        };
+        // A crash between the durable start and spawn recovers the
+        // attempt as indeterminate.
+        self.arm_observation(&at.body, seat, strategy, protected);
+        self.start_admitted(started, at.attempt_id, &launched)
     }
 
     /// Arm the effect's one observation source, and its covering when it
@@ -333,24 +368,35 @@ impl Engine {
     /// launch sites and the selection names each agent-backed site's link.
     /// Inline sites serve their own compiled pins. Keep the refused routes
     /// as well, including those reported by an inline driver with no pins.
-    fn launch_routes(&self, at: &Dispatch<'_>, selection: &Selection) -> Vec<(String, String)> {
+    fn launch_routes(
+        &self,
+        at: &Dispatch<'_>,
+        selection: &Selection,
+    ) -> Result<Vec<(String, String)>, RetryRefusal> {
         if self.cooldown.refused.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let mut routes: BTreeSet<(String, String)> =
             self.cooldown.refused.iter().cloned().collect();
         for (site, _) in invocation_sites(at.body) {
             let label = site_label(at.site_name, &site);
-            let Some(facts) = self.bundle.sites.get(&label) else {
-                continue;
-            };
-            let Some((provider, served)) = deadline::served_routes(facts, selection.get(&site))
-            else {
-                continue;
-            };
-            routes.extend(served.map(|route| (provider.to_string(), route.to_string())));
+            // The capability walk seals facts for each executable site
+            // under its launch label, including dialect validators.
+            let served = self
+                .bundle
+                .sites
+                .get(&label)
+                .ok_or(RouteRefusal::MissingFacts)
+                .and_then(|facts| deadline::served_routes(facts, selection.get(&site)))
+                .map_err(|reason| RetryRefusal {
+                    site: label,
+                    reason,
+                })?;
+            routes.extend(served.into_iter().flat_map(|(provider, served)| {
+                served.map(move |route| (provider.to_string(), route.to_string()))
+            }));
         }
-        routes.into_iter().collect()
+        Ok(routes.into_iter().collect())
     }
 
     /// Everything the attempt decides before its durable start: the

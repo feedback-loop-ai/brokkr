@@ -17,7 +17,7 @@ use super::*;
 use crate::agents::Candidate;
 use crate::bundle::{Aggregate, Bundle, Invocation, PanelMember, SeatBody, SeatClass};
 use crate::engine::cooldown::sites::RefusedMember;
-use crate::engine::tests::{bundle, single_body};
+use crate::engine::tests::single_body;
 use crate::engine::Engine;
 
 /// A unanimous panel of `members`.

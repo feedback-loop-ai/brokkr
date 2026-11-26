@@ -327,28 +327,50 @@ fn route_of(
     candidate: &Candidate,
 ) -> Option<String> {
     let facts = sites.get(&site_label(site_name, site))?;
-    let (_, mut routes) = served_routes(facts, Some(candidate))?;
+    let (_, mut routes) = served_routes(facts, Some(candidate)).ok().flatten()?;
     routes.next().map(str::to_owned)
+}
+
+/// Why the retry cannot establish a launched site's routes.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum RouteRefusal {
+    #[error("compiled site facts are missing")]
+    MissingFacts,
+    #[error("the selected candidate is absent from the compiled chain")]
+    Candidate,
+    #[error("the provider's compiled model pins are unreadable")]
+    Pins,
 }
 
 /// The compiled routes served by the selected chain link or the inline
 /// site's single outcome, primary first, as admission seats its lanes.
+/// Candidate selection walks every nonempty invocation chain. With no
+/// candidate, the inline site's outcome names its provider, if it has one.
 pub(super) fn served_routes<'a>(
     facts: &'a SiteFacts,
     candidate: Option<&'a Candidate>,
-) -> Option<(&'a str, impl Iterator<Item = &'a str>)> {
+) -> Result<Option<(&'a str, impl Iterator<Item = &'a str>)>, RouteRefusal> {
     let (index, provider) = match candidate {
         Some(candidate) => (
-            facts.chain.iter().position(|link| link == candidate)?,
+            facts
+                .chain
+                .iter()
+                .position(|link| link == candidate)
+                .ok_or(RouteRefusal::Candidate)?,
             candidate.provider.as_str(),
         ),
-        None => (0, outcome_at(Some(facts), None)?.provider.as_str()),
+        None => {
+            let Some(outcome) = outcome_at(Some(facts), None) else {
+                return Ok(None);
+            };
+            (0, outcome.provider.as_str())
+        }
     };
-    let ModelPins::Read(served) = facts.pins.get(index)? else {
-        return None;
+    let Some(ModelPins::Read(served)) = facts.pins.get(index) else {
+        return Err(RouteRefusal::Pins);
     };
-    Some((
+    Ok(Some((
         provider,
         served.iter().filter_map(|served| served.route.as_deref()),
-    ))
+    )))
 }

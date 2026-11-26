@@ -99,7 +99,8 @@ fn inline_capabilities() -> SiteCapabilities {
 #[test]
 fn a_mixed_panels_retry_waits_on_the_route_of_the_member_no_wait_refused() {
     own_engine!();
-    mixed_panel_retry_waits_for_the_peer(false);
+    let dir = tempfile::tempdir().unwrap();
+    mixed_panel_retry_waits_for_the_peer(dir.path(), mixed_panel(dir.path(), false), ROUTES[0]);
 }
 
 /// A successful inline member is absent from the agent candidate map.
@@ -107,20 +108,98 @@ fn a_mixed_panels_retry_waits_on_the_route_of_the_member_no_wait_refused() {
 #[test]
 fn a_mixed_panels_retry_waits_on_the_route_of_the_inline_member() {
     own_engine!();
-    mixed_panel_retry_waits_for_the_peer(true);
+    let dir = tempfile::tempdir().unwrap();
+    mixed_panel_retry_waits_for_the_peer(dir.path(), mixed_panel(dir.path(), true), ROUTES[0]);
 }
 
-fn mixed_panel_retry_waits_for_the_peer(inline: bool) {
+#[test]
+fn a_providerless_inline_member_retries_when_its_peer_route_clears() {
+    own_engine!();
     let dir = tempfile::tempdir().unwrap();
-    let (mut engine, now) = mixed_panel(dir.path(), inline);
+    let (mut engine, now) = mixed_panel(dir.path(), true);
+    let facts = engine.bundle.sites.get_mut("work:a").unwrap();
+    facts.capabilities = None;
+    facts.pins = vec![ModelPins::Read(Vec::new())];
+    // The readable member retries on a different route from the one
+    // it probed. Only the routes of the launches add this route.
+    let seat = engine.bundle.seats.get_mut("work").unwrap();
+    let SeatBody::Invocation(Invocation::Panel { members, .. }) = &mut seat.body else {
+        panic!("the mixed fixture has a panel");
+    };
+    let mut fallback = members[1].candidates[0].clone();
+    fallback.provider = ROUTES[0].0.into();
+    fallback.model = "claude/first".into();
+    members[1].candidates.push(fallback.clone());
+    let facts = engine.bundle.sites.get_mut("work:b").unwrap();
+    facts.chain.push(fallback);
+    facts.pins.push(ModelPins::Read(vec![Served::on(
+        "claude",
+        "first/model".into(),
+    )]));
+    mixed_panel_retry_waits_for_the_peer(dir.path(), (engine, now), ROUTES[0]);
+}
+
+#[test]
+fn an_unreadable_inline_provider_pin_parks_the_cooled_retry() {
+    own_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, _) = mixed_panel(dir.path(), true);
+    engine.bundle.sites.get_mut("work:a").unwrap().pins =
+        vec![ModelPins::Unreadable(vec!["--fallback-model".into()])];
+    assert_retry_parked(
+        dir.path(),
+        &mut engine,
+        "the provider's compiled model pins are unreadable",
+    );
+}
+
+#[test]
+fn a_candidate_outside_the_compiled_chain_parks_the_cooled_retry() {
+    own_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, _) = mixed_panel(dir.path(), false);
+    engine.bundle.sites.get_mut("work:a").unwrap().chain[0].model = "different".into();
+    assert_retry_parked(
+        dir.path(),
+        &mut engine,
+        "the selected candidate is absent from the compiled chain",
+    );
+}
+
+#[test]
+fn missing_compiled_site_facts_park_the_cooled_retry() {
+    own_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, _) = mixed_panel(dir.path(), false);
+    engine.bundle.sites.remove("work:a").unwrap();
+    assert_retry_parked(dir.path(), &mut engine, "compiled site facts are missing");
+}
+
+fn assert_retry_parked(dir: &Path, engine: &mut Engine, reason: &str) {
+    engine.drive().unwrap();
+    assert_eq!(starts(engine).len(), 1, "the retry journaled a start");
+    assert_eq!(logs(dir, "a"), ["attempt:succeed"]);
+    assert_eq!(logs(dir, "b"), ["attempt:refuse", "probe"]);
+    let detail = format!("refusing cooled retry at site 'work:a': {reason}");
+    assert_eq!(park_reason(engine), detail);
+    assert_eq!(
+        park_cause_of(engine),
+        ParkCause::Ruled {
+            rule_id: None,
+            detail
+        }
+    );
+}
+
+fn mixed_panel_retry_waits_for_the_peer(
+    dir: &Path,
+    (mut engine, now): (Engine, Arc<Mutex<OffsetDateTime>>),
+    route: (&'static str, &'static str),
+) {
     let (journal, run) = (engine.store.path().to_path_buf(), engine.run_id.clone());
     let held: Arc<Mutex<Option<ProbeHoldId>>> = Arc::default();
     let released: Arc<Mutex<Option<Vec<String>>>> = Arc::default();
-    let (holding, ended, log) = (
-        Arc::clone(&held),
-        Arc::clone(&released),
-        dir.path().to_owned(),
-    );
+    let (holding, ended, log) = (Arc::clone(&held), Arc::clone(&released), dir.to_owned());
     let peer = Mutex::new(Store::open(&journal).unwrap());
     let (clock, _) = sleeping(&now, TimeDuration::seconds(1), move |_, at| {
         if let Some(hold) = holding.lock().unwrap().take() {
@@ -132,21 +211,18 @@ fn mixed_panel_retry_waits_for_the_peer(inline: bool) {
     let (holding, read) = (Arc::clone(&held), Arc::clone(&now));
     before_the_retry_start(Box::new(move || {
         let at = *read.lock().unwrap();
-        let hold = hold_route(&journal, (&run, "peer-on-a"), ROUTES[0], at);
+        let hold = hold_route(&journal, (&run, "peer-before-retry"), route, at);
         *holding.lock().unwrap() = Some(hold);
     }));
     engine.drive().unwrap();
     assert_eq!(
         released.lock().unwrap().as_deref(),
         Some(&["attempt:succeed".to_string()][..]),
-        "the retry launched a while the peer held its route, or never waited"
+        "the retry launched a before the peer's hold ended, or never waited"
     );
+    assert_eq!(logs(dir, "a"), ["attempt:succeed", "attempt:succeed"]);
     assert_eq!(
-        logs(dir.path(), "a"),
-        ["attempt:succeed", "attempt:succeed"]
-    );
-    assert_eq!(
-        logs(dir.path(), "b"),
+        logs(dir, "b"),
         ["attempt:refuse", "probe", "probe", "attempt:succeed"]
     );
 }

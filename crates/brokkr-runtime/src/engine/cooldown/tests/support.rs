@@ -35,6 +35,42 @@ fn the_own_engine_guard_derives_its_libtest_path() {
     );
 }
 
+/// Give the test bundle the work sites its compile would seal. Fixture
+/// candidates use either `provider/route` aliases or concrete model ids.
+pub(super) fn bundle(dir: &Path, body: SeatBody) -> crate::bundle::Bundle {
+    use crate::capabilities::manifest::{ModelPins, Served};
+    use crate::engine::{dispatch::site_name, invocation_sites, site_label};
+
+    let mut bundle = test_bundle(dir, body);
+    let work = &bundle.seats["work"].body;
+    let mut strategies = vec![None];
+    if let SeatBody::Select { cases, .. } = work {
+        strategies.extend(cases.keys().map(|case| Some(case.as_str())));
+    }
+    for (body, case) in strategies
+        .into_iter()
+        .filter_map(|strategy| work.selected(strategy))
+    {
+        let work = site_name("work", case);
+        for (site, chain) in invocation_sites(body) {
+            let facts = bundle.sites.entry(site_label(&work, &site)).or_default();
+            facts.chain = chain.to_vec();
+            facts.pins = chain
+                .iter()
+                .map(|link| {
+                    let alias = format!("{}/", link.provider);
+                    let id = link
+                        .model
+                        .strip_prefix(&alias)
+                        .map_or_else(|| link.model.clone(), |route| format!("{route}/model"));
+                    ModelPins::Read(vec![Served::on(&link.provider, id)])
+                })
+                .collect();
+        }
+    }
+    bundle
+}
+
 /// The seat's limits where its deadline is not what the test proves: far
 /// past any load, so only the clock the test drives decides the rounds
 /// (#1110, as #1099's item 4 did for the sealing tests).

@@ -16,10 +16,10 @@ use time::OffsetDateTime;
 use super::Clock;
 use crate::agents::{Candidate, HarnessHands, Lowering};
 use crate::bundle::{Aggregate, Invocation, Limits, PanelMember, SeatBody, SeatClass};
-use crate::engine::tests::{bundle, single_body, templated};
+use crate::engine::tests::{bundle as test_bundle, single_body, templated};
 use crate::engine::Engine;
 use crate::witness::witness;
-use support::{limits_for, own_engine, work};
+use support::{bundle, limits_for, own_engine, work};
 
 fn base() -> OffsetDateTime {
     OffsetDateTime::parse("2026-11-01T00:00:00Z", &Rfc3339).unwrap()
