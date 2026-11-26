@@ -82,7 +82,7 @@ fn add(
 }
 
 /// Do `act` as the operator, for `reason`.
-fn attributed<T>(reason: &str, act: impl FnOnce(Attribution<'_>) -> T) -> T {
+pub(super) fn attributed<T>(reason: &str, act: impl FnOnce(Attribution<'_>) -> T) -> T {
     let operator = operator_name();
     act(Attribution {
         operator: &operator,

@@ -1,0 +1,4 @@
+{
+  "tracker": "zenhub",
+  "hosts": ["app.zenhub.com"]
+}

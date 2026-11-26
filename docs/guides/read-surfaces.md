@@ -432,6 +432,10 @@ machine no run ceiling need be declared. `forge.host/v5` makes `runs` and
 declare a recipe's demand. `queue list --json` carries each sized entry's
 `demand`, and names each journal of the map it cannot read. A machine whose
 availability cannot be measured judges as above, unchanged.
+`brokkr system host upgrade` moves an older host file to `forge.host/v5`
+by its schema token alone, keeping every other byte, and `--check` prints
+the diff and fails where an upgrade is due. `brokkr init` writes a v5 file
+with placeholder ceilings only where the machine has none.
 
 A seat on `spark-glm` is judged by that route's ceiling in place of
 `dsh`'s, because the hardware, not the account, is the limit; a `cloud`
@@ -444,6 +448,23 @@ hold it, before the first attempt makes it); `temp` on the host's temp
 directory, where boxed seats' private `/tmp` and `HOME` are made; and a
 floor may name an absolute `path` in place of a `place`. Here the temp
 directory is a separate, RAM-backed tmpfs, so both floors matter.
+
+### `brokkr orders` — work orders and their citations
+
+The six shipped citation trackers are Azure DevOps, GitHub, GitLab, Jira,
+Linear and ZenHub. To add another, put one JSON definition per `.json` file
+in `.brokkr/trackers/` for a found folder or in the `trackers` directory
+at the root of a recipe library. The shipped files in
+`crates/brokkr-cli/trackers/` show the required `tracker` and `hosts`
+fields and the optional `description`. Definitions load in filename byte
+order after the shipped ones. Duplicate words, invalid definitions and
+unreadable paths refuse every order command. A missing directory or a
+bare workspace uses the shipped set.
+
+`brokkr orders show WO-1` prints the text digest on its first line.
+Use that value with `brokkr orders rule WO-1 --digest HEX --reason WHY`.
+Invisible format characters in the text appear as code-point marks such as
+`<U+202E>`. U+FE00 through U+FE0F keep their emoji or glyph presentation.
 
 ### `brokkr runs inspect` — one run, explained
 

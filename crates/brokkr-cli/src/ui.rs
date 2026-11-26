@@ -37,11 +37,17 @@ const PAGE: &str = include_str!("ui.html");
 /// Where the page's `ENDING_TONE` table is written as it is served.
 const ENDING_TONE_SLOT: &str = "/* ending-tone */{}";
 
-/// The page as `/` serves it: its run list's ending-to-tone table written
-/// from brokkr-core's `Ending::tone` (decision 0064 ruling 6), never
-/// restated in the page.
+const FORMAT_MARKS_SLOT: &str = "(?!format-marks)(?!)";
+
+/// The page as `/` serves it, with the shared ending tones and the
+/// terminal renderer's character ranges for visible format marks.
 pub(crate) fn page() -> String {
     PAGE.replacen(ENDING_TONE_SLOT, &crate::render::ending::ending_tones(), 1)
+        .replacen(
+            FORMAT_MARKS_SLOT,
+            &crate::render::display_format_pattern(),
+            1,
+        )
 }
 
 pub struct Response {

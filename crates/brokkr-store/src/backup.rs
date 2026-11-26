@@ -53,6 +53,9 @@ pub(crate) use inventory::{
     Boundary, Head, Inventory, Schemas, Snapshot, EXCLUDED, INVENTORY_FILE,
 };
 
+use inventory::{OrdersSchema, JOURNAL_BACKUP_V1};
+
+use crate::orders::orders_schema;
 use crate::queue::queue_schema;
 use crate::schema::schema_version;
 use crate::{patiently, Store, StoreError};
@@ -136,7 +139,7 @@ pub enum BackupError {
     InventoryTooLarge { path: PathBuf, bound: u64 },
     #[error("the backup's {INVENTORY_FILE} is not one this build reads: {source}")]
     InvalidInventory { source: serde_json::Error },
-    #[error("the backup's format is '{found}'; this build reads '{JOURNAL_BACKUP_FORMAT}'")]
+    #[error("the backup's format is '{found}'; this build reads '{JOURNAL_BACKUP_V1}' and '{JOURNAL_BACKUP_FORMAT}'")]
     UnknownFormat { found: String },
     #[error(
         "the backup has no {SNAPSHOT_FILE} at '{0}': a backup without its snapshot is incomplete"
@@ -234,7 +237,7 @@ fn backup_through(
     sync_file(&temporary)?;
     let snapshot_store = Store::open_read_only(&temporary)?;
     let boundary = boundary_of(&snapshot_store, options.now)?;
-    let schemas = schemas_of(&snapshot_store, options.projection)?;
+    let schemas = schemas_of(&snapshot_store, store.path(), options.projection)?;
     drop(snapshot_store);
     let snapshot = Snapshot {
         bytes: std::fs::metadata(&temporary)?.len(),
@@ -374,6 +377,7 @@ fn verify_snapshot(path: &Path, inventory: &Inventory) -> Result<(), BackupError
     }
     let store = Store::open_read_only(path)?;
     integrity_of(&store)?;
+    verify_orders_schema(&store, &inventory.schemas.orders)?;
     let boundary = boundary_of(&store, &inventory.boundary.taken_at)?;
     compared_boundary(&boundary, &inventory.boundary)?;
     match store.summary_disagreements()?.into_iter().next() {
@@ -501,18 +505,53 @@ fn compared_boundary(found: &Boundary, inventory: &Boundary) -> Result<(), Backu
 
 /// The journal's recorded schema versions, read through the store's own
 /// readers, and the projection version the taking build reads.
-fn schemas_of(store: &Store, projection: u32) -> Result<Schemas, BackupError> {
+fn schemas_of(store: &Store, journal: &Path, projection: u32) -> Result<Schemas, BackupError> {
     let database = schema_version(&store.conn)?.ok_or(BackupError::UnrecordedSchema {
         key: SchemaKey::Database,
     })?;
     let queue = queue_schema(&store.conn)?.ok_or(BackupError::UnrecordedSchema {
         key: SchemaKey::Queue,
     })?;
+    let orders =
+        orders_schema(&store.conn).map_err(|error| crate::damage::classified(journal, error))?;
     Ok(Schemas {
         database,
         queue,
         projection,
+        orders: OrdersSchema::Recorded(orders),
     })
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error(
+    "the snapshot's work-order schema is {}; schemas.orders says {}",
+    schema_label(*.found),
+    schema_label(*.declared)
+)]
+struct OrdersSchemaMismatch {
+    found: Option<u32>,
+    declared: Option<u32>,
+}
+
+fn schema_label(version: Option<u32>) -> String {
+    version.map_or_else(|| "null".into(), |version| version.to_string())
+}
+
+fn verify_orders_schema(store: &Store, declared: &OrdersSchema) -> Result<(), BackupError> {
+    let OrdersSchema::Recorded(declared) = declared else {
+        return Ok(());
+    };
+    let found = orders_schema(&store.conn)?;
+    if found == *declared {
+        return Ok(());
+    }
+    // The store API budget reserves its two new variants for work-order refusals.
+    // Carry the typed disagreement as invalid data through the existing error.
+    let mismatch = OrdersSchemaMismatch {
+        found,
+        declared: *declared,
+    };
+    Err(std::io::Error::new(std::io::ErrorKind::InvalidData, mismatch).into())
 }
 
 /// `VACUUM INTO` one temporary file under `scratch`, retried through the

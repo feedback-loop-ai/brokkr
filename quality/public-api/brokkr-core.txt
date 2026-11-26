@@ -1512,6 +1512,52 @@ pub fn brokkr_core::summary::entered_phase(&brokkr_core::envelope::EventEnvelope
 pub fn brokkr_core::summary::feature_line(&str) -> &str
 pub fn brokkr_core::summary::parks(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Park>
 pub fn brokkr_core::summary::sites(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Site>
+pub mod brokkr_core::work_order
+pub enum brokkr_core::work_order::WorkOrderState
+pub brokkr_core::work_order::WorkOrderState::DeliveredElsewhere
+pub brokkr_core::work_order::WorkOrderState::InProgress
+pub brokkr_core::work_order::WorkOrderState::Merged
+pub brokkr_core::work_order::WorkOrderState::Proposed
+pub brokkr_core::work_order::WorkOrderState::Queued
+pub brokkr_core::work_order::WorkOrderState::Ruled
+pub brokkr_core::work_order::WorkOrderState::Shipped
+pub brokkr_core::work_order::WorkOrderState::Superseded
+pub brokkr_core::work_order::WorkOrderState::Withdrawn
+pub struct brokkr_core::work_order::Reference
+pub brokkr_core::work_order::Reference::item: alloc::string::String
+pub brokkr_core::work_order::Reference::link: alloc::string::String
+pub brokkr_core::work_order::Reference::tracker: alloc::string::String
+pub struct brokkr_core::work_order::Trackers(_)
+impl brokkr_core::work_order::Trackers
+pub fn brokkr_core::work_order::Trackers::from_definitions<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a str>) -> core::result::Result<Self, brokkr_core::work_order::WorkOrderError>
+pub struct brokkr_core::work_order::WorkOrder
+impl brokkr_core::work_order::WorkOrder
+pub fn brokkr_core::work_order::WorkOrder::acceptance(&self) -> &[alloc::string::String]
+pub fn brokkr_core::work_order::WorkOrder::digest(&self) -> &str
+pub fn brokkr_core::work_order::WorkOrder::id(&self) -> core::option::Option<&brokkr_core::work_order::WorkOrderId>
+pub fn brokkr_core::work_order::WorkOrder::intent(&self) -> &str
+pub fn brokkr_core::work_order::WorkOrder::journaled_open_asks(&str) -> core::result::Result<usize, brokkr_core::work_order::WorkOrderError>
+pub fn brokkr_core::work_order::WorkOrder::open_asks(&self) -> usize
+pub fn brokkr_core::work_order::WorkOrder::parse(&str, &brokkr_core::work_order::Trackers) -> core::result::Result<Self, brokkr_core::work_order::WorkOrderError>
+pub fn brokkr_core::work_order::WorkOrder::references(&self) -> &[brokkr_core::work_order::Reference]
+pub fn brokkr_core::work_order::WorkOrder::render(&self) -> alloc::string::String
+pub fn brokkr_core::work_order::WorkOrder::state(&self) -> brokkr_core::work_order::WorkOrderState
+pub fn brokkr_core::work_order::WorkOrder::title(&self) -> &str
+pub fn brokkr_core::work_order::WorkOrder::with_id(self, brokkr_core::work_order::WorkOrderId) -> Self
+pub fn brokkr_core::work_order::WorkOrder::with_state(self, brokkr_core::work_order::WorkOrderState) -> Self
+pub struct brokkr_core::work_order::WorkOrderError(_)
+pub struct brokkr_core::work_order::WorkOrderId(_)
+impl brokkr_core::work_order::WorkOrderId
+pub fn brokkr_core::work_order::WorkOrderId::from_number(u32) -> core::result::Result<Self, brokkr_core::work_order::WorkOrderError>
+pub fn brokkr_core::work_order::WorkOrderId::number(&self) -> u32
+impl core::fmt::Display for brokkr_core::work_order::WorkOrderId
+pub fn brokkr_core::work_order::WorkOrderId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::str::traits::FromStr for brokkr_core::work_order::WorkOrderId
+pub type brokkr_core::work_order::WorkOrderId::Err = brokkr_core::work_order::WorkOrderError
+pub fn brokkr_core::work_order::WorkOrderId::from_str(&str) -> core::result::Result<Self, Self::Err>
+impl serde_core::ser::Serialize for brokkr_core::work_order::WorkOrderId
+pub fn brokkr_core::work_order::WorkOrderId::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+pub fn brokkr_core::work_order::text_digest(&str) -> alloc::string::String
 pub enum brokkr_core::CauseRead
 pub brokkr_core::CauseRead::Refused(alloc::string::String)
 pub brokkr_core::CauseRead::Stated(brokkr_core::park::ParkCause)

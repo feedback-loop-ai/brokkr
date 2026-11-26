@@ -1,0 +1,5 @@
+{
+  "tracker": "jira",
+  "hosts": ["*.atlassian.net", "*.jira.com"],
+  "description": "The wildcards cover hosted tenant subdomains. For Jira Data Center, add the exact host of your installation or a *. suffix for a domain you control."
+}

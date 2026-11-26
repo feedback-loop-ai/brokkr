@@ -53,6 +53,46 @@ in SCX's candidate filter. The boundary enactment demonstrates why an
 accepted decision is not a release claim: namespace, harness and open
 are built; seatbelt and container remain refused.
 
+## Erratum — 2026-11-25
+
+Ruled on 2026-11-25 (#1350).
+
+- **Authors.** After "Ihor Stepanov," add "Aleksandr Smechov,"; for
+  "Vodianytskyi, Oleksandr Lukashov (Knowledgator); Aleksandr Smechov
+  (SCX.ai Holdings)" read "Vodianytskyi, Oleksandr Lukashov (Stepanov,
+  Shtopko, Vodianytskyi and Lukashov: Knowledgator; Smechov: SCX.ai
+  Holdings Limited)". (ruled: "approve all the fact and wording fixes")
+- **Summary.** After "many negative labels" add "can". (ruled: "approve
+  all the fact and wording fixes")
+- **Row 1** now reads `planned`, not `alternative`. Citation: For
+  "decision 0031 and decision 0041; `recipes/triage/bundle.json` and
+  `crates/brokkr-runtime/src/agents.rs`: runtime strategy selection
+  chooses a declared office and availability resolves its pinned chain;
+  no suitability score trades quality, speed and cost" read "#224
+  proposes choosing the implementation hire by remaining ambiguity,
+  checks, integration risk, size and measured lane capability, with
+  deterministic routing and pinned hires (not a learned router); today
+  `recipes/triage/bundle.json` and `crates/brokkr-runtime/src/agents.rs`
+  select a declared office by strategy and resolve its pinned chain".
+  (ruled: "approve all that move to planned as well")
+- **Row 3** keeps `alternative`. Finding: For "proposed compositions in
+  every routing claim" read "proposed compositions in a routing claim,
+  as the paper does for each of its own routing paths". (ruled: "approve
+  all the fact and wording fixes")
+- **Row 4** now reads `planned`, not `alternative`. Finding: For
+  "label-level classifier metrics are dominated by negative" read
+  "label-level classifier metrics can be dominated by negative".
+  Citation: For "`crates/brokkr-cli/src/compare.rs`: run comparison
+  exposes verdict trails," read "#224 proposes comparing model choices
+  on accepted results, cost, returns and later defects through the wager
+  machinery; #436 owns independent repeated evaluation with
+  accepted-task and escaped-defect rates; today
+  `crates/brokkr-cli/src/compare.rs` exposes verdict trails,"; for
+  "boundary, cost and attempts; it does not independently score
+  downstream task success or validate a router against ground truth"
+  read "boundary, cost and attempts between two runs". (ruled: "approve
+  all that move to planned as well")
+
 ## Candidates
 
 A learned suitability selector and task ontology remain possible future

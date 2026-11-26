@@ -9,6 +9,7 @@
 //! - [`queue`] keeps the runs waiting to start (decision 0068), and
 //!   [`dispatch`] starts them, each handed to a driver of its own
 //!   (decision 0110);
+//! - [`orders`] reads work orders and journals their proposals, edits and rulings;
 //! - [`readouts`] reads journals and the world, and writes nothing, as
 //!   [`analytics`] does across every hearth;
 //! - [`evidence`] lists the host's historical evidence roots and retires
@@ -26,6 +27,7 @@ pub(super) mod dispatch;
 pub(super) mod evidence;
 pub(super) mod exchange;
 pub(super) mod graph;
+pub(super) mod orders;
 pub(super) mod probe;
 pub(super) mod queue;
 pub(super) mod readouts;

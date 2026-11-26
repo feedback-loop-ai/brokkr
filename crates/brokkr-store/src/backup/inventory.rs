@@ -1,5 +1,5 @@
 //! The inventory a backup publishes and a restore reads before any other
-//! file (decision 0100 ruling 2): one closed format, read from a regular
+//! file (decision 0100 ruling 2): closed formats, read from a regular
 //! file only and under a byte bound, so a backup directory can neither
 //! block a restore in `open(2)` nor grow its memory until the host
 //! refuses it.
@@ -15,10 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use super::BackupError;
 
-/// The one inventory format this build writes and reads. A change to the
-/// field set that a previous build could not read takes a new string;
-/// `format` is the whole version rule (decision 0100 ruling 2).
-pub const JOURNAL_BACKUP_FORMAT: &str = "brokkr.journal-backup.v1";
+/// The inventory format this build writes (decision 0100 ruling 2).
+pub const JOURNAL_BACKUP_FORMAT: &str = "brokkr.journal-backup.v2";
+pub(super) const JOURNAL_BACKUP_V1: &str = "brokkr.journal-backup.v1";
 
 /// The inventory's one name inside a backup directory: the last file a
 /// backup publishes, and the mark that makes a backup complete.
@@ -48,6 +47,48 @@ pub(crate) struct Schemas {
     pub(crate) database: u32,
     pub(crate) queue: u32,
     pub(crate) projection: u32,
+    #[serde(default, skip_serializing_if = "OrdersSchema::is_legacy")]
+    pub(super) orders: OrdersSchema,
+}
+
+/// V1 omits the field. V2 declares either the recorded version or null.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(super) enum OrdersSchema {
+    #[default]
+    #[serde(skip)]
+    Legacy,
+    Recorded(Option<u32>),
+}
+
+impl OrdersSchema {
+    fn is_legacy(&self) -> bool {
+        matches!(self, Self::Legacy)
+    }
+}
+
+impl Inventory {
+    fn check_format(&self) -> Result<(), BackupError> {
+        match (self.format.as_str(), &self.schemas.orders) {
+            (JOURNAL_BACKUP_V1, OrdersSchema::Legacy)
+            | (JOURNAL_BACKUP_FORMAT, OrdersSchema::Recorded(_)) => Ok(()),
+            (JOURNAL_BACKUP_V1, OrdersSchema::Recorded(_)) => {
+                Err(invalid_inventory("schemas.orders is absent in v1"))
+            }
+            (JOURNAL_BACKUP_FORMAT, OrdersSchema::Legacy) => {
+                Err(invalid_inventory("schemas.orders is required in v2"))
+            }
+            (found, _) => Err(BackupError::UnknownFormat {
+                found: found.to_owned(),
+            }),
+        }
+    }
+}
+
+fn invalid_inventory(message: impl std::fmt::Display) -> BackupError {
+    BackupError::InvalidInventory {
+        source: serde::de::Error::custom(message),
+    }
 }
 
 /// The snapshot file's size and digest.
@@ -142,11 +183,7 @@ pub(crate) fn read_inventory(from: &Path) -> Result<Inventory, BackupError> {
     }
     let inventory: Inventory = serde_json::from_slice(&bytes)
         .map_err(|source| BackupError::InvalidInventory { source })?;
-    if inventory.format != JOURNAL_BACKUP_FORMAT {
-        return Err(BackupError::UnknownFormat {
-            found: inventory.format,
-        });
-    }
+    inventory.check_format()?;
     Ok(inventory)
 }
 

@@ -1294,3 +1294,17 @@ not know as its kind, locator and home, and acts on nothing of it.
 v8 stands at v7's own engine line: the store dispatches the 0.14 line
 and later to v8, and the 0.12 and 0.13 lines to v6. As with v2, no engine
 string selects v7; it stays published, pinned and nameable.
+
+## Work order (decision 0116)
+
+| Contract | File | Consumers |
+|---|---|---|
+| Work order JSON header | `work-order.v1.schema.json` | brokkr-core's work order reader and Markdown renderer |
+
+The CLI validates references against six shipped trackers (Azure DevOps,
+GitHub, GitLab, Jira, Linear and ZenHub) and adopter definitions in
+`.brokkr/trackers/` for a found folder or `./trackers/` for a recipe library.
+Each `.json` file holds one definition with the same shape as a shipped file
+under `crates/brokkr-cli/trackers/`. Adopter files extend the shipped set
+in filename byte order. A duplicate tracker word, invalid definition or
+unreadable path refuses the command. Bare workspaces use the shipped set.

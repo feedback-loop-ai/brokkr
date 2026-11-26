@@ -688,8 +688,8 @@ fn failure_line(error: &anyhow::Error) -> String {
 }
 
 /// Sanitize an error display line by line, keeping the chain's own line
-/// breaks: every rendered line loses control and directional characters
-/// while the recorded error strings stay untouched.
+/// breaks. Each rendered line drops controls and shows invisible format
+/// characters as marks. The recorded error strings stay untouched.
 pub(crate) fn safe_lines(text: &str) -> String {
     text.split('\n')
         .map(|line| render::Safe::new(line).as_str().to_string())
@@ -1375,7 +1375,7 @@ fn run_with(
 
 /// The small verb groups `Cmd::Grouped` flattens, each to its handler.
 fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode> {
-    use verbs::{dispatch, setup, sweep};
+    use verbs::{dispatch, orders, setup, sweep};
     match command {
         GroupedCmd::Recipes { command } => setup::recipes(workspace, command),
         GroupedCmd::Agents { command } => setup::agents(workspace, command),
@@ -1383,6 +1383,7 @@ fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode>
         GroupedCmd::Configuration(command) => setup::configuration(workspace, command),
         GroupedCmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
         GroupedCmd::Dispatch(args) => dispatch::dispatch(workspace, args, &mut std::io::stdout()),
+        GroupedCmd::Orders(command) => orders::orders(workspace, command, &mut std::io::stdout()),
         GroupedCmd::Completions(args) => {
             Ok(completion::script(args, &mut std::io::stdout().lock()))
         }

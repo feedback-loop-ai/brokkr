@@ -26,6 +26,7 @@ pub mod seat;
 pub mod shape;
 pub mod stamp;
 pub mod summary;
+pub mod work_order;
 
 pub use envelope::{EventEnvelope, EventType};
 pub use fold::{fold, Cursor, FoldError, RunState, Status};

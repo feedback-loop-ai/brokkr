@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-23, "accept 0116", on the direction of 2026-11-22: "we should have a workorder abstraction - like future [commissions], they can have a reference to external tools, e.g. github, gitlab, azure devops, linear, zenhub, jira etc, but essentially it is a DAG of future [commissions] distilled so we know what we are building"
 Date: 2026-11-22
 
-Built: unbuilt (#1272)
+Built: partial (#1272) — slice 1 (the document, its store and the brokkr orders verbs) is built; slices 2 to 4 are not
 Amends: 0113
 
 ## Context
@@ -83,12 +83,18 @@ Brokkr already abstracts the first side. A harness is an adapter and a driver, a
    - #1264's view draws work orders. A queued one is drawn solid, with its entry's state. A future one is drawn dotted, in the column it would start in.
    - The operator, 2026-11-22: "yes to both".
 
-9. **The verbs are a thirteenth root, `brokkr orders`.** This amends decision 0113 ruling 1, which holds the CLI at twelve roots.
+9. **The verbs are a fourteenth root, `brokkr orders`.** This amends decision 0113 ruling 1, which holds the CLI at twelve roots.
+   - Corrected 2026-11-24: written as the thirteenth; decision 0119's `completions` (#1284) became the thirteenth root first.
    - Decision 0113 groups verbs into families by the object they act on. A work order is a new object, so it gets a family of its own.
    - A bare `brokkr orders` lists work orders, as a bare `brokkr runs` lists runs (decision 0113 ruling 3).
    - `brokkr orders queue WO-<n>` renders the commission and adds the queue entry (ruling 4). Everything else to do with dispatch stays under `brokkr queue`.
    - #1264's drawing is `brokkr orders graph`, since it draws work orders (ruling 8).
    - The operator chose this on 2026-11-23, out of four candidates: "A". The others were `brokkr queue orders`, `brokkr library orders` and `brokkr work`. `work` was set aside because it already names a seat class, a recipe phase and a harness fragment.
+
+10. **A work order made from text the operator did not write enters `proposed`.** This includes a tracker import (ruling 7) and the analysis seat's output (ruling 8).
+    - Only the operator's ruling moves it to `ruled`, and so to queueable. No import, analysis or engine step moves it.
+    - Its imported text is data, never instructions. It is quoted into a commission as the work order's text, and never obeyed as the controller's or the operator's.
+    - The operator, 2026-11-23, on the security residual from #1273: "yes, rule it as you recommended" ([#1272](https://github.com/feedback-loop-ai/brokkr/issues/1272#issuecomment-7100986532)).
 
 ## Slices
 
@@ -113,3 +119,26 @@ None is open. The record asked three questions, and the operator ruled all three
 - the id, in rulings 1 and 7;
 - the file form, in ruling 2;
 - the verbs' root, in ruling 9.
+
+On 2026-11-24 the operator answered #1327's eight asks verbatim:
+
+> 1. extend now, 2. digest, 3. mark them visibly now 4. +16. 5 doc .6-8 yes
+
+[Operator ruling on #1272](https://github.com/feedback-loop-ai/brokkr/issues/1272#issuecomment-7143427836)
+
+1. Extend the six shipped tracker definitions with adopter data now (story 1272h).
+2. A ruling binds the digest of the text the operator read. The store checks it in the transaction that records the ruling.
+3. Mark every invisible format character visibly now, including the bidi, zero-width and Unicode tag characters. The marks name their code points. C0, C1 and ESC remain stripped (story 1272h).
+4. A damaged work-order marker or lost table is a typed refusal. The follow-up supersedes "+16" with "+17", one extra store API line each for asks 2 and 4.
+5. Document that the `--json` view models emit journal strings as journaled with JSON escaping. Human surfaces use `Safe`.
+6. Confirm the fourteenth root in ruling 9.
+7. Confirm all six asks carried from 1272b, including recording the work-order schema in the backup inventory under decision 0100.
+8. Use the file-size gate's baseline as the authority for `lib.rs`.
+
+The follow-up recorded two choices:
+
+> **Store API: +17.** Asks 2 and 4 each take one brokkr-store public API line, so slice 1 ends at +17 (it had +15)
+
+> **Ask 3's scope: every invisible format character.** One rule covers all of them.
+
+[Operator follow-up on #1272](https://github.com/feedback-loop-ai/brokkr/issues/1272#issuecomment-7145424588)

@@ -113,6 +113,7 @@ fn a_root_that_did_not_move_is_left_as_typed() {
         "doctor",
         "runs",
         "queue",
+        "orders",
         "driver",
         "hands",
         "bridge",
@@ -158,9 +159,18 @@ fn every_root_main_had_is_placed_once() {
     placed.extend(
         roots
             .iter()
-            // `completions` is decision 0119's, a root main never had.
+            // Decision 0119's `completions` and decision 0116's `orders`
+            // are roots main never had.
             .filter(|root| {
-                !["journal", "library", "stats", "system", "completions"].contains(root)
+                ![
+                    "journal",
+                    "library",
+                    "stats",
+                    "system",
+                    "completions",
+                    "orders",
+                ]
+                .contains(root)
             }),
     );
     placed.sort_unstable();

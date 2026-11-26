@@ -917,7 +917,7 @@ fn a_hostile_seat_label_renders_inert_and_does_not_move_its_neighbour() {
     assert!(!frame.contains('\r'), "no carriage return either");
     assert!(!frame.contains('\u{202E}'), "and no reordering override");
     assert!(
-        frame.contains("seat]0;pwndeppots"),
+        frame.contains("seat]0;pwndeppots<U+202E>"),
         "in source order: {frame}"
     );
 
@@ -1765,12 +1765,7 @@ fn every_graph_width_is_ratatuis_own_measurement_of_the_sanitized_text() {
     assert_eq!(Safe::new("設計フェーズ").width(), 6, "six characters");
     assert_eq!(width_of("設計フェーズ"), 12, "twelve columns drawn");
     assert_eq!(width_of("intake"), 6, "and ASCII agrees with both");
-    assert_eq!(
-        width_of("in\u{202E}take\u{200B}\x07"),
-        6,
-        "measured on the SANITIZED text, so a stripped override cannot \
-         claim invisible columns"
-    );
+    assert_eq!(width_of("in\u{202E}take\u{200B}\x07"), 22);
 
     // Text is what gives way; the skeleton never is.
     assert_eq!(clamp("intake", 10), "intake");
@@ -1779,7 +1774,7 @@ fn every_graph_width_is_ratatuis_own_measurement_of_the_sanitized_text() {
     assert_eq!(clamp("設計フェーズ", 5), "設計…");
     assert_eq!(width_of(&clamp("設計フェーズ", 5)), 5);
     assert_eq!(clamp("simplicity", 0), "", "nothing fits in nothing");
-    assert_eq!(clamp("a\u{202E}b", 8), "ab", "and it sanitizes on the way");
+    assert_eq!(clamp("a\u{202E}b", 10), "a<U+202E>b");
 
     assert_eq!(label_span(""), 0, "no text, no footprint");
     assert_eq!(label_span("ab"), 3, "one space and the text");
@@ -2311,11 +2306,11 @@ fn a_hostile_phase_name_renders_inert_and_does_not_move_its_neighbour() {
         gphase("verify", 1, false, Vec::new()),
     ];
     let plan = plan_of(&phases, None, "running", 80, 7);
-    assert_eq!(plan.segments[1].name, "design", "inert, in source order");
+    assert_eq!(plan.segments[1].name, "de<U+202E>sign<U+200B>");
     assert_eq!(
         plan.segments[1].x1 - plan.segments[1].x0 + 1,
-        6,
-        "six columns, which is what the terminal will draw"
+        22,
+        "twenty-two columns, including the marks"
     );
     assert_eq!(
         plan.segments[2].x0,
@@ -3297,7 +3292,10 @@ fn a_hostile_transcript_turn_renders_inert_in_the_reader() {
         !frame.contains('\x1b') && !frame.contains('\x07'),
         "{frame}"
     );
-    assert!(frame.contains("pwn"), "stripped, never hidden: {frame}");
+    assert!(
+        frame.contains("assis<U+202E>tant") && frame.contains("pwn"),
+        "{frame}"
+    );
 }
 
 // ------------------------------------- AC-8/AC-17: provenance in the tui
