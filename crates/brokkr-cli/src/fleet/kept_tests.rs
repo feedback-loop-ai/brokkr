@@ -1154,6 +1154,17 @@ fn a_held_wait_is_read_from_the_terminal_event_on_whole_paged_and_kept_reads() {
     use crate::tests::cooling::{mixed_cooling_attempt, COOLING_FIRST, HELD_FIRST, HELD_MAX};
 
     let (_dir, store, mut kept, seq) = kept_cooling(mixed_cooling_attempt);
+    let expected = [
+        ("a", COOLING_FIRST, WaitKind::Ordinary),
+        (
+            "b",
+            HELD_FIRST,
+            WaitKind::Held {
+                max_seconds: HELD_MAX,
+            },
+        ),
+    ];
+    assert_wait_sites(waits_on_reads(&store, &kept), &expected);
     // The event still carries the held kind when the table has no own row.
     rusqlite::Connection::open(store.path())
         .unwrap()
@@ -1164,19 +1175,7 @@ fn a_held_wait_is_read_from_the_terminal_event_on_whole_paged_and_kept_reads() {
         .unwrap();
     assert_eq!(refreshed(&mut kept, store.path()), 0);
     assert_eq!(store.head_hash("r1").unwrap().0, seq);
-    assert_wait_sites(
-        waits_on_reads(&store, &kept),
-        &[
-            ("a", COOLING_FIRST, WaitKind::Ordinary),
-            (
-                "b",
-                HELD_FIRST,
-                WaitKind::Held {
-                    max_seconds: HELD_MAX,
-                },
-            ),
-        ],
-    );
+    assert_wait_sites(waits_on_reads(&store, &kept), &expected);
 }
 
 #[test]

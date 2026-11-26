@@ -102,8 +102,6 @@ fn latest_round(
     let held = store.cooldown_held_rounds(run_id, event_seq, key)?;
     Ok(rounds.last().map(|row| {
         let round = WaitRound {
-            rounds: row.rounds,
-            until_seconds: row.until_at.unix_timestamp(),
             held: held.get(&row.rounds).copied(),
         };
         (site.map(str::to_string), round)

@@ -303,42 +303,29 @@ fn a_stopping_run_in_a_wait_stays_stopping() {
 }
 
 #[test]
-fn the_rounded_own_row_keeps_the_event_kind_and_a_same_number_probe_can_replace_it() {
-    let at = "2026-01-02T00:10:00.5Z";
-    let mut wait = entry("a", "claude", "anthropic", at, WORDS);
-    wait["held"] = json!(true);
-    wait["max_seconds"] = json!(300);
-    wait["retry_after_seconds"] = json!(600);
-    let event = failed(json!([wait]));
-    let paint = |until| {
-        let mut fact = WaitFact::of(Some(&event));
-        let WaitFact::Waits { rounds, .. } = &mut fact else {
-            panic!("the terminal event carries a wait");
-        };
-        rounds.insert(
-            Some("a".to_string()),
-            WaitRound {
-                rounds: 1,
-                until_seconds: parse_millis(until).unwrap() / 1000,
-                held: None,
-            },
-        );
-        Waits::of(&fact, &[]).waits.remove(0)
+fn the_latest_stored_round_supplies_the_kind_and_maximum() {
+    let mut fact = WaitFact::of(Some(&two_waits()));
+    let WaitFact::Waits { rounds, .. } = &mut fact else {
+        panic!("the terminal event carries waits");
     };
-    let own = paint("2026-01-02T00:10:01Z");
-    let probe = paint(LATER_END);
-    assert_eq!(
-        serde_json::to_value(own).unwrap(),
-        json!({
-            "site": "a", "provider": "claude", "route": "anthropic", "words": WORDS,
-            "until": at, "kind": "held", "max_seconds": 300, "driver": "brokkr resume"
-        })
+    rounds.insert(
+        Some("a".to_string()),
+        WaitRound {
+            held: Some(Held { max_seconds: 400 }),
+        },
     );
+    let waits = Waits::of(&fact, &[]);
     assert_eq!(
-        serde_json::to_value(probe).unwrap(),
-        json!({
-            "site": "a", "provider": "claude", "route": "anthropic", "words": WORDS,
-            "until": at, "kind": "ordinary", "driver": "the engine"
-        })
+        serde_json::to_value(waits.waits).unwrap(),
+        json!([
+            {
+                "site": "a", "provider": "claude", "route": "anthropic", "words": WORDS,
+                "until": FIRST_END, "kind": "held", "max_seconds": 400, "driver": "brokkr resume"
+            },
+            {
+                "site": "b", "provider": "codex", "route": "openai", "words": "usage limit",
+                "until": FIRST_END, "kind": "ordinary", "driver": "the engine"
+            }
+        ])
     );
 }

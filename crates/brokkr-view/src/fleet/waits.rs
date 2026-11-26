@@ -99,26 +99,7 @@ impl WaitRefusal {
 /// supplies the painted end independently of this site's kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WaitRound {
-    pub rounds: u64,
-    /// The end the store holds in whole Unix seconds.
-    pub until_seconds: i64,
     pub held: Option<Held>,
-}
-
-impl WaitRound {
-    fn kind_of(&self, recorded: &ProviderWait) -> Option<Held> {
-        // The store rounds an event's own end up by less than one second.
-        // A probe can fill a missing own row at the same round number, but
-        // only after the recorded end, with at least a second of wait.
-        const NANOS_PER_SECOND: i128 = 1_000_000_000;
-        let after = i128::from(self.until_seconds) * NANOS_PER_SECOND
-            - recorded.until.unix_timestamp_nanos();
-        if self.rounds != recorded.rounds || after >= NANOS_PER_SECOND {
-            self.held
-        } else {
-            recorded.held
-        }
-    }
 }
 
 /// The kind of a site's wait and the maximum a held wait passed.
@@ -300,7 +281,8 @@ fn wait_of(
         .max_by_key(|(at, _)| *at)
         .filter(|(at, _)| *at > parse_millis(&until).unwrap_or(i64::MIN))
         .map_or(until, |(_, until)| until.clone());
-    let held = round.map_or(wait.held, |round| round.kind_of(wait));
+    // The terminal writer records the event kind on its own row as well.
+    let held = round.map_or(wait.held, |round| round.held);
     let kind = held.map_or(WaitKind::Ordinary, |held| WaitKind::Held {
         max_seconds: held.max_seconds,
     });
