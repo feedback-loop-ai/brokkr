@@ -542,6 +542,17 @@ impl Standing {
         }
     }
 
+    /// Ask the dispatcher to stop, then verify a clean exit and read its output.
+    fn ended_on_term_with(self, after_signal: impl FnOnce()) -> (String, String) {
+        self.signal(rustix::process::Signal::TERM);
+        after_signal();
+        let ended = self.ended();
+        let stdout = String::from_utf8_lossy(&ended.stdout);
+        let stderr = String::from_utf8_lossy(&ended.stderr);
+        assert_eq!(ended.status.code(), Some(0), "{ended:?}");
+        (stdout.into_owned(), stderr.into_owned())
+    }
+
     /// Wait up to the patience for the dispatcher to end and for its output
     /// to close, and read what it said. Its pipes close only once every
     /// process holding them has gone, so a driver that kept them would
@@ -612,11 +623,7 @@ fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
     let Some((machine, dispatcher, _)) = standing_over_a_working_seat(TEST, "5") else {
         return;
     };
-    dispatcher.signal(rustix::process::Signal::TERM);
-    let ended = dispatcher.ended();
-    let stdout = String::from_utf8_lossy(&ended.stdout);
-    let stderr = String::from_utf8_lossy(&ended.stderr);
-    assert_eq!(ended.status.code(), Some(0), "{ended:?}");
+    let (stdout, stderr) = dispatcher.ended_on_term_with(|| {});
     let (run, _, _, pid) = started(&stdout);
     let last = format!(
         "queue: 0 waiting, 0 held\nleft running: run {run}, driver pid {pid}\nstopped: a signal \
@@ -628,6 +635,16 @@ fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
     let (_, log) = started_line(&stdout);
     assert_eq!(log, machine.log(&run));
     released_to_complete(&machine, &log, &stdout, &stderr);
+}
+
+/// Start a five-second standing dispatcher in the test's own engine.
+fn standing_driver(test: &str) -> Option<(Machine, Standing, String, i32)> {
+    if !in_its_own_engine_relaying_stderr(test) {
+        return None;
+    }
+    let (machine, dispatcher, first) = standing_over_a_working_seat(test, "5")?;
+    let (run, _, _, pid) = started(&first);
+    Some((machine, dispatcher, run, pid))
 }
 
 /// Decision 0110 ruling 5 at the binary: a stop asked in the middle of a
@@ -643,13 +660,9 @@ fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
 fn a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it() {
     const TEST: &str =
         "dispatch::a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it";
-    if !in_its_own_engine_relaying_stderr(TEST) {
-        return;
-    }
-    let Some((machine, dispatcher, first)) = standing_over_a_working_seat(TEST, "5") else {
+    let Some((machine, dispatcher, run, pid)) = standing_driver(TEST) else {
         return;
     };
-    let (run, _, _, pid) = started(&first);
     let seen = dispatcher.reports();
     dispatcher.next_report(seen);
     machine.queued();
@@ -660,13 +673,10 @@ fn a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it() {
     // last tick reported, and waits on the lock, well inside the store's
     // busy timeout.
     std::thread::sleep(Duration::from_secs(5 + 3));
-    dispatcher.signal(rustix::process::Signal::TERM);
-    std::thread::sleep(Duration::from_millis(300));
-    holder.execute_batch("ROLLBACK").unwrap();
-    let ended = dispatcher.ended();
-    let stdout = String::from_utf8_lossy(&ended.stdout);
-    let stderr = String::from_utf8_lossy(&ended.stderr);
-    assert_eq!(ended.status.code(), Some(0), "{ended:?}");
+    let (stdout, stderr) = dispatcher.ended_on_term_with(|| {
+        std::thread::sleep(Duration::from_millis(300));
+        holder.execute_batch("ROLLBACK").unwrap();
+    });
     // One tick reported after the lock was taken, so the stop reached that pass.
     assert_eq!(stdout.matches("\nqueue: ").count(), held + 1, "{stdout}");
     let stopped = format!(
@@ -766,13 +776,9 @@ fn a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited() {
 fn a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued() {
     const TEST: &str =
         "dispatch::a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued";
-    if !in_its_own_engine_relaying_stderr(TEST) {
-        return;
-    }
-    let Some((machine, dispatcher, first)) = standing_over_a_working_seat(TEST, "5") else {
+    let Some((machine, dispatcher, run, pid)) = standing_driver(TEST) else {
         return;
     };
-    let (run, _, _, pid) = started(&first);
     let driver = rustix::process::Pid::from_raw(pid).unwrap();
     rustix::process::kill_process(driver, rustix::process::Signal::KILL).unwrap();
     let said = dispatcher.said("driver exited: ");

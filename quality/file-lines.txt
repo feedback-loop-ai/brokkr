@@ -494,7 +494,7 @@
   1948 crates/brokkr-cli/tests/decisions_index.rs
   1305 crates/brokkr-cli/tests/delivered_by_brokkr.rs
    568 crates/brokkr-cli/tests/diagrams.rs
-   883 crates/brokkr-cli/tests/dispatch.rs
+   889 crates/brokkr-cli/tests/dispatch.rs
    218 crates/brokkr-cli/tests/dispatch/pass_report.rs
   1240 crates/brokkr-cli/tests/doc_samples.rs
    349 crates/brokkr-cli/tests/doc_truth.rs
