@@ -1,0 +1,19 @@
+{
+  "schema": "brokkr.tool-dialect/v1",
+  "name": "dsh-native-fetch",
+  "serves": "web-fetch",
+  "kind": "provider-native",
+  "provider": "dsh",
+  "adapter_key": "web-fetch",
+  "tools": ["web_fetch"],
+  "classes": ["reads", "egress"],
+  "egress": "uncontracted",
+  "sends": {
+    "description": "The dsh process on the operator's host sends an HTTP request for the URL the model names through web-fetch-http; the destination host sees the request and any query parameters in it.",
+    "seat_composed": true
+  },
+  "restrictions": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}
