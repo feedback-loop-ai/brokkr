@@ -1,5 +1,15 @@
 use super::*;
 
+fn doctor_over_a_v9_grant(root: &Path, grant: Value, providers: &[&str]) -> (bool, Vec<String>) {
+    let private = realm("private", Some(json!({"web-search": grant})));
+    write(
+        root,
+        "realms.json",
+        &json!({"schema": "forge.realms/v9", "journal": "forge.db", "realms": [private]}),
+    );
+    lines(root, &installed(providers))
+}
+
 #[test]
 fn doctor_names_each_provider_dialect_and_its_shared_offices() {
     let dir = workspace_with(None);
@@ -14,21 +24,14 @@ fn doctor_names_each_provider_dialect_and_its_shared_offices() {
         "dialects/tools/claude-search.json",
         &native_dialect("claude-search", "claude"),
     );
-    let private = realm(
-        "private",
-        Some(json!({
-            "web-search": {
-                "dialects": {"codex": "codex-native-search", "claude": "claude-search"},
-                "offices": ["researcher", "reviewer"]
-            }
-        })),
-    );
-    write(
+    let (healthy, lines) = doctor_over_a_v9_grant(
         root,
-        "realms.json",
-        &json!({"schema": "forge.realms/v9", "journal": "forge.db", "realms": [private]}),
+        json!({
+            "dialects": {"codex": "codex-native-search", "claude": "claude-search"},
+            "offices": ["researcher", "reviewer"]
+        }),
+        &["claude", "codex"],
     );
-    let (healthy, lines) = lines(root, &installed(&["claude", "codex"]));
     assert!(healthy, "{lines:#?}");
     let shown: Vec<_> = lines
         .iter()
@@ -60,19 +63,14 @@ fn doctor_names_each_provider_dialect_and_its_shared_offices() {
 fn doctor_reports_the_names_and_refusal_of_an_invalid_provider_grant() {
     let dir = workspace_with(None);
     let root = dir.path();
-    let private = realm(
-        "private",
-        Some(json!({"web-search": {
+    let (healthy, lines) = doctor_over_a_v9_grant(
+        root,
+        json!({
             "dialects": {"codex": "codex-native-search", "claude": "absent"},
             "offices": ["researcher"]
-        }})),
+        }),
+        &[],
     );
-    write(
-        root,
-        "realms.json",
-        &json!({"schema": "forge.realms/v9", "journal": "forge.db", "realms": [private]}),
-    );
-    let (healthy, lines) = lines(root, &installed(&[]));
     assert!(!healthy, "{lines:#?}");
     assert_eq!(
         lines.iter().find(|line| line.contains("'web-search':")).map(String::as_str),
