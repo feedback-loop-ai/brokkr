@@ -4,15 +4,13 @@
 //! post-terminal refusal, `seat_record` schema validation, canonical NDJSON
 //! export/import, and projection reindexing once across every storage backend.
 
-use std::collections::BTreeSet;
-
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{
     verify_chain_after, ChainError, EventEnvelope, EventType, EVENT_SCHEMA_VERSION,
 };
 use serde_json::Value;
 
-use crate::{import, seat_record, ImportError, SeatRecordVersion, StoreError, VerifyError};
+use crate::{import, seat_record, ImportError, StoreError, VerifyError};
 
 use super::{CoordinationStore, EventLog, ProjectionStore};
 
@@ -151,7 +149,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
                 StoreError::RunExists(id) => ImportError::Collision(id),
                 other => ImportError::Store(other),
             })?;
-        self.apply_projections(run_id, &events)?;
+        self.apply_projections(run_id, attested, &events)?;
         Ok(events.len() as u64)
     }
 
@@ -185,14 +183,7 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
         }
         super::refuse_after_terminal(run_id, &events, &[event.event_type])?;
         super::validate_started_manifest(run_id, event.event_type, &event.payload)?;
-        validate_record(
-            &self.event_log,
-            run_id,
-            &events,
-            seq,
-            event.event_type,
-            &event.payload,
-        )?;
+        let manifest = self.event_log.manifest(run_id)?;
         let envelope = EventEnvelope {
             run_id: run_id.to_string(),
             seq,
@@ -208,20 +199,22 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
             event_hash: String::new(),
         }
         .sealed();
+        super::validate_seat_records(&manifest, &events, std::slice::from_ref(&envelope))?;
         self.event_log
             .append_envelopes(run_id, expected_head, std::slice::from_ref(&envelope))?;
         events.push(envelope.clone());
-        self.apply_projections(run_id, &events)?;
+        self.apply_projections(run_id, &manifest, &events)?;
         Ok(envelope)
     }
 
     fn apply_projections(
         &self,
         run_id: &str,
+        manifest: &Value,
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
         self.projections
-            .apply_envelopes(run_id, envelopes)
+            .apply_envelopes(run_id, Some(manifest), envelopes)
             .map_err(|error| StoreError::ProjectionLag {
                 run_id: run_id.to_string(),
                 source: Box::new(error),
@@ -231,45 +224,4 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
 
 fn is_redacted(manifest: &Value) -> bool {
     manifest.get("redacted") == Some(&Value::Bool(true))
-}
-
-fn validate_record(
-    event_log: &dyn EventLog,
-    run_id: &str,
-    events: &[EventEnvelope],
-    seq: u64,
-    event_type: EventType,
-    payload: &Value,
-) -> Result<(), StoreError> {
-    let record = seat_record::record_of(event_type, payload);
-    let has_settled = seat_record::settled_of(event_type, payload)
-        .next()
-        .is_some();
-    if record.is_none() && !has_settled {
-        return Ok(());
-    }
-    let manifest = event_log.manifest(run_id)?;
-    let manifest_version =
-        SeatRecordVersion::of_manifest(manifest.get("engine").and_then(Value::as_str));
-    let started_engine = events
-        .iter()
-        .find(|event| event.event_type == EventType::RunStarted)
-        .and_then(|event| event.payload.pointer("/manifest/engine"))
-        .and_then(Value::as_str);
-    let started_version = SeatRecordVersion::of_manifest(started_engine);
-    let version = manifest_version.stricter(started_version);
-    if let Some(record) = record {
-        seat_record::validate_seat_record(record, seq, version)?;
-    }
-    if has_settled {
-        let attempt = payload["attempt_id"].as_str().unwrap_or_default();
-        let marked: BTreeSet<String> = events
-            .iter()
-            .filter(|event| event.payload["attempt_id"].as_str().unwrap_or_default() == attempt)
-            .filter_map(|event| seat_record::marked_member(event.event_type, &event.payload))
-            .map(str::to_owned)
-            .collect();
-        seat_record::validate_settled((event_type, payload), &marked, seq, version)?;
-    }
-    Ok(())
 }

@@ -280,8 +280,10 @@ pub enum StoreError {
     #[error("event log for run '{run_id}' diverges from local store state")]
     DivergentEventLog { run_id: String },
     /// A run manifest (or embedded `RunStarted` manifest) passed to
-    /// [`ports::Journal`] or [`ports::EventLog`] failed validation (see
-    /// [`ManifestRefusal`] for the field rules); nothing was recorded.
+    /// [`ports::Journal`] or [`ports::EventLog`] failed validation: the
+    /// manifest must be a JSON object whose `"engine"`, `"feature"`, and
+    /// `"bundle_name"` fields (when present) are JSON strings (see
+    /// [`ManifestRefusal`]); nothing was recorded.
     #[error("invalid manifest for run '{run_id}': {reason}; nothing was recorded")]
     InvalidManifest {
         run_id: String,

@@ -174,16 +174,23 @@ impl MemProjectionStore {
 }
 
 impl ProjectionStore for MemProjectionStore {
-    fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
+    fn apply_envelopes(
+        &self,
+        run_id: &str,
+        manifest: Option<&Value>,
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError> {
         let mut runs = self.runs.borrow_mut();
         let mut seqs = self.applied_seqs.borrow_mut();
         let seen = seqs.entry(run_id.to_string()).or_default();
+        let manifest_feature = manifest
+            .and_then(|value| value.get("feature"))
+            .and_then(Value::as_str)
+            .filter(|feature| !feature.is_empty());
         for event in envelopes {
             if event.event_type == EventType::RunStarted {
-                let feature = event
-                    .payload
-                    .get("feature")
-                    .and_then(Value::as_str)
+                let feature = super::sqlite::started_feature_of(std::slice::from_ref(event))
+                    .or(manifest_feature)
                     .unwrap_or_default()
                     .to_string();
                 runs.insert(run_id.to_string(), (feature, event.recorded_at.clone()));
@@ -223,7 +230,7 @@ impl ProjectionStore for MemProjectionStore {
             self.runs
                 .borrow_mut()
                 .insert(run_id.clone(), (feature, created_at));
-            self.apply_envelopes(&run_id, &events)?;
+            self.apply_envelopes(&run_id, Some(&manifest), &events)?;
             total += events.len() as u64;
         }
         Ok(total)
@@ -340,6 +347,45 @@ fn invalid_checkpoint_payload() -> Value {
         "attempt_id": "att-1",
         "checkpoint": {
             "not_a_valid_field": true,
+        }
+    })
+}
+
+fn panel_member_checkpoint() -> Value {
+    json!({
+        "effect_id": "eff-1",
+        "attempt_id": "att-1",
+        "checkpoint": {
+            "step": "panel-member-finished",
+            "outcome": "succeeded",
+            "member": "alpha",
+            "authored": "engine",
+        }
+    })
+}
+
+fn bad_settled_payload() -> Value {
+    json!({
+        "effect_id": "eff-1",
+        "attempt_id": "att-1",
+        "reason": "member failed",
+        "settled_members": { "alpha": {"not_a_result": true} }
+    })
+}
+
+fn v8_only_succeeded_payload() -> Value {
+    json!({
+        "effect_id": "eff-1",
+        "attempt_id": "att-1",
+        "result": {
+            "step": "seat-turn",
+            "model": "m",
+            "root_session": {
+                "kind": "custom-harness",
+                "id": "019c4b7e",
+                "harness_version": "1.2.3",
+                "persistent": true
+            }
         }
     })
 }

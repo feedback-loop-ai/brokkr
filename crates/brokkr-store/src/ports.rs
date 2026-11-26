@@ -21,7 +21,7 @@ use serde_json::Value;
 
 use thiserror::Error;
 
-use crate::{Cooldown, EntryId, NewEntry, QueueEntry, StoreError};
+use crate::{seat_record, Cooldown, EntryId, NewEntry, QueueEntry, SeatRecordVersion, StoreError};
 
 mod journal;
 mod sqlite;
@@ -38,6 +38,8 @@ pub enum ManifestRefusal {
     EngineNotString,
     #[error("manifest field 'feature' must be a JSON string")]
     FeatureNotString,
+    #[error("manifest field 'bundle_name' must be a JSON string")]
+    BundleNameNotString,
 }
 
 pub(crate) fn format_canonical_ndjson(events: &[EventEnvelope]) -> Result<String, StoreError> {
@@ -49,10 +51,11 @@ pub(crate) fn format_canonical_ndjson(events: &[EventEnvelope]) -> Result<String
     Ok(out)
 }
 
-/// Validate that `manifest` is a JSON object and, if `"engine"` or `"feature"`
-/// is present, that each is a JSON string (refusing non-string `"engine"`
-/// rather than silently treating it as absent/V1, and refusing non-string
-/// `"feature"` rather than projecting an empty feature).
+/// Validate that `manifest` is a JSON object and, if `"engine"`, `"feature"`,
+/// or `"bundle_name"` is present, that each is a JSON string (refusing
+/// non-string `"engine"` rather than silently treating it as absent/V1, and
+/// refusing non-string `"feature"` or `"bundle_name"` rather than projecting an
+/// empty metadata value).
 pub(crate) fn validate_manifest(run_id: &str, manifest: &Value) -> Result<(), StoreError> {
     let Some(object) = manifest.as_object() else {
         return Err(StoreError::InvalidManifest {
@@ -63,6 +66,7 @@ pub(crate) fn validate_manifest(run_id: &str, manifest: &Value) -> Result<(), St
     for (field, reason) in [
         ("engine", ManifestRefusal::EngineNotString),
         ("feature", ManifestRefusal::FeatureNotString),
+        ("bundle_name", ManifestRefusal::BundleNameNotString),
     ] {
         if object.get(field).is_some_and(|value| !value.is_string()) {
             return Err(StoreError::InvalidManifest {
@@ -85,6 +89,27 @@ pub(crate) fn validate_started_manifest(
             validate_manifest(run_id, manifest)?;
         }
     }
+    Ok(())
+}
+
+/// Validate every incoming envelope's seat record (`checkpoint` / `result`)
+/// and marked `settled_members` against the stricter [`SeatRecordVersion`] of
+/// the persisted `manifest` and `RunStarted`'s `/manifest/engine`.
+pub(crate) fn validate_seat_records(
+    manifest: &Value,
+    existing: &[EventEnvelope],
+    incoming: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    let manifest_version =
+        SeatRecordVersion::of_manifest(manifest.get("engine").and_then(Value::as_str));
+    let started_engine = existing
+        .iter()
+        .chain(incoming.iter())
+        .find(|event| event.event_type == EventType::RunStarted)
+        .and_then(|event| event.payload.pointer("/manifest/engine"))
+        .and_then(Value::as_str);
+    let version = manifest_version.stricter(SeatRecordVersion::of_manifest(started_engine));
+    seat_record::validate_incoming(existing, incoming, version)?;
     Ok(())
 }
 
@@ -133,8 +158,9 @@ pub trait EventLog {
     /// in a batch with [`brokkr_core::envelope::ChainError::SeqGap`], a foreign
     /// `run_id` with [`brokkr_core::envelope::ChainError::ForeignRun`],
     /// non-annotation events after a terminal event with
-    /// [`StoreError::AfterTerminal`], and an invalid embedded `RunStarted`
-    /// manifest with [`StoreError::InvalidManifest`].
+    /// [`StoreError::AfterTerminal`], an invalid embedded `RunStarted`
+    /// manifest with [`StoreError::InvalidManifest`], and malformed seat
+    /// records or settled members with [`StoreError::SeatRecord`].
     fn append_envelopes(
         &self,
         run_id: &str,
@@ -145,9 +171,10 @@ pub trait EventLog {
     /// Atomically persist an imported run record and its verified pre-sealed
     /// `envelopes` in one transaction or unit of work, refusing an invalid
     /// top-level or embedded `RunStarted` manifest with
-    /// [`StoreError::InvalidManifest`], leaving zero partial state on refusal,
-    /// and leaving local origin unset so imported runs are never mistaken for
-    /// runs started on this host (decision 0030 ruling 4).
+    /// [`StoreError::InvalidManifest`] and malformed seat records or settled
+    /// members with [`StoreError::SeatRecord`], leaving zero partial state on
+    /// refusal, and leaving local origin unset so imported runs are never
+    /// mistaken for runs started on this host (decision 0030 ruling 4).
     fn import_run_stream(
         &self,
         run_id: &str,
@@ -179,13 +206,21 @@ pub trait EventLog {
 pub trait ProjectionStore {
     /// Project committed `envelopes` for `run_id` into read models.
     ///
-    /// Co-located adapters such as [`SqlitePorts`] require `run_id` to exist
-    /// in their local event log and verify that `envelopes` matches the local
-    /// verified stream; decoupled projection stores require a verified prefix
-    /// starting at sequence 1. Implementations must remain monotonic and never
-    /// regress a run whose projection is already at or past the batch's highest
-    /// sequence number.
-    fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError>;
+    /// `manifest` supplies the run's persisted/attested manifest when known so
+    /// decoupled projections have the manifest's metadata fallback (such as
+    /// `"feature"`) even when `RunStarted` omits it. Co-located adapters such
+    /// as [`SqlitePorts`] require `run_id` to exist in their local event log
+    /// and verify that `manifest` (when supplied) and `envelopes` match the
+    /// local verified stream; decoupled projection stores require a verified
+    /// prefix starting at sequence 1. Implementations must remain monotonic and
+    /// never regress a run whose projection is already at or past the batch's
+    /// highest sequence number.
+    fn apply_envelopes(
+        &self,
+        run_id: &str,
+        manifest: Option<&Value>,
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError>;
 
     /// List known runs as `(run_id, feature, created_at)` triples.
     fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError>;
@@ -251,8 +286,13 @@ impl<T: EventLog + ?Sized> EventLog for &T {
 }
 
 impl<T: ProjectionStore + ?Sized> ProjectionStore for &T {
-    fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
-        (**self).apply_envelopes(run_id, envelopes)
+    fn apply_envelopes(
+        &self,
+        run_id: &str,
+        manifest: Option<&Value>,
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError> {
+        (**self).apply_envelopes(run_id, manifest, envelopes)
     }
 
     fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {

@@ -12,36 +12,6 @@ use brokkr_core::fold::{FoldError, Status};
 use super::*;
 use crate::{ManifestRefusal, SeatRecordVersion};
 
-fn panel_member_checkpoint() -> Value {
-    json!({
-        "effect_id": "eff-1",
-        "attempt_id": "att-1",
-        "checkpoint": {
-            "step": "panel-member-finished",
-            "outcome": "succeeded",
-            "member": "alpha",
-            "authored": "engine",
-        }
-    })
-}
-
-fn v8_only_succeeded_payload() -> Value {
-    json!({
-        "effect_id": "eff-1",
-        "attempt_id": "att-1",
-        "result": {
-            "step": "seat-turn",
-            "model": "m",
-            "root_session": {
-                "kind": "custom-harness",
-                "id": "019c4b7e",
-                "harness_version": "1.2.3",
-                "persistent": true
-            }
-        }
-    })
-}
-
 fn v8_succeeded_event() -> NewEvent<'static> {
     NewEvent {
         event_type: EventType::EffectSucceeded,
@@ -128,6 +98,18 @@ fn manifest_validation_refuses_non_object_and_non_string_engine() {
                 json!({"feature": {"name": "feat"}}),
             ],
         ),
+        (
+            "bad-bundle",
+            ManifestRefusal::BundleNameNotString,
+            "invalid manifest for run 'bad-bundle-0': manifest field 'bundle_name' must be a JSON string; nothing was recorded",
+            vec![
+                json!({"engine": "0.15.0", "bundle_name": 7}),
+                json!({"engine": "0.15.0", "bundle_name": null}),
+                json!({"engine": "0.15.0", "bundle_name": true}),
+                json!({"bundle_name": ["self"]}),
+                json!({"bundle_name": {"name": "self"}}),
+            ],
+        ),
     ];
     for (prefix, reason, first_msg, cases) in groups {
         for (idx, bad) in cases.iter().enumerate() {
@@ -176,6 +158,10 @@ fn journal_refuses_invalid_run_started_and_attested_manifests() {
         (
             json!({"engine": "0.15.0", "feature": 42}),
             ManifestRefusal::FeatureNotString,
+        ),
+        (
+            json!({"engine": "0.15.0", "bundle_name": 7}),
+            ManifestRefusal::BundleNameNotString,
         ),
         (json!(42), ManifestRefusal::NotAnObject),
     ] {
@@ -601,12 +587,7 @@ fn settled_members_validation_on_effect_failed_and_indeterminate() {
             ),
         )
         .unwrap();
-    let bad_settled = json!({
-        "effect_id": "eff-1",
-        "attempt_id": "att-1",
-        "reason": "member failed",
-        "settled_members": { "alpha": {"not_a_result": true} }
-    });
+    let bad_settled = bad_settled_payload();
     for event_type in [EventType::EffectFailed, EventType::EffectIndeterminate] {
         assert!(matches!(
             journal.append_event(
@@ -943,14 +924,19 @@ struct FailOnceProjectionStore<P> {
 }
 
 impl<P: ProjectionStore> ProjectionStore for FailOnceProjectionStore<P> {
-    fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
+    fn apply_envelopes(
+        &self,
+        run_id: &str,
+        manifest: Option<&Value>,
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError> {
         if self.fail_next.replace(false) {
             return Err(StoreError::Contended {
                 operation: "apply_envelopes",
                 waited_ms: 3,
             });
         }
-        self.inner.apply_envelopes(run_id, envelopes)
+        self.inner.apply_envelopes(run_id, manifest, envelopes)
     }
     fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
         self.inner.list_runs()
@@ -1044,4 +1030,31 @@ fn post_commit_projection_lag_is_not_contention_and_heals_via_reindex() {
             ..
         }))
     ));
+}
+
+#[test]
+fn live_projection_uses_manifest_feature_fallback_before_reindex() {
+    let journal = Journal::new(
+        MemEventLog::default(),
+        MemProjectionStore::default(),
+        MemCoordinationStore::default(),
+    );
+    let ts = "2026-11-25T12:00:00Z";
+    let manifest = sample_manifest("from-manifest");
+    journal.create_run("feat-fallback", &manifest).unwrap();
+    journal
+        .append_event(
+            "feat-fallback",
+            plain_event(EventType::RunStarted, json!({}), None, ts),
+        )
+        .unwrap();
+
+    let expected = vec![(
+        "feat-fallback".to_string(),
+        "from-manifest".to_string(),
+        ts.to_string(),
+    )];
+    assert_eq!(journal.projections().list_runs().unwrap(), expected);
+    assert_eq!(journal.reindex().unwrap(), 1);
+    assert_eq!(journal.projections().list_runs().unwrap(), expected);
 }

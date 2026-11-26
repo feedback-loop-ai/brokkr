@@ -10,7 +10,7 @@ use rusqlite::{params, Connection};
 
 use super::*;
 use crate::damage::Damage;
-use crate::{Attribution, ManifestRefusal};
+use crate::{Attribution, ManifestRefusal, SeatRecordVersion};
 
 fn summary_feature(path: &Path, run_id: &str) -> Option<String> {
     let conn = Connection::open(path).unwrap();
@@ -29,7 +29,7 @@ fn assert_colocated_divergent(
     batch: &[EventEnvelope],
 ) {
     assert!(matches!(
-        ports.apply_envelopes(expected_run_id, batch),
+        ports.apply_envelopes(expected_run_id, None, batch),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == expected_run_id
     ));
     assert!(matches!(
@@ -85,7 +85,7 @@ fn sqlite_store_satisfies_event_log_and_projection_ports() {
         Err(StoreError::RunNotFound(id)) if id == "absent"
     ));
     assert!(matches!(
-        ports.apply_envelopes("absent", &[]),
+        ports.apply_envelopes("absent", None, &[]),
         Err(StoreError::RunNotFound(id)) if id == "absent"
     ));
 
@@ -134,7 +134,7 @@ fn sqlite_store_satisfies_event_log_and_projection_ports() {
         .append_envelopes("sql-1", (0, ZERO_HASH), &[e1.clone(), e2.clone()])
         .unwrap();
     ports
-        .apply_envelopes("sql-1", std::slice::from_ref(&e2))
+        .apply_envelopes("sql-1", None, std::slice::from_ref(&e2))
         .unwrap();
     assert_eq!(ports.head("sql-1").unwrap(), (2, e2.event_hash.clone()));
     assert_eq!(ports.read_stream("sql-1", 1).unwrap().len(), 2);
@@ -556,16 +556,16 @@ fn colocated_apply_envelopes_verifies_local_stream_and_heals_projections() {
 
     // Foreign run_id envelope refused with DivergentEventLog; unknown run refused with RunNotFound.
     assert!(matches!(
-        ports.apply_envelopes("other-run", std::slice::from_ref(&e1)),
+        ports.apply_envelopes("other-run", None, std::slice::from_ref(&e1)),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "other-run"
     ));
     assert!(matches!(
-        ports.apply_envelopes("ca-1", std::slice::from_ref(&e1)),
+        ports.apply_envelopes("ca-1", None, std::slice::from_ref(&e1)),
         Err(StoreError::RunNotFound(ref id)) if id == "ca-1"
     ));
     ports.create_run("target", &manifest).unwrap();
     assert!(matches!(
-        ports.apply_envelopes("target", std::slice::from_ref(&e1)),
+        ports.apply_envelopes("target", None, std::slice::from_ref(&e1)),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "target"
     ));
 
@@ -574,22 +574,26 @@ fn colocated_apply_envelopes_verifies_local_stream_and_heals_projections() {
         .unwrap();
     // Before fold: divergent apply_envelopes refuses.
     assert!(matches!(
-        ports.apply_envelopes("ca-1", &[e1.clone(), divergent_phase.clone()]),
+        ports.apply_envelopes("ca-1", None, &[e1.clone(), divergent_phase.clone()]),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "ca-1"
     ));
 
     // Shorter prefix heals unfolded summary to full local head without regressing.
     ports
-        .apply_envelopes("ca-1", std::slice::from_ref(&e1))
+        .apply_envelopes("ca-1", Some(&manifest), std::slice::from_ref(&e1))
         .unwrap();
     let (head_seq, folded_seq, status, head_hash, _) = summary_snapshot(&path, "ca-1");
     assert_eq!((head_seq, folded_seq), (2, Some(2)));
     assert_eq!(status.as_deref(), Some("completed"));
     assert_eq!(head_hash.as_deref(), Some(completed.event_hash.as_str()));
 
-    // Divergent batch still refuses after fold; terminal fence stays intact.
+    // Divergent manifest or batch still refuses after fold; terminal fence stays intact.
     assert!(matches!(
-        ports.apply_envelopes("ca-1", &[e1.clone(), divergent_phase]),
+        ports.apply_envelopes("ca-1", Some(&sample_manifest("other")), &[]),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "ca-1"
+    ));
+    assert!(matches!(
+        ports.apply_envelopes("ca-1", None, &[e1.clone(), divergent_phase]),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "ca-1"
     ));
     assert_refuses_phase_after_completed(&ports, "ca-1", &completed);
@@ -601,7 +605,7 @@ fn colocated_apply_envelopes_verifies_local_stream_and_heals_projections() {
          DELETE FROM event_index WHERE run_id = 'ca-1';",
     );
     ports
-        .apply_envelopes("ca-1", &[e1.clone(), completed.clone()])
+        .apply_envelopes("ca-1", None, &[e1.clone(), completed.clone()])
         .unwrap();
     assert_eq!(
         summary_snapshot(&path, "ca-1").2.as_deref(),
@@ -621,16 +625,16 @@ fn colocated_apply_envelopes_verifies_local_stream_and_heals_projections() {
     );
     assert!(!store.summary_disagreements().unwrap().is_empty());
     ports
-        .apply_envelopes("ca-1", &[e1, completed.clone()])
+        .apply_envelopes("ca-1", None, &[e1, completed.clone()])
         .unwrap();
     assert!(store.summary_disagreements().unwrap().is_empty());
 
     // Empty local run accepts empty apply_envelopes and refuses non-empty batch.
     ports.create_run("ca-empty", &manifest).unwrap();
-    ports.apply_envelopes("ca-empty", &[]).unwrap();
+    ports.apply_envelopes("ca-empty", None, &[]).unwrap();
     let empty_e1 = started_event("ca-empty", "fence-apply", "2026-11-25T10:00:00Z");
     assert!(matches!(
-        ports.apply_envelopes("ca-empty", std::slice::from_ref(&empty_e1)),
+        ports.apply_envelopes("ca-empty", None, std::slice::from_ref(&empty_e1)),
         Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "ca-empty"
     ));
 }
@@ -646,7 +650,7 @@ fn seed_divergent_fixture(
         .import_run_stream("div-1", &manifest, &[e1.clone(), local_e2.clone()])
         .unwrap();
     ports
-        .apply_envelopes("div-1", &[e1.clone(), local_e2.clone()])
+        .apply_envelopes("div-1", None, &[e1.clone(), local_e2.clone()])
         .unwrap();
     ports.create_run("empty-local", &manifest).unwrap();
     (store, manifest, e1, local_e2, other_e2)
@@ -912,7 +916,7 @@ fn colocated_projection_propagates_token_count_out_of_range() {
         .unwrap();
 
     assert!(matches!(
-        ports.apply_envelopes("tok-1", &[e1, e2.clone()]),
+        ports.apply_envelopes("tok-1", None, &[e1, e2.clone()]),
         Err(StoreError::TokenCountOutOfRange(2, "input_tokens", count)) if count == overflow
     ));
     assert!(matches!(
@@ -1105,8 +1109,8 @@ fn colocated_list_runs_matches_store_before_fold_tie_break_and_legacy_ro() {
     assert_eq!(store.list_runs().unwrap(), expected);
     assert_eq!(ports.list_runs().unwrap(), expected);
 
-    ports.apply_envelopes("run-z", &[ez]).unwrap();
-    ports.apply_envelopes("run-a", &[ea]).unwrap();
+    ports.apply_envelopes("run-z", None, &[ez]).unwrap();
+    ports.apply_envelopes("run-a", None, &[ea]).unwrap();
     assert_eq!(ports.list_runs().unwrap(), expected);
     assert_eq!(ports.rebuild_from(&ports).unwrap(), 2);
     assert_eq!(ports.list_runs().unwrap(), store.list_runs().unwrap());
@@ -1332,7 +1336,7 @@ fn sqlite_append_envelopes_refuses_after_terminal_despite_damaged_summary() {
         )
         .unwrap();
     ports
-        .apply_envelopes("term-dmg", &[e1, completed.clone()])
+        .apply_envelopes("term-dmg", None, &[e1, completed.clone()])
         .unwrap();
     assert_eq!(
         summary_snapshot(&path, "term-dmg").2.as_deref(),
@@ -1427,5 +1431,138 @@ fn sqlite_append_and_import_refuse_invalid_embedded_run_started_manifest() {
         Err(StoreError::RunNotFound(ref id)) if id == "r-import"
     ));
     assert_eq!(sqlite_table_count(&path, "runs"), 1);
+    assert_eq!(sqlite_table_count(&path, "events"), 0);
+}
+
+fn bad_seat_streams(run_id: &str) -> (EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope) {
+    let start = started_event(run_id, "seat-fence", "2026-11-25T10:00:00Z");
+    let bad_cp = sealed_event(
+        run_id,
+        2,
+        EventType::EffectCheckpointed,
+        invalid_checkpoint_payload(),
+        &start.event_hash,
+        "2026-11-25T10:00:01Z",
+    );
+    let panel_cp = sealed_event(
+        run_id,
+        2,
+        EventType::EffectCheckpointed,
+        panel_member_checkpoint(),
+        &start.event_hash,
+        "2026-11-25T10:00:02Z",
+    );
+    let bad_failed = sealed_event(
+        run_id,
+        3,
+        EventType::EffectFailed,
+        bad_settled_payload(),
+        &panel_cp.event_hash,
+        "2026-11-25T10:00:03Z",
+    );
+    (start, bad_cp, panel_cp, bad_failed)
+}
+
+fn v8_stream(run_id: &str) -> [EventEnvelope; 2] {
+    let start = started_event(run_id, "seat-fence", "2026-11-25T10:00:00Z");
+    let succ = sealed_event(
+        run_id,
+        2,
+        EventType::EffectSucceeded,
+        v8_only_succeeded_payload(),
+        &start.event_hash,
+        "2026-11-25T10:00:01Z",
+    );
+    [start, succ]
+}
+
+#[test]
+fn sqlite_append_envelopes_refuses_malformed_seat_records_and_settled_members() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("seat-record-append.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let (e1, bad_cp, panel_cp, bad_failed) = bad_seat_streams("sr-append");
+
+    ports
+        .create_run("sr-append", &sample_manifest("seat-fence"))
+        .unwrap();
+    ports
+        .append_envelopes("sr-append", (0, ZERO_HASH), std::slice::from_ref(&e1))
+        .unwrap();
+    assert!(matches!(
+        ports.append_envelopes("sr-append", (1, &e1.event_hash), &[bad_cp]),
+        Err(StoreError::SeatRecord(ref err)) if err.seq == 2
+    ));
+    assert!(matches!(
+        ports.append_envelopes(
+            "sr-append",
+            (1, &e1.event_hash),
+            &[panel_cp.clone(), bad_failed.clone()]
+        ),
+        Err(StoreError::SeatRecord(ref err))
+            if err.seq == 3 && err.settled_member.as_deref().map(String::as_str) == Some("alpha")
+    ));
+    assert_eq!(ports.head("sr-append").unwrap(), (1, e1.event_hash.clone()));
+
+    ports
+        .append_envelopes(
+            "sr-append",
+            (1, &e1.event_hash),
+            std::slice::from_ref(&panel_cp),
+        )
+        .unwrap();
+    assert!(matches!(
+        ports.append_envelopes("sr-append", (2, &panel_cp.event_hash), &[bad_failed]),
+        Err(StoreError::SeatRecord(ref err))
+            if err.seq == 3 && err.settled_member.as_deref().map(String::as_str) == Some("alpha")
+    ));
+    assert_eq!(ports.head("sr-append").unwrap(), (2, panel_cp.event_hash));
+
+    // Persisted v1 manifest wins over v8 RunStarted engine on direct SQLite append.
+    ports
+        .create_run("sr-v1", &json!({"engine": "0.1.0", "bundle_name": "self"}))
+        .unwrap();
+    assert!(matches!(
+        ports.append_envelopes("sr-v1", (0, ZERO_HASH), &v8_stream("sr-v1")),
+        Err(StoreError::SeatRecord(ref err))
+            if err.seq == 2 && err.contract == SeatRecordVersion::V1.contract()
+    ));
+    assert_eq!(ports.head("sr-v1").unwrap(), (0, ZERO_HASH.to_string()));
+    assert_eq!(sqlite_table_count(&path, "events"), 2);
+}
+
+#[test]
+fn sqlite_import_run_stream_refuses_malformed_seat_records_and_settled_members() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("seat-record-import.db");
+    let store = Store::open(&path).unwrap();
+    let ports = SqlitePorts::new(&store);
+    let manifest = sample_manifest("seat-fence");
+
+    let (e1, bad_cp, _, _) = bad_seat_streams("sr-imp-cp");
+    assert!(matches!(
+        ports.import_run_stream("sr-imp-cp", &manifest, &[e1, bad_cp]),
+        Err(StoreError::SeatRecord(ref err)) if err.seq == 2
+    ));
+
+    let (e1, panel_cp, bad_failed) = {
+        let (e1, _, cp, failed) = bad_seat_streams("sr-imp-set");
+        (e1, cp, failed)
+    };
+    assert!(matches!(
+        ports.import_run_stream("sr-imp-set", &manifest, &[e1, panel_cp, bad_failed]),
+        Err(StoreError::SeatRecord(ref err))
+            if err.seq == 3 && err.settled_member.as_deref().map(String::as_str) == Some("alpha")
+    ));
+
+    let v1_manifest = json!({"engine": "0.1.0", "bundle_name": "self"});
+    assert!(matches!(
+        ports.import_run_stream("sr-imp-v1", &v1_manifest, &v8_stream("sr-imp-v1")),
+        Err(StoreError::SeatRecord(ref err))
+            if err.seq == 2 && err.contract == SeatRecordVersion::V1.contract()
+    ));
+
+    assert_eq!(sqlite_table_count(&path, "runs"), 0);
     assert_eq!(sqlite_table_count(&path, "events"), 0);
 }

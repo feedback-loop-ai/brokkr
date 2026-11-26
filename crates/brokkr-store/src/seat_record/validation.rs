@@ -209,23 +209,29 @@ pub(crate) fn record_of(event_type: EventType, payload: &Value) -> Option<&Value
     }
 }
 
-pub(crate) fn validate_events(events: &[EventEnvelope]) -> Result<(), SeatRecordError> {
-    // The contract this run's engine wrote its records under.
-    let engine = events
-        .iter()
-        .find(|event| event.event_type == EventType::RunStarted)
-        .and_then(|event| event.payload.pointer("/manifest/engine"));
-    let version = SeatRecordVersion::of_manifest(engine.and_then(Value::as_str));
+fn record_marked<'a>(marked: &mut BTreeMap<&'a str, BTreeSet<String>>, event: &'a EventEnvelope) {
+    if let Some(member) = marked_member(event.event_type, &event.payload) {
+        let attempt = event.payload["attempt_id"].as_str().unwrap_or_default();
+        marked.entry(attempt).or_default().insert(member.to_owned());
+    }
+}
+
+pub(crate) fn validate_incoming(
+    existing: &[EventEnvelope],
+    incoming: &[EventEnvelope],
+    version: SeatRecordVersion,
+) -> Result<(), SeatRecordError> {
     let mut marked: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+    for event in existing {
+        record_marked(&mut marked, event);
+    }
     let none = BTreeSet::new();
-    for event in events {
+    for event in incoming {
         if let Some(record) = record_of(event.event_type, &event.payload) {
             validate_seat_record(record, event.seq, version)?;
         }
+        record_marked(&mut marked, event);
         let attempt = event.payload["attempt_id"].as_str().unwrap_or_default();
-        if let Some(member) = marked_member(event.event_type, &event.payload) {
-            marked.entry(attempt).or_default().insert(member.to_owned());
-        }
         let settled = marked.get(attempt).unwrap_or(&none);
         validate_settled(
             (event.event_type, &event.payload),
@@ -235,6 +241,16 @@ pub(crate) fn validate_events(events: &[EventEnvelope]) -> Result<(), SeatRecord
         )?;
     }
     Ok(())
+}
+
+pub(crate) fn validate_events(events: &[EventEnvelope]) -> Result<(), SeatRecordError> {
+    // The contract this run's engine wrote its records under.
+    let engine = events
+        .iter()
+        .find(|event| event.event_type == EventType::RunStarted)
+        .and_then(|event| event.payload.pointer("/manifest/engine"));
+    let version = SeatRecordVersion::of_manifest(engine.and_then(Value::as_str));
+    validate_incoming(&[], events, version)
 }
 
 /// The member a checkpoint event's engine marker settles, by the one

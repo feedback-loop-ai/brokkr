@@ -30,8 +30,8 @@ use crate::{
 };
 
 use super::{
-    refuse_after_terminal, validate_manifest, validate_started_manifest, CoordinationStore,
-    EventLog, ProjectionStore,
+    refuse_after_terminal, validate_manifest, validate_seat_records, validate_started_manifest,
+    CoordinationStore, EventLog, ProjectionStore,
 };
 
 /// Thin co-located adapter exposing a SQLite [`Store`] through the
@@ -298,6 +298,10 @@ fn load_local_manifest(tx: &Connection, run_id: &str) -> Result<Option<Value>, S
     Ok(Some(serde_json::from_str(&raw)?))
 }
 
+fn require_local_manifest(tx: &Connection, run_id: &str) -> Result<Value, StoreError> {
+    load_local_manifest(tx, run_id)?.ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))
+}
+
 fn read_verified_log(log: &dyn EventLog) -> Result<Vec<VerifiedRun>, StoreError> {
     let run_ids = log.list_run_ids()?;
     let mut seen = BTreeSet::new();
@@ -374,7 +378,7 @@ impl EventLog for SqlitePorts<'_> {
     ) -> Result<(), StoreError> {
         patiently("append", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
-            ensure_run_exists(&tx, run_id)?;
+            let manifest = require_local_manifest(&tx, run_id)?;
             let local = load_verified_local(&tx, run_id, &StoreError::Chain)?;
             let (head_seq, found_hash) = local
                 .last()
@@ -389,6 +393,7 @@ impl EventLog for SqlitePorts<'_> {
             let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
             refuse_after_terminal(run_id, &local, &incoming)?;
             validate_started_manifests(run_id, envelopes)?;
+            validate_seat_records(&manifest, &local, envelopes)?;
             insert_events(&tx, run_id, envelopes)?;
             tx.commit()?;
             Ok(())
@@ -405,6 +410,7 @@ impl EventLog for SqlitePorts<'_> {
         validate_manifest(run_id, manifest)?;
         verify_chain_for_sqlite(run_id, (0, ZERO_HASH), envelopes)?;
         validate_started_manifests(run_id, envelopes)?;
+        validate_seat_records(manifest, &[], envelopes)?;
         let (manifest_feature, bundle_name) = manifest_meta(manifest);
         let feature = started_feature_of(envelopes).unwrap_or(manifest_feature);
         let manifest_json = serde_json::to_string(manifest)?;
@@ -477,13 +483,23 @@ impl EventLog for SqlitePorts<'_> {
 }
 
 impl ProjectionStore for SqlitePorts<'_> {
-    fn apply_envelopes(&self, run_id: &str, envelopes: &[EventEnvelope]) -> Result<(), StoreError> {
+    fn apply_envelopes(
+        &self,
+        run_id: &str,
+        manifest: Option<&Value>,
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError> {
         if envelopes.iter().any(|envelope| envelope.run_id != run_id) {
             return Err(divergent(run_id));
         }
         patiently("apply_envelopes", self.0.patience, &self.0.path, || {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
-            ensure_run_exists(&tx, run_id)?;
+            let local_manifest = require_local_manifest(&tx, run_id)?;
+            if let Some(expected) = manifest {
+                if &local_manifest != expected {
+                    return Err(divergent(run_id));
+                }
+            }
             let local = load_verified_local(&tx, run_id, &|_| divergent(run_id))?;
             if !envelopes.is_empty() {
                 let matched: Vec<EventEnvelope> = local
