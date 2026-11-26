@@ -26,13 +26,17 @@
 use serde_json::Value;
 use std::collections::BTreeMap;
 mod access;
+pub(crate) mod dsh;
 pub use access::Access;
+pub use dsh::Overlay;
 pub mod grammar;
 mod listed;
 pub(crate) mod mcp;
 mod read;
 
 use grammar::{Command, Effect, ListKind};
+mod floor;
+use floor::floor;
 use listed::{listed, Listing};
 use mcp::untransported;
 pub use mcp::{authored_server_conflict, SealedBroker, SealedServers, Transport, ARTIFACT_ROOT};
@@ -118,6 +122,7 @@ pub struct Controls {
     pub admits: BTreeMap<String, Vec<String>>,
     pub argv: Vec<String>,
     pub selection: Selection,
+    pub overlay: Vec<Overlay>,
     pub guards: Vec<Guard>,
     /// What the engine composed from the site's own typed declarations
     /// (rebuild unit 12-fix-c).
@@ -155,12 +160,11 @@ impl Provenance {
 /// evidence — those stay adapter data. It exists so that an absent, legacy,
 /// emptied or unreadable declaration cannot retract a power the harness
 /// has: a launch answers for every name here, ON or OFF, or it is refused.
-/// DSH, LaneTally and an opaque custom driver carry their own declared
-/// uncertainty and inherit nobody's list.
+/// Other harnesses carry their own declared uncertainty.
 pub fn known_powers(harness: &str) -> &'static [&'static str] {
     match harness {
         "codex" => &["web-search"],
-        "claude" => &["web-search", "web-fetch"],
+        "claude" | "dsh" => &["web-search", "web-fetch"],
         _ => &[],
     }
 }
@@ -303,6 +307,8 @@ fn decode(plan: &Value) -> Result<Controls, String> {
         admits,
         argv: required(plan, "argv", "argv")?,
         selection,
+        overlay: dsh::decode(plan.get("overlay"))
+            .map_err(|_| "'overlay' is not a list of DSH web keys")?,
         guards,
         provenance: provenance(plan)?,
     })
@@ -1500,20 +1506,20 @@ pub fn reassemble(segments: &[Segment], argv: &[String]) -> Result<(), String> {
 /// dropped from a segment that would then claim to be complete.
 pub fn native_segment(harness: &str, controls: &Controls) -> Result<Segment, Refusal> {
     let composed = compose_for_provider(harness, &[], &[], controls)?;
-    let selects = [
-        &controls.selection.include,
-        &controls.selection.allow,
-        &controls.selection.deny,
-    ]
-    .iter()
-    .any(|names| !names.is_empty());
-    if selects && !matches!(harness, "claude" | "lanetally") {
+    if has_selection(controls) && !matches!(harness, "claude" | "lanetally") {
         return Err(unconsumed(harness, "a tool selection"));
     }
     Ok(Segment {
         origin: Origin::Native,
         argv: [composed.extra, composed.managed].concat(),
     })
+}
+
+fn has_selection(controls: &Controls) -> bool {
+    let lists = &controls.selection;
+    [&lists.include, &lists.allow, &lists.deny]
+        .iter()
+        .any(|list| !list.is_empty())
 }
 
 // ------------------------------------------------ final assessment
@@ -1794,7 +1800,7 @@ pub fn check_final(
         ])
     })?;
     let (authored, fragment) = sealed_inputs(table, controls, expected, dialect, serving)?;
-    let mut composed = compose_bound(harness, &authored, &fragment, controls, serving.bound())
+    let (mut composed, _) = compose_bound(harness, &authored, &fragment, controls, serving.bound())
         .map_err(Failure::refusal)?;
     composed.extra.extend_from_slice(serving.mcp);
     let recomposed = table
@@ -3588,8 +3594,8 @@ fn conflicting(
 ///    a managed deny argument such as `--disallowedTools WebSearch` is
 ///    folded into the same deny list a selection contributes to; each list
 ///    flag is emitted once; and what is not a list — a restriction
-///    transport — is appended verbatim. DSH and `exec` consume nothing, so
-///    a plan that carries anything for them is refused rather than dropped.
+///    transport — is appended verbatim. DSH consumes the typed web overlay.
+///    `exec` consumes no native control.
 ///
 /// `provider` is the DRIVER KIND that launches — the harness — which for
 /// every shipped adapter is also its provider name. A command that
@@ -3603,7 +3609,23 @@ pub fn compose_for_provider(
     fragment: &[String],
     controls: &Controls,
 ) -> Result<Composed, Refusal> {
-    compose_or_exclude(provider, authored, fragment, controls).map_err(Failure::refusal)
+    compose_launch(provider, authored, fragment, controls).map(|(argv, _)| argv)
+}
+
+pub(crate) fn compose_launch(
+    provider: &str,
+    authored: &[String],
+    fragment: &[String],
+    controls: &Controls,
+) -> Result<(Composed, Option<dsh::Web>), Refusal> {
+    compose_bound(
+        provider,
+        authored,
+        fragment,
+        controls,
+        grammar::Bound::default(),
+    )
+    .map_err(Failure::refusal)
 }
 
 /// The plan for `provider` refused for the `typed_hands` arguments it types
@@ -3637,6 +3659,7 @@ pub fn compose_or_exclude(
         controls,
         grammar::Bound::default(),
     )
+    .map(|(argv, _)| argv)
 }
 
 /// [`compose_or_exclude`], the box's hands' permission profile judged bound
@@ -3649,7 +3672,7 @@ fn compose_bound(
     fragment: &[String],
     controls: &Controls,
     bound: grammar::Bound<'_>,
-) -> Result<Composed, Failure> {
+) -> Result<(Composed, Option<dsh::Web>), Failure> {
     // brokkr's own dispatch prefix is not the harness's argv: the compiler
     // sees the whole `<engine> driver <kind> --` invocation and the driver
     // sees only what follows it, and both parse the same tail.
@@ -3661,17 +3684,19 @@ fn compose_bound(
     let extra: Vec<String> = authored.iter().chain(fragment).cloned().collect();
     // Whatever the composition writes, the dispatch prefix opens the argv
     // again exactly as it was written.
-    let composed = |extra: Vec<String>, managed: Vec<String>| Composed {
-        extra: [head.to_vec(), extra].concat(),
-        managed,
+    let composed = |extra: Vec<String>, managed: Vec<String>, web| {
+        (
+            Composed {
+                extra: [head.to_vec(), extra].concat(),
+                managed,
+            },
+            web,
+        )
     };
-    let selects = [
-        &controls.selection.include,
-        &controls.selection.allow,
-        &controls.selection.deny,
-    ]
-    .iter()
-    .any(|names| !names.is_empty());
+    let selects = has_selection(controls);
+    if provider != "dsh" && !controls.overlay.is_empty() {
+        return Err(unconsumed(provider, "a DSH overlay").into());
+    }
     match provider {
         "codex" => {
             if selects {
@@ -3681,7 +3706,7 @@ fn compose_bound(
             // every other origin, never appended unread (rebuild unit 11;
             // design D6).
             parse_origin(provider, &controls.argv, false)?;
-            Ok(composed(extra, controls.argv.clone()))
+            Ok(composed(extra, controls.argv.clone(), None))
         }
         "claude" | "lanetally" => {
             let listing = Listing {
@@ -3690,20 +3715,19 @@ fn compose_bound(
                 split: authored.len(),
                 typed_hands,
             };
-            listed(listing, extra).map(|extra| composed(extra, Vec::new()))
+            listed(listing, extra).map(|extra| composed(extra, Vec::new(), None))
         }
-        // Built-in launches that consume no native control at all.
         "dsh" | "exec" => {
-            if selects {
-                return Err(unconsumed(provider, "a tool selection").into());
-            }
-            if !controls.argv.is_empty() {
-                return Err(unconsumed(provider, "managed arguments").into());
-            }
-            Ok(composed(extra, Vec::new()))
+            dsh::argv_free(provider, controls)?;
+            let web = if provider == "dsh" {
+                Some(dsh::compose(controls)?)
+            } else {
+                None
+            };
+            Ok(composed(extra, Vec::new(), web))
         }
         // An opaque custom driver: the plan rides its input as data.
-        _ => Ok(composed(extra, controls.argv.clone())),
+        _ => Ok(composed(extra, controls.argv.clone(), None)),
     }
 }
 
@@ -3763,47 +3787,6 @@ fn handed(
                 ),
             ],
         ));
-    }
-    Ok(())
-}
-
-/// The provider's known-power floor (design D6): every capability its
-/// launch can reach natively is held or switched off by a plan resolved
-/// for it from a measured inventory, or nothing is composed.
-fn floor(provider: &str, controls: &Controls) -> Result<(), Failure> {
-    for capability in known_powers(provider) {
-        if let Inventory::Unmeasured(reason) = &controls.inventory {
-            return Err(unready(
-                provider,
-                capability,
-                vec![
-                    Piece::Words("declares the provider's inventory unmeasured ("),
-                    Piece::Reason(reason),
-                    Piece::Words(")"),
-                ],
-            )
-            .into());
-        }
-        if controls.harness != provider {
-            return Err(unready(
-                provider,
-                capability,
-                vec![
-                    Piece::Words("was resolved for "),
-                    Piece::Harness(&controls.harness),
-                ],
-            )
-            .into());
-        }
-        let answered = |names: &[String]| names.iter().any(|name| name == capability);
-        if !answered(&controls.held) && !answered(&controls.denied) {
-            return Err(unready(
-                provider,
-                capability,
-                vec![Piece::Words("neither holds it nor switches it off")],
-            )
-            .into());
-        }
     }
     Ok(())
 }

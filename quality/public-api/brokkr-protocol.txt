@@ -793,6 +793,14 @@ pub brokkr_protocol::native_controls::Origin::Template
 impl brokkr_protocol::native_controls::Origin
 pub const brokkr_protocol::native_controls::Origin::VOCABULARY: &'static str
 pub fn brokkr_protocol::native_controls::Origin::word(self) -> &'static str
+pub enum brokkr_protocol::native_controls::Overlay
+pub brokkr_protocol::native_controls::Overlay::DshWebFetch(bool)
+pub brokkr_protocol::native_controls::Overlay::DshWebSearch(bool)
+impl brokkr_protocol::native_controls::Overlay
+pub fn brokkr_protocol::native_controls::Overlay::capability(self) -> &'static str
+pub fn brokkr_protocol::native_controls::Overlay::enabled(self) -> bool
+impl core::fmt::Display for brokkr_protocol::native_controls::Overlay
+pub fn brokkr_protocol::native_controls::Overlay::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_protocol::native_controls::SandboxIntent
 pub brokkr_protocol::native_controls::SandboxIntent::DangerFullAccess
 pub brokkr_protocol::native_controls::SandboxIntent::ReadOnly
@@ -841,6 +849,7 @@ pub brokkr_protocol::native_controls::Controls::guards: alloc::vec::Vec<brokkr_p
 pub brokkr_protocol::native_controls::Controls::harness: alloc::string::String
 pub brokkr_protocol::native_controls::Controls::held: alloc::vec::Vec<alloc::string::String>
 pub brokkr_protocol::native_controls::Controls::inventory: brokkr_protocol::native_controls::Inventory
+pub brokkr_protocol::native_controls::Controls::overlay: alloc::vec::Vec<brokkr_protocol::native_controls::Overlay>
 pub brokkr_protocol::native_controls::Controls::provenance: brokkr_protocol::native_controls::Provenance
 pub brokkr_protocol::native_controls::Controls::provider: alloc::string::String
 pub brokkr_protocol::native_controls::Controls::selection: brokkr_protocol::native_controls::Selection

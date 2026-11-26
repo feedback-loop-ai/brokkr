@@ -1640,9 +1640,8 @@ fn a_plan_whose_final_command_carries_no_off_is_refused_as_launch_refuses_it() {
 /// Review return M1 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`:
 /// each harness is answered as its launch serves it. The same plan — one
 /// power, OFF by the harness default — is admitted under `exec`, which
-/// consumes no native control and checks no final command, and under DSH,
-/// whose launch's final check reads the composition from its staged
-/// overlay; it is refused under LaneTally with its launch's own final-check
+/// consumes no native control and checks no final command. DSH refuses an
+/// inventory missing a known power. LaneTally gives its own final-check
 /// refusal (review return SC22-2), and under a driver name no built-in
 /// driver answers to.
 #[test]
@@ -1671,6 +1670,14 @@ fn each_harness_is_answered_as_its_launch_serves_it() {
              {off} · {EVIDENCE}"
         )
     };
+    let missing_fetch = format!(
+        "{}: provider 'dsh' is known to carry native capability 'web-fetch', which this seat \
+         does not hold, and no valid control denies it: its adapter declares no native \
+         capability serving 'web-fetch'. A known native power is launched only with a \
+         delivered denial, never on what absence implies; repair the adapter data \
+         (decision 0066 ruling 1)",
+        hypothetical("private", "adapter-plan")
+    );
     let (healthy, lines) = lines(dir.path(), &availability);
     assert!(healthy);
     assert_eq!(
@@ -1679,8 +1686,8 @@ fn each_harness_is_answered_as_its_launch_serves_it() {
             "ok       capabilities private: grants nothing; every native capability is \
              governed by the no-grant default — switched off, or the seat is refused"
                 .to_string(),
-            admitted("private", "dsh"),
-            search("dsh", OFF),
+            refused("private", "dsh", &missing_fetch),
+            search("dsh", NO_OFF),
             admitted("private", "exec"),
             search("exec", OFF),
             refused(
@@ -1765,6 +1772,23 @@ fn a_final_validation_refusal_is_bounded_as_a_compile_refusal_is() {
     );
 }
 
+fn dsh_web() -> Value {
+    let known: serde_json::Map<String, Value> = ["fetch", "search"]
+        .into_iter()
+        .map(|key| {
+            let capability = format!("web-{key}");
+            let control = |enabled| json!({"overlay": {format!("dsh-{capability}"): enabled}});
+            let inventory = native(control(false));
+            let mut entry = inventory["known"]["web-search"].clone();
+            entry["capability"] = json!(capability);
+            entry["tools"] = json!([format!("web_{key}")]);
+            entry["on"] = control(true);
+            (capability, entry)
+        })
+        .collect();
+    json!({"known": known})
+}
+
 /// Review return SC22-2 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`
 /// (operator ruling of 2026-09-30): a DSH or LaneTally plan is admitted or
 /// refused by the final validation its own launch runs, never by a
@@ -1779,12 +1803,7 @@ fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
     let dir = workspace_with(Some(json!([realm("private", None)])));
     let mut availability = installed(&[]);
     for (provider, harness, declared, template) in [
-        (
-            "dsh-effort",
-            "dsh",
-            json!({"known": {}}),
-            &["--effort", "high"][..],
-        ),
+        ("dsh-effort", "dsh", dsh_web(), &["--effort", "high"][..]),
         ("lanetally", "lanetally", selecting(), &[]),
     ] {
         let mut declared = adapter(provider, Some(declared));
@@ -1812,6 +1831,8 @@ fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
                     hypothetical("private", "adapter-plan")
                 ),
             ),
+            format!("warn     capabilities private native dsh-effort 'web-fetch': NOT granted here: {NO_OFF} · {EVIDENCE}"),
+            format!("warn     capabilities private native dsh-effort 'web-search': NOT granted here: {NO_OFF} · {EVIDENCE}"),
             admitted("private", "lanetally"),
             format!(
                 "warn     capabilities private native lanetally 'web-fetch': NOT granted here: \

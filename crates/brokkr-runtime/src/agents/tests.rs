@@ -4946,7 +4946,6 @@ mod native {
         )
     }
 }
-
 /// NCC "Unit 3 expected state is independent of emission", through the
 /// real Authority producer: the expectation is the literal the typed
 /// inputs imply — a held subset with the empty restriction, the only one
@@ -5000,6 +4999,7 @@ fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
             held: strings(on),
             denied: strings(off),
             argv: strings(argv),
+            overlay: Vec::new(),
             selection,
         };
     type Sealed = (
@@ -5224,7 +5224,6 @@ fn unit3_a_record_from_the_real_producers_round_trips_and_reassembles() {
         Application::Direct(strings(&["Bash(cargo:*)", "Bash(git:*)"]))
     );
 }
-
 /// NCC "Unit 3 expected state is independent of emission", for a pending
 /// selection (review return R1): two Claude-shaped inventories that differ
 /// ONLY in the deny list's flag and separator yield two different typed
@@ -5314,6 +5313,7 @@ fn unit3_a_pending_selection_keeps_its_own_mappings_through_materialization() {
                 denied: strings(off),
             },
             NativeContribution {
+                overlay: Vec::new(),
                 held: strings(on),
                 denied: strings(off),
                 argv: Vec::new(),

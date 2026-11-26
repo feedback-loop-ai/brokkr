@@ -2,6 +2,7 @@ use super::claude_fold::Source::Claude;
 use super::raw_fold_tests::claude_refusal;
 use super::*;
 use crate::env_guard::EnvGuard;
+use crate::native_controls::dsh::fixtures::plan as dsh_plan;
 use std::{os::unix::ffi::OsStrExt, path::Path};
 /// The wait every test's poll hands production: one child's exit code as
 /// the driver's own `lost` reads it, so a signal is `-1` here exactly as it
@@ -14407,7 +14408,12 @@ fn codex_held() -> Value {
 /// agent's. A charter the input names rides with the text the dispatch
 /// door read from it (second council H6), since a model seat's fixture
 /// names one (#372) and an engine launch never reopens it.
-fn engine_input(mut input: Value, plan: Value, extra: &[String], managed: usize) -> Value {
+pub(super) fn engine_input(
+    mut input: Value,
+    plan: Value,
+    extra: &[String],
+    managed: usize,
+) -> Value {
     let (authored, fragment) = extra.split_at(extra.len() - managed);
     input["native_controls"] = plan;
     input["launch_arguments"] = json!({"authored": authored, "managed": fragment});
@@ -15690,13 +15696,10 @@ fn a_dsh_launch_with_no_computed_authority_is_refused_before_any_provider_work()
         Some(NO_AUTHORITY)
     );
 
-    // An object plan — the unmeasured one the engine writes for DSH —
-    // proceeds, and so does the absent key of a by-hand driver.
+    // The known OFF plan and the absent key of a by-hand driver both proceed.
     let planned = engine_input(
         json!({"workdir": dir.path()}),
-        json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
-               "reason": "unsupported mcp and tool_permissions do not establish absence of \
-                          native egress"}),
+        dsh_plan(false, false),
         &[],
         0,
     );
@@ -15732,10 +15735,6 @@ fn a_dsh_launch_with_no_computed_authority_is_refused_before_any_provider_work()
 /// first.
 #[cfg(unix)]
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -15744,9 +15743,7 @@ fn a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv() {
     env.set("DSH_HOME", &root);
 
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let unmeasured = json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
-                            "reason": "unsupported mcp and tool_permissions do not establish \
-                                       absence of native egress"});
+    let off = dsh_plan(false, false);
     let launch = |extra: &[String], input: &Value| {
         dsh_launch_with("/nonexistent/dsh", extra, workdir, None, input, || {
             panic!("the disabled gate must not recompute the composite")
@@ -15771,12 +15768,7 @@ fn a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv() {
     }
     // Under the plan the engine writes, the grammar-admitted fault still
     // reaches the boundary: the check reads the composed argv.
-    let planned = engine_input(
-        json!({"workdir": &root}),
-        unmeasured.clone(),
-        &stdin_model,
-        0,
-    );
+    let planned = engine_input(json!({"workdir": &root}), off.clone(), &stdin_model, 0);
     assert_eq!(
         launch(&stdin_model, &planned).err().as_deref(),
         Some(no_model)
@@ -15795,8 +15787,7 @@ fn a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv() {
     // unmeasured one reads no argv and no selection. The managed fragment
     // is one the DSH grammar parses, so the refusal is the plan's and not
     // the fragment's spelling.
-    let known = json!({"inventory": "known", "provider": "dsh", "harness": "dsh",
-                       "on": [], "off": [], "argv": [], "guards": []});
+    let known = off.clone();
     let fragment = s(&["--effort", "low"]);
     let mut managed = known.clone();
     managed["argv"] = json!(fragment);
@@ -15848,7 +15839,7 @@ fn a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv() {
     // Both guards admit a well-formed pair under the plan the engine writes,
     // and the pair reaches the overlay, never the launcher's argv.
     let admitted = s(&["--model", "deepseek-v4-flash", "--effort", "high"]);
-    let planned = engine_input(json!({"workdir": &root}), unmeasured, &admitted, 0);
+    let planned = engine_input(json!({"workdir": &root}), off, &admitted, 0);
     let launched = launch(&admitted, &planned).unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(
         launched.command,
@@ -17422,44 +17413,14 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
-    use crate::native_controls::{
-        AllowIntent, Application, Expected, HandsIntent, Identity, LaunchRecord, LocalExpectation,
-        NativeExpectation, SandboxIntent, SealedServing, TemplateExpectation, SERVING_INPUTS,
-    };
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let workdir = root.to_str().unwrap();
     env.set("DSH_HOME", &root);
 
-    let reason = "unsupported mcp and tool_permissions do not establish absence of native egress";
-    let mut input = engine_input(
-        json!({"workdir": workdir}),
-        json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
-               "reason": reason}),
-        &[],
-        0,
-    );
-    let record = LaunchRecord {
-        segments: Vec::new(),
-        expected: Expected {
-            identity: Identity {
-                provider: "dsh".into(),
-                harness: "dsh".into(),
-                model: None,
-            },
-            native: NativeExpectation::Unmeasured(reason.into()),
-            local: LocalExpectation {
-                allow: AllowIntent::Unspecified,
-                sandbox: SandboxIntent::Unspecified,
-                application: Application::Unrestricted,
-            },
-            hands: HandsIntent::None,
-            template: TemplateExpectation::None,
-        },
-    };
-    input["launch_record"] = record.value();
-    input[SERVING_INPUTS] = SealedServing::default().value();
+    let input = engine_input(json!({"workdir": workdir}), dsh_plan(false, false), &[], 0);
+    let input = sealed_pair(input, &[], Seal::authored(0));
     let bin = "/nonexistent/dsh";
     let launch = || {
         dsh_launch_with(bin, &[], workdir, None, &input, || {
@@ -17552,7 +17513,10 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     // (rebuild unit 15-fix-b): only a launch with no plan either is served as
     // composed.
     let mut unpaired = input.clone();
-    unpaired.as_object_mut().unwrap().remove(SERVING_INPUTS);
+    unpaired
+        .as_object_mut()
+        .unwrap()
+        .remove(crate::native_controls::SERVING_INPUTS);
     assert_eq!(
         dsh_served(bin, &settled, &[], prompt, workdir, &unpaired),
         Err(
@@ -17584,8 +17548,7 @@ fn the_dsh_reading_doctor_calls_is_the_launch_own_judgment() {
     env.set("DSH_HOME", &root);
     let (bin, prompt) = ("/nonexistent/dsh", "the prompt");
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let plan = json!({"inventory": "known", "provider": "dsh", "harness": "dsh",
-                      "on": [], "off": [], "argv": [], "guards": []});
+    let plan = dsh_plan(false, false);
     let sealed = |extra: &[String]| {
         let input = engine_input(json!({"workdir": workdir}), plan.clone(), extra, 0);
         sealed_pair(input, extra, Seal::authored(extra.len()))
@@ -17918,44 +17881,14 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
 #[cfg(unix)]
 #[test]
 fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
-    use crate::native_controls::{
-        AllowIntent, Application, Expected, HandsIntent, Identity, LaunchRecord, LocalExpectation,
-        NativeExpectation, SandboxIntent, SealedServing, TemplateExpectation, SERVING_INPUTS,
-    };
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let workdir = root.to_str().unwrap();
     env.set("DSH_HOME", &root);
 
-    let reason = "unsupported mcp and tool_permissions do not establish absence of native egress";
-    let mut input = engine_input(
-        json!({"workdir": workdir}),
-        json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
-               "reason": reason}),
-        &[],
-        0,
-    );
-    let record = LaunchRecord {
-        segments: Vec::new(),
-        expected: Expected {
-            identity: Identity {
-                provider: "dsh".into(),
-                harness: "dsh".into(),
-                model: None,
-            },
-            native: NativeExpectation::Unmeasured(reason.into()),
-            local: LocalExpectation {
-                allow: AllowIntent::Unspecified,
-                sandbox: SandboxIntent::Unspecified,
-                application: Application::Unrestricted,
-            },
-            hands: HandsIntent::None,
-            template: TemplateExpectation::None,
-        },
-    };
-    input["launch_record"] = record.value();
-    input[SERVING_INPUTS] = SealedServing::default().value();
+    let input = engine_input(json!({"workdir": workdir}), dsh_plan(false, false), &[], 0);
+    let input = sealed_pair(input, &[], Seal::authored(0));
     let bin = "/nonexistent/dsh";
     let session = "dsh-session-0001";
     // The composer settles a cold launch here (its gate is disabled); the

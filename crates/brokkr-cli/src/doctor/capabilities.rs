@@ -90,6 +90,7 @@ fn disposition_words(disposition: &Disposition) -> String {
             lists.allow.join(", "),
             lists.deny.join(", ")
         ),
+        Disposition::Overlay(control) => control.to_string(),
         Disposition::Unsupported(reason) => format!("cannot be switched ({reason})"),
         Disposition::Unmeasured(reason) => format!("unmeasured ({reason})"),
     }

@@ -510,6 +510,7 @@ fn claude_controls(selection: Selection, managed: &[&str]) -> Controls {
         .into_iter()
         .partition(|(_, tool)| selection.deny.iter().any(|name| name == tool));
     Controls {
+        overlay: Vec::new(),
         provider: "claude".into(),
         harness: "claude".into(),
         inventory: Inventory::Known,
@@ -1406,7 +1407,6 @@ fn a_known_native_power_is_composed_only_under_a_plan_that_answers_for_it() {
     // with no known power still parses under its own table, and a command
     // that dispatches no built-in harness has no table at all.
     for (provider, authored) in [
-        ("dsh", argv(&["--model", "flash"])),
         ("lanetally", argv(&["--verbose"])),
         ("exec", argv(&["--x"])),
         ("<custom>", argv(&["--x"])),
@@ -1426,6 +1426,7 @@ fn a_known_native_power_is_composed_only_under_a_plan_that_answers_for_it() {
     for (provider, controls, capability, problem) in [
         ("codex", unmeasured("codex"), "web-search", legacy),
         ("claude", unmeasured("claude"), "web-search", legacy),
+        ("dsh", unmeasured("dsh"), "web-search", legacy),
         (
             "codex",
             ready("claude", &[], &["web-search", "web-fetch"]),
@@ -1759,7 +1760,7 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
             argv(&["--model", "flash"]),
             Controls {
                 selection: mixed.selection.clone(),
-                ..ready("dsh", &[], &[])
+                ..dsh::fixtures::denied()
             },
             "a tool selection",
         ),
@@ -1768,7 +1769,7 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
             argv(&["--model", "flash"]),
             Controls {
                 argv: argv(&["--no-web"]),
-                ..ready("dsh", &[], &[])
+                ..dsh::fixtures::denied()
             },
             "managed arguments",
         ),
@@ -6954,6 +6955,7 @@ fn claude_final() -> Sealed {
     Sealed {
         harness: "claude",
         controls: Controls {
+            overlay: Vec::new(),
             provider: "claude".into(),
             harness: "claude".into(),
             inventory: Inventory::Known,
@@ -7250,7 +7252,7 @@ fn typed_hands_carry_their_whole_transport_through_the_composer() {
     // A harness with no hands transport is owed none (rebuild unit 26b).
     let dsh = argv(&["--model", "flash"]);
     assert_eq!(
-        compose_for_provider("dsh", &[], &dsh, &in_box(2, &ready("dsh", &[], &[]))),
+        compose_for_provider("dsh", &[], &dsh, &in_box(2, &dsh::fixtures::denied())),
         Ok(Composed {
             extra: dsh,
             managed: Vec::new()
@@ -10381,25 +10383,22 @@ const DSH_PROMPT: &str = "--disallowedTools WebSearch --session x";
 
 const DSH_OVERLAY: &str = "/t/brokkr-dsh-seat-1.yml";
 
-/// A DSH launch under its unmeasured inventory: the driver's input, whose
-/// model, effort and route ride the overlay, composes nothing its serving
-/// command carries.
+/// A managed DSH launch carrying no web holding.
 fn dsh_sealed() -> Sealed {
+    let controls = dsh::fixtures::denied();
     Sealed {
         harness: "dsh",
-        controls: Controls {
-            provider: "dsh".into(),
-            harness: "dsh".into(),
-            inventory: Inventory::Unmeasured("not measured".into()),
-            ..Controls::default()
-        },
+        controls: controls.clone(),
         expected: Expected {
             identity: Identity {
                 provider: "dsh".into(),
                 harness: "dsh".into(),
                 model: Some("m".into()),
             },
-            native: NativeExpectation::Unmeasured("not measured".into()),
+            native: NativeExpectation::Known {
+                held: Vec::new(),
+                denied: controls.denied,
+            },
             local: LocalExpectation {
                 allow: AllowIntent::Unspecified,
                 sandbox: SandboxIntent::Unspecified,
@@ -10428,9 +10427,8 @@ fn dsh_sealed() -> Sealed {
 }
 
 /// NCC "Managed effects and expected state remain independent" (rebuild
-/// units 13, 13-fix, 13-fix-b and 13-fix-c): an unmeasured DSH inventory
-/// stays unmeasured through the check, its reason compared, and is never
-/// read as a known empty one. The command patches exactly the one staged
+/// units 13, 13-fix, 13-fix-b and 13-fix-c): the DSH inventory must match
+/// the independently sealed expectation. The command patches the one staged
 /// overlay, rejoins exactly the chosen session under the stream reading and
 /// carries exactly the chosen prompt, each compared token for token (R4); a
 /// serving choice with no place in the shape rebuilds nothing; the
@@ -10441,7 +10439,7 @@ fn dsh_sealed() -> Sealed {
     clippy::too_many_lines,
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
-fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
+fn a_dsh_command_checks_only_under_its_sealed_native_inventory() {
     let sealed = dsh_sealed();
     let cold = argv(&[
         "dsh",
@@ -10508,19 +10506,14 @@ fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
     assert_eq!(streamed(&cold), Err(departs("dsh", 5)));
     assert_eq!(streamed(&rejoin), Err(departs("dsh", 7)));
     let refused = |problem: &str| Err(final_refusal("dsh", problem));
-    for native in [
-        NativeExpectation::Unmeasured("other".into()),
-        NativeExpectation::Known {
-            held: Vec::new(),
-            denied: Vec::new(),
-        },
+    for (native, problem) in [
+        (NativeExpectation::Unmeasured("other".into()), "was planned under another native inventory than its sealed record expects"),
+        (NativeExpectation::Known { held: Vec::new(), denied: Vec::new() },
+         "was planned holding, denying or admitting other native powers than its sealed record expects"),
     ] {
         let mut other = sealed.clone();
         other.expected.native = native;
-        assert_eq!(
-            check(&other, &cold, None, staged),
-            refused("was planned under another native inventory than its sealed record expects")
-        );
+        assert_eq!(check(&other, &cold, None, staged), refused(problem));
     }
     assert_eq!(
         check(&sealed, &cold, None, Some("/t/other.yml")),
@@ -11002,6 +10995,7 @@ fn claude_case(case: ClaudeCase) -> Generated {
         false => Vec::new(),
     };
     let controls = Controls {
+        overlay: Vec::new(),
         provider: harness.into(),
         harness: harness.into(),
         inventory: match case.unmeasured {
@@ -11850,7 +11844,7 @@ fn codex_states() -> Vec<Generated> {
     states
 }
 
-/// DSH sealed launches under its unmeasured inventory: cold, streamed new
+/// DSH sealed launches with its native web OFF: cold, streamed new
 /// and rejoined, each ending with the prompt as data; and a rejoin chosen
 /// without the stream reading its driver spawns one under, which rebuilds
 /// nothing.

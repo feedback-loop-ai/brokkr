@@ -104,6 +104,10 @@ const NATIVE_SCHEMA: &str = r##"{
       "properties": {
         "argv": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
         "default": {"$ref": "#/definitions/reason"},
+        "overlay": {"type": "object", "minProperties": 1, "maxProperties": 1,
+                    "additionalProperties": false,
+                    "properties": {"dsh-web-fetch": {"type": "boolean"},
+                                   "dsh-web-search": {"type": "boolean"}}},
         "selection": {"type": "object", "required": ["include", "allow", "deny"],
                       "additionalProperties": false,
                       "properties": {"include": {"$ref": "#/definitions/names"},
@@ -493,6 +497,8 @@ pub enum Disposition {
     Default(String),
     /// Contributions to the harness's own tool lists.
     Selection(ToolLists),
+    /// One measured key in the DSH launch overlay.
+    Overlay(launch::Overlay),
     /// Measured: it cannot be switched this way.
     Unsupported(String),
     /// Nobody has measured whether it can.
@@ -574,9 +580,10 @@ impl NativeCapability {
         match &self.off {
             Disposition::Unsupported(reason) => Denial::Impossible(reason),
             Disposition::Unmeasured(reason) => Denial::Unmeasured(reason),
-            Disposition::Argv(_) | Disposition::Default(_) | Disposition::Selection(_) => {
-                Denial::Delivered
-            }
+            Disposition::Argv(_)
+            | Disposition::Default(_)
+            | Disposition::Selection(_)
+            | Disposition::Overlay(_) => Denial::Delivered,
         }
     }
 }
@@ -741,6 +748,14 @@ impl NativeInventory {
                             }
                         }
                     }
+                    Disposition::Overlay(control) => {
+                        if harness != "dsh"
+                            || control.capability() != native.capability
+                            || control.enabled() != (half == "ON")
+                        {
+                            return Err(format!("{what} key '{key}' {half} overlay does not match the DSH capability and state it declares"));
+                        }
+                    }
                     Disposition::Default(_)
                     | Disposition::Unsupported(_)
                     | Disposition::Unmeasured(_) => {}
@@ -868,6 +883,7 @@ pub struct NativeContribution {
     pub denied: Vec<String>,
     pub argv: Vec<String>,
     pub selection: launch::Selection,
+    pub overlay: Vec<launch::Overlay>,
 }
 
 impl NativeContribution {
@@ -895,6 +911,7 @@ impl NativeContribution {
                 admits: expected.admits(),
                 argv: self.argv.clone(),
                 selection: self.selection.clone(),
+                overlay: self.overlay.clone(),
                 guards: Vec::new(),
                 provenance: launch::Provenance::default(),
             },
@@ -1197,7 +1214,9 @@ impl Authority {
             }
             // A whole-set switch cannot admit a proper subset: it would
             // enable a tool the realm excluded.
-            Disposition::Argv(_) | Disposition::Default(_) if tools.len() < native.tools.len() => {
+            Disposition::Argv(_) | Disposition::Default(_) | Disposition::Overlay(_)
+                if tools.len() < native.tools.len() =>
+            {
                 return Err(through(format!(
                     "provider '{provider}' switches native '{adapter_key}' on as a whole and \
                      cannot admit only [{}] of its tools [{}]",
@@ -1537,6 +1556,7 @@ impl Authority {
         // What the plan answers for, sealed BEFORE any control is rendered.
         let expected = attribution::expected(known, keys, held);
         let (mut argv, mut lists) = (Vec::new(), ToolLists::default());
+        let mut overlay = Vec::new();
         let (mut on, mut off) = (Vec::new(), Vec::new());
         for (key, native) in known {
             let holding = keys.get(key).map(|capability| &held[capability]);
@@ -1579,6 +1599,7 @@ impl Authority {
             };
             match (disposition, holding) {
                 (Disposition::Argv(switch), _) => argv.extend(switch.iter().cloned()),
+                (Disposition::Overlay(control), _) => overlay.push(*control),
                 (Disposition::Selection(selected), Some(holding)) => {
                     let admitted = |names: &[String]| -> Vec<String> {
                         names
@@ -1675,6 +1696,9 @@ impl Authority {
                 "value_flags": guard.value_flags,
             })).collect::<Vec<_>>(),
         });
+        if !overlay.is_empty() {
+            controls["overlay"] = json!(overlay);
+        }
         if let Some(flags) = selection {
             let list = |list: &ListFlag| json!({"flag": list.flag, "separator": list.separator});
             controls["selection"] = json!({
@@ -1695,6 +1719,7 @@ impl Authority {
             held: capabilities(&on).into_iter().map(str::to_string).collect(),
             denied: capabilities(&off).into_iter().map(str::to_string).collect(),
             argv,
+            overlay,
             selection: launch::Selection {
                 include: lists.include,
                 allow: lists.allow,
