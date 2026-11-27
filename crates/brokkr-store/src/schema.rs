@@ -195,16 +195,16 @@ impl Store {
     /// recorded version and no triggers unguarded forever. So the guards
     /// are counted — a read, on the steady path, like the schema — and
     /// only a journal actually missing one takes the write lock.
-    pub(crate) fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
+    pub(crate) fn migrate(conn: &mut Connection, path: &std::path::Path) -> Result<(), StoreError> {
         match schema_version(conn)? {
-            Some(found) => repair(conn, found),
+            Some(found) => repair(conn, found, path),
             None => initialize(conn),
         }
     }
 }
 
 /// A journal that records a schema: supported, and whole.
-fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
+fn repair(conn: &mut Connection, found: u32, path: &std::path::Path) -> Result<(), StoreError> {
     schema_supported(found)?;
     // Eleven additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
@@ -215,7 +215,7 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // re-asked inside the transaction. Second: a journal whose append
     // guards predate compare-and-append re-runs the idempotent migration
     // batch that carries them.
-    repair_tables(conn)?;
+    repair_tables(conn, path)?;
     repair_projections(conn)?;
     // Ninth: a journal from before it named itself (decision 0095, #430)
     // gets its id, once; a peer that named it first keeps its own.
@@ -243,16 +243,26 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
 
 /// The first, third and fourth of [`repair`]'s additive repairs, in its
 /// order: the sidecar columns, the queue, the acknowledgements.
-fn repair_tables(conn: &mut Connection) -> Result<(), StoreError> {
+fn repair_tables(conn: &mut Connection, path: &std::path::Path) -> Result<(), StoreError> {
     let missing = sidecar_columns_missing(conn)?;
     repair_if(conn, missing, migrate_sidecar_columns)?;
     // Third: a journal from before the queue (decision 0068), or one that
     // lost a queue guard, gets the queue's tables and guards, on the same
-    // terms; one that lost a queue table is refused. `DATABASE_SCHEMA`
-    // does not move for it, for the reason it did not move for the
-    // sidecar columns.
+    // terms; one that lost a queue table is refused. A recognized trigger
+    // whose SQL body was tampered cannot be overwritten by `CREATE TRIGGER
+    // IF NOT EXISTS`, so re-checking `queue_intact` inside the transaction
+    // refuses it as damaged without committing partial migration state.
     let missing = !queue_intact(conn)?;
-    repair_if(conn, missing, migrate_queue)?;
+    repair_if(conn, missing, |conn| {
+        migrate_queue(conn)?;
+        if !queue_intact(conn)? {
+            return Err(StoreError::Damaged {
+                journal: path.to_path_buf(),
+                damage: crate::Damage::Malformed,
+            });
+        }
+        Ok(())
+    })?;
     // Fourth: a journal from before quarantine acknowledgements (#511),
     // or one that lost the table or a guard on it, gets them.
     let missing = !acknowledgements_intact(conn)?;

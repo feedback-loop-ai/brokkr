@@ -96,6 +96,7 @@ impl SqliteCoordinationStore {
         run_id: &str,
         envelopes: &[EventEnvelope],
     ) -> Result<u64, StoreError> {
+        crate::import::recordable(run_id)?;
         validate_cooldown_envelopes(run_id, envelopes)?;
         let derived = extract_cooldowns(envelopes)?;
         patiently("apply_cooldowns", self.patience, &self.path, || {

@@ -171,7 +171,7 @@ fn a_head_without_its_fold_columns() -> (tempfile::TempDir, Store) {
 /// without the catch-up whose refold would clear the lags the test states.
 fn repaired(path: &std::path::Path) -> Connection {
     let mut conn = Connection::open(path).unwrap();
-    Store::migrate(&mut conn).unwrap();
+    Store::migrate(&mut conn, path).unwrap();
     conn
 }
 

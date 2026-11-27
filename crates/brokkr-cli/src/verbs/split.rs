@@ -536,7 +536,7 @@ fn migrate_one_run(
     runs_dir: &Path,
     list_order: u64,
     (run_id, feature, created_at): &(String, String, String),
-) -> Result<(u64, (String, String, String)), SplitError> {
+) -> Result<u64, SplitError> {
     // Keep manifest.json strictly immutable and byte-identical to source.manifest(run_id).
     let manifest = source.manifest(run_id)?;
     let metadata = RunMetadata {
@@ -557,14 +557,7 @@ fn migrate_one_run(
         source_ndjson.as_str(),
     );
     verify_run_parity(fs_log, runs_dir, run_id, expected)?;
-    let (exp_feature, exp_created) =
-        SqliteProjectionStore::resolve_listing(&events, Some(&manifest), Some(&metadata));
-    let listed = (
-        run_id.to_string(),
-        exp_feature.to_string(),
-        exp_created.to_string(),
-    );
-    Ok((events.len() as u64, listed))
+    Ok(events.len() as u64)
 }
 
 fn stage_migration(store: &Store, staging: &Path) -> Result<(u64, u64), SplitError> {
@@ -579,38 +572,32 @@ fn stage_migration_with(
     let source = SqlitePorts::new(store);
     let runs_dir = staging.join("runs");
     let fs_log = FsEventLog::open(&runs_dir)?;
-    let (mut expected_listing, total_events) = store.read_snapshot(|| {
+    let (source_runs, total_events) = store.read_snapshot(|| {
         let source_runs = store.list_runs()?;
         after_list();
-        let mut expected_listing = Vec::with_capacity(source_runs.len());
         let mut total_events = 0u64;
         for (order, entry) in source_runs.iter().enumerate() {
-            let (count, listed) =
+            total_events +=
                 migrate_one_run(store, &source, &fs_log, &runs_dir, order as u64, entry)?;
-            total_events += count;
-            expected_listing.push((order as u64, listed));
         }
-        Ok::<_, SplitError>((expected_listing, total_events))
+        Ok::<_, SplitError>((source_runs, total_events))
     })?;
-    expected_listing.sort_by(|(ord_a, a), (ord_b, b)| a.2.cmp(&b.2).then_with(|| ord_a.cmp(ord_b)));
-    let expected_runs: Vec<(String, String, String)> =
-        expected_listing.into_iter().map(|(_, row)| row).collect();
 
     let index_path = staging.join("index.db");
     let index = SqliteProjectionStore::open(&index_path)?;
     let indexed_events = index.rebuild_from(&fs_log)?;
     let indexed_list = index.list_runs()?;
     let counts = (
-        expected_runs.len(),
+        source_runs.len(),
         total_events,
         indexed_list.len(),
         indexed_events,
     );
     verify_projection_counts(counts)?;
-    verify_listing_parity(&expected_runs, &indexed_list)?;
+    verify_listing_parity(&source_runs, &indexed_list)?;
     drop(index);
     remove_sidecars_checked(&index_path)?;
-    Ok((expected_runs.len() as u64, total_events))
+    Ok((source_runs.len() as u64, total_events))
 }
 
 fn verify_projection_counts(

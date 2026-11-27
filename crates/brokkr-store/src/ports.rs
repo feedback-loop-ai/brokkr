@@ -253,34 +253,41 @@ pub fn sync_dir(dir: &Path) -> io::Result<()> {
     sync_dir_result(File::open(dir).and_then(|file| file.sync_all()))
 }
 
+pub(super) fn reject_non_regular_file(path: &Path) -> Result<Option<Metadata>, StoreError> {
+    let meta = reject_symlink_path(path)?;
+    if let Some(ref found) = meta {
+        if !found.is_file() {
+            return Err(StoreError::InvalidPath(path.to_path_buf()));
+        }
+    }
+    Ok(meta)
+}
+
 fn open_standalone_sqlite_inner(
     path: &Path,
     migrate_op: &'static str,
     inspect_existing: &dyn Fn(&Connection, &Path) -> Result<(), StoreError>,
 ) -> Result<(Connection, PathBuf), StoreError> {
     let normalized = normalize_storage_path(path)?;
-    let _ = reject_symlink_path(&normalized)?;
+    let _ = reject_non_regular_file(&normalized)?;
     let _ = reject_symlink(&sqlite_sidecar_path(&normalized, "-wal"))?;
     let _ = reject_symlink(&sqlite_sidecar_path(&normalized, "-shm"))?;
-    let existed_non_empty = reject_symlink(&normalized)?.is_some_and(|meta| meta.len() > 0);
     if let Some(parent) = normalized.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
-    let _ = reject_symlink_path(&normalized)?;
+    let _ = reject_non_regular_file(&normalized)?;
     let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
         | OpenFlags::SQLITE_OPEN_CREATE
         | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let conn = Connection::open_with_flags(&normalized, flags)
         .map_err(|e| literal::as_given(e, path, &normalized))?;
     conn.busy_timeout(BUSY_TIMEOUT)?;
-    if existed_non_empty {
-        patiently(migrate_op, BUSY_TIMEOUT, &normalized, || {
-            let tx = Transaction::new_unchecked(&conn, TransactionBehavior::Deferred)?;
-            inspect_existing(&tx, &normalized)?;
-            tx.commit()?;
-            Ok(())
-        })?;
-    }
+    patiently(migrate_op, BUSY_TIMEOUT, &normalized, || {
+        let tx = Transaction::new_unchecked(&conn, TransactionBehavior::Deferred)?;
+        inspect_existing(&tx, &normalized)?;
+        tx.commit()?;
+        Ok(())
+    })?;
     ensure_wal(&conn, &normalized)?;
     Ok((conn, normalized))
 }

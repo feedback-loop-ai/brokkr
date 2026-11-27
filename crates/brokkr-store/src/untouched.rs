@@ -50,42 +50,11 @@ impl Store {
         patience: Duration,
         read: impl FnOnce(&Store) -> Result<T, E>,
     ) -> Result<T, E> {
-        let (store, unlocked) = Store::open_untouched(path, patience)
-            .map_err(|error| damage::classified(path, error))?;
-        let answer = read(&store)?;
-        drop(store);
-        match unlocked {
-            Some(before) if Sight::of(&before.real) != before => {
-                let why = "it changed while it was read without a lock";
-                Err(StoreError::from(unsettled(path, why)).into())
-            }
-            _ => Ok(answer),
-        }
-    }
-
-    /// The store, and what stood when it was opened `immutable`; `None`
-    /// where SQLite's locks or its WAL guard the read instead.
-    fn open_untouched(
-        path: &Path,
-        patience: Duration,
-    ) -> Result<(Store, Option<Sight>), StoreError> {
-        let bound = literal::journal(path)?;
-        // A missing file has nothing to follow: SQLite refuses it below.
-        let real = std::fs::canonicalize(&bound).unwrap_or(bound);
-        let before = Sight::of(&real);
-        if before.rollback {
-            return Err(unsettled(path, "a rollback journal stands beside it").into());
-        }
-        let (query, unlocked) = match (before.wal, wal_header(&real)) {
-            (true, _) => ("mode=ro&readonly_shm=1", None),
-            (false, true) => ("mode=ro&immutable=1", Some(before)),
-            (false, false) => ("mode=ro", None),
-        };
-        let uri = format!("file:{}?{query}", encoded(real.as_os_str()));
-        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI;
-        let conn = Connection::open_with_flags(&uri, flags)
-            .map_err(|error| literal::as_given(error, path, &real))?;
-        Ok((Store::reading(conn, path, patience)?, unlocked))
+        read_connection_untouched(path, |conn| {
+            let store = Store::reading(conn, path, patience)
+                .map_err(|error| damage::classified(path, error))?;
+            read(&store)
+        })
     }
 
     /// A store reading `conn`, a read-only connection that opened `path`,
@@ -113,6 +82,48 @@ impl Store {
         store.patience = patience;
         Ok(store)
     }
+}
+
+/// Run `read` on a raw read-only SQLite connection opened untouched at `path`
+/// (creating no `-wal`/`-shm` sidecars and working on `0o444` files inside
+/// `0o555` directories), rejecting lock-free reads when the file or its side
+/// files changed during `read` (decision 0119 ruling 3).
+pub(crate) fn read_connection_untouched<T, E: From<StoreError>>(
+    path: &Path,
+    read: impl FnOnce(Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    let (conn, unlocked) =
+        open_connection_untouched(path).map_err(|error| damage::classified(path, error))?;
+    let answer = read(conn)?;
+    match unlocked {
+        Some(before) if Sight::of(&before.real) != before => {
+            let why = "it changed while it was read without a lock";
+            Err(StoreError::from(unsettled(path, why)).into())
+        }
+        _ => Ok(answer),
+    }
+}
+
+/// The raw read-only connection, and what stood when it was opened `immutable`;
+/// `None` where SQLite's locks or its WAL guard the read instead.
+fn open_connection_untouched(path: &Path) -> Result<(Connection, Option<Sight>), StoreError> {
+    let bound = literal::journal(path)?;
+    // A missing file has nothing to follow: SQLite refuses it below.
+    let real = std::fs::canonicalize(&bound).unwrap_or(bound);
+    let before = Sight::of(&real);
+    if before.rollback {
+        return Err(unsettled(path, "a rollback journal stands beside it").into());
+    }
+    let (query, unlocked) = match (before.wal, wal_header(&real)) {
+        (true, _) => ("mode=ro&readonly_shm=1", None),
+        (false, true) => ("mode=ro&immutable=1", Some(before)),
+        (false, false) => ("mode=ro", None),
+    };
+    let uri = format!("file:{}?{query}", encoded(real.as_os_str()));
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI;
+    let conn = Connection::open_with_flags(&uri, flags)
+        .map_err(|error| literal::as_given(error, path, &real))?;
+    Ok((conn, unlocked))
 }
 
 /// What a lock-free read looks at again once it is done: the side files

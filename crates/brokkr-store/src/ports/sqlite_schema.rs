@@ -15,7 +15,7 @@ use crate::StoreError;
 
 const USER_OBJECTS_SQL: &str = "SELECT type, name, sql FROM sqlite_master
      WHERE type IN ('table', 'index', 'trigger', 'view')
-       AND name NOT LIKE 'sqlite_%'
+       AND substr(name, 1, 7) != 'sqlite_'
      ORDER BY type, name";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -86,7 +86,7 @@ fn read_user_objects(conn: &Connection) -> Result<BTreeMap<(String, String), Str
         let kind: String = row.get(0)?;
         let name: String = row.get(1)?;
         let sql: Option<String> = row.get(2)?;
-        Ok(((kind, name), sql.unwrap_or_default()))
+        Ok(((kind, name), normalize_sql(&sql.unwrap_or_default())))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
@@ -103,4 +103,21 @@ fn read_table_info(conn: &Connection, table: &str) -> Result<Vec<ColumnSpec>, St
         })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+fn normalize_sql(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut prev_space = false;
+    for ch in sql.chars() {
+        if ch.is_whitespace() {
+            prev_space = !out.is_empty() && !out.ends_with('(');
+            continue;
+        }
+        if prev_space && !matches!(ch, ')' | ',' | ';') {
+            out.push(' ');
+        }
+        prev_space = false;
+        out.push(ch);
+    }
+    out
 }

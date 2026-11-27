@@ -109,16 +109,70 @@ impl FsEventLog {
         Ok(())
     }
 
-    fn existing_run_dir(&self, run_id: &str) -> Result<PathBuf, StoreError> {
+    fn existing_run_dir_anchored(&self, run_id: &str) -> Result<(PathBuf, Metadata), StoreError> {
         self.verify_root()?;
         validate_run_id_segment(run_id)?;
         let dir = self.root.join(run_id);
         let found = reject_symlink(&dir)?;
         self.verify_root()?;
         match found {
-            Some(meta) if meta.is_dir() => Ok(dir),
+            Some(meta) if meta.is_dir() => Ok((dir, meta)),
             _ => Err(StoreError::RunNotFound(run_id.to_string())),
         }
+    }
+
+    fn existing_run_dir(&self, run_id: &str) -> Result<PathBuf, StoreError> {
+        self.existing_run_dir_anchored(run_id).map(|(dir, _)| dir)
+    }
+
+    fn verify_anchored_file(
+        &self,
+        run_dir: &Path,
+        anchored_run: &Metadata,
+        file_path: &Path,
+        file: &File,
+    ) -> Result<(), StoreError> {
+        self.verify_root()?;
+        let cur_run = reject_symlink(run_dir)?;
+        let cur_file = reject_symlink(file_path)?;
+        let opened = file.metadata()?;
+        let ok = same_dir(&cur_run, anchored_run)
+            && cur_file
+                .as_ref()
+                .is_some_and(|m| m.is_file() && m.dev() == opened.dev() && m.ino() == opened.ino());
+        if !ok {
+            return Err(StoreError::SymlinkRefused(file_path.to_path_buf()));
+        }
+        Ok(())
+    }
+
+    pub(super) fn append_envelopes_with(
+        &self,
+        run_id: &str,
+        expected_head: (u64, &str),
+        envelopes: &[EventEnvelope],
+        before_write: impl FnOnce(),
+    ) -> Result<(), StoreError> {
+        let (run_dir, run_meta) = self.existing_run_dir_anchored(run_id)?;
+        let _lock = open_lock(&run_dir, true)?;
+        let manifest = read_manifest_file(&run_dir, run_id)?;
+        let existing = read_verified_events(&run_dir, run_id)?;
+        validate_append_batch(run_id, &manifest, &existing, expected_head, envelopes)?;
+        if !envelopes.is_empty() {
+            let ndjson = format_canonical_ndjson(envelopes)?;
+            let events_path = run_dir.join(EVENTS_FILE);
+            self.verify_root()?;
+            let mut file = open_no_symlink_with(&events_path, |path| {
+                OpenOptions::new().append(true).open(path)
+            })?;
+            before_write();
+            self.verify_anchored_file(&run_dir, &run_meta, &events_path, &file)?;
+            append_bytes_atomic_with(&mut file, |f| {
+                f.write_all(ndjson.as_bytes())?;
+                f.sync_data()
+            })?;
+        }
+        self.verify_root()
     }
 
     fn read_run_events(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
@@ -231,12 +285,44 @@ fn open_lock_file(lock_path: &Path, exclusive: bool) -> Result<File, StoreError>
     }
 }
 
-fn open_lock(run_dir: &Path, exclusive: bool) -> Result<File, StoreError> {
-    match open_lock_file(&run_dir.join(LOCK_FILE), exclusive) {
-        Ok(file) => Ok(file),
-        Err(StoreError::Io(err)) if !exclusive && err.kind() == io::ErrorKind::NotFound => {
+struct RunLock {
+    _primary: File,
+    _fallback: Option<File>,
+}
+
+fn open_lock(run_dir: &Path, exclusive: bool) -> Result<RunLock, StoreError> {
+    let lock_path = run_dir.join(LOCK_FILE);
+    if exclusive {
+        let fallback = if reject_symlink(&lock_path)?.is_none() {
+            // Legacy run directory without `.lock`: serialize against readers
+            // holding `lock_shared()` on `manifest.json` before creating `.lock`
+            // and keep that lock held across creating `.lock` + appending.
             let manifest_path = require_regular_manifest(run_dir)?;
-            open_lock_file(&manifest_path, false)
+            let file =
+                open_no_symlink_with(&manifest_path, |p| OpenOptions::new().read(true).open(p))?;
+            file.lock()?;
+            Some(file)
+        } else {
+            None
+        };
+        let primary = open_lock_file(&lock_path, true)?;
+        return Ok(RunLock {
+            _primary: primary,
+            _fallback: fallback,
+        });
+    }
+    match open_lock_file(&lock_path, false) {
+        Ok(primary) => Ok(RunLock {
+            _primary: primary,
+            _fallback: None,
+        }),
+        Err(StoreError::Io(err)) if err.kind() == io::ErrorKind::NotFound => {
+            let manifest_path = require_regular_manifest(run_dir)?;
+            let primary = open_lock_file(&manifest_path, false)?;
+            Ok(RunLock {
+                _primary: primary,
+                _fallback: None,
+            })
         }
         Err(err) => Err(err),
     }
@@ -341,18 +427,18 @@ pub(super) fn append_bytes_atomic_with(
     Ok(())
 }
 
-fn read_file_no_symlink(path: &Path) -> Result<String, StoreError> {
+fn read_bytes_no_symlink(path: &Path) -> Result<Vec<u8>, StoreError> {
     let mut file = open_no_symlink_with(path, |p| File::open(p))?;
-    let mut out = String::new();
-    file.read_to_string(&mut out)?;
+    let mut out = Vec::new();
+    file.read_to_end(&mut out)?;
     Ok(out)
 }
 
 fn read_manifest_file(run_dir: &Path, run_id: &str) -> Result<Value, StoreError> {
     let path = require_regular_manifest(run_dir)?;
-    let raw = read_file_no_symlink(&path)?;
+    let raw = read_bytes_no_symlink(&path)?;
     let manifest: Value =
-        serde_json::from_str(&raw).map_err(|err| malformed_json_error(&path, &err))?;
+        serde_json::from_slice(&raw).map_err(|err| malformed_json_error(&path, &err))?;
     validate_manifest(run_id, &manifest)?;
     Ok(manifest)
 }
@@ -388,10 +474,16 @@ fn parse_ndjson_line(
 
 fn read_verified_events(run_dir: &Path, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
     let path = run_dir.join(EVENTS_FILE);
-    let content = read_file_no_symlink(&path)?;
-    if content.is_empty() {
+    let raw = read_bytes_no_symlink(&path)?;
+    if raw.is_empty() {
         return Ok(Vec::new());
     }
+    let content = String::from_utf8(raw).map_err(|err| StoreError::Damaged {
+        journal: path.clone(),
+        damage: Damage::MalformedJson {
+            detail: err.to_string(),
+        },
+    })?;
     let Some(body) = content.strip_suffix('\n') else {
         let line_no = content.lines().count().max(1) as i64;
         return Err(StoreError::Damaged {
@@ -421,23 +513,7 @@ impl EventLog for FsEventLog {
         expected_head: (u64, &str),
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
-        let run_dir = self.existing_run_dir(run_id)?;
-        let _lock = open_lock(&run_dir, true)?;
-        let manifest = read_manifest_file(&run_dir, run_id)?;
-        let existing = read_verified_events(&run_dir, run_id)?;
-        validate_append_batch(run_id, &manifest, &existing, expected_head, envelopes)?;
-        if !envelopes.is_empty() {
-            let ndjson = format_canonical_ndjson(envelopes)?;
-            let events_path = run_dir.join(EVENTS_FILE);
-            let mut file = open_no_symlink_with(&events_path, |path| {
-                OpenOptions::new().append(true).open(path)
-            })?;
-            append_bytes_atomic_with(&mut file, |f| {
-                f.write_all(ndjson.as_bytes())?;
-                f.sync_data()
-            })?;
-        }
-        self.verify_root()
+        self.append_envelopes_with(run_id, expected_head, envelopes, || {})
     }
 
     fn import_run_stream(
@@ -488,9 +564,9 @@ impl EventLog for FsEventLog {
             self.verify_root()?;
             return Ok(None);
         }
-        let raw = read_file_no_symlink(&meta_path)?;
+        let raw = read_bytes_no_symlink(&meta_path)?;
         let meta: RunMetadata =
-            serde_json::from_str(&raw).map_err(|err| malformed_json_error(&meta_path, &err))?;
+            serde_json::from_slice(&raw).map_err(|err| malformed_json_error(&meta_path, &err))?;
         self.verify_root()?;
         Ok(Some(meta))
     }

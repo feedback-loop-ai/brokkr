@@ -320,7 +320,7 @@ fn standalone_sqlite_refuses_delete_mode_monolith_without_wal_mutation_and_upgra
     let uv: u32 = verify
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    assert_eq!(uv, 1);
+    assert_eq!(uv, 2);
 
     // Concurrent fresh opens of SqliteProjectionStore never race on user_version vs table count.
     let race_idx = dir.path().join("race-index.db");
@@ -1022,4 +1022,388 @@ fn fs_event_log_malformed_json_attribution_and_rebuild_from_real_files() {
         Err(StoreError::Damaged { ref journal, damage: Damage::MalformedJson { .. } })
             if journal == &ev_path
     ));
+}
+
+#[test]
+fn monolith_open_refuses_tampered_queue_trigger_as_damaged() {
+    let dir = tempdir().unwrap();
+    let forge_db = dir.path().join("forge.db");
+    drop(Store::open(&forge_db).unwrap());
+
+    let raw = Connection::open(&forge_db).unwrap();
+    raw.execute_batch(
+        "DROP TRIGGER queue_entries_kept;
+         CREATE TRIGGER queue_entries_kept BEFORE DELETE ON queue_entries BEGIN SELECT 1; END;",
+    )
+    .unwrap();
+    drop(raw);
+
+    assert!(matches!(
+        Store::open(&forge_db),
+        Err(StoreError::Damaged {
+            ref journal,
+            damage: Damage::Malformed,
+        }) if journal == &forge_db
+    ));
+}
+
+#[test]
+fn sqlite_like_underscore_view_and_non_regular_fifo_refused_pre_wal() {
+    let dir = tempdir().unwrap();
+
+    // `sqliteX_report` is NOT an internal `sqlite_` object and must be refused pre-WAL.
+    let view_db = dir.path().join("sqlite-x-view.db");
+    let before = make_delete_db(&view_db, "CREATE VIEW sqliteX_report AS SELECT 1;");
+    assert!(matches!(
+        SqliteProjectionStore::open(&view_db),
+        Err(StoreError::ForeignDatabase {
+            expected: "projection index",
+            ..
+        })
+    ));
+    assert!(matches!(
+        SqliteProjectionStore::inspect_read_only(&view_db),
+        Err(StoreError::ForeignDatabase {
+            expected: "projection index",
+            ..
+        })
+    ));
+    assert!(matches!(
+        SqliteCoordinationStore::open(&view_db),
+        Err(StoreError::ForeignDatabase {
+            expected: "coordination store",
+            ..
+        })
+    ));
+    assert_eq!(fs::read(&view_db).unwrap(), before);
+    let check = Connection::open(&view_db).unwrap();
+    let mode: String = check
+        .pragma_query_value(None, "journal_mode", |r| r.get(0))
+        .unwrap();
+    assert_eq!(mode.to_ascii_lowercase(), "delete");
+    drop(check);
+
+    // Non-regular targets (FIFO and directory) are refused immediately with InvalidPath.
+    let fifo = dir.path().join("named.fifo");
+    let status = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo available on POSIX hosts");
+    assert!(status.success());
+    let as_dir = dir.path().join("a-dir");
+    fs::create_dir(&as_dir).unwrap();
+    for bad in [&fifo, &as_dir] {
+        assert!(matches!(
+            SqliteProjectionStore::open(bad),
+            Err(StoreError::InvalidPath(_))
+        ));
+        assert!(matches!(
+            SqliteCoordinationStore::open(bad),
+            Err(StoreError::InvalidPath(_))
+        ));
+        assert!(matches!(
+            SqliteProjectionStore::inspect_read_only(bad),
+            Err(StoreError::InvalidPath(_))
+        ));
+    }
+}
+
+#[test]
+fn fs_event_log_root_swap_before_write_and_legacy_lock_mutual_exclusion() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("runs");
+    let log = FsEventLog::open(&root).unwrap();
+    let manifest = sample_manifest("swap");
+    log.create_run("r1", &manifest).unwrap();
+    let e1 = started_event("r1", "swap", "2026-11-26T10:00:00Z");
+
+    // 1. Swapping `root` before write refuses with SymlinkRefused and writes ZERO bytes.
+    let decoy_root = dir.path().join("decoy-root");
+    fs::create_dir_all(decoy_root.join("r1")).unwrap();
+    fs::write(decoy_root.join("r1").join("events.ndjson"), b"").unwrap();
+    let moved_root = dir.path().join("moved-root");
+    let err = log
+        .append_envelopes_with("r1", (0, ZERO_HASH), std::slice::from_ref(&e1), || {
+            fs::rename(&root, &moved_root).unwrap();
+            fs::rename(&decoy_root, &root).unwrap();
+        })
+        .unwrap_err();
+    assert!(matches!(err, StoreError::SymlinkRefused(_)));
+    assert!(fs::read(root.join("r1").join("events.ndjson"))
+        .unwrap()
+        .is_empty());
+    assert!(fs::read(moved_root.join("r1").join("events.ndjson"))
+        .unwrap()
+        .is_empty());
+    fs::rename(&root, &decoy_root).unwrap();
+    fs::rename(&moved_root, &root).unwrap();
+
+    // 2. Swapping `run_dir` before write also refuses with SymlinkRefused and writes ZERO bytes.
+    let decoy_run = dir.path().join("decoy-run");
+    fs::create_dir(&decoy_run).unwrap();
+    fs::write(decoy_run.join("events.ndjson"), b"").unwrap();
+    let moved_run = dir.path().join("moved-run");
+    let run_dir = root.join("r1");
+    let err = log
+        .append_envelopes_with("r1", (0, ZERO_HASH), std::slice::from_ref(&e1), || {
+            fs::rename(&run_dir, &moved_run).unwrap();
+            fs::rename(&decoy_run, &run_dir).unwrap();
+        })
+        .unwrap_err();
+    assert!(matches!(err, StoreError::SymlinkRefused(_)));
+    assert!(fs::read(run_dir.join("events.ndjson")).unwrap().is_empty());
+    assert!(fs::read(moved_run.join("events.ndjson"))
+        .unwrap()
+        .is_empty());
+    fs::rename(&run_dir, &decoy_run).unwrap();
+    fs::rename(&moved_run, &run_dir).unwrap();
+
+    // 3. Legacy run directory without `.lock`: writer acquires exclusive lock on `manifest.json`
+    // BEFORE creating `.lock`, strictly excluding concurrent shared readers.
+    let lock_path = run_dir.join(".lock");
+    fs::remove_file(&lock_path).unwrap();
+    let shared = fs::File::open(run_dir.join("manifest.json")).unwrap();
+    shared.lock_shared().unwrap();
+
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done_bg = Arc::clone(&done);
+    let root_bg = root.clone();
+    let e1_bg = e1.clone();
+    let handle = thread::spawn(move || {
+        let bg = FsEventLog::open(&root_bg).unwrap();
+        bg.append_envelopes("r1", (0, ZERO_HASH), &[e1_bg]).unwrap();
+        done_bg.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+
+    thread::sleep(std::time::Duration::from_millis(40));
+    assert!(!done.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!lock_path.exists());
+
+    drop(shared);
+    handle.join().unwrap();
+    assert!(done.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(lock_path.is_file());
+    assert_eq!(log.head("r1").unwrap(), (1, e1.event_hash));
+}
+
+fn assert_malformed_json_at<T: std::fmt::Debug>(
+    result: Result<T, StoreError>,
+    expected_path: &Path,
+) {
+    assert!(
+        matches!(
+            result,
+            Err(StoreError::Damaged {
+                ref journal,
+                damage: Damage::MalformedJson { .. },
+            }) if journal == expected_path
+        ),
+        "expected MalformedJson at {}: {result:?}",
+        expected_path.display()
+    );
+}
+
+#[test]
+fn projection_untouched_readonly_wal_and_legacy_v1_upgrade() {
+    let dir = tempdir().unwrap();
+
+    // 1. Read-only WAL `index.db` (0o444) inside a 0o555 directory succeeds with zero sidecars.
+    let ro_dir = dir.path().join("ro-wal-dir");
+    fs::create_dir(&ro_dir).unwrap();
+    let ro_wal = ro_dir.join("index.db");
+    let proj = SqliteProjectionStore::open(&ro_wal).unwrap();
+    let e1 = started_event("r-ro", "ro", "2026-11-26T10:00:00Z");
+    proj.apply_envelopes("r-ro", None, std::slice::from_ref(&e1))
+        .unwrap();
+    drop(proj);
+    assert!(!crate::ports::sqlite_sidecar_path(&ro_wal, "-wal").exists());
+    assert!(!crate::ports::sqlite_sidecar_path(&ro_wal, "-shm").exists());
+    {
+        let _restore = RestorePermissions(vec![(ro_dir.clone(), 0o755), (ro_wal.clone(), 0o644)]);
+        fs::set_permissions(&ro_wal, fs::Permissions::from_mode(0o444)).unwrap();
+        fs::set_permissions(&ro_dir, fs::Permissions::from_mode(0o555)).unwrap();
+        SqliteProjectionStore::inspect_read_only(&ro_wal).unwrap();
+        assert!(!crate::ports::sqlite_sidecar_path(&ro_wal, "-wal").exists());
+        assert!(!crate::ports::sqlite_sidecar_path(&ro_wal, "-shm").exists());
+    }
+
+    // 2. Legacy Round 3 v1 layout (without event_id/attempt_id/member) is accepted untouched by
+    // inspect_read_only and upgraded cleanly by open(); bad user_version is refused.
+    let v1_path = dir.path().join("legacy-v1.db");
+    let conn = Connection::open(&v1_path).unwrap();
+    crate::ports::sqlite_projection::seed_legacy_v1_schema(&conn, 1);
+    drop(conn);
+    let v1_bytes = fs::read(&v1_path).unwrap();
+    SqliteProjectionStore::inspect_read_only(&v1_path).unwrap();
+    assert_eq!(fs::read(&v1_path).unwrap(), v1_bytes);
+    let upgraded = SqliteProjectionStore::open(&v1_path).unwrap();
+    upgraded
+        .apply_envelopes("r-ro", None, std::slice::from_ref(&e1))
+        .unwrap();
+    assert_eq!(upgraded.list_runs().unwrap().len(), 1);
+    drop(upgraded);
+    let check = Connection::open(&v1_path).unwrap();
+    let uv: i64 = check
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap();
+    let schema_ver: String = check
+        .query_row(
+            "SELECT value FROM projection_meta WHERE key = 'projection_schema'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!((uv, schema_ver.as_str()), (2, "2"));
+    drop(check);
+
+    let bad_v1 = dir.path().join("bad-v1.db");
+    let bad_conn = Connection::open(&bad_v1).unwrap();
+    crate::ports::sqlite_projection::seed_legacy_v1_schema(&bad_conn, 99);
+    drop(bad_conn);
+    assert!(matches!(
+        SqliteProjectionStore::inspect_read_only(&bad_v1),
+        Err(StoreError::ForeignDatabase {
+            expected: "projection index",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn projection_listing_precedence_unification_and_unchanged_head_fill() {
+    let dir = tempdir().unwrap();
+    let runs_root = dir.path().join("runs-prec");
+    let log = FsEventLog::open(&runs_root).unwrap();
+    let bare = json!({"engine": "0.15.0"});
+    let meta = RunMetadata {
+        feature: "pre-start-only".to_string(),
+        created_at: "2026-11-26T08:00:00Z".to_string(),
+        list_order: Some(0),
+    };
+    assert_eq!(
+        SqliteProjectionStore::resolve_listing(
+            &[],
+            Some(&json!({"feature": "manifest-loses"})),
+            Some(&meta),
+        ),
+        ("pre-start-only", "2026-11-26T08:00:00Z")
+    );
+    log.create_run_with_metadata("r-uni", &bare, &meta).unwrap();
+    let idx = SqliteProjectionStore::open(dir.path().join("uni.db")).unwrap();
+    idx.rebuild_from(&log).unwrap();
+    assert_eq!(idx.list_runs().unwrap()[0].1, "pre-start-only");
+
+    // Once envelopes is non-empty, never inherit pre-start run_meta.json feature from existing.
+    let no_feat = sealed_event(
+        "r-uni",
+        1,
+        EventType::RunStarted,
+        json!({}),
+        ZERO_HASH,
+        "2026-11-26T09:00:00Z",
+    );
+    idx.apply_envelopes("r-uni", None, std::slice::from_ref(&no_feat))
+        .unwrap();
+    assert_eq!(
+        idx.list_runs().unwrap(),
+        vec![(
+            "r-uni".to_string(),
+            String::new(),
+            "2026-11-26T09:00:00Z".to_string()
+        )]
+    );
+
+    // Unchanged head_seq with Some(manifest) fills empty feature, and does not overwrite non-empty.
+    idx.apply_envelopes(
+        "r-uni",
+        Some(&json!({"feature": "late-manifest"})),
+        std::slice::from_ref(&no_feat),
+    )
+    .unwrap();
+    assert_eq!(idx.list_runs().unwrap()[0].1, "late-manifest");
+    idx.apply_envelopes(
+        "r-uni",
+        Some(&json!({"feature": "should-not-overwrite"})),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(idx.list_runs().unwrap()[0].1, "late-manifest");
+
+    // Empty batch with Some(manifest) at unchanged head_seq > 0 also fills empty feature.
+    let e_empty = sealed_event(
+        "r-uni-empty",
+        1,
+        EventType::RunStarted,
+        json!({}),
+        ZERO_HASH,
+        "2026-11-26T09:05:00Z",
+    );
+    idx.apply_envelopes("r-uni-empty", None, &[e_empty])
+        .unwrap();
+    assert_eq!(idx.list_runs().unwrap()[1].1, "");
+    idx.apply_envelopes(
+        "r-uni-empty",
+        Some(&json!({"feature": "filled-on-empty-batch"})),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(idx.list_runs().unwrap()[1].1, "filled-on-empty-batch");
+}
+
+#[test]
+fn coordination_recordable_run_id_and_fs_non_utf8_error_attribution() {
+    let dir = tempdir().unwrap();
+
+    // 1. SqliteCoordinationStore::apply_cooldowns enforces import::recordable(run_id).
+    let coord = SqliteCoordinationStore::open(dir.path().join("coord.db")).unwrap();
+    assert!(matches!(
+        coord.apply_cooldowns("", &[]),
+        Err(StoreError::RunIdUnnameable(_))
+    ));
+    assert!(matches!(
+        coord.apply_cooldowns("bad\0id", &[]),
+        Err(StoreError::RunIdUnnameable(_))
+    ));
+    let long_id = "a".repeat(129);
+    assert!(matches!(
+        coord.apply_cooldowns(&long_id, &[]),
+        Err(StoreError::RunIdTooLong { length: 129 })
+    ));
+
+    // 2. Non-UTF-8 corruption in manifest.json, run_meta.json, and events.ndjson preserves
+    // exact file path in StoreError::Damaged instead of returning bare Io(InvalidData).
+    let proj = SqliteProjectionStore::open(dir.path().join("idx.db")).unwrap();
+    let bad_utf8: &[u8] = b"{\"feature\":\"\xff\"}";
+
+    let r_mf = dir.path().join("utf8-mf");
+    let log_mf = FsEventLog::open(&r_mf).unwrap();
+    log_mf.create_run("u-mf", &sample_manifest("m")).unwrap();
+    let mf_path = r_mf.join("u-mf").join("manifest.json");
+    fs::write(&mf_path, bad_utf8).unwrap();
+    assert_malformed_json_at(log_mf.manifest("u-mf"), &mf_path);
+
+    let r_rm = dir.path().join("utf8-rm");
+    let log_rm = FsEventLog::open(&r_rm).unwrap();
+    log_rm
+        .create_run_with_metadata(
+            "u-rm",
+            &sample_manifest("rm"),
+            &RunMetadata {
+                feature: "rm".to_string(),
+                created_at: "2026-11-26T10:00:00Z".to_string(),
+                list_order: Some(0),
+            },
+        )
+        .unwrap();
+    let rm_path = r_rm.join("u-rm").join("run_meta.json");
+    fs::write(&rm_path, bad_utf8).unwrap();
+    assert_malformed_json_at(log_rm.run_metadata("u-rm"), &rm_path);
+
+    let r_ev = dir.path().join("utf8-ev");
+    let log_ev = FsEventLog::open(&r_ev).unwrap();
+    log_ev.create_run("u-ev", &sample_manifest("ev")).unwrap();
+    let ev_path = r_ev.join("u-ev").join("events.ndjson");
+    fs::write(&ev_path, b"\xff\n").unwrap();
+    assert_malformed_json_at(log_ev.read_stream("u-ev", 1), &ev_path);
+    assert_malformed_json_at(proj.rebuild_from(&log_ev), &ev_path);
 }

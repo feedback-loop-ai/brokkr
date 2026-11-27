@@ -313,7 +313,9 @@ impl Store {
         conn.busy_timeout(BUSY_TIMEOUT)?;
         ensure_wal(&conn, path)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        patiently("migrate", BUSY_TIMEOUT, path, || Store::migrate(&mut conn))?;
+        patiently("migrate", BUSY_TIMEOUT, path, || {
+            Store::migrate(&mut conn, path)
+        })?;
         let mut store = Store::holding(conn, path);
         store.catch_up()?;
         Ok(store)

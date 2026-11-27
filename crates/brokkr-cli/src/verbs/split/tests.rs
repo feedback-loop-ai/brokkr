@@ -744,8 +744,10 @@ fn journal_reindex_readonly_inspection_and_rename_before_sidecar_cleanup() {
     // When staged rename fails, live target's -wal/-shm sidecars are NEVER unlinked beforehand.
     let live_idx = dir.path().join("live.db");
     assert_eq!(reindex_paths(&runs_dir, &live_idx).unwrap(), (1, 1));
+    let _live = SqliteProjectionStore::open(&live_idx).unwrap();
     let live_wal = sqlite_sidecar_path(&live_idx, "-wal");
-    fs::write(&live_wal, b"live-wal-bytes").unwrap();
+    let live_shm = sqlite_sidecar_path(&live_idx, "-shm");
+    assert!(live_wal.is_file() && live_shm.is_file());
     let target = prepare_index_target(&live_idx).unwrap();
     let mut staged = StagedDb::new(&target.parent).unwrap();
     let err = publish_staged_index_with(&mut staged, &target, |_, _| {
@@ -753,7 +755,7 @@ fn journal_reindex_readonly_inspection_and_rename_before_sidecar_cleanup() {
     })
     .unwrap_err();
     assert!(matches!(err, SplitError::Io(_)));
-    assert_eq!(fs::read(&live_wal).unwrap(), b"live-wal-bytes");
+    assert!(live_wal.is_file() && live_shm.is_file());
 }
 
 #[test]
@@ -864,4 +866,80 @@ fn journal_migrate_atomic_empty_dir_rename_and_in_place_rollback_errors() {
             assert!(fs::read_dir(&rollback_empty).unwrap().next().is_none());
         }
     }
+}
+
+#[test]
+fn journal_reindex_zero_sidecar_wal_refusal_legacy_v1_and_migrate_unstarted_feature_parity() {
+    let dir = tempdir().unwrap();
+
+    // 1. `brokkr journal migrate` preserves unstarted source_run.feature over manifest["feature"]
+    // and compares projected.list_runs() directly against source_runs.
+    let forge_db = dir.path().join("wal-forge.db");
+    let mut store = Store::open(&forge_db).unwrap();
+    let m_diff = json!({"engine": "0.15.0", "feature": "manifest-feature"});
+    store
+        .create_run("r-unstarted", "runs-table-feature", "self", &m_diff)
+        .unwrap();
+    let expected_runs = store.list_runs().unwrap();
+    assert_eq!(expected_runs[0].1, "runs-table-feature");
+    drop(store);
+    assert!(!sqlite_sidecar_path(&forge_db, "-wal").exists());
+    assert!(!sqlite_sidecar_path(&forge_db, "-shm").exists());
+
+    let ro = Store::open_read_only(&forge_db).unwrap();
+    let dest = dir.path().join("migrated");
+    let report = migrate_report(&ro, &forge_db, &dest).unwrap();
+    drop(ro);
+    assert_eq!((report.runs, report.events), (1, 0));
+    let proj = SqliteProjectionStore::open(dest.join("index.db")).unwrap();
+    assert_eq!(proj.list_runs().unwrap(), expected_runs);
+    drop(proj);
+    assert_eq!(
+        fs::read(dest.join("runs").join("r-unstarted").join("manifest.json")).unwrap(),
+        serde_json::to_vec(&m_diff).unwrap()
+    );
+
+    // 2. `brokkr journal reindex --runs <runs> --index <closed-wal-forge.db>` refuses with
+    // ForeignDatabase WITHOUT creating `-wal` or `-shm` sidecars!
+    let closed_wal_forge = dir.path().join("closed-wal-forge.db");
+    drop(Store::open(&closed_wal_forge).unwrap());
+    assert!(!sqlite_sidecar_path(&closed_wal_forge, "-wal").exists());
+    assert!(!sqlite_sidecar_path(&closed_wal_forge, "-shm").exists());
+    let closed_before = fs::read(&closed_wal_forge).unwrap();
+    let runs_dir = dest.join("runs");
+    let err = reindex_paths(&runs_dir, &closed_wal_forge).unwrap_err();
+    assert!(matches!(
+        err,
+        SplitError::Store(StoreError::ForeignDatabase {
+            expected: "projection index",
+            ..
+        })
+    ));
+    assert!(!sqlite_sidecar_path(&closed_wal_forge, "-wal").exists());
+    assert!(!sqlite_sidecar_path(&closed_wal_forge, "-shm").exists());
+    assert_eq!(fs::read(&closed_wal_forge).unwrap(), closed_before);
+
+    // 3. `brokkr journal reindex` cleanly replaces an actual legacy v1 6-column projected_events DB.
+    let v1_idx = dir.path().join("legacy-v1-index.db");
+    let conn = rusqlite::Connection::open(&v1_idx).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE projection_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         CREATE TABLE projected_runs (
+             run_id TEXT PRIMARY KEY, feature TEXT NOT NULL, created_at TEXT NOT NULL,
+             head_seq INTEGER NOT NULL, head_hash TEXT NOT NULL
+         );
+         CREATE TABLE projected_events (
+             run_id TEXT NOT NULL, seq INTEGER NOT NULL, event_type TEXT NOT NULL,
+             event_hash TEXT NOT NULL, recorded_at TEXT NOT NULL, payload TEXT NOT NULL,
+             PRIMARY KEY (run_id, seq)
+         );
+         CREATE INDEX projected_runs_created_idx ON projected_runs (created_at, run_id);
+         INSERT INTO projection_meta (key, value) VALUES ('projection_schema', '1');
+         PRAGMA user_version = 1;",
+    )
+    .unwrap();
+    drop(conn);
+    assert_eq!(reindex_paths(&runs_dir, &v1_idx).unwrap(), (1, 0));
+    let rebuilt = SqliteProjectionStore::open(&v1_idx).unwrap();
+    assert_eq!(rebuilt.list_runs().unwrap(), expected_runs);
 }
