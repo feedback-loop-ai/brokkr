@@ -236,3 +236,173 @@ state the house already has for claude, choosing to accept it as it
 stands for claude, with the exposure stated plainly: "the decision -
 1." Closing it for every harness is #1260.
 
+## Addendum — 2026-11-26, operator ruled: Qwen 4.0 Max through dsh is the review chief's first fallback in the operator's own lane library
+
+In the operator's own lane library, which lives outside this repository,
+the `dsh` adapter is marked `trusted` with `judges: ["qwen4-max"]`, and
+the review chief's chain is Claude Fable 5.2, then Qwen 4.0 Max
+(`dashscope/qwen4-max`) at effort `high`, then the fallbacks it had
+before (#1278). Qwen 4.0 Max judges only while Fable is exhausted.
+
+The tracked `adapters/dsh.json` is unchanged: `trust_tier` stays
+`untrusted` and `judges` stays empty. No downstream user receives this
+lift. Unlike the agy addendum of 2026-11-22 (enacted in
+`docs/examples/adapters/agy.json`) and the codex addendum of 2026-09-02
+(enacted in `adapters/codex.json`), this addendum is enacted as data
+nowhere in the tree.
+
+The operator's rulings, in chronological order (UTC):
+
+- 2026-11-22, on the security position after the eval's follow-up:
+  "ok, move the seat off qwen, I'd say put it to Carbon with Fable
+  fallback".
+- 2026-11-23: "qwen 4.0-max as fable chief fallback, confirmed".
+- 2026-11-26, asked to choose between (A) opening the chief role in
+  decision 0107 for this grant and building its chain, (B) lifting it in
+  the operator's own lane library only, with a decision 0021 addendum
+  recording it, and (C) leaving the model a panel member: "B".
+- 2026-11-26, asked whether to commission this addendum: "yes".
+- 2026-11-26, asked whether `uncontracted` egress stands for this chief
+  seat, which sends the whole change and the panel's notes over the
+  `dashscope` route: "yes, it stands".
+
+**What trusting `dsh` in that library means for its other models.**
+Under ruling 2, the trust tier belongs to the adapter. Marking `dsh`
+`trusted` in the operator's own lane library makes every `dsh` model on
+every route tier-eligible there. The `judges` list alone keeps every
+other `dsh` model out of a gate: under decision 0041 ruling 3, each
+adapter declares `judges` — the abstract names that may hold a gate
+site — and compilation refuses a gate whose chain names any other model,
+on any link, naming the site and the link. That `qwen4-max` sits only in
+the review chief's chain, and only behind Fable, is that library's
+convention; nothing in the compiler refuses `qwen4-max` at another gate
+role or office. That gap is the cost of choosing form (B).
+
+**This is not decision 0107's scoped grant.** Decision 0107 is accepted
+(2026-11-12) and unbuilt (#1052), and it stays the route to a form that
+can ship. This private lift does not meet decision 0107's asks or
+rulings:
+
+- **Adapter-wide tier instead of a scoped grant (condition 1, asks (a)
+  and (g)).** Decision 0107 keeps `trust_tier` `untrusted` and `judges`
+  empty, rejects adapter-wide trust for `dsh` (option C), and puts a
+  scoped grant in `gate_grants` naming adapter, route, abstract model,
+  concrete id, hired `office` and structural `role`. This lift sets
+  `trust_tier: "trusted"` and `judges: ["qwen4-max"]` instead.
+- **The chief role (condition 4, ask (b)).** On ask (b) the operator
+  ruled "No": a 0107 grant never names the review chief, and the chief
+  stays a trusted adapter's judge. This lift is for the review chief's
+  seat.
+- **The read-only worktree bind (condition 5).** Decision 0107 requires
+  a boxed workspace-hands seat with `network: false`, the office's
+  declared `read-only` access, `ro` or `overlay` binds, a measured hands
+  digest, and decision 0098 ruling 3's read-only worktree bind, which is
+  unbuilt (`GrantWorktreeBind` refuses every 0107 grant until it lands).
+- **Measured native capabilities of `dsh` (condition 6, ask (d)).**
+  Decision 0107 requires every declared native capability's composed
+  control (ON where held natively through the adapter, OFF where not) to
+  be measured on the grant's release and host, and refuses an
+  `unmeasured` inventory whole. `adapters/dsh.json` still declares
+  `native_capabilities` `unmeasured`.
+- **The model's tier wording (condition 3).** Decision 0107 requires an
+  explicitly written `tier: promoted` under `models.<name>.tier`
+  (`ModelTier::Promoted`), refusing an absent or bare tier (and slice
+  0107a that parses it is unbuilt); in `adapters/dsh.json`, `qwen4-max`
+  is a bare id (`"dashscope/qwen4-max"`).
+- **Fact binding and evidence bar (asks (c) and (d)).** Decision 0107
+  binds a grant to a measured release, concrete model id, hands digest
+  and typed `review_by` date, backed by d1's full bar (a work-class
+  wager in the granted office, probe report, hands composition
+  measurement and native ON/OFF measurement); a `trusted` + `judges`
+  lift enforces none of those bindings at compile time.
+
+Decision 0107 condition 7 (each fallback link qualifying on its own) is
+not what this private lift breaks: condition 7 admits a fallback link
+either by the trusted tier and `judges` or by its own grant, and
+expressly does not refuse a trusted-judge fallback. Because the
+operator's own lane library lifts `dsh` to `trusted` and lists
+`qwen4-max` in `judges`, the Qwen 4.0 Max link qualifies on its own
+there. Only on an untrusted `dsh` (as in the shipped `adapters/dsh.json`)
+would sitting behind Fable as a fallback still inherit nothing from Fable
+and require its own 0107 grant — which ask (b) forbids for the chief and
+conditions 3, 4, 5 and 6 above do not admit.
+
+**Standing with ruling 7.** Ruling 7 — newcomers are symmetric, with
+work seats freely, no secret-binding grant and no gate seat, codex and
+dsh alike — remains what the shipped adapter carries. This addendum is
+ruling 3's road (evidence, then an operator's recorded ruling) walked
+for one model, one seat and one house's library.
+
+**The evidence line** (#1259 and its two follow-ups of 2026-11-22):
+
+- Three recorded panels judged through Qoder: 7, 7, 7; the findings
+  verified by itself three times of three; three confirmed additions;
+  one small error — level with Fable. Seven of the eight other chiefs
+  passed all three.
+- The harder test through `dsh`: kept residual at `medium`, named the
+  planted instruction and ruled against it, and refuted the planted
+  false finding from the code and a test run; 2.2M input tokens (2.1M of
+  them cache reads), 31k output; 15 minutes.
+
+**What the evidence does not show, and what this model is not.** The
+harder test ran once. The three recorded panels ran through Qoder, not
+through `dsh`. No run sat Qwen 4.0 Max as a fallback behind an exhausted
+Fable. The promotion evidence holds no boxed chief run of this model:
+#1278 lists "no boxed run" among what was not measured, and #1259
+records that in the eval "Qoder seats ran unboxed, because Qoder's boxed
+driver was still in review" without saying whether the harder chief test
+through `dsh` ran boxed. Separately, decision 0127 (and
+`docs/evidence/adapters/dsh-hands-0-2-2.md`) records boxed Qwen 4.0 Max
+chief seat turns of 2026-11-24: with a provider key, a boxed Qwen 4.0
+Max chief seat served its whole turn under boundary `namespace` as the
+measurement of that decision's launch fix. Those records measure that
+the boxed seat launches and completes a turn, not how well the chief
+judged, so they add nothing to the evidence line above. The eval's `dsh`
+run used an eval-only lift.
+
+And Qwen 4.0 Max is **not a finder**. In three review positions on three
+branches through `dsh`, it found two of fifteen known findings and filed
+no `security-hold` on branches with known highs. After the eval's
+follow-up on 2026-11-22, the operator moved the security position off it
+("ok, move the seat off qwen, I'd say put it to Carbon with Fable
+fallback"). This promotion is for the chief's office alone.
+
+**Accepted exposure: `uncontracted` egress for this chief seat.** In
+`adapters/dsh.json`, `egress` is `uncontracted` and `routes` declares
+only `spark` and `spark-glm` as `local`; `dashscope` is undeclared and
+therefore resolves to `uncontracted` (decision 0036 rulings 1 and 2). A
+review chief reads the whole change and the panel's notes, sending them
+over the `dashscope` route. On 2026-11-26 the operator accepted this for
+this seat in the operator's own lane library: "yes, it stands". Not
+granted here: the **binding grant** (secret-bearing seats, ruling 4 as
+amended by decision 0036 ruling 4) is not granted, and this addendum
+changes no bundle's `egress_minimum`: a seat that declares secret
+bindings is refused on this `uncontracted` route at compile time
+whenever its egress class falls below the bundle's `egress_minimum`
+(any minimum above `uncontracted`, including the default `contracted`
+minimum; an explicit `uncontracted` minimum is met).
+
+**The unboxed-judge exposure.** The agy addendum above accepts that an
+unboxed judge can edit the tree. In this tree, the house's chief agents
+(`agents/review-chief.json`, `agents/chief-architect.json`) declare the
+engine's workspace hands with `network: false` (and `review-chief`
+declares `access: "read-only"`), so the unboxed-judge exposure does not
+apply in that unboxed form to a boxed chief seat with workspace hands,
+whereas if a `dsh` judge sat unboxed, what it could write would depend
+on the effective `dsh` profile (`adapters/dsh.json` declares
+`tool_permissions` `unsupported`: `dsh` disables a tool only as a whole
+profile row through the `--patch` overlay, so an agent's allowlist —
+`tools.allow` — cannot narrow those tools). For
+a boxed `dsh` seat with workspace hands, the `v0.16.0` release notes
+record what #1277 (#1364; decision 0127) changed: previously,
+`dsh --dump-config` folded long JSON `--reach` and `--spec` values onto
+lines the driver's line rule refused, so the seat could not launch; now
+the `dsh` overlay carries those exact bytes as unpadded base64url under
+`--reach-base64url` and `--spec-base64url`, and `brokkr hands serve`
+accepts either spelling through one path without echoing a refused
+encoded value. This addendum claims only that: it does not establish
+from this tree how every seat or boundary in the out-of-tree lane
+library is configured, does not claim decision 0098 ruling 3's read-only
+worktree bind exists yet, and does not claim that uncommitted edits are
+caught by `GATE-MOVED-HEAD` (decision 0041 ruling 4 compares repository
+head; closing uncommitted edits across harnesses is #1260).
