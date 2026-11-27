@@ -1446,6 +1446,7 @@ fn the_crates_are_published_in_dependency_order_after_the_release() {
     let order = [
         "brokkr-core",
         "brokkr-store",
+        "brokkr-store-pg",
         "brokkr-protocol",
         "brokkr-view",
         "brokkr-runtime",

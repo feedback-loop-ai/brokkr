@@ -17,15 +17,16 @@ use brokkr_core::event_index::Indexed;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde_json::Value;
 
-use crate::{damage, import, patiently, StoreError, BUSY_TIMEOUT};
+use crate::{damage, patiently, StoreError, BUSY_TIMEOUT};
 
 use super::sqlite_schema::{read_user_version, ExpectedSchema, SchemaMatch};
 
 use super::{
     checked_seq, divergent, non_empty_str, normalize_storage_path, open_standalone_store,
-    read_verified_log, reject_non_regular_file, reject_symlink, sqlite_sidecar_path,
-    started_feature_of, validate_manifest, validate_started_manifests, verify_chain_checked,
-    EventLog, ProjectionStore, RunMetadata,
+    read_verified_log, rebuild_run_header, reconcile_projection_batch, reject_non_regular_file,
+    reject_symlink, resolve_projection_listing, sort_verified_runs, sqlite_sidecar_path,
+    validate_projection_apply, EventLog, ProjectionBatchOps, ProjectionPlan, ProjectionStore,
+    RunMetadata, StoredProjectionRun,
 };
 
 const PROJECTION_SCHEMA_VERSION_V1: &str = "1";
@@ -149,13 +150,6 @@ pub struct SqliteProjectionStore {
     patience: std::time::Duration,
 }
 
-struct StoredRun {
-    feature: String,
-    created_at: String,
-    head_seq: u64,
-    head_hash: String,
-}
-
 impl SqliteProjectionStore {
     /// Open (creating if absent) a disposable trigger-free SQLite projection
     /// database at `path` in WAL mode with `busy_timeout`.
@@ -195,7 +189,7 @@ impl SqliteProjectionStore {
         manifest: Option<&'a Value>,
         fallback: Option<&'a RunMetadata>,
     ) -> (&'a str, &'a str) {
-        resolve_listing(envelopes, manifest, None, fallback)
+        resolve_projection_listing(envelopes, manifest, None, fallback)
     }
 
     /// Return the path to this projection database file.
@@ -307,7 +301,10 @@ fn ensure_schema(conn: &Connection, path: &Path) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn load_stored_run(tx: &Connection, run_id: &str) -> Result<Option<StoredRun>, StoreError> {
+fn load_stored_run(
+    tx: &Connection,
+    run_id: &str,
+) -> Result<Option<StoredProjectionRun>, StoreError> {
     let row: Option<(String, String, i64, String)> = tx
         .query_row(
             "SELECT feature, created_at, head_seq, head_hash
@@ -320,7 +317,7 @@ fn load_stored_run(tx: &Connection, run_id: &str) -> Result<Option<StoredRun>, S
         return Ok(None);
     };
     let head_seq = u64::try_from(head_seq).map_err(|_| divergent(run_id))?;
-    Ok(Some(StoredRun {
+    Ok(Some(StoredProjectionRun {
         feature,
         created_at,
         head_seq,
@@ -348,7 +345,7 @@ fn refuse_out_of_range_events(
 fn verify_stored_head_event_hash(
     tx: &Connection,
     run_id: &str,
-    row: &StoredRun,
+    row: &StoredProjectionRun,
 ) -> Result<(), StoreError> {
     let seq = checked_seq(row.head_seq)?;
     let stored_hash: Option<String> = tx
@@ -430,23 +427,6 @@ fn insert_projected_events(
     Ok(())
 }
 
-fn repair_missing_events(
-    tx: &Connection,
-    run_id: &str,
-    envelopes: &[EventEnvelope],
-    present: &BTreeSet<u64>,
-) -> Result<(), StoreError> {
-    let missing: Vec<EventEnvelope> = envelopes
-        .iter()
-        .filter(|env| !present.contains(&env.seq))
-        .cloned()
-        .collect();
-    if !missing.is_empty() {
-        insert_projected_events(tx, run_id, &missing)?;
-    }
-    Ok(())
-}
-
 fn upsert_projected_run(
     tx: &Connection,
     run_id: &str,
@@ -461,47 +441,10 @@ fn upsert_projected_run(
     Ok(())
 }
 
-fn resolve_listing<'a>(
-    envelopes: &'a [EventEnvelope],
-    manifest: Option<&'a Value>,
-    existing: Option<&'a StoredRun>,
-    fallback: Option<&'a RunMetadata>,
-) -> (&'a str, &'a str) {
-    let manifest_feature = manifest.and_then(|m| non_empty_str(m.get("feature")));
-    if let Some(first) = envelopes.first() {
-        let existing_started_feature = existing
-            .filter(|r| r.head_seq > 0)
-            .map(|r| r.feature.as_str())
-            .filter(|s| !s.is_empty());
-        let feature = started_feature_of(envelopes)
-            .or(manifest_feature)
-            .or(existing_started_feature)
-            .unwrap_or("");
-        return (feature, first.recorded_at.as_str());
-    }
-    let existing_feature = existing
-        .map(|r| r.feature.as_str())
-        .filter(|s| !s.is_empty());
-    let existing_created_at = existing
-        .map(|r| r.created_at.as_str())
-        .filter(|s| !s.is_empty());
-    let feature = fallback
-        .map(|m| m.feature.as_str())
-        .or(existing_feature)
-        .or(manifest_feature)
-        .unwrap_or("");
-    let created_at = fallback
-        .map(|m| m.created_at.as_str())
-        .or(existing_created_at)
-        .or_else(|| manifest.and_then(|m| non_empty_str(m.get("created_at"))))
-        .unwrap_or("");
-    (feature, created_at)
-}
-
 fn maybe_fill_manifest_feature(
     tx: &Connection,
     run_id: &str,
-    existing: &StoredRun,
+    existing: &StoredProjectionRun,
     manifest: Option<&Value>,
 ) -> Result<(), StoreError> {
     if !existing.feature.is_empty() {
@@ -520,44 +463,6 @@ fn maybe_fill_manifest_feature(
     )
 }
 
-fn reconcile_existing_run(
-    tx: &Connection,
-    run_id: &str,
-    existing: Option<&StoredRun>,
-    envelopes: &[EventEnvelope],
-    last: &EventEnvelope,
-) -> Result<Option<usize>, StoreError> {
-    let Some(row) = existing else {
-        return Ok(Some(0));
-    };
-    if row.head_seq == 0 {
-        return Ok(Some(0));
-    }
-    if row.head_seq > last.seq {
-        verify_stored_head_event_hash(tx, run_id, row)?;
-        let present = verify_stored_prefix(tx, run_id, envelopes)?;
-        if present.len() != envelopes.len() {
-            return Err(divergent(run_id));
-        }
-        return Ok(None);
-    }
-    if row.head_seq == last.seq {
-        if row.head_hash != last.event_hash {
-            return Err(divergent(run_id));
-        }
-        let present = verify_stored_prefix(tx, run_id, envelopes)?;
-        repair_missing_events(tx, run_id, envelopes, &present)?;
-        return Ok(None);
-    }
-    let prefix = &envelopes[..row.head_seq as usize];
-    if prefix[(row.head_seq - 1) as usize].event_hash != row.head_hash {
-        return Err(divergent(run_id));
-    }
-    let present = verify_stored_prefix(tx, run_id, prefix)?;
-    repair_missing_events(tx, run_id, prefix, &present)?;
-    Ok(Some(row.head_seq as usize))
-}
-
 fn apply_batch_tx(
     tx: &Connection,
     run_id: &str,
@@ -567,33 +472,37 @@ fn apply_batch_tx(
     let existing = load_stored_run(tx, run_id)?;
     let stored_head_seq = existing.as_ref().map_or(0, |row| row.head_seq);
     refuse_out_of_range_events(tx, run_id, stored_head_seq)?;
-    if let Some(row) = &existing {
-        if row.head_seq == 0 && row.head_hash != ZERO_HASH {
-            return Err(divergent(run_id));
+    let mut conn = tx;
+    let plan = reconcile_projection_batch(
+        &mut conn,
+        run_id,
+        manifest,
+        envelopes,
+        existing.as_ref(),
+        ProjectionBatchOps {
+            check_head: |c, id, row| verify_stored_head_event_hash(c, id, row),
+            verify_prefix: |c, id, prefix| verify_stored_prefix(c, id, prefix),
+            insert_events: |c, id, batch| insert_projected_events(c, id, batch),
+        },
+    )?;
+    match plan {
+        ProjectionPlan::UpsertEmpty {
+            feature,
+            created_at,
+        } => upsert_projected_run(tx, run_id, feature, created_at, 0, ZERO_HASH),
+        ProjectionPlan::NoAdvance => {
+            if let Some(row) = existing.as_ref() {
+                maybe_fill_manifest_feature(tx, run_id, row, manifest)?;
+            }
+            Ok(())
         }
+        ProjectionPlan::Advance {
+            feature,
+            created_at,
+            head_seq,
+            head_hash,
+        } => upsert_projected_run(tx, run_id, feature, created_at, head_seq, head_hash),
     }
-    let (feature, created_at) = resolve_listing(envelopes, manifest, existing.as_ref(), None);
-
-    let Some(last) = envelopes.last() else {
-        if let Some(row) = existing.as_ref().filter(|row| row.head_seq > 0) {
-            verify_stored_head_event_hash(tx, run_id, row)?;
-            maybe_fill_manifest_feature(tx, run_id, row, manifest)?;
-            return Ok(());
-        }
-        upsert_projected_run(tx, run_id, feature, created_at, 0, ZERO_HASH)?;
-        return Ok(());
-    };
-
-    let Some(append_from) = reconcile_existing_run(tx, run_id, existing.as_ref(), envelopes, last)?
-    else {
-        if let Some(row) = existing.as_ref() {
-            maybe_fill_manifest_feature(tx, run_id, row, manifest)?;
-        }
-        return Ok(());
-    };
-    insert_projected_events(tx, run_id, &envelopes[append_from..])?;
-    upsert_projected_run(tx, run_id, feature, created_at, last.seq, &last.event_hash)?;
-    Ok(())
 }
 
 impl ProjectionStore for SqliteProjectionStore {
@@ -603,12 +512,7 @@ impl ProjectionStore for SqliteProjectionStore {
         manifest: Option<&Value>,
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
-        import::recordable(run_id)?;
-        if let Some(manifest) = manifest {
-            validate_manifest(run_id, manifest)?;
-        }
-        verify_chain_checked(run_id, (0, ZERO_HASH), envelopes)?;
-        validate_started_manifests(run_id, envelopes)?;
+        validate_projection_apply(run_id, manifest, envelopes)?;
         patiently("projection_apply", self.patience, &self.path, || {
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
             apply_batch_tx(&tx, run_id, manifest, envelopes)?;
@@ -632,25 +536,12 @@ impl ProjectionStore for SqliteProjectionStore {
                 Ok(runs) => runs,
                 Err(log_err) => return Ok(Err(log_err)),
             };
-            verified.sort_by(|a, b| {
-                let order_a = a.metadata.as_ref().and_then(|m| m.list_order);
-                let order_b = b.metadata.as_ref().and_then(|m| m.list_order);
-                order_a.cmp(&order_b).then_with(|| a.run_id.cmp(&b.run_id))
-            });
+            sort_verified_runs(&mut verified);
             tx.execute("DELETE FROM projected_events", [])?;
             tx.execute("DELETE FROM projected_runs", [])?;
             let mut total = 0u64;
             for run in &verified {
-                let (feature, created_at) = resolve_listing(
-                    &run.events,
-                    Some(&run.manifest),
-                    None,
-                    run.metadata.as_ref(),
-                );
-                let (head_seq, head_hash) = run
-                    .events
-                    .last()
-                    .map_or((0, ZERO_HASH), |last| (last.seq, last.event_hash.as_str()));
+                let (feature, created_at, head_seq, head_hash) = rebuild_run_header(run);
                 upsert_projected_run(&tx, &run.run_id, feature, created_at, head_seq, head_hash)?;
                 insert_projected_events(&tx, &run.run_id, &run.events)?;
                 total += run.events.len() as u64;

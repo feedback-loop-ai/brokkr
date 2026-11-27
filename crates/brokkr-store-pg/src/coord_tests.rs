@@ -3,49 +3,25 @@
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::ending::Ending;
-use brokkr_core::envelope::{EventEnvelope, EventType, EVENT_SCHEMA_VERSION};
+use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_store::ports::{CoordinationStore, EventLog};
 use brokkr_store::{EntryId, EntryState, NewEntry, QueueRefusal, StoreError, Wait, WaitOn};
-use serde_json::{json, Value};
+use serde_json::json;
 
-use crate::mock_pg_tests::MockPgServer;
-use crate::{PgCoordinationStore, PgEventLog, PgStore};
+use crate::mock_pg_tests::{sample_manifest as manifest, sealed_env as env, MockPgServer};
+use crate::{PgCoordinationStore, PgError, PgEventLog, PgStore};
 
-fn manifest(feature: &str) -> Value {
-    json!({ "engine": "0.15.2", "feature": feature, "bundle_name": "fast" })
-}
-
-fn env(
-    run_id: &str,
-    seq: u64,
-    prev: &str,
-    event_type: EventType,
-    payload: Value,
-    ts: &str,
-) -> EventEnvelope {
-    EventEnvelope {
-        run_id: run_id.to_string(),
-        seq,
-        event_id: format!("ev-{run_id}-{seq}"),
-        event_schema_version: EVENT_SCHEMA_VERSION,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: run_id.to_string(),
-        attempt_id: None,
-        recorded_at: ts.to_string(),
-        previous_hash: prev.to_string(),
-        event_hash: String::new(),
-    }
-    .sealed()
-}
-
-#[test]
-fn coordination_queue_and_skip_locked() {
+fn connect_coord_pair() -> (MockPgServer, PgCoordinationStore, PgStore) {
     let srv = MockPgServer::start();
     let cfg = srv.config();
     let coord = PgCoordinationStore::connect(&cfg).expect("coord");
     let unified = PgStore::connect(&cfg).expect("unified");
+    (srv, coord, unified)
+}
+
+#[test]
+fn coordination_queue_and_skip_locked() {
+    let (srv, coord, unified) = connect_coord_pair();
 
     assert!(matches!(
         coord.enqueue(
@@ -236,11 +212,51 @@ fn verify_claimed_listing_and_bad_words(
     id1: EntryId,
     id2: EntryId,
 ) {
+    // Reject empty/blank worker_id with typed PgError::EmptyWorkerId.
+    for blank in ["", "   "] {
+        let err = coord
+            .claim_next_entry(blank, "2026-11-27T12:01:05Z")
+            .unwrap_err();
+        let StoreError::Io(io_err) = err else {
+            panic!("expected StoreError::Io, got {err:?}");
+        };
+        assert_eq!(io_err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(matches!(
+            io_err.get_ref().and_then(|e| e.downcast_ref::<PgError>()),
+            Some(PgError::EmptyWorkerId)
+        ));
+    }
+
+    // Worker reservation without a started run_id MUST NOT report EntryState::Claimed { run: worker_id }.
     let listed_after = coord.list_queue().unwrap();
-    assert!(listed_after.iter().any(|e| {
+    assert!(listed_after
+        .iter()
+        .any(|e| { e.id == id2 && e.position.is_some() && e.state == EntryState::Launching }));
+    assert!(!listed_after
+        .iter()
+        .any(|e| matches!(&e.state, EntryState::Claimed { run, .. } if run == "worker-b")));
+
+    // A row with status='claimed' and run_id=None still reports Launching (never conflated with worker_id),
+    // while a row with status='claimed' and run_id=Some("run-real-1") reports EntryState::Claimed.
+    {
+        let mut db = srv.db.lock().unwrap();
+        db.queue_entries.get_mut(&id1.0).unwrap().2 = "claimed".into();
+        db.queue_entries.get_mut(&id1.0).unwrap().5 = None;
+        db.queue_entries.get_mut(&id2.0).unwrap().2 = "claimed".into();
+        db.queue_entries.get_mut(&id2.0).unwrap().5 = Some("run-real-1".into());
+    }
+    let listed_runs = coord.list_queue().unwrap();
+    assert!(listed_runs
+        .iter()
+        .any(|e| e.id == id1 && e.position.is_some() && e.state == EntryState::Launching));
+    assert!(listed_runs.iter().any(|e| {
         e.id == id2
             && e.position.is_none()
-            && matches!(&e.state, EntryState::Claimed { run, .. } if run == "worker-b")
+            && e.state
+                == EntryState::Claimed {
+                    run: "run-real-1".into(),
+                    merged: false,
+                }
     }));
 
     srv.db.lock().unwrap().queue_entries.get_mut(&90).unwrap().2 = "bogus".into();
@@ -261,10 +277,7 @@ fn verify_claimed_listing_and_bad_words(
 
 #[test]
 fn coordination_idempotent_cooldowns_and_conflict_refusals() {
-    let srv = MockPgServer::start();
-    let cfg = srv.config();
-    let coord = PgCoordinationStore::connect(&cfg).expect("coord");
-    let unified = PgStore::connect(&cfg).expect("unified");
+    let (srv, coord, unified) = connect_coord_pair();
     let started = env(
         "cool-run",
         1,
@@ -304,7 +317,7 @@ fn coordination_idempotent_cooldowns_and_conflict_refusals() {
         }),
         "2026-11-27T12:00:05Z",
     );
-    let log = PgEventLog::connect(&cfg).unwrap();
+    let log = PgEventLog::connect(&srv.config()).unwrap();
     log.create_run("cool-run", &manifest("cool")).unwrap();
     log.append_envelopes(
         "cool-run",
@@ -336,6 +349,25 @@ fn coordination_idempotent_cooldowns_and_conflict_refusals() {
         .active_cooldowns("2026-11-27T12:40:00Z")
         .unwrap()
         .is_empty());
+    // Refuses non-positive stored retry_after_seconds or rounds via checked u64::try_from.
+    {
+        let mut db = srv.db.lock().unwrap();
+        db.cooldowns.get_mut(&1).unwrap().7 = Some(-5);
+    }
+    assert!(matches!(
+        coord.active_cooldowns("2026-11-27T12:10:00Z"),
+        Err(StoreError::Io(_))
+    ));
+    {
+        let mut db = srv.db.lock().unwrap();
+        db.cooldowns.get_mut(&1).unwrap().7 = Some(30);
+        db.cooldowns.get_mut(&1).unwrap().8 = 0;
+    }
+    assert!(matches!(
+        coord.active_cooldowns("2026-11-27T12:10:00Z"),
+        Err(StoreError::Io(_))
+    ));
+    srv.db.lock().unwrap().cooldowns.get_mut(&1).unwrap().8 = 1;
 
     verify_cooldown_conflicts(&srv, &coord, &started, &failed);
 }

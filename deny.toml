@@ -79,5 +79,5 @@ deny = [
   { crate = "ureq", wrappers = ["brokkr-bridge"], reason = "the network client lives in brokkr-bridge (decision 0071 ruling 1)" },
   { crate = "ratatui", wrappers = ["brokkr-cli"], reason = "the terminal lives in brokkr-cli (decision 0014)" },
   { crate = "uuid", wrappers = ["brokkr-protocol", "brokkr-store", "brokkr-store-pg", "brokkr-runtime"], reason = "fresh ids are randomness, which core and view never draw (decision 0071 ruling 1)" },
-  { crate = "time", wrappers = ["brokkr-core", "brokkr-store", "brokkr-store-pg", "brokkr-runtime", "brokkr-bridge", "brokkr-cli", "boa_engine"], reason = "view takes `now` as an argument and needs no clock crate (decision 0071 ruling 1)" },
+  { crate = "time", wrappers = ["brokkr-core", "brokkr-store", "brokkr-runtime", "brokkr-bridge", "brokkr-cli", "boa_engine"], reason = "view takes `now` as an argument and needs no clock crate (decision 0071 ruling 1)" },
 ]

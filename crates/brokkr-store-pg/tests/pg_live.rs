@@ -3,13 +3,16 @@
 //! When `BROKKR_TEST_PG_URL` is unset, every test returns cleanly so offline
 //! `cargo test --workspace` runs without an external PostgreSQL daemon.
 
+use std::sync::{Arc, Barrier};
+use std::thread;
+
 use brokkr_core::envelope::EventType;
 use brokkr_store::ports::{CoordinationStore, EventLog, Journal, NewEvent, ProjectionStore};
-use brokkr_store::{NewEntry, StoreError};
+use brokkr_store::{EntryState, NewEntry, StoreError};
 use brokkr_store_pg::{
     PgClient, PgConfig, PgCoordinationStore, PgEventLog, PgProjectionStore, PgStore,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 
 fn live_config() -> Option<PgConfig> {
     let url = std::env::var("BROKKR_TEST_PG_URL").ok()?;
@@ -46,11 +49,13 @@ fn live_pg_journal_round_trip_concurrency_rebuild_and_skip_locked() {
     let coordination = PgCoordinationStore::connect(&cfg).expect("init coordination");
     let journal = Journal::new(event_log, projections, coordination);
 
-    // 1. Journal round-trip: create_run -> append_event -> HeadMoved -> export/import
+    // 1. Journal round-trip: create_run -> append_event -> HeadMoved -> canonical JSONB
     let manifest = json!({
         "engine": "0.15.2",
         "feature": "pg-slice-3",
-        "bundle_name": "fast"
+        "bundle_name": "fast",
+        "neg_zero": -0.0_f64,
+        "big_exp": 1e16_f64
     });
     journal
         .create_run("pg-live-run-1", &manifest)
@@ -65,7 +70,12 @@ fn live_pg_journal_round_trip_concurrency_rebuild_and_skip_locked() {
             "pg-live-run-1",
             NewEvent {
                 event_type: EventType::RunStarted,
-                payload: json!({ "feature": "pg-slice-3", "manifest": manifest }),
+                payload: json!({
+                    "feature": "pg-slice-3",
+                    "manifest": manifest,
+                    "neg_zero": -0.0_f64,
+                    "big_exp": 1e16_f64
+                }),
                 causation_id: None,
                 attempt_id: None,
                 ts: "2026-11-27T12:00:00Z",
@@ -73,26 +83,6 @@ fn live_pg_journal_round_trip_concurrency_rebuild_and_skip_locked() {
         )
         .expect("append RunStarted");
     assert_eq!(started.seq, 1);
-
-    // Optimistic concurrency check: stale head (0, ZERO_HASH) fails with HeadMoved.
-    let stale = journal.append_if_head(
-        "pg-live-run-1",
-        (0, brokkr_core::canonical::ZERO_HASH),
-        NewEvent {
-            event_type: EventType::PhaseEntered,
-            payload: json!({ "phase": "build" }),
-            causation_id: Some(&started.event_id),
-            attempt_id: None,
-            ts: "2026-11-27T12:00:01Z",
-        },
-    );
-    assert!(matches!(
-        stale,
-        Err(StoreError::HeadMoved {
-            expected_seq: 0,
-            found_seq: 1
-        })
-    ));
 
     let failed = journal
         .append_event(
@@ -102,6 +92,7 @@ fn live_pg_journal_round_trip_concurrency_rebuild_and_skip_locked() {
                 payload: json!({
                     "phase": "build",
                     "error": "rate_limited",
+                    "nul_note": "ok\u{0000}nul",
                     "waits": [{
                         "provider": "anthropic",
                         "route": "default",
@@ -109,7 +100,7 @@ fn live_pg_journal_round_trip_concurrency_rebuild_and_skip_locked() {
                         "words": "429 too many requests",
                         "retry_after_seconds": 60,
                         "seconds": 60,
-                    "rounds": 1
+                        "rounds": 1
                     }]
                 }),
                 causation_id: Some(&started.event_id),
@@ -120,16 +111,57 @@ fn live_pg_journal_round_trip_concurrency_rebuild_and_skip_locked() {
         .expect("append EffectFailed");
     assert_eq!(failed.seq, 2);
 
+    // 2. Genuine concurrent two-connection HeadMoved contention on seq 3.
+    verify_concurrent_head_moved(&cfg, "pg-live-run-1", failed.seq, &failed.event_hash);
+
+    // 3. Rebuild projections, cooldown catch-up, and canonical export/import round-trip.
     verify_live_rebuild_and_cooldowns(&journal);
+    verify_live_export_import_canonical(&cfg, &journal, &manifest);
     verify_live_skip_locked_and_unified(&cfg, journal.coordination());
+}
+
+fn verify_concurrent_head_moved(cfg: &PgConfig, run_id: &str, head_seq: u64, head_hash: &str) {
+    let barrier = Arc::new(Barrier::new(2));
+    let mut handles = Vec::new();
+    for worker in ["w1", "w2"] {
+        let c = cfg.clone();
+        let b = Arc::clone(&barrier);
+        let rid = run_id.to_string();
+        let prev = head_hash.to_string();
+        handles.push(thread::spawn(move || {
+            let log = PgEventLog::connect(&c).expect("connect racing log");
+            let env = NewEvent {
+                event_type: EventType::PhaseEntered,
+                payload: json!({ "phase": worker }),
+                causation_id: None,
+                attempt_id: None,
+                ts: "2026-11-27T12:02:00Z",
+            }
+            .seal(&rid, head_seq + 1, format!("race-{worker}"), &prev);
+            b.wait();
+            log.append_envelopes(&rid, (head_seq, &prev), &[env])
+        }));
+    }
+    let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let ok_count = results.iter().filter(|r| r.is_ok()).count();
+    let moved_count = results
+        .iter()
+        .filter(|r| matches!(r, Err(StoreError::HeadMoved { .. })))
+        .count();
+    assert_eq!(ok_count, 1, "expected 1 winner, got {results:?}");
+    assert_eq!(moved_count, 1, "expected 1 HeadMoved, got {results:?}");
 }
 
 fn verify_live_rebuild_and_cooldowns(
     journal: &Journal<PgEventLog, PgProjectionStore, PgCoordinationStore>,
 ) {
-    // 2. Rebuild projections from EventLog.
+    let loaded = journal
+        .load_verified("pg-live-run-1")
+        .expect("load verified");
+    assert_eq!(loaded.len(), 3);
+
     let rebuilt = journal.reindex().expect("rebuild projections");
-    assert_eq!(rebuilt, 2);
+    assert_eq!(rebuilt, 3);
     let listed = journal.projections().list_runs().expect("list runs");
     assert_eq!(
         listed,
@@ -140,7 +172,6 @@ fn verify_live_rebuild_and_cooldowns(
         )]
     );
 
-    // 3. Idempotent cooldown catch-up from EventLog.
     let inserted = journal
         .coordination()
         .sync_cooldowns_from(journal.event_log())
@@ -159,8 +190,39 @@ fn verify_live_rebuild_and_cooldowns(
     assert_eq!(active[0].provider, "anthropic");
 }
 
-fn verify_live_skip_locked_and_unified(cfg: &PgConfig, coord: &PgCoordinationStore) {
-    // 4. FOR UPDATE SKIP LOCKED multi-worker claim contention.
+fn verify_live_export_import_canonical(
+    cfg: &PgConfig,
+    journal: &Journal<PgEventLog, PgProjectionStore, PgCoordinationStore>,
+    manifest: &Value,
+) {
+    let ndjson = journal
+        .export_ndjson("pg-live-run-1")
+        .expect("export canonical ndjson");
+    assert!(ndjson.contains("-0.0"));
+    assert!(ndjson.contains("\\u0000"));
+    let expected = journal.load_verified("pg-live-run-1").expect("load");
+
+    reset_tables(cfg);
+    let store = PgStore::connect(cfg).expect("reconnect unified store");
+    let imported_journal = Journal::new(&store, &store, &store);
+    let count = imported_journal
+        .import_ndjson("pg-live-run-1", manifest, &ndjson)
+        .expect("import canonical ndjson");
+    assert_eq!(count, 3);
+    assert_eq!(
+        serde_json::to_string(
+            &imported_journal
+                .load_verified("pg-live-run-1")
+                .expect("verify imported")
+        )
+        .unwrap(),
+        serde_json::to_string(&expected).unwrap()
+    );
+    assert_eq!(imported_journal.reindex().expect("reindex imported"), 3);
+}
+
+fn verify_live_skip_locked_and_unified(cfg: &PgConfig, _coord: &PgCoordinationStore) {
+    let coord = PgCoordinationStore::connect(cfg).expect("reconnect coord");
     let e1 = coord
         .enqueue(
             &NewEntry {
@@ -182,8 +244,6 @@ fn verify_live_skip_locked_and_unified(cfg: &PgConfig, coord: &PgCoordinationSto
         )
         .expect("enqueue low");
 
-    // Hold a row lock on e1 in an open transaction, then claim from another connection:
-    // SKIP LOCKED must skip e1 and immediately claim e2 without blocking!
     let mut locker = PgClient::connect(cfg).expect("connect locker");
     locker.query("BEGIN", &[]).expect("begin locker tx");
     let locked = locker
@@ -202,6 +262,11 @@ fn verify_live_skip_locked_and_unified(cfg: &PgConfig, coord: &PgCoordinationSto
     assert_eq!(claimed_by_w2.id, e2);
     assert_eq!(claimed_by_w2.worker_id, "worker-2");
 
+    let listed = worker2.list_queue().expect("list queue");
+    assert!(listed
+        .iter()
+        .any(|e| e.id == e2 && e.state == EntryState::Launching));
+
     locker.query("ROLLBACK", &[]).expect("release lock on e1");
 
     let unified = PgStore::connect(cfg).expect("connect unified PgStore");
@@ -215,7 +280,6 @@ fn verify_live_skip_locked_and_unified(cfg: &PgConfig, coord: &PgCoordinationSto
         .expect("empty claim")
         .is_none());
 
-    // Verify unified PgStore reads the same event log.
     assert_eq!(
         unified.list_run_ids().expect("list ids"),
         vec!["pg-live-run-1".to_string()]

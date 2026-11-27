@@ -1,4 +1,7 @@
-//! Pure-Rust RFC 5802 / RFC 7677 SCRAM-SHA-256 authentication using `sha2`.
+//! Pure-Rust RFC 5802 / RFC 7677 SCRAM-SHA-256 authentication using `sha2`,
+//! with RFC 4013 SASLprep mapping and PostgreSQL `pg_saslprep` fallback.
+
+use std::borrow::Cow;
 
 use sha2::{Digest, Sha256};
 
@@ -8,6 +11,8 @@ const BLOCK_SIZE: usize = 64;
 const B64_TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const GS2_HEADER: &str = "n,,";
 const GS2_HEADER_B64: &str = "biws";
+/// Upper bound on PBKDF2 iterations accepted from a server (DoS boundary).
+pub(crate) const MAX_SCRAM_ITERATIONS: u32 = 1_000_000;
 
 /// Compute RFC 2104 HMAC-SHA256.
 pub(crate) fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
@@ -146,6 +151,80 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     std::hint::black_box(diff) == 0
 }
 
+/// Apply RFC 4013 SASLprep mapping (strip Table B.1 commonly-mapped-to-nothing,
+/// map Table C.1.2 non-ASCII spaces to ASCII space), falling back to raw bytes
+/// if any prohibited character is encountered (matching PostgreSQL `pg_saslprep`).
+pub(crate) fn saslprep_password(password: &str) -> Cow<'_, str> {
+    let mut out = String::with_capacity(password.len());
+    for ch in password.chars() {
+        if is_mapped_to_nothing(ch) {
+            continue;
+        }
+        if is_non_ascii_space(ch) {
+            out.push(' ');
+            continue;
+        }
+        if is_prohibited_saslprep(ch) {
+            return Cow::Borrowed(password);
+        }
+        out.push(ch);
+    }
+    Cow::Owned(out)
+}
+
+fn is_mapped_to_nothing(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{00AD}'
+            | '\u{034F}'
+            | '\u{1806}'
+            | '\u{180B}'..='\u{180D}'
+            | '\u{200B}'..='\u{200D}'
+            | '\u{2060}'
+            | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}'
+    )
+}
+
+fn is_non_ascii_space(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{00A0}' | '\u{1680}' | '\u{2000}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}'
+    )
+}
+
+fn is_prohibited_saslprep(ch: char) -> bool {
+    let code = ch as u32;
+    matches!(
+        ch,
+        '\u{0000}'..='\u{001F}'
+            | '\u{007F}'..='\u{009F}'
+            | '\u{0340}'
+            | '\u{0341}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{180E}'
+            | '\u{200E}'
+            | '\u{200F}'
+            | '\u{2028}'..='\u{202E}'
+            | '\u{2061}'..='\u{2063}'
+            | '\u{206A}'..='\u{206F}'
+            | '\u{2FF0}'..='\u{2FFB}'
+            | '\u{E000}'..='\u{F8FF}'
+            | '\u{FDD0}'..='\u{FDEF}'
+            | '\u{FFF9}'..='\u{FFFD}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0001}'
+            | '\u{E0020}'..='\u{E007F}'
+            | '\u{F0000}'..='\u{FFFFD}'
+            | '\u{100000}'..='\u{10FFFD}'
+    ) || (code & 0xFFFE) == 0xFFFE
+}
+
+fn escape_saslname(user: &str) -> String {
+    user.replace('=', "=3D").replace(',', "=2C")
+}
+
 /// Client state machine for a single SCRAM-SHA-256 authentication exchange.
 pub(crate) struct ScramClient {
     client_nonce: String,
@@ -159,7 +238,8 @@ impl ScramClient {
     }
 
     pub(crate) fn with_user(user: &str, client_nonce: String) -> Self {
-        let client_first_bare = format!("n={user},r={client_nonce}");
+        let escaped = escape_saslname(user);
+        let client_first_bare = format!("n={escaped},r={client_nonce}");
         Self {
             client_nonce,
             client_first_bare,
@@ -177,7 +257,8 @@ impl ScramClient {
         server_first: &str,
     ) -> Result<String, PgError> {
         let (nonce, salt, iterations) = parse_server_first(server_first, &self.client_nonce)?;
-        let salted = pbkdf2_hmac_sha256(password.as_bytes(), &salt, iterations);
+        let prepared = saslprep_password(password);
+        let salted = pbkdf2_hmac_sha256(prepared.as_bytes(), &salt, iterations);
         let client_key = hmac_sha256(&salted, b"Client Key");
         let stored_key: [u8; 32] = Sha256::digest(client_key).into();
         let final_no_proof = format!("c={GS2_HEADER_B64},r={nonce}");
@@ -214,37 +295,59 @@ impl ScramClient {
     }
 }
 
+#[derive(Default)]
+struct ServerFirstAttrs<'a> {
+    nonce: Option<&'a str>,
+    salt_b64: Option<&'a str>,
+    iter_str: Option<&'a str>,
+}
+
+fn parse_server_first_attrs(server_first: &str) -> Result<ServerFirstAttrs<'_>, PgError> {
+    let mut attrs = ServerFirstAttrs::default();
+    for part in server_first.split(',') {
+        if part.starts_with("m=") {
+            return Err(PgError::Auth(
+                "unsupported mandatory SCRAM extension".into(),
+            ));
+        }
+        if let Some(v) = part.strip_prefix("r=") {
+            attrs.nonce = Some(v);
+        } else if let Some(v) = part.strip_prefix("s=") {
+            attrs.salt_b64 = Some(v);
+        } else if let Some(v) = part.strip_prefix("i=") {
+            attrs.iter_str = Some(v);
+        }
+    }
+    Ok(attrs)
+}
+
 fn parse_server_first<'a>(
     server_first: &'a str,
     client_nonce: &str,
 ) -> Result<(&'a str, Vec<u8>, u32), PgError> {
-    let (mut nonce, mut salt_b64, mut iter_str) = (None, None, None);
-    for part in server_first.split(',') {
-        if let Some(v) = part.strip_prefix("r=") {
-            nonce = Some(v);
-        } else if let Some(v) = part.strip_prefix("s=") {
-            salt_b64 = Some(v);
-        } else if let Some(v) = part.strip_prefix("i=") {
-            iter_str = Some(v);
-        }
-    }
-    let nonce = nonce.ok_or_else(|| PgError::Auth("missing nonce in SCRAM server-first".into()))?;
+    let attrs = parse_server_first_attrs(server_first)?;
+    let nonce = attrs
+        .nonce
+        .ok_or_else(|| PgError::Auth("missing nonce in SCRAM server-first".into()))?;
     if !nonce.starts_with(client_nonce) || nonce.len() <= client_nonce.len() {
         return Err(PgError::Auth(
             "SCRAM server nonce does not extend client nonce".into(),
         ));
     }
     let salt = base64_decode(
-        salt_b64.ok_or_else(|| PgError::Auth("missing salt in SCRAM server-first".into()))?,
+        attrs
+            .salt_b64
+            .ok_or_else(|| PgError::Auth("missing salt in SCRAM server-first".into()))?,
     )?;
-    let iterations: u32 = iter_str
+    let iterations: u32 = attrs
+        .iter_str
         .ok_or_else(|| PgError::Auth("missing iterations in SCRAM server-first".into()))?
         .parse()
         .map_err(|_| PgError::Auth("invalid iterations in SCRAM server-first".into()))?;
-    if iterations == 0 {
-        return Err(PgError::Auth(
-            "SCRAM iteration count must be positive".into(),
-        ));
+    if !(1..=MAX_SCRAM_ITERATIONS).contains(&iterations) {
+        return Err(PgError::Auth(format!(
+            "SCRAM iteration count {iterations} outside 1..={MAX_SCRAM_ITERATIONS}"
+        )));
     }
     Ok((nonce, salt, iterations))
 }

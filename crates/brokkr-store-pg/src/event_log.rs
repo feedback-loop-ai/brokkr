@@ -4,25 +4,28 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{ChainError, EventEnvelope};
 use brokkr_store::ports::{
     checked_seq, manifest_meta, started_feature_of, validate_append_batch, validate_import_stream,
-    validate_manifest, validate_run_id, verify_chain_checked,
+    validate_manifest, validate_run_id, verify_chain_checked, RunMetadata,
 };
 use brokkr_store::StoreError;
 use serde_json::Value;
 
 use crate::error::{PgError, SQLSTATE_UNIQUE_VIOLATION};
-use crate::wire::PgClient;
+use crate::schema::jsonb_param;
+use crate::wire::{PgClient, PgRow};
 
-const INSERT_RUN_SQL: &str = "INSERT INTO brokkr_runs (run_id, manifest, feature, created_at)
-     VALUES ($1, $2::jsonb, $3, $4)";
+const INSERT_RUN_SQL: &str =
+    "INSERT INTO brokkr_runs (run_id, manifest, manifest_json, feature, created_at)
+     VALUES ($1, $2::jsonb, $3, $4, $5)";
 const LOCK_RUN_MANIFEST_SQL: &str =
-    "SELECT manifest::text FROM brokkr_runs WHERE run_id = $1 FOR UPDATE";
-const SELECT_RUN_MANIFEST_SQL: &str = "SELECT manifest::text FROM brokkr_runs WHERE run_id = $1";
+    "SELECT manifest_json FROM brokkr_runs WHERE run_id = $1 FOR UPDATE";
+const SELECT_RUN_MANIFEST_SQL: &str = "SELECT manifest_json FROM brokkr_runs WHERE run_id = $1";
+const SELECT_RUN_META_SQL: &str = "SELECT feature, created_at FROM brokkr_runs WHERE run_id = $1";
 const SELECT_RUN_EXISTS_SQL: &str = "SELECT 1 FROM brokkr_runs WHERE run_id = $1";
 const SELECT_EVENTS_SQL: &str =
-    "SELECT seq, event_hash, envelope::text FROM brokkr_events WHERE run_id = $1 ORDER BY seq ASC";
-const INSERT_EVENT_SQL: &str =
-    "INSERT INTO brokkr_events (run_id, seq, event_type, event_hash, prev_hash, recorded_at, envelope)
-     VALUES ($1, $2::bigint, $3, $4, $5, $6, $7::jsonb)";
+    "SELECT seq, event_hash, envelope_json FROM brokkr_events WHERE run_id = $1 ORDER BY seq ASC";
+const INSERT_EVENT_SQL: &str = "INSERT INTO brokkr_events
+        (run_id, seq, event_type, event_hash, prev_hash, recorded_at, envelope, envelope_json)
+     VALUES ($1, $2::bigint, $3, $4, $5, $6, $7::jsonb, $8)";
 const UPDATE_STARTED_META_SQL: &str = "UPDATE brokkr_runs
      SET created_at = $2,
          feature = CASE WHEN $3 <> '' THEN $3 ELSE feature END
@@ -41,19 +44,7 @@ pub(crate) fn create_run(
         .get("created_at")
         .and_then(Value::as_str)
         .unwrap_or("");
-    let manifest_json = serde_json::to_string(manifest)?;
-    client
-        .query(
-            INSERT_RUN_SQL,
-            &[
-                Some(run_id),
-                Some(manifest_json.as_str()),
-                Some(feature),
-                Some(created_at),
-            ],
-        )
-        .map_err(|err| map_unique_run_error(run_id, err))?;
-    Ok(())
+    insert_run_row(client, run_id, manifest, feature, created_at)
 }
 
 pub(crate) fn append_envelopes(
@@ -64,7 +55,7 @@ pub(crate) fn append_envelopes(
 ) -> Result<(), StoreError> {
     client.in_transaction(
         |tx| {
-            let manifest = lock_and_read_manifest(tx, run_id)?;
+            let manifest = read_manifest_query(tx, LOCK_RUN_MANIFEST_SQL, run_id)?;
             let existing = load_verified_events(tx, run_id)?;
             validate_append_batch(run_id, &manifest, &existing, expected_head, envelopes)?;
             insert_events(tx, run_id, envelopes)?;
@@ -93,19 +84,9 @@ pub(crate) fn import_run_stream(
     let (manifest_feature, _) = manifest_meta(manifest);
     let feature = started_feature_of(envelopes).unwrap_or(manifest_feature);
     let created_at = envelopes[0].recorded_at.as_str();
-    let manifest_json = serde_json::to_string(manifest)?;
     client.in_transaction(
         |tx| {
-            tx.query(
-                INSERT_RUN_SQL,
-                &[
-                    Some(run_id),
-                    Some(manifest_json.as_str()),
-                    Some(feature),
-                    Some(created_at),
-                ],
-            )
-            .map_err(|err| map_unique_run_error(run_id, err))?;
+            insert_run_row(tx, run_id, manifest, feature, created_at)?;
             insert_events(tx, run_id, envelopes)
         },
         PgError::into_store_error,
@@ -144,14 +125,25 @@ pub(crate) fn read_stream(
 }
 
 pub(crate) fn manifest(client: &mut PgClient, run_id: &str) -> Result<Value, StoreError> {
-    let res = client
-        .query(SELECT_RUN_MANIFEST_SQL, &[Some(run_id)])
-        .map_err(PgError::into_store_error)?;
-    let row = res
-        .rows
-        .first()
-        .ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))?;
-    parse_manifest_row(run_id, row.get_str(0).map_err(PgError::into_store_error)?)
+    read_manifest_query(client, SELECT_RUN_MANIFEST_SQL, run_id)
+}
+
+pub(crate) fn run_metadata(
+    client: &mut PgClient,
+    run_id: &str,
+) -> Result<Option<RunMetadata>, StoreError> {
+    let row = query_run_row(client, SELECT_RUN_META_SQL, run_id)?;
+    Ok(Some(RunMetadata {
+        feature: row
+            .get_str(0)
+            .map_err(PgError::into_store_error)?
+            .to_string(),
+        created_at: row
+            .get_str(1)
+            .map_err(PgError::into_store_error)?
+            .to_string(),
+        list_order: None,
+    }))
 }
 
 pub(crate) fn list_run_ids(client: &mut PgClient) -> Result<Vec<String>, StoreError> {
@@ -187,18 +179,47 @@ fn ensure_run_exists(tx: &mut PgClient, run_id: &str) -> Result<(), StoreError> 
     Ok(())
 }
 
-fn lock_and_read_manifest(tx: &mut PgClient, run_id: &str) -> Result<Value, StoreError> {
-    let res = tx
-        .query(LOCK_RUN_MANIFEST_SQL, &[Some(run_id)])
-        .map_err(PgError::into_store_error)?;
-    let row = res
-        .rows
-        .first()
-        .ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))?;
-    parse_manifest_row(run_id, row.get_str(0).map_err(PgError::into_store_error)?)
+fn insert_run_row(
+    client: &mut PgClient,
+    run_id: &str,
+    manifest: &Value,
+    feature: &str,
+    created_at: &str,
+) -> Result<(), StoreError> {
+    let manifest_json = serde_json::to_string(manifest)?;
+    let manifest_jsonb = jsonb_param(manifest, &manifest_json);
+    client
+        .query(
+            INSERT_RUN_SQL,
+            &[
+                Some(run_id),
+                manifest_jsonb,
+                Some(manifest_json.as_str()),
+                Some(feature),
+                Some(created_at),
+            ],
+        )
+        .map_err(|err| map_unique_run_error(run_id, err))?;
+    Ok(())
 }
 
-fn parse_manifest_row(run_id: &str, raw: &str) -> Result<Value, StoreError> {
+fn query_run_row(client: &mut PgClient, sql: &str, run_id: &str) -> Result<PgRow, StoreError> {
+    let res = client
+        .query(sql, &[Some(run_id)])
+        .map_err(PgError::into_store_error)?;
+    res.rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))
+}
+
+fn read_manifest_query(
+    client: &mut PgClient,
+    sql: &str,
+    run_id: &str,
+) -> Result<Value, StoreError> {
+    let row = query_run_row(client, sql, run_id)?;
+    let raw = row.get_str(0).map_err(PgError::into_store_error)?;
     let manifest: Value = serde_json::from_str(raw)?;
     validate_manifest(run_id, &manifest)?;
     Ok(manifest)
@@ -248,6 +269,8 @@ fn insert_events(
         let seq = checked_seq(envelope.seq)?;
         let seq_str = seq.to_string();
         let envelope_json = serde_json::to_string(envelope)?;
+        let envelope_value = serde_json::to_value(envelope)?;
+        let envelope_jsonb = jsonb_param(&envelope_value, &envelope_json);
         tx.query(
             INSERT_EVENT_SQL,
             &[
@@ -257,6 +280,7 @@ fn insert_events(
                 Some(envelope.event_hash.as_str()),
                 Some(envelope.previous_hash.as_str()),
                 Some(envelope.recorded_at.as_str()),
+                envelope_jsonb,
                 Some(envelope_json.as_str()),
             ],
         )

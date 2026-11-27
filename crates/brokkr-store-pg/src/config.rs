@@ -1,5 +1,6 @@
 //! PostgreSQL connection configuration parsed from `postgres://` URLs.
 
+use std::net::Ipv6Addr;
 use std::time::Duration;
 
 use crate::PgError;
@@ -26,28 +27,28 @@ pub struct PgConfig {
 impl PgConfig {
     /// Parse a `postgres://` or `postgresql://` connection URL with
     /// `user[:password]@host[:port]/database` authority and path, refusing
-    /// missing components, invalid percent-escapes, NUL bytes, or unknown
-    /// query parameters.
+    /// missing components, fragments, invalid percent-escapes, NUL bytes,
+    /// non-IPv6 bracketed hosts, or unknown query parameters.
     pub fn parse(url: &str) -> Result<Self, PgError> {
+        if url.as_bytes().contains(&0) {
+            return Err(PgError::InvalidUrl(
+                "NUL byte not allowed in connection URL",
+            ));
+        }
         let rest = url
             .strip_prefix("postgres://")
             .or_else(|| url.strip_prefix("postgresql://"))
             .ok_or(PgError::InvalidUrl(
                 "scheme must be postgres:// or postgresql://",
             ))?;
+        if rest.contains('#') {
+            return Err(PgError::InvalidUrl("URL fragment is not allowed"));
+        }
         let (path_part, query) = match rest.split_once('?') {
             Some((left, right)) => (left, Some(right)),
             None => (rest, None),
         };
-        let (authority, raw_db) = path_part
-            .split_once('/')
-            .ok_or(PgError::InvalidUrl("missing /database path"))?;
-        if raw_db.is_empty() || raw_db.contains('/') {
-            return Err(PgError::InvalidUrl(
-                "database name must be a single segment",
-            ));
-        }
-        let database = decode_cstr_component(raw_db)?;
+        let (authority, database) = parse_authority_and_db(path_part)?;
         let (userinfo, hostport) = authority
             .rsplit_once('@')
             .ok_or(PgError::InvalidUrl("missing user@host authority"))?;
@@ -82,6 +83,18 @@ impl PgConfig {
     }
 }
 
+fn parse_authority_and_db(path_part: &str) -> Result<(&str, String), PgError> {
+    let (authority, raw_db) = path_part
+        .split_once('/')
+        .ok_or(PgError::InvalidUrl("missing /database path"))?;
+    if raw_db.is_empty() || raw_db.contains('/') {
+        return Err(PgError::InvalidUrl(
+            "database name must be a single segment",
+        ));
+    }
+    Ok((authority, decode_cstr_component(raw_db)?))
+}
+
 fn parse_userinfo(userinfo: &str) -> Result<(String, Option<String>), PgError> {
     let (raw_user, raw_pass) = match userinfo.split_once(':') {
         Some((u, p)) => (u, Some(p)),
@@ -100,9 +113,8 @@ fn parse_host_port(hostport: &str) -> Result<(String, u16), PgError> {
         let (host, rest) = after_open
             .split_once(']')
             .ok_or(PgError::InvalidUrl("unclosed IPv6 host bracket"))?;
-        if host.is_empty() {
-            return Err(PgError::InvalidUrl("host must not be empty"));
-        }
+        host.parse::<Ipv6Addr>()
+            .map_err(|_| PgError::InvalidUrl("invalid IPv6 host literal"))?;
         let port = match rest {
             "" => DEFAULT_PORT,
             _ => parse_port(
@@ -112,14 +124,15 @@ fn parse_host_port(hostport: &str) -> Result<(String, u16), PgError> {
         };
         return Ok((host.to_string(), port));
     }
-    let (host, port) = match hostport.rsplit_once(':') {
+    let (raw_host, port) = match hostport.rsplit_once(':') {
         Some((h, p)) => (h, parse_port(p)?),
         None => (hostport, DEFAULT_PORT),
     };
+    let host = decode_cstr_component(raw_host)?;
     if host.is_empty() {
         return Err(PgError::InvalidUrl("host must not be empty"));
     }
-    Ok((host.to_string(), port))
+    Ok((host, port))
 }
 
 fn parse_port(raw: &str) -> Result<u16, PgError> {

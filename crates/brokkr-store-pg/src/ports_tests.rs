@@ -4,46 +4,13 @@
 //! in-process mock PostgreSQL v3 server.
 
 use brokkr_core::canonical::ZERO_HASH;
-use brokkr_core::envelope::{ChainError, EventEnvelope, EventType, EVENT_SCHEMA_VERSION};
-use brokkr_store::ports::{EventLog, Journal, NewEvent, ProjectionStore};
+use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
+use brokkr_store::ports::{EventLog, Journal, NewEvent, ProjectionStore, RunMetadata};
 use brokkr_store::StoreError;
 use serde_json::{json, Value};
 
-use crate::mock_pg_tests::MockPgServer;
+use crate::mock_pg_tests::{sample_manifest, sealed_env, MockPgServer};
 use crate::{PgCoordinationStore, PgEventLog, PgProjectionStore, PgStore};
-
-fn sample_manifest(feature: &str) -> Value {
-    json!({
-        "engine": "0.15.2",
-        "feature": feature,
-        "bundle_name": "fast"
-    })
-}
-
-fn sealed_env(
-    run_id: &str,
-    seq: u64,
-    prev: &str,
-    event_type: EventType,
-    payload: Value,
-    ts: &str,
-) -> EventEnvelope {
-    EventEnvelope {
-        run_id: run_id.to_string(),
-        seq,
-        event_id: format!("ev-{run_id}-{seq}"),
-        event_schema_version: EVENT_SCHEMA_VERSION,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: run_id.to_string(),
-        attempt_id: None,
-        recorded_at: ts.to_string(),
-        previous_hash: prev.to_string(),
-        event_hash: String::new(),
-    }
-    .sealed()
-}
 
 #[test]
 fn journal_end_to_end_over_split_pg_ports_and_unified_pg_store() {
@@ -133,12 +100,9 @@ fn journal_end_to_end_over_split_pg_ports_and_unified_pg_store() {
 
     // Verify FOR UPDATE locking on append_envelopes.
     let queries = srv.db.lock().unwrap().queries.clone();
-    assert!(
-        queries
-            .iter()
-            .any(|q| q
-                .contains("SELECT manifest::text FROM brokkr_runs WHERE run_id = $1 FOR UPDATE"))
-    );
+    assert!(queries
+        .iter()
+        .any(|q| q.contains("SELECT manifest_json FROM brokkr_runs WHERE run_id = $1 FOR UPDATE")));
 }
 
 fn verify_unified_import_and_rebuild(m: &Value, ndjson: &str, expected_hash: &str) {
@@ -204,6 +168,10 @@ fn event_log_error_and_corruption_paths() {
     ));
     assert!(matches!(
         log.manifest("missing"),
+        Err(StoreError::RunNotFound(_))
+    ));
+    assert!(matches!(
+        log.run_metadata("missing"),
         Err(StoreError::RunNotFound(_))
     ));
     assert!(matches!(
@@ -511,7 +479,6 @@ fn verify_corrupt_projection_and_rebuild(
     e2: &EventEnvelope,
     e3: &EventEnvelope,
 ) {
-    let cfg = srv.config();
     {
         let mut db = srv.db.lock().unwrap();
         db.proj_runs.insert(
@@ -531,24 +498,50 @@ fn verify_corrupt_projection_and_rebuild(
         proj.apply_envelopes("neg-bad", None, &[]),
         Err(StoreError::DivergentEventLog { .. })
     ));
-    {
-        let mut db = srv.db.lock().unwrap();
-        db.proj_runs.get_mut("p-run").unwrap().4 = e3.event_hash.clone();
-        db.proj_events.get_mut(&("p-run".into(), 1)).unwrap().6 = "not-json".into();
-    }
+    srv.db.lock().unwrap().proj_runs.get_mut("p-run").unwrap().4 = e3.event_hash.clone();
+    // Gap detection on empty batch: deleting seq 2 while head_seq == 3 must refuse!
+    let saved_e2 = srv
+        .db
+        .lock()
+        .unwrap()
+        .proj_events
+        .remove(&("p-run".into(), 2))
+        .expect("seq 2 present");
     assert!(matches!(
-        proj.apply_envelopes("p-run", None, &[e1.clone(), e2.clone(), e3.clone()]),
+        proj.apply_envelopes("p-run", None, &[]),
         Err(StoreError::DivergentEventLog { .. })
     ));
-    {
-        let mut db = srv.db.lock().unwrap();
-        db.proj_events.get_mut(&("p-run".into(), 1)).unwrap().6 = r#"{"different":true}"#.into();
-    }
-    assert!(matches!(
-        proj.apply_envelopes("p-run", None, &[e1.clone(), e2.clone(), e3.clone()]),
-        Err(StoreError::DivergentEventLog { .. })
-    ));
+    srv.db
+        .lock()
+        .unwrap()
+        .proj_events
+        .insert(("p-run".into(), 2), saved_e2);
 
+    for bad_payload in ["not-json", r#"{"different":true}"#] {
+        srv.db
+            .lock()
+            .unwrap()
+            .proj_events
+            .get_mut(&("p-run".into(), 1))
+            .unwrap()
+            .6 = bad_payload.into();
+        assert!(matches!(
+            proj.apply_envelopes("p-run", None, &[e1.clone(), e2.clone(), e3.clone()]),
+            Err(StoreError::DivergentEventLog { .. })
+        ));
+    }
+
+    verify_unstarted_metadata_and_rebuild(srv, proj, e1, e2, e3);
+}
+
+fn verify_unstarted_metadata_and_rebuild(
+    srv: &MockPgServer,
+    proj: &PgProjectionStore,
+    e1: &EventEnvelope,
+    e2: &EventEnvelope,
+    e3: &EventEnvelope,
+) {
+    let cfg = srv.config();
     let log = PgEventLog::connect(&cfg).expect("connect log");
     log.create_run("p-run", &sample_manifest("rebuilt"))
         .unwrap();
@@ -559,12 +552,136 @@ fn verify_corrupt_projection_and_rebuild(
     )
     .unwrap();
     assert_eq!(proj.rebuild_from(&log).unwrap(), 3);
+    // Unstarted run preserves feature and created_at via run_metadata across rebuild_from.
+    let unstarted_manifest = json!({
+        "engine": "0.15.2",
+        "feature": "queued-feat",
+        "bundle_name": "fast",
+        "created_at": "2026-11-27T08:30:00Z"
+    });
+    log.create_run("unstarted-run", &unstarted_manifest)
+        .unwrap();
+    assert_eq!(
+        log.run_metadata("unstarted-run").unwrap(),
+        Some(RunMetadata {
+            feature: "queued-feat".into(),
+            created_at: "2026-11-27T08:30:00Z".into(),
+            list_order: None,
+        })
+    );
+    let unified = PgStore::connect(&cfg).expect("connect unified");
+    assert_eq!(
+        unified.run_metadata("unstarted-run").unwrap(),
+        log.run_metadata("unstarted-run").unwrap()
+    );
+    assert_eq!(proj.rebuild_from(&log).unwrap(), 3);
     assert_eq!(
         proj.list_runs().unwrap(),
-        vec![(
-            "p-run".into(),
-            "rebuilt".into(),
-            "2026-11-27T10:00:00Z".into()
-        )]
+        vec![
+            (
+                "unstarted-run".into(),
+                "queued-feat".into(),
+                "2026-11-27T08:30:00Z".into()
+            ),
+            (
+                "p-run".into(),
+                "rebuilt".into(),
+                "2026-11-27T10:00:00Z".into()
+            ),
+        ]
+    );
+    let queries = srv.db.lock().unwrap().queries.clone();
+    assert!(queries
+        .iter()
+        .any(|q| q.contains("ON CONFLICT (run_id) DO NOTHING")));
+    assert!(queries.iter().any(
+        |q| q == "LOCK TABLE brokkr_projected_runs, brokkr_projected_events IN EXCLUSIVE MODE"
+    ));
+}
+
+#[test]
+fn canonical_json_preserves_negative_zero_exponent_and_nul_alongside_jsonb() {
+    let srv = MockPgServer::start();
+    let cfg = srv.config();
+    let journal = Journal::new(
+        PgEventLog::connect(&cfg).unwrap(),
+        PgProjectionStore::connect(&cfg).unwrap(),
+        PgCoordinationStore::connect(&cfg).unwrap(),
+    );
+    let manifest = json!({
+        "engine": "0.15.2",
+        "feature": "canon-json",
+        "bundle_name": "fast",
+        "neg_zero": -0.0_f64,
+        "big_exp": 1e16_f64,
+        "flag": true,
+        "empty": null,
+        "items": ["ok"]
+    });
+    journal.create_run("canon-run", &manifest).unwrap();
+    assert!(srv.db.lock().unwrap().runs_jsonb["canon-run"].is_some());
+
+    let e1 = journal
+        .append_event(
+            "canon-run",
+            NewEvent {
+                event_type: EventType::RunStarted,
+                payload: json!({
+                    "feature": "canon-json",
+                    "manifest": manifest,
+                    "neg_zero": -0.0_f64,
+                    "big_exp": 1e16_f64,
+                }),
+                causation_id: None,
+                attempt_id: None,
+                ts: "2026-11-27T10:00:00Z",
+            },
+        )
+        .unwrap();
+    let e2 = journal
+        .append_event(
+            "canon-run",
+            NewEvent {
+                event_type: EventType::PhaseEntered,
+                payload: json!({
+                    "phase": "build",
+                    "nul_str": "a\u{0000}b",
+                    "nul_arr": ["x\u{0000}y"],
+                    "k\u{0000}ey": 1
+                }),
+                causation_id: Some(&e1.event_id),
+                attempt_id: None,
+                ts: "2026-11-27T10:00:01Z",
+            },
+        )
+        .unwrap();
+    {
+        let db = srv.db.lock().unwrap();
+        assert!(db.events_jsonb[&("canon-run".into(), 1)].is_some());
+        assert!(db.events_jsonb[&("canon-run".into(), 2)].is_none());
+        assert!(db.proj_events_jsonb[&("canon-run".into(), 1)].is_some());
+        assert!(db.proj_events_jsonb[&("canon-run".into(), 2)].is_none());
+    }
+
+    let loaded = journal.load_verified("canon-run").unwrap();
+    assert_eq!(
+        serde_json::to_string(&loaded).unwrap(),
+        serde_json::to_string(&[&e1, &e2]).unwrap()
+    );
+    assert_eq!(journal.reindex().unwrap(), 2);
+
+    let ndjson = journal.export_ndjson("canon-run").unwrap();
+    assert!(ndjson.contains("-0.0"));
+    assert!(ndjson.contains("\\u0000"));
+    let srv2 = MockPgServer::start();
+    let store2 = PgStore::connect(&srv2.config()).unwrap();
+    let j2 = Journal::new(&store2, &store2, &store2);
+    assert_eq!(
+        j2.import_ndjson("canon-run", &manifest, &ndjson).unwrap(),
+        2
+    );
+    assert_eq!(
+        serde_json::to_string(&j2.load_verified("canon-run").unwrap()).unwrap(),
+        serde_json::to_string(&[&e1, &e2]).unwrap()
     );
 }

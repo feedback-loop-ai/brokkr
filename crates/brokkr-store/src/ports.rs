@@ -42,6 +42,7 @@ mod fs_log;
 #[cfg(unix)]
 mod fs_openat;
 mod journal;
+mod projection_ops;
 mod sqlite;
 mod sqlite_coordination;
 mod sqlite_projection;
@@ -49,6 +50,11 @@ mod sqlite_schema;
 
 pub use fs_log::FsEventLog;
 pub use journal::{Journal, NewEvent};
+pub use projection_ops::{
+    missing_projected_events, rebuild_run_header, reconcile_projection_batch,
+    resolve_projection_listing, sort_verified_runs, validate_projection_apply, EventsInserter,
+    HeadChecker, PrefixVerifier, ProjectionBatchOps, ProjectionPlan, StoredProjectionRun,
+};
 pub use sqlite::SqlitePorts;
 pub use sqlite_coordination::SqliteCoordinationStore;
 pub use sqlite_projection::SqliteProjectionStore;

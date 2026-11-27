@@ -1,12 +1,15 @@
 //! PostgreSQL DDL for event log, projection, and coordination tables.
 
+use serde_json::Value;
+
 use crate::wire::PgClient;
 use crate::PgError;
 
 pub(crate) const EVENT_LOG_DDL: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS brokkr_runs (
         run_id TEXT PRIMARY KEY,
-        manifest JSONB NOT NULL,
+        manifest JSONB,
+        manifest_json TEXT NOT NULL,
         feature TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT ''
     )",
@@ -17,7 +20,8 @@ pub(crate) const EVENT_LOG_DDL: &[&str] = &[
         event_hash TEXT NOT NULL,
         prev_hash TEXT NOT NULL,
         recorded_at TEXT NOT NULL,
-        envelope JSONB NOT NULL,
+        envelope JSONB,
+        envelope_json TEXT NOT NULL,
         PRIMARY KEY (run_id, seq)
     )",
 ];
@@ -42,7 +46,8 @@ pub(crate) const PROJECTION_DDL: &[&str] = &[
         member TEXT,
         event_hash TEXT NOT NULL,
         recorded_at TEXT NOT NULL,
-        payload JSONB NOT NULL,
+        payload JSONB,
+        payload_json TEXT NOT NULL,
         PRIMARY KEY (run_id, seq)
     )",
 ];
@@ -75,9 +80,10 @@ pub(crate) const COORDINATION_DDL: &[&str] = &[
         route TEXT NOT NULL,
         until_at BIGINT NOT NULL,
         reason TEXT NOT NULL,
-        retry_after_seconds BIGINT,
+        retry_after_seconds BIGINT CHECK (retry_after_seconds IS NULL OR retry_after_seconds > 0),
         rounds BIGINT NOT NULL CHECK (rounds >= 1),
         recorded_at BIGINT NOT NULL,
+        CHECK (until_at > recorded_at),
         UNIQUE (run_id, event_seq, site, rounds)
     )",
     "CREATE INDEX IF NOT EXISTS brokkr_provider_cooldowns_until_idx
@@ -94,4 +100,23 @@ pub(crate) fn init_statements(client: &mut PgClient, stmts: &[&str]) -> Result<(
         },
         |err| err,
     )
+}
+
+/// Return `Some(raw_json)` for PostgreSQL `JSONB` columns when `value` contains
+/// no `\u0000` (which PostgreSQL `JSONB` refuses with SQLSTATE 22P05), or `None`
+/// so the `JSONB` column stays `NULL` while the canonical `*_json TEXT` column
+/// preserves the exact bytes.
+pub(crate) fn jsonb_param<'a>(value: &Value, raw_json: &'a str) -> Option<&'a str> {
+    (!value_contains_nul(value)).then_some(raw_json)
+}
+
+fn value_contains_nul(value: &Value) -> bool {
+    match value {
+        Value::String(s) => s.contains('\0'),
+        Value::Array(items) => items.iter().any(value_contains_nul),
+        Value::Object(map) => map
+            .iter()
+            .any(|(k, v)| k.contains('\0') || value_contains_nul(v)),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
+    }
 }

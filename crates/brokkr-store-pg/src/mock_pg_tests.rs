@@ -6,10 +6,37 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_store::ports::NewEvent;
+use serde_json::{json, Value};
+
 use crate::wire_tests::{
-    data_row_payload, error_payload, read_client_frame, read_startup, send_frame,
+    data_row_payload, error_payload, read_client_frame, read_startup, row_description_payload,
+    send_frame,
 };
 use crate::PgConfig;
+
+pub(crate) fn sample_manifest(feature: &str) -> Value {
+    json!({ "engine": "0.15.2", "feature": feature, "bundle_name": "fast" })
+}
+
+pub(crate) fn sealed_env(
+    run_id: &str,
+    seq: u64,
+    prev: &str,
+    event_type: EventType,
+    payload: Value,
+    ts: &str,
+) -> EventEnvelope {
+    NewEvent {
+        event_type,
+        payload,
+        causation_id: None,
+        attempt_id: None,
+        ts,
+    }
+    .seal(run_id, seq, format!("ev-{run_id}-{seq}"), prev)
+}
 
 pub(crate) type QueueRow = (
     String,
@@ -46,9 +73,12 @@ pub(crate) type ProjEventRow = (
 #[derive(Clone, Default)]
 pub(crate) struct MockDb {
     pub(crate) runs: BTreeMap<String, (String, String, String)>,
+    pub(crate) runs_jsonb: BTreeMap<String, Option<String>>,
     pub(crate) events: BTreeMap<(String, i64), EventDbRow>,
+    pub(crate) events_jsonb: BTreeMap<(String, i64), Option<String>>,
     pub(crate) proj_runs: BTreeMap<String, (String, String, String, i64, String)>,
     pub(crate) proj_events: BTreeMap<(String, i64), ProjEventRow>,
+    pub(crate) proj_events_jsonb: BTreeMap<(String, i64), Option<String>>,
     pub(crate) queue_next_id: i64,
     pub(crate) queue_entries: BTreeMap<i64, QueueRow>,
     pub(crate) queue_waits: BTreeMap<(i64, i64), String>,
@@ -149,6 +179,11 @@ fn serve_conn(mut stream: TcpStream, db: Arc<Mutex<MockDb>>) {
                 send_frame(&mut stream, b'2', b"");
                 match res {
                     Ok((rows, cmd)) => {
+                        if let Some(first) = rows.first() {
+                            send_frame(&mut stream, b'T', &row_description_payload(first.len()));
+                        } else {
+                            send_frame(&mut stream, b'n', b"");
+                        }
                         for row in &rows {
                             let refs: Vec<Option<&str>> =
                                 row.iter().map(|c| c.as_deref()).collect();
@@ -245,6 +280,9 @@ fn exec_sql(
     if norm.starts_with("CREATE TABLE") || norm.starts_with("CREATE INDEX") {
         return Ok((vec![], "CREATE TABLE".into()));
     }
+    if norm.starts_with("LOCK TABLE ") {
+        return Ok((vec![], "LOCK TABLE".into()));
+    }
     exec_event_log(&mut db, &norm, params)
 }
 
@@ -254,17 +292,26 @@ fn exec_event_log(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Sql
         if db.runs.contains_key(&run_id) {
             return Err(("23505".into(), "duplicate run_id".into()));
         }
+        db.runs_jsonb.insert(run_id.clone(), params[1].clone());
         db.runs.insert(
             run_id,
             (
-                pstr(params, 1).into(),
                 pstr(params, 2).into(),
                 pstr(params, 3).into(),
+                pstr(params, 4).into(),
             ),
         );
         return Ok((vec![], "INSERT 0 1".into()));
     }
-    if norm.starts_with("SELECT manifest::text FROM brokkr_runs") {
+    if norm == "SELECT feature, created_at FROM brokkr_runs WHERE run_id = $1" {
+        let rows = db
+            .runs
+            .get(pstr(params, 0))
+            .map(|(_, f, c)| vec![vec![Some(f.clone()), Some(c.clone())]])
+            .unwrap_or_default();
+        return Ok((rows, "SELECT 1".into()));
+    }
+    if norm.starts_with("SELECT manifest_json FROM brokkr_runs") {
         let rows = db
             .runs
             .get(pstr(params, 0))
@@ -280,7 +327,7 @@ fn exec_event_log(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Sql
         };
         return Ok((rows, "SELECT 1".into()));
     }
-    if norm.starts_with("SELECT seq, event_hash, envelope::text FROM brokkr_events") {
+    if norm.starts_with("SELECT seq, event_hash, envelope_json FROM brokkr_events") {
         let run_id = pstr(params, 0);
         let rows = db
             .events
@@ -300,6 +347,7 @@ fn exec_event_log(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Sql
         if db.events.contains_key(&key) {
             return Err(("23505".into(), "duplicate event".into()));
         }
+        db.events_jsonb.insert(key.clone(), params[6].clone());
         db.events.insert(
             key,
             (
@@ -307,7 +355,7 @@ fn exec_event_log(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Sql
                 pstr(params, 3).into(),
                 pstr(params, 4).into(),
                 pstr(params, 5).into(),
-                pstr(params, 6).into(),
+                pstr(params, 7).into(),
             ),
         );
         return Ok((vec![], "INSERT 0 1".into()));
@@ -350,10 +398,18 @@ fn exec_proj(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> SqlRes {
     if norm.starts_with("SELECT COUNT(*) FROM brokkr_projected_events") {
         let run_id = pstr(params, 0);
         let limit = pi64(params, 1);
+        let in_range = norm.contains("seq >= 1");
         let cnt = db
             .proj_events
             .keys()
-            .filter(|(r, s)| r == run_id && (*s < 1 || *s > limit))
+            .filter(|(r, s)| {
+                r == run_id
+                    && if in_range {
+                        *s >= 1 && *s <= limit
+                    } else {
+                        *s < 1 || *s > limit
+                    }
+            })
             .count();
         return Ok((vec![vec![Some(cnt.to_string())]], "SELECT 1".into()));
     }
@@ -367,7 +423,7 @@ fn exec_proj(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> SqlRes {
         return Ok((rows, "SELECT".into()));
     }
     if norm.starts_with(
-        "SELECT seq, event_id, event_type, attempt_id, member, event_hash, recorded_at, payload::text FROM brokkr_projected_events",
+        "SELECT seq, event_id, event_type, attempt_id, member, event_hash, recorded_at, payload_json FROM brokkr_projected_events",
     ) {
         let run_id = pstr(params, 0);
         let limit = pi64(params, 1);
@@ -396,6 +452,7 @@ fn exec_proj(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> SqlRes {
 fn exec_proj_writes(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> SqlRes {
     if norm.starts_with("INSERT INTO brokkr_projected_events") {
         let key = (pstr(params, 0).to_string(), pi64(params, 1));
+        db.proj_events_jsonb.insert(key.clone(), params[8].clone());
         db.proj_events.insert(
             key,
             (
@@ -405,9 +462,22 @@ fn exec_proj_writes(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> S
                 params[5].clone(),
                 pstr(params, 6).into(),
                 pstr(params, 7).into(),
-                pstr(params, 8).into(),
+                pstr(params, 9).into(),
             ),
         );
+        return Ok((vec![], "INSERT 0 1".into()));
+    }
+    if norm.starts_with("INSERT INTO brokkr_projected_runs") && norm.contains("DO NOTHING") {
+        let run_id = pstr(params, 0).to_string();
+        db.proj_runs.entry(run_id).or_insert_with(|| {
+            (
+                String::new(),
+                String::new(),
+                String::new(),
+                0,
+                pstr(params, 1).into(),
+            )
+        });
         return Ok((vec![], "INSERT 0 1".into()));
     }
     if norm.starts_with("INSERT INTO brokkr_projected_runs") {
@@ -483,18 +553,19 @@ fn exec_coord(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> SqlRes 
         return Ok((vec![], "INSERT 0 1".into()));
     }
     if norm.starts_with(
-        "SELECT id, status, priority, payload, added_at, claimed_by, run_id FROM brokkr_queue_entries",
+        "SELECT id, status, priority, payload, added_at, run_id FROM brokkr_queue_entries",
     ) {
         let mut items: Vec<_> = db
             .queue_entries
             .iter()
             .filter(|(_, e)| e.2 != "dropped")
             .map(|(&id, e)| {
-                let rank = if matches!(e.2.as_str(), "pending" | "held" | "launching") {
-                    0
-                } else {
-                    1
-                };
+                let rank =
+                    if matches!(e.2.as_str(), "pending" | "held" | "launching") || e.5.is_none() {
+                        0
+                    } else {
+                        1
+                    };
                 (rank, std::cmp::Reverse(e.1), id, e.clone())
             })
             .collect();
@@ -508,7 +579,6 @@ fn exec_coord(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> SqlRes 
                     Some(e.1.to_string()),
                     Some(e.0),
                     Some(e.6),
-                    e.3,
                     e.5,
                 ]
             })
@@ -559,15 +629,25 @@ fn exec_coord_claims(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> 
             .unwrap_or_default();
         return Ok((rows, "SELECT".into()));
     }
-    if norm.starts_with("UPDATE brokkr_queue_entries SET status = 'claimed'") {
+    if norm.starts_with("UPDATE brokkr_queue_entries SET status = 'launching'") {
         if let Some(e) = db.queue_entries.get_mut(&pi64(params, 0)) {
-            e.2 = "claimed".into();
+            e.2 = "launching".into();
             e.3 = Some(pstr(params, 1).into());
             e.4 = Some(pstr(params, 2).into());
         }
         return Ok((vec![], "UPDATE 1".into()));
     }
     exec_cooldowns(db, norm, params)
+}
+
+fn cooldown_core_cols(c: &CooldownDbRow) -> [Option<String>; 5] {
+    [
+        Some(c.3.clone()),
+        Some(c.4.clone()),
+        Some(c.5.to_string()),
+        Some(c.6.clone()),
+        c.7.map(|v| v.to_string()),
+    ]
 }
 
 fn exec_cooldowns(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> SqlRes {
@@ -578,17 +658,11 @@ fn exec_cooldowns(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Sql
             .iter()
             .filter(|(_, c)| c.5 > now)
             .map(|(&seq, c)| {
-                vec![
-                    Some(seq.to_string()),
-                    Some(c.2.clone()),
-                    Some(c.3.clone()),
-                    Some(c.4.clone()),
-                    Some(c.5.to_string()),
-                    Some(c.6.clone()),
-                    c.7.map(|v| v.to_string()),
-                    Some(c.8.to_string()),
-                    Some(c.9.to_string()),
-                ]
+                let mut row = vec![Some(seq.to_string()), Some(c.2.clone())];
+                row.extend(cooldown_core_cols(c));
+                row.push(Some(c.8.to_string()));
+                row.push(Some(c.9.to_string()));
+                row
             })
             .collect();
         return Ok((rows, "SELECT".into()));
@@ -643,14 +717,9 @@ fn exec_cooldowns(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Sql
                     && c.8 == pi64(params, 3)
             })
             .map(|c| {
-                vec![vec![
-                    Some(c.3.clone()),
-                    Some(c.4.clone()),
-                    Some(c.5.to_string()),
-                    Some(c.6.clone()),
-                    c.7.map(|v| v.to_string()),
-                    Some(c.9.to_string()),
-                ]]
+                let mut row = cooldown_core_cols(c).to_vec();
+                row.push(Some(c.9.to_string()));
+                vec![row]
             })
             .unwrap_or_default();
         return Ok((rows, "SELECT".into()));
