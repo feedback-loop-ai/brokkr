@@ -14,7 +14,7 @@ the run view's seat row (`.seat.json`).
 
 | Figure | Source |
 | --- | --- |
-| Live turns of the first three measurements | controller, 2026-11-20, Linux workstation (the fourth through eighth measurements carry their own dates, versions and slugs below) |
+| Live turns of the first three measurements | controller, 2026-11-20, Linux workstation (the fourth through ninth measurements carry their own dates, versions and slugs below) |
 | The flag list | `agy --help`, recorded as `help.txt` |
 | The model list | `agy models`, recorded as `models.txt` |
 | The environment names | `strings` of the installed 1.5.13 binary, 2026-11-20 |
@@ -28,10 +28,10 @@ No implementing seat can re-run these figures, because none has a signed-in
 | Item | Value |
 | --- | --- |
 | Host | Linux x86-64, Ubuntu, `kernel.apparmor_restrict_unprivileged_userns = 1`. macOS: pending |
-| Antigravity CLI | 1.5.13 (`version.txt`) for everything but the fifth, sixth and seventh measurements, which ran on 1.5.14, and the eighth, which ran on 1.5.17; one native binary of 270,103,240 bytes that Google's installer (`https://antigravity.google/cli/install.sh`, SHA-512 checked against its manifest) put at `~/.local/bin/agy` |
+| Antigravity CLI | 1.5.13 (`version.txt`) for everything but the fifth, sixth and seventh measurements, which ran on 1.5.14, the eighth, which ran on 1.5.17, and the ninth, which ran on 1.5.18; one native binary of 270,103,240 bytes that Google's installer (`https://antigravity.google/cli/install.sh`, SHA-512 checked against its manifest) put at `~/.local/bin/agy` |
 | Account | a personal Google account on the Google AI Ultra plan, signed in through the browser; the login is one file, `~/.gemini/antigravity-cli/antigravity-oauth-token`, mode 0600 |
 | Working directory | a scratch directory under `/var/tmp/probe-agy/` for each lab turn (the eighth measurement's two engine seats ran in linked git worktrees) |
-| Model | `--model gemini-3.8-flash-low` for the first through seventh measurements, except the named-model and model-refusal turns; the eighth measurement ran on `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-sonnet-5-5-high` and `claude-sonnet-5-5-low` as its section states |
+| Model | `--model gemini-3.8-flash-low` for the first through seventh measurements and the ninth, except the named-model and model-refusal turns and the ninth's three `gemini-4-neon` turns; the eighth measurement ran on `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-sonnet-5-5-high` and `claude-sonnet-5-5-low` as its section states |
 | HOME | the operator's own for the turns of the first table; a scratch HOME holding only a link to the login file for every isolation, web and hook turn |
 
 `turns.log` is the controller's own list of each turn's name, exit code and
@@ -92,9 +92,14 @@ The prompt is the value of `-p` unless the row says otherwise.
     `finished_reason`. A soft-denied tool adds `denied_actions`.
 - **Usage is tokens, with no price.** `usage` holds `input_tokens`,
   `output_tokens`, `thinking_tokens`, `cache_read_tokens` and `total_tokens`.
-  No cost field and no cache-write count exist. On a resumed conversation
-  `num_turns` counts every turn so far, while `usage` is the invocation's own:
-  8,867 input tokens cold, then 11,121 and 13,368 on the two resumes.
+  No cost field and no cache-write count exist. On a cold turn the result's
+  `usage` is the invocation's own. On a resumed conversation it is not: the
+  result's `usage`, `num_turns` and `duration_seconds` count the whole
+  conversation so far, and the invocation's own use is the sum of the `usage`
+  its own `step_update` rows carry (8,867 input tokens cold; the two resumes'
+  own rows read 2,254 and 2,247, where their results say 11,121 and 13,368).
+  This record first read those two results as the invocations' own; the ninth
+  measurement corrects that reading across every recorded resume.
   `cache_read_tokens` exceeded `input_tokens` on `resume-warm-2` (13,872
   against 13,368), so the two are not a part and its whole.
 - **A soft denial is a success by every outer sign.** A tool that needs an
@@ -755,6 +760,150 @@ other effort (`medium` or `high`) through the engine, a real story on either
 model, a resume (including `iso-09`), the short security set on
 `claude-opus-5-5` (whose lab pass was four one-word turns and two effort
 refusals), which upstream serves a Claude turn, and macOS.
+
+## Ninth measurement, on 1.5.18: the rejoin from what the engine keeps (2026-11-27)
+
+One pass measured by the controller on Antigravity CLI 1.5.18 on Linux (#1227,
+decision 0075 level 2, the `--conversation` launch): 22 turns `l2c-*`, 19 on
+`gemini-3.8-flash-low` and three on `gemini-4-neon`, scripts `ctl/l2c.sh`
+(`l2c-01` to `l2c-18`) and `ctl/l2c-d.sh` (`l2c-19` to `l2c-22`, the
+restriction turns, at 06:45Z where the first eighteen ran at 04:05Z),
+recordings `rec/l2c/`. Every turn ran under an empty environment (`env -i`
+with `PATH`, `LANG`, `USER`, `LOGNAME`, `HOME`, `PWD` and
+`AGY_CLI_DISABLE_AUTO_UPDATE=true`) in a HOME of its own, which held only the
+login link, the driver's one gate hook and the turn's MCP set. A rejoin's HOME
+was fresh and was given only what the engine keeps of a conversation:
+`conversations/<id>.db` and `brain/<id>/`, with no group or other access.
+`agy --version` read 1.5.18 before and after each script's turns.
+
+### Provenance
+
+| Figure | Source |
+| --- | --- |
+| The pass (`l2c-01` through `l2c-22`, `l2c-turns.log`, `l2c-facts.log`, `l2c-sentinel-cold.log`, `l2c-sentinel-rejoin.log`) | controller, 2026-11-27, Linux workstation, Antigravity CLI 1.5.18 |
+| `l2c-04-unknown-id.stderr`, `l2c-05-malformed-id.stderr`, `l2c-07-brain-only.stderr` | the three turns whose stderr was not empty; the other 19 turns' stderr was empty |
+| `l2c-two-rejoins.transcript.ndjson` | controller: `brain/<id>/.system_generated/logs/transcript.jsonl` of `l2c-14` to `l2c-16`, copied byte for byte after `l2c-16` |
+
+`l2c-turns.log` and `l2c-facts.log` are the controller's own lists (each
+turn's name, exit code, HOME, directory and argv; each turn's conversation
+id, status, `num_turns` and answer, and the files a HOME held after some
+turns). They are not CLI output.
+
+### The turns
+
+All 22 turns exited 0 with status `SUCCESS`. The four restriction turns have a table of their own below.
+
+| Turn | What was done | What happened |
+| --- | --- | --- |
+| `l2c-01-cold` | a code word, in a fresh HOME | `num_turns` 1 |
+| `l2c-02-rejoin-kept` | `--conversation <id>` in a second fresh HOME holding only the cold turn's `conversations/<id>.db` and `brain/<id>/`; asked for the word and given a second one | `init.conversation_id` and the result's id are the offered id, `num_turns` 2, the word came back; the HOME held no `-wal` or `-shm` file beside the database after the turn |
+| `l2c-03-rejoin-chain` | a rejoin in a third fresh HOME holding only what the second HOME held of the conversation after `l2c-02` | the same id, `num_turns` 3, both words came back in order |
+| `l2c-04-unknown-id` | `--conversation 00000000-0000-4000-8000-000000000000` in a fresh HOME | exit 0, `SUCCESS`, a **new** conversation under a new id, the model answered `NO WORD`, and one stderr line `warning: conversation "00000000-0000-4000-8000-000000000000" not found` |
+| `l2c-05-malformed-id` | `--conversation not-an-id` | the same: a new conversation under a new id, and `warning: conversation "not-an-id" not found` |
+| `l2c-06-db-only` | a fresh HOME holding only `conversations/<id>.db`, no `brain/<id>/` | it rejoined under the offered id (`num_turns` 2) and the word came back |
+| `l2c-07-brain-only` | a fresh HOME holding only `brain/<id>/`, no database | a new conversation under a new id, `NO WORD`, and the `not found` warning naming the offered id |
+| `l2c-08-rejoin-other-model` | the rejoin naming `gemini-4-neon` where the conversation began on `gemini-3.8-flash-low` | it rejoined and the word came back; `init.model` is `gemini-4-neon` |
+| `l2c-09-rejoin-other-cwd` | the rejoin from another working directory | it rejoined and the word came back |
+| `l2c-10-iso-cold` | a HOME whose MCP set declares one sentinel server, and a prompt that calls its tool | the server started and was called once (`l2c-sentinel-cold.log`, two lines) |
+| `l2c-11-iso-rejoin` | the rejoin in a fresh HOME whose MCP set declares a different sentinel | the cold turn's server did **not** start again (`l2c-sentinel-cold.log` still two lines); the rejoin's own server started (`l2c-sentinel-rejoin.log`, one line); asked for the cold server's tool, the model answered `NO SENTINEL TOOL`, then the word |
+| `l2c-12-box-cold`, `l2c-13-box-rejoin` | a boxed seat (the gate lists `call_mcp_tool`, the hands server is the one MCP server), then its rejoin in a fresh HOME | both turns ran their command through the workspace tool; the rejoin wrote `again.txt` in the workspace and answered with the word |
+| `l2c-14-par-alpha`, `l2c-15-par-beta` | two rejoins of one conversation at once, in one HOME holding the kept state | both exited 0 with `SUCCESS` and empty stderr; ALPHA answered `ALPHA PLUM-7731` (`num_turns` 2), BETA answered `ALPHA PLUM-7731` and `BETA PLUM-7731` in one reply (`num_turns` 3) |
+| `l2c-16-par-after` | a further rejoin in that HOME, asked to list the first three words of every message sent | three lines for four messages, which settles nothing: the ALPHA and BETA prompts begin with the same three words |
+| `l2c-17-neon-cold`, `l2c-18-neon-rejoin` | `gemini-4-neon` with `--effort high`, then the rejoin in a fresh HOME with `--effort low` | it rejoined and the word came back |
+
+`l2c-two-rejoins.transcript.ndjson` holds both concurrent inputs (rows 2 and
+4, `USER_INPUT`), BETA's reply as row 6, and ALPHA's reply as a second row
+with `step_index` 4 written after row 6. So on 1.5.18, as on 1.5.14,
+`step_index` is neither unique nor ordered once two turns share a
+conversation.
+
+### What the pass establishes for the `--conversation` launch
+
+- **The kept state is enough, and it chains.** A fresh HOME given only
+  `conversations/<id>.db` and `brain/<id>/` rejoins the conversation, boxed
+  and unboxed, and what that HOME holds afterwards rejoins it again in
+  another. The database alone was enough in `l2c-06`; the brain directory
+  alone was not.
+- **agy does not refuse an id it does not hold.** An unknown id, a malformed
+  id and a HOME without the conversation's database each exit 0 with
+  `SUCCESS` under a **new** conversation id, with one warning on stderr. The
+  only proof that a turn rejoined is that `init.conversation_id` equals the
+  offered id.
+- **agy does not keep two turns of one conversation apart.** Both concurrent
+  rejoins succeeded, and one of them answered the other's prompt as well as
+  its own.
+- **A stored conversation carries no MCP server into a later turn.** The
+  rejoin's own HOME decides its servers, as on 1.5.14.
+- **The model and effort are the launch's, not the conversation's.**
+- **Restrictions are the launch's, not the conversation's.** See the next
+  section.
+- **A rejoin's result counts the whole conversation, not the turn.** See the
+  section after it.
+
+### A rejoin's restrictions are its own launch's
+
+One conversation, begun where a native command was allowed, then rejoined
+three times from the same kept state, each in a fresh HOME and each asked to
+run one `touch` in the same directory.
+
+| Turn | The launch | What happened |
+| --- | --- | --- |
+| `l2c-19-perm-cold` | the gate offers the native tools; `--settings` allows `command(touch)` | `run_command` ran and `native-cold.txt` exists |
+| `l2c-20-perm-rejoin-gated` | the rejoin's gate offers only `call_mcp_tool`; the same `--settings` rule | the tool row ends `ERROR`: `tool call denied by pre-tool hook: the engine's gate does not offer the tool run_command`; no file; the model answered the word and `REFUSED` |
+| `l2c-21-perm-rejoin-norule` | the cold turn's gate; no `--settings` rule | the tool row ends `ERROR`: agy's own `permission check failed for unsandboxed "touch native-norule.txt"`; no file; `REFUSED` |
+| `l2c-22-perm-rejoin-allowed` | the cold turn's gate and rule | `run_command` ran, `native-allowed.txt` exists, and the model answered the word and `RAN` |
+
+After the four turns the directory held `native-cold.txt` and
+`native-allowed.txt` and nothing else. So neither the gate's offer nor a
+permission rule rides in with a stored conversation: a rejoin is held to the
+hook its own HOME carries and the rules its own launch names, and a
+conversation that ran a native command once does not get to run one again
+under a launch that withholds it. The hook was the driver's own gate mode, of
+the engine build the controller's lanes run.
+
+### A rejoined turn's result reports the conversation's totals
+
+On a cold turn the result's `usage` equals the sum of the `usage` members its
+`step_update` rows carry. On a rejoin it does not: the result's `usage`,
+`num_turns` and `duration_seconds` are the conversation's running totals, and
+only the step rows say what this invocation used.
+
+| Turn | Sum of its own step rows (input / output / thinking / cache read) | Its result's `usage` | Result's `num_turns`, `duration_seconds` |
+| --- | --- | --- | --- |
+| `l2c-01-cold` | 9,575 / 2 / 0 / 0 | 9,575 / 2 / 0 / 0 | 1, 1.6 |
+| `l2c-02-rejoin-kept` | 9,801 / 31 / 0 / 0 | 19,376 / 33 / 0 / 0 | 2, 16.5 |
+| `l2c-03-rejoin-chain` | 10,049 / 13 / 0 / 0 | 29,425 / 46 / 0 / 0 | 3, 26.3 |
+| `l2c-10-iso-cold` (four step rows with `usage`) | 16,543 / 236 / 0 / 24,280 | 16,543 / 236 / 0 / 24,280 | 1, 11.0 |
+| `l2c-11-iso-rejoin` (two) | 12,870 / 49 / 0 / 8,724 | 29,413 / 285 / 0 / 33,004 | 2, 22.5 |
+| `l2c-12-box-cold` (three) | 14,392 / 96 / 0 / 15,963 | 14,392 / 96 / 0 / 15,963 | 1, 8.6 |
+| `l2c-13-box-rejoin` (two) | 12,722 / 55 / 0 / 8,530 | 27,114 / 151 / 0 / 24,493 | 2, 20.1 |
+
+Each rejoin's result is the earlier turns' total plus its own rows, member by
+member: 9,575 + 9,801 = 19,376, then + 10,049 = 29,425; 16,543 + 12,870 =
+29,413; 14,392 + 12,722 = 27,114. The rejoin's `duration_seconds` is longer
+than the invocation ran (16.5 where its one model step took 2.0), and it grew
+with the time since the conversation began. A step row's `usage` rides its
+`DONE` row; no `ACTIVE` row carried one.
+
+The same holds in every rejoin this record holds from earlier versions: all
+nine of the nine cold turns checked (`l2-01`, `l2-05`, `l2-06`, `l2-10`,
+`l2-12`, `l2b-01`, `l2b-05`, `resume-cold`, `resume-unknown-id`) have a result
+equal to their step rows, and none of the fourteen rejoins does (`l2-02` to
+`l2-04`, `l2-07`, `l2-11`, `l2-13`, `l2b-02`, `l2b-03`, `l2b-06` to `l2b-08`,
+`resume-warm`, `resume-warm-2`, `resume-other-cwd`), on 1.5.13 and 1.5.14 as
+on 1.5.18. For `l2-02-rejoin` the step row reads 2,253 input with 6,659 cache
+read where the result says 10,952 input: 8,699 cold + 2,253.
+
+Two turns at once break the sum, as they break everything else: `l2c-15`'s
+result (19,591) is the cold turn plus its own row and leaves out `l2c-14`'s.
+
+So a driver that launches a rejoin must take the turn's use from the turn's
+own step rows, never from the result, or each rejoined turn is charged the
+whole conversation again.
+
+Not measured in this pass: a turn killed while a command ran and its rejoin
+(the seventh measurement has it on 1.5.14 only), a rejoin launched by the
+engine's own driver, the Claude slugs, and macOS.
 
 ## Not measured
 
