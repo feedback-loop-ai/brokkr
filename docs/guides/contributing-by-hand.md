@@ -972,6 +972,9 @@ boxed samples required, as the Linux test machines run them:
 BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 BROKKR_REQUIRE_PIDNS=1 bash scripts/docs-lane.sh run
 ```
 
+Tests that run the built `brokkr doctor` need a PID namespace of their own,
+so they run only on Linux. On macOS they skip and print a notice (#1287).
+
 `test (ubuntu-latest)` and `exact coverage gate`
 then pass on the docs lane's own result (while `build (macos-latest)` still compiles on macOS), and on `full` on every machine's,
 as before: a classifier that failed, a docs lane that did not pass, or a

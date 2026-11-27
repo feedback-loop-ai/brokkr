@@ -10,8 +10,8 @@
 //!
 //! Only an [`Alone`] builds one, and a test has one only where this host
 //! can build the namespace, so a test cannot reach doctor without first
-//! having skipped or failed where it cannot: [`alone`]. The house rules
-//! make these tests Linux-only (#1287), so on macOS each test skips
+//! having skipped or failed where it cannot: [`alone`]. The contributing
+//! guide documents these Linux-only tests (#1287). On macOS each test skips
 //! with a printed notice.
 
 use std::ffi::OsStr;
@@ -135,11 +135,11 @@ impl Apart {
 #[derive(Clone, Copy)]
 pub(crate) enum Alone {}
 
-/// Skip because the house rules make built-doctor tests Linux-only (#1287).
+/// Skip Linux-only built-doctor tests (see `docs/guides/contributing-by-hand.md`, #1287).
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn alone() -> Option<Alone> {
     eprintln!(
-        "skipped on {} because the house rules make tests that run brokkr doctor Linux-only (#1287)",
+        "skipped on {} because tests that run brokkr doctor are Linux-only (see docs/guides/contributing-by-hand.md, #1287)",
         std::env::consts::OS
     );
     None

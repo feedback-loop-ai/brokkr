@@ -18,10 +18,8 @@ and the exact-coverage gate clean before reporting success.
 Commit completed work with `git` using the repository's message style. Never
 push.
 
-The supported hosts are Linux and macOS (decision 0063); WSL2 is Linux. The
-tests that run the built `brokkr doctor` need a PID namespace of their own, so
-they run only on Linux and print a skip notice on macOS (#1287).
-Write no Windows-conditional code, test or evidence.
+The supported hosts are Linux and macOS (decision 0063); WSL2 is Linux. Write
+no Windows-conditional code, test or evidence.
 
 ## Architecture
 
