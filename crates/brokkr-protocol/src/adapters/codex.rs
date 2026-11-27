@@ -29,7 +29,7 @@ use crate::native_controls::SERVING_INPUTS;
 /// permission profile denies: the engine hands it to every Codex seat,
 /// whether or not the seat binds a secret. `None` where the input hands
 /// none: a launch the engine sealed then refuses ([`Unlaunchable::Storeless`]),
-/// and only a driver run by hand, unsealed, is served its class as written.
+/// and a driver run by hand carries its own class into the final grammar read.
 pub(super) fn store(input: &Value) -> Option<&str> {
     input.get("secrets_file").and_then(Value::as_str)
 }
@@ -299,9 +299,11 @@ pub(super) fn launch_on(
 /// contribution, and the native plan is the engine's `native` one. A gate is
 /// the `read-only` class, whose capture must be into exactly the result path
 /// the input names. The cause is bounded and value-free, and names no seat.
-/// A launch no record was sealed for, and one whose record names no `local`
-/// class (an agent's class rides its hands), is not an inline Codex launch
-/// and is not judged here.
+/// A driver run by hand carries no record or native controls. Its final
+/// command is read whole under the grammar. The class and origins come
+/// from a sealed record. A record naming no `local` class goes on to the
+/// sealed final check. Native controls without a record go on to the
+/// sealed input refusal.
 pub(super) fn inline_final(
     input: &Value,
     composed: &crate::native_controls::Composed,
@@ -314,6 +316,9 @@ pub(super) fn inline_final(
         reassemble, HandsIntent, LaunchRecord, Origin, SandboxIntent, Segment,
     };
     let Some(sealed) = input.get("launch_record") else {
+        if input.get("native_controls").is_none() {
+            return read_hand_run(command).map_err(|refusal| refusal.to_string());
+        }
         return Ok(());
     };
     let refuse = |cause: &str| {
@@ -383,4 +388,23 @@ pub(super) fn inline_final(
     let judged = &command[1..];
     grammar::judge_inline_codex_command(class, judged, &contributions, capture, workdir, store)
         .map_err(|cause| refuse(&cause.to_string()))
+}
+
+#[derive(Debug, thiserror::Error)]
+enum HandRunRefusal {
+    #[error(
+        "refusing to invoke the agent CLI: the final command of this Codex driver run by hand \
+         cannot be read whole under the 'codex' grammar (argument {}, {}: it {}) \
+         (decision 0066 ruling 6)",
+        .0.at + 1, .0.label, .0.cause
+    )]
+    Grammar(grammar::Problem),
+}
+
+/// Read the composed argv as the harness receives it.
+fn read_hand_run(command: &[String]) -> Result<(), HandRunRefusal> {
+    grammar::parse_final("codex", &command[1..])
+        .expect("the codex grammar is modelled")
+        .map(|_| ())
+        .map_err(HandRunRefusal::Grammar)
 }

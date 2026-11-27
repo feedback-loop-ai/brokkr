@@ -2083,44 +2083,35 @@ fn an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_fin
 }
 
 /// Rebuild unit 26b: an argv the codex grammar cannot place whole, for an
-/// option it does not model, is read by spelling as it always was: its
-/// `--sandbox=CLASS` or `-s CLASS` is the class the rejoin re-imposes, and an
-/// admitted bare flag and a joined `--model=` travel with it.
-#[cfg(unix)]
+/// option it does not model, is read by spelling in the rejoin builder.
+/// The builder re-imposes the class and carries the flags into the command
+/// the final grammar reads.
 #[test]
-fn an_argv_the_grammar_cannot_place_rejoins_by_its_spelled_class_and_flags() {
-    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
-    let head = s(&[
+fn an_argv_the_grammar_cannot_place_builds_a_rejoin_by_its_spelled_class_and_flags() {
+    let head = [
+        "codex",
         "exec",
         "resume",
         "--json",
         "-c",
         "sandbox_mode=\"read-only\"",
-    ]);
-    for (case, extra, travels) in [
+    ];
+    for (extra, travels) in [
         (
-            "joined",
-            s(&["--sandbox=read-only", "--ephemeral", "--model=sol"]),
-            s(&["--ephemeral", "--model=sol"]),
+            &["--sandbox=read-only", "--ephemeral", "--model=sol"][..],
+            &["--ephemeral", "--model=sol"][..],
         ),
         (
-            "short",
-            s(&["-s", "read-only", "--strict-config", "-m", "sol"]),
-            s(&["--strict-config", "-m", "sol"]),
+            &["-s", "read-only", "--strict-config", "-m", "sol"],
+            &["--strict-config", "-m", "sol"],
         ),
     ] {
-        assert_eq!(
-            placed("codex", &extra).map(|command| command.nodes.len()),
-            None
-        );
-        let (seen, emitted) = offered(&mut env, &root, case, &extra);
-        let expected = [head.clone(), travels, s(&[THREAD, "-"])].concat();
-        assert_eq!(seen, expected, "{case}: the whole argv");
-        let launch = launch_rows(&emitted);
-        assert_eq!(launch[0]["launch"], "resumed", "{case}: {}", launch[0]);
+        let extra = strings(extra);
+        assert_eq!(placed("codex", &extra).map(|argv| argv.nodes.len()), None);
+        let expected = [&head[..], travels, &[THREAD, "-"]].concat();
+        let (command, class) = codex_rejoin("codex", &extra, "/w", None, &[], THREAD).unwrap();
+        assert_eq!(command, expected, "{extra:?}");
+        assert_eq!(class, "read-only", "{extra:?}");
     }
 }
 
@@ -2213,7 +2204,6 @@ fn a_closed_gate_names_its_own_reason_ahead_of_the_seat_s_local_checks() {
     let thread = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     for (case, extra, session) in [
         ("no sandbox class", vec!["--model", "sol"], thread),
-        ("a dangling class flag", vec!["--sandbox"], thread),
         ("an invented class", vec!["--sandbox", "invented"], thread),
         ("a forged id", vec!["-s", "read-only"], "not a thread"),
         (
@@ -2872,48 +2862,51 @@ fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
 
 /// The sandbox travels or the resume does not (decision 0030 ruling 2),
 /// and neither does anything else the seat declared that a resume cannot
-/// carry. Every way an offer can fail to be taken ends in the same
-/// place: the cold argv, unchanged from what it has always been, and a
-/// checkpoint saying why.
+/// carry. A declined offer with a readable cold command launches that
+/// argv and emits a checkpoint saying why. A cold command the grammar
+/// cannot place refuses before the harness receives it.
 #[cfg(unix)]
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let cases: [(&str, Vec<&str>, &str); 20] = [
+    let restricted = |tail: &[&'static str]| [&["--sandbox", "read-only"][..], tail].concat();
+    let cases = [
         // Nothing declared: a codex resume does not inherit the class
         // its thread was opened under, so there is nothing to re-impose.
-        ("undeclared", vec!["--model", "sol"], "sandbox-unavailable"),
-        // A flag with nothing after it declares nothing either.
-        ("dangling", vec!["--sandbox"], "sandbox-unavailable"),
+        (
+            "undeclared",
+            vec!["--model", "sol"],
+            Ok("sandbox-unavailable"),
+        ),
+        (
+            "dangling",
+            vec!["--sandbox"],
+            Err(hand_run_refusal(
+                5,
+                "'--sandbox'",
+                "takes a value and is the last argument, so it has none",
+            )),
+        ),
         // A class this driver cannot spell as a config override.
         (
             "invented",
             vec!["--sandbox", "invented"],
-            "unsupported-sandbox",
+            Ok("unsupported-sandbox"),
         ),
         // A second expression that could outrank the re-imposed one.
         (
             "doubled",
-            vec![
-                "--sandbox",
-                "read-only",
-                "-c",
-                "sandbox_mode=\"danger-full-access\"",
-            ],
-            "incompatible-argv",
+            restricted(&["-c", "sandbox_mode=\"danger-full-access\""]),
+            Ok("incompatible-argv"),
         ),
         // A bypass flag beside a declared class: the class is not the
         // only way to spend the sandbox.
         (
             "bypassed",
-            vec![
-                "--sandbox",
-                "read-only",
-                "--dangerously-bypass-approvals-and-sandbox",
-            ],
-            "incompatible-argv",
+            restricted(&["--dangerously-bypass-approvals-and-sandbox"]),
+            Ok("incompatible-argv"),
         ),
         // A flag that never says "sandbox" and sets one anyway: a config
         // profile may carry `sandbox_mode`, and a profile outranks a `-c`
@@ -2922,123 +2915,72 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
         // instead of spending a spawn to be told.
         (
             "profiled",
-            vec!["--sandbox", "read-only", "--profile", "loose"],
-            "incompatible-argv",
-        ),
-        // `--last` picks the newest recorded session instead of the one
-        // on offer. The seat's argv never redirects the engine's offer.
-        (
-            "redirected",
-            vec!["--sandbox", "read-only", "--last"],
-            "incompatible-argv",
+            restricted(&["--profile", "loose"]),
+            Ok("incompatible-argv"),
         ),
         // A bare word lands positionally, where `codex exec resume
         // [SESSION_ID] [PROMPT]` reads it as the session — ahead of the
         // thread this driver appends.
         (
             "positional",
-            vec!["--sandbox", "read-only", "some-other-thread"],
-            "incompatible-argv",
+            restricted(&["some-other-thread"]),
+            Err(hand_run_refusal(
+                7,
+                "a positional argument, whose text is not echoed",
+                "is a bare word, and no positional argument is part of the supported shape",
+            )),
         ),
-        // Shapes NEW in 0.154.0 and never previously supported: a managed
-        // git worktree session and an alternate thread source. They are
-        // outside the allow-list and are not read as qualified.
-        (
-            "worktree",
-            vec!["--sandbox", "read-only", "--worktree"],
-            "incompatible-argv",
-        ),
-        (
-            "thread-source",
-            vec!["--sandbox", "read-only", "--thread-source"],
-            "incompatible-argv",
-        ),
-        // The rest of what `codex exec` takes and `codex exec resume`
-        // does not, measured on 0.154.0 and enumerated under
-        // `/obligations/allowed_safe_passthrough/exec_accepts_but_resume_does_not`
-        // in `.forge/tasks/controller-codex-interface-2026-09-17.json`.
-        //
-        // Each also earns a case at the raw blocker seam in
-        // `only_the_flags_a_resume_can_safely_carry_travel_with_it`, but
-        // that seam observes one thing: the string the blocker returns.
-        // The consequence the engine actually journals — the refusal
-        // token, the cold argv unchanged from what the seat declared, and
-        // the absent root — is observable only here. Each case declares a
-        // class first, so the sandbox path is satisfied and the ONLY
-        // thing that fails is passthrough admission.
-        //
-        // `--sandbox` is deliberately not among them: at this seam a
-        // declared class is translated into `-c sandbox_mode=<class>`
-        // rather than refused, and its absence from the resume surface is
-        // what the argv test's no-sandbox-flag assertion already proves.
+        // The raw blocker tests also exercise these passthrough cases.
         (
             "workdir",
-            vec!["--sandbox", "read-only", "--cd", "/distinctive-workdir"],
-            "incompatible-argv",
+            restricted(&["--cd", "/distinctive-workdir"]),
+            Err(hand_run_repeat_refusal(7, "--cd")),
         ),
         (
             "added-dir",
-            vec![
-                "--sandbox",
-                "read-only",
-                "--add-dir",
-                "/distinctive-added-dir",
-            ],
-            "incompatible-argv",
+            restricted(&["--add-dir", "/distinctive-added-dir"]),
+            Ok("incompatible-argv"),
         ),
         (
             "colored",
-            vec!["--sandbox", "read-only", "--color", "never"],
-            "incompatible-argv",
-        ),
-        (
-            "local-provider",
-            vec![
-                "--sandbox",
-                "read-only",
-                "--local-provider",
-                "distinctive-provider",
-            ],
-            "incompatible-argv",
-        ),
-        (
-            "oss",
-            vec!["--sandbox", "read-only", "--oss"],
-            "incompatible-argv",
-        ),
-        (
-            "approving",
-            vec!["--sandbox", "read-only", "--approve-for-me"],
-            "incompatible-argv",
-        ),
-        (
-            "versioned",
-            vec!["--sandbox", "read-only", "--version"],
-            "incompatible-argv",
-        ),
-        // The value-bearing spellings of a shape NEW in 0.154.0. The
-        // `thread-source` case above carries the flag dangling, which the
-        // value branch refuses for want of a value — so it passes even
-        // when the name has been admitted to the value list and cannot
-        // detect that admission. These two can.
-        (
-            "thread-source-value",
-            vec!["--sandbox", "read-only", "--thread-source", "github"],
-            "incompatible-argv",
+            restricted(&["--color", "never"]),
+            Ok("incompatible-argv"),
         ),
         (
             "thread-source-joined",
-            vec!["--sandbox", "read-only", "--thread-source=github"],
-            "incompatible-argv",
+            restricted(&["--thread-source=github"]),
+            Err(hand_run_refusal(
+                7,
+                "'--thread-source'",
+                "names no option, or names one that has no equals-joined spelling",
+            )),
         ),
         // An id that is not a plain thread id never reaches an argv.
         (
             "forged",
             vec!["--sandbox", "read-only"],
-            "invalid-session-id",
+            Ok("invalid-session-id"),
         ),
     ];
-    for (case, extra, refusal) in cases {
+    let unmodelled = [
+        ("redirected", &["--last"][..]),
+        ("worktree", &["--worktree"]),
+        ("thread-source", &["--thread-source"]),
+        (
+            "local-provider",
+            &["--local-provider", "distinctive-provider"],
+        ),
+        ("oss", &["--oss"]),
+        ("approving", &["--approve-for-me"]),
+        ("versioned", &["--version"]),
+        ("thread-source-value", &["--thread-source", "github"]),
+    ];
+    let unreadable = unmodelled.into_iter().map(|(case, tail)| {
+        let label = format!("'{}'", tail[0]);
+        let refusal = hand_run_refusal(7, &label, "names no option");
+        (case, restricted(tail), Err(refusal))
+    });
+    for (case, extra, refusal) in cases.into_iter().chain(unreadable) {
         let argv = dir.path().join(format!("argv-{case}"));
         let shim = codex_shim(dir.path(), &format!("codex-{case}"), &argv);
         let extra: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
@@ -3048,7 +2990,7 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
             THREAD
         };
         let mut emitted = Vec::new();
-        with_codex_bin(&mut env, &shim, || {
+        let launched = with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &extra,
@@ -3058,8 +3000,18 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
                 &[],
                 &mut |event| emitted.push(event.clone()),
             )
-            .unwrap()
         });
+        let refusal = match refusal {
+            Ok(refusal) => {
+                assert_eq!(launched.unwrap().exit_code, 0, "{case}");
+                refusal
+            }
+            Err(error) => {
+                assert_eq!(launched.err(), Some(error), "{case}");
+                assert!(!argv.exists(), "{case}");
+                continue;
+            }
+        };
         let mut cold = vec![
             "exec".to_string(),
             "--json".into(),
@@ -15223,8 +15175,9 @@ fn an_authored_native_control_is_refused_whatever_the_seat_holds() {
 /// composer, and the driver opens its sentence in its own voice and closes
 /// it with the composer's cause. Codex cold and rejoining, Claude cold, the
 /// seat holding its powers or not; the refusal names the seat and what was
-/// written, never a value. A driver run by hand carries no plan and its
-/// argv stays the operator's own, as it always was.
+/// written, never a value. The Codex grammar can read the hand-run
+/// command's configuration options, and the driver's argv remains the
+/// operator's own.
 #[test]
 fn an_authored_capability_server_is_refused_at_launch_in_the_drivers_own_voice() {
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -15306,8 +15259,8 @@ fn an_authored_capability_server_is_refused_at_launch_in_the_drivers_own_voice()
             );
         }
     }
-    // By hand there is no plan to compose against, and no provenance: the
-    // operator's own argv is launched as written.
+    // By hand the grammar reads the configuration options and the driver
+    // keeps the operator's argv as written.
     let by_hand = json!({"workdir": "/w"});
     let (extra, _) = &codex_cases[0];
     assert_eq!(
@@ -15326,6 +15279,64 @@ fn an_authored_capability_server_is_refused_at_launch_in_the_drivers_own_voice()
             "mcp_servers.ungranted.args=[\"fetch-mcp\"]"
         ]
     );
+}
+
+fn hand_run_refusal(at: usize, label: &str, cause: &str) -> String {
+    format!(
+        "refusing to invoke the agent CLI: the final command of this Codex driver run by hand \
+         cannot be read whole under the 'codex' grammar (argument {at}, {label}: it {cause}) \
+         (decision 0066 ruling 6)"
+    )
+}
+
+fn hand_run_repeat_refusal(at: usize, option: &str) -> String {
+    let cause = format!(
+        "repeats option '{option}', which the grammar admits once; a CLI that resolves a \
+         duplicate last-wins would resolve it against the control the engine composed"
+    );
+    hand_run_refusal(at, &format!("'{option}'"), &cause)
+}
+
+#[test]
+fn a_hand_run_codex_refuses_every_model_repeat_before_launch() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let argv = dir.path().join("argv");
+    let shim = codex_shim(dir.path(), "codex", &argv);
+    let workdir = dir.path().to_str().unwrap();
+    let input = json!({"workdir": workdir});
+    with_codex_bin(&mut env, &shim, || {
+        let launch = |extra: &[&str]| {
+            invoke(
+                AdapterKind::Codex,
+                &strings(extra),
+                "prompt",
+                &input,
+                None,
+                &[],
+                &mut |_| {},
+            )
+        };
+        for (extra, at) in [
+            (&["-m", "a", "--model", "b"][..], 7),
+            (&["--model", "a", "-m", "b"], 7),
+            (&["-m", "a", "-m", "b"], 7),
+            (&["--model=a", "-mb"], 6),
+        ] {
+            let result = launch(extra);
+            assert_eq!(recorded(&argv), Vec::<String>::new(), "{extra:?}");
+            assert_eq!(
+                result.err(),
+                Some(hand_run_repeat_refusal(at, "--model")),
+                "{extra:?}"
+            );
+        }
+        assert_eq!(launch(&["-m", "a"]).unwrap().exit_code, 0);
+        assert_eq!(
+            recorded(&argv),
+            ["exec", "--json", "-C", workdir, "-m", "a"]
+        );
+    });
 }
 
 /// The engine's plan with the guard `adapters/codex.json` SHIPS, read from

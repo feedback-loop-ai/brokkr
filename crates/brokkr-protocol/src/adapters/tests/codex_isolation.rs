@@ -391,7 +391,8 @@ fn a_host_holding_codex_configuration_refuses_the_seat_before_any_provider_work(
 /// refuses at the driver's door rather than keep the `--sandbox` form. Half
 /// the pair, or the plan alone, passes the door to the refusals the existing
 /// checks make of it (`the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam`
-/// and the unpaired record's), and a driver run by hand launches as written.
+/// and the unpaired record's). The door lets a driver run by hand proceed
+/// without a store.
 #[test]
 fn a_sealed_codex_launch_handed_no_store_refuses_at_the_door() {
     let local = ["--sandbox", "workspace-write"];
@@ -412,6 +413,26 @@ fn a_sealed_codex_launch_handed_no_store_refuses_at_the_door() {
         assert_eq!(codex::admitted(&alone, "/w", absent), Ok(()), "{key}");
     }
     assert_eq!(codex::admitted(&base, "/w", absent), Ok(()));
+}
+
+#[test]
+fn a_hand_run_codex_rejoin_refuses_a_repeat_in_its_cold_replacement() {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = codex_shim(dir.path(), "codex", &dir.path().join("argv"));
+    let bin = shim.to_str().unwrap();
+    let input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
+    let offered =
+        |extra: &[&str]| codex_launch_and_cold(bin, &strings(extra), "/w", Some(THREAD), &input);
+    assert_eq!(
+        offered(&["-s", "read-only", "-m", "a", "--model", "b"]).err(),
+        Some(hand_run_repeat_refusal(8, "--model"))
+    );
+    // The rejoin re-expresses the sandbox once, while the cold command
+    // with no store carries both spellings.
+    assert_eq!(
+        offered(&["-s", "read-only", "--sandbox", "workspace-write", "-m", "a"]).err(),
+        Some(hand_run_repeat_refusal(7, "--sandbox"))
+    );
 }
 
 /// 45.5: the compile-time reading, [`codex_command`], is the composition
