@@ -13,7 +13,7 @@ use crate::bundle::{
     Aggregate, Bundle, GateAssessment, Invocation, MemberLaw, PanelMember, SeatBody, SeatClass,
     SequenceStep, StepBody,
 };
-use crate::engine::tests::{single_body, step_body};
+use crate::engine::tests::{own_engine, single_body, step_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::findings::ResidualPair;
 use brokkr_core::policy::Machine;
@@ -82,6 +82,7 @@ const PAIR: [&str; 2] = ["max_residual_severity", "has_security_residual"];
 /// security and adversarial members; the panel is admitted and ships.
 #[test]
 fn the_shipped_engine_panel_compiled_and_run_admits_every_members_clean() {
+    own_engine!();
     let steps = steps_of(&shipped("triage"), "review", Some("engine"));
     let (members, aggregate) = answering(&steps[0], |_| clean());
     assert_eq!(members.len(), 4);
@@ -99,6 +100,7 @@ fn the_shipped_engine_panel_compiled_and_run_admits_every_members_clean() {
 /// the member's evidence and the reason it was refused.
 #[test]
 fn a_hold_outside_a_members_list_or_the_narrow_default_is_refused_and_parks() {
+    own_engine!();
     let steps = steps_of(&shipped("triage"), "review", Some("engine"));
     let listless = Aggregate::ReviewPanel.member_results(None);
     for law in [None, Some(listless)] {
@@ -134,6 +136,7 @@ fn a_hold_outside_a_members_list_or_the_narrow_default_is_refused_and_parks() {
 /// both members, and the sequence reaches its chief.
 #[test]
 fn the_shipped_design_positions_pass_and_reach_their_chief() {
+    own_engine!();
     for recipe in ["triage", "gpt-flash"] {
         let steps = steps_of(&shipped(recipe), "design", None);
         let (members, aggregate) = answering(&steps[0], |_| json!({"result": "pass"}));
@@ -195,6 +198,7 @@ fn refusal_of(events: &[EventEnvelope], member: &str) -> Value {
 /// admitted: the member is held to the pair alone.
 #[test]
 fn a_triage_shaped_all_clean_panel_carries_both_inputs_and_is_admitted() {
+    own_engine!();
     let (_dir, events) = triage_panel(|_| clean());
     let review = &decided(&events, "review")[0];
     assert_eq!(review["result"], "clean", "{review}");
@@ -208,6 +212,7 @@ fn a_triage_shaped_all_clean_panel_carries_both_inputs_and_is_admitted() {
 /// refused, and its word never reaches the join.
 #[test]
 fn a_member_omitting_a_residual_input_is_refused_before_the_join() {
+    own_engine!();
     let (_dir, events) = triage_panel(|name| match name {
         "spec-compliance" => {
             json!({"result": "clean", "inputs": {"max_residual_severity": "none"}})
@@ -232,6 +237,7 @@ fn high(word: &str, security: bool) -> Value {
 /// because its agent lists no `security-hold`, so the panel parks.
 #[test]
 fn a_correctness_members_security_finding_is_refused_and_parks() {
+    own_engine!();
     let (_dir, events) = triage_panel(|name| match name {
         "correctness" => high("residual", true),
         _ => clean(),
@@ -247,6 +253,7 @@ fn a_correctness_members_security_finding_is_refused_and_parks() {
 /// security finding is lawful, and the panel's word is the hold.
 #[test]
 fn the_security_members_hold_over_a_high_security_finding_is_admitted() {
+    own_engine!();
     let (_dir, events) = triage_panel(|name| match name {
         "security" => high("security-hold", true),
         _ => clean(),
@@ -262,6 +269,7 @@ fn the_security_members_hold_over_a_high_security_finding_is_admitted() {
 /// residual is refused.
 #[test]
 fn a_work_class_members_clean_over_a_declared_high_residual_is_refused() {
+    own_engine!();
     let steps = steps_of(&shipped("gpt-flash"), "review", Some("engine"));
     let (members, aggregate) = answering(&steps[0], |name| match name {
         "correctness" => json!({"result": "clean", "inputs": {
@@ -325,6 +333,7 @@ fn word_refused(refusal: &str) -> String {
 /// is never rewritten.
 #[test]
 fn decide_refuses_a_gates_clean_over_its_declared_residual_or_its_security_finding() {
+    own_engine!();
     let pair = |severity: &str, security: bool| json!({"max_residual_severity": severity, "has_security_residual": security});
     let rows = [
         (
@@ -360,6 +369,7 @@ fn decide_refuses_a_gates_clean_over_its_declared_residual_or_its_security_findi
 /// verdict, whatever it declares.
 #[test]
 fn decide_admits_every_lawful_word_and_leaves_a_work_seats_word_alone() {
+    own_engine!();
     let (review, _) = decided_on(json!({"result": "clean"}), &[]);
     assert_eq!(
         (review["result"].as_str(), review["rule_id"].as_str()),
@@ -393,6 +403,7 @@ fn decide_admits_every_lawful_word_and_leaves_a_work_seats_word_alone() {
 /// rewritten.
 #[test]
 fn a_non_final_gate_steps_refused_word_fails_the_attempt_and_no_later_step_runs() {
+    own_engine!();
     // Every compiled step carries its seat's pair: triage's review steps
     // carry the review seat's.
     let pair = ResidualPair::declared_in(&PAIR);

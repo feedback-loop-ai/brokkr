@@ -758,7 +758,7 @@
    225 crates/brokkr-runtime/src/engine/resume/tests.rs
   4059 crates/brokkr-runtime/src/engine/resume_tests.rs
    303 crates/brokkr-runtime/src/engine/secret_threading_tests.rs
-  6468 crates/brokkr-runtime/src/engine/tests.rs
+  6440 crates/brokkr-runtime/src/engine/tests.rs
    368 crates/brokkr-runtime/src/engine/tests/entry.rs
     43 crates/brokkr-runtime/src/engine/worktree/tests.rs
    427 crates/brokkr-runtime/src/keep_refs/tests.rs

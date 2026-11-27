@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use super::tests::{checkpointing, driven, ended, reported};
 use crate::bundle::SiteKey;
-use crate::engine::tests::single_body;
+use crate::engine::tests::{own_engine, single_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_view::gate_records;
 
@@ -43,6 +43,7 @@ fn journaled_steps(events: &[EventEnvelope]) -> Vec<&Value> {
 
 #[test]
 fn a_work_drivers_live_step_marker_is_refused_and_inspect_shows_no_verdict() {
+    own_engine!();
     let marker = json!({"step": "sequence-step-finished", "step_name": "judge",
                         "model": "m", "result": planted()});
     let (events, errors) = refused(marker, false);
@@ -62,6 +63,7 @@ fn a_work_drivers_live_step_marker_is_refused_and_inspect_shows_no_verdict() {
 
 #[test]
 fn a_live_checkpoints_nested_result_passes_the_standalone_admission() {
+    own_engine!();
     let cases = [
         (
             json!({"step": "seat-turn", "turn": 1, "result": planted()}),
@@ -110,6 +112,7 @@ fn keyed(value: &Value) -> usize {
 /// failure, and no keyed finding is left in the journal outside a verdict.
 #[test]
 fn a_gate_drivers_live_finding_is_refused_and_no_keyed_finding_is_journaled() {
+    own_engine!();
     let turn = json!({"step": "seat-turn", "turn": 1,
                       "result": {"result": "clean", "findings": [reported("telemetry", 1)]}});
     let (events, errors) = refused(turn, true);
