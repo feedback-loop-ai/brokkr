@@ -1280,7 +1280,7 @@ fn version_probe_applies_sealed_removals_and_readmits_workspace_before_launch() 
     assert!(!any_marker.exists(), "--version must not spawn");
 }
 
-fn make_fifo(path: &Path) {
+pub(super) fn make_fifo(path: &Path) {
     use std::ffi::CString;
     let cpath = CString::new(path.as_os_str().as_bytes()).unwrap();
     let rc = unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) };

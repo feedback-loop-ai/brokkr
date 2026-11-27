@@ -1633,14 +1633,7 @@ fn f10_restore_error_branches_and_transcript_staging_cleanup() {
     let op_fifo = dir.path().join("op-fifo-lock");
     let conv_fifo = seed_kept(&op_fifo, UUID_A, b"db", &[("a.txt", b"a")]);
     let fifo_path = conv_fifo.join(LOCK_FILE);
-    rustix::fs::mknodat(
-        CWD,
-        &fifo_path,
-        rustix::fs::FileType::Fifo,
-        Mode::from_raw_mode(0o600),
-        0,
-    )
-    .unwrap();
+    super::rejoin::make_fifo(&fifo_path);
     assert_eq!(
         lock_and_restore(UUID_A, &eng, Some(&op_fifo), RejoinCaps::DEFAULT).err(),
         Some(RestoreNotice::Copy(RejoinNotice::Source(
