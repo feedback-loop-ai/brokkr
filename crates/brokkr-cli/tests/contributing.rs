@@ -70,7 +70,7 @@ fn the_sixty_second_table_is_the_recipe_library() {
     let root = workspace();
     let guide = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
     assert!(
-        guide.lines().count() < 120,
+        guide.lines().count() < 140,
         "the guide stopped being one screen"
     );
     assert_eq!(

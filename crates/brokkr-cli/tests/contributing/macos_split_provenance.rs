@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::workspace;
 use crate::workflow::{
-    self, ActionMatch, ArtifactName, ClosedFormRefusal, ClosedWorkflowError, Inputs, Job,
-    RefusalKind, Scalar, Step, Workflow, WorkflowError,
+    self, ActionMatch, ArtifactName, ClosedFormRefusal, ClosedJob, ClosedStep, ClosedWorkflow,
+    ClosedWorkflowError, Inputs, RefusalKind, Scalar, Workflow, WorkflowError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,7 +45,7 @@ enum ProvenanceProblem {
     },
     BuildUsesPagesUpload,
     BuildUsesUploadSubAction(String),
-    UnexpectedBuildUploadNames(Vec<Option<String>>),
+    UnexpectedBuildUploadNames(Vec<Option<ArtifactName>>),
     UnparseableUses {
         source: String,
         job_id: String,
@@ -118,17 +118,14 @@ enum ProvenanceProblem {
 }
 
 fn build_matrix_artifact_names(
-    build: &Job,
+    build: &ClosedJob,
     problems: &mut Vec<ProvenanceProblem>,
 ) -> (BTreeSet<String>, BTreeSet<String>) {
     let (mut all, mut linux_pkg) = (BTreeSet::new(), BTreeSet::new());
-    let Some(matrix) = &build.matrix else {
+    let Some(matrix) = build.matrix() else {
         problems.push(ProvenanceProblem::MissingBuildMatrix);
         return (all, linux_pkg);
     };
-    if let Err(refusal) = matrix.require_no_exclude("release.yml", "build") {
-        problems.push(ProvenanceProblem::ClosedForm(refusal));
-    }
     if !matrix.axes.is_empty() {
         problems.push(ProvenanceProblem::UnexpectedBuildMatrixShape);
     }
@@ -163,20 +160,20 @@ fn build_matrix_artifact_names(
     (all, linux_pkg)
 }
 
-fn called_workflows_in(
+fn called_workflows_in_uses<'a>(
     source: &str,
-    wf: &Workflow,
+    jobs: impl Iterator<Item = (&'a str, Option<&'a str>)>,
     problems: &mut Vec<ProvenanceProblem>,
 ) -> Vec<String> {
     let mut called = Vec::new();
-    for job in &wf.jobs {
-        let Some(target) = job.uses.as_deref() else {
+    for (job_id, uses) in jobs {
+        let Some(target) = uses else {
             continue;
         };
         if target.is_empty() || target.contains("${{") || target.contains(['\n', '\r']) {
             problems.push(ProvenanceProblem::UnparseableCalledWorkflow {
                 source: source.to_string(),
-                job_id: job.id.clone(),
+                job_id: job_id.to_string(),
                 target: target.to_string(),
             });
             continue;
@@ -188,7 +185,7 @@ fn called_workflows_in(
             Some(path) => called.push(path.to_string()),
             None => problems.push(ProvenanceProblem::ExternalCalledWorkflow {
                 source: source.to_string(),
-                job_id: job.id.clone(),
+                job_id: job_id.to_string(),
                 target: target.to_string(),
             }),
         }
@@ -219,11 +216,11 @@ fn check_download_with_keys(job_id: &str, with: &Inputs, problems: &mut Vec<Prov
     }
 }
 
-fn check_build_uploads(build: &Job, problems: &mut Vec<ProvenanceProblem>) {
-    if let Some(cond) = &build.if_cond {
+fn check_build_uploads(build: &ClosedJob, problems: &mut Vec<ProvenanceProblem>) {
+    if let Some(cond) = build.condition.raw() {
         problems.push(ProvenanceProblem::ConditionalJob {
             job_id: "build".to_string(),
-            cond: cond.clone(),
+            cond: cond.to_string(),
         });
     }
     if build.allows_failure() {
@@ -233,7 +230,7 @@ fn check_build_uploads(build: &Job, problems: &mut Vec<ProvenanceProblem>) {
     }
     let mut upload_names = Vec::new();
     for step in &build.steps {
-        let Some(uses) = step.uses.as_deref() else {
+        let Some(uses) = step.uses() else {
             continue;
         };
         if matches!(
@@ -260,10 +257,10 @@ fn check_build_uploads(build: &Job, problems: &mut Vec<ProvenanceProblem>) {
             }
             Some(ActionMatch::Exact) => {}
         }
-        if let Some(cond) = &step.if_cond {
+        if let Some(cond) = step.condition.raw() {
             problems.push(ProvenanceProblem::ConditionalUploadStep {
                 job_id: "build".to_string(),
-                cond: cond.clone(),
+                cond: cond.to_string(),
             });
         }
         if step.allows_failure() {
@@ -271,9 +268,9 @@ fn check_build_uploads(build: &Job, problems: &mut Vec<ProvenanceProblem>) {
                 job_id: "build".to_string(),
             });
         }
-        upload_names.push(step.with_str("name").map(str::to_string));
+        upload_names.push(step.artifact_name.clone());
     }
-    if upload_names != [Some("${{ matrix.name }}".to_string())] {
+    if upload_names != [Some(ArtifactName::MatrixAxis("name".to_string()))] {
         problems.push(ProvenanceProblem::UnexpectedBuildUploadNames(upload_names));
     }
 }
@@ -296,16 +293,16 @@ impl<'a> DownloadExpectation<'a> {
 
 fn check_download_step(
     job_id: &str,
-    step: &Step,
+    step: &ClosedStep,
     spec: &DownloadExpectation<'_>,
     seen: &mut BTreeSet<String>,
     problems: &mut Vec<ProvenanceProblem>,
 ) {
     if spec.expected.is_some_and(|e| !e.is_empty()) {
-        if let Some(cond) = &step.if_cond {
+        if let Some(cond) = step.condition.raw() {
             problems.push(ProvenanceProblem::ConditionalDownloadStep {
                 job_id: job_id.to_string(),
-                cond: cond.clone(),
+                cond: cond.to_string(),
             });
         }
         if step.allows_failure() {
@@ -314,7 +311,7 @@ fn check_download_step(
             });
         }
     }
-    let Some(with) = &step.with else {
+    let Some(with) = step.with() else {
         problems.push(ProvenanceProblem::DownloadMissingName {
             job_id: job_id.to_string(),
         });
@@ -330,43 +327,39 @@ fn check_download_step(
             });
         }
     }
-    match with.get("name") {
+    match &step.artifact_name {
         None => problems.push(ProvenanceProblem::DownloadMissingName {
             job_id: job_id.to_string(),
         }),
-        Some(raw) => {
-            let place = format!("job {job_id} download with.name");
-            match ArtifactName::parse(raw, None, "release.yml", &place) {
-                Err(refusal) => problems.push(ProvenanceProblem::ClosedForm(refusal)),
-                Ok(ArtifactName::Literal(name)) => {
-                    if !spec.allowed.contains(&name) {
-                        problems.push(ProvenanceProblem::DownloadDisallowedName {
-                            job_id: job_id.to_string(),
-                            name: name.clone(),
-                        });
-                    }
-                    seen.insert(name);
-                }
-                Ok(_) => problems.push(ProvenanceProblem::DownloadNonLiteralName {
+        Some(ArtifactName::Literal(name)) => {
+            if !spec.allowed.contains(name) {
+                problems.push(ProvenanceProblem::DownloadDisallowedName {
                     job_id: job_id.to_string(),
-                    raw: raw.clone(),
-                }),
+                    name: name.clone(),
+                });
             }
+            seen.insert(name.clone());
+        }
+        Some(ArtifactName::MatrixAxis(_) | ArtifactName::JobIndex { .. }) => {
+            problems.push(ProvenanceProblem::DownloadNonLiteralName {
+                job_id: job_id.to_string(),
+                raw: with.get("name").cloned().unwrap_or(Scalar::Null),
+            });
         }
     }
 }
 
 fn check_job_downloads(
-    job: &Job,
+    job: &ClosedJob,
     spec: &DownloadExpectation<'_>,
     problems: &mut Vec<ProvenanceProblem>,
 ) {
-    let id = &job.id;
+    let id = job.id().to_string();
     if spec.expected.is_some_and(|e| !e.is_empty()) {
-        if let Some(cond) = &job.if_cond {
+        if let Some(cond) = job.condition.raw() {
             problems.push(ProvenanceProblem::ConditionalJob {
                 job_id: id.clone(),
-                cond: cond.clone(),
+                cond: cond.to_string(),
             });
         }
         if job.allows_failure() {
@@ -375,7 +368,7 @@ fn check_job_downloads(
     }
     let mut seen = BTreeSet::new();
     for step in &job.steps {
-        let Some(uses) = step.uses.as_deref() else {
+        let Some(uses) = step.uses() else {
             continue;
         };
         match workflow::action_repo_match(uses, "actions/download-artifact") {
@@ -386,7 +379,7 @@ fn check_job_downloads(
             }),
             Some(ActionMatch::Other) => {}
             Some(ActionMatch::Exact | ActionMatch::SubAction(_)) => {
-                check_download_step(id, step, spec, &mut seen, problems);
+                check_download_step(&id, step, spec, &mut seen, problems);
             }
         }
     }
@@ -401,19 +394,19 @@ fn check_job_downloads(
 
 fn check_non_build_uploads(
     source: &str,
-    job: &Job,
+    job: &ClosedJob,
     build_names: &BTreeSet<String>,
     problems: &mut Vec<ProvenanceProblem>,
 ) {
-    for (idx, step) in job.steps.iter().enumerate() {
-        let Some(uses) = step.uses.as_deref() else {
+    for step in &job.steps {
+        let Some(uses) = step.uses() else {
             continue;
         };
         let is_artifact = match workflow::action_repo_match(uses, "actions/upload-artifact") {
             None => {
                 problems.push(ProvenanceProblem::UnparseableUses {
                     source: source.to_string(),
-                    job_id: job.id.clone(),
+                    job_id: job.id().to_string(),
                     uses: uses.to_string(),
                 });
                 continue;
@@ -428,36 +421,32 @@ fn check_non_build_uploads(
         if !is_artifact && !is_pages {
             continue;
         }
-        match (is_pages, step.with_value("name")) {
+        match (is_pages, &step.artifact_name) {
             (true, None) if build_names.contains("github-pages") => {
                 problems.push(ProvenanceProblem::PagesDefaultUploadCollision {
                     source: source.to_string(),
-                    job_id: job.id.clone(),
+                    job_id: job.id().to_string(),
                 });
             }
             (true, None) => {}
             (false, None) => problems.push(ProvenanceProblem::UnnamedUpload {
                 source: source.to_string(),
-                job_id: job.id.clone(),
+                job_id: job.id().to_string(),
             }),
-            (_, Some(raw)) => {
-                let place = format!("job {} step {} with.name", job.id, idx + 1);
-                match ArtifactName::parse(raw, job.matrix.as_ref(), source, &place) {
-                    Err(refusal) => problems.push(ProvenanceProblem::ClosedForm(refusal)),
-                    Ok(ArtifactName::Literal(name)) if build_names.contains(&name) => {
-                        problems.push(ProvenanceProblem::CollidingUploadName {
-                            source: source.to_string(),
-                            job_id: job.id.clone(),
-                            name,
-                        });
-                    }
-                    Ok(ArtifactName::Literal(_)) => {}
-                    Ok(_) => problems.push(ProvenanceProblem::UnresolvedUploadName {
-                        source: source.to_string(),
-                        job_id: job.id.clone(),
-                        raw: raw.clone(),
-                    }),
-                }
+            (_, Some(ArtifactName::Literal(name))) if build_names.contains(name) => {
+                problems.push(ProvenanceProblem::CollidingUploadName {
+                    source: source.to_string(),
+                    job_id: job.id().to_string(),
+                    name: name.clone(),
+                });
+            }
+            (_, Some(ArtifactName::Literal(_))) => {}
+            (_, Some(ArtifactName::MatrixAxis(_) | ArtifactName::JobIndex { .. })) => {
+                problems.push(ProvenanceProblem::UnresolvedUploadName {
+                    source: source.to_string(),
+                    job_id: job.id().to_string(),
+                    raw: step.with_value("name").cloned().unwrap_or(Scalar::Null),
+                });
             }
         }
     }
@@ -468,7 +457,7 @@ fn release_artifact_provenance_problems(
     called_workflows: &BTreeMap<String, String>,
 ) -> Vec<ProvenanceProblem> {
     let mut problems = Vec::new();
-    let wf = match Workflow::parse_closed_form("release.yml", release) {
+    let wf = match ClosedWorkflow::parse("release.yml", release) {
         Ok(wf) => wf,
         Err(ClosedWorkflowError::Parse { file, err }) => {
             return vec![ProvenanceProblem::UnreadableWorkflow { file, err }];
@@ -486,7 +475,7 @@ fn release_artifact_provenance_problems(
     let no_artifacts = BTreeSet::new();
     let (mut saw_publish, mut saw_pages) = (false, false);
     for job in &wf.jobs {
-        if job.id == "build" {
+        if job.id() == "build" {
             let spec = DownloadExpectation {
                 expected: Some(&no_artifacts),
                 expected_path: None,
@@ -496,7 +485,7 @@ fn release_artifact_provenance_problems(
             continue;
         }
         check_non_build_uploads("release.yml", job, &build_names, &mut problems);
-        let spec = match job.id.as_str() {
+        let spec = match job.id() {
             "publish" => {
                 saw_publish = true;
                 DownloadExpectation::dist(&build_names, &build_names)
@@ -526,12 +515,16 @@ fn release_artifact_provenance_problems(
 }
 
 fn check_called_workflows(
-    release_wf: &Workflow,
+    release_wf: &ClosedWorkflow,
     called_workflows: &BTreeMap<String, String>,
     build_names: &BTreeSet<String>,
     problems: &mut Vec<ProvenanceProblem>,
 ) {
-    let mut pending = called_workflows_in("release.yml", release_wf, problems);
+    let mut pending = called_workflows_in_uses(
+        "release.yml",
+        release_wf.jobs.iter().map(|j| (j.id(), j.uses())),
+        problems,
+    );
     let mut visited = BTreeSet::new();
     while let Some(path) = pending.pop() {
         if !visited.insert(path.clone()) {
@@ -541,7 +534,7 @@ fn check_called_workflows(
             problems.push(ProvenanceProblem::UncheckedCalledWorkflow(path));
             continue;
         };
-        let called_wf = match Workflow::parse_closed_form(&path, text) {
+        let called_wf = match ClosedWorkflow::parse(&path, text) {
             Ok(wf) => wf,
             Err(ClosedWorkflowError::Parse { file, err }) => {
                 problems.push(ProvenanceProblem::UnreadableWorkflow { file, err });
@@ -555,7 +548,11 @@ fn check_called_workflows(
         for job in &called_wf.jobs {
             check_non_build_uploads(&path, job, build_names, problems);
         }
-        pending.extend(called_workflows_in(&path, &called_wf, problems));
+        pending.extend(called_workflows_in_uses(
+            &path,
+            called_wf.jobs.iter().map(|j| (j.id(), j.uses())),
+            problems,
+        ));
     }
 }
 
@@ -564,7 +561,14 @@ fn release_and_called() -> (String, BTreeMap<String, String>) {
     let release = std::fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
     let release_wf = Workflow::parse(&release).expect("release.yml parses");
     let mut problems = Vec::new();
-    let mut pending = called_workflows_in("release.yml", &release_wf, &mut problems);
+    let mut pending = called_workflows_in_uses(
+        "release.yml",
+        release_wf
+            .jobs
+            .iter()
+            .map(|j| (j.id.as_str(), j.uses.as_deref())),
+        &mut problems,
+    );
     assert_eq!(problems, Vec::<ProvenanceProblem>::new());
     let mut called = BTreeMap::new();
     while let Some(path) = pending.pop() {
@@ -573,7 +577,11 @@ fn release_and_called() -> (String, BTreeMap<String, String>) {
         }
         let text = std::fs::read_to_string(root.join(&path)).unwrap();
         let wf = Workflow::parse(&text).unwrap_or_else(|e| panic!("{path} parses: {e}"));
-        pending.extend(called_workflows_in(&path, &wf, &mut problems));
+        pending.extend(called_workflows_in_uses(
+            &path,
+            wf.jobs.iter().map(|j| (j.id.as_str(), j.uses.as_deref())),
+            &mut problems,
+        ));
         assert_eq!(problems, Vec::<ProvenanceProblem>::new());
         called.insert(path, text);
     }
@@ -1152,4 +1160,72 @@ fn release_provenance_rejects_conditional_build_uploads_and_downloads() {
             if r.kind == RefusalKind::WorkflowEnv
                 && r.to_string().contains("not a form this guard reads")
     ));
+}
+
+#[test]
+fn release_provenance_closes_round_2_closed_form_findings() {
+    let (release, called) = release_and_called();
+
+    // G1: comparing boolean/optional matrix.cross against 'true' is refused at admission.
+    let cross_cmp = release.replacen(
+        "        if: matrix.nfpm_arch\n",
+        "        if: matrix.cross == 'true'\n",
+        1,
+    );
+    assert_ne!(cross_cmp, release);
+    assert!(matches!(
+        release_artifact_provenance_problems(&cross_cmp, &called).as_slice(),
+        [ProvenanceProblem::ClosedForm(r)]
+            if r.file == "release.yml"
+                && r.place == "job build step 5 if"
+                && r.kind == RefusalKind::ConditionTypeMismatch
+    ));
+
+    // G3: unread matrix exclude on macos-tests is refused at admission.
+    let exclude_verdict = release.replacen(
+        "  macos-tests:\n    name: test (macos-latest)\n",
+        "  macos-tests:\n    name: test (macos-latest)\n    strategy:\n      matrix:\n        x: [1]\n        exclude:\n          - x: 1\n",
+        1,
+    );
+    assert_ne!(exclude_verdict, release);
+    assert!(matches!(
+        release_artifact_provenance_problems(&exclude_verdict, &called).as_slice(),
+        [ProvenanceProblem::ClosedForm(r)]
+            if r.file == "release.yml"
+                && r.place == "job macos-tests strategy.matrix"
+                && r.kind == RefusalKind::MatrixClause
+    ));
+
+    // G4: misspelled bare matrix axis absent from every row is refused at admission.
+    let misspelled_axis = release.replacen(
+        "        if: matrix.nfpm_arch\n",
+        "        if: matrix.nfpm_arh\n",
+        1,
+    );
+    assert_ne!(misspelled_axis, release);
+    assert!(matches!(
+        release_artifact_provenance_problems(&misspelled_axis, &called).as_slice(),
+        [ProvenanceProblem::ClosedForm(r)]
+            if r.file == "release.yml"
+                && r.place == "job build step 5 if"
+                && r.kind == RefusalKind::ConditionBarePath
+    ));
+
+    // G13: plain literal download pattern passes closed-form admission and hits DownloadUsesPattern.
+    let plain_pattern = release.replacen(
+        "          name: brokkr-linux-x86_64\n",
+        "          pattern: brokkr-linux-x86_64\n",
+        1,
+    );
+    assert_ne!(plain_pattern, release);
+    let pat_probs = release_artifact_provenance_problems(&plain_pattern, &called);
+    assert!(
+        !pat_probs
+            .iter()
+            .any(|p| matches!(p, ProvenanceProblem::ClosedForm(_))),
+        "plain literal download pattern must pass closed-form admission: {pat_probs:?}"
+    );
+    assert!(pat_probs.contains(&ProvenanceProblem::DownloadUsesPattern {
+        job_id: "publish".to_string(),
+    }));
 }
