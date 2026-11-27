@@ -1127,6 +1127,16 @@ fn assert_wait_sites(reads: [Waits; 3], expected: &[(&str, &str, WaitKind)]) {
     }
 }
 
+/// The run view of `r1` as both of `run_pages`' showings read it: the frame
+/// and the view printed whole.
+fn viewed_both_ways(store: &Store) -> [crate::run_pages::Viewed; 2] {
+    [
+        crate::run_pages::Shows::Frame,
+        crate::run_pages::Shows::Everything,
+    ]
+    .map(|shows| crate::run_pages::viewed(store, "r1", shows, WAIT_READ_AT).unwrap())
+}
+
 fn kept_cooling(prepare: fn(&Path) -> u64) -> (tempfile::TempDir, Store, KeptFleet, u64) {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -1241,11 +1251,7 @@ fn a_v1_wait_reads_ordinary_on_every_read() {
         waits_on_reads(&store, &kept),
         &[("a", until, WaitKind::Ordinary)],
     );
-    for shows in [
-        crate::run_pages::Shows::Frame,
-        crate::run_pages::Shows::Everything,
-    ] {
-        let viewed = crate::run_pages::viewed(&store, "r1", shows, WAIT_READ_AT).unwrap();
+    for viewed in viewed_both_ways(&store) {
         assert_eq!(viewed.view.waits.waits[0].kind, WaitKind::Ordinary);
     }
 }
@@ -1283,11 +1289,7 @@ fn an_unreadable_round_read_paints_the_refusal() {
     };
     let read = crate::muninn::dossier_of(&[source], &[], WAIT_READ_AT).unwrap();
     assert_eq!(read.value["runs"][0]["status"], "running");
-    for shows in [
-        crate::run_pages::Shows::Frame,
-        crate::run_pages::Shows::Everything,
-    ] {
-        let viewed = crate::run_pages::viewed(&store, "r1", shows, WAIT_READ_AT).unwrap();
+    for viewed in viewed_both_ways(&store) {
         assert_eq!(viewed.view.waits, expected);
         let summary = viewed.view.summary.unwrap();
         assert_eq!(
