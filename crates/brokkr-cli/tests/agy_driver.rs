@@ -79,7 +79,7 @@ exit {code}
 /// included, a `scout` office hiring `agy-neon` at `low` with one grant,
 /// a recipe whose work seat it holds, and the operator's login under
 /// `root`, which is the operator's HOME.
-fn world(root: &Path) -> PathBuf {
+fn seed_agy_adapters_and_login(root: &Path) {
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (from, to) in [
         ("docs/examples/adapters/agy.json", "adapters/agy.json"),
@@ -90,6 +90,10 @@ fn world(root: &Path) -> PathBuf {
     let login = ".gemini/antigravity-cli/antigravity-oauth-token";
     write_mode(&root.join(login), b"the operator's login", 0o600);
     write_scout_agent(root);
+}
+
+fn world(root: &Path) -> PathBuf {
+    seed_agy_adapters_and_login(root);
     let recipe = root.join("recipe");
     let (policy, bundle) = standard_policy_and_bundle("agy");
     write(&recipe.join("policy.json"), policy.to_string().as_bytes());
@@ -629,4 +633,132 @@ fn undeclared_agy_seats_complete_record_none_and_keep_nothing() {
             "{case}: must keep no file"
         );
     }
+}
+
+/// End to end (#1227 slice 1): a work seat with shipped `agy.json` keeps
+/// `conversations/<uuid>.db` and `brain/<uuid>/` operator-only under
+/// `<HOME>/.local/state/brokkr/agy-conversations/<uuid>/rejoin/`, removes the
+/// engine HOME, and records `harness-started` with `root_session`
+/// (`kind: "agy-conversation"`, `harness_version: "1.5.14"`, `persistent: true`);
+/// a gate seat with the same adapter keeps no rejoin state and records no
+/// `root_session`.
+fn seed_rejoin_e2e_fixture(root: &Path, work_uuid: &str, gate_uuid: &str) -> (PathBuf, PathBuf) {
+    write(&root.join("work.ndjson"), NEON.as_bytes());
+    write(
+        &root.join("gate.ndjson"),
+        NEON.replace(work_uuid, gate_uuid).as_bytes(),
+    );
+    write(&root.join("transcript.src"), PRINTED_TRANSCRIPT.as_bytes());
+    let script = format!(
+        r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '1.5.14\n'
+  exit 0
+fi
+line=$(cat)
+case "$line" in
+  *"review gate"*) uuid="{gate_uuid}"; ndjson="{root}/gate.ndjson";;
+  *) uuid="{work_uuid}"; ndjson="{root}/work.ndjson";;
+esac
+convs="$HOME/.gemini/antigravity-cli/conversations"
+logs="$HOME/.gemini/antigravity-cli/brain/$uuid/.system_generated/logs"
+steps="$HOME/.gemini/antigravity-cli/brain/$uuid/.system_generated/steps/1"
+mkdir -p "$convs" "$logs" "$steps"
+printf 'sqlite-rejoin-db' > "$convs/$uuid.db"
+chmod 0600 "$convs/$uuid.db"
+cp '{root}/transcript.src' "$logs/transcript.jsonl"
+chmod 0644 "$logs/transcript.jsonl"
+printf 'step-output' > "$steps/output.txt"
+chmod 0644 "$steps/output.txt"
+target=$(printf '%s' "$line" | sed -n 's/.*\\n    \(\/[^\\"]*\.json\)\\n.*/\1/p' | head -1)
+[ -n "$target" ] && printf '{{"result":"complete"}}' > "$target"
+cat "$ndjson"
+exit 0
+"#,
+        root = root.display(),
+    );
+    let bin = root.join("agy");
+    write_mode(&bin, script.as_bytes(), 0o755);
+
+    seed_agy_adapters_and_login(root);
+    write(&root.join("agents/charters/judge.md"), b"# review gate\n");
+    let judge = json!({
+        "description": "the agy judge", "charter": "charters/judge.md",
+        "models": ["agy-neon"], "efforts": {"agy-neon": "low"},
+        "limits": {"max_attempts": 1, "timeout_seconds": 20},
+    });
+    write(
+        &root.join("agents/judge.json"),
+        judge.to_string().as_bytes(),
+    );
+    let recipe = root.join("recipe");
+    let (policy, _) = standard_policy_and_bundle("agy-rejoin-e2e");
+    let bundle = json!({
+        "name": "agy-rejoin-e2e", "policy": "policy.json",
+        "seats": {
+            "scout": {"results": ["complete"], "class": "work", "agent": "scout"},
+            "review": {"results": ["complete"], "class": "gate", "agent": "judge"},
+        },
+    });
+    write(&recipe.join("policy.json"), policy.to_string().as_bytes());
+    write(&recipe.join("bundle.json"), bundle.to_string().as_bytes());
+    (bin, recipe)
+}
+
+#[test]
+fn an_engine_run_keeps_rejoin_state_for_work_seats_and_not_gate_seats() {
+    let test = "agy_driver::an_engine_run_keeps_rejoin_state_for_work_seats_and_not_gate_seats";
+    if !brokkr_protocol::process::in_its_own_engine(test) {
+        return;
+    }
+    use std::os::unix::fs::MetadataExt;
+    let (_home, root) = root();
+    let work_uuid = "466b4fc2-eae8-497b-8306-5c8958fac45f";
+    let gate_uuid = "77777777-8888-4999-8aaa-bbbbbbbbbbbb";
+    let (bin, recipe) = seed_rejoin_e2e_fixture(&root, work_uuid, gate_uuid);
+
+    let (_run_id, outcome, events) = drive_recipe(&root, &recipe, &bin, "agy-rejoin");
+    outcome.unwrap();
+    let succeeded = events
+        .iter()
+        .filter(|e| e["type"] == "effect/succeeded")
+        .count();
+    assert_eq!(succeeded, 2, "both work and gate seats must succeed");
+
+    let kept_parent = root.join(".local/state/brokkr/agy-conversations");
+    let work_rejoin = kept_parent.join(work_uuid).join("rejoin");
+    let work_db = work_rejoin.join("conversation.db");
+    let work_step = work_rejoin.join("brain/.system_generated/steps/1/output.txt");
+    assert_eq!(std::fs::read(&work_db).unwrap(), b"sqlite-rejoin-db");
+    assert_eq!(std::fs::read(&work_step).unwrap(), b"step-output");
+    assert_eq!(
+        std::fs::metadata(&work_rejoin).unwrap().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(std::fs::metadata(&work_db).unwrap().mode() & 0o777, 0o600);
+    assert_eq!(std::fs::metadata(&work_step).unwrap().mode() & 0o777, 0o600);
+
+    let gate_dir = kept_parent.join(gate_uuid);
+    assert!(gate_dir.join("transcript.jsonl").exists());
+    assert!(
+        !gate_dir.join("rejoin").exists(),
+        "gate seat must keep no rejoin state"
+    );
+
+    let started_rows: Vec<&Value> = checkpoints(&events)
+        .into_iter()
+        .filter(|row| row["step"] == "harness-started")
+        .collect();
+    assert_eq!(started_rows.len(), 1, "{started_rows:?}");
+    assert_eq!(
+        started_rows[0]["root_session"],
+        json!({
+            "kind": "agy-conversation",
+            "id": work_uuid,
+            "harness_version": "1.5.14",
+            "persistent": true,
+        })
+    );
+    assert_eq!(started_rows[0]["transcript"]["kind"], "agy-conversation");
+    assert_eq!(started_rows[0]["transcript"]["locator"], work_uuid);
 }

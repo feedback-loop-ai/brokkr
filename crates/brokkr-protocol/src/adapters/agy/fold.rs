@@ -457,7 +457,7 @@ impl<'a> AgyFold<'a> {
     }
 
     /// Whether init named the pin.
-    fn pinned(&self) -> bool {
+    pub(super) fn pinned(&self) -> bool {
         self.served == Served::Pinned
     }
 
