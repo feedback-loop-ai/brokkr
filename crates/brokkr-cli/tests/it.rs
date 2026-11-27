@@ -14,6 +14,8 @@ mod engine;
 mod fake_office;
 #[path = "support/isolated.rs"]
 mod isolated;
+#[path = "support/json5.rs"]
+mod json5;
 #[path = "support/numbered.rs"]
 mod numbered;
 #[path = "support/pidns.rs"]

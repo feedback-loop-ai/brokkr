@@ -5,8 +5,10 @@
 //! - `refresh-workflow-digests.sh` (#1417): rewrites or checks
 //!   `.github/workflow-digests.txt` over `.github/actions/` and
 //!   `.github/workflows/`, agrees with `workflow_digests::check_workflow_digests`
-//!   including nested action directories, refuses symlinks, supports
-//!   `shasum -a 256` fallback, and fails closed when neither hasher exists;
+//!   including nested action directories, refuses invalid path names, symlinks,
+//!   and non-regular digest targets (including FIFOs without blocking), writes
+//!   atomically via a same-directory temp file, supports `shasum -a 256`
+//!   fallback without host hashers, and fails closed when neither hasher exists;
 //! - `refresh-pin-checksums.sh`, Renovate's post-upgrade task: a digest
 //!   moves only with its own version, an unchanged version whose release no
 //!   longer matches is refused, and nothing is written unless every release
@@ -1101,7 +1103,7 @@ fn link_digest_script_tools(repo: &Repo) {
     repo.link_system_tools();
     let system = repo.path().join("sys-bin");
     let host = std::env::var_os("PATH").expect("PATH");
-    for tool in ["cat", "cmp", "find", "mktemp"] {
+    for tool in ["cat", "chmod", "cmp", "find", "mktemp", "mv", "od"] {
         let found = std::env::split_paths(&host)
             .map(|dir| dir.join(tool))
             .find(|candidate| candidate.is_file())
@@ -1110,6 +1112,66 @@ fn link_digest_script_tools(repo: &Repo) {
         if !target.exists() {
             std::os::unix::fs::symlink(found, target).expect(tool);
         }
+    }
+}
+
+/// Build a stub `shasum` or `sha256sum` script backed solely by Rust `sha2`
+/// digests so the hermetic hasher test needs neither tool on the host.
+fn stub_hasher_from_sha2(is_shasum: bool, entries: &[(&str, &str)]) -> String {
+    let mut script = String::from("#!/usr/bin/env bash\n");
+    if is_shasum {
+        script.push_str(
+            "[ \"$1\" = -a ] && [ \"$2\" = 256 ] && [ \"$3\" = -- ] && [ \"$#\" -eq 4 ] || exit 99\n",
+        );
+        script.push_str("file=\"$4\"\n");
+    } else {
+        script.push_str("[ \"$1\" = -- ] && [ \"$#\" -eq 2 ] || exit 99\n");
+        script.push_str("file=\"$2\"\n");
+    }
+    script.push_str("case \"$file\" in\n");
+    for (rel, body) in entries {
+        let digest = sha256_hex(body);
+        script.push_str(&format!(
+            "  '{rel}') printf '%s  %s\\n' '{digest}' \"$file\" ;;\n"
+        ));
+    }
+    script.push_str("  *) exit 98 ;;\nesac\n");
+    script
+}
+
+/// Run a workspace script under a wall-clock deadline so a blocked FIFO fails
+/// fast instead of hanging the suite.
+fn run_script_with_timeout(
+    repo: &Repo,
+    script: &str,
+    args: &[&str],
+    limit: std::time::Duration,
+) -> Output {
+    let path = format!(
+        "{}:{}",
+        repo.path().join("stub-bin").display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let mut child = Command::new("bash")
+        .arg(workspace().join(script))
+        .args(args)
+        .current_dir(repo.path())
+        .env("PATH", path)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn bash");
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        if child.try_wait().expect("try_wait").is_some() {
+            return child.wait_with_output().expect("wait_with_output");
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("{script} {args:?} blocked past {limit:?}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
@@ -1197,19 +1259,181 @@ fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers
         stderr(&neither)
     );
 
-    let host_sha256sum = std::env::split_paths(&std::env::var_os("PATH").expect("PATH"))
-        .map(|d| d.join("sha256sum"))
-        .find(|p| p.is_file())
-        .expect("sha256sum on host PATH");
+    let stub_entries = [
+        (".github/actions/outer/helper.sh", helper),
+        (".github/actions/outer/inner/action.yml", action),
+        (".github/workflows/ci.yml", edited.as_str()),
+    ];
     repo.executable(
         "stub-bin/shasum",
-        &format!(
-            "#!/usr/bin/env bash\n[ \"$1\" = -a ] && [ \"$2\" = 256 ] || exit 99\nshift 2\nexec '{}' \"$@\"\n",
-            host_sha256sum.display()
-        ),
+        &stub_hasher_from_sha2(true, &stub_entries),
     );
     let shasum_ok = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
     assert!(shasum_ok.status.success(), "{}", stderr(&shasum_ok));
+    std::fs::remove_file(repo.path().join(crate::workflow_digests::DIGEST_FILE)).expect("rm");
+    let shasum_write = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(shasum_write.status.success(), "{}", stderr(&shasum_write));
+    assert_eq!(
+        crate::workflow_digests::check_workflow_digests(repo.path()),
+        Vec::new()
+    );
+
+    std::fs::remove_file(repo.path().join("stub-bin/shasum")).expect("rm shasum stub");
+    repo.executable(
+        "stub-bin/sha256sum",
+        &stub_hasher_from_sha2(false, &stub_entries),
+    );
+    let sha256sum_ok = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert!(sha256sum_ok.status.success(), "{}", stderr(&sha256sum_ok));
+}
+
+#[test]
+fn refresh_workflow_digests_refuses_invalid_path_names_and_writes_nothing() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let wf = "name: ci\non: push\njobs:\n  ok:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n";
+
+    let assert_refused = |repo: &Repo, expected_escaped: &[&str], sentinel: Option<&str>| {
+        for args in [&[][..], &["--check"][..]] {
+            let out = repo.run("scripts/refresh-workflow-digests.sh", args, &[]);
+            assert!(
+                !out.status.success(),
+                "args={args:?} must fail; stderr={}",
+                stderr(&out)
+            );
+            let err = stderr(&out);
+            for needle in expected_escaped {
+                assert!(
+                    err.contains(&format!("refusing invalid path name: {needle}")),
+                    "args={args:?} missing escaped name `{needle}` in stderr: {err}"
+                );
+            }
+            let target = repo.path().join(crate::workflow_digests::DIGEST_FILE);
+            match sentinel {
+                Some(prev) => assert_eq!(repo.read(crate::workflow_digests::DIGEST_FILE), prev),
+                None => assert!(!target.exists(), "must not create digest file on refusal"),
+            }
+        }
+    };
+
+    // 1. Name with a space.
+    let space_repo = Repo::new();
+    space_repo.put(".github/workflows/ci.yml", wf);
+    space_repo.put(".github/actions/bad name.yml", "name: bad\n");
+    assert_refused(&space_repo, &[r".github/actions/bad\x20name.yml"], None);
+
+    // 2. Name with a non-ASCII letter.
+    let non_ascii_repo = Repo::new();
+    non_ascii_repo.put(".github/actions/ok/action.yml", "name: ok\n");
+    non_ascii_repo.put(".github/workflows/caf\u{00e9}.yml", wf);
+    assert_refused(
+        &non_ascii_repo,
+        &[r".github/workflows/caf\xc3\xa9.yml"],
+        None,
+    );
+
+    // 3. Lone non-UTF-8 filename (gracefully passes if host FS refuses creation, e.g. macOS APFS).
+    let raw_repo = Repo::new();
+    raw_repo.put(".github/workflows/ci.yml", wf);
+    std::fs::create_dir_all(raw_repo.path().join(".github/actions")).expect("actions dir");
+    let lone_path = raw_repo
+        .path()
+        .join(".github/actions")
+        .join(OsStr::from_bytes(b"bad-\xff.txt"));
+    match std::fs::write(&lone_path, "raw\n") {
+        Ok(()) => assert_refused(&raw_repo, &[r".github/actions/bad-\xff.txt"], None),
+        Err(err) => {
+            assert_ne!(err.kind(), std::io::ErrorKind::NotFound);
+            eprintln!("host filesystem refused non-UTF-8 filename: {err}");
+        }
+    }
+
+    // 4. Non-UTF-8 filename beside a recorded U+FFFD twin: exits non-zero and leaves digest file intact.
+    let twin_repo = Repo::new();
+    twin_repo.put(".github/workflows/ci.yml", wf);
+    twin_repo.put(".github/actions/helper-\u{FFFD}.txt", "twin\n");
+    let sentinel = "sentinel-unchanged\n";
+    twin_repo.put(crate::workflow_digests::DIGEST_FILE, sentinel);
+    let sibling_path = twin_repo
+        .path()
+        .join(".github/actions")
+        .join(OsStr::from_bytes(b"helper-\xff.txt"));
+    match std::fs::write(&sibling_path, "sibling\n") {
+        Ok(()) => assert_refused(
+            &twin_repo,
+            &[
+                r".github/actions/helper-\xef\xbf\xbd.txt",
+                r".github/actions/helper-\xff.txt",
+            ],
+            Some(sentinel),
+        ),
+        Err(err) => {
+            assert_ne!(err.kind(), std::io::ErrorKind::NotFound);
+            eprintln!("host filesystem refused non-UTF-8 filename: {err}");
+        }
+    }
+}
+
+#[test]
+fn refresh_workflow_digests_refuses_fifo_target_under_timeout_and_writes_atomically() {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    let repo = Repo::new();
+    let wf = "name: ci\non: push\njobs:\n  ok:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n";
+    repo.put(".github/workflows/ci.yml", wf);
+    std::fs::create_dir_all(repo.path().join(".github/actions")).expect("actions dir");
+
+    let target = repo.path().join(crate::workflow_digests::DIGEST_FILE);
+    let made = Command::new("mkfifo").arg(&target).status();
+    assert!(
+        made.is_ok_and(|s| s.success()),
+        "mkfifo {}",
+        target.display()
+    );
+
+    let limit = std::time::Duration::from_secs(5);
+    for args in [&[][..], &["--check"][..]] {
+        let out =
+            run_script_with_timeout(&repo, "scripts/refresh-workflow-digests.sh", args, limit);
+        assert!(
+            !out.status.success(),
+            "FIFO target must be refused for args={args:?}"
+        );
+        assert!(
+            stderr(&out).contains("refusing non-regular target: .github/workflow-digests.txt"),
+            "args={args:?}: {}",
+            stderr(&out)
+        );
+        assert!(
+            std::fs::symlink_metadata(&target)
+                .expect("fifo metadata")
+                .file_type()
+                .is_fifo(),
+            "FIFO target must remain untouched"
+        );
+    }
+
+    // Remove FIFO; write mode writes via same-dir temp file and leaves no stray temp files.
+    std::fs::remove_file(&target).expect("rm fifo");
+    let written = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(written.status.success(), "{}", stderr(&written));
+    let stray: Vec<_> = std::fs::read_dir(repo.path().join(".github"))
+        .expect("read .github")
+        .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("workflow-digests.txt."))
+        .collect();
+    assert_eq!(stray, Vec::<String>::new());
+
+    // Re-running on an unchanged tree rewrites nothing (preserves inode) and exits 0.
+    let before_ino = std::fs::metadata(&target).expect("meta before").ino();
+    let noop = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(noop.status.success(), "{}", stderr(&noop));
+    let after_ino = std::fs::metadata(&target).expect("meta after").ino();
+    assert_eq!(
+        before_ino, after_ino,
+        "unchanged tree must not rewrite digest file"
+    );
 }
 
 #[test]

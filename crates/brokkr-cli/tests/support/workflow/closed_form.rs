@@ -294,6 +294,15 @@ impl ClosedWorkflow {
 
 fn admit_workflow(file: &str, raw: Workflow) -> Result<ClosedWorkflow, ClosedFormRefusal> {
     validate_top_level(&raw, file)?;
+    if let Some(issue) = raw.event_shape_issues.first() {
+        return Err(ClosedFormRefusal::new(
+            file,
+            &issue.place,
+            RefusalKind::EventFilter,
+            &issue.detail,
+            ALLOWED_EVENT_FILTERS,
+        ));
+    }
     for ev in &raw.events {
         validate_event_closed_form(ev, file)?;
     }
@@ -348,15 +357,6 @@ fn validate_schedule_trigger(
     file: &str,
     place: &str,
 ) -> Result<(), ClosedFormRefusal> {
-    if ev.schedule_not_sequence {
-        return Err(ClosedFormRefusal::new(
-            file,
-            place,
-            RefusalKind::EventFilter,
-            "non-list `schedule` trigger",
-            ALLOWED_EVENT_FILTERS,
-        ));
-    }
     if ev.crons.is_empty() {
         return Err(ClosedFormRefusal::new(
             file,
@@ -400,6 +400,15 @@ fn validate_workflow_call_trigger(
 
 fn validate_event_closed_form(ev: &EventTrigger, file: &str) -> Result<(), ClosedFormRefusal> {
     let place = format!("on.{}", ev.name);
+    if let Some(issue) = ev.shape_issues.first() {
+        return Err(ClosedFormRefusal::new(
+            file,
+            &issue.place,
+            RefusalKind::EventFilter,
+            &issue.detail,
+            ALLOWED_EVENT_FILTERS,
+        ));
+    }
     if let Some(extra) = ev.extra_keys.first() {
         return Err(ClosedFormRefusal::new(
             file,

@@ -231,12 +231,20 @@ impl TriggerFilterKey {
     }
 }
 
+/// Out-of-form trigger shape recorded during non-strict parsing so closed-form
+/// admission reports a typed refusal naming the exact place under `on:`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TriggerShapeIssue {
+    pub(crate) place: String,
+    pub(crate) detail: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EventTrigger {
     pub(crate) name: String,
     pub(crate) has_types_key: bool,
     pub(crate) has_inputs_key: bool,
-    pub(crate) schedule_not_sequence: bool,
+    pub(crate) shape_issues: Vec<TriggerShapeIssue>,
     pub(crate) types: Vec<String>,
     pub(crate) filters: BTreeMap<String, Vec<String>>,
     pub(crate) crons: Vec<String>,
@@ -387,6 +395,7 @@ impl Job {
 pub(crate) struct Workflow {
     pub(crate) top_level_keys: Vec<String>,
     pub(crate) events: Vec<EventTrigger>,
+    pub(crate) event_shape_issues: Vec<TriggerShapeIssue>,
     pub(crate) permissions: Option<Permissions>,
     pub(crate) concurrency: Option<Concurrency>,
     pub(crate) jobs: Vec<Job>,
@@ -448,12 +457,14 @@ pub(super) fn parse_workflow_raw(text: &str, strict_if: bool) -> Result<Workflow
     }
     reject_unsafe_yaml(&docs[0])?;
     let root = expect_map(&docs[0], "workflow root")?;
+    let (events, event_shape_issues) = match map_get(&root, "on") {
+        Some(n) => parse_events(n, strict_if)?,
+        None => (Vec::new(), Vec::new()),
+    };
     Ok(Workflow {
         top_level_keys: root.iter().map(|(k, _)| (*k).to_string()).collect(),
-        events: map_get(&root, "on")
-            .map(|n| parse_events(n, strict_if))
-            .transpose()?
-            .unwrap_or_default(),
+        events,
+        event_shape_issues,
         permissions: map_get(&root, "permissions")
             .map(parse_permissions)
             .transpose()?,
@@ -604,7 +615,7 @@ fn empty_trigger(name: String) -> EventTrigger {
         name,
         has_types_key: false,
         has_inputs_key: false,
-        schedule_not_sequence: false,
+        shape_issues: Vec::new(),
         types: Vec::new(),
         filters: BTreeMap::new(),
         crons: Vec::new(),
@@ -613,84 +624,310 @@ fn empty_trigger(name: String) -> EventTrigger {
     }
 }
 
-fn parse_events(node: &Yaml, strict: bool) -> Result<Vec<EventTrigger>, WorkflowError> {
-    match node {
-        Yaml::String(name) => Ok(vec![empty_trigger(name.clone())]),
-        Yaml::Array(items) => items
-            .iter()
-            .map(|i| Ok(empty_trigger(expect_string(i, "on event")?)))
-            .collect(),
-        Yaml::Hash(_) => expect_map(node, "on")?
-            .into_iter()
-            .map(|(n, c)| parse_event_trigger(n, c, strict))
-            .collect(),
-        _ => Err(WorkflowError::NotAMapping("on")),
+fn shape_issue(place: impl Into<String>, detail: impl Into<String>) -> TriggerShapeIssue {
+    TriggerShapeIssue {
+        place: place.into(),
+        detail: detail.into(),
     }
+}
+
+fn parse_events(
+    node: &Yaml,
+    strict: bool,
+) -> Result<(Vec<EventTrigger>, Vec<TriggerShapeIssue>), WorkflowError> {
+    match node {
+        Yaml::String(name) => Ok((vec![empty_trigger(name.clone())], Vec::new())),
+        Yaml::Array(items) => parse_event_list(items, strict),
+        Yaml::Hash(map) => parse_event_map(map, strict),
+        _ if strict => Err(WorkflowError::NotAMapping("on")),
+        _ => Ok((
+            Vec::new(),
+            vec![shape_issue(
+                "on",
+                format!("{} `on` trigger", Scalar::from_yaml(node).kind_label()),
+            )],
+        )),
+    }
+}
+
+fn parse_event_list(
+    items: &[Yaml],
+    strict: bool,
+) -> Result<(Vec<EventTrigger>, Vec<TriggerShapeIssue>), WorkflowError> {
+    let mut triggers = Vec::with_capacity(items.len());
+    let mut issues = Vec::new();
+    for (idx, item) in items.iter().enumerate() {
+        if let Some(name) = item.as_str() {
+            triggers.push(empty_trigger(name.to_string()));
+        } else if strict {
+            return Err(WorkflowError::NotAString("on event"));
+        } else {
+            issues.push(shape_issue(
+                format!("on[{idx}]"),
+                format!(
+                    "{} event entry in `on` list",
+                    Scalar::from_yaml(item).kind_label()
+                ),
+            ));
+        }
+    }
+    Ok((triggers, issues))
+}
+
+fn parse_event_map(
+    map: &yaml_rust2::yaml::Hash,
+    strict: bool,
+) -> Result<(Vec<EventTrigger>, Vec<TriggerShapeIssue>), WorkflowError> {
+    let mut triggers = Vec::with_capacity(map.len());
+    let mut issues = Vec::new();
+    for (k, v) in map {
+        let Some(name) = k.as_str() else {
+            if strict {
+                return Err(WorkflowError::NonStringKey("on"));
+            }
+            issues.push(shape_issue("on", "non-string event key under `on`"));
+            continue;
+        };
+        triggers.push(parse_event_trigger(name, v, strict)?);
+    }
+    Ok((triggers, issues))
+}
+
+fn parse_schedule_entry(
+    idx: usize,
+    item: &Yaml,
+    strict: bool,
+    trigger: &mut EventTrigger,
+) -> Result<(), WorkflowError> {
+    let place = format!("on.schedule[{idx}]");
+    let Yaml::Hash(map) = item else {
+        if strict {
+            return Err(WorkflowError::NotAMapping("on.schedule entry"));
+        }
+        trigger.shape_issues.push(shape_issue(
+            place,
+            format!("{} `schedule` entry", Scalar::from_yaml(item).kind_label()),
+        ));
+        return Ok(());
+    };
+    let mut cron_val: Option<&Yaml> = None;
+    let mut row_extra = false;
+    for (k, v) in map {
+        let Some(key) = k.as_str() else {
+            if strict {
+                return Err(WorkflowError::NonStringKey("on.schedule entry"));
+            }
+            trigger
+                .shape_issues
+                .push(shape_issue(&place, "non-string key in `schedule` entry"));
+            continue;
+        };
+        if key == "cron" {
+            cron_val = Some(v);
+        } else {
+            row_extra = true;
+            trigger.extra_keys.push(key.to_string());
+        }
+    }
+    match cron_val {
+        Some(Yaml::String(s)) => trigger.crons.push(s.clone()),
+        Some(_) if strict => return Err(WorkflowError::NotAString("on.schedule.cron")),
+        Some(other) => trigger.shape_issues.push(shape_issue(
+            place,
+            format!(
+                "{} `cron` value in `schedule` entry",
+                Scalar::from_yaml(other).kind_label()
+            ),
+        )),
+        None if !row_extra => {
+            if strict {
+                return Err(WorkflowError::NotAString("on.schedule.cron"));
+            }
+            trigger
+                .shape_issues
+                .push(shape_issue(place, "empty `schedule` entry missing `cron`"));
+        }
+        None => {}
+    }
+    Ok(())
 }
 
 fn parse_schedule_entries(
     config: &Yaml,
     strict: bool,
-) -> Result<(Vec<String>, Vec<String>, bool), WorkflowError> {
+    trigger: &mut EventTrigger,
+) -> Result<(), WorkflowError> {
     if matches!(config, Yaml::Null) {
-        return Ok((Vec::new(), Vec::new(), !strict));
+        if !strict {
+            trigger
+                .shape_issues
+                .push(shape_issue("on.schedule", "null `schedule` trigger"));
+        }
+        return Ok(());
     }
     let Yaml::Array(items) = config else {
         if strict {
             return Err(WorkflowError::NotASequence("on.schedule"));
         }
-        return Ok((Vec::new(), Vec::new(), true));
+        trigger
+            .shape_issues
+            .push(shape_issue("on.schedule", "non-list `schedule` trigger"));
+        return Ok(());
     };
-    let mut crons = Vec::new();
-    let mut extra_keys = Vec::new();
-    for item in items {
-        let e = expect_map(item, "on.schedule entry")?;
-        for &(k, _) in &e {
-            if k != "cron" {
-                extra_keys.push(k.to_string());
-            }
-        }
-        if let Some(cron) = map_get(&e, "cron") {
-            crons.push(expect_string(cron, "on.schedule.cron")?);
-        } else if extra_keys.is_empty() {
-            return Err(WorkflowError::NotAString("on.schedule.cron"));
-        }
+    for (idx, item) in items.iter().enumerate() {
+        parse_schedule_entry(idx, item, strict, trigger)?;
     }
-    Ok((crons, extra_keys, false))
+    Ok(())
 }
 
-fn parse_workflow_inputs(node: &Yaml) -> Result<Vec<(String, WorkflowInput)>, WorkflowError> {
+fn parse_workflow_input_def(
+    event_name: &str,
+    input_name: &str,
+    def: &Yaml,
+    strict: bool,
+    issues: &mut Vec<TriggerShapeIssue>,
+) -> Result<Option<WorkflowInput>, WorkflowError> {
+    let place = format!("on.{event_name}.inputs.{input_name}");
+    let Yaml::Hash(map) = def else {
+        if strict {
+            return Err(WorkflowError::NotAMapping("workflow input"));
+        }
+        issues.push(shape_issue(
+            place,
+            format!(
+                "{} input definition for `inputs.{input_name}`",
+                Scalar::from_yaml(def).kind_label()
+            ),
+        ));
+        return Ok(None);
+    };
+    let mut entries = Vec::with_capacity(map.len());
+    for (ik, iv) in map {
+        let Some(key) = ik.as_str() else {
+            if strict {
+                return Err(WorkflowError::NonStringKey("workflow input"));
+            }
+            issues.push(shape_issue(
+                &place,
+                format!("non-string key in input definition `inputs.{input_name}`"),
+            ));
+            return Ok(None);
+        };
+        entries.push((key, iv));
+    }
+    let extra_keys = entries
+        .iter()
+        .filter(|&&(ik, _)| {
+            !matches!(
+                ik,
+                "description" | "type" | "required" | "default" | "options"
+            )
+        })
+        .map(|&(ik, _)| ik.to_string())
+        .collect();
+    Ok(Some(WorkflowInput {
+        input_type: map_get(&entries, "type").map(Scalar::from_yaml),
+        default: map_get(&entries, "default").map(Scalar::from_yaml),
+        extra_keys,
+    }))
+}
+
+fn parse_workflow_inputs(
+    event_name: &str,
+    node: &Yaml,
+    strict: bool,
+    issues: &mut Vec<TriggerShapeIssue>,
+) -> Result<Vec<(String, WorkflowInput)>, WorkflowError> {
+    let place = format!("on.{event_name}.inputs");
+    let Yaml::Hash(map) = node else {
+        if strict {
+            return Err(WorkflowError::NotAMapping("on.<event>.inputs"));
+        }
+        issues.push(shape_issue(
+            place,
+            format!(
+                "{} `inputs` value on `{event_name}`",
+                Scalar::from_yaml(node).kind_label()
+            ),
+        ));
+        return Ok(Vec::new());
+    };
     let mut inputs = Vec::new();
     let mut seen = BTreeMap::new();
-    for (k, def) in expect_map(node, "on.<event>.inputs")? {
-        let lower = k.to_ascii_lowercase();
+    for (k, def) in map {
+        let Some(name) = k.as_str() else {
+            if strict {
+                return Err(WorkflowError::NonStringKey("on.<event>.inputs"));
+            }
+            issues.push(shape_issue(
+                &place,
+                format!("non-string key in `inputs` on `{event_name}`"),
+            ));
+            continue;
+        };
+        let lower = name.to_ascii_lowercase();
         if seen.insert(lower.clone(), ()).is_some() {
-            return Err(WorkflowError::DuplicateInput {
-                ctx: "on.<event>.inputs",
-                key: lower,
-            });
+            if strict {
+                return Err(WorkflowError::DuplicateInput {
+                    ctx: "on.<event>.inputs",
+                    key: lower,
+                });
+            }
+            issues.push(shape_issue(
+                &place,
+                format!("duplicate input `{lower}` on `{event_name}`"),
+            ));
+            continue;
         }
-        let d = expect_map(def, "workflow input")?;
-        let extra_keys = d
-            .iter()
-            .filter(|&&(ik, _)| {
-                !matches!(
-                    ik,
-                    "description" | "type" | "required" | "default" | "options"
-                )
-            })
-            .map(|&(ik, _)| ik.to_string())
-            .collect();
-        inputs.push((
-            k.to_string(),
-            WorkflowInput {
-                input_type: map_get(&d, "type").map(Scalar::from_yaml),
-                default: map_get(&d, "default").map(Scalar::from_yaml),
-                extra_keys,
-            },
-        ));
+        if let Some(parsed) = parse_workflow_input_def(event_name, name, def, strict, issues)? {
+            inputs.push((name.to_string(), parsed));
+        }
     }
     Ok(inputs)
+}
+
+fn parse_trigger_filter_values(
+    event_name: &str,
+    key: &str,
+    node: &Yaml,
+    strict: bool,
+    ctx: &'static str,
+    issues: &mut Vec<TriggerShapeIssue>,
+) -> Result<Vec<String>, WorkflowError> {
+    if strict {
+        return parse_string_or_list(node, ctx);
+    }
+    let place = format!("on.{event_name}.{key}");
+    match node {
+        Yaml::String(s) => Ok(vec![s.clone()]),
+        Yaml::Array(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                if let Some(s) = item.as_str() {
+                    out.push(s.to_string());
+                } else {
+                    issues.push(shape_issue(
+                        &place,
+                        format!(
+                            "{} item in `{key}` filter on `{event_name}`",
+                            Scalar::from_yaml(item).kind_label()
+                        ),
+                    ));
+                }
+            }
+            Ok(out)
+        }
+        _ => {
+            issues.push(shape_issue(
+                place,
+                format!(
+                    "{} `{key}` filter value on `{event_name}`",
+                    Scalar::from_yaml(node).kind_label()
+                ),
+            ));
+            Ok(Vec::new())
+        }
+    }
 }
 
 fn parse_event_trigger(
@@ -700,30 +937,65 @@ fn parse_event_trigger(
 ) -> Result<EventTrigger, WorkflowError> {
     let mut trigger = empty_trigger(name.to_string());
     if name == "schedule" {
-        let (crons, extra_keys, not_seq) = parse_schedule_entries(config, strict)?;
-        trigger.crons = crons;
-        trigger.extra_keys = extra_keys;
-        trigger.schedule_not_sequence = not_seq;
+        parse_schedule_entries(config, strict, &mut trigger)?;
         return Ok(trigger);
     }
     if matches!(config, Yaml::Null) {
         return Ok(trigger);
     }
-    for (k, v) in expect_map(config, "on.<event>")? {
+    let Yaml::Hash(map) = config else {
+        if strict {
+            return Err(WorkflowError::NotAMapping("on.<event>"));
+        }
+        trigger.shape_issues.push(shape_issue(
+            format!("on.{name}"),
+            format!(
+                "{} configuration on `{name}`",
+                Scalar::from_yaml(config).kind_label()
+            ),
+        ));
+        return Ok(trigger);
+    };
+    for (raw_k, v) in map {
+        let Some(k) = raw_k.as_str() else {
+            if strict {
+                return Err(WorkflowError::NonStringKey("on.<event>"));
+            }
+            trigger.shape_issues.push(shape_issue(
+                format!("on.{name}"),
+                format!("non-string key on `{name}`"),
+            ));
+            continue;
+        };
         if k == "inputs" {
             trigger.has_inputs_key = true;
-            trigger.inputs = parse_workflow_inputs(v)?;
+            if strict || name == "workflow_call" {
+                trigger.inputs = parse_workflow_inputs(name, v, strict, &mut trigger.shape_issues)?;
+            }
             continue;
         }
         match TriggerFilterKey::parse(k) {
             Some(TriggerFilterKey::Types) => {
                 trigger.has_types_key = true;
-                trigger.types = parse_string_or_list(v, "on.<event>.types")?;
+                trigger.types = parse_trigger_filter_values(
+                    name,
+                    k,
+                    v,
+                    strict,
+                    "on.<event>.types",
+                    &mut trigger.shape_issues,
+                )?;
             }
             Some(TriggerFilterKey::Branches | TriggerFilterKey::Tags) => {
-                trigger
-                    .filters
-                    .insert(k.to_string(), parse_string_or_list(v, "on.<event> filter")?);
+                let vals = parse_trigger_filter_values(
+                    name,
+                    k,
+                    v,
+                    strict,
+                    "on.<event> filter",
+                    &mut trigger.shape_issues,
+                )?;
+                trigger.filters.insert(k.to_string(), vals);
             }
             None => trigger.extra_keys.push(k.to_string()),
         }

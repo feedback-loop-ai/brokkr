@@ -1519,3 +1519,102 @@ fn macos_split_variants_each_bind_to_a_planted_mutation() {
         }]
     );
 }
+
+#[test]
+fn out_of_form_trigger_shapes_yield_typed_closed_form_refusal_never_parse_error() {
+    let cases = [
+        ("scalar on", "on: 42\n", "on"),
+        ("null on", "on: null\n", "on"),
+        ("non-string on list item", "on: [push, 42]\n", "on[1]"),
+        ("non-string on map key", "on:\n  42: null\n", "on"),
+        ("null schedule", "on:\n  schedule: null\n", "on.schedule"),
+        (
+            "non-list schedule",
+            "on:\n  schedule: '17 4 * * *'\n",
+            "on.schedule",
+        ),
+        (
+            "empty schedule list",
+            "on:\n  schedule: []\n",
+            "on.schedule",
+        ),
+        (
+            "scalar schedule row",
+            "on:\n  schedule: [nope]\n",
+            "on.schedule[0]",
+        ),
+        (
+            "empty schedule row",
+            "on:\n  schedule: [{}]\n",
+            "on.schedule[0]",
+        ),
+        (
+            "non-string schedule cron",
+            "on:\n  schedule:\n    - cron: 42\n",
+            "on.schedule[0]",
+        ),
+        (
+            "null schedule cron",
+            "on:\n  schedule:\n    - cron: null\n",
+            "on.schedule[0]",
+        ),
+        (
+            "workflow_call null types",
+            "on:\n  workflow_call:\n    types: null\n",
+            "on.workflow_call.types",
+        ),
+        (
+            "non-list filter value",
+            "on:\n  push:\n    branches: 42\n",
+            "on.push.branches",
+        ),
+        (
+            "null filter value",
+            "on:\n  push:\n    tags: null\n",
+            "on.push.tags",
+        ),
+        (
+            "non-string filter list item",
+            "on:\n  pull_request:\n    types: [opened, 42]\n",
+            "on.pull_request.types",
+        ),
+        (
+            "null workflow_call inputs",
+            "on:\n  workflow_call:\n    inputs: null\n",
+            "on.workflow_call.inputs",
+        ),
+        (
+            "null workflow_call input definition",
+            "on:\n  workflow_call:\n    inputs:\n      use-cache: null\n",
+            "on.workflow_call.inputs.use-cache",
+        ),
+        (
+            "non-mapping event config",
+            "on:\n  push: [main]\n",
+            "on.push",
+        ),
+        (
+            "key with null value on event",
+            "on:\n  push:\n    paths: null\n",
+            "on.push",
+        ),
+    ];
+
+    for (label, on_block, expected_place) in cases {
+        let yaml = format!(
+            "name: sample\n{on_block}jobs:\n  ok:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n"
+        );
+        match ClosedWorkflow::parse("sample.yml", &yaml) {
+            Err(crate::workflow::ClosedWorkflowError::Refusal(r)) => {
+                assert_eq!(
+                    (r.kind, r.place.as_str()),
+                    (RefusalKind::EventFilter, expected_place),
+                    "case `{label}` gave unexpected refusal: {r}"
+                );
+            }
+            other => panic!(
+                "case `{label}` must return ClosedWorkflowError::Refusal at `{expected_place}`, got {other:?}"
+            ),
+        }
+    }
+}

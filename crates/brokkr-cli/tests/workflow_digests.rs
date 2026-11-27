@@ -2,21 +2,35 @@
 //! (#1417, operator ruling 2026-11-27).
 //!
 //! Every file under `.github/actions/` and `.github/workflows/` is pinned by
-//! byte digest in `.github/workflow-digests.txt`. Any edit to a pinned file,
-//! any missing or extra entry, any symlink or non-regular entry, any format
-//! deviation, or any local `uses: ./…` resolving outside the two directories
-//! fails this guard with a typed [`DigestProblem`] (decision 0071 rulings 3, 8
-//! and 9).
+//! byte digest in `.github/workflow-digests.txt`. Every path component under
+//! those two directories must match `[A-Za-z0-9._-]+` and not be `.` or `..`;
+//! any other name is refused with its bytes escaped before anything is hashed
+//! or written. Any edit to a pinned file, any missing or extra entry, any
+//! symlink or non-regular entry, any format deviation, or any local `uses: ./…`
+//! resolving outside the two directories fails this guard with a typed
+//! [`DigestProblem`] (decision 0071 rulings 3, 8 and 9).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 use yaml_rust2::{Yaml, YamlLoader};
 
+use crate::json5::{parse_json5, Json5Error, Json5Value};
+
 pub(crate) const DIGEST_FILE: &str = ".github/workflow-digests.txt";
 const PINNED_DIRS: [&str; 2] = [".github/actions", ".github/workflows"];
 const REFRESH_COMMAND: &str = "bash scripts/refresh-workflow-digests.sh";
+const CHECKSUM_REFRESH_COMMAND: &str = "bash scripts/refresh-pin-checksums.sh";
+const DIGEST_PINNED_GROUP: &str = "CI tools pinned by digest";
+const DIGEST_PINNED_DEPS: [&str; 5] =
+    ["bubblewrap", "cargo-audit", "actionlint", "lychee", "jscpd"];
+const ALLOWED_GLOBAL_COMMANDS: [&str; 2] = [
+    r"^bash scripts/refresh-pin-checksums\.sh$",
+    r"^bash scripts/refresh-workflow-digests\.sh$",
+];
 
 /// Typed failure returned by [`check_workflow_digests`] (decision 0071 ruling 8).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -61,6 +75,9 @@ pub(crate) enum DigestProblem {
         line: usize,
         entry: String,
     },
+
+    #[error("{path}: path component must match `[A-Za-z0-9._-]+` and not be `.` or `..`")]
+    InvalidPathName { path: String },
 
     #[error("{path}:{line}: duplicate entry `{entry}`")]
     DuplicateEntry {
@@ -113,6 +130,40 @@ pub(crate) enum DigestProblem {
     },
 }
 
+/// Typed failure returned by [`check_renovate_digest_wiring`] (decision 0071 ruling 8).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum RenovateConfigProblem {
+    #[error("{file}: invalid JSON5: {err}")]
+    InvalidJson5 { file: &'static str, err: Json5Error },
+
+    #[error("{file}: expected root JSON5 object")]
+    RootNotObject { file: &'static str },
+
+    #[error(".github/renovate.json5: missing top-level `postUpgradeTasks`")]
+    MissingTopLevelPostUpgradeTasks,
+
+    #[error(".github/renovate.json5: top-level `postUpgradeTasks` does not match expected digest refresh task")]
+    WrongTopLevelPostUpgradeTasks,
+
+    #[error(".github/renovate.json5: `packageRules` is missing or not an array of objects")]
+    InvalidPackageRules,
+
+    #[error(".github/renovate.json5: expected exactly one package rule with `postUpgradeTasks`, found {count}")]
+    WrongOverrideRuleCount { count: usize },
+
+    #[error(".github/renovate.json5: `postUpgradeTasks` override rule is not `{DIGEST_PINNED_GROUP}` with expected dependencies")]
+    WrongOverrideRuleTarget,
+
+    #[error(".github/renovate.json5: `{DIGEST_PINNED_GROUP}` rule `postUpgradeTasks` must run checksum refresh then digest refresh with both fileFilters in branch mode")]
+    WrongOverridePostUpgradeTasks,
+
+    #[error(".github/renovate.json5: `jscpd` is matched by a later package rule after `{DIGEST_PINNED_GROUP}`")]
+    JscpdOverriddenAfterDigestGroup,
+
+    #[error(".github/renovate-global.json5: `allowedCommands` must allow exactly the two anchored refresh commands")]
+    WrongGlobalAllowedCommands,
+}
+
 fn workspace() -> PathBuf {
     crate::workspace_root::workspace()
 }
@@ -124,22 +175,71 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-fn is_pinned_rel_path(entry: &str) -> bool {
+fn is_allowed_component_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')
+}
+
+fn is_valid_pinned_component(bytes: &[u8]) -> bool {
+    !bytes.is_empty()
+        && bytes != b"."
+        && bytes != b".."
+        && bytes.iter().copied().all(is_allowed_component_byte)
+}
+
+fn escape_component_bytes(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len());
+    for &b in bytes {
+        if is_allowed_component_byte(b) {
+            out.push(b as char);
+        } else {
+            let _ = write!(out, "\\x{b:02x}");
+        }
+    }
+    out
+}
+
+fn escape_rel_path_bytes(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len());
+    for &b in bytes {
+        if is_allowed_component_byte(b) || b == b'/' {
+            out.push(b as char);
+        } else {
+            let _ = write!(out, "\\x{b:02x}");
+        }
+    }
+    out
+}
+
+enum PinnedEntryPathCheck {
+    Valid,
+    OutsidePinnedDirs,
+    InvalidComponent(String),
+}
+
+fn check_pinned_rel_path(entry: &str) -> PinnedEntryPathCheck {
     if entry.contains(['\\', '\r', '\0']) {
-        return false;
+        return PinnedEntryPathCheck::OutsidePinnedDirs;
     }
     let segments: Vec<&str> = entry.split('/').collect();
     if segments.len() < 3
         || segments
             .iter()
             .any(|s| s.is_empty() || *s == "." || *s == "..")
+        || !matches!(
+            (segments[0], segments[1]),
+            (".github", "actions") | (".github", "workflows")
+        )
     {
-        return false;
+        return PinnedEntryPathCheck::OutsidePinnedDirs;
     }
-    matches!(
-        (segments[0], segments[1]),
-        (".github", "actions") | (".github", "workflows")
-    )
+    if segments[2..]
+        .iter()
+        .all(|s| is_valid_pinned_component(s.as_bytes()))
+    {
+        PinnedEntryPathCheck::Valid
+    } else {
+        PinnedEntryPathCheck::InvalidComponent(escape_rel_path_bytes(entry.as_bytes()))
+    }
 }
 
 fn parse_digest_line(line_no: usize, line: &str) -> Result<(String, String), DigestProblem> {
@@ -195,14 +295,17 @@ fn parse_digest_line(line_no: usize, line: &str) -> Result<(String, String), Dig
             line: line_no,
         });
     }
-    if !is_pinned_rel_path(entry) {
-        return Err(DigestProblem::PathOutsidePinnedDirs {
+    match check_pinned_rel_path(entry) {
+        PinnedEntryPathCheck::Valid => Ok((hex.to_string(), entry.to_string())),
+        PinnedEntryPathCheck::OutsidePinnedDirs => Err(DigestProblem::PathOutsidePinnedDirs {
             path: DIGEST_FILE.to_string(),
             line: line_no,
             entry: entry.to_string(),
-        });
+        }),
+        PinnedEntryPathCheck::InvalidComponent(escaped) => {
+            Err(DigestProblem::InvalidPathName { path: escaped })
+        }
     }
-    Ok((hex.to_string(), entry.to_string()))
 }
 
 fn require_non_symlink_kind(
@@ -240,9 +343,6 @@ fn read_digest_file(
     root: &Path,
     problems: &mut Vec<DigestProblem>,
 ) -> Option<BTreeMap<String, String>> {
-    if !require_non_symlink_kind(&root.join(".github"), ".github", true, problems) {
-        return None;
-    }
     let digest_path = root.join(DIGEST_FILE);
     if !require_non_symlink_kind(&digest_path, DIGEST_FILE, false, problems) {
         return None;
@@ -350,13 +450,18 @@ fn walk_pinned_dir(
             return;
         }
     };
-    entries.sort_by(|a, b| {
-        a.file_name()
-            .as_encoded_bytes()
-            .cmp(b.file_name().as_encoded_bytes())
-    });
+    entries.sort_by(|a, b| a.file_name().as_bytes().cmp(b.file_name().as_bytes()));
     for entry in entries {
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let os_name = entry.file_name();
+        let name_bytes = os_name.as_bytes();
+        if !is_valid_pinned_component(name_bytes) {
+            problems.push(DigestProblem::InvalidPathName {
+                path: format!("{rel_dir}/{}", escape_component_bytes(name_bytes)),
+            });
+            continue;
+        }
+        let name =
+            std::str::from_utf8(name_bytes).expect("validated ASCII path component is valid UTF-8");
         let rel_path = format!("{rel_dir}/{name}");
         let ft = match entry.file_type() {
             Ok(ft) => ft,
@@ -556,10 +661,23 @@ fn verify_pinned_file_contents(
 /// `.github/workflows/` under `root`.
 pub(crate) fn check_workflow_digests(root: &Path) -> Vec<DigestProblem> {
     let mut problems = Vec::new();
+    if !require_non_symlink_kind(&root.join(".github"), ".github", true, &mut problems) {
+        return problems;
+    }
+    let mut tree_problems = Vec::new();
+    let (found_files, non_regular) = collect_pinned_tree(root, &mut tree_problems);
+    let invalid_names: Vec<DigestProblem> = tree_problems
+        .iter()
+        .filter(|p| matches!(p, DigestProblem::InvalidPathName { .. }))
+        .cloned()
+        .collect();
+    if !invalid_names.is_empty() {
+        return invalid_names;
+    }
     let Some(recorded) = read_digest_file(root, &mut problems) else {
         return problems;
     };
-    let (found_files, non_regular) = collect_pinned_tree(root, &mut problems);
+    problems.extend(tree_problems);
     for path in &found_files {
         if !recorded.contains_key(path) {
             problems.push(DigestProblem::UnpinnedFile { path: path.clone() });
@@ -576,6 +694,138 @@ pub(crate) fn check_workflow_digests(root: &Path) -> Vec<DigestProblem> {
     }
     for path in &found_files {
         verify_pinned_file_contents(root, path, recorded.get(path), &mut problems);
+    }
+    problems
+}
+
+fn post_upgrade_tasks_matches(
+    value: &Json5Value,
+    expected_commands: &[&str],
+    expected_filters: &[&str],
+) -> bool {
+    let Some(obj) = value.as_object() else {
+        return false;
+    };
+    if obj.len() != 3 {
+        return false;
+    }
+    obj.get("commands")
+        .and_then(Json5Value::as_string_list)
+        .is_some_and(|cmds| cmds == expected_commands)
+        && obj
+            .get("fileFilters")
+            .and_then(Json5Value::as_string_list)
+            .is_some_and(|filters| filters == expected_filters)
+        && obj.get("executionMode").and_then(Json5Value::as_str) == Some("branch")
+}
+
+fn check_renovate_package_rules(
+    root: &BTreeMap<String, Json5Value>,
+    problems: &mut Vec<RenovateConfigProblem>,
+) {
+    let Some(rules_slice) = root.get("packageRules").and_then(Json5Value::as_array) else {
+        problems.push(RenovateConfigProblem::InvalidPackageRules);
+        return;
+    };
+    let mut rule_objs = Vec::with_capacity(rules_slice.len());
+    for item in rules_slice {
+        let Some(obj) = item.as_object() else {
+            problems.push(RenovateConfigProblem::InvalidPackageRules);
+            return;
+        };
+        rule_objs.push(obj);
+    }
+    let override_indices: Vec<usize> = rule_objs
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, obj)| obj.contains_key("postUpgradeTasks").then_some(idx))
+        .collect();
+    if override_indices.len() != 1 {
+        problems.push(RenovateConfigProblem::WrongOverrideRuleCount {
+            count: override_indices.len(),
+        });
+        return;
+    }
+    let idx = override_indices[0];
+    let rule = rule_objs[idx];
+    let right_target = rule.get("groupName").and_then(Json5Value::as_str)
+        == Some(DIGEST_PINNED_GROUP)
+        && rule
+            .get("matchDepNames")
+            .and_then(Json5Value::as_string_list)
+            .is_some_and(|deps| deps == DIGEST_PINNED_DEPS);
+    if !right_target {
+        problems.push(RenovateConfigProblem::WrongOverrideRuleTarget);
+    }
+    let tasks = rule
+        .get("postUpgradeTasks")
+        .expect("filtered by contains_key");
+    if !post_upgrade_tasks_matches(
+        tasks,
+        &[CHECKSUM_REFRESH_COMMAND, REFRESH_COMMAND],
+        &[".github/actions/*/action.yml", DIGEST_FILE],
+    ) {
+        problems.push(RenovateConfigProblem::WrongOverridePostUpgradeTasks);
+    }
+    let later_matches_jscpd = rule_objs[idx + 1..].iter().any(|later| {
+        later
+            .get("matchDepNames")
+            .and_then(Json5Value::as_string_list)
+            .is_some_and(|deps| deps.contains(&"jscpd"))
+    });
+    if later_matches_jscpd {
+        problems.push(RenovateConfigProblem::JscpdOverriddenAfterDigestGroup);
+    }
+}
+
+/// Structurally verify `.github/renovate.json5` and `.github/renovate-global.json5`
+/// wire workflow digest refreshes across all updates and the digest-pinned override.
+pub(crate) fn check_renovate_digest_wiring(
+    config_text: &str,
+    global_text: &str,
+) -> Vec<RenovateConfigProblem> {
+    let mut problems = Vec::new();
+    match parse_json5(config_text) {
+        Err(err) => problems.push(RenovateConfigProblem::InvalidJson5 {
+            file: ".github/renovate.json5",
+            err,
+        }),
+        Ok(val) => match val.as_object() {
+            None => problems.push(RenovateConfigProblem::RootNotObject {
+                file: ".github/renovate.json5",
+            }),
+            Some(root) => {
+                match root.get("postUpgradeTasks") {
+                    None => problems.push(RenovateConfigProblem::MissingTopLevelPostUpgradeTasks),
+                    Some(tasks) => {
+                        if !post_upgrade_tasks_matches(tasks, &[REFRESH_COMMAND], &[DIGEST_FILE]) {
+                            problems.push(RenovateConfigProblem::WrongTopLevelPostUpgradeTasks);
+                        }
+                    }
+                }
+                check_renovate_package_rules(root, &mut problems);
+            }
+        },
+    }
+    match parse_json5(global_text) {
+        Err(err) => problems.push(RenovateConfigProblem::InvalidJson5 {
+            file: ".github/renovate-global.json5",
+            err,
+        }),
+        Ok(val) => match val.as_object() {
+            None => problems.push(RenovateConfigProblem::RootNotObject {
+                file: ".github/renovate-global.json5",
+            }),
+            Some(root) => {
+                let ok = root
+                    .get("allowedCommands")
+                    .and_then(Json5Value::as_string_list)
+                    .is_some_and(|cmds| cmds == ALLOWED_GLOBAL_COMMANDS);
+                if !ok {
+                    problems.push(RenovateConfigProblem::WrongGlobalAllowedCommands);
+                }
+            }
+        },
     }
     problems
 }
@@ -794,6 +1044,106 @@ mod tests {
         );
     }
 
+    /// Plant a file whose name is raw OS bytes. Compiles on Linux and macOS;
+    /// returns `false` (after printing a notice) if the host filesystem refuses
+    /// non-UTF-8 filenames (e.g. macOS APFS).
+    fn plant_raw_name_file(dir: &Path, name_bytes: &[u8], body: &str) -> bool {
+        assert!(
+            dir.is_dir(),
+            "parent directory must exist: {}",
+            dir.display()
+        );
+        let path = dir.join(std::ffi::OsStr::from_bytes(name_bytes));
+        match std::fs::write(&path, body) {
+            Ok(()) => true,
+            Err(err) => {
+                assert_ne!(
+                    err.kind(),
+                    std::io::ErrorKind::NotFound,
+                    "unexpected missing parent while planting raw-byte filename"
+                );
+                eprintln!(
+                    "host filesystem refused non-UTF-8 filename `{}`: {err}",
+                    escape_component_bytes(name_bytes)
+                );
+                false
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_name_non_utf8_beside_recorded_twin_is_refused() {
+        let tree = PlantedTree::new();
+        let twin = ".github/actions/helper-\u{FFFD}.txt";
+        tree.write_valid_digests(&[
+            (twin, "recorded twin\n"),
+            (".github/workflows/sample.yml", SAMPLE_WF),
+        ]);
+        if !plant_raw_name_file(
+            &tree.path().join(".github/actions"),
+            b"helper-\xff.txt",
+            "unrecorded sibling\n",
+        ) {
+            return;
+        }
+        assert_eq!(
+            check_workflow_digests(tree.path()),
+            vec![
+                DigestProblem::InvalidPathName {
+                    path: r".github/actions/helper-\xef\xbf\xbd.txt".to_string(),
+                },
+                DigestProblem::InvalidPathName {
+                    path: r".github/actions/helper-\xff.txt".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_name_lone_non_utf8_is_refused() {
+        let tree = PlantedTree::new();
+        tree.write_valid_digests(&[(".github/workflows/sample.yml", SAMPLE_WF)]);
+        if !plant_raw_name_file(
+            &tree.path().join(".github/actions"),
+            b"bad-\xff.txt",
+            "raw bytes\n",
+        ) {
+            return;
+        }
+        assert_eq!(
+            check_workflow_digests(tree.path()),
+            vec![DigestProblem::InvalidPathName {
+                path: r".github/actions/bad-\xff.txt".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn invalid_name_with_space_is_refused() {
+        let tree = PlantedTree::new();
+        tree.write_valid_digests(&[(".github/workflows/sample.yml", SAMPLE_WF)]);
+        tree.put(".github/actions/bad name.yml", SAMPLE_ACTION);
+        assert_eq!(
+            check_workflow_digests(tree.path()),
+            vec![DigestProblem::InvalidPathName {
+                path: r".github/actions/bad\x20name.yml".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn invalid_name_with_non_ascii_letter_is_refused() {
+        let tree = PlantedTree::new();
+        tree.write_valid_digests(&[(".github/workflows/sample.yml", SAMPLE_WF)]);
+        tree.put(".github/workflows/caf\u{00e9}.yml", SAMPLE_WF);
+        assert_eq!(
+            check_workflow_digests(tree.path()),
+            vec![DigestProblem::InvalidPathName {
+                path: r".github/workflows/caf\xc3\xa9.yml".to_string(),
+            }]
+        );
+    }
+
     fn check_raw_digest_file(raw: &str) -> Vec<DigestProblem> {
         let tree = PlantedTree::new();
         tree.put(".github/actions/sample/action.yml", SAMPLE_ACTION);
@@ -803,17 +1153,19 @@ mod tests {
     }
 
     #[test]
-    fn digest_file_framing_and_line_format_errors_are_refused_by_type() {
-        let digest = sha256_hex(SAMPLE_WF.as_bytes());
-        let upper = digest.to_ascii_uppercase();
-        let a_digest = sha256_hex(SAMPLE_ACTION.as_bytes());
-
+    fn digest_file_refuses_empty_file() {
         assert_eq!(
             check_raw_digest_file(""),
             vec![DigestProblem::EmptyDigestFile {
                 path: DIGEST_FILE.to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn digest_file_refuses_missing_final_newline() {
+        let digest = sha256_hex(SAMPLE_WF.as_bytes());
+        let a_digest = sha256_hex(SAMPLE_ACTION.as_bytes());
         assert_eq!(
             check_raw_digest_file(&format!(
                 "{a_digest}  .github/actions/sample/action.yml\n{digest}  .github/workflows/sample.yml"
@@ -822,6 +1174,12 @@ mod tests {
                 path: DIGEST_FILE.to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn digest_file_refuses_blank_line() {
+        let digest = sha256_hex(SAMPLE_WF.as_bytes());
+        let a_digest = sha256_hex(SAMPLE_ACTION.as_bytes());
         assert_eq!(
             check_raw_digest_file(&format!(
                 "{a_digest}  .github/actions/sample/action.yml\n\n{digest}  .github/workflows/sample.yml\n"
@@ -831,6 +1189,12 @@ mod tests {
                 line: 2,
             }]
         );
+    }
+
+    #[test]
+    fn digest_file_refuses_comment_line() {
+        let digest = sha256_hex(SAMPLE_WF.as_bytes());
+        let a_digest = sha256_hex(SAMPLE_ACTION.as_bytes());
         assert_eq!(
             check_raw_digest_file(&format!(
                 "# generated\n{a_digest}  .github/actions/sample/action.yml\n{digest}  .github/workflows/sample.yml\n"
@@ -840,6 +1204,11 @@ mod tests {
                 line: 1,
             }]
         );
+    }
+
+    #[test]
+    fn digest_file_refuses_uppercase_hex() {
+        let upper = sha256_hex(SAMPLE_WF.as_bytes()).to_ascii_uppercase();
         assert_eq!(
             check_raw_digest_file(&format!("{upper}  .github/workflows/sample.yml\n")),
             vec![DigestProblem::UppercaseHex {
@@ -848,6 +1217,11 @@ mod tests {
                 found: upper,
             }]
         );
+    }
+
+    #[test]
+    fn digest_file_refuses_wrong_separator() {
+        let digest = sha256_hex(SAMPLE_WF.as_bytes());
         assert_eq!(
             check_raw_digest_file(&format!("{digest} .github/workflows/sample.yml\n")),
             vec![DigestProblem::WrongSeparator {
@@ -855,6 +1229,10 @@ mod tests {
                 line: 1,
             }]
         );
+    }
+
+    #[test]
+    fn digest_file_refuses_malformed_line() {
         assert_eq!(
             check_raw_digest_file("not-a-valid-line\n"),
             vec![DigestProblem::MalformedLine {
@@ -866,10 +1244,8 @@ mod tests {
     }
 
     #[test]
-    fn digest_file_path_duplicate_and_ordering_errors_are_refused_by_type() {
+    fn digest_file_refuses_path_outside_pinned_dirs() {
         let digest = sha256_hex(SAMPLE_WF.as_bytes());
-        let a_digest = sha256_hex(SAMPLE_ACTION.as_bytes());
-
         assert_eq!(
             check_raw_digest_file(&format!("{digest}  .github/renovate.json5\n")),
             vec![DigestProblem::PathOutsidePinnedDirs {
@@ -886,6 +1262,22 @@ mod tests {
                 entry: ".github/workflows/../renovate.json5".to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn digest_file_refuses_invalid_path_name() {
+        let digest = sha256_hex(SAMPLE_WF.as_bytes());
+        assert_eq!(
+            check_raw_digest_file(&format!("{digest}  .github/actions/bad name.yml\n")),
+            vec![DigestProblem::InvalidPathName {
+                path: r".github/actions/bad\x20name.yml".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn digest_file_refuses_duplicate_entry() {
+        let digest = sha256_hex(SAMPLE_WF.as_bytes());
         assert_eq!(
             check_raw_digest_file(&format!(
                 "{digest}  .github/workflows/sample.yml\n{digest}  .github/workflows/sample.yml\n"
@@ -896,6 +1288,12 @@ mod tests {
                 entry: ".github/workflows/sample.yml".to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn digest_file_refuses_out_of_order() {
+        let digest = sha256_hex(SAMPLE_WF.as_bytes());
+        let a_digest = sha256_hex(SAMPLE_ACTION.as_bytes());
         assert_eq!(
             check_raw_digest_file(&format!(
                 "{digest}  .github/workflows/sample.yml\n{a_digest}  .github/actions/sample/action.yml\n"
@@ -909,39 +1307,73 @@ mod tests {
         );
     }
 
-    #[test]
-    fn renovate_config_allows_and_runs_workflow_digest_refresh() {
+    fn read_renovate_configs() -> (String, String) {
         let root = workspace();
+        let config = std::fs::read_to_string(root.join(".github/renovate.json5")).expect("config");
         let global =
             std::fs::read_to_string(root.join(".github/renovate-global.json5")).expect("global");
-        assert!(
-            global.contains("'^bash scripts/refresh-workflow-digests\\\\.sh$'"),
-            "renovate-global.json5 must allow scripts/refresh-workflow-digests.sh"
-        );
-        let config = std::fs::read_to_string(root.join(".github/renovate.json5")).expect("config");
+        (config, global)
+    }
+
+    #[test]
+    fn renovate_config_allows_and_runs_workflow_digest_refresh() {
+        let (config, global) = read_renovate_configs();
         assert_eq!(
-            config
-                .matches("'bash scripts/refresh-workflow-digests.sh'")
-                .count(),
-            4,
-            "every Renovate rule that can touch a pinned file must refresh workflow digests"
+            check_renovate_digest_wiring(&config, &global),
+            Vec::<RenovateConfigProblem>::new()
+        );
+    }
+
+    #[test]
+    fn renovate_wiring_guard_refuses_moved_dropped_swapped_and_unanchored_configs() {
+        let (config, global) = read_renovate_configs();
+
+        let top_block = "  postUpgradeTasks: {\n    commands: ['bash scripts/refresh-workflow-digests.sh'],\n    fileFilters: ['.github/workflow-digests.txt'],\n    executionMode: 'branch',\n  },\n";
+        assert!(config.contains(top_block));
+        let moved = config.replacen(top_block, "", 1).replacen(
+            "      groupName: 'actions',\n",
+            "      groupName: 'actions',\n      postUpgradeTasks: {\n        commands: ['bash scripts/refresh-workflow-digests.sh'],\n        fileFilters: ['.github/workflow-digests.txt'],\n        executionMode: 'branch',\n      },\n",
+            1,
         );
         assert_eq!(
-            config.matches("'.github/workflow-digests.txt'").count(),
-            4,
-            "each digest-refreshing Renovate rule must include .github/workflow-digests.txt in fileFilters"
+            check_renovate_digest_wiring(&moved, &global),
+            vec![
+                RenovateConfigProblem::MissingTopLevelPostUpgradeTasks,
+                RenovateConfigProblem::WrongOverrideRuleCount { count: 2 },
+            ]
         );
-        let checksums_pos = config
-            .find("'bash scripts/refresh-pin-checksums.sh'")
-            .expect("pin checksums command");
-        let after_checksums = &config[checksums_pos..];
-        let digest_after = after_checksums
-            .find("'bash scripts/refresh-workflow-digests.sh'")
-            .expect("digest refresh after pin checksums");
-        let rule_end = after_checksums.find("executionMode:").expect("rule end");
-        assert!(
-            digest_after < rule_end,
-            "digest refresh must run after refresh-pin-checksums.sh in the same postUpgradeTasks"
+
+        let both_cmds = "          'bash scripts/refresh-pin-checksums.sh',\n          'bash scripts/refresh-workflow-digests.sh',\n";
+        assert!(config.contains(both_cmds));
+        let dropped = config.replacen(
+            both_cmds,
+            "          'bash scripts/refresh-pin-checksums.sh',\n",
+            1,
+        );
+        assert_eq!(
+            check_renovate_digest_wiring(&dropped, &global),
+            vec![RenovateConfigProblem::WrongOverridePostUpgradeTasks]
+        );
+
+        let swapped = config.replacen(
+            both_cmds,
+            "          'bash scripts/refresh-workflow-digests.sh',\n          'bash scripts/refresh-pin-checksums.sh',\n",
+            1,
+        );
+        assert_eq!(
+            check_renovate_digest_wiring(&swapped, &global),
+            vec![RenovateConfigProblem::WrongOverridePostUpgradeTasks]
+        );
+
+        let unanchored = global.replacen(
+            "'^bash scripts/refresh-workflow-digests\\\\.sh$'",
+            "'bash scripts/refresh-workflow-digests\\\\.sh$'",
+            1,
+        );
+        assert_ne!(unanchored, global);
+        assert_eq!(
+            check_renovate_digest_wiring(&config, &unanchored),
+            vec![RenovateConfigProblem::WrongGlobalAllowedCommands]
         );
     }
 }
