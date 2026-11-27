@@ -206,9 +206,23 @@ fn a_sequence_attempt_s_ending_carries_each_step_driver_s_usage() {
     let journal = engine.store.load(&engine.run_id).unwrap();
     let ending = journal.last().unwrap();
     assert_eq!(ending.event_type, EventType::EffectFailed, "{journal:#?}");
-    let members = ending.payload["usage"]["members"].as_object().unwrap();
-    let tags: Vec<&str> = members.keys().map(String::as_str).collect();
-    assert_eq!(tags, ["draft", "finish:left", "finish:right"]);
+    let tags: Vec<_> = ending.payload["usage"]["members"]
+        .as_object()
+        .into_iter()
+        .flat_map(serde_json::Map::keys)
+        .map(String::as_str)
+        .collect();
+    let expected = ["draft", "finish:left", "finish:right"];
+    assert_eq!(
+        tags,
+        expected,
+        "missing usage tags {:?}\nending payload\n{:#}",
+        expected
+            .into_iter()
+            .filter(|tag| !tags.contains(tag))
+            .collect::<Vec<_>>(),
+        ending.payload
+    );
 }
 
 /// The fold reads none of it: the journal the engine wrote, with usage on
