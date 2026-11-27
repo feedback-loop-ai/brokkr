@@ -8,7 +8,7 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::test_support::{plant_chained, plant_envelope, plant_run};
 use brokkr_store::{Attribution, Store};
-use brokkr_view::WaitFact;
+use brokkr_view::{Standing, WaitFact, WaitKind, Waits};
 use serde_json::{json, Value};
 
 use super::kept::rules;
@@ -933,7 +933,7 @@ fn kept_until(kept: &KeptFleet) -> Option<String> {
     let entries = kept.entries();
     let entry = entries.iter().find(|entry| entry.run_id == "r1").unwrap();
     match &entry.waits {
-        WaitFact::Waits(waits) => waits
+        WaitFact::Waits { sites, .. } => sites
             .first()
             .and_then(|wait| brokkr_core::stamp::write_millis(wait.until).ok()),
         _ => None,
@@ -1016,7 +1016,7 @@ fn a_kept_run_refused_at_a_late_wait_paints_none() {
 /// applied trail states none. Reading it anyway drops the wait of a run
 /// that did not move whenever another run does.
 #[test]
-fn a_kept_wait_survives_a_refresh_that_lands_nothing_for_its_run() {
+fn a_kept_wait_matches_the_whole_read_after_an_unchanged_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let (db, mut kept) = kept_in_wait(dir.path(), "2099-01-01T00:10:00Z");
 
@@ -1034,4 +1034,298 @@ fn a_kept_wait_survives_a_refresh_that_lands_nothing_for_its_run() {
         Some("2099-01-01T00:10:00Z"),
         "r1 landed nothing and keeps the wait it stood in"
     );
+    assert_eq!(kept_rows(&kept), whole_rows(&db));
+}
+
+#[test]
+fn a_wait_retires_at_its_retry_effect_started_on_whole_paged_and_kept_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let at = "2099-01-01T00:00:00Z";
+    let (db, mut kept) = kept_in_wait(dir.path(), "2099-01-01T00:10:00Z");
+    let check = |kept: &KeptFleet, expected| {
+        let store = Store::open_read_only(&db).unwrap();
+        let whole = super::one(&store, "r1", at).unwrap();
+        let pages = super::Pages::listing(&store, Journal::at(&db), at).unwrap();
+        let ask = super::Ask {
+            now: at,
+            whole: &|_| false,
+            keep: &|_| true,
+        };
+        let page = pages.page(&store, ask, None, 1).unwrap();
+        let carried = brokkr_view::run_rows(&kept.entries(), &[]).runs;
+        for row in [&whole, &page.rows[0].1, &carried[0]] {
+            assert_eq!(row.verdict.standing, expected);
+            assert_eq!(
+                row.waits.waits.len(),
+                usize::from(expected == Standing::Waiting)
+            );
+        }
+    };
+    check(&kept, Standing::Waiting);
+    for (event_type, payload) in [
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "eff", "attempt_id": "retry"}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "eff", "attempt_id": "retry", "result": {"result": "ok"}}),
+        ),
+        (
+            EventType::TransitionDecided,
+            json!({"from": "work", "result": "ok", "rule_id": "WORK-OK", "next": "next", "severity": null, "problem": null, "inputs": {}}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "next"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "later", "seat": "next", "phase": "next"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "later", "attempt_id": "third"}),
+        ),
+    ] {
+        append(&db, "r1", event_type, payload);
+        assert_eq!(refreshed(&mut kept, &db), 1);
+        check(&kept, Standing::Running);
+    }
+}
+
+const WAIT_READ_AT: &str = "2098-12-31T23:59:00Z";
+
+fn waits_on_reads(store: &Store, kept: &KeptFleet) -> [Waits; 3] {
+    let cooling = super::cooling(store, WAIT_READ_AT).unwrap();
+    let whole = read_hearth(store).listed().unwrap();
+    let whole = brokkr_view::run_row(&whole[0].entry(), &cooling);
+    let pages = super::Pages::listing(store, Journal::at(store.path()), WAIT_READ_AT).unwrap();
+    assert!(matches!(pages, super::Pages::Summary(_)));
+    let ask = super::Ask {
+        now: WAIT_READ_AT,
+        whole: &|_| false,
+        keep: &|_| true,
+    };
+    let (_, paged) = pages.page(store, ask, None, 1).unwrap().rows.remove(0);
+    let carried = brokkr_view::run_row(&kept.entries()[0], &cooling);
+    [whole.waits, paged.waits, carried.waits]
+}
+
+fn assert_wait_sites(reads: [Waits; 3], expected: &[(&str, &str, WaitKind)]) {
+    for waits in reads {
+        let sites: Vec<_> = waits
+            .waits
+            .iter()
+            .map(|wait| {
+                (
+                    wait.site.as_deref().unwrap(),
+                    wait.until.as_str(),
+                    wait.kind,
+                )
+            })
+            .collect();
+        assert_eq!(sites, expected);
+        assert_eq!(waits.refused, None);
+    }
+}
+
+/// The run view of `r1` as both of `run_pages`' showings read it: the frame
+/// and the view printed whole.
+fn viewed_both_ways(store: &Store) -> [crate::run_pages::Viewed; 2] {
+    [
+        crate::run_pages::Shows::Frame,
+        crate::run_pages::Shows::Everything,
+    ]
+    .map(|shows| crate::run_pages::viewed(store, "r1", shows, WAIT_READ_AT).unwrap())
+}
+
+fn kept_cooling(prepare: fn(&Path) -> u64) -> (tempfile::TempDir, Store, KeptFleet, u64) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let seq = prepare(&db);
+    let store = Store::open(&db).unwrap();
+    let mut kept = KeptFleet::default();
+    refreshed(&mut kept, &db);
+    (dir, store, kept, seq)
+}
+
+fn waits_after_probe(
+    store: &mut Store,
+    kept: &mut KeptFleet,
+    probe: impl FnOnce(&mut Store),
+) -> [Waits; 3] {
+    let head = store.head_hash("r1").unwrap();
+    probe(store);
+    assert_eq!(store.head_hash("r1").unwrap(), head);
+    assert_eq!(refreshed(kept, store.path()), 0);
+    waits_on_reads(store, kept)
+}
+
+#[test]
+fn a_held_wait_is_read_from_the_terminal_event_on_whole_paged_and_kept_reads() {
+    use crate::tests::cooling::{mixed_cooling_attempt, COOLING_FIRST, HELD_FIRST, HELD_MAX};
+
+    let (_dir, store, mut kept, seq) = kept_cooling(mixed_cooling_attempt);
+    let expected = [
+        ("a", COOLING_FIRST, WaitKind::Ordinary),
+        (
+            "b",
+            HELD_FIRST,
+            WaitKind::Held {
+                max_seconds: HELD_MAX,
+            },
+        ),
+    ];
+    assert_wait_sites(waits_on_reads(&store, &kept), &expected);
+    // The event still carries the held kind when the table has no own row.
+    rusqlite::Connection::open(store.path())
+        .unwrap()
+        .execute_batch(
+            "DROP TRIGGER provider_cooldowns_append_only_delete;
+         DELETE FROM provider_cooldowns WHERE site = 'b';",
+        )
+        .unwrap();
+    assert_eq!(refreshed(&mut kept, store.path()), 0);
+    assert_eq!(store.head_hash("r1").unwrap().0, seq);
+    assert_wait_sites(waits_on_reads(&store, &kept), &expected);
+}
+
+#[test]
+fn a_table_only_held_round_paints_an_ordinary_event_s_site_held() {
+    use crate::tests::cooling::{cooling_attempt, extend_held_cooling, COOLING_LATER, PROBE_MAX};
+
+    let (_dir, mut store, mut kept, seq) = kept_cooling(cooling_attempt);
+    let reads = waits_after_probe(&mut store, &mut kept, |store| {
+        extend_held_cooling(store, seq, "a", "anthropic")
+    });
+    assert_wait_sites(
+        reads,
+        &[(
+            "a",
+            COOLING_LATER,
+            WaitKind::Held {
+                max_seconds: PROBE_MAX,
+            },
+        )],
+    );
+}
+
+#[test]
+fn a_mixed_site_whole_paged_and_kept_read_keeps_every_site() {
+    use crate::tests::cooling::{
+        extend_held_cooling, mixed_cooling_attempt, COOLING_FIRST, COOLING_LATER, PROBE_MAX,
+    };
+
+    let (_dir, mut store, mut kept, seq) = kept_cooling(mixed_cooling_attempt);
+    let reads = waits_after_probe(&mut store, &mut kept, |store| {
+        extend_held_cooling(store, seq, "b", "backup")
+    });
+    assert_wait_sites(
+        reads,
+        &[
+            ("a", COOLING_FIRST, WaitKind::Ordinary),
+            (
+                "b",
+                COOLING_LATER,
+                WaitKind::Held {
+                    max_seconds: PROBE_MAX,
+                },
+            ),
+        ],
+    );
+    let source = crate::muninn::Source {
+        realm: None,
+        store: &store,
+    };
+    let dossier = crate::muninn::dossier_of(&[source], &[], WAIT_READ_AT).unwrap();
+    assert_eq!(dossier.value["dossier_version"], 1);
+    assert_eq!(dossier.value["runs"][0]["status"], "waiting");
+    assert_eq!(dossier.value["fleet"]["running"], 1);
+}
+
+#[test]
+fn a_v1_wait_reads_ordinary_on_every_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let until = "2099-01-01T00:10:00Z";
+    let (db, kept) = kept_in_wait(dir.path(), until);
+    let store = Store::open_read_only(&db).unwrap();
+    assert_wait_sites(
+        waits_on_reads(&store, &kept),
+        &[("a", until, WaitKind::Ordinary)],
+    );
+    for viewed in viewed_both_ways(&store) {
+        assert_eq!(viewed.view.waits.waits[0].kind, WaitKind::Ordinary);
+    }
+}
+
+#[test]
+fn an_unreadable_round_read_paints_the_refusal() {
+    let (_dir, db) = crate::tests::cooling::mixed_cooling_journal();
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch(
+            "PRAGMA ignore_check_constraints = ON;
+             DROP TRIGGER provider_cooldowns_append_only_update;
+         UPDATE provider_cooldowns SET max_seconds = 'bad maximum' WHERE site = 'b';",
+        )
+        .unwrap();
+    let store = Store::open_read_only(&db).unwrap();
+    let mut kept = KeptFleet::default();
+    refreshed(&mut kept, &db);
+    let seq = store.head_hash("r1").unwrap().0;
+    let error = store.cooldown_held_rounds("r1", seq, "b").unwrap_err();
+    assert!(
+        matches!(error, brokkr_store::StoreError::Sqlite(_)),
+        "{error:?}"
+    );
+    let expected = Waits {
+        waits: vec![],
+        refused: Some(error.to_string()),
+    };
+    for waits in waits_on_reads(&store, &kept) {
+        assert_eq!(waits, expected);
+    }
+    let source = crate::muninn::Source {
+        realm: None,
+        store: &store,
+    };
+    let read = crate::muninn::dossier_of(&[source], &[], WAIT_READ_AT).unwrap();
+    assert_eq!(read.value["runs"][0]["status"], "running");
+    for viewed in viewed_both_ways(&store) {
+        assert_eq!(viewed.view.waits, expected);
+        let summary = viewed.view.summary.unwrap();
+        assert_eq!(
+            (summary.standing, summary.status_word.as_str()),
+            (Standing::Running, "running")
+        );
+    }
+    // A bad ordinary row can also refuse the ordered-round read itself.
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "UPDATE provider_cooldowns SET reason = x'ff' WHERE site = 'a'",
+            [],
+        )
+        .unwrap();
+    let error = store.cooldown_rounds("r1", seq, "a").unwrap_err();
+    assert!(
+        matches!(error, brokkr_store::StoreError::Sqlite(_)),
+        "{error:?}"
+    );
+    assert_eq!(
+        read_hearth(&store).listed().unwrap()[0].waits,
+        WaitFact::Unreadable(brokkr_view::WaitRefusal::Store(error.to_string()))
+    );
+}
+
+#[test]
+fn a_table_only_later_row_moves_whole_paged_and_kept_readouts() {
+    use crate::tests::cooling::{cooling_attempt, extend_cooling, COOLING_FIRST, COOLING_LATER};
+
+    let (_dir, mut store, mut kept, seq) = kept_cooling(cooling_attempt);
+    assert_wait_sites(
+        waits_on_reads(&store, &kept),
+        &[("a", COOLING_FIRST, WaitKind::Ordinary)],
+    );
+
+    let reads = waits_after_probe(&mut store, &mut kept, |store| extend_cooling(store, seq));
+    assert_wait_sites(reads, &[("a", COOLING_LATER, WaitKind::Ordinary)]);
 }

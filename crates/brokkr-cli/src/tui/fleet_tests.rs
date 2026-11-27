@@ -838,7 +838,7 @@ fn read_as(row: &RunRow) -> Result<Status, Quarantine> {
     match row.verdict.standing {
         Standing::Quarantined => Err(row.quarantine.expect("a quarantined row names it")),
         Standing::Parked => Ok(Status::AwaitingOperator),
-        Standing::Running | Standing::Stopping => Ok(Status::Running),
+        Standing::Running | Standing::Waiting | Standing::Stopping => Ok(Status::Running),
         Standing::Shipped => Ok(Status::Completed),
         Standing::Stopped | Standing::OperatorStopped => Ok(Status::Stopped),
     }
@@ -1481,9 +1481,9 @@ fn two_refused_ids_cut_alike_are_selected_and_opened_apart() {
 /// the event's first end (decision 0103 slice 4f).
 #[test]
 fn a_cooling_run_s_row_paints_the_aggregate_s_wait() {
-    use crate::tests::cooling::{assert_painted, cooling_journal};
+    use crate::tests::cooling::{assert_painted, mixed_cooling_journal};
 
-    let (_dir, db) = cooling_journal();
+    let (_dir, db) = mixed_cooling_journal();
     let store = brokkr_store::Store::open_read_only(&db).unwrap();
     let mut kept = crate::tui_read::Kept::default();
     let listed = crate::tui_read::fleet_page(
@@ -1505,7 +1505,13 @@ fn a_cooling_run_s_row_paints_the_aggregate_s_wait() {
         .iter()
         .find(|row| row.run_id == "r1")
         .expect("the cooling run is listed");
-    let tui = Tui::new(None);
+    let mut tui = Tui::new(None);
+    tui.cursor[0] = Some(row.run_id.clone());
+    assert!(frame_of(&tui, &views, 160, 48).contains("◐ waiting"));
+    assert!(footer_for(&tui, &views).contains("→ expand"));
+    apply(&mut tui, &views, Key::Right);
+    assert!(super::movement::opened(&tui, row));
+    assert!(footer_for(&tui, &views).contains("← fold"));
     let lines = panes::title_lines(&tui, &views, row).join("\n");
     assert_painted(&lines);
     // The run's own column paints it too, from the same field.
@@ -1515,4 +1521,34 @@ fn a_cooling_run_s_row_paints_the_aggregate_s_wait() {
         .collect::<Vec<_>>()
         .join("\n");
     assert_painted(&column);
+}
+
+#[test]
+fn a_waiting_run_pulses_on_the_full_and_compressed_rails() {
+    let (_dir, db) = crate::tests::cooling::cooling_journal();
+    let store = brokkr_store::Store::open_read_only(&db).unwrap();
+    let mut view = crate::run_pages::viewed(&store, "r1", crate::run_pages::Shows::Frame, NOW)
+        .unwrap()
+        .view;
+    for phase in &mut view.phases {
+        phase.columns.clear();
+    }
+    let mut tui = Tui::new(Some("r1".to_string()));
+    tui.animate = true;
+    let rail = painter::Rail {
+        phase: None,
+        node: None,
+    };
+    for height in [1, 7] {
+        let glyphs = [0, 2].map(|tick| {
+            tui.ticks = tick;
+            painter::graph_lines(&tui, &view, None, &rail, (80, height))
+                .iter()
+                .flat_map(|line| line.spans.iter())
+                .flat_map(|span| span.content.chars())
+                .filter(|glyph| ['∙', '⏺', '·'].contains(glyph))
+                .collect::<String>()
+        });
+        assert_eq!(glyphs, ["∙", "⏺"], "rail height {height}");
+    }
 }

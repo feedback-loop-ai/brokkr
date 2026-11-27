@@ -119,8 +119,8 @@ fn toggle_parts(tui: &Tui, third: &str, columns: &[(FleetColumn, u16)]) -> Vec<P
 fn in_place(tui: &Tui, views: &Views) -> Option<&'static str> {
     let row = selected_run(tui, views)?;
     match (row.verdict.standing, opened(tui, row)) {
-        (Standing::Running, true) => Some("← fold"),
-        (Standing::Running, false) => Some("→ expand"),
+        (Standing::Running | Standing::Waiting, true) => Some("← fold"),
+        (Standing::Running | Standing::Waiting, false) => Some("→ expand"),
         (
             Standing::Quarantined
             | Standing::Parked

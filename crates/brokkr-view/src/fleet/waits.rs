@@ -5,18 +5,20 @@
 //! carries every later round a probe appended, and its `until` for that
 //! provider and route is the end the readout paints. A later, shorter row
 //! never shortens one: the aggregate is a MAX. A wait is not a park, so a
-//! run standing in one reads `running`, never "needs you", and the
+//! run standing in one reads `waiting`, and the
 //! staleness bound waits for the latest end before it may call the run
 //! dead. An entry the event's own reader refuses is named here, never read
 //! as no wait.
 
+use std::collections::BTreeMap;
+
 use brokkr_core::fold::RunState;
 use brokkr_core::stamp::parse_millis;
 use brokkr_core::EventEnvelope;
-use brokkr_core::{provider_waits, ProviderWait, ProviderWaitError};
+use brokkr_core::{provider_waits, Held, ProviderWait, ProviderWaitError};
 use serde::Serialize;
 
-use crate::RunView;
+use super::{RunRow, Standing};
 
 /// One cool-down the store's aggregate holds for a provider and route, as
 /// a reader hands it in: the instant the row that ends last writes.
@@ -38,10 +40,14 @@ pub enum WaitFact {
     /// The last event carries no wait.
     #[default]
     NoWait,
-    /// The last event's waits, as the extension read them.
-    Waits(Vec<ProviderWait>),
-    /// A present `waits` entry that did not read: the field it named.
-    Unreadable(ProviderWaitError),
+    /// The last event's waits and the store's last round per recorded site.
+    Waits {
+        event_seq: u64,
+        sites: Vec<ProviderWait>,
+        rounds: BTreeMap<Option<String>, WaitRound>,
+    },
+    /// A refusal reading the event's waits or its stored rounds.
+    Unreadable(WaitRefusal),
 }
 
 impl WaitFact {
@@ -51,9 +57,13 @@ impl WaitFact {
             return WaitFact::NoWait;
         };
         match provider_waits(event) {
-            Ok(Some(waits)) => WaitFact::Waits(waits),
+            Ok(Some(sites)) => WaitFact::Waits {
+                event_seq: event.seq,
+                sites,
+                rounds: BTreeMap::new(),
+            },
             Ok(None) => WaitFact::NoWait,
-            Err(error) => WaitFact::Unreadable(error),
+            Err(error) => WaitFact::Unreadable(WaitRefusal::Event(error)),
         }
     }
 
@@ -65,6 +75,53 @@ impl WaitFact {
     /// trail to claim a wait from.
     pub fn applied(events: &[EventEnvelope], state: Option<&RunState>) -> WaitFact {
         WaitFact::of(crate::live::last_applied(events, state))
+    }
+}
+
+/// A refusal on the event payload or the stored wait records.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WaitRefusal {
+    Event(ProviderWaitError),
+    Store(String),
+}
+
+impl WaitRefusal {
+    fn words(&self) -> String {
+        match self {
+            WaitRefusal::Event(error) => error.to_string(),
+            WaitRefusal::Store(words) => words.clone(),
+        }
+    }
+}
+
+/// The store's last round for one recorded site. The route aggregate
+/// supplies the painted end independently of this site's kind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WaitRound {
+    pub held: Option<Held>,
+}
+
+/// The kind of a site's wait and the maximum a held wait passed.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WaitKind {
+    Ordinary,
+    Held { max_seconds: u64 },
+}
+
+impl WaitKind {
+    fn description(self) -> String {
+        match self {
+            WaitKind::Ordinary => "ordinary".to_owned(),
+            WaitKind::Held { max_seconds } => format!("held (maximum {max_seconds}s)"),
+        }
+    }
+
+    fn driver(self) -> &'static str {
+        match self {
+            WaitKind::Ordinary => "the engine",
+            WaitKind::Held { .. } => "brokkr resume",
+        }
     }
 }
 
@@ -81,6 +138,9 @@ pub struct Wait {
     pub until: String,
     /// The provider's bounded words.
     pub words: String,
+    #[serde(flatten)]
+    pub kind: WaitKind,
+    driver: &'static str,
 }
 
 impl Wait {
@@ -94,7 +154,8 @@ impl Wait {
     }
 
     /// The line every surface prints for this wait: provider, route, site,
-    /// end and the provider's words, and `(ended)` once the end has passed.
+    /// end, kind, driver and the provider's words, with `(ended)` once the
+    /// end has passed.
     fn line(&self, now: &str) -> String {
         let site = match &self.site {
             Some(site) => format!(" at {site}"),
@@ -104,16 +165,16 @@ impl Wait {
             true => " (ended)",
             false => "",
         };
+        let kind = self.kind.description();
         format!(
-            "wait      {}/{}{} until {}{}: {}",
-            self.provider, self.route, site, self.until, ended, self.words
+            "wait      {}/{}{} until {}{} · {} · {}: {}",
+            self.provider, self.route, site, self.until, ended, kind, self.driver, self.words
         )
     }
 }
 
-/// A run's waits as every readout paints them. `refused` is a `waits`
-/// entry the view could not read, named by the field core refused; it is
-/// never read as no wait.
+/// A run's waits as every readout paints them. `refused` carries the
+/// reason a present wait or its stored rounds could not be read.
 #[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Waits {
     pub waits: Vec<Wait>,
@@ -122,29 +183,51 @@ pub struct Waits {
 }
 
 impl Waits {
+    /// The standing of a running run without an accepted stop.
+    pub(super) fn standing(&self) -> Standing {
+        if self.waits.is_empty() {
+            Standing::Running
+        } else {
+            Standing::Waiting
+        }
+    }
+
+    /// Refresh the standing of an already derived row or summary.
+    fn standing_for(&self, standing: Standing) -> Standing {
+        match standing {
+            Standing::Running | Standing::Waiting => self.standing(),
+            Standing::Quarantined
+            | Standing::Parked
+            | Standing::Stopping
+            | Standing::Shipped
+            | Standing::Stopped
+            | Standing::OperatorStopped => standing,
+        }
+    }
+
     /// The waits `fact` states, each ended at the aggregate's `until` for
     /// its provider and route when `cooling` holds a later one, else at
     /// the event's own `until`.
     pub fn of(fact: &WaitFact, cooling: &[Cooling]) -> Waits {
         match fact {
             WaitFact::NoWait => Waits::default(),
-            WaitFact::Unreadable(error) => Waits::refused(error),
-            WaitFact::Waits(waits) => match painted(waits, cooling) {
+            WaitFact::Unreadable(refusal) => Waits::refused(refusal.words()),
+            WaitFact::Waits { sites, rounds, .. } => match painted(sites, rounds, cooling) {
                 Ok(waits) => Waits {
                     waits,
                     refused: None,
                 },
-                Err(error) => Waits::refused(&error),
+                Err(error) => Waits::refused(error.to_string()),
             },
         }
     }
 
     /// A waits collection that paints one refusal and no wait: a present
     /// entry the view cannot read is never read as no wait.
-    fn refused(error: &ProviderWaitError) -> Waits {
+    fn refused(error: String) -> Waits {
         Waits {
             waits: Vec::new(),
-            refused: Some(error.to_string()),
+            refused: Some(error),
         }
     }
 
@@ -170,14 +253,25 @@ impl Waits {
 }
 
 /// Every event wait painted, or the first whose end core cannot write.
-fn painted(waits: &[ProviderWait], cooling: &[Cooling]) -> Result<Vec<Wait>, ProviderWaitError> {
-    waits.iter().map(|wait| wait_of(wait, cooling)).collect()
+fn painted(
+    waits: &[ProviderWait],
+    rounds: &BTreeMap<Option<String>, WaitRound>,
+    cooling: &[Cooling],
+) -> Result<Vec<Wait>, ProviderWaitError> {
+    waits
+        .iter()
+        .map(|wait| wait_of(wait, rounds.get(&wait.site), cooling))
+        .collect()
 }
 
 /// One event wait, its end written by brokkr-core and taken from the
 /// aggregate's latest `until` for its provider and route where that is
 /// later than the event's own.
-fn wait_of(wait: &ProviderWait, cooling: &[Cooling]) -> Result<Wait, ProviderWaitError> {
+fn wait_of(
+    wait: &ProviderWait,
+    round: Option<&WaitRound>,
+    cooling: &[Cooling],
+) -> Result<Wait, ProviderWaitError> {
     let until = wait.until_stamp()?;
     let end = cooling
         .iter()
@@ -186,7 +280,14 @@ fn wait_of(wait: &ProviderWait, cooling: &[Cooling]) -> Result<Wait, ProviderWai
         .max_by_key(|(at, _)| *at)
         .filter(|(at, _)| *at > parse_millis(&until).unwrap_or(i64::MIN))
         .map_or(until, |(_, until)| until.clone());
+    // The terminal writer records the event kind on its own row as well.
+    let held = round.map_or(wait.held, |round| round.held);
+    let kind = held.map_or(WaitKind::Ordinary, |held| WaitKind::Held {
+        max_seconds: held.max_seconds,
+    });
     Ok(Wait {
+        kind,
+        driver: kind.driver(),
         site: wait.site.clone(),
         provider: wait.provider.clone(),
         route: wait.route.clone(),
@@ -198,15 +299,16 @@ fn wait_of(wait: &ProviderWait, cooling: &[Cooling]) -> Result<Wait, ProviderWai
 #[cfg(test)]
 mod tests;
 
-/// [`run_view`](crate::run_view), its waits given the aggregate `cooling`
-/// the caller read: a probe's later round paints the later end (decision
-/// 0103 slice 4f).
-pub fn run_view_with(
-    events: &[EventEnvelope],
-    state: Option<&RunState>,
-    cooling: &[Cooling],
-) -> RunView {
-    let mut view = crate::run_view(events, state);
-    view.waits = Waits::of(&WaitFact::applied(events, state), cooling);
-    view
+impl RunRow {
+    /// Replace waits from a fresh read at the same journal head.
+    pub fn with_waits(mut self, waits: Waits) -> Self {
+        self.verdict.standing = waits.standing_for(self.verdict.standing);
+        self.status_word = self
+            .verdict
+            .standing
+            .status_word(self.status.as_deref(), self.ending)
+            .to_string();
+        self.waits = waits;
+        self
+    }
 }

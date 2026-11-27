@@ -22,25 +22,41 @@ fn a_frame_whose_trail_ends_in_a_late_wait_paints_none() {
     );
     repaired.late_tail = Some(late_wait::tail());
     repaired.terminal_seq = Some(7);
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let now = "2026-11-13T00:00:00Z";
+    let waits = RunWaits::read(&store, "late", now, &events, Some(&repaired)).unwrap();
     let frame = Frame {
         head: 8,
         trail: events.to_vec(),
         seats: Vec::new(),
         causes: std::collections::BTreeMap::new(),
         state: Box::new(repaired),
-        last_at: "2026-11-13T00:00:00Z".to_string(),
-        cooling: Vec::new(),
+        last_at: now.to_string(),
+        waits,
     };
     let view = frame.view().expect("the frame composes");
     assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
     assert_eq!(view.waits.refused, None);
 }
 
-/// A frame kept at a standing head is reused only while the aggregate it
-/// was painted from is still the one read now: a probe's later round
-/// extends the aggregate without moving the head, and the console must
-/// paint the later end (decision 0103 slice 4f, LOW 1). Removing the
-/// guard reads the earlier end.
+/// A wait read at a clock it cannot parse refuses it by name rather than
+/// painting no wait.
+#[test]
+fn a_wait_read_at_an_unreadable_clock_refuses_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let error = RunWaits::read(&store, "r1", "not a clock", &[], None)
+        .err()
+        .expect("the clock is refused");
+    assert!(
+        matches!(error, brokkr_store::StoreError::Clock { ref now } if now == "not a clock"),
+        "{error:?}"
+    );
+}
+
+/// The console refreshes the waits of a frame whose head stands: a probe
+/// can update the wait's end and kind without appending an event.
 #[test]
 fn a_frame_kept_at_a_standing_head_re_derives_the_probe_s_later_end() {
     let dir = tempfile::tempdir().unwrap();
@@ -55,9 +71,9 @@ fn a_frame_kept_at_a_standing_head_re_derives_the_probe_s_later_end() {
         shown.view().waits.waits[0].until,
         crate::tests::cooling::COOLING_FIRST
     );
-    crate::tests::cooling::extend_cooling(&mut store, event_seq);
-    let head = store.head_hash("r1").unwrap();
-    let (shown, _) = console_with(
+    crate::tests::cooling::extend_held_cooling(&mut store, event_seq, "a", "anthropic");
+    assert_eq!(store.head_hash("r1").unwrap(), head);
+    let (shown, read) = console_with(
         &store,
         "r1",
         Console::Run,
@@ -66,10 +82,15 @@ fn a_frame_kept_at_a_standing_head_re_derives_the_probe_s_later_end() {
         reading,
     )
     .unwrap();
+    assert_eq!(read, 0);
+    let view = shown.view();
+    let wait = &view.waits.waits[0];
+    assert_eq!(wait.until, crate::tests::cooling::COOLING_LATER);
     assert_eq!(
-        shown.view().waits.waits[0].until,
-        crate::tests::cooling::COOLING_LATER,
-        "the kept frame paints the probe's later end"
+        wait.kind,
+        brokkr_view::WaitKind::Held {
+            max_seconds: crate::tests::cooling::PROBE_MAX,
+        }
     );
 }
 

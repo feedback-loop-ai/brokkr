@@ -4,7 +4,7 @@
 use brokkr_core::fold::{RunState, Status};
 use brokkr_core::park::CauseRead;
 
-use super::{Standing, STOP_PHASE};
+use super::{Standing, Waits, STOP_PHASE};
 use crate::ruled;
 
 /// What a verdict is derived from, whichever read holds the run: its fold
@@ -44,10 +44,10 @@ impl<'a> Facts<'a> {
         }
     }
 
-    pub(crate) fn standing(self) -> Standing {
+    pub(crate) fn standing(self, waits: &Waits) -> Standing {
         match self.status {
             Status::Running if self.stop_accepted_seq.is_some() => Standing::Stopping,
-            Status::Running => Standing::Running,
+            Status::Running => waits.standing(),
             Status::AwaitingOperator => Standing::Parked,
             Status::Completed => Standing::Shipped,
             Status::Stopped if self.phase == Some(STOP_PHASE) => Standing::Stopped,

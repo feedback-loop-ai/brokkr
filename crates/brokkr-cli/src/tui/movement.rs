@@ -644,7 +644,8 @@ pub(super) fn current_phase(view: &RunView) -> Option<&str> {
 
 /// Whether the row is opened in place: a running run `→` opened.
 pub(super) fn opened(tui: &Tui, row: &RunRow) -> bool {
-    row.verdict.standing == Standing::Running && tui.expanded.contains(&row.run_id)
+    matches!(row.verdict.standing, Standing::Running | Standing::Waiting)
+        && tui.expanded.contains(&row.run_id)
 }
 
 /// `→`, `l` and Space open the selected running run in place, and `←`
@@ -655,7 +656,7 @@ pub(super) fn open_in_place(tui: &mut Tui, views: &Views, open: bool) {
         return;
     };
     match open {
-        true if row.verdict.standing == Standing::Running => {
+        true if matches!(row.verdict.standing, Standing::Running | Standing::Waiting) => {
             tui.expanded.insert(row.run_id.clone());
         }
         true => {}

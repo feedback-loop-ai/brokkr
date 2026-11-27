@@ -133,9 +133,9 @@ enum Third {
 /// streamed as live (#503 item 3): it shows what its seats left.
 fn third_of(row: &RunRow, now: &str) -> Third {
     match (row.verdict.standing, brokkr_view::need(row, now)) {
-        (Standing::Running, None) => Third::Live,
+        (Standing::Running | Standing::Waiting, None) => Third::Live,
         (
-            Standing::Running,
+            Standing::Running | Standing::Waiting,
             Some(Need::Stale { .. } | Need::Parked | Need::Quarantined(_) | Need::Stopping { .. }),
         )
         | (
@@ -341,7 +341,7 @@ fn standing_texts(row: &RunRow, need: Option<&Need>, now: &str, columns: usize) 
 fn ending_texts(row: &RunRow, view: Option<&RunView>, now: &str, columns: usize) -> Texts {
     let title = match (brokkr_view::need(row, now), row.verdict.standing) {
         (Some(_), _) => "WHAT IT NEEDS",
-        (None, Standing::Running | Standing::Stopping) => "WHERE IT STANDS",
+        (None, Standing::Running | Standing::Waiting | Standing::Stopping) => "WHERE IT STANDS",
         (
             None,
             Standing::Quarantined

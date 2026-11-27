@@ -355,14 +355,14 @@ fn a_retired_call_prints_its_words_and_a_host_with_no_home_has_no_history() {
 
 /// `brokkr runs` paints a cooling run's wait on its row: the provider, the
 /// route, the aggregate's later end and the provider's words (decision
-/// 0103 slice 4f). The row reads `running`, never "needs you", and the
+/// 0103 slice 4f). The row reads `waiting` under running, and the
 /// summary read paints the probe's later round, not the event's first end.
 #[test]
 fn runs_paints_a_cooling_run_with_the_aggregate_s_later_end() {
     use crate::fleet::Called;
-    use crate::tests::cooling::{assert_painted, cooling_journal};
+    use crate::tests::cooling::{assert_painted, mixed_cooling_journal};
 
-    let (_dir, db) = cooling_journal();
+    let (_dir, db) = mixed_cooling_journal();
     let style = render::Style::plain(200);
     let mut out = Vec::new();
     crate::verbs::readouts::hearth_runs(
@@ -380,7 +380,7 @@ fn runs_paints_a_cooling_run_with_the_aggregate_s_later_end() {
     )
     .unwrap();
     let printed = String::from_utf8(out).unwrap();
-    assert!(printed.contains("running"), "{printed}");
+    assert!(printed.contains("r1 waiting work"), "{printed}");
     assert_painted(&printed);
     assert!(!printed.contains("needs you"), "{printed}");
 }
@@ -389,12 +389,16 @@ fn runs_paints_a_cooling_run_with_the_aggregate_s_later_end() {
 /// aggregate end and the provider's words, and not the event's first end.
 #[test]
 fn inspect_shows_a_cooling_run_s_wait_with_the_aggregate_s_later_end() {
-    use crate::tests::cooling::{assert_painted, cooling_journal};
+    use crate::tests::cooling::{assert_painted, mixed_cooling_journal};
 
-    let (dir, db) = cooling_journal();
+    let (dir, db) = mixed_cooling_journal();
     let mut out = Vec::new();
     super::inspect(dir.path(), inspect_args(&db, "r1", false, None), &mut out).unwrap();
     let printed = String::from_utf8(out).unwrap();
+    assert!(
+        printed.contains("waiting · phase work · seq 5"),
+        "{printed}"
+    );
     assert_painted(&printed);
 }
 

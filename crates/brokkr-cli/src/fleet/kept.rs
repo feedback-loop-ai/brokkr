@@ -45,7 +45,7 @@ use brokkr_core::{CauseRead, EventEnvelope, EventType};
 use brokkr_store::{Damage, Store, StoreError};
 use brokkr_view::WaitFact;
 
-use super::{acknowledged, did_not_fold, entry, judged, Listing, Quarantine};
+use super::{acknowledged, did_not_fold, entry, judged, read_rounds, Listing, Quarantine};
 
 /// What the journal's `runs` table lists a run as: its id, feature and
 /// creation stamp, in [`Store::list_runs`]'s order.
@@ -113,10 +113,11 @@ impl KeptFleet {
         self.whole = due.into_iter().map(str::to_string).collect();
         let mut read = 0;
         for (listing, carried) in listed.into_iter().zip(carried) {
-            let (run, events) = carried
+            let (mut run, events) = carried
                 .or_else(|| whole.next())
                 .expect("every run not carried was read whole, in listing order");
             read += events;
+            run.waits = read_rounds(store, &listing.0, run.recorded_waits.clone());
             self.runs.push((listing, run));
         }
         let after = Journal::at(store.path());
@@ -282,6 +283,8 @@ struct KeptRun {
     closing: Option<Closing>,
     /// The waits its last event states (decision 0103 slice 4f), kept as the
     /// typed fact so the fleet carries no event body.
+    recorded_waits: WaitFact,
+    /// The same sites with their stored kind, reread on every refresh.
     waits: WaitFact,
     /// What its latest `run/parked` states of its cause, as every readout
     /// reads it (decision 0106 ruling 1): kept beside the rulings so this
@@ -325,6 +328,7 @@ impl KeptRun {
             rulings: Vec::new(),
             residuals: Vec::new(),
             closing: None,
+            recorded_waits: WaitFact::NoWait,
             waits: WaitFact::NoWait,
             cause: None,
         };
@@ -390,10 +394,10 @@ impl KeptRun {
         match &self.read {
             Read::Folded(state) => {
                 if landed {
-                    self.waits = WaitFact::applied(&events, Some(state.as_ref()));
+                    self.recorded_waits = WaitFact::applied(&events, Some(state.as_ref()));
                 }
             }
-            Read::Refused { .. } => self.waits = WaitFact::NoWait,
+            Read::Refused { .. } => self.recorded_waits = WaitFact::NoWait,
         }
         // A later park that states none leaves none: the latest park's.
         if let Some(parked) = events

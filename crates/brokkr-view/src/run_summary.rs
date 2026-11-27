@@ -13,7 +13,7 @@ use brokkr_core::park::CauseRead;
 use brokkr_core::EventEnvelope;
 use serde::Serialize;
 
-use crate::fleet::{late_tail, said, stopping_detail, Facts, LateTail, Standing};
+use crate::fleet::{late_tail, said, stopping_detail, Facts, LateTail, Standing, WaitFact, Waits};
 
 /// The `summarize()` keys, verbatim and in the same order the
 /// existing `brokkr runs inspect` prints them, and the standing the fleet
@@ -67,11 +67,20 @@ impl Summary {
 /// run's journal its ending is read from: every event, or at least its
 /// rulings and operator commands and acceptances.
 pub fn summary(state: &RunState, events: &[EventEnvelope]) -> Summary {
+    let waits = Waits::of(&WaitFact::applied(events, Some(state)), &[]);
+    summary_with_waits(state, events, &waits)
+}
+
+pub(crate) fn summary_with_waits(
+    state: &RunState,
+    events: &[EventEnvelope],
+    waits: &Waits,
+) -> Summary {
     let park_cause = CauseRead::latest(events)
         .filter(|_| state.run.park_reason().is_some())
         .map(Box::new);
     let facts = Facts::of_cause(state, park_cause.as_deref());
-    let standing = facts.standing();
+    let standing = facts.standing(waits);
     let status = state.run.status().as_str().to_string();
     let said = said(
         standing,

@@ -74,7 +74,6 @@ use told::{Finish, Told};
 mod composed;
 mod live;
 pub use live::applied_events;
-use live::derived;
 mod residual_findings;
 pub use residual_findings::{
     gate_records, gate_records_within, residual_findings_at, verdict_attempts_within, GateFinding,
@@ -91,17 +90,18 @@ use dashboard::dashboard;
 pub use dashboard::{result_notes, working_participants, ResultNotes};
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
-    at_work, behind_line, fleet_rows, late_line, need, page, ranges, run_row, run_rows,
-    run_view_with, section_of, section_of_rows, sections, stopping_detail, summary_row, title,
-    title_within, window, wrap, Acknowledgement, Cooling, Cursor, CursorError, HearthEntries, Hire,
-    LateEvent, LateRange, LateTail, Need, Page, Paged, Quarantine, Refusal, RunRow, Section,
-    Standing, Verdict, Wait, WaitFact, Waits, AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS,
-    VERDICT_COLUMNS,
+    at_work, behind_line, fleet_rows, late_line, need, page, ranges, run_row, run_rows, section_of,
+    section_of_rows, sections, stopping_detail, summary_row, title, title_within, window, wrap,
+    Acknowledgement, Cooling, Cursor, CursorError, HearthEntries, Hire, LateEvent, LateRange,
+    LateTail, Need, Page, Paged, Quarantine, Refusal, RunRow, Section, Standing, Verdict, Wait,
+    WaitFact, Waits, AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
     GRAPH_VIEW_VERSION,
 };
+
+pub use fleet::{WaitKind, WaitRefusal, WaitRound};
 pub use participant::{label_of as participant_label, Subject};
 pub use run_summary::{summary, Summary};
 pub use scope::{
@@ -179,7 +179,8 @@ use serde_json::Value;
 /// Bumped to 30 by decision 0108 ruling 4: a row and a summary carry the late
 /// tail an operator's repair named, kept and never applied.
 /// Bumped to 31 by 0103 slice 4f (a row and the run view carry `waits`), 32 by 0106 (park cause).
-pub const VIEW_VERSION: u32 = 32;
+/// Bumped to 33 by 0106b2 (a waiting standing, each wait's kind).
+pub const VIEW_VERSION: u32 = 33;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -2282,22 +2283,8 @@ fn ruling_of(decision: Option<&Decided>, superseded: Option<Superseded>) -> Opti
 
 /// The whole readout for one run: one derivation, every surface.
 pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
-    let applied = derived(events, state);
-    let applied = applied.as_slice();
-    let scan = scan_participants(applied);
-    let buckets = bucket(applied);
-    let marks = supersedes(applied);
-    let commands = commands_of(events);
-    let by_id = ids(events);
-    let cause = |id: &str| by_id.get(id).copied();
-    let read = Read {
-        live: live_lines(applied),
-        journal: journal_rows(events, &scan, &buckets, &marks, &commands, cause),
-        event_count: events.len(),
-        dashboard: dashboard(applied),
-    };
-    let waits = Waits::of(&WaitFact::applied(events, state), &[]); // no late tail's wait (0108)
-    viewed(applied, &scan, &buckets, &marks, read, state, waits)
+    let waits = Waits::of(&WaitFact::applied(events, state), &[]);
+    RunView::from_events(events, state, waits)
 }
 
 /// What a run view reads beside its trail: the live block, the journal's
@@ -2334,7 +2321,7 @@ fn viewed(
     let clarify = state.and_then(|state| clarify(events, state));
     RunView {
         view_version: VIEW_VERSION,
-        summary: state.map(|state| summary(state, events)),
+        summary: state.map(|state| run_summary::summary_with_waits(state, events, &waits)),
         ruling: ruling_of(
             state.and_then(|state| state.last_decision.as_ref()),
             last_ruled,

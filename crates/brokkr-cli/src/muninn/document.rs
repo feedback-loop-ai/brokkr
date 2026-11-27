@@ -101,6 +101,7 @@ pub(crate) struct RunRow {
     pub run_id: String,
     pub seats: Vec<SeatRow>,
     pub seq: u64,
+    /// The shared run readout's word, including `waiting` during provider waits.
     pub status: String,
 }
 

@@ -206,7 +206,7 @@ fn current(store: &Store, run_id: &str, opened: &Opened) -> Result<Option<Read>>
         causes: &causes,
         head_seq: opened.seq,
         last_at: &last_at,
-        cooling: Vec::new(),
+        waits: &brokkr_view::Waits::default(),
     };
     let Some(view) = composed_view(&parts, Some(state.as_ref())) else {
         return Ok(None);
