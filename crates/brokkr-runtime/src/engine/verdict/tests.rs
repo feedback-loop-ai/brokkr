@@ -191,26 +191,36 @@ pub(super) fn ended_in(events: &[EventEnvelope], phase: &str, kind: EventType) -
 fn the_isolated_verdict_test_runs_by_exact_name() {
     const TEST: &str = "engine::verdict::tests::the_isolated_verdict_test_runs_by_exact_name";
     const PROBE: &str = "BROKKR_TEST_VERDICT_ISOLATION";
-    if std::env::var_os(PROBE).is_none() {
+    let Some(marker) = std::env::var_os(PROBE) else {
         // Use a substring filter here so the guard has to re-execute the exact test,
         // even when this regression test itself was first invoked with --exact.
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("isolated-body");
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .arg(TEST)
-            .env(PROBE, "1")
+            .env(PROBE, &marker)
             .output()
             .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
+            (
+                output.status.code(),
+                stdout.contains("test result: ok. 1 passed;")
+            ),
+            (Some(0), true),
+            "{stdout}{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        assert_eq!(
+            std::fs::read_to_string(marker).expect("the isolated verdict test body ran"),
+            TEST
+        );
         return;
-    }
+    };
     own_engine!();
     let args: Vec<String> = std::env::args().skip(1).collect();
     assert_eq!(args, ["--exact", TEST]);
+    std::fs::write(marker, TEST).unwrap();
 }
 
 #[test]
