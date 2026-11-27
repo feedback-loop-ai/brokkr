@@ -71,6 +71,10 @@ pub(super) enum RejoinNotice {
          session row"
     )]
     ReferenceMasked,
+    #[error(
+        "agy rejoin state not kept: the conversation's transcript address could not be published"
+    )]
+    AddressUnavailable,
     #[error("agy rejoin state not kept: a bound secret value appeared in the conversation")]
     BoundValueAppeared,
     #[error("agy rejoin state not kept: {0}")]

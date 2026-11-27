@@ -11,12 +11,13 @@ use rustix::fs::{flock, openat, FlockOperation, Mode, OFlags, CWD};
 use serde_json::{json, Map, Value};
 
 use super::super::keep::{ParentError, SourceErrno};
+use super::super::rejoin::CopyPoint;
 use super::super::rejoin::{
     RejoinCaps, RejoinNotice, REJOIN_BRAIN_DIR, REJOIN_DB_FILE, REJOIN_DIR,
 };
 use super::super::restore::{
-    lock_and_restore, open_existing_owned_parent, remove_kept_rejoin, replace_rejoin,
-    RestoreNotice, LOCK_FILE,
+    check_owned_target, lock_and_restore, open_existing_owned_parent, remove_entry_tree,
+    replace_rejoin, replace_rejoin_with, stage_replace_transcript, RestoreNotice, LOCK_FILE,
 };
 use super::boxed::{boxed_input, recorded_box};
 use super::judged::bound;
@@ -53,7 +54,28 @@ fn enabled_assessment(version: &str, boundary: &str, hands: &str) -> Value {
     })
 }
 
+fn owned_target_for(operator_home: impl AsRef<Path>, uuid: &str) -> Value {
+    let home = operator_home
+        .as_ref()
+        .join(".local/state/brokkr/agy-conversations");
+    json!({
+        "provider_id": uuid,
+        "persistence_locator": uuid,
+        "persistence_home": home,
+    })
+}
+
 fn rejoin_input(world: &World, version: &str, boundary: &str, hands: &str) -> Value {
+    rejoin_input_for(world, UUID_A, version, boundary, hands)
+}
+
+fn rejoin_input_for(
+    world: &World,
+    offered: &str,
+    version: &str,
+    boundary: &str,
+    hands: &str,
+) -> Value {
     let mut input = world.input(None);
     input["boundary"] = json!(boundary);
     input["hands"] = json!(hands);
@@ -62,6 +84,7 @@ fn rejoin_input(world: &World, version: &str, boundary: &str, hands: &str) -> Va
         "declared_transcript_kind": "agy-conversation",
         "declared_root_session_kind": "agy-conversation",
         "originating_harness_version": version,
+        "owned_target": owned_target_for(world.operator_home(), offered),
     });
     input
 }
@@ -75,6 +98,7 @@ fn boxed_rejoin_input(world: &World, version: &str, resume_measured: bool) -> Va
         "declared_transcript_kind": "agy-conversation",
         "declared_root_session_kind": "agy-conversation",
         "originating_harness_version": version,
+        "owned_target": owned_target_for(world.operator_home(), UUID_A),
     });
     if resume_measured {
         input[crate::native_controls::SERVING_INPUTS]["isolation"]["resume"] =
@@ -90,7 +114,7 @@ struct FakeAgySpec<'a> {
     next_brain: Option<(&'a str, &'a str)>,
     next_transcript: Option<&'a str>,
     stdout: &'a str,
-    lock_probe: Option<&'a Path>,
+    exit_code: i32,
     sleep_after_first: bool,
     remove_old_note: bool,
 }
@@ -104,7 +128,7 @@ impl<'a> FakeAgySpec<'a> {
             next_brain: Some(brain),
             next_transcript: Some("{\"turn\":2}"),
             stdout,
-            lock_probe: None,
+            exit_code: 0,
             sleep_after_first: false,
             remove_old_note: false,
         }
@@ -113,12 +137,6 @@ impl<'a> FakeAgySpec<'a> {
 
 fn fake_agy_actions(seat_dir: &Path, spec: &FakeAgySpec<'_>, stdout_file: &Path) -> String {
     let mut out = String::new();
-    if let Some(lock_path) = spec.lock_probe {
-        out.push_str(&format!(
-            "if flock -n '{}' true 2>/dev/null; then printf UNLOCKED > '{}/lock.state'; else printf LOCKED > '{}/lock.state'; fi\n",
-            lock_path.display(), seat_dir.display(), seat_dir.display()
-        ));
-    }
     if spec.remove_old_note {
         out.push_str(&format!(
             "rm -f \"$HOME/.gemini/antigravity-cli/brain/{}/note.txt\"\n",
@@ -176,8 +194,8 @@ fn write_fake_rejoin_agy(seat_dir: &Path, spec: &FakeAgySpec<'_>) -> PathBuf {
            s=\"$HOME/.gemini/antigravity-cli/${{p%%:*}}\"; t=\"{d}/${{p##*:}}\"\n\
            if [ -f \"$s\" ]; then cp \"$s\" \"$t\"; else rm -f \"$t\"; fi\n\
          done\n\
-         {actions}exit 0\n",
-        spec.version.0, spec.version.1
+         {actions}exit {}\n",
+        spec.version.0, spec.version.1, spec.exit_code
     );
     super::super::super::tests::executable(seat_dir, "agy", &script)
 }
@@ -190,15 +208,23 @@ fn read_argv(seat_dir: &Path) -> Vec<String> {
         .collect()
 }
 
-fn assert_lock_free(conv: &Path) {
+fn is_lock_held(conv: &Path) -> bool {
     let fd = openat(
         CWD,
         conv.join(LOCK_FILE),
         OFlags::RDWR | OFlags::CLOEXEC,
         Mode::empty(),
     )
-    .unwrap();
-    flock(&fd, FlockOperation::NonBlockingLockExclusive).expect("conversation lock must be free");
+    .expect("lock file must exist");
+    match flock(&fd, FlockOperation::NonBlockingLockExclusive) {
+        Ok(()) => false,
+        Err(rustix::io::Errno::WOULDBLOCK) => true,
+        Err(err) => panic!("unexpected flock errno: {err:?}"),
+    }
+}
+
+fn assert_lock_free(conv: &Path) {
+    assert!(!is_lock_held(conv), "conversation lock must be free");
 }
 
 fn seed_kept(
@@ -230,13 +256,14 @@ fn seed_kept(
     conv
 }
 
-fn drive_offer(
+fn drive_offer_result(
     world: &mut World,
     spec: &FakeAgySpec<'_>,
     input: &Value,
     session: Option<&str>,
     bindings: &[secret::BoundSecret],
-) -> (Invocation, Vec<(Step, Value)>) {
+    mut on_emit: impl FnMut(&crate::adapters::Emitted),
+) -> (Result<Invocation, Ended>, Vec<(Step, Value)>) {
     let bin = write_fake_rejoin_agy(&world.seat(), spec);
     world.set(&bin);
     let mut emitted = Vec::new();
@@ -244,11 +271,29 @@ fn drive_offer(
         session,
         probe: false,
     };
-    let inv = drive_flash_ended(&bin, mode, input, bindings, &mut |e| {
-        emitted.push((e.step, e.row.clone()))
-    })
-    .expect("drive_offer succeeds");
-    (inv, emitted)
+    let res = drive_flash_ended(&bin, mode, input, bindings, &mut |e| {
+        on_emit(e);
+        emitted.push((e.step, e.row.clone()));
+    });
+    (res, emitted)
+}
+
+fn drive_offer(
+    world: &mut World,
+    spec: &FakeAgySpec<'_>,
+    input: &Value,
+    session: Option<&str>,
+    bindings: &[secret::BoundSecret],
+) -> (Invocation, Vec<(Step, Value)>) {
+    let (res, emitted) = drive_offer_result(world, spec, input, session, bindings, |_| {});
+    (res.expect("drive_offer succeeds"), emitted)
+}
+
+fn seeded_rejoin_world(db: &[u8], note: &[u8]) -> (World, PathBuf, Value) {
+    let world = World::new();
+    let conv = seed_kept(world.operator_home(), UUID_A, db, &[("note.txt", note)]);
+    let input = rejoin_input(&world, "1.5.18", "not applicable", "none");
+    (world, conv, input)
 }
 
 fn started_row(emitted: &[(Step, Value)]) -> Option<&Value> {
@@ -352,6 +397,30 @@ fn l6_rejoin_accounting_sums_step_rows_only_and_cold_matches_result() {
     }
 }
 
+fn assert_turn2_kept(conv: &Path, emitted: &[(Step, Value)]) {
+    let started = started_row(emitted).expect("harness-started emitted");
+    assert_eq!(started["launch"], "resumed");
+    assert!(started.get("resume_refusal").is_none());
+    assert_eq!(
+        started["root_session"],
+        json!({"kind": "agy-conversation", "id": UUID_A, "harness_version": "1.5.18", "persistent": true})
+    );
+    assert_eq!(started["transcript"]["locator"], UUID_A);
+    assert_eq!(
+        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
+        b"db-turn-2"
+    );
+    assert!(!conv
+        .join(REJOIN_DIR)
+        .join(REJOIN_BRAIN_DIR)
+        .join("note.txt")
+        .exists());
+    assert_eq!(
+        std::fs::read_to_string(conv.join("transcript.jsonl")).unwrap(),
+        "{\"turn\":2}\n"
+    );
+}
+
 #[test]
 fn l1_l4_l5_l7_unboxed_rejoin_chains_locks_replaces_and_composes_fresh() {
     let l2c_02 = recorded_box("l2c-02-rejoin-kept.ndjson");
@@ -376,16 +445,26 @@ fn l1_l4_l5_l7_unboxed_rejoin_chains_locks_replaces_and_composes_fresh() {
     let cold_mcp = std::fs::read_to_string(seat_dir.join("snap.mcp")).unwrap();
     let cold_hooks = std::fs::read_to_string(seat_dir.join("snap.hooks")).unwrap();
 
-    let lock_path = conv.join(LOCK_FILE);
     let mut t2 = FakeAgySpec::turn(
         UUID_A,
         &l2c_02,
         Some("db-turn-2"),
         ("step2.txt", "brain-turn-2"),
     );
-    t2.lock_probe = Some(&lock_path);
     t2.remove_old_note = true;
-    let (inv2, emitted) = drive_offer(&mut world, &t2, &input, Some(UUID_A), &[]);
+    let (mut lock_at, mut live_during_turn) = (Vec::new(), None);
+    let (res2, emitted) = drive_offer_result(&mut world, &t2, &input, Some(UUID_A), &[], |e| {
+        if matches!(
+            e.step,
+            Step::SeatTurn | Step::Transcript | Step::HarnessStarted
+        ) {
+            lock_at.push((e.step, is_lock_held(&conv)));
+        }
+        if e.step == Step::SeatTurn {
+            live_during_turn = Some(conv.join(REJOIN_DIR).exists());
+        }
+    });
+    let inv2 = res2.expect("rejoin turn 2 succeeds");
     assert_eq!(inv2.launch, LaunchTerminal::Resumed);
     assert_eq!(inv2.session_meta["input_tokens"], json!(9_801));
     assert!(world.homes_gone());
@@ -393,49 +472,28 @@ fn l1_l4_l5_l7_unboxed_rejoin_chains_locks_replaces_and_composes_fresh() {
     let mut expected_argv = cold_argv;
     expected_argv.extend(["--conversation".to_string(), UUID_A.to_string()]);
     assert_eq!(read_argv(&seat_dir), expected_argv);
+    let text = |name| std::fs::read_to_string(seat_dir.join(name)).unwrap();
+    assert_eq!(text("snap.mcp"), cold_mcp);
+    assert_eq!(text("snap.hooks"), cold_hooks);
+    assert_eq!(text("restored.db"), "db-turn-1");
+    assert_eq!(text("restored.note"), "brain-turn-1");
     assert_eq!(
-        std::fs::read_to_string(seat_dir.join("snap.mcp")).unwrap(),
-        cold_mcp
+        lock_at,
+        vec![
+            (Step::SeatTurn, true),
+            (Step::Transcript, true),
+            (Step::HarnessStarted, true),
+        ],
+        "lock must stay held across turn, transcript keep, and rejoin keep"
     );
     assert_eq!(
-        std::fs::read_to_string(seat_dir.join("snap.hooks")).unwrap(),
-        cold_hooks
-    );
-    assert_eq!(
-        std::fs::read_to_string(seat_dir.join("restored.db")).unwrap(),
-        "db-turn-1"
-    );
-    assert_eq!(
-        std::fs::read_to_string(seat_dir.join("restored.note")).unwrap(),
-        "brain-turn-1"
-    );
-    assert_eq!(
-        std::fs::read_to_string(seat_dir.join("lock.state")).unwrap(),
-        "LOCKED"
+        live_during_turn,
+        Some(false),
+        "live rejoin/ must be vacated before agy runs"
     );
     assert_lock_free(&conv);
 
-    let started = started_row(&emitted).expect("harness-started emitted");
-    assert_eq!(started["launch"], "resumed");
-    assert!(started.get("resume_refusal").is_none());
-    assert_eq!(
-        started["root_session"],
-        json!({"kind": "agy-conversation", "id": UUID_A, "harness_version": "1.5.18", "persistent": true})
-    );
-    assert_eq!(started["transcript"]["locator"], UUID_A);
-    assert_eq!(
-        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
-        b"db-turn-2"
-    );
-    assert!(!conv
-        .join(REJOIN_DIR)
-        .join(REJOIN_BRAIN_DIR)
-        .join("note.txt")
-        .exists());
-    assert_eq!(
-        std::fs::read_to_string(conv.join("transcript.jsonl")).unwrap(),
-        "{\"turn\":2}\n"
-    );
+    assert_turn2_kept(&conv, &emitted);
 
     let t3 = FakeAgySpec::turn(
         UUID_A,
@@ -444,12 +502,11 @@ fn l1_l4_l5_l7_unboxed_rejoin_chains_locks_replaces_and_composes_fresh() {
         ("step3.txt", "brain-turn-3"),
     );
     let (inv3, _) = drive_offer(&mut world, &t3, &input, Some(UUID_A), &[]);
-    assert_eq!(inv3.launch, LaunchTerminal::Resumed);
-    assert_eq!(inv3.session_meta["input_tokens"], json!(10_049));
     assert_eq!(
-        std::fs::read_to_string(seat_dir.join("restored.db")).unwrap(),
-        "db-turn-2"
+        (inv3.launch, &inv3.session_meta["input_tokens"]),
+        (LaunchTerminal::Resumed, &json!(10_049))
     );
+    assert_eq!(text("restored.db"), "db-turn-2");
     assert_eq!(
         std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
         b"db-turn-3"
@@ -516,7 +573,7 @@ fn l3_l5_stray_conversation_stops_child_leaves_no_root_and_spares_kept_state() {
         let stdout = recorded_box(file);
         let mut spec = FakeAgySpec::turn(stray, &stdout, Some("stray-db"), ("stray.txt", "stray"));
         spec.sleep_after_first = file == "l2c-04-unknown-id.ndjson";
-        let input = rejoin_input(&world, "1.5.18", "not applicable", "none");
+        let input = rejoin_input_for(&world, offered, "1.5.18", "not applicable", "none");
         let (inv, emitted) = drive_offer(&mut world, &spec, &input, Some(offered), &[]);
         assert_eq!(inv.launch, LaunchTerminal::Mismatch, "{file}");
         assert!(inv.answer.is_none() && !world.seat().join("after_sleep.marker").exists());
@@ -539,49 +596,51 @@ fn l3_l5_stray_conversation_stops_child_leaves_no_root_and_spares_kept_state() {
 }
 
 #[test]
-fn l3_l5_unconfirmed_rejoin_and_model_substitution_leave_kept_state_untouched() {
+fn l3_l5_unconfirmed_rejoin_puts_kept_state_back_and_confirmed_model_substitution_drops_it() {
     let invalid = format!(
         "{{\"event\":\"init\",\"conversation_id\":\"not-a-uuid\",\"init\":{{\"model\":\"{FLASH}\"}}}}\n"
     );
     let wrong_model = format!(
         "{{\"event\":\"init\",\"conversation_id\":\"{UUID_A}\",\"init\":{{\"model\":\"other-model\"}}}}\n"
     );
-    for (label, stream, expected_launch, expect_refusal) in [
+    for (label, stream, expected_launch, expect_refusal, keep_old) in [
         (
             "invalid-id-in-init",
             invalid.as_str(),
             LaunchTerminal::Unconfirmed,
             false,
+            true,
         ),
-        ("no-init-row", "", LaunchTerminal::Unconfirmed, false),
+        ("no-init-row", "", LaunchTerminal::Unconfirmed, false, true),
         (
             "model-substituted",
             wrong_model.as_str(),
             LaunchTerminal::Resumed,
             true,
+            false,
         ),
     ] {
-        let mut world = World::new();
-        let conv = seed_kept(
-            world.operator_home(),
-            UUID_A,
-            b"orig-db",
-            &[("note.txt", b"orig-brain")],
-        );
-        let input = rejoin_input(&world, "1.5.18", "not applicable", "none");
+        let (mut world, conv, input) = seeded_rejoin_world(b"orig-db", b"orig-brain");
         let spec = FakeAgySpec::turn(UUID_A, stream, Some("mutated-db"), ("note.txt", "mutated"));
         let (inv, emitted) = drive_offer(&mut world, &spec, &input, Some(UUID_A), &[]);
         assert_eq!(inv.launch, expected_launch, "{label}");
         assert_eq!(inv.refusal.is_some(), expect_refusal, "{label}");
         assert!(started_row(&emitted).is_none(), "{label}");
-        assert_eq!(
-            std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
-            b"orig-db"
-        );
+        if keep_old {
+            assert_eq!(
+                std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
+                b"orig-db",
+                "{label}"
+            );
+        } else {
+            assert!(
+                !conv.join(REJOIN_DIR).exists(),
+                "{label}: old rejoin/ must not return"
+            );
+        }
         assert_lock_free(&conv);
     }
 }
-
 #[test]
 fn l5_l4_failed_keep_after_confirmed_rejoin_removes_old_rejoin_and_releases_lock() {
     let l2c_02 = recorded_box("l2c-02-rejoin-kept.ndjson");
@@ -625,18 +684,23 @@ fn l5_l4_failed_keep_after_confirmed_rejoin_removes_old_rejoin_and_releases_lock
         );
         assert!(inv.stderr.contains(stderr_sub), "{label}: {}", inv.stderr);
         assert_lock_free(&conv);
-        match (expect_row, started_row(&emitted)) {
-            (true, Some(started)) => {
-                assert_eq!(started["launch"], "resumed", "{label}");
-                assert_eq!(
-                    started["root_session"]["persistent"],
-                    json!(false),
-                    "{label}"
-                );
-                assert!(started.get("transcript").is_none(), "{label}");
-            }
-            (false, None) => {}
-            other => panic!("{label}: unexpected harness-started {other:?}"),
+        let started = started_row(&emitted)
+            .unwrap_or_else(|| panic!("{label}: confirmed rejoin must publish launch: resumed"));
+        assert_eq!(started["harness"], "agy", "{label}");
+        assert_eq!(started["launch"], "resumed", "{label}");
+        assert!(started.get("transcript").is_none(), "{label}");
+        assert!(started.get("resume_refusal").is_none(), "{label}");
+        if expect_row {
+            assert_eq!(
+                started["root_session"]["persistent"],
+                json!(false),
+                "{label}"
+            );
+        } else {
+            assert!(
+                started.get("root_session").is_none(),
+                "{label}: masked root must be withheld while launch: resumed is published"
+            );
         }
     }
 }
@@ -768,6 +832,11 @@ fn l2_gate_isolation_id_target_and_version_declines_run_cold() {
 #[test]
 fn l2_absent_missing_and_locked_kept_state_declines_run_cold() {
     let w = World::new();
+    let parent = w
+        .operator_home()
+        .join(".local/state/brokkr/agy-conversations");
+    std::fs::create_dir_all(&parent).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
     let inp = rejoin_input(&w, "1.5.18", "not applicable", "none");
     assert_declined(
         w,
@@ -967,6 +1036,7 @@ fn l2_restore_notice_display_owned_parent_and_replace_remove_edge_cases() {
     std::fs::create_dir_all(src_brain.join("nested")).unwrap();
     std::fs::write(src_conv.join(format!("{UUID_A}.db")), b"new-db").unwrap();
     std::fs::write(src_brain.join("nested/new.txt"), b"new-deep").unwrap();
+    std::fs::rename(conv.join(REJOIN_DIR), conv.join(".rejoin.aside.test")).unwrap();
     replace_rejoin(UUID_A, &eng, Some(&op), &[], RejoinCaps::DEFAULT).unwrap();
     assert_eq!(
         std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
@@ -982,10 +1052,720 @@ fn l2_restore_notice_display_owned_parent_and_replace_remove_edge_cases() {
         .join(REJOIN_BRAIN_DIR)
         .join("sub/deep.txt")
         .exists());
-    remove_kept_rejoin(UUID_A, Some(&op));
+
+    let conv_fd = openat(
+        CWD,
+        &conv,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .unwrap();
+    remove_entry_tree(
+        std::os::fd::AsFd::as_fd(&conv_fd),
+        std::ffi::OsStr::new(".rejoin.aside.test"),
+        16,
+    );
+    assert!(!conv.join(".rejoin.aside.test").exists());
+    remove_entry_tree(
+        std::os::fd::AsFd::as_fd(&conv_fd),
+        std::ffi::OsStr::new(".missing"),
+        16,
+    );
+    std::fs::write(conv.join(".stray-file"), b"x").unwrap();
+    remove_entry_tree(
+        std::os::fd::AsFd::as_fd(&conv_fd),
+        std::ffi::OsStr::new(".stray-file"),
+        16,
+    );
+    assert!(!conv.join(".stray-file").exists());
+    let zero_dir = conv.join(".budget-zero");
+    std::fs::create_dir(&zero_dir).unwrap();
+    std::fs::write(zero_dir.join("child"), b"x").unwrap();
+    remove_entry_tree(
+        std::os::fd::AsFd::as_fd(&conv_fd),
+        std::ffi::OsStr::new(".budget-zero"),
+        0,
+    );
+    assert!(zero_dir.join("child").exists());
+    remove_entry_tree(
+        std::os::fd::AsFd::as_fd(&conv_fd),
+        std::ffi::OsStr::new(".budget-zero"),
+        4,
+    );
+    assert!(!zero_dir.exists());
+    let locked_dir = conv.join(".unreadable-dir");
+    std::fs::create_dir(&locked_dir).unwrap();
+    std::fs::write(locked_dir.join("inner"), b"x").unwrap();
+    std::fs::set_permissions(&locked_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+    remove_entry_tree(
+        std::os::fd::AsFd::as_fd(&conv_fd),
+        std::ffi::OsStr::new(".unreadable-dir"),
+        4,
+    );
+    std::fs::set_permissions(&locked_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::remove_dir_all(&locked_dir).unwrap();
+}
+
+/// F1: every coordinate in `resume_context.owned_target` (`provider_id`,
+/// `persistence_locator`, `persistence_home`) is required and compared, and any
+/// absent, null, empty, wrong-type, unreadable, or mismatched value declines
+/// cold. Also, a root session is `persistent: true` only when the kept
+/// transcript address a later offer needs is published beside it.
+#[test]
+fn f1_owned_target_coordinates_fail_closed_and_persistent_requires_address() {
+    let base = || {
+        let world = World::new();
+        seed_kept(world.operator_home(), UUID_A, b"db", &[("note.txt", b"b")]);
+        let input = rejoin_input(&world, "1.5.18", "not applicable", "none");
+        let home = world
+            .operator_home()
+            .join(".local/state/brokkr/agy-conversations");
+        (world, input, home)
+    };
+
+    let bad_fields: [(&str, Vec<Option<Value>>); 4] = [
+        (
+            "",
+            vec![None, Some(json!(null)), Some(json!("str")), Some(json!([]))],
+        ),
+        (
+            "provider_id",
+            vec![
+                None,
+                Some(json!(null)),
+                Some(json!("")),
+                Some(json!(42)),
+                Some(json!(UUID_B)),
+            ],
+        ),
+        (
+            "persistence_locator",
+            vec![
+                None,
+                Some(json!(null)),
+                Some(json!("")),
+                Some(json!(7)),
+                Some(json!(UUID_B)),
+            ],
+        ),
+        (
+            "persistence_home",
+            vec![
+                None,
+                Some(json!(null)),
+                Some(json!("")),
+                Some(json!(true)),
+                Some(json!("/no/such/agy-conversations-home-xyz")),
+            ],
+        ),
+    ];
+    for (field, cases) in bad_fields {
+        for bad in cases {
+            let (w, mut inp, _) = base();
+            let obj = if field.is_empty() {
+                inp["resume_context"].as_object_mut().unwrap()
+            } else {
+                inp["resume_context"]["owned_target"]
+                    .as_object_mut()
+                    .unwrap()
+            };
+            let key = if field.is_empty() {
+                "owned_target"
+            } else {
+                field
+            };
+            match bad {
+                None => {
+                    obj.remove(key);
+                }
+                Some(v) => {
+                    obj.insert(key.into(), v);
+                }
+            }
+            assert_declined(w, inp, UUID_A, ("1.5.18", 0), "unverified-harness", None);
+        }
+    }
+    let (w, inp, home) = base();
+    assert_eq!(
+        check_owned_target(&inp, UUID_A, None),
+        Err("unverified-harness")
+    );
+    let empty_op = tempfile::tempdir().unwrap();
+    let mut inp_unreadable_admitted = inp.clone();
+    inp_unreadable_admitted["resume_context"]["owned_target"]["persistence_home"] = json!(home);
+    assert_eq!(
+        check_owned_target(&inp_unreadable_admitted, UUID_A, Some(empty_op.path())),
+        Err("unverified-harness")
+    );
+    drop(w);
+}
+
+#[test]
+fn f1_root_session_persistent_requires_publishable_address() {
+    let cold_stdout = recorded_box("l2c-01-cold.ndjson");
+    for (label, declare_transcript, next_transcript) in [
+        ("cold-missing-transcript", true, None),
+        ("cold-undeclared-transcript", false, Some("{\"turn\":1}")),
+    ] {
+        let mut world = World::new();
+        let mut input = rejoin_input(&world, "1.5.18", "not applicable", "none");
+        if !declare_transcript {
+            input["resume_context"]
+                .as_object_mut()
+                .unwrap()
+                .remove("declared_transcript_kind");
+        }
+        let mut spec = FakeAgySpec::turn(UUID_A, &cold_stdout, Some("db-1"), ("note.txt", "b1"));
+        spec.next_transcript = next_transcript;
+        let (inv, emitted) = drive_offer(&mut world, &spec, &input, None, &[]);
+        assert_eq!(inv.launch, LaunchTerminal::Cold, "{label}");
+        assert!(
+            !conv_dir(world.operator_home(), UUID_A)
+                .join(REJOIN_DIR)
+                .exists(),
+            "{label}: rejoin/ must not be kept without a publishable address"
+        );
+        let started = started_row(&emitted).expect("harness-started emitted");
+        assert_eq!(
+            started["root_session"]["persistent"],
+            json!(false),
+            "{label}"
+        );
+        assert!(started.get("transcript").is_none(), "{label}");
+        assert!(
+            inv.stderr
+                .contains("transcript address could not be published"),
+            "{label}: {}",
+            inv.stderr
+        );
+    }
+
+    let l2c_02 = recorded_box("l2c-02-rejoin-kept.ndjson");
+    let mut world = World::new();
+    let conv = seed_kept(
+        world.operator_home(),
+        UUID_A,
+        b"t1-db",
+        &[("note.txt", b"t1")],
+    );
+    let input = rejoin_input(&world, "1.5.18", "not applicable", "none");
+    let mut spec = FakeAgySpec::turn(UUID_A, &l2c_02, Some("t2-db"), ("note.txt", "t2"));
+    spec.next_transcript = None;
+    let (inv, emitted) = drive_offer(&mut world, &spec, &input, Some(UUID_A), &[]);
+    assert_eq!(inv.launch, LaunchTerminal::Resumed);
     assert!(!conv.join(REJOIN_DIR).exists());
-    remove_kept_rejoin(UUID_A, Some(&op));
-    std::fs::write(conv.join(REJOIN_DIR), b"stray").unwrap();
-    remove_kept_rejoin(UUID_A, Some(&op));
+    let started = started_row(&emitted).expect("harness-started emitted");
+    assert_eq!(started["launch"], "resumed");
+    assert_eq!(started["root_session"]["persistent"], json!(false));
+    assert!(started.get("transcript").is_none());
+    assert!(inv
+        .stderr
+        .contains("transcript address could not be published"));
+    assert_lock_free(&conv);
+}
+
+/// F2: workspace admission runs AFTER restore as the last check before spawn.
+/// Planting workspace configuration during restore must refuse spawn, leave
+/// agy unlaunched, and put the set-aside `rejoin/` back whole.
+#[test]
+fn f2_workspace_admission_runs_after_restore_before_spawn() {
+    let l2c_02 = recorded_box("l2c-02-rejoin-kept.ndjson");
+    let (mut world, conv, input) = seeded_rejoin_world(b"orig-db", b"orig-brain");
+    let spec = FakeAgySpec::turn(UUID_A, &l2c_02, Some("t2-db"), ("note.txt", "t2"));
+    let bin = write_fake_rejoin_agy(&world.seat(), &spec);
+    world.set(&bin);
+    let workdir = PathBuf::from(input["workdir"].as_str().unwrap());
+    let planted = workdir.join(".agents/hooks.json");
+    let mut planted_during_restore = false;
+    let mode = StartMode {
+        session: Some(UUID_A),
+        probe: false,
+    };
+    let pinned = crate::adapters::Pinned {
+        binary: bin.to_str().unwrap(),
+        extra: &["--model".into(), FLASH.into()],
+    };
+    let res = super::super::turn_with(
+        pinned,
+        mode,
+        ("hello", &input, &[]),
+        &mut |_| {},
+        &mut |point| {
+            if matches!(point, CopyPoint::OpenEntry(_)) && !planted_during_restore {
+                planted_during_restore = true;
+                std::fs::create_dir_all(planted.parent().unwrap()).unwrap();
+                std::fs::write(&planted, b"{}").unwrap();
+            }
+        },
+    );
+    assert!(planted_during_restore, "restore hook must have fired");
+    let err = res
+        .err()
+        .expect("workspace config during restore must refuse spawn");
+    assert!(
+        matches!(
+            err,
+            Ended::Launch(LaunchError::Configured(ref path)) if path == &planted
+        ),
+        "expected LaunchError::Configured({planted:?}), got {err:?}"
+    );
+    assert!(
+        !world.seat().join("last.argv").exists(),
+        "agy must not be spawned when workspace config appears during restore"
+    );
+    assert_eq!(
+        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
+        b"orig-db",
+        "unspawned rejoin must put set-aside rejoin/ back whole"
+    );
+    assert_lock_free(&conv);
+    assert!(world.homes_gone());
+}
+
+/// F3 & F4: after a confirmed rejoin, every failure outcome (`ERROR` result,
+/// non-zero exit, malformed row, unconfirmed model pin) leaves the live path
+/// holding either Turn 2's end state kept whole under slice 1's rules or
+/// nothing — never Turn 1's stale state — and publishes `persistent: false`
+/// whenever nothing was kept.
+#[test]
+fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
+    let init_no_model = format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{}}}}"#);
+    let init_pinned =
+        format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":"{FLASH}"}}}}"#);
+    let err_res = r#"{"event":"result","result":{"status":"ERROR","error":"boom"}}"#;
+    let malformed = r#"{"event":"step_update","step_update":{"step_type":123}}"#;
+
+    let cases = [
+        (
+            "unpinned-error",
+            format!("{init_no_model}\n{err_res}\n"),
+            0,
+            Some("turn-2-db"),
+            false,
+        ),
+        (
+            "unpinned-nonzero",
+            format!("{init_no_model}\n"),
+            4,
+            Some("turn-2-db"),
+            false,
+        ),
+        (
+            "unpinned-malformed",
+            format!("{init_no_model}\n{malformed}\n"),
+            0,
+            Some("turn-2-db"),
+            false,
+        ),
+        (
+            "pinned-error-whole",
+            format!("{init_pinned}\n{err_res}\n"),
+            0,
+            Some("turn-2-db"),
+            true,
+        ),
+        (
+            "pinned-nonzero-whole",
+            format!("{init_pinned}\n"),
+            4,
+            Some("turn-2-db"),
+            true,
+        ),
+        (
+            "pinned-malformed-whole",
+            format!("{init_pinned}\n{malformed}\n"),
+            0,
+            Some("turn-2-db"),
+            true,
+        ),
+        (
+            "pinned-error-empty",
+            format!("{init_pinned}\n{err_res}\n"),
+            0,
+            None,
+            false,
+        ),
+        (
+            "pinned-nonzero-empty",
+            format!("{init_pinned}\n"),
+            4,
+            None,
+            false,
+        ),
+        (
+            "pinned-malformed-empty",
+            format!("{init_pinned}\n{malformed}\n"),
+            0,
+            None,
+            false,
+        ),
+    ];
+    for (label, stream, exit_code, next_db, expect_kept) in cases {
+        let (mut world, conv, input) = seeded_rejoin_world(b"turn-1-db", b"t1");
+        let mut spec = FakeAgySpec::turn(UUID_A, &stream, next_db, ("note.txt", "t2"));
+        spec.exit_code = exit_code;
+        let (res, emitted) =
+            drive_offer_result(&mut world, &spec, &input, Some(UUID_A), &[], |_| {});
+        assert!(res.is_err(), "{label}: turn must fail");
+        let started = started_row(&emitted).expect("harness-started emitted");
+        assert_eq!(
+            (&started["launch"], &started["root_session"]["persistent"]),
+            (&json!("resumed"), &json!(expect_kept)),
+            "{label}"
+        );
+        if expect_kept {
+            let db = std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap();
+            assert_eq!(db, b"turn-2-db", "{label}: live rejoin/ must hold Turn 2");
+            assert_eq!(started["transcript"]["locator"], UUID_A, "{label}");
+        } else {
+            assert!(
+                !conv.join(REJOIN_DIR).exists(),
+                "{label}: stale rejoin/ survived"
+            );
+            assert!(started.get("transcript").is_none(), "{label}");
+        }
+        assert_lock_free(&conv);
+    }
+}
+
+/// F5: stopping between any two steps of take-out, staging, and rename leaves
+/// the live `rejoin/` path either whole or empty — never torn and never old.
+#[test]
+fn f5_stop_at_every_step_leaves_live_path_whole_or_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let (op, eng) = (dir.path().join("op"), dir.path().join("eng"));
+    let conv = seed_kept(&op, UUID_A, b"turn-1-db", &[("note.txt", b"turn-1")]);
+    std::fs::create_dir_all(eng.join(".gemini/antigravity-cli")).unwrap();
+
+    let mut lease = lock_and_restore(UUID_A, &eng, Some(&op), RejoinCaps::DEFAULT).unwrap();
+    let aside = conv.join(lease.aside_name());
+    assert!(
+        !conv.join(REJOIN_DIR).exists(),
+        "live path empty after take-out"
+    );
+    assert_eq!(
+        std::fs::read(aside.join(REJOIN_DB_FILE)).unwrap(),
+        b"turn-1-db"
+    );
+
+    let src_db = eng.join(format!(".gemini/antigravity-cli/conversations/{UUID_A}.db"));
+    let src_note = eng.join(format!(".gemini/antigravity-cli/brain/{UUID_A}/note.txt"));
+    std::fs::write(&src_db, b"turn-2-db").unwrap();
+    std::fs::write(&src_note, b"turn-2").unwrap();
+
+    let mut live_during_open = None;
+    let mut live_during_verify = None;
+    let err = replace_rejoin_with(
+        UUID_A,
+        &eng,
+        Some(&op),
+        &[],
+        RejoinCaps::DEFAULT,
+        &mut |pt| match pt {
+            CopyPoint::OpenEntry(_) => live_during_open = Some(conv.join(REJOIN_DIR).exists()),
+            CopyPoint::FinalVerify => {
+                live_during_verify = Some(conv.join(REJOIN_DIR).exists());
+                std::fs::write(&src_db, b"turn-2-db-mutated").unwrap();
+            }
+            _ => {}
+        },
+    )
+    .unwrap_err();
+    assert_eq!(err, RejoinNotice::ChangedUnderfoot);
+    assert_eq!(live_during_open, Some(false), "live empty during copy");
+    assert_eq!(live_during_verify, Some(false), "live empty before rename");
+    assert!(
+        !conv.join(REJOIN_DIR).exists(),
+        "live still empty after failed stage"
+    );
+
+    std::fs::write(&src_db, b"turn-2-db-final").unwrap();
+    replace_rejoin(UUID_A, &eng, Some(&op), &[], RejoinCaps::DEFAULT).unwrap();
+    assert_eq!(
+        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
+        b"turn-2-db-final"
+    );
+
+    lease.confirm();
+    drop(lease);
+    assert!(!aside.exists(), "confirmed drop removes set-aside copy");
+    assert_eq!(
+        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
+        b"turn-2-db-final"
+    );
+    assert_lock_free(&conv);
+
+    let eng2 = dir.path().join("eng2");
+    std::fs::create_dir_all(eng2.join(".gemini/antigravity-cli")).unwrap();
+    let lease2 = lock_and_restore(UUID_A, &eng2, Some(&op), RejoinCaps::DEFAULT).unwrap();
+    let aside2 = conv.join(lease2.aside_name());
     assert!(!conv.join(REJOIN_DIR).exists());
+    assert!(aside2.exists());
+    drop(lease2);
+    assert!(!aside2.exists());
+    assert_eq!(
+        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
+        b"turn-2-db-final"
+    );
+    assert_lock_free(&conv);
+}
+
+/// F7: cold turns ignore malformed `step_update.usage` exactly as before this
+/// slice; rejoined turns read `step_update.usage` under K1 and fail `Unread`.
+#[test]
+fn f7_cold_ignores_malformed_step_usage_and_rejoin_fails_unread() {
+    let init =
+        format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":"{FLASH}"}}}}"#);
+    let bad_step_str = r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":"DONE","usage":{"input_tokens":"not-a-number"}}}"#;
+    let bad_step_dup = r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":"DONE","usage":{"input_tokens":1,"input_tokens":2}}}"#;
+    let ok_res = r#"{"event":"result","result":{"status":"SUCCESS","response":"COLD_OK","usage":{"input_tokens":100,"output_tokens":5},"num_turns":1}}"#;
+
+    for bad_step in [bad_step_str, bad_step_dup] {
+        let mut fold = AgyFold::new(FLASH, &[]);
+        let mut hold = LaunchHold::new(
+            "agy",
+            LaunchPlan::cold(Vec::new(), "agy-conversation", None),
+        );
+        let mut meta = Map::new();
+        for line in [init.as_str(), bad_step, ok_res] {
+            assert!(matches!(
+                fold.read(line.as_bytes(), &mut meta, &mut hold, &mut |_| {}),
+                Line::Read
+            ));
+        }
+        assert_eq!(
+            fold.verdict(0, false),
+            super::super::fold::Verdict::Answer("COLD_OK".into())
+        );
+        assert_eq!(meta["input_tokens"], json!(100));
+        assert_eq!(meta["output_tokens"], json!(5));
+
+        let mut fold = AgyFold::new(FLASH, &[]);
+        let mut plan = LaunchPlan::cold(Vec::new(), "agy-conversation", None);
+        plan.rejoining = Some(UUID_A.to_string());
+        plan.harness_version = Some("1.5.18".to_string());
+        let mut hold = LaunchHold::new("agy", plan);
+        let mut meta = Map::new();
+        for line in [init.as_str(), bad_step, ok_res] {
+            let _ = fold.read(line.as_bytes(), &mut meta, &mut hold, &mut |_| {});
+        }
+        assert!(
+            matches!(
+                fold.verdict(0, false),
+                super::super::fold::Verdict::Failed(super::super::fold::Failed {
+                    failure: super::super::fold::Failure::Unread(
+                        super::super::fold::Event::StepUpdate
+                    ),
+                    ..
+                })
+            ),
+            "rejoin must reject malformed step_update.usage"
+        );
+    }
+}
+
+/// F10: exercise remaining reachable error branches in `restore.rs`.
+#[test]
+fn f10_restore_error_branches_and_transcript_staging_cleanup() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+
+    let op_empty = dir.path().join("op-empty");
+    std::fs::create_dir_all(&op_empty).unwrap();
+    let eng_empty = dir.path().join("eng-empty");
+    std::fs::create_dir_all(eng_empty.join(".gemini/antigravity-cli")).unwrap();
+    assert_eq!(
+        lock_and_restore(UUID_A, &eng_empty, Some(&op_empty), RejoinCaps::DEFAULT).err(),
+        Some(RestoreNotice::Absent)
+    );
+
+    let op_tiny = dir.path().join("op-tiny-db");
+    seed_kept(&op_tiny, UUID_A, b"0123456789", &[("a.txt", b"a")]);
+    let eng_tiny = dir.path().join("eng-tiny-db");
+    std::fs::create_dir_all(eng_tiny.join(".gemini/antigravity-cli")).unwrap();
+    assert_eq!(
+        lock_and_restore(
+            UUID_A,
+            &eng_tiny,
+            Some(&op_tiny),
+            RejoinCaps {
+                bytes: 2,
+                entries: 16,
+                depth: 4
+            },
+        )
+        .err(),
+        Some(RestoreNotice::Copy(RejoinNotice::TooLarge(2)))
+    );
+
+    let file_parent = dir.path().join("not-a-dir");
+    std::fs::write(&file_parent, b"x").unwrap();
+    assert_eq!(
+        open_existing_owned_parent(&file_parent).unwrap_err(),
+        ParentError::UnownedParent
+    );
+
+    let op_file_conv = dir.path().join("op-file-conv");
+    let parent = op_file_conv.join(".local/state/brokkr/agy-conversations");
+    std::fs::create_dir_all(&parent).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::write(parent.join(UUID_A), b"not-a-dir").unwrap();
+    let eng = dir.path().join("eng-ok");
+    std::fs::create_dir_all(eng.join(".gemini/antigravity-cli")).unwrap();
+    assert_eq!(
+        lock_and_restore(UUID_A, &eng, Some(&op_file_conv), RejoinCaps::DEFAULT).err(),
+        Some(RestoreNotice::Copy(RejoinNotice::Source(
+            SourceErrno::Unsafe
+        )))
+    );
+
+    let op_sym = dir.path().join("op-sym-lock");
+    let conv_sym = seed_kept(&op_sym, UUID_A, b"db", &[("a.txt", b"a")]);
+    symlink(conv_sym.join("transcript.jsonl"), conv_sym.join(LOCK_FILE)).unwrap();
+    assert_eq!(
+        lock_and_restore(UUID_A, &eng, Some(&op_sym), RejoinCaps::DEFAULT).err(),
+        Some(RestoreNotice::Copy(RejoinNotice::Source(
+            SourceErrno::Unsafe
+        )))
+    );
+
+    let op_fifo = dir.path().join("op-fifo-lock");
+    let conv_fifo = seed_kept(&op_fifo, UUID_A, b"db", &[("a.txt", b"a")]);
+    let fifo_path = conv_fifo.join(LOCK_FILE);
+    rustix::fs::mknodat(
+        CWD,
+        &fifo_path,
+        rustix::fs::FileType::Fifo,
+        Mode::from_raw_mode(0o600),
+        0,
+    )
+    .unwrap();
+    assert_eq!(
+        lock_and_restore(UUID_A, &eng, Some(&op_fifo), RejoinCaps::DEFAULT).err(),
+        Some(RestoreNotice::Copy(RejoinNotice::Source(
+            SourceErrno::Unsafe
+        )))
+    );
+}
+
+#[test]
+fn f10_restore_ro_caps_and_transcript_staging_cleanup() {
+    let dir = tempfile::tempdir().unwrap();
+    let eng = dir.path().join("eng-ok");
+    std::fs::create_dir_all(eng.join(".gemini/antigravity-cli")).unwrap();
+    let op_ro = dir.path().join("op-ro-lock");
+    let conv_ro = seed_kept(&op_ro, UUID_A, b"db", &[("a.txt", b"a")]);
+    std::fs::set_permissions(&conv_ro, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let ro_err = lock_and_restore(UUID_A, &eng, Some(&op_ro), RejoinCaps::DEFAULT).err();
+    std::fs::set_permissions(&conv_ro, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        ro_err,
+        Some(RestoreNotice::Io(std::io::ErrorKind::PermissionDenied))
+    );
+
+    std::fs::write(conv_ro.join(LOCK_FILE), b"").unwrap();
+    std::fs::set_permissions(
+        conv_ro.join(LOCK_FILE),
+        std::fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    std::fs::set_permissions(&conv_ro, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let eng_ro = dir.path().join("eng-ro");
+    std::fs::create_dir_all(eng_ro.join(".gemini/antigravity-cli")).unwrap();
+    let rename_err = lock_and_restore(UUID_A, &eng_ro, Some(&op_ro), RejoinCaps::DEFAULT).err();
+    std::fs::set_permissions(&conv_ro, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        rename_err,
+        Some(RestoreNotice::Io(std::io::ErrorKind::PermissionDenied))
+    );
+    assert!(!eng_ro
+        .join(".gemini/antigravity-cli/conversations")
+        .exists());
+    assert!(!eng_ro.join(".gemini/antigravity-cli/brain").exists());
+
+    let op_caps = dir.path().join("op-caps");
+    seed_kept(&op_caps, UUID_A, b"db", &[("a.txt", b"a")]);
+    let bad_eng = dir.path().join("eng-missing-agy");
+    std::fs::create_dir_all(&bad_eng).unwrap();
+    assert_eq!(
+        lock_and_restore(UUID_A, &bad_eng, Some(&op_caps), RejoinCaps::DEFAULT).err(),
+        Some(RestoreNotice::Copy(RejoinNotice::Source(
+            SourceErrno::Absent
+        )))
+    );
+    for cap_entries in [0usize, 2usize] {
+        let op_cap = dir.path().join(format!("op-cap-{cap_entries}"));
+        seed_kept(&op_cap, UUID_A, b"db", &[("a.txt", b"a")]);
+        let e = dir.path().join(format!("eng-cap-{cap_entries}"));
+        std::fs::create_dir_all(e.join(".gemini/antigravity-cli")).unwrap();
+        assert_eq!(
+            lock_and_restore(
+                UUID_A,
+                &e,
+                Some(&op_cap),
+                RejoinCaps {
+                    bytes: 1024,
+                    entries: cap_entries,
+                    depth: 4,
+                },
+            )
+            .err(),
+            Some(RestoreNotice::Copy(RejoinNotice::TooManyEntries(
+                cap_entries
+            )))
+        );
+    }
+}
+
+#[test]
+fn f10_stage_replace_transcript_unowned_and_oversized_cleanup() {
+    let dir = tempfile::tempdir().unwrap();
+    let op_srt = dir.path().join("op-srt");
+    let conv_srt = seed_kept(&op_srt, UUID_A, b"db", &[("a.txt", b"a")]);
+    let parent_fd = open_existing_owned_parent(conv_srt.parent().unwrap())
+        .unwrap()
+        .unwrap();
+    let src_file = dir.path().join("big-transcript.jsonl");
+    std::fs::write(&src_file, b"0123456789abcdef").unwrap();
+
+    std::fs::set_permissions(&conv_srt, std::fs::Permissions::from_mode(0o750)).unwrap();
+    let src_fd = openat(
+        CWD,
+        &src_file,
+        OFlags::RDONLY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .unwrap();
+    assert_eq!(
+        stage_replace_transcript(&parent_fd, UUID_A, src_fd, 64),
+        Err(super::super::keep::KeepNotice::Parent(
+            ParentError::UnownedParent
+        ))
+    );
+    std::fs::set_permissions(&conv_srt, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let src_fd2 = openat(
+        CWD,
+        &src_file,
+        OFlags::RDONLY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .unwrap();
+    assert_eq!(
+        stage_replace_transcript(&parent_fd, UUID_A, src_fd2, 4),
+        Err(super::super::keep::KeepNotice::TooLarge(4))
+    );
+    let staging_left = std::fs::read_dir(&conv_srt)
+        .unwrap()
+        .filter_map(Result::ok)
+        .any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with(".transcript.next.")
+        });
+    assert!(
+        !staging_left,
+        "failed transcript stage must unlink temp file"
+    );
 }

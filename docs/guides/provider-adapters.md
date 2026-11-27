@@ -859,14 +859,17 @@ escaped and cut to 40 characters.
 counts, naming both. A seat with no init row gives no answer.
 
 **Tokens.** On a cold turn, the result's `usage` is the invocation's own, in
-tokens. On a confirmed rejoin, the result's `usage`, `num_turns` and
+tokens, and `step_update.usage` is ignored exactly as before rejoin was built.
+On a confirmed rejoin, the result's `usage`, `num_turns` and
 `duration_seconds` are the conversation's running totals (ninth measurement),
 so the driver takes nothing from them: tokens come solely from the sum of this
-invocation's own `step_update` rows' `usage`, and `num_turns` is omitted
-(while `seat-turn` checkpoints still count completed model responses). In both
-cases, the seat records inclusive input (adding `cache_read_tokens` back into
-`input_tokens`), output, thinking as reasoning output, and cache read; agy
-reports no price and no cache-write count, so both read "not reported", never 0.
+invocation's own `step_update` rows' `usage` (an unreadable or duplicate-key
+step `usage` fails the rejoined turn as an unreadable `step_update` row), and
+`num_turns` is omitted (while `seat-turn` checkpoints still count completed
+model responses). In both cases, the seat records inclusive input (adding
+`cache_read_tokens` back into `input_tokens`), output, thinking as reasoning
+output, and cache read; agy reports no price and no cache-write count, so both
+read "not reported", never 0.
 
 **What leaves.** No
 refusal, error or late message quotes agy's stderr or its `error` text.
@@ -889,13 +892,18 @@ names six environment variables in the binary and exercised none.
 while keeping `resume.stream-work-site.status` at `"unsupported"` until a live
 rejoin through the driver itself is measured (slice 3). `brokkr driver agy`
 now declares `resume` offer receipt and implements the `--conversation <id>`
-rejoin launch — restoring kept `conversation.db` and `brain/` whole under an
-exclusive per-conversation advisory lock (`<id>/.rejoin.lock`), confirming
-`init.conversation_id` (stopping a stray conversation at once as unsettled),
-composing every restriction (HOME, gate hook, MCP set, `--settings`) fresh,
-accounting only the turn's own step rows, and replacing `rejoin/` whole on
-success or removing the old copy on keep failure while leaving it untouched
-when unconfirmed. Because `stream-work-site` stays `"unsupported"` and the
+rejoin launch — checking every `owned_target` coordinate fail-closed,
+restoring kept `conversation.db` and `brain/` whole under an exclusive
+per-conversation advisory lock (`<id>/.rejoin.lock`), renaming the live
+`rejoin/` aside before spawn (putting it back by one rename only when the
+rejoin is never confirmed), re-checking workspace admission right before
+spawn, confirming `init.conversation_id` (stopping a stray conversation at
+once as unsettled), composing every restriction (HOME, gate hook, MCP set,
+`--settings`) fresh, accounting only the turn's own step rows, publishing
+`persistent: true` only beside the kept transcript address (or `persistent:
+false`, or a safe `launch: "resumed"` row without `root_session` when masked),
+and placing the turn's end state at `rejoin/` by one rename of a complete
+staged copy or leaving the live path empty. Because `stream-work-site` stays `"unsupported"` and the
 engine offers agy seats no session by default, no shipped data switches rejoin
 on yet (decision 0075 addendum of 2026-11-27, proposed). `agy-conversation`
 is admitted only where the seat's loaded adapter declares it in `record_kinds`,

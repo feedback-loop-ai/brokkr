@@ -18,22 +18,14 @@
 //!   only sign is the result's `denied_actions`. A denied step's own
 //!   `state` is not reliable (`ERROR` in `denied-command-default`, `DONE`
 //!   in `denied-command-accept-edits`), so it is never read for one.
-//! - The verdict is read in one order ([`AgyFold::verdict`], K2), and every
-//!   failure and refusal that follows a typed result names the first
-//!   result's status before its own words, a fault or none before it (K5,
-//!   L5).
-//! - Every word of agy's the driver's words name is masked whole through
-//!   the seat's bindings first, and only then escaped and bounded (K3).
-//! - The answer is a `SUCCESS` result's non-empty `response`, carried in
-//!   the accepting verdict (J7).
+//! - The verdict is read in one order ([`AgyFold::verdict`], K2); failures
+//!   and refusals behind a typed result name its status first (K5, L5).
+//! - Every agy word the driver names is masked whole first, then escaped and
+//!   bounded (K3). The answer is a `SUCCESS` result's non-empty `response` (J7).
 //! - Cold turn: `result.usage` is the invocation's own (tokens, no price or
-//!   cache-write). Confirmed rejoin: `result.usage`, `num_turns` and
-//!   `duration_seconds` are conversation totals (ninth measurement), so tokens
-//!   come solely from the turn's own `step_update` rows' `usage` and `num_turns`
-//!   is omitted. Cache read is outside `input_tokens`, so inclusive input adds
-//!   it back as Claude's fold does; thinking rides as reasoning output.
-//! - A `tool` step is passed over: the checkpoint's tool observation has no
-//!   format for agy's telemetry without a contract change.
+//!   cache-write); `step_update.usage` is ignored. Confirmed rejoin: tokens
+//!   come solely from `step_update.usage` (typed under K1) and `num_turns` is
+//!   omitted. Cache read adds back into inclusive input; thinking is reasoning.
 
 use std::fmt;
 
@@ -79,10 +71,20 @@ impl Event {
 
     /// The row `text` holds as this event's, typed straight from the text,
     /// or none where it does not type: a key the fold reads written twice,
-    /// at any depth, is no row (K1).
-    fn typed(self, text: &str) -> Option<Row> {
+    /// at any depth, is no row (K1). On a cold turn `step_update.usage` is not
+    /// read; on a rejoin it is the sole source of the turn's use and is typed.
+    fn typed(self, text: &str, rejoined: bool) -> Option<Row> {
         match self {
             Event::Init => (serde_json::from_str(text).ok()).map(Row::Init),
+            Event::StepUpdate if !rejoined => {
+                serde_json::from_str::<ColdStepRow>(text).ok().map(|r| {
+                    Row::Step(Step {
+                        step_type: r.step_update.step_type,
+                        state: r.step_update.state,
+                        usage: None,
+                    })
+                })
+            }
             Event::StepUpdate => {
                 (serde_json::from_str(text).ok()).map(|row: StepRow| Row::Step(row.step_update))
             }
@@ -154,23 +156,15 @@ enum Row {
 pub(super) enum Conversation {
     /// No `init` row arrived in this turn.
     None,
-    /// An `init` row arrived with a single lowercase-UUID string
-    /// `conversation_id` member.
+    /// Single lowercase-UUID `conversation_id`.
     Named(String),
-    /// An `init` row arrived whose `conversation_id` was absent, not a string,
-    /// repeated, or not a lowercase UUID.
+    /// Absent, non-string, repeated, or non-UUID `conversation_id`.
     Invalid,
 }
 
 /// Read `conversation_id` from an `init` line beside the fold (#1227 W5).
-/// Never fails a turn: absent, non-string, repeated, or non-UUID values each
-/// yield [`Conversation::Invalid`], leaving model confirmation and the turn's
-/// verdict identical to main.
+/// Absent, non-string, repeated, or non-UUID values yield `Invalid`.
 pub(super) fn read_conversation_id(text: &str) -> Conversation {
-    enum IdValue {
-        Text(String),
-        Other,
-    }
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum RawValue {
@@ -186,44 +180,49 @@ pub(super) fn read_conversation_id(text: &str) -> Conversation {
         }
 
         fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Conversation, A::Error> {
-            let mut count = 0usize;
-            let mut first = None;
+            let (mut count, mut first) = (0usize, None);
             while let Some(key) = map.next_key::<String>()? {
                 if key != "conversation_id" {
                     map.next_value::<IgnoredAny>()?;
                     continue;
                 }
                 count += 1;
-                let value = match map.next_value::<RawValue>()? {
-                    RawValue::Text(id) => IdValue::Text(id),
-                    RawValue::Other(_) => IdValue::Other,
-                };
+                let value = map.next_value::<RawValue>()?;
                 if count == 1 {
                     first = Some(value);
                 }
             }
-            match (count, first) {
-                (1, Some(IdValue::Text(id))) if brokkr_core::seat::is_agy_uuid(&id) => {
-                    Ok(Conversation::Named(id))
+            Ok(match (count, first) {
+                (1, Some(RawValue::Text(id))) if brokkr_core::seat::is_agy_uuid(&id) => {
+                    Conversation::Named(id)
                 }
-                _ => Ok(Conversation::Invalid),
-            }
+                _ => Conversation::Invalid,
+            })
         }
     }
     struct Wrapper(Conversation);
     impl<'de> Deserialize<'de> for Wrapper {
-        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-            deserializer.deserialize_map(IdVisitor).map(Wrapper)
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            d.deserialize_map(IdVisitor).map(Wrapper)
         }
     }
-    serde_json::from_str::<Wrapper>(text)
-        .map(|w| w.0)
-        .unwrap_or(Conversation::Invalid)
+    serde_json::from_str::<Wrapper>(text).map_or(Conversation::Invalid, |w| w.0)
 }
 
 #[derive(Deserialize)]
 struct InitRow {
     init: Init,
+}
+
+#[derive(Deserialize)]
+struct ColdStepRow {
+    step_update: ColdStep,
+}
+
+#[derive(Deserialize)]
+struct ColdStep {
+    step_type: StepType,
+    state: StepState,
 }
 
 #[derive(Deserialize)]
@@ -431,9 +430,7 @@ pub(super) struct AgyFold<'a> {
     /// What every word of agy's the driver names is masked through first.
     bindings: &'a [secret::BoundSecret],
     served: Served,
-    /// What the turn's first `init` row named as its conversation id, kept raw
-    /// until `keep` validates it as a lowercase UUID before naming any path
-    /// (#1227 U5).
+    /// Conversation id from the turn's first `init` row (#1227 U5).
     conversation: Conversation,
     /// The model responses folded as turns.
     turns: u64,
@@ -516,7 +513,10 @@ impl<'a> AgyFold<'a> {
             return Line::Read;
         };
         self.rows = true;
-        let Some(row) = event.typed(text).filter(|_| named == 1) else {
+        let Some(row) = event
+            .typed(text, hold.rejoining().is_some())
+            .filter(|_| named == 1)
+        else {
             self.fault
                 .get_or_insert(Fault::Failed(Failure::Unread(event)));
             return Line::Read;

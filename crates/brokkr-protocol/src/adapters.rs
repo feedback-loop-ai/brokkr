@@ -1400,6 +1400,13 @@ struct Qualification {
 /// resume; so does a version different from the one the ORIGINATING root
 /// was opened under, because a session opened by another CLI is not a
 /// session this one measured (proposed decision 0056 ruling 5).
+/// Whether an observed harness version matches both the assessment's
+/// `applies_to` version and any originating root's recorded version
+/// (proposed decision 0056 ruling 5).
+fn version_qualifies(observed: &str, applies_to: &str, originating: Option<&str>) -> bool {
+    observed == applies_to && originating.is_none_or(|opened_under| opened_under == observed)
+}
+
 fn qualify(gate: &ResumeGate, probe: &[String], originating: Option<&str>) -> Qualification {
     let applies_to = match gate {
         ResumeGate::Disabled(reason) => {
@@ -1416,8 +1423,7 @@ fn qualify(gate: &ResumeGate, probe: &[String], originating: Option<&str>) -> Qu
             refusal: Some("unverified-harness"),
         };
     };
-    let drifted =
-        &observed != applies_to || originating.is_some_and(|opened_under| opened_under != observed);
+    let drifted = !version_qualifies(&observed, applies_to, originating);
     Qualification {
         observed: Some(observed),
         refusal: drifted.then_some("unverified-harness"),

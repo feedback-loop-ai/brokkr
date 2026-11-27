@@ -267,3 +267,69 @@ fn start_context_carries_declared_transcript_kind_through_the_shared_type() {
     );
     assert!(without_kind.get("declared_root_session_kind").is_none());
 }
+
+/// A newer stamped checkpoint carrying `root_session.persistent: false` stops
+/// `eligible_offer` from offering any session — it never walks past that newest
+/// root to resurrect an older attempt's `persistent: true` root (#1227,
+/// decision 0056 ruling 2).
+#[test]
+fn eligible_offer_stops_at_newest_non_persistent_root() {
+    let (site_ref, instance_ref) = ("a".repeat(64), "b".repeat(64));
+    let effect_id = "eff-1";
+    let requested = crate::envelope_builder::EnvelopeBuilder::new(
+        EventType::EffectRequested,
+        json!({"effect_id": effect_id, "seat": "work"}),
+    )
+    .at("2026-11-27T00:00:00Z")
+    .hash("1".repeat(64))
+    .build();
+    let started = |attempt: &str| {
+        crate::envelope_builder::EnvelopeBuilder::new(
+            EventType::EffectStarted,
+            json!({"effect_id": effect_id}),
+        )
+        .attempt(Some(attempt))
+        .at("2026-11-27T00:00:01Z")
+        .hash("2".repeat(64))
+        .build()
+    };
+    let root_cp = |attempt: &str, persistent: bool| {
+        crate::envelope_builder::EnvelopeBuilder::new(
+            EventType::EffectCheckpointed,
+            json!({
+                "effect_id": effect_id,
+                "checkpoint": {
+                    "step": "harness-started",
+                    "site_ref": site_ref,
+                    "instance_ref": instance_ref,
+                    "root_session": {
+                        "kind": "codex-thread",
+                        "id": "thread-1",
+                        "harness_version": "0.154.0",
+                        "persistent": persistent,
+                    }
+                }
+            }),
+        )
+        .attempt(Some(attempt))
+        .at("2026-11-27T00:00:02Z")
+        .hash("3".repeat(64))
+        .build()
+    };
+    let context = SiteContext::new(site_ref.clone(), instance_ref.clone(), SeatClass::Work);
+    let key = SiteKey::single("work", None);
+
+    let turn1 = vec![requested.clone(), started("att-1"), root_cp("att-1", true)];
+    let offer1 = eligible_offer(&turn1, &key, &context, "work", true, true, |_| false)
+        .expect("turn 1 persistent root is offered");
+    assert_eq!(offer1.provider_id, "thread-1");
+
+    let mut turn2 = turn1;
+    turn2.push(started("att-2"));
+    turn2.push(root_cp("att-2", false));
+    assert_eq!(
+        eligible_offer(&turn2, &key, &context, "work", true, true, |_| false),
+        None,
+        "newest persistent: false root must shadow older persistent: true root"
+    );
+}

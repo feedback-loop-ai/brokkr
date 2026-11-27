@@ -27,13 +27,13 @@ use thiserror::Error;
 use super::fold::Conversation;
 use super::keep::{self, KeepNotice, ParentError, SourceErrno};
 use super::rejoin::{
-    self, CopyState, DestDir, RejoinCaps, RejoinNotice, RejoinRollback, TurnKeep, REJOIN_BRAIN_DIR,
-    REJOIN_DB_FILE, REJOIN_DEPTH_CAP, REJOIN_DIR,
+    self, CopyPoint, CopyState, DestDir, RejoinCaps, RejoinNotice, RejoinRollback, TurnKeep,
+    REJOIN_BRAIN_DIR, REJOIN_DB_FILE, REJOIN_DEPTH_CAP, REJOIN_DIR,
 };
-use super::{home, LaunchError, Prepared, StartMode};
+use super::{Prepared, StartMode};
 use crate::adapters::{
-    originating_harness_version, resume_gate, spawn, Emitted, Invocation, LaunchHold, LaunchPlan,
-    LaunchTerminal, ResumeGate, RootSession, Step, AGY_SHAPE,
+    originating_harness_version, resume_gate, spawn, version_qualifies, Emitted, Invocation,
+    LaunchHold, LaunchPlan, LaunchTerminal, ResumeGate, RootSession, Step, AGY_SHAPE,
 };
 use crate::secret::BoundSecret;
 
@@ -66,33 +66,61 @@ pub(super) enum RestoreNotice {
     Copy(#[from] RejoinNotice),
 }
 
-/// Exclusive advisory lock on one kept conversation, held from before restore
-/// until after post-turn keeping completes and released automatically on drop.
-pub(super) struct ConversationLock {
-    _fd: OwnedFd,
+/// Exclusive advisory lock on one kept conversation plus ownership of the
+/// set-aside `rejoin/` copy taken out of the live path before `agy` starts.
+///
+/// While the lock is still held on drop:
+/// - If the rejoin was never confirmed, one `renameat` puts the set-aside copy
+///   back at `rejoin/`.
+/// - If the rejoin was confirmed, best-effort removal cleans the set-aside
+///   non-live copy (leaving it for the reaper of `#1323` on failure) and never
+///   touches the live path.
+pub(super) struct RejoinLease {
+    conv_fd: OwnedFd,
+    aside: String,
+    confirmed: bool,
+    // Dropped last so the exclusive advisory lock stays held across put-back
+    // and set-aside cleanup.
+    _lock_fd: OwnedFd,
 }
 
-/// What [`plan_launch`] settled before spawning `agy`: the shared
-/// [`LaunchPlan`], any held [`ConversationLock`], and any [`RestoreNotice`]
+impl RejoinLease {
+    pub(super) fn confirm(&mut self) {
+        self.confirmed = true;
+    }
+
+    #[cfg(test)]
+    pub(super) fn aside_name(&self) -> &str {
+        &self.aside
+    }
+}
+
+impl Drop for RejoinLease {
+    fn drop(&mut self) {
+        if self.confirmed {
+            remove_entry_tree(
+                self.conv_fd.as_fd(),
+                OsStr::new(&self.aside),
+                REJOIN_DEPTH_CAP + 4,
+            );
+        } else {
+            let _ = renameat(&self.conv_fd, &self.aside, &self.conv_fd, REJOIN_DIR);
+        }
+    }
+}
+
+/// What [`plan_launch_with`] settled before spawning `agy`: the shared
+/// [`LaunchPlan`], any held [`RejoinLease`], and any [`RestoreNotice`]
 /// explaining why an offer fell back cold.
 pub(super) struct PlannedLaunch {
     pub(super) plan: LaunchPlan,
-    pub(super) lock: Option<ConversationLock>,
+    pub(super) lock: Option<RejoinLease>,
     pub(super) restore_notice: Option<RestoreNotice>,
 }
 
-/// Settle whether this invocation runs cold or rejoins an offered
-/// conversation, checking the shared `resume_gate`, MCP isolation, UUID
-/// syntax, `owned_target`, installed version (probed once under the engine
-/// HOME), exclusive lock, and whole-state restore into the engine HOME.
-fn probe_version(
-    prepared: &Prepared,
-    owned_env: &[(&str, &str)],
-) -> Result<Option<String>, LaunchError> {
+fn probe_version(prepared: &Prepared, owned_env: &[(&str, &str)]) -> Option<String> {
     let probe_cmd = [prepared.launch.command[0].clone(), "--version".to_string()];
-    let version = spawn::observed_version_in(&probe_cmd, &prepared.workdir, owned_env);
-    home::unconfigured(&prepared.workdir)?;
-    Ok(version)
+    spawn::observed_version_in(&probe_cmd, &prepared.workdir, owned_env)
 }
 
 fn declined_cold(
@@ -101,17 +129,17 @@ fn declined_cold(
     refusal: &'static str,
     observed: Option<String>,
     notice: Option<RestoreNotice>,
-) -> Result<PlannedLaunch, LaunchError> {
+) -> PlannedLaunch {
     let version = match (observed, prepared.declared_root) {
         (Some(v), _) => Some(v),
-        (None, true) => probe_version(prepared, owned_env)?,
+        (None, true) => probe_version(prepared, owned_env),
         (None, false) => None,
     };
-    Ok(PlannedLaunch {
+    PlannedLaunch {
         plan: cold_plan(prepared.launch.command.clone(), Some(refusal), version),
         lock: None,
         restore_notice: notice,
-    })
+    }
 }
 
 fn pre_version_gate(
@@ -132,35 +160,39 @@ fn pre_version_gate(
     if !is_agy_uuid(offered) {
         return Err("invalid-session-id");
     }
-    if let Some(reason) = check_owned_target(input, offered, prepared.operator_home.as_deref()) {
-        return Err(reason);
-    }
+    check_owned_target(input, offered, prepared.operator_home.as_deref())?;
     Ok(applies_to)
 }
 
-pub(super) fn plan_launch(
+/// Settle whether this invocation runs cold or rejoins an offered
+/// conversation, checking the shared `resume_gate`, MCP isolation, UUID
+/// syntax, `owned_target`, installed version (via the shared
+/// [`version_qualifies`] predicate), exclusive lock, whole-state restore, and
+/// live-path take-out.
+pub(super) fn plan_launch_with(
     prepared: &Prepared,
     mode: StartMode<'_>,
     input: &Value,
     owned_env: &[(&str, &str)],
-) -> Result<PlannedLaunch, LaunchError> {
+    on_restore: &mut dyn FnMut(CopyPoint<'_>),
+) -> PlannedLaunch {
     let Some(offered) = mode.session.filter(|_| !mode.probe) else {
         let version = match prepared.declared_root && !mode.probe {
-            true => probe_version(prepared, owned_env)?,
+            true => probe_version(prepared, owned_env),
             false => None,
         };
-        return Ok(PlannedLaunch {
+        return PlannedLaunch {
             plan: cold_plan(prepared.launch.command.clone(), None, version),
             lock: None,
             restore_notice: None,
-        });
+        };
     };
     let applies_to = match pre_version_gate(prepared, offered, input) {
         Ok(version) => version,
         Err(reason) => return declined_cold(prepared, owned_env, reason, None, None),
     };
-    let Some(version) = probe_version(prepared, owned_env)? else {
-        return Ok(PlannedLaunch {
+    let Some(version) = probe_version(prepared, owned_env) else {
+        return PlannedLaunch {
             plan: cold_plan(
                 prepared.launch.command.clone(),
                 Some("unverified-harness"),
@@ -168,11 +200,9 @@ pub(super) fn plan_launch(
             ),
             lock: None,
             restore_notice: None,
-        });
+        };
     };
-    let drifted = version != applies_to
-        || originating_harness_version(input).is_some_and(|orig| orig != version);
-    if drifted {
+    if !version_qualifies(&version, &applies_to, originating_harness_version(input)) {
         return declined_cold(
             prepared,
             owned_env,
@@ -181,13 +211,14 @@ pub(super) fn plan_launch(
             None,
         );
     }
-    let lock = match lock_and_restore(
+    let lease = match lock_and_restore_with(
         offered,
         Path::new(prepared.home.path()),
         prepared.operator_home.as_deref(),
         RejoinCaps::DEFAULT,
+        on_restore,
     ) {
-        Ok(lock) => lock,
+        Ok(lease) => lease,
         Err(notice) => {
             return declined_cold(
                 prepared,
@@ -200,11 +231,11 @@ pub(super) fn plan_launch(
     };
     let mut command = prepared.launch.command.clone();
     command.extend(["--conversation".to_string(), offered.to_string()]);
-    Ok(PlannedLaunch {
+    PlannedLaunch {
         plan: rejoin_plan(command, offered.to_string(), version),
-        lock: Some(lock),
+        lock: Some(lease),
         restore_notice: None,
-    })
+    }
 }
 
 fn cold_plan(
@@ -241,45 +272,67 @@ fn rejoin_plan(command: Vec<String>, offered: String, harness_version: String) -
     }
 }
 
-fn check_owned_target(
+/// Fail-closed check of every coordinate the engine carries in
+/// `resume_context.owned_target` (`provider_id`, `persistence_locator`,
+/// `persistence_home`), matching `owned_dsh_root` in `adapters.rs`.
+pub(super) fn check_owned_target(
     input: &Value,
     offered: &str,
     operator_home: Option<&Path>,
-) -> Option<&'static str> {
-    let target = input.pointer("/resume_context/owned_target")?;
-    if target
-        .get("provider_id")
-        .and_then(Value::as_str)
-        .is_some_and(|pid| pid != offered)
-    {
-        return Some("unverified-harness");
-    }
-    let recorded_home = target
-        .get("persistence_home")
-        .and_then(Value::as_str)
-        .filter(|home| !home.is_empty())?;
-    let Ok(admitted) = keep::resolve_parent_path(operator_home) else {
-        return Some("unverified-harness");
+) -> Result<(), &'static str> {
+    let target = input
+        .pointer("/resume_context/owned_target")
+        .and_then(Value::as_object)
+        .ok_or("unverified-harness")?;
+    let field = |key| {
+        target
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
     };
+    if field("provider_id") != Some(offered) || field("persistence_locator") != Some(offered) {
+        return Err("unverified-harness");
+    }
+    let recorded_home = field("persistence_home").ok_or("unverified-harness")?;
+    let admitted = keep::resolve_parent_path(operator_home).map_err(|_| "unverified-harness")?;
     let (Ok(canon_admitted), Ok(canon_recorded)) = (
         std::fs::canonicalize(&admitted),
         std::fs::canonicalize(recorded_home),
     ) else {
-        return Some("unverified-harness");
+        return Err("unverified-harness");
     };
-    (canon_admitted != canon_recorded).then_some("instance-changed")
+    if canon_admitted != canon_recorded {
+        return Err("instance-changed");
+    }
+    Ok(())
 }
 
-/// Take the exclusive lock for `conversation_id` and restore its kept
-/// `conversation.db` and `brain/` whole into `engine_home` under `caps`.
-/// On any failure, removes anything partly written to `engine_home` and drops
-/// the lock before returning the typed [`RestoreNotice`].
+/// Take the exclusive lock for `conversation_id`, restore its kept
+/// `conversation.db` and `brain/` whole into `engine_home` under `caps`, and
+/// rename `rejoin/` aside out of the live path before `agy` starts.
+#[cfg(test)]
 pub(super) fn lock_and_restore(
     conversation_id: &str,
     engine_home: &Path,
     operator_home: Option<&Path>,
     caps: RejoinCaps,
-) -> Result<ConversationLock, RestoreNotice> {
+) -> Result<RejoinLease, RestoreNotice> {
+    lock_and_restore_with(
+        conversation_id,
+        engine_home,
+        operator_home,
+        caps,
+        &mut rejoin::noop_hook,
+    )
+}
+
+pub(super) fn lock_and_restore_with(
+    conversation_id: &str,
+    engine_home: &Path,
+    operator_home: Option<&Path>,
+    caps: RejoinCaps,
+    on_point: &mut dyn FnMut(CopyPoint<'_>),
+) -> Result<RejoinLease, RestoreNotice> {
     let parent_path = keep::resolve_parent_path(operator_home)?;
     let Some(parent_fd) = open_existing_owned_parent(&parent_path)? else {
         return Err(RestoreNotice::Absent);
@@ -304,12 +357,26 @@ pub(super) fn lock_and_restore(
     ) {
         return Err(RestoreNotice::Parent(ParentError::UnownedParent));
     }
-    let lock = acquire_lock(conv_fd.as_fd())?;
-    restore_into_home(conv_fd.as_fd(), conversation_id, engine_home, caps)?;
-    Ok(lock)
+    let lock_fd = acquire_lock(conv_fd.as_fd())?;
+    let mut guard = restore_into_home(
+        conv_fd.as_fd(),
+        conversation_id,
+        engine_home,
+        caps,
+        on_point,
+    )?;
+    let aside = next_staging_name("rejoin.aside");
+    renameat(&conv_fd, REJOIN_DIR, &conv_fd, &aside).map_err(restore_io_errno)?;
+    guard.disarm();
+    Ok(RejoinLease {
+        conv_fd,
+        aside,
+        confirmed: false,
+        _lock_fd: lock_fd,
+    })
 }
 
-fn acquire_lock(conv_fd: BorrowedFd<'_>) -> Result<ConversationLock, RestoreNotice> {
+fn acquire_lock(conv_fd: BorrowedFd<'_>) -> Result<OwnedFd, RestoreNotice> {
     let (fd, created) = match openat(
         conv_fd,
         LOCK_FILE,
@@ -342,11 +409,11 @@ fn acquire_lock(conv_fd: BorrowedFd<'_>) -> Result<ConversationLock, RestoreNoti
     if created {
         fchmod(&fd, Mode::from_raw_mode(0o600)).map_err(restore_io_errno)?;
     }
-    match flock(&fd, FlockOperation::NonBlockingLockExclusive) {
-        Ok(()) => Ok(ConversationLock { _fd: fd }),
-        Err(Errno::WOULDBLOCK) => Err(RestoreNotice::LockHeld),
-        Err(errno) => Err(restore_io_errno(errno)),
-    }
+    // `fd` is an open regular file and `LOCK_EX | LOCK_NB` is non-blocking, so
+    // the reachable error is contention (`EWOULDBLOCK`); any error declines
+    // cold cleanly (removal-control: `l2_absent_missing_and_locked_kept_state_declines_run_cold`).
+    flock(&fd, FlockOperation::NonBlockingLockExclusive).map_err(|_| RestoreNotice::LockHeld)?;
+    Ok(fd)
 }
 
 struct KeptRejoinSource {
@@ -384,15 +451,15 @@ fn restore_into_home(
     conversation_id: &str,
     engine_home: &Path,
     caps: RejoinCaps,
-) -> Result<(), RejoinNotice> {
+    on_point: &mut dyn FnMut(CopyPoint<'_>),
+) -> Result<RejoinRollback, RejoinNotice> {
     let src = open_kept_rejoin_source(conv_fd)?;
     let mut agy_dir = rejoin::open_src_dir(CWD, engine_home.as_os_str())?;
     for step in [".gemini", "antigravity-cli"] {
         agy_dir = rejoin::open_src_dir(agy_dir.as_fd(), OsStr::new(step))?;
     }
     let mut guard = RejoinRollback::begin(agy_dir);
-    let mut hook = rejoin::noop_hook;
-    let mut state = CopyState::new(caps, &[], &mut hook);
+    let mut state = CopyState::new(caps, &[], on_point);
     let (convs_fd, convs_node) = guard.create_root_dir_with(OsStr::new("conversations"), || {})?;
     state.charge_entry()?;
     let db_dst_name = format!("{conversation_id}.db");
@@ -407,27 +474,22 @@ fn restore_into_home(
         &mut guard,
         &mut state,
     )?;
-    let (brain_root_fd, brain_root_node) =
-        guard.create_root_dir_with(OsStr::new("brain"), || {})?;
+    let (root_fd, root_node) = guard.create_root_dir_with(OsStr::new("brain"), || {})?;
     state.charge_entry()?;
-    let (brain_dst_fd, brain_dst_node) = guard.create_dir(
-        brain_root_fd.as_fd(),
-        brain_root_node,
-        OsStr::new(conversation_id),
-    )?;
+    let id_os = OsStr::new(conversation_id);
+    let (dst_fd, dst_node) = guard.create_dir(root_fd.as_fd(), root_node, id_os)?;
     rejoin::copy_brain_dir(
         src.brain_dir,
         src.brain_stat,
         DestDir {
-            fd: brain_dst_fd.as_fd(),
-            node: brain_dst_node,
+            fd: dst_fd.as_fd(),
+            node: dst_node,
             depth: 0,
         },
         &mut guard,
         &mut state,
     )?;
-    guard.disarm();
-    Ok(())
+    Ok(guard)
 }
 
 /// Open an already-existing `agy-conversations` parent without creating any
@@ -471,13 +533,10 @@ pub(super) fn stage_replace_transcript(
     let dest_fd =
         openat(&conv_fd, &stage, keep::dest_file_flags(), mode).map_err(keep::io_errno)?;
     let dest_stat = fstat(&dest_fd).map_err(keep::io_errno)?;
-    if let Err(err) = fchmod(&dest_fd, mode)
-        .map_err(keep::io_errno)
-        .and_then(|()| keep::copy_bounded(src_fd, dest_fd, cap))
-        .and_then(|()| {
-            renameat(&conv_fd, &stage, &conv_fd, AGY_TRANSCRIPT_FILE).map_err(keep::io_errno)
-        })
-    {
+    fchmod(&dest_fd, mode).map_err(keep::io_errno)?;
+    if let Err(err) = keep::copy_bounded(src_fd, dest_fd, cap).and_then(|()| {
+        renameat(&conv_fd, &stage, &conv_fd, AGY_TRANSCRIPT_FILE).map_err(keep::io_errno)
+    }) {
         keep::unlink_if_same(
             conv_fd.as_fd(),
             OsStr::new(&stage),
@@ -489,9 +548,11 @@ pub(super) fn stage_replace_transcript(
     Ok(())
 }
 
-/// Replace kept rejoin state after a confirmed rejoin under slice 1's rules.
-/// On any failure, removes the previous `rejoin/` directory too so no stale
-/// older copy survives.
+/// Stage the turn's end state into a non-live sibling directory under
+/// `<agy-conversations>/<id>/`, verify source stamps under slice 1's rules,
+/// and publish it to the already-vacated live `rejoin/` path with one
+/// `renameat`. On any failure, the staging directory rolls back and the live
+/// path stays empty.
 pub(super) fn replace_rejoin(
     conversation_id: &str,
     engine_home: &Path,
@@ -499,30 +560,33 @@ pub(super) fn replace_rejoin(
     bindings: &[BoundSecret],
     caps: RejoinCaps,
 ) -> Result<(), RejoinNotice> {
-    let result = stage_and_swap_rejoin(conversation_id, engine_home, operator_home, bindings, caps);
-    if result.is_err() {
-        remove_kept_rejoin(conversation_id, operator_home);
-    }
-    result
+    replace_rejoin_with(
+        conversation_id,
+        engine_home,
+        operator_home,
+        bindings,
+        caps,
+        &mut rejoin::noop_hook,
+    )
 }
 
-fn stage_and_swap_rejoin(
+pub(super) fn replace_rejoin_with(
     conversation_id: &str,
     engine_home: &Path,
     operator_home: Option<&Path>,
     bindings: &[BoundSecret],
     caps: RejoinCaps,
+    on_point: &mut dyn FnMut(CopyPoint<'_>),
 ) -> Result<(), RejoinNotice> {
     let parent_path = keep::resolve_parent_path(operator_home)?;
     let db_name = format!("{conversation_id}.db");
     let (conv_name, db_os) = (OsStr::new(conversation_id), OsStr::new(&db_name));
-    let mut hook = rejoin::noop_hook;
-    let src = rejoin::open_rejoin_source(engine_home, conv_name, db_os, &mut hook)?;
+    let src = rejoin::open_rejoin_source(engine_home, conv_name, db_os, on_point)?;
     let mut guard = RejoinRollback::begin(keep::owned_parent_raw(&parent_path)?);
     let (conv_fd, conv_node) = guard.open_existing_root_dir(conv_name)?;
     let staging = next_staging_name("rejoin.next");
     let staging_os = OsStr::new(&staging);
-    let mut state = CopyState::new(caps, bindings, &mut hook);
+    let mut state = CopyState::new(caps, bindings, on_point);
     let tree = rejoin::copy_rejoin_into_dir(
         (conv_fd.as_fd(), conv_node),
         (staging_os, db_os),
@@ -530,6 +594,7 @@ fn stage_and_swap_rejoin(
         &mut guard,
         &mut state,
     )?;
+    (state.on_point)(CopyPoint::FinalVerify);
     if !rejoin::same_stamp_at(
         src.conversations_dir.as_fd(),
         db_os,
@@ -539,51 +604,15 @@ fn stage_and_swap_rejoin(
         return Err(RejoinNotice::ChangedUnderfoot);
     }
     rejoin::verify_dir_tree(src.brain_root.as_fd(), conv_name, &tree, state.on_point)?;
-    remove_entry_tree(
-        conv_fd.as_fd(),
-        OsStr::new(REJOIN_DIR),
-        REJOIN_DEPTH_CAP + 4,
-    );
     renameat(&conv_fd, staging_os, &conv_fd, REJOIN_DIR).map_err(rejoin::io_errno)?;
     guard.disarm();
     Ok(())
 }
 
-/// Attempt to remove `<agy-conversations>/<id>/rejoin/` via `openat` +
-/// `O_NOFOLLOW` + `unlink_if_same` (obeying (m1) and (m4)).
-pub(super) fn remove_kept_rejoin(conversation_id: &str, operator_home: Option<&Path>) {
-    let Ok(parent_path) = keep::resolve_parent_path(operator_home) else {
-        return;
-    };
-    let Ok(Some(parent_fd)) = open_existing_owned_parent(&parent_path) else {
-        return;
-    };
-    let Ok(conv_fd) = openat(
-        &parent_fd,
-        conversation_id,
-        keep::dir_flags(),
-        Mode::empty(),
-    ) else {
-        return;
-    };
-    let Ok(conv_stat) = fstat(&conv_fd) else {
-        return;
-    };
-    if !keep::is_owned_private_dir(
-        conv_stat.st_mode,
-        conv_stat.st_uid,
-        rustix::process::geteuid().as_raw(),
-    ) {
-        return;
-    }
-    remove_entry_tree(
-        conv_fd.as_fd(),
-        OsStr::new(REJOIN_DIR),
-        REJOIN_DEPTH_CAP + 4,
-    );
-}
-
-fn remove_entry_tree(parent_fd: BorrowedFd<'_>, name: &OsStr, budget: usize) {
+/// Best-effort removal of a set-aside non-live directory via `openat` +
+/// `O_NOFOLLOW` + `unlink_if_same` (obeying (m1) and (m4)); any entry that
+/// cannot be removed stays under its non-live name for the reaper of `#1323`.
+pub(super) fn remove_entry_tree(parent_fd: BorrowedFd<'_>, name: &OsStr, budget: usize) {
     let Ok(stat) = statat(parent_fd, name, AtFlags::SYMLINK_NOFOLLOW) else {
         return;
     };
@@ -655,46 +684,7 @@ pub(super) fn publish_turn(
     }
 }
 
-fn publish_root_session(
-    turn: &TurnKeep<'_>,
-    hold: &mut LaunchHold,
-    resumed: bool,
-    kept_transcript: Option<&keep::Kept>,
-    emit: &mut impl FnMut(&Emitted),
-) -> Option<RejoinNotice> {
-    if turn.probe || turn.refused_to_start {
-        return None;
-    }
-    let declined_cold = !resumed && hold.has_refusal();
-    let eligible = turn.declared.root && turn.pin_confirmed;
-    let (Conversation::Named(id), Some(version)) = (turn.conversation, hold.harness_version())
-    else {
-        if declined_cold {
-            hold.publish_settled(None, None, emit);
-        }
-        return None;
-    };
-    if !eligible {
-        if declined_cold {
-            hold.publish_settled(None, None, emit);
-        }
-        return None;
-    }
-    let transcript_address = kept_transcript.map(keep::Kept::transcript_value);
-    if row_would_mask_launch(
-        id,
-        version,
-        resumed,
-        transcript_address.as_ref(),
-        turn.bindings,
-    ) {
-        if resumed {
-            remove_kept_rejoin(id, turn.operator_home);
-        } else if declined_cold {
-            hold.publish_settled(None, None, emit);
-        }
-        return Some(RejoinNotice::ReferenceMasked);
-    }
+fn keep_rejoin_state(turn: &TurnKeep<'_>, id: &str, resumed: bool) -> (bool, Option<RejoinNotice>) {
     let keep_result = match resumed {
         true => replace_rejoin(
             id,
@@ -708,22 +698,59 @@ fn publish_root_session(
             turn.engine_home,
             turn.operator_home,
             turn.bindings,
-            kept_transcript.is_some(),
+            true,
             RejoinCaps::DEFAULT,
         ),
     };
-    let (persistent, notice) = match keep_result {
+    match keep_result {
         Ok(()) => (true, None),
         Err(notice) => (false, Some(notice)),
+    }
+}
+
+fn publish_root_session(
+    turn: &TurnKeep<'_>,
+    hold: &mut LaunchHold,
+    resumed: bool,
+    kept_transcript: Option<&keep::Kept>,
+    emit: &mut impl FnMut(&Emitted),
+) -> Option<RejoinNotice> {
+    if turn.probe || turn.refused_to_start {
+        return None;
+    }
+    let must_publish_launch = resumed || hold.has_refusal();
+    let eligible_root = turn.declared.root && (turn.pin_confirmed || resumed);
+    let (Conversation::Named(id), Some(version), true) =
+        (turn.conversation, hold.harness_version(), eligible_root)
+    else {
+        if must_publish_launch {
+            hold.publish_settled(None, None, emit);
+        }
+        return None;
     };
-    let address = persistent.then_some(transcript_address).flatten();
+    let address = turn
+        .pin_confirmed
+        .then_some(kept_transcript)
+        .flatten()
+        .map(keep::Kept::transcript_value);
+    if row_would_mask_launch(id, version, resumed, address.as_ref(), turn.bindings) {
+        if must_publish_launch {
+            hold.publish_settled(None, None, emit);
+        }
+        return Some(RejoinNotice::ReferenceMasked);
+    }
+    let (persistent, notice) = match (turn.pin_confirmed, address.is_some()) {
+        (false, _) => (false, None),
+        (true, false) => (false, Some(RejoinNotice::AddressUnavailable)),
+        (true, true) => keep_rejoin_state(turn, id, resumed),
+    };
     let root = RootSession::new(
         AGY_TRANSCRIPT_KIND,
         id.clone(),
         version.to_string(),
         persistent,
     );
-    hold.publish_settled(Some(root), address, emit);
+    hold.publish_settled(Some(root), persistent.then_some(address).flatten(), emit);
     notice
 }
 

@@ -620,37 +620,59 @@ slice 3). The facts below come from the ninth measurement on Antigravity CLI
 1.5.18 (`docs/evidence/adapters/agy-cli-1-5.md`, `l2c-01` through `l2c-22`)
 and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
 
-- **Shared resume machinery and restore whole, or do not rejoin.**
+- **Shared resume machinery, fail-closed target coordinates, and restore whole.**
   `brokkr driver agy` declares `resume` offer receipt in its capabilities and
   decides every offered conversation through the shared machinery
   (`resume_gate`, `isolated.resumes`, `LaunchPlan`, `LaunchHold`,
-  `Confirmation`, `LaunchTerminal`, `originating_harness_version`, and
-  `agy --version` probed once per invocation under the engine HOME with
+  `Confirmation`, `LaunchTerminal`, `originating_harness_version`, the shared
+  `version_qualifies` predicate used by `qualify`, and `agy --version` probed
+  once per invocation under the engine HOME with
   `AGY_CLI_DISABLE_AUTO_UPDATE=true`, decision 0124). Restrictions (engine
   HOME, login link, gate hook, MCP set, `--mode`, `--model`, `--effort`, and
   `--settings`) are always composed fresh for the launch before any kept
   conversation is read, matching `l2c-08`, `l2c-10`, `l2c-11`, and `l2c-17`
   through `l2c-22`; a rejoin's launch differs from a cold launch only by the
-  restored state and `--conversation <id>`. Before spawn, the driver copies
-  the kept `conversation.db` and `brain/` from
-  `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/` into
-  `<engine HOME>/.gemini/antigravity-cli/conversations/<id>.db` and
-  `<engine HOME>/.gemini/antigravity-cli/brain/<id>/` with operator-only modes
-  (`0700`/`0600` through `fchmod`), reusing slice 1's bounds (128 MiB, 4,096
-  entries, 16 levels), no-symlink traversal, and regular-file/directory checks.
-  If the shape is not enabled (`unsupported-resume`), boundary/hands or MCP
-  isolation does not cover it (`restrictions-unavailable`), the offered id is
-  not a lowercase UUID (`invalid-session-id`), `owned_target.persistence_home`
-  does not match the operator's `agy-conversations` parent
-  (`instance-changed`), the installed version is unreadable or drifts from the
-  shape's `applies_to` or `originating_harness_version`
-  (`unverified-harness`), or the lock is held or any kept part is absent,
-  non-regular, linked, empty, over a bound, or unreadable
-  (`unverified-harness`, matching DSH's retained-store rule in decision 0056,
-  with a typed non-echoing `RestoreNotice` on stderr), anything partly written
-  to the engine HOME is removed, the lock is released, no `--conversation`
-  reaches `agy`, and the seat runs cold recording `launch: "cold"` and the
-  bounded `resume_refusal` token.
+  restored state and `--conversation <id>`. On a rejoin, as on a cold launch,
+  the final workspace admission check (`unconfigured`) runs immediately before
+  spawning `agy`, after the restore has completed.
+  - **Root address and `persistent: true`.** An agy root's address is the kept
+    `transcript` object published on the same `harness-started` checkpoint row
+    as `root_session`: `{"kind": "agy-conversation", "locator": "<uuid>",
+    "home": "<operator HOME>/.local/state/brokkr/agy-conversations"}` — the
+    exact coordinates `eligible_offer` reads to build `owned_target`. A
+    `root_session` is recorded with `persistent: true` only when both rejoin
+    state was kept whole and that transcript address is published beside it;
+    whenever the address cannot be published (for instance, `transcript` kind
+    is undeclared or `transcript.jsonl` was not kept), rejoin state is not
+    kept and `root_session` carries `persistent: false` with a typed
+    `RejoinNotice::AddressUnavailable` notice.
+  - **Fail-closed `owned_target` verification.** Every coordinate the engine
+    sends under `resume_context.owned_target` (`provider_id`,
+    `persistence_locator`, `persistence_home`) is required and compared,
+    matching `owned_dsh_root`: anything absent, null, empty, of the wrong
+    type, unreadable, or naming a `provider_id` or `persistence_locator` other
+    than the offered UUID declines cold with `unverified-harness`, and a
+    canonicalized `persistence_home` that differs from the operator's
+    `agy-conversations` parent declines cold with `instance-changed`.
+  - **Whole-state restore or cold decline.** Before spawn, the driver copies
+    the kept `conversation.db` and `brain/` from
+    `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/` into
+    `<engine HOME>/.gemini/antigravity-cli/conversations/<id>.db` and
+    `<engine HOME>/.gemini/antigravity-cli/brain/<id>/` with operator-only
+    modes (`0700`/`0600` through `fchmod`), reusing slice 1's bounds (128 MiB,
+    4,096 entries, 16 levels), no-symlink traversal, and
+    regular-file/directory checks. If the shape is not enabled
+    (`unsupported-resume`), boundary/hands or MCP isolation does not cover it
+    (`restrictions-unavailable`), the offered id is not a lowercase UUID
+    (`invalid-session-id`), `owned_target` fails as above
+    (`unverified-harness` or `instance-changed`), the installed version is
+    unreadable or fails `version_qualifies` (`unverified-harness`), or the
+    lock is held or any kept part is absent, non-regular, linked, empty, over
+    a bound, or unreadable (`unverified-harness`, matching DSH's retained-store
+    rule in decision 0056, with a typed non-echoing `RestoreNotice` on
+    stderr), anything partly written to the engine HOME is removed, the lock
+    is released, no `--conversation` reaches `agy`, and the seat runs cold
+    recording `launch: "cold"` and the bounded `resume_refusal` token.
 - **Same-user stated limit carried by reference.** Restoring kept state and
   holding the advisory lock operate under the same stated limit as the
   2026-11-24 and 2026-11-26 addenda (operator rulings of 2026-11-25 and
@@ -662,45 +684,77 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
   `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/.rejoin.lock`
   (opened with `O_NOFOLLOW | O_CLOEXEC`, mode `0600` on create, regular-file
   verified, created only when `rejoin/` exists) and holds it across restore,
-  turn, and post-turn keep, releasing it on every path out via RAII drop.
-  Because `agy` does not keep concurrent rejoins apart (`l2c-14`, `l2c-15`), a
-  launch that finds the lock held declines cold (`unverified-harness` with
-  `RestoreNotice::LockHeld`).
+  take-out, turn, post-turn keep, and put-back or set-aside cleanup, releasing
+  it on every path out via RAII drop. Because `agy` does not keep concurrent
+  rejoins apart (`l2c-14`, `l2c-15`), a launch that finds the lock held
+  declines cold (`unverified-harness` with `RestoreNotice::LockHeld`).
 - **Confirmation from `init`, and a stray conversation is stopped.** Because
   `agy` exits 0 with `SUCCESS` under a new conversation id when given an
   unknown id, a malformed id, or a HOME without the database (`l2c-04`,
   `l2c-05`, `l2c-07`), stderr warnings never decide. A rejoin is confirmed
   only when `init.conversation_id` equals the offered UUID (`LaunchHold`
   returns `Confirmation::Resumed`). If `init` names any other id (or an
-  invalid id), the driver stops `agy` immediately on the `init` line before
-  any model work is taken, returns `LaunchTerminal::Mismatch` (or
-  `Unconfirmed`), emits no `harness-started` and no `root_session`, keeps
-  nothing for the stray id, leaves the offered conversation's kept state
-  untouched, and ends unsettled (`lost`, no result sent) through `run_seat`'s
-  shared path.
-- **After a confirmed rejoin, kept state is the turn's end state or nothing.**
-  Post-turn keeping runs under slice 1's rules unchanged (operator-only,
-  bounded, screened for bound secret values, final-checked) while the
-  conversation lock is still held. On success, staged replacement replaces
-  `rejoin/` whole (`persistent: true` on the `launch: "resumed"` row) and
-  atomically replaces `transcript.jsonl`. On any keep failure (including a
-  bound value appearing or a masked `root_session` candidate), the driver
-  attempts to remove the previous `rejoin/` directory too through
-  `openat` + `O_NOFOLLOW` + `unlink_if_same` so no stale older copy survives
-  and records `persistent: false` (or omits `root_session` when masked, as
-  slice 1 rules). When the rejoin was never confirmed (including
-  `model_substituted` before work), the prior kept state is left untouched.
-- **Rejoined turns count their own use only (decision 0056 ruling 9).** On a
-  confirmed rejoin, `result.usage`, `result.num_turns`, and
-  `result.duration_seconds` are conversation running totals (`l2c-02`,
-  `l2c-03`, `l2c-11`, `l2c-13`), so nothing is taken from them: the turn's
-  token counts are the sum of its own `step_update` rows' `usage` (adding
-  `cache_read_tokens` back into inclusive `input_tokens`, matching cold
-  turns), and `num_turns` is omitted from the seat record because
-  `result.num_turns` counts cumulative user prompts with no per-invocation
-  delta field (while each completed `agent_response` step still emits its own
-  `seat-turn` checkpoint). Cold turns record what they recorded before, figure
-  for figure (`l2c-01`, `l2c-10`).
+  invalid id, or no `init` arrives), the driver stops `agy` immediately on the
+  `init` line before any model work is taken, returns
+  `LaunchTerminal::Mismatch` (or `Unconfirmed`), emits no `harness-started`
+  and no `root_session`, keeps nothing for the stray id, puts the set-aside
+  `rejoin/` back at the live path by one `renameat`, and ends unsettled
+  (`lost`, no result sent) through `run_seat`'s shared path.
+- **Crash-safe live-path invariant: no restorable older copy exists at the
+  live path once `agy` starts.** From the moment a rejoin's `agy` process is
+  started until the keep after it has published, no restorable copy of the
+  conversation's older state exists at the live `rejoin/` path. A `rejoin/` at
+  the live path is only ever put there by one `renameat` of a complete staged
+  copy (`.rejoin.next.<pid>.<seq>`), and only ever taken away by one
+  `renameat` to a non-live sibling name (`.rejoin.aside.<pid>.<seq>`) that
+  restore never reads:
+  - Before starting `agy` on a rejoin (after restoring into the engine HOME),
+    the driver renames the live `rejoin/` aside to `.rejoin.aside.<pid>.<seq>`.
+  - It puts that copy back at `rejoin/` by one `renameat` only when the rejoin
+    was never confirmed (`agy` was not started — including workspace admission
+    failing after restore or spawn failing — or exited `Unconfirmed` or
+    `Mismatch`).
+  - Once `init.conversation_id` confirms the offered UUID, put-back is
+    permanently disarmed. After a confirmed rejoin, whatever the turn's
+    outcome (passed, failed with `ERROR`/non-zero exit/malformed row, killed,
+    pin not confirmed including `model_substituted` or `model_unconfirmed`,
+    transcript address unavailable, keep failure, or masked root), the live
+    path holds either the turn's end state staged whole under slice 1's rules
+    and published by one `renameat` (with `transcript.jsonl` atomically
+    replaced), or nothing. A crash at any point leaves the live path whole or
+    empty, never torn and never old.
+  - Copies set aside under `.rejoin.aside.*` (and any rolled-back staging
+    names) are removed best-effort via `openat` + `O_NOFOLLOW` +
+    `unlink_if_same` while the lock is still held on drop, and are otherwise
+    left under those non-live names for the shared reaper of `#1323`.
+  - Wherever the tree's rules allow publishing a root after a confirmed rejoin
+    that kept nothing (any non-refused-to-start, unmasked turn whose pin was
+    not confirmed, whose transcript address was unavailable, or whose rejoin
+    keep failed), the driver publishes `root_session` with `persistent: false`
+    (and no `transcript` address) on the `launch: "resumed"` checkpoint so the
+    journal's newest root tells the truth and `eligible_offer` stops at it
+    without searching behind it. When masking would rewrite the `root_session`
+    candidate on a confirmed rejoin, only `root_session` (and `transcript`) is
+    withheld while the safe `launch: "resumed"` checkpoint is still published
+    (decision 0056 ruling 7).
+- **Rejoined turns count their own use only (decision 0056 ruling 9), and cold
+  folding is unchanged.** On a confirmed rejoin, `result.usage`,
+  `result.num_turns`, and `result.duration_seconds` are conversation running
+  totals (`l2c-02`, `l2c-03`, `l2c-11`, `l2c-13`), so nothing is taken from
+  them: the turn's token counts are the sum of its own `step_update` rows'
+  `usage` (adding `cache_read_tokens` back into inclusive `input_tokens`,
+  matching cold turns), and `num_turns` is omitted from the seat record
+  because `result.num_turns` counts cumulative user prompts with no
+  per-invocation delta field (while each completed `agent_response` step still
+  emits its own `seat-turn` checkpoint). Cold turns keep the pre-slice
+  `step_update` decoder that ignores `step_update.usage` (so a step row with
+  malformed `usage` does not fail a cold turn; its figures come from
+  `result.usage` as before, `l2c-01`, `l2c-10`). On a rejoin, where
+  `step_update.usage` is the only source of the turn's use, `step_update.usage`
+  is a field the fold reads, so under the fold's standing row-integrity rule an
+  unreadable or duplicate-key `step_update.usage` fails the turn with
+  `Failure::Unread(Event::StepUpdate)`, matching how `result.usage` behaves on
+  a cold turn.
 - **Built, not switched on.** `docs/examples/adapters/agy.json` keeps
   `resume.stream-work-site.status: "unsupported"` (recording the 1.5.14 and
   1.5.18 measurements and that the launch awaits a live measurement through
