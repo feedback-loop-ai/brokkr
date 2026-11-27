@@ -2,8 +2,8 @@
 //! observation a checked span's stable-head check accepted (decision
 //! 0109 ruling 7, fix rounds 0109a1r2 and r3).
 //!
-//! A checked span reads HEAD as it begins and as it ends, and the check
-//! compares the two. The end read the check accepted is kept as the
+//! A checked span compares HEAD at its start and end, then compares
+//! tracked tree content if HEAD held. The accepted head is kept as the
 //! span's [`Observed`] head, and the `covered` stamp reads it. A
 //! protected effect journals its observation as its result's
 //! `checked_head`, durable before the success is, and decide's covered
@@ -20,6 +20,8 @@ use brokkr_core::EventEnvelope;
 use serde_json::json;
 
 use super::{git_head, Engine, EngineError};
+
+mod tree;
 
 /// One read of the HEAD of a repository.
 type ReadHead = dyn Fn(&Path) -> Option<String> + Send + Sync;
@@ -45,14 +47,44 @@ impl HeadReads {
     /// read with no sleep and no racing commit.
     #[cfg(test)]
     pub(super) fn scripted(plan: &[&str]) -> HeadReads {
-        let plan: Vec<String> = plan.iter().map(|head| head.to_string()).collect();
-        let next = std::sync::Mutex::new(0usize);
-        HeadReads(Box::new(move |_| {
-            let mut next = next.lock().unwrap();
-            let head = plan.get(*next).or(plan.last()).cloned();
-            *next += 1;
-            head
-        }))
+        HeadReads(Box::new(scripted_reads(
+            plan.iter().map(|head| Some(head.to_string())).collect(),
+        )))
+    }
+}
+
+type ReadTree = dyn Fn(&Path) -> Option<tree::Snapshot> + Send + Sync;
+
+/// Where the engine reads the tracked tree for an armed span (0071 ruling 2).
+pub(super) struct TreeReads(Box<ReadTree>);
+
+impl Default for TreeReads {
+    fn default() -> Self {
+        Self(Box::new(tree::read))
+    }
+}
+
+impl TreeReads {
+    fn read(&self, repo: &Path) -> Option<tree::Snapshot> {
+        (self.0)(repo)
+    }
+
+    #[cfg(test)]
+    pub(super) fn scripted(plan: Vec<Option<tree::Snapshot>>) -> Self {
+        Self(Box::new(scripted_reads(plan)))
+    }
+}
+
+#[cfg(test)]
+fn scripted_reads<T: Clone + Send + Sync + 'static>(
+    plan: Vec<Option<T>>,
+) -> impl Fn(&Path) -> Option<T> + Send + Sync {
+    let next = std::sync::Mutex::new(0usize);
+    move |_| {
+        let mut next = next.lock().unwrap();
+        let reading = plan.get(*next).or(plan.last()).cloned().flatten();
+        *next += 1;
+        reading
     }
 }
 
@@ -94,24 +126,15 @@ pub(super) enum Span {
     Step,
 }
 
-/// Where one span stands (fix round 0109a1r4, L1): not armed, armed
-/// where HEAD did not read as it began, or armed on the head it began on.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+/// An armed span retains both start readings, including unreadable ones.
+#[derive(Debug, Default)]
 enum SpanStart {
     #[default]
     Unarmed,
-    Unread,
-    On(String),
-}
-
-impl SpanStart {
-    /// A span armed on what its start read.
-    fn armed(head: Option<String>) -> SpanStart {
-        match head {
-            Some(head) => SpanStart::On(head),
-            None => SpanStart::Unread,
-        }
-    }
+    Armed {
+        head: Option<String>,
+        tree: Option<tree::Snapshot>,
+    },
 }
 
 impl Spans {
@@ -131,13 +154,20 @@ fn head_of<'a>(observed: Option<&'a Observed>, effect_id: &str) -> Option<&'a st
 }
 
 impl Engine {
+    fn read_gate_start(&self) -> SpanStart {
+        SpanStart::Armed {
+            head: self.heads.read(&self.repo),
+            tree: self.trees.read(&self.repo),
+        }
+    }
+
     /// Begin an effect: every earlier observation is spent, the effect's
-    /// span reads its start head when `armed`, and `protected` says
+    /// span reads its start head and tree when `armed`, and `protected` says
     /// whether its results journal the effect's observation.
     pub(super) fn begin_effect_span(&mut self, armed: bool, protected: bool) {
         self.spans = Spans {
             effect: match armed {
-                true => SpanStart::armed(self.heads.read(&self.repo)),
+                true => self.read_gate_start(),
                 false => SpanStart::Unarmed,
             },
             protected,
@@ -146,11 +176,11 @@ impl Engine {
     }
 
     /// Begin a sequence step: the previous span's own observation is
-    /// spent, the effect's is not, and a `gate` step reads its start head.
+    /// spent, the effect's is not, and a `gate` step reads its start head and tree.
     pub(super) fn begin_step_span(&mut self, gate: bool) {
         self.spans.observed = None;
         if gate {
-            self.spans.step = SpanStart::armed(self.heads.read(&self.repo));
+            self.spans.step = self.read_gate_start();
         }
     }
 
@@ -168,10 +198,9 @@ impl Engine {
         checked.filter(|_| self.spans.protected)
     }
 
-    /// Close `span` of `effect_id` when it is armed: its end head is read
-    /// once and compared with its start. A match is kept as the span's
-    /// observation and the effect's; a move is journaled as the
-    /// indeterminate end whose reason carries both heads.
+    /// Close an armed span, checking HEAD first. Only a span that passes
+    /// both checks supplies the head observation; either defect settles
+    /// the effect as indeterminate with the corresponding evidence.
     pub(super) fn finish_gate_head_check(
         &mut self,
         span: Span,
@@ -182,13 +211,20 @@ impl Engine {
             Span::Effect => std::mem::take(&mut self.spans.effect),
             Span::Step => std::mem::take(&mut self.spans.step),
         };
-        let start = match armed {
+        let (start, tree) = match armed {
             SpanStart::Unarmed => return Ok(None),
-            SpanStart::Unread => None,
-            SpanStart::On(head) => Some(head),
+            SpanStart::Armed { head, tree } => (head, tree),
         };
         let end = self.heads.read(&self.repo);
-        if start == end {
+        let reason = if start != end {
+            Some(gate_moved_head::encode(&MovedHead {
+                head_at_start: start,
+                head_at_end: end.clone(),
+            }))
+        } else {
+            tree::defect(tree, self.trees.read(&self.repo))
+        };
+        let Some(reason) = reason else {
             let observed = Observed {
                 effect_id: effect_id.to_string(),
                 head: end,
@@ -196,10 +232,6 @@ impl Engine {
             self.spans.checked = Some(observed.clone());
             self.spans.observed = Some(observed);
             return Ok(None);
-        }
-        let moved = MovedHead {
-            head_at_end: end,
-            head_at_start: start,
         };
         // EffectIndeterminate has only a reason string in the frozen event
         // contract. Keep the evidence packed there and attach its structured
@@ -207,7 +239,7 @@ impl Engine {
         let mut payload = json!({
             "effect_id": effect_id,
             "attempt_id": attempt_id,
-            "reason": gate_moved_head::encode(&moved),
+            "reason": reason,
         });
         self.stderr
             .name(EventType::EffectIndeterminate, &mut payload);

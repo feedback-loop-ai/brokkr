@@ -4,6 +4,7 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, ParkReason, RunState};
+use brokkr_core::gate_moved_head;
 use brokkr_core::park::{FailureClass, Park, ParkCause};
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderRefusal, ProviderWait};
 use serde_json::{json, Value};
@@ -11,7 +12,7 @@ use serde_json::{json, Value};
 use super::cooldown::{CooldownError, Waited};
 use super::fence::unwritten_cause;
 use super::non_execution::{self, LastAttempt};
-use super::{gate_head_evidence, operator_stop_reason, Engine, EngineError};
+use super::{gate_evidence, operator_stop_reason, Engine, EngineError};
 
 /// What the record says about an effect before its attempt: the wait a
 /// rate-limit refusal left to take, no record at all, or a park the record
@@ -424,8 +425,7 @@ impl Engine {
         result
     }
 
-    /// The `Park` arm: the parked row, with the moved head's observations
-    /// as its evidence when that is the reason.
+    /// The parked row, with the gate's observations when it changed the repository.
     fn park_at_cursor(
         &mut self,
         events: &[EventEnvelope],
@@ -433,14 +433,17 @@ impl Engine {
         reason: ParkReason,
     ) -> Result<(), EngineError> {
         let evidence = match reason {
-            ParkReason::GateMovedHead => gate_head_evidence(events),
+            ParkReason::GateMovedHead => gate_evidence(events, gate_moved_head::decode),
+            ParkReason::GateChangedTree => gate_evidence(events, gate_moved_head::decode_tree),
             ParkReason::Stated(_) => json!({}),
         };
         let cause = match reason {
-            // The moved head arrives through `effect/indeterminate`, so no
+            // A gate defect arrives through `effect/indeterminate`, so no
             // rule matched: `state.last_decision` is the ruling that routed
             // INTO the gate, not this park's.
-            ParkReason::GateMovedHead => ParkCause::ruled(None, reason.as_str()),
+            ParkReason::GateMovedHead | ParkReason::GateChangedTree => {
+                ParkCause::ruled(None, reason.as_str())
+            }
             // An unwritten wait's settlement carries its own typed cause,
             // the live path's, so a park its append never wrote is replayed
             // with it (fix round 0106b1r10, H4); any other close is

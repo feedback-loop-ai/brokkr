@@ -452,6 +452,7 @@ fn moving_body(action: &str, gate: bool) -> SeatBody {
 fn a_fresh_members_commit_or_edit_cannot_publish_a_mixed_subject_aggregate() {
     for (action, gate, moved_head) in [
         ("git commit -q --allow-empty -m fresh-commit", false, true),
+        ("printf edited > base.txt", false, false),
         ("printf edited > base.txt", true, false),
         ("git commit -q --allow-empty -m gate-commit", true, true),
     ] {
@@ -466,9 +467,20 @@ fn a_fresh_members_commit_or_edit_cannot_publish_a_mixed_subject_aggregate() {
         let terminal = journal.last().unwrap();
         assert_eq!(terminal.event_type, EventType::EffectIndeterminate);
         let reason = terminal.payload["reason"].as_str().unwrap();
-        if gate && moved_head {
-            assert!(reason.starts_with("GATE-MOVED-HEAD"), "{reason}");
+        let gate_reason = match (gate, moved_head) {
+            (true, true) => Some(brokkr_core::fold::ParkReason::GateMovedHead),
+            (true, false) => Some(brokkr_core::fold::ParkReason::GateChangedTree),
+            (false, _) => None,
+        };
+        if let Some(gate_reason) = &gate_reason {
+            assert!(reason.starts_with(gate_reason.as_str()), "{reason}");
             assert_eq!(terminal.payload.get("tree"), None);
+            if *gate_reason == brokkr_core::fold::ParkReason::GateChangedTree {
+                let evidence = brokkr_core::gate_moved_head::decode_tree::<Value>(reason)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(evidence, json!({"omitted": 0, "paths": ["base.txt"]}));
+            }
         } else {
             assert!(reason.starts_with("carrying attempt '"), "{reason}");
             assert_eq!(terminal.payload["tree"]["at_start"], "clean");
@@ -490,7 +502,9 @@ fn a_fresh_members_commit_or_edit_cannot_publish_a_mixed_subject_aggregate() {
         assert!(!events(&runtime)
             .iter()
             .any(|e| e.event_type == EventType::EffectSucceeded));
-        if !(gate && moved_head) {
+        if let Some(gate_reason) = &gate_reason {
+            assert_eq!(end.state.run.park_reason(), Some(gate_reason));
+        } else {
             let refusal = retry(&mut runtime, &["b"]);
             assert!(matches!(
                 refusal,

@@ -11,6 +11,7 @@ use std::process::Command;
 use brokkr_core::dispatch::{bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError};
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, OperatorCommand, Run, RunState, Status};
+#[cfg(test)]
 use brokkr_core::gate_moved_head;
 use brokkr_core::park::{Park, ParkCause};
 use brokkr_core::realms::Boundary;
@@ -506,7 +507,7 @@ pub struct Engine {
     /// answer the retry journals (decision 0103 rulings 3 and 5).
     pub(crate) cooldown: cooldown::Seam,
     /// The running effect's checked spans and their observations (`heads.rs`).
-    /// Each armed span compares its start and end heads, keeps a match as an
+    /// Each armed span checks the head and tracked tree, keeps a match as an
     /// observation, or journals a mismatch as evidence on the resulting park.
     /// An `Err` with no terminal event abandons the span before the next effect.
     spans: heads::Spans,
@@ -515,6 +516,7 @@ pub struct Engine {
     covering: Option<verdict::Covering>,
     /// Every HEAD read the engine takes (decision 0109 ruling 7).
     heads: heads::HeadReads,
+    trees: heads::TreeReads,
     /// The boundary every site with hands is composed from (decision
     /// 0046 ruling 1): the compiled bundle's word, set once at entry and
     /// never re-read from a map, so the pinned word and the world the run
@@ -617,6 +619,7 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         spans: Default::default(),
         covering: None,
         heads: Default::default(),
+        trees: Default::default(),
         network_prefix: None,
         replay: Default::default(),
         held_outcome: None,
@@ -3259,14 +3262,15 @@ fn arms_effect_gate_head(body: &ExecutableBody<'_>, seat: &Seat, strategy: Optio
 /// attached to `run/parked`, the contract's evidence envelope. Any JSON the
 /// marker carries is passed through as it reads, as before the codec; typing
 /// it as `MovedHead` would narrow what a journal may hold and awaits a ruling.
-fn gate_head_evidence(events: &[EventEnvelope]) -> Value {
+fn gate_evidence(
+    events: &[EventEnvelope],
+    decode: fn(&str) -> Option<Result<Value, serde_json::Error>>,
+) -> Value {
     events
         .iter()
         .rev()
         .filter(|event| event.event_type == EventType::EffectIndeterminate)
-        .find_map(|event| {
-            gate_moved_head::decode::<Value>(event.payload["reason"].as_str()?).and_then(Result::ok)
-        })
+        .find_map(|event| decode(event.payload["reason"].as_str()?).and_then(Result::ok))
         .unwrap_or(json!({}))
 }
 

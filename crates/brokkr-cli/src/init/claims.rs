@@ -38,11 +38,11 @@ pub(super) const PRE_APPROVAL: &str = "Pre-approval removes no tool: an unboxed 
      `realms.json` grants neither.";
 
 /// The claude-hired review gate, on every host: unboxed, under the
-/// adapter's `acceptEdits`, and held to its charter by a HEAD check.
+/// adapter's `acceptEdits`, with HEAD and tracked tree checks.
 pub(super) const REVIEW_GATE: &str =
     "The review gate also runs unboxed under `acceptEdits`, as every\n\
      claude seat here does, so it can edit files: the engine parks a gate\n\
-     that moves HEAD, and an edit it leaves uncommitted moves nothing.";
+     if it moves HEAD or leaves changes to tracked files.";
 
 pub(super) const NAMESPACE: Claims = Claims {
     gates: "the verify and ship exec\n  gates, which `namespace` boxes",

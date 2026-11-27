@@ -453,8 +453,8 @@ fn a_run_is_one_of_four_states_and_names_its_status_cursor_and_reason() {
     }
 }
 
-/// A park reason reads back the words it was read from, and only the
-/// marker alone, exactly, is the gate that moved HEAD (#345).
+/// A park reason reads back its own words. Each gate reason needs its
+/// exact bare marker (#345, #1260).
 #[test]
 fn a_park_reason_reads_back_its_own_words() {
     assert_eq!(
@@ -462,9 +462,15 @@ fn a_park_reason_reads_back_its_own_words() {
         ParkReason::GateMovedHead
     );
     assert_eq!(ParkReason::GateMovedHead.as_str(), "GATE-MOVED-HEAD");
+    assert_eq!(
+        ParkReason::read("GATE-CHANGED-TREE".into()),
+        ParkReason::GateChangedTree
+    );
+    assert_eq!(ParkReason::GateChangedTree.as_str(), "GATE-CHANGED-TREE");
     for words in [
         "GATE-MOVED-HEAD ",
         "GATE-MOVED-HEAD {}",
+        "GATE-CHANGED-TREE {}",
         "gate-moved-head",
         "effect e1 indeterminate: engine restarted",
         "",
@@ -475,7 +481,7 @@ fn a_park_reason_reads_back_its_own_words() {
     }
 }
 
-/// An indeterminate whose reason carries the GATE-MOVED-HEAD marker parks
+/// An indeterminate whose reason carries a gate marker parks
 /// on the marker alone, whether or not its evidence reads; any other
 /// reason, the marker glued to its evidence included, parks on its
 /// detail (#345).
@@ -503,6 +509,21 @@ fn a_marked_indeterminate_parks_on_the_marker() {
             })
         );
     }
+    let changed = gate_moved_head::encode_tree_change(&["path".into()], 0);
+    for reason in [changed.as_str(), "GATE-CHANGED-TREE not json"] {
+        assert_eq!(
+            park_reason(reason),
+            Run::Running(Cursor::Park {
+                reason: ParkReason::GateChangedTree
+            })
+        );
+    }
+    assert_eq!(
+        park_reason("GATE-CHANGED-TREE{}"),
+        Run::Running(Cursor::Park {
+            reason: ParkReason::Stated("effect e1 indeterminate: GATE-CHANGED-TREE{}".into())
+        })
+    );
     assert_eq!(
         park_reason("GATE-MOVED-HEAD{}"),
         Run::Running(Cursor::Park {
