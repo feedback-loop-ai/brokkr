@@ -22,11 +22,11 @@ use crate::{damage, patiently, StoreError, BUSY_TIMEOUT};
 use super::sqlite_schema::{read_user_version, ExpectedSchema, SchemaMatch};
 
 use super::{
-    checked_seq, divergent, non_empty_str, normalize_storage_path, open_standalone_store,
-    read_verified_log, rebuild_run_header, reconcile_projection_batch, reject_non_regular_file,
-    reject_symlink, resolve_projection_listing, sort_verified_runs, sqlite_sidecar_path,
-    validate_projection_apply, EventLog, ProjectionBatchOps, ProjectionPlan, ProjectionStore,
-    RunMetadata, StoredProjectionRun,
+    checked_seq, divergent, missing_manifest_feature, normalize_storage_path,
+    open_standalone_store, projection_ops::resolve_projection_listing, read_verified_log,
+    rebuild_run_header, reconcile_projection_batch, reject_non_regular_file, reject_symlink,
+    sort_verified_runs, sqlite_sidecar_path, validate_projection_apply, EventLog,
+    ProjectionBatchOps, ProjectionPlan, ProjectionStore, RunMetadata, StoredProjectionRun,
 };
 
 const PROJECTION_SCHEMA_VERSION_V1: &str = "1";
@@ -132,6 +132,8 @@ const SELECT_PREFIX_ROWS_SQL: &str =
      ORDER BY seq";
 const SELECT_OUT_OF_RANGE_EVENTS_SQL: &str =
     "SELECT COUNT(*) FROM projected_events WHERE run_id = ?1 AND (seq < 1 OR seq > ?2)";
+const SELECT_PROJECTED_EVENT_COUNT_SQL: &str =
+    "SELECT COUNT(*) FROM projected_events WHERE run_id = ?1";
 const SELECT_EVENT_HASH_AT_SQL: &str =
     "SELECT event_hash FROM projected_events WHERE run_id = ?1 AND seq = ?2";
 
@@ -342,6 +344,21 @@ fn refuse_out_of_range_events(
     Ok(())
 }
 
+fn verify_stored_event_count(
+    tx: &Connection,
+    run_id: &str,
+    head_seq: u64,
+) -> Result<(), StoreError> {
+    let expected = checked_seq(head_seq)?;
+    let count: i64 = tx.query_row(SELECT_PROJECTED_EVENT_COUNT_SQL, params![run_id], |row| {
+        row.get(0)
+    })?;
+    if count != expected {
+        return Err(divergent(run_id));
+    }
+    Ok(())
+}
+
 fn verify_stored_head_event_hash(
     tx: &Connection,
     run_id: &str,
@@ -447,10 +464,7 @@ fn maybe_fill_manifest_feature(
     existing: &StoredProjectionRun,
     manifest: Option<&Value>,
 ) -> Result<(), StoreError> {
-    if !existing.feature.is_empty() {
-        return Ok(());
-    }
-    let Some(mf) = manifest.and_then(|m| non_empty_str(m.get("feature"))) else {
+    let Some(mf) = missing_manifest_feature(existing, manifest) else {
         return Ok(());
     };
     upsert_projected_run(
@@ -480,7 +494,10 @@ fn apply_batch_tx(
         envelopes,
         existing.as_ref(),
         ProjectionBatchOps {
-            check_head: |c, id, row| verify_stored_head_event_hash(c, id, row),
+            check_head: |c, id, row| {
+                verify_stored_event_count(c, id, row.head_seq)?;
+                verify_stored_head_event_hash(c, id, row)
+            },
             verify_prefix: |c, id, prefix| verify_stored_prefix(c, id, prefix),
             insert_events: |c, id, batch| insert_projected_events(c, id, batch),
         },

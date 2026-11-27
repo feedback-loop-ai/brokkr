@@ -32,6 +32,7 @@ fn reset_tables(cfg: &PgConfig) {
         "DROP TABLE IF EXISTS brokkr_projected_runs",
         "DROP TABLE IF EXISTS brokkr_events",
         "DROP TABLE IF EXISTS brokkr_runs",
+        "DROP TABLE IF EXISTS brokkr_pg_schema_meta",
     ] {
         client.query(stmt, &[]).expect("drop test table");
     }
@@ -65,57 +66,13 @@ fn live_pg_journal_round_trip_concurrency_rebuild_and_skip_locked() {
         Err(StoreError::RunExists(_))
     ));
 
-    let started = journal
-        .append_event(
-            "pg-live-run-1",
-            NewEvent {
-                event_type: EventType::RunStarted,
-                payload: json!({
-                    "feature": "pg-slice-3",
-                    "manifest": manifest,
-                    "neg_zero": -0.0_f64,
-                    "big_exp": 1e16_f64
-                }),
-                causation_id: None,
-                attempt_id: None,
-                ts: "2026-11-27T12:00:00Z",
-            },
-        )
-        .expect("append RunStarted");
-    assert_eq!(started.seq, 1);
+    let failed = append_live_effect_lifecycle(&journal, "pg-live-run-1", &manifest);
 
-    let failed = journal
-        .append_event(
-            "pg-live-run-1",
-            NewEvent {
-                event_type: EventType::EffectFailed,
-                payload: json!({
-                    "phase": "build",
-                    "error": "rate_limited",
-                    "nul_note": "ok\u{0000}nul",
-                    "waits": [{
-                        "provider": "anthropic",
-                        "route": "default",
-                        "until": "2026-11-27T12:30:00Z",
-                        "words": "429 too many requests",
-                        "retry_after_seconds": 60,
-                        "seconds": 60,
-                        "rounds": 1
-                    }]
-                }),
-                causation_id: Some(&started.event_id),
-                attempt_id: Some("att-1"),
-                ts: "2026-11-27T12:01:00Z",
-            },
-        )
-        .expect("append EffectFailed");
-    assert_eq!(failed.seq, 2);
-
-    // 2. Genuine concurrent two-connection HeadMoved contention on seq 3.
+    // 2. Genuine concurrent two-connection HeadMoved contention on seq 6.
     verify_concurrent_head_moved(&cfg, "pg-live-run-1", failed.seq, &failed.event_hash);
 
-    // 3. Rebuild projections, cooldown catch-up, and canonical export/import round-trip.
-    verify_live_rebuild_and_cooldowns(&journal);
+    // 3. Rebuild projections, verify JSONB columns, cooldown catch-up, and export/import round-trip.
+    verify_live_rebuild_and_cooldowns(&cfg, &journal);
     verify_live_export_import_canonical(&cfg, &journal, &manifest);
     verify_live_skip_locked_and_unified(&cfg, journal.coordination());
 }
@@ -131,8 +88,8 @@ fn verify_concurrent_head_moved(cfg: &PgConfig, run_id: &str, head_seq: u64, hea
         handles.push(thread::spawn(move || {
             let log = PgEventLog::connect(&c).expect("connect racing log");
             let env = NewEvent {
-                event_type: EventType::PhaseEntered,
-                payload: json!({ "phase": worker }),
+                event_type: EventType::EffectStarted,
+                payload: json!({ "effect_id": "eff-1", "attempt_id": format!("att-race-{worker}") }),
                 causation_id: None,
                 attempt_id: None,
                 ts: "2026-11-27T12:02:00Z",
@@ -153,15 +110,48 @@ fn verify_concurrent_head_moved(cfg: &PgConfig, run_id: &str, head_seq: u64, hea
 }
 
 fn verify_live_rebuild_and_cooldowns(
+    cfg: &PgConfig,
     journal: &Journal<PgEventLog, PgProjectionStore, PgCoordinationStore>,
 ) {
     let loaded = journal
         .load_verified("pg-live-run-1")
         .expect("load verified");
-    assert_eq!(loaded.len(), 3);
+    assert_eq!(loaded.len(), 6);
+    brokkr_core::fold::fold(&loaded).expect("live stream folds cleanly");
 
     let rebuilt = journal.reindex().expect("rebuild projections");
-    assert_eq!(rebuilt, 3);
+    assert_eq!(rebuilt, 6);
+
+    // Directly verify JSONB columns are populated and queryable for compatible values.
+    let mut sql = PgClient::connect(cfg).expect("connect sql verifier");
+    let m_res = sql
+        .query(
+            "SELECT manifest->>'feature' FROM brokkr_runs WHERE run_id = $1",
+            &[Some("pg-live-run-1")],
+        )
+        .expect("query manifest jsonb");
+    assert_eq!(m_res.rows[0].get_str(0).unwrap(), "pg-slice-3");
+    let e_res = sql
+        .query(
+            "SELECT envelope->>'event_type' FROM brokkr_events WHERE run_id = $1 AND seq = 1",
+            &[Some("pg-live-run-1")],
+        )
+        .expect("query envelope jsonb");
+    assert_eq!(e_res.rows[0].get_str(0).unwrap(), "run/started");
+    let p_res = sql
+        .query(
+            "SELECT payload->>'phase' FROM brokkr_projected_events WHERE run_id = $1 AND seq = 2",
+            &[Some("pg-live-run-1")],
+        )
+        .expect("query payload jsonb");
+    assert_eq!(p_res.rows[0].get_str(0).unwrap(), "build");
+    let nul_res = sql
+        .query(
+            "SELECT envelope IS NULL FROM brokkr_events WHERE run_id = $1 AND seq = 5",
+            &[Some("pg-live-run-1")],
+        )
+        .expect("query nul jsonb");
+    assert_eq!(nul_res.rows[0].get_str(0).unwrap(), "t");
     let listed = journal.projections().list_runs().expect("list runs");
     assert_eq!(
         listed,
@@ -208,7 +198,7 @@ fn verify_live_export_import_canonical(
     let count = imported_journal
         .import_ndjson("pg-live-run-1", manifest, &ndjson)
         .expect("import canonical ndjson");
-    assert_eq!(count, 3);
+    assert_eq!(count, 6);
     assert_eq!(
         serde_json::to_string(
             &imported_journal
@@ -218,7 +208,7 @@ fn verify_live_export_import_canonical(
         .unwrap(),
         serde_json::to_string(&expected).unwrap()
     );
-    assert_eq!(imported_journal.reindex().expect("reindex imported"), 3);
+    assert_eq!(imported_journal.reindex().expect("reindex imported"), 6);
 }
 
 fn verify_live_skip_locked_and_unified(cfg: &PgConfig, _coord: &PgCoordinationStore) {
@@ -284,4 +274,101 @@ fn verify_live_skip_locked_and_unified(cfg: &PgConfig, _coord: &PgCoordinationSt
         unified.list_run_ids().expect("list ids"),
         vec!["pg-live-run-1".to_string()]
     );
+}
+
+fn append_live_effect_lifecycle(
+    journal: &Journal<PgEventLog, PgProjectionStore, PgCoordinationStore>,
+    run_id: &str,
+    manifest: &Value,
+) -> brokkr_core::envelope::EventEnvelope {
+    let started = journal
+        .append_event(
+            run_id,
+            NewEvent {
+                event_type: EventType::RunStarted,
+                payload: json!({
+                    "feature": "pg-slice-3",
+                    "manifest": manifest,
+                    "neg_zero": -0.0_f64,
+                    "big_exp": 1e16_f64
+                }),
+                causation_id: None,
+                attempt_id: None,
+                ts: "2026-11-27T12:00:00Z",
+            },
+        )
+        .expect("append RunStarted");
+    assert_eq!(started.seq, 1);
+
+    let entered = journal
+        .append_event(
+            run_id,
+            NewEvent {
+                event_type: EventType::PhaseEntered,
+                payload: json!({ "phase": "build" }),
+                causation_id: Some(&started.event_id),
+                attempt_id: None,
+                ts: "2026-11-27T12:00:10Z",
+            },
+        )
+        .expect("append PhaseEntered");
+    assert_eq!(entered.seq, 2);
+
+    let requested = journal
+        .append_event(
+            run_id,
+            NewEvent {
+                event_type: EventType::EffectRequested,
+                payload: json!({ "effect_id": "eff-1", "phase": "build", "seat": "build" }),
+                causation_id: Some(&entered.event_id),
+                attempt_id: None,
+                ts: "2026-11-27T12:00:20Z",
+            },
+        )
+        .expect("append EffectRequested");
+    assert_eq!(requested.seq, 3);
+
+    let dispatched = journal
+        .append_event(
+            run_id,
+            NewEvent {
+                event_type: EventType::EffectStarted,
+                payload: json!({ "effect_id": "eff-1", "attempt_id": "att-1" }),
+                causation_id: Some(&requested.event_id),
+                attempt_id: Some("att-1"),
+                ts: "2026-11-27T12:00:30Z",
+            },
+        )
+        .expect("append EffectStarted");
+    assert_eq!(dispatched.seq, 4);
+
+    let failed = journal
+        .append_event(
+            run_id,
+            NewEvent {
+                event_type: EventType::EffectFailed,
+                payload: json!({
+                    "effect_id": "eff-1",
+                    "phase": "build",
+                    "error": "rate_limited",
+                    "nul_note": "ok\u{0000}nul",
+                    "waits": [{
+                        "provider": "anthropic",
+                        "route": "default",
+                        "until": "2026-11-27T12:30:00Z",
+                        "words": "429 too many requests",
+                        "retry_after_seconds": 60,
+                        "seconds": 60,
+                        "rounds": 1
+                    }]
+                }),
+                causation_id: Some(&dispatched.event_id),
+                attempt_id: Some("att-1"),
+                ts: "2026-11-27T12:01:00Z",
+            },
+        )
+        .expect("append EffectFailed");
+    assert_eq!(failed.seq, 5);
+
+    failed
 }

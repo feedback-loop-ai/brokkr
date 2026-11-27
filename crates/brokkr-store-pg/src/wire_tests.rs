@@ -10,11 +10,12 @@ use sha2::{Digest, Sha256};
 
 use crate::config::{PgConfig, DEFAULT_CONNECT_TIMEOUT, DEFAULT_IO_TIMEOUT, DEFAULT_PORT};
 use crate::error::PgError;
+use crate::schema::{decode_pg_text, encode_pg_text};
 use crate::scram::{
     base64_decode, base64_encode, constant_time_eq, hmac_sha256, pbkdf2_hmac_sha256,
     saslprep_password, ScramClient,
 };
-use crate::wire::{checked_wire_len, push_cstr, resolve_first_addr, PgClient};
+use crate::wire::{checked_wire_len, connect_first_reachable, push_cstr, PgClient};
 
 pub(crate) fn send_frame(stream: &mut TcpStream, tag: u8, payload: &[u8]) {
     let mut buf = Vec::with_capacity(payload.len() + 5);
@@ -222,6 +223,10 @@ fn config_parses_valid_urls_and_refuses_malformed_ones() {
         "postgres://u@[localhost]/db",
         "postgres://u@localhost/db#tail",
         "postgres://u@localhost/db?io_timeout=5#frag",
+        "postgres://u@::1:5432/db",
+        "postgres://u@fe80::1/db",
+        "postgres://u@::1/db",
+        "postgres://u@%3A%3A1/db",
     ] {
         let err = PgConfig::parse(bad).unwrap_err();
         assert!(
@@ -307,15 +312,23 @@ fn scram_matches_rfc_7677_test_vector_and_rejects_bad_inputs() {
 
     let escaped = ScramClient::with_user("a=b,c", "n1".into());
     assert_eq!(escaped.client_first_message(), "n,,n=a=3Db=2Cc,r=n1");
-    assert_eq!(saslprep_password("p\u{00AD}w\u{00A0}1"), "pw 1");
-    for raw in [
-        "a\u{00AD}\x07b",
-        "a\u{1FFFE}b",
-        "a\u{E0020}b",
-        "a\u{F0000}b",
-        "a\u{100000}b",
+    assert_eq!(saslprep_password("pencil").unwrap(), "pencil");
+    assert_eq!(saslprep_password("p@ss word!").unwrap(), "p@ss word!");
+    for bad_pw in [
+        "caf\u{00E9}",
+        "cafe\u{0301}",
+        "p\u{00AD}w",
+        "p\u{00A0}w",
+        "\u{00B2}",
+        "\u{0627}1",
+        "a\x07b",
+        "a\x7fb",
     ] {
-        assert_eq!(saslprep_password(raw), raw);
+        assert!(matches!(saslprep_password(bad_pw), Err(PgError::Auth(_))));
+        assert!(matches!(
+            c2.process_server_first(bad_pw, "r=nonce1ext,s=AAAA,i=1"),
+            Err(PgError::Auth(_))
+        ));
     }
 }
 
@@ -595,7 +608,7 @@ fn wire_refuses_incomplete_sasl_unterminated_error_and_param_overflow() {
     h_eof.join().unwrap();
 
     assert!(matches!(
-        resolve_first_addr(std::iter::empty(), "empty.invalid"),
+        connect_first_reachable(&[], "empty.invalid", Duration::from_millis(50)),
         Err(PgError::Protocol(_))
     ));
 
@@ -731,4 +744,230 @@ fn wire_refuses_nul_cstrs_length_overflow_and_bad_row_descriptions() {
     ));
     drop(c_nul);
     h_nul.join().unwrap();
+}
+
+#[test]
+fn wire_validates_ready_for_query_and_rejects_premature_ready() {
+    // 1. Startup malformed ReadyForQuery payload (empty, 2-byte, invalid status).
+    for bad_z in [vec![], b"II".to_vec(), b"X".to_vec()] {
+        let (p, h) = spawn_one_shot(move |mut s| {
+            let _ = read_startup(&mut s);
+            send_frame(&mut s, b'R', &0i32.to_be_bytes());
+            send_frame(&mut s, b'Z', &bad_z);
+        });
+        let cfg = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p}/db")).unwrap();
+        assert!(matches!(PgClient::connect(&cfg), Err(PgError::Protocol(_))));
+        h.join().unwrap();
+    }
+
+    // 2. Extended query malformed ReadyForQuery and premature ReadyForQuery poison socket.
+    for frames in [
+        vec![(b'C', b"SELECT 0\0".to_vec()), (b'Z', vec![])],
+        vec![(b'C', b"SELECT 0\0".to_vec()), (b'Z', b"II".to_vec())],
+        vec![(b'C', b"SELECT 0\0".to_vec()), (b'Z', b"X".to_vec())],
+        vec![(b'Z', b"I".to_vec())],
+        vec![(b'1', vec![]), (b'2', vec![]), (b'Z', b"I".to_vec())],
+    ] {
+        assert_query_protocol_error_poisons(frames);
+    }
+
+    // 3. EmptyQueryResponse ('I') followed by valid ReadyForQuery ('Z' 'I') succeeds.
+    let (p_empty, h_empty) = spawn_one_shot(|mut s| {
+        complete_trust_startup(&mut s);
+        read_extended_query(&mut s);
+        send_frame(&mut s, b'I', b"");
+        send_frame(&mut s, b'Z', b"I");
+        let _ = read_client_frame(&mut s);
+    });
+    let cfg_empty = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_empty}/db")).unwrap();
+    let mut client = PgClient::connect(&cfg_empty).expect("connect");
+    let res = client.query("", &[]).expect("empty query ok");
+    assert!(res.rows.is_empty());
+    drop(client);
+    h_empty.join().unwrap();
+}
+
+#[test]
+fn wire_transaction_rejects_aborted_commit_rollback_and_unexpected_outcome() {
+    // 1. Callback swallows an error; PostgreSQL answers COMMIT with CommandComplete("ROLLBACK").
+    let (p_aborted, h_aborted) = spawn_one_shot(|mut s| {
+        complete_trust_startup(&mut s);
+        send_begin_ok(&mut s);
+        read_extended_query(&mut s);
+        send_frame(
+            &mut s,
+            b'E',
+            &error_payload("22012", "division by zero", None),
+        );
+        send_frame(&mut s, b'Z', b"E");
+        read_extended_query(&mut s);
+        send_frame(&mut s, b'C', b"ROLLBACK\0");
+        send_frame(&mut s, b'Z', b"I");
+        let _ = read_client_frame(&mut s);
+    });
+    let cfg = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_aborted}/db")).unwrap();
+    let mut client = PgClient::connect(&cfg).expect("connect");
+    let err = client
+        .in_transaction(
+            |tx| {
+                let _ = tx.query("SELECT 1/0", &[]);
+                Ok::<(), PgError>(())
+            },
+            |e| e,
+        )
+        .unwrap_err();
+    assert!(matches!(err, PgError::TransactionAborted));
+    assert_eq!(err.sqlstate(), None);
+    let _ = err.into_store_error();
+    drop(client);
+    h_aborted.join().unwrap();
+
+    // 2. COMMIT returning unexpected ReadyForQuery status ('T' instead of 'I') poisons socket.
+    let (p_bad, h_bad) = spawn_one_shot(|mut s| {
+        complete_trust_startup(&mut s);
+        send_begin_ok(&mut s);
+        read_extended_query(&mut s);
+        send_frame(&mut s, b'C', b"COMMIT\0");
+        send_frame(&mut s, b'Z', b"T");
+        let _ = read_client_frame(&mut s);
+    });
+    let cfg_bad = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_bad}/db")).unwrap();
+    let mut c_bad = PgClient::connect(&cfg_bad).expect("connect");
+    assert!(matches!(
+        c_bad.in_transaction(|_| Ok::<(), PgError>(()), |e| e),
+        Err(PgError::Protocol(_))
+    ));
+    assert!(matches!(
+        c_bad.query("SELECT 1", &[]),
+        Err(PgError::ConnectionClosed)
+    ));
+    h_bad.join().unwrap();
+}
+
+#[test]
+fn wire_enforces_strict_auth_state_transitions_and_address_fallback() {
+    // 1. Cleartext downgrade after SCRAM start MUST be refused.
+    let (p_down, h_down) = spawn_one_shot(|mut s| {
+        let _ = read_startup(&mut s);
+        send_scram_offer(&mut s);
+        let _ = read_client_frame(&mut s);
+        send_frame(&mut s, b'R', &3i32.to_be_bytes());
+    });
+    let cfg_down = PgConfig::parse(&format!("postgres://u:pw@127.0.0.1:{p_down}/db")).unwrap();
+    assert!(matches!(
+        PgClient::connect(&cfg_down),
+        Err(PgError::Auth(_))
+    ));
+    h_down.join().unwrap();
+
+    // 2. Restarting AuthenticationSASL after SCRAM start MUST be refused.
+    let (p_restart, h_restart) = spawn_one_shot(|mut s| {
+        let _ = read_startup(&mut s);
+        send_scram_offer(&mut s);
+        let _ = read_client_frame(&mut s);
+        send_scram_offer(&mut s);
+    });
+    let cfg_restart =
+        PgConfig::parse(&format!("postgres://u:pw@127.0.0.1:{p_restart}/db")).unwrap();
+    assert!(matches!(
+        PgClient::connect(&cfg_restart),
+        Err(PgError::Auth(_))
+    ));
+    h_restart.join().unwrap();
+
+    // 3. Out-of-order SASLFinal before SASLContinue and duplicate AuthenticationOk.
+    let (p_ooo, h_ooo) = spawn_one_shot(|mut s| {
+        let _ = read_startup(&mut s);
+        send_scram_offer(&mut s);
+        let _ = read_client_frame(&mut s);
+        send_frame(
+            &mut s,
+            b'R',
+            &[&12i32.to_be_bytes()[..], b"v=AAAA"].concat(),
+        );
+    });
+    let cfg_ooo = PgConfig::parse(&format!("postgres://u:pw@127.0.0.1:{p_ooo}/db")).unwrap();
+    assert!(matches!(PgClient::connect(&cfg_ooo), Err(PgError::Auth(_))));
+    h_ooo.join().unwrap();
+
+    let (p_dup, h_dup) = spawn_one_shot(|mut s| {
+        let _ = read_startup(&mut s);
+        send_frame(&mut s, b'R', &0i32.to_be_bytes());
+        send_frame(&mut s, b'R', &0i32.to_be_bytes());
+    });
+    let cfg_dup = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_dup}/db")).unwrap();
+    assert!(matches!(PgClient::connect(&cfg_dup), Err(PgError::Auth(_))));
+    h_dup.join().unwrap();
+
+    // 4. Non-UTF8 SASLContinue (in SaslStarted) and non-UTF8 SASLFinal (in SaslContinued).
+    let (p_bad_c, h_bad_c) = spawn_one_shot(|mut s| {
+        let _ = read_startup(&mut s);
+        send_scram_offer(&mut s);
+        let _ = read_client_frame(&mut s);
+        send_frame(&mut s, b'R', &[&11i32.to_be_bytes()[..], &[0xff]].concat());
+    });
+    let cfg_bad_c = PgConfig::parse(&format!("postgres://u:pw@127.0.0.1:{p_bad_c}/db")).unwrap();
+    assert!(matches!(
+        PgClient::connect(&cfg_bad_c),
+        Err(PgError::Auth(_))
+    ));
+    h_bad_c.join().unwrap();
+
+    let (p_bad_f, h_bad_f) = spawn_one_shot(|mut s| {
+        let _ = read_startup(&mut s);
+        send_scram_offer(&mut s);
+        let (_, body) = read_client_frame(&mut s).unwrap();
+        let mech_end = body.iter().position(|&b| b == 0).unwrap();
+        let init_str = std::str::from_utf8(&body[mech_end + 5..]).unwrap();
+        let client_nonce = init_str.strip_prefix("n,,n=,r=").unwrap();
+        let sf = format!("r={client_nonce}srv,s=AAAA,i=1");
+        send_frame(
+            &mut s,
+            b'R',
+            &[&11i32.to_be_bytes()[..], sf.as_bytes()].concat(),
+        );
+        let _ = read_client_frame(&mut s);
+        send_frame(&mut s, b'R', &[&12i32.to_be_bytes()[..], &[0xff]].concat());
+    });
+    let cfg_bad_f = PgConfig::parse(&format!("postgres://u:pw@127.0.0.1:{p_bad_f}/db")).unwrap();
+    assert!(matches!(
+        PgClient::connect(&cfg_bad_f),
+        Err(PgError::Auth(_))
+    ));
+    h_bad_f.join().unwrap();
+}
+
+#[test]
+fn wire_address_fallback_and_nul_text_codec() {
+    // 1. Address fallback: unreachable address followed by reachable listener succeeds.
+    let closed_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let unreachable_addr = closed_listener.local_addr().unwrap();
+    drop(closed_listener);
+    let reachable_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let reachable_addr = reachable_listener.local_addr().unwrap();
+    let accept_handle = thread::spawn(move || {
+        let (_stream, _) = reachable_listener.accept().expect("accept fallback");
+    });
+    let stream = connect_first_reachable(
+        &[unreachable_addr, reachable_addr],
+        "dual.local",
+        Duration::from_millis(200),
+    )
+    .expect("fallback to reachable listener");
+    assert_eq!(stream.peer_addr().unwrap(), reachable_addr);
+    drop(stream);
+    accept_handle.join().unwrap();
+
+    // 6. Lossless NUL text codec round-trip and malformed-escape refusal.
+    for sample in ["plain", "a\0b", "a\\b", "a\\0b", "a\\\0b", ""] {
+        let encoded = encode_pg_text(sample);
+        assert!(!encoded.as_bytes().contains(&0));
+        assert_eq!(decode_pg_text(&encoded).unwrap(), sample);
+    }
+    for malformed in ["bad\\x", "trailing\\"] {
+        assert!(matches!(
+            decode_pg_text(malformed),
+            Err(PgError::Protocol(_))
+        ));
+    }
 }

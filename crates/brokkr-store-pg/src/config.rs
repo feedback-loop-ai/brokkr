@@ -132,6 +132,11 @@ fn parse_host_port(hostport: &str) -> Result<(String, u16), PgError> {
     if host.is_empty() {
         return Err(PgError::InvalidUrl("host must not be empty"));
     }
+    if host.contains(':') {
+        return Err(PgError::InvalidUrl(
+            "IPv6 host must be enclosed in brackets",
+        ));
+    }
     Ok((host, port))
 }
 

@@ -236,28 +236,43 @@ fn verify_claimed_listing_and_bad_words(
         .iter()
         .any(|e| matches!(&e.state, EntryState::Claimed { run, .. } if run == "worker-b")));
 
-    // A row with status='claimed' and run_id=None still reports Launching (never conflated with worker_id),
-    // while a row with status='claimed' and run_id=Some("run-real-1") reports EntryState::Claimed.
+    // A row with status='claimed' and run_id=None or run_id=Some("") still reports Launching
+    // AND ranks in group 0 ahead of Claimed rows (even when the Claimed row has higher priority!).
     {
         let mut db = srv.db.lock().unwrap();
         db.queue_entries.get_mut(&id1.0).unwrap().2 = "claimed".into();
-        db.queue_entries.get_mut(&id1.0).unwrap().5 = None;
+        db.queue_entries.get_mut(&id1.0).unwrap().5 = Some(String::new());
         db.queue_entries.get_mut(&id2.0).unwrap().2 = "claimed".into();
         db.queue_entries.get_mut(&id2.0).unwrap().5 = Some("run-real-1".into());
     }
     let listed_runs = coord.list_queue().unwrap();
-    assert!(listed_runs
+    let idx_empty_run = listed_runs
         .iter()
-        .any(|e| e.id == id1 && e.position.is_some() && e.state == EntryState::Launching));
-    assert!(listed_runs.iter().any(|e| {
-        e.id == id2
-            && e.position.is_none()
-            && e.state
-                == EntryState::Claimed {
-                    run: "run-real-1".into(),
-                    merged: false,
-                }
-    }));
+        .position(|e| e.id == id1 && e.position.is_some() && e.state == EntryState::Launching)
+        .expect("empty run_id decoded as Launching with position");
+    let idx_real_claimed = listed_runs
+        .iter()
+        .position(|e| {
+            e.id == id2
+                && e.position.is_none()
+                && e.state
+                    == EntryState::Claimed {
+                        run: "run-real-1".into(),
+                        merged: false,
+                    }
+        })
+        .expect("real run_id decoded as Claimed");
+    assert!(
+        idx_empty_run < idx_real_claimed,
+        "empty run_id Launching entry must rank before Claimed entries"
+    );
+    assert!(srv
+        .db
+        .lock()
+        .unwrap()
+        .queries
+        .iter()
+        .any(|q| q.contains("COALESCE(run_id, '') = ''")));
 
     srv.db.lock().unwrap().queue_entries.get_mut(&90).unwrap().2 = "bogus".into();
     assert!(matches!(coord.list_queue(), Err(StoreError::Io(_))));

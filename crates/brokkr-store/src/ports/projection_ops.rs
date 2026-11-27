@@ -74,7 +74,7 @@ pub fn sort_verified_runs(runs: &mut [VerifiedRun]) {
 
 /// Return the subset of `envelopes` whose sequence numbers are absent from
 /// `present`, preserving sequence order.
-pub fn missing_projected_events(
+fn missing_projected_events(
     envelopes: &[EventEnvelope],
     present: &BTreeSet<u64>,
 ) -> Vec<EventEnvelope> {
@@ -107,7 +107,7 @@ pub fn validate_projection_apply(
 /// once `envelopes` is non-empty, `RunStarted` > `manifest` > existing started
 /// `feature` and `envelopes[0].recorded_at` always win; `fallback` and existing
 /// unstarted `created_at` are only used when `envelopes` is empty.
-pub fn resolve_projection_listing<'a>(
+pub(super) fn resolve_projection_listing<'a>(
     envelopes: &'a [EventEnvelope],
     manifest: Option<&'a Value>,
     existing: Option<&'a StoredProjectionRun>,
@@ -144,26 +144,32 @@ pub fn resolve_projection_listing<'a>(
     (feature, created_at)
 }
 
-/// Reconcile a validated `envelopes` batch against `existing`, verifying stored
-/// heads and prefixes, repairing gaps on equal or advancing batches, inserting
-/// new suffix events, and returning the [`ProjectionPlan`] for the caller's run
-/// header update.
-/// Callback verifying the stored head row inside a projection transaction.
-pub type HeadChecker<Ctx> = fn(&mut Ctx, &str, &StoredProjectionRun) -> Result<(), StoreError>;
-/// Callback verifying the stored prefix rows and returning present sequence numbers.
-pub type PrefixVerifier<Ctx> =
-    fn(&mut Ctx, &str, &[EventEnvelope]) -> Result<BTreeSet<u64>, StoreError>;
-/// Callback inserting missing or new projected event rows.
-pub type EventsInserter<Ctx> = fn(&mut Ctx, &str, &[EventEnvelope]) -> Result<(), StoreError>;
+/// Return the manifest `"feature"` to backfill when a replayed batch does not
+/// advance the stored projection and `existing.feature` is still empty.
+pub fn missing_manifest_feature<'a>(
+    existing: &StoredProjectionRun,
+    manifest: Option<&'a Value>,
+) -> Option<&'a str> {
+    if !existing.feature.is_empty() {
+        return None;
+    }
+    manifest.and_then(|m| non_empty_str(m.get("feature")))
+}
+
+type PrefixResult = Result<BTreeSet<u64>, StoreError>;
 
 /// Backend callbacks invoked inside a projection transaction by
 /// [`reconcile_projection_batch`].
 pub struct ProjectionBatchOps<Ctx> {
-    pub check_head: HeadChecker<Ctx>,
-    pub verify_prefix: PrefixVerifier<Ctx>,
-    pub insert_events: EventsInserter<Ctx>,
+    pub check_head: fn(&mut Ctx, &str, &StoredProjectionRun) -> Result<(), StoreError>,
+    pub verify_prefix: fn(&mut Ctx, &str, &[EventEnvelope]) -> PrefixResult,
+    pub insert_events: fn(&mut Ctx, &str, &[EventEnvelope]) -> Result<(), StoreError>,
 }
 
+/// Reconcile a validated `envelopes` batch against `existing`, verifying stored
+/// heads and prefixes, repairing gaps on equal or advancing batches, inserting
+/// new suffix events, and returning the [`ProjectionPlan`] for the caller's run
+/// header update.
 pub fn reconcile_projection_batch<'a, Ctx>(
     ctx: &mut Ctx,
     run_id: &str,

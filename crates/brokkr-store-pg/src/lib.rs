@@ -48,9 +48,12 @@ fn lock_client(mutex: &Mutex<PgClient>) -> MutexGuard<'_, PgClient> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-fn connect_initialized(config: &PgConfig, ddl: &[&str]) -> Result<Mutex<PgClient>, PgError> {
+fn connect_initialized(
+    config: &PgConfig,
+    kind: schema::SchemaKind,
+) -> Result<Mutex<PgClient>, PgError> {
     let mut client = PgClient::connect(config)?;
-    schema::init_statements(&mut client, ddl)?;
+    schema::init_schema(&mut client, kind)?;
     Ok(Mutex::new(client))
 }
 
@@ -204,7 +207,7 @@ impl PgEventLog {
     /// Connect to PostgreSQL and initialize the event-log tables idempotently.
     pub fn connect(config: &PgConfig) -> Result<Self, PgError> {
         Ok(Self {
-            client: connect_initialized(config, schema::EVENT_LOG_DDL)?,
+            client: connect_initialized(config, schema::SchemaKind::EventLog)?,
         })
     }
 }
@@ -221,7 +224,7 @@ impl PgProjectionStore {
     /// Connect to PostgreSQL and initialize the projection tables idempotently.
     pub fn connect(config: &PgConfig) -> Result<Self, PgError> {
         Ok(Self {
-            client: connect_initialized(config, schema::PROJECTION_DDL)?,
+            client: connect_initialized(config, schema::SchemaKind::Projection)?,
         })
     }
 }
@@ -238,7 +241,7 @@ impl PgCoordinationStore {
     /// Connect to PostgreSQL and initialize the coordination tables idempotently.
     pub fn connect(config: &PgConfig) -> Result<Self, PgError> {
         Ok(Self {
-            client: connect_initialized(config, schema::COORDINATION_DDL)?,
+            client: connect_initialized(config, schema::SchemaKind::Coordination)?,
         })
     }
 }
@@ -259,9 +262,9 @@ impl PgStore {
     /// coordination tables idempotently.
     pub fn connect(config: &PgConfig) -> Result<Self, PgError> {
         Ok(Self {
-            event_log: connect_initialized(config, schema::EVENT_LOG_DDL)?,
-            projections: connect_initialized(config, schema::PROJECTION_DDL)?,
-            coordination: connect_initialized(config, schema::COORDINATION_DDL)?,
+            event_log: connect_initialized(config, schema::SchemaKind::EventLog)?,
+            projections: connect_initialized(config, schema::SchemaKind::Projection)?,
+            coordination: connect_initialized(config, schema::SchemaKind::Coordination)?,
         })
     }
 }

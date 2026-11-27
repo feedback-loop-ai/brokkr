@@ -6,15 +6,15 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::event_index::Indexed;
 use brokkr_store::ports::{
-    checked_seq, manifest_meta, read_verified_log, rebuild_run_header, reconcile_projection_batch,
-    sort_verified_runs, validate_projection_apply, EventLog, ProjectionBatchOps, ProjectionPlan,
-    StoredProjectionRun,
+    checked_seq, manifest_meta, missing_manifest_feature, read_verified_log, rebuild_run_header,
+    reconcile_projection_batch, sort_verified_runs, validate_projection_apply, EventLog,
+    ProjectionBatchOps, ProjectionPlan, StoredProjectionRun,
 };
 use brokkr_store::StoreError;
 use serde_json::Value;
 
 use crate::error::PgError;
-use crate::schema::jsonb_param;
+use crate::schema::{decode_pg_text, encode_pg_text, jsonb_param};
 use crate::wire::PgClient;
 
 const ENSURE_PROJECTED_RUN_SQL: &str =
@@ -47,7 +47,7 @@ const UPSERT_PROJECTED_RUN_SQL: &str =
          head_seq = EXCLUDED.head_seq,
          head_hash = EXCLUDED.head_hash";
 const LIST_PROJECTED_RUNS_SQL: &str =
-    "SELECT run_id, feature, created_at FROM brokkr_projected_runs ORDER BY created_at ASC, run_id ASC";
+    "SELECT run_id, feature, created_at FROM brokkr_projected_runs ORDER BY created_at ASC, list_order ASC";
 const LOCK_PROJECTION_TABLES_SQL: &str =
     "LOCK TABLE brokkr_projected_runs, brokkr_projected_events IN EXCLUSIVE MODE";
 const DELETE_PROJECTED_EVENTS_SQL: &str = "DELETE FROM brokkr_projected_events";
@@ -97,12 +97,10 @@ pub(crate) fn list_runs(
             row.get_str(0)
                 .map_err(PgError::into_store_error)?
                 .to_string(),
-            row.get_str(1)
-                .map_err(PgError::into_store_error)?
-                .to_string(),
-            row.get_str(2)
-                .map_err(PgError::into_store_error)?
-                .to_string(),
+            decode_pg_text(row.get_str(1).map_err(PgError::into_store_error)?)
+                .map_err(PgError::into_store_error)?,
+            decode_pg_text(row.get_str(2).map_err(PgError::into_store_error)?)
+                .map_err(PgError::into_store_error)?,
         ));
     }
     Ok(out)
@@ -219,24 +217,18 @@ fn load_stored_run(tx: &mut PgClient, run_id: &str) -> Result<StoredRun, StoreEr
     let head_seq = u64::try_from(head_seq_raw).map_err(|_| divergent(run_id))?;
     Ok(StoredRun {
         head: StoredProjectionRun {
-            feature: row
-                .get_str(0)
-                .map_err(PgError::into_store_error)?
-                .to_string(),
-            created_at: row
-                .get_str(2)
-                .map_err(PgError::into_store_error)?
-                .to_string(),
+            feature: decode_pg_text(row.get_str(0).map_err(PgError::into_store_error)?)
+                .map_err(PgError::into_store_error)?,
+            created_at: decode_pg_text(row.get_str(2).map_err(PgError::into_store_error)?)
+                .map_err(PgError::into_store_error)?,
             head_seq,
             head_hash: row
                 .get_str(4)
                 .map_err(PgError::into_store_error)?
                 .to_string(),
         },
-        bundle_name: row
-            .get_str(1)
-            .map_err(PgError::into_store_error)?
-            .to_string(),
+        bundle_name: decode_pg_text(row.get_str(1).map_err(PgError::into_store_error)?)
+            .map_err(PgError::into_store_error)?,
     })
 }
 
@@ -326,13 +318,17 @@ fn verify_stored_prefix(
             row.get_str(6).map_err(PgError::into_store_error)?,
             row.get_str(7).map_err(PgError::into_store_error)?,
         );
+        let exp_event_id = encode_pg_text(&expected.event_id);
+        let exp_attempt = indexed.attempt_id.map(encode_pg_text);
+        let exp_member = indexed.member.map(encode_pg_text);
+        let exp_recorded = encode_pg_text(&expected.recorded_at);
         let want = (
-            expected.event_id.as_str(),
+            exp_event_id.as_ref(),
             expected.event_type.as_str(),
-            indexed.attempt_id,
-            indexed.member,
+            exp_attempt.as_deref(),
+            exp_member.as_deref(),
             expected.event_hash.as_str(),
-            expected.recorded_at.as_str(),
+            exp_recorded.as_ref(),
             expected_payload.as_str(),
         );
         if stored != want {
@@ -349,17 +345,10 @@ fn maybe_fill_manifest_meta(
     existing: &StoredRun,
     manifest: Option<&Value>,
 ) -> Result<(), StoreError> {
-    let Some(m) = manifest else {
-        return Ok(());
-    };
-    let (mf, mb) = manifest_meta(m);
-    let feature = if existing.head.feature.is_empty() {
-        mf
-    } else {
-        existing.head.feature.as_str()
-    };
+    let feature = missing_manifest_feature(&existing.head, manifest)
+        .unwrap_or(existing.head.feature.as_str());
     let bundle_name = if existing.bundle_name.is_empty() {
-        mb
+        manifest.map(manifest_meta).map_or("", |(_, b)| b)
     } else {
         existing.bundle_name.as_str()
     };
@@ -391,17 +380,21 @@ fn insert_projected_events(
         let indexed = Indexed::of(envelope);
         let payload_json = serde_json::to_string(&envelope.payload)?;
         let payload_jsonb = jsonb_param(&envelope.payload, &payload_json);
+        let event_id = encode_pg_text(&envelope.event_id);
+        let attempt_id = indexed.attempt_id.map(encode_pg_text);
+        let member = indexed.member.map(encode_pg_text);
+        let recorded_at = encode_pg_text(&envelope.recorded_at);
         tx.query(
             INSERT_PROJECTED_EVENT_SQL,
             &[
                 Some(run_id),
                 Some(seq.as_str()),
-                Some(envelope.event_id.as_str()),
+                Some(event_id.as_ref()),
                 Some(envelope.event_type.as_str()),
-                indexed.attempt_id,
-                indexed.member,
+                attempt_id.as_deref(),
+                member.as_deref(),
                 Some(envelope.event_hash.as_str()),
-                Some(envelope.recorded_at.as_str()),
+                Some(recorded_at.as_ref()),
                 payload_jsonb,
                 Some(payload_json.as_str()),
             ],
@@ -417,13 +410,16 @@ fn upsert_projected_run(
     meta: &ProjectedRunMeta<'_>,
 ) -> Result<(), StoreError> {
     let seq = checked_seq(meta.head_seq)?.to_string();
+    let feature = encode_pg_text(meta.feature);
+    let bundle_name = encode_pg_text(meta.bundle_name);
+    let created_at = encode_pg_text(meta.created_at);
     tx.query(
         UPSERT_PROJECTED_RUN_SQL,
         &[
             Some(run_id),
-            Some(meta.feature),
-            Some(meta.bundle_name),
-            Some(meta.created_at),
+            Some(feature.as_ref()),
+            Some(bundle_name.as_ref()),
+            Some(created_at.as_ref()),
             Some(seq.as_str()),
             Some(meta.head_hash),
         ],

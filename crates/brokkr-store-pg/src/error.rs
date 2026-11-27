@@ -23,6 +23,10 @@ pub enum PgError {
     Protocol(String),
     #[error("postgres authentication: {0}")]
     Auth(String),
+    #[error("postgres transaction aborted and rolled back instead of committed")]
+    TransactionAborted,
+    #[error("incompatible postgres schema: {0}")]
+    IncompatibleSchema(String),
     #[error("postgres server error ({sqlstate}): {message}")]
     Server {
         sqlstate: String,
@@ -41,7 +45,9 @@ impl PgError {
             | PgError::EmptyWorkerId
             | PgError::Io(_)
             | PgError::Protocol(_)
-            | PgError::Auth(_) => None,
+            | PgError::Auth(_)
+            | PgError::TransactionAborted
+            | PgError::IncompatibleSchema(_) => None,
         }
     }
 

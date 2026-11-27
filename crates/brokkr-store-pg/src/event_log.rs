@@ -10,7 +10,7 @@ use brokkr_store::StoreError;
 use serde_json::Value;
 
 use crate::error::{PgError, SQLSTATE_UNIQUE_VIOLATION};
-use crate::schema::jsonb_param;
+use crate::schema::{decode_pg_text, encode_pg_text, jsonb_param};
 use crate::wire::{PgClient, PgRow};
 
 const INSERT_RUN_SQL: &str =
@@ -19,7 +19,8 @@ const INSERT_RUN_SQL: &str =
 const LOCK_RUN_MANIFEST_SQL: &str =
     "SELECT manifest_json FROM brokkr_runs WHERE run_id = $1 FOR UPDATE";
 const SELECT_RUN_MANIFEST_SQL: &str = "SELECT manifest_json FROM brokkr_runs WHERE run_id = $1";
-const SELECT_RUN_META_SQL: &str = "SELECT feature, created_at FROM brokkr_runs WHERE run_id = $1";
+const SELECT_RUN_META_SQL: &str =
+    "SELECT feature, created_at, list_order FROM brokkr_runs WHERE run_id = $1";
 const SELECT_RUN_EXISTS_SQL: &str = "SELECT 1 FROM brokkr_runs WHERE run_id = $1";
 const SELECT_EVENTS_SQL: &str =
     "SELECT seq, event_hash, envelope_json FROM brokkr_events WHERE run_id = $1 ORDER BY seq ASC";
@@ -60,11 +61,15 @@ pub(crate) fn append_envelopes(
             validate_append_batch(run_id, &manifest, &existing, expected_head, envelopes)?;
             insert_events(tx, run_id, envelopes)?;
             if envelopes.first().is_some_and(|e| e.seq == 1) {
-                let feature = started_feature_of(envelopes).unwrap_or("");
-                let created_at = envelopes[0].recorded_at.as_str();
+                let feature = encode_pg_text(started_feature_of(envelopes).unwrap_or(""));
+                let created_at = encode_pg_text(&envelopes[0].recorded_at);
                 tx.query(
                     UPDATE_STARTED_META_SQL,
-                    &[Some(run_id), Some(created_at), Some(feature)],
+                    &[
+                        Some(run_id),
+                        Some(created_at.as_ref()),
+                        Some(feature.as_ref()),
+                    ],
                 )
                 .map_err(PgError::into_store_error)?;
             }
@@ -133,16 +138,15 @@ pub(crate) fn run_metadata(
     run_id: &str,
 ) -> Result<Option<RunMetadata>, StoreError> {
     let row = query_run_row(client, SELECT_RUN_META_SQL, run_id)?;
+    let feature = decode_pg_text(row.get_str(0).map_err(PgError::into_store_error)?)
+        .map_err(PgError::into_store_error)?;
+    let created_at = decode_pg_text(row.get_str(1).map_err(PgError::into_store_error)?)
+        .map_err(PgError::into_store_error)?;
+    let list_order = u64::try_from(row.get_i64(2).map_err(PgError::into_store_error)?).ok();
     Ok(Some(RunMetadata {
-        feature: row
-            .get_str(0)
-            .map_err(PgError::into_store_error)?
-            .to_string(),
-        created_at: row
-            .get_str(1)
-            .map_err(PgError::into_store_error)?
-            .to_string(),
-        list_order: None,
+        feature,
+        created_at,
+        list_order,
     }))
 }
 
@@ -188,6 +192,8 @@ fn insert_run_row(
 ) -> Result<(), StoreError> {
     let manifest_json = serde_json::to_string(manifest)?;
     let manifest_jsonb = jsonb_param(manifest, &manifest_json);
+    let feature_enc = encode_pg_text(feature);
+    let created_enc = encode_pg_text(created_at);
     client
         .query(
             INSERT_RUN_SQL,
@@ -195,8 +201,8 @@ fn insert_run_row(
                 Some(run_id),
                 manifest_jsonb,
                 Some(manifest_json.as_str()),
-                Some(feature),
-                Some(created_at),
+                Some(feature_enc.as_ref()),
+                Some(created_enc.as_ref()),
             ],
         )
         .map_err(|err| map_unique_run_error(run_id, err))?;
@@ -271,6 +277,7 @@ fn insert_events(
         let envelope_json = serde_json::to_string(envelope)?;
         let envelope_value = serde_json::to_value(envelope)?;
         let envelope_jsonb = jsonb_param(&envelope_value, &envelope_json);
+        let recorded_enc = encode_pg_text(&envelope.recorded_at);
         tx.query(
             INSERT_EVENT_SQL,
             &[
@@ -279,7 +286,7 @@ fn insert_events(
                 Some(envelope.event_type.as_str()),
                 Some(envelope.event_hash.as_str()),
                 Some(envelope.previous_hash.as_str()),
-                Some(envelope.recorded_at.as_str()),
+                Some(recorded_enc.as_ref()),
                 envelope_jsonb,
                 Some(envelope_json.as_str()),
             ],

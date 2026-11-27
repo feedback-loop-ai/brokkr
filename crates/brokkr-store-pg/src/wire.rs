@@ -9,6 +9,7 @@
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::time::Duration;
 
 use crate::config::PgConfig;
 use crate::scram::ScramClient;
@@ -69,6 +70,21 @@ pub struct QueryResult {
     pub rows_affected: u64,
 }
 
+struct RawQueryResult {
+    result: QueryResult,
+    command_tag: Option<String>,
+    ready_status: u8,
+}
+
+enum AuthState {
+    Initial,
+    CleartextSent,
+    SaslStarted(ScramClient),
+    SaslContinued(ScramClient),
+    SaslVerified,
+    Authenticated,
+}
+
 /// Synchronous PostgreSQL v3 connection over `std::net::TcpStream`.
 pub struct PgClient {
     stream: Option<TcpStream>,
@@ -78,8 +94,8 @@ impl PgClient {
     /// Connect to PostgreSQL using `config`, complete startup & authentication,
     /// and wait for `ReadyForQuery`.
     pub fn connect(config: &PgConfig) -> Result<Self, PgError> {
-        let addr = resolve_first_addr(config.host_port().to_socket_addrs()?, &config.host)?;
-        let stream = TcpStream::connect_timeout(&addr, config.connect_timeout)?;
+        let addrs: Vec<SocketAddr> = config.host_port().to_socket_addrs()?.collect();
+        let stream = connect_first_reachable(&addrs, &config.host, config.connect_timeout)?;
         stream.set_read_timeout(Some(config.io_timeout))?;
         stream.set_write_timeout(Some(config.io_timeout))?;
         stream.set_nodelay(true)?;
@@ -97,6 +113,10 @@ impl PgClient {
     /// (`Parse` + `Bind` + `Describe` + `Execute` + `Sync`), with zero SQL
     /// string interpolation.
     pub fn query(&mut self, sql: &str, params: &[Option<&str>]) -> Result<QueryResult, PgError> {
+        self.query_raw(sql, params).map(|raw| raw.result)
+    }
+
+    fn query_raw(&mut self, sql: &str, params: &[Option<&str>]) -> Result<RawQueryResult, PgError> {
         if self.stream.is_none() {
             return Err(PgError::ConnectionClosed);
         }
@@ -118,28 +138,55 @@ impl PgClient {
     }
 
     /// Run `f` inside `BEGIN` / `COMMIT`, automatically issuing `ROLLBACK` if
-    /// `f` returns an error. If `COMMIT` or `ROLLBACK` fails, immediately
-    /// poisons/closes the connection so stale frames can never be consumed.
+    /// `f` returns an error. Verifies that `COMMIT` completed with command tag
+    /// `"COMMIT"` and `ReadyForQuery == b'I'`, returning
+    /// [`PgError::TransactionAborted`] if PostgreSQL reported `"ROLLBACK"` for
+    /// an aborted transaction.
     pub fn in_transaction<T, E>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, E>,
         map_pg: impl Fn(PgError) -> E,
     ) -> Result<T, E> {
-        self.query("BEGIN", &[]).map_err(&map_pg)?;
+        self.query_raw("BEGIN", &[]).map_err(&map_pg)?;
         match f(self) {
             Ok(val) => {
-                if let Err(err) = self.query("COMMIT", &[]) {
-                    self.close();
-                    return Err(map_pg(err));
-                }
+                self.commit_transaction().map_err(&map_pg)?;
                 Ok(val)
             }
             Err(err) => {
-                if self.query("ROLLBACK", &[]).is_err() {
-                    self.close();
-                }
+                self.rollback_transaction();
                 Err(err)
             }
+        }
+    }
+
+    fn commit_transaction(&mut self) -> Result<(), PgError> {
+        match self.query_raw("COMMIT", &[]) {
+            Ok(raw) if raw.command_tag.as_deref() == Some("COMMIT") && raw.ready_status == b'I' => {
+                Ok(())
+            }
+            Ok(raw)
+                if raw.command_tag.as_deref() == Some("ROLLBACK") && raw.ready_status == b'I' =>
+            {
+                Err(PgError::TransactionAborted)
+            }
+            Ok(raw) => {
+                self.close();
+                Err(PgError::Protocol(format!(
+                    "unexpected COMMIT outcome (tag={:?}, status=0x{:02x})",
+                    raw.command_tag, raw.ready_status
+                )))
+            }
+            Err(err) => {
+                self.close();
+                Err(err)
+            }
+        }
+    }
+
+    fn rollback_transaction(&mut self) {
+        if !matches!(self.query_raw("ROLLBACK", &[]), Ok(raw) if raw.ready_status == b'I') {
+            self.close();
         }
     }
 
@@ -181,23 +228,16 @@ impl PgClient {
     }
 
     fn drive_auth(&mut self, config: &PgConfig) -> Result<(), PgError> {
-        let mut auth_ok = false;
-        let mut scram: Option<ScramClient> = None;
-        let mut sasl_verified = false;
+        let mut state = AuthState::Initial;
         loop {
             let (tag, body) = self.read_frame()?;
             match tag {
-                b'R' => self.handle_auth_frame(
-                    &body,
-                    config,
-                    &mut auth_ok,
-                    &mut scram,
-                    &mut sasl_verified,
-                )?,
+                b'R' => state = self.handle_auth_frame(&body, config, state)?,
                 b'S' | b'K' | b'N' => {}
                 b'E' => return Err(parse_error_response(&body)),
                 b'Z' => {
-                    if !auth_ok || (scram.is_some() && !sasl_verified) {
+                    let _ = parse_ready_for_query(&body)?;
+                    if !matches!(state, AuthState::Authenticated) {
                         return Err(PgError::Auth(
                             "server sent ReadyForQuery before completing authentication".into(),
                         ));
@@ -217,56 +257,55 @@ impl PgClient {
         &mut self,
         body: &[u8],
         config: &PgConfig,
-        auth_ok: &mut bool,
-        scram: &mut Option<ScramClient>,
-        sasl_verified: &mut bool,
-    ) -> Result<(), PgError> {
-        let code = read_i32(body, 0)?;
-        match code {
-            AUTH_OK => *auth_ok = true,
-            AUTH_CLEARTEXT => {
-                let password = require_password(config)?;
-                let mut payload = Vec::with_capacity(password.len() + 1);
-                push_cstr(&mut payload, password)?;
-                self.send_frame(b'p', &payload)?;
+        state: AuthState,
+    ) -> Result<AuthState, PgError> {
+        match (read_i32(body, 0)?, state) {
+            (AUTH_OK, AuthState::Initial | AuthState::CleartextSent | AuthState::SaslVerified) => {
+                Ok(AuthState::Authenticated)
             }
-            AUTH_SASL => self.start_sasl(&body[4..], config, scram)?,
-            AUTH_SASL_CONTINUE => self.continue_sasl(&body[4..], config, scram)?,
-            AUTH_SASL_FINAL => {
-                verify_sasl_final(&body[4..], scram)?;
-                *sasl_verified = true;
+            (AUTH_CLEARTEXT, AuthState::Initial) => self.send_cleartext(config),
+            (AUTH_SASL, AuthState::Initial) => self.start_sasl(&body[4..], config),
+            (AUTH_SASL_CONTINUE, AuthState::SaslStarted(client)) => {
+                self.continue_sasl(&body[4..], config, client)
             }
-            other => {
-                return Err(PgError::Auth(format!(
-                    "unsupported PostgreSQL authentication method {other}"
-                )));
+            (AUTH_SASL_FINAL, AuthState::SaslContinued(client)) => {
+                verify_sasl_final(&body[4..], &client)?;
+                Ok(AuthState::SaslVerified)
             }
+            (AUTH_OK | AUTH_CLEARTEXT | AUTH_SASL | AUTH_SASL_CONTINUE | AUTH_SASL_FINAL, _) => {
+                Err(PgError::Auth(
+                    "unexpected PostgreSQL authentication state transition".into(),
+                ))
+            }
+            (other, _) => Err(PgError::Auth(format!(
+                "unsupported PostgreSQL authentication method {other}"
+            ))),
         }
-        Ok(())
+    }
+
+    fn send_cleartext(&mut self, config: &PgConfig) -> Result<AuthState, PgError> {
+        let password = require_password(config)?;
+        let mut payload = Vec::with_capacity(password.len() + 1);
+        push_cstr(&mut payload, password)?;
+        self.send_frame(b'p', &payload)?;
+        Ok(AuthState::CleartextSent)
     }
 
     fn continue_sasl(
         &mut self,
         payload: &[u8],
         config: &PgConfig,
-        scram: &mut Option<ScramClient>,
-    ) -> Result<(), PgError> {
+        mut client: ScramClient,
+    ) -> Result<AuthState, PgError> {
         let password = require_password(config)?;
         let server_first = std::str::from_utf8(payload)
             .map_err(|_| PgError::Auth("non-UTF8 SCRAM server-first".into()))?;
-        let client = scram
-            .as_mut()
-            .ok_or_else(|| PgError::Auth("unexpected SASLContinue".into()))?;
         let final_msg = client.process_server_first(password, server_first)?;
-        self.send_frame(b'p', final_msg.as_bytes())
+        self.send_frame(b'p', final_msg.as_bytes())?;
+        Ok(AuthState::SaslContinued(client))
     }
 
-    fn start_sasl(
-        &mut self,
-        mechanisms: &[u8],
-        config: &PgConfig,
-        scram: &mut Option<ScramClient>,
-    ) -> Result<(), PgError> {
+    fn start_sasl(&mut self, mechanisms: &[u8], config: &PgConfig) -> Result<AuthState, PgError> {
         let _ = require_password(config)?;
         let offers_scram = mechanisms
             .split(|&b| b == 0)
@@ -285,27 +324,30 @@ impl PgClient {
         payload.extend_from_slice(&init_len.to_be_bytes());
         payload.extend_from_slice(initial.as_bytes());
         self.send_frame(b'p', &payload)?;
-        *scram = Some(client);
-        Ok(())
+        Ok(AuthState::SaslStarted(client))
     }
 
     fn send_and_read_query(
         &mut self,
         wire: &[u8],
-    ) -> Result<Result<QueryResult, PgError>, PgError> {
+    ) -> Result<Result<RawQueryResult, PgError>, PgError> {
         self.write_all(wire)?;
         let mut state = QueryReadState::default();
-        loop {
+        let ready_status = loop {
             let (tag, body) = self.read_frame()?;
-            if state.apply_frame(tag, &body)? {
-                break;
+            if let Some(status) = state.apply_frame(tag, &body)? {
+                break status;
             }
-        }
+        };
         Ok(match state.server_err {
             Some(err) => Err(err),
-            None => Ok(QueryResult {
-                rows: state.rows,
-                rows_affected: state.rows_affected,
+            None => Ok(RawQueryResult {
+                result: QueryResult {
+                    rows: state.rows,
+                    rows_affected: state.rows_affected,
+                },
+                command_tag: state.command_tag,
+                ready_status,
             }),
         })
     }
@@ -341,24 +383,30 @@ impl Drop for PgClient {
 struct QueryReadState {
     rows: Vec<PgRow>,
     rows_affected: u64,
+    command_tag: Option<String>,
+    completed: bool,
     server_err: Option<PgError>,
     expected_cols: Option<usize>,
 }
 
 impl QueryReadState {
-    fn apply_frame(&mut self, tag: u8, body: &[u8]) -> Result<bool, PgError> {
+    fn apply_frame(&mut self, tag: u8, body: &[u8]) -> Result<Option<u8>, PgError> {
         match tag {
-            b'1' | b'2' | b't' | b'n' | b'I' | b'S' | b'N' => Ok(false),
+            b'1' | b'2' | b't' | b'n' | b'S' | b'N' => Ok(None),
+            b'I' => {
+                self.completed = true;
+                Ok(None)
+            }
             b'T' => {
                 self.expected_cols = Some(parse_row_description(body)?);
-                Ok(false)
+                Ok(None)
             }
             b'D' => {
                 let row = parse_data_row(body)?;
                 match self.expected_cols {
                     Some(want) if row.columns.len() == want => {
                         self.rows.push(row);
-                        Ok(false)
+                        Ok(None)
                     }
                     Some(want) => Err(PgError::Protocol(format!(
                         "DataRow column count {} does not match RowDescription count {want}",
@@ -370,14 +418,26 @@ impl QueryReadState {
                 }
             }
             b'C' => {
-                self.rows_affected = parse_command_complete(body);
-                Ok(false)
+                let (cmd_tag, affected) = parse_command_complete(body);
+                self.command_tag = Some(cmd_tag);
+                self.rows_affected = affected;
+                self.completed = true;
+                Ok(None)
             }
             b'E' => {
                 self.server_err = Some(parse_error_response(body));
-                Ok(false)
+                self.completed = true;
+                Ok(None)
             }
-            b'Z' => Ok(true),
+            b'Z' => {
+                let status = parse_ready_for_query(body)?;
+                if !self.completed {
+                    return Err(PgError::Protocol(
+                        "premature ReadyForQuery before query completion".into(),
+                    ));
+                }
+                Ok(Some(status))
+            }
             other => Err(PgError::Protocol(format!(
                 "unexpected query message tag 0x{other:02x}"
             ))),
@@ -385,12 +445,19 @@ impl QueryReadState {
     }
 }
 
-fn verify_sasl_final(payload: &[u8], scram: &Option<ScramClient>) -> Result<(), PgError> {
+fn parse_ready_for_query(body: &[u8]) -> Result<u8, PgError> {
+    match body {
+        [status @ (b'I' | b'T' | b'E')] => Ok(*status),
+        _ => Err(PgError::Protocol(format!(
+            "malformed ReadyForQuery payload ({} bytes)",
+            body.len()
+        ))),
+    }
+}
+
+fn verify_sasl_final(payload: &[u8], client: &ScramClient) -> Result<(), PgError> {
     let server_final = std::str::from_utf8(payload)
         .map_err(|_| PgError::Auth("non-UTF8 SCRAM server-final".into()))?;
-    let client = scram
-        .as_ref()
-        .ok_or_else(|| PgError::Auth("unexpected SASLFinal".into()))?;
     client.verify_server_final(server_final)
 }
 
@@ -434,13 +501,24 @@ fn write_parse(wire: &mut Vec<u8>, sql: &str) -> Result<(), PgError> {
     write_frame(wire, b'P', &payload)
 }
 
-pub(crate) fn resolve_first_addr(
-    mut addrs: impl Iterator<Item = SocketAddr>,
+pub(crate) fn connect_first_reachable(
+    addrs: &[SocketAddr],
     host: &str,
-) -> Result<SocketAddr, PgError> {
-    addrs
-        .next()
-        .ok_or_else(|| PgError::Protocol(format!("could not resolve host '{host}'")))
+    timeout: Duration,
+) -> Result<TcpStream, PgError> {
+    let mut last_err = None;
+    for addr in addrs {
+        match TcpStream::connect_timeout(addr, timeout) {
+            Ok(stream) => return Ok(stream),
+            Err(err) => last_err = Some(err),
+        }
+    }
+    match last_err {
+        Some(err) => Err(PgError::Io(err)),
+        None => Err(PgError::Protocol(format!(
+            "could not resolve host '{host}'"
+        ))),
+    }
 }
 
 fn write_bind(wire: &mut Vec<u8>, count: i16, params: &[Option<&str>]) -> Result<(), PgError> {
@@ -552,13 +630,15 @@ fn parse_data_row(body: &[u8]) -> Result<PgRow, PgError> {
     Ok(PgRow { columns })
 }
 
-fn parse_command_complete(body: &[u8]) -> u64 {
+fn parse_command_complete(body: &[u8]) -> (String, u64) {
     let end = body.iter().position(|&b| b == 0).unwrap_or(body.len());
     let tag = std::str::from_utf8(&body[..end]).unwrap_or("");
-    tag.split_whitespace()
+    let affected = tag
+        .split_whitespace()
         .last()
         .and_then(|word| word.parse::<u64>().ok())
-        .unwrap_or(0)
+        .unwrap_or(0);
+    (tag.to_string(), affected)
 }
 
 fn parse_error_response(body: &[u8]) -> PgError {

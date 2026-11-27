@@ -1724,3 +1724,75 @@ fn fs_event_log_openat_error_branches_and_non_regular_children() {
     .unwrap_err();
     assert_eq!(nul_err.kind(), std::io::ErrorKind::InvalidInput);
 }
+
+#[test]
+fn sqlite_projection_catches_deleted_interior_row_on_empty_and_replay_slices() {
+    let dir = tempdir().unwrap();
+    let index_path = dir.path().join("index.db");
+    let proj = SqliteProjectionStore::open(&index_path).unwrap();
+    let e1 = started_event("r-gap", "gap", "2026-11-26T10:00:00Z");
+    let e2 = sealed_event(
+        "r-gap",
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "implement"}),
+        &e1.event_hash,
+        "2026-11-26T10:00:05Z",
+    );
+    let e3 = sealed_event(
+        "r-gap",
+        3,
+        EventType::PhaseEntered,
+        json!({"phase": "verify"}),
+        &e2.event_hash,
+        "2026-11-26T10:00:10Z",
+    );
+    proj.apply_envelopes("r-gap", None, &[e1.clone(), e2.clone(), e3.clone()])
+        .unwrap();
+
+    // Delete interior row seq = 2 while head_seq = 3 and head_hash = e3.event_hash stay intact.
+    let raw = Connection::open(&index_path).unwrap();
+    raw.execute(
+        "DELETE FROM projected_events WHERE run_id = 'r-gap' AND seq = 2",
+        [],
+    )
+    .unwrap();
+    drop(raw);
+
+    // Both empty batch and shorter replay slice [e1] (outside the gap) MUST report DivergentEventLog.
+    assert_divergent(proj.apply_envelopes("r-gap", None, &[]), "r-gap");
+    assert_divergent(
+        proj.apply_envelopes("r-gap", None, std::slice::from_ref(&e1)),
+        "r-gap",
+    );
+
+    // Equal-head full replay still repairs the missing interior row cleanly.
+    proj.apply_envelopes("r-gap", None, &[e1.clone(), e2, e3.clone()])
+        .unwrap();
+
+    // Direct batch-reconciliation guard: if a custom backend's check_head passes while
+    // verify_prefix reports missing prefix rows on a replay slice, reconcile still refuses.
+    let stored = crate::ports::StoredProjectionRun {
+        feature: "gap".into(),
+        created_at: e1.recorded_at.clone(),
+        head_seq: 3,
+        head_hash: e3.event_hash.clone(),
+    };
+    let mut ctx = ();
+    let res = crate::ports::reconcile_projection_batch(
+        &mut ctx,
+        "r-gap",
+        None,
+        std::slice::from_ref(&e1),
+        Some(&stored),
+        crate::ports::ProjectionBatchOps {
+            check_head: |_, _, _| Ok(()),
+            verify_prefix: |_, _, _| Ok(std::collections::BTreeSet::new()),
+            insert_events: |_, _, _| Ok(()),
+        },
+    );
+    assert!(matches!(
+        res,
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "r-gap"
+    ));
+}

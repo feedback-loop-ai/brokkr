@@ -5,12 +5,14 @@
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
-use brokkr_store::ports::{EventLog, Journal, NewEvent, ProjectionStore, RunMetadata};
+use brokkr_store::ports::{
+    CoordinationStore, EventLog, Journal, NewEvent, ProjectionStore, RunMetadata,
+};
 use brokkr_store::StoreError;
 use serde_json::{json, Value};
 
 use crate::mock_pg_tests::{sample_manifest, sealed_env, MockPgServer};
-use crate::{PgCoordinationStore, PgEventLog, PgProjectionStore, PgStore};
+use crate::{PgCoordinationStore, PgError, PgEventLog, PgProjectionStore, PgStore};
 
 #[test]
 fn journal_end_to_end_over_split_pg_ports_and_unified_pg_store() {
@@ -566,7 +568,7 @@ fn verify_unstarted_metadata_and_rebuild(
         Some(RunMetadata {
             feature: "queued-feat".into(),
             created_at: "2026-11-27T08:30:00Z".into(),
-            list_order: None,
+            list_order: Some(2),
         })
     );
     let unified = PgStore::connect(&cfg).expect("connect unified");
@@ -574,6 +576,7 @@ fn verify_unstarted_metadata_and_rebuild(
         unified.run_metadata("unstarted-run").unwrap(),
         log.run_metadata("unstarted-run").unwrap()
     );
+    let before_rebuild = srv.db.lock().unwrap().queries.len();
     assert_eq!(proj.rebuild_from(&log).unwrap(), 3);
     assert_eq!(
         proj.list_runs().unwrap(),
@@ -594,9 +597,33 @@ fn verify_unstarted_metadata_and_rebuild(
     assert!(queries
         .iter()
         .any(|q| q.contains("ON CONFLICT (run_id) DO NOTHING")));
-    assert!(queries.iter().any(
-        |q| q == "LOCK TABLE brokkr_projected_runs, brokkr_projected_events IN EXCLUSIVE MODE"
-    ));
+    let rebuild_sql = &queries[before_rebuild..];
+    let lock_idx = rebuild_sql
+        .iter()
+        .position(|q| {
+            q == "LOCK TABLE brokkr_projected_runs, brokkr_projected_events IN EXCLUSIVE MODE"
+        })
+        .expect("LOCK TABLE recorded");
+    let select_runs_idx = rebuild_sql
+        .iter()
+        .position(|q| q == "SELECT run_id FROM brokkr_runs ORDER BY run_id ASC")
+        .expect("event-log run list SELECT recorded");
+    let select_events_idx = rebuild_sql
+        .iter()
+        .position(|q| q.starts_with("SELECT seq, event_hash, envelope_json FROM brokkr_events"))
+        .expect("event-log events SELECT recorded");
+    let delete_events_idx = rebuild_sql
+        .iter()
+        .position(|q| q == "DELETE FROM brokkr_projected_events")
+        .expect("DELETE projected_events recorded");
+    let delete_runs_idx = rebuild_sql
+        .iter()
+        .position(|q| q == "DELETE FROM brokkr_projected_runs")
+        .expect("DELETE projected_runs recorded");
+    assert!(lock_idx < select_runs_idx);
+    assert!(select_runs_idx < select_events_idx);
+    assert!(select_events_idx < delete_events_idx);
+    assert!(delete_events_idx < delete_runs_idx);
 }
 
 #[test]
@@ -684,4 +711,225 @@ fn canonical_json_preserves_negative_zero_exponent_and_nul_alongside_jsonb() {
         serde_json::to_string(&j2.load_verified("canon-run").unwrap()).unwrap(),
         serde_json::to_string(&[&e1, &e2]).unwrap()
     );
+}
+
+#[test]
+fn schema_compatibility_refuses_legacy_columns_checks_and_version() {
+    for (table, col, kind) in [
+        ("brokkr_runs", "manifest_json", "log"),
+        ("brokkr_events", "envelope_json", "log"),
+        ("brokkr_projected_runs", "list_order", "proj"),
+        ("brokkr_projected_events", "payload_json", "proj"),
+    ] {
+        let srv = MockPgServer::start();
+        srv.db
+            .lock()
+            .unwrap()
+            .omit_columns
+            .insert((table.to_string(), col.to_string()));
+        let cfg = srv.config();
+        let err = match kind {
+            "log" => PgEventLog::connect(&cfg).err().expect("legacy log error"),
+            _ => PgProjectionStore::connect(&cfg)
+                .err()
+                .expect("legacy proj error"),
+        };
+        assert!(matches!(err, PgError::IncompatibleSchema(_)), "got {err}");
+        assert_eq!(err.sqlstate(), None);
+        let _ = err.into_store_error();
+    }
+
+    let srv_chk = MockPgServer::start();
+    srv_chk.db.lock().unwrap().omit_checks.insert((
+        "brokkr_provider_cooldowns".to_string(),
+        "brokkr_cooldown_window_chk".to_string(),
+    ));
+    assert!(matches!(
+        PgCoordinationStore::connect(&srv_chk.config()),
+        Err(PgError::IncompatibleSchema(_))
+    ));
+
+    let srv_ver = MockPgServer::start();
+    srv_ver
+        .db
+        .lock()
+        .unwrap()
+        .schema_meta
+        .insert("event_log".to_string(), 1);
+    assert!(matches!(
+        PgEventLog::connect(&srv_ver.config()),
+        Err(PgError::IncompatibleSchema(_))
+    ));
+}
+
+#[test]
+fn projection_tiebreaks_equal_created_at_by_creation_order_and_roundtrips_nul_fields() {
+    let srv = MockPgServer::start();
+    let cfg = srv.config();
+    let log = PgEventLog::connect(&cfg).unwrap();
+    let proj = PgProjectionStore::connect(&cfg).unwrap();
+    let coord = PgCoordinationStore::connect(&cfg).unwrap();
+    let journal = Journal::new(log, proj, coord);
+
+    // 1. Creation-order tie-break: "run-z" created before "run-a" with identical created_at.
+    let mz = json!({
+        "engine": "0.15.2",
+        "feature": "feat\u{0000}z\\slash",
+        "bundle_name": "bun\u{0000}dle",
+        "created_at": "2026-11-27T10:00:00Z"
+    });
+    let ma = json!({
+        "engine": "0.15.2",
+        "feature": "feat-a",
+        "bundle_name": "fast",
+        "created_at": "2026-11-27T10:00:00Z"
+    });
+    journal.create_run("run-z", &mz).unwrap();
+    journal.create_run("run-a", &ma).unwrap();
+    journal
+        .projections()
+        .apply_envelopes("run-z", Some(&mz), &[])
+        .unwrap();
+    journal
+        .projections()
+        .apply_envelopes("run-a", Some(&ma), &[])
+        .unwrap();
+
+    append_nul_effect_stream(&journal, "run-z", &mz);
+
+    // Equal created_at keeps creation order ("run-z" before "run-a") and decodes NUL losslessly.
+    let expected_list = vec![
+        (
+            "run-z".to_string(),
+            "feat\u{0000}z\\slash".to_string(),
+            "2026-11-27T10:00:00Z".to_string(),
+        ),
+        (
+            "run-a".to_string(),
+            "feat-a".to_string(),
+            "2026-11-27T10:00:00Z".to_string(),
+        ),
+    ];
+    assert_eq!(journal.projections().list_runs().unwrap(), expected_list);
+
+    // Replaying prefix verifies NUL-encoded projected columns without false divergence.
+    let loaded = journal.load_verified("run-z").unwrap();
+    brokkr_core::fold::fold(&loaded).expect("lawful stream folds cleanly");
+    journal
+        .projections()
+        .apply_envelopes("run-z", Some(&mz), &loaded)
+        .unwrap();
+
+    // rebuild_from preserves both creation-order tie-break AND lossless NUL fields.
+    assert_eq!(journal.reindex().unwrap(), 5);
+    assert_eq!(journal.projections().list_runs().unwrap(), expected_list);
+
+    // Cooldown catch-up with NUL bytes in site/provider/route/reason succeeds and decodes losslessly.
+    assert_eq!(
+        journal
+            .coordination()
+            .sync_cooldowns_from(journal.event_log())
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        journal
+            .coordination()
+            .sync_cooldowns_from(journal.event_log())
+            .unwrap(),
+        0
+    );
+    let active = journal
+        .coordination()
+        .active_cooldowns("2026-11-27T10:15:00Z")
+        .unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].site, "site-1");
+    assert_eq!(active[0].provider, "anthropic");
+    assert_eq!(active[0].route, "default");
+    assert_eq!(active[0].reason, "429\u{0000}rate\\limit");
+}
+
+fn append_nul_effect_stream(
+    journal: &Journal<PgEventLog, PgProjectionStore, PgCoordinationStore>,
+    run_id: &str,
+    mz: &Value,
+) {
+    let s1 = journal
+        .append_event(
+            run_id,
+            NewEvent {
+                event_type: EventType::RunStarted,
+                payload: json!({ "feature": "feat\u{0000}z\\slash", "manifest": mz }),
+                causation_id: None,
+                attempt_id: None,
+                ts: "2026-11-27T10:00:00Z",
+            },
+        )
+        .unwrap();
+    let s2 = journal
+        .append_event(
+            run_id,
+            NewEvent {
+                event_type: EventType::PhaseEntered,
+                payload: json!({ "phase": "build" }),
+                causation_id: Some(&s1.event_id),
+                attempt_id: None,
+                ts: "2026-11-27T10:00:01Z",
+            },
+        )
+        .unwrap();
+    let s3 = journal
+        .append_event(
+            run_id,
+            NewEvent {
+                event_type: EventType::EffectRequested,
+                payload: json!({ "effect_id": "eff-1", "phase": "build", "seat": "build" }),
+                causation_id: Some(&s2.event_id),
+                attempt_id: None,
+                ts: "2026-11-27T10:00:02Z",
+            },
+        )
+        .unwrap();
+    let s4 = journal
+        .append_event(
+            run_id,
+            NewEvent {
+                event_type: EventType::EffectStarted,
+                payload: json!({
+                    "effect_id": "eff-1",
+                    "attempt_id": "att\u{0000}1",
+                    "member": "mem\u{0000}ber\\1"
+                }),
+                causation_id: Some(&s3.event_id),
+                attempt_id: Some("att\u{0000}1"),
+                ts: "2026-11-27T10:00:03Z",
+            },
+        )
+        .unwrap();
+    let _s5 = journal
+        .append_event(
+            run_id,
+            NewEvent {
+                event_type: EventType::EffectFailed,
+                payload: json!({
+                    "effect_id": "eff-1",
+                    "member": "mem\u{0000}ber\\1",
+                    "waits": [{
+                        "site": "site-1",
+                        "provider": "anthropic",
+                        "route": "default",
+                        "until": "2026-11-27T12:30:00Z",
+                        "words": "429\u{0000}rate\\limit",
+                        "retry_after_seconds": 60,
+                        "seconds": 60,
+                        "rounds": 1
+                    }]
+                }),
+                causation_id: Some(&s4.event_id),
+                attempt_id: Some("att\u{0000}1"),
+                ts: "2026-11-27T10:00:04Z",
+            },
+        )
+        .unwrap();
 }

@@ -16,6 +16,7 @@ use brokkr_store::{
 };
 
 use crate::error::PgError;
+use crate::schema::{decode_pg_text, encode_pg_text};
 use crate::wire::{PgClient, PgRow};
 
 const CHECK_WAIT_EXISTS_SQL: &str = "SELECT 1 FROM brokkr_queue_entries WHERE id = $1::bigint";
@@ -28,7 +29,7 @@ const INSERT_QUEUE_WAIT_SQL: &str = "INSERT INTO brokkr_queue_waits (entry_id, a
 const LIST_QUEUE_SQL: &str = "SELECT id, status, priority, payload, added_at, run_id
      FROM brokkr_queue_entries
      WHERE status <> 'dropped'
-     ORDER BY CASE WHEN status IN ('pending', 'held', 'launching') OR run_id IS NULL THEN 0 ELSE 1 END,
+     ORDER BY CASE WHEN status IN ('pending', 'held', 'launching') OR COALESCE(run_id, '') = '' THEN 0 ELSE 1 END,
               priority DESC, id ASC";
 const LIST_ALL_WAITS_SQL: &str =
     "SELECT entry_id, awaits, condition FROM brokkr_queue_waits ORDER BY entry_id ASC, awaits ASC";
@@ -314,17 +315,21 @@ fn upsert_cooldown_row(
     let until_str = checked.until.to_string();
     let retry_str = checked.retry_i64.map(|v| v.to_string());
     let recorded_str = checked.recorded.to_string();
+    let site = encode_pg_text(&checked.row.site);
+    let provider = encode_pg_text(&checked.row.provider);
+    let route = encode_pg_text(&checked.row.route);
+    let reason = encode_pg_text(&checked.row.reason);
     let res = tx
         .query(
             INSERT_COOLDOWN_IDEMPOTENT_SQL,
             &[
                 Some(checked.run_id),
                 Some(&checked.seq_str),
-                Some(&checked.row.site),
-                Some(&checked.row.provider),
-                Some(&checked.row.route),
+                Some(site.as_ref()),
+                Some(provider.as_ref()),
+                Some(route.as_ref()),
                 Some(&until_str),
-                Some(&checked.row.reason),
+                Some(reason.as_ref()),
                 retry_str.as_deref(),
                 Some(&checked.rounds_str),
                 Some(&recorded_str),
@@ -343,13 +348,14 @@ fn verify_existing_cooldown(
     checked: &CooldownRow<'_>,
     require_present: bool,
 ) -> Result<(), StoreError> {
+    let site = encode_pg_text(&checked.row.site);
     let res = tx
         .query(
             SELECT_COOLDOWN_CONFLICT_SQL,
             &[
                 Some(checked.run_id),
                 Some(&checked.seq_str),
-                Some(&checked.row.site),
+                Some(site.as_ref()),
                 Some(&checked.rounds_str),
             ],
         )
@@ -370,11 +376,14 @@ fn verify_existing_cooldown(
         existing.get_opt_i64(4).map_err(PgError::into_store_error)?,
         existing.get_i64(5).map_err(PgError::into_store_error)?,
     );
+    let exp_provider = encode_pg_text(&checked.row.provider);
+    let exp_route = encode_pg_text(&checked.row.route);
+    let exp_reason = encode_pg_text(&checked.row.reason);
     let expected = (
-        checked.row.provider.as_str(),
-        checked.row.route.as_str(),
+        exp_provider.as_ref(),
+        exp_route.as_ref(),
         checked.until,
-        checked.row.reason.as_str(),
+        exp_reason.as_ref(),
         checked.retry_i64,
         checked.recorded,
     );
@@ -461,23 +470,15 @@ fn decode_cooldown_row(row: &PgRow) -> Result<Cooldown, StoreError> {
     let rounds_raw = row.get_i64(7).map_err(PgError::into_store_error)?;
     let recorded_raw = row.get_i64(8).map_err(PgError::into_store_error)?;
     Ok(Cooldown {
-        site: row
-            .get_str(1)
-            .map_err(PgError::into_store_error)?
-            .to_string(),
-        provider: row
-            .get_str(2)
-            .map_err(PgError::into_store_error)?
-            .to_string(),
-        route: row
-            .get_str(3)
-            .map_err(PgError::into_store_error)?
-            .to_string(),
+        site: decode_pg_text(row.get_str(1).map_err(PgError::into_store_error)?)
+            .map_err(PgError::into_store_error)?,
+        provider: decode_pg_text(row.get_str(2).map_err(PgError::into_store_error)?)
+            .map_err(PgError::into_store_error)?,
+        route: decode_pg_text(row.get_str(3).map_err(PgError::into_store_error)?)
+            .map_err(PgError::into_store_error)?,
         until_at: cooldown_time_of(until_raw, seq)?,
-        reason: row
-            .get_str(5)
-            .map_err(PgError::into_store_error)?
-            .to_string(),
+        reason: decode_pg_text(row.get_str(5).map_err(PgError::into_store_error)?)
+            .map_err(PgError::into_store_error)?,
         retry_after_seconds: retry_raw
             .map(|r| checked_pos_u64("retry_after_seconds", r, seq))
             .transpose()?,

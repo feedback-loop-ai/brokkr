@@ -1,7 +1,5 @@
 //! Pure-Rust RFC 5802 / RFC 7677 SCRAM-SHA-256 authentication using `sha2`,
-//! with RFC 4013 SASLprep mapping and PostgreSQL `pg_saslprep` fallback.
-
-use std::borrow::Cow;
+//! enforcing RFC 4013 SASLprep safety for ASCII passwords.
 
 use sha2::{Digest, Sha256};
 
@@ -151,74 +149,25 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     std::hint::black_box(diff) == 0
 }
 
-/// Apply RFC 4013 SASLprep mapping (strip Table B.1 commonly-mapped-to-nothing,
-/// map Table C.1.2 non-ASCII spaces to ASCII space), falling back to raw bytes
-/// if any prohibited character is encountered (matching PostgreSQL `pg_saslprep`).
-pub(crate) fn saslprep_password(password: &str) -> Cow<'_, str> {
-    let mut out = String::with_capacity(password.len());
-    for ch in password.chars() {
-        if is_mapped_to_nothing(ch) {
-            continue;
-        }
-        if is_non_ascii_space(ch) {
-            out.push(' ');
-            continue;
-        }
-        if is_prohibited_saslprep(ch) {
-            return Cow::Borrowed(password);
-        }
-        out.push(ch);
+/// Validate a SCRAM-SHA-256 password for RFC 4013 SASLprep compatibility.
+///
+/// Printable ASCII passwords are already SASLprep-canonical. Non-ASCII
+/// passwords require Unicode NFKC normalization and RFC 3454 bidi tables, and
+/// ASCII control characters are prohibited by RFC 4013 Table C.2.1; both are
+/// refused with [`PgError::Auth`] rather than silently computing an
+/// incompatible SCRAM proof.
+pub(crate) fn saslprep_password(password: &str) -> Result<&str, PgError> {
+    if !password.is_ascii() {
+        return Err(PgError::Auth(
+            "non-ASCII SCRAM-SHA-256 passwords are not supported without full SASLprep NFKC".into(),
+        ));
     }
-    Cow::Owned(out)
-}
-
-fn is_mapped_to_nothing(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{00AD}'
-            | '\u{034F}'
-            | '\u{1806}'
-            | '\u{180B}'..='\u{180D}'
-            | '\u{200B}'..='\u{200D}'
-            | '\u{2060}'
-            | '\u{FE00}'..='\u{FE0F}'
-            | '\u{FEFF}'
-    )
-}
-
-fn is_non_ascii_space(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{00A0}' | '\u{1680}' | '\u{2000}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}'
-    )
-}
-
-fn is_prohibited_saslprep(ch: char) -> bool {
-    let code = ch as u32;
-    matches!(
-        ch,
-        '\u{0000}'..='\u{001F}'
-            | '\u{007F}'..='\u{009F}'
-            | '\u{0340}'
-            | '\u{0341}'
-            | '\u{06DD}'
-            | '\u{070F}'
-            | '\u{180E}'
-            | '\u{200E}'
-            | '\u{200F}'
-            | '\u{2028}'..='\u{202E}'
-            | '\u{2061}'..='\u{2063}'
-            | '\u{206A}'..='\u{206F}'
-            | '\u{2FF0}'..='\u{2FFB}'
-            | '\u{E000}'..='\u{F8FF}'
-            | '\u{FDD0}'..='\u{FDEF}'
-            | '\u{FFF9}'..='\u{FFFD}'
-            | '\u{1D173}'..='\u{1D17A}'
-            | '\u{E0001}'
-            | '\u{E0020}'..='\u{E007F}'
-            | '\u{F0000}'..='\u{FFFFD}'
-            | '\u{100000}'..='\u{10FFFD}'
-    ) || (code & 0xFFFE) == 0xFFFE
+    if password.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return Err(PgError::Auth(
+            "prohibited ASCII control character in SCRAM-SHA-256 password".into(),
+        ));
+    }
+    Ok(password)
 }
 
 fn escape_saslname(user: &str) -> String {
@@ -257,7 +206,7 @@ impl ScramClient {
         server_first: &str,
     ) -> Result<String, PgError> {
         let (nonce, salt, iterations) = parse_server_first(server_first, &self.client_nonce)?;
-        let prepared = saslprep_password(password);
+        let prepared = saslprep_password(password)?;
         let salted = pbkdf2_hmac_sha256(prepared.as_bytes(), &salt, iterations);
         let client_key = hmac_sha256(&salted, b"Client Key");
         let stored_key: [u8; 32] = Sha256::digest(client_key).into();

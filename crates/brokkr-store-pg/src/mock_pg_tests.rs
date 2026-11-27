@@ -72,13 +72,20 @@ pub(crate) type ProjEventRow = (
 
 #[derive(Clone, Default)]
 pub(crate) struct MockDb {
+    pub(crate) run_next_order: i64,
+    pub(crate) run_orders: BTreeMap<String, i64>,
     pub(crate) runs: BTreeMap<String, (String, String, String)>,
     pub(crate) runs_jsonb: BTreeMap<String, Option<String>>,
     pub(crate) events: BTreeMap<(String, i64), EventDbRow>,
     pub(crate) events_jsonb: BTreeMap<(String, i64), Option<String>>,
+    pub(crate) proj_run_next_order: i64,
+    pub(crate) proj_run_orders: BTreeMap<String, i64>,
     pub(crate) proj_runs: BTreeMap<String, (String, String, String, i64, String)>,
     pub(crate) proj_events: BTreeMap<(String, i64), ProjEventRow>,
     pub(crate) proj_events_jsonb: BTreeMap<(String, i64), Option<String>>,
+    pub(crate) schema_meta: BTreeMap<String, i64>,
+    pub(crate) omit_columns: BTreeSet<(String, String)>,
+    pub(crate) omit_checks: BTreeSet<(String, String)>,
     pub(crate) queue_next_id: i64,
     pub(crate) queue_entries: BTreeMap<i64, QueueRow>,
     pub(crate) queue_waits: BTreeMap<(i64, i64), String>,
@@ -274,6 +281,15 @@ fn exec_sql(
         }
         return Ok((vec![], "ROLLBACK".into()));
     }
+    if params
+        .iter()
+        .any(|p| p.as_deref().is_some_and(|val| val.as_bytes().contains(&0)))
+    {
+        return Err((
+            "22P05".into(),
+            "invalid byte sequence for encoding \"UTF8\": 0x00".into(),
+        ));
+    }
     if let Some(err) = db.force_next_error.take() {
         return Err(err);
     }
@@ -283,7 +299,65 @@ fn exec_sql(
     if norm.starts_with("LOCK TABLE ") {
         return Ok((vec![], "LOCK TABLE".into()));
     }
+    if let Some(res) = exec_schema(&mut db, &norm, params) {
+        return res;
+    }
     exec_event_log(&mut db, &norm, params)
+}
+
+fn mock_table_columns(table: &str) -> &'static [&'static str] {
+    crate::schema::SchemaKind::ALL
+        .into_iter()
+        .flat_map(|kind| kind.required_columns().iter().copied())
+        .find(|&(name, _)| name == table)
+        .map_or(&[], |(_, cols)| cols)
+}
+
+fn mock_table_checks(table: &str) -> &'static [&'static str] {
+    crate::schema::SchemaKind::ALL
+        .into_iter()
+        .flat_map(|kind| kind.required_checks().iter().copied())
+        .find(|&(name, _)| name == table)
+        .map_or(&[], |(_, checks)| checks)
+}
+
+fn exec_schema(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Option<SqlRes> {
+    if norm.starts_with("SELECT column_name FROM information_schema.columns") {
+        let table = pstr(params, 0);
+        let rows = mock_table_columns(table)
+            .iter()
+            .filter(|&&c| {
+                !db.omit_columns
+                    .contains(&(table.to_string(), c.to_string()))
+            })
+            .map(|&c| vec![Some(c.to_string())])
+            .collect();
+        return Some(Ok((rows, "SELECT".into())));
+    }
+    if norm.starts_with("SELECT constraint_name FROM information_schema.table_constraints") {
+        let table = pstr(params, 0);
+        let rows = mock_table_checks(table)
+            .iter()
+            .filter(|&&c| !db.omit_checks.contains(&(table.to_string(), c.to_string())))
+            .map(|&c| vec![Some(c.to_string())])
+            .collect();
+        return Some(Ok((rows, "SELECT".into())));
+    }
+    if norm.starts_with("INSERT INTO brokkr_pg_schema_meta") {
+        let comp = pstr(params, 0).to_string();
+        let ver = pi64(params, 1);
+        db.schema_meta.entry(comp).or_insert(ver);
+        return Some(Ok((vec![], "INSERT 0 1".into())));
+    }
+    if norm == "SELECT version FROM brokkr_pg_schema_meta WHERE component = $1" {
+        let rows = db
+            .schema_meta
+            .get(pstr(params, 0))
+            .map(|v| vec![vec![Some(v.to_string())]])
+            .unwrap_or_default();
+        return Some(Ok((rows, "SELECT".into())));
+    }
+    None
 }
 
 fn exec_event_log(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> SqlRes {
@@ -292,6 +366,9 @@ fn exec_event_log(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Sql
         if db.runs.contains_key(&run_id) {
             return Err(("23505".into(), "duplicate run_id".into()));
         }
+        db.run_next_order += 1;
+        let order = db.run_next_order;
+        db.run_orders.insert(run_id.clone(), order);
         db.runs_jsonb.insert(run_id.clone(), params[1].clone());
         db.runs.insert(
             run_id,
@@ -303,11 +380,19 @@ fn exec_event_log(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Sql
         );
         return Ok((vec![], "INSERT 0 1".into()));
     }
-    if norm == "SELECT feature, created_at FROM brokkr_runs WHERE run_id = $1" {
+    if norm == "SELECT feature, created_at, list_order FROM brokkr_runs WHERE run_id = $1" {
+        let run_id = pstr(params, 0);
         let rows = db
             .runs
-            .get(pstr(params, 0))
-            .map(|(_, f, c)| vec![vec![Some(f.clone()), Some(c.clone())]])
+            .get(run_id)
+            .map(|(_, f, c)| {
+                let order = db.run_orders.get(run_id).copied().unwrap_or(0);
+                vec![vec![
+                    Some(f.clone()),
+                    Some(c.clone()),
+                    Some(order.to_string()),
+                ]]
+            })
             .unwrap_or_default();
         return Ok((rows, "SELECT 1".into()));
     }
@@ -469,20 +554,32 @@ fn exec_proj_writes(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> S
     }
     if norm.starts_with("INSERT INTO brokkr_projected_runs") && norm.contains("DO NOTHING") {
         let run_id = pstr(params, 0).to_string();
-        db.proj_runs.entry(run_id).or_insert_with(|| {
-            (
-                String::new(),
-                String::new(),
-                String::new(),
-                0,
-                pstr(params, 1).into(),
-            )
-        });
+        if !db.proj_runs.contains_key(&run_id) {
+            db.proj_run_next_order += 1;
+            let order = db.proj_run_next_order;
+            db.proj_run_orders.insert(run_id.clone(), order);
+            db.proj_runs.insert(
+                run_id,
+                (
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    0,
+                    pstr(params, 1).into(),
+                ),
+            );
+        }
         return Ok((vec![], "INSERT 0 1".into()));
     }
     if norm.starts_with("INSERT INTO brokkr_projected_runs") {
+        let run_id = pstr(params, 0).to_string();
+        if !db.proj_run_orders.contains_key(&run_id) {
+            db.proj_run_next_order += 1;
+            let order = db.proj_run_next_order;
+            db.proj_run_orders.insert(run_id.clone(), order);
+        }
         db.proj_runs.insert(
-            pstr(params, 0).into(),
+            run_id,
             (
                 pstr(params, 1).into(),
                 pstr(params, 2).into(),
@@ -497,12 +594,15 @@ fn exec_proj_writes(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> S
         let mut list: Vec<_> = db
             .proj_runs
             .iter()
-            .map(|(id, (f, _, c, _, _))| (c.clone(), id.clone(), f.clone()))
+            .map(|(id, (f, _, c, _, _))| {
+                let order = db.proj_run_orders.get(id).copied().unwrap_or(0);
+                (c.clone(), order, id.clone(), f.clone())
+            })
             .collect();
         list.sort();
         let rows = list
             .into_iter()
-            .map(|(c, id, f)| vec![Some(id), Some(f), Some(c)])
+            .map(|(c, _, id, f)| vec![Some(id), Some(f), Some(c)])
             .collect();
         return Ok((rows, "SELECT".into()));
     }
@@ -512,6 +612,7 @@ fn exec_proj_writes(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> S
     }
     if norm == "DELETE FROM brokkr_projected_runs" {
         db.proj_runs.clear();
+        db.proj_run_orders.clear();
         return Ok((vec![], "DELETE 0".into()));
     }
     exec_coord(db, norm, params)
@@ -560,12 +661,13 @@ fn exec_coord(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> SqlRes 
             .iter()
             .filter(|(_, e)| e.2 != "dropped")
             .map(|(&id, e)| {
-                let rank =
-                    if matches!(e.2.as_str(), "pending" | "held" | "launching") || e.5.is_none() {
-                        0
-                    } else {
-                        1
-                    };
+                let rank = if matches!(e.2.as_str(), "pending" | "held" | "launching")
+                    || e.5.as_deref().is_none_or(str::is_empty)
+                {
+                    0
+                } else {
+                    1
+                };
                 (rank, std::cmp::Reverse(e.1), id, e.clone())
             })
             .collect();
