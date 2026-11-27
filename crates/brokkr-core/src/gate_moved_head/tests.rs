@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 
 fn moved(start: Option<&str>, end: Option<&str>) -> MovedHead {
     MovedHead {
@@ -19,6 +20,19 @@ fn encode_keeps_the_bytes_the_journal_already_carries() {
     assert_eq!(
         encode(&moved(None, Some("bbb"))),
         r#"GATE-MOVED-HEAD {"head_at_end":"bbb","head_at_start":null}"#
+    );
+}
+
+#[test]
+fn encode_tree_frames_its_evidence_as_decode_tree_reads_it() {
+    let evidence = BTreeMap::from([("omitted", 0)]);
+    let packed = encode_tree(&evidence);
+    assert_eq!(packed, r#"GATE-CHANGED-TREE {"omitted":0}"#);
+    assert_eq!(
+        decode_tree::<BTreeMap<String, u64>>(&packed)
+            .unwrap()
+            .unwrap(),
+        BTreeMap::from([("omitted".to_owned(), 0)])
     );
 }
 

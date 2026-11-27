@@ -4,11 +4,11 @@ use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use brokkr_core::canonical::sha256_bytes;
-use brokkr_core::gate_moved_head::TREE_PREFIX;
+use brokkr_core::gate_moved_head;
 use serde::Serialize;
 
 const PATH_LIMIT: usize = 50;
@@ -67,6 +67,7 @@ fn git(repo: &Path) -> Command {
         "-c",
         "core.fsmonitor=false",
         "--no-optional-locks",
+        "--no-replace-objects",
     ]);
     command
 }
@@ -135,13 +136,21 @@ fn read_flags(repo: &Path) -> Option<Flagged> {
     }
 
     // Git paths above are relative to the worktree even when the operated
-    // directory is below it. A linked worktree has a .git file.
-    let repo = repo.canonicalize().ok()?;
-    let root = repo.ancestors().find(|dir| dir.join(".git").exists())?;
+    // directory is below it. Git names that worktree, skipping any invalid
+    // .git on the way up.
+    let output = stdout(git(repo).args(["rev-parse", "--show-toplevel"]));
+    let root = worktree_root(repo, output.as_deref())?;
     paths
         .into_iter()
-        .map(|(path, flags)| Some((path.to_vec(), (flags, read_flagged_file(root, path)?))))
+        .map(|(path, flags)| Some((path.to_vec(), (flags, read_flagged_file(&root, path)?))))
         .collect()
+}
+
+/// The root Git printed, without its one trailing newline, resolved as
+/// the flagged-file reading compares parents to their resolved form.
+fn worktree_root(repo: &Path, output: Option<&[u8]>) -> Option<PathBuf> {
+    let root = OsStr::from_bytes(output?.strip_suffix(b"\n")?);
+    repo.join(root).canonicalize().ok()
 }
 
 fn flagged_paths(output: &[u8]) -> Option<Vec<(&[u8], IndexFlags)>> {
@@ -283,8 +292,7 @@ fn encode_tree_unreadable(unreadable: Unreadable) -> String {
 }
 
 fn encode(evidence: &TreeEvidence<'_>) -> String {
-    let json = serde_json::to_string(evidence).expect("gate evidence always serializes");
-    format!("{TREE_PREFIX} {json}")
+    gate_moved_head::encode_tree(evidence)
 }
 
 fn show(path: &[u8]) -> String {
@@ -314,5 +322,17 @@ mod tests {
         assert_eq!(read(&absent).map(|_| ()), None);
         assert_eq!(read_flagged_file(dir.path(), b"../outside"), None);
         assert_eq!(missing(io::ErrorKind::PermissionDenied.into()), None);
+    }
+
+    #[test]
+    fn the_root_is_the_one_line_git_printed() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolved = dir.path().canonicalize().unwrap();
+        let mut line = resolved.as_os_str().as_bytes().to_vec();
+        assert_eq!(worktree_root(dir.path(), Some(&line)), None);
+        line.push(b'\n');
+        assert_eq!(worktree_root(dir.path(), Some(&line)), Some(resolved));
+        assert_eq!(worktree_root(dir.path(), Some(b"missing\n")), None);
+        assert_eq!(worktree_root(dir.path(), None), None);
     }
 }

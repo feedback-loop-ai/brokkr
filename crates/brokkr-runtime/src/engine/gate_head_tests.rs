@@ -321,6 +321,30 @@ fn a_gate_checks_files_hidden_by_index_flags() {
 }
 
 #[test]
+fn a_gate_that_replaces_head_with_its_staged_edit_parks() {
+    let (_dir, mut engine) = start_gate(
+        "printf replaced > base.txt\ngit add base.txt\ngit replace HEAD \"$(git commit-tree -m x \"$(git write-tree)\")\"",
+    );
+    let before = git_head(&engine.repo).unwrap();
+    drive_tree_park(&mut engine, json!({"omitted": 0, "paths": ["base.txt"]}));
+    assert_eq!(git_head(&engine.repo), Some(before));
+}
+
+#[test]
+fn a_planted_git_directory_below_the_root_does_not_hide_a_flagged_file() {
+    let (_dir, mut engine) = start_gate("printf edited > ../base.txt");
+    git(
+        &engine.repo,
+        &["update-index", "--assume-unchanged", "base.txt"],
+    );
+    let sub = engine.repo.join("sub");
+    std::fs::create_dir_all(sub.join(".git")).unwrap();
+    std::fs::copy(engine.repo.join("base.txt"), sub.join("base.txt")).unwrap();
+    engine.repo = sub;
+    drive_tree_park(&mut engine, json!({"omitted": 0, "paths": ["base.txt"]}));
+}
+
+#[test]
 fn a_gate_reads_flagged_links_and_missing_files() {
     for commands in [
         "rm links/one\nln -s elsewhere links/one",

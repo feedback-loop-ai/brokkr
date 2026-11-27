@@ -601,6 +601,7 @@ pub const brokkr_core::gate_moved_head::TREE_PREFIX: &str
 pub fn brokkr_core::gate_moved_head::decode<T: serde_core::de::DeserializeOwned>(&str) -> core::option::Option<core::result::Result<T, serde_json::error::Error>>
 pub fn brokkr_core::gate_moved_head::decode_tree<T: serde_core::de::DeserializeOwned>(&str) -> core::option::Option<core::result::Result<T, serde_json::error::Error>>
 pub fn brokkr_core::gate_moved_head::encode(&brokkr_core::gate_moved_head::MovedHead) -> alloc::string::String
+pub fn brokkr_core::gate_moved_head::encode_tree(&impl serde_core::ser::Serialize) -> alloc::string::String
 pub mod brokkr_core::keep_refs
 pub fn brokkr_core::keep_refs::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub mod brokkr_core::page

@@ -1,7 +1,7 @@
 //! A gate that moved the operated repo's HEAD or changed its tracked
 //! tree closes its effect indeterminate with a marker and evidence
 //! packed into the frozen contract's free-text `reason`.
-//! This module writes moved-head evidence and reads both markers.
+//! This module writes and reads both markers.
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,11 @@ fn encode_marked(prefix: &str, evidence: &impl Serialize) -> String {
 /// reader accepts the driver-stderr evidence suffix after the JSON.
 pub fn decode<T: DeserializeOwned>(reason: &str) -> Option<Result<T, serde_json::Error>> {
     decode_marked(PREFIX, reason)
+}
+
+/// Write a tracked-tree marker and its evidence, framed as [encode] frames.
+pub fn encode_tree(evidence: &impl Serialize) -> String {
+    encode_marked(TREE_PREFIX, evidence)
 }
 
 /// Read a tracked-tree marker and its evidence, with the same suffix as [decode].
