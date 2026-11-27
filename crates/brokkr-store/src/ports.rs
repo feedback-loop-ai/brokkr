@@ -16,7 +16,9 @@
 //! [`Journal`].
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::ffi::OsString;
+use std::fs::Metadata;
+use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope, EventType};
@@ -26,11 +28,11 @@ use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 
 use crate::{
-    ensure_wal, import, seat_record, Cooldown, EntryId, ImportError, NewEntry, QueueEntry,
-    SeatRecordVersion, StoreError, VerifyError, BUSY_TIMEOUT,
+    ensure_wal, import, literal, patiently, seat_record, Cooldown, EntryId, ImportError, NewEntry,
+    QueueEntry, SeatRecordVersion, StoreError, VerifyError, BUSY_TIMEOUT,
 };
 
 mod fs_log;
@@ -155,12 +157,106 @@ pub(crate) fn validate_import_stream(
     Ok(())
 }
 
-pub(crate) fn open_standalone_sqlite(path: &Path) -> Result<Connection, StoreError> {
-    let _ = std::fs::create_dir_all(path.parent().unwrap_or(path));
-    let conn = Connection::open(path)?;
+pub(crate) fn reject_symlink(path: &Path) -> Result<Option<Metadata>, StoreError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            Err(StoreError::SymlinkRefused(path.to_path_buf()))
+        }
+        Ok(meta) => Ok(Some(meta)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(StoreError::Io(err)),
+    }
+}
+
+pub(crate) fn reject_symlink_path(path: &Path) -> Result<Option<Metadata>, StoreError> {
+    let mut ancestors: Vec<&Path> = path.ancestors().collect();
+    ancestors.reverse();
+    let mut leaf = None;
+    for anc in ancestors {
+        if anc.as_os_str().is_empty() || anc == Path::new("/") {
+            continue;
+        }
+        #[cfg(target_os = "macos")]
+        if matches!(anc.to_str(), Some("/tmp" | "/var" | "/etc")) {
+            continue;
+        }
+        match reject_symlink(anc)? {
+            Some(meta) => {
+                if anc == path {
+                    leaf = Some(meta);
+                }
+            }
+            None => break,
+        }
+    }
+    Ok(leaf)
+}
+
+fn sqlite_sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+    let mut raw = OsString::from(path.as_os_str());
+    raw.push(suffix);
+    PathBuf::from(raw)
+}
+
+fn open_standalone_sqlite_inner(path: &Path) -> Result<Connection, StoreError> {
+    if path.as_os_str().is_empty() {
+        return Err(StoreError::InvalidPath(path.to_path_buf()));
+    }
+    let bound = literal::journal(path).map_err(|_| StoreError::InvalidPath(path.to_path_buf()))?;
+    let _ = reject_symlink_path(&bound)?;
+    let _ = reject_symlink(&sqlite_sidecar_path(&bound, "-wal"))?;
+    let _ = reject_symlink(&sqlite_sidecar_path(&bound, "-shm"))?;
+    std::fs::create_dir_all(bound.parent().unwrap_or(&bound))?;
+    let _ = reject_symlink_path(&bound)?;
+    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
+        | OpenFlags::SQLITE_OPEN_CREATE
+        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = Connection::open_with_flags(&bound, flags)
+        .map_err(|e| literal::as_given(e, path, &bound))?;
     conn.busy_timeout(BUSY_TIMEOUT)?;
     ensure_wal(&conn, path)?;
     Ok(conn)
+}
+
+pub(crate) fn open_standalone_sqlite(path: &Path) -> Result<Connection, StoreError> {
+    open_standalone_sqlite_inner(path).map_err(|err| crate::damage::classified(path, err))
+}
+
+pub(super) fn open_standalone_store(
+    path: &Path,
+    migrate_op: &'static str,
+    configure: impl FnOnce(&Connection) -> Result<(), StoreError>,
+    ensure_schema: impl Fn(&Connection) -> Result<(), StoreError>,
+) -> Result<(Connection, PathBuf), StoreError> {
+    let owned = path.to_path_buf();
+    let conn = open_standalone_sqlite(&owned)?;
+    configure(&conn)?;
+    patiently(migrate_op, BUSY_TIMEOUT, &owned, || ensure_schema(&conn))?;
+    Ok((conn, owned))
+}
+
+pub(super) fn validate_append_batch(
+    run_id: &str,
+    manifest: &Value,
+    existing: &[EventEnvelope],
+    expected_head: (u64, &str),
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    let (head_seq, found_hash) = existing
+        .last()
+        .map_or((0, ZERO_HASH), |last| (last.seq, last.event_hash.as_str()));
+    if head_seq != expected_head.0 || found_hash != expected_head.1 {
+        return Err(StoreError::HeadMoved {
+            expected_seq: expected_head.0,
+            found_seq: head_seq,
+        });
+    }
+    verify_chain_checked(run_id, expected_head, envelopes)?;
+    let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
+    refuse_after_terminal(run_id, existing, &incoming)?;
+    validate_started_manifests(run_id, envelopes)?;
+    validate_seat_records(manifest, existing, envelopes)?;
+    Ok(())
 }
 
 pub(crate) fn parse_clock(now: &str) -> Result<OffsetDateTime, StoreError> {

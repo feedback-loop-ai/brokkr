@@ -15,6 +15,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventType;
@@ -89,6 +90,31 @@ fn write_one_run(db: &Path, run_id: &str) {
     }
 }
 
+fn verify_run_stream(
+    reader: &Store,
+    run_id: &str,
+    seen_ids: &mut std::collections::HashSet<String>,
+) {
+    // `load` verifies the chain and refuses to return a partial one.
+    let events = reader.load(run_id).unwrap();
+    assert_eq!(
+        events.len(),
+        EVENTS_PER_RUN,
+        "{run_id} lost or gained an event"
+    );
+    brokkr_core::envelope::verify_chain(&events).unwrap();
+    for event in &events {
+        assert_eq!(event.correlation_id, run_id);
+        assert!(
+            seen_ids.insert(event.event_id.clone()),
+            "an event id was reused across processes"
+        );
+    }
+    let folded = brokkr_core::fold(&events).unwrap();
+    assert_eq!(folded.seq, EVENTS_PER_RUN as u64);
+    assert_eq!(folded.phase.as_deref(), Some("implement"));
+}
+
 #[test]
 fn parallel_processes_writing_different_runs_share_one_journal() {
     // Guard against the child re-entering the parent test.
@@ -126,29 +152,7 @@ fn parallel_processes_writing_different_runs_share_one_journal() {
     assert_eq!(reader.list_runs().unwrap().len(), WRITERS);
     let mut every_event_id = std::collections::HashSet::new();
     for writer in 0..WRITERS {
-        let run_id = format!("run-{writer}");
-        // `load` verifies the chain and refuses to return a partial one.
-        let events = reader.load(&run_id).unwrap();
-        assert_eq!(
-            events.len(),
-            EVENTS_PER_RUN,
-            "{run_id} lost or gained an event"
-        );
-        let mut previous = ZERO_HASH.to_string();
-        for (index, event) in events.iter().enumerate() {
-            assert_eq!(event.seq, index as u64 + 1, "{run_id} seq {index}");
-            assert_eq!(event.run_id, run_id, "{run_id} carries a foreign run_id");
-            assert_eq!(event.correlation_id, run_id);
-            assert_eq!(event.previous_hash, previous, "{run_id} chain broke");
-            previous = event.event_hash.clone();
-            assert!(
-                every_event_id.insert(event.event_id.clone()),
-                "an event id was reused across processes"
-            );
-        }
-        let state = brokkr_core::fold(&events).unwrap();
-        assert_eq!(state.phase.as_deref(), Some("implement"));
-        assert_eq!(state.seq, events.len() as u64);
+        verify_run_stream(&reader, &format!("run-{writer}"), &mut every_event_id);
     }
 }
 
@@ -160,6 +164,7 @@ const FS_ROOT_VAR: &str = "BROKKR_STORE_FS_CONCURRENT_ROOT";
 const FS_MODE_VAR: &str = "BROKKR_STORE_FS_CONCURRENT_MODE";
 const FS_RUN_VAR: &str = "BROKKR_STORE_FS_CONCURRENT_RUN";
 const FS_WORKER_VAR: &str = "BROKKR_STORE_FS_CONCURRENT_WORKER";
+const FS_BARRIER_VAR: &str = "BROKKR_STORE_FS_CONCURRENT_BARRIER";
 
 const FS_INDEPENDENT_EVENTS: usize = 15;
 const FS_CONTENDED_COMMITS: usize = 6;
@@ -186,6 +191,47 @@ fn sealed_proc_event(
         event_hash: String::new(),
     }
     .sealed()
+}
+
+fn spawn_fs_children(
+    root: &Path,
+    mode: &str,
+    barrier: Option<&Path>,
+    targets: &[(String, usize)],
+) -> Vec<std::process::Child> {
+    targets
+        .iter()
+        .map(|(run_id, worker)| {
+            let mut cmd = Command::new(std::env::current_exe().unwrap());
+            cmd.args([
+                "--exact",
+                "concurrent_processes::fs_event_log_concurrent_child",
+                "--nocapture",
+            ])
+            .env(FS_ROOT_VAR, root)
+            .env(FS_MODE_VAR, mode)
+            .env(FS_RUN_VAR, run_id)
+            .env(FS_WORKER_VAR, worker.to_string())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+            if let Some(dir) = barrier {
+                cmd.env(FS_BARRIER_VAR, dir);
+            }
+            cmd.spawn().expect("spawn fs child")
+        })
+        .collect()
+}
+
+fn wait_fs_children(label: &str, children: Vec<std::process::Child>) {
+    for (idx, child) in children.into_iter().enumerate() {
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{label} child {idx} failed: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
 }
 
 #[test]
@@ -227,18 +273,49 @@ fn fs_event_log_concurrent_child() {
         }
     } else if mode == "contended" {
         let worker = std::env::var(FS_WORKER_VAR).unwrap_or_default();
+        let barrier = PathBuf::from(std::env::var(FS_BARRIER_VAR).expect("barrier dir"));
+
+        // Phase A: synchronized contention on exact same expected_head = (1, hash1).
+        let (head_seq, head_hash) = log.head(&run_id).expect("read initial head");
+        assert_eq!(head_seq, 1);
+        let racing_seq2 = sealed_proc_event(
+            &run_id,
+            2,
+            EventType::PhaseEntered,
+            json!({"worker": worker, "phase": "barrier-race"}),
+            &head_hash,
+        );
+        std::fs::write(barrier.join(format!("ready-{worker}")), b"ready").unwrap();
+        let go_path = barrier.join("go");
+        while !go_path.exists() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let outcome = match log.append_envelopes(
+            &run_id,
+            (1, &head_hash),
+            std::slice::from_ref(&racing_seq2),
+        ) {
+            Ok(()) => "ok",
+            Err(brokkr_store::StoreError::HeadMoved {
+                expected_seq: 1,
+                found_seq,
+            }) if found_seq >= 2 => "head_moved",
+            Err(err) => panic!("unexpected barrier race error: {err}"),
+        };
+        std::fs::write(barrier.join(format!("outcome-{worker}")), outcome).unwrap();
+
+        // Phase B: free-running multi-commit contention loop.
         let mut committed = 0usize;
         while committed < FS_CONTENDED_COMMITS {
-            let (head_seq, head_hash) = log.head(&run_id).expect("read head");
+            let (cur_seq, cur_hash) = log.head(&run_id).expect("read head");
             let env = sealed_proc_event(
                 &run_id,
-                head_seq + 1,
+                cur_seq + 1,
                 EventType::PhaseEntered,
                 json!({"worker": worker, "n": committed}),
-                &head_hash,
+                &cur_hash,
             );
-            match log.append_envelopes(&run_id, (head_seq, &head_hash), std::slice::from_ref(&env))
-            {
+            match log.append_envelopes(&run_id, (cur_seq, &cur_hash), std::slice::from_ref(&env)) {
                 Ok(()) => committed += 1,
                 Err(brokkr_store::StoreError::HeadMoved { .. }) => {}
                 Err(err) => panic!("unexpected contended error: {err}"),
@@ -257,34 +334,13 @@ fn parallel_processes_fs_event_log_independent_and_contended() {
     let root = dir.path().join("runs");
 
     // 1. N independent processes writing independent runs.
-    let children: Vec<_> = (0..WRITERS)
-        .map(|writer| {
-            Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "concurrent_processes::fs_event_log_concurrent_child",
-                    "--nocapture",
-                ])
-                .env(FS_ROOT_VAR, &root)
-                .env(FS_MODE_VAR, "independent")
-                .env(FS_RUN_VAR, format!("fs-run-{writer}"))
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .expect("spawn child")
-        })
-        .collect();
-    for (writer, child) in children.into_iter().enumerate() {
-        let out = child.wait_with_output().unwrap();
-        assert!(
-            out.status.success(),
-            "independent child {writer} failed: {}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    let indep_targets: Vec<(String, usize)> =
+        (0..WRITERS).map(|w| (format!("fs-run-{w}"), w)).collect();
+    let indep_children = spawn_fs_children(&root, "independent", None, &indep_targets);
+    wait_fs_children("independent", indep_children);
 
-    // 2. N competing processes racing on one shared run via File::lock().
+    // 2. N competing processes racing on one shared run via File::lock(),
+    // starting with a barrier-synchronized race on expected_head = (1, hash1).
     let log = FsEventLog::open(&root).unwrap();
     let shared = "fs-shared";
     let manifest = json!({"engine": "0.15.0", "feature": "shared"});
@@ -299,33 +355,34 @@ fn parallel_processes_fs_event_log_independent_and_contended() {
     log.append_envelopes(shared, (0, ZERO_HASH), &[first])
         .unwrap();
 
-    let racers: Vec<_> = (0..WRITERS)
-        .map(|writer| {
-            Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "concurrent_processes::fs_event_log_concurrent_child",
-                    "--nocapture",
-                ])
-                .env(FS_ROOT_VAR, &root)
-                .env(FS_MODE_VAR, "contended")
-                .env(FS_RUN_VAR, shared)
-                .env(FS_WORKER_VAR, writer.to_string())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .expect("spawn racer")
-        })
-        .collect();
-    for (writer, child) in racers.into_iter().enumerate() {
-        let out = child.wait_with_output().unwrap();
-        assert!(
-            out.status.success(),
-            "contended child {writer} failed: {}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
+    let barrier = dir.path().join("barrier");
+    std::fs::create_dir(&barrier).unwrap();
+    let racer_targets: Vec<(String, usize)> =
+        (0..WRITERS).map(|w| (shared.to_string(), w)).collect();
+    let racers = spawn_fs_children(&root, "contended", Some(&barrier), &racer_targets);
+
+    // Release all children simultaneously once every child has read head (1, hash1).
+    for worker in 0..WRITERS {
+        let ready = barrier.join(format!("ready-{worker}"));
+        while !ready.exists() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
+    std::fs::write(barrier.join("go"), b"go").unwrap();
+    wait_fs_children("contended", racers);
+
+    let mut barrier_winners = 0usize;
+    let mut barrier_head_moved = 0usize;
+    for worker in 0..WRITERS {
+        let outcome = std::fs::read_to_string(barrier.join(format!("outcome-{worker}"))).unwrap();
+        match outcome.as_str() {
+            "ok" => barrier_winners += 1,
+            "head_moved" => barrier_head_moved += 1,
+            other => panic!("unexpected outcome for worker {worker}: {other}"),
+        }
+    }
+    assert_eq!(barrier_winners, 1);
+    assert_eq!(barrier_head_moved, WRITERS - 1);
 
     // Verify all chains and rebuild disposable index.db.
     for writer in 0..WRITERS {
@@ -335,14 +392,16 @@ fn parallel_processes_fs_event_log_independent_and_contended() {
             FS_INDEPENDENT_EVENTS
         );
     }
-    assert_eq!(
-        log.read_stream(shared, 1).unwrap().len(),
-        1 + WRITERS * FS_CONTENDED_COMMITS
-    );
+    // 1 RunStarted + 1 barrier winner + WRITERS * FS_CONTENDED_COMMITS
+    let expected_shared = 2 + WRITERS * FS_CONTENDED_COMMITS;
+    let shared_events = log.read_stream(shared, 1).unwrap();
+    assert_eq!(shared_events.len(), expected_shared);
+    brokkr_core::envelope::verify_chain(&shared_events).unwrap();
+
     let index = SqliteProjectionStore::open(dir.path().join("index.db")).unwrap();
     let total = index.rebuild_from(&log).unwrap();
     assert_eq!(
         total,
-        (WRITERS * FS_INDEPENDENT_EVENTS + 1 + WRITERS * FS_CONTENDED_COMMITS) as u64
+        (WRITERS * FS_INDEPENDENT_EVENTS + expected_shared) as u64
     );
 }

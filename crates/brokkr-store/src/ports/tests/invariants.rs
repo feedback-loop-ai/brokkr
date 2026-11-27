@@ -928,34 +928,6 @@ impl EventLog for FailingImportLog {
     }
 }
 
-struct FailOnceProjectionStore<P> {
-    inner: P,
-    fail_next: Cell<bool>,
-}
-
-impl<P: ProjectionStore> ProjectionStore for FailOnceProjectionStore<P> {
-    fn apply_envelopes(
-        &self,
-        run_id: &str,
-        manifest: Option<&Value>,
-        envelopes: &[EventEnvelope],
-    ) -> Result<(), StoreError> {
-        if self.fail_next.replace(false) {
-            return Err(StoreError::Contended {
-                operation: "apply_envelopes",
-                waited_ms: 3,
-            });
-        }
-        self.inner.apply_envelopes(run_id, manifest, envelopes)
-    }
-    fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
-        self.inner.list_runs()
-    }
-    fn rebuild_from(&self, log: &dyn EventLog) -> Result<u64, StoreError> {
-        self.inner.rebuild_from(log)
-    }
-}
-
 #[test]
 fn post_commit_projection_lag_is_not_contention_and_heals_via_reindex() {
     let mem_src = Journal::new(
@@ -991,10 +963,7 @@ fn post_commit_projection_lag_is_not_contention_and_heals_via_reindex() {
 
     let dst_journal = Journal::new(
         MemEventLog::default(),
-        FailOnceProjectionStore {
-            inner: MemProjectionStore::default(),
-            fail_next: Cell::new(true),
-        },
+        FailingProjectionStore::fail_once(MemProjectionStore::default()),
         MemCoordinationStore::default(),
     );
     let err = dst_journal

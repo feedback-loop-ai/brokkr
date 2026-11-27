@@ -147,6 +147,19 @@ pub enum StoreError {
     /// A symlink was encountered where a regular file or directory was required.
     #[error("refusing symlink at '{}'", .0.display())]
     SymlinkRefused(PathBuf),
+    /// A storage path was empty or held a NUL byte and could not be bound.
+    #[error("invalid storage path '{}'", .0.display())]
+    InvalidPath(PathBuf),
+    /// A standalone split database path points to an incompatible or monolithic
+    /// SQLite database (such as `forge.db` holding `runs`/`events` tables).
+    #[error("refusing foreign database at '{}' (expected {expected})", path.display())]
+    ForeignDatabase {
+        path: PathBuf,
+        expected: &'static str,
+    },
+    /// A `waits` payload on an effect event failed provider-wait validation.
+    #[error("provider waits: {0}")]
+    ProviderWait(#[from] brokkr_core::ProviderWaitError),
 }
 
 impl StoreError {

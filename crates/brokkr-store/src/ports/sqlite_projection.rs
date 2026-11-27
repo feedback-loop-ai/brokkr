@@ -7,6 +7,7 @@
 //! deleted and rebuilt cleanly from any [`EventLog`] via
 //! [`ProjectionStore::rebuild_from`].
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::ZERO_HASH;
@@ -14,15 +15,16 @@ use brokkr_core::envelope::EventEnvelope;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde_json::Value;
 
-use crate::{patiently, StoreError, BUSY_TIMEOUT};
+use crate::{import, patiently, StoreError, BUSY_TIMEOUT};
 
 use super::{
-    checked_seq, divergent, non_empty_str, open_standalone_sqlite, read_verified_log,
+    checked_seq, divergent, non_empty_str, open_standalone_store, read_verified_log,
     started_feature_of, validate_manifest, validate_started_manifests, verify_chain_checked,
     EventLog, ProjectionStore,
 };
 
 const PROJECTION_SCHEMA_VERSION: &str = "1";
+const PROJECTION_USER_VERSION: u32 = 1;
 
 const PROJECTION_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS projection_meta (
@@ -52,6 +54,13 @@ CREATE INDEX IF NOT EXISTS projected_runs_created_idx
 const SCHEMA_READY_SQL: &str = "SELECT COUNT(*) FROM sqlite_master
      WHERE type = 'table'
        AND name IN ('projection_meta', 'projected_runs', 'projected_events')";
+const FOREIGN_TABLES_SQL: &str = "SELECT COUNT(*) FROM sqlite_master
+     WHERE type = 'table'
+       AND name NOT LIKE 'sqlite_%'
+       AND name NOT IN ('projection_meta', 'projected_runs', 'projected_events')";
+const ALL_USER_TABLES_SQL: &str = "SELECT COUNT(*) FROM sqlite_master
+     WHERE type = 'table' AND name NOT LIKE 'sqlite_%'";
+const TRIGGERS_SQL: &str = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'";
 const INSERT_PROJECTED_EVENT_SQL: &str =
     "INSERT INTO projected_events (run_id, seq, event_type, event_hash, recorded_at, payload)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
@@ -65,6 +74,8 @@ const UPSERT_PROJECTED_RUN_SQL: &str =
          head_hash = excluded.head_hash";
 const LIST_PROJECTED_RUNS_SQL: &str =
     "SELECT run_id, feature, created_at FROM projected_runs ORDER BY created_at, run_id";
+const SELECT_PREFIX_HASHES_SQL: &str =
+    "SELECT seq, event_hash FROM projected_events WHERE run_id = ?1 AND seq <= ?2 ORDER BY seq";
 
 /// Standalone trigger-free SQLite [`ProjectionStore`] (e.g. `index.db`).
 pub struct SqliteProjectionStore {
@@ -84,18 +95,16 @@ impl SqliteProjectionStore {
     /// Open (creating if absent) a disposable trigger-free SQLite projection
     /// database at `path` in WAL mode with `busy_timeout`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        Self::open_at(path.as_ref())
-    }
-
-    fn open_at(path: &Path) -> Result<Self, StoreError> {
-        let path = path.to_path_buf();
-        let conn = open_standalone_sqlite(&path)?;
-        patiently("projection_migrate", BUSY_TIMEOUT, &path, || {
-            ensure_schema(&conn)
-        })?;
+        let path = path.as_ref();
+        let (conn, owned) = open_standalone_store(
+            path,
+            "projection_migrate",
+            |_| Ok(()),
+            |conn| ensure_schema(conn, path),
+        )?;
         Ok(Self {
             conn,
-            path,
+            path: owned,
             patience: BUSY_TIMEOUT,
         })
     }
@@ -106,22 +115,61 @@ impl SqliteProjectionStore {
     }
 }
 
-fn schema_ready(conn: &Connection) -> Result<bool, StoreError> {
-    let tables: i64 = conn.query_row(SCHEMA_READY_SQL, [], |row| row.get(0))?;
-    Ok(tables == 3)
+fn foreign_projection_db(path: &Path) -> StoreError {
+    StoreError::ForeignDatabase {
+        path: path.to_path_buf(),
+        expected: "projection index",
+    }
 }
 
-fn ensure_schema(conn: &Connection) -> Result<(), StoreError> {
-    if schema_ready(conn)? {
-        return Ok(());
-    }
+fn init_projection_schema(conn: &Connection) -> Result<(), StoreError> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
     tx.execute_batch(PROJECTION_DDL)?;
     const INSERT_META: &str =
         "INSERT OR IGNORE INTO projection_meta (key, value) VALUES ('projection_schema', ?1)";
     tx.execute(INSERT_META, params![PROJECTION_SCHEMA_VERSION])?;
+    tx.pragma_update(None, "user_version", PROJECTION_USER_VERSION)?;
     tx.commit()?;
     Ok(())
+}
+
+fn verify_projection_schema(
+    conn: &Connection,
+    path: &Path,
+    user_version: u32,
+) -> Result<(), StoreError> {
+    let ready: i64 = conn.query_row(SCHEMA_READY_SQL, [], |row| row.get(0))?;
+    if ready != 3 || user_version != PROJECTION_USER_VERSION {
+        return Err(foreign_projection_db(path));
+    }
+    let version: Option<String> = conn
+        .query_row(
+            "SELECT value FROM projection_meta WHERE key = 'projection_schema'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if version.as_deref() != Some(PROJECTION_SCHEMA_VERSION) {
+        return Err(foreign_projection_db(path));
+    }
+    Ok(())
+}
+
+fn ensure_schema(conn: &Connection, path: &Path) -> Result<(), StoreError> {
+    let foreign: i64 = conn.query_row(FOREIGN_TABLES_SQL, [], |row| row.get(0))?;
+    let triggers: i64 = conn.query_row(TRIGGERS_SQL, [], |row| row.get(0))?;
+    let user_version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if foreign > 0 || triggers > 0 {
+        return Err(foreign_projection_db(path));
+    }
+    let total_tables: i64 = conn.query_row(ALL_USER_TABLES_SQL, [], |row| row.get(0))?;
+    if total_tables == 0 {
+        if user_version != 0 {
+            return Err(foreign_projection_db(path));
+        }
+        return init_projection_schema(conn);
+    }
+    verify_projection_schema(conn, path, user_version)
 }
 
 fn load_stored_run(tx: &Connection, run_id: &str) -> Result<Option<StoredRun>, StoreError> {
@@ -145,20 +193,29 @@ fn load_stored_run(tx: &Connection, run_id: &str) -> Result<Option<StoredRun>, S
     }))
 }
 
-fn stored_event_hash(
+fn verify_stored_prefix(
     tx: &Connection,
     run_id: &str,
-    seq: u64,
-) -> Result<Option<String>, StoreError> {
-    let seq = checked_seq(seq)?;
-    let hash = tx
-        .query_row(
-            "SELECT event_hash FROM projected_events WHERE run_id = ?1 AND seq = ?2",
-            params![run_id, seq],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(hash)
+    envelopes: &[EventEnvelope],
+) -> Result<BTreeSet<u64>, StoreError> {
+    let limit = checked_seq(envelopes.len() as u64)?;
+    let mut stmt = tx.prepare(SELECT_PREFIX_HASHES_SQL)?;
+    let rows = stmt.query_map(params![run_id, limit], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut present = BTreeSet::new();
+    for row in rows {
+        let (seq, hash) = row?;
+        let idx = usize::try_from(seq)
+            .ok()
+            .and_then(|n| n.checked_sub(1))
+            .ok_or_else(|| divergent(run_id))?;
+        if envelopes[idx].event_hash != hash {
+            return Err(divergent(run_id));
+        }
+        present.insert(seq as u64);
+    }
+    Ok(present)
 }
 
 fn insert_projected_events(
@@ -179,6 +236,23 @@ fn insert_projected_events(
             payload,
         ];
         stmt.execute(args)?;
+    }
+    Ok(())
+}
+
+fn repair_missing_events(
+    tx: &Connection,
+    run_id: &str,
+    envelopes: &[EventEnvelope],
+    present: &BTreeSet<u64>,
+) -> Result<(), StoreError> {
+    let missing: Vec<EventEnvelope> = envelopes
+        .iter()
+        .filter(|env| !present.contains(&env.seq))
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        insert_projected_events(tx, run_id, &missing)?;
     }
     Ok(())
 }
@@ -212,6 +286,52 @@ fn resolved_feature<'a>(
         .unwrap_or("")
 }
 
+fn resolved_created_at<'a>(
+    envelopes: &'a [EventEnvelope],
+    manifest: Option<&'a Value>,
+    existing: Option<&'a StoredRun>,
+) -> &'a str {
+    manifest
+        .and_then(|m| non_empty_str(m.get("created_at")))
+        .or_else(|| envelopes.first().map(|e| e.recorded_at.as_str()))
+        .or_else(|| {
+            existing
+                .map(|r| r.created_at.as_str())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or("")
+}
+
+fn reconcile_existing_run(
+    tx: &Connection,
+    run_id: &str,
+    existing: Option<&StoredRun>,
+    envelopes: &[EventEnvelope],
+    last: &EventEnvelope,
+) -> Result<Option<usize>, StoreError> {
+    let Some(row) = existing else {
+        return Ok(Some(0));
+    };
+    if row.head_seq >= last.seq {
+        if row.head_seq == last.seq && row.head_hash != last.event_hash {
+            return Err(divergent(run_id));
+        }
+        let present = verify_stored_prefix(tx, run_id, envelopes)?;
+        repair_missing_events(tx, run_id, envelopes, &present)?;
+        return Ok(None);
+    }
+    if row.head_seq == 0 {
+        return Ok(Some(0));
+    }
+    let prefix = &envelopes[..row.head_seq as usize];
+    if prefix[(row.head_seq - 1) as usize].event_hash != row.head_hash {
+        return Err(divergent(run_id));
+    }
+    let present = verify_stored_prefix(tx, run_id, prefix)?;
+    repair_missing_events(tx, run_id, prefix, &present)?;
+    Ok(Some(row.head_seq as usize))
+}
+
 fn apply_batch_tx(
     tx: &Connection,
     run_id: &str,
@@ -220,11 +340,7 @@ fn apply_batch_tx(
 ) -> Result<(), StoreError> {
     let existing = load_stored_run(tx, run_id)?;
     let feature = resolved_feature(envelopes, manifest, existing.as_ref());
-    let created_at = envelopes
-        .first()
-        .map(|e| e.recorded_at.as_str())
-        .or_else(|| existing.as_ref().map(|r| r.created_at.as_str()))
-        .unwrap_or("");
+    let created_at = resolved_created_at(envelopes, manifest, existing.as_ref());
 
     let Some(last) = envelopes.last() else {
         if existing.as_ref().is_none_or(|row| row.head_seq == 0) {
@@ -233,24 +349,10 @@ fn apply_batch_tx(
         return Ok(());
     };
 
-    let mut append_from = 0usize;
-    if let Some(row) = &existing {
-        if row.head_seq >= last.seq {
-            if stored_event_hash(tx, run_id, last.seq)?.as_deref() != Some(last.event_hash.as_str())
-            {
-                return Err(divergent(run_id));
-            }
-            return Ok(());
-        }
-        if row.head_seq > 0 {
-            let prefix = &envelopes[(row.head_seq - 1) as usize];
-            if prefix.event_hash != row.head_hash {
-                return Err(divergent(run_id));
-            }
-            append_from = row.head_seq as usize;
-        }
-    }
-
+    let Some(append_from) = reconcile_existing_run(tx, run_id, existing.as_ref(), envelopes, last)?
+    else {
+        return Ok(());
+    };
     insert_projected_events(tx, run_id, &envelopes[append_from..])?;
     upsert_projected_run(tx, run_id, feature, created_at, last.seq, &last.event_hash)?;
     Ok(())
@@ -263,6 +365,7 @@ impl ProjectionStore for SqliteProjectionStore {
         manifest: Option<&Value>,
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
+        import::recordable(run_id)?;
         if let Some(manifest) = manifest {
             validate_manifest(run_id, manifest)?;
         }
@@ -285,18 +388,15 @@ impl ProjectionStore for SqliteProjectionStore {
     }
 
     fn rebuild_from(&self, log: &dyn EventLog) -> Result<u64, StoreError> {
-        let verified = read_verified_log(log)?;
         patiently("projection_rebuild", self.patience, &self.path, || {
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+            let verified = read_verified_log(log)?;
             tx.execute("DELETE FROM projected_events", [])?;
             tx.execute("DELETE FROM projected_runs", [])?;
             let mut total = 0u64;
             for run in &verified {
                 let feature = resolved_feature(&run.events, Some(&run.manifest), None);
-                let created_at = run
-                    .events
-                    .first()
-                    .map_or("", |first| first.recorded_at.as_str());
+                let created_at = resolved_created_at(&run.events, Some(&run.manifest), None);
                 let (head_seq, head_hash) = run
                     .events
                     .last()

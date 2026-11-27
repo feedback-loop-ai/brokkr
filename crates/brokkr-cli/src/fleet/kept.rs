@@ -445,29 +445,32 @@ pub(super) fn lasting(error: &StoreError) -> bool {
             damage: Damage::Malformed | Damage::NotADatabase | Damage::NoSchema,
             ..
         }
-        | StoreError::RunNotFound(_)
-        | StoreError::RunExists(_)
-        | StoreError::RunIdTooLong { .. }
-        | StoreError::RunIdUnnameable(_)
-        | StoreError::SeatRecord(_)
-        | StoreError::SchemaMismatch { .. }
-        | StoreError::AppendConflict { .. }
-        | StoreError::HeadMoved { .. }
-        | StoreError::AfterTerminal { .. }
-        | StoreError::UnknownHead { .. }
-        | StoreError::Queue(_)
-        | StoreError::SeatTree(_)
-        | StoreError::AlreadyAcknowledged { .. }
-        | StoreError::TokenCountOutOfRange(..)
-        | StoreError::Clock { .. }
-        | StoreError::Contended { .. }
-        | StoreError::ProjectionLag { .. }
-        | StoreError::DivergentEventLog { .. }
-        | StoreError::InvalidManifest { .. }
-        | StoreError::Import(_)
-        | StoreError::Io(_)
+        | StoreError::SymlinkRefused(_)
+        | StoreError::InvalidPath(_)
+        | StoreError::ForeignDatabase { .. }
         | StoreError::UnsafeRunId(_)
-        | StoreError::SymlinkRefused(_) => false,
+        | StoreError::Io(_)
+        | StoreError::ProviderWait(_)
+        | StoreError::Contended { .. }
+        | StoreError::Clock { .. }
+        | StoreError::Import(_)
+        | StoreError::InvalidManifest { .. }
+        | StoreError::DivergentEventLog { .. }
+        | StoreError::ProjectionLag { .. }
+        | StoreError::TokenCountOutOfRange(..)
+        | StoreError::AlreadyAcknowledged { .. }
+        | StoreError::SeatTree(_)
+        | StoreError::Queue(_)
+        | StoreError::UnknownHead { .. }
+        | StoreError::AfterTerminal { .. }
+        | StoreError::HeadMoved { .. }
+        | StoreError::AppendConflict { .. }
+        | StoreError::SchemaMismatch { .. }
+        | StoreError::SeatRecord(_)
+        | StoreError::RunIdUnnameable(_)
+        | StoreError::RunIdTooLong { .. }
+        | StoreError::RunExists(_)
+        | StoreError::RunNotFound(_) => false,
     }
 }
 

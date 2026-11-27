@@ -7,10 +7,11 @@
 //! read-model projections, reusing [`crate::queue`] schema, validation, and
 //! SQL helpers directly.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
-use brokkr_core::{provider_waits, ProviderWait};
+use brokkr_core::provider_waits;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 use crate::{
@@ -19,8 +20,8 @@ use crate::{
 };
 
 use super::{
-    checked_seq, open_standalone_sqlite, parse_clock, read_verified_log, CoordinationStore,
-    EventLog,
+    checked_seq, divergent, open_standalone_store, parse_clock, read_verified_log,
+    CoordinationStore, EventLog,
 };
 
 const META_DDL: &str = "CREATE TABLE IF NOT EXISTS meta (
@@ -29,6 +30,16 @@ const META_DDL: &str = "CREATE TABLE IF NOT EXISTS meta (
 );";
 const META_PRESENT_SQL: &str =
     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'";
+const FOREIGN_TABLES_SQL: &str = "SELECT COUNT(*) FROM sqlite_master
+     WHERE type = 'table'
+       AND name NOT LIKE 'sqlite_%'
+       AND name NOT IN (
+           'meta', 'queue_entries', 'queue_waits', 'queue_commands',
+           'queue_latches', 'queue_pins', 'queue_claims', 'queue_refusals',
+           'dispatch_holders', 'dispatch_settings', 'provider_cooldowns',
+           'seat_trees', 'tree_sweeps'
+       )";
+const MONOLITH_META_SQL: &str = "SELECT COUNT(*) FROM meta WHERE key = 'database_schema'";
 
 /// Standalone SQLite [`CoordinationStore`] (e.g. `queue.db`), isolated from
 /// event logs and projections.
@@ -42,19 +53,19 @@ impl SqliteCoordinationStore {
     /// Open (creating if absent) an isolated SQLite coordination database at
     /// `path` in WAL mode with `busy_timeout`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        Self::open_at(path.as_ref())
-    }
-
-    fn open_at(path: &Path) -> Result<Self, StoreError> {
-        let path = path.to_path_buf();
-        let conn = open_standalone_sqlite(&path)?;
-        conn.pragma_update(None, "foreign_keys", "OFF")?;
-        patiently("coordination_migrate", BUSY_TIMEOUT, &path, || {
-            ensure_schema(&conn)
-        })?;
+        let path = path.as_ref();
+        let (conn, owned) = open_standalone_store(
+            path,
+            "coordination_migrate",
+            |conn| {
+                conn.pragma_update(None, "foreign_keys", "OFF")?;
+                Ok(())
+            },
+            |conn| ensure_schema(conn, path),
+        )?;
         Ok(Self {
             conn,
-            path,
+            path: owned,
             patience: BUSY_TIMEOUT,
         })
     }
@@ -70,14 +81,15 @@ impl SqliteCoordinationStore {
     ///
     /// Re-applying the same envelopes is a no-op (`Ok(0)`) because cooldown
     /// rows are deduplicated on `(run_id, event_seq, site, rounds)` without
-    /// requiring two-phase commit across storage engines.
+    /// requiring two-phase commit across storage engines; conflicting fields
+    /// for the same key fail closed with [`StoreError::DivergentEventLog`].
     pub fn apply_cooldowns(
         &self,
         run_id: &str,
         envelopes: &[EventEnvelope],
     ) -> Result<u64, StoreError> {
         validate_cooldown_envelopes(run_id, envelopes)?;
-        let derived = extract_cooldowns(envelopes);
+        let derived = extract_cooldowns(envelopes)?;
         patiently("apply_cooldowns", self.patience, &self.path, || {
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
             let inserted = apply_derived(&tx, run_id, &derived)?;
@@ -95,7 +107,7 @@ impl SqliteCoordinationStore {
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
             let mut inserted = 0u64;
             for run in &verified {
-                let derived = extract_cooldowns(&run.events);
+                let derived = extract_cooldowns(&run.events)?;
                 inserted += apply_derived(&tx, &run.run_id, &derived)?;
             }
             tx.commit()?;
@@ -104,10 +116,12 @@ impl SqliteCoordinationStore {
     }
 }
 
+type CooldownBatch<'a> = (u64, &'a str, Vec<Cooling>);
+
 fn apply_derived(
     tx: &Connection,
     run_id: &str,
-    derived: &[(u64, &str, Vec<Cooling>)],
+    derived: &[CooldownBatch<'_>],
 ) -> Result<u64, StoreError> {
     let mut inserted = 0u64;
     for (seq, recorded_at, rows) in derived {
@@ -121,7 +135,24 @@ fn meta_present(conn: &Connection) -> Result<bool, StoreError> {
     Ok(found == 1)
 }
 
-fn ensure_schema(conn: &Connection) -> Result<(), StoreError> {
+fn refuse_foreign_database(conn: &Connection, path: &Path) -> Result<(), StoreError> {
+    let foreign: i64 = conn.query_row(FOREIGN_TABLES_SQL, [], |row| row.get(0))?;
+    let monolith_meta = if meta_present(conn)? {
+        conn.query_row(MONOLITH_META_SQL, [], |row| row.get::<_, i64>(0))? > 0
+    } else {
+        false
+    };
+    if foreign > 0 || monolith_meta {
+        return Err(StoreError::ForeignDatabase {
+            path: path.to_path_buf(),
+            expected: "coordination store",
+        });
+    }
+    Ok(())
+}
+
+fn ensure_schema(conn: &Connection, path: &Path) -> Result<(), StoreError> {
+    refuse_foreign_database(conn, path)?;
     if meta_present(conn)? && queue::queue_intact(conn)? {
         return Ok(());
     }
@@ -136,6 +167,7 @@ fn validate_cooldown_envelopes(
     run_id: &str,
     envelopes: &[EventEnvelope],
 ) -> Result<(), StoreError> {
+    let mut seen: BTreeMap<u64, &str> = BTreeMap::new();
     for envelope in envelopes {
         if envelope.run_id != run_id {
             return Err(StoreError::Chain(ChainError::ForeignRun {
@@ -152,23 +184,16 @@ fn validate_cooldown_envelopes(
         if envelope.event_hash != envelope.compute_hash() {
             return Err(StoreError::Chain(ChainError::BadHash { seq: envelope.seq }));
         }
+        if let Some(prev_hash) = seen.insert(envelope.seq, envelope.event_hash.as_str()) {
+            if prev_hash != envelope.event_hash {
+                return Err(divergent(run_id));
+            }
+        }
     }
     Ok(())
 }
 
-fn cooling_of_wait(wait: &ProviderWait) -> Cooling {
-    Cooling {
-        site: wait.site.clone().unwrap_or_default(),
-        provider: wait.provider.clone(),
-        route: wait.route.clone(),
-        until_at: wait.until,
-        reason: wait.words.clone(),
-        retry_after_seconds: wait.retry_after_seconds,
-        rounds: wait.rounds,
-    }
-}
-
-fn extract_cooldowns(envelopes: &[EventEnvelope]) -> Vec<(u64, &str, Vec<Cooling>)> {
+fn extract_cooldowns(envelopes: &[EventEnvelope]) -> Result<Vec<CooldownBatch<'_>>, StoreError> {
     let mut batches = Vec::new();
     for envelope in envelopes {
         if !matches!(
@@ -177,12 +202,12 @@ fn extract_cooldowns(envelopes: &[EventEnvelope]) -> Vec<(u64, &str, Vec<Cooling
         ) {
             continue;
         }
-        if let Ok(Some(waits)) = provider_waits(envelope) {
-            let rows: Vec<Cooling> = waits.iter().map(cooling_of_wait).collect();
+        if let Some(waits) = provider_waits(envelope)? {
+            let rows: Vec<Cooling> = waits.iter().map(Cooling::from).collect();
             batches.push((envelope.seq, envelope.recorded_at.as_str(), rows));
         }
     }
-    batches
+    Ok(batches)
 }
 
 impl CoordinationStore for SqliteCoordinationStore {

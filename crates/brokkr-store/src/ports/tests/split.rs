@@ -8,7 +8,6 @@
 //! - End-to-end [`Journal<FsEventLog, SqliteProjectionStore, SqliteCoordinationStore>`]
 //!   including NDJSON parity with [`Store`] and `ProjectionLag` healing
 
-use std::cell::Cell;
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::sync::{Arc, Barrier};
@@ -21,71 +20,23 @@ use super::*;
 use crate::ports::{FsEventLog, SqliteCoordinationStore, SqliteProjectionStore};
 use crate::{ManifestRefusal, QueueRefusal, Wait, WaitOn};
 
-struct DupRunLog {
-    inner: FsEventLog,
-    dup: String,
-}
-
-impl EventLog for DupRunLog {
-    fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError> {
-        self.inner.create_run(run_id, manifest)
-    }
-    fn append_envelopes(
-        &self,
-        run_id: &str,
-        expected_head: (u64, &str),
-        envelopes: &[EventEnvelope],
-    ) -> Result<(), StoreError> {
-        self.inner
-            .append_envelopes(run_id, expected_head, envelopes)
-    }
-    fn import_run_stream(
-        &self,
-        run_id: &str,
-        manifest: &Value,
-        envelopes: &[EventEnvelope],
-    ) -> Result<(), StoreError> {
-        self.inner.import_run_stream(run_id, manifest, envelopes)
-    }
-    fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {
-        self.inner.head(run_id)
-    }
-    fn read_stream(&self, run_id: &str, from_seq: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        self.inner.read_stream(run_id, from_seq)
-    }
-    fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
-        self.inner.manifest(run_id)
-    }
-    fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
-        Ok(vec![self.dup.clone(), self.dup.clone()])
-    }
-}
-
-struct LaggingProjection<'a> {
-    inner: &'a SqliteProjectionStore,
-    fail: Cell<bool>,
-}
-
-impl ProjectionStore for LaggingProjection<'_> {
-    fn apply_envelopes(
-        &self,
-        run_id: &str,
-        manifest: Option<&Value>,
-        envelopes: &[EventEnvelope],
-    ) -> Result<(), StoreError> {
-        if self.fail.get() {
-            return Err(StoreError::Clock {
-                now: "simulated-lag".to_string(),
-            });
-        }
-        self.inner.apply_envelopes(run_id, manifest, envelopes)
-    }
-    fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
-        self.inner.list_runs()
-    }
-    fn rebuild_from(&self, log: &dyn EventLog) -> Result<u64, StoreError> {
-        self.inner.rebuild_from(log)
-    }
+fn seed_two_events(
+    log: &FsEventLog,
+    run_id: &str,
+    feature: &str,
+) -> (EventEnvelope, EventEnvelope) {
+    let e1 = started_event(run_id, feature, "2026-11-26T10:00:00Z");
+    let e2 = sealed_event(
+        run_id,
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "implement"}),
+        &e1.event_hash,
+        "2026-11-26T10:00:05Z",
+    );
+    log.append_envelopes(run_id, (0, ZERO_HASH), &[e1.clone(), e2.clone()])
+        .unwrap();
+    (e1, e2)
 }
 
 fn waits_effect_payload(until_a: &str, until_b: &str) -> Value {
@@ -157,9 +108,15 @@ fn fs_event_log_conformance_and_invariants() {
     ));
 
     fs::write(root.join("stray.txt"), "noise").unwrap();
-    fs::create_dir(root.join(".hidden")).unwrap();
-    fs::create_dir(root.join("incomplete-dir")).unwrap();
+    fs::create_dir(root.join(".staging-leftover")).unwrap();
     assert!(log.list_run_ids().unwrap().is_empty());
+    let incomplete = root.join("incomplete-dir");
+    fs::create_dir(&incomplete).unwrap();
+    assert!(matches!(
+        log.list_run_ids(),
+        Err(StoreError::Damaged { .. })
+    ));
+    fs::remove_dir(&incomplete).unwrap();
 
     log.create_run("run-b", &manifest).unwrap();
     log.create_run("run-a", &manifest).unwrap();
@@ -183,17 +140,7 @@ fn fs_event_log_conformance_and_invariants() {
         })
     ));
 
-    let e1 = started_event("run-a", "fs-conformance", "2026-11-26T10:00:00Z");
-    let e2 = sealed_event(
-        "run-a",
-        2,
-        EventType::PhaseEntered,
-        json!({"phase": "implement"}),
-        &e1.event_hash,
-        "2026-11-26T10:00:05Z",
-    );
-    log.append_envelopes("run-a", (0, ZERO_HASH), &[e1.clone(), e2.clone()])
-        .unwrap();
+    let (e1, e2) = seed_two_events(&log, "run-a", "fs-conformance");
     assert_eq!(log.head("run-a").unwrap(), (2, e2.event_hash.clone()));
     assert_eq!(
         serde_json::to_vec(&log.read_stream("run-a", 1).unwrap()).unwrap(),
@@ -248,17 +195,7 @@ fn fs_event_log_terminal_and_import_gates() {
     let manifest = sample_manifest("fs-gates");
     log.create_run("run-a", &manifest).unwrap();
     log.create_run("run-b", &manifest).unwrap();
-    let e1 = started_event("run-a", "fs-gates", "2026-11-26T10:00:00Z");
-    let e2 = sealed_event(
-        "run-a",
-        2,
-        EventType::PhaseEntered,
-        json!({"phase": "implement"}),
-        &e1.event_hash,
-        "2026-11-26T10:00:05Z",
-    );
-    log.append_envelopes("run-a", (0, ZERO_HASH), &[e1.clone(), e2.clone()])
-        .unwrap();
+    let (e1, e2) = seed_two_events(&log, "run-a", "fs-gates");
 
     let bad_started_manifest = sealed_event(
         "run-b",
@@ -329,6 +266,14 @@ fn fs_event_log_terminal_and_import_gates() {
     ));
 }
 
+fn make_outside_dir(parent: &std::path::Path) -> std::path::PathBuf {
+    let outside = parent.join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("manifest.json"), "{}").unwrap();
+    fs::write(outside.join("events.ndjson"), "").unwrap();
+    outside
+}
+
 #[test]
 fn fs_event_log_path_traversal_and_symlink_safety() {
     let dir = tempdir().unwrap();
@@ -364,13 +309,13 @@ fn fs_event_log_path_traversal_and_symlink_safety() {
         Err(StoreError::RunIdUnnameable(_))
     ));
 
-    let outside = dir.path().join("outside");
-    fs::create_dir(&outside).unwrap();
-    fs::write(outside.join("manifest.json"), "{}").unwrap();
-    fs::write(outside.join("events.ndjson"), "").unwrap();
+    let outside = make_outside_dir(dir.path());
     symlink(&outside, root.join("linked-run")).unwrap();
 
-    assert!(log.list_run_ids().unwrap().is_empty());
+    assert!(matches!(
+        log.list_run_ids(),
+        Err(StoreError::SymlinkRefused(_))
+    ));
     let sym_err = log.head("linked-run").unwrap_err();
     assert!(matches!(sym_err, StoreError::SymlinkRefused(_)));
     assert!(sym_err.to_string().contains("refusing symlink at"));
@@ -390,12 +335,39 @@ fn fs_event_log_path_traversal_and_symlink_safety() {
         log.create_run("linked-run", &manifest),
         Err(StoreError::SymlinkRefused(_))
     ));
+}
 
+#[test]
+fn fs_event_log_missing_and_symlinked_inner_files_fail_closed() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("runs");
+    let log = FsEventLog::open(&root).unwrap();
+    let manifest = sample_manifest("safety-inner");
+    let outside = make_outside_dir(dir.path());
     log.create_run("real-run", &manifest).unwrap();
     let run_dir = root.join("real-run");
     fs::remove_file(run_dir.join("manifest.json")).unwrap();
+    assert!(matches!(
+        log.head("real-run"),
+        Err(StoreError::Damaged { .. })
+    ));
+    assert!(matches!(
+        log.read_stream("real-run", 1),
+        Err(StoreError::Damaged { .. })
+    ));
     symlink(outside.join("manifest.json"), run_dir.join("manifest.json")).unwrap();
-    assert!(log.list_run_ids().unwrap().is_empty());
+    assert!(matches!(
+        log.list_run_ids(),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+    assert!(matches!(
+        log.head("real-run"),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+    assert!(matches!(
+        log.read_stream("real-run", 1),
+        Err(StoreError::SymlinkRefused(_))
+    ));
     assert!(matches!(
         log.manifest("real-run"),
         Err(StoreError::SymlinkRefused(_))
@@ -432,15 +404,15 @@ fn fs_event_log_refuses_corrupt_truncated_and_before_chain_ndjson() {
     let events_path = root.join("r1").join("events.ndjson");
 
     let e1 = started_event("r1", "corrupt-check", "2026-11-26T10:00:00Z");
-    fs::write(&events_path, serde_json::to_string(&e1).unwrap()).unwrap();
-    assert!(
-        matches!(log.read_stream("r1", 1), Err(StoreError::Unparsed { ref run_id, seq: 1 }) if run_id == "r1")
-    );
-
-    fs::write(&events_path, "{not-valid-json\n").unwrap();
-    assert!(
-        matches!(log.read_stream("r1", 1), Err(StoreError::Unparsed { ref run_id, seq: 1 }) if run_id == "r1")
-    );
+    for raw in [
+        serde_json::to_string(&e1).unwrap(),
+        "{not-valid-json\n".to_string(),
+    ] {
+        fs::write(&events_path, raw).unwrap();
+        assert!(
+            matches!(log.read_stream("r1", 1), Err(StoreError::Unparsed { ref run_id, seq: 1 }) if run_id == "r1")
+        );
+    }
 
     fs::write(&events_path, "{\"hello\": \"world\"}\n").unwrap();
     assert!(matches!(log.read_stream("r1", 1), Err(StoreError::Json(_))));
@@ -646,9 +618,12 @@ fn sqlite_projection_store_rebuild_and_corrupt_head() {
         ]
     );
 
-    let dup = DupRunLog {
+    let dup = InterceptingLog {
         inner: fs_log,
-        dup: "r1".to_string(),
+        on_head: None,
+        on_list_run_ids: None,
+        on_read_stream: None,
+        override_run_ids: Some(vec!["r1".to_string(), "r1".to_string()]),
     };
     assert!(matches!(
         proj.rebuild_from(&dup),
@@ -838,10 +813,7 @@ fn split_journal_end_to_end_ndjson_parity_and_projection_lag_healing() {
     let fs_log = FsEventLog::open(dir.path().join("runs")).unwrap();
     let proj = SqliteProjectionStore::open(dir.path().join("index.db")).unwrap();
     let coord = SqliteCoordinationStore::open(dir.path().join("queue.db")).unwrap();
-    let lagging = LaggingProjection {
-        inner: &proj,
-        fail: Cell::new(false),
-    };
+    let lagging = FailingProjectionStore::toggleable(&proj);
     let journal = Journal::new(&fs_log, &lagging, &coord);
     let manifest = sample_manifest("split-e2e");
 
@@ -903,7 +875,7 @@ fn split_journal_end_to_end_ndjson_parity_and_projection_lag_healing() {
         )
         .unwrap();
 
-    lagging.fail.set(true);
+    lagging.set_fail(true);
     let lag_err = journal
         .append_event(
             "split-1",
@@ -919,7 +891,7 @@ fn split_journal_end_to_end_ndjson_parity_and_projection_lag_healing() {
     assert!(!lag_err.is_contention());
     assert_eq!(journal.load_verified("split-1").unwrap().len(), 6);
 
-    lagging.fail.set(false);
+    lagging.set_fail(false);
     assert_eq!(journal.reindex().unwrap(), 6);
     assert_eq!(coord.sync_cooldowns_from(&fs_log).unwrap(), 2);
     assert_eq!(
@@ -935,7 +907,11 @@ fn split_journal_end_to_end_ndjson_parity_and_projection_lag_healing() {
 
 fn assert_split_export_import_parity(
     base: &std::path::Path,
-    journal: &Journal<&FsEventLog, &LaggingProjection<'_>, &SqliteCoordinationStore>,
+    journal: &Journal<
+        &FsEventLog,
+        &FailingProjectionStore<&SqliteProjectionStore>,
+        &SqliteCoordinationStore,
+    >,
     manifest: &Value,
 ) {
     let exported = journal.export_ndjson("split-1").unwrap();
@@ -1013,7 +989,12 @@ fn fs_event_log_concurrent_writers_stress() {
             events_per_run
         );
     }
+}
 
+#[test]
+fn fs_event_log_contended_writers_barrier_head_moved_stress() {
+    let dir = tempdir().unwrap();
+    let log = Arc::new(FsEventLog::open(dir.path().join("runs")).unwrap());
     let shared_run = "contended-run";
     log.create_run(shared_run, &sample_manifest("contended"))
         .unwrap();
@@ -1023,13 +1004,35 @@ fn fs_event_log_concurrent_writers_stress() {
 
     let contenders = 6usize;
     let commits_each = 8usize;
+    let (_, initial_hash) = log.head(shared_run).unwrap();
     let start = Arc::new(Barrier::new(contenders));
     let mut racers = Vec::with_capacity(contenders);
     for worker in 0..contenders {
         let log = Arc::clone(&log);
         let start = Arc::clone(&start);
+        let initial_hash = initial_hash.clone();
         racers.push(thread::spawn(move || {
+            let raced = sealed_event(
+                shared_run,
+                2,
+                EventType::PhaseEntered,
+                json!({"worker": worker, "phase": "barrier-seq2"}),
+                &initial_hash,
+                "2026-11-26T15:00:01Z",
+            );
             start.wait();
+            let won_seq2 = match log.append_envelopes(
+                shared_run,
+                (1, &initial_hash),
+                std::slice::from_ref(&raced),
+            ) {
+                Ok(()) => true,
+                Err(StoreError::HeadMoved {
+                    expected_seq: 1,
+                    found_seq,
+                }) if found_seq >= 2 => false,
+                Err(other) => panic!("unexpected barrier race error: {other}"),
+            };
             let mut committed = 0usize;
             while committed < commits_each {
                 let (head_seq, head_hash) = log.head(shared_run).unwrap();
@@ -1039,7 +1042,7 @@ fn fs_event_log_concurrent_writers_stress() {
                     EventType::PhaseEntered,
                     json!({"worker": worker, "n": committed}),
                     &head_hash,
-                    "2026-11-26T15:00:01Z",
+                    "2026-11-26T15:00:02Z",
                 );
                 match log.append_envelopes(
                     shared_run,
@@ -1051,20 +1054,19 @@ fn fs_event_log_concurrent_writers_stress() {
                     Err(other) => panic!("unexpected contention error: {other}"),
                 }
             }
+            won_seq2
         }));
     }
-    for racer in racers {
-        racer.join().unwrap();
-    }
-    assert_eq!(
-        log.read_stream(shared_run, 1).unwrap().len(),
-        1 + contenders * commits_each
-    );
+    let outcomes: Vec<bool> = racers.into_iter().map(|r| r.join().unwrap()).collect();
+    assert_eq!(outcomes.iter().filter(|&&won| won).count(), 1);
+    assert_eq!(outcomes.iter().filter(|&&won| !won).count(), contenders - 1);
+
+    let shared_len = 2 + contenders * commits_each;
+    let stream = log.read_stream(shared_run, 1).unwrap();
+    assert_eq!(stream.len(), shared_len);
+    brokkr_core::envelope::verify_chain(&stream).unwrap();
     let index = SqliteProjectionStore::open(dir.path().join("index.db")).unwrap();
-    assert_eq!(
-        index.rebuild_from(log.as_ref()).unwrap(),
-        (independent_writers * events_per_run + 1 + contenders * commits_each) as u64
-    );
+    assert_eq!(index.rebuild_from(log.as_ref()).unwrap(), shared_len as u64);
 }
 
 #[test]
@@ -1076,9 +1078,14 @@ fn fs_event_log_cleanup_on_populate_error_and_fs_edge_cases() {
     let root = dir.path().join("runs");
     let log = FsEventLog::open(&root).unwrap();
 
-    // Non-UTF-8 directory name inside root is silently skipped by list_run_ids.
-    fs::create_dir(root.join(OsStr::from_bytes(b"bad\xffutf8"))).unwrap();
-    assert!(log.list_run_ids().unwrap().is_empty());
+    // Non-UTF-8 directory name inside root fails closed in list_run_ids.
+    let bad_utf8 = root.join(OsStr::from_bytes(b"bad\xffutf8"));
+    fs::create_dir(&bad_utf8).unwrap();
+    assert!(matches!(
+        log.list_run_ids(),
+        Err(StoreError::Damaged { .. })
+    ));
+    fs::remove_dir(&bad_utf8).unwrap();
 
     // Atomic cleanup: if populate fails after create_dir, run_dir is removed cleanly.
     let err = crate::ports::fs_log::create_run_dir_atomic_with(&root, "cleanup-run", |run_dir| {
@@ -1103,4 +1110,467 @@ fn fs_event_log_cleanup_on_populate_error_and_fs_edge_cases() {
     // Replacing root with a regular file triggers ENOTDIR in reject_symlink -> StoreError::Io.
     fs::write(&vanished, "file").unwrap();
     assert!(matches!(vanished_log.head("r1"), Err(StoreError::Io(_))));
+}
+
+#[test]
+fn fs_event_log_open_dot_ids_toctou_and_append_rollback() {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::path::Path;
+
+    let dir = tempdir().unwrap();
+
+    // Open refuses empty path, symlink root, and symlink parent.
+    assert!(matches!(
+        FsEventLog::open(Path::new("")),
+        Err(StoreError::InvalidPath(_))
+    ));
+    let real_dir = dir.path().join("real");
+    fs::create_dir(&real_dir).unwrap();
+    let sym_root = dir.path().join("sym-root");
+    symlink(&real_dir, &sym_root).unwrap();
+    assert!(matches!(
+        FsEventLog::open(&sym_root),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+    assert!(matches!(
+        FsEventLog::open(sym_root.join("nested")),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+
+    // Dot-prefixed run ids like `.draft` work consistently across create_run and list_run_ids,
+    // while internal reserved names `.create.lock` and `.staging-*` are refused.
+    let root = dir.path().join("runs");
+    let log = FsEventLog::open(&root).unwrap();
+    let manifest = sample_manifest("dot-feature");
+    for reserved in [".create.lock", ".staging-123"] {
+        assert!(matches!(
+            log.create_run(reserved, &manifest),
+            Err(StoreError::UnsafeRunId(_))
+        ));
+    }
+    log.create_run(".draft", &manifest).unwrap();
+    assert_eq!(log.list_run_ids().unwrap(), vec![".draft".to_string()]);
+    let e1 = started_event(".draft", "dot-feature", "2026-11-26T10:00:00Z");
+    log.append_envelopes(".draft", (0, ZERO_HASH), std::slice::from_ref(&e1))
+        .unwrap();
+    assert_eq!(log.head(".draft").unwrap(), (1, e1.event_hash.clone()));
+
+    // Atomic append rollback: partial write + error restores original length cleanly.
+    let events_path = root.join(".draft").join("events.ndjson");
+    let before_len = fs::metadata(&events_path).unwrap().len();
+    let mut file = OpenOptions::new().append(true).open(&events_path).unwrap();
+    let rollback_err = crate::ports::fs_log::append_bytes_atomic_with(&mut file, |f| {
+        f.write_all(b"{\"partial_corrupt\":")?;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::WriteZero,
+            "simulated short write",
+        ))
+    })
+    .unwrap_err();
+    assert!(matches!(rollback_err, StoreError::Io(_)));
+    drop(file);
+    assert_eq!(fs::metadata(&events_path).unwrap().len(), before_len);
+    assert_eq!(log.read_stream(".draft", 1).unwrap().len(), 1);
+
+    // TOCTOU symlink / inode-swap refusal in open_no_symlink_with.
+    let target = dir.path().join("toctou.txt");
+    let decoy = dir.path().join("decoy.txt");
+    fs::write(&target, "orig").unwrap();
+    fs::write(&decoy, "decoy").unwrap();
+    let swap_sym_err = crate::ports::fs_log::open_no_symlink_with(&target, |path| {
+        let opened = fs::File::open(path)?;
+        fs::remove_file(path)?;
+        symlink(&decoy, path)?;
+        Ok(opened)
+    })
+    .unwrap_err();
+    assert!(matches!(swap_sym_err, StoreError::SymlinkRefused(_)));
+
+    fs::remove_file(&target).unwrap();
+    fs::write(&target, "orig2").unwrap();
+    let swap_file_err = crate::ports::fs_log::open_no_symlink_with(&target, |path| {
+        let opened = fs::File::open(path)?;
+        fs::remove_file(path)?;
+        fs::write(path, "replaced")?;
+        Ok(opened)
+    })
+    .unwrap_err();
+    assert!(matches!(swap_file_err, StoreError::Io(_)));
+}
+
+#[test]
+fn standalone_sqlite_paths_symlinks_and_foreign_db_refusals() {
+    use std::path::Path;
+
+    let dir = tempdir().unwrap();
+
+    // Empty and NUL paths refused as InvalidPath.
+    for bad in [Path::new(""), Path::new("nul\0.db")] {
+        assert!(matches!(
+            SqliteProjectionStore::open(bad),
+            Err(StoreError::InvalidPath(_))
+        ));
+        assert!(matches!(
+            SqliteCoordinationStore::open(bad),
+            Err(StoreError::InvalidPath(_))
+        ));
+    }
+
+    // Literal SQLite paths: `file:sym.db?mode=rwc` must NOT parse URI or touch `sym.db`.
+    let outside = dir.path().join("outside.db");
+    fs::write(&outside, b"untouched-sentinel").unwrap();
+    let sym_db = dir.path().join("sym.db");
+    symlink(&outside, &sym_db).unwrap();
+    let uri_literal = dir.path().join("file:sym.db?mode=rwc");
+    let proj_lit = SqliteProjectionStore::open(&uri_literal).unwrap();
+    drop(proj_lit);
+    assert_eq!(fs::read(&outside).unwrap(), b"untouched-sentinel");
+    assert!(uri_literal.is_file());
+
+    // Symlink target, symlink parent, and symlinked -wal/-shm sidecars refused.
+    assert!(matches!(
+        SqliteProjectionStore::open(&sym_db),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+    assert!(matches!(
+        SqliteCoordinationStore::open(&sym_db),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+    let real_parent = dir.path().join("real-parent");
+    fs::create_dir(&real_parent).unwrap();
+    let sym_parent = dir.path().join("sym-parent");
+    symlink(&real_parent, &sym_parent).unwrap();
+    assert!(matches!(
+        SqliteProjectionStore::open(sym_parent.join("index.db")),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+    assert!(matches!(
+        SqliteCoordinationStore::open(sym_parent.join("queue.db")),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+
+    let wal_victim = dir.path().join("wal-victim.db");
+    symlink(&outside, dir.path().join("wal-victim.db-wal")).unwrap();
+    assert!(matches!(
+        SqliteProjectionStore::open(&wal_victim),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+}
+
+#[test]
+fn standalone_sqlite_refuses_foreign_and_monolithic_databases() {
+    let dir = tempdir().unwrap();
+    // Foreign / monolithic databases refused by both SqliteProjectionStore and SqliteCoordinationStore.
+    let monolith = dir.path().join("forge.db");
+    let mut store = Store::open(&monolith).unwrap();
+    store.create_run("m1", "feat", "self", &json!({})).unwrap();
+    drop(store);
+    assert!(matches!(
+        SqliteProjectionStore::open(&monolith),
+        Err(StoreError::ForeignDatabase {
+            expected: "projection index",
+            ..
+        })
+    ));
+    assert!(matches!(
+        SqliteCoordinationStore::open(&monolith),
+        Err(StoreError::ForeignDatabase {
+            expected: "coordination store",
+            ..
+        })
+    ));
+
+    // Cross-store refusal: queue.db refused as projection index; index.db refused as coordination store.
+    let idx_path = dir.path().join("index.db");
+    let queue_path = dir.path().join("queue.db");
+    drop(SqliteProjectionStore::open(&idx_path).unwrap());
+    drop(SqliteCoordinationStore::open(&queue_path).unwrap());
+    assert!(matches!(
+        SqliteProjectionStore::open(&queue_path),
+        Err(StoreError::ForeignDatabase { .. })
+    ));
+    assert!(matches!(
+        SqliteCoordinationStore::open(&idx_path),
+        Err(StoreError::ForeignDatabase { .. })
+    ));
+
+    // Foreign user_version, triggers, partial schema, and wrong projection_schema refused.
+    let uv_db = dir.path().join("uv.db");
+    let conn = Connection::open(&uv_db).unwrap();
+    conn.pragma_update(None, "user_version", 99u32).unwrap();
+    drop(conn);
+    assert!(matches!(
+        SqliteProjectionStore::open(&uv_db),
+        Err(StoreError::ForeignDatabase { .. })
+    ));
+
+    let trig_db = dir.path().join("trig.db");
+    drop(SqliteProjectionStore::open(&trig_db).unwrap());
+    let conn = Connection::open(&trig_db).unwrap();
+    conn.execute_batch(
+        "CREATE TRIGGER bad_trig AFTER INSERT ON projected_runs BEGIN SELECT 1; END;",
+    )
+    .unwrap();
+    drop(conn);
+    assert!(matches!(
+        SqliteProjectionStore::open(&trig_db),
+        Err(StoreError::ForeignDatabase { .. })
+    ));
+
+    let partial_db = dir.path().join("partial.db");
+    drop(SqliteProjectionStore::open(&partial_db).unwrap());
+    let conn = Connection::open(&partial_db).unwrap();
+    conn.execute("DROP TABLE projected_events", []).unwrap();
+    drop(conn);
+    assert!(matches!(
+        SqliteProjectionStore::open(&partial_db),
+        Err(StoreError::ForeignDatabase { .. })
+    ));
+
+    let bad_ver_db = dir.path().join("bad-ver.db");
+    drop(SqliteProjectionStore::open(&bad_ver_db).unwrap());
+    let conn = Connection::open(&bad_ver_db).unwrap();
+    conn.execute(
+        "UPDATE projection_meta SET value = '999' WHERE key = 'projection_schema'",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    assert!(matches!(
+        SqliteProjectionStore::open(&bad_ver_db),
+        Err(StoreError::ForeignDatabase { .. })
+    ));
+}
+
+#[test]
+fn sqlite_projection_integrity_repair_empty_run_id_and_locked_rebuild() {
+    let dir = tempdir().unwrap();
+    let index_path = dir.path().join("index.db");
+    let proj = SqliteProjectionStore::open(&index_path).unwrap();
+
+    // Refuse empty run_id in apply_envelopes.
+    assert!(matches!(
+        proj.apply_envelopes("", None, &[]),
+        Err(StoreError::RunIdUnnameable(_))
+    ));
+
+    // Seed 2 events, then tamper projected_runs.head_hash at equal head -> DivergentEventLog.
+    let e1 = started_event("p-int", "feat", "2026-11-26T10:00:00Z");
+    let e2 = sealed_event(
+        "p-int",
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "implement"}),
+        &e1.event_hash,
+        "2026-11-26T10:00:05Z",
+    );
+    let e3 = sealed_event(
+        "p-int",
+        3,
+        EventType::RunCompleted,
+        json!({}),
+        &e2.event_hash,
+        "2026-11-26T10:00:10Z",
+    );
+    proj.apply_envelopes("p-int", None, &[e1.clone(), e2.clone()])
+        .unwrap();
+
+    let raw = Connection::open(&index_path).unwrap();
+    raw.execute(
+        "UPDATE projected_runs SET head_hash = 'tampered-head' WHERE run_id = 'p-int'",
+        [],
+    )
+    .unwrap();
+    assert!(matches!(
+        proj.apply_envelopes("p-int", None, &[e1.clone(), e2.clone()]),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "p-int"
+    ));
+
+    // Restore head_hash and drop projected_events rows to prove repair on equal head,
+    // stale prefix, and advancing head.
+    raw.execute(
+        "UPDATE projected_runs SET head_hash = ?1 WHERE run_id = 'p-int'",
+        rusqlite::params![&e2.event_hash],
+    )
+    .unwrap();
+    raw.execute(
+        "DELETE FROM projected_events WHERE run_id = 'p-int' AND seq = 1",
+        [],
+    )
+    .unwrap();
+    proj.apply_envelopes("p-int", None, std::slice::from_ref(&e1))
+        .unwrap();
+    let count: i64 = raw
+        .query_row(
+            "SELECT COUNT(*) FROM projected_events WHERE run_id = 'p-int'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 2);
+
+    raw.execute(
+        "DELETE FROM projected_events WHERE run_id = 'p-int' AND seq = 2",
+        [],
+    )
+    .unwrap();
+    proj.apply_envelopes("p-int", None, &[e1.clone(), e2.clone()])
+        .unwrap();
+    let count: i64 = raw
+        .query_row(
+            "SELECT COUNT(*) FROM projected_events WHERE run_id = 'p-int'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 2);
+
+    raw.execute("DELETE FROM projected_events WHERE run_id = 'p-int'", [])
+        .unwrap();
+    proj.apply_envelopes("p-int", None, &[e1.clone(), e2.clone(), e3.clone()])
+        .unwrap();
+    let count: i64 = raw
+        .query_row(
+            "SELECT COUNT(*) FROM projected_events WHERE run_id = 'p-int'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 3);
+    drop(raw);
+}
+
+#[test]
+fn sqlite_projection_rebuild_holds_immediate_write_lock_during_log_read() {
+    let dir = tempdir().unwrap();
+    let index_path = dir.path().join("index.db");
+    let proj = SqliteProjectionStore::open(&index_path).unwrap();
+    let (e1, e2, e3) = {
+        let e1 = started_event("p-lock", "feat", "2026-11-26T10:00:00Z");
+        let e2 = sealed_event(
+            "p-lock",
+            2,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            &e1.event_hash,
+            "2026-11-26T10:00:05Z",
+        );
+        let e3 = sealed_event(
+            "p-lock",
+            3,
+            EventType::RunCompleted,
+            json!({}),
+            &e2.event_hash,
+            "2026-11-26T10:00:10Z",
+        );
+        (e1, e2, e3)
+    };
+    // Prove rebuild_from holds BEGIN IMMEDIATE before reading from `log`.
+    let fs_log = FsEventLog::open(dir.path().join("runs")).unwrap();
+    fs_log
+        .create_run("p-lock", &sample_manifest("feat"))
+        .unwrap();
+    fs_log
+        .append_envelopes("p-lock", (0, ZERO_HASH), &[e1, e2, e3])
+        .unwrap();
+    let peer = Connection::open(&index_path).unwrap();
+    let observed_locked = std::cell::Cell::new(false);
+    let intercepted = InterceptingLog {
+        inner: fs_log,
+        on_head: None,
+        on_list_run_ids: Some(Box::new(|| {
+            let err = peer.execute_batch("BEGIN IMMEDIATE").unwrap_err();
+            assert!(matches!(
+                err.sqlite_error_code(),
+                Some(rusqlite::ErrorCode::DatabaseBusy)
+            ));
+            observed_locked.set(true);
+        })),
+        on_read_stream: None,
+        override_run_ids: None,
+    };
+    assert_eq!(proj.rebuild_from(&intercepted).unwrap(), 3);
+    assert!(observed_locked.get());
+}
+
+#[test]
+fn sqlite_coordination_fail_closed_waits_and_divergent_cooldowns() {
+    let dir = tempdir().unwrap();
+    let coord = SqliteCoordinationStore::open(dir.path().join("queue.db")).unwrap();
+
+    // Malformed `waits` payload must propagate StoreError::ProviderWait (never silently discarded).
+    let bad_wait_event = sealed_event(
+        "c-run",
+        1,
+        EventType::EffectFailed,
+        json!({
+            "effect_id": "eff-bad",
+            "attempt_id": "att-bad",
+            "waits": [{"provider": "", "route": "r", "until": "not-a-timestamp", "words": "x", "seconds": 10, "rounds": 1}]
+        }),
+        ZERO_HASH,
+        "2026-11-26T10:00:00Z",
+    );
+    assert!(matches!(
+        coord.apply_cooldowns("c-run", std::slice::from_ref(&bad_wait_event)),
+        Err(StoreError::ProviderWait(_))
+    ));
+
+    // Also propagates in sync_cooldowns_from.
+    let fs_log = FsEventLog::open(dir.path().join("runs")).unwrap();
+    fs_log.create_run("c-run", &sample_manifest("c")).unwrap();
+    fs_log
+        .append_envelopes(
+            "c-run",
+            (0, ZERO_HASH),
+            std::slice::from_ref(&bad_wait_event),
+        )
+        .unwrap();
+    assert!(matches!(
+        coord.sync_cooldowns_from(&fs_log),
+        Err(StoreError::ProviderWait(_))
+    ));
+
+    // Divergent cooldown on conflict against existing row AND within same incoming slice.
+    let good_a = sealed_event(
+        "c-div",
+        2,
+        EventType::EffectFailed,
+        waits_effect_payload("2026-11-26T10:15:00Z", "2026-11-26T10:05:00Z"),
+        ZERO_HASH,
+        "2026-11-26T10:01:00Z",
+    );
+    let good_b = sealed_event(
+        "c-div",
+        2,
+        EventType::EffectFailed,
+        waits_effect_payload("2026-11-26T10:30:00Z", "2026-11-26T10:05:00Z"),
+        ZERO_HASH,
+        "2026-11-26T10:01:00Z",
+    );
+    // Divergent duplicate-seq within the same incoming slice -> DivergentEventLog.
+    assert!(matches!(
+        coord.apply_cooldowns("c-div", &[good_a.clone(), good_b.clone()]),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "c-div"
+    ));
+
+    // Commit identical duplicate-seq in one batch (inserts once, idempotent on second),
+    // verify identical replay is Ok(0), and divergent replay is DivergentEventLog.
+    assert_eq!(
+        coord
+            .apply_cooldowns("c-div", &[good_a.clone(), good_a.clone()])
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        coord
+            .apply_cooldowns("c-div", std::slice::from_ref(&good_a))
+            .unwrap(),
+        0
+    );
+    assert!(matches!(
+        coord.apply_cooldowns("c-div", &[good_b]),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "c-div"
+    ));
 }

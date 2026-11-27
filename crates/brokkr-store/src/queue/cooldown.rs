@@ -14,14 +14,17 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::provider_waits;
+use brokkr_core::{provider_waits, ProviderWait};
 use rusqlite::{params, Connection, OptionalExtension};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+mod write;
+
 use super::storage::{cool_downs_held, cool_downs_writable};
 use super::QueueRefusal;
 use crate::{patiently, Store, StoreError};
+use write::{insert_row, insert_row_with, verify_existing_cooldown_matches, StoredRow};
 
 /// One cool-down a terminal event records, as its writer derives it. The
 /// store fills `event_seq` and `recorded_at` from the event it writes the
@@ -42,6 +45,20 @@ pub struct Cooling {
     pub retry_after_seconds: Option<u64>,
     /// Which round of this site's waits within the effect's episode.
     pub rounds: u64,
+}
+
+impl From<&ProviderWait> for Cooling {
+    fn from(wait: &ProviderWait) -> Self {
+        Self {
+            site: wait.site.clone().unwrap_or_default(),
+            provider: wait.provider.clone(),
+            route: wait.route.clone(),
+            until_at: wait.until,
+            reason: wait.words.clone(),
+            retry_after_seconds: wait.retry_after_seconds,
+            rounds: wait.rounds,
+        }
+    }
 }
 
 /// One `provider_cooldowns` row as a reader holds it: the cool-down the
@@ -175,65 +192,11 @@ fn insert_rows(
         };
         if insert_row_with(tx, &stored, idempotent)? > 0 {
             inserted += 1;
+        } else {
+            verify_existing_cooldown_matches(tx, &stored)?;
         }
     }
     Ok(inserted)
-}
-
-/// One `provider_cooldowns` row as the table's one writer spells it:
-/// shared by an attempt's rows and a probe's later round, so the INSERT
-/// lives once (decision 0071 ruling 5).
-struct StoredRow<'a> {
-    run_id: &'a str,
-    event_seq: u64,
-    site: &'a str,
-    provider: &'a str,
-    route: &'a str,
-    until: i64,
-    reason: &'a str,
-    retry_after_seconds: Option<u64>,
-    rounds: u64,
-    recorded: i64,
-}
-
-/// Insert one row. The table's CHECK constraints and unique index judge it.
-fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<(), StoreError> {
-    insert_row_with(conn, row, false)?;
-    Ok(())
-}
-
-fn insert_row_with(
-    conn: &Connection,
-    row: &StoredRow<'_>,
-    idempotent: bool,
-) -> Result<usize, StoreError> {
-    let sql = if idempotent {
-        "INSERT INTO provider_cooldowns
-            (run_id, event_seq, site, provider, route, until_at, reason,
-             retry_after_seconds, rounds, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-         ON CONFLICT (run_id, event_seq, site, rounds) DO NOTHING"
-    } else {
-        "INSERT INTO provider_cooldowns
-            (run_id, event_seq, site, provider, route, until_at, reason,
-             retry_after_seconds, rounds, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
-    };
-    Ok(conn.execute(
-        sql,
-        params![
-            row.run_id,
-            row.event_seq as i64,
-            row.site,
-            row.provider,
-            row.route,
-            row.until,
-            row.reason,
-            row.retry_after_seconds.map(|retry| retry as i64),
-            row.rounds as i64,
-            row.recorded,
-        ],
-    )?)
 }
 
 /// Every cool-down row in force at `now` on `conn`, checking the queue version.

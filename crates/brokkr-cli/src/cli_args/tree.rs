@@ -373,8 +373,12 @@ impl From<JournalCmd> for Cmd {
             JournalCmd::Verify(args) => Cmd::VerifyRun(args),
             JournalCmd::Backup(args) => Cmd::Backup(args),
             JournalCmd::Restore(args) => Cmd::Restore(args),
-            JournalCmd::Reindex(args) => Cmd::Reindex(args),
-            JournalCmd::Migrate(args) => Cmd::Migrate(args),
+            JournalCmd::Reindex(args) => {
+                Cmd::Grouped(GroupedCmd::Split(split::SplitCmd::Reindex(args)))
+            }
+            JournalCmd::Migrate(args) => {
+                Cmd::Grouped(GroupedCmd::Split(split::SplitCmd::Migrate(args)))
+            }
             JournalCmd::Anchor(args) => Cmd::Anchor(args),
             JournalCmd::KeepRefs { command } => Cmd::KeepRefs { command },
             JournalCmd::Evidence { command } => Cmd::Evidence { command },

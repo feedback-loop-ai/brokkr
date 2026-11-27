@@ -112,8 +112,6 @@ enum Cmd {
     },
     Backup(verbs::backup::BackupArgs),
     Restore(verbs::backup::RestoreArgs),
-    Reindex(verbs::split::ReindexArgs),
-    Migrate(verbs::split::MigrateArgs),
     Import(ImportArgs),
     VerifyRun(VerifyRunArgs),
     Bridge(BridgeArgs),
@@ -1357,8 +1355,6 @@ fn run_with(
         Cmd::Evidence { command } => evidence::run(command),
         Cmd::Backup(args) => backup::backup(workspace, args),
         Cmd::Restore(args) => backup::restore(args),
-        Cmd::Reindex(args) => verbs::split::reindex(workspace, args),
-        Cmd::Migrate(args) => verbs::split::migrate(workspace, args),
         Cmd::Import(args) => exchange::import(workspace, args),
         Cmd::VerifyRun(args) => exchange::verify_run(args),
         Cmd::Bridge(args) => exchange::bridge(workspace, args, bridge_iteration_limit),
@@ -1370,24 +1366,8 @@ fn run_with(
         Cmd::Broker { command } => broker::run(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
-        Cmd::Grouped(command) => grouped(workspace, command),
+        Cmd::Grouped(command) => verbs::grouped(workspace, command),
         Cmd::FakeDriver(args) => setup::fake_driver(args),
-    }
-}
-
-/// The small verb groups `Cmd::Grouped` flattens, each to its handler.
-fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode> {
-    use verbs::{dispatch, setup, sweep};
-    match command {
-        GroupedCmd::Recipes { command } => setup::recipes(workspace, command),
-        GroupedCmd::Agents { command } => setup::agents(workspace, command),
-        GroupedCmd::Muninn { command } => setup::muninn(workspace, command),
-        GroupedCmd::Secrets { command } => setup::secrets(workspace, command),
-        GroupedCmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
-        GroupedCmd::Dispatch(args) => dispatch::dispatch(workspace, args, &mut std::io::stdout()),
-        GroupedCmd::Completions(args) => {
-            Ok(completion::script(args, &mut std::io::stdout().lock()))
-        }
     }
 }
 

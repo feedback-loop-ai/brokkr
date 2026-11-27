@@ -93,7 +93,10 @@ pub(crate) fn classified(journal: &Path, error: StoreError) -> StoreError {
         | StoreError::Import(_)
         | StoreError::Io(_)
         | StoreError::UnsafeRunId(_)
-        | StoreError::SymlinkRefused(_) => return error,
+        | StoreError::SymlinkRefused(_)
+        | StoreError::InvalidPath(_)
+        | StoreError::ForeignDatabase { .. }
+        | StoreError::ProviderWait(_) => return error,
     };
     StoreError::Damaged {
         journal: journal.to_path_buf(),

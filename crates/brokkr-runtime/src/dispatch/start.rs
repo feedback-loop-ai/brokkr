@@ -426,7 +426,10 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::Unparsed { .. }
         | StoreError::Io(_)
         | StoreError::UnsafeRunId(_)
-        | StoreError::SymlinkRefused(_)) => Refused::Store(other),
+        | StoreError::SymlinkRefused(_)
+        | StoreError::InvalidPath(_)
+        | StoreError::ForeignDatabase { .. }
+        | StoreError::ProviderWait(_)) => Refused::Store(other),
     }
 }
 

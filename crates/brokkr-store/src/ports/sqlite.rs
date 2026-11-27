@@ -30,10 +30,9 @@ use crate::{
 };
 
 use super::{
-    checked_seq, divergent, manifest_meta, parse_clock, read_verified_log, refuse_after_terminal,
-    started_feature, started_feature_of, validate_import_stream, validate_manifest,
-    validate_seat_records, validate_started_manifests, verify_chain_checked, CoordinationStore,
-    EventLog, ProjectionStore, VerifiedRun,
+    checked_seq, divergent, manifest_meta, parse_clock, read_verified_log, started_feature,
+    started_feature_of, validate_append_batch, validate_import_stream, validate_manifest,
+    CoordinationStore, EventLog, ProjectionStore, VerifiedRun,
 };
 
 /// Thin co-located adapter exposing a SQLite [`Store`] through the
@@ -350,20 +349,7 @@ impl EventLog for SqlitePorts<'_> {
             let tx = Transaction::new_unchecked(&self.0.conn, TransactionBehavior::Immediate)?;
             let manifest = require_local_manifest(&tx, run_id)?;
             let local = load_verified_local(&tx, run_id, &StoreError::Chain)?;
-            let (head_seq, found_hash) = local
-                .last()
-                .map_or((0, ZERO_HASH), |last| (last.seq, last.event_hash.as_str()));
-            if head_seq != expected_head.0 || found_hash != expected_head.1 {
-                return Err(StoreError::HeadMoved {
-                    expected_seq: expected_head.0,
-                    found_seq: head_seq,
-                });
-            }
-            verify_chain_checked(run_id, expected_head, envelopes)?;
-            let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
-            refuse_after_terminal(run_id, &local, &incoming)?;
-            validate_started_manifests(run_id, envelopes)?;
-            validate_seat_records(&manifest, &local, envelopes)?;
+            validate_append_batch(run_id, &manifest, &local, expected_head, envelopes)?;
             insert_events(&tx, run_id, envelopes)?;
             tx.commit()?;
             Ok(())
