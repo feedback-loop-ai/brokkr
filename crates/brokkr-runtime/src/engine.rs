@@ -11,8 +11,6 @@ use std::process::Command;
 use brokkr_core::dispatch::{bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError};
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, OperatorCommand, Run, RunState, Status};
-#[cfg(test)]
-use brokkr_core::gate_moved_head;
 use brokkr_core::park::{Park, ParkCause};
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventEnvelope;

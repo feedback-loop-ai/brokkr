@@ -504,13 +504,18 @@ fn a_fresh_members_commit_or_edit_cannot_publish_a_mixed_subject_aggregate() {
             .any(|e| e.event_type == EventType::EffectSucceeded));
         if let Some(gate_reason) = &gate_reason {
             assert_eq!(end.state.run.park_reason(), Some(gate_reason));
-        } else {
+        }
+        if !(gate && moved_head) {
             let refusal = retry(&mut runtime, &["b"]);
             assert!(matches!(
-                refusal,
-                MemberRetryOutcome::CarryRefused(CarryRefusal(
-                    Refusal::HeadMoved { .. } | Refusal::TreeNotClean { .. }
-                ))
+                (moved_head, refusal),
+                (
+                    true,
+                    MemberRetryOutcome::CarryRefused(CarryRefusal(Refusal::HeadMoved { .. }))
+                ) | (
+                    false,
+                    MemberRetryOutcome::CarryRefused(CarryRefusal(Refusal::TreeNotClean { .. }))
+                )
             ));
         }
         plain_retry(&mut runtime);

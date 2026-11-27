@@ -235,8 +235,10 @@ enactment's evidence and the operator's later word.
    it.
 
    **Addendum — 2026-11-26, operator ruled in #1260:** The engine also
-   compares tracked tree content across the same gate span. A changed tree
-   parks as `GATE-CHANGED-TREE` with the changed paths as evidence. The
+   compares tracked tree content across the same gate span when HEAD reads at
+   both ends. Without a commit there is no tracked tree to compare, and a
+   first commit moves HEAD. A changed tree parks as `GATE-CHANGED-TREE` with
+   the changed paths as evidence. The
    same reason records an unreadable reading. A moved HEAD takes precedence.
 
 5. **Every finding has an edge, and every edge a bound.** A finding

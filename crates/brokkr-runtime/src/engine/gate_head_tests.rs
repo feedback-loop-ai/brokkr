@@ -2,7 +2,7 @@ use super::tests::{engine, event, git_commit, member, single_body, step_body};
 use super::verdict::tests::driver;
 use super::*;
 use crate::bundle::{GateAssessment, Limits, SeatClass, StepBody};
-use brokkr_core::gate_moved_head::MovedHead;
+use brokkr_core::gate_moved_head::{self, MovedHead};
 
 fn marked(start: Option<&str>, end: Option<&str>) -> String {
     gate_moved_head::encode(&MovedHead {
@@ -70,7 +70,7 @@ fn editing(commands: &str, result: &str) -> Vec<String> {
     driver
 }
 
-fn start(body: SeatBody, gate: GateAssessment) -> (tempfile::TempDir, Engine) {
+fn start(body: SeatBody, gate: GateAssessment, with_head: bool) -> (tempfile::TempDir, Engine) {
     let (dir, mut engine) = engine(body);
     let seat = engine.bundle.seats.get_mut("work").unwrap();
     seat.gate = gate;
@@ -83,16 +83,36 @@ fn start(body: SeatBody, gate: GateAssessment) -> (tempfile::TempDir, Engine) {
         .find(|rule| rule.id == "WORK")
         .unwrap();
     work.next = Some("done".into());
-    std::fs::write(engine.repo.join(".gitignore"), "ignored\n/.forge/\n").unwrap();
-    git_commit(&engine.repo, "base");
+    if with_head {
+        std::fs::write(engine.repo.join(".gitignore"), "ignored\n/.forge/\n").unwrap();
+        git_commit(&engine.repo, "base");
+    }
     (dir, engine)
 }
 
 fn start_gate(commands: &str) -> (tempfile::TempDir, Engine) {
+    gate(commands, true)
+}
+
+fn gate(commands: &str, with_head: bool) -> (tempfile::TempDir, Engine) {
     start(
         single_body(editing(commands, "complete")),
         GateAssessment::AllGate,
+        with_head,
     )
+}
+
+fn git(repo: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn drive_tree_park(engine: &mut Engine, evidence: Value) -> String {
@@ -121,6 +141,66 @@ fn drive_tree_park(engine: &mut Engine, evidence: Value) -> String {
         .find(|event| event.event_type == EventType::EffectIndeterminate)
         .unwrap();
     terminal.payload["reason"].as_str().unwrap().to_owned()
+}
+
+fn drive_without_tree(engine: &mut Engine) {
+    let (reads, count) = heads::TreeReads::counted(vec![None, None]);
+    engine.trees = reads;
+    assert_eq!(git_head(&engine.repo), None);
+    assert_eq!(engine.drive().unwrap().state.run, Run::Completed);
+    let journal = engine.store.load(&engine.run_id).unwrap();
+    assert_eq!(
+        journal
+            .iter()
+            .find(|event| matches!(
+                event.event_type,
+                EventType::EffectIndeterminate | EventType::RunParked
+            ))
+            .map(|event| event.event_type),
+        None
+    );
+    assert_eq!(engine.spans.observed.as_ref().unwrap().head, None);
+    assert_eq!(*count.lock().unwrap(), 0);
+}
+
+#[test]
+fn a_gate_without_a_repository_passes_without_reading_the_tree() {
+    let (_dir, mut engine) = gate(":", false);
+    drive_without_tree(&mut engine);
+}
+
+#[test]
+fn a_gate_in_an_unborn_repository_passes_without_reading_the_tree() {
+    let (_dir, mut engine) = gate(":", false);
+    crate::realms::tests::initialised(&engine.repo);
+    drive_without_tree(&mut engine);
+}
+
+#[test]
+fn a_gates_first_commit_parks_on_moved_head_without_reading_the_tree() {
+    let (_dir, mut engine) = gate("git commit -q --allow-empty -m first", false);
+    crate::realms::tests::initialised(&engine.repo);
+    let (reads, count) = heads::TreeReads::counted(vec![None, None]);
+    engine.trees = reads;
+    assert_eq!(git_head(&engine.repo), None);
+    let end = engine.drive().unwrap();
+    assert_eq!(
+        end.state.run.park_reason(),
+        Some(&ParkReason::GateMovedHead)
+    );
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let parked = events
+        .iter()
+        .find(|event| event.event_type == EventType::RunParked)
+        .unwrap();
+    assert_eq!(
+        parked.payload["evidence"],
+        json!({
+            "head_at_end": git_head(&engine.repo).unwrap(),
+            "head_at_start": null,
+        })
+    );
+    assert_eq!(*count.lock().unwrap(), 0);
 }
 
 #[test]
@@ -196,6 +276,80 @@ fn a_gate_can_write_untracked_ignored_and_result_files() {
 }
 
 #[test]
+fn a_gate_checks_the_staged_content_even_when_the_working_file_matches_head() {
+    let (_dir, mut engine) =
+        start_gate("printf staged > base.txt\ngit add base.txt\ngit restore --source=HEAD --worktree -- base.txt");
+    drive_tree_park(&mut engine, json!({"omitted": 0, "paths": ["base.txt"]}));
+    assert_eq!(
+        std::fs::read(engine.repo.join("base.txt")).unwrap(),
+        b"base"
+    );
+
+    let (_dir, mut engine) = start_gate(":");
+    std::fs::write(engine.repo.join("base.txt"), "staged").unwrap();
+    git(&engine.repo, &["add", "base.txt"]);
+    git(
+        &engine.repo,
+        &["restore", "--source=HEAD", "--worktree", "--", "base.txt"],
+    );
+    assert_eq!(engine.drive().unwrap().state.run, Run::Completed);
+}
+
+#[test]
+fn a_gate_checks_files_hidden_by_index_flags() {
+    for flag in ["--skip-worktree", "--assume-unchanged"] {
+        let commands = format!("git update-index {flag} base.txt\nprintf edited > base.txt");
+        let (_dir, mut engine) = start_gate(&commands);
+        drive_tree_park(&mut engine, json!({"omitted": 0, "paths": ["base.txt"]}));
+
+        let (_dir, mut engine) = start_gate(":");
+        git(&engine.repo, &["update-index", flag, "base.txt"]);
+        assert_eq!(engine.drive().unwrap().state.run, Run::Completed);
+
+        let (_dir, mut engine) = start_gate("printf edited > ../base.txt");
+        git(&engine.repo, &["update-index", flag, "base.txt"]);
+        engine.repo = engine.repo.join("sub");
+        std::fs::create_dir(&engine.repo).unwrap();
+        drive_tree_park(&mut engine, json!({"omitted": 0, "paths": ["base.txt"]}));
+    }
+
+    let (_dir, mut engine) = start_gate("git update-index --no-assume-unchanged base.txt");
+    for flag in ["--skip-worktree", "--assume-unchanged"] {
+        git(&engine.repo, &["update-index", flag, "base.txt"]);
+    }
+    drive_tree_park(&mut engine, json!({"omitted": 0, "paths": ["base.txt"]}));
+}
+
+#[test]
+fn a_gate_reads_flagged_links_and_missing_files() {
+    for commands in [
+        "rm links/one\nln -s elsewhere links/one",
+        "rm links/one\nmkdir links/one",
+        "rm links/one",
+        "rm links/one\nrmdir links",
+        "mv links backup\ntouch links",
+        "mv links backup\nln -s backup links",
+    ] {
+        let (_dir, mut engine) = start_gate(commands);
+        std::fs::create_dir(engine.repo.join("links")).unwrap();
+        std::os::unix::fs::symlink("nowhere", engine.repo.join("links/one")).unwrap();
+        git_commit(&engine.repo, "link");
+        git(
+            &engine.repo,
+            &["update-index", "--assume-unchanged", "links/one"],
+        );
+        drive_tree_park(&mut engine, json!({"omitted": 0, "paths": ["links/one"]}));
+    }
+}
+
+#[test]
+fn a_stat_only_change_passes_with_auto_refresh_disabled_in_config() {
+    let (_dir, mut engine) = start_gate("touch -t 200001010000 base.txt");
+    git(&engine.repo, &["config", "diff.autoRefreshIndex", "false"]);
+    assert_eq!(engine.drive().unwrap().state.run, Run::Completed);
+}
+
+#[test]
 fn tree_evidence_names_staged_binary_mode_deletion_and_type_changes() {
     let (_dir, mut engine) = start_gate(
         "printf staged-change > staged.txt\n git add staged.txt\nprintf '\\000changed' > binary.txt\nchmod +x mode.txt\nrm gone.txt type.txt\nln -s nowhere type.txt",
@@ -237,6 +391,7 @@ fn the_work_panel_may_edit_and_its_gate_chief_is_checked() {
         start(
             panel_then_chief(chief),
             GateAssessment::ContainsWork(crate::bundle::WorkSite::seat()),
+            true,
         )
     };
     let (_dir, mut engine) = make(":");
@@ -283,7 +438,7 @@ fn tree_evidence_bounds_and_escapes_the_changed_paths() {
         .map(|index| (format!("path-{index:02}").into_bytes(), "digest".to_owned()))
         .collect::<BTreeMap<_, _>>();
     paths.insert(vec![b'a', 0xff], "digest".into());
-    engine.trees = heads::TreeReads::scripted(vec![Some(Default::default()), Some(paths)]);
+    engine.trees = heads::TreeReads::scripted(vec![Some(Default::default()), Some(paths.into())]);
     let expected = std::iter::once("a\\xff".into())
         .chain((0..49).map(|index| format!("path-{index:02}")))
         .collect::<Vec<_>>();

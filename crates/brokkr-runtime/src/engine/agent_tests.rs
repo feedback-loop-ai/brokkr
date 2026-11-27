@@ -6,7 +6,7 @@ use super::*;
 use crate::agents::{Candidate, HarnessHands};
 use crate::bundle::PanelMember;
 
-use super::tests::{engine, git_commit, run_sequence, single_body, templated};
+use super::tests::{engine, run_sequence, single_body, templated};
 use crate::engine::sequence::SequenceAt;
 use crate::envelope_builder::EnvelopeBuilder;
 
@@ -542,7 +542,6 @@ fn a_dialect_step_is_composed_and_marked_at_its_own_site() {
              one (decision 0065 slice one, design D5.7)",
         ),
     ];
-    git_commit(&root, "base");
     for (index, (plant, problem)) in plants.into_iter().enumerate() {
         let refusal =
             format!("sequence step 'validate': driver did not spawn: dispatch refused: {problem}");

@@ -509,8 +509,10 @@ fn a_marked_indeterminate_parks_on_the_marker() {
             })
         );
     }
-    let changed = gate_moved_head::encode_tree_change(&["path".into()], 0);
-    for reason in [changed.as_str(), "GATE-CHANGED-TREE not json"] {
+    for reason in [
+        r#"GATE-CHANGED-TREE {"omitted":0,"paths":["path"]}"#,
+        "GATE-CHANGED-TREE not json",
+    ] {
         assert_eq!(
             park_reason(reason),
             Run::Running(Cursor::Park {

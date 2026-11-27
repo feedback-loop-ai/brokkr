@@ -586,8 +586,8 @@ verify  →  review  →  done / stop
 There is no intake to reframe your work, no implement to change your
 branch, and no ship to merge it. The review seat is a gate chartered not
 to write, yet it runs unboxed under `acceptEdits` with `Bash(git:*)`
-pre-approved, and the engine parks it only when it moves HEAD: an edit
-it leaves uncommitted is not caught. The policy table
+pre-approved. The engine parks it if HEAD moves or if HEAD reads at both
+ends and the tracked tree changed. The policy table
 (`recipes/preflight/policy.json`) ends after `review` with a terminal
 ruling, and
 [`crates/brokkr-runtime/tests/preflight_shape.rs`](../../crates/brokkr-runtime/tests/preflight_shape.rs)

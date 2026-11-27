@@ -17,7 +17,7 @@
 //! contention back rather than forging an event the fold would refuse.
 //! Both endings leave a journal that folds.
 
-use super::tests::{bundle, git_commit, run_panel, single_body};
+use super::tests::{bundle, run_panel, single_body};
 use super::*;
 use brokkr_core::fold::Status;
 use brokkr_store::StoreError;
@@ -944,7 +944,6 @@ fn a_seat_working_through_a_peers_lock_keeps_its_attempt() {
     ];
     let patience = std::time::Duration::from_millis(25);
     let mut engine = driving(dir.path(), signalling_driver(&middle, &[]), patience);
-    git_commit(&engine.repo, "base");
 
     let ended = drive_beside(&mut engine, || {
         let holder = lock_at(dir.path(), "working");

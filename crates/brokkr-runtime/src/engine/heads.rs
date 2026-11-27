@@ -3,9 +3,9 @@
 //! 0109 ruling 7, fix rounds 0109a1r2 and r3).
 //!
 //! A checked span compares HEAD at its start and end, then compares
-//! tracked tree content if HEAD held. The accepted head is kept as the
-//! span's [`Observed`] head, and the `covered` stamp reads it. A
-//! protected effect journals its observation as its result's
+//! tracked tree content if the same HEAD read at both ends. The accepted
+//! head is kept as the span's [`Observed`] head, and the `covered` stamp
+//! reads it. A protected effect journals its observation as its result's
 //! `checked_head`, durable before the success is, and decide's covered
 //! check and its `reviewed_heads` read that record from the fold, never
 //! process memory, so a resumed engine decides on the head the check
@@ -13,6 +13,8 @@
 //! head that moves after the observation is the drift ship refuses.
 
 use std::path::Path;
+#[cfg(test)]
+use std::sync::{Arc, Mutex};
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::gate_moved_head::{self, MovedHead};
@@ -49,6 +51,7 @@ impl HeadReads {
     pub(super) fn scripted(plan: &[&str]) -> HeadReads {
         HeadReads(Box::new(scripted_reads(
             plan.iter().map(|head| Some(head.to_string())).collect(),
+            Arc::default(),
         )))
     }
 }
@@ -71,15 +74,24 @@ impl TreeReads {
 
     #[cfg(test)]
     pub(super) fn scripted(plan: Vec<Option<tree::Snapshot>>) -> Self {
-        Self(Box::new(scripted_reads(plan)))
+        Self::counted(plan).0
+    }
+
+    #[cfg(test)]
+    pub(super) fn counted(plan: Vec<Option<tree::Snapshot>>) -> (Self, Arc<Mutex<usize>>) {
+        let next = Arc::default();
+        (
+            Self(Box::new(scripted_reads(plan, Arc::clone(&next)))),
+            next,
+        )
     }
 }
 
 #[cfg(test)]
 fn scripted_reads<T: Clone + Send + Sync + 'static>(
     plan: Vec<Option<T>>,
+    next: Arc<Mutex<usize>>,
 ) -> impl Fn(&Path) -> Option<T> + Send + Sync {
-    let next = std::sync::Mutex::new(0usize);
     move |_| {
         let mut next = next.lock().unwrap();
         let reading = plan.get(*next).or(plan.last()).cloned().flatten();
@@ -155,10 +167,9 @@ fn head_of<'a>(observed: Option<&'a Observed>, effect_id: &str) -> Option<&'a st
 
 impl Engine {
     fn read_gate_start(&self) -> SpanStart {
-        SpanStart::Armed {
-            head: self.heads.read(&self.repo),
-            tree: self.trees.read(&self.repo),
-        }
+        let head = self.heads.read(&self.repo);
+        let tree = head.as_ref().and_then(|_| self.trees.read(&self.repo));
+        SpanStart::Armed { head, tree }
     }
 
     /// Begin an effect: every earlier observation is spent, the effect's
@@ -221,8 +232,10 @@ impl Engine {
                 head_at_start: start,
                 head_at_end: end.clone(),
             }))
-        } else {
+        } else if end.is_some() {
             tree::defect(tree, self.trees.read(&self.repo))
+        } else {
+            None
         };
         let Some(reason) = reason else {
             let observed = Observed {

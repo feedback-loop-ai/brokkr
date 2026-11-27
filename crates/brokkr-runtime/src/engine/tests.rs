@@ -4724,8 +4724,8 @@ fn compiled_triage_engine() -> (tempfile::TempDir, Engine) {
     bundle.manifest["capabilities"]["realm"] = json!(crate::capabilities::UNMAPPED);
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
+    std::fs::create_dir(&work).unwrap();
     carry_definitions(&work);
-    git_commit(&work, "base");
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let engine = Engine::start(store, bundle, "compiled SDD proof", Some(work)).unwrap();
     (dir, engine)
@@ -5979,8 +5979,9 @@ fn dialect_step(
     }
 }
 
-/// A final gate step journals its step record before its result (fix round
-/// 0109a1r5, V1). A fence refusal there fails the attempt before success.
+/// A last step that is a gate journals its result as its step record
+/// first (fix round 0109a1r5, V1), so the fence's refusal of that record
+/// fails the attempt at the step, and no success is written.
 #[test]
 fn a_last_gate_steps_refused_record_fails_the_attempt_at_that_step() {
     let judge = SequenceStep {
@@ -5997,7 +5998,6 @@ fn a_last_gate_steps_refused_record_fails_the_attempt_at_that_step() {
         )
     };
     let (_dir, mut driven) = engine(single_body(vec!["driver".into()]));
-    git_commit(&driven.repo, "base");
     run_sequence(
         &mut driven,
         &SequenceAt::new("effect", "attempt", "work"),

@@ -1,8 +1,7 @@
 //! A gate that moved the operated repo's HEAD or changed its tracked
 //! tree closes its effect indeterminate with a marker and evidence
 //! packed into the frozen contract's free-text `reason`.
-//! Every writer and reader goes through this codec, so the bytes the
-//! journal carries are spelled once.
+//! This module writes moved-head evidence and reads both markers.
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -29,35 +28,6 @@ pub struct MovedHead {
 /// and the evidence as compact JSON.
 pub fn encode(moved: &MovedHead) -> String {
     encode_marked(PREFIX, moved)
-}
-
-#[derive(Serialize)]
-#[serde(untagged)]
-enum TreeEvidence<'a> {
-    Changed {
-        omitted: usize,
-        paths: &'a [String],
-    },
-    Unreadable {
-        end_unreadable: bool,
-        start_unreadable: bool,
-    },
-}
-
-/// Record changed tracked paths and the number beyond the evidence limit.
-pub fn encode_tree_change(paths: &[String], omitted: usize) -> String {
-    encode_marked(TREE_PREFIX, &TreeEvidence::Changed { omitted, paths })
-}
-
-/// Record which endpoint readings were unreadable.
-pub fn encode_tree_unreadable(start: bool, end: bool) -> String {
-    encode_marked(
-        TREE_PREFIX,
-        &TreeEvidence::Unreadable {
-            end_unreadable: end,
-            start_unreadable: start,
-        },
-    )
 }
 
 fn encode_marked(prefix: &str, evidence: &impl Serialize) -> String {

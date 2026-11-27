@@ -276,7 +276,7 @@ write two or three sentences that would let a new colleague start.
 |---|---|---|---|
 | `implement` | work | `npm ci`, writes code and tests, `npx tsc --noEmit`, `npm test` | yes |
 | `verify` | gate | `npm ci`, `npx tsc --noEmit`, `npm test`, and `npm run lint` if you declare one | no — fixes nothing |
-| `review` | gate | reads the diff for correctness, simplicity and security | no, by charter — reports findings for the implementer; a commit parks as `GATE-MOVED-HEAD`, an uncommitted edit is not caught |
+| `review` | gate | reads the diff for correctness, simplicity and security | no, by charter — reports findings for the implementer; moving HEAD parks as `GATE-MOVED-HEAD`. Changes left in tracked files on the same readable HEAD park as `GATE-CHANGED-TREE` |
 | `ship` | gate | writes `.forge/ledger/<run-id>.md`, confirms the tree is clean | no |
 
 No seat's charter pushes, merges or publishes — no `npm publish`, no

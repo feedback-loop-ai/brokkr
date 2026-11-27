@@ -1,57 +1,213 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::ffi::OsStr;
+use std::fs;
+use std::io;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Component, Path};
 use std::process::Command;
 
 use brokkr_core::canonical::sha256_bytes;
-use brokkr_core::gate_moved_head::{encode_tree_change, encode_tree_unreadable};
+use brokkr_core::gate_moved_head::TREE_PREFIX;
+use serde::Serialize;
 
 const PATH_LIMIT: usize = 50;
 
-/// Per-path digests of the tracked worktree's differences from HEAD.
-pub(super) type Snapshot = BTreeMap<Vec<u8>, String>;
+type Diff = BTreeMap<Vec<u8>, String>;
+type Flagged = BTreeMap<Vec<u8>, (IndexFlags, FileReading)>;
 
-/// One Git diff supplies both the NUL-delimited paths and the corresponding
+/// Keep the three readings separate when a path appears in more than one.
+#[derive(Debug, Default, Clone)]
+pub(in crate::engine) struct Snapshot {
+    worktree: Diff,
+    index: Diff,
+    flagged: Flagged,
+}
+
+#[cfg(test)]
+impl From<Diff> for Snapshot {
+    fn from(worktree: Diff) -> Self {
+        Self {
+            worktree,
+            ..Self::default()
+        }
+    }
+}
+
+impl Snapshot {
+    fn paths(&self) -> impl Iterator<Item = &Vec<u8>> {
+        self.worktree
+            .keys()
+            .chain(self.index.keys())
+            .chain(self.flagged.keys())
+    }
+
+    fn differs(&self, end: &Self, path: &[u8]) -> bool {
+        self.worktree.get(path) != end.worktree.get(path)
+            || self.index.get(path) != end.index.get(path)
+            || self.flagged.get(path) != end.flagged.get(path)
+    }
+}
+
+pub(super) fn read(repo: &Path) -> Option<Snapshot> {
+    Some(Snapshot {
+        worktree: read_diff(repo, &[])?,
+        index: read_diff(repo, &["--cached"])?,
+        flagged: read_flags(repo)?,
+    })
+}
+
+fn git(repo: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.current_dir(repo).args([
+        "-c",
+        "core.fileMode=true",
+        "-c",
+        "diff.autoRefreshIndex=true",
+        "-c",
+        "core.fsmonitor=false",
+        "--no-optional-locks",
+    ]);
+    command
+}
+
+fn stdout(command: &mut Command) -> Option<Vec<u8>> {
+    let output = command.output().ok()?;
+    output.status.success().then_some(output.stdout)
+}
+
+/// One diff supplies both the NUL-delimited paths and the corresponding
 /// binary-capable patches. Hashing each patch separately lets us name changes
 /// to an already dirty tree, including paths restored to HEAD.
-pub(super) fn read(repo: &Path) -> Option<Snapshot> {
-    let output = Command::new("git")
-        .current_dir(repo)
-        .args([
-            "-c",
-            "core.fileMode=true",
-            "--no-optional-locks",
-            "diff",
-            "--raw",
-            "--binary",
-            "--full-index",
-            "-z",
-            "--no-color",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--no-renames",
-            "--no-relative",
-            "--ignore-submodules=dirty",
-            "--submodule=short",
-            "HEAD",
-            "--",
-        ])
-        .output()
-        .ok()?;
-    output.status.success().then_some(())?;
-    parse(&output.stdout)
+fn read_diff(repo: &Path, options: &[&str]) -> Option<Diff> {
+    let bytes = stdout(
+        git(repo)
+            .args([
+                "diff",
+                "--raw",
+                "--binary",
+                "--full-index",
+                "-z",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--no-renames",
+                "--no-relative",
+                "--ignore-submodules=dirty",
+                "--submodule=short",
+            ])
+            .args(options)
+            .args(["HEAD", "--"]),
+    )?;
+    parse(&bytes)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IndexFlags {
+    AssumeUnchanged,
+    SkipWorktree,
+    Both,
+}
+
+impl IndexFlags {
+    fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            b'S' => Some(Self::SkipWorktree),
+            b's' => Some(Self::Both),
+            b'a'..=b'z' => Some(Self::AssumeUnchanged),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FileReading {
+    Regular { digest: String, executable: bool },
+    Link(String),
+    Missing,
+}
+
+fn read_flags(repo: &Path) -> Option<Flagged> {
+    let bytes = stdout(git(repo).args(["ls-files", "-v", "-z", "--full-name", "--", ":/"]))?;
+    let paths = flagged_paths(&bytes)?;
+    if paths.is_empty() {
+        return Some(Flagged::new());
+    }
+
+    // Git paths above are relative to the worktree even when the operated
+    // directory is below it. A linked worktree has a .git file.
+    let repo = repo.canonicalize().ok()?;
+    let root = repo.ancestors().find(|dir| dir.join(".git").exists())?;
+    paths
+        .into_iter()
+        .map(|(path, flags)| Some((path.to_vec(), (flags, read_flagged_file(root, path)?))))
+        .collect()
+}
+
+fn flagged_paths(output: &[u8]) -> Option<Vec<(&[u8], IndexFlags)>> {
+    let mut flagged = Vec::new();
+    for record in output.split_inclusive(|&byte| byte == 0) {
+        let (&tag, rest) = record.split_first()?;
+        let path = rest.strip_prefix(b" ")?.strip_suffix(b"\0")?;
+        if let Some(flags) = IndexFlags::from_tag(tag) {
+            flagged.push((path, flags));
+        }
+    }
+    Some(flagged)
+}
+
+fn read_flagged_file(root: &Path, path: &[u8]) -> Option<FileReading> {
+    let path = Path::new(OsStr::from_bytes(path));
+    if !path
+        .components()
+        .all(|part| matches!(part, Component::Normal(_)))
+    {
+        return None;
+    }
+    let file = root.join(path);
+    let parent = file.parent()?;
+    match parent.canonicalize() {
+        Ok(resolved) if resolved == parent => {}
+        Ok(_) => return Some(FileReading::Missing),
+        Err(error) => return missing(error),
+    }
+    let metadata = match file.symlink_metadata() {
+        Ok(metadata) => metadata,
+        Err(error) => return missing(error),
+    };
+    if metadata.is_symlink() {
+        let target = file.read_link().ok()?;
+        Some(FileReading::Link(sha256_bytes(
+            target.as_os_str().as_bytes(),
+        )))
+    } else if metadata.is_file() {
+        Some(FileReading::Regular {
+            digest: sha256_bytes(&fs::read(file).ok()?),
+            executable: metadata.permissions().mode() & 0o100 != 0,
+        })
+    } else {
+        Some(FileReading::Missing)
+    }
+}
+
+fn missing(error: io::Error) -> Option<FileReading> {
+    match error.kind() {
+        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory => Some(FileReading::Missing),
+        _ => None,
+    }
 }
 
 /// With renames disabled the raw records and patches are in the same
 /// order. Git emits a deletion and an addition for a file type change.
-fn parse(output: &[u8]) -> Option<Snapshot> {
+fn parse(output: &[u8]) -> Option<Diff> {
     if output.is_empty() {
-        return Some(Snapshot::new());
+        return Some(Diff::new());
     }
     let separator = output.windows(2).position(|pair| pair == b"\0\0")?;
     let (raw, patch) = (&output[..separator], &output[separator + 2..]);
     let mut fields = raw.split(|&byte| byte == 0);
     let mut patches = patch_offsets(patch).peekable();
-    let mut snapshot = Snapshot::new();
+    let mut snapshot = Diff::new();
     while let Some(header) = fields.next() {
         let path = fields.next()?;
         let start = patches.next()?;
@@ -78,21 +234,57 @@ fn patch_offsets(patch: &[u8]) -> impl Iterator<Item = usize> + '_ {
 pub(super) fn defect(start: Option<Snapshot>, end: Option<Snapshot>) -> Option<String> {
     match (start, end) {
         (Some(start), Some(end)) => changed(&start, &end),
-        (start, end) => Some(encode_tree_unreadable(start.is_none(), end.is_none())),
+        (None, Some(_)) => Some(encode_tree_unreadable(Unreadable::Start)),
+        (Some(_), None) => Some(encode_tree_unreadable(Unreadable::End)),
+        (None, None) => Some(encode_tree_unreadable(Unreadable::Both)),
     }
 }
 
 fn changed(start: &Snapshot, end: &Snapshot) -> Option<String> {
-    let distinct: BTreeSet<_> = start.keys().chain(end.keys()).collect();
-    let mut changed = distinct
-        .into_iter()
-        .filter(|&path| start.get(path) != end.get(path));
+    let distinct: BTreeSet<_> = start.paths().chain(end.paths()).collect();
+    let mut changed = distinct.into_iter().filter(|path| start.differs(end, path));
     let paths: Vec<String> = changed
         .by_ref()
         .take(PATH_LIMIT)
         .map(|path| show(path))
         .collect();
-    (!paths.is_empty()).then(|| encode_tree_change(&paths, changed.count()))
+    (!paths.is_empty()).then(|| {
+        encode(&TreeEvidence::Changed {
+            omitted: changed.count(),
+            paths: &paths,
+        })
+    })
+}
+
+enum Unreadable {
+    Start,
+    End,
+    Both,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum TreeEvidence<'a> {
+    Changed {
+        omitted: usize,
+        paths: &'a [String],
+    },
+    Unreadable {
+        end_unreadable: bool,
+        start_unreadable: bool,
+    },
+}
+
+fn encode_tree_unreadable(unreadable: Unreadable) -> String {
+    encode(&TreeEvidence::Unreadable {
+        end_unreadable: matches!(unreadable, Unreadable::End | Unreadable::Both),
+        start_unreadable: matches!(unreadable, Unreadable::Start | Unreadable::Both),
+    })
+}
+
+fn encode(evidence: &TreeEvidence<'_>) -> String {
+    let json = serde_json::to_string(evidence).expect("gate evidence always serializes");
+    format!("{TREE_PREFIX} {json}")
 }
 
 fn show(path: &[u8]) -> String {
@@ -117,7 +309,10 @@ mod tests {
         ] {
             assert_eq!(parse(bytes), None, "{bytes:?}");
         }
-        let missing = tempfile::tempdir().unwrap().path().join("missing");
-        assert_eq!(read(&missing), None);
+        let dir = tempfile::tempdir().unwrap();
+        let absent = dir.path().join("missing");
+        assert_eq!(read(&absent).map(|_| ()), None);
+        assert_eq!(read_flagged_file(dir.path(), b"../outside"), None);
+        assert_eq!(missing(io::ErrorKind::PermissionDenied.into()), None);
     }
 }

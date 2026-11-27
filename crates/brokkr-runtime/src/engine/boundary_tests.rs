@@ -5,8 +5,8 @@
 //! beside every model, the seat input's word and marker (ruling 3).
 
 use super::tests::{
-    bundle, checkpointing_command, composition, driver_command, execute_work, git_commit, member,
-    run_sequence, seat_input_of, single_body, state, step_body, unlimited,
+    bundle, checkpointing_command, composition, driver_command, execute_work, member, run_sequence,
+    seat_input_of, single_body, state, step_body, unlimited,
 };
 use super::*;
 use crate::agents::{Adapters, Availability, HarnessHands, Library, ResultDoor};
@@ -3492,10 +3492,10 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
     assert!(aggregate.get("boundary").is_none(), "{aggregate}");
     assert!(aggregate.get("model").is_none(), "{aggregate}");
 
-    // The first step records its boundary in its checkpoint. The final
-    // step records its namespace boundary in the result.
+    // A sequence whose ending step is boxed under `namespace`: the
+    // ending result and the `sequence-step-finished` marker of the
+    // first step carry each step's word.
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
-    git_commit(&engine.repo, "base");
     super::tests::set_site_hands(&mut engine.bundle, "work:second", HandsSpec::default());
     engine.sealed_for(Path::new("/home/fixture"), &HandsSpec::default());
     let step = |name: &str, results: Vec<&str>, result: &str| {
