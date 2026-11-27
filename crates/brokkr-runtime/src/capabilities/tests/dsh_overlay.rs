@@ -43,7 +43,7 @@ fn a_dsh_overlay_switching_another_capability_is_refused() {
 }
 
 #[test]
-fn a_dsh_overlay_with_the_other_halfs_polarity_is_refused() {
+fn a_dsh_overlay_with_the_opposite_polarity_is_refused() {
     use launch::Overlay::DshWebFetch;
     let native = fetch_inventory(DshWebFetch(true), DshWebFetch(true));
     assert_mismatch(native, "dsh", "OFF");
