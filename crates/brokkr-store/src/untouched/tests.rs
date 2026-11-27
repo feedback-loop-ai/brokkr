@@ -56,6 +56,22 @@ fn busy<T: std::fmt::Debug>(refused: &Result<T, StoreError>) -> bool {
     }
 }
 
+/// Assert that a lock-free read failed as unsettled (`SQLITE_BUSY`) with the
+/// "changed while it was read" detail and left only `expected_names` in `dir`.
+fn assert_unsettled_changed<T: std::fmt::Debug>(
+    refused: Result<T, StoreError>,
+    dir: &Path,
+    expected_names: &[&str],
+) {
+    assert!(busy(&refused), "expected unsettled busy, got {refused:?}");
+    let err = refused.unwrap_err();
+    assert!(
+        err.to_string().contains("changed while it was read"),
+        "missing unsettled detail: {err}"
+    );
+    assert_eq!(names(dir), expected_names);
+}
+
 /// With no writer, the journal is read and nothing is left beside it:
 /// the read-only open this replaces leaves a `-wal` and a `-shm`.
 #[test]
@@ -320,15 +336,7 @@ fn an_error_during_a_changing_lock_free_read_is_unsettled_not_damaged() {
             damage: Damage::Malformed,
         })
     });
-    assert!(busy(&refused), "expected unsettled busy, got {refused:?}");
-    assert!(
-        refused
-            .unwrap_err()
-            .to_string()
-            .contains("changed while it was read"),
-        "missing unsettled detail"
-    );
-    assert_eq!(names(dir.path()), ["forge.db"]);
+    assert_unsettled_changed(refused, dir.path(), &["forge.db"]);
 }
 
 /// Inspecting a DELETE-mode DB via `read_connection_untouched` always opens
@@ -351,15 +359,7 @@ fn inspecting_a_rollback_db_that_switches_to_wal_creates_no_sidecars_and_is_unse
         drop(writer);
         Ok::<_, StoreError>(())
     });
-    assert!(busy(&refused), "expected unsettled busy, got {refused:?}");
-    assert!(
-        refused
-            .unwrap_err()
-            .to_string()
-            .contains("changed while it was read"),
-        "missing unsettled detail"
-    );
-    assert_eq!(names(dir.path()), ["delete-to-wal.db"]);
+    assert_unsettled_changed(refused, dir.path(), &["delete-to-wal.db"]);
 }
 
 /// A `-wal` sidecar standing without a `-shm` index is refused as unsettled

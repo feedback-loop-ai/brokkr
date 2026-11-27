@@ -1576,65 +1576,52 @@ fn projection_live_listing_precedence_preserves_unstarted_and_started_metadata()
     );
 }
 
+fn seed_v1_projection_db(path: &Path, events_columns: &str, user_version: i64) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(&format!(
+        "CREATE TABLE IF NOT EXISTS projection_meta (
+             key TEXT PRIMARY KEY,
+             value TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS projected_runs (
+             run_id TEXT PRIMARY KEY,
+             feature TEXT NOT NULL,
+             created_at TEXT NOT NULL,
+             head_seq INTEGER NOT NULL,
+             head_hash TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS projected_events (
+             {events_columns},
+             PRIMARY KEY (run_id, seq)
+         );
+         CREATE INDEX IF NOT EXISTS projected_runs_created_idx
+             ON projected_runs (created_at, run_id);
+         INSERT INTO projection_meta (key, value) VALUES ('projection_schema', '1');"
+    ))
+    .unwrap();
+    conn.pragma_update(None, "user_version", user_version)
+        .unwrap();
+}
+
 #[test]
 fn projection_verbatim_round3_six_column_v1_upgrade_and_four_column_refusal() {
     let dir = tempdir().unwrap();
     // Verbatim Round 3 (2580d53af) 6-column legacy v1 DDL with user_version = 0 and 1 is
     // accepted untouched and upgraded cleanly; a bogus 4-column table is refused as ForeignDatabase.
+    let six_cols = concat!(
+        "run_id TEXT NOT NULL, seq INTEGER NOT NULL, event_type TEXT NOT NULL, ",
+        "event_hash TEXT NOT NULL, recorded_at TEXT NOT NULL, payload TEXT NOT NULL"
+    );
     for uv in [0i64, 1i64] {
         let v1_db = dir.path().join(format!("round3-v1-uv{uv}.db"));
-        let conn = Connection::open(&v1_db).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS projection_meta (
-                 key TEXT PRIMARY KEY,
-                 value TEXT NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS projected_runs (
-                 run_id TEXT PRIMARY KEY,
-                 feature TEXT NOT NULL,
-                 created_at TEXT NOT NULL,
-                 head_seq INTEGER NOT NULL,
-                 head_hash TEXT NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS projected_events (
-                 run_id TEXT NOT NULL,
-                 seq INTEGER NOT NULL,
-                 event_type TEXT NOT NULL,
-                 event_hash TEXT NOT NULL,
-                 recorded_at TEXT NOT NULL,
-                 payload TEXT NOT NULL,
-                 PRIMARY KEY (run_id, seq)
-             );
-             CREATE INDEX IF NOT EXISTS projected_runs_created_idx
-                 ON projected_runs (created_at, run_id);
-             INSERT INTO projection_meta (key, value) VALUES ('projection_schema', '1');",
-        )
-        .unwrap();
-        conn.pragma_update(None, "user_version", uv).unwrap();
-        drop(conn);
+        seed_v1_projection_db(&v1_db, six_cols, uv);
         SqliteProjectionStore::inspect_read_only(&v1_db).unwrap();
         drop(SqliteProjectionStore::open(&v1_db).unwrap());
     }
 
     let four_col = dir.path().join("bogus-4col.db");
-    let conn4 = Connection::open(&four_col).unwrap();
-    conn4
-        .execute_batch(
-            "CREATE TABLE projection_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-             CREATE TABLE projected_runs (
-                 run_id TEXT PRIMARY KEY, feature TEXT NOT NULL, created_at TEXT NOT NULL,
-                 head_seq INTEGER NOT NULL, head_hash TEXT NOT NULL
-             );
-             CREATE TABLE projected_events (
-                 run_id TEXT NOT NULL, seq INTEGER NOT NULL, event_hash TEXT NOT NULL,
-                 payload TEXT NOT NULL, PRIMARY KEY (run_id, seq)
-             );
-             CREATE INDEX projected_runs_created_idx ON projected_runs (created_at, run_id);
-             INSERT INTO projection_meta (key, value) VALUES ('projection_schema', '1');
-             PRAGMA user_version = 1;",
-        )
-        .unwrap();
-    drop(conn4);
+    let four_cols = "run_id TEXT NOT NULL, seq INTEGER NOT NULL, event_hash TEXT NOT NULL, payload TEXT NOT NULL";
+    seed_v1_projection_db(&four_col, four_cols, 1);
     assert!(matches!(
         SqliteProjectionStore::inspect_read_only(&four_col),
         Err(StoreError::ForeignDatabase {
