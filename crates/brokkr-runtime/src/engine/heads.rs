@@ -204,15 +204,14 @@ impl Engine {
         // EffectIndeterminate has only a reason string in the frozen event
         // contract. Keep the evidence packed there and attach its structured
         // copy to run/parked rather than widening that contract in this slice.
-        self.append_raw(
-            EventType::EffectIndeterminate,
-            json!({
-                "effect_id": effect_id,
-                "attempt_id": attempt_id,
-                "reason": gate_moved_head::encode(&moved),
-            }),
-            attempt_id,
-        )
-        .map(Some)
+        let mut payload = json!({
+            "effect_id": effect_id,
+            "attempt_id": attempt_id,
+            "reason": gate_moved_head::encode(&moved),
+        });
+        self.stderr
+            .name(EventType::EffectIndeterminate, &mut payload);
+        self.append_raw(EventType::EffectIndeterminate, payload, attempt_id)
+            .map(Some)
     }
 }
