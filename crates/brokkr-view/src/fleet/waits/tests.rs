@@ -306,6 +306,13 @@ fn a_stopping_run_in_a_wait_stays_stopping() {
     let row = row_with_state(&two_waits(), &[], &stopping);
     assert_eq!(row.verdict.standing, Standing::Stopping);
     assert_eq!(row.waits.waits.len(), 2);
+    // A refresh at the same head carries the waits and keeps the stop.
+    let word = row.status_word().to_string();
+    let waits = row.waits.clone();
+    let refreshed = row.with_waits(waits);
+    assert_eq!(refreshed.verdict.standing, Standing::Stopping);
+    assert_eq!(refreshed.status_word(), word);
+    assert_eq!(refreshed.waits.waits.len(), 2);
 }
 
 #[test]

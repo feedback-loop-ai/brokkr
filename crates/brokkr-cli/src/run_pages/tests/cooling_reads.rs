@@ -40,6 +40,21 @@ fn a_frame_whose_trail_ends_in_a_late_wait_paints_none() {
     assert_eq!(view.waits.refused, None);
 }
 
+/// A wait read at a clock it cannot parse refuses it by name rather than
+/// painting no wait.
+#[test]
+fn a_wait_read_at_an_unreadable_clock_refuses_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let error = RunWaits::read(&store, "r1", "not a clock", &[], None)
+        .err()
+        .expect("the clock is refused");
+    assert!(
+        matches!(error, brokkr_store::StoreError::Clock { ref now } if now == "not a clock"),
+        "{error:?}"
+    );
+}
+
 /// The console refreshes the waits of a frame whose head stands: a probe
 /// can update the wait's end and kind without appending an event.
 #[test]
