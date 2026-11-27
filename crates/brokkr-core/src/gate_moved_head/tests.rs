@@ -32,6 +32,26 @@ fn decode_reads_back_what_encode_wrote() {
     }
 }
 
+#[test]
+fn decode_accepts_the_stderr_suffix_and_refuses_other_trailing_text() {
+    let value = moved(Some("aaa"), Some("bbb"));
+    let packed = encode(&value);
+    let suffix = "; driver stderr: empty";
+    assert_eq!(
+        decode::<MovedHead>(&format!("{packed}{suffix}")).and_then(Result::ok),
+        Some(value)
+    );
+    assert_eq!(
+        decode::<u64>(&format!("{PREFIX} 42{suffix}")).and_then(Result::ok),
+        Some(42)
+    );
+    let error = decode::<MovedHead>(&format!("{packed} trailing"))
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.classify(), serde_json::error::Category::Syntax);
+    assert_eq!(error.to_string(), "trailing characters at line 1 column 45");
+}
+
 /// An unmarked reason is `None`; the bare marker and a marker glued to
 /// its evidence are unmarked too, as the strip of "GATE-MOVED-HEAD "
 /// they replace read them. A marked reason with unreadable evidence is
