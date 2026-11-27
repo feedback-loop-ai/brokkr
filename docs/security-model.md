@@ -183,8 +183,9 @@ Brokkr's broker runs ([below](#mcp-capabilities-through-the-broker)).
 response, never a demand for it; omitting it inherits the dialect's
 declaration. In a v6 or v7 file a `retain` key is still an ordinary
 restriction, never the veto, so moving to the veto means moving the
-file to v8 ([contracts](../contracts/README.md)). This repository's own
-`realms.json` grants nothing.
+file to v8 ([contracts](../contracts/README.md)). This repository's v9
+`realms.json` grants `web-fetch` and `web-search` only to the
+`researcher` office, through the Claude and DSH dialects.
 
 A harness's own powers are declared in its adapter's
 `native_capabilities` (decision 0065 ruling 4; `NativeInventory`,
@@ -196,20 +197,23 @@ renders them. For every seat, independently of what it asks:
 - a known power whose OFF is `unsupported` or `unmeasured` refuses the
   seat, in a realm that has not granted it;
 - the engine knows Codex carries `web-search` and Claude Code carries
-  `web-search` and `web-fetch` (`known_powers`, `native_controls.rs`), so
+  `web-search` and `web-fetch`. DSH carries both as well
+  (`known_powers`, `native_controls.rs`), so
   an adapter that omits, empties or cannot load that declaration refuses
   the seat rather than launching it with the power on (decision 0066
   ruling 1);
-- an `unmeasured` inventory, which dsh, LaneTally and `exec` declare,
+- an `unmeasured` inventory, which LaneTally and `exec` declare,
   switches nothing off and claims no denial. The prompt tells the seat
   so.
 
 A grant's restriction keys, such as a host allow-list, reach no harness
 yet: no adapter declares a restriction transport, so a grant with a
 nonempty restriction refuses a `requires` and drops a `wants` with the
-power off. Only Codex's OFF was measured live, on codex-cli 0.154.0's
-cold `codex exec`; Claude's is composition (the
-[status page's notes](status.md#notes-on-native-powers)). `brokkr doctor`
+power off. Codex's OFF was measured live on codex-cli 0.154.0's cold
+`codex exec`. DSH composes its native web tools ON or OFF through the
+two `tool-web` keys measured on 0.2.1-rc.2 with the backend rows enabled.
+Claude's evidence covers composition.
+[Status page notes](status.md#notes-on-native-powers). `brokkr doctor`
 says per realm what is granted and which native powers are switched off.
 
 ## The final launch check
@@ -600,9 +604,10 @@ provisioning hashes the whole running binary.
 - **Provider-side tools run outside it.** Codex's server-side
   `web_search` runs at the provider, so a box with no network neither
   sees nor stops it. What stops it is the OFF composed into the command
-  when the seat does not hold `web-search`. dsh 0.1.5 turns on
-  `web_search` and `web_fetch` in every seat, and nothing of Brokkr's
-  switches them off.
+  when the seat does not hold `web-search`. DSH runs native fetch from
+  the operator's host and sends native search queries to DeepSeek. The
+  driver stages the measured ON or OFF keys in the seat's patch.
+  Decision 0126 scopes both native holdings to the `researcher` office.
 - **The git common directory is writable.** The box binds the
   repository's common git directory read-write, with only its `hooks`
   and `config` covered; a plain checkout's lies inside the read-write
@@ -687,13 +692,10 @@ provisioning hashes the whole running binary.
   reachable by their cross-session messages: an input channel outside
   the journal and outside the realm's grant
   ([#505](https://github.com/feedback-loop-ai/brokkr/issues/505)).
-- **What an unmeasured harness reaches.** dsh, LaneTally and `exec`
-  declare their native inventories unmeasured, so Brokkr switches none
-  of their own powers off and claims no denial. dsh's base profile turns
-  on web search and fetch
-  ([#462](https://github.com/feedback-loop-ai/brokkr/issues/462)), and
-  whether Claude Code's controls hold through the LaneTally wrapper is
-  unmeasured.
+- **What an unmeasured harness reaches.** LaneTally and `exec`
+  declare their native inventories unmeasured. Brokkr claims no native
+  denial for either. Whether Claude Code's controls hold through the
+  LaneTally wrapper is unmeasured.
 - **A grant's restriction keys.** No harness receives them yet, so a
   realm cannot narrow a granted power to a host list; such a grant is
   refused or dropped instead (above).
@@ -801,9 +803,11 @@ an instruction:
   ([#220](https://github.com/feedback-loop-ai/brokkr/issues/220)).
 - **The box's network is on or off, with no allow-list**
   ([#216](https://github.com/feedback-loop-ai/brokkr/issues/216)).
-- **dsh turns on `web_search` and `web_fetch` in every seat**, and its
-  unmeasured inventory means Brokkr switches neither off
-  ([#462](https://github.com/feedback-loop-ai/brokkr/issues/462)).
+- **DSH's shell can reach the web without a realm grant.** The operator
+  said “accept it as known risk for now”
+  ([#1329](https://github.com/feedback-loop-ai/brokkr/issues/1329)). Child agents, forks,
+  workflows and releases beyond 0.2.1-rc.2 were outside the
+  [native web measurement](evidence/adapters/dsh-native-web-2026-11-24.md).
 - **Brokkr bounds neither a tool-less claude seat's other tools nor any
   claude seat's settings, and it shuts out the operator's MCP servers
   only on Linux, for a launch it seals**

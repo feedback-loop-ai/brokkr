@@ -11,7 +11,7 @@ use super::span_tests::{checkpointed, moved_heads};
 use super::tests::{begun, driven_over, driver, ended_in};
 use crate::bundle::{Bundle, GateAssessment, SeatBody, SeatClass, SequenceStep};
 use crate::engine::heads::HeadReads;
-use crate::engine::tests::{git_commit, single_body, step_body};
+use crate::engine::tests::{git_commit, own_engine, single_body, step_body};
 use crate::engine::verdict::ObservationProblem::{
     self, Beyond, Disagrees, Missing, Partial, Reordered, Unattributed, Uncovered, Unlawful,
     Unrecorded, Unselected,
@@ -93,6 +93,7 @@ fn reviewed_over(
 /// records A, and ship takes its drift arm on B, not SHIP-OK.
 #[test]
 fn a_protected_sequences_later_work_step_does_not_spend_its_gate_steps_observation() {
+    own_engine!();
     let steps = vec![
         clean_step("judge", SeatClass::Gate),
         clean_step("tidy", SeatClass::Work),
@@ -124,6 +125,7 @@ fn a_protected_sequences_later_work_step_does_not_spend_its_gate_steps_observati
 /// indeterminate with both heads, as a gate's does.
 #[test]
 fn a_protected_sequence_of_work_steps_is_a_checked_span_of_its_own() {
+    own_engine!();
     let review = || SeatBody::Sequence {
         steps: vec![
             clean_step("draft", SeatClass::Work),
@@ -307,6 +309,7 @@ impl Stopped {
 /// and ship takes its drift arm on B.
 #[test]
 fn a_resumed_engine_decides_on_the_head_the_journal_recorded() {
+    own_engine!();
     for gate in [false, true] {
         let stopped = Stopped::after_review(gate);
         let events = stopped.resumed();
@@ -327,6 +330,7 @@ fn a_resumed_engine_decides_on_the_head_the_journal_recorded() {
 /// their own typed problem, record no reviewed head and never reach ship.
 #[test]
 fn a_missing_or_inconsistent_journaled_observation_refuses_at_decide() {
+    own_engine!();
     let moved_digest = |stopped: &Stopped| json!({"kind": "head", "head_digest": sha256_bytes(stopped.moved.as_bytes()), "dirty": true});
     for (gate, problem) in [(false, Missing), (true, Missing), (true, Disagrees)] {
         let stopped = Stopped::after_review(gate);
@@ -346,6 +350,7 @@ fn a_missing_or_inconsistent_journaled_observation_refuses_at_decide() {
 /// `checked_head` still reads A.
 #[test]
 fn a_protected_single_gate_without_its_covered_digest_refuses() {
+    own_engine!();
     let stopped = Stopped::after_review(true);
     stopped.replanted(|result| drop(result.as_object_mut().unwrap().remove("covered")));
     let events = stopped.resumed();
@@ -380,6 +385,7 @@ fn refused_at_decide(events: &[EventEnvelope], problem: &ObservationProblem) {
 /// observations, refuses with `Disagrees` and takes no transition.
 #[test]
 fn decide_refuses_while_two_durable_observations_of_its_attempt_disagree() {
+    own_engine!();
     let review = || SeatBody::Sequence {
         steps: vec![
             clean_step("judge", SeatClass::Gate),
@@ -422,6 +428,7 @@ fn decide_refuses_while_two_durable_observations_of_its_attempt_disagree() {
 /// Each refuses with `Disagrees` on a clean B, and takes no transition.
 #[test]
 fn a_terminals_own_covered_never_outweighs_its_latest_gate_step_record() {
+    own_engine!();
     let review = || SeatBody::Sequence {
         steps: vec![
             clean_step("judge", SeatClass::Gate),
@@ -472,6 +479,7 @@ fn a_terminals_own_covered_never_outweighs_its_latest_gate_step_record() {
 /// Each takes no transition.
 #[test]
 fn a_partial_step_record_or_a_terminal_unlike_its_own_gate_step_record_refuses() {
+    own_engine!();
     let review = judge_then;
     let stopped = Stopped::after(review(SeatClass::Work), false);
     stopped.judged_then_moved(|result| {
@@ -585,6 +593,7 @@ fn the_terminals_producer_is_read_from_the_compiled_body() {
 /// record the compiled body produces, so no head of it is decided on.
 #[test]
 fn a_terminal_retagged_to_a_work_step_before_the_gate_refuses() {
+    own_engine!();
     let two = |draft_ends: &[&str]| {
         let mut steps = four_steps(draft_ends);
         steps.truncate(2);
@@ -672,6 +681,7 @@ impl Stopped {
 /// has no producer: `Unattributed`. Each takes no transition.
 #[test]
 fn an_owed_gate_record_absent_or_malformed_or_an_untagged_success_refuses() {
+    own_engine!();
     let review = judge_then;
     let judge = Unrecorded {
         step: "judge".into(),
@@ -749,6 +759,7 @@ fn an_owed_gate_record_absent_or_malformed_or_an_untagged_success_refuses() {
 /// record on B before the success, and review decides B.
 #[test]
 fn a_final_gate_step_checked_after_a_moving_work_step_decides_its_own_head() {
+    own_engine!();
     let steps = vec![
         clean_step("judge", SeatClass::Gate),
         clean_step("tidy", SeatClass::Work),
@@ -784,6 +795,7 @@ fn a_final_gate_step_checked_after_a_moving_work_step_decides_its_own_head() {
 /// The genuinely newer final gate above still decides its own head.
 #[test]
 fn gate_records_journaled_out_of_their_compiled_order_refuse() {
+    own_engine!();
     let steps = ["judge", "aide", "chief"].map(|name| clean_step(name, SeatClass::Gate));
     let review = SeatBody::Sequence {
         steps: steps.to_vec(),
@@ -828,6 +840,7 @@ fn gate_records_journaled_out_of_their_compiled_order_refuse() {
 /// head survives it.
 #[test]
 fn a_later_review_replaces_an_earlier_reviews_head() {
+    own_engine!();
     // Review's first visit sends the run back to work; its second ships.
     let mut table = drift_table();
     table["rules"][1]["when"] = json!({"visits_review_gte": 2});
@@ -978,6 +991,7 @@ fn a_stop_decides_on_no_head_and_is_reconciled_against_its_position() {
 /// refuses it and the run parks: judge never ran and ship is never asked.
 #[test]
 fn a_protected_pre_gate_ending_that_does_not_stop_the_run_refuses_and_parks() {
+    own_engine!();
     let shape = reviewed_by(drift_refusing(), held_early("held", false), false);
     let (_dir, events) = driven_over(
         completes(),
@@ -1003,6 +1017,7 @@ fn a_protected_pre_gate_ending_that_does_not_stop_the_run_refuses_and_parks() {
 /// past draft: `Beyond`.
 #[test]
 fn a_success_retagged_to_a_hard_ending_work_step_still_refuses() {
+    own_engine!();
     for (worded, kept, problem) in [
         (
             None,

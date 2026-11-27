@@ -1,6 +1,5 @@
-//! A dsh seat's hands rows (#896): the measured set exactly, the bounded
-//! reader's one shape for them, the version they bind to, the hands access
-//! their sandbox mode follows, and a seat with no hands served as before.
+//! The DSH hands rows (#896), their reader, release and sandbox mode.
+//! Unboxed seats stage native web controls with their own patch.
 
 use std::path::Path;
 
@@ -498,6 +497,7 @@ fn a_dsh_launch_carries_the_hands_rows_only_where_its_office_declares_them() {
     assert_eq!(
         std::fs::read_to_string(plain.overlay.path()).unwrap(),
         super::super::dsh_transcript_row(&plain.root).unwrap()
+            + crate::native_controls::dsh::fixtures::OFF_ROW
     );
     let unmeasured = dsh_version_shim(dir.path(), "old", "0.1.5-rc.1");
     let refused = super::super::dsh_launch_with(
@@ -1465,10 +1465,11 @@ fn a_linked_worktree_runner_is_not_a_hands_launch() {
         assert_eq!(launch.stream_json, stream);
         let mut expected = super::super::dsh_transcript_row(&launch.root).unwrap();
         expected.push_str(row);
+        expected.push_str(crate::native_controls::dsh::fixtures::OFF_ROW);
         let overlay = std::fs::read_to_string(launch.overlay.path()).unwrap();
         assert_eq!(
             overlay, expected,
-            "the runner overlay is main's: the transcript row then the scoped-runner row"
+            "the runner overlay carries the transcript, scoped runner and web OFF"
         );
         assert!(
             row.contains("runnerCommand:"),

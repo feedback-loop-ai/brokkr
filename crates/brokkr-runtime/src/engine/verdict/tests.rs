@@ -6,7 +6,9 @@ use serde_json::{json, Value};
 
 use crate::bundle::{Aggregate, GateAssessment, Invocation, Limits, SeatBody, SiteKey};
 use crate::engine::heads::HeadReads;
-use crate::engine::tests::{accepted, bundle, capabilities, git_commit, member, single_body, wire};
+use crate::engine::tests::{
+    accepted, bundle, capabilities, git_commit, member, own_engine, single_body, wire,
+};
 use crate::engine::Engine;
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_protocol::{Body, ResultStatus};
@@ -168,6 +170,42 @@ pub(super) fn ended_in(events: &[EventEnvelope], phase: &str, kind: EventType) -
 }
 
 #[test]
+fn the_isolated_verdict_test_runs_by_exact_name() {
+    const TEST: &str = "engine::verdict::tests::the_isolated_verdict_test_runs_by_exact_name";
+    const PROBE: &str = "BROKKR_TEST_VERDICT_ISOLATION";
+    let Some(marker) = std::env::var_os(PROBE) else {
+        // Use a substring filter here so the guard has to re-execute the exact test,
+        // even when this regression test itself was first invoked with --exact.
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("isolated-body");
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg(TEST)
+            .env(PROBE, &marker)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            (
+                output.status.code(),
+                stdout.contains("test result: ok. 1 passed;")
+            ),
+            (Some(0), true),
+            "{stdout}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(marker).expect("the isolated verdict test body ran"),
+            TEST
+        );
+        return;
+    };
+    own_engine!();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    assert_eq!(args, ["--exact", TEST]);
+    std::fs::write(marker, TEST).unwrap();
+}
+
+#[test]
 fn the_harness_seats_work_unhurried() {
     let work = single_body(driver(&json!({"result": "complete"})));
     let (_dir, engine) = begun(work.clone(), |_| {}, |_| HeadReads::default());
@@ -196,6 +234,7 @@ fn the_harness_seats_work_unhurried() {
 
 #[test]
 fn a_single_seats_findings_carry_its_own_site_through_the_real_result_path() {
+    own_engine!();
     let result = json!({"result": "complete", "findings": [reported("unchecked-len", 12)]});
     let (_dir, events) = driven(single_body(driver(&result)), true);
     let succeeded = ended(&events, EventType::EffectSucceeded);
@@ -221,6 +260,7 @@ fn a_single_seats_findings_carry_its_own_site_through_the_real_result_path() {
 /// parks the run as any determinate failure does.
 #[test]
 fn a_seat_supplied_site_a_duplicate_id_and_a_bad_id_each_fail_the_attempt() {
+    own_engine!();
     let site = SiteKey::single("work", None).digest();
     let mut sited = reported("unchecked-len", 12);
     sited["site"] = json!(site);
@@ -273,6 +313,7 @@ fn a_seat_supplied_site_a_duplicate_id_and_a_bad_id_each_fail_the_attempt() {
 /// member's own site: the same id from two members is two keys.
 #[test]
 fn a_panels_member_findings_each_carry_their_members_site() {
+    own_engine!();
     let a = json!({"result": "complete", "findings": [reported("same-id", 3)]});
     let b = json!({"result": "complete", "findings": [reported("same-id", 4)]});
     let body = SeatBody::Invocation(Invocation::Panel {

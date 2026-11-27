@@ -12,7 +12,7 @@ use crate::agents::tests::Tree;
 use crate::agents::ResolveError;
 
 fn body(driver: Value, routes: Value) -> Value {
-    json!({
+    crate::dsh_adapter::with_measured_web(json!({
         "provider": "dsh",
         "binary": "dsh",
         "driver": driver,
@@ -23,7 +23,7 @@ fn body(driver: Value, routes: Value) -> Value {
         "tool_permissions": "unsupported",
         "mcp": "unsupported",
         "routes": routes,
-    })
+    }))
 }
 
 fn tree(adapter: Value, overlay: &str) -> Tree {

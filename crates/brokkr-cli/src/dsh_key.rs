@@ -653,4 +653,7 @@ fn service(home: &Path, asked: &mut Vec<AtLayer>) -> Service {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/support/dsh_adapter.rs"]
+pub(crate) mod adapter_fixture;
+#[cfg(test)]
 mod tests;

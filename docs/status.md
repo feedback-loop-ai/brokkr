@@ -113,7 +113,8 @@ dialect under [`dialects/tools/`](../dialects/tools/). A grant with no
 `offices` list reaches every office that asks, one with `"offices": []`
 reaches none, and one with a list reaches only the offices it names
 (`CapabilityGrant::reaches`, `realms.rs`). A recipe or an agent only asks, by name, under
-`capabilities`. This repository's own `realms.json` grants nothing.
+`capabilities`. This repository's own `realms.json` grants `web-fetch` and `web-search`
+only to the `researcher` office, through the Claude and DSH dialects.
 
 The same test renders this block from the adapters' `native_capabilities`
 and the shipped dialects, through the engine's own loaders. For a power
@@ -122,10 +123,10 @@ composed into the command, boxed or not, and the
 [security model](security-model.md#the-final-launch-check) says how the
 launch proves it. A seat whose OFF is `unsupported` or `unmeasured` is
 refused (decision 0066 ruling 1). An `unmeasured` inventory switches
-nothing off and claims no denial: what dsh, LaneTally and an `exec`
-command reach on their own, Brokkr does not bound. The notes below say
-what each declaration's evidence covers. Only Codex's OFF was measured
-live, and only on a cold `codex exec`; Claude's is composition.
+nothing off and claims no denial for LaneTally or an `exec` command.
+Codex's OFF was measured on a cold `codex exec`. DSH's key-only web
+controls were measured on dsh 0.2.1-rc.2. Claude's evidence covers
+composition.
 
 <!-- native-powers:start -->
 | Harness | Native power | Tools | Off, in every seat the realm does not grant it | On, where the realm grants it | Shipped dialect a realm grants it through | Restriction transport |
@@ -133,7 +134,8 @@ live, and only on a cold `codex exec`; Claude's is composition.
 | `claude` | `web-fetch` | `WebFetch` | deny `WebFetch` in `--disallowedTools` | include `WebFetch` in `--tools`, allow `WebFetch` in `--allowedTools` | `claude-native-fetch` | unsupported |
 | `claude` | `web-search` | `WebSearch` | deny `WebSearch` in `--disallowedTools` | include `WebSearch` in `--tools`, allow `WebSearch` in `--allowedTools` | `claude-native-search` | unsupported |
 | `codex` | `web-search` | `web_search` | `-c web_search="disabled"` | the harness's default, with no flag | `codex-native-search` | unsupported |
-| `dsh` | unmeasured | — | nothing is switched off, and no denial is claimed | nothing can be granted | — | — |
+| `dsh` | `web-fetch` | `web_fetch` | `tool-web config fetch: false` | `tool-web config fetch: true` | `dsh-native-fetch` | unsupported |
+| `dsh` | `web-search` | `web_search` | `tool-web config search: false` | `tool-web config search: true` | `dsh-native-search` | unsupported |
 | `exec` | unmeasured | — | nothing is switched off, and no denial is claimed | nothing can be granted | — | — |
 | `lanetally` | unmeasured | — | nothing is switched off, and no denial is claimed | nothing can be granted | — | — |
 <!-- native-powers:end -->
@@ -148,7 +150,10 @@ live, and only on a cold `codex exec`; Claude's is composition.
 - `codex` `web-search` restrictions: no native transport for a restriction on codex's server-side search has been established; the measurement covers only the key's "disabled" value
 - `codex` `web-search` ON: codex-cli 0.154.0 cold `codex exec` has server-side web search ON with no flag: the default run of the 2026-09-21 controller measurement issued a web_search item and answered with a cited version. No explicit ON value is declared because none was measured.
 - `codex` `web-search` evidence: codex-cli 0.154.0, cold `codex exec` only: with `-c web_search="disabled"` the model answered NO SEARCH TOOL; without it the tool ran
-- `dsh` native inventory: dsh's tool_permissions and mcp declarations cover command-line narrowing, ambient MCP exclusion and engine-server carriage only, which does not establish that dsh has no native egress. U0 and U0c listed native web_fetch and web_search under an engine-only DSH_HOME, and the web_search row (web-search-deepseek) reads DEEPSEEK_API_KEY on every route family; no cell exercised either. dsh 0.2's web-deepseek-api row (the Search and Fetch APIs, billed from 2026-11-01) reads it too. No OFF control is measured: nothing is granted through dsh and no native denial is claimed (decision 0065 slice one; owed to the controller)
+- `dsh` `web-fetch` restrictions: The fetch key switches the whole tool and carries no URL restriction.
+- `dsh` `web-fetch` evidence: dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled by no-shell.yml. Key-only compositions (2026-11-26), with every backend row enabled: keyoff-fetch and keyoff-search measure both OFF; keyfetch-search measures fetch ON and search OFF; keysearch-fetch measures search ON and fetch OFF. No key-only run called a tool.
+- `dsh` `web-search` restrictions: The search key switches the whole tool and carries no query restriction.
+- `dsh` `web-search` evidence: dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled by no-shell.yml. Key-only compositions (2026-11-26), with every backend row enabled: keyoff-fetch and keyoff-search measure both OFF; keyfetch-search measures fetch ON and search OFF; keysearch-fetch measures search ON and fetch OFF. No key-only run called a tool.
 - `exec` native inventory: exec runs whatever command the bundle names; the engine cannot certify what an arbitrary child program reaches on its own, so its native inventory is unmeasured. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged
 - `lanetally` native inventory: the LaneTally wrapper forwards argv to claude, and forwarding is not confinement: whether Claude Code's native WebSearch and WebFetch controls hold through the wrapper, which owns its own per-session settings layer, has not been verified. Claude's declarations and evidence are not inherited; this wrapper's native inventory and controls are unmeasured on their own terms (decision 0065 slice one; owed to the controller)
 <!-- native-notes:end -->
@@ -171,7 +176,7 @@ web cell from the adapter and the agent library.
 |---|---|---|---|---|---|---|
 | `claude` | The Claude Code session under `~/.claude/projects` | Turns and input, output, cache-read and cache-write tokens per turn; reasoning tokens only in the final result | Yes, as the harness reports it | Unsigned in the box, which sets `commit.gpgsign=false`. Unboxed, the seat's `git` reads the host's own configuration, signing included | Yes, through the environment, where the route meets the egress minimum. Never to a boxed seat, which compilation refuses | Off unless the realm grants it: each of `web-fetch`, `web-search` that a seat does not hold is denied by name in its command ([native powers](#native-powers)), which is composition, not a live measurement. An agent asks for one under `capabilities`, as `researcher` (`web-fetch` wants, `web-search` wants) does. An agent that lists no tools and declares no hands, as `fast-implementer`, `fast-reviewer`, `implementer`, `intake`, `muninn`, `node-implementer`, `node-reviewer`, `position-robustness`, `position-simplicity`, `reviewer`, `triage` do, runs unboxed with no tool list, so Claude Code's other default tools and the operator's MCP servers reach it ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)) |
 | `codex` | The Codex thread under `$CODEX_HOME` or `~/.codex` | Turns and input, cached-input, output and reasoning tokens per turn; no cache-write figure | No: Codex reports none, and the field stays absent | As `claude` | No at the default minimum: the adapter is `uncontracted`, so compilation refuses a binding | Off unless the realm grants `web-search`: a seat that does not hold it is launched with `-c web_search="disabled"`, boxed or not. That switch was measured on codex-cli 0.154.0's cold `codex exec`; on a resumed session it is composed but unmeasured ([native powers](#native-powers)) |
-| `dsh` | The dsh session under the seat's own `sessions/brokkr/seat-*` root: `session.v4.jsonl` from a 0.2 core, which the reader also reads as `session.v4.jsonl.zstd`, and `session.v3.jsonl` from 0.1.5 ([decision 0086](decisions/0086-admit-dsh-session-version-four.md)) | Turns and input, output, cache-read and reasoning tokens, folded from the session file the driver tails; whether they arrive per turn on a live seat is unverified | No | The driver sets `commit.gpgsign=false` and the host's identity; commits from a dsh seat fail today | Only on the `local` routes `spark` and `spark-glm` at the default minimum | **On**: dsh's native inventory is unmeasured, so Brokkr switches nothing off, and dsh 0.1.5's base profile turns on `web_search` and `web_fetch` in every seat ([#462](https://github.com/feedback-loop-ai/brokkr/issues/462)) |
+| `dsh` | The dsh session under the seat's own `sessions/brokkr/seat-*` root: `session.v4.jsonl` from a 0.2 core, which the reader also reads as `session.v4.jsonl.zstd`, and `session.v3.jsonl` from 0.1.5 ([decision 0086](decisions/0086-admit-dsh-session-version-four.md)) | Turns and input, output, cache-read and reasoning tokens, folded from the session file the driver tails; whether they arrive per turn on a live seat is unverified | No | The driver sets `commit.gpgsign=false` and the host's identity; commits from a dsh seat fail today | Only on the `local` routes `spark` and `spark-glm` at the default minimum | **Composed**: the staged patch switches native web fetch and search independently. Both are OFF without native holdings and both are granted to the `researcher` office on dsh. The shell can reach the web without a grant (decision 0126). |
 | `exec` | None | None; model and effort are recorded as `not applicable` | No | Unsigned: boxed or not, the driver sets `commit.gpgsign=false` | Yes, through the environment; `{{secret:NAME}}` in a command resolves to `$NAME`, never the value. Never to a boxed seat | No model. Its inventory is unmeasured, so nothing is claimed about what its command reaches |
 | `lanetally` | As `claude` | As `claude`, and the record carries `capture: lanetally` | Yes, the harness's list price | As `claude` | No at the default minimum: the adapter declares no egress, which reads `uncontracted` | Not switched off: LaneTally's native inventory is unmeasured, so no denial is composed, and whether Claude Code's controls hold through the wrapper is unmeasured |
 <!-- harness-behaviour:end -->

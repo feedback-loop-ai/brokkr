@@ -29,6 +29,7 @@ mod discovery;
 mod dsh_effort;
 mod dsh_hands;
 mod dsh_launch;
+mod dsh_overlay;
 mod dsh_stderr;
 pub(crate) mod escapes;
 mod exec;
@@ -40,6 +41,10 @@ mod refusal;
 #[cfg(test)]
 mod round430_tests;
 mod route_overlay;
+#[cfg(test)]
+use dsh_overlay::{
+    dsh_seat_overlay_in, dsh_seat_overlay_with, dsh_staging_calls, reset_dsh_staging_calls,
+};
 mod row;
 mod served_route;
 mod serving_shape;
@@ -2648,12 +2653,29 @@ fn composed_launch(
     extra: &[String],
     input: &Value,
 ) -> Result<crate::native_controls::Composed, String> {
+    composed_launch_with_overlay(provider, extra, input).map(|(argv, _)| argv)
+}
+
+fn composed_launch_with_overlay(
+    provider: &str,
+    extra: &[String],
+    input: &Value,
+) -> Result<
+    (
+        crate::native_controls::Composed,
+        Option<crate::native_controls::dsh::Web>,
+    ),
+    String,
+> {
     use crate::native_controls as controls;
     let Some(plan) = controls::managed(input)? else {
-        return Ok(controls::Composed {
-            extra: extra.to_vec(),
-            managed: Vec::new(),
-        });
+        return Ok((
+            controls::Composed {
+                extra: extra.to_vec(),
+                managed: Vec::new(),
+            },
+            None,
+        ));
     };
     controls::verified_role(input)?;
     let (authored, fragment) = controls::launch_arguments(input, extra)?;
@@ -2666,7 +2688,7 @@ fn composed_launch(
     if let Some(conflict) = conflict {
         return Err(controls::conflict_refusal(input, &conflict));
     }
-    controls::compose_for_provider(provider, &authored, &fragment, &plan)
+    controls::compose_launch(provider, &authored, &fragment, &plan)
         .map_err(|refusal| refusal.at_launch(input))
 }
 
@@ -4069,31 +4091,16 @@ struct DshArgv {
     effort: Option<String>,
     route: Option<String>,
     isolation: mcp::DshIsolation,
+    web: crate::native_controls::dsh::Web,
 }
 
 /// The seat's argv as every DSH launch judges it, before any route is
 /// claimed, version probed or overlay staged ([`dsh_launch_with`]), and as
 /// doctor's reading of a DSH command judges it ([`dsh_cold_command`]).
 fn dsh_argv(extra: &[String], input: &Value, offered: bool) -> Result<DshArgv, String> {
-    // Decision 0065 ruling 4, as on the codex and claude paths and FIRST
-    // here: a site the engine computed no authority for is refused before
-    // the seat's argv is read, a route claimed, a version probed or an
-    // overlay staged. DSH declares its native inventory unmeasured, so the
-    // plan an engine writes carries no argv, no selection and no guard —
-    // and every residual argument is refused below whatever it spells. A
-    // driver no ruling engine launched carries no key and runs as it did.
-    //
-    // The plan is COMPOSED all the same (decision 0066 ruling 3): this
-    // launch consumes no native control, so a plan that carries one — a
-    // managed argument, a tool selection — is refused here rather than
-    // recorded and dropped, and the engine's provenance must reassemble
-    // the argv like any other launch's. What comes back is the argv as it
-    // was handed over: DSH folds nothing in.
-    //
-    // The order is the operator's (ruling of 2026-09-23, addendum): the
-    // authority refusal wins, and the boundary check below inspects the
-    // COMPOSED argv, the command that will actually launch (ruling 2).
-    let composed = composed_launch("dsh", extra, input)?;
+    // Refuse missing authority before route, version or overlay work. The
+    // web controls travel with the composition, separate from argv.
+    let (composed, web) = composed_launch_with_overlay("dsh", extra, input)?;
     // The engine's isolation intent, before any provider work: its shapes
     // here, and its route below, once the model pin is read (U1c2).
     let isolated = mcp::isolated("dsh", &mcp::Edge::new(input), &composed.extra, offered)
@@ -4137,6 +4144,7 @@ fn dsh_argv(extra: &[String], input: &Value, offered: bool) -> Result<DshArgv, S
         effort,
         route: route_arg,
         isolation,
+        web: web.unwrap_or_default(),
     })
 }
 
@@ -4152,8 +4160,7 @@ fn dsh_launch_with(
     composite: impl FnOnce(&Path) -> Result<DshComposite, String>,
 ) -> Result<DshLaunch, String> {
     let argv = dsh_argv(extra, input, session.is_some())?;
-    let (model, effort) = (argv.model.as_deref(), argv.effort.as_deref());
-    let route = route_overlay::claim(input, workdir, model, argv.route.as_deref())?;
+    let route = route_overlay::claim(input, workdir, argv.model.as_deref(), argv.route.as_deref())?;
     // The one home every read below follows, and the child is served from.
     let served = argv.isolation.home(workdir)?;
     let (transcript, home) = (Transcript::dsh(&served), served.path().to_path_buf());
@@ -4261,7 +4268,8 @@ fn dsh_launch_with(
     // short and separator-free by construction, so this checks its output
     // too.
     let locator = planned_dsh_locator(&transcript, &root)?;
-    let overlay = dsh_seat_overlay_with(model, effort, &root, route.as_deref(), selection.rows())?;
+    let overlay = dsh_overlay::stage_launch(&argv, &root, route.as_deref(), &selection)
+        .map_err(|refusal| refusal.to_string())?;
     let overlay_path = overlay.path().to_string_lossy();
     let command = dsh_command(bin, &overlay_path, stream_json, rejoining.as_deref());
     // Nothing of the seat's own argv follows: `dsh_control_conflict`
@@ -4280,7 +4288,7 @@ fn dsh_launch_with(
         root,
         workdir: workdir.to_string(),
         overlay,
-        effortless: effort.is_none(),
+        effortless: argv.effort.is_none(),
         facts,
         staged,
         home: served,
@@ -5739,119 +5747,6 @@ fn dsh_runner_program() -> Result<String, OverrideError> {
         crate::overrides::read_set(Override::DshRunner)?,
         std::env::current_exe(),
     ))
-}
-
-/// The seat overlay with Brokkr's sandbox rows: a linked worktree's scoped
-/// runner (decision 0054) or a boxed seat's hands rows (#896). It is one
-/// patch file because `--patch` is the launcher's only override channel.
-fn dsh_seat_overlay_with(
-    model: Option<&str>,
-    effort: Option<&str>,
-    root: &std::path::Path,
-    route: Option<&[u8]>,
-    sandbox: Option<&str>,
-) -> Result<DshSeatOverlay, String> {
-    dsh_seat_overlay_in(model, effort, root, route, sandbox, || {
-        tempfile::Builder::new()
-            .prefix("brokkr-dsh-seat-")
-            .suffix(".yml")
-            .tempfile()
-    })
-}
-
-// Test-only observation that `dsh_seat_overlay_in` was entered, so a
-// refusing planner path can prove that staging never happened: an error
-// or an absent retained directory does not establish that fact (task
-// 8.10; answer U's R3). The planner is synchronous and the counter is
-// thread-local, so parallel tests never observe one another's staging;
-// a process-global counter would.
-#[cfg(test)]
-thread_local! {
-    static DSH_STAGING_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn dsh_staging_calls() -> usize {
-    DSH_STAGING_CALLS.with(std::cell::Cell::get)
-}
-
-#[cfg(test)]
-fn reset_dsh_staging_calls() {
-    DSH_STAGING_CALLS.with(|calls| calls.set(0));
-}
-
-/// The seat overlay over an injected file, so the ways staging can fail
-/// are reachable from a test without a full disk. The injected creator
-/// stages the patch; the settings document, when one is needed, is
-/// staged beside it under its own prefix. Every row after the model's
-/// is composed first and written once, so the one way the write can
-/// fail is the one way a test can make it fail.
-///
-/// The validated route rows, when the seat carries one, are folded AHEAD
-/// of the transcript, model and settings rows, so the launcher receives
-/// exactly one `--patch` and Brokkr's own rows apply last (AS3; design D6
-/// mechanism 1). The route bytes are already grammar-checked and their
-/// provenance is the bound manifest digest the bundle digest covers.
-fn dsh_seat_overlay_in(
-    model: Option<&str>,
-    effort: Option<&str>,
-    root: &std::path::Path,
-    route: Option<&[u8]>,
-    sandbox: Option<&str>,
-    create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
-) -> Result<DshSeatOverlay, String> {
-    #[cfg(test)]
-    DSH_STAGING_CALLS.with(|calls| calls.set(calls.get() + 1));
-    let mut rows = dsh_transcript_row(root)?;
-    let settings = match (model, effort) {
-        (Some(model), Some(effort)) => {
-            let settings = dsh_effort_settings_in(model, effort, || {
-                tempfile::Builder::new()
-                    .prefix("brokkr-dsh-seat-settings-")
-                    .suffix(".yaml")
-                    .tempfile()
-            })?;
-            rows.push_str(&dsh_settings_row(settings.path())?);
-            Some(settings)
-        }
-        (None, Some(_)) => {
-            return Err(
-                "dsh driver: `--effort` needs a `--model` beside it: the level rides the \
-                 seat's default-model selection, which names its provider and model, and this \
-                 driver does not read the profile's default back to restate it"
-                    .to_string(),
-            );
-        }
-        _ => None,
-    };
-    // Brokkr's sandbox rows, a linked worktree's scoped runner (decision
-    // 0054) or a boxed seat's hands rows (#896), ride with its own rows,
-    // after the route's: the route may not reach what they name.
-    if let Some(sandbox) = sandbox {
-        rows.push_str(sandbox);
-    }
-    let mut body = String::new();
-    if let Some(route) = route {
-        let text = std::str::from_utf8(route)
-            .map_err(|_| "dsh driver: validated route overlay is not UTF-8".to_string())?;
-        body.push_str(text);
-        if !text.ends_with('\n') {
-            body.push('\n');
-        }
-    }
-    if let Some(model) = model {
-        body.push_str(&dsh_effort::model_row(model, effort)?);
-    }
-    body.push_str(&rows);
-    let mut patch = dsh_storage_context(create(), "could not stage the dsh seat overlay")?;
-    // The write carries a path too: `tempfile` wraps a failed write on its
-    // own handle with the file it holds, so this half is as path-bearing
-    // as the allocation above.
-    dsh_storage_context(
-        patch.write_all(body.as_bytes()),
-        "could not write the dsh seat overlay",
-    )?;
-    Ok(DshSeatOverlay { patch, settings })
 }
 
 /// This seat's settings document: the pinned model restated as a

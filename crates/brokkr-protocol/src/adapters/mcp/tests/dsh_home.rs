@@ -237,7 +237,13 @@ fn each_qualified_route_is_served_cold_from_a_fresh_engine_only_home() {
         let rows = [dsh_model_row(pinned), dsh_transcript_row(&launch.root)].map(Result::unwrap);
         assert_eq!(
             overlay,
-            format!("{route_text}{}{}", rows[0], rows[1]),
+            [
+                route_text.as_str(),
+                &rows[0],
+                &rows[1],
+                crate::native_controls::dsh::fixtures::OFF_ROW
+            ]
+            .concat(),
             "{route}"
         );
         let named = launch.overlay.path().to_str().unwrap().to_string();

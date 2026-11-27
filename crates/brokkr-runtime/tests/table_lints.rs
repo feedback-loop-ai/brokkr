@@ -682,8 +682,11 @@ fn admitted_gate_entries_are_derived_from_each_shipped_recipe() {
     let root = workspace();
     let mut panel = delivery_refusals(&[]);
     panel.push(("intake", work_refusal(&[], true)));
-    let mut research = terminal_refusals();
-    research.push(("research", work_refusal(&[], true)));
+    let research = |recipe, work_phase| {
+        let mut refused = terminal_refusals();
+        refused.push((work_phase, work_refusal(&[], true)));
+        (vec![recipe], vec!["verify"], refused)
+    };
     let shapes = [
         (
             vec![
@@ -715,7 +718,8 @@ fn admitted_gate_entries_are_derived_from_each_shipped_recipe() {
             vec!["classify", "verify", "review"],
             delivery_refusals(&[]),
         ),
-        (vec!["research", "research-dsh"], vec!["verify"], research),
+        research("research", "research"),
+        research("research-dsh", "researcher"),
         (vec!["triage"], vec![], triage_refusals("triage")),
         (vec!["night-shift"], vec![], triage_refusals("night-shift")),
         (vec!["gpt-flash"], vec![], triage_refusals("gpt-flash")),
