@@ -1956,6 +1956,7 @@ fn an_office_or_evidence_with_a_control_character_cannot_split_or_forge_a_line()
 
 mod binding_tests;
 mod mcp_tests;
+mod overlay_tests;
 mod provider_dialects_tests;
 mod shipped_tests;
 #[path = "../../../../tests/support/synthetic_mcp.rs"]
