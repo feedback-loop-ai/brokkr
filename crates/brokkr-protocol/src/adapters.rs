@@ -1178,11 +1178,15 @@ impl LaunchHold {
         self.publish(false, emit);
     }
 
-    fn publish(&mut self, resumed: bool, emit: &mut impl FnMut(&Emitted)) {
-        if self.published {
-            return;
-        }
-        self.published = true;
+    /// Build the exact `harness-started` row [`Self::publish`] emits, shared
+    /// with preflight masking checks so the check judges the same row that is
+    /// published (decision 0071 ruling 5).
+    fn build_launch_row(
+        &self,
+        resumed: bool,
+        root: Option<&RootSession>,
+        address: Option<&Value>,
+    ) -> Emitted {
         let mut row = Map::new();
         row.insert("harness".into(), Value::String(self.harness.to_string()));
         row.insert(
@@ -1198,14 +1202,14 @@ impl LaunchHold {
         if let Some(effort) = &self.plan.effort {
             row.insert("effort".into(), Value::String(effort.clone()));
         }
-        if let Some(root) = &self.confirmed {
+        if let Some(root) = root {
             row.insert("root_session".into(), root.value());
             // The address travels with the root it addresses, on this
             // row, or not at all: a confirmed launch whose locator and
             // home sit on a neighbouring row offers a planner that needs
             // all three coordinates nothing it may use, and the next
             // attempt declines an offer this one earned (design D6).
-            if let Some(address) = &self.address {
+            if let Some(address) = address {
                 row.insert("transcript".into(), address.clone());
             }
         }
@@ -1217,7 +1221,17 @@ impl LaunchHold {
                 row.insert("resume_refusal".into(), Value::String(refusal.into()));
             }
         }
-        emit(&Emitted::new(Step::HarnessStarted, Value::Object(row)));
+        Emitted::new(Step::HarnessStarted, Value::Object(row))
+    }
+
+    fn publish(&mut self, resumed: bool, emit: &mut impl FnMut(&Emitted)) {
+        if self.published {
+            return;
+        }
+        self.published = true;
+        let emitted =
+            self.build_launch_row(resumed, self.confirmed.as_ref(), self.address.as_ref());
+        emit(&emitted);
     }
 
     /// Whether this launch tried to rejoin and never got its

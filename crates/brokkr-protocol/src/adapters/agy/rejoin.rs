@@ -85,6 +85,8 @@ pub(super) enum RejoinNotice {
     TooManyEntries(usize),
     #[error("agy rejoin state not kept: conversation brain exceeds the {0}-level depth limit")]
     TooDeep(usize),
+    #[error("agy rejoin state not kept: conversation database is empty")]
+    EmptyDatabase,
     #[error("agy rejoin state not kept: conversation brain directory is empty")]
     EmptyBrain,
     #[error("agy rejoin state not kept: a conversation file changed while it was being copied")]
@@ -245,6 +247,22 @@ pub(super) struct RejoinSource {
     pub(super) brain_stat: Stat,
 }
 
+pub(super) fn open_non_empty_db(
+    dir: BorrowedFd<'_>,
+    name: &OsStr,
+) -> Result<(OwnedFd, Stat), RejoinNotice> {
+    let fd =
+        openat(dir, name, keep::source_file_flags(), Mode::empty()).map_err(classify_file_errno)?;
+    let stat = fstat(&fd).map_err(io_errno)?;
+    if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
+        return Err(RejoinNotice::Source(SourceErrno::Unsafe));
+    }
+    if stat.st_size == 0 {
+        return Err(RejoinNotice::EmptyDatabase);
+    }
+    Ok((fd, stat))
+}
+
 pub(super) fn open_rejoin_source(
     engine_home: &Path,
     conv_name: &OsStr,
@@ -257,17 +275,7 @@ pub(super) fn open_rejoin_source(
     }
     let conversations_dir = open_src_dir(agy_dir.as_fd(), OsStr::new("conversations"))?;
     on_point(CopyPoint::OpenEntry(db_name));
-    let db_fd = openat(
-        &conversations_dir,
-        db_name,
-        keep::source_file_flags(),
-        Mode::empty(),
-    )
-    .map_err(classify_file_errno)?;
-    let db_stat = fstat(&db_fd).map_err(io_errno)?;
-    if FileType::from_raw_mode(db_stat.st_mode) != FileType::RegularFile {
-        return Err(RejoinNotice::Source(SourceErrno::Unsafe));
-    }
+    let (db_fd, db_stat) = open_non_empty_db(conversations_dir.as_fd(), db_name)?;
     let brain_root = open_src_dir(agy_dir.as_fd(), OsStr::new("brain"))?;
     let brain_dir = open_src_dir(brain_root.as_fd(), conv_name)?;
     let brain_stat = fstat(&brain_dir).map_err(io_errno)?;

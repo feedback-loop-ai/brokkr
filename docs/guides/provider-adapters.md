@@ -892,18 +892,22 @@ names six environment variables in the binary and exercised none.
 while keeping `resume.stream-work-site.status` at `"unsupported"` until a live
 rejoin through the driver itself is measured (slice 3). `brokkr driver agy`
 now declares `resume` offer receipt and implements the `--conversation <id>`
-rejoin launch — checking every `owned_target` coordinate fail-closed,
-restoring kept `conversation.db` and `brain/` whole under an exclusive
-per-conversation advisory lock (`<id>/.rejoin.lock`), renaming the live
-`rejoin/` aside before spawn (putting it back by one rename only when the
-rejoin is never confirmed), re-checking workspace admission right before
-spawn, confirming `init.conversation_id` (stopping a stray conversation at
-once as unsettled), composing every restriction (HOME, gate hook, MCP set,
-`--settings`) fresh, accounting only the turn's own step rows, publishing
-`persistent: true` only beside the kept transcript address (or `persistent:
-false`, or a safe `launch: "resumed"` row without `root_session` when masked),
-and placing the turn's end state at `rejoin/` by one rename of a complete
-staged copy or leaving the live path empty. Because `stream-work-site` stays `"unsupported"` and the
+rejoin launch — checking every `owned_target` coordinate (strictly those three
+members), `originating_harness_version` (required non-empty string), and
+resumed-row masking fail-closed before locking or restoring, refusing a
+zero-byte `conversation.db` on both keep (`persistent: false`) and restore
+(`unverified-harness`), restoring kept `conversation.db` and `brain/` whole
+under an exclusive per-conversation advisory lock (`<id>/.rejoin.lock`),
+renaming the live `rejoin/` aside before spawn (putting it back by one rename
+only when the rejoin is never confirmed), re-checking workspace admission
+right before spawn, confirming `init.conversation_id` on the first stdout line
+(stopping on any other or malformed first line at once as unsettled),
+composing every restriction (HOME, gate hook, MCP set, `--settings`) fresh,
+accounting only the turn's own step rows, publishing `persistent: true` only
+beside the kept transcript address (or `persistent: false`, always carrying
+`root_session` on `launch: "resumed"`), and placing the turn's end state at
+`rejoin/` by one rename of a complete staged copy or leaving the live path
+empty. Because `stream-work-site` stays `"unsupported"` and the
 engine offers agy seats no session by default, no shipped data switches rejoin
 on yet (decision 0075 addendum of 2026-11-27, proposed). `agy-conversation`
 is admitted only where the seat's loaded adapter declares it in `record_kinds`,

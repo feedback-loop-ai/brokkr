@@ -69,10 +69,7 @@ impl Event {
         }
     }
 
-    /// The row `text` holds as this event's, typed straight from the text,
-    /// or none where it does not type: a key the fold reads written twice,
-    /// at any depth, is no row (K1). On a cold turn `step_update.usage` is not
-    /// read; on a rejoin it is the sole source of the turn's use and is typed.
+    /// Typed row for `text`, or none on bad shape/duplicate keys (K1).
     fn typed(self, text: &str, rejoined: bool) -> Option<Row> {
         match self {
             Event::Init => (serde_json::from_str(text).ok()).map(Row::Init),
@@ -103,8 +100,7 @@ enum Named {
     Other(IgnoredAny),
 }
 
-/// The `event`s a line's object names at its top level, read from its
-/// text: the first the fold knows, and how many `event` keys it holds.
+/// Top-level `event` keys on a line: first known event and total count.
 struct Tags {
     known: Option<Event>,
     named: usize,
@@ -264,9 +260,7 @@ enum StepState {
     Other,
 }
 
-/// A turn's `result`. Its `status` is named; `denied_actions`, where
-/// present, is a list, and where absent is no denial, as every recorded
-/// success shows.
+/// A turn's `result` payload.
 #[derive(Deserialize)]
 struct Ending {
     status: Status,
@@ -364,10 +358,7 @@ pub(super) enum Failure {
     Unreadable,
 }
 
-/// What the turn's result and exit add to the words of a verdict that is
-/// no answer: the first result's status where one came, named before the
-/// verdict's own words (K5, L5), and the print timeout where a fault agy
-/// ended its turn behind outranked it, named after them (K2, L4).
+/// Result status (K5, L5) and print timeout (K2, L4) carried on a verdict.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Seen {
     pub(super) status: Option<String>,
@@ -488,12 +479,9 @@ impl<'a> AgyFold<'a> {
         named(text, self.bindings)
     }
 
-    /// One line of agy's stdout, as its bytes. `Err` is the seat's refusal,
-    /// which stops the harness: init named another model than the pin, or a
-    /// step arrived before init named one. A line that is not UTF-8, a
-    /// known row out of its turn's order and one that does not type are the
-    /// turn's fault; once one is seen, the first typed result still gives
-    /// its status and its signed-out words, and nothing else is read.
+    /// One line of agy's stdout, as its bytes. On an unconfirmed rejoin,
+    /// the confirming `init` is the only stdout line read; any other first
+    /// line leaves the launch unsettled and stops agy at once.
     pub(super) fn read(
         &mut self,
         line: &[u8],
@@ -501,6 +489,9 @@ impl<'a> AgyFold<'a> {
         hold: &mut LaunchHold,
         emit: &mut impl FnMut(&Emitted),
     ) -> Line {
+        if hold.unconfirmed_rejoin() {
+            return self.confirm_rejoin(line, session_meta, hold);
+        }
         let Ok(text) = std::str::from_utf8(line) else {
             self.fault.get_or_insert(Fault::Failed(Failure::NotText));
             return Line::Read;
@@ -535,6 +526,31 @@ impl<'a> AgyFold<'a> {
         }
     }
 
+    /// First stdout line on a rejoin: only a well-typed `init` naming the
+    /// offered UUID confirms the launch; any other line leaves it unsettled.
+    fn confirm_rejoin(
+        &mut self,
+        line: &[u8],
+        session_meta: &mut Map<String, Value>,
+        hold: &mut LaunchHold,
+    ) -> Line {
+        let Ok(text) = std::str::from_utf8(line) else {
+            return Line::Unsettled;
+        };
+        let Ok(Tags {
+            known: Some(Event::Init),
+            named: 1,
+        }) = serde_json::from_str::<Tags>(text)
+        else {
+            return Line::Unsettled;
+        };
+        let Ok(init) = serde_json::from_str::<InitRow>(text) else {
+            return Line::Unsettled;
+        };
+        self.rows = true;
+        self.initialized(init, text, session_meta, hold)
+    }
+
     /// A row in its turn's order.
     fn fold(
         &mut self,
@@ -565,9 +581,7 @@ impl<'a> AgyFold<'a> {
         refused
     }
 
-    /// The one init: record the conversation id first, confirm a rejoin against
-    /// `hold` before any model work (stopping a stray conversation at once),
-    /// then confirm or refuse the model pin.
+    /// Record conversation id, confirm rejoin against `hold`, then check pin.
     fn initialized(
         &mut self,
         row: InitRow,
@@ -646,12 +660,7 @@ impl<'a> AgyFold<'a> {
         }
     }
 
-    /// The turn's verdict once agy exited `exit_code`, `signed_out_on_stderr`
-    /// where its stderr held the signed-out words: the first that applies
-    /// (K2). A fault; agy signed out; its print timeout; any other non-zero
-    /// exit; a status that is not `SUCCESS`; no result; a pin no init
-    /// confirmed; an empty response; and only then the answer. A refusal
-    /// the driver stopped agy at reads no exit of agy's (L4).
+    /// Turn verdict once agy exits `exit_code` (K2, L4).
     pub(super) fn verdict(&self, exit_code: i32, signed_out_on_stderr: bool) -> Verdict {
         let status = self.status.clone();
         if let Some(fault) = &self.fault {
@@ -686,9 +695,7 @@ impl<'a> AgyFold<'a> {
         }
     }
 
-    /// The verdict of a turn agy exited `code` from, neither 0 nor 3: before
-    /// a confirmed init, exit 1 is a launch refusal, and exit 2 with no
-    /// known row a refused option; otherwise a failure naming the exit.
+    /// Verdict for non-zero exit `code` other than 3.
     fn exited(&self, code: i32, seen: Seen) -> Verdict {
         match code {
             1 if !self.pinned() => Verdict::Refused(launch_refused(
@@ -717,8 +724,7 @@ fn failed(failure: Failure, seen: Seen) -> Verdict {
     Verdict::Failed(Failed { failure, seen })
 }
 
-/// A result's usage and turns folded into the seat's record, each figure
-/// the result reports above zero, the rest not reported.
+/// Fold positive usage counters into the seat record.
 fn record_usage(u: &Usage, session_meta: &mut Map<String, Value>) {
     let input = u.input_tokens.saturating_add(u.cache_read_tokens);
     let figures = [
@@ -732,20 +738,13 @@ fn record_usage(u: &Usage, session_meta: &mut Map<String, Value>) {
     }
 }
 
-/// `text` masked whole through `bindings`, as written, and then escaped:
-/// the order every value the driver's words hold is built in, before any
-/// bound reads them, so no cut falls inside a value the mask has not
-/// replaced (#1200 Z1). Only the first `limit` escaped characters are
-/// built.
+/// `text` masked whole through `bindings`, then escaped and capped (#1200 Z1).
 fn masked(text: &str, bindings: &[secret::BoundSecret], limit: usize) -> String {
     let masked = secret::mask_text(text.as_bytes(), bindings);
     masked.escape_debug().take(limit).collect()
 }
 
-/// `text`, a word of agy's, as the driver's words name it (K3): [`masked`],
-/// and only then cut to its first [`NAMED`] characters. The one home of
-/// such a word: every status, denied action and served model the driver
-/// names is built here.
+/// `text` masked whole and cut to [`NAMED`] escaped chars (K3).
 pub(super) fn named(text: &str, bindings: &[secret::BoundSecret]) -> String {
     masked(text, bindings, NAMED)
 }
@@ -764,10 +763,7 @@ fn refused(token: &str, words: &str, seen: &Seen) -> PreSessionRefusal {
     refusal_reason(token, None, Some(&seen.around(words)))
 }
 
-/// The refusal of a seat no init row confirmed the model of. This and the
-/// three builders below are each a refusal built on what the result showed,
-/// and the driver's tests call each with a long status (M5). The `pin` is
-/// [`masked`] whole through `bindings` before the bound reads it (#1200 Z1).
+/// Refusal when no init row confirmed the pinned model (M5, #1200 Z1).
 pub(super) fn unconfirmed(
     pin: &str,
     bindings: &[secret::BoundSecret],

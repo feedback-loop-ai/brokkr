@@ -114,6 +114,7 @@ struct FakeAgySpec<'a> {
     next_brain: Option<(&'a str, &'a str)>,
     next_transcript: Option<&'a str>,
     stdout: &'a str,
+    raw_stdout: Option<&'a [u8]>,
     exit_code: i32,
     sleep_after_first: bool,
     remove_old_note: bool,
@@ -128,6 +129,7 @@ impl<'a> FakeAgySpec<'a> {
             next_brain: Some(brain),
             next_transcript: Some("{\"turn\":2}"),
             stdout,
+            raw_stdout: None,
             exit_code: 0,
             sleep_after_first: false,
             remove_old_note: false,
@@ -181,7 +183,11 @@ fn fake_agy_actions(seat_dir: &Path, spec: &FakeAgySpec<'_>, stdout_file: &Path)
 
 fn write_fake_rejoin_agy(seat_dir: &Path, spec: &FakeAgySpec<'_>) -> PathBuf {
     let stdout_file = seat_dir.join("turn.stdout");
-    std::fs::write(&stdout_file, spec.stdout).unwrap();
+    std::fs::write(
+        &stdout_file,
+        spec.raw_stdout.unwrap_or(spec.stdout.as_bytes()),
+    )
+    .unwrap();
     let actions = fake_agy_actions(seat_dir, spec, &stdout_file);
     let (d, id) = (seat_dir.display(), spec.id);
     let script = format!(
@@ -294,6 +300,13 @@ fn seeded_rejoin_world(db: &[u8], note: &[u8]) -> (World, PathBuf, Value) {
     let conv = seed_kept(world.operator_home(), UUID_A, db, &[("note.txt", note)]);
     let input = rejoin_input(&world, "1.5.18", "not applicable", "none");
     (world, conv, input)
+}
+
+fn rejoin_hold(offered: &str) -> LaunchHold {
+    let mut plan = LaunchPlan::cold(Vec::new(), "agy-conversation", None);
+    plan.rejoining = Some(offered.to_string());
+    plan.harness_version = Some("1.5.18".to_string());
+    LaunchHold::new("agy", plan)
 }
 
 fn started_row(emitted: &[(Step, Value)]) -> Option<&Value> {
@@ -645,23 +658,15 @@ fn l3_l5_unconfirmed_rejoin_puts_kept_state_back_and_confirmed_model_substitutio
 fn l5_l4_failed_keep_after_confirmed_rejoin_removes_old_rejoin_and_releases_lock() {
     let l2c_02 = recorded_box("l2c-02-rejoin-kept.ndjson");
     let cases = [
-        ("missing-db", None, None, true, "absent"),
+        ("missing-db", None, None, "absent"),
         (
             "bound-secret",
             Some("db-with-rejoin-secret-9999"),
             Some(("TOK", "rejoin-secret-9999")),
-            true,
             "bound secret value appeared",
         ),
-        (
-            "masked-row",
-            Some("turn-2-db"),
-            Some(("VER", "1.5.18")),
-            false,
-            "rewrite the root session row",
-        ),
     ];
-    for (label, next_db, binding, expect_row, stderr_sub) in cases {
+    for (label, next_db, binding, stderr_sub) in cases {
         let mut world = World::new();
         let conv = seed_kept(
             world.operator_home(),
@@ -690,29 +695,23 @@ fn l5_l4_failed_keep_after_confirmed_rejoin_removes_old_rejoin_and_releases_lock
         assert_eq!(started["launch"], "resumed", "{label}");
         assert!(started.get("transcript").is_none(), "{label}");
         assert!(started.get("resume_refusal").is_none(), "{label}");
-        if expect_row {
-            assert_eq!(
-                started["root_session"]["persistent"],
-                json!(false),
-                "{label}"
-            );
-        } else {
-            assert!(
-                started.get("root_session").is_none(),
-                "{label}: masked root must be withheld while launch: resumed is published"
-            );
-        }
+        assert_eq!(
+            started["root_session"]["persistent"],
+            json!(false),
+            "{label}"
+        );
     }
 }
 
-fn assert_declined(
-    mut world: World,
-    input: Value,
+fn assert_declined_with(
+    world: &mut World,
+    input: &Value,
     offered: &str,
     version: (&str, i32),
+    bindings: &[secret::BoundSecret],
     expected_refusal: &str,
     expected_stderr: Option<&str>,
-) {
+) -> (Invocation, Vec<(Step, Value)>) {
     let cold_stdout = recorded_box("l2c-01-cold.ndjson").replace(UUID_A, UUID_B);
     let mut spec = FakeAgySpec::turn(
         UUID_B,
@@ -721,7 +720,7 @@ fn assert_declined(
         ("note.txt", "fresh"),
     );
     spec.version = version;
-    let (inv, emitted) = drive_offer(&mut world, &spec, &input, Some(offered), &[]);
+    let (inv, emitted) = drive_offer(world, &spec, input, Some(offered), bindings);
     assert_eq!(inv.launch, LaunchTerminal::Cold);
     assert!(!read_argv(&world.seat())
         .iter()
@@ -742,6 +741,26 @@ fn assert_declined(
         );
     }
     assert!(world.homes_gone());
+    (inv, emitted)
+}
+
+fn assert_declined(
+    mut world: World,
+    input: Value,
+    offered: &str,
+    version: (&str, i32),
+    expected_refusal: &str,
+    expected_stderr: Option<&str>,
+) {
+    assert_declined_with(
+        &mut world,
+        &input,
+        offered,
+        version,
+        &[],
+        expected_refusal,
+        expected_stderr,
+    );
 }
 
 #[test]
@@ -1009,8 +1028,10 @@ fn l2_restore_notice_display_owned_parent_and_replace_remove_edge_cases() {
     for notice in [
         RestoreNotice::Absent,
         RestoreNotice::LockHeld,
+        RestoreNotice::ReferenceMasked,
         RestoreNotice::Io(std::io::ErrorKind::PermissionDenied),
         RestoreNotice::Parent(ParentError::NoOperatorHome),
+        RestoreNotice::Copy(RejoinNotice::EmptyDatabase),
         RestoreNotice::Copy(RejoinNotice::EmptyBrain),
     ] {
         let text = notice.to_string();
@@ -1327,6 +1348,43 @@ fn f2_workspace_admission_runs_after_restore_before_spawn() {
 /// holding either Turn 2's end state kept whole under slice 1's rules or
 /// nothing — never Turn 1's stale state — and publishes `persistent: false`
 /// whenever nothing was kept.
+fn assert_confirmed_failure(
+    label: &str,
+    stream: &str,
+    exit_code: i32,
+    next_db: Option<&str>,
+    expect_kept: bool,
+    expected: &fold::Failed,
+) {
+    let (mut world, conv, input) = seeded_rejoin_world(b"turn-1-db", b"t1");
+    let mut spec = FakeAgySpec::turn(UUID_A, stream, next_db, ("note.txt", "t2"));
+    spec.exit_code = exit_code;
+    let (res, emitted) = drive_offer_result(&mut world, &spec, &input, Some(UUID_A), &[], |_| {});
+    match res {
+        Err(Ended::Failed(actual)) => assert_eq!(&actual, expected, "{label}"),
+        Err(other) => panic!("{label}: expected Ended::Failed({expected:?}), got {other:?}"),
+        Ok(_) => panic!("{label}: expected Ended::Failed({expected:?}), got Ok"),
+    }
+    let started = started_row(&emitted).expect("harness-started emitted");
+    assert_eq!(
+        (&started["launch"], &started["root_session"]["persistent"]),
+        (&json!("resumed"), &json!(expect_kept)),
+        "{label}"
+    );
+    if expect_kept {
+        let db = std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap();
+        assert_eq!(db, b"turn-2-db", "{label}: live rejoin/ must hold Turn 2");
+        assert_eq!(started["transcript"]["locator"], UUID_A, "{label}");
+    } else {
+        assert!(
+            !conv.join(REJOIN_DIR).exists(),
+            "{label}: stale rejoin/ survived"
+        );
+        assert!(started.get("transcript").is_none(), "{label}");
+    }
+    assert_lock_free(&conv);
+}
+
 #[test]
 fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
     let init_no_model = format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{}}}}"#);
@@ -1334,7 +1392,21 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
         format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":"{FLASH}"}}}}"#);
     let err_res = r#"{"event":"result","result":{"status":"ERROR","error":"boom"}}"#;
     let malformed = r#"{"event":"step_update","step_update":{"step_type":123}}"#;
-
+    let err_fail = fold::Failed {
+        failure: fold::Failure::Unsuccessful,
+        seen: fold::Seen {
+            status: Some("ERROR".into()),
+            timed_out: false,
+        },
+    };
+    let exit_fail = fold::Failed {
+        failure: fold::Failure::Exited(4),
+        seen: fold::Seen::default(),
+    };
+    let unread_fail = fold::Failed {
+        failure: fold::Failure::Unread(fold::Event::StepUpdate),
+        seen: fold::Seen::default(),
+    };
     let cases = [
         (
             "unpinned-error",
@@ -1342,6 +1414,7 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
             0,
             Some("turn-2-db"),
             false,
+            &err_fail,
         ),
         (
             "unpinned-nonzero",
@@ -1349,6 +1422,7 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
             4,
             Some("turn-2-db"),
             false,
+            &exit_fail,
         ),
         (
             "unpinned-malformed",
@@ -1356,6 +1430,7 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
             0,
             Some("turn-2-db"),
             false,
+            &unread_fail,
         ),
         (
             "pinned-error-whole",
@@ -1363,6 +1438,7 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
             0,
             Some("turn-2-db"),
             true,
+            &err_fail,
         ),
         (
             "pinned-nonzero-whole",
@@ -1370,6 +1446,7 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
             4,
             Some("turn-2-db"),
             true,
+            &exit_fail,
         ),
         (
             "pinned-malformed-whole",
@@ -1377,6 +1454,7 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
             0,
             Some("turn-2-db"),
             true,
+            &unread_fail,
         ),
         (
             "pinned-error-empty",
@@ -1384,6 +1462,7 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
             0,
             None,
             false,
+            &err_fail,
         ),
         (
             "pinned-nonzero-empty",
@@ -1391,6 +1470,7 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
             4,
             None,
             false,
+            &exit_fail,
         ),
         (
             "pinned-malformed-empty",
@@ -1398,33 +1478,11 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
             0,
             None,
             false,
+            &unread_fail,
         ),
     ];
-    for (label, stream, exit_code, next_db, expect_kept) in cases {
-        let (mut world, conv, input) = seeded_rejoin_world(b"turn-1-db", b"t1");
-        let mut spec = FakeAgySpec::turn(UUID_A, &stream, next_db, ("note.txt", "t2"));
-        spec.exit_code = exit_code;
-        let (res, emitted) =
-            drive_offer_result(&mut world, &spec, &input, Some(UUID_A), &[], |_| {});
-        assert!(res.is_err(), "{label}: turn must fail");
-        let started = started_row(&emitted).expect("harness-started emitted");
-        assert_eq!(
-            (&started["launch"], &started["root_session"]["persistent"]),
-            (&json!("resumed"), &json!(expect_kept)),
-            "{label}"
-        );
-        if expect_kept {
-            let db = std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap();
-            assert_eq!(db, b"turn-2-db", "{label}: live rejoin/ must hold Turn 2");
-            assert_eq!(started["transcript"]["locator"], UUID_A, "{label}");
-        } else {
-            assert!(
-                !conv.join(REJOIN_DIR).exists(),
-                "{label}: stale rejoin/ survived"
-            );
-            assert!(started.get("transcript").is_none(), "{label}");
-        }
-        assert_lock_free(&conv);
+    for (label, stream, exit_code, next_db, expect_kept, expected) in cases {
+        assert_confirmed_failure(label, &stream, exit_code, next_db, expect_kept, expected);
     }
 }
 
@@ -1541,10 +1599,7 @@ fn f7_cold_ignores_malformed_step_usage_and_rejoin_fails_unread() {
         assert_eq!(meta["output_tokens"], json!(5));
 
         let mut fold = AgyFold::new(FLASH, &[]);
-        let mut plan = LaunchPlan::cold(Vec::new(), "agy-conversation", None);
-        plan.rejoining = Some(UUID_A.to_string());
-        plan.harness_version = Some("1.5.18".to_string());
-        let mut hold = LaunchHold::new("agy", plan);
+        let mut hold = rejoin_hold(UUID_A);
         let mut meta = Map::new();
         for line in [init.as_str(), bad_step, ok_res] {
             let _ = fold.read(line.as_bytes(), &mut meta, &mut hold, &mut |_| {});
@@ -1762,3 +1817,5 @@ fn f10_stage_replace_transcript_unowned_and_oversized_cleanup() {
         "failed transcript stage must unlink temp file"
     );
 }
+
+mod guards;

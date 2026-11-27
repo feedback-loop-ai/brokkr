@@ -763,7 +763,7 @@ fn parent_errors_and_notice_display_bind() {
 fn rejoin_notice_display_messages_bind() {
     let perm = std::io::Error::from(ErrorKind::PermissionDenied);
     let other = std::io::Error::from(ErrorKind::Other);
-    let notices: [(RejoinNotice, String); 19] = [
+    let notices: [(RejoinNotice, String); 20] = [
         (
             RejoinNotice::InvalidId,
             "agy rejoin state not kept: init's conversation id is not a lowercase UUID".into(),
@@ -830,6 +830,10 @@ fn rejoin_notice_display_messages_bind() {
         (
             RejoinNotice::TooDeep(2),
             "agy rejoin state not kept: conversation brain exceeds the 2-level depth limit".into(),
+        ),
+        (
+            RejoinNotice::EmptyDatabase,
+            "agy rejoin state not kept: conversation database is empty".into(),
         ),
         (
             RejoinNotice::EmptyBrain,

@@ -12,7 +12,7 @@
 use std::ffi::OsStr;
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use brokkr_core::seat::{is_agy_uuid, AGY_TRANSCRIPT_FILE, AGY_TRANSCRIPT_KIND};
@@ -21,19 +21,19 @@ use rustix::fs::{
     OFlags, CWD,
 };
 use rustix::io::Errno;
-use serde_json::{Map, Value};
+use serde::Deserialize;
+use serde_json::Value;
 use thiserror::Error;
 
-use super::fold::Conversation;
 use super::keep::{self, KeepNotice, ParentError, SourceErrno};
 use super::rejoin::{
-    self, CopyPoint, CopyState, DestDir, RejoinCaps, RejoinNotice, RejoinRollback, TurnKeep,
+    self, CopyPoint, CopyState, DestDir, RejoinCaps, RejoinNotice, RejoinRollback,
     REJOIN_BRAIN_DIR, REJOIN_DB_FILE, REJOIN_DEPTH_CAP, REJOIN_DIR,
 };
 use super::{Prepared, StartMode};
 use crate::adapters::{
-    originating_harness_version, resume_gate, spawn, version_qualifies, Emitted, Invocation,
-    LaunchHold, LaunchPlan, LaunchTerminal, ResumeGate, RootSession, Step, AGY_SHAPE,
+    originating_harness_version, resume_gate, spawn, version_qualifies, LaunchPlan, ResumeGate,
+    AGY_SHAPE,
 };
 use crate::secret::BoundSecret;
 
@@ -57,6 +57,8 @@ pub(super) enum RestoreNotice {
     Absent,
     #[error("agy rejoin skipped: another turn holds the conversation lock")]
     LockHeld,
+    #[error("agy rejoin skipped: masking the turn's secret bindings would rewrite the launch row")]
+    ReferenceMasked,
     #[error(
         "agy rejoin skipped: could not lock or open kept conversation: {}",
         io::Error::from(*.0)
@@ -146,7 +148,7 @@ fn pre_version_gate(
     prepared: &Prepared,
     offered: &str,
     input: &Value,
-) -> Result<String, &'static str> {
+) -> Result<(String, PathBuf), &'static str> {
     let applies_to = match resume_gate(input, AGY_SHAPE) {
         ResumeGate::Disabled(reason) => return Err(reason),
         ResumeGate::Enabled { applies_to } => applies_to,
@@ -160,8 +162,8 @@ fn pre_version_gate(
     if !is_agy_uuid(offered) {
         return Err("invalid-session-id");
     }
-    check_owned_target(input, offered, prepared.operator_home.as_deref())?;
-    Ok(applies_to)
+    let parent = check_owned_target(input, offered, prepared.operator_home.as_deref())?;
+    Ok((applies_to, parent))
 }
 
 /// Settle whether this invocation runs cold or rejoins an offered
@@ -174,6 +176,7 @@ pub(super) fn plan_launch_with(
     mode: StartMode<'_>,
     input: &Value,
     owned_env: &[(&str, &str)],
+    bindings: &[BoundSecret],
     on_restore: &mut dyn FnMut(CopyPoint<'_>),
 ) -> PlannedLaunch {
     let Some(offered) = mode.session.filter(|_| !mode.probe) else {
@@ -187,8 +190,8 @@ pub(super) fn plan_launch_with(
             restore_notice: None,
         };
     };
-    let applies_to = match pre_version_gate(prepared, offered, input) {
-        Ok(version) => version,
+    let (applies_to, parent) = match pre_version_gate(prepared, offered, input) {
+        Ok(checked) => checked,
         Err(reason) => return declined_cold(prepared, owned_env, reason, None, None),
     };
     let Some(version) = probe_version(prepared, owned_env) else {
@@ -202,13 +205,25 @@ pub(super) fn plan_launch_with(
             restore_notice: None,
         };
     };
-    if !version_qualifies(&version, &applies_to, originating_harness_version(input)) {
+    let qualifying = originating_harness_version(input)
+        .filter(|v| !v.is_empty())
+        .is_some_and(|originating| version_qualifies(&version, &applies_to, Some(originating)));
+    if !qualifying {
         return declined_cold(
             prepared,
             owned_env,
             "unverified-harness",
             Some(version),
             None,
+        );
+    }
+    if resumed_rows_would_mask(offered, &version, &parent, bindings) {
+        return declined_cold(
+            prepared,
+            owned_env,
+            "unverified-harness",
+            Some(version),
+            Some(RestoreNotice::ReferenceMasked),
         );
     }
     let lease = match lock_and_restore_with(
@@ -275,36 +290,41 @@ fn rejoin_plan(command: Vec<String>, offered: String, harness_version: String) -
 /// Fail-closed check of every coordinate the engine carries in
 /// `resume_context.owned_target` (`provider_id`, `persistence_locator`,
 /// `persistence_home`), matching `owned_dsh_root` in `adapters.rs`.
+/// Closed `resume_context.owned_target` object the engine emits (#1227).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OwnedTarget {
+    provider_id: String,
+    persistence_locator: String,
+    persistence_home: String,
+}
+
 pub(super) fn check_owned_target(
     input: &Value,
     offered: &str,
     operator_home: Option<&Path>,
-) -> Result<(), &'static str> {
-    let target = input
+) -> Result<PathBuf, &'static str> {
+    let raw = input
         .pointer("/resume_context/owned_target")
-        .and_then(Value::as_object)
         .ok_or("unverified-harness")?;
-    let field = |key| {
-        target
-            .get(key)
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty())
-    };
-    if field("provider_id") != Some(offered) || field("persistence_locator") != Some(offered) {
+    let target = OwnedTarget::deserialize(raw).map_err(|_| "unverified-harness")?;
+    if target.provider_id != offered
+        || target.persistence_locator != offered
+        || target.persistence_home.is_empty()
+    {
         return Err("unverified-harness");
     }
-    let recorded_home = field("persistence_home").ok_or("unverified-harness")?;
     let admitted = keep::resolve_parent_path(operator_home).map_err(|_| "unverified-harness")?;
     let (Ok(canon_admitted), Ok(canon_recorded)) = (
         std::fs::canonicalize(&admitted),
-        std::fs::canonicalize(recorded_home),
+        std::fs::canonicalize(&target.persistence_home),
     ) else {
         return Err("unverified-harness");
     };
     if canon_admitted != canon_recorded {
         return Err("instance-changed");
     }
-    Ok(())
+    Ok(admitted)
 }
 
 /// Take the exclusive lock for `conversation_id`, restore its kept
@@ -425,17 +445,8 @@ struct KeptRejoinSource {
 
 fn open_kept_rejoin_source(conv_fd: BorrowedFd<'_>) -> Result<KeptRejoinSource, RejoinNotice> {
     let rejoin_dir = rejoin::open_src_dir(conv_fd, OsStr::new(REJOIN_DIR))?;
-    let db_fd = openat(
-        &rejoin_dir,
-        REJOIN_DB_FILE,
-        keep::source_file_flags(),
-        Mode::empty(),
-    )
-    .map_err(rejoin::classify_file_errno)?;
-    let db_stat = fstat(&db_fd).map_err(rejoin::io_errno)?;
-    if FileType::from_raw_mode(db_stat.st_mode) != FileType::RegularFile {
-        return Err(RejoinNotice::Source(SourceErrno::Unsafe));
-    }
+    let (db_fd, db_stat) =
+        rejoin::open_non_empty_db(rejoin_dir.as_fd(), OsStr::new(REJOIN_DB_FILE))?;
     let brain_dir = rejoin::open_src_dir(rejoin_dir.as_fd(), OsStr::new(REJOIN_BRAIN_DIR))?;
     let brain_stat = fstat(&brain_dir).map_err(rejoin::io_errno)?;
     Ok(KeptRejoinSource {
@@ -635,151 +646,9 @@ pub(super) fn remove_entry_tree(parent_fd: BorrowedFd<'_>, name: &OsStr, budget:
     keep::unlink_if_same(parent_fd, name, &stat, AtFlags::REMOVEDIR);
 }
 
-/// Publish the kept transcript and, for a declaring work turn (or a declined
-/// offer), the kept rejoin state and `harness-started` checkpoint before the
-/// engine HOME is removed and while any conversation lock is still held (#1227).
-pub(super) fn publish_turn(
-    turn: TurnKeep<'_>,
-    hold: &mut LaunchHold,
-    outcome: &mut Result<Invocation, super::Ended>,
-    emit: &mut impl FnMut(&Emitted),
-) {
-    let terminal = hold.terminal();
-    // Unsettled rejoin (mismatch or unconfirmed): keep nothing and leave the
-    // offered conversation's kept state untouched.
-    if terminal.is_unsettled() {
-        return;
-    }
-    let resumed = terminal == LaunchTerminal::Resumed;
-    let mut fallback_meta = Map::new();
-    let target_meta = match outcome {
-        Ok(invocation) => &mut invocation.session_meta,
-        Err(_) => &mut fallback_meta,
-    };
-    let ctx = keep::KeepContext {
-        declared: turn.declared.transcript,
-        probe: turn.probe,
-        refused_to_start: turn.refused_to_start,
-        conversation: turn.conversation,
-        engine_home: turn.engine_home,
-        operator_home: turn.operator_home,
-        bindings: turn.bindings,
-    };
-    let transcript_outcome = if resumed && !turn.refused_to_start {
-        keep::publish_transcript_mode(ctx, true, target_meta, emit)
-    } else {
-        keep::publish_transcript(ctx, target_meta, emit)
-    };
-    let kept_transcript = match &transcript_outcome {
-        keep::TranscriptOutcome::Kept(kept) => Some(kept),
-        keep::TranscriptOutcome::NotKept(notice) => {
-            if let Some(notice) = notice {
-                keep::report_notice(outcome, notice);
-            }
-            None
-        }
-    };
-    if let Some(notice) = publish_root_session(&turn, hold, resumed, kept_transcript, emit) {
-        keep::report_notice(outcome, &notice);
-    }
-}
-
-fn keep_rejoin_state(turn: &TurnKeep<'_>, id: &str, resumed: bool) -> (bool, Option<RejoinNotice>) {
-    let keep_result = match resumed {
-        true => replace_rejoin(
-            id,
-            turn.engine_home,
-            turn.operator_home,
-            turn.bindings,
-            RejoinCaps::DEFAULT,
-        ),
-        false => rejoin::keep_rejoin(
-            id,
-            turn.engine_home,
-            turn.operator_home,
-            turn.bindings,
-            true,
-            RejoinCaps::DEFAULT,
-        ),
-    };
-    match keep_result {
-        Ok(()) => (true, None),
-        Err(notice) => (false, Some(notice)),
-    }
-}
-
-fn publish_root_session(
-    turn: &TurnKeep<'_>,
-    hold: &mut LaunchHold,
-    resumed: bool,
-    kept_transcript: Option<&keep::Kept>,
-    emit: &mut impl FnMut(&Emitted),
-) -> Option<RejoinNotice> {
-    if turn.probe || turn.refused_to_start {
-        return None;
-    }
-    let must_publish_launch = resumed || hold.has_refusal();
-    let eligible_root = turn.declared.root && (turn.pin_confirmed || resumed);
-    let (Conversation::Named(id), Some(version), true) =
-        (turn.conversation, hold.harness_version(), eligible_root)
-    else {
-        if must_publish_launch {
-            hold.publish_settled(None, None, emit);
-        }
-        return None;
-    };
-    let address = turn
-        .pin_confirmed
-        .then_some(kept_transcript)
-        .flatten()
-        .map(keep::Kept::transcript_value);
-    if row_would_mask_launch(id, version, resumed, address.as_ref(), turn.bindings) {
-        if must_publish_launch {
-            hold.publish_settled(None, None, emit);
-        }
-        return Some(RejoinNotice::ReferenceMasked);
-    }
-    let (persistent, notice) = match (turn.pin_confirmed, address.is_some()) {
-        (false, _) => (false, None),
-        (true, false) => (false, Some(RejoinNotice::AddressUnavailable)),
-        (true, true) => keep_rejoin_state(turn, id, resumed),
-    };
-    let root = RootSession::new(
-        AGY_TRANSCRIPT_KIND,
-        id.clone(),
-        version.to_string(),
-        persistent,
-    );
-    hold.publish_settled(Some(root), persistent.then_some(address).flatten(), emit);
-    notice
-}
-
-fn row_would_mask_launch(
-    id: &str,
-    version: &str,
-    resumed: bool,
-    address: Option<&Value>,
-    bindings: &[BoundSecret],
-) -> bool {
-    let root = RootSession::new(
-        AGY_TRANSCRIPT_KIND,
-        id.to_string(),
-        version.to_string(),
-        true,
-    );
-    let mut row = Map::new();
-    row.insert("harness".into(), Value::String("agy".into()));
-    row.insert(
-        "launch".into(),
-        Value::String(if resumed { "resumed" } else { "cold" }.into()),
-    );
-    row.insert("root_session".into(), root.value());
-    if let Some(transcript) = address {
-        row.insert("transcript".into(), transcript.clone());
-    }
-    let emitted = Emitted::new(Step::HarnessStarted, Value::Object(row));
-    keep::row_would_mask(&emitted, bindings)
-}
+mod publish;
+pub(super) use publish::publish_turn;
+use publish::resumed_rows_would_mask;
 
 fn restore_io_errno(errno: Errno) -> RestoreNotice {
     RestoreNotice::Io(io::Error::from(errno).kind())

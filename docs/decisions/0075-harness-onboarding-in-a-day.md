@@ -646,14 +646,15 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
     is undeclared or `transcript.jsonl` was not kept), rejoin state is not
     kept and `root_session` carries `persistent: false` with a typed
     `RejoinNotice::AddressUnavailable` notice.
-  - **Fail-closed `owned_target` verification.** Every coordinate the engine
-    sends under `resume_context.owned_target` (`provider_id`,
-    `persistence_locator`, `persistence_home`) is required and compared,
-    matching `owned_dsh_root`: anything absent, null, empty, of the wrong
-    type, unreadable, or naming a `provider_id` or `persistence_locator` other
-    than the offered UUID declines cold with `unverified-harness`, and a
-    canonicalized `persistence_home` that differs from the operator's
-    `agy-conversations` parent declines cold with `instance-changed`.
+  - **Fail-closed `owned_target` verification.** The agy reader admits
+    strictly the three members the engine writes under
+    `resume_context.owned_target` (`provider_id`, `persistence_locator`,
+    `persistence_home`): any unknown member, or anything absent, null, empty,
+    of the wrong type, unreadable, or naming a `provider_id` or
+    `persistence_locator` other than the offered UUID declines cold with
+    `unverified-harness` before locking or restoring, and a canonicalized
+    `persistence_home` that differs from the operator's `agy-conversations`
+    parent declines cold with `instance-changed`.
   - **Whole-state restore or cold decline.** Before spawn, the driver copies
     the kept `conversation.db` and `brain/` from
     `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/` into
@@ -666,11 +667,18 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
     (`restrictions-unavailable`), the offered id is not a lowercase UUID
     (`invalid-session-id`), `owned_target` fails as above
     (`unverified-harness` or `instance-changed`), the installed version is
-    unreadable or fails `version_qualifies` (`unverified-harness`), or the
-    lock is held or any kept part is absent, non-regular, linked, empty, over
-    a bound, or unreadable (`unverified-harness`, matching DSH's retained-store
-    rule in decision 0056, with a typed non-echoing `RestoreNotice` on
-    stderr), anything partly written to the engine HOME is removed, the lock
+    unreadable, `resume_context.originating_harness_version` is absent, null,
+    non-string, or empty (every `agy-conversation` root carries its
+    `harness_version`, so an absent or unreadable originating version declines
+    before locking or restoring without altering the shared reader for other
+    harnesses), `version_qualifies` fails (`unverified-harness`), bindings
+    would rewrite either confirmed-rejoin launch row form (see below), or the
+    lock is held or any kept part is absent, non-regular, linked, empty
+    (including a zero-byte `conversation.db`, which keeping also refuses with
+    `persistent: false` and a typed notice so nothing un-restorable is ever
+    recorded as rejoinable), over a bound, or unreadable (`unverified-harness`,
+    matching DSH's retained-store rule in decision 0056, with a typed
+    non-echoing `RestoreNotice` on stderr), anything partly written to the engine HOME is removed, the lock
     is released, no `--conversation` reaches `agy`, and the seat runs cold
     recording `launch: "cold"` and the bounded `resume_refusal` token.
 - **Same-user stated limit carried by reference.** Restoring kept state and
@@ -679,6 +687,13 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
   2026-11-26 on `#1227`) and share mechanisms (m1)–(m4): a process of the
   operator's own user modifying the kept tree or engine HOME during a turn, or
   ignoring the advisory lock, is a stated limit, not a defect to close.
+  Masking checks judge the exact `harness-started` row the hold is about to
+  publish through one shared builder (including `resume_refusal` on declined
+  offers, withholding `root_session` and `transcript` and keeping nothing
+  rejoinable when a binding would rewrite that cold row); what becomes of a
+  launch row whose own fixed words (`agy`, `cold`, or a refusal token) equal a
+  bound value is the same question across every adapter and is tracked on its
+  own (`#1242`).
 - **One turn at a time on a conversation.** Before restoring, the driver takes
   one non-blocking exclusive advisory `flock` on
   `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/.rejoin.lock`
@@ -688,18 +703,25 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
   it on every path out via RAII drop. Because `agy` does not keep concurrent
   rejoins apart (`l2c-14`, `l2c-15`), a launch that finds the lock held
   declines cold (`unverified-harness` with `RestoreNotice::LockHeld`).
-- **Confirmation from `init`, and a stray conversation is stopped.** Because
-  `agy` exits 0 with `SUCCESS` under a new conversation id when given an
-  unknown id, a malformed id, or a HOME without the database (`l2c-04`,
-  `l2c-05`, `l2c-07`), stderr warnings never decide. A rejoin is confirmed
-  only when `init.conversation_id` equals the offered UUID (`LaunchHold`
-  returns `Confirmation::Resumed`). If `init` names any other id (or an
-  invalid id, or no `init` arrives), the driver stops `agy` immediately on the
-  `init` line before any model work is taken, returns
-  `LaunchTerminal::Mismatch` (or `Unconfirmed`), emits no `harness-started`
-  and no `root_session`, keeps nothing for the stray id, puts the set-aside
-  `rejoin/` back at the live path by one `renameat`, and ends unsettled
-  (`lost`, no result sent) through `run_seat`'s shared path.
+- **Confirmation from `init`, and a stray or unconfirmable first line is
+  stopped.** Because `agy` exits 0 with `SUCCESS` under a new conversation id
+  when given an unknown id, a malformed id, or a HOME without the database
+  (`l2c-04`, `l2c-05`, `l2c-07`), stderr warnings never decide. On a rejoin,
+  until the offered conversation's `init` has confirmed it, that confirmation
+  is the only stdout line that is read: a rejoin is confirmed only when the
+  first stdout line is a well-typed `init` row whose `conversation_id` equals
+  the offered UUID (`LaunchHold` returns `Confirmation::Resumed`). Any other
+  first line — not UTF-8, not JSON, a row of a known event that does not read
+  as its type or names `event` twice, a row of any other event, a `result`, or
+  an `init` naming another or no conversation however malformed the rest of it
+  is — leaves the launch unsettled and stops `agy` immediately at that line on
+  the same path a mismatched `init` takes, emitting no `harness-started` and
+  no `root_session`, keeping nothing, putting the set-aside `rejoin/` back at
+  the live path by one `renameat`, and ending unsettled (`lost`, no result
+  sent) through `run_seat`'s shared path. All twenty-two recorded streams of
+  the ninth measurement begin with `init`, and a shape is pinned to its
+  measured version, so this refuses nothing that was measured; a cold launch
+  folds unchanged.
 - **Crash-safe live-path invariant: no restorable older copy exists at the
   live path once `agy` starts.** From the moment a rejoin's `agy` process is
   started until the keep after it has published, no restorable copy of the
@@ -733,10 +755,19 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
     keep failed), the driver publishes `root_session` with `persistent: false`
     (and no `transcript` address) on the `launch: "resumed"` checkpoint so the
     journal's newest root tells the truth and `eligible_offer` stops at it
-    without searching behind it. When masking would rewrite the `root_session`
-    candidate on a confirmed rejoin, only `root_session` (and `transcript`) is
-    withheld while the safe `launch: "resumed"` checkpoint is still published
-    (decision 0056 ruling 7).
+    without searching behind it. Everything a confirmed rejoin's launch row
+    carries is known before `agy` starts: the harness word, `resumed`, the
+    offered id, the kind, the observed version, and the transcript address.
+    Before the lock and the restore, the driver builds the row a confirmed
+    rejoin would have to publish in each form it can take (the root with
+    `persistent: true` and its address; the root with `persistent: false` and
+    no address) with the same builder that publishes it; if the seat's
+    bindings would rewrite any byte of either, the offer declines cold with
+    `unverified-harness`, because a root that cannot be recorded as observed
+    is not one to rejoin. No confirmed rejoin can therefore meet a masked row
+    or emit a stamped `launch: "resumed"` row without `root_session` (keeping
+    every emitted resumed row valid under frozen
+    `contracts/seat-record.v8.schema.json`).
 - **Rejoined turns count their own use only (decision 0056 ruling 9), and cold
   folding is unchanged.** On a confirmed rejoin, `result.usage`,
   `result.num_turns`, and `result.duration_seconds` are conversation running
@@ -754,7 +785,11 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
   is a field the fold reads, so under the fold's standing row-integrity rule an
   unreadable or duplicate-key `step_update.usage` fails the turn with
   `Failure::Unread(Event::StepUpdate)`, matching how `result.usage` behaves on
-  a cold turn.
+  a cold turn. The `result` row is read whole as its measured type on a cold
+  turn and on a rejoin alike: a `result` whose members (including
+  `result.usage` and `result.num_turns`) do not read as that type is a
+  malformed row and fails the turn, whether or not this launch takes a figure
+  from the member.
 - **Built, not switched on.** `docs/examples/adapters/agy.json` keeps
   `resume.stream-work-site.status: "unsupported"` (recording the 1.5.14 and
   1.5.18 measurements and that the launch awaits a live measurement through

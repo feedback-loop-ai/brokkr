@@ -762,3 +762,176 @@ fn an_engine_run_keeps_rejoin_state_for_work_seats_and_not_gate_seats() {
     assert_eq!(started_rows[0]["transcript"]["kind"], "agy-conversation");
     assert_eq!(started_rows[0]["transcript"]["locator"], work_uuid);
 }
+
+fn seed_rejoin_driver_fixture(
+    dir: &Path,
+    offered: &str,
+    keep_db: bool,
+) -> (PathBuf, PathBuf, Value) {
+    use std::os::unix::fs::PermissionsExt;
+    const L2C_02: &str =
+        include_str!("../../../docs/evidence/adapters/agy-cli-1-5/l2c-02-rejoin-kept.ndjson");
+
+    let (op_home, workdir, seat_dir) = (dir.join("home"), dir.join("work"), dir.join("seat"));
+    std::fs::create_dir_all(&workdir).unwrap();
+    std::fs::create_dir_all(&seat_dir).unwrap();
+    let charter = seat_dir.join("charter.md");
+    std::fs::write(&charter, "# charter\n").unwrap();
+    let result_path = seat_dir.join("result.json");
+
+    let login_dir = op_home.join(".gemini/antigravity-cli");
+    std::fs::create_dir_all(&login_dir).unwrap();
+    std::fs::write(login_dir.join("antigravity-oauth-token"), b"fake-token").unwrap();
+
+    let parent = op_home.join(".local/state/brokkr/agy-conversations");
+    let conv = parent.join(offered);
+    let brain = conv.join("rejoin/brain");
+    std::fs::create_dir_all(&brain).unwrap();
+    for d in [&parent, &conv, &conv.join("rejoin"), &brain] {
+        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let db = conv.join("rejoin/conversation.db");
+    std::fs::write(&db, b"turn-1-db").unwrap();
+    std::fs::set_permissions(&db, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::write(conv.join("transcript.jsonl"), b"{\"turn\":1}\n").unwrap();
+    std::fs::write(brain.join("note.txt"), b"t1").unwrap();
+
+    let stdout_path = seat_dir.join("turn.stdout");
+    std::fs::write(&stdout_path, L2C_02).unwrap();
+    let db_action = if keep_db {
+        format!("mkdir -p \"$HOME/.gemini/antigravity-cli/conversations\"\nprintf 't2-db' > \"$HOME/.gemini/antigravity-cli/conversations/{offered}.db\"\n")
+    } else {
+        format!("rm -f \"$HOME/.gemini/antigravity-cli/conversations/{offered}.db\"\n")
+    };
+    let bin = seat_dir.join("agy");
+    write_mode(
+        &bin,
+        format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"--version\" ]; then printf '1.5.18\\n'; exit 0; fi\n\
+             cat >/dev/null\n\
+             {db_action}\
+             mkdir -p \"$HOME/.gemini/antigravity-cli/brain/{offered}/.system_generated/logs\"\n\
+             printf 't2' > \"$HOME/.gemini/antigravity-cli/brain/{offered}/note.txt\"\n\
+             printf '{{\"turn\":2}}\\n' > \"$HOME/.gemini/antigravity-cli/brain/{offered}/.system_generated/logs/transcript.jsonl\"\n\
+             printf '{{\"result\":\"complete\"}}' > '{}'\n\
+             cat '{}'\n",
+            result_path.display(),
+            stdout_path.display(),
+        )
+        .as_bytes(),
+        0o755,
+    );
+    let input = json!({
+        "workdir": workdir,
+        "role_path": charter,
+        "allowed_results": ["complete"],
+        "result_path": result_path,
+        "context": {},
+        "boundary": "not applicable",
+        "hands": "none",
+        "resume_context": {
+            "assessment": {
+                "stream-work-site": {
+                    "status": "supported",
+                    "identity": { "version": "1.5.18", "applies_to": "1.5.18" },
+                    "classes": ["work"],
+                    "boundaries": ["not applicable"],
+                    "hands": "none",
+                    "evidence": {
+                        "interface": "l2c-01..03",
+                        "restrictions": "l2c-19..22",
+                        "root": "l2c-02",
+                        "accounting": "l2c-01..13"
+                    }
+                }
+            },
+            "declared_transcript_kind": "agy-conversation",
+            "declared_root_session_kind": "agy-conversation",
+            "originating_harness_version": "1.5.18",
+            "owned_target": {
+                "provider_id": offered,
+                "persistence_locator": offered,
+                "persistence_home": parent,
+            }
+        }
+    });
+    (op_home, bin, input)
+}
+
+#[test]
+fn rejoin_emitted_resumed_row_passes_v8_seat_record_with_site_ref() {
+    use brokkr_store::{validate_seat_record, SeatRecordVersion};
+    use std::process::{Command, Stdio};
+
+    const OFFERED: &str = "764607c1-0f06-4973-9fa7-1a1054494a3b";
+
+    for (label, keep_db, expect_persistent) in
+        [("persistent", true, true), ("non-persistent", false, false)]
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let (op_home, bin, input) = seed_rejoin_driver_fixture(dir.path(), OFFERED, keep_db);
+        let payload: String = [
+            json!({"proto": "forge-driver/v1", "msg_id": "m1", "type": "hello", "engine_version": "test"}),
+            json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "resume", "effect_id": "fx", "attempt_id": "a1", "session_ref": OFFERED}),
+            json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "start", "effect_id": "fx", "attempt_id": "a1", "seat": "work", "input": input}),
+            json!({"proto": "forge-driver/v1", "msg_id": "m4", "type": "shutdown"}),
+        ]
+        .iter()
+        .map(|row| format!("{row}\n"))
+        .collect();
+
+        let mut proc = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+        proc.args(["driver", "agy", "--", "--model", "gemini-3.8-flash-low"])
+            .envs([
+                ("BROKKR_AGY_BIN", bin.as_os_str()),
+                ("HOME", op_home.as_os_str()),
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = proc.spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(payload.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{label}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let rows: Vec<Value> = String::from_utf8(out.stdout)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let started = rows
+            .iter()
+            .find(|m| m["type"] == "checkpoint" && m["data"]["step"] == "harness-started")
+            .unwrap_or_else(|| panic!("{label}: missing harness-started in {rows:?}"))["data"]
+            .clone();
+        assert_eq!(started["launch"], "resumed", "{label}");
+        assert_eq!(
+            started["root_session"]["persistent"],
+            json!(expect_persistent),
+            "{label}"
+        );
+
+        let mut stamped = started.clone();
+        let obj = stamped.as_object_mut().unwrap();
+        obj.insert("site_ref".into(), json!("a".repeat(64)));
+        obj.insert("instance_ref".into(), json!("b".repeat(64)));
+        validate_seat_record(&stamped, 1, SeatRecordVersion::V8)
+            .unwrap_or_else(|e| panic!("{label}: v8 rejected stamped resumed row: {e}: {stamped}"));
+
+        let mut without_root = stamped.clone();
+        without_root.as_object_mut().unwrap().remove("root_session");
+        assert!(
+            validate_seat_record(&without_root, 1, SeatRecordVersion::V8).is_err(),
+            "{label}: v8 must refuse stamped launch: resumed without root_session"
+        );
+    }
+}

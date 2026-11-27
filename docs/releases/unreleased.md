@@ -10,25 +10,29 @@ Changes merged since v0.16.1 that the next release's notes carry.
   the shared resume machinery (`resume_gate`, `version_qualifies`,
   `LaunchPlan`, `LaunchHold`, `Confirmation`, and `LaunchTerminal`) when an
   enabling assessment covers the site's boundary, hands, MCP isolation, every
-  required `owned_target` coordinate (`provider_id`, `persistence_locator`,
-  `persistence_home`), and `agy --version`: it acquires an exclusive advisory
-  lock (`.rejoin.lock`) for the whole of restore, turn, keep, and cleanup,
-  restores kept `conversation.db` and `brain/` whole into the fresh engine
-  HOME (operator-only `0700`/`0600`, reusing slice 1's bounds and no-symlink
+  required `owned_target` coordinate (strictly `provider_id`,
+  `persistence_locator`, and `persistence_home`), a present non-empty
+  `originating_harness_version`, `agy --version`, and unmasked resumed launch
+  rows (declining cold with `unverified-harness` before locking or restoring
+  if bindings would rewrite either resumed row form): it acquires an exclusive
+  advisory lock (`.rejoin.lock`) for the whole of restore, turn, keep, and
+  cleanup, restores kept non-empty `conversation.db` and `brain/` whole into
+  the fresh engine HOME (operator-only `0700`/`0600`, refusing a zero-byte
+  database on both keep and restore, reusing slice 1's bounds and no-symlink
   checks, rolling back partial writes on failure), takes the live `rejoin/`
   out of the live path by one rename before spawn (putting it back by one
   rename only if the rejoin is never confirmed), re-runs workspace admission as
   the last check before spawn, composes all restrictions fresh (HOME, gate
   hook, MCP set, `--settings`), launches with `--conversation <id>`, confirms
-  `init.conversation_id` (stopping a stray conversation immediately as
-  unsettled without keeping or recording it), counts only the turn's own
-  `step_update` token sums on confirmed rejoins while keeping cold step-row
-  decoding unchanged, publishes `persistent: true` only alongside the kept
-  transcript address, and after a confirmed rejoin either stages and renames
-  the turn's end state whole into the live `rejoin/` path or leaves the live
-  path empty (publishing `persistent: false`, or a safe `launch: "resumed"`
-  row without `root_session` when masked; unremoved set-aside directories stay
-  under non-live names for `#1323`). Every decline runs cold with no
+  `init.conversation_id` on the first stdout line (stopping on any stray,
+  non-UTF-8, malformed, or non-`init` first line immediately as unsettled
+  without keeping or recording it), counts only the turn's own `step_update`
+  token sums on confirmed rejoins while keeping cold step-row decoding
+  unchanged, publishes `persistent: true` only alongside the kept transcript
+  address, and after a confirmed rejoin either stages and renames the turn's
+  end state whole into the live `rejoin/` path or leaves the live path empty
+  (publishing `persistent: false` with `root_session`; unremoved set-aside
+  directories stay under non-live names for `#1323`). Every decline runs cold with no
   `--conversation` and records a bounded `resume_refusal` token.
   `docs/examples/adapters/agy.json` keeps `resume.stream-work-site.status` at
   `"unsupported"` and the engine offers agy seats no session by default until a

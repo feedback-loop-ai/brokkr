@@ -636,7 +636,7 @@ fn invoke_with(
     ];
     let line = stdin_line(prompt);
     home::unconfigured(&prepared.workdir)?;
-    let planned = restore::plan_launch_with(prepared, mode, input, &owned, on_restore);
+    let planned = restore::plan_launch_with(prepared, mode, input, &owned, bindings, on_restore);
     // Held across restore, turn and post-turn keep; puts `rejoin/` back only
     // when the rejoin is never confirmed, otherwise cleans up the set-aside
     // copy on drop while still holding the exclusive lock.
