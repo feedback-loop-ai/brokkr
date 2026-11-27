@@ -4,8 +4,6 @@
 //! by its compiled class (`bundle::sequence::step_class`), whatever its
 //! recipe wrote.
 
-use std::os::unix::fs::PermissionsExt;
-
 use serde_json::{json, Value};
 
 use super::tests::{begun, driven_over, driver, ended};
@@ -13,6 +11,7 @@ use crate::argv::Executable;
 use crate::bundle::{
     Bundle, DialectExecution, GateAssessment, SeatBody, SeatClass, SequenceStep, StepBody,
 };
+use crate::engine::capability_tests::provision_tests::survey_tests::installed;
 use crate::engine::git_head;
 use crate::engine::heads::HeadReads;
 use crate::engine::tests::{git_commit, single_body, step_body};
@@ -45,6 +44,8 @@ fn dialect(name: &str, results: &[&str]) -> SequenceStep {
     )
 }
 
+const DIALECT_EXEC: &str = "dialect-exec";
+
 /// The `work` seat as a sequence of `steps` reporting `results`, whose
 /// dialect steps the engine runs through an executable that answers
 /// with `dialect_result`, as `driver exec` would.
@@ -56,10 +57,9 @@ fn shaped(
     let results: Vec<String> = results.iter().map(|word| word.to_string()).collect();
     let answer = driver(&json!({"result": dialect_result}));
     move |compiled: &mut Bundle| {
-        let script = compiled.dir.join("dialect-exec");
-        std::fs::write(&script, format!("#!/bin/sh\n{}", answer[2])).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        compiled.executable = Executable(Some(script));
+        let source = compiled.dir.join("dialect-exec.source");
+        std::fs::write(&source, format!("#!/bin/sh\n{}", answer[2])).unwrap();
+        compiled.executable = Executable(Some(installed(&compiled.dir, DIALECT_EXEC, &source)));
         let work = compiled.seats.get_mut("work").unwrap();
         work.body = SeatBody::Sequence { steps };
         work.results = results;
