@@ -14,8 +14,8 @@ use rusqlite::Connection;
 
 use super::*;
 use crate::ports::{
-    lexically_normalize, normalize_storage_path, sync_dir, FsEventLog, RunMetadata,
-    SqliteCoordinationStore, SqliteProjectionStore,
+    lexically_normalize, normalize_storage_path, reject_symlink_path, sync_dir, FsEventLog,
+    RunMetadata, SqliteCoordinationStore, SqliteProjectionStore,
 };
 use crate::{Damage, StoreError};
 
@@ -81,10 +81,12 @@ fn path_normalization_strips_trailing_slash_and_resolves_parent_before_checks() 
         normalize_storage_path(Path::new("nul\0byte")),
         Err(StoreError::InvalidPath(_))
     ));
+    let root_meta = reject_symlink_path(Path::new("/")).unwrap().unwrap();
+    assert!(root_meta.is_dir());
 }
 
 #[test]
-fn fs_event_log_post_open_root_swap_readonly_dir_nonregular_and_sync_cleanup() {
+fn fs_event_log_readonly_dir_legacy_missing_lock_and_root_swap() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("runs");
     let log = FsEventLog::open(&root).unwrap();
@@ -100,21 +102,30 @@ fn fs_event_log_post_open_root_swap_readonly_dir_nonregular_and_sync_cleanup() {
     log.append_envelopes("r1", (0, ZERO_HASH), std::slice::from_ref(&e1))
         .unwrap();
 
-    // Read-only runs/ directory: head, read_stream, manifest, run_metadata, list_run_ids all work.
+    // Read-only runs/ directory works with `.lock` AND when legacy `.lock` is absent.
     let run_dir = root.join("r1");
     let lock_path = run_dir.join(".lock");
     assert!(lock_path.is_file());
-    {
-        let _restore = RestorePermissions(vec![
+    for remove_lock in [false, true] {
+        if remove_lock {
+            fs::remove_file(&lock_path).unwrap();
+        }
+        let mut perms = vec![
             (root.clone(), 0o755),
             (run_dir.clone(), 0o755),
-            (lock_path.clone(), 0o644),
             (run_dir.join("manifest.json"), 0o644),
             (run_dir.join("events.ndjson"), 0o644),
             (run_dir.join("run_meta.json"), 0o644),
-        ]);
-        for file in ["manifest.json", "events.ndjson", "run_meta.json", ".lock"] {
+        ];
+        if !remove_lock {
+            perms.push((lock_path.clone(), 0o644));
+        }
+        let _restore = RestorePermissions(perms);
+        for file in ["manifest.json", "events.ndjson", "run_meta.json"] {
             fs::set_permissions(run_dir.join(file), fs::Permissions::from_mode(0o444)).unwrap();
+        }
+        if !remove_lock {
+            fs::set_permissions(&lock_path, fs::Permissions::from_mode(0o444)).unwrap();
         }
         fs::set_permissions(&run_dir, fs::Permissions::from_mode(0o555)).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o555)).unwrap();
@@ -126,56 +137,7 @@ fn fs_event_log_post_open_root_swap_readonly_dir_nonregular_and_sync_cleanup() {
         assert_eq!(log.list_run_ids().unwrap(), vec!["r1".to_string()]);
     }
 
-    // Non-regular file (directory) refused on BOTH pre-open and post-open checks in open_no_symlink_with.
-    let non_reg = dir.path().join("as-dir");
-    fs::create_dir(&non_reg).unwrap();
-    let non_reg_err =
-        crate::ports::fs_log::open_no_symlink_with(&non_reg, |p| fs::File::open(p)).unwrap_err();
-    assert!(matches!(non_reg_err, StoreError::Io(_)));
-    let absent_probe = dir.path().join("becomes-dir");
-    let post_non_reg_err =
-        crate::ports::fs_log::open_no_symlink_with(&absent_probe, |_| fs::File::open(&non_reg))
-            .unwrap_err();
-    assert!(matches!(post_non_reg_err, StoreError::Io(_)));
-
-    // Concurrent `.create.lock` AlreadyExists race falls back to opening the peer's regular file.
-    let race_lock = dir.path().join("race.lock");
-    let mut created_once = false;
-    let locked = crate::ports::fs_log::open_lock_exclusive_with(&race_lock, |p, create_new| {
-        if create_new && !created_once {
-            created_once = true;
-            fs::write(p, b"")?;
-            return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
-        }
-        fs::OpenOptions::new().read(true).write(true).open(p)
-    });
-    assert!(locked.is_ok());
-
-    // sync_dir_result ignores macOS EINVAL and propagates other I/O errors.
-    assert!(crate::ports::sync_dir_result(Err(std::io::Error::from(
-        std::io::ErrorKind::InvalidInput
-    )))
-    .is_ok());
-    assert!(crate::ports::sync_dir_result(Err(std::io::Error::other("io error"))).is_err());
-
-    // Post-rename root fsync failure cleans up `&run_dir` (not the already-moved `&staging`).
-    let sync_fail = crate::ports::fs_log::create_run_dir_atomic_with(
-        &root,
-        "sync-fail-run",
-        |staging| {
-            fs::write(staging.join("manifest.json"), b"{}").unwrap();
-            fs::write(staging.join("events.ndjson"), b"").unwrap();
-            fs::write(staging.join(".lock"), b"").unwrap();
-            Ok(())
-        },
-        |_| Err(std::io::Error::other("injected root fsync error")),
-    )
-    .unwrap_err();
-    assert!(matches!(sync_fail, StoreError::Io(_)));
-    assert!(!root.join("sync-fail-run").exists());
-    sync_dir(&root).unwrap();
-
-    // Post-open root swap: replacing `root` with a symlink refuses every operation with SymlinkRefused.
+    // Post-open root swap: symlink OR replacement real directory refuses with SymlinkRefused.
     let decoy = dir.path().join("decoy-root");
     fs::create_dir(&decoy).unwrap();
     let moved = dir.path().join("moved-root");
@@ -195,10 +157,74 @@ fn fs_event_log_post_open_root_swap_readonly_dir_nonregular_and_sync_cleanup() {
         Err(StoreError::SymlinkRefused(_))
     ));
 
-    // Replacing `root` with a different real directory (new dev/ino) fails closed with Io.
     fs::remove_file(&root).unwrap();
     fs::create_dir(&root).unwrap();
-    assert!(matches!(log.list_run_ids(), Err(StoreError::Io(_))));
+    assert!(matches!(
+        log.list_run_ids(),
+        Err(StoreError::SymlinkRefused(ref p)) if p == &root
+    ));
+}
+
+#[test]
+fn fs_event_log_nonregular_open_lock_race_and_sync_cleanup() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("runs");
+    let _log = FsEventLog::open(&root).unwrap();
+
+    // Non-regular file (directory) refused on BOTH pre-open and post-open checks.
+    let non_reg = dir.path().join("as-dir");
+    fs::create_dir(&non_reg).unwrap();
+    let non_reg_err =
+        crate::ports::fs_log::open_no_symlink_with(&non_reg, |p| fs::File::open(p)).unwrap_err();
+    assert!(matches!(non_reg_err, StoreError::Io(_)));
+    let absent_probe = dir.path().join("becomes-dir");
+    let post_non_reg_err =
+        crate::ports::fs_log::open_no_symlink_with(&absent_probe, |_| fs::File::open(&non_reg))
+            .unwrap_err();
+    assert!(matches!(post_non_reg_err, StoreError::Io(_)));
+
+    // Concurrent `.create.lock` AlreadyExists race falls back to opening peer's regular file.
+    let race_lock = dir.path().join("race.lock");
+    let mut created_once = false;
+    let locked = crate::ports::fs_log::open_lock_exclusive_with(&race_lock, |p, create_new| {
+        if create_new && !created_once {
+            created_once = true;
+            fs::write(p, b"")?;
+            return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+        }
+        fs::OpenOptions::new().read(true).write(true).open(p)
+    });
+    assert!(locked.is_ok());
+
+    // sync_dir_result suppresses InvalidInput ONLY on macOS; Linux propagates it.
+    let einval = std::io::Error::from(std::io::ErrorKind::InvalidInput);
+    #[cfg(target_os = "macos")]
+    assert!(crate::ports::sync_dir_result(Err(einval)).is_ok());
+    #[cfg(not(target_os = "macos"))]
+    assert_eq!(
+        crate::ports::sync_dir_result(Err(einval))
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+    assert!(crate::ports::sync_dir_result(Err(std::io::Error::other("io error"))).is_err());
+
+    // Post-rename root fsync failure cleans up `&run_dir` (not the already-moved `&staging`).
+    let sync_fail = crate::ports::fs_log::create_run_dir_atomic_with(
+        &root,
+        "sync-fail-run",
+        |staging| {
+            fs::write(staging.join("manifest.json"), b"{}").unwrap();
+            fs::write(staging.join("events.ndjson"), b"").unwrap();
+            fs::write(staging.join(".lock"), b"").unwrap();
+            Ok(())
+        },
+        |_| Err(std::io::Error::other("injected root fsync error")),
+    )
+    .unwrap_err();
+    assert!(matches!(sync_fail, StoreError::Io(_)));
+    assert!(!root.join("sync-fail-run").exists());
+    sync_dir(&root).unwrap();
 }
 
 #[test]
@@ -360,15 +386,9 @@ fn sqlite_projection_verifies_head_hash_and_all_columns_and_precedence() {
         [],
     )
     .unwrap();
-    assert!(matches!(
-        proj.apply_envelopes("r-zero", None, &[]),
-        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "r-zero"
-    ));
+    assert_divergent(proj.apply_envelopes("r-zero", None, &[]), "r-zero");
     let z1 = started_event("r-zero", "z", "2026-11-26T10:00:00Z");
-    assert!(matches!(
-        proj.apply_envelopes("r-zero", None, &[z1]),
-        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "r-zero"
-    ));
+    assert_divergent(proj.apply_envelopes("r-zero", None, &[z1]), "r-zero");
 
     // Tampering head_hash when head_seq == 2 refuses BOTH empty batch and stale prefix [e1].
     raw.execute(
@@ -376,22 +396,20 @@ fn sqlite_projection_verifies_head_hash_and_all_columns_and_precedence() {
         [],
     )
     .unwrap();
-    assert!(matches!(
-        proj.apply_envelopes("r-prec", None, &[]),
-        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "r-prec"
-    ));
-    assert!(matches!(
+    assert_divergent(proj.apply_envelopes("r-prec", None, &[]), "r-prec");
+    assert_divergent(
         proj.apply_envelopes("r-prec", None, std::slice::from_ref(&e1)),
-        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "r-prec"
-    ));
+        "r-prec",
+    );
     raw.execute(
         "UPDATE projected_runs SET head_hash = ?1 WHERE run_id = 'r-prec'",
         rusqlite::params![&e2.event_hash],
     )
     .unwrap();
 
-    // Tampering non-hash projected columns (event_type, recorded_at, payload) refuses with DivergentEventLog.
+    // Tampering non-hash projected columns refuses with DivergentEventLog.
     for (col, bad_val) in [
+        ("event_id", "tampered-id"),
         ("event_type", "run/completed"),
         ("recorded_at", "1999-01-01T00:00:00Z"),
         ("payload", "{\"tampered\":true}"),
@@ -408,10 +426,10 @@ fn sqlite_projection_verifies_head_hash_and_all_columns_and_precedence() {
             rusqlite::params![bad_val],
         )
         .unwrap();
-        assert!(matches!(
+        assert_divergent(
             proj.apply_envelopes("r-prec", None, std::slice::from_ref(&e1)),
-            Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "r-prec"
-        ));
+            "r-prec",
+        );
         raw.execute(
             &format!("UPDATE projected_events SET {col} = ?1 WHERE run_id = 'r-prec' AND seq = 1"),
             rusqlite::params![orig],
@@ -448,8 +466,8 @@ fn sqlite_projection_refuses_orphan_events_and_preserves_event_log_error_attribu
     // Orphan projected_events row with seq > head_seq refuses with DivergentEventLog (not SQLite UNIQUE error).
     let raw = Connection::open(&index_path).unwrap();
     raw.execute(
-        "INSERT INTO projected_events (run_id, seq, event_type, event_hash, recorded_at, payload)
-         VALUES ('r-orph', 3, 'run/completed', 'orphan-hash', '2026-11-26T10:00:10Z', '{}')",
+        "INSERT INTO projected_events (run_id, seq, event_id, event_type, event_hash, recorded_at, payload)
+         VALUES ('r-orph', 3, 'ev-3', 'run/completed', 'orphan-hash', '2026-11-26T10:00:10Z', '{}')",
         [],
     )
     .unwrap();
@@ -613,4 +631,395 @@ fn slice_two_store_error_and_damage_display_wording_pinned() {
         Damage::NonUtf8RunDir.to_string(),
         "event log contains a non-UTF-8 directory entry"
     );
+    assert_eq!(
+        Damage::MalformedJson {
+            detail: "bad".to_string()
+        }
+        .to_string(),
+        "malformed JSON: bad"
+    );
+}
+
+fn assert_divergent(res: Result<(), StoreError>, expected_run: &str) {
+    assert!(matches!(
+        res,
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == expected_run
+    ));
+}
+
+fn make_delete_db(path: &Path, sql: &str) -> Vec<u8> {
+    let conn = Connection::open(path).unwrap();
+    let mode: String = conn
+        .query_row("PRAGMA journal_mode = DELETE", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(mode.to_ascii_lowercase(), "delete");
+    conn.execute_batch(sql).unwrap();
+    drop(conn);
+    fs::read(path).unwrap()
+}
+
+#[test]
+fn queue_trigger_sql_tamper_and_coordination_strict_schema_pre_wal() {
+    let dir = tempdir().unwrap();
+
+    // 1. Tampered trigger body under a recognized trigger name refuses queue_intact AND open.
+    let tampered = dir.path().join("tampered-trig.db");
+    drop(SqliteCoordinationStore::open(&tampered).unwrap());
+    let conn = Connection::open(&tampered).unwrap();
+    conn.query_row("PRAGMA journal_mode = DELETE", [], |r| {
+        r.get::<_, String>(0)
+    })
+    .unwrap();
+    conn.execute_batch(
+        "DROP TRIGGER queue_entries_kept;
+         CREATE TRIGGER queue_entries_kept BEFORE DELETE ON queue_entries BEGIN SELECT 1; END;",
+    )
+    .unwrap();
+    assert!(!crate::queue::queue_intact(&conn).unwrap());
+    assert!(crate::queue::has_foreign_queue_triggers(&conn).unwrap());
+    drop(conn);
+    let before = fs::read(&tampered).unwrap();
+    assert!(matches!(
+        SqliteCoordinationStore::open(&tampered),
+        Err(StoreError::ForeignDatabase {
+            expected: "coordination store",
+            ..
+        })
+    ));
+    assert_eq!(fs::read(&tampered).unwrap(), before);
+
+    // 2. Unrelated DB with only `meta`, colliding wrong columns, foreign view, negative user_version.
+    for (name, sql) in [
+        (
+            "only-meta.db",
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+        ),
+        (
+            "wrong-cols.db",
+            "CREATE TABLE meta (id INTEGER); CREATE TABLE queue_entries (wrong TEXT);",
+        ),
+        ("view-only.db", "CREATE VIEW v AS SELECT 1;"),
+        ("neg-uv.db", "PRAGMA user_version = -1;"),
+    ] {
+        let path = dir.path().join(name);
+        let bytes = make_delete_db(&path, sql);
+        assert!(
+            matches!(
+                SqliteCoordinationStore::open(&path),
+                Err(StoreError::ForeignDatabase {
+                    expected: "coordination store",
+                    ..
+                })
+            ),
+            "{name} should be refused as ForeignDatabase"
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            bytes,
+            "{name} must not mutate before WAL"
+        );
+    }
+
+    // 3. Same table/column set but altered table SQL (e.g. dropped CHECK constraint on dispatch_settings).
+    let altered = dir.path().join("altered-sql.db");
+    drop(SqliteCoordinationStore::open(&altered).unwrap());
+    let conn = Connection::open(&altered).unwrap();
+    conn.query_row("PRAGMA journal_mode = DELETE", [], |r| {
+        r.get::<_, String>(0)
+    })
+    .unwrap();
+    conn.execute_batch(
+        "DROP TRIGGER dispatch_settings_append_only_update;
+         DROP TRIGGER dispatch_settings_append_only_delete;
+         DROP TABLE dispatch_settings;
+         CREATE TABLE dispatch_settings (
+             seq INTEGER PRIMARY KEY,
+             bound INTEGER NOT NULL,
+             operator TEXT NOT NULL,
+             reason TEXT NOT NULL,
+             recorded_at TEXT NOT NULL
+         );
+         CREATE TRIGGER dispatch_settings_append_only_update
+             BEFORE UPDATE ON dispatch_settings
+             BEGIN SELECT RAISE(ABORT, 'dispatch settings are append-only'); END;
+         CREATE TRIGGER dispatch_settings_append_only_delete
+             BEFORE DELETE ON dispatch_settings
+             BEGIN SELECT RAISE(ABORT, 'dispatch settings are append-only'); END;",
+    )
+    .unwrap();
+    drop(conn);
+    let before_alt = fs::read(&altered).unwrap();
+    assert!(matches!(
+        SqliteCoordinationStore::open(&altered),
+        Err(StoreError::ForeignDatabase {
+            expected: "coordination store",
+            ..
+        })
+    ));
+    assert_eq!(fs::read(&altered).unwrap(), before_alt);
+}
+
+#[test]
+fn projection_strict_schema_negative_user_version_and_readonly_inspect() {
+    let dir = tempdir().unwrap();
+
+    // Views, extra indexes, negative user_version, and colliding wrong-column tables are refused pre-WAL.
+    for (name, sql) in [
+        ("view-only.db", "CREATE VIEW extra_view AS SELECT 1;"),
+        ("neg-uv.db", "PRAGMA user_version = -5;"),
+        (
+            "wrong-cols.db",
+            "CREATE TABLE projection_meta (k TEXT);
+             CREATE TABLE projected_runs (r TEXT);
+             CREATE TABLE projected_events (e TEXT);
+             CREATE INDEX projected_runs_created_idx ON projected_runs (r);",
+        ),
+    ] {
+        let path = dir.path().join(name);
+        let bytes = make_delete_db(&path, sql);
+        assert!(
+            matches!(
+                SqliteProjectionStore::open(&path),
+                Err(StoreError::ForeignDatabase {
+                    expected: "projection index",
+                    ..
+                })
+            ),
+            "{name} should be refused"
+        );
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert!(matches!(
+            SqliteProjectionStore::inspect_read_only(&path),
+            Err(StoreError::ForeignDatabase {
+                expected: "projection index",
+                ..
+            })
+        ));
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
+
+    // Extra user index on an otherwise valid projection DB is refused pre-WAL.
+    let extra_idx = dir.path().join("extra-idx.db");
+    drop(SqliteProjectionStore::open(&extra_idx).unwrap());
+    let conn = Connection::open(&extra_idx).unwrap();
+    conn.query_row("PRAGMA journal_mode = DELETE", [], |r| {
+        r.get::<_, String>(0)
+    })
+    .unwrap();
+    conn.execute_batch("CREATE INDEX extra_user_idx ON projected_runs (feature);")
+        .unwrap();
+    drop(conn);
+    let before = fs::read(&extra_idx).unwrap();
+    assert!(matches!(
+        SqliteProjectionStore::open(&extra_idx),
+        Err(StoreError::ForeignDatabase {
+            expected: "projection index",
+            ..
+        })
+    ));
+    assert_eq!(fs::read(&extra_idx).unwrap(), before);
+
+    // inspect_read_only accepts a valid DELETE-mode 0o444 index without mutating bytes,
+    // and returns Damaged on a read-only 0o444 corrupt file.
+    let ro_idx = dir.path().join("ro-valid.db");
+    drop(SqliteProjectionStore::open(&ro_idx).unwrap());
+    let conn = Connection::open(&ro_idx).unwrap();
+    conn.query_row("PRAGMA journal_mode = DELETE", [], |r| {
+        r.get::<_, String>(0)
+    })
+    .unwrap();
+    conn.pragma_update(None, "user_version", 0i64).unwrap();
+    drop(conn);
+    let ro_bytes = fs::read(&ro_idx).unwrap();
+    let _restore = RestorePermissions(vec![(ro_idx.clone(), 0o644)]);
+    fs::set_permissions(&ro_idx, fs::Permissions::from_mode(0o444)).unwrap();
+    SqliteProjectionStore::inspect_read_only(&ro_idx).unwrap();
+    assert_eq!(fs::read(&ro_idx).unwrap(), ro_bytes);
+
+    let corrupt = dir.path().join("ro-corrupt.db");
+    fs::write(&corrupt, b"garbage").unwrap();
+    fs::set_permissions(&corrupt, fs::Permissions::from_mode(0o444)).unwrap();
+    assert!(matches!(
+        SqliteProjectionStore::inspect_read_only(&corrupt),
+        Err(StoreError::Damaged {
+            damage: Damage::NotADatabase,
+            ..
+        })
+    ));
+    fs::set_permissions(&corrupt, fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[test]
+fn projection_event_columns_tamper_refuses_event_id_attempt_id_and_member() {
+    let dir = tempdir().unwrap();
+    let index_path = dir.path().join("index.db");
+    let proj = SqliteProjectionStore::open(&index_path).unwrap();
+
+    // Event 1 has NULL attempt_id & member; Event 2 has Some(attempt_id) & Some(member).
+    let e1 = started_event("r-cols", "cols", "2026-11-26T10:00:00Z");
+    let e2 = sealed_event(
+        "r-cols",
+        2,
+        EventType::EffectCheckpointed,
+        json!({
+            "attempt_id": "att-42",
+            "checkpoint": {"member": "reviewer-a", "summary": "ok"}
+        }),
+        &e1.event_hash,
+        "2026-11-26T10:00:05Z",
+    );
+    let e3 = sealed_event(
+        "r-cols",
+        3,
+        EventType::RunCompleted,
+        json!({}),
+        &e2.event_hash,
+        "2026-11-26T10:00:10Z",
+    );
+    proj.apply_envelopes("r-cols", None, &[e1.clone(), e2.clone(), e3])
+        .unwrap();
+
+    let raw = Connection::open(&index_path).unwrap();
+    let (eid, att, mem): (String, Option<String>, Option<String>) = raw
+        .query_row(
+            "SELECT event_id, attempt_id, member FROM projected_events WHERE run_id = 'r-cols' AND seq = 2",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(eid, e2.event_id);
+    assert_eq!(att.as_deref(), Some("att-42"));
+    assert_eq!(mem.as_deref(), Some("reviewer-a"));
+
+    // Tampering event_id, attempt_id, and member (both Some -> wrong/NULL and NULL -> Some) refuses!
+    let cases: &[(i64, &str, Option<&str>, Option<&str>)] = &[
+        (2, "event_id", Some("evil-id"), Some(&e2.event_id)),
+        (2, "attempt_id", Some("att-evil"), Some("att-42")),
+        (2, "attempt_id", None, Some("att-42")),
+        (2, "member", Some("evil-member"), Some("reviewer-a")),
+        (2, "member", None, Some("reviewer-a")),
+        (1, "attempt_id", Some("injected"), None),
+        (1, "member", Some("injected"), None),
+    ];
+    for &(seq, col, bad, orig) in cases {
+        raw.execute(
+            &format!("UPDATE projected_events SET {col} = ?1 WHERE run_id = 'r-cols' AND seq = ?2"),
+            rusqlite::params![bad, seq],
+        )
+        .unwrap();
+        assert_divergent(
+            proj.apply_envelopes("r-cols", None, &[e1.clone(), e2.clone()]),
+            "r-cols",
+        );
+        raw.execute(
+            &format!("UPDATE projected_events SET {col} = ?1 WHERE run_id = 'r-cols' AND seq = ?2"),
+            rusqlite::params![orig, seq],
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn projection_migrated_listing_precedence_matches_between_live_and_rebuild() {
+    let dir = tempdir().unwrap();
+    // Migrated listing precedence: unstarted run uses run_meta.json fallback; once RunStarted
+    // commits, apply_envelopes and rebuild_from agree identically (RunStarted > manifest).
+    let runs_root = dir.path().join("runs");
+    let log = FsEventLog::open(&runs_root).unwrap();
+    let bare_manifest = json!({"engine": "0.15.0"});
+    let meta = RunMetadata {
+        feature: "pre-start-meta".to_string(),
+        created_at: "2026-11-26T08:00:00Z".to_string(),
+        list_order: Some(0),
+    };
+    log.create_run_with_metadata("r-mig", &bare_manifest, &meta)
+        .unwrap();
+    let idx_live = SqliteProjectionStore::open(dir.path().join("live.db")).unwrap();
+    let idx_rebuilt = SqliteProjectionStore::open(dir.path().join("rebuilt.db")).unwrap();
+    idx_rebuilt.rebuild_from(&log).unwrap();
+    assert_eq!(
+        idx_rebuilt.list_runs().unwrap(),
+        vec![(
+            "r-mig".to_string(),
+            "pre-start-meta".to_string(),
+            "2026-11-26T08:00:00Z".to_string()
+        )]
+    );
+
+    let start = started_event("r-mig", "started-wins", "2026-11-26T09:30:00Z");
+    log.append_envelopes("r-mig", (0, ZERO_HASH), std::slice::from_ref(&start))
+        .unwrap();
+    idx_live
+        .apply_envelopes("r-mig", Some(&bare_manifest), std::slice::from_ref(&start))
+        .unwrap();
+    idx_rebuilt.rebuild_from(&log).unwrap();
+    let expected = vec![(
+        "r-mig".to_string(),
+        "started-wins".to_string(),
+        "2026-11-26T09:30:00Z".to_string(),
+    )];
+    assert_eq!(idx_live.list_runs().unwrap(), expected);
+    assert_eq!(idx_rebuilt.list_runs().unwrap(), expected);
+}
+
+#[test]
+fn fs_event_log_malformed_json_attribution_and_rebuild_from_real_files() {
+    let dir = tempdir().unwrap();
+    let proj = SqliteProjectionStore::open(dir.path().join("index.db")).unwrap();
+
+    // 1. Corrupt manifest.json -> attributed to manifest.json both directly and via rebuild_from.
+    let r_mf = dir.path().join("runs-mf");
+    let log_mf = FsEventLog::open(&r_mf).unwrap();
+    log_mf.create_run("bad-mf", &sample_manifest("m")).unwrap();
+    let mf_path = r_mf.join("bad-mf").join("manifest.json");
+    fs::write(&mf_path, "{broken-manifest").unwrap();
+    assert!(matches!(
+        log_mf.manifest("bad-mf"),
+        Err(StoreError::Damaged { ref journal, damage: Damage::MalformedJson { .. } })
+            if journal == &mf_path
+    ));
+    assert!(matches!(
+        proj.rebuild_from(&log_mf),
+        Err(StoreError::Damaged { ref journal, damage: Damage::MalformedJson { .. } })
+            if journal == &mf_path
+    ));
+
+    // 2. Corrupt run_meta.json -> attributed to run_meta.json both directly and via rebuild_from.
+    let r_rm = dir.path().join("runs-rm");
+    let log_rm = FsEventLog::open(&r_rm).unwrap();
+    log_rm
+        .create_run_with_metadata(
+            "bad-rm",
+            &sample_manifest("rm"),
+            &RunMetadata {
+                feature: "rm".to_string(),
+                created_at: "2026-11-26T10:00:00Z".to_string(),
+                list_order: Some(0),
+            },
+        )
+        .unwrap();
+    let rm_path = r_rm.join("bad-rm").join("run_meta.json");
+    fs::write(&rm_path, r#"{"unknown_field": 1}"#).unwrap();
+    assert!(matches!(
+        log_rm.run_metadata("bad-rm"),
+        Err(StoreError::Damaged { ref journal, damage: Damage::MalformedJson { .. } })
+            if journal == &rm_path
+    ));
+    assert!(matches!(
+        proj.rebuild_from(&log_rm),
+        Err(StoreError::Damaged { ref journal, damage: Damage::MalformedJson { .. } })
+            if journal == &rm_path
+    ));
+
+    // 3. Valid JSON that is not an EventEnvelope in events.ndjson -> attributed to events.ndjson.
+    let r_ev = dir.path().join("runs-ev");
+    let log_ev = FsEventLog::open(&r_ev).unwrap();
+    log_ev.create_run("bad-ev", &sample_manifest("ev")).unwrap();
+    let ev_path = r_ev.join("bad-ev").join("events.ndjson");
+    fs::write(&ev_path, "{\"not\":\"envelope\"}\n").unwrap();
+    assert!(matches!(
+        proj.rebuild_from(&log_ev),
+        Err(StoreError::Damaged { ref journal, damage: Damage::MalformedJson { .. } })
+            if journal == &ev_path
+    ));
 }

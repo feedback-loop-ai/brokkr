@@ -120,26 +120,20 @@ pub(super) fn insert_row_with(
     Ok(conn.execute(&sql, args)?)
 }
 
-pub(super) fn verify_existing_cooldown_matches(
+pub(super) fn verify_existing_cooldown(
     conn: &Connection,
     row: &StoredRow<'_>,
+    require_present: bool,
 ) -> Result<(), StoreError> {
     let checked = check_row_bounds(row)?;
     let args = params![row.run_id, checked.event_seq, row.site, checked.rounds];
-    let existing = conn.query_row(SELECT_COOLDOWN_CONFLICT_SQL, args, read_conflict_fields)?;
-    verify_conflict_fields(row, checked.retry_after_seconds, &existing)
-}
-
-pub(super) fn verify_no_conflicting_existing(
-    conn: &Connection,
-    row: &StoredRow<'_>,
-) -> Result<(), StoreError> {
-    let checked = check_row_bounds(row)?;
-    let args = params![row.run_id, checked.event_seq, row.site, checked.rounds];
-    if let Some(existing) = conn
-        .query_row(SELECT_COOLDOWN_CONFLICT_SQL, args, read_conflict_fields)
-        .optional()?
-    {
+    let existing = if require_present {
+        Some(conn.query_row(SELECT_COOLDOWN_CONFLICT_SQL, args, read_conflict_fields)?)
+    } else {
+        conn.query_row(SELECT_COOLDOWN_CONFLICT_SQL, args, read_conflict_fields)
+            .optional()?
+    };
+    if let Some(existing) = existing {
         verify_conflict_fields(row, checked.retry_after_seconds, &existing)?;
     }
     Ok(())

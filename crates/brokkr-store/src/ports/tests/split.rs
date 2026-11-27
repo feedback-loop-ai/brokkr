@@ -363,18 +363,21 @@ fn fs_event_log_missing_and_symlinked_inner_files_fail_closed() {
         log.list_run_ids(),
         Err(StoreError::SymlinkRefused(_))
     ));
-    assert!(matches!(
-        log.head("real-run"),
-        Err(StoreError::SymlinkRefused(_))
-    ));
-    assert!(matches!(
-        log.read_stream("real-run", 1),
-        Err(StoreError::SymlinkRefused(_))
-    ));
-    assert!(matches!(
-        log.manifest("real-run"),
-        Err(StoreError::SymlinkRefused(_))
-    ));
+    let assert_reads_refuse_symlink = || {
+        assert!(matches!(
+            log.head("real-run"),
+            Err(StoreError::SymlinkRefused(_))
+        ));
+        assert!(matches!(
+            log.read_stream("real-run", 1),
+            Err(StoreError::SymlinkRefused(_))
+        ));
+        assert!(matches!(
+            log.manifest("real-run"),
+            Err(StoreError::SymlinkRefused(_))
+        ));
+    };
+    assert_reads_refuse_symlink();
 
     fs::remove_file(run_dir.join("manifest.json")).unwrap();
     fs::write(
@@ -384,18 +387,7 @@ fn fs_event_log_missing_and_symlinked_inner_files_fail_closed() {
     .unwrap();
     fs::remove_file(run_dir.join("events.ndjson")).unwrap();
     symlink(outside.join("events.ndjson"), run_dir.join("events.ndjson")).unwrap();
-    assert!(matches!(
-        log.read_stream("real-run", 1),
-        Err(StoreError::SymlinkRefused(_))
-    ));
-    assert!(matches!(
-        log.manifest("real-run"),
-        Err(StoreError::SymlinkRefused(_))
-    ));
-    assert!(matches!(
-        log.head("real-run"),
-        Err(StoreError::SymlinkRefused(_))
-    ));
+    assert_reads_refuse_symlink();
 
     fs::remove_file(run_dir.join(".lock")).unwrap();
     symlink(outside.join("manifest.json"), run_dir.join(".lock")).unwrap();
@@ -430,7 +422,11 @@ fn fs_event_log_refuses_corrupt_truncated_and_before_chain_ndjson() {
     }
 
     fs::write(&events_path, "{\"hello\": \"world\"}\n").unwrap();
-    assert!(matches!(log.read_stream("r1", 1), Err(StoreError::Json(_))));
+    assert!(matches!(
+        log.read_stream("r1", 1),
+        Err(StoreError::Damaged { ref journal, damage: crate::Damage::MalformedJson { .. } })
+            if journal == &events_path
+    ));
 
     let mut seq0 = e1.clone();
     seq0.seq = 0;
@@ -1128,9 +1124,12 @@ fn fs_event_log_cleanup_on_populate_error_and_fs_edge_cases() {
         Err(StoreError::Io(_))
     ));
 
-    // Replacing root with a regular file triggers ENOTDIR in reject_symlink -> StoreError::Io.
+    // Replacing root with a regular file mismatches the anchored root inode -> SymlinkRefused.
     fs::write(&vanished, "file").unwrap();
-    assert!(matches!(vanished_log.head("r1"), Err(StoreError::Io(_))));
+    assert!(matches!(
+        vanished_log.head("r1"),
+        Err(StoreError::SymlinkRefused(_))
+    ));
 }
 
 #[test]

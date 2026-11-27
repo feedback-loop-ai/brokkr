@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
 use brokkr_core::provider_waits;
@@ -19,6 +20,7 @@ use crate::{
     BUSY_TIMEOUT,
 };
 
+use super::sqlite_schema::{read_user_version, ExpectedSchema, SchemaMatch};
 use super::{
     checked_seq, divergent, open_standalone_store, parse_clock, read_verified_log,
     CoordinationStore, EventLog,
@@ -28,18 +30,21 @@ const META_DDL: &str = "CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );";
-const META_PRESENT_SQL: &str =
-    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'";
-const FOREIGN_TABLES_SQL: &str = "SELECT COUNT(*) FROM sqlite_master
-     WHERE type = 'table'
-       AND name NOT LIKE 'sqlite_%'
-       AND name NOT IN (
-           'meta', 'queue_entries', 'queue_waits', 'queue_commands',
-           'queue_latches', 'queue_pins', 'queue_claims', 'queue_refusals',
-           'dispatch_holders', 'dispatch_settings', 'provider_cooldowns',
-           'seat_trees', 'tree_sweeps'
-       )";
 const MONOLITH_META_SQL: &str = "SELECT COUNT(*) FROM meta WHERE key = 'database_schema'";
+
+static EXPECTED_COORDINATION_SCHEMA: LazyLock<ExpectedSchema> = LazyLock::new(|| {
+    ExpectedSchema::from_initializer(|conn| {
+        conn.execute_batch(META_DDL)
+            .expect("canonical coordination meta DDL");
+        queue::migrate_queue(conn).expect("canonical coordination queue migration");
+    })
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoordinationSchemaState {
+    Fresh,
+    Ready,
+}
 
 /// Standalone SQLite [`CoordinationStore`] (e.g. `queue.db`), isolated from
 /// event logs and projections.
@@ -56,7 +61,10 @@ impl SqliteCoordinationStore {
         let (conn, owned) = open_standalone_store(
             path.as_ref(),
             "coordination_migrate",
-            refuse_foreign_database,
+            |conn, normalized| {
+                let _ = inspect_coordination_schema(conn, normalized)?;
+                Ok(())
+            },
             |conn| {
                 conn.pragma_update(None, "foreign_keys", "OFF")?;
                 Ok(())
@@ -130,33 +138,37 @@ fn apply_derived(
     Ok(inserted)
 }
 
-fn meta_present(conn: &Connection) -> Result<bool, StoreError> {
-    let found: i64 = conn.query_row(META_PRESENT_SQL, [], |row| row.get(0))?;
-    Ok(found == 1)
+fn foreign_coordination_db(path: &Path) -> StoreError {
+    StoreError::ForeignDatabase {
+        path: path.to_path_buf(),
+        expected: "coordination store",
+    }
 }
 
-fn refuse_foreign_database(conn: &Connection, path: &Path) -> Result<(), StoreError> {
-    let foreign: i64 = conn.query_row(FOREIGN_TABLES_SQL, [], |row| row.get(0))?;
-    let user_version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    let foreign_triggers = queue::has_foreign_queue_triggers(conn)?;
-    let monolith_meta = if meta_present(conn)? {
-        conn.query_row(MONOLITH_META_SQL, [], |row| row.get::<_, i64>(0))? > 0
-    } else {
-        false
-    };
-    if foreign > 0 || user_version != 0 || foreign_triggers || monolith_meta {
-        return Err(StoreError::ForeignDatabase {
-            path: path.to_path_buf(),
-            expected: "coordination store",
-        });
+fn inspect_coordination_schema(
+    conn: &Connection,
+    path: &Path,
+) -> Result<CoordinationSchemaState, StoreError> {
+    let user_version = read_user_version(conn)?;
+    if user_version != 0 || queue::has_foreign_queue_triggers(conn)? {
+        return Err(foreign_coordination_db(path));
     }
-    Ok(())
+    match EXPECTED_COORDINATION_SCHEMA.matches(conn)? {
+        SchemaMatch::Empty => Ok(CoordinationSchemaState::Fresh),
+        SchemaMatch::Foreign => Err(foreign_coordination_db(path)),
+        SchemaMatch::Exact => {
+            let monolith_meta: i64 = conn.query_row(MONOLITH_META_SQL, [], |row| row.get(0))?;
+            if monolith_meta > 0 || queue::queue_schema(conn)? != Some(queue::QUEUE_SCHEMA) {
+                return Err(foreign_coordination_db(path));
+            }
+            Ok(CoordinationSchemaState::Ready)
+        }
+    }
 }
 
 fn ensure_schema(conn: &Connection, path: &Path) -> Result<(), StoreError> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-    refuse_foreign_database(&tx, path)?;
-    if !(meta_present(&tx)? && queue::queue_intact(&tx)?) {
+    if inspect_coordination_schema(&tx, path)? == CoordinationSchemaState::Fresh {
         tx.execute_batch(META_DDL)?;
         queue::migrate_queue(&tx)?;
     }

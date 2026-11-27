@@ -40,7 +40,7 @@ const STAGING_PREFIX: &str = ".staging-";
 /// `<root>/<run-id>/manifest.json` and `<root>/<run-id>/events.ndjson`.
 pub struct FsEventLog {
     root: PathBuf,
-    root_id: (u64, u64),
+    root_dir: File,
 }
 
 impl FsEventLog {
@@ -53,12 +53,14 @@ impl FsEventLog {
         let root = normalize_storage_path(root)?;
         let _ = reject_symlink_path(&root)?;
         fs::create_dir_all(&root)?;
-        let _ = reject_symlink_path(&root)?;
-        let meta = fs::symlink_metadata(&root)?;
-        Ok(Self {
-            root,
-            root_id: (meta.dev(), meta.ino()),
-        })
+        let pre = reject_symlink_path(&root)?;
+        let root_dir = File::open(&root)?;
+        let post = root_dir.metadata()?;
+        let after = reject_symlink_path(&root)?;
+        if !(post.is_dir() && same_dir(&pre, &post) && same_dir(&after, &post)) {
+            return Err(StoreError::SymlinkRefused(root));
+        }
+        Ok(Self { root, root_dir })
     }
 
     /// Return the normalized root directory holding per-run subdirectories.
@@ -75,29 +77,34 @@ impl FsEventLog {
         manifest: &Value,
         metadata: &RunMetadata,
     ) -> Result<(), StoreError> {
+        self.create_run_inner(run_id, manifest, Some(metadata))
+    }
+
+    fn create_run_inner(
+        &self,
+        run_id: &str,
+        manifest: &Value,
+        metadata: Option<&RunMetadata>,
+    ) -> Result<(), StoreError> {
         self.verify_root()?;
         import::recordable(run_id)?;
         validate_run_id_segment(run_id)?;
         validate_manifest(run_id, manifest)?;
-        create_run_dir_atomic(&self.root, run_id, manifest, Some(metadata), &[])
+        create_run_dir_atomic(&self.root, run_id, manifest, metadata, &[])?;
+        self.verify_root()
     }
 
     fn verify_root(&self) -> Result<(), StoreError> {
-        let meta = reject_symlink_path(&self.root)?.ok_or_else(|| {
-            StoreError::Io(io::Error::new(
+        let anchored = self.root_dir.metadata()?;
+        let Some(current) = reject_symlink_path(&self.root)? else {
+            return Err(StoreError::Io(io::Error::new(
                 io::ErrorKind::NotFound,
                 "event log root directory disappeared",
-            ))
-        })?;
-        if !meta.is_dir() {
-            return Err(StoreError::Io(io::Error::other(
-                "event log root is no longer a directory",
             )));
-        }
-        if (meta.dev(), meta.ino()) != self.root_id {
-            return Err(StoreError::Io(io::Error::other(
-                "event log root directory changed after open",
-            )));
+        };
+        if !(current.is_dir() && current.dev() == anchored.dev() && current.ino() == anchored.ino())
+        {
+            return Err(StoreError::SymlinkRefused(self.root.clone()));
         }
         Ok(())
     }
@@ -106,7 +113,9 @@ impl FsEventLog {
         self.verify_root()?;
         validate_run_id_segment(run_id)?;
         let dir = self.root.join(run_id);
-        match reject_symlink(&dir)? {
+        let found = reject_symlink(&dir)?;
+        self.verify_root()?;
+        match found {
             Some(meta) if meta.is_dir() => Ok(dir),
             _ => Err(StoreError::RunNotFound(run_id.to_string())),
         }
@@ -117,7 +126,24 @@ impl FsEventLog {
         let _lock = open_lock(&run_dir, false)?;
         let _ = require_regular_manifest(&run_dir)?;
         let _ = reject_symlink(&run_dir.join(RUN_META_FILE))?;
-        read_verified_events(&run_dir, run_id)
+        let events = read_verified_events(&run_dir, run_id)?;
+        self.verify_root()?;
+        Ok(events)
+    }
+}
+
+fn same_dir(candidate: &Option<Metadata>, anchored: &Metadata) -> bool {
+    candidate.as_ref().is_some_and(|meta| {
+        meta.is_dir() && meta.dev() == anchored.dev() && meta.ino() == anchored.ino()
+    })
+}
+
+fn malformed_json_error(path: &Path, err: &serde_json::Error) -> StoreError {
+    StoreError::Damaged {
+        journal: path.to_path_buf(),
+        damage: Damage::MalformedJson {
+            detail: err.to_string(),
+        },
     }
 }
 
@@ -206,7 +232,14 @@ fn open_lock_file(lock_path: &Path, exclusive: bool) -> Result<File, StoreError>
 }
 
 fn open_lock(run_dir: &Path, exclusive: bool) -> Result<File, StoreError> {
-    open_lock_file(&run_dir.join(LOCK_FILE), exclusive)
+    match open_lock_file(&run_dir.join(LOCK_FILE), exclusive) {
+        Ok(file) => Ok(file),
+        Err(StoreError::Io(err)) if !exclusive && err.kind() == io::ErrorKind::NotFound => {
+            let manifest_path = require_regular_manifest(run_dir)?;
+            open_lock_file(&manifest_path, false)
+        }
+        Err(err) => Err(err),
+    }
 }
 
 fn require_regular_manifest(run_dir: &Path) -> Result<PathBuf, StoreError> {
@@ -318,7 +351,8 @@ fn read_file_no_symlink(path: &Path) -> Result<String, StoreError> {
 fn read_manifest_file(run_dir: &Path, run_id: &str) -> Result<Value, StoreError> {
     let path = require_regular_manifest(run_dir)?;
     let raw = read_file_no_symlink(&path)?;
-    let manifest: Value = serde_json::from_str(&raw)?;
+    let manifest: Value =
+        serde_json::from_str(&raw).map_err(|err| malformed_json_error(&path, &err))?;
     validate_manifest(run_id, &manifest)?;
     Ok(manifest)
 }
@@ -346,7 +380,7 @@ fn parse_ndjson_line(
                     seq,
                 });
             }
-            Err(StoreError::Json(err))
+            Err(malformed_json_error(events_path, &err))
         }
         Err(err) => Err(damage::classified(events_path, err)),
     }
@@ -378,11 +412,7 @@ fn read_verified_events(run_dir: &Path, run_id: &str) -> Result<Vec<EventEnvelop
 
 impl EventLog for FsEventLog {
     fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError> {
-        self.verify_root()?;
-        import::recordable(run_id)?;
-        validate_run_id_segment(run_id)?;
-        validate_manifest(run_id, manifest)?;
-        create_run_dir_atomic(&self.root, run_id, manifest, None, &[])
+        self.create_run_inner(run_id, manifest, None)
     }
 
     fn append_envelopes(
@@ -407,7 +437,7 @@ impl EventLog for FsEventLog {
                 f.sync_data()
             })?;
         }
-        Ok(())
+        self.verify_root()
     }
 
     fn import_run_stream(
@@ -419,7 +449,8 @@ impl EventLog for FsEventLog {
         self.verify_root()?;
         validate_import_stream(run_id, manifest, envelopes)?;
         validate_run_id_segment(run_id)?;
-        create_run_dir_atomic(&self.root, run_id, manifest, None, envelopes)
+        create_run_dir_atomic(&self.root, run_id, manifest, None, envelopes)?;
+        self.verify_root()
     }
 
     fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {
@@ -442,7 +473,9 @@ impl EventLog for FsEventLog {
         let _lock = open_lock(&run_dir, false)?;
         let _ = reject_symlink(&run_dir.join(EVENTS_FILE))?;
         let _ = reject_symlink(&run_dir.join(RUN_META_FILE))?;
-        read_manifest_file(&run_dir, run_id)
+        let manifest = read_manifest_file(&run_dir, run_id)?;
+        self.verify_root()?;
+        Ok(manifest)
     }
 
     fn run_metadata(&self, run_id: &str) -> Result<Option<RunMetadata>, StoreError> {
@@ -452,10 +485,13 @@ impl EventLog for FsEventLog {
         let _ = reject_symlink(&run_dir.join(EVENTS_FILE))?;
         let meta_path = run_dir.join(RUN_META_FILE);
         if reject_symlink(&meta_path)?.is_none() {
+            self.verify_root()?;
             return Ok(None);
         }
         let raw = read_file_no_symlink(&meta_path)?;
-        let meta: RunMetadata = serde_json::from_str(&raw)?;
+        let meta: RunMetadata =
+            serde_json::from_str(&raw).map_err(|err| malformed_json_error(&meta_path, &err))?;
+        self.verify_root()?;
         Ok(Some(meta))
     }
 
@@ -486,6 +522,7 @@ impl EventLog for FsEventLog {
             let _ = reject_symlink(&path.join(RUN_META_FILE))?;
             ids.push(name);
         }
+        self.verify_root()?;
         ids.sort();
         Ok(ids)
     }

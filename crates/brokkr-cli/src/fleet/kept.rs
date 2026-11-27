@@ -447,7 +447,8 @@ pub(super) fn lasting(error: &StoreError) -> bool {
                 | Damage::NotADatabase
                 | Damage::NoSchema
                 | Damage::MissingManifest
-                | Damage::NonUtf8RunDir,
+                | Damage::NonUtf8RunDir
+                | Damage::MalformedJson { .. },
             ..
         }
         | StoreError::SymlinkRefused(_)

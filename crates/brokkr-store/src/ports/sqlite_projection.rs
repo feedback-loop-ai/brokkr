@@ -9,22 +9,29 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventEnvelope;
-use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use brokkr_core::event_index::Indexed;
+use rusqlite::{
+    params, Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior,
+};
 use serde_json::Value;
 
-use crate::{import, patiently, StoreError, BUSY_TIMEOUT};
+use crate::{damage, import, literal, patiently, StoreError, BUSY_TIMEOUT};
+
+use super::sqlite_schema::{read_user_version, ExpectedSchema, SchemaMatch};
 
 use super::{
-    checked_seq, divergent, non_empty_str, open_standalone_store, read_verified_log,
+    checked_seq, divergent, non_empty_str, normalize_storage_path, open_standalone_store,
+    read_verified_log, reject_symlink, reject_symlink_path, sqlite_sidecar_path,
     started_feature_of, validate_manifest, validate_started_manifests, verify_chain_checked,
-    EventLog, ProjectionStore,
+    EventLog, ProjectionStore, RunMetadata,
 };
 
 const PROJECTION_SCHEMA_VERSION: &str = "1";
-const PROJECTION_USER_VERSION: u32 = 1;
+const PROJECTION_USER_VERSION: i64 = 1;
 
 const PROJECTION_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS projection_meta (
@@ -41,7 +48,10 @@ CREATE TABLE IF NOT EXISTS projected_runs (
 CREATE TABLE IF NOT EXISTS projected_events (
     run_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
+    event_id TEXT NOT NULL,
     event_type TEXT NOT NULL,
+    attempt_id TEXT,
+    member TEXT,
     event_hash TEXT NOT NULL,
     recorded_at TEXT NOT NULL,
     payload TEXT NOT NULL,
@@ -51,19 +61,16 @@ CREATE INDEX IF NOT EXISTS projected_runs_created_idx
     ON projected_runs (created_at, run_id);
 "#;
 
-const SCHEMA_READY_SQL: &str = "SELECT COUNT(*) FROM sqlite_master
-     WHERE type = 'table'
-       AND name IN ('projection_meta', 'projected_runs', 'projected_events')";
-const FOREIGN_TABLES_SQL: &str = "SELECT COUNT(*) FROM sqlite_master
-     WHERE type = 'table'
-       AND name NOT LIKE 'sqlite_%'
-       AND name NOT IN ('projection_meta', 'projected_runs', 'projected_events')";
-const ALL_USER_TABLES_SQL: &str = "SELECT COUNT(*) FROM sqlite_master
-     WHERE type = 'table' AND name NOT LIKE 'sqlite_%'";
-const TRIGGERS_SQL: &str = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'";
-const INSERT_PROJECTED_EVENT_SQL: &str =
-    "INSERT INTO projected_events (run_id, seq, event_type, event_hash, recorded_at, payload)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+static EXPECTED_PROJECTION_SCHEMA: LazyLock<ExpectedSchema> = LazyLock::new(|| {
+    ExpectedSchema::from_initializer(|conn| {
+        conn.execute_batch(PROJECTION_DDL)
+            .expect("canonical projection DDL");
+    })
+});
+
+const INSERT_PROJECTED_EVENT_SQL: &str = "INSERT INTO projected_events
+         (run_id, seq, event_id, event_type, attempt_id, member, event_hash, recorded_at, payload)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
 const UPSERT_PROJECTED_RUN_SQL: &str =
     "INSERT INTO projected_runs (run_id, feature, created_at, head_seq, head_hash)
      VALUES (?1, ?2, ?3, ?4, ?5)
@@ -76,7 +83,8 @@ const INSERT_META_SQL: &str =
     "INSERT OR IGNORE INTO projection_meta (key, value) VALUES ('projection_schema', ?1)";
 const LIST_PROJECTED_RUNS_SQL: &str =
     "SELECT run_id, feature, created_at FROM projected_runs ORDER BY created_at, rowid";
-const SELECT_PREFIX_ROWS_SQL: &str = "SELECT seq, event_type, event_hash, recorded_at, payload
+const SELECT_PREFIX_ROWS_SQL: &str =
+    "SELECT seq, event_id, event_type, attempt_id, member, event_hash, recorded_at, payload
      FROM projected_events
      WHERE run_id = ?1 AND seq <= ?2
      ORDER BY seq";
@@ -127,10 +135,60 @@ impl SqliteProjectionStore {
         })
     }
 
+    /// Inspect an existing SQLite projection database strictly in read-only mode
+    /// (`SQLITE_OPEN_READ_ONLY`), performing no WAL switch, schema creation, or
+    /// `user_version` upgrade.
+    pub fn inspect_read_only(path: impl AsRef<Path>) -> Result<(), StoreError> {
+        let raw = path.as_ref();
+        let normalized = normalize_storage_path(raw)?;
+        inspect_read_only_inner(raw, &normalized)
+            .map_err(|err| damage::classified(&normalized, err))
+    }
+
+    /// Resolve a run's `(feature, created_at)` listing metadata using the
+    /// single projection precedence rule: once `envelopes` is non-empty,
+    /// `RunStarted` > `manifest` `feature` and `envelopes[0].recorded_at`
+    /// always win; `fallback` (`run_meta.json`) is only used when `envelopes`
+    /// is empty.
+    pub fn resolve_listing<'a>(
+        envelopes: &'a [EventEnvelope],
+        manifest: Option<&'a Value>,
+        fallback: Option<&'a RunMetadata>,
+    ) -> (&'a str, &'a str) {
+        resolve_listing(envelopes, manifest, None, fallback)
+    }
+
     /// Return the path to this projection database file.
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
+
+struct ProjectedEventRow {
+    seq: i64,
+    event_id: String,
+    event_type: String,
+    attempt_id: Option<String>,
+    member: Option<String>,
+    event_hash: String,
+    recorded_at: String,
+    payload: String,
+}
+
+fn inspect_read_only_inner(raw: &Path, normalized: &Path) -> Result<(), StoreError> {
+    let _ = reject_symlink_path(normalized)?;
+    let _ = reject_symlink(&sqlite_sidecar_path(normalized, "-wal"))?;
+    let _ = reject_symlink(&sqlite_sidecar_path(normalized, "-shm"))?;
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = Connection::open_with_flags(normalized, flags)
+        .map_err(|e| literal::as_given(e, raw, normalized))?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
+    patiently("projection_inspect", BUSY_TIMEOUT, normalized, || {
+        let tx = Transaction::new_unchecked(&conn, TransactionBehavior::Deferred)?;
+        let _ = inspect_projection_schema(&tx, normalized)?;
+        tx.commit()?;
+        Ok(())
+    })
 }
 
 fn foreign_projection_db(path: &Path) -> StoreError {
@@ -144,38 +202,33 @@ fn inspect_projection_schema(
     conn: &Connection,
     path: &Path,
 ) -> Result<ProjectionSchemaState, StoreError> {
-    let foreign: i64 = conn.query_row(FOREIGN_TABLES_SQL, [], |row| row.get(0))?;
-    let triggers: i64 = conn.query_row(TRIGGERS_SQL, [], |row| row.get(0))?;
-    let user_version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if foreign > 0 || triggers > 0 {
-        return Err(foreign_projection_db(path));
-    }
-    let total_tables: i64 = conn.query_row(ALL_USER_TABLES_SQL, [], |row| row.get(0))?;
-    if total_tables == 0 {
-        return if user_version == 0 {
-            Ok(ProjectionSchemaState::Fresh)
-        } else {
-            Err(foreign_projection_db(path))
-        };
-    }
-    let ready: i64 = conn.query_row(SCHEMA_READY_SQL, [], |row| row.get(0))?;
-    if ready != 3 {
-        return Err(foreign_projection_db(path));
-    }
-    let version: Option<String> = conn
-        .query_row(
-            "SELECT value FROM projection_meta WHERE key = 'projection_schema'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()?;
-    if version.as_deref() != Some(PROJECTION_SCHEMA_VERSION) {
-        return Err(foreign_projection_db(path));
-    }
-    match user_version {
-        PROJECTION_USER_VERSION => Ok(ProjectionSchemaState::Ready),
-        0 => Ok(ProjectionSchemaState::UpgradeUserVersion),
-        _ => Err(foreign_projection_db(path)),
+    let user_version = read_user_version(conn)?;
+    match EXPECTED_PROJECTION_SCHEMA.matches(conn)? {
+        SchemaMatch::Empty => {
+            if user_version == 0 {
+                Ok(ProjectionSchemaState::Fresh)
+            } else {
+                Err(foreign_projection_db(path))
+            }
+        }
+        SchemaMatch::Foreign => Err(foreign_projection_db(path)),
+        SchemaMatch::Exact => {
+            let version: Option<String> = conn
+                .query_row(
+                    "SELECT value FROM projection_meta WHERE key = 'projection_schema'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if version.as_deref() != Some(PROJECTION_SCHEMA_VERSION) {
+                return Err(foreign_projection_db(path));
+            }
+            match user_version {
+                PROJECTION_USER_VERSION => Ok(ProjectionSchemaState::Ready),
+                0 => Ok(ProjectionSchemaState::UpgradeUserVersion),
+                _ => Err(foreign_projection_db(path)),
+            }
+        }
     }
 }
 
@@ -257,31 +310,38 @@ fn verify_stored_prefix(
     let limit = checked_seq(envelopes.len() as u64)?;
     let mut stmt = tx.prepare(SELECT_PREFIX_ROWS_SQL)?;
     let rows = stmt.query_map(params![run_id, limit], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-        ))
+        Ok(ProjectedEventRow {
+            seq: row.get(0)?,
+            event_id: row.get(1)?,
+            event_type: row.get(2)?,
+            attempt_id: row.get(3)?,
+            member: row.get(4)?,
+            event_hash: row.get(5)?,
+            recorded_at: row.get(6)?,
+            payload: row.get(7)?,
+        })
     })?;
     let mut present = BTreeSet::new();
     for row in rows {
-        let (seq, event_type, event_hash, recorded_at, payload) = row?;
-        let idx = usize::try_from(seq)
+        let stored = row?;
+        let idx = usize::try_from(stored.seq)
             .ok()
             .and_then(|n| n.checked_sub(1))
             .ok_or_else(|| divergent(run_id))?;
         let expected = &envelopes[idx];
+        let indexed = Indexed::of(expected);
         let expected_payload = serde_json::to_string(&expected.payload)?;
-        let matches = event_type == expected.event_type.as_str()
-            && event_hash == expected.event_hash
-            && recorded_at == expected.recorded_at
-            && payload == expected_payload;
+        let matches = stored.event_id == expected.event_id
+            && stored.event_type == expected.event_type.as_str()
+            && stored.attempt_id.as_deref() == indexed.attempt_id
+            && stored.member.as_deref() == indexed.member
+            && stored.event_hash == expected.event_hash
+            && stored.recorded_at == expected.recorded_at
+            && stored.payload == expected_payload;
         if !matches {
             return Err(divergent(run_id));
         }
-        present.insert(seq as u64);
+        present.insert(stored.seq as u64);
     }
     Ok(present)
 }
@@ -294,11 +354,15 @@ fn insert_projected_events(
     let mut stmt = tx.prepare_cached(INSERT_PROJECTED_EVENT_SQL)?;
     for envelope in envelopes {
         let seq = checked_seq(envelope.seq)?;
+        let indexed = Indexed::of(envelope);
         let payload = serde_json::to_string(&envelope.payload)?;
         let args = params![
             run_id,
             seq,
+            envelope.event_id,
             envelope.event_type.as_str(),
+            indexed.attempt_id,
+            indexed.member,
             envelope.event_hash,
             envelope.recorded_at,
             payload,
@@ -339,36 +403,43 @@ fn upsert_projected_run(
     Ok(())
 }
 
-fn resolved_feature<'a>(
+fn resolve_listing<'a>(
     envelopes: &'a [EventEnvelope],
     manifest: Option<&'a Value>,
     existing: Option<&'a StoredRun>,
-) -> &'a str {
-    started_feature_of(envelopes)
+    fallback: Option<&'a RunMetadata>,
+) -> (&'a str, &'a str) {
+    let pre_start = if envelopes.is_empty() { fallback } else { None };
+    let existing_opt = existing.filter(|_| manifest.is_none());
+    let feature = started_feature_of(envelopes)
         .or_else(|| manifest.and_then(|m| non_empty_str(m.get("feature"))))
         .or_else(|| {
-            existing
+            pre_start
+                .map(|m| m.feature.as_str())
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| {
+            existing_opt
                 .map(|r| r.feature.as_str())
                 .filter(|s| !s.is_empty())
         })
-        .unwrap_or("")
-}
-
-fn resolved_created_at<'a>(
-    envelopes: &'a [EventEnvelope],
-    manifest: Option<&'a Value>,
-    existing: Option<&'a StoredRun>,
-) -> &'a str {
-    envelopes
+        .unwrap_or("");
+    let created_at = envelopes
         .first()
         .map(|e| e.recorded_at.as_str())
         .or_else(|| manifest.and_then(|m| non_empty_str(m.get("created_at"))))
         .or_else(|| {
-            existing
+            pre_start
+                .map(|m| m.created_at.as_str())
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| {
+            existing_opt
                 .map(|r| r.created_at.as_str())
                 .filter(|s| !s.is_empty())
         })
-        .unwrap_or("")
+        .unwrap_or("");
+    (feature, created_at)
 }
 
 fn reconcile_existing_run(
@@ -423,8 +494,7 @@ fn apply_batch_tx(
             return Err(divergent(run_id));
         }
     }
-    let feature = resolved_feature(envelopes, manifest, existing.as_ref());
-    let created_at = resolved_created_at(envelopes, manifest, existing.as_ref());
+    let (feature, created_at) = resolve_listing(envelopes, manifest, existing.as_ref(), None);
 
     let Some(last) = envelopes.last() else {
         if let Some(row) = existing.as_ref().filter(|row| row.head_seq > 0) {
@@ -489,13 +559,12 @@ impl ProjectionStore for SqliteProjectionStore {
             tx.execute("DELETE FROM projected_runs", [])?;
             let mut total = 0u64;
             for run in &verified {
-                let (feature, created_at) = match &run.metadata {
-                    Some(meta) => (meta.feature.as_str(), meta.created_at.as_str()),
-                    None => (
-                        resolved_feature(&run.events, Some(&run.manifest), None),
-                        resolved_created_at(&run.events, Some(&run.manifest), None),
-                    ),
-                };
+                let (feature, created_at) = resolve_listing(
+                    &run.events,
+                    Some(&run.manifest),
+                    None,
+                    run.metadata.as_ref(),
+                );
                 let (head_seq, head_hash) = run
                     .events
                     .last()

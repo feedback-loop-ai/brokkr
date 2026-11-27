@@ -30,7 +30,7 @@ use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 use crate::{
     ensure_wal, import, literal, patiently, seat_record, Cooldown, EntryId, ImportError, NewEntry,
@@ -42,6 +42,7 @@ mod journal;
 mod sqlite;
 mod sqlite_coordination;
 mod sqlite_projection;
+mod sqlite_schema;
 
 pub use fs_log::FsEventLog;
 pub use journal::{Journal, NewEvent};
@@ -161,7 +162,7 @@ pub(crate) fn validate_import_stream(
 
 /// Lexically normalize an already-absolute path by dropping `.` and trailing
 /// separators and resolving `..` segments without touching the filesystem.
-pub fn lexically_normalize(path: &Path) -> PathBuf {
+pub(crate) fn lexically_normalize(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for comp in path.components() {
         match comp {
@@ -206,16 +207,20 @@ pub fn reject_symlink_path(path: &Path) -> Result<Option<Metadata>, StoreError> 
     ancestors.reverse();
     let mut leaf = None;
     for ancestor in ancestors {
-        if ancestor.as_os_str().is_empty() || ancestor == Path::new("/") {
+        if ancestor.as_os_str().is_empty() {
+            continue;
+        }
+        let is_leaf = ancestor == path;
+        if !is_leaf && ancestor == Path::new("/") {
             continue;
         }
         #[cfg(target_os = "macos")]
-        if matches!(ancestor.to_str(), Some("/tmp" | "/var" | "/etc")) {
+        if !is_leaf && matches!(ancestor.to_str(), Some("/tmp" | "/var" | "/etc")) {
             continue;
         }
         match reject_symlink(ancestor)? {
             Some(meta) => {
-                if ancestor == path {
+                if is_leaf {
                     leaf = Some(meta);
                 }
             }
@@ -232,11 +237,13 @@ pub fn sqlite_sidecar_path(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(raw)
 }
 
-/// fsync a directory so published directory entries survive power loss,
-/// ignoring macOS `EINVAL` on directory fsync (matching `backup::sync_dir`).
+/// fsync a directory so published directory entries survive power loss.
+/// macOS answers `EINVAL` for directory fsync; on Linux `EINVAL` is never
+/// suppressed.
 pub(crate) fn sync_dir_result(res: io::Result<()>) -> io::Result<()> {
     match res {
         Ok(()) => Ok(()),
+        #[cfg(target_os = "macos")]
         Err(error) if error.kind() == io::ErrorKind::InvalidInput => Ok(()),
         Err(error) => Err(error),
     }
@@ -268,7 +275,10 @@ fn open_standalone_sqlite_inner(
     conn.busy_timeout(BUSY_TIMEOUT)?;
     if existed_non_empty {
         patiently(migrate_op, BUSY_TIMEOUT, &normalized, || {
-            inspect_existing(&conn, &normalized)
+            let tx = Transaction::new_unchecked(&conn, TransactionBehavior::Deferred)?;
+            inspect_existing(&tx, &normalized)?;
+            tx.commit()?;
+            Ok(())
         })?;
     }
     ensure_wal(&conn, &normalized)?;

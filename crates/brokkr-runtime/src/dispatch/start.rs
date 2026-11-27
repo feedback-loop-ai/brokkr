@@ -400,18 +400,23 @@ pub(crate) fn refused(error: StoreError) -> Refused {
             Queue::Storage(refusal) => Refused::QueueStorage(refusal),
             Queue::Other(refusal) => Refused::Store(StoreError::Queue(refusal)),
         },
-        other @ (StoreError::AppendConflict { .. }
-        | StoreError::AfterTerminal { .. }
+        other @ (StoreError::AfterTerminal { .. }
         | StoreError::AlreadyAcknowledged { .. }
+        | StoreError::AppendConflict { .. }
         | StoreError::Chain(_)
         | StoreError::Clock { .. }
+        | StoreError::CooldownFieldOutOfRange { .. }
         | StoreError::Damaged { .. }
         | StoreError::DivergentEventLog { .. }
+        | StoreError::ForeignDatabase { .. }
         | StoreError::HeadMoved { .. }
         | StoreError::Import(_)
         | StoreError::InvalidManifest { .. }
+        | StoreError::InvalidPath(_)
+        | StoreError::Io(_)
         | StoreError::Json(_)
         | StoreError::ProjectionLag { .. }
+        | StoreError::ProviderWait(_)
         | StoreError::RowBeforeChain { .. }
         | StoreError::RunExists(_)
         | StoreError::RunIdTooLong { .. }
@@ -421,16 +426,11 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::SeatRecord(_)
         | StoreError::SeatTree(_)
         | StoreError::Sqlite(_)
+        | StoreError::SymlinkRefused(_)
         | StoreError::TokenCountOutOfRange(..)
         | StoreError::UnknownHead { .. }
         | StoreError::Unparsed { .. }
-        | StoreError::Io(_)
-        | StoreError::UnsafeRunId(_)
-        | StoreError::SymlinkRefused(_)
-        | StoreError::InvalidPath(_)
-        | StoreError::ForeignDatabase { .. }
-        | StoreError::ProviderWait(_)
-        | StoreError::CooldownFieldOutOfRange { .. }) => Refused::Store(other),
+        | StoreError::UnsafeRunId(_)) => Refused::Store(other),
     }
 }
 

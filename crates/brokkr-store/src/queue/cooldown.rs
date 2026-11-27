@@ -24,10 +24,7 @@ mod write;
 use super::storage::{cool_downs_held, cool_downs_writable};
 use super::QueueRefusal;
 use crate::{patiently, Store, StoreError};
-use write::{
-    insert_row, insert_row_with, verify_existing_cooldown_matches, verify_no_conflicting_existing,
-    StoredRow,
-};
+use write::{insert_row, insert_row_with, verify_existing_cooldown, StoredRow};
 
 /// One cool-down a terminal event records, as its writer derives it. The
 /// store fills `event_seq` and `recorded_at` from the event it writes the
@@ -198,14 +195,14 @@ fn insert_rows(
         }
         if until <= recorded {
             if idempotent {
-                verify_no_conflicting_existing(tx, &stored)?;
+                verify_existing_cooldown(tx, &stored, false)?;
             }
             continue;
         }
         if insert_row_with(tx, &stored, idempotent)? > 0 {
             inserted += 1;
         } else {
-            verify_existing_cooldown_matches(tx, &stored)?;
+            verify_existing_cooldown(tx, &stored, true)?;
         }
     }
     Ok(inserted)

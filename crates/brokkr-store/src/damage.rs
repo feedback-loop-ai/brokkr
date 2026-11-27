@@ -37,6 +37,9 @@ pub enum Damage {
     MissingManifest,
     /// A filesystem event-log root contains a non-UTF-8 directory entry.
     NonUtf8RunDir,
+    /// A filesystem event-log JSON file (`manifest.json`, `run_meta.json`, or an
+    /// `events.ndjson` record) could not be decoded as expected JSON.
+    MalformedJson { detail: String },
 }
 
 impl std::fmt::Display for Damage {
@@ -54,6 +57,7 @@ impl std::fmt::Display for Damage {
                 f.write_str("run directory is missing a regular manifest.json")
             }
             Damage::NonUtf8RunDir => f.write_str("event log contains a non-UTF-8 directory entry"),
+            Damage::MalformedJson { detail } => write!(f, "malformed JSON: {detail}"),
         }
     }
 }

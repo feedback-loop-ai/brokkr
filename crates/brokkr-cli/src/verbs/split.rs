@@ -66,6 +66,10 @@ pub(crate) enum SplitError {
         path: PathBuf,
         source: std::io::Error,
     },
+    PublishRollbackFailed {
+        source: std::io::Error,
+        rollback: std::io::Error,
+    },
     ParityMismatch {
         kind: ParityKind,
         run_id: String,
@@ -115,6 +119,12 @@ impl fmt::Display for SplitError {
                     path.display()
                 )
             }
+            SplitError::PublishRollbackFailed { source, rollback } => {
+                write!(
+                    f,
+                    "migration publish failed ({source}) and rollback failed ({rollback})"
+                )
+            }
             SplitError::ParityMismatch { kind, run_id } => {
                 write!(f, "{} parity mismatch for run '{run_id}'", kind.as_str())
             }
@@ -137,7 +147,8 @@ impl fmt::Display for SplitError {
 impl std::error::Error for SplitError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SplitError::SidecarRemovalFailed { source, .. } => Some(source),
+            SplitError::SidecarRemovalFailed { source, .. }
+            | SplitError::PublishRollbackFailed { source, .. } => Some(source),
             SplitError::Store(err) => Some(err),
             SplitError::Io(err) => Some(err),
             SplitError::Json(err) => Some(err),
@@ -251,7 +262,7 @@ impl Drop for StagedDb {
 struct PreparedTarget {
     normalized: PathBuf,
     parent: PathBuf,
-    existed_empty: bool,
+    in_place: bool,
 }
 
 struct PreparedIndex {
@@ -297,16 +308,25 @@ fn reindex_report(runs_dir: &Path, index_path: &Path) -> Result<ReindexReport, S
     let runs = projections.list_runs()?.len() as u64;
     drop(projections);
     remove_sidecars_checked(staged.path())?;
-    remove_sidecars_checked(&target.normalized)?;
-    fs::rename(staged.path(), &target.normalized)?;
-    fsync_dir(&target.parent)?;
-    staged.disarm();
+    publish_staged_index_with(&mut staged, &target, |src, dst| fs::rename(src, dst))?;
     Ok(ReindexReport {
         runs_dir: normalized_runs.display().to_string(),
         index: target.normalized.display().to_string(),
         runs,
         events,
     })
+}
+
+fn publish_staged_index_with(
+    staged: &mut StagedDb,
+    target: &PreparedIndex,
+    rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), SplitError> {
+    rename(staged.path(), &target.normalized)?;
+    staged.disarm();
+    remove_sidecars_checked(&target.normalized)?;
+    fsync_dir(&target.parent)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -369,23 +389,28 @@ fn publish_staged_migration_with(
     target: &PreparedTarget,
     mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
 ) -> Result<(), SplitError> {
-    if target.existed_empty {
-        let src_runs = staging.path().join("runs");
-        let dst_runs = target.normalized.join("runs");
-        rename(&src_runs, &dst_runs)?;
-        let src_idx = staging.path().join("index.db");
-        let dst_idx = target.normalized.join("index.db");
-        if let Err(err) = rename(&src_idx, &dst_idx) {
-            let _ = fs::rename(&dst_runs, &src_runs);
-            return Err(err.into());
-        }
-        fsync_dir(&target.normalized)?;
-        fsync_dir(&target.parent)?;
-    } else {
+    if !target.in_place {
         rename(staging.path(), &target.normalized)?;
         let _ = staging.keep();
         fsync_dir(&target.parent)?;
+        return Ok(());
     }
+    let src_runs = staging.path().join("runs");
+    let dst_runs = target.normalized.join("runs");
+    rename(&src_runs, &dst_runs)?;
+    let src_idx = staging.path().join("index.db");
+    let dst_idx = target.normalized.join("index.db");
+    if let Err(err) = rename(&src_idx, &dst_idx) {
+        if let Err(rollback) = rename(&dst_runs, &src_runs) {
+            return Err(SplitError::PublishRollbackFailed {
+                source: err,
+                rollback,
+            });
+        }
+        return Err(err.into());
+    }
+    fsync_dir(&target.normalized)?;
+    fsync_dir(&target.parent)?;
     Ok(())
 }
 
@@ -432,16 +457,32 @@ fn is_disposable_corrupt(err: &StoreError) -> bool {
     matches!(err, StoreError::Damaged { .. })
 }
 
+fn check_sidecar_removable(db_path: &Path, suffix: &str) -> Result<(), SplitError> {
+    let sidecar = sqlite_sidecar_path(db_path, suffix);
+    if let Some(meta) = reject_symlink(&sidecar).map_err(map_path_err)? {
+        if meta.is_dir() {
+            return Err(SplitError::SidecarRemovalFailed {
+                path: sidecar,
+                source: std::io::Error::new(
+                    ErrorKind::IsADirectory,
+                    "SQLite sidecar path is a directory",
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn prepare_index_target(index_path: &Path) -> Result<PreparedIndex, SplitError> {
     let normalized = normalize_storage_path(index_path).map_err(map_path_err)?;
     let meta = reject_symlink_path(&normalized).map_err(map_path_err)?;
-    let _ = reject_symlink(&sqlite_sidecar_path(&normalized, "-wal")).map_err(map_path_err)?;
-    let _ = reject_symlink(&sqlite_sidecar_path(&normalized, "-shm")).map_err(map_path_err)?;
+    check_sidecar_removable(&normalized, "-wal")?;
+    check_sidecar_removable(&normalized, "-shm")?;
     if let Some(meta) = meta {
         if meta.is_dir() {
             return Err(SplitError::IndexPathIsDirectory(normalized));
         }
-        if let Err(err) = SqliteProjectionStore::open(&normalized) {
+        if let Err(err) = SqliteProjectionStore::inspect_read_only(&normalized) {
             if !is_disposable_corrupt(&err) {
                 return Err(err.into());
             }
@@ -476,11 +517,15 @@ fn prepare_migration_target(to: &Path) -> Result<PreparedTarget, SplitError> {
         }
         None => false,
     };
+    let in_place = existed_empty
+        && std::env::current_dir()
+            .ok()
+            .is_some_and(|cwd| cwd == normalized);
     fs::create_dir_all(&parent)?;
     Ok(PreparedTarget {
         normalized,
         parent,
-        existed_empty,
+        in_place,
     })
 }
 
@@ -491,7 +536,7 @@ fn migrate_one_run(
     runs_dir: &Path,
     list_order: u64,
     (run_id, feature, created_at): &(String, String, String),
-) -> Result<u64, SplitError> {
+) -> Result<(u64, (String, String, String)), SplitError> {
     // Keep manifest.json strictly immutable and byte-identical to source.manifest(run_id).
     let manifest = source.manifest(run_id)?;
     let metadata = RunMetadata {
@@ -512,34 +557,60 @@ fn migrate_one_run(
         source_ndjson.as_str(),
     );
     verify_run_parity(fs_log, runs_dir, run_id, expected)?;
-    Ok(events.len() as u64)
+    let (exp_feature, exp_created) =
+        SqliteProjectionStore::resolve_listing(&events, Some(&manifest), Some(&metadata));
+    let listed = (
+        run_id.to_string(),
+        exp_feature.to_string(),
+        exp_created.to_string(),
+    );
+    Ok((events.len() as u64, listed))
 }
 
 fn stage_migration(store: &Store, staging: &Path) -> Result<(u64, u64), SplitError> {
+    stage_migration_with(store, staging, || {})
+}
+
+fn stage_migration_with(
+    store: &Store,
+    staging: &Path,
+    mut after_list: impl FnMut(),
+) -> Result<(u64, u64), SplitError> {
     let source = SqlitePorts::new(store);
     let runs_dir = staging.join("runs");
     let fs_log = FsEventLog::open(&runs_dir)?;
-    let source_runs = store.list_runs()?;
-    let mut total_events = 0u64;
-    for (order, entry) in source_runs.iter().enumerate() {
-        total_events += migrate_one_run(store, &source, &fs_log, &runs_dir, order as u64, entry)?;
-    }
+    let (mut expected_listing, total_events) = store.read_snapshot(|| {
+        let source_runs = store.list_runs()?;
+        after_list();
+        let mut expected_listing = Vec::with_capacity(source_runs.len());
+        let mut total_events = 0u64;
+        for (order, entry) in source_runs.iter().enumerate() {
+            let (count, listed) =
+                migrate_one_run(store, &source, &fs_log, &runs_dir, order as u64, entry)?;
+            total_events += count;
+            expected_listing.push((order as u64, listed));
+        }
+        Ok::<_, SplitError>((expected_listing, total_events))
+    })?;
+    expected_listing.sort_by(|(ord_a, a), (ord_b, b)| a.2.cmp(&b.2).then_with(|| ord_a.cmp(ord_b)));
+    let expected_runs: Vec<(String, String, String)> =
+        expected_listing.into_iter().map(|(_, row)| row).collect();
 
     let index_path = staging.join("index.db");
     let index = SqliteProjectionStore::open(&index_path)?;
     let indexed_events = index.rebuild_from(&fs_log)?;
     let indexed_list = index.list_runs()?;
     let counts = (
-        source_runs.len(),
+        expected_runs.len(),
         total_events,
         indexed_list.len(),
         indexed_events,
     );
     verify_projection_counts(counts)?;
-    verify_listing_parity(&source_runs, &indexed_list)?;
+    verify_listing_parity(&expected_runs, &indexed_list)?;
     drop(index);
     remove_sidecars_checked(&index_path)?;
-    Ok((source_runs.len() as u64, total_events))
+    Ok((expected_runs.len() as u64, total_events))
 }
 
 fn verify_projection_counts(
