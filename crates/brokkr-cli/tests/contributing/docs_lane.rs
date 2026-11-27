@@ -649,22 +649,15 @@ fn a_literal_names_or_enumerates_documentation() {
     }
 }
 
-/// One verdict job's `run:` block, as ci.yml writes it.
-fn verdict_block(ci: &str, id: &str) -> String {
-    let (_, body) = workflow::jobs(ci)
-        .into_iter()
-        .find(|(job, _)| job == id)
-        .unwrap_or_else(|| panic!("ci.yml has no {id} job"));
-    let lines: Vec<&str> = body.lines().collect();
-    let at = lines
+/// One verdict job's `run:` block, parsed structurally from ci.yml.
+fn verdict_block(wf: &workflow::Workflow, id: &str) -> String {
+    wf.require_job("ci.yml", id)
+        .unwrap()
+        .steps
         .iter()
-        .position(|line| line.trim() == "run: |")
-        .unwrap_or_else(|| panic!("{id} has no run block"));
-    lines[at + 1..]
-        .iter()
-        .take_while(|line| line.starts_with("          "))
-        .map(|line| format!("{}\n", line.trim()))
-        .collect()
+        .find_map(|s| s.run.as_deref())
+        .unwrap_or_else(|| panic!("{id} has no run block"))
+        .to_string()
 }
 
 /// Whether `block` passes under bash -e, the shell a step runs, with `env`.
@@ -696,6 +689,7 @@ const VERDICT_JOBS: [(&str, &str, &str); 2] = [
 #[test]
 fn every_verdict_passes_on_the_lanes_own_result_never_on_a_skip() {
     let ci = std::fs::read_to_string(workspace().join(".github/workflows/ci.yml")).unwrap();
+    let wf = workflow::Workflow::parse(&ci).expect("ci.yml parses");
     let results = ["success", "failure", "cancelled", "skipped", ""];
     let cases: Vec<[&str; 4]> = results
         .iter()
@@ -725,36 +719,41 @@ fn every_verdict_passes_on_the_lanes_own_result_never_on_a_skip() {
         wrong
     };
     for (id, other, job) in VERDICT_JOBS {
-        let block = verdict_block(&ci, id);
+        let block = verdict_block(&wf, id);
         assert_eq!(truth(&block, other), Vec::<String>::new(), "{id}'s verdict");
-        let (_, body) = workflow::jobs(&ci)
-            .into_iter()
-            .find(|(job, _)| job == id)
-            .unwrap();
-        let needs = format!("    needs: [classify, docs-lane, {job}]");
-        assert!(
-            body.lines().any(|line| line == needs),
-            "{id} does not need {needs}"
+        let parsed = wf.require_job("ci.yml", id).unwrap();
+        assert_eq!(
+            parsed.needs,
+            ["classify", "docs-lane", job],
+            "{id} needs mismatch"
         );
         assert!(
-            body.lines()
-                .any(|line| line.starts_with("    if: always()")),
+            parsed
+                .if_cond
+                .as_deref()
+                .is_some_and(|c| c.starts_with("always()")),
             "{id} does not run whatever its needs ended with"
         );
+        let run_step = parsed
+            .steps
+            .iter()
+            .find(|s| s.run.is_some())
+            .expect("verdict run step");
         for (name, value) in [
             ("CLASSIFIED", "needs.classify.result".to_string()),
             ("LANE", "needs.classify.outputs.lane".to_string()),
             ("DOCS", "needs.docs-lane.result".to_string()),
             (other, format!("needs.{job}.result")),
         ] {
-            let line = format!("          {name}: ${{{{ {value} }}}}");
-            assert!(
-                body.lines().any(|held| held == line),
-                "{id} does not set {line}"
+            let expected = format!("${{{{ {value} }}}}");
+            assert_eq!(
+                run_step.env_value(name),
+                Some(expected.as_str()),
+                "{id} does not set {name}: {expected}"
             );
         }
     }
-    let softened = verdict_block(&ci, "engine").replace(
+    let softened = verdict_block(&wf, "engine").replace(
         "docs) test \"$DOCS\" = success ;;",
         "docs) test \"$DOCS\" != failure ;;",
     );
@@ -772,13 +771,7 @@ fn every_verdict_passes_on_the_lanes_own_result_never_on_a_skip() {
 #[test]
 fn the_heavy_machines_do_not_start_on_a_docs_change() {
     let ci = std::fs::read_to_string(workspace().join(".github/workflows/ci.yml")).unwrap();
-    let jobs = workflow::jobs(&ci);
-    let line_of = |id: &str, key: &str| {
-        jobs.iter()
-            .find(|(job, _)| job == id)
-            .and_then(|(_, body)| body.lines().find_map(|line| line.strip_prefix(key)))
-            .map(str::to_string)
-    };
+    let wf = workflow::Workflow::parse(&ci).expect("ci.yml parses");
     for (id, condition) in [
         (
             "engine-machines",
@@ -787,43 +780,35 @@ fn the_heavy_machines_do_not_start_on_a_docs_change() {
         ("coverage-machines", "needs.classify.outputs.lane != 'docs'"),
         ("docs-lane", "needs.classify.outputs.lane == 'docs'"),
     ] {
-        assert_eq!(
-            line_of(id, "    needs: ").as_deref(),
-            Some("classify"),
-            "{id}'s needs"
-        );
-        assert_eq!(
-            line_of(id, "    if: ").as_deref(),
-            Some(condition),
-            "{id}'s condition"
-        );
+        let job = wf.require_job("ci.yml", id).unwrap();
+        assert_eq!(job.needs, ["classify"], "{id}'s needs");
+        assert_eq!(job.if_cond.as_deref(), Some(condition), "{id}'s condition");
     }
     assert_eq!(
-        line_of("classify", "    if: "),
+        wf.require_job("ci.yml", "classify").unwrap().if_cond,
         None,
         "the classifier runs on every event"
     );
-    assert_eq!(lane_runs(&ci), ["bash scripts/docs-lane.sh run"]);
+    assert_eq!(lane_runs(&wf), ["bash scripts/docs-lane.sh run"]);
 }
 
-/// What the docs lane's job runs: each step's `run:` value, and a
-/// `continue-on-error:` anywhere in it as the line that would let a failed
-/// run pass. The verdicts pass on this job's result, so its one command is
-/// the docs lane.
-fn lane_runs(ci: &str) -> Vec<String> {
-    let (_, body) = workflow::jobs(ci)
-        .into_iter()
-        .find(|(job, _)| job == "docs-lane")
-        .expect("ci.yml's docs-lane job");
-    body.lines()
-        .filter_map(|line| {
-            let line = line.trim_start().trim_start_matches("- ");
-            line.strip_prefix("run: ").map(str::to_string).or_else(|| {
-                line.starts_with("continue-on-error:")
-                    .then(|| line.to_string())
-            })
-        })
-        .collect()
+/// What the docs lane's job runs: each step's `run:` value, and any
+/// `continue-on-error` on the job or a step that would let a failed run pass.
+fn lane_runs(wf: &workflow::Workflow) -> Vec<String> {
+    let job = wf.require_job("ci.yml", "docs-lane").unwrap();
+    let mut out = Vec::new();
+    if job.continue_on_error.is_some() {
+        out.push("continue-on-error".to_string());
+    }
+    for step in &job.steps {
+        if let Some(run) = &step.run {
+            out.push(run.clone());
+        }
+        if step.continue_on_error.is_some() {
+            out.push("continue-on-error".to_string());
+        }
+    }
+    out
 }
 
 /// No required check's job has an `if:` that leaves it skipped on a pull
@@ -834,17 +819,15 @@ fn no_required_check_is_skipped_on_a_pull_request() {
     let root = workspace();
     for (check, id, file) in MAIN_REQUIRES {
         let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
-        let (_, body) = workflow::jobs(&text)
-            .into_iter()
-            .find(|(job, _)| job == id)
-            .unwrap_or_else(|| panic!("{file} has no {id} job"));
-        let own = body.lines().find_map(|line| line.strip_prefix("    if: "));
+        let wf = workflow::Workflow::parse(&text).unwrap_or_else(|e| panic!("{file} parses: {e}"));
+        let job = wf.require_job(file, id).unwrap();
+        let own = job.if_cond.as_deref();
         let site = format!("{file}'s {id}");
         assert!(
             read_condition(own, &site).1.pull_request,
             "{check} skips on a pull request"
         );
-        if body.lines().any(|line| line.starts_with("    needs:")) {
+        if !job.needs.is_empty() {
             assert!(
                 own.is_some_and(|own| own.starts_with("always()")),
                 "{check} needs a job whose skip it would carry"

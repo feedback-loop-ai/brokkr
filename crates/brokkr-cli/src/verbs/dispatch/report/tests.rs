@@ -5,9 +5,9 @@
 use std::path::Path;
 
 use brokkr_runtime::admission::{AdmissionError, Reason};
-use brokkr_runtime::dispatch::{ClaimRefused, Ending, SweepRefused};
+use brokkr_runtime::dispatch::{ClaimRefused, Ending, SweepRefused, Waiting};
 use brokkr_runtime::sweep::Swept;
-use brokkr_store::{EntryId, StartRefusal, StoreError};
+use brokkr_store::{EntryId, StartRefusal, StoreError, Wait, WaitOn};
 use clap::Parser;
 
 use super::super::tests::{claimed_by, one_claim, spawn_of, OneClaim};
@@ -26,6 +26,10 @@ fn contention() -> StoreError {
 /// A report naming one of every fact, about `claim`.
 fn every_fact(claim: Claim) -> Passed {
     let spawned = |pid| Ok(Spawned { pid });
+    let wait = |id| Wait {
+        entry: EntryId(id),
+        on: WaitOn::Completed,
+    };
     Passed {
         reconciled: vec![
             Settled::Reclaimed(claim),
@@ -99,7 +103,22 @@ fn every_fact(claim: Claim) -> Passed {
                 error: contention(),
             },
         ],
-        waiting: 7,
+        waits: vec![
+            Waiting {
+                entry: EntryId(7),
+                reasons: vec![Reason::NotStarted(wait(2))],
+            },
+            Waiting {
+                entry: EntryId(8),
+                reasons: vec![
+                    Reason::NotStarted(wait(3)),
+                    Reason::Unended {
+                        wait: wait(4),
+                        run: "run-\u{1b}[2Jw".into(),
+                    },
+                ],
+            },
+        ],
         held_entries: 8,
     }
 }
@@ -140,7 +159,12 @@ fn a_pass_prints_one_safe_line_per_fact_and_its_counts_last() {
         format!("contended: the judging of the pass: {busy}"),
         format!("contended: the claim of entry 6: {busy}"),
         format!("contended: the spawn row of {under}: {busy}"),
-        "queue: 7 waiting, 8 held".to_string(),
+        "waiting: entry 7: not_started: waits on 2:completed: entry 2 has not started a run"
+            .to_string(),
+        "waiting: entry 8: not_started: waits on 3:completed: entry 3 has not started a run; \
+         unended: waits on 4:completed: its run 'run-[2Jw' has not ended"
+            .to_string(),
+        "queue: 2 waiting, 8 held".to_string(),
     ];
     let said = passed(&every_fact(claim), &db);
     assert_eq!(said.lines().collect::<Vec<_>>(), expected);

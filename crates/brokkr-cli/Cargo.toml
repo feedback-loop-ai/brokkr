@@ -125,6 +125,10 @@ gungraun = "=0.19.4"
 # binary because dhat allows one profiler per process. Here rather than in
 # brokkr-view, whose dependency set is closed (decision 0071 ruling 1).
 dhat = "=0.3.3"
+# Operator ruling of 2026-11-26 (#1396): structural YAML 1.2 parser for
+# the workflow guard tests (`tests/support/workflow.rs`), replacing
+# hand-rolled line scanning. Dev-only: linked into no binary.
+yaml-rust2 = { version = "=0.13.2", default-features = false }
 
 # `pty` (#1167): the render tests hand a child a 60-cell stdout under an
 # 80-cell controlling terminal, so `brokkr stats graph`'s width is proved to
