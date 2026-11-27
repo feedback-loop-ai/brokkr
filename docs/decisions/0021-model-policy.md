@@ -309,20 +309,23 @@ rulings:
   (`ModelTier::Promoted`), refusing an absent or bare tier (and slice
   0107a that parses it is unbuilt); in `adapters/dsh.json`, `qwen4-max`
   is a bare id (`"dashscope/qwen4-max"`).
-- **Each fallback link qualifying on its own (condition 7).** Decision
-  0107 requires every fallback link to qualify on its own — by the
-  trusted tier and `judges`, or by its own grant — never inheriting an
-  earlier link's standing. Sitting behind Fable as a fallback does not
-  relax 0107's bar: under 0107, `qwen4-max` would still need its own
-  grant (which ask (b) forbids for the chief). Here the fallback link
-  passes compilation on its own only because the private library lifted
-  `dsh` to `trusted` and named `qwen4-max` in `judges`.
 - **Fact binding and evidence bar (asks (c) and (d)).** Decision 0107
   binds a grant to a measured release, concrete model id, hands digest
   and typed `review_by` date, backed by d1's full bar (a work-class
   wager in the granted office, probe report, hands composition
   measurement and native ON/OFF measurement); a `trusted` + `judges`
   lift enforces none of those bindings at compile time.
+
+Decision 0107 condition 7 (each fallback link qualifying on its own) is
+not what this private lift breaks: condition 7 admits a fallback link
+either by the trusted tier and `judges` or by its own grant, and
+expressly does not refuse a trusted-judge fallback. Because the
+operator's own lane library lifts `dsh` to `trusted` and lists
+`qwen4-max` in `judges`, the Qwen 4.0 Max link qualifies on its own
+there. Only on an untrusted `dsh` (as in the shipped `adapters/dsh.json`)
+would sitting behind Fable as a fallback still inherit nothing from Fable
+and require its own 0107 grant — which ask (b) forbids for the chief and
+conditions 3, 4, 5 and 6 above do not admit.
 
 **Standing with ruling 7.** Ruling 7 — newcomers are symmetric, with
 work seats freely, no secret-binding grant and no gate seat, codex and
@@ -344,8 +347,11 @@ for one model, one seat and one house's library.
 **What the evidence does not show, and what this model is not.** The
 harder test ran once. The three recorded panels ran through Qoder, not
 through `dsh`. No run sat Qwen 4.0 Max as a fallback behind an exhausted
-Fable. Whether the chief runs were boxed is not recorded here. The
-eval's `dsh` run used an eval-only lift.
+Fable. Whether the chief runs were boxed is not established here: the
+comments on #1259 and #1278 could not be verified when this addendum was
+written, so this record does not claim whether those runs were boxed or
+what either issue records on that point. The eval's `dsh` run used an
+eval-only lift.
 
 And Qwen 4.0 Max is **not a finder**. In three review positions on three
 branches through `dsh`, it found two of fifteen known findings and filed
