@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use super::covered_tests::{decided_from, drift_refusing, drift_table};
 use super::span_tests::{checkpointed, moved_heads};
-use super::tests::{begun, driven_over, driver, ended_in};
+use super::tests::{begun, driven_over, driver, ended_in, in_own_engine};
 use crate::bundle::{Bundle, GateAssessment, SeatBody, SeatClass, SequenceStep};
 use crate::engine::heads::HeadReads;
 use crate::engine::tests::{git_commit, single_body, step_body};
@@ -749,6 +749,9 @@ fn an_owed_gate_record_absent_or_malformed_or_an_untagged_success_refuses() {
 /// record on B before the success, and review decides B.
 #[test]
 fn a_final_gate_step_checked_after_a_moving_work_step_decides_its_own_head() {
+    if !in_own_engine() {
+        return;
+    }
     let steps = vec![
         clean_step("judge", SeatClass::Gate),
         clean_step("tidy", SeatClass::Work),
@@ -1003,6 +1006,9 @@ fn a_protected_pre_gate_ending_that_does_not_stop_the_run_refuses_and_parks() {
 /// past draft: `Beyond`.
 #[test]
 fn a_success_retagged_to_a_hard_ending_work_step_still_refuses() {
+    if !in_own_engine() {
+        return;
+    }
     for (worded, kept, problem) in [
         (
             None,

@@ -77,6 +77,15 @@ read -r done
     vec!["sh".into(), "-c".into(), script]
 }
 
+/// Re-execute the named libtest thread in a separate engine. Sibling
+/// fixtures in the test binary can hand its shared subreaper orphans
+/// that the attempt registry would otherwise have to count as doubtful.
+pub(super) fn in_own_engine() -> bool {
+    let thread = std::thread::current();
+    let test = thread.name().expect("libtest names the test thread");
+    crate::engine::tests::in_its_own_engine(test)
+}
+
 /// A finding as a seat writes it: no site.
 pub(super) fn reported(id: &str, line: u64) -> Value {
     json!({"id": id, "file": "crates/a/src/lib.rs", "line": line,

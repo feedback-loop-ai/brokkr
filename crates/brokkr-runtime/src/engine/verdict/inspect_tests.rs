@@ -6,7 +6,7 @@
 use serde_json::{json, Value};
 
 use super::covered_tests::drift_refusing;
-use super::tests::{begun, driven_with, driver, failing, reported};
+use super::tests::{begun, driven_with, driver, failing, in_own_engine, reported};
 use crate::bundle::{
     Aggregate, Bundle, GateAssessment, Invocation, PanelMember, SeatBody, SeatClass, SequenceStep,
     StepBody,
@@ -291,9 +291,7 @@ fn carried(events: &[EventEnvelope]) -> Vec<Vec<String>> {
 /// retry of `b` and `c` carries `a` and runs `b` and `c` only.
 #[test]
 fn one_refused_settled_member_keeps_every_admitted_sibling() {
-    if !crate::engine::tests::in_its_own_engine(
-        "engine::verdict::inspect_tests::one_refused_settled_member_keeps_every_admitted_sibling",
-    ) {
+    if !in_own_engine() {
         return;
     }
     let (_dir, events) = retried(three_members("b"), &["b", "c"], |events| {
@@ -566,6 +564,9 @@ fn a_carried_members_finding_keeps_its_members_name_in_the_retry() {
 /// phase, never under `b`.
 #[test]
 fn a_settled_members_finding_shows_when_its_sibling_fails() {
+    if !in_own_engine() {
+        return;
+    }
     let (_dir, events) = panel_reviewed(failing());
     assert!(!events.iter().any(|event| {
         event.event_type == EventType::EffectSucceeded

@@ -8,7 +8,7 @@
 use serde_json::{json, Value};
 
 use super::stop_tests::{clean, decided, shipped, steps_of};
-use super::tests::{driven, driven_with, driver};
+use super::tests::{driven, driven_with, driver, in_own_engine};
 use crate::bundle::{
     Aggregate, Bundle, GateAssessment, Invocation, MemberLaw, PanelMember, SeatBody, SeatClass,
     SequenceStep, StepBody,
@@ -99,6 +99,9 @@ fn the_shipped_engine_panel_compiled_and_run_admits_every_members_clean() {
 /// the member's evidence and the reason it was refused.
 #[test]
 fn a_hold_outside_a_members_list_or_the_narrow_default_is_refused_and_parks() {
+    if !in_own_engine() {
+        return;
+    }
     let steps = steps_of(&shipped("triage"), "review", Some("engine"));
     let listless = Aggregate::ReviewPanel.member_results(None);
     for law in [None, Some(listless)] {
