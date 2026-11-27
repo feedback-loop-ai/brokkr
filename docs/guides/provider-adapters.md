@@ -1861,7 +1861,7 @@ are left to dsh's own provider. The driver also sets
 `commit.gpgsign=false` and the host identity on the child, so seat
 commits are unsigned (CONTRIBUTING). The boundary in the record is still
 `harness`; this is the harness's own runner, not a Brokkr boundary
-(decision 0054, proposed).
+(decision 0054).
 
 The behavioral proof builds a real linked worktree and runs the real
 bubblewrap. On a machine that cannot open a namespace it skips, and a

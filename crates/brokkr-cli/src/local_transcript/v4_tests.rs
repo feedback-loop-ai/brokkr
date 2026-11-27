@@ -1,5 +1,5 @@
 //! DSH 0.2's session files through the shared reader (change
-//! `admit-dsh-session-v4`, proposed decision 0086): both version-four
+//! `admit-dsh-session-v4`, decision 0086): both version-four
 //! names found and ordered, a compressed candidate's header and body read
 //! decompressed within the bounds a plain one has, and a frame that fails
 //! refused at the stage that read it.

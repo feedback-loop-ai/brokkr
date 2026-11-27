@@ -1,6 +1,6 @@
 # 0070 — Every verb that opens a journal opens the map's journal
 
-Status: proposed (implementer, 2026-09-25)
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-09-25
 
 Built: built

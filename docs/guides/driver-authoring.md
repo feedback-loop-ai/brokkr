@@ -909,7 +909,7 @@ them under `harness` or `open`.
 
 ### Context for an entered run
 
-Under proposed decision 0094 an entered run hands non-triage seats
+Under decision 0094 an entered run hands non-triage seats
 `context.entry`: the entry phase and the ordered continued run ids and
 their feature text. Continued runs supply no phase results. On a backward
 ruling, even a seat's first visit in an entered run receives

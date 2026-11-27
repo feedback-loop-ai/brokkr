@@ -1199,4 +1199,4 @@ are continuing; ids, unique prefixes and `latest` use the usual selector.
 After `run started: <id>`, stderr prints the entered gate and each continued
 run's title and id. The new run rejudges the branch and keeps its own results.
 Work-phase entries refuse before a run is created. This option belongs to
-`run`; `queue add` cannot encode it in `queued-launch/v1` (proposed decision 0094).
+`run`; `queue add` cannot encode it in `queued-launch/v1` (decision 0094).

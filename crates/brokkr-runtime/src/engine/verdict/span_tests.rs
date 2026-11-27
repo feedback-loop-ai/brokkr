@@ -8,14 +8,18 @@ use std::os::unix::fs::PermissionsExt;
 
 use serde_json::{json, Value};
 
-use super::tests::{driven_over, driver, ended};
+use super::tests::{begun, driven_over, driver, ended};
 use crate::argv::Executable;
-use crate::bundle::{Bundle, DialectExecution, SeatBody, SeatClass, SequenceStep, StepBody};
+use crate::bundle::{
+    Bundle, DialectExecution, GateAssessment, SeatBody, SeatClass, SequenceStep, StepBody,
+};
 use crate::engine::git_head;
 use crate::engine::heads::HeadReads;
-use crate::engine::tests::{git_commit, step_body};
+use crate::engine::tests::{git_commit, single_body, step_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::gate_moved_head;
+use brokkr_core::fold::ParkReason;
+use brokkr_core::gate_moved_head::{self, MovedHead};
+use brokkr_protocol::process::DriverStderr;
 
 /// A sequence step of `class` and `results` over `body`.
 fn step(name: &str, class: SeatClass, results: &[&str], body: StepBody) -> SequenceStep {
@@ -165,6 +169,60 @@ fn a_gate_step_that_moved_head_in_its_span_refuses_as_an_all_gate_body_does() {
     assert!(ended(&events, EventType::EffectSucceeded).is_empty());
     let moved = ended(&events, EventType::EffectIndeterminate);
     assert_eq!(moved_heads(&moved), (heads[1].clone(), heads[2].clone()));
+}
+
+#[test]
+fn a_gate_that_moves_head_names_its_stderr_and_parks_with_both_heads() {
+    const SAID: &str = "unbound gate diagnostic\n";
+    let mut command = driver(&json!({"result": "complete"}));
+    command[2] = format!(
+        "git commit -q --allow-empty -m gate-moved-head || exit 1\nprintf '%s' '{SAID}' >&2\n{}",
+        command[2]
+    );
+    let (_dir, mut engine) = begun(
+        single_body(command),
+        |bundle| bundle.seats.get_mut("work").unwrap().gate = GateAssessment::AllGate,
+        |_| HeadReads::default(),
+    );
+    let start = git_head(&engine.repo).unwrap();
+    let end = engine.drive().unwrap();
+    let head = git_head(&engine.repo).unwrap();
+    assert_ne!(start, head);
+    assert_eq!(
+        end.state.run.park_reason(),
+        Some(&ParkReason::GateMovedHead)
+    );
+
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let heads = json!({"head_at_end": head, "head_at_start": start});
+    let digest = &brokkr_core::canonical::sha256_bytes(SAID.as_bytes())[..16];
+    let expected_reason = format!(
+        "{} {heads}; driver stderr: {} bytes (first byte: letter; sha256: {digest})",
+        gate_moved_head::PREFIX,
+        SAID.len()
+    );
+    let indeterminate = ended(&events, EventType::EffectIndeterminate);
+    assert_eq!(indeterminate.len(), 1);
+    assert_eq!(indeterminate[0]["reason"], expected_reason);
+    let parked = events
+        .iter()
+        .find(|event| event.event_type == EventType::RunParked)
+        .unwrap();
+    assert_eq!(parked.payload["reason"], gate_moved_head::PREFIX);
+    assert_eq!(parked.payload["evidence"], heads);
+}
+
+#[test]
+fn the_moved_head_decoder_reads_the_driver_stderr_namers_output() {
+    let moved = MovedHead {
+        head_at_end: Some("bbb".into()),
+        head_at_start: Some("aaa".into()),
+    };
+    let reason = DriverStderr::of("gate diagnostic").named(&gate_moved_head::encode(&moved));
+    assert_eq!(
+        gate_moved_head::decode::<MovedHead>(&reason).and_then(Result::ok),
+        Some(moved)
+    );
 }
 
 /// The start and end heads the first of `indeterminate` ends recorded as

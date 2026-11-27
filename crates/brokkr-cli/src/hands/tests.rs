@@ -824,7 +824,7 @@ fn missing_serve_reach_reformat_uses_structured_parser_state_not_metavar_text() 
     assert!(!kept.to_string().contains("--reach <REACH>"), "got: {kept}");
 }
 
-/// #1277 Z5 + X2 (proposed decision 0127 ruling 4): non-missing-reach clap
+/// #1277 Z5 + X2 (decision 0127 ruling 4): non-missing-reach clap
 /// errors on `hands serve` keep clap's own error and usage synopsis untouched
 /// rather than being rewritten by `reformat_missing_serve_reach`:
 /// - Z5: plain `--reach` with `--artifacts` absent short-circuits
@@ -1598,7 +1598,7 @@ fn hands_serve_help_derives_option_names_from_constants() {
     assert!(spec_help().contains(DEFAULT_SPEC));
 }
 
-/// #1277 V1 (proposed decision 0127 ruling 4): whenever an encoded option
+/// #1277 V1 (decision 0127 ruling 4): whenever an encoded option
 /// appears in `hands serve`'s arguments, every clap refusal omits all argument
 /// values and decoded text and keeps exit code 2.
 #[test]

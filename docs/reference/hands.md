@@ -4,7 +4,7 @@
 generated [CLI reference](cli.md) omits it. This page records the argument
 contract for `brokkr hands serve` and `brokkr hands exec` as defined in
 `crates/brokkr-cli/src/hands.rs` (decision [0043](../decisions/0043-the-hands-are-one-tool.md)
-and proposed decision [0127](../decisions/0127-a-dsh-hands-row-carries-its-documents-as-unpadded-base64url.md)).
+and decision [0127](../decisions/0127-a-dsh-hands-row-carries-its-documents-as-unpadded-base64url.md)).
 The synopsis and option table of each subcommand are checked against
 `Cli::command()` by `crates/brokkr-cli/src/cli_reference_tests/hands_tests.rs`.
 

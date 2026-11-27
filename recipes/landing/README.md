@@ -96,4 +96,4 @@ landing invocation still classifies code into verify and docs into review.
 An operator can instead name `--enter review`, explicitly omitting classify
 and verify; the journal and header say so. Review stays unavoidable and
 a finding can return to implement. The flag cannot replace the conditional
-classify fork, which is why landing remains an overlay (proposed decision 0094).
+classify fork, which is why landing remains an overlay (decision 0094).

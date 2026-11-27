@@ -1,6 +1,6 @@
 # 0039 — The docs tier inside the run: a review that fixed only prose does not buy the whole verify again
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-09-03
 
 Built: built

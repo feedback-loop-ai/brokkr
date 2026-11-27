@@ -1,6 +1,6 @@
 # 0055 — Read every retained transcript kind
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-09-09
 
 Built: built

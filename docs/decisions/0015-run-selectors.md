@@ -1,6 +1,6 @@
 # 0015 — Run selectors: a prefix or `latest`, resolved in one place
 
-Status: proposed (implementer, 2026-08-29)
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 
 Built: built
 

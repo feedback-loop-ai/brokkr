@@ -1,4 +1,4 @@
-//! The optional run/started entry record (decision 0094, proposed).
+//! The optional run/started entry record (decision 0094).
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
