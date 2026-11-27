@@ -712,6 +712,7 @@ fn a_released_engines_settled_member_payload_is_no_verdict() {
 /// and reads as review's verdict.
 #[test]
 fn a_released_engines_success_row_is_no_verdict() {
+    own_engine!();
     let succeeded = json!({"effect_id": "fx", "attempt_id": "at-1", "result": planted()});
     assert_unverified_legacy(
         &released_journal([(EventType::EffectSucceeded, succeeded)]),
