@@ -410,10 +410,17 @@ fn t1_array_in_place_of_object_fails_fold_rows_cold_and_rejoin() {
         )
     };
     let rejoin = || rejoin_hold(UUID_A);
-    let result_arr = r#"{"event":"result","result":["SUCCESS","OK",[1,2,3,4],1,[],null]}"#;
-    let result_usage_arr =
-        r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","usage":[1,2,3,4]}}"#;
-    let result_denied_arr = r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","denied_actions":[["run_command"]]}}"#;
+    let usage_obj =
+        r#"{"input_tokens":1,"output_tokens":2,"thinking_tokens":3,"cache_read_tokens":4}"#;
+    let result_arr = format!(
+        r#"{{"event":"result","result":["SUCCESS","OK",{usage_obj},1,[{{"action":"run_command"}}],null]}}"#
+    );
+    let result_usage_arr = r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","usage":[1,2,3,4],"num_turns":1,"denied_actions":[{"action":"run_command"}]}}"#;
+    let result_denied_arr = format!(
+        r#"{{"event":"result","result":{{"status":"SUCCESS","response":"OK","usage":{usage_obj},"denied_actions":[["run_command"]]}}}}"#
+    );
+    let rejoin_step_arr =
+        format!(r#"{{"event":"step_update","step_update":["agent_response","DONE",{usage_obj}]}}"#);
 
     assert_fold_unread(
         cold_hold,
@@ -427,9 +434,13 @@ fn t1_array_in_place_of_object_fails_fold_rows_cold_and_rejoin() {
             r#"{"event":"step_update","step_update":["agent_response","DONE"]}"#,
             Event::StepUpdate,
         ),
-        ("cold-result-arr", result_arr, Event::Result),
+        ("cold-result-arr", result_arr.as_str(), Event::Result),
         ("cold-result-usage-arr", result_usage_arr, Event::Result),
-        ("cold-result-denied-arr", result_denied_arr, Event::Result),
+        (
+            "cold-result-denied-arr",
+            result_denied_arr.as_str(),
+            Event::Result,
+        ),
     ] {
         assert_fold_unread(cold_hold, &[init_ok.as_str(), bad_line], expected, label);
     }
@@ -437,7 +448,7 @@ fn t1_array_in_place_of_object_fails_fold_rows_cold_and_rejoin() {
     for (label, bad_line, expected) in [
         (
             "rejoin-step-arr",
-            r#"{"event":"step_update","step_update":["agent_response","DONE",null]}"#,
+            rejoin_step_arr.as_str(),
             Event::StepUpdate,
         ),
         (
@@ -445,9 +456,13 @@ fn t1_array_in_place_of_object_fails_fold_rows_cold_and_rejoin() {
             r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":"DONE","usage":[1,2,3,4]}}"#,
             Event::StepUpdate,
         ),
-        ("rejoin-result-arr", result_arr, Event::Result),
+        ("rejoin-result-arr", result_arr.as_str(), Event::Result),
         ("rejoin-result-usage-arr", result_usage_arr, Event::Result),
-        ("rejoin-result-denied-arr", result_denied_arr, Event::Result),
+        (
+            "rejoin-result-denied-arr",
+            result_denied_arr.as_str(),
+            Event::Result,
+        ),
     ] {
         assert_fold_unread(rejoin, &[init_ok.as_str(), bad_line], expected, label);
     }

@@ -51,15 +51,19 @@ fn a_listed_tool_is_left_to_its_rules_and_another_is_denied_by_name() {
 #[test]
 fn an_unread_call_and_a_name_only_in_the_arguments_are_denied() {
     let unread = json!({"decision": "deny", "reason": UNREAD});
-    for input in [
-        "not json",
-        "",
-        r#"{"toolCall": {}}"#,
-        r#"{"name": "run_command"}"#,
-        r#"[["run_command"]]"#,
-        r#"{"toolCall": ["run_command"]}"#,
+    for (label, input) in [
+        ("not-json", "not json"),
+        ("empty", ""),
+        ("empty-tool-call", r#"{"toolCall": {}}"#),
+        ("missing-tool-call", r#"{"name": "run_command"}"#),
+        ("hook-call-arr", r#"[{"name": "run_command"}]"#),
+        ("tool-call-arr", r#"{"toolCall": ["run_command"]}"#),
     ] {
-        assert_eq!(answered(&["run_command"], input), unread, "{input}");
+        assert_eq!(
+            answered(&["run_command"], input),
+            unread,
+            "{label}: {input}"
+        );
     }
     let smuggled = json!({
         "lastUserInput": "run_command",

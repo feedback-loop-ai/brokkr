@@ -806,14 +806,23 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
   turn and on a rejoin alike: a `result` whose members (including
   `result.usage` and `result.num_turns`) do not read as that type is a
   malformed row and fails the turn, whether or not this launch takes a figure
-  from the member. Alongside the duplicate-key row-integrity rule, wherever the
-  agy driver reads a JSON object into a typed struct from bytes it did not
-  write itself (`resume_context.owned_target`, every row the fold types on a
-  cold turn and on a rejoin alike — `init`, `step_update` and its `usage`,
-  `result` and its `usage` and `denied_actions` — and hook calls on `gate`'s
-  stdin), an array in the place of that object is not that object, at every
-  depth of the struct; every recorded stream writes objects, so this refuses
-  nothing measured.
+  from the member. Alongside the duplicate-key row-integrity rule, every typed
+  JSON object struct read by the agy driver's own modules — the rows `agy`
+  writes on stdout on a cold turn and on a rejoin alike (`init`, `step_update`
+  and its `usage`, `result` and its `usage` and `denied_actions`), the hook
+  calls on `gate`'s stdin, any state kept on disk, and the offer coordinates in
+  `resume_context` that agy's module reads itself (`owned_target` and
+  `originating_harness_version`) — is held strictly to a JSON object at every
+  depth of the struct, so an array in the place of that object is never read
+  by position; every recorded stream writes objects, so this refuses nothing
+  measured. Stated limit (`#1448`): the sealed members of the start input
+  (`serving_inputs`, the sealed reach, and any other member a driver reads
+  through readers every harness shares) are written by the engine in the same
+  binary and read by shared code outside agy's modules; written as a positional
+  array they carry the same values as the object form, so the positional form
+  reaches no launch the object form does not. Holding those shared readers to
+  objects is a change across every harness and is tracked on its own as
+  `#1448`, not made here.
 - **Built, not switched on.** `docs/examples/adapters/agy.json` keeps
   `resume.stream-work-site.status: "unsupported"` (recording the 1.5.14 and
   1.5.18 measurements and that the launch awaits a live measurement through
@@ -822,8 +831,8 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
 - **Not built in this slice.** Flipping `stream-work-site` to `supported` and
   naming its four evidence references (slice 3, waiting on a live rejoin
   measured through `brokkr driver agy`), an MCP isolation row for rejoin in
-  `agy.json`, opening engine offers for agy seats, and the shared reaper of
-  `#1323`.
+  `agy.json`, opening engine offers for agy seats, holding shared start-input
+  readers to JSON objects (`#1448`), and the shared reaper of `#1323`.
 - **Not measured.** A rejoin launched through `brokkr driver agy` itself; a
   turn killed mid-command and its rejoin on 1.5.18 (measured on 1.5.14 only in
   the seventh measurement); the Claude slugs; and macOS.

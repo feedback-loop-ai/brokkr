@@ -328,3 +328,47 @@ impl Usage {
 pub(super) struct Denied {
     pub(super) action: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outer_row_arrays_with_object_payloads_are_rejected() {
+        let usage =
+            r#"{"input_tokens":1,"output_tokens":2,"thinking_tokens":3,"cache_read_tokens":4}"#;
+        let init_row_arr = r#"[{"model":"gemini-3-flash"}]"#;
+        assert!(
+            Event::typed_init(init_row_arr).is_none(),
+            "init-row-arr (typed_init)"
+        );
+
+        let cold_step_row_arr = r#"[{"step_type":"agent_response","state":"DONE"}]"#;
+        let step_row_arr =
+            format!(r#"[{{"step_type":"agent_response","state":"DONE","usage":{usage}}}]"#);
+        let result_row_arr = format!(
+            r#"[{{"status":"SUCCESS","response":"OK","usage":{usage},"num_turns":1,"denied_actions":[{{"action":"run_command"}}],"error":null}}]"#
+        );
+
+        let cases: [(&str, Event, bool, &str); 5] = [
+            ("init-row-arr", Event::Init, false, init_row_arr),
+            (
+                "cold-step-row-arr",
+                Event::StepUpdate,
+                false,
+                cold_step_row_arr,
+            ),
+            ("step-row-arr", Event::StepUpdate, true, &step_row_arr),
+            ("result-row-arr-cold", Event::Result, false, &result_row_arr),
+            (
+                "result-row-arr-rejoin",
+                Event::Result,
+                true,
+                &result_row_arr,
+            ),
+        ];
+        for (label, event, rejoined, text) in cases {
+            assert!(event.typed(text, rejoined).is_none(), "{label}");
+        }
+    }
+}
