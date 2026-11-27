@@ -13,7 +13,7 @@ const RULE: &str = "mcp(brokkr/workspace)";
 /// A recorded turn of the fourth measurement, read when the test runs: the
 /// record lives outside the crate, so no `include_str!` may reach it
 /// (packaging's `no_crate_includes_a_file_from_outside_itself`).
-fn recorded_box(name: &str) -> String {
+pub(super) fn recorded_box(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../docs/evidence/adapters/agy-cli-1-5")
         .join(name);
@@ -60,7 +60,7 @@ fn a_boxed_seat_granting_a_native_tool_is_refused_naming_allow_alone() {
 
 /// The seat's input with the box's hands sealed and admitted past the
 /// lifted fence, with the reach and artifact root the engine writes.
-fn boxed_input(world: &World) -> Value {
+pub(super) fn boxed_input(world: &World) -> Value {
     let serving = sealed(Namespace, "hands", json!("measured"), "lifted");
     let mut input = world.input(Some(serving));
     let reach = super::super::super::mcp::tests::reach();
@@ -177,7 +177,9 @@ fn prepared_refusal(input: &Value) -> LaunchError {
         panic!("a refused launch makes no HOME")
     };
     let seat = argv(&["--model", FLASH]);
-    prepared_with("agy", &seat, input, at, never).err().unwrap()
+    prepared_with("agy", &seat, input, false, at, never)
+        .err()
+        .unwrap()
 }
 
 /// C1: what the sealed inputs declare decides, never what was built. Under

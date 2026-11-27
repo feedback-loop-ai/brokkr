@@ -413,8 +413,9 @@ level 2).
   to mode 0700 through that verified handle with `fchmod`, while an existing
   directory's mode is never changed. When the umask makes a directory the
   keeper has just created impossible for its owner to open, no transcript is
-  kept and that directory is removed through `unlink_if_same` so nothing of the
-  attempt remains (a umask that leaves a newly created directory openable, such
+  kept and removal of that directory through `unlink_if_same` is attempted (an
+  unlink I/O error can leave the staged directory after persistence is refused;
+  a umask that leaves a newly created directory openable, such
   as 0100 leaving mode 0600, is opened, set to 0700 through the verified
   handle, and keeps the transcript); a replaced entry is left untouched
   (`KeepNotice::ReplacedDirectory`) with nothing kept. The `agy-conversations` parent is checked to be a real directory
@@ -607,3 +608,109 @@ addendum (`#1227`, decision 0075 level 2, slice 1 of 2; launch is slice 2).
 - **Not measured.** Real work-seat database and brain sizes (the 113 measured
   conversations were short lab turns); macOS; and any Antigravity CLI version
   other than 1.5.14 for rejoin.
+
+## Addendum — 2026-11-27, Antigravity CLI level 2 rejoin launch
+
+Addendum status: proposed
+
+Launching an Antigravity CLI work seat to rejoin a kept conversation with
+`--conversation <id>` extends the 2026-11-26 kept-rejoin-state addendum
+(`#1227`, decision 0075 level 2, slice 2 of 3; enabling `stream-work-site` is
+slice 3). The facts below come from the ninth measurement on Antigravity CLI
+1.5.18 (`docs/evidence/adapters/agy-cli-1-5.md`, `l2c-01` through `l2c-22`)
+and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
+
+- **Shared resume machinery and restore whole, or do not rejoin.**
+  `brokkr driver agy` declares `resume` offer receipt in its capabilities and
+  decides every offered conversation through the shared machinery
+  (`resume_gate`, `isolated.resumes`, `LaunchPlan`, `LaunchHold`,
+  `Confirmation`, `LaunchTerminal`, `originating_harness_version`, and
+  `agy --version` probed once per invocation under the engine HOME with
+  `AGY_CLI_DISABLE_AUTO_UPDATE=true`, decision 0124). Restrictions (engine
+  HOME, login link, gate hook, MCP set, `--mode`, `--model`, `--effort`, and
+  `--settings`) are always composed fresh for the launch before any kept
+  conversation is read, matching `l2c-08`, `l2c-10`, `l2c-11`, and `l2c-17`
+  through `l2c-22`; a rejoin's launch differs from a cold launch only by the
+  restored state and `--conversation <id>`. Before spawn, the driver copies
+  the kept `conversation.db` and `brain/` from
+  `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/` into
+  `<engine HOME>/.gemini/antigravity-cli/conversations/<id>.db` and
+  `<engine HOME>/.gemini/antigravity-cli/brain/<id>/` with operator-only modes
+  (`0700`/`0600` through `fchmod`), reusing slice 1's bounds (128 MiB, 4,096
+  entries, 16 levels), no-symlink traversal, and regular-file/directory checks.
+  If the shape is not enabled (`unsupported-resume`), boundary/hands or MCP
+  isolation does not cover it (`restrictions-unavailable`), the offered id is
+  not a lowercase UUID (`invalid-session-id`), `owned_target.persistence_home`
+  does not match the operator's `agy-conversations` parent
+  (`instance-changed`), the installed version is unreadable or drifts from the
+  shape's `applies_to` or `originating_harness_version`
+  (`unverified-harness`), or the lock is held or any kept part is absent,
+  non-regular, linked, empty, over a bound, or unreadable
+  (`unverified-harness`, matching DSH's retained-store rule in decision 0056,
+  with a typed non-echoing `RestoreNotice` on stderr), anything partly written
+  to the engine HOME is removed, the lock is released, no `--conversation`
+  reaches `agy`, and the seat runs cold recording `launch: "cold"` and the
+  bounded `resume_refusal` token.
+- **Same-user stated limit carried by reference.** Restoring kept state and
+  holding the advisory lock operate under the same stated limit as the
+  2026-11-24 and 2026-11-26 addenda (operator rulings of 2026-11-25 and
+  2026-11-26 on `#1227`) and share mechanisms (m1)–(m4): a process of the
+  operator's own user modifying the kept tree or engine HOME during a turn, or
+  ignoring the advisory lock, is a stated limit, not a defect to close.
+- **One turn at a time on a conversation.** Before restoring, the driver takes
+  one non-blocking exclusive advisory `flock` on
+  `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/.rejoin.lock`
+  (opened with `O_NOFOLLOW | O_CLOEXEC`, mode `0600` on create, regular-file
+  verified, created only when `rejoin/` exists) and holds it across restore,
+  turn, and post-turn keep, releasing it on every path out via RAII drop.
+  Because `agy` does not keep concurrent rejoins apart (`l2c-14`, `l2c-15`), a
+  launch that finds the lock held declines cold (`unverified-harness` with
+  `RestoreNotice::LockHeld`).
+- **Confirmation from `init`, and a stray conversation is stopped.** Because
+  `agy` exits 0 with `SUCCESS` under a new conversation id when given an
+  unknown id, a malformed id, or a HOME without the database (`l2c-04`,
+  `l2c-05`, `l2c-07`), stderr warnings never decide. A rejoin is confirmed
+  only when `init.conversation_id` equals the offered UUID (`LaunchHold`
+  returns `Confirmation::Resumed`). If `init` names any other id (or an
+  invalid id), the driver stops `agy` immediately on the `init` line before
+  any model work is taken, returns `LaunchTerminal::Mismatch` (or
+  `Unconfirmed`), emits no `harness-started` and no `root_session`, keeps
+  nothing for the stray id, leaves the offered conversation's kept state
+  untouched, and ends unsettled (`lost`, no result sent) through `run_seat`'s
+  shared path.
+- **After a confirmed rejoin, kept state is the turn's end state or nothing.**
+  Post-turn keeping runs under slice 1's rules unchanged (operator-only,
+  bounded, screened for bound secret values, final-checked) while the
+  conversation lock is still held. On success, staged replacement replaces
+  `rejoin/` whole (`persistent: true` on the `launch: "resumed"` row) and
+  atomically replaces `transcript.jsonl`. On any keep failure (including a
+  bound value appearing or a masked `root_session` candidate), the driver
+  attempts to remove the previous `rejoin/` directory too through
+  `openat` + `O_NOFOLLOW` + `unlink_if_same` so no stale older copy survives
+  and records `persistent: false` (or omits `root_session` when masked, as
+  slice 1 rules). When the rejoin was never confirmed (including
+  `model_substituted` before work), the prior kept state is left untouched.
+- **Rejoined turns count their own use only (decision 0056 ruling 9).** On a
+  confirmed rejoin, `result.usage`, `result.num_turns`, and
+  `result.duration_seconds` are conversation running totals (`l2c-02`,
+  `l2c-03`, `l2c-11`, `l2c-13`), so nothing is taken from them: the turn's
+  token counts are the sum of its own `step_update` rows' `usage` (adding
+  `cache_read_tokens` back into inclusive `input_tokens`, matching cold
+  turns), and `num_turns` is omitted from the seat record because
+  `result.num_turns` counts cumulative user prompts with no per-invocation
+  delta field (while each completed `agent_response` step still emits its own
+  `seat-turn` checkpoint). Cold turns record what they recorded before, figure
+  for figure (`l2c-01`, `l2c-10`).
+- **Built, not switched on.** `docs/examples/adapters/agy.json` keeps
+  `resume.stream-work-site.status: "unsupported"` (recording the 1.5.14 and
+  1.5.18 measurements and that the launch awaits a live measurement through
+  the driver), and the engine's offer rules (`keeps_v7_rejoin`) are unchanged,
+  so no agy seat is offered a session by any shipped data.
+- **Not built in this slice.** Flipping `stream-work-site` to `supported` and
+  naming its four evidence references (slice 3, waiting on a live rejoin
+  measured through `brokkr driver agy`), an MCP isolation row for rejoin in
+  `agy.json`, opening engine offers for agy seats, and the shared reaper of
+  `#1323`.
+- **Not measured.** A rejoin launched through `brokkr driver agy` itself; a
+  turn killed mid-command and its rejoin on 1.5.18 (measured on 1.5.14 only in
+  the seventh measurement); the Claude slugs; and macOS.

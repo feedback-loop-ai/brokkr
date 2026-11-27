@@ -858,11 +858,15 @@ escaped and cut to 40 characters.
 `model` must be exactly the pin, or the seat is refused before any row
 counts, naming both. A seat with no init row gives no answer.
 
-**Tokens.** The result's `usage` is the invocation's own, in tokens. The
-seat records input, with the cache read added back as the journal's
-input count includes it, output, thinking as reasoning output, and the
-cache read. Agy reports no price and no cache-write count, so both read
-"not reported", never 0.
+**Tokens.** On a cold turn, the result's `usage` is the invocation's own, in
+tokens. On a confirmed rejoin, the result's `usage`, `num_turns` and
+`duration_seconds` are the conversation's running totals (ninth measurement),
+so the driver takes nothing from them: tokens come solely from the sum of this
+invocation's own `step_update` rows' `usage`, and `num_turns` is omitted
+(while `seat-turn` checkpoints still count completed model responses). In both
+cases, the seat records inclusive input (adding `cache_read_tokens` back into
+`input_tokens`), output, thinking as reasoning output, and cache read; agy
+reports no price and no cache-write count, so both read "not reported", never 0.
 
 **What leaves.** No
 refusal, error or late message quotes agy's stderr or its `error` text.
@@ -882,9 +886,18 @@ names six environment variables in the binary and exercised none.
 
 **Kept transcripts and rejoin state (`agy-conversation`).** Agy's example adapter declares
 `record_kinds: {"transcript": "agy-conversation", "root_session": "agy-conversation", "resume_shape": "stream-work-site"}`
-while keeping `resume.stream-work-site.status` at `"unsupported"`, because the
-`--conversation` rejoin launch is not built yet and any offered session is still
-refused before a process starts. `agy-conversation`
+while keeping `resume.stream-work-site.status` at `"unsupported"` until a live
+rejoin through the driver itself is measured (slice 3). `brokkr driver agy`
+now declares `resume` offer receipt and implements the `--conversation <id>`
+rejoin launch — restoring kept `conversation.db` and `brain/` whole under an
+exclusive per-conversation advisory lock (`<id>/.rejoin.lock`), confirming
+`init.conversation_id` (stopping a stray conversation at once as unsettled),
+composing every restriction (HOME, gate hook, MCP set, `--settings`) fresh,
+accounting only the turn's own step rows, and replacing `rejoin/` whole on
+success or removing the old copy on keep failure while leaving it untouched
+when unconfirmed. Because `stream-work-site` stays `"unsupported"` and the
+engine offers agy seats no session by default, no shipped data switches rejoin
+on yet (decision 0075 addendum of 2026-11-27, proposed). `agy-conversation`
 is admitted only where the seat's loaded adapter declares it in `record_kinds`,
 carried from the engine to the driver through one shared type
 (`DeclaredTranscriptKind` under `resume_context.declared_transcript_kind`,
@@ -996,13 +1009,7 @@ succeeds). Before anything is written, no mode is changed by pathname:
 created with `mkdirat` at mode 0700, opened with `O_NOFOLLOW`, verified by
 `(st_dev, st_ino)` against the identity recorded right after `mkdirat`, and set
 to mode 0700 through that verified handle with `fchmod`, while an existing
-directory's mode is never changed. When the umask makes a directory the keeper
-has just created impossible for its owner to open, no transcript is kept and
-that directory is removed (through `unlink_if_same` so nothing of the attempt
-remains; a umask that leaves a newly created directory openable, such as 0100
-leaving mode 0600, is opened, set to 0700 through the verified handle, and
-keeps the transcript), and a replaced entry is left untouched with nothing
-kept. The `agy-conversations` parent is verified to
+directory's mode is never changed. If the process umask blocks opening a freshly created directory, keeping stops and removal via `unlink_if_same` is attempted (an unlink I/O error can leave the staged directory behind even as persistence is refused). Openable directories created under looser umasks (such as 0100 yielding 0600) are tightened to 0700 through their verified handle and succeed; replaced entries are never touched. The `agy-conversations` parent is verified to
 be a real directory (never a symlink) owned by the effective UID with no group
 or other access (`mode & 0o077 == 0`); a parent the owner cannot write fails
 keeping with a typed notice and leaves the turn unchanged. The kept file is set
@@ -1036,14 +1043,14 @@ absent member is not counted. Nothing reaps
 `~/.local/state/brokkr/dsh-homes/`; a shared reaper is tracked as #1323
 (decision 0075 addendum of 2026-11-24, proposed).
 
-**Out of scope for level 2 slice 1 (follow-ups).** The `--conversation` rejoin
-launch (restoring kept state into an engine HOME, confirming the returned id,
-serializing concurrent turns on one conversation, MCP isolation on rejoin, and
-enabling `stream-work-site`), reporting applied effort from a transcript row's
-`model` slug (#1324), a shared reaper for kept transcripts, rejoin state, and
-dsh homes (#1323), and an unboxed seat's command that outlives a hard kill
-(`l2-14-kill-group`, #1245's family) (decision 0075 addenda of 2026-11-24 and
-2026-11-26, proposed).
+**Out of scope for level 2 slice 2 (follow-ups).** Switching `stream-work-site`
+to `supported` with its four evidence references and an MCP isolation row for
+rejoin after a live rejoin through `brokkr driver agy` is measured (slice 3),
+opening engine session offers for agy seats, reporting applied effort from a
+transcript row's `model` slug (#1324), a shared reaper for kept transcripts,
+rejoin state, and dsh homes (#1323), and an unboxed seat's command that
+outlives a hard kill (`l2-14-kill-group`, #1245's family) (decision 0075
+addenda of 2026-11-24, 2026-11-26, and 2026-11-27, proposed).
 
 **MCP isolation.** Agy's cold and replacement shapes, without hands on
 1.5.13 and boxed on 1.5.14, are measured on Linux
@@ -1059,6 +1066,7 @@ turn. Each shape names the version its recordings are from:
 
 | Fact | Version |
 |---|---|
+| Rejoin from kept `conversations/<id>.db` and `brain/<id>/`, chaining, stray-id behaviour, concurrent rejoins, fresh MCP/gate/permission restrictions, and per-step vs cumulative result accounting (`l2c-01` through `l2c-22`, ninth measurement) | 1.5.18 |
 | Effort grammar for `claude-opus-5-5` (four one-word turns and two effort refusals) and `claude-sonnet-5-5` (`claude-opus-*`, `claude-sonnet-*`, eighth measurement) | 1.5.17 |
 | Short security set on `claude-sonnet-5-5-low` (`*-sonnet-v17`, eighth measurement) | 1.5.17 |
 | One boxed work seat per Claude slug (`claude-opus-5-5` and `claude-sonnet-5-5`) at `low` effort on a four-step task through the released 0.16.0 engine (`claude-engine-0160-*`, eighth measurement) | 1.5.17 |
@@ -1654,7 +1662,7 @@ accounting check still binding.
 | `dsh` | `headless-work` | `unmeasured` | Main does not perform this rejoin. The exact route is selected: official core **0.1.5-rc.1** (`@deepseek-ai/dsh@0.1.5-rc.1` at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`, or the release answer N1 resolves in its place) with the repository-owned six-file adaptation of `dsh-plugin-cli-session` **0.2.0** at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` under `extensions/dsh/plugin-cli-session/`, composed only in worktree- or task-owned storage through DSH's documented extension and `agents.resume` APIs. An isolated live cold+warm qualification (2026-09-12, `.forge/tasks/dsh-pair-qualification-015rc1.json`) emitted successful result envelopes, continued one root, recalled the nonce and reported per-message usage with the global pin unchanged and the installed bytes matching the provenance block. The route still stays disabled because consumer-side exact-root and independent-root confirmation, current headless model/effort and restriction precedence, a multi-message/retry current-sequence accounting boundary, and the declared composite digest are unmeasured, and the Rust route is unimplemented. The documented `--session <id>` extension interface is distinct from the installed **0.1.2-rc.1** one-shot runner, whose fresh-root result remains bounded history for that entry only. The operator's 2026-09-10 ruling reversed the earlier **0.1.0-rc.6** pin and superseded `.forge/tasks/dsh-pair-qualification-010rc6.json`; both are dated history, never the selected route, and the removal of `agent.session.events` was a measured pair incompatibility fixed by the one-expression adaptation, never a global DSH or extension limitation. The separate hands/tools plugin deferral is unrelated. |
 | `lanetally` | `wrapper-work-site` | `unmeasured` | Main does not perform this rejoin. Identity explicitly **unknown**: a wrapper is qualified on its own wrapper, never on what it wraps. Claude's captured interface says nothing about what this wrapper forwards, and support by analogy is what the field refuses. |
 | `qoder` (example) | `print-work-site` | `unsupported` | The seat runs `--no-session-persistence`, which keeps no session on disk in print mode, so there is nothing to rejoin. The driver declares no `resume` receipt and is never offered a handle. |
-| `agy` (example) | `stream-work-site` | `unsupported` | Agy keeps each conversation under HOME, and the driver removes the engine's HOME when the turn ends, so there is nothing to rejoin. The driver declares no `resume` receipt, and a start offered one is refused before it starts. |
+| `agy` (example) | `stream-work-site` | `unsupported` | `brokkr driver agy` now keeps `conversations/<id>.db` and `brain/<id>/` operator-only past removal of the engine's HOME, declares `resume` offer receipt, and implements the `--conversation` rejoin launch (whole-state restore, exclusive lock, `init` confirmation, step-row accounting, fresh restrictions, and post-rejoin replacement). The shape stays `unsupported` (not switched on, and the engine offers agy seats no session by default) until a live rejoin through the driver itself is measured (slice 3). |
 
 So today the three unmeasured shapes spawn cold **and say so**, with the
 reason in the record, while Codex's harness work seat rejoins main's

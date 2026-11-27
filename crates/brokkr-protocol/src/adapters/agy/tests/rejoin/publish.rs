@@ -147,6 +147,7 @@ fn direct_probe_with_eligible_version_is_stopped_by_publication_probe_guard() {
         result_exists: Some(true),
     });
     let mut emitted = Vec::new();
+    let mut hold = cold_version_hold("1.5.14");
     publish_turn(
         TurnKeep {
             declared: DeclaredKinds {
@@ -157,11 +158,11 @@ fn direct_probe_with_eligible_version_is_stopped_by_publication_probe_guard() {
             refused_to_start: false,
             pin_confirmed: true,
             conversation: &fold::Conversation::Named(UUID.to_string()),
-            harness_version: Some("1.5.14"),
             engine_home: &engine,
             operator_home: Some(&op),
             bindings: &[],
         },
+        &mut hold,
         &mut outcome,
         &mut |e| emitted.push((e.step, e.row.clone())),
     );

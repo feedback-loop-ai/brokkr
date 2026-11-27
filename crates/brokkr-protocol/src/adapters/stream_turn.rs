@@ -42,6 +42,7 @@ pub(super) struct Turn {
 #[derive(Debug, PartialEq)]
 pub(super) struct Read {
     pub(super) stopped: Option<PreSessionRefusal>,
+    pub(super) unsettled: bool,
     pub(super) unread: bool,
 }
 
@@ -63,6 +64,8 @@ pub(super) enum Line {
     Read,
     /// Stop the harness here, refused.
     Stopped(PreSessionRefusal),
+    /// Stop the harness here: a rejoin named a different or unconfirmable session.
+    Unsettled,
 }
 
 /// The turn of the harness `fed`, each line of its stdout handed to `line`
@@ -89,15 +92,20 @@ pub(super) fn turn_read(
     let (mut child, stderr) = fed;
     // The reader is dropped before the wait, so a harness still writing
     // meets a closed pipe rather than a full one.
-    let Read { stopped, unread } = read_lines(reader, line);
-    let status = match stopped {
-        Some(_) => stop_harness(&mut child)?,
-        None => child.wait()?,
+    let Read {
+        stopped,
+        unsettled,
+        unread,
+    } = read_lines(reader, line);
+    let halted = stopped.is_some() || unsettled;
+    let status = match halted {
+        true => stop_harness(&mut child)?,
+        false => child.wait()?,
     };
-    let captured = stderr.take(stopped.is_some());
-    let exit_code = match stopped {
-        Some(_) => STOPPED_AT_REFUSAL,
-        None => lost::exit_code(status),
+    let captured = stderr.take(halted);
+    let exit_code = match halted {
+        true => STOPPED_AT_REFUSAL,
+        false => lost::exit_code(status),
     };
     Ok(Turn {
         exit_code,
@@ -119,6 +127,7 @@ pub(super) fn read_lines(mut reader: impl BufRead, mut line: impl FnMut(&[u8]) -
             Err(_) => {
                 return Read {
                     stopped: None,
+                    unsettled: false,
                     unread: true,
                 }
             }
@@ -128,6 +137,14 @@ pub(super) fn read_lines(mut reader: impl BufRead, mut line: impl FnMut(&[u8]) -
             Line::Stopped(refused) => {
                 return Read {
                     stopped: Some(refused),
+                    unsettled: false,
+                    unread: false,
+                }
+            }
+            Line::Unsettled => {
+                return Read {
+                    stopped: None,
+                    unsettled: true,
                     unread: false,
                 }
             }
@@ -135,6 +152,7 @@ pub(super) fn read_lines(mut reader: impl BufRead, mut line: impl FnMut(&[u8]) -
     }
     Read {
         stopped: None,
+        unsettled: false,
         unread: false,
     }
 }

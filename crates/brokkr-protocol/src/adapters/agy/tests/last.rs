@@ -21,12 +21,26 @@ fn prepared_by(
         temp: &temp,
         operator: Some(&operator),
     };
-    prepared_with(&binary, &extra, input, (homes, Path::new("/b")), made)
+    prepared_with(
+        &binary,
+        &extra,
+        input,
+        false,
+        (homes, Path::new("/b")),
+        made,
+    )
 }
 
 /// The path `invoke` refuses `prepared` for, matched as the typed value.
 fn refused_for(prepared: &Prepared, input: &Value) -> std::path::PathBuf {
-    let invoked = invoke(prepared, false, input, "prompt", &[], &mut |_| {});
+    let invoked = invoke(
+        prepared,
+        StartMode::default(),
+        input,
+        "prompt",
+        &[],
+        &mut |_| {},
+    );
     let Err(Ended::Launch(LaunchError::Configured(path))) = invoked.map(drop) else {
         panic!("the planted path was admitted or ended otherwise")
     };

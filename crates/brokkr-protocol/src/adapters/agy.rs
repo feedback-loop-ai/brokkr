@@ -36,8 +36,10 @@ mod gate;
 mod home;
 mod keep;
 mod rejoin;
+mod restore;
 
-use super::stream_turn::{plain, Line, Observed, PLAIN_ID_LIMIT};
+use super::stream_turn::{plain, Observed, PLAIN_ID_LIMIT};
+use super::LaunchHold;
 use crate::native_controls::SealedBoundary;
 use crate::PreSessionRefusal;
 use fold::{AgyFold, Failed, Verdict};
@@ -126,13 +128,6 @@ const NO_UPDATE: &str = "true";
 /// (AS3).
 #[derive(Debug, Error)]
 pub(super) enum LaunchError {
-    /// The engine's HOME does not outlive a turn, so a start offered a
-    /// rejoin has nothing to rejoin and is refused (G11).
-    #[error(
-        "refusing to invoke the agent CLI: the start offers a resume, and the agy adapter \
-         declares no resume (#1200)"
-    )]
-    Resumed,
     /// A seat binding one of [`OWNED`] would start agy under its own HOME,
     /// with the operator's servers, plugins and hooks (J1), walking up
     /// another `PWD` than the one the workspace check read (L2), or free to
@@ -457,25 +452,20 @@ fn stdin_line(prompt: &str) -> String {
     serde_json::to_string(&line).expect("a user line serializes") + "\n"
 }
 
-/// One agy seat, start to end: the start refused where it `offered` a
-/// rejoin, because the agy adapter declares no resume, and otherwise the
-/// seat's [`turn`]. Every error the seat ends with, its launch's and its
-/// turn's alike, is rendered here, once, and passes the seat's bindings
-/// last: no shared path masks an error a driver returns. A word of agy's
-/// inside it was masked once already, whole, before it was cut (K3); this
-/// second pass is the only one over the seat's own words and the shared
-/// helpers' errors, and over what joining words could rejoin (K10).
-/// How the caller started this agy seat: whether a resume offer was made and
+/// How the caller started this agy seat: any offered conversation id and
 /// whether this is a one-turn probe whose checkpoints are discarded (#1227 U4).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(super) struct StartMode {
-    pub(super) offered: bool,
+pub(super) struct StartMode<'a> {
+    pub(super) session: Option<&'a str>,
     pub(super) probe: bool,
 }
 
+/// One agy seat, start to end. Every error the seat ends with, its launch's
+/// and its turn's alike, is rendered here, once, and passes the seat's
+/// bindings last: no shared path masks an error a driver returns.
 pub(super) fn drive(
     pinned: super::Pinned<'_>,
-    mode: StartMode,
+    mode: StartMode<'_>,
     prompt: &str,
     input: &Value,
     bindings: &[secret::BoundSecret],
@@ -496,13 +486,10 @@ fn rendered(ended: &Ended, bindings: &[secret::BoundSecret]) -> String {
 /// [`OWNED`] is refused before anything else. Every launch is admitted cold.
 fn turn(
     pinned: super::Pinned<'_>,
-    mode: StartMode,
+    mode: StartMode<'_>,
     (prompt, input, bindings): (&str, &Value, &[secret::BoundSecret]),
     emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, Ended> {
-    if mode.offered {
-        return Err(Ended::Launch(LaunchError::Resumed));
-    }
     let bound = |name: &&str| bindings.iter().any(|binding| binding.name() == *name);
     if let Some(name) = OWNED.into_iter().find(bound) {
         return Err(LaunchError::Owned(name).into());
@@ -514,9 +501,17 @@ fn turn(
         operator: operator.as_deref().map(Path::new),
     };
     let brokkr = mcp::engine_executable();
-    // The HOME lives until the turn ends.
-    let prepared = prepared(pinned.binary, &composed.extra, input, homes, &brokkr)?;
-    invoke(&prepared, mode.probe, input, prompt, bindings, emit)
+    // Composed fresh before any kept conversation is touched (#1227 L7); the
+    // engine HOME lives until the turn ends.
+    let prepared = prepared(
+        pinned.binary,
+        &composed.extra,
+        input,
+        mode.session.is_some() && !mode.probe,
+        homes,
+        &brokkr,
+    )?;
+    invoke(&prepared, mode, input, prompt, bindings, emit)
 }
 
 /// What one launch runs with: the engine's HOME, the launch, and the
@@ -527,28 +522,20 @@ struct Prepared {
     operator_home: Option<PathBuf>,
     declared: bool,
     declared_root: bool,
+    isolated_resumes: bool,
     launch: Launch,
     workdir: String,
 }
 
-/// The launch of `extra` before any provider work: SI2's one admission
-/// ([`mcp::isolated`]), the engine's set read from the intent it checked
-/// ([`mcp::agy_set`]), the launch, the working directory resolved, and the
-/// engine's HOME made under `homes` with the set's document and the gate
-/// run by `brokkr`. Whether the hands are boxed is read here, once, from
-/// the boundary the sealed inputs stand under and the set ([`Hands::of`]),
-/// and decides the launch and the gate alike, or refuses before any HOME
-/// is made; an admission refused under a boundary that boxes is refused
-/// naming that boundary beside its cause ([`LaunchError::Unserved`]). No
-/// launch is offered a rejoin, so the cold assessment is the one admitted.
 fn prepared(
     bin: &str,
     extra: &[String],
     input: &Value,
+    offered: bool,
     homes: Homes<'_>,
     brokkr: &Path,
 ) -> Result<Prepared, LaunchError> {
-    prepared_with(bin, extra, input, (homes, brokkr), home::made)
+    prepared_with(bin, extra, input, offered, (homes, brokkr), home::made)
 }
 
 /// [`prepared`], the engine's HOME made by `made`.
@@ -556,6 +543,7 @@ fn prepared_with(
     bin: &str,
     extra: &[String],
     input: &Value,
+    offered: bool,
     (homes, brokkr): (Homes<'_>, &Path),
     made: impl FnOnce(Homes<'_>, Written<'_>) -> Result<Home, LaunchError>,
 ) -> Result<Prepared, LaunchError> {
@@ -565,7 +553,8 @@ fn prepared_with(
         Some(boundary) => LaunchError::Unserved(boundary, refusal),
         None => LaunchError::Mcp(refusal),
     };
-    let isolated = mcp::isolated("agy", &edge, extra, false).map_err(unserved)?;
+    let isolated = mcp::isolated("agy", &edge, extra, offered).map_err(unserved)?;
+    let isolated_resumes = isolated.resumes("agy", super::AGY_SHAPE);
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
     let served = mcp::agy_set(&edge, &isolated, workdir).map_err(unserved)?;
     let hands = Hands::of(boxing, &served.rules)?;
@@ -589,75 +578,49 @@ fn prepared_with(
         operator_home,
         declared,
         declared_root,
+        isolated_resumes,
         launch,
         workdir,
     })
 }
 
-/// Run one agy turn under `home`: the workspace checked directly before
-/// agy starts ([`home::unconfigured`]), the prompt on stdin, every line of its
-/// stdout through [`AgyFold`] as agy wrote its bytes, to its end, agy
-/// stopped at a refusing row, and the turn's verdict read at its end in
-/// one order (K2). Each value is masked once (K10): the shared driver masks
-/// every emitted row, every value of the record and the refusal, so they
-/// leave here as agy's fold made them, and this driver masks what no shared
-/// path does, the answer and the stderr. A failure, and a refusal behind a
-/// folded turn or a delivered result, ends the turn with no result of its
-/// own and with its words alone, as qoder's late path does: they pass the
-/// bindings in [`drive`], and carry no stderr (K8).
 fn invoke(
     prepared: &Prepared,
-    probe: bool,
+    mode: StartMode<'_>,
     input: &Value,
     prompt: &str,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, Ended> {
-    let Prepared {
-        home,
-        operator_home,
-        declared,
-        declared_root,
-        launch,
-        workdir,
-    } = prepared;
-    let mut fold = AgyFold::new(&launch.pin, bindings);
-    // The engine's HOME, PWD and update switch, set on the child last, after
-    // the bindings and over the engine's own environment (J1, L2); the child
-    // runs in the directory its PWD names.
     let owned = [
-        (HOME, home.path()),
-        (PWD, workdir.as_str()),
+        (HOME, prepared.home.path()),
+        (PWD, prepared.workdir.as_str()),
         (AUTO_UPDATE, NO_UPDATE),
     ];
     let line = stdin_line(prompt);
-    // Admit the workspace before spawning anything (M1), and when the
-    // version probe runs, admit it again directly before launching the turn
-    // so configuration planted during `agy --version` cannot reach the launch.
-    home::unconfigured(workdir)?;
-    let harness_version = if *declared_root && !probe {
-        let probe_cmd = [launch.command[0].clone(), "--version".to_string()];
-        let version = super::spawn::observed_version_in(&probe_cmd, workdir, &owned);
-        home::unconfigured(workdir)?;
-        version
-    } else {
-        None
-    };
-    let fed = spawn_fed_in(&launch.command, &line, (workdir, &owned), bindings)?;
+    home::unconfigured(&prepared.workdir)?;
+    let planned = restore::plan_launch(prepared, mode, input, &owned)?;
+    // Held across restore, turn and post-turn keep; released on every exit.
+    let _lock = planned.lock;
+    let command = planned.plan.command.clone();
+    let mut hold = LaunchHold::new("agy", planned.plan);
+    let mut fold = AgyFold::new(&prepared.launch.pin, bindings);
+    let fed = spawn_fed_in(&command, &line, (&prepared.workdir, &owned), bindings)?;
     let mut session_meta = Map::new();
     let ended = streamed_lines(fed, |line| {
-        match fold.read(line, &mut session_meta, &mut *emit) {
-            Ok(()) => Line::Read,
-            Err(refused) => Line::Stopped(refused),
-        }
+        fold.read(line, &mut session_meta, &mut hold, &mut *emit)
     })?;
     let conversation = fold.take_conversation();
     let pin_confirmed = fold.pinned();
+    let launch_terminal = hold.terminal();
     let Concluded {
         mut outcome,
         began_work,
         result_exists,
-    } = concluded(fold, ended, session_meta, input, bindings);
+    } = concluded(fold, ended, session_meta, input, bindings, launch_terminal);
+    if let Some(notice) = planned.restore_notice {
+        keep::report_notice(&mut outcome, &notice);
+    }
     let refused_to_start = outcome.as_ref().is_ok_and(|inv| {
         super::lost::refusal_to_start(
             inv.refusal.clone(),
@@ -671,18 +634,18 @@ fn invoke(
     rejoin::publish_turn(
         rejoin::TurnKeep {
             declared: rejoin::DeclaredKinds {
-                transcript: *declared,
-                root: *declared_root,
+                transcript: prepared.declared,
+                root: prepared.declared_root,
             },
-            probe,
+            probe: mode.probe,
             refused_to_start,
             pin_confirmed,
             conversation: &conversation,
-            harness_version: harness_version.as_deref(),
-            engine_home: Path::new(home.path()),
-            operator_home: operator_home.as_deref(),
+            engine_home: Path::new(prepared.home.path()),
+            operator_home: prepared.operator_home.as_deref(),
             bindings,
         },
+        &mut hold,
         &mut outcome,
         emit,
     );
@@ -695,15 +658,13 @@ struct Concluded {
     result_exists: bool,
 }
 
-/// The invocation of a turn read to `ended`, judged by `fold`, beside whether
-/// the turn performed or delivered work: a stdout that could not be read to its
-/// end is the turn's fault (L3), and the verdict is read once.
 fn concluded(
     mut fold: AgyFold<'_>,
     ended: Turn,
     session_meta: Map<String, Value>,
     input: &Value,
     bindings: &[secret::BoundSecret],
+    launch: LaunchTerminal,
 ) -> Concluded {
     let Turn {
         exit_code,
@@ -712,19 +673,33 @@ fn concluded(
         unread,
     } = ended;
     fold.unreadable(unread);
-    // Read unmasked so no binding erases the marker, and only matched (J4).
     let signed_out = fold.signed_out() || Observed::of(captured.bytes()).said(fold::SIGNED_OUT);
-    let verdict = fold.verdict(exit_code, signed_out);
-    // Observe `result_path` once here through the shared `lost::ResultFile`
-    // immediately after agy exits (the same point main's `concluded` already
-    // read its metadata, before any transcript copy). `delivered` shares
-    // `adapters::delivered_result`'s non-empty rule for `judged`, while
-    // `result_exists` rides `Invocation` to `run_seat_with` so both sides judge
-    // `refusal_to_start` on that one observation (#1178 H3, #1227 Y5).
     let result_file = super::lost::ResultFile::observe(input);
     let result_exists = result_file.exists();
-    let delivered = clean && result_file.delivered();
     let began_work = fold.worked();
+    let stderr = match signed_out {
+        true => SIGN_IN_WITHHELD.to_string(),
+        false => captured.evidence(|raw| plain_evidence(raw, bindings)),
+    };
+    if launch.is_unsettled() {
+        return Concluded {
+            outcome: Ok(Invocation {
+                exit_code,
+                session_meta: Map::new(),
+                notes: String::new(),
+                stderr,
+                state: None,
+                refusal: None,
+                answer: None,
+                launch,
+                result_exists: Some(result_exists),
+            }),
+            began_work: false,
+            result_exists,
+        };
+    }
+    let verdict = fold.verdict(exit_code, signed_out);
+    let delivered = clean && result_file.delivered();
     let (refusal, answer) = match judged(verdict, began_work || delivered, bindings) {
         Ok(judged) => judged,
         Err(ended) => {
@@ -735,13 +710,6 @@ fn concluded(
             };
         }
     };
-    // Evidence: agy's stderr, stripped and then masked, which the shared
-    // driver journals by evidence alone, as it does every driver's (#1199);
-    // a signed-out agy's is its sign-in block, which is not evidence (J4).
-    let stderr = match signed_out {
-        true => SIGN_IN_WITHHELD.to_string(),
-        false => captured.evidence(|raw| plain_evidence(raw, bindings)),
-    };
     Concluded {
         outcome: Ok(Invocation {
             exit_code,
@@ -751,7 +719,7 @@ fn concluded(
             state: None,
             refusal,
             answer,
-            launch: LaunchTerminal::Cold,
+            launch,
             result_exists: Some(result_exists),
         }),
         began_work,

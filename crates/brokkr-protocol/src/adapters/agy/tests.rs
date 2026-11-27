@@ -112,12 +112,22 @@ struct Read {
     stopped: Option<PreSessionRefusal>,
 }
 
+fn cold_hold() -> LaunchHold {
+    LaunchHold::new(
+        "agy",
+        super::super::LaunchPlan::cold(Vec::new(), "agy-conversation", None),
+    )
+}
+
 fn read(stdout: impl AsRef<[u8]>, pin: &str) -> Read {
     let mut fold = AgyFold::new(pin, &[]);
+    let mut hold = cold_hold();
     let (mut rows, mut record, mut stopped) = (Vec::new(), Map::new(), None);
     for line in stdout.as_ref().split(|byte| *byte == b'\n') {
         let mut emitted = |row: &super::super::Emitted| rows.push(row.row.clone());
-        if let Err(refused) = fold.read(line, &mut record, &mut emitted) {
+        if let crate::adapters::stream_turn::Line::Stopped(refused) =
+            fold.read(line, &mut record, &mut hold, &mut emitted)
+        {
             stopped = Some(refused);
             break;
         }
@@ -654,7 +664,6 @@ fn a_pin_that_is_not_a_plain_model_id_is_refused() {
 fn each_launch_refusal_states_what_was_written_and_never_a_value() {
     let io = || std::io::Error::from(std::io::ErrorKind::NotFound);
     let stated = [
-        (LaunchError::Resumed, "the start offers a resume, and the agy adapter declares no resume (#1200)"),
         (LaunchError::Owned("HOME"), "the seat binds a secret named HOME, which the engine owns for an agy seat (#1200)"),
         (LaunchError::Owned("PWD"), "the seat binds a secret named PWD, which the engine owns for an agy seat (#1200)"),
         (LaunchError::Untargeted, "the seat's --allow carries a rule whose target is blank, has a blank at an end, or holds a control character or a parenthesis (#1200)"),
@@ -779,7 +788,7 @@ fn the_prompt_is_one_user_line_whatever_it_holds() {
 fn an_agy_driver_declares_no_resume_and_no_probe() {
     let kind = AdapterKind::parse("agy").unwrap();
     assert_eq!(kind, AdapterKind::Agy);
-    assert_eq!(kind.supports(), Vec::<String>::new());
+    assert_eq!(kind.supports(), vec!["resume".to_string()]);
     assert!(!kind.advertises_probe());
     assert_eq!(
         (kind.driver_name().as_str(), kind.provider_name()),
@@ -1499,8 +1508,6 @@ fn what_refuses_before_spawn_never_starts_agy() {
     let bin = fake_agy(&world.seat(), TOOL_LESS, "", true, 0);
     let pin = ["--model", FLASH];
     let refused = |messages: &[crate::Body]| ended(messages).and_then(|(_, error, _)| error);
-    let resumed = world.run(&bin, &pin, world.input(None), Some("6bed7c60"));
-    assert_eq!(refused(&resumed), Some(LaunchError::Resumed.to_string()));
     let sandbox = world.run(
         &bin,
         &["--model", FLASH, "--sandbox"],
@@ -1648,7 +1655,7 @@ const SECRET: &str = "tok9z";
 /// the secret bound; beside it, the secret as masked.
 pub(super) fn drive_flash(
     bin: &Path,
-    mode: StartMode,
+    mode: StartMode<'_>,
     input: &Value,
     bindings: &[secret::BoundSecret],
 ) -> Result<Invocation, String> {
@@ -1658,7 +1665,7 @@ pub(super) fn drive_flash(
 
 pub(super) fn drive_flash_ended(
     bin: &Path,
-    mode: StartMode,
+    mode: StartMode<'_>,
     input: &Value,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Emitted),
@@ -1740,5 +1747,6 @@ mod judged;
 mod keep;
 mod last;
 mod rejoin;
+mod rejoin_launch;
 mod resolved;
 mod whole;

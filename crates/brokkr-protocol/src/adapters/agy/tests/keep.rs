@@ -441,7 +441,7 @@ fn assert_direct_notice(case: &EndingCase, notice: &KeepNotice) {
     let inv = super::drive_flash(
         &direct_bin,
         StartMode {
-            offered: false,
+            session: None,
             probe: case.probe,
         },
         &direct_input,
@@ -952,7 +952,7 @@ fn assert_answering_probe_matches_main(declared: bool) {
     let inv = super::drive_flash(
         &bin,
         StartMode {
-            offered: false,
+            session: None,
             probe: true,
         },
         &input,

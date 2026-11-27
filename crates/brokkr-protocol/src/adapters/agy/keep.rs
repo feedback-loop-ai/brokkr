@@ -22,8 +22,10 @@
 //!   and tightened to mode 0700 through that verified handle with `fchmod`
 //!   (existing directories' modes are never changed); when the umask makes a
 //!   directory the keeper has just created impossible for its owner to open,
-//!   no transcript is kept and that directory is removed through
-//!   `unlink_if_same`, and a replaced entry is left untouched with nothing
+//!   no transcript is kept and removal of that directory through
+//!   `unlink_if_same` is attempted (an unlink I/O error can leave the staged
+//!   directory even as persistence is refused), and a replaced entry is left
+//!   untouched with nothing
 //!   kept (#1227 K2, Q2); the kept file is mode 0600 through `fchmod`,
 //!   regardless of the 0644 mode agy writes;
 //! - the copy is bounded at [`TRANSCRIPT_SOURCE_CAP`] (32 MiB, the one cap
@@ -227,6 +229,7 @@ pub(super) fn keep(
         operator_home,
         bindings,
         TRANSCRIPT_SOURCE_CAP,
+        false,
     )
 }
 
@@ -239,7 +242,7 @@ pub(super) fn keep_with_cap(
     operator_home: Option<&Path>,
     cap: u64,
 ) -> Result<Kept, KeepNotice> {
-    keep_with_bindings_and_cap(conversation_id, engine_home, operator_home, &[], cap)
+    keep_with_bindings_and_cap(conversation_id, engine_home, operator_home, &[], cap, false)
 }
 
 fn keep_with_bindings_and_cap(
@@ -248,6 +251,7 @@ fn keep_with_bindings_and_cap(
     operator_home: Option<&Path>,
     bindings: &[crate::secret::BoundSecret],
     cap: u64,
+    replace: bool,
 ) -> Result<Kept, KeepNotice> {
     // Every UUID admitted by `is_agy_uuid` is lowercase ASCII hex and `-`, so
     // it also satisfies `brokkr_core::seat::is_clean_transcript_path`
@@ -262,10 +266,14 @@ fn keep_with_bindings_and_cap(
     }
     let src_fd = open_source(engine_home, conversation_id, cap)?;
     let parent_fd = owned_parent_raw(transcript.home())?;
-    let mut guard = ConvGuard::create(&parent_fd, conversation_id)?;
-    let dest_fd = guard.open_dest()?;
-    copy_bounded(src_fd, dest_fd, cap)?;
-    guard.defuse();
+    if replace {
+        super::restore::stage_replace_transcript(&parent_fd, conversation_id, src_fd, cap)?;
+    } else {
+        let mut guard = ConvGuard::create(&parent_fd, conversation_id)?;
+        let dest_fd = guard.open_dest()?;
+        copy_bounded(src_fd, dest_fd, cap)?;
+        guard.defuse();
+    }
     Ok(Kept { transcript })
 }
 
@@ -315,7 +323,7 @@ pub(super) fn dest_file_flags() -> OFlags {
     OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC
 }
 
-fn io_errno(errno: Errno) -> KeepNotice {
+pub(super) fn io_errno(errno: Errno) -> KeepNotice {
     KeepNotice::Io(io::Error::from(errno).kind())
 }
 
@@ -323,11 +331,11 @@ fn io_err(err: io::Error) -> KeepNotice {
     KeepNotice::Io(err.kind())
 }
 
-fn parent_err_errno(errno: Errno) -> ParentError {
+pub(super) fn parent_err_errno(errno: Errno) -> ParentError {
     ParentError::ParentIo(io::Error::from(errno).kind())
 }
 
-fn parent_leaf_errno(errno: Errno) -> ParentError {
+pub(super) fn parent_leaf_errno(errno: Errno) -> ParentError {
     match errno {
         Errno::LOOP | Errno::NOTDIR => ParentError::UnownedParent,
         other => parent_err_errno(other),
@@ -414,8 +422,9 @@ pub(super) fn unlink_if_same(
 
 /// Open a directory this call just created at `(parent_fd, name)`, verify
 /// through `fstat` that the opened handle has the same `(st_dev, st_ino)` as
-/// `created_stat` (#1227 Q2), and remove the created entry through
-/// `unlink_if_same` if opening fails (#1227 K2). If the entry was replaced
+/// `created_stat` (#1227 Q2), and attempt to remove the created entry through
+/// `unlink_if_same` if opening fails (an unlink I/O error can leave the staged
+/// directory even as persistence is refused, #1227 K2). If the entry was replaced
 /// before the open, returns `replaced` (e.g. [`ParentError::ReplacedDirectory`]) without touching
 /// the replacement.
 pub(super) fn open_created_dir<E: Clone>(
@@ -450,8 +459,9 @@ pub(super) fn open_created_dir<E: Clone>(
 /// `mkdirat(0o700)`, opened with `O_NOFOLLOW`, verified by `same_entry` against
 /// the `statat` recorded right after `mkdirat` (#1227 Q2), and set to mode 0700
 /// through the verified handle with `fchmod` (#1227 K2). When the umask makes a
-/// newly created `dir` impossible for its owner to open, it is removed through
-/// `unlink_if_same` so nothing of the attempt remains. An existing `dir` is
+/// newly created `dir` impossible for its owner to open, removal through
+/// `unlink_if_same` is attempted (an unlink I/O error can leave the staged
+/// directory even as persistence is refused). An existing `dir` is
 /// opened without changing its mode (W8).
 fn ensure_parent_dir(
     dir: &Path,
@@ -689,6 +699,15 @@ pub(super) fn publish_transcript(
     session_meta: &mut serde_json::Map<String, serde_json::Value>,
     emit: &mut impl FnMut(&crate::adapters::Emitted),
 ) -> TranscriptOutcome {
+    publish_transcript_mode(ctx, false, session_meta, emit)
+}
+
+pub(super) fn publish_transcript_mode(
+    ctx: KeepContext<'_>,
+    replace: bool,
+    session_meta: &mut serde_json::Map<String, serde_json::Value>,
+    emit: &mut impl FnMut(&crate::adapters::Emitted),
+) -> TranscriptOutcome {
     use super::fold::Conversation;
     // Probe turns, undeclared launches, and turns with no init each match main
     // to the byte: keep nothing, emit no notice, record `none` (#1227 W4).
@@ -704,7 +723,18 @@ pub(super) fn publish_transcript(
         record_none(session_meta, emit);
         return TranscriptOutcome::NotKept(Some(KeepNotice::InvalidId));
     };
-    match keep(id, ctx.engine_home, ctx.operator_home, ctx.bindings) {
+    let outcome = match replace {
+        true => keep_with_bindings_and_cap(
+            id,
+            ctx.engine_home,
+            ctx.operator_home,
+            ctx.bindings,
+            TRANSCRIPT_SOURCE_CAP,
+            true,
+        ),
+        false => keep(id, ctx.engine_home, ctx.operator_home, ctx.bindings),
+    };
+    match outcome {
         Ok(mut kept) => {
             kept.transcript.finish(session_meta, emit);
             TranscriptOutcome::Kept(kept)

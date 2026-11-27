@@ -182,7 +182,7 @@ fn every_lib_test_that_writes_path_runs_in_an_engine_of_its_own() {
             .map(|(path, _)| path.as_str())
             .collect::<Vec<_>>(),
         [
-            "adapters/agy/tests.rs:1110",
+            "adapters/agy/tests.rs:1119",
             "adapters/dsh_hands/tests.rs:1445",
             "probe/tests.rs:951",
             "probe/tests.rs:954",

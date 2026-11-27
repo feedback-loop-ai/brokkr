@@ -125,8 +125,15 @@ fn a_seat_that_binds_an_owned_name_is_refused_and_its_child_keeps_the_engines() 
             temp: &temp,
             operator: Some(&operator),
         };
-        let prepared = prepared(&binary, &extra, &input, homes, Path::new("/b")).unwrap();
-        let invoked = invoke(&prepared, false, &input, "prompt", &bindings, &mut |_| {});
+        let prepared = prepared(&binary, &extra, &input, false, homes, Path::new("/b")).unwrap();
+        let invoked = invoke(
+            &prepared,
+            StartMode::default(),
+            &input,
+            "prompt",
+            &bindings,
+            &mut |_| {},
+        );
         assert!(invoked.is_ok(), "{:?}", invoked.map(drop));
         assert_eq!(world.recorded("home"), prepared.home.path());
         assert_eq!(Path::new(&world.recorded("pwd")), world.seat());
@@ -638,7 +645,7 @@ fn a_refusal_under_a_temporary_root_that_is_not_utf8_names_nothing_of_it() {
     let input = world.input(None);
     let extra = argv(&["--model", FLASH]);
     let brokkr = Path::new("/usr/bin/brokkr");
-    let refused = prepared("agy", &extra, &input, homes, brokkr).map(drop);
+    let refused = prepared("agy", &extra, &input, false, homes, brokkr).map(drop);
     let refused = refused.unwrap_err();
     assert!(matches!(refused, LaunchError::Unowned), "{refused:?}");
     holds_none_of_the_value(&rendered(&Ended::Launch(refused), &bindings));

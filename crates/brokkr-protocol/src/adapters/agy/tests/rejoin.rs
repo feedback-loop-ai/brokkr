@@ -977,6 +977,7 @@ fn version_observer_and_refused_to_start_bind() {
     let mut outcome = Err(super::super::Ended::Driver(String::new()));
     let mut saw_harness_started = false;
     let conv = super::super::fold::Conversation::Named(UUID.into());
+    let mut hold = cold_version_hold("1.5.14");
     super::super::rejoin::publish_turn(
         super::super::rejoin::TurnKeep {
             declared: super::super::rejoin::DeclaredKinds {
@@ -987,11 +988,11 @@ fn version_observer_and_refused_to_start_bind() {
             refused_to_start: true,
             pin_confirmed: true,
             conversation: &conv,
-            harness_version: Some("1.5.14"),
             engine_home: vdir.path(),
             operator_home: Some(vdir.path()),
             bindings: &[],
         },
+        &mut hold,
         &mut outcome,
         &mut |e| {
             if matches!(e.step, crate::adapters::Step::HarnessStarted) {
@@ -1026,36 +1027,35 @@ fn run_declared_work(
 fn offered_session_refused_before_spawn_and_non_keeping_seats_emit_no_root_session() {
     let stdout = format!("{}\n{STEP_DONE}\n{OK_RES}\n", init_line(UUID, FLASH));
 
-    // R4: offered session refused before any process starts (including --version).
+    // With no enabling assessment, an offered session declines cold
+    // (unsupported-resume) and passes no --conversation to agy.
     {
         let mut world = World::new();
-        let marker = world.seat().join("spawned.marker");
-        let spy = world.seat().join("agy");
-        std::fs::write(
-            &spy,
-            format!("#!/bin/sh\n: > '{}'\nexit 0\n", marker.display()),
-        )
-        .unwrap();
-        std::fs::set_permissions(&spy, std::fs::Permissions::from_mode(0o755)).unwrap();
-        world.set(&spy);
-        let input = declared_work_input(&world);
-        let err = super::drive_flash_ended(
-            &spy,
-            StartMode {
-                offered: true,
-                probe: false,
-            },
-            &input,
-            &[],
-            &mut |_| {},
-        )
-        .err()
-        .expect("offered session refused");
-        assert!(
-            matches!(err, super::super::Ended::Launch(LaunchError::Resumed)),
-            "expected LaunchError::Resumed, got {err:?}"
+        let bin = write_rejoin_fake_agy(
+            &world.seat(),
+            ("1.5.14\n", 0),
+            UUID,
+            Some(b"db"),
+            Some(b"ok"),
+            &stdout,
         );
-        assert!(!marker.exists(), "offered session must spawn no process");
+        world.set(&bin);
+        let (input, mut emitted) = (declared_work_input(&world), Vec::new());
+        let mode = StartMode {
+            session: Some(UUID),
+            probe: false,
+        };
+        let inv = super::drive_flash_ended(&bin, mode, &input, &[], &mut |e| {
+            emitted.push(e.row.clone())
+        })
+        .expect("declined offer runs cold");
+        assert_eq!(inv.launch, crate::adapters::LaunchTerminal::Cold);
+        let started = emitted
+            .iter()
+            .find(|r| r.get("launch").is_some())
+            .expect("declined offer emits harness-started");
+        assert_eq!(started["launch"], "cold");
+        assert_eq!(started["resume_refusal"], "unsupported-resume");
     }
 
     // R5: gate / undeclared-root keeps no rejoin and emits no root_session.
@@ -1097,7 +1097,7 @@ fn offered_session_refused_before_spawn_and_non_keeping_seats_emit_no_root_sessi
         let inv = super::drive_flash_ended(
             &bin,
             StartMode {
-                offered: false,
+                session: None,
                 probe: true,
             },
             &input,
@@ -1919,3 +1919,9 @@ fn open_existing_conversation_dir_fails_when_absent() {
 }
 
 mod publish;
+
+fn cold_version_hold(version: &str) -> LaunchHold {
+    let mut plan = crate::adapters::LaunchPlan::cold(Vec::new(), "agy-conversation", None);
+    plan.harness_version = Some(version.to_string());
+    LaunchHold::new("agy", plan)
+}

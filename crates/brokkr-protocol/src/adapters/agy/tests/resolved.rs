@@ -146,17 +146,14 @@ fn concluded_after(
     std::fs::write(&result, "{\"result\":\"complete\"}").unwrap();
     let fed = exits(dir);
     before(&fed.0);
-    let (mut fold, mut record) = (AgyFold::new(FLASH, &[]), Map::new());
+    let (mut fold, mut record, mut hold) = (AgyFold::new(FLASH, &[]), Map::new(), cold_hold());
     let turn = turn_read(fed, reader, |line| {
-        match fold.read(line, &mut record, &mut |_| {}) {
-            Ok(()) => Line::Read,
-            Err(refused) => Line::Stopped(refused),
-        }
+        fold.read(line, &mut record, &mut hold, &mut |_| {})
     });
     let turn = turn.unwrap();
     let unread = turn.unread;
     let input = json!({ "result_path": result });
-    let concluded = concluded(fold, turn, record, &input, &[]);
+    let concluded = concluded(fold, turn, record, &input, &[], LaunchTerminal::Cold);
     (
         unread,
         concluded.outcome.map(|invocation| invocation.answer),
@@ -368,8 +365,11 @@ fn every_refusal_that_names_a_status_names_it_whole_before_its_words() {
 /// `model_unconfirmed` and `model_substituted` refusal is built on.
 fn refused_after(pin: &str, bindings: &[secret::BoundSecret], rows: &[&str]) -> PreSessionRefusal {
     let mut fold = AgyFold::new(pin, bindings);
+    let mut hold = cold_hold();
     for row in rows {
-        if let Err(refused) = fold.read(row.as_bytes(), &mut Map::new(), &mut |_| {}) {
+        if let Line::Stopped(refused) =
+            fold.read(row.as_bytes(), &mut Map::new(), &mut hold, &mut |_| {})
+        {
             return refused;
         }
     }
