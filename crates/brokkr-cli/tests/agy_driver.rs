@@ -862,7 +862,7 @@ fn seed_rejoin_driver_fixture(
 #[test]
 fn rejoin_emitted_resumed_row_passes_v8_seat_record_with_site_ref() {
     use brokkr_store::{validate_seat_record, SeatRecordVersion};
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     const OFFERED: &str = "764607c1-0f06-4973-9fa7-1a1054494a3b";
 
@@ -881,15 +881,15 @@ fn rejoin_emitted_resumed_row_passes_v8_seat_record_with_site_ref() {
         .map(|row| format!("{row}\n"))
         .collect();
 
-        let mut proc = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-        proc.args(["driver", "agy", "--", "--model", "gemini-3.8-flash-low"])
-            .envs([
-                ("BROKKR_AGY_BIN", bin.as_os_str()),
-                ("HOME", op_home.as_os_str()),
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        let mut proc =
+            crate::built::brokkr(["driver", "agy", "--", "--model", "gemini-3.8-flash-low"]);
+        proc.envs([
+            ("BROKKR_AGY_BIN", bin.as_os_str()),
+            ("HOME", op_home.as_os_str()),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
         let mut child = proc.spawn().unwrap();
         child
             .stdin
