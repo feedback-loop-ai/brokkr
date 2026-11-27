@@ -26,7 +26,7 @@ struct Crashed {
 
 /// A dispatch on `host` of a work seat boxed by the hands `spec` names for
 /// its worktree, under `namespace`, a gate where `gate`, whose driver
-/// copies its run's reservation aside as it starts and then runs
+/// copies its reservation after reading the engine's hello, then runs
 /// `before`; once it ended, the reservation copied back over the one its
 /// engine left, with the attempt's positive settlement fact sealed in it
 /// where `proved`, as its engine seals it before the release
@@ -58,11 +58,18 @@ fn crashed_as(
         copying = copying.display(),
         target = saved.display(),
     );
+    let mut command = driver(":");
+    let hello = "read -r hello";
+    let prefix = format!(":; {hello}; ");
+    let answer = command[2]
+        .strip_prefix(prefix.as_str())
+        .expect("the capturing driver reads hello first");
+    command[2] = format!("{hello} || exit 1; {copied}; {answer}");
     engine.boundary = Boundary::Namespace;
     set_site_hands(&mut engine.bundle, "work", spec(&work));
     let seat = engine.bundle.seats.get_mut("work").unwrap();
     (seat.body, seat.gate) = (
-        single_body(driver(&copied)),
+        single_body(command),
         if gate {
             crate::bundle::GateAssessment::AllGate
         } else {
@@ -81,6 +88,17 @@ fn crashed_as(
         );
     }
     let mut stood: Reservation = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    let attempt = ended.1["attempt_id"].as_str().expect("dispatch attempt id");
+    let reserved = stood.attempts.get(attempt).expect("saved dispatch attempt");
+    let driver = reserved
+        .drivers
+        .iter()
+        .find(|driver| driver.site == "work")
+        .expect("saved work driver");
+    assert!(
+        driver.group.is_some(),
+        "reservation copied before the driver's group was recorded for attempt '{attempt}'"
+    );
     let fact = [Witnessed::Settling, Witnessed::Settled][usize::from(proved)];
     stood
         .attempts
