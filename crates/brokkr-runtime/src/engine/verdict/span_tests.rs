@@ -4,6 +4,8 @@
 //! by its compiled class (`bundle::sequence::step_class`), whatever its
 //! recipe wrote.
 
+use std::os::unix::fs::MetadataExt;
+
 use serde_json::{json, Value};
 
 use super::tests::{begun, driven_over, driver, ended};
@@ -130,6 +132,38 @@ fn a_work_then_gate_sequence_stamps_the_gate_steps_span() {
         "{succeeded:?}"
     );
     assert!(checkpointed(&events, "author").get("covered").is_none());
+}
+
+/// The dialect shim runs while a writer is still open on its previous
+/// inode. On Linux this exercises the same kernel check as a sibling
+/// fork keeping an inherited writer before exec (#255).
+#[test]
+fn the_dialect_fixture_replaces_an_inode_with_an_open_writer() {
+    let shape = shaped(
+        vec![dialect("check", &["complete"])],
+        &["complete"],
+        "complete",
+    );
+    let mut writer = None;
+    let (dir, events) = driven_over(
+        SeatBody::Sequence { steps: Vec::new() },
+        |compiled| {
+            writer = Some(std::fs::File::create(compiled.dir.join(DIALECT_EXEC)).unwrap());
+            shape(compiled);
+        },
+        |_| HeadReads::default(),
+    );
+    let succeeded = ended(&events, EventType::EffectSucceeded);
+    assert_eq!(
+        succeeded.len(),
+        1,
+        "the work effect succeeds with its previous inode still open for writing: {:?}",
+        ended(&events, EventType::EffectFailed)
+    );
+    assert_eq!(succeeded[0]["result"]["result"], "complete");
+    let previous = writer.unwrap().metadata().unwrap();
+    let current = std::fs::metadata(dir.path().join(DIALECT_EXEC)).unwrap();
+    assert_ne!(previous.ino(), current.ino());
 }
 
 /// Triage's `analyze`: an unclassed dialect check, a gate by its compiled
