@@ -5,6 +5,7 @@ Date: 2026-11-23
 
 Built: partial (#1193) — Linux is built by 1193b; macOS's measures, `brokkr system host upgrade` and `init`'s placeholder ceilings are 1193c's
 Amends: 0068
+Amended by: 0128
 
 ## Context
 
