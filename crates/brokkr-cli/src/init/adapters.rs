@@ -577,7 +577,7 @@ fn dsh_native_capabilities() -> Value {
             "restrictions": {"unsupported": restriction},
             "evidence": {
                 "source": "docs/evidence/adapters/dsh-native-web-2026-11-24.md",
-                "scope": "dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled",
+                "scope": "dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled by no-shell.yml. Key-only compositions (2026-11-26), with every backend row enabled: keyoff-fetch and keyoff-search measure both OFF; keyfetch-search measures fetch ON and search OFF; keysearch-fetch measures search ON and fetch OFF. No key-only run called a tool.",
                 "limitations": limitations,
             },
             "authored": {
