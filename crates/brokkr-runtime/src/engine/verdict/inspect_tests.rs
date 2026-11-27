@@ -561,6 +561,14 @@ fn a_carried_members_finding_keeps_its_members_name_in_the_retry() {
 /// phase, never under `b`.
 #[test]
 fn a_settled_members_finding_shows_when_its_sibling_fails() {
+    // An orphan another test hands this binary's engine, its subreaper, reads
+    // as a stray of both members' attempts and leaves them unproven (#1110):
+    // run this panel test in an engine of its own.
+    if !crate::engine::tests::in_its_own_engine(
+        "engine::verdict::inspect_tests::a_settled_members_finding_shows_when_its_sibling_fails",
+    ) {
+        return;
+    }
     let (_dir, events) = panel_reviewed(failing());
     assert!(!events.iter().any(|event| {
         event.event_type == EventType::EffectSucceeded
