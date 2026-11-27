@@ -1273,6 +1273,21 @@ fn empty_top_level_feature_imports_across_store_and_journal() {
     assert_eq!(sql_dest.projections().list_runs().unwrap(), expected);
 }
 
+fn assert_invalid_standalone_path(bad: &std::path::Path) {
+    assert!(matches!(
+        crate::ports::SqliteProjectionStore::open(bad),
+        Err(StoreError::InvalidPath(_))
+    ));
+    assert!(matches!(
+        crate::ports::SqliteCoordinationStore::open(bad),
+        Err(StoreError::InvalidPath(_))
+    ));
+    assert!(matches!(
+        crate::ports::SqliteProjectionStore::inspect_read_only(bad),
+        Err(StoreError::InvalidPath(_))
+    ));
+}
+
 mod invariants;
 mod split;
 mod split_hardening;

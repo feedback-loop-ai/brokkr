@@ -23,6 +23,7 @@ use serde_json::Value;
 
 use crate::{damage, import, Damage, StoreError};
 
+use super::fs_openat as posix;
 use super::{
     format_canonical_ndjson, normalize_storage_path, reject_symlink, reject_symlink_path, sync_dir,
     validate_append_batch, validate_import_stream, validate_manifest, verify_chain_checked,
@@ -109,34 +110,34 @@ impl FsEventLog {
         Ok(())
     }
 
-    fn existing_run_dir_anchored(&self, run_id: &str) -> Result<(PathBuf, Metadata), StoreError> {
+    fn open_run_dir(&self, run_id: &str) -> Result<(PathBuf, File), StoreError> {
         self.verify_root()?;
         validate_run_id_segment(run_id)?;
         let dir = self.root.join(run_id);
-        let found = reject_symlink(&dir)?;
+        let run_dir_fd = open_dir_at(&self.root_dir, run_id, &dir)?
+            .ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))?;
         self.verify_root()?;
-        match found {
-            Some(meta) if meta.is_dir() => Ok((dir, meta)),
-            _ => Err(StoreError::RunNotFound(run_id.to_string())),
-        }
-    }
-
-    fn existing_run_dir(&self, run_id: &str) -> Result<PathBuf, StoreError> {
-        self.existing_run_dir_anchored(run_id).map(|(dir, _)| dir)
+        Ok((dir, run_dir_fd))
     }
 
     fn verify_anchored_file(
         &self,
+        run_id: &str,
         run_dir: &Path,
-        anchored_run: &Metadata,
+        run_dir_fd: &File,
         file_path: &Path,
         file: &File,
     ) -> Result<(), StoreError> {
         self.verify_root()?;
-        let cur_run = reject_symlink(run_dir)?;
-        let cur_file = reject_symlink(file_path)?;
+        let anchored_run = run_dir_fd.metadata()?;
+        let cur_run = open_dir_at(&self.root_dir, run_id, run_dir)?
+            .map(|dir| dir.metadata())
+            .transpose()?;
+        let cur_file = open_regular_at(run_dir_fd, EVENTS_FILE, file_path, posix::O_RDONLY)
+            .ok()
+            .and_then(|found| found.metadata().ok());
         let opened = file.metadata()?;
-        let ok = same_dir(&cur_run, anchored_run)
+        let ok = same_dir(&cur_run, &anchored_run)
             && cur_file
                 .as_ref()
                 .is_some_and(|m| m.is_file() && m.dev() == opened.dev() && m.ino() == opened.ino());
@@ -153,20 +154,23 @@ impl FsEventLog {
         envelopes: &[EventEnvelope],
         before_write: impl FnOnce(),
     ) -> Result<(), StoreError> {
-        let (run_dir, run_meta) = self.existing_run_dir_anchored(run_id)?;
-        let _lock = open_lock(&run_dir, true)?;
-        let manifest = read_manifest_file(&run_dir, run_id)?;
-        let existing = read_verified_events(&run_dir, run_id)?;
+        let (run_dir, run_dir_fd) = self.open_run_dir(run_id)?;
+        let _lock = open_lock_at(&run_dir_fd, &run_dir, true)?;
+        let manifest = read_manifest_at(&run_dir_fd, &run_dir, run_id)?;
+        let existing = read_verified_events_at(&run_dir_fd, &run_dir, run_id)?;
         validate_append_batch(run_id, &manifest, &existing, expected_head, envelopes)?;
         if !envelopes.is_empty() {
             let ndjson = format_canonical_ndjson(envelopes)?;
             let events_path = run_dir.join(EVENTS_FILE);
             self.verify_root()?;
-            let mut file = open_no_symlink_with(&events_path, |path| {
-                OpenOptions::new().append(true).open(path)
-            })?;
+            let mut file = open_regular_at(
+                &run_dir_fd,
+                EVENTS_FILE,
+                &events_path,
+                posix::O_WRONLY | posix::O_APPEND,
+            )?;
             before_write();
-            self.verify_anchored_file(&run_dir, &run_meta, &events_path, &file)?;
+            self.verify_anchored_file(run_id, &run_dir, &run_dir_fd, &events_path, &file)?;
             append_bytes_atomic_with(&mut file, |f| {
                 f.write_all(ndjson.as_bytes())?;
                 f.sync_data()
@@ -175,14 +179,22 @@ impl FsEventLog {
         self.verify_root()
     }
 
-    fn read_run_events(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
-        let run_dir = self.existing_run_dir(run_id)?;
-        let _lock = open_lock(&run_dir, false)?;
-        let _ = require_regular_manifest(&run_dir)?;
-        let _ = reject_symlink(&run_dir.join(RUN_META_FILE))?;
-        let events = read_verified_events(&run_dir, run_id)?;
+    pub(super) fn read_run_events_with(
+        &self,
+        run_id: &str,
+        after_manifest_shared: impl FnOnce(),
+    ) -> Result<Vec<EventEnvelope>, StoreError> {
+        let (run_dir, run_dir_fd) = self.open_run_dir(run_id)?;
+        let _lock = open_lock_at_with(&run_dir_fd, &run_dir, false, after_manifest_shared)?;
+        let _ = open_manifest_at(&run_dir_fd, &run_dir)?;
+        reject_symlink_child(&run_dir_fd, &run_dir, RUN_META_FILE)?;
+        let events = read_verified_events_at(&run_dir_fd, &run_dir, run_id)?;
         self.verify_root()?;
         Ok(events)
+    }
+
+    fn read_run_events(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
+        self.read_run_events_with(run_id, || {})
     }
 }
 
@@ -272,17 +284,70 @@ fn open_lock_exclusive(lock_path: &Path) -> Result<File, StoreError> {
     })
 }
 
-fn open_lock_file(lock_path: &Path, exclusive: bool) -> Result<File, StoreError> {
-    if exclusive {
-        let file = open_lock_exclusive(lock_path)?;
-        file.lock()?;
-        Ok(file)
-    } else {
-        let file =
-            open_no_symlink_with(lock_path, |path| OpenOptions::new().read(true).open(path))?;
-        file.lock_shared()?;
-        Ok(file)
+fn open_dir_at(parent: &File, name: &str, display_path: &Path) -> Result<Option<File>, StoreError> {
+    match posix::open_at(parent, name, posix::O_RDONLY | posix::O_DIRECTORY) {
+        Ok(file) => Ok(Some(file)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err)
+            if err.raw_os_error() == Some(posix::ELOOP)
+                || err.kind() == io::ErrorKind::NotADirectory =>
+        {
+            // Linux returns ENOTDIR (macOS returns ELOOP) for O_DIRECTORY | O_NOFOLLOW on a
+            // symlink; probe anchored to `parent` without O_DIRECTORY to classify symlink vs file.
+            match posix::open_at(parent, name, posix::O_RDONLY | posix::O_NONBLOCK) {
+                Err(probe) if probe.raw_os_error() == Some(posix::ELOOP) => {
+                    Err(StoreError::SymlinkRefused(display_path.to_path_buf()))
+                }
+                _ => Ok(None),
+            }
+        }
+        Err(err) => Err(StoreError::Io(err)),
     }
+}
+
+fn open_regular_at(
+    dir: &File,
+    name: &str,
+    display_path: &Path,
+    flags: std::os::raw::c_int,
+) -> Result<File, StoreError> {
+    let file = posix::open_at(dir, name, flags | posix::O_NONBLOCK)
+        .map_err(|err| posix::map_err(err, display_path))?;
+    if !file.metadata()?.is_file() {
+        return Err(non_regular_error(display_path));
+    }
+    Ok(file)
+}
+
+fn open_manifest_at(run_dir_fd: &File, run_dir: &Path) -> Result<File, StoreError> {
+    let path = run_dir.join(MANIFEST_FILE);
+    match posix::open_at(
+        run_dir_fd,
+        MANIFEST_FILE,
+        posix::O_RDONLY | posix::O_NONBLOCK,
+    ) {
+        Ok(file) if file.metadata()?.is_file() => Ok(file),
+        Err(err) if err.kind() != io::ErrorKind::NotFound => Err(posix::map_err(err, &path)),
+        Ok(_) | Err(_) => Err(StoreError::Damaged {
+            journal: path,
+            damage: Damage::MissingManifest,
+        }),
+    }
+}
+
+fn reject_symlink_child(run_dir_fd: &File, run_dir: &Path, name: &str) -> Result<(), StoreError> {
+    let path = run_dir.join(name);
+    match posix::open_at(run_dir_fd, name, posix::O_RDONLY | posix::O_NONBLOCK) {
+        Ok(_) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(posix::map_err(err, &path)),
+    }
+}
+
+fn open_create_lock(lock_path: &Path) -> Result<File, StoreError> {
+    let file = open_lock_exclusive(lock_path)?;
+    file.lock()?;
+    Ok(file)
 }
 
 struct RunLock {
@@ -290,52 +355,100 @@ struct RunLock {
     _fallback: Option<File>,
 }
 
-fn open_lock(run_dir: &Path, exclusive: bool) -> Result<RunLock, StoreError> {
-    let lock_path = run_dir.join(LOCK_FILE);
-    if exclusive {
-        let fallback = if reject_symlink(&lock_path)?.is_none() {
-            // Legacy run directory without `.lock`: serialize against readers
-            // holding `lock_shared()` on `manifest.json` before creating `.lock`
-            // and keep that lock held across creating `.lock` + appending.
-            let manifest_path = require_regular_manifest(run_dir)?;
-            let file =
-                open_no_symlink_with(&manifest_path, |p| OpenOptions::new().read(true).open(p))?;
-            file.lock()?;
-            Some(file)
-        } else {
-            None
-        };
-        let primary = open_lock_file(&lock_path, true)?;
-        return Ok(RunLock {
-            _primary: primary,
-            _fallback: fallback,
-        });
+pub(super) fn open_or_create_lock_at(
+    run_dir_fd: &File,
+    lock_path: &Path,
+) -> Result<File, StoreError> {
+    match open_regular_at(
+        run_dir_fd,
+        LOCK_FILE,
+        lock_path,
+        posix::O_RDWR | posix::O_CREAT | posix::O_EXCL,
+    ) {
+        Ok(file) => Ok(file),
+        Err(StoreError::Io(err)) if err.kind() == io::ErrorKind::AlreadyExists => {
+            open_regular_at(run_dir_fd, LOCK_FILE, lock_path, posix::O_RDWR)
+        }
+        Err(err) => Err(err),
     }
-    match open_lock_file(&lock_path, false) {
-        Ok(primary) => Ok(RunLock {
-            _primary: primary,
-            _fallback: None,
-        }),
-        Err(StoreError::Io(err)) if err.kind() == io::ErrorKind::NotFound => {
-            let manifest_path = require_regular_manifest(run_dir)?;
-            let primary = open_lock_file(&manifest_path, false)?;
+}
+
+fn open_exclusive_run_lock(
+    run_dir_fd: &File,
+    run_dir: &Path,
+    lock_path: &Path,
+) -> Result<RunLock, StoreError> {
+    match open_regular_at(run_dir_fd, LOCK_FILE, lock_path, posix::O_RDWR) {
+        Ok(primary) => {
+            primary.lock()?;
             Ok(RunLock {
                 _primary: primary,
                 _fallback: None,
+            })
+        }
+        Err(StoreError::Io(err)) if err.kind() == io::ErrorKind::NotFound => {
+            // Legacy run directory without `.lock`: serialize against readers
+            // holding `lock_shared()` on `manifest.json` before creating `.lock`
+            // and keep that lock held across creating `.lock` + appending.
+            let fallback = open_manifest_at(run_dir_fd, run_dir)?;
+            fallback.lock()?;
+            let primary = open_or_create_lock_at(run_dir_fd, lock_path)?;
+            primary.lock()?;
+            Ok(RunLock {
+                _primary: primary,
+                _fallback: Some(fallback),
             })
         }
         Err(err) => Err(err),
     }
 }
 
-fn require_regular_manifest(run_dir: &Path) -> Result<PathBuf, StoreError> {
-    let path = run_dir.join(MANIFEST_FILE);
-    match reject_symlink(&path)? {
-        Some(meta) if meta.is_file() => Ok(path),
-        _ => Err(StoreError::Damaged {
-            journal: path,
-            damage: Damage::MissingManifest,
-        }),
+fn open_lock_at(run_dir_fd: &File, run_dir: &Path, exclusive: bool) -> Result<RunLock, StoreError> {
+    open_lock_at_with(run_dir_fd, run_dir, exclusive, || {})
+}
+
+fn open_lock_at_with(
+    run_dir_fd: &File,
+    run_dir: &Path,
+    exclusive: bool,
+    after_manifest_shared: impl FnOnce(),
+) -> Result<RunLock, StoreError> {
+    let lock_path = run_dir.join(LOCK_FILE);
+    if exclusive {
+        return open_exclusive_run_lock(run_dir_fd, run_dir, &lock_path);
+    }
+    match open_regular_at(run_dir_fd, LOCK_FILE, &lock_path, posix::O_RDONLY) {
+        Ok(primary) => {
+            primary.lock_shared()?;
+            Ok(RunLock {
+                _primary: primary,
+                _fallback: None,
+            })
+        }
+        Err(StoreError::Io(err)) if err.kind() == io::ErrorKind::NotFound => {
+            let manifest = open_manifest_at(run_dir_fd, run_dir)?;
+            manifest.lock_shared()?;
+            after_manifest_shared();
+            // Re-check whether `.lock` appeared while acquiring `manifest.json`;
+            // if so, drop `manifest.json` and switch to `lock_shared()` on `.lock`
+            // so a subsequent writer locking only `.lock` cannot overlap this read.
+            match open_regular_at(run_dir_fd, LOCK_FILE, &lock_path, posix::O_RDONLY) {
+                Ok(lock_file) => {
+                    drop(manifest);
+                    lock_file.lock_shared()?;
+                    Ok(RunLock {
+                        _primary: lock_file,
+                        _fallback: None,
+                    })
+                }
+                Err(StoreError::Io(err)) if err.kind() == io::ErrorKind::NotFound => Ok(RunLock {
+                    _primary: manifest,
+                    _fallback: None,
+                }),
+                Err(err) => Err(err),
+            }
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -392,7 +505,7 @@ pub(super) fn create_run_dir_atomic_with(
     populate: impl FnOnce(&Path) -> Result<(), StoreError>,
     sync_root: impl FnOnce(&Path) -> io::Result<()>,
 ) -> Result<(), StoreError> {
-    let _create_lock = open_lock_file(&root.join(CREATE_LOCK_FILE), true)?;
+    let _create_lock = open_create_lock(&root.join(CREATE_LOCK_FILE))?;
     let run_dir = root.join(run_id);
     if reject_symlink(&run_dir)?.is_some() {
         return Err(StoreError::RunExists(run_id.to_string()));
@@ -427,16 +540,15 @@ pub(super) fn append_bytes_atomic_with(
     Ok(())
 }
 
-fn read_bytes_no_symlink(path: &Path) -> Result<Vec<u8>, StoreError> {
-    let mut file = open_no_symlink_with(path, |p| File::open(p))?;
+fn read_file_bytes(mut file: File) -> Result<Vec<u8>, StoreError> {
     let mut out = Vec::new();
     file.read_to_end(&mut out)?;
     Ok(out)
 }
 
-fn read_manifest_file(run_dir: &Path, run_id: &str) -> Result<Value, StoreError> {
-    let path = require_regular_manifest(run_dir)?;
-    let raw = read_bytes_no_symlink(&path)?;
+fn read_manifest_at(run_dir_fd: &File, run_dir: &Path, run_id: &str) -> Result<Value, StoreError> {
+    let path = run_dir.join(MANIFEST_FILE);
+    let raw = read_file_bytes(open_manifest_at(run_dir_fd, run_dir)?)?;
     let manifest: Value =
         serde_json::from_slice(&raw).map_err(|err| malformed_json_error(&path, &err))?;
     validate_manifest(run_id, &manifest)?;
@@ -472,9 +584,18 @@ fn parse_ndjson_line(
     }
 }
 
-fn read_verified_events(run_dir: &Path, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
+fn read_verified_events_at(
+    run_dir_fd: &File,
+    run_dir: &Path,
+    run_id: &str,
+) -> Result<Vec<EventEnvelope>, StoreError> {
     let path = run_dir.join(EVENTS_FILE);
-    let raw = read_bytes_no_symlink(&path)?;
+    let raw = read_file_bytes(open_regular_at(
+        run_dir_fd,
+        EVENTS_FILE,
+        &path,
+        posix::O_RDONLY,
+    )?)?;
     if raw.is_empty() {
         return Ok(Vec::new());
     }
@@ -545,26 +666,30 @@ impl EventLog for FsEventLog {
     }
 
     fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
-        let run_dir = self.existing_run_dir(run_id)?;
-        let _lock = open_lock(&run_dir, false)?;
-        let _ = reject_symlink(&run_dir.join(EVENTS_FILE))?;
-        let _ = reject_symlink(&run_dir.join(RUN_META_FILE))?;
-        let manifest = read_manifest_file(&run_dir, run_id)?;
+        let (run_dir, run_dir_fd) = self.open_run_dir(run_id)?;
+        let _lock = open_lock_at(&run_dir_fd, &run_dir, false)?;
+        reject_symlink_child(&run_dir_fd, &run_dir, EVENTS_FILE)?;
+        reject_symlink_child(&run_dir_fd, &run_dir, RUN_META_FILE)?;
+        let manifest = read_manifest_at(&run_dir_fd, &run_dir, run_id)?;
         self.verify_root()?;
         Ok(manifest)
     }
 
     fn run_metadata(&self, run_id: &str) -> Result<Option<RunMetadata>, StoreError> {
-        let run_dir = self.existing_run_dir(run_id)?;
-        let _lock = open_lock(&run_dir, false)?;
-        let _ = require_regular_manifest(&run_dir)?;
-        let _ = reject_symlink(&run_dir.join(EVENTS_FILE))?;
+        let (run_dir, run_dir_fd) = self.open_run_dir(run_id)?;
+        let _lock = open_lock_at(&run_dir_fd, &run_dir, false)?;
+        let _ = open_manifest_at(&run_dir_fd, &run_dir)?;
+        reject_symlink_child(&run_dir_fd, &run_dir, EVENTS_FILE)?;
         let meta_path = run_dir.join(RUN_META_FILE);
-        if reject_symlink(&meta_path)?.is_none() {
-            self.verify_root()?;
-            return Ok(None);
-        }
-        let raw = read_bytes_no_symlink(&meta_path)?;
+        let file = match open_regular_at(&run_dir_fd, RUN_META_FILE, &meta_path, posix::O_RDONLY) {
+            Ok(file) => file,
+            Err(StoreError::Io(err)) if err.kind() == io::ErrorKind::NotFound => {
+                self.verify_root()?;
+                return Ok(None);
+            }
+            Err(err) => return Err(err),
+        };
+        let raw = read_file_bytes(file)?;
         let meta: RunMetadata =
             serde_json::from_slice(&raw).map_err(|err| malformed_json_error(&meta_path, &err))?;
         self.verify_root()?;
@@ -593,9 +718,12 @@ impl EventLog for FsEventLog {
             if name.starts_with(STAGING_PREFIX) {
                 continue;
             }
-            let _ = require_regular_manifest(&path)?;
-            let _ = reject_symlink(&path.join(EVENTS_FILE))?;
-            let _ = reject_symlink(&path.join(RUN_META_FILE))?;
+            let run_dir_fd =
+                posix::open_at(&self.root_dir, &name, posix::O_RDONLY | posix::O_DIRECTORY)
+                    .map_err(|err| posix::map_err(err, &path))?;
+            let _ = open_manifest_at(&run_dir_fd, &path)?;
+            reject_symlink_child(&run_dir_fd, &path, EVENTS_FILE)?;
+            reject_symlink_child(&run_dir_fd, &path, RUN_META_FILE)?;
             ids.push(name);
         }
         self.verify_root()?;

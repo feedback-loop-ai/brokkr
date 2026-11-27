@@ -304,3 +304,92 @@ fn a_path_holding_uri_characters_opens_that_journal() {
     assert_eq!(listed(&db).unwrap(), ["run-a"]);
     assert_eq!(names(dir.path()), ["a?mode=rwc#b%41 c"]);
 }
+
+/// A lock-free read that returns `Err(StoreError::Damaged)` while the file
+/// changes mid-read must fail as unsettled (`SQLITE_BUSY`), never `Damaged`,
+/// so `brokkr journal reindex` cannot authorize replacing a changing foreign DB.
+#[test]
+fn an_error_during_a_changing_lock_free_read_is_unsettled_not_damaged() {
+    let (dir, db) = planted();
+    let refused = super::read_connection_untouched(&db, |_conn| {
+        let writer = Store::open(&db)?;
+        plant_run(&writer.conn, "run-mid-err", "{}")?;
+        drop(writer);
+        Err::<(), StoreError>(StoreError::Damaged {
+            journal: db.clone(),
+            damage: Damage::Malformed,
+        })
+    });
+    assert!(busy(&refused), "expected unsettled busy, got {refused:?}");
+    assert!(
+        refused
+            .unwrap_err()
+            .to_string()
+            .contains("changed while it was read"),
+        "missing unsettled detail"
+    );
+    assert_eq!(names(dir.path()), ["forge.db"]);
+}
+
+/// Inspecting a DELETE-mode DB via `read_connection_untouched` always opens
+/// `immutable=1`, so a concurrent transition to WAL leaves zero `-wal`/`-shm`
+/// sidecars behind and is rejected by the post-read `Sight` check.
+#[test]
+fn inspecting_a_rollback_db_that_switches_to_wal_creates_no_sidecars_and_is_unsettled() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("delete-to-wal.db");
+    rollback_journal(&db);
+    assert_eq!(names(dir.path()), ["delete-to-wal.db"]);
+
+    let refused = super::read_connection_untouched(&db, |conn| {
+        let mode: String = conn.pragma_query_value(None, "journal_mode", |r| r.get(0))?;
+        assert_eq!(mode.to_ascii_lowercase(), "delete");
+        // Concurrent writer switches DB to WAL and closes cleanly.
+        let writer = rusqlite::Connection::open(&db)?;
+        let switched: String = writer.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
+        assert_eq!(switched.to_ascii_lowercase(), "wal");
+        drop(writer);
+        Ok::<_, StoreError>(())
+    });
+    assert!(busy(&refused), "expected unsettled busy, got {refused:?}");
+    assert!(
+        refused
+            .unwrap_err()
+            .to_string()
+            .contains("changed while it was read"),
+        "missing unsettled detail"
+    );
+    assert_eq!(names(dir.path()), ["delete-to-wal.db"]);
+}
+
+/// A `-wal` sidecar standing without a `-shm` index is refused as unsettled
+/// (`SQLITE_BUSY`) instead of letting SQLite fail with `CannotOpen`.
+#[test]
+fn a_wal_without_shm_sidecar_is_refused_as_unsettled() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("orphan-wal.db");
+    journal(&db);
+    let wal = dir.path().join("orphan-wal.db-wal");
+    std::fs::write(&wal, b"orphan wal bytes").unwrap();
+    assert_eq!(names(dir.path()), ["orphan-wal.db", "orphan-wal.db-wal"]);
+
+    let refused = super::read_connection_untouched(&db, |_| Ok::<(), StoreError>(()));
+    assert!(busy(&refused), "expected unsettled busy, got {refused:?}");
+    let msg = refused.unwrap_err().to_string();
+    assert!(
+        msg.contains("a WAL file stands beside it without a shared-memory index"),
+        "{msg}"
+    );
+    assert_eq!(names(dir.path()), ["orphan-wal.db", "orphan-wal.db-wal"]);
+
+    // An orphan `-shm` without `-wal` opens `immutable=1` cleanly and catches removal mid-read.
+    std::fs::remove_file(&wal).unwrap();
+    let shm = dir.path().join("orphan-wal.db-shm");
+    std::fs::write(&shm, b"stale shm").unwrap();
+    super::read_connection_untouched(&db, |_| Ok::<(), StoreError>(())).unwrap();
+    let removed = super::read_connection_untouched(&db, |_| {
+        std::fs::remove_file(&shm)?;
+        Ok::<(), StoreError>(())
+    });
+    assert!(busy(&removed), "expected unsettled busy, got {removed:?}");
+}

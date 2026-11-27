@@ -58,7 +58,9 @@
 //! processes, each driving its own run, appending into one journal. A
 //! worktree-local `.forge/forge.db` remains entirely legal — it is
 //! emergency isolation now, not the assumed steady state.
-#![forbid(unsafe_code)]
+// The sole `unsafe` in `brokkr-store` is the isolated `#[cfg(unix)]` `openat`
+// FFI wrapper in `ports::fs_log::posix` (anchoring child opens to verified
+// directory descriptors without adding crate dependencies).
 
 use std::path::{Path, PathBuf};
 

@@ -943,3 +943,73 @@ fn journal_reindex_zero_sidecar_wal_refusal_legacy_v1_and_migrate_unstarted_feat
     let rebuilt = SqliteProjectionStore::open(&v1_idx).unwrap();
     assert_eq!(rebuilt.list_runs().unwrap(), expected_runs);
 }
+
+#[test]
+fn journal_migrate_accepts_started_run_whose_runs_row_metadata_differs_from_run_started() {
+    let dir = tempdir().unwrap();
+    let forge_db = dir.path().join("forge-started-diff.db");
+    let mut store = Store::open(&forge_db).unwrap();
+
+    // Run 1 (started): pre-start `runs.feature` / `runs.created_at` differ from `RunStarted`.
+    let m1 = json!({"engine": "0.15.0", "feature": "manifest-f1"});
+    store
+        .create_run("r-started-diff", "pre-start-runs-feature", "self", &m1)
+        .unwrap();
+    let started_env = store
+        .append_next(
+            "r-started-diff",
+            EventType::RunStarted,
+            json!({"feature": "run-started-feature", "bundle_name": "self"}),
+            None,
+            None,
+        )
+        .unwrap();
+    // Run 2 (unstarted): preserves exact `runs.feature` / `runs.created_at` via `run_meta.json`.
+    let m2 = json!({"engine": "0.15.0", "feature": "manifest-f2"});
+    store
+        .create_run("r-unstarted-keep", "runs-unstarted-feature", "self", &m2)
+        .unwrap();
+    let source_unstarted_created = store
+        .list_runs()
+        .unwrap()
+        .into_iter()
+        .find(|(id, _, _)| id == "r-unstarted-keep")
+        .unwrap()
+        .2;
+    drop(store);
+
+    // Override `runs` row timestamps and `feature` directly to simulate legacy pre-start values
+    // that differ from `RunStarted.recorded_at` and `RunStarted.payload.feature`.
+    let raw = rusqlite::Connection::open(&forge_db).unwrap();
+    raw.execute(
+        "UPDATE runs SET feature = 'legacy-pre-start', created_at = '2026-11-26T01:00:00Z' WHERE run_id = 'r-started-diff'",
+        [],
+    )
+    .unwrap();
+    raw.execute(
+        "UPDATE run_summary SET feature = 'legacy-pre-start' WHERE run_id = 'r-started-diff'",
+        [],
+    )
+    .unwrap();
+    drop(raw);
+
+    let ro = Store::open_read_only(&forge_db).unwrap();
+    let dest = dir.path().join("migrated-started-diff");
+    let report = migrate_report(&ro, &forge_db, &dest).unwrap();
+    drop(ro);
+    assert_eq!((report.runs, report.events), (2, 1));
+
+    let proj = SqliteProjectionStore::open(dest.join("index.db")).unwrap();
+    let listed = proj.list_runs().unwrap();
+    assert_eq!(listed.len(), 2);
+    assert!(listed.contains(&(
+        "r-started-diff".to_string(),
+        "run-started-feature".to_string(),
+        started_env.recorded_at,
+    )));
+    assert!(listed.contains(&(
+        "r-unstarted-keep".to_string(),
+        "runs-unstarted-feature".to_string(),
+        source_unstarted_created,
+    )));
+}

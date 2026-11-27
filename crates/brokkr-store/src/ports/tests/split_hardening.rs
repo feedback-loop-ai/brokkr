@@ -1093,18 +1093,7 @@ fn sqlite_like_underscore_view_and_non_regular_fifo_refused_pre_wal() {
     let as_dir = dir.path().join("a-dir");
     fs::create_dir(&as_dir).unwrap();
     for bad in [&fifo, &as_dir] {
-        assert!(matches!(
-            SqliteProjectionStore::open(bad),
-            Err(StoreError::InvalidPath(_))
-        ));
-        assert!(matches!(
-            SqliteCoordinationStore::open(bad),
-            Err(StoreError::InvalidPath(_))
-        ));
-        assert!(matches!(
-            SqliteProjectionStore::inspect_read_only(bad),
-            Err(StoreError::InvalidPath(_))
-        ));
+        assert_invalid_standalone_path(bad);
     }
 }
 
@@ -1406,4 +1395,345 @@ fn coordination_recordable_run_id_and_fs_non_utf8_error_attribution() {
     fs::write(&ev_path, b"\xff\n").unwrap();
     assert_malformed_json_at(log_ev.read_stream("u-ev", 1), &ev_path);
     assert_malformed_json_at(proj.rebuild_from(&log_ev), &ev_path);
+}
+
+#[test]
+fn fs_event_log_legacy_reader_lock_handoff_and_openat_anchoring() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("runs-handoff");
+    let log = FsEventLog::open(&root).unwrap();
+    let manifest = sample_manifest("handoff");
+    log.create_run("r1", &manifest).unwrap();
+    let e1 = started_event("r1", "handoff", "2026-11-26T10:00:00Z");
+    log.append_envelopes("r1", (0, ZERO_HASH), std::slice::from_ref(&e1))
+        .unwrap();
+
+    // 1. Legacy reader lock handoff: `.lock` is absent when reader starts, then appears while
+    // acquiring `manifest.json`'s shared lock. Reader must drop `manifest.json` and switch to
+    // `lock_shared()` on `.lock`, blocking behind an exclusive `.lock` holder without deadlock.
+    let run_dir = root.join("r1");
+    let lock_path = run_dir.join(".lock");
+    fs::remove_file(&lock_path).unwrap();
+
+    let entered_fallback = Arc::new(Barrier::new(2));
+    let lock_created = Arc::new(Barrier::new(3));
+    let release = Arc::new(Barrier::new(2));
+    let entered_bg = Arc::clone(&entered_fallback);
+    let created_bg = Arc::clone(&lock_created);
+    let release_bg = Arc::clone(&release);
+    let lock_path_bg = lock_path.clone();
+    let holder = thread::spawn(move || {
+        entered_bg.wait();
+        let f = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&lock_path_bg)
+            .unwrap();
+        f.lock().unwrap();
+        created_bg.wait();
+        release_bg.wait();
+        drop(f);
+    });
+
+    let manifest_path = run_dir.join("manifest.json");
+    let handed_off = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let handed_off_r = Arc::clone(&handed_off);
+    let created_r = Arc::clone(&lock_created);
+    let root_r = root.clone();
+    let reader = thread::spawn(move || {
+        let rlog = FsEventLog::open(&root_r).unwrap();
+        let events = rlog
+            .read_run_events_with("r1", || {
+                entered_fallback.wait();
+                created_r.wait();
+            })
+            .unwrap();
+        handed_off_r.store(true, std::sync::atomic::Ordering::SeqCst);
+        events
+    });
+
+    // Wait until `.lock` is created & held exclusively while reader is in fallback, then prove
+    // reader drops `manifest.json` (exclusive try_lock succeeds) while staying blocked on `.lock`.
+    lock_created.wait();
+    let manifest_probe = fs::File::open(&manifest_path).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        match manifest_probe.try_lock() {
+            Ok(()) => break,
+            Err(_) if std::time::Instant::now() < deadline => {
+                thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(err) => panic!("reader never dropped manifest.json lock on handoff: {err}"),
+        }
+    }
+    assert!(!handed_off.load(std::sync::atomic::Ordering::SeqCst));
+    drop(manifest_probe);
+
+    release.wait();
+    holder.join().unwrap();
+    let events = reader.join().unwrap();
+    assert!(handed_off.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(events.len(), 1);
+
+    // 2. If `.lock` becomes a symlink while acquiring `manifest.json`, handoff refuses SymlinkRefused.
+    let decoy = dir.path().join("decoy-lock");
+    fs::write(&decoy, b"").unwrap();
+    fs::remove_file(&lock_path).unwrap();
+    let sym_err = log
+        .read_run_events_with("r1", || {
+            symlink(&decoy, &lock_path).unwrap();
+        })
+        .unwrap_err();
+    assert!(matches!(sym_err, StoreError::SymlinkRefused(_)));
+    fs::remove_file(&lock_path).unwrap();
+}
+
+#[test]
+fn projection_live_listing_precedence_preserves_unstarted_and_started_metadata() {
+    let dir = tempdir().unwrap();
+    let runs_root = dir.path().join("runs-live");
+    let log = FsEventLog::open(&runs_root).unwrap();
+    let bare = json!({"engine": "0.15.0"});
+    let meta = RunMetadata {
+        feature: "unstarted-meta".to_string(),
+        created_at: "2026-11-26T08:00:00Z".to_string(),
+        list_order: Some(0),
+    };
+    log.create_run_with_metadata("r-unstarted", &bare, &meta)
+        .unwrap();
+
+    let idx = SqliteProjectionStore::open(dir.path().join("live.db")).unwrap();
+    idx.rebuild_from(&log).unwrap();
+    assert_eq!(
+        idx.list_runs().unwrap(),
+        vec![(
+            "r-unstarted".to_string(),
+            "unstarted-meta".to_string(),
+            "2026-11-26T08:00:00Z".to_string(),
+        )]
+    );
+
+    // 1. Empty batch with `Some(manifest)` on an existing `head_seq == 0` row preserves its
+    // `run_meta.json` `(feature, created_at)` instead of erasing it.
+    idx.apply_envelopes("r-unstarted", Some(&bare), &[])
+        .unwrap();
+    assert_eq!(
+        idx.list_runs().unwrap(),
+        vec![(
+            "r-unstarted".to_string(),
+            "unstarted-meta".to_string(),
+            "2026-11-26T08:00:00Z".to_string(),
+        )]
+    );
+    idx.apply_envelopes(
+        "r-unstarted",
+        Some(&json!({"engine": "0.15.0", "feature": "manifest-should-not-erase"})),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(
+        idx.list_runs().unwrap(),
+        vec![(
+            "r-unstarted".to_string(),
+            "unstarted-meta".to_string(),
+            "2026-11-26T08:00:00Z".to_string(),
+        )]
+    );
+
+    // 2. Already-started run (`head_seq > 0`) whose feature came from `manifest` (RunStarted had
+    // no feature) preserves its existing `feature` on subsequent `manifest = None` appends!
+    let e1 = sealed_event(
+        "r-started",
+        1,
+        EventType::RunStarted,
+        json!({}),
+        ZERO_HASH,
+        "2026-11-26T10:00:00Z",
+    );
+    let e2 = sealed_event(
+        "r-started",
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "implement"}),
+        &e1.event_hash,
+        "2026-11-26T10:01:00Z",
+    );
+    idx.apply_envelopes(
+        "r-started",
+        Some(&json!({"engine": "0.15.0", "feature": "started-from-manifest"})),
+        std::slice::from_ref(&e1),
+    )
+    .unwrap();
+    idx.apply_envelopes("r-started", None, &[e1, e2]).unwrap();
+    assert_eq!(
+        idx.list_runs().unwrap()[1],
+        (
+            "r-started".to_string(),
+            "started-from-manifest".to_string(),
+            "2026-11-26T10:00:00Z".to_string(),
+        )
+    );
+}
+
+#[test]
+fn projection_verbatim_round3_six_column_v1_upgrade_and_four_column_refusal() {
+    let dir = tempdir().unwrap();
+    // Verbatim Round 3 (2580d53af) 6-column legacy v1 DDL with user_version = 0 and 1 is
+    // accepted untouched and upgraded cleanly; a bogus 4-column table is refused as ForeignDatabase.
+    for uv in [0i64, 1i64] {
+        let v1_db = dir.path().join(format!("round3-v1-uv{uv}.db"));
+        let conn = Connection::open(&v1_db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS projection_meta (
+                 key TEXT PRIMARY KEY,
+                 value TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS projected_runs (
+                 run_id TEXT PRIMARY KEY,
+                 feature TEXT NOT NULL,
+                 created_at TEXT NOT NULL,
+                 head_seq INTEGER NOT NULL,
+                 head_hash TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS projected_events (
+                 run_id TEXT NOT NULL,
+                 seq INTEGER NOT NULL,
+                 event_type TEXT NOT NULL,
+                 event_hash TEXT NOT NULL,
+                 recorded_at TEXT NOT NULL,
+                 payload TEXT NOT NULL,
+                 PRIMARY KEY (run_id, seq)
+             );
+             CREATE INDEX IF NOT EXISTS projected_runs_created_idx
+                 ON projected_runs (created_at, run_id);
+             INSERT INTO projection_meta (key, value) VALUES ('projection_schema', '1');",
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", uv).unwrap();
+        drop(conn);
+        SqliteProjectionStore::inspect_read_only(&v1_db).unwrap();
+        drop(SqliteProjectionStore::open(&v1_db).unwrap());
+    }
+
+    let four_col = dir.path().join("bogus-4col.db");
+    let conn4 = Connection::open(&four_col).unwrap();
+    conn4
+        .execute_batch(
+            "CREATE TABLE projection_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE projected_runs (
+                 run_id TEXT PRIMARY KEY, feature TEXT NOT NULL, created_at TEXT NOT NULL,
+                 head_seq INTEGER NOT NULL, head_hash TEXT NOT NULL
+             );
+             CREATE TABLE projected_events (
+                 run_id TEXT NOT NULL, seq INTEGER NOT NULL, event_hash TEXT NOT NULL,
+                 payload TEXT NOT NULL, PRIMARY KEY (run_id, seq)
+             );
+             CREATE INDEX projected_runs_created_idx ON projected_runs (created_at, run_id);
+             INSERT INTO projection_meta (key, value) VALUES ('projection_schema', '1');
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    drop(conn4);
+    assert!(matches!(
+        SqliteProjectionStore::inspect_read_only(&four_col),
+        Err(StoreError::ForeignDatabase {
+            expected: "projection index",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn fs_event_log_openat_error_branches_and_non_regular_children() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("runs-err");
+    let log = FsEventLog::open(&root).unwrap();
+    log.create_run("r1", &sample_manifest("err")).unwrap();
+    let run_dir = root.join("r1");
+    let e1 = started_event("r1", "err", "2026-11-26T10:00:00Z");
+
+    // Symlink `.lock` on exclusive append -> SymlinkRefused.
+    let decoy = dir.path().join("decoy");
+    fs::write(&decoy, b"").unwrap();
+    let lock_path = run_dir.join(".lock");
+    fs::remove_file(&lock_path).unwrap();
+    symlink(&decoy, &lock_path).unwrap();
+    assert!(matches!(
+        log.append_envelopes("r1", (0, ZERO_HASH), std::slice::from_ref(&e1)),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+    fs::remove_file(&lock_path).unwrap();
+
+    // Read-only run_dir without `.lock` makes `open_or_create_lock_at` return Io(PermissionDenied).
+    let run_dir_fd = fs::File::open(&run_dir).unwrap();
+    {
+        let _restore = RestorePermissions(vec![(run_dir.clone(), 0o755)]);
+        fs::set_permissions(&run_dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let err =
+            crate::ports::fs_log::open_or_create_lock_at(&run_dir_fd, &lock_path).unwrap_err();
+        assert!(matches!(err, StoreError::Io(_)));
+    }
+
+    // Symlink `run_meta.json` on `run_metadata` -> SymlinkRefused.
+    let meta_path = run_dir.join("run_meta.json");
+    symlink(&decoy, &meta_path).unwrap();
+    assert!(matches!(
+        log.run_metadata("r1"),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+    fs::remove_file(&meta_path).unwrap();
+
+    // Non-regular (directory) `run_meta.json` -> Io(other) from `open_regular_at`.
+    fs::create_dir(&meta_path).unwrap();
+    assert!(matches!(log.run_metadata("r1"), Err(StoreError::Io(_))));
+    fs::remove_dir(&meta_path).unwrap();
+
+    // Read-only `events.ndjson` (`0o444`) passes O_RDONLY verify then fails O_WRONLY|O_APPEND.
+    let events_path = run_dir.join("events.ndjson");
+    {
+        let _restore = RestorePermissions(vec![(events_path.clone(), 0o644)]);
+        fs::set_permissions(&events_path, fs::Permissions::from_mode(0o444)).unwrap();
+        assert!(matches!(
+            log.append_envelopes("r1", (0, ZERO_HASH), std::slice::from_ref(&e1)),
+            Err(StoreError::Io(_))
+        ));
+    }
+
+    // Unreadable run directory (`0o000`) -> Io(PermissionDenied) from `open_dir_at`.
+    let no_perm = root.join("r-noperm");
+    fs::create_dir(&no_perm).unwrap();
+    {
+        let _restore = RestorePermissions(vec![(no_perm.clone(), 0o755)]);
+        fs::set_permissions(&no_perm, fs::Permissions::from_mode(0o000)).unwrap();
+        assert!(matches!(log.head("r-noperm"), Err(StoreError::Io(_))));
+    }
+
+    // 3. `open_or_create_lock_at` handles `AlreadyExists` race cleanly, and `openat` refuses
+    // non-directory run_id as RunNotFound and symlink run_id as SymlinkRefused.
+    let created_lock =
+        crate::ports::fs_log::open_or_create_lock_at(&run_dir_fd, &lock_path).unwrap();
+    drop(created_lock);
+    let raced_lock = crate::ports::fs_log::open_or_create_lock_at(&run_dir_fd, &lock_path).unwrap();
+    drop(raced_lock);
+
+    fs::write(root.join("not-a-dir"), b"x").unwrap();
+    assert!(matches!(
+        log.head("not-a-dir"),
+        Err(StoreError::RunNotFound(ref id)) if id == "not-a-dir"
+    ));
+    let outside_dir = dir.path().join("outside-run");
+    fs::create_dir(&outside_dir).unwrap();
+    symlink(&outside_dir, root.join("sym-run")).unwrap();
+    assert!(matches!(
+        log.head("sym-run"),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+    let nul_err = crate::ports::fs_openat::open_at(
+        &run_dir_fd,
+        "bad\0name",
+        crate::ports::fs_openat::O_RDONLY,
+    )
+    .unwrap_err();
+    assert_eq!(nul_err.kind(), std::io::ErrorKind::InvalidInput);
 }

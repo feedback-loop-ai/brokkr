@@ -38,6 +38,8 @@ use crate::{
 };
 
 mod fs_log;
+#[cfg(unix)]
+mod fs_openat;
 mod journal;
 mod sqlite;
 mod sqlite_coordination;

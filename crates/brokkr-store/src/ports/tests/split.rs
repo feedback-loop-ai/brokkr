@@ -1227,14 +1227,7 @@ fn standalone_sqlite_paths_symlinks_and_foreign_db_refusals() {
 
     // Empty and NUL paths refused as InvalidPath.
     for bad in [Path::new(""), Path::new("nul\0.db")] {
-        assert!(matches!(
-            SqliteProjectionStore::open(bad),
-            Err(StoreError::InvalidPath(_))
-        ));
-        assert!(matches!(
-            SqliteCoordinationStore::open(bad),
-            Err(StoreError::InvalidPath(_))
-        ));
+        assert_invalid_standalone_path(bad);
     }
 
     // Literal SQLite paths: `file:sym.db?mode=rwc` must NOT parse URI or touch `sym.db`.

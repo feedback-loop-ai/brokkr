@@ -469,29 +469,31 @@ fn resolve_listing<'a>(
 ) -> (&'a str, &'a str) {
     let manifest_feature = manifest.and_then(|m| non_empty_str(m.get("feature")));
     if let Some(first) = envelopes.first() {
+        let existing_started_feature = existing
+            .filter(|r| r.head_seq > 0)
+            .map(|r| r.feature.as_str())
+            .filter(|s| !s.is_empty());
         let feature = started_feature_of(envelopes)
             .or(manifest_feature)
+            .or(existing_started_feature)
             .unwrap_or("");
         return (feature, first.recorded_at.as_str());
     }
-    let existing_opt = existing.filter(|_| manifest.is_none());
+    let existing_feature = existing
+        .map(|r| r.feature.as_str())
+        .filter(|s| !s.is_empty());
+    let existing_created_at = existing
+        .map(|r| r.created_at.as_str())
+        .filter(|s| !s.is_empty());
     let feature = fallback
         .map(|m| m.feature.as_str())
+        .or(existing_feature)
         .or(manifest_feature)
-        .or_else(|| {
-            existing_opt
-                .map(|r| r.feature.as_str())
-                .filter(|s| !s.is_empty())
-        })
         .unwrap_or("");
     let created_at = fallback
         .map(|m| m.created_at.as_str())
+        .or(existing_created_at)
         .or_else(|| manifest.and_then(|m| non_empty_str(m.get("created_at"))))
-        .or_else(|| {
-            existing_opt
-                .map(|r| r.created_at.as_str())
-                .filter(|s| !s.is_empty())
-        })
         .unwrap_or("");
     (feature, created_at)
 }
