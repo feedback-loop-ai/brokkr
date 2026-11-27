@@ -635,12 +635,18 @@ pub(super) fn outcome_over(
 
 impl super::SitePlan {
     pub(super) fn attach_resume_context(&self, input: &mut Value) {
+        // Gate seats are never offered a rejoin (decision 0042 ruling 2) and
+        // keep no rejoin state or `root_session` (#1227).
+        let root_kind = (self.context.class == crate::bundle::SeatClass::Work)
+            .then(|| self.context.kinds.declared_root_session_kind())
+            .flatten();
         input["resume_context"] = resume::start_context(
             self.assessment.clone(),
             self.originating.as_ref(),
             self.offer.as_ref(),
             self.route_overlay.as_ref(),
             self.context.kinds.declared_transcript_kind().as_ref(),
+            root_kind.as_ref(),
         );
     }
 }

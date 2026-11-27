@@ -208,13 +208,16 @@
     "workspace": []
   },
   "record_kinds": {
-    "transcript": "agy-conversation"
+    "transcript": "agy-conversation",
+    "root_session": "agy-conversation",
+    "resume_shape": "stream-work-site"
   },
   "resume": {
     "stream-work-site": {
       "status": "unsupported",
       "identity": {
-        "unknown": "no rejoin under the engine's HOME was measured; resume-cold, resume-warm and resume-other-cwd rejoined a conversation under the operator's own HOME, and resume-unknown-id started a new one with exit 0"
+        "version": "1.5.14",
+        "applies_to": "1.5.14"
       },
       "classes": [
         "work"
@@ -223,7 +226,10 @@
         "not applicable"
       ],
       "hands": "none",
-      "reason": "agy keeps each conversation under HOME (docs/evidence/adapters/agy-cli-1-5.md, Facts), and brokkr driver agy removes the engine's HOME when the turn ends, keeping only transcript.jsonl for the run view (#1227); rejoin is not built yet"
+      "evidence": {
+        "interface": "docs/evidence/adapters/agy-cli-1-5.md, Seventh measurement (Antigravity CLI 1.5.14, Linux): l2-01-cold, l2-02-rejoin, l2-07-rejoin-moved-files (fresh HOME with conversations/<id>.db and brain/<id>/), l2-10-box-cold, l2-11-box-rejoin, l2b-01-iso-cold to l2b-03-iso-rejoin-same-home-empty-set"
+      },
+      "reason": "rejoin under an engine-made HOME was measured on Antigravity CLI 1.5.14 (l2-01-cold, l2-02-rejoin, l2-07-rejoin-moved-files, l2-10-box-cold, l2-11-box-rejoin, l2b-01-iso-cold to l2b-03-iso-rejoin-same-home-empty-set); brokkr driver agy now keeps conversations/<id>.db and brain/<id>/ and records root_session (#1227), and the --conversation launch is not built yet"
     }
   }
 }

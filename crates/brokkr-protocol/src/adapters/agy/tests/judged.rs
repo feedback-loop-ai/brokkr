@@ -105,7 +105,13 @@ fn a_seat_that_binds_an_owned_name_is_refused_and_its_child_keeps_the_engines() 
         std::fs::create_dir(&empty).unwrap();
         world.env.set("HOME", &empty);
         let start = pinned_on(&bin, |pinned| {
-            turn(pinned, false, "p", &input, &bindings, &mut |_| {}).map(drop)
+            turn(
+                pinned,
+                StartMode::default(),
+                ("p", &input, &bindings),
+                &mut |_| {},
+            )
+            .map(drop)
         });
         assert!(
             matches!(&start, Err(Ended::Launch(LaunchError::Owned(owned))) if *owned == name),

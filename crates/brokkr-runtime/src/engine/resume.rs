@@ -744,24 +744,24 @@ pub(super) struct RouteOverlay {
     pub(super) digest: String,
 }
 
-/// The private start context an adapter reads beside its prompt: which
-/// resume assessment was selected for this site, the harness facts the
-/// offered root was opened under, the owned target (provider ID plus
-/// its persistence locator) that a two-coordinate provider needs, and
-/// the engine's route-overlay binding where the seat's argv carries one
-/// `--patch`. It rides the existing `Start.input` object under one key,
-/// never the rendered prompt.
+/// The private start context an adapter reads beside its prompt: selected
+/// resume assessment, originating root facts, owned target, route-overlay
+/// binding, and declared record kinds. Rides `Start.input` under one key.
 pub(super) fn start_context(
     assessment: Value,
     originating: Option<&OriginatingRoot>,
     target: Option<&ResumeTarget>,
     route_overlay: Option<&RouteOverlay>,
     declared_transcript_kind: Option<&brokkr_protocol::DeclaredTranscriptKind>,
+    declared_root_session_kind: Option<&brokkr_protocol::DeclaredTranscriptKind>,
 ) -> Value {
     let mut context = Map::new();
     context.insert("assessment".into(), assessment);
-    if let Some(kind) = declared_transcript_kind {
-        kind.write_into(&mut context);
+    if let Some(k) = declared_transcript_kind {
+        k.write_into(&mut context);
+    }
+    if let Some(k) = declared_root_session_kind {
+        k.write_root_session_into(&mut context);
     }
     let mut put = |k: &str, v: &str| {
         context.insert(k.into(), Value::String(v.to_string()));

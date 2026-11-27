@@ -10,11 +10,21 @@ use crate::transcript::Kind;
 /// (`brokkr-protocol`). One home so both sides cannot disagree (#1227 W6).
 const DECLARED_TRANSCRIPT_KIND_KEY: &str = "declared_transcript_kind";
 
+/// The JSON key inside `resume_context` where an adapter's declared
+/// `record_kinds.root_session` kind is carried for work seats (#1227).
+const DECLARED_ROOT_SESSION_KIND_KEY: &str = "declared_root_session_kind";
+
 /// Why `resume_context.declared_transcript_kind` could not be read as a
 /// [`DeclaredTranscriptKind`]. Names the member, never any value (#1227 W6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("resume_context.declared_transcript_kind is not a valid declared transcript kind")]
 pub struct InvalidDeclaredTranscriptKind;
+
+/// Why `resume_context.declared_root_session_kind` could not be read as a
+/// declared root session kind. Names the member, never any value (#1227).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("resume_context.declared_root_session_kind is not a valid declared root session kind")]
+pub(crate) struct InvalidDeclaredRootSessionKind;
 
 /// The transcript kind a seat's loaded adapter declared in `record_kinds`,
 /// carried from the engine to the driver inside `resume_context` (#1227 W6).
@@ -60,6 +70,15 @@ impl DeclaredTranscriptKind {
         );
     }
 
+    /// Write a declared `record_kinds.root_session` kind into the engine's
+    /// `resume_context` object for a work seat (#1227).
+    pub fn write_root_session_into(&self, resume_context: &mut Map<String, Value>) {
+        resume_context.insert(
+            DECLARED_ROOT_SESSION_KIND_KEY.into(),
+            Value::String(self.as_str().to_string()),
+        );
+    }
+
     /// Read the engine's declaration from a driver start `input`.
     ///
     /// Returns `Ok(None)` when `resume_context` is absent/null or does not
@@ -69,6 +88,20 @@ impl DeclaredTranscriptKind {
     /// unreadable value, so the driver refuses to start rather than silently
     /// recording `none`.
     pub fn read_from(input: &Value) -> Result<Option<Self>, InvalidDeclaredTranscriptKind> {
+        Self::read_key_from(input, DECLARED_TRANSCRIPT_KIND_KEY)
+            .map_err(|()| InvalidDeclaredTranscriptKind)
+    }
+
+    /// Read the engine's declared `record_kinds.root_session` kind from a
+    /// driver start `input` (#1227).
+    pub(crate) fn read_root_session_from(
+        input: &Value,
+    ) -> Result<Option<Self>, InvalidDeclaredRootSessionKind> {
+        Self::read_key_from(input, DECLARED_ROOT_SESSION_KIND_KEY)
+            .map_err(|()| InvalidDeclaredRootSessionKind)
+    }
+
+    fn read_key_from(input: &Value, key: &str) -> Result<Option<Self>, ()> {
         let Some(context) = input.get("resume_context") else {
             return Ok(None);
         };
@@ -76,14 +109,14 @@ impl DeclaredTranscriptKind {
             return Ok(None);
         }
         let Some(map) = context.as_object() else {
-            return Err(InvalidDeclaredTranscriptKind);
+            return Err(());
         };
-        let Some(value) = map.get(DECLARED_TRANSCRIPT_KIND_KEY) else {
+        let Some(value) = map.get(key) else {
             return Ok(None);
         };
         let Some(word) = value.as_str() else {
-            return Err(InvalidDeclaredTranscriptKind);
+            return Err(());
         };
-        Self::parse(word).map(Some)
+        Self::parse(word).map(Some).map_err(|_| ())
     }
 }
