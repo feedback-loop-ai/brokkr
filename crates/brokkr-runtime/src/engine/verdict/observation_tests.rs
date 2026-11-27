@@ -8,10 +8,10 @@ use serde_json::{json, Value};
 
 use super::covered_tests::{decided_from, drift_refusing, drift_table};
 use super::span_tests::{checkpointed, moved_heads};
-use super::tests::{begun, driven_over, driver, ended_in, own_engine};
+use super::tests::{begun, driven_over, driver, ended_in};
 use crate::bundle::{Bundle, GateAssessment, SeatBody, SeatClass, SequenceStep};
 use crate::engine::heads::HeadReads;
-use crate::engine::tests::{git_commit, single_body, step_body};
+use crate::engine::tests::{git_commit, own_engine, single_body, step_body};
 use crate::engine::verdict::ObservationProblem::{
     self, Beyond, Disagrees, Missing, Partial, Reordered, Unattributed, Uncovered, Unlawful,
     Unrecorded, Unselected,

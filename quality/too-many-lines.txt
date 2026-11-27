@@ -211,13 +211,13 @@
  182 crates/brokkr-runtime/src/engine/resume_tests.rs:2920 the_real_dsh_driver_journals_no_route_byte_and_no_carrier
  299 crates/brokkr-runtime/src/engine/resume_tests.rs:3301 the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes
  112 crates/brokkr-runtime/src/engine/resume_tests.rs:3930 an_edited_inline_resume_declaration_moves_identity_and_refuses_the_old_root
- 233 crates/brokkr-runtime/src/engine/tests.rs:467 dialect_change_expands_from_typed_history_and_absence_parks
- 104 crates/brokkr-runtime/src/engine/tests.rs:716 a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs
- 123 crates/brokkr-runtime/src/engine/tests.rs:1147 compiled_two_step_sequence
- 104 crates/brokkr-runtime/src/engine/tests.rs:1829 single_conclusion_driver_and_checkpoint_failures_cover_every_outcome
- 107 crates/brokkr-runtime/src/engine/tests.rs:2993 an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it
- 264 crates/brokkr-runtime/src/engine/tests.rs:3603 panel_and_sequence_storage_failures_propagate
- 113 crates/brokkr-runtime/src/engine/tests.rs:5037 chief_synthesis_carries_a_panel_security_hold_to_the_machine
+ 233 crates/brokkr-runtime/src/engine/tests.rs:481 dialect_change_expands_from_typed_history_and_absence_parks
+ 104 crates/brokkr-runtime/src/engine/tests.rs:675 a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs
+ 123 crates/brokkr-runtime/src/engine/tests.rs:1165 compiled_two_step_sequence
+ 104 crates/brokkr-runtime/src/engine/tests.rs:1852 single_conclusion_driver_and_checkpoint_failures_cover_every_outcome
+ 107 crates/brokkr-runtime/src/engine/tests.rs:2977 an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it
+ 264 crates/brokkr-runtime/src/engine/tests.rs:3576 panel_and_sequence_storage_failures_propagate
+ 113 crates/brokkr-runtime/src/engine/tests.rs:4876 chief_synthesis_carries_a_panel_security_hold_to_the_machine
  148 crates/brokkr-runtime/tests/capability_launch.rs:708 a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_authored
  184 crates/brokkr-runtime/tests/capability_launch.rs:1084 a_compiled_cold_command_is_served_only_as_its_final_check_returns_it
  110 crates/brokkr-runtime/tests/capability_launch.rs:1373 an_agent_backed_seat_records_the_permission_template_its_adapter_declares

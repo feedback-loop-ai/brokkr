@@ -8,12 +8,12 @@
 use serde_json::{json, Value};
 
 use super::stop_tests::{clean, decided, shipped, steps_of};
-use super::tests::{driven, driven_with, driver, own_engine};
+use super::tests::{driven, driven_with, driver};
 use crate::bundle::{
     Aggregate, Bundle, GateAssessment, Invocation, MemberLaw, PanelMember, SeatBody, SeatClass,
     SequenceStep, StepBody,
 };
-use crate::engine::tests::{single_body, step_body};
+use crate::engine::tests::{own_engine, single_body, step_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::findings::ResidualPair;
 use brokkr_core::policy::Machine;

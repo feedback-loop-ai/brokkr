@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
-use super::tests::{driven_with, driver, own_engine};
+use super::tests::{driven_with, driver};
 use super::Producer;
 use crate::bundle::sequence::{before_every_gate, refuse_pre_gate_ending};
 use crate::bundle::SelectCase;
@@ -16,7 +16,7 @@ use crate::bundle::{
     BodyRefusal, Bundle, CompileError, Invocation, Limits, SeatBody, SeatClass, SequenceStep,
     StepBody,
 };
-use crate::engine::tests::{single_body, step_body};
+use crate::engine::tests::{own_engine, single_body, step_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 
 /// The shipped recipe `name`, compiled against the shipped library.

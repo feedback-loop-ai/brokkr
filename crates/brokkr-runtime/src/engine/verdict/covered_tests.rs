@@ -4,12 +4,12 @@
 
 use std::process::Command;
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
-use super::tests::{driven, driven_over, driver, ended, ended_in, own_engine, reported, unhurried};
+use super::tests::{driven, driven_over, driver, ended, ended_in, reported, unhurried};
 use crate::bundle::{GateAssessment, SeatClass};
 use crate::engine::heads::{HeadReads, Observed};
-use crate::engine::tests::{bundle, git_commit, single_body, state};
+use crate::engine::tests::{bundle, git_commit, own_engine, single_body, state};
 use crate::engine::verdict::ObservationProblem::{
     Beyond, Disagrees, Missing, Partial, Reordered, Uncovered, Unlawful, Unreadable, Unrecorded,
     Unselected,
@@ -45,6 +45,30 @@ pub(in crate::engine) fn reviewing_on(head: &str, mut raw: Value) -> (RunState, 
     let result = raw.clone();
     let deciding = state(Some("review"), Cursor::Decide { effect_id, result });
     (deciding, raw)
+}
+
+/// Append a `phase/entered` for the protected phase with the given
+/// payload — what the engine writes (0039), or what a journal carries.
+pub(in crate::engine) fn enter_review(engine: &mut Engine, payload: Value) {
+    engine
+        .store
+        .append_next(&engine.run_id, EventType::PhaseEntered, payload, None, None)
+        .unwrap();
+}
+
+/// Record that the protected phase was entered at the given head.
+pub(in crate::engine) fn enter_review_at(engine: &mut Engine, head: &str) {
+    enter_review(engine, json!({"phase": "review", "head": head}));
+}
+
+pub(in crate::engine) fn review_inputs(engine: &mut Engine, claim: Value) -> Map<String, Value> {
+    let (review, raw) = reviewing(engine, json!({"result": "clean", "inputs": claim}));
+    engine.decide(&review, raw).unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    events.last().unwrap().payload["inputs"]
+        .as_object()
+        .cloned()
+        .unwrap()
 }
 
 /// The run's first decision from `phase`.

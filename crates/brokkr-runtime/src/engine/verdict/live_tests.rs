@@ -6,9 +6,9 @@
 
 use serde_json::{json, Value};
 
-use super::tests::{checkpointing, driven, ended, own_engine, reported};
+use super::tests::{checkpointing, driven, ended, reported};
 use crate::bundle::SiteKey;
-use crate::engine::tests::single_body;
+use crate::engine::tests::{own_engine, single_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_view::gate_records;
 

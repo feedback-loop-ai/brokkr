@@ -6,7 +6,9 @@ use serde_json::{json, Value};
 
 use crate::bundle::{Aggregate, GateAssessment, Invocation, Limits, SeatBody, SiteKey};
 use crate::engine::heads::HeadReads;
-use crate::engine::tests::{accepted, bundle, capabilities, git_commit, member, single_body, wire};
+use crate::engine::tests::{
+    accepted, bundle, capabilities, git_commit, member, own_engine, single_body, wire,
+};
 use crate::engine::Engine;
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_protocol::{Body, ResultStatus};
@@ -75,26 +77,6 @@ read -r done
 "#
     );
     vec!["sh".into(), "-c".into(), script]
-}
-
-/// Enter the test in its own engine before it launches an attempt.
-macro_rules! own_engine {
-    () => {
-        if !$crate::engine::verdict::tests::in_own_engine() {
-            return;
-        }
-    };
-}
-
-pub(super) use own_engine;
-
-/// Re-execute the named libtest thread in a separate engine. Sibling
-/// fixtures in the test binary can hand its shared subreaper orphans
-/// that the attempt registry would otherwise have to count as doubtful.
-pub(super) fn in_own_engine() -> bool {
-    let thread = std::thread::current();
-    let test = thread.name().expect("libtest names the test thread");
-    crate::engine::tests::in_its_own_engine(test)
 }
 
 /// A finding as a seat writes it: no site.

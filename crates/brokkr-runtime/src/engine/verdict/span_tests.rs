@@ -8,7 +8,7 @@ use std::os::unix::fs::MetadataExt;
 
 use serde_json::{json, Value};
 
-use super::tests::{begun, driven_over, driver, ended, own_engine};
+use super::tests::{begun, driven_over, driver, ended};
 use crate::argv::Executable;
 use crate::bundle::{
     Bundle, DialectExecution, GateAssessment, SeatBody, SeatClass, SequenceStep, StepBody,
@@ -16,7 +16,7 @@ use crate::bundle::{
 use crate::engine::capability_tests::provision_tests::survey_tests::installed;
 use crate::engine::git_head;
 use crate::engine::heads::HeadReads;
-use crate::engine::tests::{git_commit, single_body, step_body};
+use crate::engine::tests::{git_commit, own_engine, single_body, step_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::ParkReason;
 use brokkr_core::gate_moved_head::{self, MovedHead};

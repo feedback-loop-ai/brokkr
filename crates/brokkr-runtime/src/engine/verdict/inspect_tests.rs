@@ -6,13 +6,13 @@
 use serde_json::{json, Value};
 
 use super::covered_tests::drift_refusing;
-use super::tests::{begun, driven_with, driver, failing, own_engine, reported};
+use super::tests::{begun, driven_with, driver, failing, reported};
 use crate::bundle::{
     Aggregate, Bundle, GateAssessment, Invocation, PanelMember, SeatBody, SeatClass, SequenceStep,
     StepBody,
 };
 use crate::engine::heads::HeadReads;
-use crate::engine::tests::{member, single_body, step_body};
+use crate::engine::tests::{member, own_engine, single_body, step_body};
 use crate::engine::{Engine, FencedCommandOutcome, MemberRetryOutcome};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_view::{gate_records, lens_for, GateRecord, Scope};
