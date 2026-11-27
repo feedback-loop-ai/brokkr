@@ -46,7 +46,7 @@ use crate::transcript::{DshHome, DshHomeError};
 mod admit;
 mod agy;
 mod qoder;
-pub(super) use agy::{agy_boxing, agy_set};
+pub(super) use agy::{agy_boxing, agy_resumes, agy_set};
 pub(super) use qoder::qoder_set;
 
 /// The MCP document of the empty server set, exactly as U0 measured it

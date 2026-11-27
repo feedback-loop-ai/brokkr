@@ -570,7 +570,7 @@ fn prepared_with(
         None => LaunchError::Mcp(refusal),
     };
     let isolated = mcp::isolated("agy", &edge, extra, offered).map_err(unserved)?;
-    let isolated_resumes = isolated.resumes("agy", super::AGY_SHAPE);
+    let isolated_resumes = mcp::agy_resumes(&edge, &isolated, super::AGY_SHAPE);
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
     let served = mcp::agy_set(&edge, &isolated, workdir).map_err(unserved)?;
     let hands = Hands::of(boxing, &served.rules)?;

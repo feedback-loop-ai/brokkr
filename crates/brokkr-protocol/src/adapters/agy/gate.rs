@@ -16,6 +16,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::fold::Object;
 use super::{Hands, LaunchError};
 use crate::adapters::AdapterKind;
 
@@ -71,7 +72,7 @@ pub(in crate::adapters) fn gate_listed(kind: AdapterKind, extra: &[String]) -> O
 #[derive(Deserialize)]
 struct HookCall {
     #[serde(rename = "toolCall")]
-    tool_call: ToolCall,
+    tool_call: Object<ToolCall>,
 }
 
 #[derive(Deserialize)]
@@ -92,12 +93,14 @@ const UNREAD: &str = "the engine's gate could not read the tool call, so it is d
 
 /// The decision on the call `input` holds for a gate handed `listed`.
 fn decided(listed: &[String], input: impl Read) -> Decision {
-    match serde_json::from_reader::<_, HookCall>(input) {
-        Ok(call) if listed.contains(&call.tool_call.name) => Decision::DenyUnlessPriorGrant,
-        Ok(call) => Decision::Deny {
+    match serde_json::from_reader::<_, Object<HookCall>>(input) {
+        Ok(Object(call)) if listed.contains(&call.tool_call.0.name) => {
+            Decision::DenyUnlessPriorGrant
+        }
+        Ok(Object(call)) => Decision::Deny {
             reason: format!(
                 "the engine's gate does not offer the tool {}",
-                call.tool_call.name
+                call.tool_call.0.name
             ),
         },
         Err(_) => Decision::Deny {

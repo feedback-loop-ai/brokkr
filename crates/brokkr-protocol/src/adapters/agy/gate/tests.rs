@@ -56,6 +56,8 @@ fn an_unread_call_and_a_name_only_in_the_arguments_are_denied() {
         "",
         r#"{"toolCall": {}}"#,
         r#"{"name": "run_command"}"#,
+        r#"[["run_command"]]"#,
+        r#"{"toolCall": ["run_command"]}"#,
     ] {
         assert_eq!(answered(&["run_command"], input), unread, "{input}");
     }

@@ -8,8 +8,8 @@
 //!
 //! - One launch is one turn (J3): a second `init`, a second `result`, a
 //!   known row behind the `result`, a known row that does not type, one that
-//!   repeats a key the fold reads, and a line that is not UTF-8 each fail
-//!   the turn. A line that is not JSON, and one whose `event` the fold does
+//!   repeats a key the fold reads or writes an array in the place of an
+//!   object, and a line that is not UTF-8 each fail the turn. A line that is not JSON, and one whose `event` the fold does
 //!   not know, are passed over and change nothing the verdict reads (K6).
 //!   Once a fault is seen, no later row changes the verdict.
 //! - The served model is init's `model`, which repeats the slug as asked; a
@@ -29,8 +29,6 @@
 
 use std::fmt;
 
-use serde::de::{IgnoredAny, MapAccess, Visitor};
-use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
@@ -42,6 +40,11 @@ use super::super::{
 };
 use crate::PreSessionRefusal;
 
+mod wire;
+
+pub(super) use wire::{read_conversation_id, Conversation, Event, Object};
+use wire::{Ending, Init, Row, Status, Step, StepState, StepType, Tags, Usage};
+
 /// The words agy writes when it is signed out, in a result's `error` and on
 /// stderr (the record's `signed-out` turn). Only matched, on the text as agy
 /// wrote it.
@@ -49,280 +52,6 @@ pub(super) const SIGNED_OUT: &str = "authentication failed or timed out";
 
 /// The most characters of a word of agy's the driver's words name.
 const NAMED: usize = 40;
-
-/// The rows of a turn: the one list of the events the fold knows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum Event {
-    Init,
-    StepUpdate,
-    Result,
-}
-
-impl Event {
-    /// The row, as the driver's words name it.
-    fn row(self) -> &'static str {
-        match self {
-            Event::Init => "an init row",
-            Event::StepUpdate => "a step_update row",
-            Event::Result => "a result row",
-        }
-    }
-
-    /// Typed row for `text`, or none on bad shape/duplicate keys (K1).
-    fn typed(self, text: &str, rejoined: bool) -> Option<Row> {
-        match self {
-            Event::Init => (serde_json::from_str(text).ok()).map(Row::Init),
-            Event::StepUpdate if !rejoined => {
-                serde_json::from_str::<ColdStepRow>(text).ok().map(|r| {
-                    Row::Step(Step {
-                        step_type: r.step_update.step_type,
-                        state: r.step_update.state,
-                        usage: None,
-                    })
-                })
-            }
-            Event::StepUpdate => {
-                (serde_json::from_str(text).ok()).map(|row: StepRow| Row::Step(row.step_update))
-            }
-            Event::Result => {
-                (serde_json::from_str(text).ok()).map(|row: ResultRow| Row::Result(row.result))
-            }
-        }
-    }
-}
-
-/// A line's top-level `event` value: one the fold knows, or any other.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Named {
-    Known(Event),
-    Other(IgnoredAny),
-}
-
-/// Top-level `event` keys on a line: first known event and total count.
-struct Tags {
-    known: Option<Event>,
-    named: usize,
-}
-
-impl<'de> Deserialize<'de> for Tags {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Tags, D::Error> {
-        deserializer.deserialize_map(TagsVisitor)
-    }
-}
-
-struct TagsVisitor;
-
-impl<'de> Visitor<'de> for TagsVisitor {
-    type Value = Tags;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("an object naming an event")
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Tags, A::Error> {
-        let mut tags = Tags {
-            known: None,
-            named: 0,
-        };
-        while let Some(key) = map.next_key::<String>()? {
-            if key != "event" {
-                map.next_value::<IgnoredAny>()?;
-                continue;
-            }
-            tags.named += 1;
-            if let Named::Known(event) = map.next_value()? {
-                tags.known.get_or_insert(event);
-            }
-        }
-        Ok(tags)
-    }
-}
-
-/// One known row of agy's stream, as far as the fold reads it.
-enum Row {
-    Init(InitRow),
-    Step(Step),
-    Result(Ending),
-}
-
-/// What the turn's `init` row said of its conversation id (#1227 W5).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Conversation {
-    /// No `init` row arrived in this turn.
-    None,
-    /// Single lowercase-UUID `conversation_id`.
-    Named(String),
-    /// Absent, non-string, repeated, or non-UUID `conversation_id`.
-    Invalid,
-}
-
-/// Read `conversation_id` from an `init` line beside the fold (#1227 W5).
-/// Absent, non-string, repeated, or non-UUID values yield `Invalid`.
-pub(super) fn read_conversation_id(text: &str) -> Conversation {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum RawValue {
-        Text(String),
-        Other(IgnoredAny),
-    }
-    struct IdVisitor;
-    impl<'de> Visitor<'de> for IdVisitor {
-        type Value = Conversation;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("an init JSON object")
-        }
-
-        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Conversation, A::Error> {
-            let (mut count, mut first) = (0usize, None);
-            while let Some(key) = map.next_key::<String>()? {
-                if key != "conversation_id" {
-                    map.next_value::<IgnoredAny>()?;
-                    continue;
-                }
-                count += 1;
-                let value = map.next_value::<RawValue>()?;
-                if count == 1 {
-                    first = Some(value);
-                }
-            }
-            Ok(match (count, first) {
-                (1, Some(RawValue::Text(id))) if brokkr_core::seat::is_agy_uuid(&id) => {
-                    Conversation::Named(id)
-                }
-                _ => Conversation::Invalid,
-            })
-        }
-    }
-    struct Wrapper(Conversation);
-    impl<'de> Deserialize<'de> for Wrapper {
-        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-            d.deserialize_map(IdVisitor).map(Wrapper)
-        }
-    }
-    serde_json::from_str::<Wrapper>(text).map_or(Conversation::Invalid, |w| w.0)
-}
-
-#[derive(Deserialize)]
-struct InitRow {
-    init: Init,
-}
-
-#[derive(Deserialize)]
-struct ColdStepRow {
-    step_update: ColdStep,
-}
-
-#[derive(Deserialize)]
-struct ColdStep {
-    step_type: StepType,
-    state: StepState,
-}
-
-#[derive(Deserialize)]
-struct StepRow {
-    step_update: Step,
-}
-
-#[derive(Deserialize)]
-struct ResultRow {
-    result: Ending,
-}
-
-#[derive(Deserialize)]
-struct Init {
-    model: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct Step {
-    step_type: StepType,
-    state: StepState,
-    #[serde(default)]
-    usage: Option<Usage>,
-}
-
-#[derive(Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum StepType {
-    AgentResponse,
-    #[serde(other)]
-    Other,
-}
-
-#[derive(Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum StepState {
-    Done,
-    #[serde(other)]
-    Other,
-}
-
-/// A turn's `result` payload.
-#[derive(Deserialize)]
-struct Ending {
-    status: Status,
-    #[serde(default)]
-    response: String,
-    #[serde(default)]
-    usage: Usage,
-    num_turns: Option<u64>,
-    #[serde(default)]
-    denied_actions: Vec<Denied>,
-    error: Option<String>,
-}
-
-impl Ending {
-    fn signed_out(&self) -> bool {
-        (self.error.as_deref()).is_some_and(|error| error.contains(SIGNED_OUT))
-    }
-}
-
-/// A result's status: `SUCCESS`, or any other word, which is named.
-#[derive(Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum Status {
-    Success,
-    #[serde(untagged)]
-    Other(String),
-}
-
-impl Status {
-    /// The status as agy wrote it.
-    fn word(&self) -> &str {
-        match self {
-            Status::Success => "SUCCESS",
-            Status::Other(word) => word,
-        }
-    }
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-struct Usage {
-    input_tokens: u64,
-    output_tokens: u64,
-    thinking_tokens: u64,
-    cache_read_tokens: u64,
-}
-
-impl Usage {
-    fn add(&mut self, other: &Usage) {
-        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
-        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
-        self.thinking_tokens = self.thinking_tokens.saturating_add(other.thinking_tokens);
-        self.cache_read_tokens = self
-            .cache_read_tokens
-            .saturating_add(other.cache_read_tokens);
-    }
-}
-
-#[derive(Deserialize)]
-struct Denied {
-    action: String,
-}
 
 /// A turn that ended with no answer, in the driver's own words: no byte of
 /// agy's but a word [`named`] built.
@@ -358,7 +87,10 @@ pub(super) enum Failure {
     Unreadable,
 }
 
-/// Result status (K5, L5) and print timeout (K2, L4) carried on a verdict.
+/// What the turn's result and exit add to the words of a verdict that is
+/// no answer: the first result's status where one came, named before the
+/// verdict's own words (K5, L5), and the print timeout where a fault agy
+/// ended its turn behind outranked it, named after them (K2, L4).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Seen {
     pub(super) status: Option<String>,
@@ -479,9 +211,15 @@ impl<'a> AgyFold<'a> {
         named(text, self.bindings)
     }
 
-    /// One line of agy's stdout, as its bytes. On an unconfirmed rejoin,
-    /// the confirming `init` is the only stdout line read; any other first
-    /// line leaves the launch unsettled and stops agy at once.
+    /// One line of agy's stdout, as its bytes. On an unconfirmed rejoin, the
+    /// confirming `init` is the only stdout line read; any other first line
+    /// leaves the launch unsettled (`Line::Unsettled`) and stops agy at once.
+    /// Otherwise, `Line::Stopped` is the seat's refusal, which stops the
+    /// harness: init named another model than the pin, or a step arrived
+    /// before init named one. A line that is not UTF-8, a known row out of
+    /// its turn's order and one that does not type are the turn's fault; once
+    /// one is seen, the first typed result still gives its status and its
+    /// signed-out words, and nothing else is read.
     pub(super) fn read(
         &mut self,
         line: &[u8],
@@ -544,7 +282,7 @@ impl<'a> AgyFold<'a> {
         else {
             return Line::Unsettled;
         };
-        let Ok(init) = serde_json::from_str::<InitRow>(text) else {
+        let Some(init) = Event::typed_init(text) else {
             return Line::Unsettled;
         };
         self.rows = true;
@@ -581,10 +319,12 @@ impl<'a> AgyFold<'a> {
         refused
     }
 
-    /// Record conversation id, confirm rejoin against `hold`, then check pin.
+    /// The one init: record the conversation id first, confirm a rejoin against
+    /// `hold` before any model work (stopping a stray conversation at once),
+    /// then confirm or refuse the model pin.
     fn initialized(
         &mut self,
-        row: InitRow,
+        init: Init,
         text: &str,
         session_meta: &mut Map<String, Value>,
         hold: &mut LaunchHold,
@@ -602,7 +342,7 @@ impl<'a> AgyFold<'a> {
         } else if let Conversation::Named(id) = &self.conversation {
             hold.confirm_deferred(&Ident::from_offered(id));
         }
-        match row.init.model {
+        match init.model {
             Some(model) if model == self.pin => {
                 self.served = Served::Pinned;
                 session_meta.insert("model".into(), Value::String(model));
@@ -619,7 +359,7 @@ impl<'a> AgyFold<'a> {
     /// A model response that is done is one turn, journaled on the pin; any
     /// `usage` carried on a step row accumulates into this invocation's own sum.
     fn step(&mut self, step: &Step, emit: &mut impl FnMut(&Emitted)) {
-        if let Some(usage) = &step.usage {
+        if let Some(Object(usage)) = &step.usage {
             self.step_usage.add(usage);
         }
         if (&step.step_type, &step.state) != (&StepType::AgentResponse, &StepState::Done) {
@@ -639,14 +379,16 @@ impl<'a> AgyFold<'a> {
         if rejoined {
             record_usage(&self.step_usage, session_meta);
         } else {
-            record_usage(&result.usage, session_meta);
+            record_usage(&result.usage.0, session_meta);
             if let Some(turns) = result.num_turns.filter(|t| *t > 0) {
                 session_meta.insert("num_turns".into(), Value::from(turns));
             }
         }
         if !result.denied_actions.is_empty() {
             let actions = result.denied_actions.iter();
-            let named = actions.map(|denied| self.named(&denied.action)).collect();
+            let named = actions
+                .map(|Object(denied)| self.named(&denied.action))
+                .collect();
             self.fault = Some(Fault::Failed(Failure::Denied(named)));
         }
         self.ending = Some(result);
@@ -660,7 +402,12 @@ impl<'a> AgyFold<'a> {
         }
     }
 
-    /// Turn verdict once agy exits `exit_code` (K2, L4).
+    /// The turn's verdict once agy exited `exit_code`, `signed_out_on_stderr`
+    /// where its stderr held the signed-out words: the first that applies
+    /// (K2). A fault; agy signed out; its print timeout; any other non-zero
+    /// exit; a status that is not `SUCCESS`; no result; a pin no init
+    /// confirmed; an empty response; and only then the answer. A refusal
+    /// the driver stopped agy at reads no exit of agy's (L4).
     pub(super) fn verdict(&self, exit_code: i32, signed_out_on_stderr: bool) -> Verdict {
         let status = self.status.clone();
         if let Some(fault) = &self.fault {
@@ -695,7 +442,9 @@ impl<'a> AgyFold<'a> {
         }
     }
 
-    /// Verdict for non-zero exit `code` other than 3.
+    /// The verdict of a turn agy exited `code` from, neither 0 nor 3: before
+    /// a confirmed init, exit 1 is a launch refusal, and exit 2 with no
+    /// known row a refused option; otherwise a failure naming the exit.
     fn exited(&self, code: i32, seen: Seen) -> Verdict {
         match code {
             1 if !self.pinned() => Verdict::Refused(launch_refused(
@@ -724,7 +473,10 @@ fn failed(failure: Failure, seen: Seen) -> Verdict {
     Verdict::Failed(Failed { failure, seen })
 }
 
-/// Fold positive usage counters into the seat record.
+/// Usage counters folded into the seat's record (from `result.usage` on a
+/// cold turn, or from this invocation's `step_update.usage` sum on a
+/// confirmed rejoin), each figure reported above zero, the rest not
+/// reported.
 fn record_usage(u: &Usage, session_meta: &mut Map<String, Value>) {
     let input = u.input_tokens.saturating_add(u.cache_read_tokens);
     let figures = [
@@ -738,13 +490,20 @@ fn record_usage(u: &Usage, session_meta: &mut Map<String, Value>) {
     }
 }
 
-/// `text` masked whole through `bindings`, then escaped and capped (#1200 Z1).
+/// `text` masked whole through `bindings`, as written, and then escaped:
+/// the order every value the driver's words hold is built in, before any
+/// bound reads them, so no cut falls inside a value the mask has not
+/// replaced (#1200 Z1). Only the first `limit` escaped characters are
+/// built.
 fn masked(text: &str, bindings: &[secret::BoundSecret], limit: usize) -> String {
     let masked = secret::mask_text(text.as_bytes(), bindings);
     masked.escape_debug().take(limit).collect()
 }
 
-/// `text` masked whole and cut to [`NAMED`] escaped chars (K3).
+/// `text`, a word of agy's, as the driver's words name it (K3): [`masked`],
+/// and only then cut to its first [`NAMED`] characters. The one home of
+/// such a word: every status, denied action and served model the driver
+/// names is built here.
 pub(super) fn named(text: &str, bindings: &[secret::BoundSecret]) -> String {
     masked(text, bindings, NAMED)
 }
@@ -763,7 +522,10 @@ fn refused(token: &str, words: &str, seen: &Seen) -> PreSessionRefusal {
     refusal_reason(token, None, Some(&seen.around(words)))
 }
 
-/// Refusal when no init row confirmed the pinned model (M5, #1200 Z1).
+/// The refusal of a seat no init row confirmed the model of. This and the
+/// three builders below are each a refusal built on what the result showed,
+/// and the driver's tests call each with a long status (M5). The `pin` is
+/// [`masked`] whole through `bindings` before the bound reads it (#1200 Z1).
 pub(super) fn unconfirmed(
     pin: &str,
     bindings: &[secret::BoundSecret],

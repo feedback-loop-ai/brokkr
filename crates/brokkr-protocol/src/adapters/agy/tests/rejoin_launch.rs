@@ -196,6 +196,7 @@ fn write_fake_rejoin_agy(seat_dir: &Path, spec: &FakeAgySpec<'_>) -> PathBuf {
          printf '%s\\n' \"$@\" > '{d}/last.argv'\n\
          cp \"$HOME/.gemini/config/mcp_config.json\" '{d}/snap.mcp' 2>/dev/null || true\n\
          cp \"$HOME/.gemini/config/hooks.json\" '{d}/snap.hooks' 2>/dev/null || true\n\
+         if [ -e \"$HOME/.gemini/antigravity-cli/conversations\" ] || [ -e \"$HOME/.gemini/antigravity-cli/brain\" ]; then : > '{d}/had_restored_dirs.marker'; fi\n\
          for p in \"conversations/{id}.db:restored.db\" \"brain/{id}/note.txt:restored.note\"; do\n\
            s=\"$HOME/.gemini/antigravity-cli/${{p%%:*}}\"; t=\"{d}/${{p##*:}}\"\n\
            if [ -f \"$s\" ]; then cp \"$s\" \"$t\"; else rm -f \"$t\"; fi\n\
@@ -223,7 +224,10 @@ fn is_lock_held(conv: &Path) -> bool {
     )
     .expect("lock file must exist");
     match flock(&fd, FlockOperation::NonBlockingLockExclusive) {
-        Ok(()) => false,
+        Ok(()) => {
+            let _ = flock(&fd, FlockOperation::Unlock);
+            false
+        }
         Err(rustix::io::Errno::WOULDBLOCK) => true,
         Err(err) => panic!("unexpected flock errno: {err:?}"),
     }
@@ -293,6 +297,14 @@ fn drive_offer(
 ) -> (Invocation, Vec<(Step, Value)>) {
     let (res, emitted) = drive_offer_result(world, spec, input, session, bindings, |_| {});
     (res.expect("drive_offer succeeds"), emitted)
+}
+
+fn seeded_restore_dir(db: &[u8], note: &[u8]) -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let (op, eng) = (dir.path().join("op"), dir.path().join("eng"));
+    let conv = seed_kept(&op, UUID_A, db, &[("note.txt", note)]);
+    std::fs::create_dir_all(eng.join(".gemini/antigravity-cli")).unwrap();
+    (dir, op, eng, conv)
 }
 
 fn seeded_rejoin_world(db: &[u8], note: &[u8]) -> (World, PathBuf, Value) {
@@ -726,7 +738,9 @@ fn assert_declined_with(
         .iter()
         .any(|a| a == "--conversation"));
     assert!(
-        !world.seat().join("restored.db").exists() && !world.seat().join("restored.note").exists()
+        !world.seat().join("restored.db").exists()
+            && !world.seat().join("restored.note").exists()
+            && !world.seat().join("had_restored_dirs.marker").exists()
     );
     let started = started_row(&emitted).expect("declined offer emits harness-started");
     assert_eq!(
@@ -774,78 +788,83 @@ fn l2_gate_isolation_id_target_and_version_declines_run_cold() {
     .unwrap();
     let base = || {
         let world = World::new();
-        seed_kept(world.operator_home(), UUID_A, b"db", &[("note.txt", b"b")]);
+        let conv = seed_kept(world.operator_home(), UUID_A, b"db", &[("note.txt", b"b")]);
         let input = rejoin_input(&world, "1.5.18", "not applicable", "none");
-        (world, input)
+        (world, conv, input)
     };
-    let (w, mut inp) = base();
-    inp["resume_context"]["assessment"] = shipped["resume"].clone();
-    assert_declined(w, inp, UUID_A, ("1.5.18", 0), "unsupported-resume", None);
+    let decline = |w, conv: PathBuf, inp, offered, ver, refusal| {
+        assert_declined(w, inp, offered, ver, refusal, None);
+        assert!(!conv.join(LOCK_FILE).exists());
+    };
 
-    let (w, mut inp) = base();
+    let (w, conv, mut inp) = base();
+    inp["resume_context"]["assessment"] = shipped["resume"].clone();
+    decline(w, conv, inp, UUID_A, ("1.5.18", 0), "unsupported-resume");
+
+    let (w, conv, mut inp) = base();
     inp["resume_context"]
         .as_object_mut()
         .unwrap()
         .remove("declared_root_session_kind");
-    assert_declined(w, inp, UUID_A, ("1.5.18", 0), "unsupported-resume", None);
+    decline(w, conv, inp, UUID_A, ("1.5.18", 0), "unsupported-resume");
 
-    let (w, mut inp) = base();
+    let (w, conv, mut inp) = base();
     inp["boundary"] = json!("namespace");
-    assert_declined(
+    decline(
         w,
+        conv,
         inp,
         UUID_A,
         ("1.5.18", 0),
         "restrictions-unavailable",
-        None,
     );
 
-    let (w, _) = base();
+    let (w, conv, _) = base();
     let binp = boxed_rejoin_input(&w, "1.5.18", false);
-    assert_declined(
+    decline(
         w,
+        conv,
         binp,
         UUID_A,
         ("1.5.18", 0),
         "restrictions-unavailable",
-        None,
     );
 
-    let (w, inp) = base();
-    assert_declined(
+    let (w, conv, inp) = base();
+    decline(
         w,
+        conv,
         inp,
         "not-a-uuid",
         ("1.5.18", 0),
         "invalid-session-id",
-        None,
     );
 
-    let (w, mut inp) = base();
+    let (w, conv, mut inp) = base();
     let other = w.path("other-home");
     std::fs::create_dir_all(&other).unwrap();
     inp["resume_context"]["owned_target"] =
         json!({"provider_id": UUID_A, "persistence_locator": UUID_A, "persistence_home": other});
-    assert_declined(w, inp, UUID_A, ("1.5.18", 0), "instance-changed", None);
+    decline(w, conv, inp, UUID_A, ("1.5.18", 0), "instance-changed");
 
-    let (w, mut inp) = base();
+    let (w, conv, mut inp) = base();
     let home = conv_dir(w.operator_home(), UUID_A)
         .parent()
         .unwrap()
         .to_path_buf();
     inp["resume_context"]["owned_target"] =
         json!({"provider_id": UUID_B, "persistence_locator": UUID_A, "persistence_home": home});
-    assert_declined(w, inp, UUID_A, ("1.5.18", 0), "unverified-harness", None);
+    decline(w, conv, inp, UUID_A, ("1.5.18", 0), "unverified-harness");
 
-    let (w, inp) = base();
-    assert_declined(w, inp, UUID_A, ("1.5.19", 0), "unverified-harness", None);
+    let (w, conv, inp) = base();
+    decline(w, conv, inp, UUID_A, ("1.5.19", 0), "unverified-harness");
 
-    let (w, inp) = base();
-    assert_declined(w, inp, UUID_A, ("", 1), "unverified-harness", None);
+    let (w, conv, inp) = base();
+    decline(w, conv, inp, UUID_A, ("", 1), "unverified-harness");
 
-    let (w, mut inp) = base();
+    let (w, conv, mut inp) = base();
     inp["resume_context"]["originating_harness_version"] = json!("1.5.14");
-    assert_declined(w, inp, UUID_A, ("1.5.18", 0), "unverified-harness", None);
+    decline(w, conv, inp, UUID_A, ("1.5.18", 0), "unverified-harness");
 }
 
 #[test]
@@ -900,6 +919,7 @@ fn l2_absent_missing_and_locked_kept_state_declines_run_cold() {
         "unverified-harness",
         Some("another turn holds the conversation lock"),
     );
+    let _ = flock(&held, FlockOperation::Unlock);
     drop(held);
 }
 
@@ -1136,12 +1156,12 @@ fn l2_restore_notice_display_owned_parent_and_replace_remove_edge_cases() {
 fn f1_owned_target_coordinates_fail_closed_and_persistent_requires_address() {
     let base = || {
         let world = World::new();
-        seed_kept(world.operator_home(), UUID_A, b"db", &[("note.txt", b"b")]);
+        let conv = seed_kept(world.operator_home(), UUID_A, b"db", &[("note.txt", b"b")]);
         let input = rejoin_input(&world, "1.5.18", "not applicable", "none");
         let home = world
             .operator_home()
             .join(".local/state/brokkr/agy-conversations");
-        (world, input, home)
+        (world, conv, input, home)
     };
 
     let bad_fields: [(&str, Vec<Option<Value>>); 4] = [
@@ -1182,7 +1202,7 @@ fn f1_owned_target_coordinates_fail_closed_and_persistent_requires_address() {
     ];
     for (field, cases) in bad_fields {
         for bad in cases {
-            let (w, mut inp, _) = base();
+            let (w, conv, mut inp, _) = base();
             let obj = if field.is_empty() {
                 inp["resume_context"].as_object_mut().unwrap()
             } else {
@@ -1204,9 +1224,10 @@ fn f1_owned_target_coordinates_fail_closed_and_persistent_requires_address() {
                 }
             }
             assert_declined(w, inp, UUID_A, ("1.5.18", 0), "unverified-harness", None);
+            assert!(!conv.join(LOCK_FILE).exists());
         }
     }
-    let (w, inp, home) = base();
+    let (w, _conv, inp, home) = base();
     assert_eq!(
         check_owned_target(&inp, UUID_A, None),
         Err("unverified-harness")
@@ -1490,10 +1511,7 @@ fn f3_f4_confirmed_rejoin_failures_never_leave_turn1_stale_state() {
 /// the live `rejoin/` path either whole or empty — never torn and never old.
 #[test]
 fn f5_stop_at_every_step_leaves_live_path_whole_or_empty() {
-    let dir = tempfile::tempdir().unwrap();
-    let (op, eng) = (dir.path().join("op"), dir.path().join("eng"));
-    let conv = seed_kept(&op, UUID_A, b"turn-1-db", &[("note.txt", b"turn-1")]);
-    std::fs::create_dir_all(eng.join(".gemini/antigravity-cli")).unwrap();
+    let (dir, op, eng, conv) = seeded_restore_dir(b"turn-1-db", b"turn-1");
 
     let mut lease = lock_and_restore(UUID_A, &eng, Some(&op), RejoinCaps::DEFAULT).unwrap();
     let aside = conv.join(lease.aside_name());

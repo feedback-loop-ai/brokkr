@@ -139,10 +139,7 @@ fn r2_unconfirmed_rejoin_stops_on_any_non_confirming_first_line() {
 
 #[test]
 fn r3_empty_database_declines_restore_and_refuses_keep() {
-    let dir = tempfile::tempdir().unwrap();
-    let (op, eng) = (dir.path().join("op"), dir.path().join("eng"));
-    let conv_direct = seed_kept(&op, UUID_A, b"", &[("note.txt", b"non-empty-brain")]);
-    std::fs::create_dir_all(eng.join(".gemini/antigravity-cli")).unwrap();
+    let (dir, op, eng, conv_direct) = seeded_restore_dir(b"", b"non-empty-brain");
     assert_eq!(
         lock_and_restore(UUID_A, &eng, Some(&op), RejoinCaps::DEFAULT).err(),
         Some(RestoreNotice::Copy(RejoinNotice::EmptyDatabase))
@@ -151,15 +148,22 @@ fn r3_empty_database_declines_restore_and_refuses_keep() {
     assert!(!eng.join(".gemini/antigravity-cli/brain").exists());
     assert_lock_free(&conv_direct);
 
-    let (world, _conv, input) = seeded_rejoin_world(b"", b"non-empty-brain");
-    assert_declined(
-        world,
-        input,
+    let (mut world, conv, input) = seeded_rejoin_world(b"", b"non-empty-brain");
+    assert_declined_with(
+        &mut world,
+        &input,
         UUID_A,
         ("1.5.18", 0),
+        &[],
         "unverified-harness",
         Some("conversation database is empty"),
     );
+    assert_lock_free(&conv);
+    assert_eq!(
+        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
+        b""
+    );
+    drop(world);
 
     let cold_stdout = recorded_box("l2c-01-cold.ndjson");
     let mut world = World::new();
@@ -333,4 +337,156 @@ fn r8_owned_target_rejects_unknown_member() {
         Err("unverified-harness")
     );
     assert_declined_before_lock(world, &conv, input, &[], "unverified-harness", None);
+}
+
+fn assert_fold_unread(hold_init: fn() -> LaunchHold, lines: &[&str], expected: Event, label: &str) {
+    let mut fold = AgyFold::new(FLASH, &[]);
+    let mut hold = hold_init();
+    let mut meta = Map::new();
+    for line in lines {
+        assert!(
+            matches!(
+                fold.read(line.as_bytes(), &mut meta, &mut hold, &mut |_| {}),
+                Line::Read
+            ),
+            "{label}"
+        );
+    }
+    assert_eq!(
+        fold.verdict(0, false),
+        Verdict::Failed(Failed {
+            failure: Failure::Unread(expected),
+            seen: fold::Seen::default(),
+        }),
+        "{label}"
+    );
+}
+
+#[test]
+fn t1_array_owned_target_and_array_init_first_line_are_rejected() {
+    let (world, conv, mut input) = seeded_rejoin_world(b"orig-db", b"orig-brain");
+    let home = conv.parent().unwrap().to_path_buf();
+    input["resume_context"]["owned_target"] = json!([UUID_A, UUID_A, home]);
+    assert_eq!(
+        check_owned_target(&input, UUID_A, Some(&world.operator_home())),
+        Err("unverified-harness")
+    );
+    assert_declined_before_lock(world, &conv, input, &[], "unverified-harness", None);
+
+    let valid_init = format!(
+        "{{\"event\":\"init\",\"conversation_id\":\"{UUID_A}\",\"init\":{{\"model\":\"{FLASH}\"}}}}\n"
+    );
+    let ok_res = "{\"event\":\"result\",\"result\":{\"status\":\"SUCCESS\",\"response\":\"OK\"}}\n";
+    let array_init_stream = format!(
+        "{{\"event\":\"init\",\"conversation_id\":\"{UUID_A}\",\"init\":[\"{FLASH}\"]}}\n{valid_init}{ok_res}"
+    )
+    .into_bytes();
+    let (mut world, conv, input) = seeded_rejoin_world(b"orig-db", b"orig-brain");
+    let mut spec = FakeAgySpec::turn(UUID_A, "", Some("mutated-db"), ("note.txt", "mutated"));
+    spec.raw_stdout = Some(&array_init_stream);
+    spec.sleep_after_first = true;
+    let (res, emitted) = drive_offer_result(&mut world, &spec, &input, Some(UUID_A), &[], |_| {});
+    let inv = res.expect("array init on rejoin must end unsettled");
+    assert_eq!(inv.launch, LaunchTerminal::Unconfirmed);
+    assert!(inv.answer.is_none());
+    assert!(!world.seat().join("after_sleep.marker").exists());
+    assert!(started_row(&emitted).is_none());
+    assert_eq!(
+        std::fs::read(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE)).unwrap(),
+        b"orig-db"
+    );
+    assert_lock_free(&conv);
+}
+
+#[test]
+fn t1_array_in_place_of_object_fails_fold_rows_cold_and_rejoin() {
+    let init_ok =
+        format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":"{FLASH}"}}}}"#);
+    let init_arr = format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":["{FLASH}"]}}"#);
+    let cold_hold = || {
+        LaunchHold::new(
+            "agy",
+            LaunchPlan::cold(Vec::new(), "agy-conversation", None),
+        )
+    };
+    let rejoin = || rejoin_hold(UUID_A);
+    let result_arr = r#"{"event":"result","result":["SUCCESS","OK",[1,2,3,4],1,[],null]}"#;
+    let result_usage_arr =
+        r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","usage":[1,2,3,4]}}"#;
+    let result_denied_arr = r#"{"event":"result","result":{"status":"SUCCESS","response":"OK","denied_actions":[["run_command"]]}}"#;
+
+    assert_fold_unread(
+        cold_hold,
+        &[init_arr.as_str()],
+        Event::Init,
+        "cold-init-arr",
+    );
+    for (label, bad_line, expected) in [
+        (
+            "cold-step-arr",
+            r#"{"event":"step_update","step_update":["agent_response","DONE"]}"#,
+            Event::StepUpdate,
+        ),
+        ("cold-result-arr", result_arr, Event::Result),
+        ("cold-result-usage-arr", result_usage_arr, Event::Result),
+        ("cold-result-denied-arr", result_denied_arr, Event::Result),
+    ] {
+        assert_fold_unread(cold_hold, &[init_ok.as_str(), bad_line], expected, label);
+    }
+
+    for (label, bad_line, expected) in [
+        (
+            "rejoin-step-arr",
+            r#"{"event":"step_update","step_update":["agent_response","DONE",null]}"#,
+            Event::StepUpdate,
+        ),
+        (
+            "rejoin-step-usage-arr",
+            r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":"DONE","usage":[1,2,3,4]}}"#,
+            Event::StepUpdate,
+        ),
+        ("rejoin-result-arr", result_arr, Event::Result),
+        ("rejoin-result-usage-arr", result_usage_arr, Event::Result),
+        ("rejoin-result-denied-arr", result_denied_arr, Event::Result),
+    ] {
+        assert_fold_unread(rejoin, &[init_ok.as_str(), bad_line], expected, label);
+    }
+}
+
+#[test]
+fn t2_sealed_standing_fence_unbuilt_intent_declines_cold_before_lock() {
+    use crate::native_controls::{SealedBoundary::Open, SERVING_INPUTS};
+
+    for (label, resume_map) in [
+        ("no-resume-assessment", json!({})),
+        (
+            "measured-resume-unbuilt-replacement",
+            json!({ AGY_SHAPE: "measured" }),
+        ),
+    ] {
+        let (world, conv, mut input) = seeded_rejoin_world(b"orig-db", b"orig-brain");
+        let mut serving = sealed(Open, "empty", json!("measured"), "standing");
+        serving["isolation"]["replacement"] = json!("unmeasured");
+        serving["isolation"]["resume"] = resume_map;
+        input[SERVING_INPUTS] = serving;
+        let (_, emitted) =
+            assert_declined_before_lock(world, &conv, input, &[], "restrictions-unavailable", None);
+        assert_eq!(
+            started_row(&emitted).unwrap()["resume_refusal"],
+            json!("restrictions-unavailable"),
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn t4_lease_drop_unlocks_before_close_even_when_dup_fd_outlives_it() {
+    let (_dir, op, eng, conv) = seeded_restore_dir(b"turn-1-db", b"turn-1");
+
+    let lease = lock_and_restore(UUID_A, &eng, Some(&op), RejoinCaps::DEFAULT).unwrap();
+    let dup_fd = rustix::io::dup(lease.lock_fd()).unwrap();
+    assert!(is_lock_held(&conv), "lock must be held while lease lives");
+    drop(lease);
+    assert_lock_free(&conv);
+    drop(dup_fd);
 }

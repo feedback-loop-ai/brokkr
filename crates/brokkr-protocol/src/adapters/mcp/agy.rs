@@ -49,3 +49,16 @@ pub(super) fn agy_set_at(
     served(isolated.admitted_hands(edge, (brokkr, workdir), &reach))
         .ok_or(McpRefusal::NotSealed { provider: "agy" })
 }
+
+/// Whether an agy launch whose admission returned `isolated` from `edge` may
+/// rejoin `shape`: allowed only when the start input carries no sealed intent
+/// at all (a driver run by hand) or when `isolated` was built from that sealed
+/// intent and admits `shape`. A sealed intent that the standing fence let
+/// through unbuilt declines cold (`#1227`), because Antigravity CLI has no
+/// pre-fence rejoin behaviour to fall back to.
+pub(in crate::adapters) fn agy_resumes(edge: &Edge<'_>, isolated: &Isolated, shape: &str) -> bool {
+    match &isolated.isolation {
+        Some(_) => isolated.resumes("agy", shape),
+        None => edge.sealed().is_none(),
+    }
+}

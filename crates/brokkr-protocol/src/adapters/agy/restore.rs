@@ -25,6 +25,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
 
+use super::fold::Object;
 use super::keep::{self, KeepNotice, ParentError, SourceErrno};
 use super::rejoin::{
     self, CopyPoint, CopyState, DestDir, RejoinCaps, RejoinNotice, RejoinRollback,
@@ -68,6 +69,18 @@ pub(super) enum RestoreNotice {
     Copy(#[from] RejoinNotice),
 }
 
+/// Exclusive advisory `flock` on `<agy-conversations>/<id>/.rejoin.lock`.
+/// Releases with an explicit `LOCK_UN` before closing the descriptor so a
+/// forked child holding a pre-exec copy of the open file description cannot
+/// keep the lock held past drop (`#1227`).
+struct ConversationLock(OwnedFd);
+
+impl Drop for ConversationLock {
+    fn drop(&mut self) {
+        let _ = flock(&self.0, FlockOperation::Unlock);
+    }
+}
+
 /// Exclusive advisory lock on one kept conversation plus ownership of the
 /// set-aside `rejoin/` copy taken out of the live path before `agy` starts.
 ///
@@ -82,8 +95,8 @@ pub(super) struct RejoinLease {
     aside: String,
     confirmed: bool,
     // Dropped last so the exclusive advisory lock stays held across put-back
-    // and set-aside cleanup.
-    _lock_fd: OwnedFd,
+    // and set-aside cleanup, then explicitly unlocked before close.
+    _lock: ConversationLock,
 }
 
 impl RejoinLease {
@@ -94,6 +107,11 @@ impl RejoinLease {
     #[cfg(test)]
     pub(super) fn aside_name(&self) -> &str {
         &self.aside
+    }
+
+    #[cfg(test)]
+    pub(super) fn lock_fd(&self) -> BorrowedFd<'_> {
+        self._lock.0.as_fd()
     }
 }
 
@@ -307,7 +325,8 @@ pub(super) fn check_owned_target(
     let raw = input
         .pointer("/resume_context/owned_target")
         .ok_or("unverified-harness")?;
-    let target = OwnedTarget::deserialize(raw).map_err(|_| "unverified-harness")?;
+    let Object(target) =
+        Object::<OwnedTarget>::deserialize(raw).map_err(|_| "unverified-harness")?;
     if target.provider_id != offered
         || target.persistence_locator != offered
         || target.persistence_home.is_empty()
@@ -377,7 +396,7 @@ pub(super) fn lock_and_restore_with(
     ) {
         return Err(RestoreNotice::Parent(ParentError::UnownedParent));
     }
-    let lock_fd = acquire_lock(conv_fd.as_fd())?;
+    let lock = acquire_lock(conv_fd.as_fd())?;
     let mut guard = restore_into_home(
         conv_fd.as_fd(),
         conversation_id,
@@ -392,11 +411,11 @@ pub(super) fn lock_and_restore_with(
         conv_fd,
         aside,
         confirmed: false,
-        _lock_fd: lock_fd,
+        _lock: lock,
     })
 }
 
-fn acquire_lock(conv_fd: BorrowedFd<'_>) -> Result<OwnedFd, RestoreNotice> {
+fn acquire_lock(conv_fd: BorrowedFd<'_>) -> Result<ConversationLock, RestoreNotice> {
     let (fd, created) = match openat(
         conv_fd,
         LOCK_FILE,
@@ -433,7 +452,7 @@ fn acquire_lock(conv_fd: BorrowedFd<'_>) -> Result<OwnedFd, RestoreNotice> {
     // the reachable error is contention (`EWOULDBLOCK`); any error declines
     // cold cleanly (removal-control: `l2_absent_missing_and_locked_kept_state_declines_run_cold`).
     flock(&fd, FlockOperation::NonBlockingLockExclusive).map_err(|_| RestoreNotice::LockHeld)?;
-    Ok(fd)
+    Ok(ConversationLock(fd))
 }
 
 struct KeptRejoinSource {

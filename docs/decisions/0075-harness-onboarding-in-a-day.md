@@ -623,7 +623,7 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
 - **Shared resume machinery, fail-closed target coordinates, and restore whole.**
   `brokkr driver agy` declares `resume` offer receipt in its capabilities and
   decides every offered conversation through the shared machinery
-  (`resume_gate`, `isolated.resumes`, `LaunchPlan`, `LaunchHold`,
+  (`resume_gate`, `agy_resumes` over `Isolated::resumes`, `LaunchPlan`, `LaunchHold`,
   `Confirmation`, `LaunchTerminal`, `originating_harness_version`, the shared
   `version_qualifies` predicate used by `qualify`, and `agy --version` probed
   once per invocation under the engine HOME with
@@ -663,8 +663,13 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
     modes (`0700`/`0600` through `fchmod`), reusing slice 1's bounds (128 MiB,
     4,096 entries, 16 levels), no-symlink traversal, and
     regular-file/directory checks. If the shape is not enabled
-    (`unsupported-resume`), boundary/hands or MCP isolation does not cover it
-    (`restrictions-unavailable`), the offered id is not a lowercase UUID
+    (`unsupported-resume`), boundary/hands or MCP isolation does not cover it —
+    on the agy path, because Antigravity CLI has never rejoined before and has
+    no pre-fence "as before" rejoin behaviour, a rejoin is taken only when the
+    start input carries no sealed intent at all (a driver run by hand) or when
+    the sealed isolation was built and admits the resume of agy's shape, so a
+    sealed intent the standing fence let through unbuilt declines cold before
+    the lock (`restrictions-unavailable`), the offered id is not a lowercase UUID
     (`invalid-session-id`), `owned_target` fails as above
     (`unverified-harness` or `instance-changed`), the installed version is
     unreadable, `resume_context.originating_harness_version` is absent, null,
@@ -700,9 +705,21 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
   (opened with `O_NOFOLLOW | O_CLOEXEC`, mode `0600` on create, regular-file
   verified, created only when `rejoin/` exists) and holds it across restore,
   take-out, turn, post-turn keep, and put-back or set-aside cleanup, releasing
-  it on every path out via RAII drop. Because `agy` does not keep concurrent
-  rejoins apart (`l2c-14`, `l2c-15`), a launch that finds the lock held
-  declines cold (`unverified-harness` with `RestoreNotice::LockHeld`).
+  every `flock` by an explicit unlock (`LOCK_UN`) before closing the descriptor
+  on every path out via RAII drop so a forked child holding a pre-exec copy of
+  the descriptor cannot keep the lock held past the lease. A refusal that
+  depends only on the offer and the seat (the shape assessment,
+  `declared_root_session_kind`, boundary/hands or MCP isolation, the offered
+  id, `owned_target`, the installed and originating versions, and the
+  launch-row masking check) is decided before the lock is opened or created. A
+  refusal that depends on what the kept state holds (such as an empty or
+  missing database, a missing `brain/`, an unsafe entry, or an over-bound tree)
+  is decided under the conversation's lock, because only the lock makes the
+  kept state one turn's to read; it writes nothing to the engine's HOME
+  (rolling back anything partly written) and releases the lock on the way out.
+  Because `agy` does not keep concurrent rejoins apart (`l2c-14`, `l2c-15`), a
+  launch that finds the lock held declines cold (`unverified-harness` with
+  `RestoreNotice::LockHeld`).
 - **Confirmation from `init`, and a stray or unconfirmable first line is
   stopped.** Because `agy` exits 0 with `SUCCESS` under a new conversation id
   when given an unknown id, a malformed id, or a HOME without the database
@@ -789,7 +806,14 @@ and the seventh measurement on 1.5.14 (`l2-*`, `l2b-*`).
   turn and on a rejoin alike: a `result` whose members (including
   `result.usage` and `result.num_turns`) do not read as that type is a
   malformed row and fails the turn, whether or not this launch takes a figure
-  from the member.
+  from the member. Alongside the duplicate-key row-integrity rule, wherever the
+  agy driver reads a JSON object into a typed struct from bytes it did not
+  write itself (`resume_context.owned_target`, every row the fold types on a
+  cold turn and on a rejoin alike — `init`, `step_update` and its `usage`,
+  `result` and its `usage` and `denied_actions` — and hook calls on `gate`'s
+  stdin), an array in the place of that object is not that object, at every
+  depth of the struct; every recorded stream writes objects, so this refuses
+  nothing measured.
 - **Built, not switched on.** `docs/examples/adapters/agy.json` keeps
   `resume.stream-work-site.status: "unsupported"` (recording the 1.5.14 and
   1.5.18 measurements and that the launch awaits a live measurement through
