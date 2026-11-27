@@ -24,9 +24,10 @@ pub struct PgConfig {
 }
 
 impl PgConfig {
-    /// Parse a `postgres://user[:password]@host[:port]/database` (or
-    /// `postgresql://...`) connection URL, refusing missing components,
-    /// invalid percent-escapes, NUL bytes, or unknown query parameters.
+    /// Parse a `postgres://` or `postgresql://` connection URL with
+    /// `user[:password]@host[:port]/database` authority and path, refusing
+    /// missing components, invalid percent-escapes, NUL bytes, or unknown
+    /// query parameters.
     pub fn parse(url: &str) -> Result<Self, PgError> {
         let rest = url
             .strip_prefix("postgres://")
