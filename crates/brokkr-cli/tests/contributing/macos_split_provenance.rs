@@ -3,7 +3,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::workspace;
-use crate::workflow::{self, ActionMatch, Inputs, Job, Scalar, Step, Workflow, WorkflowError};
+use crate::workflow::{
+    self, ActionMatch, ArtifactName, ClosedFormRefusal, ClosedWorkflowError, Inputs, Job,
+    RefusalKind, Scalar, Step, Workflow, WorkflowError,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ProvenanceProblem {
@@ -11,6 +14,7 @@ enum ProvenanceProblem {
         file: String,
         err: WorkflowError,
     },
+    ClosedForm(ClosedFormRefusal),
     MissingJob(WorkflowError),
     MissingBuildMatrix,
     UnexpectedBuildMatrixShape,
@@ -84,10 +88,6 @@ enum ProvenanceProblem {
         job_id: String,
         raw: Scalar,
     },
-    DownloadWildcardName {
-        job_id: String,
-        name: String,
-    },
     DownloadDisallowedName {
         job_id: String,
         name: String,
@@ -117,11 +117,6 @@ enum ProvenanceProblem {
     },
 }
 
-fn is_falsy_nfpm_arch(val: &Scalar) -> bool {
-    matches!(val, Scalar::Null | Scalar::Bool(false) | Scalar::Int(0))
-        || matches!(val, Scalar::String(s) if s.is_empty())
-}
-
 fn build_matrix_artifact_names(
     build: &Job,
     problems: &mut Vec<ProvenanceProblem>,
@@ -131,11 +126,18 @@ fn build_matrix_artifact_names(
         problems.push(ProvenanceProblem::MissingBuildMatrix);
         return (all, linux_pkg);
     };
-    if !matrix.axes.is_empty() || !matrix.exclude.is_empty() {
+    if let Err(refusal) = matrix.require_no_exclude("release.yml", "build") {
+        problems.push(ProvenanceProblem::ClosedForm(refusal));
+    }
+    if !matrix.axes.is_empty() {
         problems.push(ProvenanceProblem::UnexpectedBuildMatrixShape);
     }
     for row in &matrix.include {
-        let Some(name) = row.get("name").and_then(Scalar::as_literal) else {
+        let Some(name) = row
+            .get("name")
+            .and_then(Scalar::as_str)
+            .filter(|s| workflow::is_plain_artifact_literal(s))
+        else {
             problems.push(ProvenanceProblem::BuildMatrixRowMissingName);
             continue;
         };
@@ -144,7 +146,7 @@ fn build_matrix_artifact_names(
                 name.to_string(),
             ));
         }
-        if let Some(arch) = row.get("nfpm_arch").filter(|v| !is_falsy_nfpm_arch(v)) {
+        if let Some(arch) = row.get("nfpm_arch") {
             if arch.as_literal().is_some() {
                 linux_pkg.insert(name.to_string());
             } else {
@@ -332,27 +334,25 @@ fn check_download_step(
         None => problems.push(ProvenanceProblem::DownloadMissingName {
             job_id: job_id.to_string(),
         }),
-        Some(raw) => match raw.as_literal() {
-            None => problems.push(ProvenanceProblem::DownloadNonLiteralName {
-                job_id: job_id.to_string(),
-                raw: raw.clone(),
-            }),
-            Some(name) if name.contains(['*', '?', '[']) => {
-                problems.push(ProvenanceProblem::DownloadWildcardName {
-                    job_id: job_id.to_string(),
-                    name: name.to_string(),
-                });
-            }
-            Some(name) => {
-                if !spec.allowed.contains(name) {
-                    problems.push(ProvenanceProblem::DownloadDisallowedName {
-                        job_id: job_id.to_string(),
-                        name: name.to_string(),
-                    });
+        Some(raw) => {
+            let place = format!("job {job_id} download with.name");
+            match ArtifactName::parse(raw, None, "release.yml", &place) {
+                Err(refusal) => problems.push(ProvenanceProblem::ClosedForm(refusal)),
+                Ok(ArtifactName::Literal(name)) => {
+                    if !spec.allowed.contains(&name) {
+                        problems.push(ProvenanceProblem::DownloadDisallowedName {
+                            job_id: job_id.to_string(),
+                            name: name.clone(),
+                        });
+                    }
+                    seen.insert(name);
                 }
-                seen.insert(name.to_string());
+                Ok(_) => problems.push(ProvenanceProblem::DownloadNonLiteralName {
+                    job_id: job_id.to_string(),
+                    raw: raw.clone(),
+                }),
             }
-        },
+        }
     }
 }
 
@@ -405,7 +405,7 @@ fn check_non_build_uploads(
     build_names: &BTreeSet<String>,
     problems: &mut Vec<ProvenanceProblem>,
 ) {
-    for step in &job.steps {
+    for (idx, step) in job.steps.iter().enumerate() {
         let Some(uses) = step.uses.as_deref() else {
             continue;
         };
@@ -440,21 +440,25 @@ fn check_non_build_uploads(
                 source: source.to_string(),
                 job_id: job.id.clone(),
             }),
-            (_, Some(raw)) => match raw.as_literal() {
-                None => problems.push(ProvenanceProblem::UnresolvedUploadName {
-                    source: source.to_string(),
-                    job_id: job.id.clone(),
-                    raw: raw.clone(),
-                }),
-                Some(name) if build_names.contains(name) => {
-                    problems.push(ProvenanceProblem::CollidingUploadName {
+            (_, Some(raw)) => {
+                let place = format!("job {} step {} with.name", job.id, idx + 1);
+                match ArtifactName::parse(raw, job.matrix.as_ref(), source, &place) {
+                    Err(refusal) => problems.push(ProvenanceProblem::ClosedForm(refusal)),
+                    Ok(ArtifactName::Literal(name)) if build_names.contains(&name) => {
+                        problems.push(ProvenanceProblem::CollidingUploadName {
+                            source: source.to_string(),
+                            job_id: job.id.clone(),
+                            name,
+                        });
+                    }
+                    Ok(ArtifactName::Literal(_)) => {}
+                    Ok(_) => problems.push(ProvenanceProblem::UnresolvedUploadName {
                         source: source.to_string(),
                         job_id: job.id.clone(),
-                        name: name.to_string(),
-                    });
+                        raw: raw.clone(),
+                    }),
                 }
-                Some(_) => {}
-            },
+            }
         }
     }
 }
@@ -464,13 +468,13 @@ fn release_artifact_provenance_problems(
     called_workflows: &BTreeMap<String, String>,
 ) -> Vec<ProvenanceProblem> {
     let mut problems = Vec::new();
-    let wf = match Workflow::parse(release) {
+    let wf = match Workflow::parse_closed_form("release.yml", release) {
         Ok(wf) => wf,
-        Err(err) => {
-            return vec![ProvenanceProblem::UnreadableWorkflow {
-                file: "release.yml".to_string(),
-                err,
-            }];
+        Err(ClosedWorkflowError::Parse { file, err }) => {
+            return vec![ProvenanceProblem::UnreadableWorkflow { file, err }];
+        }
+        Err(ClosedWorkflowError::Refusal(refusal)) => {
+            return vec![ProvenanceProblem::ClosedForm(refusal)];
         }
     };
     let build = match wf.require_job("release.yml", "build") {
@@ -537,10 +541,14 @@ fn check_called_workflows(
             problems.push(ProvenanceProblem::UncheckedCalledWorkflow(path));
             continue;
         };
-        let called_wf = match Workflow::parse(text) {
+        let called_wf = match Workflow::parse_closed_form(&path, text) {
             Ok(wf) => wf,
-            Err(err) => {
-                problems.push(ProvenanceProblem::UnreadableWorkflow { file: path, err });
+            Err(ClosedWorkflowError::Parse { file, err }) => {
+                problems.push(ProvenanceProblem::UnreadableWorkflow { file, err });
+                continue;
+            }
+            Err(ClosedWorkflowError::Refusal(refusal)) => {
+                problems.push(ProvenanceProblem::ClosedForm(refusal));
                 continue;
             }
         };
@@ -713,23 +721,30 @@ fn release_provenance_closes_matrix_path_pages_upload_and_indentation_gaps() {
             &ProvenanceProblem::DuplicateBuildArtifactName("brokkr-linux-x86_64".to_string())
         )
     );
-    for falsy in ["false", "''", "null"] {
+    let omitted_linux = release.replacen(", nfpm_arch: amd64", "", 1);
+    let omitted_probs = release_artifact_provenance_problems(&omitted_linux, &called);
+    assert!(matches!(
+        omitted_probs.as_slice(),
+        [ProvenanceProblem::DownloadSetMismatch { job_id, expected, .. }]
+            if job_id == "pages" && !expected.contains("brokkr-linux-x86_64")
+    ));
+    for falsy in ["false", "''", "null", "0"] {
         let falsy_linux = release.replacen("nfpm_arch: amd64", &format!("nfpm_arch: {falsy}"), 1);
         let probs = release_artifact_provenance_problems(&falsy_linux, &called);
         assert!(matches!(
             probs.as_slice(),
-            [ProvenanceProblem::DownloadSetMismatch { job_id, expected, .. }]
-                if job_id == "pages" && !expected.contains("brokkr-linux-x86_64")
+            [ProvenanceProblem::ClosedForm(r)] if r.kind == RefusalKind::ConditionBarePath
         ));
         let falsy_macos = release.replacen(
             "name: brokkr-macos-arm64 }",
             &format!("name: brokkr-macos-arm64, nfpm_arch: {falsy} }}"),
             1,
         );
-        assert_eq!(
-            release_artifact_provenance_problems(&falsy_macos, &called),
-            vec![]
-        );
+        let mac_probs = release_artifact_provenance_problems(&falsy_macos, &called);
+        assert!(matches!(
+            mac_probs.as_slice(),
+            [ProvenanceProblem::ClosedForm(r)] if r.kind == RefusalKind::ConditionBarePath
+        ));
     }
 
     let pub_redir = release.replacen(
@@ -944,8 +959,31 @@ fn release_provenance_rejects_disguised_and_unresolved_upload_names() {
         );
         assert!(matches!(
             probs.as_slice(),
-            [ProvenanceProblem::UnresolvedUploadName { job_id, .. }] if job_id == "macos-machines"
+            [ProvenanceProblem::ClosedForm(r)] if r.kind == RefusalKind::ArtifactName
         ));
+    }
+    // Finding 1 (#1417): upload names with leading/trailing blanks are refused, never trimmed.
+    for blank_padded in [
+        "\" brokkr-macos-arm64 \"",
+        "' brokkr-macos-arm64 '",
+        "\"brokkr-macos-arm64 \"",
+        "\" brokkr-macos-arm64\"",
+        "\" r3-native-diagnostics \"",
+    ] {
+        let probs = release_artifact_provenance_problems(
+            &release,
+            &with_shard_upload_name(&called, blank_padded),
+        );
+        assert!(
+            matches!(
+                probs.as_slice(),
+                [ProvenanceProblem::ClosedForm(r)]
+                    if r.kind == RefusalKind::ArtifactName
+                        && r.to_string().contains(".github/workflows/macos-test-shards.yml")
+                        && r.to_string().contains("not a form this guard reads")
+            ),
+            "blank-padded upload name `{blank_padded}` must be refused: {probs:?}"
+        );
     }
     let called_ok = with_shard_upload_name(&called, "'r3-native-diagnostics' # human-readable");
     assert_eq!(
@@ -1084,14 +1122,34 @@ fn release_provenance_rejects_conditional_build_uploads_and_downloads() {
 
     let conditional_publish_dl = release.replacen(
         "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        with:\n          name: brokkr-macos-arm64\n",
-        "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        if: false\n        with:\n          name: brokkr-macos-arm64\n",
+        "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        if: github.event_name == 'push'\n        with:\n          name: brokkr-macos-arm64\n",
         1,
     );
     assert_eq!(
         release_artifact_provenance_problems(&conditional_publish_dl, &called),
         vec![ProvenanceProblem::ConditionalDownloadStep {
             job_id: "publish".to_string(),
-            cond: "false".to_string(),
+            cond: "github.event_name == 'push'".to_string(),
         }]
     );
+    let non_closed_dl = release.replacen(
+        "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        with:\n          name: brokkr-macos-arm64\n",
+        "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n        if: false\n        with:\n          name: brokkr-macos-arm64\n",
+        1,
+    );
+    assert!(matches!(
+        release_artifact_provenance_problems(&non_closed_dl, &called).as_slice(),
+        [ProvenanceProblem::ClosedForm(r)] if r.kind == RefusalKind::ConditionSyntax
+    ));
+    let release_top_env = release.replacen(
+        "permissions:\n",
+        "env:\n  EXTRA: value\n\npermissions:\n",
+        1,
+    );
+    assert!(matches!(
+        release_artifact_provenance_problems(&release_top_env, &called).as_slice(),
+        [ProvenanceProblem::ClosedForm(r)]
+            if r.kind == RefusalKind::WorkflowEnv
+                && r.to_string().contains("not a form this guard reads")
+    ));
 }

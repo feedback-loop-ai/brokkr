@@ -1,13 +1,6 @@
 # Contributing to Brokkr
 
-A pull request to `main` goes through Brokkr, unless the operator labels
-it `by-hand` or an administrator merges past the check (below). The run
-implements, verifies, reviews, and prepares the change; you review the
-result and open the pull request that names the run. A branch you wrote
-yourself — a decision, a pin, a fix, a sweep of prose — goes through
-Brokkr too: the `landing` recipe reads it, verifies it when it is code,
-judges it, sends findings back to a smith, and ships it, so the pull
-request names a run all the same (decision 0051).
+A pull request to `main` goes through Brokkr, unless the operator labels it `by-hand` or an administrator merges past the check (below). The run implements, verifies, reviews, and prepares the change; you review the result and open the pull request that names the run. A branch you wrote yourself — a decision, a pin, a fix, a sweep of prose — goes through Brokkr too: the `landing` recipe reads it, verifies it when it is code, judges it, sends findings back to a smith, and ships it, so the pull request names a run all the same (decision 0051).
 
 <!-- required-checks:start -->
 `main`'s branch protection ([snapshot](.github/branch-protection.json), the setting as it stands once #1383 has landed and the operator's controller has added `build (macos-latest)`, dated 2026-11-25) requires 12 checks: `delivered by brokkr`, `baseline ratchets`, `MSRV (1.89)`, `format, clippy, contracts`, `test (ubuntu-latest)`, `build (macos-latest)`, `exact coverage gate`, `dependency licenses (cargo-deny)`, `non-Rust lints`, `RustSec dependency audit`, `release binary artifact`, and `mutants in the diff: brokkr-core`. It requires signed commits, does not require a branch to be up to date with `main`, does not require an approving review, and does not apply to administrators.
@@ -17,18 +10,13 @@ request names a run all the same (decision 0051).
 
 ## 1. Install Brokkr
 
-Download the checksum-verified archive from the
-[latest release](https://github.com/feedback-loop-ai/brokkr/releases/latest)
-exactly as the [main README](README.md#60-second-bootstrap) shows, or build the
-binary from your clone after step 2:
+Download the checksum-verified archive from the [latest release](https://github.com/feedback-loop-ai/brokkr/releases/latest) exactly as the [main README](README.md#60-second-bootstrap) shows, or build the binary from your clone after step 2:
 
 ```console
 cargo install --path crates/brokkr-cli
 ```
 
-Those two README paths are the authority. `cargo binstall brokkr-cli`
-reads the crate the release workflow publishes to crates.io at each tag
-from v0.9.0 ([packaging](packaging/README.md)).
+Those two README paths are the authority. `cargo binstall brokkr-cli` reads the crate the release workflow publishes to crates.io at each tag from v0.9.0 ([packaging](packaging/README.md)).
 
 ## 2. Fork and clone
 
@@ -40,8 +28,7 @@ git switch -c <your-branch>
 
 ## 3. Pick one recipe
 
-Costs are relative, not quotes; provider rates and retries vary. Pick a delivery recipe. `landing` is the delivery for a branch that already
-exists; `preflight` is an optional branch check, not a delivery. `night-shift` and `wager-harness-dsh` run only on a host serving the dsh `spark-glm` route; [what works today](docs/status.md) says what each harness can do.
+Costs are relative, not quotes; provider rates and retries vary. Pick a delivery recipe. `landing` is the delivery for a branch that already exists; `preflight` is an optional branch check, not a delivery. `night-shift` and `wager-harness-dsh` run only on a host serving the dsh `spark-glm` route; [what works today](docs/status.md) says what each harness can do.
 
 <!-- recipe-table:start -->
 | Recipe | When to use it | What it seats | Rough cost |
@@ -72,45 +59,33 @@ brokkr run --recipe <name> --feature "<what you want>"
 brokkr run --recipe landing --repo . --feature "landing: <what the branch is, and why>"
 ```
 
-The second form is for a branch you already wrote: it starts by reading
-the branch, not by writing one. Let the machine finish its verify,
-review, and ship seats. Fixes return through the same policy; do not
-substitute hand-run checks for the run.
+The second form is for a branch you already wrote: it starts by reading the branch, not by writing one. Let the machine finish its verify, review, and ship seats. Fixes return through the same policy; do not substitute hand-run checks for the run.
 
 ## 5. Review, publish the evidence, and propose
 
-Review the branch and the run. Brokkr writes the final anchor locally;
-publish its synthetic commit beside your branch without changing HEAD:
+Review the branch and the run. Brokkr writes the final anchor locally; publish its synthetic commit beside your branch without changing HEAD:
 
 ```console
 git push origin refs/forge/<run-id>:refs/heads/brokkr-runs/<run-id>
 ```
 
-Open the pull request using the repository template and replace its line
-with `Brokkr-Run: <run-id>`. CI verifies the published journal offline,
-requires a completed run, and cuts a tier by what changed since it
-judged (decision 0038): a rebase that leaves your slice's patch unchanged
-keeps the vouch; a delta confined to docs needs `brokkr run --recipe
-preflight` on the new head, named as `Brokkr-Preflight: <run-id>`; a code
-delta needs a new run. Only the operator may apply the visible `by-hand`
-escape-hatch label, and only where no landing can stand (decision 0051).
+Open the pull request using the repository template and replace its line with `Brokkr-Run: <run-id>`. CI verifies the published journal offline, requires a completed run, and cuts a tier by what changed since it judged (decision 0038): a rebase that leaves your slice's patch unchanged keeps the vouch; a delta confined to docs needs `brokkr run --recipe preflight` on the new head, named as `Brokkr-Preflight: <run-id>`; a code delta needs a new run. Only the operator may apply the visible `by-hand` escape-hatch label, and only where no landing can stand (decision 0051).
 
 Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit. A pull request that changes only documentation, `.md` pages under `docs/` or at the top level that no code names, runs [the docs lane](docs/guides/contributing-by-hand.md#the-docs-lane): the tests that read documentation, in minutes, in place of the test and coverage machines, and the two suite checks pass on that lane's own result. It still lands through the merge queue's full run (#1295).
 
 ## 6. Dependency admission
 
-One production consequence of a dev-only edge is admitted here.
-`boa_engine = "=0.21.1"`, the CLI's browser-controller test dependency,
-requires `icu_normalizer = "~2.0.0"`; the production `url -> idna` edge
-resolves `idna_adapter 1.2.2`, which requires `icu_normalizer = "2.2"`.
-Cargo unifies semver-compatible versions, so the whole workspace —
-including the release-linked graph — carries `icu_normalizer 2.0.1` and
-`idna_adapter 1.2.1` instead of the `icu_normalizer 2.3.0` and
-`idna_adapter 1.2.2` that `main` carried. No known vulnerability is
-asserted for either version: both remain on the `deny.toml` licence
-allowlist, and cargo-deny and the RustSec audit read this same lockfile.
-Removal is blocked while Boa stays pinned at `=0.21.1` for the MSRV and
-the exact-served-code proof; this admission is revisited when Boa's icu range admits the newer normalizer.
+One production consequence of a dev-only edge is admitted here. `boa_engine = "=0.21.1"`, the CLI's browser-controller test dependency, requires `icu_normalizer = "~2.0.0"`; the production `url -> idna` edge resolves `idna_adapter 1.2.2`, which requires `icu_normalizer = "2.2"`. Cargo unifies semver-compatible versions, so the whole workspace — including the release-linked graph — carries `icu_normalizer 2.0.1` and `idna_adapter 1.2.1` instead of the `icu_normalizer 2.3.0` and `idna_adapter 1.2.2` that `main` carried. No known vulnerability is asserted for either version: both remain on the `deny.toml` licence allowlist, and cargo-deny and the RustSec audit read this same lockfile. Removal is blocked while Boa stays pinned at `=0.21.1` for the MSRV and the exact-served-code proof; this admission is revisited when Boa's icu range admits the newer normalizer.
+
+## 7. Workflow closed form
+
+The workflow guards over `ci.yml`, `macos-test-shards.yml`, `macos-tests.yml`, and `release.yml` do not emulate GitHub Actions: they read a small closed form (#1417, operator ruling 2026-11-27) and refuse anything outside it.
+
+- **Conditions (`if:`):** omit `if:`, or write one of these shapes without `${{ }}`: `always()`; one comparison or comparisons joined by `&&` only, optionally prefixed by `always() &&` (e.g. `always() && github.event_name == 'schedule' && needs.macos-tests.result != 'success'`); comparisons joined by `||` only (e.g. `steps.flake-pr.outputs.pull-request-operation == 'created' || steps.flake-pr.outputs.pull-request-operation == 'updated'`); or one bare context path alone, allowed only for a `workflow_call` input declared `type: boolean` (e.g. `inputs.use-cache`) or a `matrix.<axis>` where every row gives a non-empty string or omits it (e.g. `matrix.nfpm_arch`). No parentheses, no `!`, no mixing `&&` with `||`, and no function except leading `always()`. Without leading `always()`, GitHub's implicit `success() && (...)` always applies, including when `if:` is omitted.
+- **Comparisons and paths:** `<context path> == '<literal>'` or `<context path> != '<literal>'` (case-insensitive string match against a single-quoted literal; the path must be known to be a string or absent in context). Allowed paths are `github.event_name`, `runner.environment`, `matrix.<axis>`, `inputs.<name>`, `needs.<job>.result`, `needs.<job>.outputs.<name>`, and `steps.<id>.outputs.<name>`.
+- **Artifact names:** upload/download `name:` is a plain `[A-Za-z0-9._-]+` literal with no blanks (e.g. `brokkr-macos-arm64`), `${{ matrix.<axis> }}` as the whole value over plain literals (e.g. `${{ matrix.name }}`), or `<literal>${{ strategy.job-index }}` (e.g. `coverage-machine-${{ strategy.job-index }}`). Download `pattern:` is `<literal>*` (e.g. `coverage-machine-*`). Leading or trailing blanks are refused, never trimmed.
+- **Environment, triggers, matrices, and scripts:** no workflow-level `env:` (use job-level or step-level `env:` only, e.g. `BROKKR_TEST_MACHINE: ${{ matrix.machine }}` on a step); `on:` events carry no filter (e.g. `workflow_dispatch:`) or only `branches`, `tags`, `types`, `schedule` `cron`, or `workflow_call` `inputs` (e.g. `pull_request: { types: [opened, synchronize, reopened] }`, `push: { tags: ["v*"] }`, `schedule: [{ cron: '17 4 * * *' }]`); matrices carry no unread `include` or `exclude` (e.g. `matrix: { machine: [macos/1, ...] }`); and checked scripts are compared whole, never by substring (e.g. `run: test "$MACHINES" = success`).
+- **Refusal:** anything outside this form fails the guard with one sentence: `<file> (<place>): <detail> is not a form this guard reads; allowed forms: <allowed>.`
 
 Curious about the machinery? [The by-hand guide](docs/guides/contributing-by-hand.md) preserves the twelve exact checks, coverage practicalities and refusals, signing walkthrough, decision culture, and frozen surfaces; a landing's verify seat runs `cargo fmt --all -- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, `cargo test --workspace` and `cargo run -p brokkr-cli -- library compile --bundle recipes/self`, and CI proves the rest (any non-Rust lint whose tool the seat cannot reach, which the seat names as not run, the MSRV, the suppression check, the `recipes/verify` compile, the suite in CI's own form on Linux (with `build (macos-latest)` compiling the workspace on macOS, and the macOS test shards running nightly, on dispatch and at release), exact coverage, cargo-deny, the diagram render and Renovate's validator, the ratchets, the RustSec audit, the release build and the mutants gate), so contributors do not need to run them.
 
