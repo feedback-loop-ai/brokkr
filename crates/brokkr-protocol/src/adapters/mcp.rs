@@ -255,9 +255,9 @@ fn dsh_hands_at(
 /// nothing else.
 ///
 /// A launch with no plan, no record and no serving inputs was not sealed: a
-/// driver run by hand, which this check gives no guarantee, is served as
-/// composed, as the inline judgment serves it (rebuild unit 5d-fix-c2). A
-/// plan with neither sealed input refuses (rebuild unit 15-fix-b), and so
+/// driver run by hand is served as composed. For Codex, the inline judgment
+/// reads that final command whole before it reaches this check. A plan with
+/// neither sealed input refuses (rebuild unit 15-fix-b), and so
 /// does one half of the sealed pair without the other, or without its plan.
 ///
 /// Before the check, a sealed launch's MCP options must be exactly those of

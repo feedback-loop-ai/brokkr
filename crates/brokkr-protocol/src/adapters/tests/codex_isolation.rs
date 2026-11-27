@@ -5,6 +5,8 @@
 //! bound reading, and the host refusal. A new child of the parent suite,
 //! which sits at its line baseline; the effort pin's test moved here from
 //! it when the cold builder it calls learned the store.
+//! The hand-run read's two tests (#1353) sit here too, beside the door
+//! that lets a driver run by hand proceed without a store.
 
 use super::*;
 use crate::native_controls::grammar::{self, Unisolated};
@@ -391,7 +393,8 @@ fn a_host_holding_codex_configuration_refuses_the_seat_before_any_provider_work(
 /// refuses at the driver's door rather than keep the `--sandbox` form. Half
 /// the pair, or the plan alone, passes the door to the refusals the existing
 /// checks make of it (`the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam`
-/// and the unpaired record's), and a driver run by hand launches as written.
+/// and the unpaired record's). The door lets a driver run by hand proceed
+/// without a store.
 #[test]
 fn a_sealed_codex_launch_handed_no_store_refuses_at_the_door() {
     let local = ["--sandbox", "workspace-write"];
@@ -412,6 +415,74 @@ fn a_sealed_codex_launch_handed_no_store_refuses_at_the_door() {
         assert_eq!(codex::admitted(&alone, "/w", absent), Ok(()), "{key}");
     }
     assert_eq!(codex::admitted(&base, "/w", absent), Ok(()));
+}
+
+#[test]
+fn a_hand_run_codex_rejoin_refuses_a_repeat_in_its_cold_replacement() {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = codex_shim(dir.path(), "codex", &dir.path().join("argv"));
+    let bin = shim.to_str().unwrap();
+    let input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
+    let offered =
+        |extra: &[&str]| codex_launch_and_cold(bin, &strings(extra), "/w", Some(THREAD), &input);
+    assert_eq!(
+        offered(&["-s", "read-only", "-m", "a", "--model", "b"]).err(),
+        Some(hand_run_repeat_refusal(8, "--model"))
+    );
+    // The rejoin re-expresses the sandbox once, while the cold command
+    // with no store carries both spellings.
+    assert_eq!(
+        offered(&["-s", "read-only", "--sandbox", "workspace-write", "-m", "a"]).err(),
+        Some(hand_run_repeat_refusal(7, "--sandbox"))
+    );
+}
+
+/// Make the Codex shim and return its argv record path and executable path.
+fn codex_argv_shim(dir: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let argv = dir.join("argv");
+    let shim = codex_shim(dir, "codex", &argv);
+    (argv, shim)
+}
+
+#[test]
+fn a_hand_run_codex_refuses_every_model_repeat_before_launch() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let (argv, shim) = codex_argv_shim(dir.path());
+    let workdir = dir.path().to_str().unwrap();
+    let input = json!({"workdir": workdir});
+    with_codex_bin(&mut env, &shim, || {
+        let launch = |extra: &[&str]| {
+            invoke(
+                AdapterKind::Codex,
+                &strings(extra),
+                "prompt",
+                &input,
+                None,
+                &[],
+                &mut |_| {},
+            )
+        };
+        for (extra, at) in [
+            (&["-m", "a", "--model", "b"][..], 7),
+            (&["--model", "a", "-m", "b"], 7),
+            (&["-m", "a", "-m", "b"], 7),
+            (&["--model=a", "-mb"], 6),
+        ] {
+            let result = launch(extra);
+            assert_eq!(recorded(&argv), Vec::<String>::new(), "{extra:?}");
+            assert_eq!(
+                result.err(),
+                Some(hand_run_repeat_refusal(at, "--model")),
+                "{extra:?}"
+            );
+        }
+        assert_eq!(launch(&["-m", "a"]).unwrap().exit_code, 0);
+        assert_eq!(
+            recorded(&argv),
+            ["exec", "--json", "-C", workdir, "-m", "a"]
+        );
+    });
 }
 
 /// 45.5: the compile-time reading, [`codex_command`], is the composition

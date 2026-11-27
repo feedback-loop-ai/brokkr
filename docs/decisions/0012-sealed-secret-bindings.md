@@ -160,6 +160,13 @@ indeterminate the lawful end settles it with.
 A gate that moved HEAD names its stderr evidence after the packed moved-head
 marker, and a reader older than #1248 item 5 refuses a reason with that suffix.
 
+**2026-11-26 (#1353).** A Codex driver run by hand has its final command
+read whole under the Codex grammar before launch, so a repeated
+`--model` / `-m` refuses there too. Judging the class and the origin of
+each contribution still takes a sealed launch. An exec seat's command
+is the recipe author's own argv, which no harness grammar judges, even
+when it runs Codex.
+
 **2026-11-21, pointer (#1242; accepted 2026-11-23).** How a built-in fold reads a stream row that layer 5 masks, its structure raw and its text masked, is decided in [0114](0114-a-fold-reads-a-rows-structure-as-written-and-its-text-masked.md).
 
 ## Addendum — 2026-11-21, accepted under the operator's standing ruling of 2026-11-04: the union of every occurrence is masked (#1213)

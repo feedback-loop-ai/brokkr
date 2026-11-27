@@ -886,7 +886,9 @@ If your driver does not need a protocol implementation at all — you just
 want to run a command and have it honor the result-file contract — the
 built-in `exec` adapter already speaks `forge-driver/v1` on your behalf:
 `["{brokkr}", "driver", "exec", "--", "bash", "./my-script.sh",
-"{prompt_file}"]`. Dialect-owned validate and check sites use the same boxed
+"{prompt_file}"]`. The exec command is the recipe author's own argv,
+which no harness grammar judges, even when it runs Codex.
+Dialect-owned validate and check sites use the same boxed
 exec path, with their argv supplied by the realm's pinned dialect — and,
 because that argv is the dialect's tool rather than the bundle's own
 script, they compile under a boxed boundary only until a decision admits
