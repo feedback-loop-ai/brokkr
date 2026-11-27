@@ -481,11 +481,7 @@ pub(super) fn drive(
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
-    let ended = match mode.offered {
-        true => Err(Ended::Launch(LaunchError::Resumed)),
-        false => turn(pinned, mode.probe, prompt, input, bindings, emit),
-    };
-    ended.map_err(|ended| rendered(&ended, bindings))
+    turn(pinned, mode, (prompt, input, bindings), emit).map_err(|ended| rendered(&ended, bindings))
 }
 
 /// How a seat `ended`, in its words, masked once through `bindings`: the
@@ -496,16 +492,17 @@ fn rendered(ended: &Ended, bindings: &[secret::BoundSecret]) -> String {
 
 /// The seat's composed arguments, the launch [`prepared`] from them under
 /// the driver's own temporary root, HOME and executable, and its turn,
-/// before the one mask. A seat that binds a name of [`OWNED`] is refused
-/// by the name, before anything else. Every launch is admitted cold.
+/// before the one mask. A seat offered a resume or binding a name of
+/// [`OWNED`] is refused before anything else. Every launch is admitted cold.
 fn turn(
     pinned: super::Pinned<'_>,
-    probe: bool,
-    prompt: &str,
-    input: &Value,
-    bindings: &[secret::BoundSecret],
+    mode: StartMode,
+    (prompt, input, bindings): (&str, &Value, &[secret::BoundSecret]),
     emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, Ended> {
+    if mode.offered {
+        return Err(Ended::Launch(LaunchError::Resumed));
+    }
     let bound = |name: &&str| bindings.iter().any(|binding| binding.name() == *name);
     if let Some(name) = OWNED.into_iter().find(bound) {
         return Err(LaunchError::Owned(name).into());
@@ -519,7 +516,7 @@ fn turn(
     let brokkr = mcp::engine_executable();
     // The HOME lives until the turn ends.
     let prepared = prepared(pinned.binary, &composed.extra, input, homes, &brokkr)?;
-    invoke(&prepared, probe, input, prompt, bindings, emit)
+    invoke(&prepared, mode.probe, input, prompt, bindings, emit)
 }
 
 /// What one launch runs with: the engine's HOME, the launch, and the

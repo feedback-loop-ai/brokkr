@@ -128,9 +128,6 @@ impl Kept {
     }
 }
 
-/// Why an agy turn's transcript was not kept. Reported as a notice while
-/// leaving the turn's own outcome unchanged, and never echoing any id,
-/// path or content the seat chose (#1227).
 /// Shared failures while validating or acquiring the operator's
 /// `agy-conversations` parent directory, used by both transcript and rejoin
 /// keeping (#1227, decision 0071 ruling 5).
@@ -180,46 +177,22 @@ pub(super) fn classify_source_file_errno(errno: Errno) -> SourceErrno {
     }
 }
 
-impl From<ParentError> for KeepNotice {
-    fn from(err: ParentError) -> Self {
-        match err {
-            ParentError::NoOperatorHome => Self::NoOperatorHome,
-            ParentError::InvalidReference => Self::InvalidReference,
-            ParentError::NonUtf8Home => Self::NonUtf8Home,
-            ParentError::UnownedParent => Self::UnownedParent,
-            ParentError::ParentIo(kind) => Self::ParentIo(kind),
-            ParentError::ReplacedDirectory => Self::ReplacedDirectory,
-        }
-    }
-}
-
+/// Why an agy turn's transcript was not kept. Reported as a notice while
+/// leaving the turn's own outcome unchanged, and never echoing any id,
+/// path or content the seat chose (#1227).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(super) enum KeepNotice {
     #[error("agy transcript not kept: turn refused to start and recorded no transcript")]
     RefusedToStart,
     #[error("agy transcript not kept: init's conversation id is not a lowercase UUID")]
     InvalidId,
-    #[error("agy transcript not kept: the operator has no HOME to keep it under")]
-    NoOperatorHome,
-    #[error(
-        "agy transcript not kept: the transcript reference does not pass the run view's \
-         reference rule"
-    )]
-    InvalidReference,
-    #[error("agy transcript not kept: the kept-conversations directory path is not UTF-8")]
-    NonUtf8Home,
+    #[error("agy transcript not kept: {0}")]
+    Parent(#[from] ParentError),
     #[error(
         "agy transcript not kept: masking the turn's secret bindings would rewrite the transcript \
          row"
     )]
     ReferenceMasked,
-    #[error(
-        "agy transcript not kept: the kept-conversations parent is not an owner-only directory \
-         of this user's"
-    )]
-    UnownedParent,
-    #[error("agy transcript not kept: could not prepare the kept-conversations parent: {}", io::Error::from(*.0))]
-    ParentIo(io::ErrorKind),
     #[error("agy transcript not kept: transcript file is absent")]
     Absent,
     #[error(
@@ -231,11 +204,6 @@ pub(super) enum KeepNotice {
     TooLarge(u64),
     #[error("agy transcript not kept: a kept directory for this conversation already exists")]
     AlreadyKept,
-    #[error(
-        "agy transcript not kept: a newly created kept directory was replaced before it could be \
-         opened"
-    )]
-    ReplacedDirectory,
     #[error("agy transcript not kept: could not copy the transcript: {}", io::Error::from(*.0))]
     Io(io::ErrorKind),
 }
@@ -444,7 +412,7 @@ pub(super) fn unlink_if_same(
 /// through `fstat` that the opened handle has the same `(st_dev, st_ino)` as
 /// `created_stat` (#1227 Q2), and remove the created entry through
 /// `unlink_if_same` if opening fails (#1227 K2). If the entry was replaced
-/// before the open, returns [`KeepNotice::ReplacedDirectory`] without touching
+/// before the open, returns `replaced` (e.g. [`ParentError::ReplacedDirectory`]) without touching
 /// the replacement.
 pub(super) fn open_created_dir<E: Clone>(
     parent_fd: BorrowedFd<'_>,
@@ -591,7 +559,7 @@ impl<'a> ConvGuard<'a> {
             parent_fd.as_fd(),
             OsStr::new(id),
             &created_stat,
-            KeepNotice::ReplacedDirectory,
+            KeepNotice::Parent(ParentError::ReplacedDirectory),
             io_errno,
         )?;
         let guard = Self {

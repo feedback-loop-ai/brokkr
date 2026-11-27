@@ -6,9 +6,10 @@
 use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
+use super::super::keep::ParentError as Pe;
+use super::super::keep::{keep, keep_with_cap, owned_parent_with, ConvGuard, KeepNotice};
 use super::judged::{bound, driven_with};
 use super::*;
-use crate::adapters::agy::keep::{keep, keep_with_cap, owned_parent_with, ConvGuard, KeepNotice};
 use crate::transcript::driver_kind;
 use brokkr_core::seat::is_agy_uuid;
 
@@ -201,7 +202,7 @@ fn non_regular_leaf_and_non_private_parent_and_oversized_source_are_refused() {
     std::fs::set_permissions(&parent3, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(
         keep(UUID, &engine3, Some(&op3), &[]),
-        Err(KeepNotice::UnownedParent)
+        Err(KeepNotice::Parent(Pe::UnownedParent))
     );
 }
 
@@ -743,7 +744,7 @@ fn masked_reference_keeps_nothing_and_records_none() {
 
 /// #1227 Y3: any operator HOME rejected by the shared run-view home rule
 /// (relative path, or an absolute path containing a newline) keeps nothing,
-/// records `none`, and emits `KeepNotice::InvalidReference`.
+/// records `none`, and emits `KeepNotice::Parent(Pe::InvalidReference)`.
 #[test]
 fn home_rejected_by_reader_rule_keeps_nothing_and_records_none() {
     let stdout = clean_turn_stdout();
@@ -784,7 +785,7 @@ fn home_rejected_by_reader_rule_keeps_nothing_and_records_none() {
             .expect("rejected HOME turn still completes");
         assert_eq!(
             inv.stderr,
-            format!("{}\n", KeepNotice::InvalidReference),
+            format!("{}\n", KeepNotice::Parent(Pe::InvalidReference)),
             "{label}"
         );
         assert!(!kept.exists(), "{label}");
@@ -796,14 +797,14 @@ fn home_rejected_by_reader_rule_keeps_nothing_and_records_none() {
 /// rejected as a host-relative path by transcript discovery on Linux/macOS
 /// (`is_native_transcript_home`). The keeper applies the same native-home check
 /// before touching disk, keeps nothing, records `none`, and emits
-/// `KeepNotice::InvalidReference`.
+/// `KeepNotice::Parent(Pe::InvalidReference)`.
 #[test]
 fn foreign_drive_and_unc_homes_keep_nothing_and_record_none() {
     let dir = tempfile::tempdir().unwrap();
     let engine_home = dir.path().join("engine");
     plant_transcript(&engine_home, UUID, sample_transcript().as_bytes());
     let conv = super::super::fold::Conversation::Named(UUID.to_string());
-
+    let invalid = KeepNotice::Parent(Pe::InvalidReference);
     for (label, foreign_home, top_entry) in [
         (
             "drive-backslash",
@@ -820,8 +821,7 @@ fn foreign_drive_and_unc_homes_keep_nothing_and_record_none() {
         let home_path = Path::new(foreign_home);
         assert_eq!(
             keep(UUID, &engine_home, Some(home_path), &[]),
-            Err(KeepNotice::InvalidReference),
-            "{label}: direct keep must reject non-native HOME"
+            Err(invalid.clone())
         );
         let kept_file = home_path
             .join(".local/state/brokkr/agy-conversations")
@@ -831,7 +831,6 @@ fn foreign_drive_and_unc_homes_keep_nothing_and_record_none() {
             !kept_file.exists() && !Path::new(top_entry).exists(),
             "{label}: rejected non-native HOME must create no host-relative path"
         );
-
         use super::super::keep::TranscriptOutcome::NotKept;
         let (mut meta, mut emitted) = (serde_json::Map::new(), Vec::new());
         let out = super::super::keep::publish_transcript(
@@ -847,7 +846,7 @@ fn foreign_drive_and_unc_homes_keep_nothing_and_record_none() {
             &mut meta,
             &mut |row| emitted.push(row.row.clone()),
         );
-        assert_eq!(out, NotKept(Some(KeepNotice::InvalidReference)), "{label}");
+        assert_eq!(out, NotKept(Some(invalid.clone())), "{label}");
         let expected_none = json!({"kind": "none", "locator": "", "home": ""});
         assert_eq!(meta.get("transcript"), Some(&expected_none), "{label}");
         assert!(
@@ -1339,14 +1338,14 @@ fn owned_parent_guard_drop_and_copy_bounded_error_paths_bind() {
 
     assert_eq!(
         super::super::keep::owned_parent(Path::new("/")).unwrap_err(),
-        KeepNotice::UnownedParent
+        KeepNotice::Parent(Pe::UnownedParent)
     );
 
     let file_ancestor = dir.path().join("file-ancestor");
     std::fs::write(&file_ancestor, b"x").unwrap();
     assert!(matches!(
         super::super::keep::owned_parent(&file_ancestor.join("sub/parent")),
-        Err(KeepNotice::ParentIo(_))
+        Err(KeepNotice::Parent(Pe::ParentIo(_)))
     ));
 
     let ro_ancestor = dir.path().join("ro-ancestor");
@@ -1356,21 +1355,21 @@ fn owned_parent_guard_drop_and_copy_bounded_error_paths_bind() {
     std::fs::set_permissions(&ro_ancestor, std::fs::Permissions::from_mode(0o700)).unwrap();
     assert_eq!(
         create_err.unwrap_err(),
-        KeepNotice::ParentIo(ErrorKind::PermissionDenied)
+        KeepNotice::Parent(Pe::ParentIo(ErrorKind::PermissionDenied))
     );
 
     let link_parent = dir.path().join("link-parent");
     std::os::unix::fs::symlink(&op, &link_parent).unwrap();
     assert_eq!(
         super::super::keep::owned_parent(&link_parent).unwrap_err(),
-        KeepNotice::UnownedParent
+        KeepNotice::Parent(Pe::UnownedParent)
     );
 
     let file_parent = dir.path().join("file-parent");
     std::fs::write(&file_parent, b"x").unwrap();
     assert_eq!(
         super::super::keep::owned_parent(&file_parent).unwrap_err(),
-        KeepNotice::UnownedParent
+        KeepNotice::Parent(Pe::UnownedParent)
     );
 
     let locked_parent = dir.path().join("locked-parent");
@@ -1380,7 +1379,7 @@ fn owned_parent_guard_drop_and_copy_bounded_error_paths_bind() {
     std::fs::set_permissions(&locked_parent, std::fs::Permissions::from_mode(0o700)).unwrap();
     assert_eq!(
         open_err.unwrap_err(),
-        KeepNotice::ParentIo(ErrorKind::PermissionDenied)
+        KeepNotice::Parent(Pe::ParentIo(ErrorKind::PermissionDenied))
     );
 
     let uid = rustix::process::geteuid().as_raw();
@@ -1650,7 +1649,7 @@ fn conv_guard_refuses_replaced_directory_without_touching_it() {
         noop_conv,
     );
     let notice = err.err().expect("swapped directory must be refused");
-    assert_eq!(notice, KeepNotice::ReplacedDirectory);
+    assert_eq!(notice, KeepNotice::Parent(Pe::ReplacedDirectory));
     assert_eq!(
         notice.to_string(),
         "agy transcript not kept: a newly created kept directory was replaced before it could be opened"
@@ -1692,7 +1691,7 @@ fn conv_guard_refuses_symlink_swap_without_changing_target_mode() {
         },
         noop_conv,
     );
-    assert_eq!(err.err(), Some(KeepNotice::ReplacedDirectory));
+    assert_eq!(err.err(), Some(KeepNotice::Parent(Pe::ReplacedDirectory)));
     assert_eq!(
         dir_mode(&outside_dir),
         0o755,
@@ -1720,7 +1719,8 @@ fn conv_guard_refuses_symlink_swap_without_changing_target_mode() {
         },
         noop_conv,
     );
-    assert_eq!(err_same.err(), Some(KeepNotice::ReplacedDirectory));
+    let replaced = KeepNotice::Parent(Pe::ReplacedDirectory);
+    assert_eq!(err_same.err(), Some(replaced));
     assert_eq!(
         dir_mode(&same_inode_moved),
         0o755,
@@ -1741,7 +1741,7 @@ fn owned_parent_refuses_replaced_created_parent_without_touching_it() {
     let moved = brokkr_dir.join("moved-parent");
 
     let err = owned_parent_with(&parent, || swap_for_dir(&parent, &moved, 0o755), || {});
-    assert_eq!(err.err(), Some(KeepNotice::ReplacedDirectory));
+    assert_eq!(err.err(), Some(KeepNotice::Parent(Pe::ReplacedDirectory)));
     assert!(parent.is_dir(), "replacement parent must not be unlinked");
     assert_eq!(
         dir_mode(&parent),
@@ -1864,7 +1864,7 @@ fn verify_keep_under_restrictive_umask(mask: rustix::fs::RawMode) {
     .unwrap_err();
     assert_eq!(
         parent_err,
-        KeepNotice::ParentIo(ErrorKind::PermissionDenied),
+        KeepNotice::Parent(Pe::ParentIo(ErrorKind::PermissionDenied)),
         "missing agy-conversations under umask {mask:04o}"
     );
     assert!(

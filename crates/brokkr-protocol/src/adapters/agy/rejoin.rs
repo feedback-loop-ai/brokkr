@@ -258,57 +258,52 @@ pub(super) fn keep_rejoin_with(
     }
     let parent_path = keep::resolve_parent_path(operator_home)?;
     let db_name = format!("{conversation_id}.db");
-    let conv_name = OsStr::new(conversation_id);
-    let src = open_rejoin_source(engine_home, conv_name, OsStr::new(&db_name), on_point)?;
+    let (conv_name, db_os) = (OsStr::new(conversation_id), OsStr::new(&db_name));
+    let src = open_rejoin_source(engine_home, conv_name, db_os, on_point)?;
     let mut guard = RejoinRollback::begin(keep::owned_parent_raw(&parent_path)?);
     let mut state = CopyState::new(caps, bindings, on_point);
-    let recorded_brain = {
-        let (conv_fd, conv_node) = match conv_exists {
-            true => guard.open_existing_root_dir(conv_name)?,
-            false => guard.create_root_dir_with(conv_name, || {})?,
-        };
-        let (rejoin_fd, rejoin_node) =
-            guard.create_dir(conv_fd.as_fd(), conv_node, OsStr::new(REJOIN_DIR))?;
-        let dest = |fd, node| DestDir { fd, node, depth: 0 };
-        state.charge_entry()?;
-        let db = (src.db_fd, OsStr::new(&db_name), &src.db_stat);
-        let rejoin_dest = dest(rejoin_fd.as_fd(), rejoin_node);
-        copy_opened_file(
-            db,
-            rejoin_dest,
-            OsStr::new(REJOIN_DB_FILE),
-            &mut guard,
-            &mut state,
-        )?;
-        state.charge_entry()?;
-        let (brain_fd, brain_node) =
-            guard.create_dir(rejoin_fd.as_fd(), rejoin_node, OsStr::new(REJOIN_BRAIN_DIR))?;
-        let brain_dest = dest(brain_fd.as_fd(), brain_node);
-        copy_brain_dir(
-            src.brain_dir,
-            src.brain_stat,
-            brain_dest,
-            &mut guard,
-            &mut state,
-        )?
-    };
+    let tree = copy_rejoin_tree(
+        (conv_name, db_os),
+        conv_exists,
+        (src.db_fd, &src.db_stat, src.brain_dir, src.brain_stat),
+        &mut guard,
+        &mut state,
+    )?;
     (state.on_point)(CopyPoint::FinalVerify);
-    if !same_stamp_at(
-        src.conversations_dir.as_fd(),
-        OsStr::new(&db_name),
-        &src.db_stat,
-        state.on_point,
-    ) {
+    let convs = src.conversations_dir.as_fd();
+    if !same_stamp_at(convs, db_os, &src.db_stat, state.on_point) {
         return Err(RejoinNotice::ChangedUnderfoot);
     }
-    verify_dir_tree(
-        src.brain_root.as_fd(),
-        conv_name,
-        &recorded_brain,
-        state.on_point,
-    )?;
+    verify_dir_tree(src.brain_root.as_fd(), conv_name, &tree, state.on_point)?;
     guard.armed = false;
     Ok(())
+}
+
+fn copy_rejoin_tree(
+    (conv_name, db_name): (&OsStr, &OsStr),
+    conv_exists: bool,
+    (db_fd, db_stat, brain_dir, brain_stat): (OwnedFd, &Stat, OwnedFd, Stat),
+    guard: &mut RejoinRollback,
+    state: &mut CopyState<'_>,
+) -> Result<RecordedDir, RejoinNotice> {
+    let (conv_fd, conv_node) = match conv_exists {
+        true => guard.open_existing_root_dir(conv_name)?,
+        false => guard.create_root_dir_with(conv_name, || {})?,
+    };
+    let (rejoin_fd, rejoin_node) =
+        guard.create_dir(conv_fd.as_fd(), conv_node, OsStr::new(REJOIN_DIR))?;
+    let dest = |fd, node| DestDir { fd, node, depth: 0 };
+    state.charge_entry()?;
+    let (rdest, db_dst) = (
+        dest(rejoin_fd.as_fd(), rejoin_node),
+        OsStr::new(REJOIN_DB_FILE),
+    );
+    copy_opened_file((db_fd, db_name, db_stat), rdest, db_dst, guard, state)?;
+    state.charge_entry()?;
+    let (brain_fd, brain_node) =
+        guard.create_dir(rejoin_fd.as_fd(), rejoin_node, OsStr::new(REJOIN_BRAIN_DIR))?;
+    let bdest = dest(brain_fd.as_fd(), brain_node);
+    copy_brain_dir(brain_dir, brain_stat, bdest, guard, state)
 }
 
 struct RejoinSource {

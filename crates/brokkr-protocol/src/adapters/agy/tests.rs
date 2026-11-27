@@ -1652,12 +1652,23 @@ pub(super) fn drive_flash(
     input: &Value,
     bindings: &[secret::BoundSecret],
 ) -> Result<Invocation, String> {
+    drive_flash_ended(bin, mode, input, bindings, &mut |_| {})
+        .map_err(|ended| rendered(&ended, bindings))
+}
+
+pub(super) fn drive_flash_ended(
+    bin: &Path,
+    mode: StartMode,
+    input: &Value,
+    bindings: &[secret::BoundSecret],
+    emit: &mut impl FnMut(&Emitted),
+) -> Result<Invocation, Ended> {
     let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", FLASH]));
     let pinned = super::super::Pinned {
         binary: &binary,
         extra: &extra,
     };
-    drive(pinned, mode, "prompt", input, bindings, &mut |_| {})
+    turn(pinned, mode, ("prompt", input, bindings), emit)
 }
 
 fn bound_turn(stdout: &str, delivers: bool, code: i32) -> (Result<Invocation, String>, String) {

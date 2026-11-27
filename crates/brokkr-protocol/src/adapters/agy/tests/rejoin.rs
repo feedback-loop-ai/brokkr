@@ -693,7 +693,7 @@ fn parent_errors_and_notice_display_bind() {
     );
     assert_eq!(
         agy_keep::keep(UUID, &engine, None, &[]),
-        Err(KeepNotice::NoOperatorHome)
+        Err(KeepNotice::Parent(ParentError::NoOperatorHome))
     );
     assert_eq!(
         keep_rejoin(
@@ -720,7 +720,7 @@ fn parent_errors_and_notice_display_bind() {
     );
     assert_eq!(
         agy_keep::keep(UUID, &engine, Some(non_utf8_home), &[]),
-        Err(KeepNotice::NonUtf8Home)
+        Err(KeepNotice::Parent(ParentError::NonUtf8Home))
     );
 
     let wide_parent_op = dir.path().join("op-wide-parent");
@@ -937,7 +937,11 @@ fn version_observer_and_refused_to_start_bind() {
     );
     assert_eq!(
         observed_version_in(
-            &ver_cmd(make_v("fail", "exit 1").to_str().unwrap()),
+            &ver_cmd(
+                make_v("fail", "printf '1.5.14\n'; exit 1")
+                    .to_str()
+                    .unwrap()
+            ),
             wd,
             &owned
         ),
@@ -1079,8 +1083,8 @@ fn work_turn_handles_bound_secret_version_failure_and_masked_root_session() {
     );
     drop(w1);
 
-    // agy --version fails -> no root_session, no rejoin, transcript kept.
-    let (w2, _, m2) = run_declared_work(("", 1), Some(b"db"), None, &stdout);
+    // agy --version fails even when printing a valid version -> no root_session, no rejoin, transcript kept.
+    let (w2, _, m2) = run_declared_work(("1.5.14\n", 1), Some(b"db"), None, &stdout);
     assert!(conv_dir(w2.operator_home(), UUID)
         .join("transcript.jsonl")
         .exists());
@@ -1116,7 +1120,7 @@ fn offered_session_refused_before_spawn_and_non_keeping_seats_emit_no_root_sessi
         std::fs::set_permissions(&spy, std::fs::Permissions::from_mode(0o755)).unwrap();
         world.set(&spy);
         let input = declared_work_input(&world);
-        let err = super::drive_flash(
+        let err = super::drive_flash_ended(
             &spy,
             StartMode {
                 offered: true,
@@ -1124,10 +1128,14 @@ fn offered_session_refused_before_spawn_and_non_keeping_seats_emit_no_root_sessi
             },
             &input,
             &[],
+            &mut |_| {},
         )
         .err()
         .expect("offered session refused");
-        assert_eq!(err, LaunchError::Resumed.to_string());
+        assert!(
+            matches!(err, super::super::Ended::Launch(LaunchError::Resumed)),
+            "expected LaunchError::Resumed, got {err:?}"
+        );
         assert!(!marker.exists(), "offered session must spawn no process");
     }
 
@@ -1152,11 +1160,12 @@ fn offered_session_refused_before_spawn_and_non_keeping_seats_emit_no_root_sessi
         assert_no_root_session(&msgs);
     }
 
-    // R5: probe keeps nothing and emits no notice.
+    // R5: probe skips --version, keeps nothing, and emits no root_session or notice.
     {
         let mut world = World::new();
+        let seat_dir = world.seat();
         let bin = write_rejoin_fake_agy(
-            &world.seat(),
+            &seat_dir,
             ("1.5.14\n", 0),
             UUID,
             Some(b"db"),
@@ -1165,7 +1174,8 @@ fn offered_session_refused_before_spawn_and_non_keeping_seats_emit_no_root_sessi
         );
         world.set(&bin);
         let input = declared_work_input(&world);
-        let inv = super::drive_flash(
+        let mut emitted = Vec::new();
+        let inv = super::drive_flash_ended(
             &bin,
             StartMode {
                 offered: false,
@@ -1173,9 +1183,18 @@ fn offered_session_refused_before_spawn_and_non_keeping_seats_emit_no_root_sessi
             },
             &input,
             &[],
+            &mut |e| emitted.push(e.row.clone()),
         )
         .expect("probe succeeds");
         assert_eq!(inv.stderr, "");
+        assert!(
+            !seat_dir.join("version.env").exists(),
+            "probe must not spawn --version"
+        );
+        assert!(
+            emitted.iter().all(|row| row.get("root_session").is_none()),
+            "probe must emit no root_session: {emitted:?}"
+        );
         assert!(!conv_dir(world.operator_home(), UUID).exists());
     }
 }
@@ -1216,15 +1235,20 @@ fn bad_or_absent_conversation_id_and_invalid_declared_root_kind_bind() {
     world.set(&bin);
     let mut bad_input = world.input(None);
     bad_input["resume_context"] = json!({"declared_root_session_kind": "none"});
-    let launch_err = super::drive_flash(&bin, StartMode::default(), &bad_input, &[])
-        .err()
-        .expect("bad declared_root_session_kind refused");
-    assert_eq!(
-        launch_err,
-        LaunchError::DeclaredRootSessionKind(invalid_root).to_string()
+    let launch_err =
+        super::drive_flash_ended(&bin, StartMode::default(), &bad_input, &[], &mut |_| {})
+            .err()
+            .expect("bad declared_root_session_kind refused");
+    assert!(
+        matches!(
+            launch_err,
+            super::super::Ended::Launch(LaunchError::DeclaredRootSessionKind(k))
+                if k == invalid_root
+        ),
+        "expected LaunchError::DeclaredRootSessionKind, got {launch_err:?}"
     );
     assert_eq!(
-        launch_err,
+        launch_err.to_string(),
         "refusing to invoke the agent CLI: resume_context.declared_root_session_kind is not a valid declared root session kind"
     );
     assert!(world.homes_gone());
@@ -1246,12 +1270,15 @@ fn empty_brain_is_refused_and_rolled_back() {
 fn expect_configured_refusal(world: &mut World, bin: &Path, expected_path: &Path) {
     world.set(bin);
     let input = declared_work_input(world);
-    let err = super::drive_flash(bin, StartMode::default(), &input, &[])
+    let err = super::drive_flash_ended(bin, StartMode::default(), &input, &[], &mut |_| {})
         .err()
         .expect("workspace config must refuse launch");
-    assert_eq!(
-        err,
-        LaunchError::Configured(expected_path.to_path_buf()).to_string()
+    assert!(
+        matches!(
+            err,
+            super::super::Ended::Launch(LaunchError::Configured(ref path)) if path == expected_path
+        ),
+        "expected LaunchError::Configured({expected_path:?}), got {err:?}"
     );
     assert!(world.homes_gone());
 }
