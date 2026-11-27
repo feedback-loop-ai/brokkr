@@ -82,7 +82,7 @@ function design D6 places beside the DSH planner is their only producer.
 
 ## `brokkr-console/` — the operator console, authored here
 
-Decision 0085 (proposed) places it. Nothing upstream: every byte is this
+Decision 0085 places it. Nothing upstream: every byte is this
 repository's own, written for change
 `2026-10-13-568-operator-console-slice-one`, so no digest map stands here.
 Its `package.json` is `"private": true` and names no dependency; the operator
