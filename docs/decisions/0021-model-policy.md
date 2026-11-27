@@ -347,10 +347,11 @@ for one model, one seat and one house's library.
 **What the evidence does not show, and what this model is not.** The
 harder test ran once. The three recorded panels ran through Qoder, not
 through `dsh`. No run sat Qwen 4.0 Max as a fallback behind an exhausted
-Fable. Whether the chief runs were boxed is not established here: the
-comments on #1259 and #1278 could not be verified when this addendum was
-written, so this record does not claim whether those runs were boxed or
-what either issue records on that point. The eval's `dsh` run used an
+Fable. No boxed chief run of this model is on record: #1278 lists "no
+boxed run" among what was not measured, and #1259 records that in the
+eval "Qoder seats ran unboxed, because Qoder's boxed driver was still in
+review" without saying whether the harder chief test through `dsh` ran
+boxed. The eval's `dsh` run used an
 eval-only lift.
 
 And Qwen 4.0 Max is **not a finder**. In three review positions on three
@@ -368,8 +369,12 @@ review chief reads the whole change and the panel's notes, sending them
 over the `dashscope` route. On 2026-11-26 the operator accepted this for
 this seat in the operator's own lane library: "yes, it stands". Not
 granted here: the **binding grant** (secret-bearing seats, ruling 4 as
-amended by decision 0036 ruling 4) is still not granted; a seat that
-declares secret bindings is still refused on this route at compile time.
+amended by decision 0036 ruling 4) is not granted, and this addendum
+changes no bundle's `egress_minimum`: a seat that declares secret
+bindings is refused on this `uncontracted` route at compile time
+whenever its egress class falls below the bundle's `egress_minimum`
+(any minimum above `uncontracted`, including the default `contracted`
+minimum; an explicit `uncontracted` minimum is met).
 
 **The unboxed-judge exposure.** The agy addendum above accepts that an
 unboxed judge can edit the tree. In this tree, the house's chief agents
@@ -377,8 +382,11 @@ unboxed judge can edit the tree. In this tree, the house's chief agents
 engine's workspace hands with `network: false` (and `review-chief`
 declares `access: "read-only"`), so the unboxed-judge exposure does not
 apply in that unboxed form to a boxed chief seat with workspace hands,
-whereas it would apply if a `dsh` judge sat unboxed (`dsh` declares
-`tool_permissions: "unsupported"`, so its native tools would be on). For
+whereas if a `dsh` judge sat unboxed, what it could write would depend
+on the effective `dsh` profile (`adapters/dsh.json` declares
+`tool_permissions` `unsupported`: `dsh` disables a tool only as a whole
+profile row through the `--patch` overlay, so an agent's allowlist —
+`tools.allow` — cannot narrow those tools). For
 a boxed `dsh` seat with workspace hands, the `v0.16.0` release notes
 record what #1277 (#1364; proposed decision 0127) changed: previously,
 `dsh --dump-config` folded long JSON `--reach` and `--spec` values onto
