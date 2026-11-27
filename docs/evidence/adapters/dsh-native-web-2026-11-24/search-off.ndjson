@@ -1,0 +1,8 @@
+{"type":"session","sessionId":"session-dafb0314-2b6c-4438-9456-1bfd830b532d","cwd":"/var/tmp/cap-gates/dsh-web-measure/work"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"thinking","text":"The user asks to search the web with a web search tool. I don't have a web search tool in my available tools. Per instructions: reply exactly NO-SEARCH-TOOL. And do not try any other way."}
+{"type":"text","text":"NO-SEARCH-TOOL"}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":325,"outputTokens":53,"cacheReadTokens":4608,"cacheWriteTokens":0,"totalTokens":4986}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"type":"final","text":"NO-SEARCH-TOOL"}

@@ -104,6 +104,10 @@ const NATIVE_SCHEMA: &str = r##"{
       "properties": {
         "argv": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
         "default": {"$ref": "#/definitions/reason"},
+        "overlay": {"type": "object", "minProperties": 1, "maxProperties": 1,
+                    "additionalProperties": false,
+                    "properties": {"dsh-web-fetch": {"type": "boolean"},
+                                   "dsh-web-search": {"type": "boolean"}}},
         "selection": {"type": "object", "required": ["include", "allow", "deny"],
                       "additionalProperties": false,
                       "properties": {"include": {"$ref": "#/definitions/names"},
@@ -493,6 +497,8 @@ pub enum Disposition {
     Default(String),
     /// Contributions to the harness's own tool lists.
     Selection(ToolLists),
+    /// One measured key in the DSH launch overlay.
+    Overlay(launch::Overlay),
     /// Measured: it cannot be switched this way.
     Unsupported(String),
     /// Nobody has measured whether it can.
@@ -574,9 +580,10 @@ impl NativeCapability {
         match &self.off {
             Disposition::Unsupported(reason) => Denial::Impossible(reason),
             Disposition::Unmeasured(reason) => Denial::Unmeasured(reason),
-            Disposition::Argv(_) | Disposition::Default(_) | Disposition::Selection(_) => {
-                Denial::Delivered
-            }
+            Disposition::Argv(_)
+            | Disposition::Default(_)
+            | Disposition::Selection(_)
+            | Disposition::Overlay(_) => Denial::Delivered,
         }
     }
 }
@@ -683,10 +690,6 @@ impl NativeInventory {
     /// harness brokkr models no grammar for (`exec`, an opaque custom
     /// driver) has no final command the engine reads, so nothing is asked
     /// of it here. No refusal echoes a declared token.
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-    )]
     pub fn check_declared(&self, what: &str, harness: &str) -> Result<(), String> {
         use launch::grammar::{self, ListKind};
         let NativeInventory::Known { known, selection } = self else {
@@ -719,27 +722,11 @@ impl NativeInventory {
                 match disposition {
                     Disposition::Argv(argv) => declared_argv(harness, argv)
                         .map_err(|cause| format!("{what} key '{key}' {half} argv {cause}"))?,
-                    Disposition::Selection(lists) => {
-                        for (slot, entries) in [
-                            ("include", &lists.include),
-                            ("allow", &lists.allow),
-                            ("deny", &lists.deny),
-                        ] {
-                            for (index, entry) in entries.iter().enumerate() {
-                                let cause = match grammar::managed_patterns(entry) {
-                                    Ok(patterns) if patterns.len() == 1 => continue,
-                                    Ok(_) => {
-                                        "joins more than one pattern; a selection entry is one \
-                                         managed tool pattern"
-                                    }
-                                    Err(cause) => cause,
-                                };
-                                return Err(format!(
-                                    "{what} key '{key}' {half} selection '{slot}' entry {} {cause}",
-                                    index + 1
-                                ));
-                            }
-                        }
+                    Disposition::Selection(lists) => check_native_patterns(lists)
+                        .map_err(|cause| format!("{what} key '{key}' {half} {cause}"))?,
+                    Disposition::Overlay(control) => {
+                        check_native_overlay(harness, &native.capability, half == "ON", *control)
+                            .map_err(|cause| format!("{what} key '{key}' {half} {cause}"))?;
                     }
                     Disposition::Default(_)
                     | Disposition::Unsupported(_)
@@ -761,6 +748,55 @@ impl NativeInventory {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("overlay does not match the DSH capability and state it declares")]
+struct NativeOverlayMismatch;
+
+fn check_native_overlay(
+    harness: &str,
+    capability: &str,
+    enabled: bool,
+    control: launch::Overlay,
+) -> Result<(), NativeOverlayMismatch> {
+    if harness == "dsh" && control.capability() == capability && control.enabled() == enabled {
+        Ok(())
+    } else {
+        Err(NativeOverlayMismatch)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("selection '{slot}' entry {entry} {cause}")]
+struct NativePatternRefusal {
+    slot: &'static str,
+    entry: usize,
+    cause: &'static str,
+}
+
+fn check_native_patterns(lists: &ToolLists) -> Result<(), NativePatternRefusal> {
+    for (slot, entries) in [
+        ("include", &lists.include),
+        ("allow", &lists.allow),
+        ("deny", &lists.deny),
+    ] {
+        for (index, entry) in entries.iter().enumerate() {
+            let cause = match launch::grammar::managed_patterns(entry) {
+                Ok(patterns) if patterns.len() == 1 => continue,
+                Ok(_) => {
+                    "joins more than one pattern; a selection entry is one managed tool pattern"
+                }
+                Err(cause) => cause,
+            };
+            return Err(NativePatternRefusal {
+                slot,
+                entry: index + 1,
+                cause,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// One declared argv under its modelled harness's grammar: every token is
@@ -868,6 +904,7 @@ pub struct NativeContribution {
     pub denied: Vec<String>,
     pub argv: Vec<String>,
     pub selection: launch::Selection,
+    pub overlay: Vec<launch::Overlay>,
 }
 
 impl NativeContribution {
@@ -895,6 +932,7 @@ impl NativeContribution {
                 admits: expected.admits(),
                 argv: self.argv.clone(),
                 selection: self.selection.clone(),
+                overlay: self.overlay.clone(),
                 guards: Vec::new(),
                 provenance: launch::Provenance::default(),
             },
@@ -1197,7 +1235,9 @@ impl Authority {
             }
             // A whole-set switch cannot admit a proper subset: it would
             // enable a tool the realm excluded.
-            Disposition::Argv(_) | Disposition::Default(_) if tools.len() < native.tools.len() => {
+            Disposition::Argv(_) | Disposition::Default(_) | Disposition::Overlay(_)
+                if tools.len() < native.tools.len() =>
+            {
                 return Err(through(format!(
                     "provider '{provider}' switches native '{adapter_key}' on as a whole and \
                      cannot admit only [{}] of its tools [{}]",
@@ -1537,6 +1577,7 @@ impl Authority {
         // What the plan answers for, sealed BEFORE any control is rendered.
         let expected = attribution::expected(known, keys, held);
         let (mut argv, mut lists) = (Vec::new(), ToolLists::default());
+        let mut overlay = Vec::new();
         let (mut on, mut off) = (Vec::new(), Vec::new());
         for (key, native) in known {
             let holding = keys.get(key).map(|capability| &held[capability]);
@@ -1579,29 +1620,9 @@ impl Authority {
             };
             match (disposition, holding) {
                 (Disposition::Argv(switch), _) => argv.extend(switch.iter().cloned()),
-                (Disposition::Selection(selected), Some(holding)) => {
-                    let admitted = |names: &[String]| -> Vec<String> {
-                        names
-                            .iter()
-                            .filter(|tool| holding.tools.contains(tool))
-                            .cloned()
-                            .collect()
-                    };
-                    lists.include.extend(admitted(&selected.include));
-                    lists.allow.extend(admitted(&selected.allow));
-                    lists.deny.extend(selected.deny.iter().cloned());
-                    lists.deny.extend(
-                        native
-                            .tools
-                            .iter()
-                            .filter(|tool| !holding.tools.contains(tool))
-                            .cloned(),
-                    );
-                }
-                (Disposition::Selection(selected), None) => {
-                    lists.include.extend(selected.include.iter().cloned());
-                    lists.allow.extend(selected.allow.iter().cloned());
-                    lists.deny.extend(selected.deny.iter().cloned());
+                (Disposition::Overlay(control), _) => overlay.push(*control),
+                (Disposition::Selection(selected), holding) => {
+                    compose_native_lists(&mut lists, selected, native, holding);
                 }
                 // A measured default needs nothing written. The other two
                 // never reach this match: an ON that cannot be switched lost
@@ -1615,24 +1636,17 @@ impl Authority {
                 ) => {}
             }
             match holding {
-                // A holding's restriction is the empty one (design D11), so
-                // no transport argument is ever composed for it.
                 Some(_) => on.push(key.clone()),
-                // An unselected entry of a capability the seat holds through
-                // another entry loses the seat nothing: its reason is owed
-                // per capability, never per entry (review R2 of run
-                // 0065-rebuild-unit-21-see-the-uni-014db2ff).
-                None if held.contains_key(&native.capability) => off.push(key.clone()),
                 None => {
                     off.push(key.clone());
-                    let unasked = match self.context.grants.get(&native.capability) {
-                        Some(grant) if grant.reaches(who.office) => Unasked::Granted,
-                        _ => Unasked::Ungranted,
-                    };
-                    not_held.entry(native.capability.clone()).or_insert(format!(
-                        "provider '{provider}' has it natively, {}, and it is switched off",
-                        unasked.reason()
-                    ));
+                    note_native_off(
+                        provider,
+                        &native.capability,
+                        held,
+                        self.context.grants.get(&native.capability),
+                        who.office,
+                        not_held,
+                    );
                 }
             }
         }
@@ -1675,6 +1689,9 @@ impl Authority {
                 "value_flags": guard.value_flags,
             })).collect::<Vec<_>>(),
         });
+        if !overlay.is_empty() {
+            controls["overlay"] = json!(overlay);
+        }
         if let Some(flags) = selection {
             let list = |list: &ListFlag| json!({"flag": list.flag, "separator": list.separator});
             controls["selection"] = json!({
@@ -1695,6 +1712,7 @@ impl Authority {
             held: capabilities(&on).into_iter().map(str::to_string).collect(),
             denied: capabilities(&off).into_iter().map(str::to_string).collect(),
             argv,
+            overlay,
             selection: launch::Selection {
                 include: lists.include,
                 allow: lists.allow,
@@ -1717,6 +1735,59 @@ impl Authority {
             expected,
         })
     }
+}
+
+fn compose_native_lists(
+    lists: &mut ToolLists,
+    selected: &ToolLists,
+    native: &NativeCapability,
+    holding: Option<&Holding>,
+) {
+    let Some(holding) = holding else {
+        lists.include.extend(selected.include.iter().cloned());
+        lists.allow.extend(selected.allow.iter().cloned());
+        lists.deny.extend(selected.deny.iter().cloned());
+        return;
+    };
+    let admitted = |names: &[String]| {
+        names
+            .iter()
+            .filter(|tool| holding.tools.contains(tool))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    lists.include.extend(admitted(&selected.include));
+    lists.allow.extend(admitted(&selected.allow));
+    lists.deny.extend(selected.deny.iter().cloned());
+    lists.deny.extend(
+        native
+            .tools
+            .iter()
+            .filter(|tool| !holding.tools.contains(tool))
+            .cloned(),
+    );
+}
+
+fn note_native_off(
+    provider: &str,
+    capability: &str,
+    held: &BTreeMap<String, Holding>,
+    grant: Option<&CapabilityGrant>,
+    office: &str,
+    not_held: &mut BTreeMap<String, String>,
+) {
+    // A reason is owed per capability. A holding can use another adapter entry.
+    if held.contains_key(capability) {
+        return;
+    }
+    let unasked = match grant {
+        Some(grant) if grant.reaches(office) => Unasked::Granted,
+        _ => Unasked::Ungranted,
+    };
+    not_held.entry(capability.to_string()).or_insert(format!(
+        "provider '{provider}' has it natively, {}, and it is switched off",
+        unasked.reason()
+    ));
 }
 
 /// Compile admission (decision 0066 rulings 3 and 4): the plan one

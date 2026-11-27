@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-25, "accept 0126" (https://github.com/feedback-loop-ai/brokkr/issues/1329#issuecomment-7157859734)
 Date: 2026-11-24
 
-Built: unbuilt (#1329)
+Built: built
 Amends: 0065
 
 ## Context

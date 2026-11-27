@@ -18,7 +18,7 @@ const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The site `label`'s holdings: the Codex primary holds `web-search`
 /// through `codex-native-search`, whose one tool is `web_search`; the DSH
-/// fallback holds nothing and its inventory knows nothing.
+/// fallback holds neither native web tool.
 fn searching(label: &str) -> SiteCapabilities {
     holdings(label, json!({"web-search": "wants"}), None)
 }
@@ -281,14 +281,18 @@ fn replayed_session_history_is_no_new_use_and_a_restarted_codex_item_is_fresh() 
     assert_eq!(report.refused, None);
 }
 
-/// The DSH fallback serves the attempt: the search its primary holds is no
-/// holding of its own, and its inventory knows nothing, so the same call
-/// is ordinary.
+/// The DSH fallback denies search. The primary's holding cannot admit
+/// its call.
 #[test]
 fn a_fallback_never_borrows_its_primarys_holding() {
     let (journaled, report) = served(searching("work"), ("dsh", "flash"), &[search()]);
-    assert_eq!(journaled, [row("web_search")]);
-    assert_eq!(report.refused, None);
+    assert!(journaled.is_empty(), "{journaled:?}");
+    assert_eq!(
+        report.refused,
+        Some(AttemptOutcome::Failed {
+            error: "observed capability tool 'web_search' is not held by this attempt".into(),
+        }),
+    );
 }
 
 /// A known tool no holding admits fails the attempt in CC1's words; so does
@@ -508,15 +512,39 @@ fn an_mcp_holding_or_an_mcp_call_attributes_nothing() {
 
 /// Two panel members observe the same search: the Codex member's call is
 /// attributed to its own holding under a call id its member owns, and the
-/// DSH sibling's is ordinary.
+/// LaneTally sibling's is ordinary because its inventory is unmeasured.
 #[test]
 fn a_panel_member_is_attributed_by_its_own_holding_never_its_siblings() {
     let (_dir, mut engine, effect) = in_flight();
-    for name in ["searcher", "sibling"] {
-        let label = format!("work:{name}");
-        let site = engine.bundle.sites.entry(label.clone()).or_default();
-        site.capabilities = Some(searching(&label));
-    }
+    let searcher = "work:searcher";
+    engine
+        .bundle
+        .sites
+        .entry(searcher.into())
+        .or_default()
+        .capabilities = Some(searching(searcher));
+
+    let sibling = "work:sibling";
+    let authority = Authority::nothing("private", Path::new(""));
+    let asks = SiteAsks::of(sibling, None, None).unwrap();
+    let unmeasured = NativeInventory::Unmeasured("fixture inventory".into());
+    let outcome = authority
+        .resolve(
+            &asks,
+            &Serving {
+                provider: "lanetally",
+                harness: "lanetally",
+                model: Some("opus"),
+                ..crate::capabilities::tests::serving(&unmeasured)
+            },
+        )
+        .unwrap();
+    engine
+        .bundle
+        .sites
+        .entry(sibling.into())
+        .or_default()
+        .capabilities = Some(SiteCapabilities::unjudged(asks, vec![outcome]));
     let rows = [search()];
     let mut selection = Selection::new();
     selection.insert(
@@ -525,7 +553,7 @@ fn a_panel_member_is_attributed_by_its_own_holding_never_its_siblings() {
     );
     selection.insert(
         Some("sibling".into()),
-        streaming("dsh", "flash", &effect, &rows),
+        streaming("lanetally", "opus", &effect, &rows),
     );
     let sibling_site = "0".repeat(64);
     let plans = [("searcher", SITE), ("sibling", &sibling_site)];

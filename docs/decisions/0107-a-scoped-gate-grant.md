@@ -139,6 +139,13 @@ The conditions, all of them:
 
 **Residuals to name.** A harness compromised between measurements; a provider that changes the model behind the same concrete id; a route's profile base URL re-pointed at another endpoint; a grant that outlives its evidence; a box that is measured on one host and runs on another; a native capability the harness gains after its release was measured; and the read-only worktree bind 0098 ruling 3 still owes. The recommendation below names each and what this decision does and does not do about it.
 
+The references to dsh's unmeasured inventory above describe the
+2026-11-12 tree. The [2026-11-24 measurement](../evidence/adapters/dsh-native-web-2026-11-24.md)
+found separate `fetch` and `search` keys in `tool-web`; decision 0126
+declares them for work seats. The boxed hands rule still disables the
+whole row. The measurements required by this gate ruling remain tracked
+in #1052.
+
 ### (C) Adapter-wide trust for dsh
 
 Set `"trust_tier": "trusted"` on `adapters/dsh.json`, and add the model to `judges`. The gate passes.
@@ -407,7 +414,7 @@ A new top-level `gate_grants` list on the adapter, beside `routes` and `judges` 
 ]
 ```
 
-There is no `access` field: the grant has no access of its own, and the compile reads the hired office's declared `read-only` (0098 ruling 3). The example's release is the one 1052a measures; today the adapter measures only `0.2.1-rc.2`, so a `0.2.2-rc.1` grant is refused until 1052a writes that shape. The example is refused today for two further reasons that conditions 5 and 6 give: the read-only worktree bind is not built, and dsh's native inventory is unmeasured.
+There is no `access` field: the grant has no access of its own, and the compile reads the hired office's declared `read-only` (0098 ruling 3). The example's release is the one 1052a measures; today the adapter measures only `0.2.1-rc.2`, so a `0.2.2-rc.1` grant is refused until 1052a writes that shape. In the 2026-11-12 tree the example was also refused because the read-only worktree bind was unbuilt and dsh’s native inventory was unmeasured. Decision 0126 records the later native web measurement for the work seat.
 
 The typed shape, in a new `crates/brokkr-runtime/src/agents/load/gate_grant.rs`:
 
@@ -548,7 +555,7 @@ The former 0107a is split so that no slice admits a grant before its release pin
 - **What changes for a bundle that uses one:** the adapter's bytes and the bundle's identity move; the compile reads one more list and one more model fact; the driver reads one more carrier; the doctor prints one more section. A grant is visible in the manifest through the adapter digest, and its refusals name the condition.
 - **What does not change:** `trust_tier` and `judges` keep their meanings; 0036's egress map and classes; 0043's box and its hands-and-secrets refusal; 0046's boundary; 0065's capability grants; 0075's provisional tier and promotion road; the wire protocol. No contract version is minted. No adapter, recipe or realm is edited in this story.
 - **What it costs:** one more adapter list, one more compile path, one more run-start carrier, one more doctor readout, and one more thing for the operator to keep true. The grant's evidence is a point-in-time measurement, and the residual risks above are the price of admitting a model that the blanket tier would have admitted for the wrong reason.
-- **What is refused until its prerequisites land:** today's dsh adapter declares its native capabilities unmeasured (`adapters/dsh.json:157-158`), so `GrantNativeEgress` refuses every dsh grant until 1052a's measurement (or a later one) records the ON and OFF controls for its release and host; and the read-only worktree bind is not built, so `GrantWorktreeBind` refuses every grant until 0098 ruling 3 lands. Both are named in the slices, not left to the reader.
+- **What is refused until its prerequisites land:** `GrantNativeEgress` requires the ON and OFF controls measured on the gate's release and host (#1052). Decision 0126 records the 0.2.1-rc.2 web measurement for the work seat. Separately, the read-only worktree bind is not built, so `GrantWorktreeBind` refuses every grant until 0098 ruling 3 lands. Both are named in the slices, not left to the reader.
 
 ## Disclosure
 

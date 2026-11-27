@@ -156,7 +156,84 @@
     ]
   },
   "native_capabilities": {
-    "unmeasured": "dsh's tool_permissions and mcp declarations cover command-line narrowing, ambient MCP exclusion and engine-server carriage only, which does not establish that dsh has no native egress. U0 and U0c listed native web_fetch and web_search under an engine-only DSH_HOME, and the web_search row (web-search-deepseek) reads DEEPSEEK_API_KEY on every route family; no cell exercised either. dsh 0.2's web-deepseek-api row (the Search and Fetch APIs, billed from 2026-11-01) reads it too. No OFF control is measured: nothing is granted through dsh and no native denial is claimed (decision 0065 slice one; owed to the controller)"
+    "known": {
+      "web-fetch": {
+        "capability": "web-fetch",
+        "tools": [
+          "web_fetch"
+        ],
+        "on": {
+          "overlay": {
+            "dsh-web-fetch": true
+          }
+        },
+        "off": {
+          "overlay": {
+            "dsh-web-fetch": false
+          }
+        },
+        "restrictions": {
+          "unsupported": "The fetch key switches the whole tool and carries no URL restriction."
+        },
+        "evidence": {
+          "source": "docs/evidence/adapters/dsh-native-web-2026-11-24.md",
+          "scope": "dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled by no-shell.yml. Key-only compositions (2026-11-26), with every backend row enabled: keyoff-fetch and keyoff-search measure both OFF; keyfetch-search measures fetch ON and search OFF; keysearch-fetch measures search ON and fetch OFF. No key-only run called a tool.",
+          "limitations": [
+            "Children of subagent, subagent_fork and workflow are unmeasured.",
+            "Releases other than 0.2.1-rc.2 are unmeasured.",
+            "The shell can reach the web without a grant and is an operator-accepted residual (#1329, 'accept it as known risk for now').",
+            "Disabling backend rows does not control tool availability."
+          ]
+        },
+        "authored": {
+          "config_keys": [
+            "tool-web",
+            "web",
+            "web-fetch-http",
+            "web-search-deepseek",
+            "web-deepseek-api"
+          ]
+        }
+      },
+      "web-search": {
+        "capability": "web-search",
+        "tools": [
+          "web_search"
+        ],
+        "on": {
+          "overlay": {
+            "dsh-web-search": true
+          }
+        },
+        "off": {
+          "overlay": {
+            "dsh-web-search": false
+          }
+        },
+        "restrictions": {
+          "unsupported": "The search key switches the whole tool and carries no query restriction."
+        },
+        "evidence": {
+          "source": "docs/evidence/adapters/dsh-native-web-2026-11-24.md",
+          "scope": "dsh 0.2.1-rc.2, Linux, headless profile on deepseek-official/deepseek-flash; tool catalog and tool calls measured with the shell disabled by no-shell.yml. Key-only compositions (2026-11-26), with every backend row enabled: keyoff-fetch and keyoff-search measure both OFF; keyfetch-search measures fetch ON and search OFF; keysearch-fetch measures search ON and fetch OFF. No key-only run called a tool.",
+          "limitations": [
+            "Search by a child of subagent, subagent_fork or workflow was outside the measurement.",
+            "The search control was measured only on 0.2.1-rc.2.",
+            "The operator accepted that the shell can still reach the web without a grant (#1329, 'accept it as known risk for now').",
+            "Search stays in the catalog when backend rows are disabled and the search key is on."
+          ]
+        },
+        "authored": {
+          "config_keys": [
+            "tool-web",
+            "web",
+            "web-fetch-http",
+            "web-search-deepseek",
+            "web-deepseek-api"
+          ]
+        }
+      }
+    }
   },
   "hands": {
     "workspace": []

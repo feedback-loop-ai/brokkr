@@ -40,7 +40,7 @@ panel-review	…	7 phases	implement, intake, review[correctness+security], ship,
 preflight	…	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	project	recipes/preflight
 release	…	6 phases	implement, review, ship, verify	medium	Prepare a configured release: versions, commit-derived notes, documentation and organization-profile patches, followed by verification and review.	project	recipes/release
 research	…	4 phases	research, verify	low	Read articles and propose registry entries with cited classifications; the operator rules them.	project	recipes/research
-research-dsh	…	4 phases	research, verify	low	The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on.	project	recipes/research-dsh
+research-dsh	…	4 phases	researcher, verify	low	The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with the research office’s web requests.	project	recipes/research-dsh
 review-first	…	6 phases	implement, review, ship, verify	medium	An existing branch judged first: Sol reviews, the suite verifies, Muse remediates findings on return, and the run ships.	project	recipes/review-first
 self	…	7 phases	implement, intake, review, ship, verify	medium	Brokkr delivering itself (decision 0005): panel-review's table and crew with one reviewer in place of the panel.	project	recipes/self
 standby	…	6 phases	implement, review, ship, verify	medium	Fast's shape with every model seat on the other vendor at judge-grade effort, so delivery survives one account's exhausted limit.	project	recipes/standby
@@ -304,7 +304,7 @@ the adapter models: a power no typed declaration or grant expresses is
 never composed into the command, and a native power the adapter knows
 is switched off unless held. It is not a measurement of what the
 provider can reach on its own. A harness whose adapter declares its
-native capabilities `unmeasured` (dsh, lanetally and exec today) is
+native capabilities `unmeasured` (lanetally and exec today) is
 seated with no local restriction composed: the seat is told nothing is
 claimed about its native reach, and a typed `tools.allow` on it refuses
 at compile (ruling R5 of 2026-09-29). What each shipped adapter has

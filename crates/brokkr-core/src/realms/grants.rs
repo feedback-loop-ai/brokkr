@@ -72,6 +72,7 @@ impl From<&str> for GrantDialect {
 /// none; no `tools` admits the dialect's whole set and `[]` admits none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapabilityGrant {
+    /// The tool dialect that serves the capability, shared or selected by provider.
     pub dialect: GrantDialect,
     pub tools: Option<Vec<String>>,
     pub offices: Option<Vec<String>>,
@@ -274,7 +275,7 @@ fn parse_dialect(
         }
         return parse_provider_dialects(realm, capability, fields, names);
     }
-    if schema == SCHEMA_V9 && single.is_none() {
+    if !older_than(schema, SCHEMA_V9) && single.is_none() {
         return Err(GrantError::NoDialect {
             realm: realm.into(),
             capability: capability.into(),

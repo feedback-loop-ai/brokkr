@@ -1840,7 +1840,7 @@ fn two_links_sharing_a_provider_and_model_carry_equal_outcomes() {
     );
 }
 
-/// What ships: two abstract definitions, three provider-native dialects
+/// What ships: two abstract definitions, five provider-native dialects
 /// and nothing else — no MCP server, no general tool — each dialect bound
 /// to a native key its adapter really declares, with the same tools.
 #[test]
@@ -1873,7 +1873,9 @@ fn the_shipped_operator_data_is_native_only_and_agrees_with_the_adapters() {
         [
             "claude-native-fetch",
             "claude-native-search",
-            "codex-native-search"
+            "codex-native-search",
+            "dsh-native-fetch",
+            "dsh-native-search",
         ]
     );
     for name in &shipped {
@@ -1919,9 +1921,8 @@ fn the_shipped_operator_data_is_native_only_and_agrees_with_the_adapters() {
         .limitations
         .iter()
         .any(|gap| gap.contains("RESUMED")));
-    // DSH, LaneTally and exec keep their own uncertainty.
+    // LaneTally and exec keep their own uncertainty.
     for (provider, phrase) in [
-        ("dsh", "does not establish that dsh has no native egress"),
         (
             "lanetally",
             "Claude's declarations and evidence are not inherited",
@@ -1966,6 +1967,7 @@ fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
 mod attribution;
 pub(crate) mod binding;
 mod dialect_policy;
+mod dsh_overlay;
 mod fence;
 mod gate_class;
 pub(crate) mod manifest;

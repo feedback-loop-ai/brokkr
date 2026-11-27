@@ -60,6 +60,9 @@ mod contract_lifecycle;
 #[path = "../../../tests/support/dispatch.rs"]
 mod dispatch_fixture;
 #[cfg(test)]
+#[path = "../../../tests/support/dsh_adapter.rs"]
+mod dsh_adapter;
+#[cfg(test)]
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
 #[cfg(test)]

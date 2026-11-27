@@ -30,9 +30,9 @@ in one run, and the gate refuses an eleventh entry.
   a tool dialect in `realms.json` (decision 0065); otherwise the run
   proceeds without them, with a notice in the run manifest and in the
   seat's prompt. This repository's own `realms.json` grants both to the
-  `researcher` office alone, through Claude's native dialects
-  (`claude-native-fetch`, `claude-native-search`): read-only web access,
-  the operator's ruling of 2026-11-24. No other office holds either. The
+  `researcher` office alone. This lane holds `claude-native-fetch` and
+  `claude-native-search` under the operator's read-only web ruling of
+  2026-11-24. The
   charter is the configurable prompt, and editing it moves this recipe's
   witness digest.
 - **verify** (`roles/verify-seat.sh`, in Brokkr's box with no network
@@ -48,12 +48,13 @@ in one run, and the gate refuses an eleventh entry.
 
 ## The dsh lane
 
-`recipes/research-dsh` extends this recipe and seats the researcher
-inline on dsh, the way night-shift seats its implementer: the same
-charter bytes as a role file, `dashscope/qwen3.8-max`, and one
-overlay (`drivers/research-web.yml`) that names the Model Studio route,
-because dsh expresses no tool list. The weekly workflow runs that lane;
-the operator's skill runs this one.
+`recipes/research-dsh` extends this recipe and seats the `researcher`
+office inline on dsh with the same charter and `dashscope/qwen3.8-max`.
+The realm grants it `web-fetch` and `web-search` through
+`dsh-native-fetch` and `dsh-native-search`. The research-dsh seat can
+reach the web through the shell without any grant. The operator said
+“accept it as known risk for now” (#1329). The weekly workflow runs that
+lane. The operator's skill runs the Claude lane.
 
 ## What a run does not do
 
