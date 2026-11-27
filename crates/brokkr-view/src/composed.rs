@@ -26,13 +26,35 @@ use brokkr_core::seat::row::{facts, inner, live, Datum, Member, Outcome, SeatFac
 use brokkr_core::{EventEnvelope, EventType};
 use serde_json::Value;
 
+use crate::live::derived;
 use crate::participant::key_of;
 use crate::started::CarriedEntry;
 use crate::{
-    bucket, commands_of, dashboard, ensure, field, ids, journal_rows, live_line, page_rows,
-    scan_participants, supersedes, viewed, Build, Cooling, Participant, Read, RunView, Scan, Told,
-    WaitFact, Waits, CARRIED, FAILED, INDETERMINATE, SUCCEEDED, WORKING,
+    bucket, commands_of, dashboard, ensure, field, ids, journal_rows, live_line, live_lines,
+    page_rows, scan_participants, supersedes, viewed, Build, Participant, Read, RunView, Scan,
+    Told, Waits, CARRIED, FAILED, INDETERMINATE, SUCCEEDED, WORKING,
 };
+
+impl RunView {
+    /// The whole run view with the reader's resolved waits.
+    pub fn from_events(events: &[EventEnvelope], state: Option<&RunState>, waits: Waits) -> Self {
+        let applied = derived(events, state);
+        let applied = applied.as_slice();
+        let scan = scan_participants(applied);
+        let buckets = bucket(applied);
+        let marks = supersedes(applied);
+        let commands = commands_of(events);
+        let by_id = ids(events);
+        let cause = |id: &str| by_id.get(id).copied();
+        let read = Read {
+            live: live_lines(applied),
+            journal: journal_rows(events, &scan, &buckets, &marks, &commands, cause),
+            event_count: events.len(),
+            dashboard: dashboard(applied),
+        };
+        viewed(applied, &scan, &buckets, &marks, read, state, waits)
+    }
+}
 
 /// What one run's view is composed from, read at the head its opening
 /// verified (ruling 7).
@@ -49,8 +71,8 @@ pub struct Parts<'a> {
     pub head_seq: u64,
     /// The head's stamp.
     pub last_at: &'a str,
-    /// The aggregate the caller read, so a probe's later end is painted.
-    pub cooling: Vec<Cooling>,
+    /// The waits resolved at this read's head.
+    pub waits: &'a Waits,
 }
 
 /// The run view of the run `parts` read, `state` its fold at the head:
@@ -80,7 +102,7 @@ pub fn composed_whole(
     journal: &[EventEnvelope],
     last_at: &str,
     state: Option<&RunState>,
-    cooling: &[Cooling],
+    waits: &Waits,
 ) -> Option<RunView> {
     let by_id = ids(journal);
     let parts = Parts {
@@ -91,7 +113,7 @@ pub fn composed_whole(
         causes: &BTreeMap::new(),
         head_seq: u64::try_from(journal.len()).unwrap_or(u64::MAX),
         last_at,
-        cooling: cooling.to_vec(),
+        waits,
     };
     let mut view = composed(&parts, |id| by_id.get(id).copied(), state)?;
     checkpointed(&mut view.participants, trail, journal)?;
@@ -190,7 +212,7 @@ fn composed(
     cause: impl Fn(&str) -> Option<u64>,
     state: Option<&RunState>,
 ) -> Option<RunView> {
-    let applied = crate::live::derived(parts.trail, state);
+    let applied = derived(parts.trail, state);
     let applied = applied.as_slice();
     let scan = scanned(applied, parts.seats)?;
     let mut buckets = bucket(applied);
@@ -208,8 +230,15 @@ fn composed(
         event_count: usize::try_from(parts.head_seq).unwrap_or(usize::MAX),
         dashboard: dashboard::kept(applied, parts.seats, parts.last_at),
     };
-    let waits = Waits::of(&WaitFact::applied(parts.trail, state), &parts.cooling);
-    Some(viewed(applied, &scan, &buckets, &marks, read, state, waits))
+    Some(viewed(
+        applied,
+        &scan,
+        &buckets,
+        &marks,
+        read,
+        state,
+        parts.waits.clone(),
+    ))
 }
 
 /// The columns a row's participant is read by (`SeatRow::COLUMNS`): the

@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 /// The verdict `state` and `residuals` derive, with no park cause.
 fn verdict(state: Option<&RunState>, residuals: &[ResidualFinding]) -> Verdict {
-    verdict_with(state, None, residuals)
+    verdict_with(state, None, residuals, &Waits::default())
 }
 
 const NOW: &str = "2026-01-02T00:00:00Z";
@@ -384,7 +384,7 @@ fn the_row_and_the_summary_serve_the_ending_its_citation_and_its_want() {
         entry.closing = brokkr_core::ending::closing(events, &state);
         let view = serde_json::to_value(run_rows(&[entry], &[])).expect("the rows serialize");
         let summary = serde_json::to_value(summary(&state, events)).expect("it serializes");
-        assert_eq!(view["view_version"], 32);
+        assert_eq!(view["view_version"], 33);
         let word = ending.as_str().unwrap_or("running");
         for said in [&view["runs"][0], &summary] {
             let read = (&said["ending"], &said["ending_cited"], &said["wants"]);
@@ -492,6 +492,7 @@ fn each_standing_and_section_has_one_word() {
         Standing::Quarantined,
         Standing::Parked,
         Standing::Running,
+        Standing::Waiting,
         Standing::Stopping,
         Standing::Shipped,
         Standing::Stopped,
@@ -503,6 +504,7 @@ fn each_standing_and_section_has_one_word() {
             "quarantined",
             "parked",
             "running",
+            "waiting",
             "stopping",
             "shipped",
             "stopped",
@@ -757,7 +759,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         &[],
     );
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 32);
+    assert_eq!(json["view_version"], 33);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["acknowledgement"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);

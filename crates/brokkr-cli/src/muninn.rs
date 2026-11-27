@@ -42,6 +42,7 @@ use brokkr_runtime::realms::{Hearth, World};
 use brokkr_runtime::{argv::Executable, bundle::expand_command};
 use brokkr_runtime::{Adapters, Availability, Library};
 use brokkr_store::Store;
+use brokkr_view::{RunView, Standing, Waits};
 use serde_json::{json, Value};
 
 use crate::realms::{Consumed, ConsumedView, Pin, Published};
@@ -260,8 +261,7 @@ pub(crate) fn dossier_of(
     let mut superseded: Vec<(Option<String>, String, u64)> = Vec::new();
     for source in sources {
         let realm = source.realm.map(str::to_string);
-        let store = source.store;
-        let listed = crate::fleet::read_hearth(store)
+        let listed = crate::fleet::read_hearth(source.store)
             .listed()
             .map_err(anyhow::Error::msg)?;
         for crate::fleet::ListedRun {
@@ -271,6 +271,7 @@ pub(crate) fn dossier_of(
             events,
             state,
             residuals,
+            waits,
         } in listed
         {
             let state = match state {
@@ -303,7 +304,7 @@ pub(crate) fn dossier_of(
                     continue;
                 }
             };
-            let view = brokkr_view::run_view(&events, Some(&state));
+            let view = RunView::from_events(&events, Some(&state), Waits::of(&waits, &[]));
             let summary = view.summary.as_ref().expect("a folded state summarizes");
             let admits = brokkr_view::operator_commands(&state);
             // The fleet counts a finished run by the fold's word; its row says its ending.
@@ -373,7 +374,7 @@ pub(crate) fn dossier_of(
         ledger: brokkr_view::Ledger::of(endings.values().copied()),
         quarantined: count("quarantined"),
         realms: sources.iter().filter_map(|source| source.realm).collect(),
-        running: count("running"),
+        running: count("running") + count(Standing::Waiting.label()),
         runs: rows.len(),
         stopped: count("stopped"),
         superseded_findings: count("superseded_findings"),

@@ -18,18 +18,19 @@
 //! of each participant at work; its participant level reads that frame and
 //! the participant's oldest page, forward as the operator scrolls
 //! ([`Console`]). A frame whose head stands
-//! reads nothing, and one whose head moved reads the events and checkpoints
-//! landed since, never the run whole.
+//! refreshes its wait facts. A moved head reads the events and checkpoints
+//! landed since.
 
 use std::collections::BTreeMap;
 
+use crate::fleet::RunWaits;
 use crate::run_pages::fetch::{landed_count, Fetch};
 use crate::run_pages::page::{held_start, Checkpoints, WINDOW};
 use brokkr_core::fold::{fold, FoldError, RunState};
 use brokkr_core::seat::row::SeatRow;
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::{Opened, RunRead, Store, StoreError};
-use brokkr_view::{composed_view, composed_whole, seat_keys, Cooling, Participant, Parts, RunView};
+use brokkr_view::{composed_view, composed_whole, seat_keys, Participant, Parts, RunView};
 
 /// What a reader shows of a run, and so what it reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,8 +128,9 @@ pub(crate) fn participants(
 fn whole(store: &Store, run: &str, now: &str) -> Result<Viewed, StoreError> {
     let events = store.load(run)?;
     let folded = fold(&events);
-    let cooling = crate::fleet::cooling(store, now)?;
-    let view = brokkr_view::run_view_with(&events, folded.as_ref().ok(), &cooling);
+    let state = folded.as_ref().ok();
+    let waits = RunWaits::read(store, run, now, &events, state)?;
+    let view = RunView::from_events(&events, state, waits.painted);
     Ok(Viewed {
         view,
         folded,
@@ -147,8 +149,7 @@ struct Frame {
     causes: BTreeMap<String, u64>,
     state: Box<RunState>,
     last_at: String,
-    /// The aggregate read with this frame, passed into the view as data.
-    cooling: Vec<Cooling>,
+    waits: RunWaits,
 }
 
 impl Frame {
@@ -171,15 +172,15 @@ impl Frame {
         else {
             return Ok(None);
         };
-        let head = opened.seq;
+        let waits = RunWaits::read(store, run, now, &trail, Some(&state))?;
         Ok(Some(Frame {
-            head,
+            head: opened.seq,
             trail,
             seats,
             causes,
             state,
             last_at,
-            cooling: crate::fleet::cooling(store, now)?,
+            waits,
         }))
     }
 
@@ -194,7 +195,7 @@ impl Frame {
             causes: &self.causes,
             head_seq: self.head,
             last_at: &self.last_at,
-            cooling: self.cooling.clone(),
+            waits: &self.waits.painted,
         };
         composed_view(&parts, Some(&self.state))
     }
@@ -219,7 +220,14 @@ fn composed(
     let view = match journal {
         Some(journal) => {
             let (trail, seats, state) = (&frame.trail, &frame.seats, Some(&*frame.state));
-            composed_whole(trail, seats, journal, &frame.last_at, state, &frame.cooling)
+            composed_whole(
+                trail,
+                seats,
+                journal,
+                &frame.last_at,
+                state,
+                &frame.waits.painted,
+            )
         }
         None => frame.view(),
     };
@@ -264,8 +272,8 @@ enum Held {
     /// participant the screen shows, by its key, oldest first by seq.
     Paged(Frame, Checkpoints),
     /// Read whole, as before the pages (ruling 8): the run's events, their
-    /// fold (none where it refuses), and the aggregate its waits read.
-    Whole(Vec<EventEnvelope>, Option<Box<RunState>>, Vec<Cooling>),
+    /// fold (none where it refuses), and its waits.
+    Whole(Vec<EventEnvelope>, Option<Box<RunState>>, RunWaits),
 }
 
 impl Shown {
@@ -274,13 +282,12 @@ impl Shown {
         self.head.seq
     }
 
-    /// The aggregate this read was painted from, so a frame kept at a
-    /// standing head is reused only while it is still the one read now.
-    fn cooling(&self) -> &[Cooling] {
-        match &self.read {
-            Held::Paged(frame, _) => &frame.cooling,
-            Held::Whole(_, _, cooling) => cooling,
-        }
+    fn refresh_waits(&mut self, reader: Reader, now: &str) -> Result<(), StoreError> {
+        let waits = match &mut self.read {
+            Held::Paged(frame, _) => &mut frame.waits,
+            Held::Whole(_, _, waits) => waits,
+        };
+        waits.refresh(reader.store, reader.run, now)
     }
 
     /// The run view the console paints: composed from the frame it holds,
@@ -297,8 +304,8 @@ impl Shown {
                 }
                 view
             }
-            Held::Whole(events, state, cooling) => {
-                brokkr_view::run_view_with(events, state.as_deref(), cooling)
+            Held::Whole(events, state, waits) => {
+                RunView::from_events(events, state.as_deref(), waits.painted.clone())
             }
         }
     }
@@ -503,9 +510,8 @@ impl<'a> Reading<'a> {
 /// of it, whose rows the caller has counted at its head (ruling 5), and
 /// `head` the run's head this frame stated. `Reading` is how many rows the
 /// screen asks for, its scroll, its viewport and the caller's `now`. Where
-/// that head is the one `standing` was read at, the aggregate it paints is
-/// still the one read now, and what it read paints the screen asked and
-/// covers the rows asked for, nothing is read. Where the screen reads a
+/// that head stands and the screen is covered, only wait facts are
+/// refreshed. Where the screen reads a
 /// frame, the events landed since are read, verified as the continuation
 /// of the head it was read at, then the frame at the new head and the
 /// checkpoints landed since: never the run whole. Otherwise the run is
@@ -536,21 +542,14 @@ pub(crate) fn console_with(
     let standing = standing.filter(|shown| {
         shown.paints(&asked) || matches!(&shown.read, Held::Paged(_, held) if held.pages.is_empty())
     });
-    // A row or frame kept from another aggregate paints ends a probe's
-    // round or another run's refusal has moved: it is read again, never
-    // reused (decision 0103 slice 4f, LOW 1).
-    let cooling_moved = match &standing {
-        Some(shown) => shown.cooling() != crate::fleet::cooling(store, reading.now)?.as_slice(),
-        None => false,
-    };
     match standing {
-        Some(shown)
-            if !cooling_moved
-                && offset != usize::MAX
+        Some(mut shown)
+            if offset != usize::MAX
                 && stands(&shown.head, head)
                 && shown.paints(&asked)
                 && shown.covers(&asked, rows, offset) =>
         {
+            shown.refresh_waits(reader, reading.now)?;
             Ok((Shown { asked, ..shown }, 0))
         }
         Some(Shown {
@@ -656,9 +655,9 @@ fn read_at(
 /// `run` read whole and folded, as before the pages (ruling 8).
 fn whole_read(store: &Store, run: &str, now: &str) -> Result<(Held, usize), StoreError> {
     let events = store.load(run)?;
-    let cooling = crate::fleet::cooling(store, now)?;
     let (state, loaded) = (fold(&events).ok().map(Box::new), events.len());
-    Ok((Held::Whole(events, state, cooling), loaded))
+    let waits = RunWaits::read(store, run, now, &events, state.as_deref())?;
+    Ok((Held::Whole(events, state, waits), loaded))
 }
 
 /// One read's frame and a page of each participant `asked` shows, extended

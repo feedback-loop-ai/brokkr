@@ -219,6 +219,8 @@ pub enum Standing {
     /// Waiting on the operator.
     Parked,
     Running,
+    /// Waiting on a provider, with a wait recorded at the applied head.
+    Waiting,
     /// A running run whose operator stop was accepted and whose ending
     /// has not been written: stopping, not running.
     Stopping,
@@ -236,7 +238,9 @@ impl Standing {
         match self {
             Standing::Quarantined => "quarantined",
             Standing::Parked => "parked",
-            Standing::Running => "running",
+            Standing::Running | Standing::Waiting => {
+                ["running", "waiting"][usize::from(self == Standing::Waiting)]
+            }
             Standing::Stopping => "stopping",
             Standing::Shipped => "shipped",
             Standing::Stopped | Standing::OperatorStopped => "stopped",
@@ -245,14 +249,14 @@ impl Standing {
 
     /// The word a readout prints for a run whose fold status is `status`
     /// and whose ending is `ending`: a terminal run's ending, `stopping`
-    /// for an accepted stop with no ending, and the fold's own word
+    /// for an accepted stop, `waiting` for a provider wait, and the fold's word
     /// otherwise, or for a terminal run whose ending was not read
     /// (decision 0064 addendum choice 2 (a)). One home for the rule every
     /// row and summary paints (decision 0071 ruling 5).
     pub fn status_word(self, status: Option<&str>, ending: Option<Ending>) -> &str {
         let fold = status.unwrap_or("?");
         match self {
-            Standing::Stopping => self.label(),
+            Standing::Stopping | Standing::Waiting => self.label(),
             Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => {
                 ending.map_or(fold, |ending| ending.word())
             }
@@ -263,7 +267,7 @@ impl Standing {
     /// What a row of this standing asks of the operator (ruling 6;
     /// addendum choice 2 (a)): a terminal run's ending's, an action for a
     /// stopping run and for a quarantine no acknowledgement answers, a
-    /// ruling for a parked run, and nothing for a running one.
+    /// ruling for a parked run, and nothing for a running or waiting run.
     pub fn wants(self, ending: Option<Ending>, acknowledged: bool) -> Option<Wants> {
         match self {
             Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => {
@@ -272,7 +276,7 @@ impl Standing {
             Standing::Stopping => Some(Wants::Action),
             Standing::Quarantined => (!acknowledged).then_some(Wants::Action),
             Standing::Parked => Some(Wants::Ruling),
-            Standing::Running => None,
+            Standing::Running | Standing::Waiting => None,
         }
     }
 }
@@ -404,7 +408,7 @@ pub fn section_of(row: &RunRow, now: &str) -> Section {
     if need(row, now).is_some() {
         return Section::NeedsYou;
     }
-    if row.verdict.standing == Standing::Running {
+    if matches!(row.verdict.standing, Standing::Running | Standing::Waiting) {
         return Section::Running;
     }
     if row.acknowledgement.is_some() {
@@ -517,15 +521,21 @@ fn verdict_with(
     state: Option<&RunState>,
     park_cause: Option<&CauseRead>,
     residuals: &[ResidualFinding],
+    waits: &Waits,
 ) -> Verdict {
     verdict_of(
         state.map(|state| Facts::of_cause(state, park_cause)),
         open_severity(residuals),
+        waits,
     )
 }
 
 /// The verdict `facts` and the highest open residual derive.
-pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -> Verdict {
+pub(crate) fn verdict_of(
+    facts: Option<Facts<'_>>,
+    residual: Option<Severity>,
+    waits: &Waits,
+) -> Verdict {
     let Some(facts) = facts else {
         return Verdict {
             standing: Standing::Quarantined,
@@ -537,19 +547,19 @@ pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -
             detail: None,
         };
     };
-    let standing = facts.standing();
+    let standing = facts.standing(waits);
     let rule = match standing {
         Standing::Shipped | Standing::Stopped => facts.last_rule(),
         Standing::Parked if facts.ruling_parked() => facts.last_rule(),
         Standing::Parked
         | Standing::Running
+        | Standing::Waiting
         | Standing::Stopping
         | Standing::OperatorStopped
         | Standing::Quarantined => None,
     };
     let text = match standing {
-        Standing::Running => String::new(),
-        Standing::Stopping => String::new(),
+        Standing::Running | Standing::Waiting | Standing::Stopping => String::new(),
         Standing::OperatorStopped => "by operator".to_string(),
         Standing::Shipped | Standing::Parked | Standing::Stopped | Standing::Quarantined => {
             rule.map_or(ABSENT.to_string(), |(rule, from)| abbreviate(rule, from))
@@ -560,6 +570,7 @@ pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -
         Standing::Quarantined
         | Standing::Parked
         | Standing::Running
+        | Standing::Waiting
         | Standing::Shipped
         | Standing::Stopped
         | Standing::OperatorStopped => None,
@@ -621,7 +632,14 @@ pub fn run_row(entry: &RunEntry, cooling: &[Cooling]) -> RunRow {
     let status_known = status
         .as_deref()
         .is_some_and(|word| KNOWN_STATUS.contains(&word));
-    let verdict = verdict_with(entry.state, entry.park_cause.as_deref(), entry.residuals);
+    // The whole and kept reads supply waits from the applied head.
+    let waits = Waits::of(&entry.waits, cooling);
+    let verdict = verdict_with(
+        entry.state,
+        entry.park_cause.as_deref(),
+        entry.residuals,
+        &waits,
+    );
     let acknowledged = entry
         .detail
         .and_then(|refusal| refusal.acknowledgement.cloned());
@@ -656,10 +674,7 @@ pub fn run_row(entry: &RunEntry, cooling: &[Cooling]) -> RunRow {
         acknowledgement: acknowledged,
         title: title(entry.feature),
         verdict,
-        // A quarantined run's entry carries no wait: `WaitFact::applied`
-        // reads none when the fold refused, and the kept read clears the
-        // fact when its fold breaks. The row paints what the entry holds.
-        waits: Waits::of(&entry.waits, cooling),
+        waits,
         hire: entry.state.and_then(hire),
         order_at: order_at(entry.last_recorded_at, entry.created_at),
         paged_at: None,
@@ -739,7 +754,7 @@ pub use page::{
     behind_line, page, ranges, section_of_rows, summary_row, window, Cursor, CursorError, Page,
     Paged, AHEAD_ROWS, PAGE_ROWS,
 };
-pub use waits::{run_view_with, Cooling, Wait, WaitFact, Waits};
+pub use waits::{Cooling, Wait, WaitFact, WaitKind, WaitRefusal, WaitRound, Waits};
 
 #[cfg(test)]
 pub(crate) mod tests;
