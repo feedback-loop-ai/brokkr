@@ -864,6 +864,16 @@ struct RootSession {
 }
 
 impl RootSession {
+    fn new(kind: &'static str, id: String, harness_version: String, persistent: bool) -> Self {
+        Self {
+            kind,
+            id,
+            harness_version,
+            wrapper_digest: None,
+            persistent,
+        }
+    }
+
     fn value(&self) -> Value {
         let mut root = Map::new();
         root.insert("kind".into(), Value::String(self.kind.to_string()));
@@ -1295,23 +1305,27 @@ pub fn resume_enabled(input: &Value, shape: &str) -> bool {
 /// cold invocation of an unmeasured shape spawns exactly what it spawned
 /// before this ruling.
 fn observed_version(command: &[String]) -> Option<String> {
-    let output = lost::observing(|| run_cli(command, None, "", &[])).ok()?;
-    if !output.status.success() {
-        return None;
-    }
+    spawn::observed_version_in(command, "", &[])
+}
+
+/// Strictly decode `stdout` from a harness's `--version` probe and pick the
+/// first token of the first non-empty line that begins with an ASCII digit and
+/// fits [`recordable_version`]. Shared by every driver that observes its
+/// harness's version (decision 0071 ruling 5).
+pub(super) fn parse_observed_version(stdout: &[u8]) -> Option<String> {
     // Strictly decoded: output that is not valid UTF-8 is unreadable, and
     // an unreadable answer observes no version even where the bytes also
     // carry one (tasks 5302–5306). A lossy read would substitute and
     // qualify the matching number beside the garbage.
-    let text = std::str::from_utf8(&output.stdout).ok()?;
-    // The version token, not the banner around it. All three installed
-    // CLIs put the number in a different place on the line, and the
-    // three shapes are measured rather than guessed
-    // (`.forge/controller-host-provider-interface.json`, 2026-09-09):
+    let text = std::str::from_utf8(stdout).ok()?;
+    // The version token, not the banner around it. The installed CLIs put
+    // the number in a different place on the line, and the shapes are
+    // measured rather than guessed:
     //
     //   codex  --version  →  "codex-cli 0.153.4"
     //   claude --version  →  "2.1.266 (Claude Code)"
     //   dsh    --version  →  "0.1.2-rc.1"
+    //   agy    --version  →  "1.5.14"
     //
     // So the rule is the first token of the first non-empty line that
     // BEGINS WITH A DIGIT and fits the record's own grammar. That skips

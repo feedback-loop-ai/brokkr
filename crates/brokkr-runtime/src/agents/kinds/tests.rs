@@ -462,12 +462,13 @@ fn named_reads_masked_keys_at_the_record_and_result_only() {
     );
 }
 
-/// An agy seat declares `agy-conversation` for its transcript and no root
-/// session kind (#1227, T1 & T2): it admits `agy-conversation` and `none`
-/// as transcript kinds, refuses every other transcript kind and every root
-/// session kind (including `agy-conversation`), and never rejoins.
+/// An agy seat declares `agy-conversation` for both its transcript and its
+/// root session kind (#1227), with `stream-work-site` still `unsupported`: it
+/// admits `agy-conversation` and `none` as transcript kinds, admits
+/// `agy-conversation` as a root session kind, refuses every built-in kind, and
+/// still never rejoins.
 #[test]
-fn an_agy_seat_records_agy_conversation_and_none_and_no_root_session() {
+fn an_agy_seat_records_agy_conversation_and_none_and_never_rejoins() {
     let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let shipped = workspace.join("docs/examples/adapters/agy.json");
     let shipped = serde_json::from_str(&std::fs::read_to_string(shipped).unwrap()).unwrap();
@@ -484,6 +485,8 @@ fn an_agy_seat_records_agy_conversation_and_none_and_no_root_session() {
         let transcript = json!({"step": "s", "transcript": {"kind": allowed}});
         assert_eq!(agy.admit(&transcript, "work"), Ok(()), "{allowed}");
     }
+    let agy_root = json!({"step": "s", "root_session": {"kind": "agy-conversation"}});
+    assert_eq!(agy.admit(&agy_root, "work"), Ok(()));
     for kind in BUILT_IN {
         let transcript = json!({"step": "s", "transcript": {"kind": kind}});
         assert_eq!(
@@ -491,8 +494,6 @@ fn an_agy_seat_records_agy_conversation_and_none_and_no_root_session() {
             refused(Member::Transcript, kind),
             "{kind}"
         );
-    }
-    for kind in BUILT_IN.into_iter().chain(["agy-conversation"]) {
         let root = json!({"step": "s", "root_session": {"kind": kind}});
         assert_eq!(
             agy.admit(&root, "work"),
@@ -527,6 +528,7 @@ fn agy_conversation_requires_declaring_adapter_and_adapterless_seat_keeps_v7_rul
     let adapterless = loaded_from(&[]).seat(None, &driver);
     assert!(!adapterless.declares_its_kinds());
     assert_eq!(adapterless.declared_transcript_kind(), None);
+    assert_eq!(adapterless.declared_root_session_kind(), None);
     assert_eq!(
         adapterless.admit(&agy_transcript, "work"),
         refused(Member::Transcript, "agy-conversation")
@@ -543,6 +545,7 @@ fn agy_conversation_requires_declaring_adapter_and_adapterless_seat_keeps_v7_rul
     let undeclared = loaded_from(&[bare_agy]).seat(Some("agy"), &driver);
     assert!(!undeclared.declares_its_kinds());
     assert_eq!(undeclared.declared_transcript_kind(), None);
+    assert_eq!(undeclared.declared_root_session_kind(), None);
     assert_eq!(undeclared.admit(&none_transcript, "work"), Ok(()));
     assert_eq!(
         undeclared.admit(&agy_transcript, "work"),
@@ -572,6 +575,10 @@ fn agy_conversation_requires_declaring_adapter_and_adapterless_seat_keeps_v7_rul
     let declared = loaded_from(&[shipped]).seat(Some("agy"), &driver);
     assert_eq!(
         declared.declared_transcript_kind(),
+        Some(brokkr_protocol::DeclaredTranscriptKind::AgyConversation)
+    );
+    assert_eq!(
+        declared.declared_root_session_kind(),
         Some(brokkr_protocol::DeclaredTranscriptKind::AgyConversation)
     );
 }

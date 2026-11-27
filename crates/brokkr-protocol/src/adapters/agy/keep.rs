@@ -42,20 +42,26 @@
 //! remain; it is readable only by the operator, and the reaper of issue #1323
 //! removes kept files that no journal names.
 //!
-//! **Same-user directory limit (#1227 L1, operator ruling 2026-11-25):** the
-//! limit is the class of processes running as the operator's own user that
-//! create, rename, move, replace or remove entries under the operator's
-//! `agy-conversations` directory while a keep is in progress. The keeper runs
-//! as that same user: everything such a process can make the keeper do — write
-//! a file into a directory it controls, set a directory it owns to mode 0700,
-//! remove an entry it owns — that process can already do itself with the same
-//! system calls. No privilege boundary is crossed and nothing of another user's
-//! is reachable.
+//! **Same-user directory limit (#1227 L1, operator rulings 2026-11-25 and
+//! 2026-11-26):** the limit is the class of processes running as the operator's
+//! own user that create, rename, move, replace, rewrite or remove entries under
+//! the engine's HOME for the turn or under the operator's `agy-conversations`
+//! directory while a keep is in progress. The keeper runs as that same user,
+//! the engine HOME is a mode 0700 directory the driver made owned by the
+//! operator, the turn's `agy` process has exited when keeping begins, and a
+//! boxed seat's tools ran in the box and cannot reach it. No privilege boundary
+//! is crossed and nothing of another user's is reachable.
 //!
-//! Against that class, the keeper promises no outcome — for example, not where
-//! the transcript ends up if that process moves the directory, not which entry
-//! is removed if that process swaps one in between `statat` and `unlinkat`,
-//! and not what the record's home names if that process renames a parent. What
+//! Against that class, the keeper promises no outcome — on the kept side, for
+//! example, where kept state lands if the directory is moved, which entry is
+//! removed if one is swapped between `statat` and `unlinkat`, or what the
+//! record's home names if a parent is renamed; on the source side, a source
+//! directory detached by a replaced parent, a database or subtree changed after
+//! its own final check before publication, or a same-length in-place rewrite
+//! that restores the recorded modification time. Promises are against
+//! accidents (a turn still writing when killed, a partial tree, a link, a
+//! non-regular entry, a tree over its bounds, a bound value in a file or name,
+//! or an unconfirmed model pin). What
 //! the code holds are four mechanisms, each checkable by reading it and held
 //! by tests:
 //! (m1) every open the keeper makes for the kept place is an `openat` relative
@@ -72,8 +78,9 @@
 //!
 //! When no such same-user process acts on the tree during a keep — every
 //! ordinary run — all guarantees above (the kept place and its modes, the
-//! refusals, keeping nothing on each listed failure, and removing partial
-//! directories on rollback) hold.
+//! refusals, refusing publication on each listed failure, and attempting to
+//! remove staged entries on rollback; an unlink I/O failure can leave a partial
+//! directory even as persistence is refused) hold.
 
 use std::ffi::OsStr;
 use std::fs::File;
@@ -105,6 +112,12 @@ pub(super) struct Kept {
     transcript: crate::transcript::Transcript,
 }
 
+impl Kept {
+    pub(super) fn transcript_value(&self) -> serde_json::Value {
+        self.transcript.value()
+    }
+}
+
 #[cfg(test)]
 impl Kept {
     pub(super) fn home(&self) -> &Path {
@@ -113,6 +126,55 @@ impl Kept {
 
     pub(super) fn locator(&self) -> &str {
         self.transcript.locator()
+    }
+}
+
+/// Shared failures while validating or acquiring the operator's
+/// `agy-conversations` parent directory, used by both transcript and rejoin
+/// keeping (#1227, decision 0071 ruling 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub(super) enum ParentError {
+    #[error("the operator has no HOME to keep it under")]
+    NoOperatorHome,
+    #[error("the reference does not pass the run view's reference rule")]
+    InvalidReference,
+    #[error("the kept-conversations directory path is not UTF-8")]
+    NonUtf8Home,
+    #[error("the kept-conversations parent is not an owner-only directory of this user's")]
+    UnownedParent,
+    #[error("could not prepare the kept-conversations parent: {}", io::Error::from(*.0))]
+    ParentIo(io::ErrorKind),
+    #[error("a newly created kept directory was replaced before it could be opened")]
+    ReplacedDirectory,
+}
+
+/// Shared classification of source open/stat errnos under the engine HOME
+/// (decision 0071 ruling 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub(super) enum SourceErrno {
+    #[error("a required conversation file or directory is absent")]
+    Absent,
+    #[error(
+        "a path component under the engine HOME is a symbolic link or not of the expected file type"
+    )]
+    Unsafe,
+    #[error("could not read source: {}", io::Error::from(*.0))]
+    Io(io::ErrorKind),
+}
+
+pub(super) fn classify_source_dir_errno(errno: Errno) -> SourceErrno {
+    match errno {
+        Errno::NOENT => SourceErrno::Absent,
+        Errno::LOOP | Errno::NOTDIR => SourceErrno::Unsafe,
+        other => SourceErrno::Io(io::Error::from(other).kind()),
+    }
+}
+
+pub(super) fn classify_source_file_errno(errno: Errno) -> SourceErrno {
+    match errno {
+        Errno::NOENT => SourceErrno::Absent,
+        Errno::LOOP | Errno::ISDIR | Errno::NOTDIR => SourceErrno::Unsafe,
+        other => SourceErrno::Io(io::Error::from(other).kind()),
     }
 }
 
@@ -125,27 +187,13 @@ pub(super) enum KeepNotice {
     RefusedToStart,
     #[error("agy transcript not kept: init's conversation id is not a lowercase UUID")]
     InvalidId,
-    #[error("agy transcript not kept: the operator has no HOME to keep it under")]
-    NoOperatorHome,
-    #[error(
-        "agy transcript not kept: the transcript reference does not pass the run view's \
-         reference rule"
-    )]
-    InvalidReference,
-    #[error("agy transcript not kept: the kept-conversations directory path is not UTF-8")]
-    NonUtf8Home,
+    #[error("agy transcript not kept: {0}")]
+    Parent(#[from] ParentError),
     #[error(
         "agy transcript not kept: masking the turn's secret bindings would rewrite the transcript \
          row"
     )]
     ReferenceMasked,
-    #[error(
-        "agy transcript not kept: the kept-conversations parent is not an owner-only directory \
-         of this user's"
-    )]
-    UnownedParent,
-    #[error("agy transcript not kept: could not prepare the kept-conversations parent: {}", io::Error::from(*.0))]
-    ParentIo(io::ErrorKind),
     #[error("agy transcript not kept: transcript file is absent")]
     Absent,
     #[error(
@@ -157,11 +205,6 @@ pub(super) enum KeepNotice {
     TooLarge(u64),
     #[error("agy transcript not kept: a kept directory for this conversation already exists")]
     AlreadyKept,
-    #[error(
-        "agy transcript not kept: a newly created kept directory was replaced before it could be \
-         opened"
-    )]
-    ReplacedDirectory,
     #[error("agy transcript not kept: could not copy the transcript: {}", io::Error::from(*.0))]
     Io(io::ErrorKind),
 }
@@ -214,11 +257,11 @@ fn keep_with_bindings_and_cap(
     }
     let parent_path = resolve_parent_path(operator_home)?;
     let transcript = crate::transcript::Transcript::agy(parent_path, conversation_id);
-    if row_would_mask(&transcript, bindings) {
+    if row_would_mask(&transcript.emitted(), bindings) {
         return Err(KeepNotice::ReferenceMasked);
     }
     let src_fd = open_source(engine_home, conversation_id, cap)?;
-    let parent_fd = owned_parent(transcript.home())?;
+    let parent_fd = owned_parent_raw(transcript.home())?;
     let mut guard = ConvGuard::create(&parent_fd, conversation_id)?;
     let dest_fd = guard.open_dest()?;
     copy_bounded(src_fd, dest_fd, cap)?;
@@ -226,17 +269,16 @@ fn keep_with_bindings_and_cap(
     Ok(Kept { transcript })
 }
 
-/// Whether passing the exact transcript row the driver will emit through the
-/// shared path's [`crate::adapters::probe::seat_row`] with `bindings` differs
-/// from the unmasked row in any byte (#1227 Y4).
-fn row_would_mask(
-    transcript: &crate::transcript::Transcript,
+/// Whether passing an exact emitted checkpoint row through the shared path's
+/// [`crate::adapters::probe::seat_row`] with `bindings` differs from the
+/// unmasked row in any byte (#1227 Y4).
+pub(super) fn row_would_mask(
+    emitted: &crate::adapters::Emitted,
     bindings: &[crate::secret::BoundSecret],
 ) -> bool {
     if bindings.is_empty() {
         return false;
     }
-    let emitted = transcript.emitted();
     let unmasked =
         crate::adapters::probe::seat_row(crate::adapters::AdapterKind::Agy, &[], &emitted.row);
     let masked =
@@ -249,27 +291,27 @@ fn row_would_mask(
 /// discovery root rule [`is_native_transcript_home`]) and return
 /// `<operator_home>/.local/state/brokkr/agy-conversations` without touching
 /// disk (#1227 Y3).
-fn resolve_parent_path(operator_home: Option<&Path>) -> Result<PathBuf, KeepNotice> {
+pub(super) fn resolve_parent_path(operator_home: Option<&Path>) -> Result<PathBuf, ParentError> {
     let operator = operator_home
         .filter(|path| !path.as_os_str().is_empty())
-        .ok_or(KeepNotice::NoOperatorHome)?;
+        .ok_or(ParentError::NoOperatorHome)?;
     let parent = operator.join(AGY_CONVERSATIONS.iter().collect::<PathBuf>());
-    let parent_str = parent.to_str().ok_or(KeepNotice::NonUtf8Home)?;
+    let parent_str = parent.to_str().ok_or(ParentError::NonUtf8Home)?;
     if !is_valid_transcript_home(parent_str) || !is_native_transcript_home(parent_str) {
-        return Err(KeepNotice::InvalidReference);
+        return Err(ParentError::InvalidReference);
     }
     Ok(parent)
 }
 
-fn dir_flags() -> OFlags {
+pub(super) fn dir_flags() -> OFlags {
     OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
 }
 
-fn source_file_flags() -> OFlags {
+pub(super) fn source_file_flags() -> OFlags {
     OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC
 }
 
-fn dest_file_flags() -> OFlags {
+pub(super) fn dest_file_flags() -> OFlags {
     OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC
 }
 
@@ -281,31 +323,33 @@ fn io_err(err: io::Error) -> KeepNotice {
     KeepNotice::Io(err.kind())
 }
 
-fn parent_io_errno(errno: Errno) -> KeepNotice {
-    KeepNotice::ParentIo(io::Error::from(errno).kind())
+fn parent_err_errno(errno: Errno) -> ParentError {
+    ParentError::ParentIo(io::Error::from(errno).kind())
 }
 
-fn parent_leaf_errno(errno: Errno) -> KeepNotice {
+fn parent_leaf_errno(errno: Errno) -> ParentError {
     match errno {
-        Errno::LOOP | Errno::NOTDIR => KeepNotice::UnownedParent,
-        other => parent_io_errno(other),
+        Errno::LOOP | Errno::NOTDIR => ParentError::UnownedParent,
+        other => parent_err_errno(other),
+    }
+}
+
+impl From<SourceErrno> for KeepNotice {
+    fn from(err: SourceErrno) -> Self {
+        match err {
+            SourceErrno::Absent => Self::Absent,
+            SourceErrno::Unsafe => Self::UnsafeSource,
+            SourceErrno::Io(kind) => Self::Io(kind),
+        }
     }
 }
 
 pub(super) fn classify_dir_errno(errno: Errno) -> KeepNotice {
-    match errno {
-        Errno::NOENT => KeepNotice::Absent,
-        Errno::LOOP | Errno::NOTDIR => KeepNotice::UnsafeSource,
-        other => io_errno(other),
-    }
+    classify_source_dir_errno(errno).into()
 }
 
 pub(super) fn classify_file_errno(errno: Errno) -> KeepNotice {
-    match errno {
-        Errno::NOENT => KeepNotice::Absent,
-        Errno::LOOP | Errno::ISDIR | Errno::NOTDIR => KeepNotice::UnsafeSource,
-        other => io_errno(other),
-    }
+    classify_source_file_errno(errno).into()
 }
 
 pub(super) fn is_owned_private_dir(st_mode: RawMode, st_uid: u32, uid: u32) -> bool {
@@ -346,14 +390,24 @@ fn open_source(engine_home: &Path, conversation_id: &str, cap: u64) -> Result<Ow
     Ok(file)
 }
 
-fn same_entry(one: &Stat, other: &Stat) -> bool {
+pub(super) fn same_entry(one: &Stat, other: &Stat) -> bool {
     (one.st_dev, one.st_ino) == (other.st_dev, other.st_ino)
 }
 
-fn unlink_if_same(dir_fd: BorrowedFd<'_>, name: &OsStr, expected: &Stat, flags: AtFlags) {
-    if statat(dir_fd, name, AtFlags::SYMLINK_NOFOLLOW)
-        .is_ok_and(|entry| same_entry(expected, &entry))
-    {
+pub(super) fn same_entry_at(dir_fd: BorrowedFd<'_>, name: &OsStr, expected: &Stat) -> bool {
+    statat(dir_fd, name, AtFlags::SYMLINK_NOFOLLOW).is_ok_and(|entry| same_entry(expected, &entry))
+}
+
+/// Attempt to remove `(dir_fd, name)` when its `(st_dev, st_ino)` still match
+/// `expected` (mechanism (m4)). Ignores `unlinkat` I/O errors, so cleanup is
+/// best-effort and can leave a partial directory even as persistence is refused.
+pub(super) fn unlink_if_same(
+    dir_fd: BorrowedFd<'_>,
+    name: &OsStr,
+    expected: &Stat,
+    flags: AtFlags,
+) {
+    if same_entry_at(dir_fd, name, expected) {
         let _ = unlinkat(dir_fd, name, flags);
     }
 }
@@ -362,25 +416,26 @@ fn unlink_if_same(dir_fd: BorrowedFd<'_>, name: &OsStr, expected: &Stat, flags: 
 /// through `fstat` that the opened handle has the same `(st_dev, st_ino)` as
 /// `created_stat` (#1227 Q2), and remove the created entry through
 /// `unlink_if_same` if opening fails (#1227 K2). If the entry was replaced
-/// before the open, returns [`KeepNotice::ReplacedDirectory`] without touching
+/// before the open, returns `replaced` (e.g. [`ParentError::ReplacedDirectory`]) without touching
 /// the replacement.
-fn open_created_dir(
+pub(super) fn open_created_dir<E: Clone>(
     parent_fd: BorrowedFd<'_>,
     name: &OsStr,
     created_stat: &Stat,
-    on_open_err: fn(Errno) -> KeepNotice,
-) -> Result<(OwnedFd, Stat), KeepNotice> {
+    replaced: E,
+    on_open_err: fn(Errno) -> E,
+) -> Result<(OwnedFd, Stat), E> {
     let (fd, opened_stat) = openat(parent_fd, name, dir_flags(), Mode::empty())
         .and_then(|fd| fstat(&fd).map(|stat| (fd, stat)))
         .map_err(|errno| {
             unlink_if_same(parent_fd, name, created_stat, AtFlags::REMOVEDIR);
             match errno {
-                Errno::LOOP | Errno::NOTDIR => KeepNotice::ReplacedDirectory,
+                Errno::LOOP | Errno::NOTDIR => replaced.clone(),
                 other => on_open_err(other),
             }
         })?;
     if !same_entry(created_stat, &opened_stat) {
-        return Err(KeepNotice::ReplacedDirectory);
+        return Err(replaced);
     }
     Ok((fd, opened_stat))
 }
@@ -402,26 +457,32 @@ fn ensure_parent_dir(
     dir: &Path,
     before_open: impl FnOnce(),
     after_verify: impl FnOnce(),
-) -> Result<OwnedFd, KeepNotice> {
+) -> Result<OwnedFd, ParentError> {
     let Some(ancestor) = dir.parent() else {
         return openat(CWD, dir, dir_flags(), Mode::empty()).map_err(parent_leaf_errno);
     };
-    std::fs::create_dir_all(ancestor).map_err(|err| KeepNotice::ParentIo(err.kind()))?;
+    std::fs::create_dir_all(ancestor).map_err(|err| ParentError::ParentIo(err.kind()))?;
     let mode = Mode::from_raw_mode(0o700);
     match mkdirat(CWD, dir, mode) {
         Ok(()) => {
             let created_stat =
-                statat(CWD, dir, AtFlags::SYMLINK_NOFOLLOW).map_err(parent_io_errno)?;
+                statat(CWD, dir, AtFlags::SYMLINK_NOFOLLOW).map_err(parent_err_errno)?;
             before_open();
-            let (fd, _) = open_created_dir(CWD, dir.as_os_str(), &created_stat, parent_io_errno)?;
+            let (fd, _) = open_created_dir(
+                CWD,
+                dir.as_os_str(),
+                &created_stat,
+                ParentError::ReplacedDirectory,
+                parent_err_errno,
+            )?;
             after_verify();
-            fchmod(&fd, mode).map_err(parent_io_errno)?;
+            fchmod(&fd, mode).map_err(parent_err_errno)?;
             Ok(fd)
         }
         Err(Errno::EXIST) => {
             openat(CWD, dir, dir_flags(), Mode::empty()).map_err(parent_leaf_errno)
         }
-        Err(errno) => Err(parent_io_errno(errno)),
+        Err(errno) => Err(parent_err_errno(errno)),
     }
 }
 
@@ -435,20 +496,34 @@ fn ensure_parent_dir(
 /// (for instance mode 0500) passes this check and fails at
 /// [`ConvGuard::create`] with [`KeepNotice::Io`], leaving the turn unchanged
 /// (#1227 K2, K3, Q2, W8).
+#[cfg(test)]
 pub(super) fn owned_parent(parent: &Path) -> Result<OwnedFd, KeepNotice> {
-    owned_parent_with(parent, || {}, || {})
+    owned_parent_raw(parent).map_err(Into::into)
 }
 
+pub(super) fn owned_parent_raw(parent: &Path) -> Result<OwnedFd, ParentError> {
+    owned_parent_raw_with(parent, || {}, || {})
+}
+
+#[cfg(test)]
 pub(super) fn owned_parent_with(
     parent: &Path,
     before_open: impl FnOnce(),
     after_verify: impl FnOnce(),
 ) -> Result<OwnedFd, KeepNotice> {
+    owned_parent_raw_with(parent, before_open, after_verify).map_err(Into::into)
+}
+
+fn owned_parent_raw_with(
+    parent: &Path,
+    before_open: impl FnOnce(),
+    after_verify: impl FnOnce(),
+) -> Result<OwnedFd, ParentError> {
     let fd = ensure_parent_dir(parent, before_open, after_verify)?;
-    let stat = fstat(&fd).map_err(parent_io_errno)?;
+    let stat = fstat(&fd).map_err(parent_err_errno)?;
     let uid = rustix::process::geteuid().as_raw();
     if !is_owned_private_dir(stat.st_mode, stat.st_uid, uid) {
-        return Err(KeepNotice::UnownedParent);
+        return Err(ParentError::UnownedParent);
     }
     Ok(fd)
 }
@@ -484,8 +559,13 @@ impl<'a> ConvGuard<'a> {
         })?;
         let created_stat = statat(parent_fd, id, AtFlags::SYMLINK_NOFOLLOW).map_err(io_errno)?;
         before_open(parent_fd, id);
-        let (conv_fd, conv_stat) =
-            open_created_dir(parent_fd.as_fd(), OsStr::new(id), &created_stat, io_errno)?;
+        let (conv_fd, conv_stat) = open_created_dir(
+            parent_fd.as_fd(),
+            OsStr::new(id),
+            &created_stat,
+            KeepNotice::Parent(ParentError::ReplacedDirectory),
+            io_errno,
+        )?;
         let guard = Self {
             parent_fd: Some(parent_fd),
             conv_fd,
@@ -536,25 +616,49 @@ impl Drop for ConvGuard<'_> {
     }
 }
 
+/// Stream-copy at most `remaining` bytes from `src` to `dest`, passing each
+/// chunk through `screen` before writing. Shared by transcript and rejoin
+/// keeping (decision 0071 ruling 5).
+pub(super) fn stream_copy_bounded<E>(
+    src: &mut File,
+    dest: &mut File,
+    remaining: u64,
+    mut screen: impl FnMut(&[u8]) -> Result<(), E>,
+    on_over: impl FnOnce() -> E,
+    on_io: fn(io::Error) -> E,
+) -> Result<u64, E> {
+    let mut buf = vec![0u8; COPY_BUF_BYTES];
+    let mut copied: u64 = 0;
+    loop {
+        let read = src.read(&mut buf).map_err(on_io)?;
+        if read == 0 {
+            break;
+        }
+        copied = copied.saturating_add(read as u64);
+        if copied > remaining {
+            return Err(on_over());
+        }
+        screen(&buf[..read])?;
+        dest.write_all(&buf[..read]).map_err(on_io)?;
+    }
+    dest.flush().map_err(on_io)?;
+    Ok(copied)
+}
+
 /// Copy at most `cap` bytes from `src_fd` to `dest_fd`, failing with
 /// [`KeepNotice::TooLarge`] if `src_fd` yields even one byte beyond `cap`.
 pub(super) fn copy_bounded(src_fd: OwnedFd, dest_fd: OwnedFd, cap: u64) -> Result<(), KeepNotice> {
     let mut src = File::from(src_fd);
     let mut dest = File::from(dest_fd);
-    let mut buf = vec![0u8; COPY_BUF_BYTES];
-    let mut copied: u64 = 0;
-    loop {
-        let read = src.read(&mut buf).map_err(io_err)?;
-        if read == 0 {
-            break;
-        }
-        copied = copied.saturating_add(read as u64);
-        if copied > cap {
-            return Err(KeepNotice::TooLarge(cap));
-        }
-        dest.write_all(&buf[..read]).map_err(io_err)?;
-    }
-    dest.flush().map_err(io_err)
+    stream_copy_bounded(
+        &mut src,
+        &mut dest,
+        cap,
+        |_| Ok(()),
+        || KeepNotice::TooLarge(cap),
+        io_err,
+    )?;
+    Ok(())
 }
 
 /// Inputs that decide whether a finished agy turn keeps its `transcript.jsonl`
@@ -569,36 +673,45 @@ pub(super) struct KeepContext<'a> {
     pub(super) bindings: &'a [crate::secret::BoundSecret],
 }
 
+/// Typed outcome of publishing an agy turn's transcript before the engine HOME
+/// is removed, carried directly to rejoin publication instead of reading back
+/// string-keyed `session_meta` (decision 0071 rulings 3 and 7).
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum TranscriptOutcome {
+    Kept(Kept),
+    NotKept(Option<KeepNotice>),
+}
+
 /// Keep the conversation's `transcript.jsonl` before the engine HOME is
 /// removed and publish the transcript row (#1227).
 pub(super) fn publish_transcript(
     ctx: KeepContext<'_>,
     session_meta: &mut serde_json::Map<String, serde_json::Value>,
     emit: &mut impl FnMut(&crate::adapters::Emitted),
-) -> Option<KeepNotice> {
+) -> TranscriptOutcome {
     use super::fold::Conversation;
     // Probe turns, undeclared launches, and turns with no init each match main
     // to the byte: keep nothing, emit no notice, record `none` (#1227 W4).
     if !ctx.declared || ctx.probe || matches!(ctx.conversation, Conversation::None) {
         record_none(session_meta, emit);
-        return None;
+        return TranscriptOutcome::NotKept(None);
     }
     if ctx.refused_to_start {
         record_none(session_meta, emit);
-        return Some(KeepNotice::RefusedToStart);
+        return TranscriptOutcome::NotKept(Some(KeepNotice::RefusedToStart));
     }
     let Conversation::Named(id) = ctx.conversation else {
         record_none(session_meta, emit);
-        return Some(KeepNotice::InvalidId);
+        return TranscriptOutcome::NotKept(Some(KeepNotice::InvalidId));
     };
     match keep(id, ctx.engine_home, ctx.operator_home, ctx.bindings) {
         Ok(mut kept) => {
             kept.transcript.finish(session_meta, emit);
-            None
+            TranscriptOutcome::Kept(kept)
         }
         Err(notice) => {
             record_none(session_meta, emit);
-            Some(notice)
+            TranscriptOutcome::NotKept(Some(notice))
         }
     }
 }
@@ -616,7 +729,7 @@ fn record_none(
 /// signed-out turn, #1227 U3), and write to driver stderr on `Err`.
 pub(super) fn report_notice(
     outcome: &mut Result<crate::adapters::Invocation, super::Ended>,
-    notice: &KeepNotice,
+    notice: &impl std::fmt::Display,
 ) {
     match outcome {
         Ok(invocation) => {

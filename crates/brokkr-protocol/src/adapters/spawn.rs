@@ -68,6 +68,41 @@ pub(super) fn spawn_fed(
     Ok(spawn_fed_in(command, prompt, (workdir, &[]), bindings)?)
 }
 
+/// Build a harness command through [`harness_command`] (applying bindings and
+/// [`super::mcp::unbind`]), then set `env` last so engine-owned variables
+/// (such as agy's `HOME`, `PWD`, and update switch) cannot be replaced by
+/// bindings or removals (#1200 J1, #1227).
+pub(super) fn harness_command_in(
+    command: &[String],
+    workdir: &str,
+    env: &[(&str, &str)],
+    bindings: &[secret::BoundSecret],
+) -> Result<Command, HarnessCommandRefusal> {
+    let mut builder = harness_command(command, workdir, &[], bindings)?;
+    builder.envs(env.iter().copied());
+    Ok(builder)
+}
+
+/// Ask a harness binary for its version through the same command builder
+/// ([`harness_command_in`], applying [`super::mcp::unbind`] and `env` with no
+/// bound secrets) and the same registered child handling
+/// (`process::spawned::output`) as every other driver spawn, wrapped in
+/// [`lost::observing`] (proposed decision 0056 ruling 5, #1227).
+pub(super) fn observed_version_in(
+    command: &[String],
+    workdir: &str,
+    env: &[(&str, &str)],
+) -> Option<String> {
+    let output = lost::observing(|| {
+        let mut builder = harness_command_in(command, workdir, env, &[]).ok()?;
+        crate::process::spawned::output(&mut builder).ok()
+    })?;
+    if !output.status.success() {
+        return None;
+    }
+    super::parse_observed_version(&output.stdout)
+}
+
 /// [`spawn_fed`] with `env` set for the child alone, beside its `workdir`:
 /// the agy driver's engine HOME (#1200). It is set last, after the seat's
 /// bindings and the attempt's removals, so no binding can replace it (J1);
@@ -78,8 +113,7 @@ pub(super) fn spawn_fed_in(
     (workdir, env): (&str, &[(&str, &str)]),
     bindings: &[secret::BoundSecret],
 ) -> Result<(Spawned, StderrCapture), Unstarted> {
-    let mut builder = harness_command(command, workdir, &[], bindings)?;
-    builder.envs(env.iter().copied());
+    let builder = harness_command_in(command, workdir, env, bindings)?;
     let piped = Stdio::piped;
     let mut child = spawned(builder, piped(), piped())?;
     let mut stdin = child.stdin.take().expect("piped");

@@ -35,6 +35,7 @@ mod fold;
 mod gate;
 mod home;
 mod keep;
+mod rejoin;
 
 use super::stream_turn::{plain, Line, Observed, PLAIN_ID_LIMIT};
 use crate::native_controls::SealedBoundary;
@@ -292,6 +293,10 @@ pub(super) enum LaunchError {
     /// driver cannot read as [`crate::DeclaredTranscriptKind`] (#1227 W6).
     #[error("refusing to invoke the agent CLI: {0}")]
     DeclaredTranscriptKind(#[source] crate::InvalidDeclaredTranscriptKind),
+    /// `resume_context.declared_root_session_kind` was present with a value the
+    /// driver cannot read as a declared root session kind (#1227).
+    #[error("refusing to invoke the agent CLI: {0}")]
+    DeclaredRootSessionKind(#[source] crate::declared_transcript::InvalidDeclaredRootSessionKind),
 }
 
 /// How a seat ended with no invocation, typed until [`drive`] renders it
@@ -476,11 +481,7 @@ pub(super) fn drive(
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, String> {
-    let ended = match mode.offered {
-        true => Err(Ended::Launch(LaunchError::Resumed)),
-        false => turn(pinned, mode.probe, prompt, input, bindings, emit),
-    };
-    ended.map_err(|ended| rendered(&ended, bindings))
+    turn(pinned, mode, (prompt, input, bindings), emit).map_err(|ended| rendered(&ended, bindings))
 }
 
 /// How a seat `ended`, in its words, masked once through `bindings`: the
@@ -491,16 +492,17 @@ fn rendered(ended: &Ended, bindings: &[secret::BoundSecret]) -> String {
 
 /// The seat's composed arguments, the launch [`prepared`] from them under
 /// the driver's own temporary root, HOME and executable, and its turn,
-/// before the one mask. A seat that binds a name of [`OWNED`] is refused
-/// by the name, before anything else. Every launch is admitted cold.
+/// before the one mask. A seat offered a resume or binding a name of
+/// [`OWNED`] is refused before anything else. Every launch is admitted cold.
 fn turn(
     pinned: super::Pinned<'_>,
-    probe: bool,
-    prompt: &str,
-    input: &Value,
-    bindings: &[secret::BoundSecret],
+    mode: StartMode,
+    (prompt, input, bindings): (&str, &Value, &[secret::BoundSecret]),
     emit: &mut impl FnMut(&Emitted),
 ) -> Result<Invocation, Ended> {
+    if mode.offered {
+        return Err(Ended::Launch(LaunchError::Resumed));
+    }
     let bound = |name: &&str| bindings.iter().any(|binding| binding.name() == *name);
     if let Some(name) = OWNED.into_iter().find(bound) {
         return Err(LaunchError::Owned(name).into());
@@ -514,7 +516,7 @@ fn turn(
     let brokkr = mcp::engine_executable();
     // The HOME lives until the turn ends.
     let prepared = prepared(pinned.binary, &composed.extra, input, homes, &brokkr)?;
-    invoke(&prepared, probe, input, prompt, bindings, emit)
+    invoke(&prepared, mode.probe, input, prompt, bindings, emit)
 }
 
 /// What one launch runs with: the engine's HOME, the launch, and the
@@ -524,6 +526,7 @@ struct Prepared {
     home: Home,
     operator_home: Option<PathBuf>,
     declared: bool,
+    declared_root: bool,
     launch: Launch,
     workdir: String,
 }
@@ -576,12 +579,16 @@ fn prepared_with(
     let declared = crate::DeclaredTranscriptKind::read_from(input)
         .map_err(LaunchError::DeclaredTranscriptKind)?
         .is_some_and(|kind| kind.is_agy_conversation());
+    let declared_root = crate::DeclaredTranscriptKind::read_root_session_from(input)
+        .map_err(LaunchError::DeclaredRootSessionKind)?
+        .is_some_and(|kind| kind.is_agy_conversation());
     let operator_home = homes.operator.map(Path::to_path_buf);
     let home = made(homes, written)?;
     Ok(Prepared {
         home,
         operator_home,
         declared,
+        declared_root,
         launch,
         workdir,
     })
@@ -610,6 +617,7 @@ fn invoke(
         home,
         operator_home,
         declared,
+        declared_root,
         launch,
         workdir,
     } = prepared;
@@ -623,10 +631,18 @@ fn invoke(
         (AUTO_UPDATE, NO_UPDATE),
     ];
     let line = stdin_line(prompt);
-    // The workspace check, once, last before agy starts (M1): it narrows
-    // the time a writer has to plant agy's configuration, and does not close
-    // it (#1217).
+    // Admit the workspace before spawning anything (M1), and when the
+    // version probe runs, admit it again directly before launching the turn
+    // so configuration planted during `agy --version` cannot reach the launch.
     home::unconfigured(workdir)?;
+    let harness_version = if *declared_root && !probe {
+        let probe_cmd = [launch.command[0].clone(), "--version".to_string()];
+        let version = super::spawn::observed_version_in(&probe_cmd, workdir, &owned);
+        home::unconfigured(workdir)?;
+        version
+    } else {
+        None
+    };
     let fed = spawn_fed_in(&launch.command, &line, (workdir, &owned), bindings)?;
     let mut session_meta = Map::new();
     let ended = streamed_lines(fed, |line| {
@@ -636,6 +652,7 @@ fn invoke(
         }
     })?;
     let conversation = fold.take_conversation();
+    let pin_confirmed = fold.pinned();
     let Concluded {
         mut outcome,
         began_work,
@@ -651,27 +668,24 @@ fn invoke(
         )
         .is_some()
     });
-    let mut fallback_meta = Map::new();
-    let target_meta = match &mut outcome {
-        Ok(invocation) => &mut invocation.session_meta,
-        Err(_) => &mut fallback_meta,
-    };
-    let notice = keep::publish_transcript(
-        keep::KeepContext {
-            declared: *declared,
+    rejoin::publish_turn(
+        rejoin::TurnKeep {
+            declared: rejoin::DeclaredKinds {
+                transcript: *declared,
+                root: *declared_root,
+            },
             probe,
             refused_to_start,
+            pin_confirmed,
             conversation: &conversation,
+            harness_version: harness_version.as_deref(),
             engine_home: Path::new(home.path()),
             operator_home: operator_home.as_deref(),
             bindings,
         },
-        target_meta,
+        &mut outcome,
         emit,
     );
-    if let Some(notice) = notice {
-        keep::report_notice(&mut outcome, &notice);
-    }
     outcome
 }
 

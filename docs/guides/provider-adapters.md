@@ -880,9 +880,11 @@ or timed out", which refuses the seat with the same instruction. The record
 names six environment variables in the binary and exercised none.
 
 
-**Kept transcripts (`agy-conversation`).** Agy's example adapter declares
-`record_kinds: {"transcript": "agy-conversation"}` (with no `root_session`
-kind and no `resume_shape`, because rejoin is not built yet). `agy-conversation`
+**Kept transcripts and rejoin state (`agy-conversation`).** Agy's example adapter declares
+`record_kinds: {"transcript": "agy-conversation", "root_session": "agy-conversation", "resume_shape": "stream-work-site"}`
+while keeping `resume.stream-work-site.status` at `"unsupported"`, because the
+`--conversation` rejoin launch is not built yet and any offered session is still
+refused before a process starts. `agy-conversation`
 is admitted only where the seat's loaded adapter declares it in `record_kinds`,
 carried from the engine to the driver through one shared type
 (`DeclaredTranscriptKind` under `resume_context.declared_transcript_kind`,
@@ -899,8 +901,32 @@ HOME is removed, `brokkr driver agy` copies only
 out of the engine HOME into
 `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/transcript.jsonl`
 and records `transcript: {"kind": "agy-conversation", "locator": "<id>", "home": "<operator HOME>/.local/state/brokkr/agy-conversations"}`
-(beside `~/.local/state/brokkr/dsh-homes/`, dsh's precedent). The database,
-the full transcript log, `chunks/` and `steps/` are not kept.
+(beside `~/.local/state/brokkr/dsh-homes/`, dsh's precedent).
+
+For a **work seat** whose adapter declares `record_kinds.root_session: "agy-conversation"`
+(carried from the engine for work seats alone in
+`resume_context.declared_root_session_kind`), the driver also asks the launched
+`agy` binary for its version via `agy --version` (under the engine HOME and
+`AGY_CLI_DISABLE_AUTO_UPDATE=true`), copies `conversations/<id>.db` and
+`brain/<id>/` beside the kept transcript into
+`<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/`
+(`conversation.db` and `brain/`, every directory mode `0700` and every file
+mode `0600` through `fchmod`, bounded at 128 MiB total, 4,096 entries, and 16
+directory levels), and records a `harness-started` checkpoint with
+`root_session` of kind `agy-conversation`, the conversation UUID, the observed
+`harness_version`, and `persistent: true` only when rejoin state was kept whole
+(`persistent: false` otherwise; no `root_session` and no kept rejoin state when
+`agy --version` produces no recordable version or masking would rewrite the
+row). When any part is missing, unreadable, non-regular, over a bound, or
+changed underfoot — or when a bound secret value appears in the conversation,
+since the SQLite database cannot be masked and still be read by `agy` — the
+driver refuses rejoin persistence (`persistent: false`, never `persistent:
+true`) and attempts to clean up staged rejoin entries in reverse order via
+`unlink_if_same`, without disturbing any kept transcript; an I/O error while
+unlinking can still leave a partial `rejoin/` directory behind. Probes, gate seats,
+undeclared seats, turns whose `init` row did not confirm the seat's pinned
+model, turns with no conversation id, and turns with a non-UUID id keep no
+rejoin state and emit no `root_session`.
 
 Because the driver and the engine are two processes, the driver can only keep
 nothing in the cases it can see. Those are: a probe (unchanged from main:
@@ -920,23 +946,34 @@ no record can remain; it is readable only by the operator, and the reaper of
 issue #1323 removes kept files that no journal names.
 
 **Same-user directory limit.** A process running as the operator's own user
-that creates, renames, moves, replaces or removes entries under
-`agy-conversations` while a keep is in progress is a stated limit (operator
-ruling of 2026-11-25 on #1227): the keeper runs as that same user, so
-everything it can be made to do — write into a controlled directory, set an
-owned directory to 0700, remove an owned entry — that process can do itself
-with the same system calls, crossing no privilege boundary and reaching nothing
-of another user's. Against that class the keeper promises no outcome (examples:
-where the transcript lands if the directory is moved, which entry is removed if
-one is swapped between `statat` and `unlinkat`, or what the record's home names
-if a parent is renamed). Instead the code holds four mechanisms: (m1) every
-open for the kept place is `openat` relative to a held handle with `O_NOFOLLOW`
-on the final component; (m2) modes change only through `fchmod` on a handle,
-never by pathname; (m3) the transcript is created with `O_CREAT | O_EXCL |
-O_NOFOLLOW` relative to the conversation directory's handle; and (m4) every
-`unlinkat` is preceded by `statat` through the same parent handle matching
-recorded `(st_dev, st_ino)` and skipped when they differ. When no such process
-acts during a keep, all guarantees above hold.
+that creates, renames, moves, replaces, rewrites or removes entries under the
+engine's HOME for the turn or under `agy-conversations` while a keep is in
+progress is a stated limit (operator rulings of 2026-11-25 and 2026-11-26 on
+#1227): the keeper runs as that same user, the engine HOME is a mode `0700`
+directory the driver made owned by the operator, the turn's `agy` process has
+exited when keeping begins, and a boxed seat's tools ran in the box and cannot
+reach it. No privilege boundary is crossed and nothing of another user's is
+reachable. Against that class the keeper promises no outcome (examples on the
+kept side: where kept state lands if the directory is moved, which entry is
+removed if one is swapped between `statat` and `unlinkat`, or what the record's
+home names if a parent is renamed; examples on the source side: a source
+directory detached by a replaced parent before the final check, a database or
+subtree changed after its own final check and before publication, or a
+same-length in-place rewrite that restores the recorded modification time).
+The keeper's promises are against accidents: a turn still writing when killed,
+a partial tree, a link, something that is not a regular file or a directory, a
+tree over its bounds, a bound value in a file or a name, or a turn whose model
+pin was not confirmed. Instead the code holds its testable mechanisms — (m1)
+every open for the kept place is `openat` relative to a held handle with
+`O_NOFOLLOW` on the final component; (m2) modes change only through `fchmod` on
+a handle, never by pathname; (m3) kept files are created with `O_CREAT | O_EXCL
+| O_NOFOLLOW` relative to the parent directory's handle; (m4) every `unlinkat`
+is preceded by `statat` through the same parent handle matching recorded
+`(st_dev, st_ino)` and skipped when they differ; plus no link-following on the
+source, reading from the classified handle, the final check at the end of the
+walk, name screening, pin confirmation, and bounded descriptors — which make
+accidents visible and are not claimed to defeat a same-user process. When no
+such process acts during a keep, all guarantees above hold.
 
 Because an unboxed seat's own commands can write inside the engine HOME, the
 driver treats the source as untrusted: `<id>` is read beside the fold without
@@ -999,11 +1036,14 @@ absent member is not counted. Nothing reaps
 `~/.local/state/brokkr/dsh-homes/`; a shared reaper is tracked as #1323
 (decision 0075 addendum of 2026-11-24, proposed).
 
-**Out of scope for level 2 transcripts (follow-ups).** Rejoin
-(`--conversation`), reporting applied effort from a transcript row's `model`
-slug (#1324), a shared reaper for kept conversations and dsh homes (#1323), and
-an unboxed seat's command that outlives a hard kill (`l2-14-kill-group`,
-#1245's family).
+**Out of scope for level 2 slice 1 (follow-ups).** The `--conversation` rejoin
+launch (restoring kept state into an engine HOME, confirming the returned id,
+serializing concurrent turns on one conversation, MCP isolation on rejoin, and
+enabling `stream-work-site`), reporting applied effort from a transcript row's
+`model` slug (#1324), a shared reaper for kept transcripts, rejoin state, and
+dsh homes (#1323), and an unboxed seat's command that outlives a hard kill
+(`l2-14-kill-group`, #1245's family) (decision 0075 addenda of 2026-11-24 and
+2026-11-26, proposed).
 
 **MCP isolation.** Agy's cold and replacement shapes, without hands on
 1.5.13 and boxed on 1.5.14, are measured on Linux

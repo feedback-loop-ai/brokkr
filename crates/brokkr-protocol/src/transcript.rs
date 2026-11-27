@@ -181,7 +181,7 @@ impl Transcript {
         }
     }
 
-    fn value(&self) -> Value {
+    pub(crate) fn value(&self) -> Value {
         json!({
             "kind": self.kind.label(),
             "locator": self.locator,
