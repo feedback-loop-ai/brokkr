@@ -347,12 +347,18 @@ for one model, one seat and one house's library.
 **What the evidence does not show, and what this model is not.** The
 harder test ran once. The three recorded panels ran through Qoder, not
 through `dsh`. No run sat Qwen 4.0 Max as a fallback behind an exhausted
-Fable. No boxed chief run of this model is on record: #1278 lists "no
-boxed run" among what was not measured, and #1259 records that in the
-eval "Qoder seats ran unboxed, because Qoder's boxed driver was still in
-review" without saying whether the harder chief test through `dsh` ran
-boxed. The eval's `dsh` run used an
-eval-only lift.
+Fable. The promotion evidence holds no boxed chief run of this model:
+#1278 lists "no boxed run" among what was not measured, and #1259
+records that in the eval "Qoder seats ran unboxed, because Qoder's boxed
+driver was still in review" without saying whether the harder chief test
+through `dsh` ran boxed. Separately, decision 0127 (and
+`docs/evidence/adapters/dsh-hands-0-2-2.md`) records boxed Qwen 4.0 Max
+chief seat turns of 2026-11-24: with a provider key, a boxed Qwen 4.0
+Max chief seat served its whole turn under boundary `namespace` as the
+measurement of that decision's launch fix. Those records measure that
+the boxed seat launches and completes a turn, not how well the chief
+judged, so they add nothing to the evidence line above. The eval's `dsh`
+run used an eval-only lift.
 
 And Qwen 4.0 Max is **not a finder**. In three review positions on three
 branches through `dsh`, it found two of fifteen known findings and filed
@@ -388,7 +394,7 @@ on the effective `dsh` profile (`adapters/dsh.json` declares
 profile row through the `--patch` overlay, so an agent's allowlist —
 `tools.allow` — cannot narrow those tools). For
 a boxed `dsh` seat with workspace hands, the `v0.16.0` release notes
-record what #1277 (#1364; proposed decision 0127) changed: previously,
+record what #1277 (#1364; decision 0127) changed: previously,
 `dsh --dump-config` folded long JSON `--reach` and `--spec` values onto
 lines the driver's line rule refused, so the seat could not launch; now
 the `dsh` overlay carries those exact bytes as unpadded base64url under
