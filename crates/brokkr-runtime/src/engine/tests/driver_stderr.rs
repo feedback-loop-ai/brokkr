@@ -362,6 +362,7 @@ fn validator(stdout: &str, code: i32) -> SequenceStep {
 #[cfg(unix)]
 fn dialect_run(steps: &[SequenceStep]) -> (tempfile::TempDir, Engine, Watch) {
     let (dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    git_commit(&driven.repo, "base");
     driven.bundle.executable = crate::argv::Executable(Some(serving_exec(dir.path())));
     let watch = Watch::on(&dir, &mut driven);
     let at = SequenceAt::new("effect", "attempt", "work");
