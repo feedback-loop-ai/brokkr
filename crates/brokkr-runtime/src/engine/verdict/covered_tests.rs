@@ -6,7 +6,7 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
-use super::tests::{driven, driven_over, driver, ended, ended_in, reported, unhurried};
+use super::tests::{driven, driven_over, driver, ended, ended_in, own_engine, reported, unhurried};
 use crate::bundle::{GateAssessment, SeatClass};
 use crate::engine::heads::{HeadReads, Observed};
 use crate::engine::tests::{bundle, git_commit, single_body, state};
@@ -86,6 +86,7 @@ pub(super) fn drift_table() -> Value {
 /// read after the check; a work effect writes none.
 #[test]
 fn a_gate_outside_the_protected_phase_records_the_commit_it_read() {
+    own_engine!();
     let result = json!({"result": "complete", "findings": [reported("one", 1)]});
     let mut accepted = String::new();
     let (_dir, events) = driven_over(
@@ -124,6 +125,7 @@ fn a_gate_outside_the_protected_phase_records_the_commit_it_read() {
 /// the `artifacts` arm or a follow-up.
 #[test]
 fn the_reviewed_head_is_the_one_the_stable_head_check_accepted() {
+    own_engine!();
     let mut planned = Vec::new();
     let shape = |gate: bool| {
         move |compiled: &mut crate::bundle::Bundle| {
@@ -552,11 +554,7 @@ fn a_work_steps_record_carrying_a_head_refuses() {
 /// journaled, even from a gate whose success the engine would stamp.
 #[test]
 fn a_seat_supplied_covered_or_follow_ups_fails_the_attempt() {
-    if !crate::engine::tests::in_its_own_engine(
-        "engine::verdict::covered_tests::a_seat_supplied_covered_or_follow_ups_fails_the_attempt",
-    ) {
-        return;
-    }
+    own_engine!();
     let head = json!({"kind": "head", "head": "0".repeat(40), "dirty": false});
     let checked = json!("0".repeat(40));
     for (field, value) in [

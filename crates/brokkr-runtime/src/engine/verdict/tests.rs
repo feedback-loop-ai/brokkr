@@ -77,6 +77,17 @@ read -r done
     vec!["sh".into(), "-c".into(), script]
 }
 
+/// Enter the test in its own engine before it launches an attempt.
+macro_rules! own_engine {
+    () => {
+        if !$crate::engine::verdict::tests::in_own_engine() {
+            return;
+        }
+    };
+}
+
+pub(super) use own_engine;
+
 /// Re-execute the named libtest thread in a separate engine. Sibling
 /// fixtures in the test binary can hand its shared subreaper orphans
 /// that the attempt registry would otherwise have to count as doubtful.
@@ -197,9 +208,7 @@ fn the_isolated_verdict_test_runs_by_exact_name() {
         );
         return;
     }
-    if !in_own_engine() {
-        return;
-    }
+    own_engine!();
     let args: Vec<String> = std::env::args().skip(1).collect();
     assert_eq!(args, ["--exact", TEST]);
 }
@@ -233,6 +242,7 @@ fn the_harness_seats_work_unhurried() {
 
 #[test]
 fn a_single_seats_findings_carry_its_own_site_through_the_real_result_path() {
+    own_engine!();
     let result = json!({"result": "complete", "findings": [reported("unchecked-len", 12)]});
     let (_dir, events) = driven(single_body(driver(&result)), true);
     let succeeded = ended(&events, EventType::EffectSucceeded);
@@ -258,6 +268,7 @@ fn a_single_seats_findings_carry_its_own_site_through_the_real_result_path() {
 /// parks the run as any determinate failure does.
 #[test]
 fn a_seat_supplied_site_a_duplicate_id_and_a_bad_id_each_fail_the_attempt() {
+    own_engine!();
     let site = SiteKey::single("work", None).digest();
     let mut sited = reported("unchecked-len", 12);
     sited["site"] = json!(site);
@@ -310,6 +321,7 @@ fn a_seat_supplied_site_a_duplicate_id_and_a_bad_id_each_fail_the_attempt() {
 /// member's own site: the same id from two members is two keys.
 #[test]
 fn a_panels_member_findings_each_carry_their_members_site() {
+    own_engine!();
     let a = json!({"result": "complete", "findings": [reported("same-id", 3)]});
     let b = json!({"result": "complete", "findings": [reported("same-id", 4)]});
     let body = SeatBody::Invocation(Invocation::Panel {

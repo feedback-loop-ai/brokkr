@@ -8,7 +8,7 @@ use std::os::unix::fs::MetadataExt;
 
 use serde_json::{json, Value};
 
-use super::tests::{begun, driven_over, driver, ended};
+use super::tests::{begun, driven_over, driver, ended, own_engine};
 use crate::argv::Executable;
 use crate::bundle::{
     Bundle, DialectExecution, GateAssessment, SeatBody, SeatClass, SequenceStep, StepBody,
@@ -124,6 +124,7 @@ fn specify(plan: &[usize]) -> (Vec<EventEnvelope>, Vec<String>) {
 /// the author's checkpoint, a work step's, carries none.
 #[test]
 fn a_work_then_gate_sequence_stamps_the_gate_steps_span() {
+    own_engine!();
     let (events, heads) = specify(&[1, 1, 2]);
     let succeeded = ended(&events, EventType::EffectSucceeded);
     assert_eq!(
@@ -139,6 +140,7 @@ fn a_work_then_gate_sequence_stamps_the_gate_steps_span() {
 /// fork keeping an inherited writer before exec (#255).
 #[test]
 fn the_dialect_fixture_replaces_an_inode_with_an_open_writer() {
+    own_engine!();
     let shape = shaped(
         vec![dialect("check", &["complete"])],
         &["complete"],
@@ -172,6 +174,7 @@ fn the_dialect_fixture_replaces_an_inode_with_an_open_writer() {
 /// the judge's result, the effect's, with the later head its span did.
 #[test]
 fn an_analyze_sequence_stamps_each_gate_step_from_its_own_span() {
+    own_engine!();
     let judge = step(
         "judge",
         SeatClass::Gate,
@@ -199,6 +202,7 @@ fn an_analyze_sequence_stamps_each_gate_step_from_its_own_span() {
 /// effect does, and nothing is stamped or journaled as succeeded.
 #[test]
 fn a_gate_step_that_moved_head_in_its_span_refuses_as_an_all_gate_body_does() {
+    own_engine!();
     let (events, heads) = specify(&[1, 2]);
     assert!(ended(&events, EventType::EffectSucceeded).is_empty());
     let moved = ended(&events, EventType::EffectIndeterminate);
@@ -207,6 +211,7 @@ fn a_gate_step_that_moved_head_in_its_span_refuses_as_an_all_gate_body_does() {
 
 #[test]
 fn a_gate_that_moves_head_names_its_stderr_and_parks_with_both_heads() {
+    own_engine!();
     const SAID: &str = "unbound gate diagnostic\n";
     let mut command = driver(&json!({"result": "complete"}));
     command[2] = format!(

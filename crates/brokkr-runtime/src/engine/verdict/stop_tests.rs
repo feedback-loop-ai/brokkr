@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
-use super::tests::{driven_with, driver};
+use super::tests::{driven_with, driver, own_engine};
 use super::Producer;
 use crate::bundle::sequence::{before_every_gate, refuse_pre_gate_ending};
 use crate::bundle::SelectCase;
@@ -125,6 +125,7 @@ fn ran(events: &[EventEnvelope], name: &str) -> bool {
 /// records no reviewed head and never requests ship.
 #[test]
 fn the_gpt_flash_positions_security_hold_stops_the_run_before_its_chief() {
+    own_engine!();
     let positions = &steps_of(&shipped("gpt-flash"), "review", Some("chore"))[0];
     assert_eq!(positions.class, SeatClass::Work);
     assert!(positions.ends_on.contains(&"security-hold".to_string()));
@@ -163,6 +164,7 @@ fn the_gpt_flash_positions_security_hold_stops_the_run_before_its_chief() {
 /// decides on the chief's gate record, as before.
 #[test]
 fn clean_gpt_flash_positions_reach_the_chief_and_decide_on_its_record() {
+    own_engine!();
     let (_dir, events) = gpt_flash_reviewed(|_| clean());
     let review = &decided(&events, "review")[0];
     assert_eq!(review["result"], "clean", "{review}");

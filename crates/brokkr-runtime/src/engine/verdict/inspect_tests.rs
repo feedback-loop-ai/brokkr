@@ -6,7 +6,7 @@
 use serde_json::{json, Value};
 
 use super::covered_tests::drift_refusing;
-use super::tests::{begun, driven_with, driver, failing, in_own_engine, reported};
+use super::tests::{begun, driven_with, driver, failing, own_engine, reported};
 use crate::bundle::{
     Aggregate, Bundle, GateAssessment, Invocation, PanelMember, SeatBody, SeatClass, SequenceStep,
     StepBody,
@@ -76,6 +76,7 @@ fn kept(events: &[EventEnvelope], scope: Scope) -> Vec<String> {
 /// shows under that member alone.
 #[test]
 fn every_gate_verdict_the_journal_records_reads_back_under_its_own_seat() {
+    own_engine!();
     let (_dir, events) = driven_with(
         single_body(driver(&json!({"result": "complete"}))),
         reviewed,
@@ -146,6 +147,7 @@ fn producers(events: &[EventEnvelope], scope: Scope) -> Vec<(String, String)> {
 /// records' own bound keeps the later verdicts off that frame.
 #[test]
 fn a_verdict_past_the_folds_head_shows_on_no_frame_folded_before_it() {
+    own_engine!();
     let (_dir, events) = driven_with(
         single_body(driver(&json!({"result": "complete"}))),
         reviewed,
@@ -168,6 +170,7 @@ fn a_verdict_past_the_folds_head_shows_on_no_frame_folded_before_it() {
 /// by no other; the phase keeps both and names each one's producer.
 #[test]
 fn a_gate_steps_finding_shows_under_its_own_seat_before_the_end_and_at_it() {
+    own_engine!();
     let chief = driver(&json!({"result": "clean", "findings": [reported("late", 9)]}));
     let (_dir, events) = driven_with(
         single_body(driver(&json!({"result": "complete"}))),
@@ -291,9 +294,7 @@ fn carried(events: &[EventEnvelope]) -> Vec<Vec<String>> {
 /// retry of `b` and `c` carries `a` and runs `b` and `c` only.
 #[test]
 fn one_refused_settled_member_keeps_every_admitted_sibling() {
-    if !in_own_engine() {
-        return;
-    }
+    own_engine!();
     let (_dir, events) = retried(three_members("b"), &["b", "c"], |events| {
         settled_beside(events, "b");
         assert!(kept(events, Scope::Seat("review:b".into())).is_empty());
@@ -337,6 +338,7 @@ fn a_is_carried_and_b_and_c_run_again(events: &[EventEnvelope]) {
 /// seconds, as a member name re-read from the pointer looped forever.
 #[test]
 fn a_member_name_holding_a_slash_is_refused_by_that_name_and_the_drive_ends() {
+    own_engine!();
     for refused in ["a/b", "b/x"] {
         let (sent, ended) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -389,6 +391,7 @@ fn a_refusal_that_names_no_member_is_handed_up_as_it_came() {
 /// carries `a` and runs `b` and `c` only.
 #[test]
 fn a_held_terminal_lands_each_settled_member_by_the_same_path() {
+    own_engine!();
     let members = three_members("b");
     let (_dir, events) = retried_after(members, &["b", "c"], held_back, |events| {
         settled_beside(events, "b");
@@ -476,6 +479,7 @@ fn settled_beside(events: &[EventEnvelope], refused: &str) {
 /// is refused by name (X3, X4) and shows nowhere.
 #[test]
 fn a_poisoned_non_final_panel_steps_admitted_finding_stays_visible() {
+    own_engine!();
     let positions = StepBody::Invocation(Invocation::Panel {
         members: vec![
             member("a", residual("mine", 5)),
@@ -535,6 +539,7 @@ fn failing_once(flag: &std::path::Path, then: &Value) -> Vec<String> {
 /// the retry's, reads under review:a, in its seat and in the phase.
 #[test]
 fn a_carried_members_finding_keeps_its_members_name_in_the_retry() {
+    own_engine!();
     let flag = tempfile::tempdir().unwrap();
     let members = vec![
         member("a", residual("mine", 5)),
@@ -564,9 +569,7 @@ fn a_carried_members_finding_keeps_its_members_name_in_the_retry() {
 /// phase, never under `b`.
 #[test]
 fn a_settled_members_finding_shows_when_its_sibling_fails() {
-    if !in_own_engine() {
-        return;
-    }
+    own_engine!();
     let (_dir, events) = panel_reviewed(failing());
     assert!(!events.iter().any(|event| {
         event.event_type == EventType::EffectSucceeded
@@ -598,6 +601,7 @@ fn a_settled_members_finding_shows_when_its_sibling_fails() {
 /// no verdict; the drive never errors.
 #[test]
 fn a_marked_settled_member_the_fence_refuses_is_no_settled_verdict() {
+    own_engine!();
     let over = json!({"result": "clean", "input_tokens": 1, "cache_read_tokens": 2});
     let (_dir, events) = panel_of(driver(&over), failing());
     let failed: Vec<&Value> = (events.iter())
@@ -621,6 +625,7 @@ fn a_marked_settled_member_the_fence_refuses_is_no_settled_verdict() {
 /// evidence under `a` and in the phase, never under `b`.
 #[test]
 fn an_admitted_finding_stays_visible_when_its_panels_aggregate_is_refused() {
+    own_engine!();
     let (_dir, events) = panel_reviewed(driver(&json!({"notes": "no word"})));
     let succeeded = (events.iter())
         .find(|event| {
@@ -656,6 +661,7 @@ fn an_admitted_finding_stays_visible_when_its_panels_aggregate_is_refused() {
 /// finding, its sibling's seat does not, and the phase does, naming it.
 #[test]
 fn a_top_level_panel_members_finding_shows_under_that_member_alone() {
+    own_engine!();
     let (_dir, events) = panel_reviewed(driver(&json!({"result": "clean"})));
     assert_eq!(kept(&events, Scope::Seat("review:a".into())), ["mine"]);
     // Neither the sibling's seat nor the panel's own keeps a member's.
