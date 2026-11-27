@@ -15297,12 +15297,18 @@ fn hand_run_repeat_refusal(at: usize, option: &str) -> String {
     hand_run_refusal(at, &format!("'{option}'"), &cause)
 }
 
+/// Make the Codex shim and return its argv record path and executable path.
+fn codex_argv_shim(dir: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let argv = dir.join("argv");
+    let shim = codex_shim(dir, "codex", &argv);
+    (argv, shim)
+}
+
 #[test]
 fn a_hand_run_codex_refuses_every_model_repeat_before_launch() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let argv = dir.path().join("argv");
-    let shim = codex_shim(dir.path(), "codex", &argv);
+    let (argv, shim) = codex_argv_shim(dir.path());
     let workdir = dir.path().to_str().unwrap();
     let input = json!({"workdir": workdir});
     with_codex_bin(&mut env, &shim, || {
