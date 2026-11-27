@@ -661,12 +661,10 @@ fn a_filter_is_held_to_a_module_that_holds_tests_and_a_name_to_a_test() {
 
 /// #543: the binary's own list is the fact, on this host. The gate's own
 /// test is in it, so a list that silently read as empty could not pass
-/// here; the two names `hands.rs`'s raw string literal shows are in no
-/// list; the tests `hands.rs`'s own `#![cfg(target_os = "linux")]` and the
-/// two macOS `#[cfg]` gates `doctor_dsh_selection`'s and `init_doctor`'s
-/// are in this host's list exactly when the predicate holds, the binary
-/// having resolved them by construction; and no support module's name is
-/// in any list.
+/// here. The two names `hands.rs`'s raw string literal shows are in no
+/// list. The tests gated by `hands.rs`'s Linux `#![cfg]` and the macOS test
+/// gated by `init_doctor`'s `#[cfg]` are in this host's list exactly when
+/// their predicates hold. Support modules contribute no test names.
 #[test]
 fn the_binarys_own_list_is_what_the_gate_holds() {
     let lists = test_lists();
@@ -682,16 +680,13 @@ fn the_binarys_own_list_is_what_the_gate_holds() {
         cli.iter().any(|test| test.starts_with("hands::")) == cfg!(target_os = "linux"),
         "hands.rs is #![cfg(target_os = \"linux\")]"
     );
-    for name in [
-        "doctor_dsh_selection::apple_default_search_excludes_confstr_only_directories",
-        "init_doctor::a_macos_scaffold_declares_harness_and_asks_nothing_of_bubblewrap",
-    ] {
-        assert_eq!(
-            cli.contains(name),
-            cfg!(target_os = "macos"),
-            "the macOS-gated test {name} is the binary's exactly on macOS"
-        );
-    }
+    let macos_test =
+        "init_doctor::a_macos_scaffold_declares_harness_and_asks_nothing_of_bubblewrap";
+    assert_eq!(
+        cli.contains(macos_test),
+        cfg!(target_os = "macos"),
+        "the macOS-gated test {macos_test} is listed exactly on macOS"
+    );
     for module in [
         "numbered",
         "rust_source",

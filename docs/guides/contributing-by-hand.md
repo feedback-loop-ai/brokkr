@@ -978,6 +978,9 @@ as before: a classifier that failed, a docs lane that did not pass, or a
 machine that was skipped fails them, never passes them. The fast gates,
 `non-Rust lints` among them, run as on any pull request.
 
+Tests that run the built `brokkr doctor` need a PID namespace of their own,
+so they run only on Linux. On macOS they skip and print a notice (#1287).
+
 Only a pull request's own event is classified. A merge group is always
 `full`, because it can hold several pull requests and is the last check
 before `main`, so a docs-only pull request still lands through the full
