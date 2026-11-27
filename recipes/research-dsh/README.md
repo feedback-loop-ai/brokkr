@@ -1,12 +1,10 @@
 # research-dsh — the research intake on the dsh lane
 
-`recipes/research` with one seat replaced: the researcher runs on dsh
-(`dashscope/qwen3.8-max`, the hire the operator ruled for this office,
-effort `xhigh`, forwarded through dsh's settings layer since decision
-0035's addendum and echoed back in the record) instead of the
-library's Claude Code office. Everything else is
-inherited: the registry gate (boxed only under `namespace`), the
-ten-entry cap, the table that proposes and never ships (decision 0044).
+This overlay of `recipes/research` seats the `researcher` office inline on
+dsh. The hire is `dashscope/qwen3.8-max` at effort `xhigh`, forwarded
+through dsh's settings layer since decision 0035's addendum and echoed
+back in the record. The overlay inherits the registry gate, ten-entry
+cap, and outcomes that propose entries for the operator (decision 0044).
 
 ```
 brokkr run --recipe research-dsh --repo . --feature "$(cat recipes/research/commissions/weekly-sweep.md)"
@@ -17,41 +15,24 @@ skill runs the Claude Code lane.
 
 ## Why the seat is inline
 
-dsh expresses no tool allow-list (`adapters/dsh.json` declares
-`tool_permissions` unsupported), so the library office's tool
-restriction cannot be compiled onto it. The seat is therefore an
-inline dsh site, and the recipe declares `forced_crew` (decision 0041's
-addendum of 2026-10-07), the one way a recipe may pin a model inline.
-Night-shift's dsh implementer moved onto an overlay that names its lost
-allow-list under `replaces` (#360); this seat cannot yet, because its
-driver also carries the `--patch` overlay that turns page fetch on, and
-an office writes no driver argument.
+dsh cannot express the library agent's tool allow-list. An agent reference
+also owns its driver, so the dsh seat remains inline with `forced_crew`
+and a local policy overlay that names its work phase `researcher`.
+That label is the inline office the realm grant reaches.
 
-Since decision 0065 the library office asks for `web-search` and
-`web-fetch` by abstract name, and only a realm grants them. This inline
-seat asks for nothing, and no tool dialect serves either capability
-through dsh: `adapters/dsh.json` declares dsh's native capabilities
-**unmeasured**, so nothing can be granted through it and no native
-denial is claimed for it either. What follows is therefore a statement
-about what dsh reaches on its own, not about a grant — and it is
-exactly the gap the adapter's reason names and the controller owes a
-measurement for.
+The seat asks for `web-fetch` and `web-search` as `wants`. This repository's
+realm grants both to the `researcher` office through `dsh-native-fetch` and
+`dsh-native-search` (decision 0126 ruling 6). The driver stages both native
+controls. Fetch sends the requested URL to the destination from the
+operator's host. Search sends the query to DeepSeek's search API using
+`DEEPSEEK_API_KEY`.
 
-The realm's grant of both to the `researcher` office (the operator's
-ruling of 2026-11-24, through Claude's native dialects) does not reach
-this seat: an inline seat's office is its site label, and no grant can
-be served through dsh until that measurement is recorded. Until then the
-weekly sweep reaches no source and escalates, and the Claude lane
-(`recipes/research`) is the one that reads the web.
+The research-dsh seat can reach the web through the shell without any
+grant. The operator said “accept it as known risk for now” (#1329).
 
-The reading dsh does takes the shape dsh has: the headless profile's own web tools. Since
-dsh 0.1.2-rc.1 that profile ships `web-fetch-http` with page fetch on
-(0.1.0-rc.6 shipped no fetch provider, and the first sweep read with
-curl). `drivers/research-web.yml` therefore carries only the Model
-Studio route the default profile lacks, keyed from `DASHSCOPE_API_KEY`;
-search keeps `DEEPSEEK_API_KEY`.
-The overlay path is read from the repository root, where the sweep
-runs, and the file is inside the bundle, so it is in the digest.
+`drivers/research-web.yml` carries the Model Studio route alone, keyed by
+`DASHSCOPE_API_KEY`. Its path is read from the repository root, where the
+sweep runs, and its bytes are in the bundle digest.
 
 ## Why the effort is `xhigh`, and why the overlay names the levels
 
