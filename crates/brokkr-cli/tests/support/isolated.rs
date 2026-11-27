@@ -139,7 +139,8 @@ pub(crate) enum Alone {}
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn alone() -> Option<Alone> {
     eprintln!(
-        "skipped on {} because tests that run brokkr doctor are Linux-only (see docs/guides/contributing-by-hand.md, #1287)",
+        "skipped on {} because tests that run brokkr doctor are Linux-only \
+         (see docs/guides/contributing-by-hand.md, #1287)",
         std::env::consts::OS
     );
     None
