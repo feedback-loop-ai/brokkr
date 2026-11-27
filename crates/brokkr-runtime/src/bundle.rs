@@ -3925,7 +3925,7 @@ fn fault_kind(fault: &InputFault) -> &'static str {
 }
 
 /// Re-walk the script's directory, including its helpers, against the
-/// declaring layer's compiled file map (decision 0046 ruling 4; proposed
+/// declaring layer's compiled file map (decision 0046 ruling 4;
 /// 0048 narrows DD9). A realm scaffolded by `init .` also holds mutable
 /// source, results and its journal; those are outside this spawn check.
 /// Ancestor and folder maps are the very maps their digests hash (0091).

@@ -1,5 +1,5 @@
 //! `brokkr runs transcript`: the scriptable face of the shared local reader
-//! (#222, proposed decision 0055). Each case builds a synthetic journal
+//! (#222, decision 0055). Each case builds a synthetic journal
 //! and synthetic test-owned homes; no real operator session is copied.
 
 use std::path::{Path, PathBuf};

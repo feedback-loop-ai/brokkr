@@ -1,6 +1,6 @@
 # 0127 — A dsh hands row carries its reach and spec as unpadded base64url, and `brokkr hands serve` parses both spellings through one path
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-11-24
 
 Built: built

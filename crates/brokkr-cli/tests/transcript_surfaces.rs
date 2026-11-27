@@ -1,4 +1,4 @@
-//! One local derivation across the surfaces (#222, proposed decision
+//! One local derivation across the surfaces (#222, decision
 //! 0055; design D11). A synthetic source of each kind is read once
 //! through `brokkr_cli::read_local`; the command's text and JSON, the
 //! TUI pane keys and both doors, the browser's transcript route (the

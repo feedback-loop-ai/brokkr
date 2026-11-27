@@ -1,6 +1,6 @@
 # 0092 — An environment block parks for the operator, and a work block routes as before
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-10-20
 
 Built: built

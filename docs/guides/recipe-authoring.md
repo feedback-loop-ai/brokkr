@@ -255,7 +255,7 @@ naming the layer and the first key that moved. This keeps helpers beside
 the script pinned while an `init .` realm's sources, result files and
 journal change outside that directory. A script at the layer root selects
 the whole layer; helpers outside the selected directory are outside this
-check, as is the interval between the walk and exec (proposed decision
+check, as is the interval between the walk and exec (decision
 [0048](../decisions/0048-the-script-directory-is-the-spawn-pin.md)).
 The expansion is machine-local, which is why the manifest records
 driver *names*, never resolved argv.
@@ -1095,7 +1095,7 @@ that result, and never promises a combination the composer would refuse
 
 ### Admission of a run-level gate entry
 
-Proposed decision 0094 lets an operator request `--enter <phase>` on any
+Decision 0094 lets an operator request `--enter <phase>` on any
 recipe, without an overlay or a manifest change. The compiler checks six
 facts in order: the phase exists and is nonterminal; its name fits the
 bounded identifier grammar; every written driver site is gate-class; the

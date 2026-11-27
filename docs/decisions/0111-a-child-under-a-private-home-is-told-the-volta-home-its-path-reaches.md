@@ -1,6 +1,6 @@
 # 0111 — A child under a private `HOME` is told the volta home its `PATH` reaches
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-11-19
 
 Built: built

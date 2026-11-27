@@ -1,6 +1,6 @@
 # 0044 — Research is an intake: the registry, the researcher, and the ruling stays the operator's
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-26, "approve all that were built" (https://github.com/feedback-loop-ai/brokkr/issues/1428)
 Date: 2026-09-04
 
 Built: built

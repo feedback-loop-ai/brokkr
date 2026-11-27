@@ -1,5 +1,5 @@
 //! The narrow, handle-based local filesystem helper for the transcript
-//! reader (proposed decision 0055, design D3).
+//! reader (decision 0055, design D3).
 //!
 //! Every descendant below the canonical recorded home is opened one
 //! component at a time relative to a held directory handle, without
@@ -265,7 +265,7 @@ mod imp {
 /// `Identity`, handle, path or name. A plan names one target and the
 /// occurrence at which it fires on the installing thread; an entry that never
 /// fires fails its test, and no entry can be disarmed. See the change
-/// `prove-transcript-reader-faults` D2-D8 and proposed decision 0055's
+/// `prove-transcript-reader-faults` D2-D8 and decision 0055's
 /// addendum.
 #[cfg(test)]
 pub(crate) mod fault {

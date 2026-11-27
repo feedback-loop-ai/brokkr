@@ -1,4 +1,4 @@
-//! The one local transcript reader (proposed decision 0055, D2) that
+//! The one local transcript reader (decision 0055, D2) that
 //! `brokkr runs transcript`, the terminal and the browser all consume: select
 //! and validate a participant's reference, discover its one safe source,
 //! bound-read it and project it, then mask its prose on the way out.
@@ -129,7 +129,7 @@ pub fn read_local(subject: &Subject, projects_home: Option<&str>) -> TranscriptR
 /// An admitted source's bounded body snapshot: its bytes, whether the
 /// source holds more than the cap, and whether the read reached its end.
 /// A compressed DSH session is decompressed first, in the realm's one
-/// decoder (proposed decision 0086 ruling 3): at most [`SOURCE_CAP`]
+/// decoder (decision 0086 ruling 3): at most [`SOURCE_CAP`]
 /// compressed bytes are read and at most [`SOURCE_CAP`] decompressed bytes
 /// kept, and passing either bound is the same source truncation a plain
 /// source past the cap has. A failed read and a refused frame are `None`.

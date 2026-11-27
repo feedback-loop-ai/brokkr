@@ -3,7 +3,7 @@
 //! turn by the pure-Rust, decode-only `ruzstd`, each trusted only once its
 //! content checksum vouches for it, the whole under a bound. The hands
 //! probe reads a harness's compressed transcript through it, and the local
-//! transcript reader a compressed DSH session (proposed decision 0086).
+//! transcript reader a compressed DSH session (decision 0086).
 
 use std::io::Read;
 
