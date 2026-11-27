@@ -1,5 +1,5 @@
 {
-  "schema": "forge.realms/v6",
+  "schema": "forge.realms/v9",
   "realms": [
     {
       "name": "brokkr",
@@ -8,8 +8,8 @@
       "house": "docs/house-rules.md",
       "dialect": "openspec",
       "capabilities": {
-        "web-fetch": { "dialect": "claude-native-fetch", "offices": ["researcher"] },
-        "web-search": { "dialect": "claude-native-search", "offices": ["researcher"] }
+        "web-fetch": { "dialects": { "claude": "claude-native-fetch", "dsh": "dsh-native-fetch" }, "offices": ["researcher"] },
+        "web-search": { "dialects": { "claude": "claude-native-search", "dsh": "dsh-native-search" }, "offices": ["researcher"] }
       }
     }
   ],

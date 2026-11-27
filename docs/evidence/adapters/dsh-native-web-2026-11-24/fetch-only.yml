@@ -1,0 +1,9 @@
+- id: tool-web
+  config:
+    search: false
+    fetch: true
+    searchTimeoutMs: 60000
+- id: web-search-deepseek
+  disabled: true
+- id: web-deepseek-api
+  disabled: true

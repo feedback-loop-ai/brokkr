@@ -1218,12 +1218,11 @@ fn the_fetch_grant_is_held_by_the_researcher_alone_and_never_by_a_gate() {
 
 /// Decision 0044 ruling 5 and its erratum of 2026-09-04, the dsh shape: the
 /// `--patch` overlay on a dsh site is the pinned model's ROUTE overlay, and
-/// it appears in `research-dsh` alone; the fetch grant is the composed
-/// `headless` profile's own and enters the composite through its
-/// `profile-bundle` lines. That recipe's role file is the library charter's
+/// it appears in `research-dsh` alone. The engine stages the native keys
+/// beside the route. That recipe's role file is the library charter's
 /// bytes, so the configurable prompt stays one text.
 #[test]
-fn the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter() {
+fn the_dsh_route_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter() {
     let root = workspace();
     for dir in shipped_bundle_dirs(&root) {
         let bundle = dir.join("bundle.json");

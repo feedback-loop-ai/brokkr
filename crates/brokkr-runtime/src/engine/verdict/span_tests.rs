@@ -4,7 +4,7 @@
 //! by its compiled class (`bundle::sequence::step_class`), whatever its
 //! recipe wrote.
 
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::MetadataExt;
 
 use serde_json::{json, Value};
 
@@ -13,9 +13,10 @@ use crate::argv::Executable;
 use crate::bundle::{
     Bundle, DialectExecution, GateAssessment, SeatBody, SeatClass, SequenceStep, StepBody,
 };
+use crate::engine::capability_tests::provision_tests::survey_tests::installed;
 use crate::engine::git_head;
 use crate::engine::heads::HeadReads;
-use crate::engine::tests::{git_commit, single_body, step_body};
+use crate::engine::tests::{git_commit, own_engine, single_body, step_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::ParkReason;
 use brokkr_core::gate_moved_head::{self, MovedHead};
@@ -45,6 +46,8 @@ fn dialect(name: &str, results: &[&str]) -> SequenceStep {
     )
 }
 
+const DIALECT_EXEC: &str = "dialect-exec";
+
 /// The `work` seat as a sequence of `steps` reporting `results`, whose
 /// dialect steps the engine runs through an executable that answers
 /// with `dialect_result`, as `driver exec` would.
@@ -56,10 +59,9 @@ fn shaped(
     let results: Vec<String> = results.iter().map(|word| word.to_string()).collect();
     let answer = driver(&json!({"result": dialect_result}));
     move |compiled: &mut Bundle| {
-        let script = compiled.dir.join("dialect-exec");
-        std::fs::write(&script, format!("#!/bin/sh\n{}", answer[2])).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        compiled.executable = Executable(Some(script));
+        let source = compiled.dir.join("dialect-exec.source");
+        std::fs::write(&source, format!("#!/bin/sh\n{}", answer[2])).unwrap();
+        compiled.executable = Executable(Some(installed(&compiled.dir, DIALECT_EXEC, &source)));
         let work = compiled.seats.get_mut("work").unwrap();
         work.body = SeatBody::Sequence { steps };
         work.results = results;
@@ -122,6 +124,7 @@ fn specify(plan: &[usize]) -> (Vec<EventEnvelope>, Vec<String>) {
 /// the author's checkpoint, a work step's, carries none.
 #[test]
 fn a_work_then_gate_sequence_stamps_the_gate_steps_span() {
+    own_engine!();
     let (events, heads) = specify(&[1, 1, 2]);
     let succeeded = ended(&events, EventType::EffectSucceeded);
     assert_eq!(
@@ -132,12 +135,46 @@ fn a_work_then_gate_sequence_stamps_the_gate_steps_span() {
     assert!(checkpointed(&events, "author").get("covered").is_none());
 }
 
+/// The dialect shim runs while a writer is still open on its previous
+/// inode. On Linux this exercises the same kernel check as a sibling
+/// fork keeping an inherited writer before exec (#255).
+#[test]
+fn the_dialect_fixture_replaces_an_inode_with_an_open_writer() {
+    own_engine!();
+    let shape = shaped(
+        vec![dialect("check", &["complete"])],
+        &["complete"],
+        "complete",
+    );
+    let mut writer = None;
+    let (dir, events) = driven_over(
+        SeatBody::Sequence { steps: Vec::new() },
+        |compiled| {
+            writer = Some(std::fs::File::create(compiled.dir.join(DIALECT_EXEC)).unwrap());
+            shape(compiled);
+        },
+        |_| HeadReads::default(),
+    );
+    let succeeded = ended(&events, EventType::EffectSucceeded);
+    assert_eq!(
+        succeeded.len(),
+        1,
+        "the work effect succeeds with its previous inode still open for writing: {:?}",
+        ended(&events, EventType::EffectFailed)
+    );
+    assert_eq!(succeeded[0]["result"]["result"], "complete");
+    let previous = writer.unwrap().metadata().unwrap();
+    let current = std::fs::metadata(dir.path().join(DIALECT_EXEC)).unwrap();
+    assert_ne!(previous.ino(), current.ino());
+}
+
 /// Triage's `analyze`: an unclassed dialect check, a gate by its compiled
 /// class, then the gate judge. Each gate step's result is stamped from
 /// its own span: the check's checkpoint with the head its span accepted,
 /// the judge's result, the effect's, with the later head its span did.
 #[test]
 fn an_analyze_sequence_stamps_each_gate_step_from_its_own_span() {
+    own_engine!();
     let judge = step(
         "judge",
         SeatClass::Gate,
@@ -165,6 +202,7 @@ fn an_analyze_sequence_stamps_each_gate_step_from_its_own_span() {
 /// effect does, and nothing is stamped or journaled as succeeded.
 #[test]
 fn a_gate_step_that_moved_head_in_its_span_refuses_as_an_all_gate_body_does() {
+    own_engine!();
     let (events, heads) = specify(&[1, 2]);
     assert!(ended(&events, EventType::EffectSucceeded).is_empty());
     let moved = ended(&events, EventType::EffectIndeterminate);
@@ -173,6 +211,7 @@ fn a_gate_step_that_moved_head_in_its_span_refuses_as_an_all_gate_body_does() {
 
 #[test]
 fn a_gate_that_moves_head_names_its_stderr_and_parks_with_both_heads() {
+    own_engine!();
     const SAID: &str = "unbound gate diagnostic\n";
     let mut command = driver(&json!({"result": "complete"}));
     command[2] = format!(

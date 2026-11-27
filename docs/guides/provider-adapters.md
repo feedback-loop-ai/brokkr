@@ -1377,6 +1377,7 @@ one **disposition**:
 | `{"argv": […]}` | Non-empty argv that switches it. |
 | `{"default": "<reason>"}` | Nothing to write: this IS the harness's measured default. |
 | `{"selection": {"include": […], "allow": […], "deny": […]}}` | Contributions to the harness's own tool lists; the adapter's sibling `selection` names the three list flags and separators. |
+| `{"overlay": {"dsh-web-fetch": false}}` | A Boolean key in DSH's staged `tool-web` row. `dsh-web-fetch` switches fetch and `dsh-web-search` switches search. |
 | `{"unsupported": "<measured reason>"}` | Measured: it cannot be switched this way. |
 | `{"unmeasured": "<reason>"}` | Nobody has measured whether it can. |
 
@@ -1409,7 +1410,7 @@ an adapter written before the ruling reads that way too, with the
 absence as its reason. Unmeasured is not an empty inventory: nothing can
 be granted through it and no native denial is claimed for it. For a
 harness the engine KNOWS to carry a native power — Codex `web-search`,
-Claude `web-search` and `web-fetch` — unmeasured is not enough (decision
+Claude and DSH `web-search` and `web-fetch` — unmeasured is not enough (decision
 0066 ruling 1): a seat on it compiles only with a valid, delivered
 control for each such power. An adapter written before the ruling, one
 whose `native_capabilities` is omitted, empty or missing the power, an
@@ -1418,7 +1419,7 @@ directory included, since the directory loads whole — and an OFF nobody
 measured each refuse the seat, naming the site, the office, the realm,
 the provider, the capability and the original cause. That floor grants
 nothing and supplies no switch; the control is still the adapter's
-data. DSH, LaneTally and an opaque custom driver keep their own declared
+data. LaneTally and an opaque custom driver keep their own declared
 uncertainty and inherit nobody's inventory.
 
 What the compiler does with a declaration, per seat and per provider
@@ -1437,7 +1438,8 @@ candidate, independently of anything the office asks:
   restriction is never discarded to make the grant usable.
 
 The resolved controls ride the driver input (`native_controls`) the
-engine writes, and the adapter composes them into the final argv: last on
+engine writes. DSH stages its two Boolean keys in the launch overlay.
+Codex composes its controls last on
 a cold Codex command, before the session and stdin positionals on an
 eligible `exec resume` (an AUTHORED `-c` still turns a rejoin cold). On
 Claude and LaneTally they are composed with the engine's OWN lists — the
@@ -1455,13 +1457,14 @@ so a control the compiler accepted reaches the final argv or the compile
 refuses that representation (decision 0066 ruling 3): a Claude OFF
 declared as argv — `--disallowedTools WebSearch` — is folded into the
 same engine-owned deny list a selection feeds, each list flag once; a
-selection for Codex, or anything for dsh, is refused rather than recorded
-and dropped. **The launch then proves itself** (operator ruling 2 of
+selection for Codex is refused rather than recorded and dropped. DSH
+requires both overlay keys to agree with the plan. **The launch then proves itself** (operator ruling 2 of
 2026-09-23): the complete final command, after every prefix, expansion,
 session argument and prompt, is parsed back under the harness's grammar,
 the capability state it expresses is compared with the state the plan
-recorded, and it must equal the engine's recomposition from the sealed
-typed inputs token for token. A mismatch refuses the launch. The adapter's
+recorded, and the command must equal the engine's recomposition from the
+sealed typed inputs token for token. For DSH that command carries the
+staged overlay path. A mismatch refuses the launch. The adapter's
 ON and OFF argv are parsed when the adapter data loads, and a declaration
 that does not parse refuses the load. What a recipe AUTHORED and what the
 engine appended are carried apart as provenance, from composition through
@@ -1493,8 +1496,10 @@ fragment keeps working. A server named `brokkr` proves nothing, so an inline mod
 that authored the box's hands tokens itself is refused the same way; the
 way out is to seat the office through an agent, whose adapter owns that
 fragment. DSH's one `--patch` stays: a bound, contained, digest-matched
-route overlay under a closed grammar, re-read and re-validated before it
-is staged.
+route overlay, re-read and re-validated before it is staged. The closed
+route grammar admits only the `llm-pi-ai` row and refuses a `tool-web` or
+web backend row (`NotTheRouteRow`). It checks the YAML independently of
+the `authored` argument guard.
 
 ### The command is parsed, not scanned
 
@@ -1546,7 +1551,7 @@ and what such a driver then does is its own.
 |---|---|---|
 | `codex` | `web-search` → `web_search`; ON is the cold default, OFF is `-c web_search="disabled"` | Measured by the controller on codex-cli 0.154.0, **cold `codex exec` only** (`.forge/tasks/controller-codex-web-search-switch-2026-09-21.json`). Unmeasured: whether OFF or ON holds on a RESUMED session (the pair is composed there all the same), any `web_search` value other than `"disabled"`, the interactive `--search` flag under `exec`, other versions, and profile and `config.toml` precedence. Whether an ambient MCP server in the operator's codex configuration is excluded is a separate, MCP fact, measured on 0.164.0 ([measured MCP isolation](#measured-mcp-isolation)). It is one measured capability, not an exhaustive inventory. |
 | `claude` | `web-search` → `WebSearch`, `web-fetch` → `WebFetch`; ON admits the tool to the engine's lists, OFF denies it by name | Adapter data and argv composition only. That a boxed seat's empty `--tools` list under `--strict-mcp-config` leaves no native tool is a declaration, not a live measurement; ON beside the hands tool and OFF on an unboxed seat are both unmeasured live. |
-| `dsh` | `unmeasured` | `tool_permissions` being unsupported shows that Brokkr cannot narrow dsh's tools, and its `mcp` facts measure the engine's server channel and MCP isolation only ([measured MCP isolation](#measured-mcp-isolation)). Neither shows dsh has no native egress — `recipes/research-dsh/README.md` records that its headless profile ships web fetch ON — and no OFF control has been declared or measured. Nothing is granted through dsh and no denial is claimed. |
+| `dsh` | `web-search` → `web_search`, `web-fetch` → `web_fetch`. The staged `tool-web` row sets each key to `true` for a native holding and `false` otherwise. Boxed hands disable the whole row. | Measured on dsh 0.2.1-rc.2, Linux, headless, beside `no-shell.yml`. The [key-only runs](../evidence/adapters/dsh-native-web-2026-11-24.md#key-only-compositions-2026-11-26) kept all backend rows enabled and measured both OFF and each tool ON alone in the catalog. Other releases and the children of `subagent`, `subagent_fork` and `workflow` are unmeasured. The shell can reach the web without a grant, an operator-accepted residual. |
 | `lanetally` | `unmeasured` | The wrapper forwards argv to claude, and forwarding is not confinement. Claude's declarations and evidence are not inherited. |
 | `exec` | `unmeasured` | The engine cannot certify what an arbitrary child program reaches. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged. |
 | `qoder` (example, not shipped in `adapters/`) | `web-fetch` → `WebFetch`, `web-search` → `WebSearch`; ON is `unsupported`, OFF is the driver's default | The driver always passes `--tools Read Edit Write Glob Grep Bash`, and the record shows that `--tools` with names restricts the built-ins to those names. That the list leaves both web tools out is init's tool list, not a refused live call. Ambient MCP isolation is measured for the cold and replacement shapes without hands ([below](#measured-mcp-isolation)); a boxed shape is not. |

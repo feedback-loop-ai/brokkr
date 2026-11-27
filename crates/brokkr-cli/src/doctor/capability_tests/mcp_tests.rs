@@ -151,6 +151,26 @@ fn private_docs() -> tempfile::TempDir {
     dir
 }
 
+#[test]
+fn doctor_reports_the_same_mcp_details_for_a_provider_grant() {
+    let dir = private_docs();
+    edit(dir.path(), "realms.json", |map| {
+        map["schema"] = json!("forge.realms/v9");
+        map["realms"][0]["capabilities"]["library-docs"] =
+            json!({"dialects": {"codex": "docs-mcp"}});
+    });
+    let line = "'library-docs' provider 'codex'";
+    let observed: Vec<_> = read(dir.path(), &folder::Inspected::Neither)
+        .into_iter()
+        .filter(|detail| detail.contains(line))
+        .collect();
+    let expected: Vec<_> = docs("private")
+        .into_iter()
+        .map(|detail| detail.replacen("'library-docs'", line, 1))
+        .collect();
+    assert_eq!(observed, expected);
+}
+
 /// The capability lines of `dir`, the bundle the report reads `inspected`.
 fn read(dir: &Path, inspected: &folder::Inspected) -> Vec<String> {
     let mut report = Report {

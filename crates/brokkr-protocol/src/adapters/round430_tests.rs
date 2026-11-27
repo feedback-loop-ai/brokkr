@@ -89,12 +89,7 @@ fn a_governed_dsh_launch_without_its_sealed_record_is_refused_at_the_serving_che
     env.set("DSH_HOME", dir.path());
     env.set("HOME", dir.path());
     let mut input = json!({"workdir": dir.path()});
-    input["native_controls"] = json!({
-        "inventory": "unmeasured",
-        "provider": "dsh",
-        "harness": "dsh",
-        "reason": "dsh declares its native inventory unmeasured",
-    });
+    input["native_controls"] = crate::native_controls::dsh::fixtures::plan(false, false);
     input["launch_arguments"] = json!({"authored": [], "managed": []});
     let refused = match super::tests::invoke_case(
         AdapterKind::Dsh,

@@ -339,6 +339,7 @@ fn disposition_cell(disposition: &Disposition, lists: Option<&SelectionFlags>) -
             .collect();
             words(&parts)
         }
+        Disposition::Overlay(control) => format!("`{control}`"),
         Disposition::Unsupported(_) => "unsupported".to_string(),
         Disposition::Unmeasured(_) => "unmeasured".to_string(),
     }

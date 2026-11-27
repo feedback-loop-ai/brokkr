@@ -386,16 +386,21 @@ fn each_rosters_declarations_carry_their_shipped_mcp_facts_and_still_compile() {
             for outcome in &site.outcomes {
                 assert!(outcome.held.is_empty(), "{present}/{label}");
                 served.insert(outcome.provider.clone());
-                let off = match outcome.provider.as_str() {
-                    "claude" => &outcome.controls()["selection"]["deny"],
-                    "codex" => &outcome.controls()["argv"],
-                    "dsh" => &outcome.controls()["inventory"],
+                let controls = outcome.controls();
+                let (off, expected) = match outcome.provider.as_str() {
+                    "claude" => (
+                        &controls["selection"]["deny"],
+                        serde_json::json!(["WebFetch", "WebSearch"]),
+                    ),
+                    "codex" => (
+                        &controls["argv"],
+                        serde_json::json!(["-c", "web_search=\"disabled\""]),
+                    ),
+                    "dsh" => (
+                        &controls["overlay"],
+                        serde_json::json!([{"dsh-web-fetch": false}, {"dsh-web-search": false}]),
+                    ),
                     _ => continue,
-                };
-                let expected = match outcome.provider.as_str() {
-                    "claude" => serde_json::json!(["WebFetch", "WebSearch"]),
-                    "codex" => serde_json::json!(["-c", "web_search=\"disabled\""]),
-                    _ => serde_json::json!("unmeasured"),
                 };
                 assert_eq!(off, &expected, "{present}/{label}");
             }
@@ -672,7 +677,7 @@ fn the_shipped_dsh_work_seats_read_their_replacement_measured() {
     let gpt_flash: Vec<(&str, &[&str])> = gpt_flash.iter().map(|s| (s.as_str(), work)).collect();
     for (recipe, rows) in [
         ("recipes/night-shift", &implement[..]),
-        ("recipes/research-dsh", &[("research dsh", work)][..]),
+        ("recipes/research-dsh", &[("researcher dsh", work)][..]),
         ("recipes/gpt-flash", &gpt_flash[..]),
         ("recipes/review-first", &implement[..]),
         ("recipes/wager-harness-muse", &implement[..]),

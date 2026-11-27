@@ -1,16 +1,23 @@
 {
   "name": "research-dsh",
-  "description": "The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on.",
+  "description": "The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with the research office’s web requests.",
   "cost": "low",
-  "forced_crew": "decision 0044 ruling 5: the researcher is seated on dsh, which expresses no tool list, with the overlay that turns page fetch on",
+  "forced_crew": "decision 0044 ruling 5: the researcher is seated on dsh, which expresses no tool list, with the Model Studio route overlay",
   "extends": "research",
+  "policy": "policy.json",
+  "remove": {
+    "seats": ["research"],
+    "phases": ["research"]
+  },
   "override": {
     "bundle": ["description", "cost"],
-    "seats": ["research"]
+    "table": ["initial"],
+    "rules": ["RESEARCH-INTAKE", "RESEARCH-NOTHING-NEW", "RESEARCH-ESCALATE"]
   },
   "seats": {
-    "research": {
+    "researcher": {
       "role": "roles/researcher.md",
+      "capabilities": {"web-fetch": "wants", "web-search": "wants"},
       "results": ["intake", "nothing-new", "escalate"],
       "class": "work",
       "limits": {"max_attempts": 1, "timeout_seconds": 5400},

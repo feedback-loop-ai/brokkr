@@ -155,6 +155,24 @@ fn lines(dir: &Path, availability: &Availability) -> (bool, Vec<String>) {
     (report.healthy, report.lines)
 }
 
+fn assert_private_no_grants(
+    dir: &Path,
+    availability: &Availability,
+    plans: impl IntoIterator<Item = String>,
+) {
+    let (healthy, actual) = lines(dir, availability);
+    assert!(healthy);
+    let expected: Vec<_> = [
+        "ok       capabilities private: grants nothing; every native capability is \
+             governed by the no-grant default — switched off, or the seat is refused"
+            .to_string(),
+    ]
+    .into_iter()
+    .chain(plans)
+    .collect();
+    assert_eq!(actual, expected);
+}
+
 const EVIDENCE: &str =
     "evidence: cold exec on 0.154.0 only · still unmeasured: a RESUMED session is unmeasured";
 
@@ -1586,20 +1604,16 @@ fn a_plan_whose_final_command_carries_no_off_is_refused_as_launch_refuses_it() {
     let unmeasured = codex(json!({"default": "measured off by default"}));
     let dir = workspace_with(Some(json!([realm("private", None)])));
     write(dir.path(), "adapters/codex.json", &unmeasured);
-    let (healthy, lines) = lines(dir.path(), &installed(&["codex"]));
-    assert!(healthy);
-    assert_eq!(
-        lines,
+    assert_private_no_grants(
+        dir.path(),
+        &installed(&["codex"]),
         [
-            "ok       capabilities private: grants nothing; every native capability is \
-             governed by the no-grant default — switched off, or the seat is refused"
-                .to_string(),
             refused("private", "codex", &final_check),
             format!(
                 "warn     capabilities private native codex 'web-search': NOT granted here: \
                  {NO_OFF} · {EVIDENCE}"
             ),
-        ]
+        ],
     );
     let dir = workspace_with(Some(restricted.clone()));
     write(dir.path(), "adapters/codex.json", &unmeasured);
@@ -1640,9 +1654,8 @@ fn a_plan_whose_final_command_carries_no_off_is_refused_as_launch_refuses_it() {
 /// Review return M1 of run `0065-rebuild-unit-22-see-the-uni-79c858d5`:
 /// each harness is answered as its launch serves it. The same plan — one
 /// power, OFF by the harness default — is admitted under `exec`, which
-/// consumes no native control and checks no final command, and under DSH,
-/// whose launch's final check reads the composition from its staged
-/// overlay; it is refused under LaneTally with its launch's own final-check
+/// consumes no native control and checks no final command. DSH refuses an
+/// inventory missing a known power. LaneTally gives its own final-check
 /// refusal (review return SC22-2), and under a driver name no built-in
 /// driver answers to.
 #[test]
@@ -1671,16 +1684,20 @@ fn each_harness_is_answered_as_its_launch_serves_it() {
              {off} · {EVIDENCE}"
         )
     };
-    let (healthy, lines) = lines(dir.path(), &availability);
-    assert!(healthy);
-    assert_eq!(
-        lines,
+    let missing_fetch = format!(
+        "{}: provider 'dsh' is known to carry native capability 'web-fetch', which this seat \
+         does not hold, and no valid control denies it: its adapter declares no native \
+         capability serving 'web-fetch'. A known native power is launched only with a \
+         delivered denial, never on what absence implies; repair the adapter data \
+         (decision 0066 ruling 1)",
+        hypothetical("private", "adapter-plan")
+    );
+    assert_private_no_grants(
+        dir.path(),
+        &availability,
         [
-            "ok       capabilities private: grants nothing; every native capability is \
-             governed by the no-grant default — switched off, or the seat is refused"
-                .to_string(),
-            admitted("private", "dsh"),
-            search("dsh", OFF),
+            refused("private", "dsh", &missing_fetch),
+            search("dsh", NO_OFF),
             admitted("private", "exec"),
             search("exec", OFF),
             refused(
@@ -1703,7 +1720,7 @@ fn each_harness_is_answered_as_its_launch_serves_it() {
                 &unchecked("nosuch", "no built-in driver of that name is launched"),
             ),
             search("nosuch", NO_OFF),
-        ]
+        ],
     );
 }
 
@@ -1778,30 +1795,41 @@ fn a_final_validation_refusal_is_bounded_as_a_compile_refusal_is() {
 fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
     let dir = workspace_with(Some(json!([realm("private", None)])));
     let mut availability = installed(&[]);
-    for (provider, harness, declared, template) in [
+    let dsh = crate::dsh_key::adapter_fixture::with_measured_web(adapter("dsh-effort", None));
+    for (provider, harness, mut declared, template) in [
+        ("dsh-effort", "dsh", dsh.clone(), &["--effort", "high"][..]),
         (
-            "dsh-effort",
-            "dsh",
-            json!({"known": {}}),
-            &["--effort", "high"][..],
+            "lanetally",
+            "lanetally",
+            adapter("lanetally", Some(selecting())),
+            &[],
         ),
-        ("lanetally", "lanetally", selecting(), &[]),
     ] {
-        let mut declared = adapter(provider, Some(declared));
         let mut driver = vec!["{brokkr}", "driver", harness, "--"];
         driver.extend(template);
         declared["driver"] = json!(driver);
         write(dir.path(), &format!("adapters/{provider}.json"), &declared);
         availability.record(provider, Presence::Available);
     }
-    let (healthy, lines) = lines(dir.path(), &availability);
-    assert!(healthy);
-    assert_eq!(
-        lines,
+    let no_dsh_off = |capability: &str| {
+        let evidence = &dsh["native_capabilities"]["known"][capability]["evidence"];
+        let scope = evidence["scope"].as_str().unwrap();
+        let limitations: Vec<_> = evidence["limitations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry.as_str().unwrap())
+            .collect();
+        format!(
+            "warn     capabilities private native dsh-effort '{capability}': NOT granted here: \
+             {NO_OFF} · evidence: {scope} · still unmeasured: {}",
+            limitations.join("; ")
+        )
+    };
+    assert_private_no_grants(
+        dir.path(),
+        &availability,
         [
-            "ok       capabilities private: grants nothing; every native capability is \
-             governed by the no-grant default — switched off, or the seat is refused"
-                .to_string(),
             refused(
                 "private",
                 "dsh-effort",
@@ -1812,12 +1840,14 @@ fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
                     hypothetical("private", "adapter-plan")
                 ),
             ),
+            no_dsh_off("web-fetch"),
+            no_dsh_off("web-search"),
             admitted("private", "lanetally"),
             format!(
                 "warn     capabilities private native lanetally 'web-fetch': NOT granted here: \
                  {OFF} · {EVIDENCE}"
             ),
-        ]
+        ],
     );
 }
 
@@ -1926,6 +1956,7 @@ fn an_office_or_evidence_with_a_control_character_cannot_split_or_forge_a_line()
 
 mod binding_tests;
 mod mcp_tests;
+mod overlay_tests;
 mod provider_dialects_tests;
 mod shipped_tests;
 #[path = "../../../../tests/support/synthetic_mcp.rs"]

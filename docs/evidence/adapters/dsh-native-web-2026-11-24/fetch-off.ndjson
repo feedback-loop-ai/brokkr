@@ -1,0 +1,8 @@
+{"type":"session","sessionId":"session-0d60aee0-f59b-4cd4-9f66-2894d045177c","cwd":"/var/tmp/cap-gates/dsh-web-measure/work"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"thinking","text":"The user asks to fetch https://example.com with a web fetch tool. I don't have a web fetch tool. My available tools are: create_goal, edit, exit_plan_mode, get_goal, glob, grep, interrupt_agent, job_kill, job_list, job_output, list_agents, read, read_image, send_message, skill, subagent, subagent_fork, todo_write, update_goal, workflow, working_directory, write.\n\nNo web fetch tool. I should not try another way (no curl via shell—I don't even have a shell tool). Reply exactly NO-WEB-TOOL."}
+{"type":"text","text":"NO-WEB-TOOL"}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":4807,"outputTokens":140,"cacheReadTokens":128,"cacheWriteTokens":0,"totalTokens":5075}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"type":"final","text":"NO-WEB-TOOL"}

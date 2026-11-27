@@ -6,7 +6,9 @@ mod park_cause;
 use super::boundary_tests::sealed_tests::{boxed, boxed_a, REACH_ARG};
 use super::conclude_tests::invariant;
 use super::sequence::{dialect_attempt_outcome, expand_dialect_argv, nearest_change, SequenceAt};
-use super::verdict::covered_tests::{reviewing, reviewing_on};
+use super::verdict::covered_tests::{
+    enter_review, enter_review_at, review_inputs, reviewing, reviewing_on,
+};
 use super::*;
 use crate::agents::HarnessHands;
 use crate::bundle::{Limits, MemberLaw, MemberVerdict, PanelJoin, Seat};
@@ -25,6 +27,27 @@ pub(super) use brokkr_protocol::process::in_its_own_engine;
 use brokkr_protocol::{Body, Message, ResultStatus};
 use brokkr_store::StoreError;
 use std::collections::BTreeMap;
+
+/// Re-execute the test alone before it can launch a driver. The nested
+/// item's type name includes the test function; libtest drops the crate
+/// prefix and ends at the test function itself.
+macro_rules! own_engine {
+    () => {
+        if !$crate::engine::tests::in_its_own_engine($crate::engine::tests::own_engine!(path)) {
+            return;
+        }
+    };
+    (path) => {{
+        fn test_marker() {}
+        std::any::type_name_of_val(&test_marker)
+            .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+            .unwrap()
+            .strip_suffix("::test_marker")
+            .unwrap()
+    }};
+}
+
+pub(super) use own_engine;
 
 fn machine() -> Machine {
     Machine::from_table(&json!({
@@ -5009,30 +5032,6 @@ pub(super) const DOCS_CLASS: &str = r#"{"schema":"forge.delivery-classes/v1","cl
 /// A class whose one pattern matches every path — what a phase would
 /// commit if it could choose the class its own fixes are judged by.
 const EVERYTHING_IS_DOCS: &str = r#"{"classes":{"docs":{"paths":[""]}}}"#;
-
-/// Append a `phase/entered` for the protected phase with the given
-/// payload — what the engine writes (0039), or what a journal carries.
-fn enter_review(engine: &mut Engine, payload: Value) {
-    engine
-        .store
-        .append_next(&engine.run_id, EventType::PhaseEntered, payload, None, None)
-        .unwrap();
-}
-
-/// Record that the protected phase was entered at the given head.
-fn enter_review_at(engine: &mut Engine, head: &str) {
-    enter_review(engine, json!({"phase": "review", "head": head}));
-}
-
-fn review_inputs(engine: &mut Engine, claim: Value) -> Map<String, Value> {
-    let (review, raw) = reviewing(engine, json!({"result": "clean", "inputs": claim}));
-    engine.decide(&review, raw).unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
-    events.last().unwrap().payload["inputs"]
-        .as_object()
-        .cloned()
-        .unwrap()
-}
 
 #[test]
 fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {

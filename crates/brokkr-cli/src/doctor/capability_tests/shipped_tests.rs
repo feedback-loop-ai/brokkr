@@ -6,11 +6,10 @@
 use super::*;
 
 /// The shipped repository, read as doctor reads it: the realm grants
-/// Claude's two read tools to the `researcher` office alone (the
+/// Claude's and DSH's read tools to the `researcher` office alone (the
 /// operator's read-only web ruling of 2026-11-24, #1329) and nothing else,
-/// Codex's search is named with its cold-0.154.0 scope and its resumed
-/// gap, Claude's two tools are named as adapter data, and DSH and
-/// LaneTally stay unmeasured on their own terms.
+/// Codex's search is named with its cold measurement and its resumed gap.
+/// DSH's web is measured and LaneTally stays unmeasured.
 #[test]
 fn the_shipped_realm_grants_the_researcher_read_only_web_and_names_every_native_power_it_denies() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -34,18 +33,18 @@ fn the_shipped_realm_grants_the_researcher_read_only_web_and_names_every_native_
     let rendered = report.render();
     assert!(
         rendered.starts_with(
-            "ok       capabilities brokkr 'web-fetch': dialect 'claude-native-fetch' \
-             (provider-native, provider 'claude') · tools [WebFetch] · offices [researcher] \
-             only · restrictions none\n\
-             ok       capabilities brokkr 'web-search': dialect 'claude-native-search' \
-             (provider-native, provider 'claude') · tools [WebSearch] · offices [researcher] \
-             only · restrictions none\n"
+            "ok       capabilities brokkr 'web-fetch': provider 'claude' through dialect \
+             'claude-native-fetch', provider 'dsh' through dialect 'dsh-native-fetch' · offices \
+             [researcher] only\n\
+             ok       capabilities brokkr 'web-search': provider 'claude' through dialect \
+             'claude-native-search', provider 'dsh' through dialect 'dsh-native-search' · offices \
+             [researcher] only\n"
         ),
         "{rendered}"
     );
-    // Each installed Claude and Codex seat that holds nothing is one
+    // Each installed Claude, Codex or DSH seat that holds nothing is one
     // complete plan, admitted with every known power OFF.
-    for provider in ["claude", "codex"] {
+    for provider in ["claude", "codex", "dsh"] {
         let plan = admitted("brokkr", provider);
         assert!(rendered.contains(&plan), "{plan}\n---\n{rendered}");
     }
@@ -63,8 +62,14 @@ fn the_shipped_realm_grants_the_researcher_read_only_web_and_names_every_native_
          seat of office 'researcher' that wants it is admitted with it ON; for a seat that \
          does not hold it, the adapter-level plan above switches it off",
         "no live denial or enablement of WebSearch has been measured",
-        "warn     capabilities brokkr native dsh: native inventory unmeasured: dsh's \
-         tool_permissions and mcp declarations cover command-line narrowing",
+        "ok       capabilities brokkr native dsh 'web-fetch': granted to offices \
+         [researcher] only through dialect 'dsh-native-fetch'; the adapter-level plan of a \
+         seat of office 'researcher' that wants it is admitted with it ON; for a seat that \
+         does not hold it, the adapter-level plan above switches it off",
+        "ok       capabilities brokkr native dsh 'web-search': granted to offices \
+         [researcher] only through dialect 'dsh-native-search'; the adapter-level plan of a \
+         seat of office 'researcher' that wants it is admitted with it ON; for a seat that \
+         does not hold it, the adapter-level plan above switches it off",
         "warn     capabilities brokkr native lanetally: native inventory unmeasured: the \
          LaneTally wrapper forwards argv to claude",
     ] {

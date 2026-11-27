@@ -90,6 +90,7 @@ fn disposition_words(disposition: &Disposition) -> String {
             lists.allow.join(", "),
             lists.deny.join(", ")
         ),
+        Disposition::Overlay(control) => control.to_string(),
         Disposition::Unsupported(reason) => format!("cannot be switched ({reason})"),
         Disposition::Unmeasured(reason) => format!("unmeasured ({reason})"),
     }
@@ -386,7 +387,7 @@ fn report_realm(
                 }
             }
             GrantDialect::PerProvider(dialects) => {
-                report_provider_grant(report, &what, (capability, grant), dialects, &alone)
+                report_provider_grant(report, &what, (capability, grant), dialects, &alone, known)
             }
         };
         read.insert(capability.as_str(), binding);
@@ -556,13 +557,14 @@ fn report_provider_grant<'a>(
     (capability, grant): (&str, &'a CapabilityGrant),
     dialects: &BTreeMap<String, String>,
     alone: &Result<Authority, String>,
+    adapters: Option<&Adapters>,
 ) -> Binding<'a> {
     let line = format!("{what} '{capability}'");
     let names = dialects
         .iter()
         .map(|(provider, dialect)| format!("provider '{provider}' through dialect '{dialect}'"))
         .collect::<Vec<_>>();
-    let detail = format!("{} · {}", names.join(", "), scope_words(grant));
+    let mut detail = format!("{} · {}", names.join(", "), scope_words(grant));
     let authority = match alone {
         Ok(authority) => authority,
         Err(problem) => {
@@ -573,10 +575,11 @@ fn report_provider_grant<'a>(
             return Binding::Failed;
         }
     };
-    report.ok(&line, safe(&detail));
     let native = authority
         .provider_native_bindings(capability)
         .map(|bound| {
+            let adapter = adapters.and_then(|adapters| adapters.adapter(bound.provider));
+            detail.push_str(&unmeasured_grant(adapter));
             (
                 bound.provider.into(),
                 NativeBinding {
@@ -586,6 +589,7 @@ fn report_provider_grant<'a>(
             )
         })
         .collect();
+    report.ok(&line, safe(&detail));
     Binding::Read { grant, native }
 }
 
@@ -635,11 +639,7 @@ pub(super) fn report_grant(
                 restriction_names("", &grant.restrictions).join("', '")
             )
         }
-        Some((_, NativeInventory::Known { .. })) | None => String::new(),
-        Some((_, NativeInventory::Unmeasured(reason))) => format!(
-            " · provider '{provider}' declares its native capabilities unmeasured ({reason}): no \
-             seat can hold the capability through this grant, and no native denial is claimed"
-        ),
+        Some(_) | None => unmeasured_grant(adapter),
     };
     let detail = format!(
         "dialect '{}' ({}, provider '{provider}') · tools [{}] · {} · restrictions \
@@ -651,6 +651,22 @@ pub(super) fn report_grant(
     );
     report.ok(&line, Safe::new(&detail).as_str().to_string());
     Some((provider.to_string(), key.to_string()))
+}
+
+/// A native binding's adapter may declare an unmeasured inventory for either grant form.
+fn unmeasured_grant(adapter: Option<&Adapter>) -> String {
+    let Some(Adapter {
+        provider,
+        native: NativeInventory::Unmeasured(reason),
+        ..
+    }) = adapter
+    else {
+        return String::new();
+    };
+    format!(
+        " · provider '{provider}' declares its native capabilities unmeasured ({reason}): no \
+         seat can hold the capability through this grant, and no native denial is claimed"
+    )
 }
 
 /// A grant's restriction object as written, or `none`.

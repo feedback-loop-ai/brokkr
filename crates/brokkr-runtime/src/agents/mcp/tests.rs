@@ -1193,8 +1193,8 @@ fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() 
 
 /// U1e (SI2): exec declares no model MCP surface, read as inapplicable on
 /// every shape and never as a measurement, and stays a script path;
-/// dsh's credentials name the keyed routes U0c measured, and its native
-/// inventory records the keyed web search U0c observed, still unmeasured.
+/// dsh's credentials name the keyed routes U0c measured. Its web inventory
+/// is covered by the native capability tests.
 #[test]
 fn exec_has_no_model_surface_and_dsh_names_its_measured_keys() {
     let adapters = Adapters::load(&shipped()).expect("the shipped adapters load");
@@ -1239,23 +1239,6 @@ fn exec_has_no_model_surface_and_dsh_names_its_measured_keys() {
             ("spark", "SPARK_API_KEY"),
             ("spark-glm", "SPARK_API_KEY"),
         ]
-    );
-    let crate::capabilities::NativeInventory::Unmeasured(native) = &dsh.native else {
-        panic!("dsh's native inventory stays unmeasured");
-    };
-    assert!(
-        native.contains(
-            "the web_search row (web-search-deepseek) reads DEEPSEEK_API_KEY on every route \
-             family; no cell exercised either"
-        ),
-        "{native}"
-    );
-    assert!(
-        native.contains(
-            "dsh 0.2's web-deepseek-api row (the Search and Fetch APIs, billed from \
-             2026-11-01) reads it too"
-        ),
-        "{native}"
     );
 }
 

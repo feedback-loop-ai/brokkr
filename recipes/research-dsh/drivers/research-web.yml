@@ -7,14 +7,10 @@
 # states it; where that layer exists the two agree. Search keeps its own
 # key (DEEPSEEK_API_KEY).
 #
-# This file once also turned the harness's page fetch on. That row was
-# inert: 0.1.0-rc.6 shipped no fetch provider, so the first sweep read
-# with curl, and 0.1.2-rc.1 ships `web-fetch-http` with fetch on by
-# default (measured 2026-09-04). The grant is the profile's; the overlay
-# carries only the route. The file is part of the bundle, so it is part
-# of the recipe's digest. The path is read from the repository root,
-# where the sweep runs.
-#
+# This file carries the route. The driver stages the native web controls
+# from the realm grant beside it. The route is read from the repository root,
+# and the file is part of the bundle digest.
+
 # The model entry states its reasoning levels, because nothing else
 # can. A custom provider's entry with no `reasoningEfforts` is resolved
 # against dsh's installed catalog for the same provider key, and no

@@ -9,13 +9,15 @@ use super::*;
 use crate::capabilities::{Authority, NativeInventory, Serving, SiteAsks, SiteCapabilities};
 use crate::engine::sequence::SequenceAt;
 
+use dsh_tests::dsh_inventory;
+
 /// Two candidates of one site: a Codex link whose search is switched off,
-/// and a DSH fallback whose native inventory nobody has measured.
+/// and a DSH fallback whose fetch and search are both switched off.
 fn two_candidates() -> SiteCapabilities {
     let authority = Authority::nothing("private", Path::new(""));
     let asks = SiteAsks::of("work", None, None).unwrap();
     let codex = codex_inventory();
-    let dsh = NativeInventory::Unmeasured("never probed".into());
+    let dsh = dsh_inventory();
     let serve = |provider: &'static str, model: &'static str, native| Serving {
         provider,
         harness: provider,
@@ -141,15 +143,7 @@ fn a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null() {
         spawn().as_mut(),
         &mut input,
     );
-    assert_eq!(
-        input["native_controls"],
-        json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
-               "reason": "never probed"})
-    );
-    assert!(input["capabilities"]["native"]
-        .as_str()
-        .unwrap()
-        .starts_with("Provider 'dsh' declares its native capabilities unmeasured"));
+    dsh_tests::assert_web_off(&input);
     // A link the compile never resolved has no authority, and is refused.
     let mut input = json!({});
     engine.mark_capabilities(
@@ -293,24 +287,14 @@ fn every_nested_dispatch_hands_its_driver_the_selected_links_own_controls() {
         let start: Value = serde_json::from_slice(&std::fs::read(captured(name)).unwrap()).unwrap();
         start["input"].clone()
     };
-    // The step ran its FALLBACK: DSH's own unmeasured plan, never the
-    // Codex primary's OFF pair, and it is told nothing is claimed.
+    // The step ran its FALLBACK with DSH's own two overlay controls.
     let draft = input("draft");
     assert_eq!(draft["seat"], "work:draft");
-    assert_eq!(
-        draft["native_controls"],
-        json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
-               "reason": "never probed"})
-    );
+    dsh_tests::assert_web_off(&draft);
     // And its OWN argv parts, recorded by the dispatch that spawned it:
     // nothing a sequence's seat-level input carried survives into a step.
     assert!(draft["launch_arguments"]["authored"].is_array(), "{draft}");
     assert_eq!(draft["launch_arguments"]["managed"], json!([]));
-    assert_eq!(
-        draft["capabilities"]["native"],
-        "Provider 'dsh' declares its native capabilities unmeasured (never probed); nothing is \
-         claimed about what it can reach on its own"
-    );
     // The nested member ran its PRIMARY: the OFF pair, and only that.
     let nested = input("final");
     assert_eq!(nested["seat"], "work:finish:final");
@@ -356,7 +340,7 @@ fn every_nested_dispatch_hands_its_driver_the_selected_links_own_controls() {
         record(
             json!({"provider": "dsh", "harness": "dsh",
                    "model": {"kind": "named", "name": "flash"}}),
-            json!({"kind": "unmeasured", "reason": "never probed"}),
+            json!({"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]}),
         )
     );
     assert_eq!(
@@ -531,7 +515,7 @@ fn a_spawn_is_sealed_with_the_selected_links_own_segments_and_expected_state() {
             "expected": {
                 "identity": {"provider": "dsh", "harness": "dsh",
                              "model": {"kind": "named", "name": "flash"}},
-                "native": {"kind": "unmeasured", "reason": "never probed"},
+                "native": {"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]},
                 "local": {"allow": {"kind": "listed", "names": ["cargo"]},
                           "sandbox": {"kind": "unspecified"},
                           "application": {"kind": "direct", "limits": ["Bash(cargo:*)"]}},
@@ -1403,7 +1387,7 @@ fn holdings(label: &str, office: Value, seat: Option<Value>) -> SiteCapabilities
         .map(|(provider, model)| {
             let native = match provider {
                 "codex" => codex_inventory(),
-                _ => NativeInventory::Unmeasured("never probed".into()),
+                _ => dsh_inventory(),
             };
             authority
                 .resolve(
@@ -1471,9 +1455,8 @@ fn chartered(
 /// DATA rule. Rebuild unit 18-fix (council F2): each site's holdings are its
 /// own and tell sites apart — a granted `web-search` held, an ungranted
 /// want missed, an ask the seat subtracted, a want bound to a provider the
-/// serving one is not dropped, the Codex native OFF and the DSH unmeasured
-/// statement — so a site told a neighbour's, or its primary's for its
-/// fallback, fails by name. Rendering it again after every charter file
+/// serving one is dropped, and each provider's own native denials. A site
+/// told a neighbour's holdings or a fallback told its primary's fails by name. Rendering it again after every charter file
 /// changed says the same: nothing rereads a path. A role path merged over a
 /// step's own, naming a neighbour's pinned charter, refuses that step before
 /// its driver starts.
@@ -1687,12 +1670,10 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
             "draft",
             "work:draft",
             Some(said(&format!(
-                "{none}\n{}\n{}\n{}",
+                "{none}\n{}\n{}",
                 "You do NOT hold `web-fetch`: provider 'dsh' cannot carry a binding to provider \
-                 'claude'; no native denial is claimed.",
-                "You do NOT hold `web-search`: this seat subtracted it from its office's asks.",
-                "Provider 'dsh' declares its native capabilities unmeasured (never probed); \
-                 nothing is claimed about what it can reach on its own."
+                 'claude'; native capability remains OFF.",
+                "You do NOT hold `web-search`: this seat subtracted it from its office's asks."
             ))),
         ),
         (
@@ -1862,6 +1843,7 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
     );
 }
 mod call_tests;
+mod dsh_tests;
 pub(super) mod provision_tests;
 mod resume_tests;
 mod serving_tests;
