@@ -5,6 +5,8 @@
 //! bound reading, and the host refusal. A new child of the parent suite,
 //! which sits at its line baseline; the effort pin's test moved here from
 //! it when the cold builder it calls learned the store.
+//! The hand-run read's two tests (#1353) sit here too, beside the door
+//! that lets a driver run by hand proceed without a store.
 
 use super::*;
 use crate::native_controls::grammar::{self, Unisolated};
@@ -433,6 +435,54 @@ fn a_hand_run_codex_rejoin_refuses_a_repeat_in_its_cold_replacement() {
         offered(&["-s", "read-only", "--sandbox", "workspace-write", "-m", "a"]).err(),
         Some(hand_run_repeat_refusal(7, "--sandbox"))
     );
+}
+
+/// Make the Codex shim and return its argv record path and executable path.
+fn codex_argv_shim(dir: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let argv = dir.join("argv");
+    let shim = codex_shim(dir, "codex", &argv);
+    (argv, shim)
+}
+
+#[test]
+fn a_hand_run_codex_refuses_every_model_repeat_before_launch() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let (argv, shim) = codex_argv_shim(dir.path());
+    let workdir = dir.path().to_str().unwrap();
+    let input = json!({"workdir": workdir});
+    with_codex_bin(&mut env, &shim, || {
+        let launch = |extra: &[&str]| {
+            invoke(
+                AdapterKind::Codex,
+                &strings(extra),
+                "prompt",
+                &input,
+                None,
+                &[],
+                &mut |_| {},
+            )
+        };
+        for (extra, at) in [
+            (&["-m", "a", "--model", "b"][..], 7),
+            (&["--model", "a", "-m", "b"], 7),
+            (&["-m", "a", "-m", "b"], 7),
+            (&["--model=a", "-mb"], 6),
+        ] {
+            let result = launch(extra);
+            assert_eq!(recorded(&argv), Vec::<String>::new(), "{extra:?}");
+            assert_eq!(
+                result.err(),
+                Some(hand_run_repeat_refusal(at, "--model")),
+                "{extra:?}"
+            );
+        }
+        assert_eq!(launch(&["-m", "a"]).unwrap().exit_code, 0);
+        assert_eq!(
+            recorded(&argv),
+            ["exec", "--json", "-C", workdir, "-m", "a"]
+        );
+    });
 }
 
 /// 45.5: the compile-time reading, [`codex_command`], is the composition

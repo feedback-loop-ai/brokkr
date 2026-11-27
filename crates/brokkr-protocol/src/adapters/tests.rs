@@ -15297,54 +15297,6 @@ fn hand_run_repeat_refusal(at: usize, option: &str) -> String {
     hand_run_refusal(at, &format!("'{option}'"), &cause)
 }
 
-/// Make the Codex shim and return its argv record path and executable path.
-fn codex_argv_shim(dir: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
-    let argv = dir.join("argv");
-    let shim = codex_shim(dir, "codex", &argv);
-    (argv, shim)
-}
-
-#[test]
-fn a_hand_run_codex_refuses_every_model_repeat_before_launch() {
-    let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let (argv, shim) = codex_argv_shim(dir.path());
-    let workdir = dir.path().to_str().unwrap();
-    let input = json!({"workdir": workdir});
-    with_codex_bin(&mut env, &shim, || {
-        let launch = |extra: &[&str]| {
-            invoke(
-                AdapterKind::Codex,
-                &strings(extra),
-                "prompt",
-                &input,
-                None,
-                &[],
-                &mut |_| {},
-            )
-        };
-        for (extra, at) in [
-            (&["-m", "a", "--model", "b"][..], 7),
-            (&["--model", "a", "-m", "b"], 7),
-            (&["-m", "a", "-m", "b"], 7),
-            (&["--model=a", "-mb"], 6),
-        ] {
-            let result = launch(extra);
-            assert_eq!(recorded(&argv), Vec::<String>::new(), "{extra:?}");
-            assert_eq!(
-                result.err(),
-                Some(hand_run_repeat_refusal(at, "--model")),
-                "{extra:?}"
-            );
-        }
-        assert_eq!(launch(&["-m", "a"]).unwrap().exit_code, 0);
-        assert_eq!(
-            recorded(&argv),
-            ["exec", "--json", "-C", workdir, "-m", "a"]
-        );
-    });
-}
-
 /// The engine's plan with the guard `adapters/codex.json` SHIPS, read from
 /// the committed file at test time and never a hand-typed copy: the
 /// `authored` block of its one known native capability, under the key names
