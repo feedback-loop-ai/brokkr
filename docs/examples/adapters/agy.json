@@ -216,8 +216,8 @@
     "stream-work-site": {
       "status": "unsupported",
       "identity": {
-        "version": "1.5.14",
-        "applies_to": "1.5.14"
+        "version": "1.5.18",
+        "applies_to": "1.5.18"
       },
       "classes": [
         "work"
@@ -227,9 +227,9 @@
       ],
       "hands": "none",
       "evidence": {
-        "interface": "docs/evidence/adapters/agy-cli-1-5.md, Seventh measurement (Antigravity CLI 1.5.14, Linux): l2-01-cold, l2-02-rejoin, l2-07-rejoin-moved-files (fresh HOME with conversations/<id>.db and brain/<id>/), l2-10-box-cold, l2-11-box-rejoin, l2b-01-iso-cold to l2b-03-iso-rejoin-same-home-empty-set"
+        "interface": "docs/evidence/adapters/agy-cli-1-5.md, Seventh (1.5.14: l2-01..02, l2-07, l2-10..11, l2b-01..03) and Ninth (1.5.18: l2c-01..03, l2c-06..22) measurements, Linux"
       },
-      "reason": "rejoin under an engine-made HOME was measured on Antigravity CLI 1.5.14 (l2-01-cold, l2-02-rejoin, l2-07-rejoin-moved-files, l2-10-box-cold, l2-11-box-rejoin, l2b-01-iso-cold to l2b-03-iso-rejoin-same-home-empty-set); brokkr driver agy now keeps conversations/<id>.db and brain/<id>/ and records root_session (#1227), and the --conversation launch is not built yet"
+      "reason": "rejoin from kept conversations/<id>.db and brain/<id>/ was measured on 1.5.14 (l2-01..07, l2-10..11, l2b-01..03) and 1.5.18 (l2c-01..22); brokkr driver agy keeps state and implements the --conversation launch (#1227), but a live rejoin through the driver itself has not been measured yet, which supported waits for"
     }
   }
 }

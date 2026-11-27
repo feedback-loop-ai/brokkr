@@ -16,16 +16,16 @@ use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
-use brokkr_core::seat::{is_agy_uuid, AGY_TRANSCRIPT_KIND};
+use brokkr_core::seat::is_agy_uuid;
 use rustix::fs::{fchmod, fstat, mkdirat, openat, statat, AtFlags, Dir, FileType, Mode, Stat};
 use rustix::io::Errno;
-use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::fold::Conversation;
 use super::keep::{self, ParentError, SourceErrno};
-use crate::adapters::{Emitted, Invocation, RootSession, Step};
+use super::restore;
 use crate::secret::{BoundSecret, SecretMatcher};
+pub(super) use restore::publish_turn;
 
 /// Subdirectory inside `<agy-conversations>/<id>/` holding kept rejoin state.
 pub(super) const REJOIN_DIR: &str = "rejoin";
@@ -105,100 +105,9 @@ pub(super) struct TurnKeep<'a> {
     pub(super) refused_to_start: bool,
     pub(super) pin_confirmed: bool,
     pub(super) conversation: &'a Conversation,
-    pub(super) harness_version: Option<&'a str>,
     pub(super) engine_home: &'a Path,
     pub(super) operator_home: Option<&'a Path>,
     pub(super) bindings: &'a [BoundSecret],
-}
-
-/// Publish the kept transcript and, for a declaring work turn, the kept rejoin
-/// state and `root_session` before the engine HOME is removed (#1227).
-pub(super) fn publish_turn(
-    turn: TurnKeep<'_>,
-    outcome: &mut Result<Invocation, super::Ended>,
-    emit: &mut impl FnMut(&Emitted),
-) {
-    let mut fallback_meta = Map::new();
-    let target_meta = match outcome {
-        Ok(invocation) => &mut invocation.session_meta,
-        Err(_) => &mut fallback_meta,
-    };
-    let transcript_outcome = keep::publish_transcript(
-        keep::KeepContext {
-            declared: turn.declared.transcript,
-            probe: turn.probe,
-            refused_to_start: turn.refused_to_start,
-            conversation: turn.conversation,
-            engine_home: turn.engine_home,
-            operator_home: turn.operator_home,
-            bindings: turn.bindings,
-        },
-        target_meta,
-        emit,
-    );
-    let kept_transcript = match &transcript_outcome {
-        keep::TranscriptOutcome::Kept(kept) => Some(kept),
-        keep::TranscriptOutcome::NotKept(notice) => {
-            if let Some(notice) = notice {
-                keep::report_notice(outcome, notice);
-            }
-            None
-        }
-    };
-    if let Some(notice) = publish_root_session(&turn, kept_transcript, emit) {
-        keep::report_notice(outcome, &notice);
-    }
-}
-
-fn publish_root_session(
-    turn: &TurnKeep<'_>,
-    kept_transcript: Option<&keep::Kept>,
-    emit: &mut impl FnMut(&Emitted),
-) -> Option<RejoinNotice> {
-    if !turn.declared.root || turn.probe || turn.refused_to_start || !turn.pin_confirmed {
-        return None;
-    }
-    let Conversation::Named(id) = turn.conversation else {
-        return None;
-    };
-    let version = turn.harness_version?;
-    let transcript_address = kept_transcript.map(keep::Kept::transcript_value);
-    let candidate = root_row(id, version, true, transcript_address.as_ref());
-    if keep::row_would_mask(&candidate, turn.bindings) {
-        return Some(RejoinNotice::ReferenceMasked);
-    }
-    let keep_result = keep_rejoin(
-        id,
-        turn.engine_home,
-        turn.operator_home,
-        turn.bindings,
-        kept_transcript.is_some(),
-        RejoinCaps::DEFAULT,
-    );
-    let (persistent, notice) = match keep_result {
-        Ok(()) => (true, None),
-        Err(notice) => (false, Some(notice)),
-    };
-    let address = persistent.then_some(transcript_address.as_ref()).flatten();
-    emit(&root_row(id, version, persistent, address));
-    notice
-}
-
-fn root_row(id: &str, version: &str, persistent: bool, address: Option<&Value>) -> Emitted {
-    let root = RootSession::new(
-        AGY_TRANSCRIPT_KIND,
-        id.to_string(),
-        version.to_string(),
-        persistent,
-    );
-    let mut row = Map::new();
-    row.insert("harness".into(), Value::String("agy".into()));
-    row.insert("launch".into(), Value::String("cold".into()));
-    row.insert("root_session".into(), root.value());
-    if let Some(transcript) = address {
-        row.insert("transcript".into(), transcript.clone());
-    }
-    Emitted::new(Step::HarnessStarted, Value::Object(row))
 }
 
 /// Deterministic observation points inside [`keep_rejoin_with`] so tests can
@@ -237,7 +146,7 @@ pub(super) fn keep_rejoin(
     )
 }
 
-fn noop_hook(point: CopyPoint<'_>) {
+pub(super) fn noop_hook(point: CopyPoint<'_>) {
     let _ = match point {
         CopyPoint::OpenEntry(n) | CopyPoint::ReadFile(n) => (Some(n), None),
         CopyPoint::FinalStat(n, s) => (Some(n), Some(s)),
@@ -292,8 +201,23 @@ fn copy_rejoin_tree(
         true => guard.open_existing_root_dir(conv_name)?,
         false => guard.create_root_dir_with(conv_name, || {})?,
     };
-    let (rejoin_fd, rejoin_node) =
-        guard.create_dir(conv_fd.as_fd(), conv_node, OsStr::new(REJOIN_DIR))?;
+    copy_rejoin_into_dir(
+        (conv_fd.as_fd(), conv_node),
+        (OsStr::new(REJOIN_DIR), db_name),
+        (db_fd, db_stat, brain_dir, brain_stat),
+        guard,
+        state,
+    )
+}
+
+pub(super) fn copy_rejoin_into_dir(
+    (conv_fd, conv_node): (BorrowedFd<'_>, usize),
+    (dir_name, db_name): (&OsStr, &OsStr),
+    (db_fd, db_stat, brain_dir, brain_stat): (OwnedFd, &Stat, OwnedFd, Stat),
+    guard: &mut RejoinRollback,
+    state: &mut CopyState<'_>,
+) -> Result<RecordedDir, RejoinNotice> {
+    let (rejoin_fd, rejoin_node) = guard.create_dir(conv_fd, conv_node, dir_name)?;
     let dest = |fd, node| DestDir { fd, node, depth: 0 };
     state.charge_entry()?;
     let (rdest, db_dst) = (
@@ -308,16 +232,16 @@ fn copy_rejoin_tree(
     copy_brain_dir(brain_dir, brain_stat, bdest, guard, state)
 }
 
-struct RejoinSource {
-    conversations_dir: OwnedFd,
-    db_fd: OwnedFd,
-    db_stat: Stat,
-    brain_root: OwnedFd,
-    brain_dir: OwnedFd,
-    brain_stat: Stat,
+pub(super) struct RejoinSource {
+    pub(super) conversations_dir: OwnedFd,
+    pub(super) db_fd: OwnedFd,
+    pub(super) db_stat: Stat,
+    pub(super) brain_root: OwnedFd,
+    pub(super) brain_dir: OwnedFd,
+    pub(super) brain_stat: Stat,
 }
 
-fn open_rejoin_source(
+pub(super) fn open_rejoin_source(
     engine_home: &Path,
     conv_name: &OsStr,
     db_name: &OsStr,
@@ -353,16 +277,16 @@ fn open_rejoin_source(
     })
 }
 
-struct CopyState<'a> {
+pub(super) struct CopyState<'a> {
     caps: RejoinCaps,
     used_bytes: u64,
     used_entries: usize,
     matcher: SecretMatcher,
-    on_point: &'a mut dyn FnMut(CopyPoint<'_>),
+    pub(super) on_point: &'a mut dyn FnMut(CopyPoint<'_>),
 }
 
 impl<'a> CopyState<'a> {
-    fn new(caps: RejoinCaps, bindings: &[BoundSecret], on_point: Hook<'a>) -> Self {
+    pub(super) fn new(caps: RejoinCaps, bindings: &[BoundSecret], on_point: Hook<'a>) -> Self {
         Self {
             caps,
             used_bytes: 0,
@@ -372,7 +296,7 @@ impl<'a> CopyState<'a> {
         }
     }
 
-    fn charge_entry(&mut self) -> Result<(), RejoinNotice> {
+    pub(super) fn charge_entry(&mut self) -> Result<(), RejoinNotice> {
         self.used_entries += 1;
         if self.used_entries > self.caps.entries {
             return Err(RejoinNotice::TooManyEntries(self.caps.entries));
@@ -390,13 +314,13 @@ impl<'a> CopyState<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct DestDir<'a> {
-    fd: BorrowedFd<'a>,
-    node: usize,
-    depth: usize,
+pub(super) struct DestDir<'a> {
+    pub(super) fd: BorrowedFd<'a>,
+    pub(super) node: usize,
+    pub(super) depth: usize,
 }
 
-struct RecordedDir {
+pub(super) struct RecordedDir {
     stat: Stat,
     entries: Vec<(OsString, RecordedEntry)>,
 }
@@ -406,7 +330,7 @@ enum RecordedEntry {
     Dir(RecordedDir),
 }
 
-fn copy_brain_dir(
+pub(super) fn copy_brain_dir(
     src_fd: OwnedFd,
     src_stat: Stat,
     dest: DestDir<'_>,
@@ -457,7 +381,7 @@ fn copy_brain_dir(
     })
 }
 
-fn verify_dir_tree(
+pub(super) fn verify_dir_tree(
     parent: BorrowedFd<'_>,
     name: &OsStr,
     expected: &RecordedDir,
@@ -513,7 +437,12 @@ pub(super) fn same_stamp(expected: &Stat, actual: &Stat) -> bool {
             == (actual.st_size, actual.st_mtime, actual.st_mtime_nsec)
 }
 
-fn same_stamp_at(dir: BorrowedFd<'_>, name: &OsStr, expected: &Stat, hook: Hook<'_>) -> bool {
+pub(super) fn same_stamp_at(
+    dir: BorrowedFd<'_>,
+    name: &OsStr,
+    expected: &Stat,
+    hook: Hook<'_>,
+) -> bool {
     statat(dir, name, AtFlags::SYMLINK_NOFOLLOW).is_ok_and(|mut actual| {
         hook(CopyPoint::FinalStat(name, &mut actual));
         same_stamp(expected, &actual)
@@ -544,7 +473,7 @@ pub(super) fn for_each_listed_entry(
     Ok(())
 }
 
-fn copy_opened_file(
+pub(super) fn copy_opened_file(
     (src_fd, src_name, src_stat): (OwnedFd, &OsStr, &Stat),
     dest: DestDir<'_>,
     dest_name: &OsStr,
@@ -639,6 +568,10 @@ impl RejoinRollback {
         }
     }
 
+    pub(super) fn disarm(&mut self) {
+        self.armed = false;
+    }
+
     fn record_dir(
         &mut self,
         parent: Option<usize>,
@@ -660,7 +593,10 @@ impl RejoinRollback {
         idx
     }
 
-    fn open_existing_root_dir(&mut self, name: &OsStr) -> Result<(OwnedFd, usize), RejoinNotice> {
+    pub(super) fn open_existing_root_dir(
+        &mut self,
+        name: &OsStr,
+    ) -> Result<(OwnedFd, usize), RejoinNotice> {
         let fd =
             openat(&self.parent_fd, name, keep::dir_flags(), Mode::empty()).map_err(io_errno)?;
         let stat = fstat(&fd).map_err(io_errno)?;
@@ -776,22 +712,26 @@ fn create_verified_dir(
     )
 }
 
-fn open_same_dir(parent_fd: BorrowedFd<'_>, name: &OsStr, expected: &Stat) -> Option<OwnedFd> {
+pub(super) fn open_same_dir(
+    parent_fd: BorrowedFd<'_>,
+    name: &OsStr,
+    expected: &Stat,
+) -> Option<OwnedFd> {
     openat(parent_fd, name, keep::dir_flags(), Mode::empty())
         .and_then(|fd| fstat(&fd).map(|stat| (fd, stat)))
         .ok()
         .and_then(|(fd, stat)| keep::same_entry(expected, &stat).then_some(fd))
 }
 
-fn open_src_dir(parent: BorrowedFd<'_>, name: &OsStr) -> Result<OwnedFd, RejoinNotice> {
+pub(super) fn open_src_dir(parent: BorrowedFd<'_>, name: &OsStr) -> Result<OwnedFd, RejoinNotice> {
     openat(parent, name, keep::dir_flags(), Mode::empty())
         .map_err(|e| keep::classify_source_dir_errno(e).into())
 }
 
-fn io_errno(errno: Errno) -> RejoinNotice {
+pub(super) fn io_errno(errno: Errno) -> RejoinNotice {
     RejoinNotice::Io(io::Error::from(errno).kind())
 }
 
-fn classify_file_errno(errno: Errno) -> RejoinNotice {
+pub(super) fn classify_file_errno(errno: Errno) -> RejoinNotice {
     keep::classify_source_file_errno(errno).into()
 }

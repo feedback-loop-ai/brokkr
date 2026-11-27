@@ -26,12 +26,12 @@
 //!   the seat's bindings first, and only then escaped and bounded (K3).
 //! - The answer is a `SUCCESS` result's non-empty `response`, carried in
 //!   the accepting verdict (J7).
-//! - The result's `usage` is the invocation's own, in tokens with no price
-//!   and no cache-write count: one figure per invocation, from the result.
-//!   A cache read is not part of `input_tokens` (`tools-turn`: the second
-//!   step's 2,289 input beside 6,851 read), so the journal's inclusive
-//!   input adds it back, as the Claude fold does; thinking rides as
-//!   reasoning output.
+//! - Cold turn: `result.usage` is the invocation's own (tokens, no price or
+//!   cache-write). Confirmed rejoin: `result.usage`, `num_turns` and
+//!   `duration_seconds` are conversation totals (ninth measurement), so tokens
+//!   come solely from the turn's own `step_update` rows' `usage` and `num_turns`
+//!   is omitted. Cache read is outside `input_tokens`, so inclusive input adds
+//!   it back as Claude's fold does; thinking rides as reasoning output.
 //! - A `tool` step is passed over: the checkpoint's tool observation has no
 //!   format for agy's telemetry without a contract change.
 
@@ -43,7 +43,11 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::super::refusal::refusal_reason;
-use super::super::{add_usage, secret, Emitted, Step as DriverStep, EFFORT_NOT_REPORTED};
+use super::super::row::Ident;
+use super::super::stream_turn::Line;
+use super::super::{
+    add_usage, secret, Confirmation, Emitted, LaunchHold, Step as DriverStep, EFFORT_NOT_REPORTED,
+};
 use crate::PreSessionRefusal;
 
 /// The words agy writes when it is signed out, in a result's `error` and on
@@ -241,6 +245,8 @@ struct Init {
 struct Step {
     step_type: StepType,
     state: StepState,
+    #[serde(default)]
+    usage: Option<Usage>,
 }
 
 #[derive(Deserialize, PartialEq, Eq)]
@@ -307,6 +313,17 @@ struct Usage {
     output_tokens: u64,
     thinking_tokens: u64,
     cache_read_tokens: u64,
+}
+
+impl Usage {
+    fn add(&mut self, other: &Usage) {
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.thinking_tokens = self.thinking_tokens.saturating_add(other.thinking_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(other.cache_read_tokens);
+    }
 }
 
 #[derive(Deserialize)]
@@ -420,6 +437,8 @@ pub(super) struct AgyFold<'a> {
     conversation: Conversation,
     /// The model responses folded as turns.
     turns: u64,
+    /// Sum of `usage` members carried by this invocation's `step_update` rows.
+    step_usage: Usage,
     /// Whether any known row arrived.
     rows: bool,
     /// Whether the first typed result's error said agy is signed out.
@@ -438,6 +457,7 @@ impl<'a> AgyFold<'a> {
             served: Served::Awaited,
             conversation: Conversation::None,
             turns: 0,
+            step_usage: Usage::default(),
             rows: false,
             signed_out: false,
             status: None,
@@ -481,36 +501,37 @@ impl<'a> AgyFold<'a> {
         &mut self,
         line: &[u8],
         session_meta: &mut Map<String, Value>,
+        hold: &mut LaunchHold,
         emit: &mut impl FnMut(&Emitted),
-    ) -> Result<(), PreSessionRefusal> {
+    ) -> Line {
         let Ok(text) = std::str::from_utf8(line) else {
             self.fault.get_or_insert(Fault::Failed(Failure::NotText));
-            return Ok(());
+            return Line::Read;
         };
         let Ok(Tags {
             known: Some(event),
             named,
         }) = serde_json::from_str::<Tags>(text)
         else {
-            return Ok(());
+            return Line::Read;
         };
         self.rows = true;
         let Some(row) = event.typed(text).filter(|_| named == 1) else {
             self.fault
                 .get_or_insert(Fault::Failed(Failure::Unread(event)));
-            return Ok(());
+            return Line::Read;
         };
         if let (Row::Result(result), None) = (&row, &self.status) {
             self.signed_out = result.signed_out();
             self.status = Some(self.named(result.status.word()));
         }
         match (&self.fault, &self.ending) {
-            (Some(_), _) => Ok(()),
+            (Some(_), _) => Line::Read,
             (None, Some(_)) => {
                 self.fault = Some(Fault::Failed(Failure::Behind(event)));
-                Ok(())
+                Line::Read
             }
-            (None, None) => self.fold(row, text, session_meta, emit),
+            (None, None) => self.fold(row, text, session_meta, hold, emit),
         }
     }
 
@@ -520,21 +541,22 @@ impl<'a> AgyFold<'a> {
         row: Row,
         text: &str,
         session_meta: &mut Map<String, Value>,
+        hold: &mut LaunchHold,
         emit: &mut impl FnMut(&Emitted),
-    ) -> Result<(), PreSessionRefusal> {
+    ) -> Line {
         match row {
             Row::Init(_) if self.served != Served::Awaited => {
                 self.fault = Some(Fault::Failed(Failure::Reinitialized))
             }
-            Row::Init(init) => return self.initialized(init, text, session_meta),
+            Row::Init(init) => return self.initialized(init, text, session_meta, hold),
             Row::Step(_) if !self.pinned() => {
                 let refused = unconfirmed(&self.pin, self.bindings, &Seen::default());
-                return Err(self.stopped(refused));
+                return Line::Stopped(self.stopped(refused));
             }
             Row::Step(step) => self.step(&step, emit),
-            Row::Result(result) => self.ended(result, session_meta),
+            Row::Result(result) => self.ended(result, session_meta, hold.rejoining().is_some()),
         }
-        Ok(())
+        Line::Read
     }
 
     /// `refused` as the fault the harness is stopped at.
@@ -543,16 +565,29 @@ impl<'a> AgyFold<'a> {
         refused
     }
 
-    /// The one init: record the conversation id first so even a model-pin
-    /// refusal keeps its transcript (#1227), then confirm or refuse the pin.
+    /// The one init: record the conversation id first, confirm a rejoin against
+    /// `hold` before any model work (stopping a stray conversation at once),
+    /// then confirm or refuse the model pin.
     fn initialized(
         &mut self,
         row: InitRow,
         text: &str,
         session_meta: &mut Map<String, Value>,
-    ) -> Result<(), PreSessionRefusal> {
+        hold: &mut LaunchHold,
+    ) -> Line {
         self.served = Served::Unnamed;
         self.conversation = read_conversation_id(text);
+        if hold.rejoining().is_some() {
+            let confirmed = match &self.conversation {
+                Conversation::Named(id) => hold.confirm_deferred(&Ident::from_offered(id)),
+                Conversation::Invalid | Conversation::None => return Line::Unsettled,
+            };
+            if confirmed != Confirmation::Resumed {
+                return Line::Unsettled;
+            }
+        } else if let Conversation::Named(id) = &self.conversation {
+            hold.confirm_deferred(&Ident::from_offered(id));
+        }
         match row.init.model {
             Some(model) if model == self.pin => {
                 self.served = Served::Pinned;
@@ -560,15 +595,19 @@ impl<'a> AgyFold<'a> {
             }
             Some(model) => {
                 let refused = substituted(&self.pin, &self.named(&model), self.bindings);
-                return Err(self.stopped(refused));
+                return Line::Stopped(self.stopped(refused));
             }
             None => {}
         }
-        Ok(())
+        Line::Read
     }
 
-    /// A model response that is done is one turn, journaled on the pin.
+    /// A model response that is done is one turn, journaled on the pin; any
+    /// `usage` carried on a step row accumulates into this invocation's own sum.
     fn step(&mut self, step: &Step, emit: &mut impl FnMut(&Emitted)) {
+        if let Some(usage) = &step.usage {
+            self.step_usage.add(usage);
+        }
         if (&step.step_type, &step.state) != (&StepType::AgentResponse, &StepState::Done) {
             return;
         }
@@ -580,9 +619,17 @@ impl<'a> AgyFold<'a> {
         emit(&Emitted::new(DriverStep::SeatTurn, Value::Object(row)));
     }
 
-    /// The one result: its usage folded, and a denial the turn's fault.
-    fn ended(&mut self, result: Ending, session_meta: &mut Map<String, Value>) {
-        settled(&result, session_meta);
+    /// The one result: its usage folded on a cold turn (or this invocation's
+    /// step-row sum alone on a confirmed rejoin), and a denial the turn's fault.
+    fn ended(&mut self, result: Ending, session_meta: &mut Map<String, Value>, rejoined: bool) {
+        if rejoined {
+            record_usage(&self.step_usage, session_meta);
+        } else {
+            record_usage(&result.usage, session_meta);
+            if let Some(turns) = result.num_turns.filter(|t| *t > 0) {
+                session_meta.insert("num_turns".into(), Value::from(turns));
+            }
+        }
         if !result.denied_actions.is_empty() {
             let actions = result.denied_actions.iter();
             let named = actions.map(|denied| self.named(&denied.action)).collect();
@@ -672,20 +719,16 @@ fn failed(failure: Failure, seen: Seen) -> Verdict {
 
 /// A result's usage and turns folded into the seat's record, each figure
 /// the result reports above zero, the rest not reported.
-fn settled(result: &Ending, session_meta: &mut Map<String, Value>) {
-    let usage = &result.usage;
-    let input = usage.input_tokens.saturating_add(usage.cache_read_tokens);
+fn record_usage(u: &Usage, session_meta: &mut Map<String, Value>) {
+    let input = u.input_tokens.saturating_add(u.cache_read_tokens);
     let figures = [
         ("input_tokens", input),
-        ("output_tokens", usage.output_tokens),
-        ("reasoning_output_tokens", usage.thinking_tokens),
-        ("cache_read_tokens", usage.cache_read_tokens),
+        ("output_tokens", u.output_tokens),
+        ("reasoning_output_tokens", u.thinking_tokens),
+        ("cache_read_tokens", u.cache_read_tokens),
     ];
-    for (key, value) in figures.into_iter().filter(|(_, value)| *value > 0) {
+    for (key, value) in figures.into_iter().filter(|(_, v)| *v > 0) {
         add_usage(session_meta, key, value);
-    }
-    if let Some(turns) = result.num_turns.filter(|turns| *turns > 0) {
-        session_meta.insert("num_turns".into(), Value::from(turns));
     }
 }
 

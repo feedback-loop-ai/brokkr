@@ -147,18 +147,22 @@ impl AdapterKind {
     /// resumed; that question is the adapter's measured assessment, per
     /// named execution shape, and it is asked per invocation.
     ///
-    /// All four model adapters declare receipt so that a claude or dsh
-    /// retry can be told about its own session and answer honestly,
-    /// which is issue #226's complaint. Exec declares none: it has no
-    /// model turn and no provider to hold a session. Qoder declares none
-    /// either: its seat runs `--no-session-persistence`, so there is no
-    /// session to be told about (#1178). Agy declares none: its HOME is the
-    /// engine's for one turn, so no conversation outlives it (#1200). A
-    /// driver that does not declare receipt is never handed a handle.
+    /// All five resuming model adapters declare receipt so that a retry
+    /// can be told about its own session and answer honestly, which is
+    /// issue #226's complaint; Agy declares receipt once its rejoin launch
+    /// is built (#1227), while its shipped adapter keeps `stream-work-site`
+    /// unsupported until a live rejoin through the driver is measured.
+    /// Exec declares none: it has no model turn and no provider to hold a
+    /// session. Qoder declares none either: its seat runs
+    /// `--no-session-persistence`, so there is no session to be told about
+    /// (#1178). A driver that does not declare receipt is never handed a
+    /// handle.
     fn supports(&self) -> Vec<String> {
         match self {
-            Self::Exec | Self::Qoder | Self::Agy => Vec::new(),
-            Self::Claude | Self::Lanetally | Self::Codex | Self::Dsh => vec!["resume".into()],
+            Self::Exec | Self::Qoder => Vec::new(),
+            Self::Claude | Self::Lanetally | Self::Codex | Self::Dsh | Self::Agy => {
+                vec!["resume".into()]
+            }
         }
     }
 
@@ -1070,14 +1074,11 @@ impl LaunchHold {
         self.address = Some(transcript);
     }
 
-    /// The harness named its session. This is the ONLY door through
-    /// which a launch fact is published.
-    fn confirm(
-        &mut self,
-        id: &Ident,
-        display: &str,
-        emit: &mut impl FnMut(&Emitted),
-    ) -> Confirmation {
+    /// Latch the session identity confirmation once without publishing yet.
+    /// Shared by [`Self::confirm`] and drivers whose `persistent` flag and
+    /// transcript address are only settled after the turn finishes keeping
+    /// its files (`agy`, #1227).
+    fn confirm_deferred(&mut self, id: &Ident) -> Confirmation {
         if let Some(outcome) = self.outcome {
             // The root is latched: a later, different root is a
             // delegated child or a second session, never a correction of
@@ -1091,9 +1092,47 @@ impl LaunchHold {
             None => Confirmation::Fresh,
         };
         self.outcome = Some(outcome);
-        if outcome == Confirmation::Mismatch {
-            // Nothing is published: we do not know which session this
-            // invocation is in, and a guess is what ruling 7 forbids.
+        outcome
+    }
+
+    fn rejoining(&self) -> Option<&str> {
+        self.plan.rejoining.as_deref()
+    }
+
+    fn harness_version(&self) -> Option<&str> {
+        self.plan.harness_version.as_deref()
+    }
+
+    fn has_refusal(&self) -> bool {
+        self.plan.refusal.is_some()
+    }
+
+    /// Publish a launch whose `root_session` and `transcript` address were
+    /// settled after the turn finished keeping its state (`agy`, #1227).
+    fn publish_settled(
+        &mut self,
+        root: Option<RootSession>,
+        address: Option<Value>,
+        emit: &mut impl FnMut(&Emitted),
+    ) {
+        self.confirmed = root;
+        self.address = address;
+        self.publish(self.outcome == Some(Confirmation::Resumed), emit);
+    }
+
+    /// The harness named its session. This is the ONLY door through
+    /// which a launch fact is published.
+    fn confirm(
+        &mut self,
+        id: &Ident,
+        display: &str,
+        emit: &mut impl FnMut(&Emitted),
+    ) -> Confirmation {
+        let outcome = self.confirm_deferred(id);
+        if self.published || outcome == Confirmation::Mismatch {
+            // Nothing is published: either already latched and published, or
+            // we do not know which session this invocation is in, and a guess
+            // is what ruling 7 forbids.
             return outcome;
         }
         // A root is recorded only when every field v5 requires is a fact
@@ -2270,6 +2309,7 @@ const CODEX_SHAPE: &str = "work-site";
 const CLAUDE_SHAPE: &str = "boxed-workspace";
 const LANETALLY_SHAPE: &str = "wrapper-work-site";
 const DSH_SHAPE: &str = "headless-work";
+const AGY_SHAPE: &str = "stream-work-site";
 
 /// The shape a claude stream-json seat runs: the wrapper's own when it is
 /// LaneTally's, otherwise claude's.
@@ -5229,7 +5269,7 @@ fn invoke_with_stager(
         AdapterKind::Agy => agy::drive(
             pinned,
             agy::StartMode {
-                offered: session.is_some(),
+                session,
                 probe: probe.requested(),
             },
             prompt,
