@@ -544,10 +544,12 @@ addendum (`#1227`, decision 0075 level 2, slice 1 of 2; launch is slice 2).
   by `agy`, a conversation in which any bound secret value appears (checked
   across every copied byte and every file and directory name under `brain/<id>/`
   using the shared projected masker encodings across chunk boundaries, and on
-  the emitted `root_session` row through `probe::seat_row`) is not kept for
-  rejoin. Any partial rejoin files are rolled back while the kept transcript's
-  own rule stays unaffected.
-- **Bounded and all or nothing.** Rejoin keeping is bounded at 128 MiB total
+  the emitted `root_session` row through `probe::seat_row`) refuses rejoin
+  persistence (`persistent: true` is never recorded) and rollback attempts to
+  remove what it staged while the kept transcript's own rule stays unaffected;
+  an unlink I/O failure during removal can leave a partial `rejoin/` directory
+  on disk even as persistence is refused.
+- **Bounded, with attempted rollback.** Rejoin keeping is bounded at 128 MiB total
   bytes (4× `TRANSCRIPT_SOURCE_CAP`, fitting `transcript.jsonl`,
   `transcript_full.jsonl`, `chunks/`, `steps/`, and `conversations/<id>.db`
   while capping per-turn disk growth well above the 384–672 KiB database and
@@ -564,9 +566,12 @@ addendum (`#1227`, decision 0075 level 2, slice 1 of 2; launch is slice 2).
   entry's type, size, `(st_dev, st_ino)`, and modification time to the depth
   walked. Over any bound, or if the brain is
   empty or any part is missing, unreadable, not a regular file, or fails that
-  check, nothing is kept for rejoin and every created rejoin file and
-  directory is removed in reverse order through `unlink_if_same`, leaving any
-  kept `transcript.jsonl` untouched (subject to the stated same-user limit
+  check, persistence is refused (`persistent: true` is never recorded) and
+  rollback attempts to remove every created rejoin file and directory in
+  reverse order through `unlink_if_same`, leaving any kept `transcript.jsonl`
+  untouched. Because `unlink_if_same` ignores unlink errors, an I/O failure
+  during removal can leave a partial `rejoin/` directory on disk even as
+  persistence is refused (as can a same-user process under the stated limit
   above).
 - **Root session and `persistent`.** For a declaring work turn that did not
   refuse to start, whose `init` row confirmed the seat's pinned model, and that

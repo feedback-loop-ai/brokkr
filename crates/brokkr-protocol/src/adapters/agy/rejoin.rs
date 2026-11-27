@@ -214,8 +214,10 @@ pub(super) enum CopyPoint<'a> {
 type Hook<'a> = &'a mut dyn FnMut(CopyPoint<'_>);
 
 /// Copy `<id>.db` and `brain/<id>/` into `rejoin/` under `caps`, operator-only
-/// modes, no-symlink traversal, bound-value screening, final source check, and
-/// all-or-nothing rollback.
+/// modes, no-symlink traversal, bound-value screening, and a final source check.
+/// On refusal, persistence is refused (`persistent: true` is never recorded) and
+/// rollback attempts to remove staged entries; an unlink I/O error can leave a
+/// partial directory.
 pub(super) fn keep_rejoin(
     conversation_id: &str,
     engine_home: &Path,
@@ -616,8 +618,10 @@ enum RollbackEntry {
 }
 
 /// RAII rollback guard holding only `parent_fd` across the walk; `Drop`
-/// re-opens created directories on demand (verifying identity) and unlinks
-/// created entries in reverse order via [`keep::unlink_if_same`] (mechanism (m4)).
+/// attempts to re-open created directories on demand (verifying identity) and
+/// remove created entries in reverse order via [`keep::unlink_if_same`] (m4).
+/// Unlink I/O errors are ignored and can leave a partial directory even as
+/// persistence is refused (`persistent: true` is never recorded).
 pub(super) struct RejoinRollback {
     armed: bool,
     parent_fd: OwnedFd,

@@ -78,8 +78,9 @@
 //!
 //! When no such same-user process acts on the tree during a keep — every
 //! ordinary run — all guarantees above (the kept place and its modes, the
-//! refusals, keeping nothing on each listed failure, and removing partial
-//! directories on rollback) hold.
+//! refusals, refusing publication on each listed failure, and attempting to
+//! remove staged entries on rollback; an unlink I/O failure can leave a partial
+//! directory even as persistence is refused) hold.
 
 use std::ffi::OsStr;
 use std::fs::File;
@@ -397,6 +398,9 @@ pub(super) fn same_entry_at(dir_fd: BorrowedFd<'_>, name: &OsStr, expected: &Sta
     statat(dir_fd, name, AtFlags::SYMLINK_NOFOLLOW).is_ok_and(|entry| same_entry(expected, &entry))
 }
 
+/// Attempt to remove `(dir_fd, name)` when its `(st_dev, st_ino)` still match
+/// `expected` (mechanism (m4)). Ignores `unlinkat` I/O errors, so cleanup is
+/// best-effort and can leave a partial directory even as persistence is refused.
 pub(super) fn unlink_if_same(
     dir_fd: BorrowedFd<'_>,
     name: &OsStr,

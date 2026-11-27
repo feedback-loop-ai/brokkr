@@ -912,16 +912,18 @@ For a **work seat** whose adapter declares `record_kinds.root_session: "agy-conv
 `<operator HOME>/.local/state/brokkr/agy-conversations/<id>/rejoin/`
 (`conversation.db` and `brain/`, every directory mode `0700` and every file
 mode `0600` through `fchmod`, bounded at 128 MiB total, 4,096 entries, and 16
-directory levels, all or nothing with rollback on any missing, unreadable,
-non-regular, over-bound, or changed-underfoot part), and records a
-`harness-started` checkpoint with `root_session` of kind `agy-conversation`,
-the conversation UUID, the observed `harness_version`, and `persistent: true`
-only when rejoin state was kept whole (`persistent: false` otherwise; no
-`root_session` and no kept rejoin state when `agy --version` produces no
-recordable version or masking would rewrite the row). Because the conversation
-database cannot be masked and still be read by `agy`, a conversation in which a
-bound secret value appeared is not kept for rejoin (`persistent: false`) while
-the kept transcript's own rule stays unaffected. Probes, gate seats,
+directory levels), and records a `harness-started` checkpoint with
+`root_session` of kind `agy-conversation`, the conversation UUID, the observed
+`harness_version`, and `persistent: true` only when rejoin state was kept whole
+(`persistent: false` otherwise; no `root_session` and no kept rejoin state when
+`agy --version` produces no recordable version or masking would rewrite the
+row). When any part is missing, unreadable, non-regular, over a bound, or
+changed underfoot — or when a bound secret value appears in the conversation,
+since the SQLite database cannot be masked and still be read by `agy` — the
+driver refuses rejoin persistence (`persistent: false`, never `persistent:
+true`) and attempts to clean up staged rejoin entries in reverse order via
+`unlink_if_same`, without disturbing any kept transcript; an I/O error while
+unlinking can still leave a partial `rejoin/` directory behind. Probes, gate seats,
 undeclared seats, turns whose `init` row did not confirm the seat's pinned
 model, turns with no conversation id, and turns with a non-UUID id keep no
 rejoin state and emit no `root_session`.

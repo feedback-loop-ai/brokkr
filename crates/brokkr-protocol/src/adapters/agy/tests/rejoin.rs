@@ -26,14 +26,23 @@ fn write_exec(path: &Path, body: &str) -> PathBuf {
     path.to_path_buf()
 }
 
+fn setup_planted_homes(
+    db: &[u8],
+    files: &[(&str, &[u8])],
+) -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, op) = (dir.path().join("engine"), dir.path().join("op"));
+    std::fs::create_dir_all(&op).unwrap();
+    plant_conversation(&engine, UUID, db, files);
+    (dir, engine, op)
+}
+
 fn setup_planted_with_transcript(
     db: &[u8],
     files: &[(&str, &[u8])],
     transcript: &[u8],
 ) -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let (engine, op) = (dir.path().join("engine"), dir.path().join("op"));
-    plant_conversation(&engine, UUID, db, files);
+    let (dir, engine, op) = setup_planted_homes(db, files);
     let conv = prep_kept_transcript(&op, UUID, transcript);
     (dir, engine, op, conv)
 }
@@ -183,12 +192,7 @@ fn secret_matcher_detects_raw_json_escaped_and_split_chunks_and_resets() {
 
 #[test]
 fn keep_rejoin_copies_whole_tree_operator_only_and_refuses_duplicate_or_bad_id() {
-    let dir = tempfile::tempdir().unwrap();
-    let (engine, op) = (dir.path().join("engine"), dir.path().join("op"));
-    std::fs::create_dir_all(&op).unwrap();
-    plant_conversation(
-        &engine,
-        UUID,
+    let (_dir, engine, op) = setup_planted_homes(
         b"sqlite-db-bytes",
         &[
             (".system_generated/logs/transcript.jsonl", b"row1\n"),
@@ -1016,91 +1020,6 @@ fn run_declared_work(
     }
     let messages = run_seat_agy(&mut world, &bin, input, false);
     (world, seat_dir, messages)
-}
-
-#[test]
-fn work_turn_records_root_session_persistent_iff_kept_whole() {
-    let stdout = format!("{}\n{STEP_DONE}\n{OK_RES}\n", init_line(UUID, FLASH));
-
-    let (world, seat_dir, messages) =
-        run_declared_work(("1.5.14\n", 0), Some(b"sqlite-db"), None, &stdout);
-    assert!(world.homes_gone(), "engine HOME must be removed");
-    let env_text = std::fs::read_to_string(seat_dir.join("version.env")).unwrap();
-    let env_lines: Vec<&str> = env_text.lines().collect();
-    assert_eq!(
-        env_lines[0], "true",
-        "AGY_CLI_DISABLE_AUTO_UPDATE=true on --version"
-    );
-    assert_ne!(Path::new(env_lines[1]), world.operator_home());
-
-    let conv = conv_dir(world.operator_home(), UUID);
-    assert!(conv.join("transcript.jsonl").exists());
-    assert!(conv.join(REJOIN_DIR).join(REJOIN_DB_FILE).exists());
-    assert!(conv
-        .join(REJOIN_DIR)
-        .join(REJOIN_BRAIN_DIR)
-        .join(".system_generated/steps/1/output.txt")
-        .exists());
-    let started = harness_started(&messages).expect("harness-started checkpoint");
-    assert_eq!(started["harness"], "agy");
-    assert_eq!(started["launch"], "cold");
-    assert_eq!(
-        started["root_session"],
-        json!({"kind": "agy-conversation", "id": UUID, "harness_version": "1.5.14", "persistent": true})
-    );
-    assert_eq!(started["transcript"]["kind"], "agy-conversation");
-    assert_eq!(started["transcript"]["locator"], UUID);
-    drop(world);
-
-    // Missing DB -> persistent: false, rejoin absent, transcript STILL kept.
-    let (world2, _, messages2) = run_declared_work(("1.5.14\n", 0), None, None, &stdout);
-    let conv2 = conv_dir(world2.operator_home(), UUID);
-    assert!(conv2.join("transcript.jsonl").exists());
-    assert!(!conv2.join(REJOIN_DIR).exists());
-    let started2 = harness_started(&messages2).expect("harness-started on missing db");
-    assert_eq!(started2["root_session"]["persistent"], json!(false));
-    assert!(started2.get("transcript").is_none());
-}
-
-#[test]
-fn work_turn_handles_bound_secret_version_failure_and_masked_root_session() {
-    let stdout = format!("{}\n{STEP_DONE}\n{OK_RES}\n", init_line(UUID, FLASH));
-
-    // Bound value in conversation -> persistent: false, rejoin absent, transcript kept.
-    let (w1, _, m1) = run_declared_work(
-        ("1.5.14\n", 0),
-        Some(b"db with secret-printed-value-42"),
-        Some(("MY_KEY", "secret-printed-value-42")),
-        &stdout,
-    );
-    assert!(conv_dir(w1.operator_home(), UUID)
-        .join("transcript.jsonl")
-        .exists());
-    assert!(!conv_dir(w1.operator_home(), UUID).join(REJOIN_DIR).exists());
-    assert_eq!(
-        harness_started(&m1).unwrap()["root_session"]["persistent"],
-        json!(false)
-    );
-    drop(w1);
-
-    // agy --version fails even when printing a valid version -> no root_session, no rejoin, transcript kept.
-    let (w2, _, m2) = run_declared_work(("1.5.14\n", 1), Some(b"db"), None, &stdout);
-    assert!(conv_dir(w2.operator_home(), UUID)
-        .join("transcript.jsonl")
-        .exists());
-    assert!(!conv_dir(w2.operator_home(), UUID).join(REJOIN_DIR).exists());
-    assert_no_root_session(&m2);
-    drop(w2);
-
-    // Bound value masks root_session row ("1.5.14") -> no root_session, no rejoin.
-    let (w3, _, m3) = run_declared_work(
-        ("1.5.14\n", 0),
-        Some(b"db"),
-        Some(("VER_S", "1.5.14")),
-        &stdout,
-    );
-    assert!(!conv_dir(w3.operator_home(), UUID).join(REJOIN_DIR).exists());
-    assert_no_root_session(&m3);
 }
 
 #[test]
@@ -1998,3 +1917,5 @@ fn open_existing_conversation_dir_fails_when_absent() {
     );
     assert!(!conv_dir(&op, UUID).exists());
 }
+
+mod publish;
