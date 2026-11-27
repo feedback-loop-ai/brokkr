@@ -722,7 +722,7 @@ everywhere; two qualifying files are `ambiguous-source` rather than
 first-match; the lookup examines at most 10,000 entries and refuses
 below-home symlinks; and the source snapshot is capped at 32 MiB
 (`unsafe-path`, `discovery-limit` and the cap notice say which). These
-costs are in decision 0055, which only the operator accepts. The
+costs are accepted by decision 0055. The
 remediation is the operator's: inspect the original file independently,
 place a duplicate deliberately, fit the recorded scope within the bound,
 or use real owned entries instead of below-home symlinks. The guide's

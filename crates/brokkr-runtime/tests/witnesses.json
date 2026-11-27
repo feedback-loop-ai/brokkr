@@ -2,7 +2,7 @@
   "bundles": {
     "recipes/brokkr-fast": "7d11bfe1d510f65e5dc4bf34914a798b61858c423d3abc0201e8bcec004838fc",
     "recipes/fast": "d57a13c732c9ed12ef9945bf4004d62291e05eccc344b1e1075901ed084964dc",
-    "recipes/gpt-flash": "9f9df1ac39f55218f75fb4293473faca7139e668ff4422b63a34e4ebd953fcf2",
+    "recipes/gpt-flash": "c6bb3427426bf622a92112ce531aa6d1e3fe3fe9c978abf4751aa2fd1363aab6",
     "recipes/landing": "0490a2495b8ac063419911bcd45f91b736fd093e2fbaabd8a30b622199d5ac41",
     "recipes/night-shift": "56198e710ee5c7eee90ea84b72d7160f5ae8ee7a048bd2727e6b147a5cd22619",
     "recipes/node": "648e446f04bc0047db341b6837e44c70eeb09c84f8a16cad5b5674c3804626a4",

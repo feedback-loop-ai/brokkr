@@ -20,7 +20,7 @@ Implementation retains each strategy's existing charter. Flash uses the
 DeepSeek-V4.1-Flash. The beta id the recipe first pinned
 (`deepseek-v4.1-flash-expires-on-0910`) has expired, and the older
 `deepseek-v4-flash` is retired; DeepSeek serves both as `deepseek-flash`. No
-fallback lane is configured. The scoped `gpt-flash-*` offices are by
+fallback lane is configured. The scoped `gpt-flash-*` offices are ruled by
 decision 0058 and, since the operator's ruling of 2026-10-07 (#360), each is an
 overlay of the library office it scopes — `{"extends": "implementer",
 "models": ["flash"], "efforts": {"flash": "high"}}` — so it reuses that
