@@ -8,7 +8,8 @@
 
 use super::notify::{
     default_notify_env, nightly_concurrency_problems, run_notify_script_scenarios,
-    ConcurrencyProblem, NotifyBehaviorProblem, RunnableStep, NOTIFY_FAILURE_SCRIPT,
+    ConcurrencyProblem, NotifyBehaviorProblem, NotifyEnvReason, RunnableStep,
+    NOTIFY_FAILURE_SCRIPT,
 };
 use super::{ci_macos_split_problems, ShardWorkflows, SplitProblem};
 use crate::contributing::workspace;
@@ -164,16 +165,14 @@ fn macos_test_shards_run_nightly_on_dispatch_and_in_release_with_failure_issue()
         }
     ));
 
-    for empty_sched in ["  schedule: []\n", "  schedule:\n"] {
-        let no_cron =
-            wfs.nightly
-                .replacen("  schedule:\n    - cron: '17 4 * * *'\n", empty_sched, 1);
-        assert_ne!(no_cron, wfs.nightly);
-        assert!(wfs
-            .with_nightly(no_cron)
-            .problems()
-            .contains(&SplitProblem::NightlyInvalidEvents));
-    }
+    let no_schedule = wfs
+        .nightly
+        .replacen("  schedule:\n    - cron: '17 4 * * *'\n", "", 1);
+    assert_ne!(no_schedule, wfs.nightly);
+    assert!(wfs
+        .with_nightly(no_schedule)
+        .problems()
+        .contains(&SplitProblem::NightlyInvalidEvents));
 
     let mut_no_machine = wfs.shards.replacen(
         "        env:\n          BROKKR_TEST_MACHINE: ${{ matrix.machine }}\n",
@@ -652,6 +651,9 @@ fn contributing_records_macos_build_handoff_and_shard_schedule() {
         "strategy.job-index",
         "no workflow-level `env:`",
         "`ci.yml`'s `pr-caches` and `release.yml`'s `build`",
+        "`.github/workflow-digests.txt`",
+        "`bash scripts/refresh-workflow-digests.sh`",
+        "What the guards do not read:",
     ] {
         assert!(
             contributing.contains(required),
@@ -1309,7 +1311,8 @@ fn closed_form_closes_g13_pattern_g15_whole_script_and_g16_ascii_literal_finding
         RefusalKind::ArtifactName,
     ));
 
-    // G15: indirect invocation in build-macos fails whole-script check; YAML comment passes.
+    // G15: indirect invocation and even a shell comment inside build-macos's
+    // `run:` script both fail the whole-script check.
     let g15_indirect = wfs.ci.replacen(
         "        run: cargo test --workspace --all-features --locked --no-run\n",
         "        run: cargo test --workspace --all-features --locked --no-run\n      - name: indirect\n        run: s=test-shards; bash \"scripts/${s}.sh\" test --parallel-heaps\n",
@@ -1319,14 +1322,18 @@ fn closed_form_closes_g13_pattern_g15_whole_script_and_g16_ascii_literal_finding
         ci_macos_split_problems(&g15_indirect),
         vec![SplitProblem::BuildMacosUnexpectedRunStep { step_index: 5 }]
     );
-    let g15_yaml_comment = wfs.ci.replacen(
-        "      - name: workspace and test targets compile on macOS\n",
-        "      # test-shards.sh lives in macos-test-shards.yml, not here\n      - name: workspace and test targets compile on macOS\n",
+    let g15_shell_comment = wfs.ci.replacen(
+        "        run: cargo test --workspace --all-features --locked --no-run\n",
+        "        run: |\n          # test-shards.sh lives in macos-test-shards.yml, not here\n          cargo test --workspace --all-features --locked --no-run\n",
         1,
     );
+    assert_ne!(g15_shell_comment, wfs.ci);
     assert_eq!(
-        ci_macos_split_problems(&g15_yaml_comment),
-        Vec::<SplitProblem>::new()
+        ci_macos_split_problems(&g15_shell_comment),
+        vec![
+            SplitProblem::BuildMacosMissingCompile,
+            SplitProblem::BuildMacosUnexpectedRunStep { step_index: 4 },
+        ]
     );
 
     // G16: non-ASCII comparison literal is refused at admission.
@@ -1341,4 +1348,174 @@ fn closed_form_closes_g13_pattern_g15_whole_script_and_g16_ascii_literal_finding
         "job build-macos if",
         RefusalKind::ConditionLiteral,
     ));
+}
+
+#[test]
+fn closed_form_refuses_empty_matrix_clauses_malformed_schedule_and_workflow_call_filters() {
+    let wfs = ShardWorkflows::load();
+
+    // L1a: empty `include: []` and empty `exclude: []` are refused like non-empty ones.
+    let empty_exclude = wfs.shards.replacen(
+        "        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]\n",
+        "        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]\n        exclude: []\n",
+        1,
+    );
+    assert_ne!(empty_exclude, wfs.shards);
+    assert!(has_refusal(
+        &wfs.with_shards(empty_exclude).problems(),
+        "macos-test-shards.yml",
+        "job macos-machines strategy.matrix",
+        RefusalKind::MatrixClause,
+    ));
+
+    let empty_include = wfs.shards.replacen(
+        "        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]\n",
+        "        machine: [macos/1, macos/2, macos/3, macos/4, macos/5]\n        include: []\n",
+        1,
+    );
+    assert_ne!(empty_include, wfs.shards);
+    assert!(has_refusal(
+        &wfs.with_shards(empty_include).problems(),
+        "macos-test-shards.yml",
+        "job macos-machines strategy.matrix",
+        RefusalKind::MatrixClause,
+    ));
+
+    // L1b: `on.schedule` empty list, null, or mapping instead of list yields ClosedFormRefusal on `on.schedule`.
+    for bad_sched in ["  schedule: []\n", "  schedule:\n"] {
+        let empty_schedule =
+            wfs.nightly
+                .replacen("  schedule:\n    - cron: '17 4 * * *'\n", bad_sched, 1);
+        assert_ne!(empty_schedule, wfs.nightly);
+        assert!(has_refusal(
+            &wfs.with_nightly(empty_schedule).problems(),
+            "macos-tests.yml",
+            "on.schedule",
+            RefusalKind::EventFilter,
+        ));
+    }
+
+    let map_schedule = wfs.nightly.replacen(
+        "  schedule:\n    - cron: '17 4 * * *'\n",
+        "  schedule:\n    cron: '17 4 * * *'\n",
+        1,
+    );
+    assert_ne!(map_schedule, wfs.nightly);
+    assert!(has_refusal(
+        &wfs.with_nightly(map_schedule).problems(),
+        "macos-tests.yml",
+        "on.schedule",
+        RefusalKind::EventFilter,
+    ));
+
+    // L1c: `workflow_call` carrying `types` or any key other than `inputs` is refused.
+    for (extra_line, label) in [
+        ("    types: [opened]\n", "types"),
+        ("    branches: [main]\n", "branches"),
+        (
+            "    secrets:\n      TOKEN:\n        required: false\n",
+            "secrets",
+        ),
+    ] {
+        let mutated = wfs.shards.replacen(
+            "  workflow_call:\n",
+            &format!("  workflow_call:\n{extra_line}"),
+            1,
+        );
+        assert_ne!(mutated, wfs.shards, "{label}");
+        assert!(
+            has_refusal(
+                &wfs.with_shards(mutated).problems(),
+                "macos-test-shards.yml",
+                "on.workflow_call",
+                RefusalKind::EventFilter,
+            ),
+            "workflow_call with `{label}` must be refused"
+        );
+    }
+}
+
+#[test]
+fn macos_split_variants_each_bind_to_a_planted_mutation() {
+    let wfs = ShardWorkflows::load();
+
+    // BuildMacosMissingCheckout
+    let no_checkout = wfs.ci.replacen(
+        "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0\n        with:\n          persist-credentials: false\n      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master\n        with:\n          toolchain: 1.98.0\n      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2\n      - name: workspace and test targets compile on macOS\n",
+        "      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master\n        with:\n          toolchain: 1.98.0\n      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2\n      - name: workspace and test targets compile on macOS\n",
+        1,
+    );
+    assert_ne!(no_checkout, wfs.ci);
+    assert_eq!(
+        ci_macos_split_problems(&no_checkout),
+        vec![SplitProblem::BuildMacosMissingCheckout]
+    );
+
+    // BuildMacosMissingToolchain
+    let no_toolchain = wfs.ci.replacen(
+        "      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master\n        with:\n          toolchain: 1.98.0\n      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2\n      - name: workspace and test targets compile on macOS\n",
+        "      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2\n      - name: workspace and test targets compile on macOS\n",
+        1,
+    );
+    assert_ne!(no_toolchain, wfs.ci);
+    assert_eq!(
+        ci_macos_split_problems(&no_toolchain),
+        vec![SplitProblem::BuildMacosMissingToolchain]
+    );
+
+    // ShardsSetupOrderInvalid (toolchain before checkout)
+    let swapped_setup = wfs.shards.replacen(
+        "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0\n        with:\n          persist-credentials: false\n      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master\n        with:\n          toolchain: 1.98.0\n",
+        "      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master\n        with:\n          toolchain: 1.98.0\n      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0\n        with:\n          persist-credentials: false\n",
+        1,
+    );
+    assert_ne!(swapped_setup, wfs.shards);
+    assert_eq!(
+        wfs.with_shards(swapped_setup).problems(),
+        vec![SplitProblem::ShardsSetupOrderInvalid]
+    );
+
+    // NotifyExtraScriptStep
+    let extra_step = format!(
+        "{}\n      - name: extra notify step\n        run: echo extra\n",
+        wfs.nightly.trim_end_matches('\n')
+    );
+    assert_eq!(
+        wfs.with_nightly(extra_step).problems(),
+        vec![SplitProblem::NotifyExtraScriptStep { step_index: 2 }]
+    );
+
+    // NotifyEnvError: typed UndeclaredNeedsResult vs UnsupportedExpression
+    let undeclared_needs = wfs.nightly.replacen(
+        "          VERDICT: ${{ needs.macos-tests.result }}\n",
+        "          VERDICT: ${{ needs.unlisted-job.result }}\n",
+        1,
+    );
+    assert_ne!(undeclared_needs, wfs.nightly);
+    assert_eq!(
+        wfs.with_nightly(undeclared_needs).problems(),
+        vec![SplitProblem::NotifyEnvError {
+            key: "VERDICT".to_string(),
+            reason: NotifyEnvReason::UndeclaredNeedsResult {
+                expr: "needs.unlisted-job.result".to_string(),
+                job_id: "unlisted-job".to_string(),
+            },
+        }]
+    );
+
+    let unsupported_expr = wfs.nightly.replacen(
+        "          HEAD_SHA: ${{ github.sha }}\n",
+        "          HEAD_SHA: ${{ github.actor }}\n",
+        1,
+    );
+    assert_ne!(unsupported_expr, wfs.nightly);
+    assert_eq!(
+        wfs.with_nightly(unsupported_expr).problems(),
+        vec![SplitProblem::NotifyEnvError {
+            key: "HEAD_SHA".to_string(),
+            reason: NotifyEnvReason::UnsupportedExpression {
+                expr: "github.actor".to_string(),
+            },
+        }]
+    );
 }

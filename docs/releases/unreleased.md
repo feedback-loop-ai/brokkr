@@ -27,3 +27,13 @@ Changes merged since v0.16.1 that the next release's notes carry.
   seats are unchanged, and every offered session is still
   refused before launch because `--conversation` rejoin is not built yet
   ([provider adapters](../guides/provider-adapters.md#antigravity-cli-a-trusted-harness)).
+
+## Changed
+
+- **Workflow and local action files are pinned by SHA-256 digest** (#1417,
+  operator ruling 2026-11-27). Every file under `.github/workflows/` and
+  `.github/actions/` is recorded in `.github/workflow-digests.txt` and checked
+  by the `workflow_digests` guard. Contributors editing any workflow or local
+  action must refresh `.github/workflow-digests.txt` in the same change with
+  `bash scripts/refresh-workflow-digests.sh` and describe the workflow change
+  in their pull request ([CONTRIBUTING.md](../../CONTRIBUTING.md#7-workflow-closed-form)).

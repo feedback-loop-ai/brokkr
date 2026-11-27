@@ -14,8 +14,8 @@ use super::condition::{
 use super::{
     action_repo_match, continue_on_error_allows_failure, parse_workflow_raw, ActionMatch,
     ClosedCondition, ClosedFormRefusal, ClosedWorkflowError, Concurrency, ConditionContext,
-    EventTrigger, Inputs, Job, Matrix, Permissions, RefusalKind, RunsOn, Scalar, Step, Verdict,
-    Workflow, WorkflowError, WorkflowInput,
+    EventTrigger, Inputs, Job, Matrix, Permissions, RefusalKind, RunsOn, Scalar, Step,
+    TriggerFilterKey, Verdict, Workflow, WorkflowError, WorkflowInput,
 };
 
 /// Covered-workflow jobs whose `strategy.matrix.include` rows are read and
@@ -343,6 +343,61 @@ fn validate_top_level(wf: &Workflow, file: &str) -> Result<(), ClosedFormRefusal
     Ok(())
 }
 
+fn validate_schedule_trigger(
+    ev: &EventTrigger,
+    file: &str,
+    place: &str,
+) -> Result<(), ClosedFormRefusal> {
+    if ev.schedule_not_sequence {
+        return Err(ClosedFormRefusal::new(
+            file,
+            place,
+            RefusalKind::EventFilter,
+            "non-list `schedule` trigger",
+            ALLOWED_EVENT_FILTERS,
+        ));
+    }
+    if ev.crons.is_empty() {
+        return Err(ClosedFormRefusal::new(
+            file,
+            place,
+            RefusalKind::EventFilter,
+            "empty `schedule` trigger",
+            ALLOWED_EVENT_FILTERS,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_workflow_call_trigger(
+    ev: &EventTrigger,
+    file: &str,
+    place: &str,
+) -> Result<(), ClosedFormRefusal> {
+    if ev.has_types_key {
+        return Err(ClosedFormRefusal::new(
+            file,
+            place,
+            RefusalKind::EventFilter,
+            format!(
+                "event filter `{}` on `workflow_call`",
+                TriggerFilterKey::Types.as_str()
+            ),
+            ALLOWED_EVENT_FILTERS,
+        ));
+    }
+    if let Some(key) = ev.filters.keys().next() {
+        return Err(ClosedFormRefusal::new(
+            file,
+            place,
+            RefusalKind::EventFilter,
+            format!("event filter `{key}` on `workflow_call`"),
+            ALLOWED_EVENT_FILTERS,
+        ));
+    }
+    Ok(())
+}
+
 fn validate_event_closed_form(ev: &EventTrigger, file: &str) -> Result<(), ClosedFormRefusal> {
     let place = format!("on.{}", ev.name);
     if let Some(extra) = ev.extra_keys.first() {
@@ -354,7 +409,12 @@ fn validate_event_closed_form(ev: &EventTrigger, file: &str) -> Result<(), Close
             ALLOWED_EVENT_FILTERS,
         ));
     }
-    if (ev.has_inputs_key || !ev.inputs.is_empty()) && ev.name != "workflow_call" {
+    if ev.name == "schedule" {
+        validate_schedule_trigger(ev, file, &place)?;
+    }
+    if ev.name == "workflow_call" {
+        validate_workflow_call_trigger(ev, file, &place)?;
+    } else if ev.has_inputs_key || !ev.inputs.is_empty() {
         return Err(ClosedFormRefusal::new(
             file,
             &place,
@@ -375,7 +435,10 @@ fn validate_event_closed_form(ev: &EventTrigger, file: &str) -> Result<(), Close
         }
     }
     for key in ev.filters.keys() {
-        if !matches!(key.as_str(), "branches" | "tags") {
+        if !matches!(
+            TriggerFilterKey::parse(key),
+            Some(TriggerFilterKey::Branches | TriggerFilterKey::Tags)
+        ) {
             return Err(ClosedFormRefusal::new(
                 file,
                 &place,
@@ -445,7 +508,7 @@ fn validate_matrix_closed_form(
             ALLOWED_MATRIX,
         ));
     }
-    if !matrix.exclude.is_empty() {
+    if matrix.has_exclude_key || !matrix.exclude.is_empty() {
         return Err(ClosedFormRefusal::new(
             file,
             place,
@@ -454,7 +517,7 @@ fn validate_matrix_closed_form(
             ALLOWED_MATRIX,
         ));
     }
-    if !matrix.include.is_empty() {
+    if matrix.has_include_key || !matrix.include.is_empty() {
         let base = file_basename(file);
         let allowed = ALLOWED_MATRIX_INCLUDE_JOBS
             .iter()

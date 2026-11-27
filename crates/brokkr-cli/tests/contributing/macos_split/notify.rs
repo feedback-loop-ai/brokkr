@@ -20,6 +20,14 @@ const MAX_NOTIFY_NEEDS: usize = 4;
 pub(super) const NOTIFY_FAILURE_SCRIPT: &str = "set -euo pipefail\ngh api \"repos/${REPO}/labels/${LABEL}\" >/dev/null 2>&1 || \\\n  gh api -X POST \"repos/${REPO}/labels\" \\\n    -f name=\"$LABEL\" \\\n    -f color=\"b60205\" \\\n    -f description=\"Nightly macOS test suite failure\" >/dev/null\nfailed_jobs=\"$(gh api --paginate \"repos/${REPO}/actions/runs/${RUN_ID}/jobs?per_page=100\" \\\n  --jq '.jobs[] | select(.conclusion != null and .conclusion != \"success\" and .conclusion != \"skipped\") | \"- `\\(.name)` (\\(.conclusion)): \\(.html_url)\"')\"\nif [ -z \"$failed_jobs\" ]; then\n  failed_jobs=\"- \\`test (macos-latest)\\` (${VERDICT})\"\nfi\ntoday=\"$(date -u +%Y-%m-%d)\"\nbody=\"$(printf 'Nightly macOS test run failed on %s (`%s`).\\n\\n- Run: %s\\n- Verdict: `%s`\\n\\n## Failed jobs\\n\\n%s\\n\\nA passing nightly leaves this issue open; close it once investigated.' \"$today\" \"$HEAD_SHA\" \"$RUN_URL\" \"$VERDICT\" \"$failed_jobs\")\"\nexisting=\"$(gh api --paginate \"repos/${REPO}/issues?labels=${LABEL}&state=open&per_page=100\" \\\n  --jq '.[] | select(.pull_request == null) | .number' \\\n  | awk '{ n = $1 + 0; if (!seen || n < min) { min = n; seen = 1 } } END { if (seen) print min }')\"\nif [ -n \"$existing\" ]; then\n  gh api -X PATCH \"repos/${REPO}/issues/${existing}\" -f body=\"$body\" >/dev/null\nelse\n  gh api -X POST \"repos/${REPO}/issues\" \\\n    -f title=\"Nightly macOS tests failed\" \\\n    -f body=\"$body\" \\\n    -f \"labels[]=${LABEL}\" >/dev/null\nfi\n";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum NotifyEnvReason {
+    UndeclaredNeedsResult { expr: String, job_id: String },
+    UnsupportedExpression { expr: String },
+    UnclosedExpression { raw: String },
+    StrayClosingBraces { raw: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ConcurrencyProblem {
     MissingBlock,
     UnreadableGroup,
@@ -240,7 +248,10 @@ pub(super) struct RunnableStep<'a> {
     pub(super) env: BTreeMap<String, String>,
 }
 
-fn eval_notify_env_expr(expr: &str, declared_needs: &[String]) -> Result<&'static str, String> {
+fn eval_notify_env_expr(
+    expr: &str,
+    declared_needs: &[String],
+) -> Result<&'static str, NotifyEnvReason> {
     match expr {
         "github.token" => Ok("stub-github-token"),
         "github.repository" => Ok("owner/repo"),
@@ -256,28 +267,38 @@ fn eval_notify_env_expr(expr: &str, declared_needs: &[String]) -> Result<&'stati
                 if declared_needs.iter().any(|n| n == job_id) {
                     return Ok("failure");
                 }
-                return Err(format!(
-                    "references `{other}` without declaring `{job_id}` in needs"
-                ));
+                return Err(NotifyEnvReason::UndeclaredNeedsResult {
+                    expr: other.to_string(),
+                    job_id: job_id.to_string(),
+                });
             }
-            Err(format!("uses unsupported env expression `{other}`"))
+            Err(NotifyEnvReason::UnsupportedExpression {
+                expr: other.to_string(),
+            })
         }
     }
 }
 
-fn expand_notify_env_value(raw: &str, declared_needs: &[String]) -> Result<String, String> {
+fn expand_notify_env_value(
+    raw: &str,
+    declared_needs: &[String],
+) -> Result<String, NotifyEnvReason> {
     let mut out = String::new();
     let mut rest = raw;
     while let Some((before, after_open)) = rest.split_once("${{") {
         let Some((inner, after_close)) = after_open.split_once("}}") else {
-            return Err(format!("unclosed `${{{{` in env value `{raw}`"));
+            return Err(NotifyEnvReason::UnclosedExpression {
+                raw: raw.to_string(),
+            });
         };
         out.push_str(before);
         out.push_str(eval_notify_env_expr(inner.trim(), declared_needs)?);
         rest = after_close;
     }
     if rest.contains("}}") {
-        return Err(format!("stray `}}}}` in env value `{raw}`"));
+        return Err(NotifyEnvReason::StrayClosingBraces {
+            raw: raw.to_string(),
+        });
     }
     out.push_str(rest);
     Ok(out)

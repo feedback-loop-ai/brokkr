@@ -18,7 +18,7 @@ mod mutations;
 #[path = "macos_split/notify.rs"]
 mod notify;
 
-use notify::{check_nightly_workflow, ConcurrencyProblem, NotifyBehaviorProblem};
+use notify::{check_nightly_workflow, ConcurrencyProblem, NotifyBehaviorProblem, NotifyEnvReason};
 
 const SHARDS_WORKFLOW: &str = "./.github/workflows/macos-test-shards.yml";
 const MACOS_SHARDS: [&str; 5] = ["macos/1", "macos/2", "macos/3", "macos/4", "macos/5"];
@@ -136,7 +136,7 @@ enum SplitProblem {
     },
     NotifyEnvError {
         key: String,
-        reason: String,
+        reason: NotifyEnvReason,
     },
     NotifyMissingScriptStep,
     NotifyExtraScriptStep {

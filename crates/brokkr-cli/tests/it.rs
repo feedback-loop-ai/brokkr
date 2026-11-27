@@ -112,6 +112,7 @@ mod transcript_command;
 mod transcript_privacy;
 mod view_derivations;
 mod witness_journal;
+mod workflow_digests;
 mod workflow_pins;
 mod writer_lease;
 

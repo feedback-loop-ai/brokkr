@@ -741,7 +741,10 @@ fn release_provenance_closes_matrix_path_pages_upload_and_indentation_gaps() {
         let probs = release_artifact_provenance_problems(&falsy_linux, &called);
         assert!(matches!(
             probs.as_slice(),
-            [ProvenanceProblem::ClosedForm(r)] if r.kind == RefusalKind::ConditionBarePath
+            [ProvenanceProblem::ClosedForm(r)]
+                if r.file == "release.yml"
+                    && r.place == "job build step 5 if"
+                    && r.kind == RefusalKind::ConditionBarePath
         ));
         let falsy_macos = release.replacen(
             "name: brokkr-macos-arm64 }",
@@ -751,7 +754,10 @@ fn release_provenance_closes_matrix_path_pages_upload_and_indentation_gaps() {
         let mac_probs = release_artifact_provenance_problems(&falsy_macos, &called);
         assert!(matches!(
             mac_probs.as_slice(),
-            [ProvenanceProblem::ClosedForm(r)] if r.kind == RefusalKind::ConditionBarePath
+            [ProvenanceProblem::ClosedForm(r)]
+                if r.file == "release.yml"
+                    && r.place == "job build step 5 if"
+                    && r.kind == RefusalKind::ConditionBarePath
         ));
     }
 
@@ -960,18 +966,12 @@ fn release_provenance_rejects_disguised_and_unresolved_upload_names() {
             }]
         );
     }
-    for unresolved in ["${{ matrix.name }}", "brokkr-${{ matrix.machine }}", "|"] {
-        let probs = release_artifact_provenance_problems(
-            &release,
-            &with_shard_upload_name(&called, unresolved),
-        );
-        assert!(matches!(
-            probs.as_slice(),
-            [ProvenanceProblem::ClosedForm(r)] if r.kind == RefusalKind::ArtifactName
-        ));
-    }
-    // Finding 1 (#1417): upload names with leading/trailing blanks are refused, never trimmed.
-    for blank_padded in [
+    // Unresolved expressions and leading/trailing blanks (#1417 finding 1) are
+    // refused at closed-form admission, never trimmed.
+    for bad_name in [
+        "${{ matrix.name }}",
+        "brokkr-${{ matrix.machine }}",
+        "|",
         "\" brokkr-macos-arm64 \"",
         "' brokkr-macos-arm64 '",
         "\"brokkr-macos-arm64 \"",
@@ -980,17 +980,17 @@ fn release_provenance_rejects_disguised_and_unresolved_upload_names() {
     ] {
         let probs = release_artifact_provenance_problems(
             &release,
-            &with_shard_upload_name(&called, blank_padded),
+            &with_shard_upload_name(&called, bad_name),
         );
         assert!(
             matches!(
                 probs.as_slice(),
                 [ProvenanceProblem::ClosedForm(r)]
-                    if r.kind == RefusalKind::ArtifactName
-                        && r.to_string().contains(".github/workflows/macos-test-shards.yml")
-                        && r.to_string().contains("not a form this guard reads")
+                    if r.file == ".github/workflows/macos-test-shards.yml"
+                        && r.place == "job macos-machines step 6 with.name"
+                        && r.kind == RefusalKind::ArtifactName
             ),
-            "blank-padded upload name `{blank_padded}` must be refused: {probs:?}"
+            "upload name `{bad_name}` must be refused: {probs:?}"
         );
     }
     let called_ok = with_shard_upload_name(&called, "'r3-native-diagnostics' # human-readable");
@@ -1147,7 +1147,10 @@ fn release_provenance_rejects_conditional_build_uploads_and_downloads() {
     );
     assert!(matches!(
         release_artifact_provenance_problems(&non_closed_dl, &called).as_slice(),
-        [ProvenanceProblem::ClosedForm(r)] if r.kind == RefusalKind::ConditionSyntax
+        [ProvenanceProblem::ClosedForm(r)]
+            if r.file == "release.yml"
+                && r.place == "job publish step 3 if"
+                && r.kind == RefusalKind::ConditionSyntax
     ));
     let release_top_env = release.replacen(
         "permissions:\n",
@@ -1157,8 +1160,9 @@ fn release_provenance_rejects_conditional_build_uploads_and_downloads() {
     assert!(matches!(
         release_artifact_provenance_problems(&release_top_env, &called).as_slice(),
         [ProvenanceProblem::ClosedForm(r)]
-            if r.kind == RefusalKind::WorkflowEnv
-                && r.to_string().contains("not a form this guard reads")
+            if r.file == "release.yml"
+                && r.place == "top-level env"
+                && r.kind == RefusalKind::WorkflowEnv
     ));
 }
 

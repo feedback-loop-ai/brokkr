@@ -30,6 +30,11 @@
       matchManagers: ['github-actions'],
       pinDigests: true,
       groupName: 'actions',
+      postUpgradeTasks: {
+        commands: ['bash scripts/refresh-workflow-digests.sh'],
+        fileFilters: ['.github/workflow-digests.txt'],
+        executionMode: 'branch',
+      },
     },
     {
       description: "The github-actions manager also reads the runtimes a setup step installs and the expressions a step passes. The regex managers below own node, go and the stable Rust, and they skip the MSRV line, which moves by hand; an expression is no version. A dry run on 2026-09-26 showed both, extracted twice.",
@@ -47,6 +52,11 @@
       description: 'The stable toolchain moves in rust-toolchain.toml and in every workflow at once: workflow_pins.rs holds them equal.',
       matchDepNames: ['rust'],
       groupName: 'toolchain',
+      postUpgradeTasks: {
+        commands: ['bash scripts/refresh-workflow-digests.sh'],
+        fileFilters: ['.github/workflow-digests.txt'],
+        executionMode: 'branch',
+      },
     },
     {
       description: 'The CI tools, in one pull request.',
@@ -64,14 +74,22 @@
         'cargo-public-api',
       ],
       groupName: 'CI tools',
+      postUpgradeTasks: {
+        commands: ['bash scripts/refresh-workflow-digests.sh'],
+        fileFilters: ['.github/workflow-digests.txt'],
+        executionMode: 'branch',
+      },
     },
     {
       description: "A tool pinned by version and digest: after the bump, the script re-downloads the release and rewrites its sha256, and fails closed. Its own group, so the post-upgrade task belongs to every upgrade in the branch rather than depending on which one Renovate reads the branch's config from.",
       matchDepNames: ['bubblewrap', 'cargo-audit', 'actionlint', 'lychee', 'jscpd'],
       groupName: 'CI tools pinned by digest',
       postUpgradeTasks: {
-        commands: ['bash scripts/refresh-pin-checksums.sh'],
-        fileFilters: ['.github/actions/*/action.yml'],
+        commands: [
+          'bash scripts/refresh-pin-checksums.sh',
+          'bash scripts/refresh-workflow-digests.sh',
+        ],
+        fileFilters: ['.github/actions/*/action.yml', '.github/workflow-digests.txt'],
         executionMode: 'branch',
       },
     },

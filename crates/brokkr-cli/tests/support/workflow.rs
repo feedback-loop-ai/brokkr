@@ -12,8 +12,8 @@
 //! - Total admission: every top-level key, trigger, matrix, condition, and
 //!   artifact name/pattern in the file is checked statically up front.
 //! - Final refusals: admission and evaluation refusals are carried in opaque
-//!   types (`ClosedWorkflowError`, `Verdict`) that cannot be flattened into
-//!   `false`, a pass, or another diagnostic.
+//!   types (`ClosedWorkflowError`, `Verdict`) to keep refusal propagation
+//!   explicit on evaluation paths.
 
 use std::collections::BTreeMap;
 
@@ -207,11 +207,36 @@ pub(crate) struct WorkflowInput {
     pub(crate) extra_keys: Vec<String>,
 }
 
+/// The one home for the closed-form trigger filter vocabulary (decision 0071 ruling 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TriggerFilterKey {
+    Branches,
+    Tags,
+    Types,
+}
+
+impl TriggerFilterKey {
+    pub(super) const ALL: [Self; 3] = [Self::Branches, Self::Tags, Self::Types];
+
+    pub(super) fn parse(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.as_str() == key)
+    }
+
+    pub(super) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Branches => "branches",
+            Self::Tags => "tags",
+            Self::Types => "types",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EventTrigger {
     pub(crate) name: String,
     pub(crate) has_types_key: bool,
     pub(crate) has_inputs_key: bool,
+    pub(crate) schedule_not_sequence: bool,
     pub(crate) types: Vec<String>,
     pub(crate) filters: BTreeMap<String, Vec<String>>,
     pub(crate) crons: Vec<String>,
@@ -265,6 +290,8 @@ pub(crate) struct Matrix {
     pub(crate) axes: BTreeMap<String, Vec<Scalar>>,
     pub(crate) include: Vec<BTreeMap<String, Scalar>>,
     pub(crate) exclude: Vec<BTreeMap<String, Scalar>>,
+    pub(crate) has_include_key: bool,
+    pub(crate) has_exclude_key: bool,
     pub(crate) non_mapping: bool,
 }
 
@@ -424,7 +451,7 @@ pub(super) fn parse_workflow_raw(text: &str, strict_if: bool) -> Result<Workflow
     Ok(Workflow {
         top_level_keys: root.iter().map(|(k, _)| (*k).to_string()).collect(),
         events: map_get(&root, "on")
-            .map(parse_events)
+            .map(|n| parse_events(n, strict_if))
             .transpose()?
             .unwrap_or_default(),
         permissions: map_get(&root, "permissions")
@@ -577,6 +604,7 @@ fn empty_trigger(name: String) -> EventTrigger {
         name,
         has_types_key: false,
         has_inputs_key: false,
+        schedule_not_sequence: false,
         types: Vec::new(),
         filters: BTreeMap::new(),
         crons: Vec::new(),
@@ -585,7 +613,7 @@ fn empty_trigger(name: String) -> EventTrigger {
     }
 }
 
-fn parse_events(node: &Yaml) -> Result<Vec<EventTrigger>, WorkflowError> {
+fn parse_events(node: &Yaml, strict: bool) -> Result<Vec<EventTrigger>, WorkflowError> {
     match node {
         Yaml::String(name) => Ok(vec![empty_trigger(name.clone())]),
         Yaml::Array(items) => items
@@ -594,18 +622,24 @@ fn parse_events(node: &Yaml) -> Result<Vec<EventTrigger>, WorkflowError> {
             .collect(),
         Yaml::Hash(_) => expect_map(node, "on")?
             .into_iter()
-            .map(|(n, c)| parse_event_trigger(n, c))
+            .map(|(n, c)| parse_event_trigger(n, c, strict))
             .collect(),
         _ => Err(WorkflowError::NotAMapping("on")),
     }
 }
 
-fn parse_schedule_entries(config: &Yaml) -> Result<(Vec<String>, Vec<String>), WorkflowError> {
+fn parse_schedule_entries(
+    config: &Yaml,
+    strict: bool,
+) -> Result<(Vec<String>, Vec<String>, bool), WorkflowError> {
     if matches!(config, Yaml::Null) {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok((Vec::new(), Vec::new(), !strict));
     }
     let Yaml::Array(items) = config else {
-        return Err(WorkflowError::NotASequence("on.schedule"));
+        if strict {
+            return Err(WorkflowError::NotASequence("on.schedule"));
+        }
+        return Ok((Vec::new(), Vec::new(), true));
     };
     let mut crons = Vec::new();
     let mut extra_keys = Vec::new();
@@ -622,7 +656,7 @@ fn parse_schedule_entries(config: &Yaml) -> Result<(Vec<String>, Vec<String>), W
             return Err(WorkflowError::NotAString("on.schedule.cron"));
         }
     }
-    Ok((crons, extra_keys))
+    Ok((crons, extra_keys, false))
 }
 
 fn parse_workflow_inputs(node: &Yaml) -> Result<Vec<(String, WorkflowInput)>, WorkflowError> {
@@ -659,33 +693,39 @@ fn parse_workflow_inputs(node: &Yaml) -> Result<Vec<(String, WorkflowInput)>, Wo
     Ok(inputs)
 }
 
-fn parse_event_trigger(name: &str, config: &Yaml) -> Result<EventTrigger, WorkflowError> {
+fn parse_event_trigger(
+    name: &str,
+    config: &Yaml,
+    strict: bool,
+) -> Result<EventTrigger, WorkflowError> {
     let mut trigger = empty_trigger(name.to_string());
     if name == "schedule" {
-        let (crons, extra_keys) = parse_schedule_entries(config)?;
+        let (crons, extra_keys, not_seq) = parse_schedule_entries(config, strict)?;
         trigger.crons = crons;
         trigger.extra_keys = extra_keys;
+        trigger.schedule_not_sequence = not_seq;
         return Ok(trigger);
     }
     if matches!(config, Yaml::Null) {
         return Ok(trigger);
     }
     for (k, v) in expect_map(config, "on.<event>")? {
-        match k {
-            "types" => {
+        if k == "inputs" {
+            trigger.has_inputs_key = true;
+            trigger.inputs = parse_workflow_inputs(v)?;
+            continue;
+        }
+        match TriggerFilterKey::parse(k) {
+            Some(TriggerFilterKey::Types) => {
                 trigger.has_types_key = true;
                 trigger.types = parse_string_or_list(v, "on.<event>.types")?;
             }
-            "inputs" => {
-                trigger.has_inputs_key = true;
-                trigger.inputs = parse_workflow_inputs(v)?;
-            }
-            "branches" | "tags" => {
+            Some(TriggerFilterKey::Branches | TriggerFilterKey::Tags) => {
                 trigger
                     .filters
                     .insert(k.to_string(), parse_string_or_list(v, "on.<event> filter")?);
             }
-            _ => trigger.extra_keys.push(k.to_string()),
+            None => trigger.extra_keys.push(k.to_string()),
         }
     }
     Ok(trigger)
@@ -737,10 +777,12 @@ fn parse_matrix(node: &Yaml, strict_if: bool) -> Result<Matrix, WorkflowError> {
     for (k, v) in expect_map(node, "strategy.matrix")? {
         match k {
             "include" => {
+                matrix.has_include_key = true;
                 matrix.include =
                     parse_matrix_rows(v, "strategy.matrix.include", "strategy.matrix.include row")?
             }
             "exclude" => {
+                matrix.has_exclude_key = true;
                 matrix.exclude =
                     parse_matrix_rows(v, "strategy.matrix.exclude", "strategy.matrix.exclude row")?
             }

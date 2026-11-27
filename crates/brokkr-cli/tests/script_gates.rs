@@ -2,6 +2,11 @@
 //! against a scratch repository with stubs first on `PATH`, so what each one
 //! refuses is bound by a test:
 //!
+//! - `refresh-workflow-digests.sh` (#1417): rewrites or checks
+//!   `.github/workflow-digests.txt` over `.github/actions/` and
+//!   `.github/workflows/`, agrees with `workflow_digests::check_workflow_digests`
+//!   including nested action directories, refuses symlinks, supports
+//!   `shasum -a 256` fallback, and fails closed when neither hasher exists;
 //! - `refresh-pin-checksums.sh`, Renovate's post-upgrade task: a digest
 //!   moves only with its own version, an unchanged version whose release no
 //!   longer matches is refused, and nothing is written unless every release
@@ -1088,4 +1093,144 @@ fn the_classifier_step_is_full_off_a_pull_request_and_runs_the_bases_copy() {
         step(&repo, "pull_request"),
         (true, "lane=docs\n".to_string())
     );
+}
+
+/// Link extra POSIX tools needed by `refresh-workflow-digests.sh` into
+/// `sys-bin/` without exposing host `sha256sum` or `shasum`.
+fn link_digest_script_tools(repo: &Repo) {
+    repo.link_system_tools();
+    let system = repo.path().join("sys-bin");
+    let host = std::env::var_os("PATH").expect("PATH");
+    for tool in ["cat", "cmp", "find", "mktemp"] {
+        let found = std::env::split_paths(&host)
+            .map(|dir| dir.join(tool))
+            .find(|candidate| candidate.is_file())
+            .unwrap_or_else(|| panic!("{tool} is not on host PATH"));
+        let target = system.join(tool);
+        if !target.exists() {
+            std::os::unix::fs::symlink(found, target).expect(tool);
+        }
+    }
+}
+
+#[test]
+fn refresh_workflow_digests_agrees_with_guard_handles_check_symlinks_and_hashers() {
+    let repo = Repo::new();
+    let wf = "name: ci\non: push\njobs:\n  ok:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: ./.github/actions/outer/inner\n";
+    let action =
+        "name: inner\nruns:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n";
+    let helper = "echo helper\n";
+    repo.put(".github/workflows/ci.yml", wf);
+    repo.put(".github/actions/outer/inner/action.yml", action);
+    repo.put(".github/actions/outer/helper.sh", helper);
+
+    // --check before digest file exists fails and writes nothing.
+    let missing = repo.run("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert!(!missing.status.success());
+    assert!(!repo
+        .path()
+        .join(crate::workflow_digests::DIGEST_FILE)
+        .exists());
+
+    // Refresh writes the digest file and the Rust guard passes on the nested tree.
+    let write = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(write.status.success(), "{}", stderr(&write));
+    assert_eq!(
+        crate::workflow_digests::check_workflow_digests(repo.path()),
+        Vec::new()
+    );
+    let recorded = repo.read(crate::workflow_digests::DIGEST_FILE);
+    let expected = format!(
+        "{}  .github/actions/outer/helper.sh\n{}  .github/actions/outer/inner/action.yml\n{}  .github/workflows/ci.yml\n",
+        sha256_hex(helper),
+        sha256_hex(action),
+        sha256_hex(wf),
+    );
+    assert_eq!(recorded, expected);
+
+    // --check succeeds when up to date, and rewriting unchanged tree changes nothing.
+    let check_ok = repo.run("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert!(check_ok.status.success(), "{}", stderr(&check_ok));
+    let rewrite = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(rewrite.status.success(), "{}", stderr(&rewrite));
+    assert_eq!(repo.read(crate::workflow_digests::DIGEST_FILE), expected);
+
+    // After a workflow edit, --check exits non-zero and writes nothing.
+    let edited = format!("{wf}# changed\n");
+    repo.put(".github/workflows/ci.yml", &edited);
+    let check_stale = repo.run("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert!(!check_stale.status.success());
+    assert_eq!(repo.read(crate::workflow_digests::DIGEST_FILE), expected);
+
+    // Refresh updates it and guard passes again.
+    let refresh_again = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(refresh_again.status.success(), "{}", stderr(&refresh_again));
+    assert_eq!(
+        crate::workflow_digests::check_workflow_digests(repo.path()),
+        Vec::new()
+    );
+
+    // Symlink under either directory is refused.
+    repo.put("outside.yml", "name: x\n");
+    std::os::unix::fs::symlink(
+        repo.path().join("outside.yml"),
+        repo.path().join(".github/actions/link.yml"),
+    )
+    .expect("symlink");
+    let sym = repo.run("scripts/refresh-workflow-digests.sh", &[], &[]);
+    assert!(!sym.status.success());
+    assert!(
+        stderr(&sym).contains("refusing non-regular entry"),
+        "{}",
+        stderr(&sym)
+    );
+    std::fs::remove_file(repo.path().join(".github/actions/link.yml")).expect("rm symlink");
+
+    // Hermetic hasher checks: fails closed with neither sha256sum nor shasum,
+    // and succeeds with a `shasum -a 256` fallback when `sha256sum` is absent.
+    link_digest_script_tools(&repo);
+    let neither = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert!(!neither.status.success());
+    assert!(
+        stderr(&neither).contains("neither sha256sum nor shasum"),
+        "{}",
+        stderr(&neither)
+    );
+
+    let host_sha256sum = std::env::split_paths(&std::env::var_os("PATH").expect("PATH"))
+        .map(|d| d.join("sha256sum"))
+        .find(|p| p.is_file())
+        .expect("sha256sum on host PATH");
+    repo.executable(
+        "stub-bin/shasum",
+        &format!(
+            "#!/usr/bin/env bash\n[ \"$1\" = -a ] && [ \"$2\" = 256 ] || exit 99\nshift 2\nexec '{}' \"$@\"\n",
+            host_sha256sum.display()
+        ),
+    );
+    let shasum_ok = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert!(shasum_ok.status.success(), "{}", stderr(&shasum_ok));
+}
+
+#[test]
+fn docs_lane_keeps_workflow_action_and_digest_changes_on_the_full_lane() {
+    for (path, body) in [
+        (".github/workflows/ci.yml", "name: ci\n"),
+        (".github/actions/local/action.yml", "name: local\n"),
+        (
+            ".github/workflow-digests.txt",
+            "00  .github/workflows/ci.yml\n",
+        ),
+    ] {
+        let repo = lane_tree();
+        change(&repo, &[(path, Some(body))]);
+        assert_eq!(
+            lane_of(&repo, "base", "HEAD"),
+            (
+                "full\n".to_string(),
+                format!("docs lane: full: {path} is not a .md file\n")
+            ),
+            "{path} must take the full lane so workflow_digests runs"
+        );
+    }
 }
