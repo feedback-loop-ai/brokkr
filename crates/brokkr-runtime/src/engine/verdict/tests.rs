@@ -177,6 +177,34 @@ pub(super) fn ended_in(events: &[EventEnvelope], phase: &str, kind: EventType) -
 }
 
 #[test]
+fn the_isolated_verdict_test_runs_by_exact_name() {
+    const TEST: &str = "engine::verdict::tests::the_isolated_verdict_test_runs_by_exact_name";
+    const PROBE: &str = "BROKKR_TEST_VERDICT_ISOLATION";
+    if std::env::var_os(PROBE).is_none() {
+        // Use a substring filter here so the guard has to re-execute the exact test,
+        // even when this regression test itself was first invoked with --exact.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg(TEST)
+            .env(PROBE, "1")
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    if !in_own_engine() {
+        return;
+    }
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    assert_eq!(args, ["--exact", TEST]);
+}
+
+#[test]
 fn the_harness_seats_work_unhurried() {
     let work = single_body(driver(&json!({"result": "complete"})));
     let (_dir, engine) = begun(work.clone(), |_| {}, |_| HeadReads::default());
