@@ -533,6 +533,14 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
         && all_present(conn, "index", &QUEUE_INDEXES)?)
 }
 
+/// Whether `conn` carries any SQLite trigger outside [`QUEUE_TRIGGERS`].
+pub(crate) fn has_foreign_queue_triggers(conn: &Connection) -> Result<bool, StoreError> {
+    let triggers = objects(conn, "trigger")?;
+    Ok(triggers
+        .iter()
+        .any(|name| !QUEUE_TRIGGERS.contains(&name.as_str())))
+}
+
 /// Create the queue's tables and guards and record its version, on a
 /// connection already holding the write lock. A version 1, 2, 3, 4 or 5
 /// queue is moved to this version; a version this binary does not know is

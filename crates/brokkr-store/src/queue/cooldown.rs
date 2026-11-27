@@ -11,7 +11,7 @@
 //! them, into the `time` type the engine already carries.
 
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::{provider_waits, ProviderWait};
@@ -24,7 +24,10 @@ mod write;
 use super::storage::{cool_downs_held, cool_downs_writable};
 use super::QueueRefusal;
 use crate::{patiently, Store, StoreError};
-use write::{insert_row, insert_row_with, verify_existing_cooldown_matches, StoredRow};
+use write::{
+    insert_row, insert_row_with, verify_existing_cooldown_matches, verify_no_conflicting_existing,
+    StoredRow,
+};
 
 /// One cool-down a terminal event records, as its writer derives it. The
 /// store fills `event_seq` and `recorded_at` from the event it writes the
@@ -173,11 +176,9 @@ fn insert_rows(
         })?
         .unix_timestamp();
     let mut inserted = 0u64;
+    let mut seen_in_batch = BTreeSet::new();
     for row in rows {
         let until = until_second(row.until_at);
-        if until <= recorded {
-            continue;
-        }
         let stored = StoredRow {
             run_id,
             event_seq,
@@ -190,6 +191,17 @@ fn insert_rows(
             rounds: row.rounds,
             recorded,
         };
+        if idempotent && !seen_in_batch.insert((row.site.as_str(), row.rounds)) {
+            return Err(StoreError::DivergentEventLog {
+                run_id: run_id.to_string(),
+            });
+        }
+        if until <= recorded {
+            if idempotent {
+                verify_no_conflicting_existing(tx, &stored)?;
+            }
+            continue;
+        }
         if insert_row_with(tx, &stored, idempotent)? > 0 {
             inserted += 1;
         } else {

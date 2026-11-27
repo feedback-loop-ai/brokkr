@@ -24,12 +24,14 @@ use serde_json::Value;
 use crate::{damage, import, Damage, StoreError};
 
 use super::{
-    format_canonical_ndjson, reject_symlink, reject_symlink_path, validate_append_batch,
-    validate_import_stream, validate_manifest, verify_chain_checked, EventLog,
+    format_canonical_ndjson, normalize_storage_path, reject_symlink, reject_symlink_path, sync_dir,
+    validate_append_batch, validate_import_stream, validate_manifest, verify_chain_checked,
+    EventLog, RunMetadata,
 };
 
 const MANIFEST_FILE: &str = "manifest.json";
 const EVENTS_FILE: &str = "events.ndjson";
+const RUN_META_FILE: &str = "run_meta.json";
 const LOCK_FILE: &str = ".lock";
 const CREATE_LOCK_FILE: &str = ".create.lock";
 const STAGING_PREFIX: &str = ".staging-";
@@ -38,6 +40,7 @@ const STAGING_PREFIX: &str = ".staging-";
 /// `<root>/<run-id>/manifest.json` and `<root>/<run-id>/events.ndjson`.
 pub struct FsEventLog {
     root: PathBuf,
+    root_id: (u64, u64),
 }
 
 impl FsEventLog {
@@ -47,22 +50,60 @@ impl FsEventLog {
     }
 
     fn open_at(root: &Path) -> Result<Self, StoreError> {
-        if root.as_os_str().is_empty() {
-            return Err(StoreError::InvalidPath(root.to_path_buf()));
-        }
-        let root = root.to_path_buf();
+        let root = normalize_storage_path(root)?;
         let _ = reject_symlink_path(&root)?;
         fs::create_dir_all(&root)?;
-        let _ = reject_symlink(&root)?;
-        Ok(Self { root })
+        let _ = reject_symlink_path(&root)?;
+        let meta = fs::symlink_metadata(&root)?;
+        Ok(Self {
+            root,
+            root_id: (meta.dev(), meta.ino()),
+        })
     }
 
-    /// Return the root directory holding per-run subdirectories.
+    /// Return the normalized root directory holding per-run subdirectories.
     pub fn root(&self) -> &Path {
         &self.root
     }
 
+    /// Persist a new run with its immutable `manifest` verbatim plus optional
+    /// sidecar listing `metadata` in `run_meta.json`, never mutating
+    /// `manifest.json`.
+    pub fn create_run_with_metadata(
+        &self,
+        run_id: &str,
+        manifest: &Value,
+        metadata: &RunMetadata,
+    ) -> Result<(), StoreError> {
+        self.verify_root()?;
+        import::recordable(run_id)?;
+        validate_run_id_segment(run_id)?;
+        validate_manifest(run_id, manifest)?;
+        create_run_dir_atomic(&self.root, run_id, manifest, Some(metadata), &[])
+    }
+
+    fn verify_root(&self) -> Result<(), StoreError> {
+        let meta = reject_symlink_path(&self.root)?.ok_or_else(|| {
+            StoreError::Io(io::Error::new(
+                io::ErrorKind::NotFound,
+                "event log root directory disappeared",
+            ))
+        })?;
+        if !meta.is_dir() {
+            return Err(StoreError::Io(io::Error::other(
+                "event log root is no longer a directory",
+            )));
+        }
+        if (meta.dev(), meta.ino()) != self.root_id {
+            return Err(StoreError::Io(io::Error::other(
+                "event log root directory changed after open",
+            )));
+        }
+        Ok(())
+    }
+
     fn existing_run_dir(&self, run_id: &str) -> Result<PathBuf, StoreError> {
+        self.verify_root()?;
         validate_run_id_segment(run_id)?;
         let dir = self.root.join(run_id);
         match reject_symlink(&dir)? {
@@ -75,6 +116,7 @@ impl FsEventLog {
         let run_dir = self.existing_run_dir(run_id)?;
         let _lock = open_lock(&run_dir, false)?;
         let _ = require_regular_manifest(&run_dir)?;
+        let _ = reject_symlink(&run_dir.join(RUN_META_FILE))?;
         read_verified_events(&run_dir, run_id)
     }
 }
@@ -92,13 +134,28 @@ fn validate_run_id_segment(run_id: &str) -> Result<(), StoreError> {
     Ok(())
 }
 
+fn non_regular_error(path: &Path) -> StoreError {
+    StoreError::Io(io::Error::other(format!(
+        "refusing non-regular file at '{}'",
+        path.display()
+    )))
+}
+
 pub(super) fn open_no_symlink_with(
     path: &Path,
     open: impl FnOnce(&Path) -> io::Result<File>,
 ) -> Result<File, StoreError> {
     let pre = reject_symlink(path)?;
+    if let Some(meta) = &pre {
+        if !meta.is_file() {
+            return Err(non_regular_error(path));
+        }
+    }
     let file = open(path)?;
     let post = file.metadata()?;
+    if !post.is_file() {
+        return Err(non_regular_error(path));
+    }
     let after = reject_symlink(path)?;
     let same = |meta: &Metadata| meta.dev() == post.dev() && meta.ino() == post.ino();
     let intact = after.as_ref().is_some_and(same) && pre.as_ref().is_none_or(same);
@@ -108,21 +165,44 @@ pub(super) fn open_no_symlink_with(
     Ok(file)
 }
 
-fn open_lock_file(lock_path: &Path, exclusive: bool) -> Result<File, StoreError> {
-    let file = open_no_symlink_with(lock_path, |path| {
-        OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)
-    })?;
-    if exclusive {
-        file.lock()?;
-    } else {
-        file.lock_shared()?;
+pub(super) fn open_lock_exclusive_with(
+    lock_path: &Path,
+    mut open_rw: impl FnMut(&Path, bool) -> io::Result<File>,
+) -> Result<File, StoreError> {
+    if reject_symlink(lock_path)?.is_some() {
+        return open_no_symlink_with(lock_path, |path| open_rw(path, false));
     }
-    Ok(file)
+    match open_no_symlink_with(lock_path, |path| open_rw(path, true)) {
+        Ok(file) => Ok(file),
+        Err(StoreError::Io(err)) if err.kind() == io::ErrorKind::AlreadyExists => {
+            open_no_symlink_with(lock_path, |path| open_rw(path, false))
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn open_lock_exclusive(lock_path: &Path) -> Result<File, StoreError> {
+    open_lock_exclusive_with(lock_path, |path, create_new| {
+        let mut opts = OpenOptions::new();
+        opts.read(true).write(true);
+        if create_new {
+            opts.create_new(true);
+        }
+        opts.open(path)
+    })
+}
+
+fn open_lock_file(lock_path: &Path, exclusive: bool) -> Result<File, StoreError> {
+    if exclusive {
+        let file = open_lock_exclusive(lock_path)?;
+        file.lock()?;
+        Ok(file)
+    } else {
+        let file =
+            open_no_symlink_with(lock_path, |path| OpenOptions::new().read(true).open(path))?;
+        file.lock_shared()?;
+        Ok(file)
+    }
 }
 
 fn open_lock(run_dir: &Path, exclusive: bool) -> Result<File, StoreError> {
@@ -135,33 +215,40 @@ fn require_regular_manifest(run_dir: &Path) -> Result<PathBuf, StoreError> {
         Some(meta) if meta.is_file() => Ok(path),
         _ => Err(StoreError::Damaged {
             journal: path,
-            damage: Damage::Malformed,
+            damage: Damage::MissingManifest,
         }),
     }
+}
+
+fn write_new_synced_file(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    if !bytes.is_empty() {
+        file.write_all(bytes)?;
+    }
+    file.sync_data()?;
+    Ok(())
 }
 
 fn populate_run_dir(
     staging: &Path,
     manifest: &Value,
+    metadata: Option<&RunMetadata>,
     envelopes: &[EventEnvelope],
 ) -> Result<(), StoreError> {
-    let mut events_file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(staging.join(EVENTS_FILE))?;
-    if !envelopes.is_empty() {
-        let ndjson = format_canonical_ndjson(envelopes)?;
-        events_file.write_all(ndjson.as_bytes())?;
-    }
-    events_file.sync_data()?;
+    let ndjson = if envelopes.is_empty() {
+        String::new()
+    } else {
+        format_canonical_ndjson(envelopes)?
+    };
+    write_new_synced_file(&staging.join(EVENTS_FILE), ndjson.as_bytes())?;
     let manifest_bytes = serde_json::to_vec(manifest)?;
-    let mut manifest_file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(staging.join(MANIFEST_FILE))?;
-    manifest_file.write_all(&manifest_bytes)?;
-    manifest_file.sync_data()?;
-    File::open(staging)?.sync_all()?;
+    write_new_synced_file(&staging.join(MANIFEST_FILE), &manifest_bytes)?;
+    write_new_synced_file(&staging.join(LOCK_FILE), &[])?;
+    if let Some(meta) = metadata {
+        let meta_bytes = serde_json::to_vec(meta)?;
+        write_new_synced_file(&staging.join(RUN_META_FILE), &meta_bytes)?;
+    }
+    sync_dir(staging)?;
     Ok(())
 }
 
@@ -169,17 +256,22 @@ fn create_run_dir_atomic(
     root: &Path,
     run_id: &str,
     manifest: &Value,
+    metadata: Option<&RunMetadata>,
     envelopes: &[EventEnvelope],
 ) -> Result<(), StoreError> {
-    create_run_dir_atomic_with(root, run_id, |staging| {
-        populate_run_dir(staging, manifest, envelopes)
-    })
+    create_run_dir_atomic_with(
+        root,
+        run_id,
+        |staging| populate_run_dir(staging, manifest, metadata, envelopes),
+        sync_dir,
+    )
 }
 
 pub(super) fn create_run_dir_atomic_with(
     root: &Path,
     run_id: &str,
     populate: impl FnOnce(&Path) -> Result<(), StoreError>,
+    sync_root: impl FnOnce(&Path) -> io::Result<()>,
 ) -> Result<(), StoreError> {
     let _create_lock = open_lock_file(&root.join(CREATE_LOCK_FILE), true)?;
     let run_dir = root.join(run_id);
@@ -188,14 +280,17 @@ pub(super) fn create_run_dir_atomic_with(
     }
     let staging = root.join(format!("{STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     fs::create_dir(&staging)?;
-    let outcome = populate(&staging).and_then(|()| {
+    let published = populate(&staging).and_then(|()| {
         fs::rename(&staging, &run_dir)?;
-        File::open(root)?.sync_all()?;
         Ok(())
     });
-    if let Err(err) = outcome {
+    if let Err(err) = published {
         let _ = fs::remove_dir_all(&staging);
         return Err(err);
+    }
+    if let Err(err) = sync_root(root) {
+        let _ = fs::remove_dir_all(&run_dir);
+        return Err(StoreError::Io(err));
     }
     Ok(())
 }
@@ -228,7 +323,12 @@ fn read_manifest_file(run_dir: &Path, run_id: &str) -> Result<Value, StoreError>
     Ok(manifest)
 }
 
-fn parse_ndjson_line(run_id: &str, line_no: i64, line: &str) -> Result<EventEnvelope, StoreError> {
+fn parse_ndjson_line(
+    events_path: &Path,
+    run_id: &str,
+    line_no: i64,
+    line: &str,
+) -> Result<EventEnvelope, StoreError> {
     match damage::envelope(run_id, line_no, line) {
         Ok(envelope) if envelope.seq < 1 => Err(StoreError::RowBeforeChain {
             run_id: run_id.to_string(),
@@ -248,7 +348,7 @@ fn parse_ndjson_line(run_id: &str, line_no: i64, line: &str) -> Result<EventEnve
             }
             Err(StoreError::Json(err))
         }
-        Err(err) => Err(err),
+        Err(err) => Err(damage::classified(events_path, err)),
     }
 }
 
@@ -260,14 +360,17 @@ fn read_verified_events(run_dir: &Path, run_id: &str) -> Result<Vec<EventEnvelop
     }
     let Some(body) = content.strip_suffix('\n') else {
         let line_no = content.lines().count().max(1) as i64;
-        return Err(StoreError::Unparsed {
-            run_id: run_id.to_string(),
-            seq: line_no,
+        return Err(StoreError::Damaged {
+            journal: path,
+            damage: Damage::Envelope {
+                run_id: run_id.to_string(),
+                seq: line_no,
+            },
         });
     };
     let mut events = Vec::new();
     for (idx, line) in body.split('\n').enumerate() {
-        events.push(parse_ndjson_line(run_id, (idx + 1) as i64, line)?);
+        events.push(parse_ndjson_line(&path, run_id, (idx + 1) as i64, line)?);
     }
     verify_chain_checked(run_id, (0, ZERO_HASH), &events)?;
     Ok(events)
@@ -275,10 +378,11 @@ fn read_verified_events(run_dir: &Path, run_id: &str) -> Result<Vec<EventEnvelop
 
 impl EventLog for FsEventLog {
     fn create_run(&self, run_id: &str, manifest: &Value) -> Result<(), StoreError> {
+        self.verify_root()?;
         import::recordable(run_id)?;
         validate_run_id_segment(run_id)?;
         validate_manifest(run_id, manifest)?;
-        create_run_dir_atomic(&self.root, run_id, manifest, &[])
+        create_run_dir_atomic(&self.root, run_id, manifest, None, &[])
     }
 
     fn append_envelopes(
@@ -296,7 +400,7 @@ impl EventLog for FsEventLog {
             let ndjson = format_canonical_ndjson(envelopes)?;
             let events_path = run_dir.join(EVENTS_FILE);
             let mut file = open_no_symlink_with(&events_path, |path| {
-                OpenOptions::new().create(true).append(true).open(path)
+                OpenOptions::new().append(true).open(path)
             })?;
             append_bytes_atomic_with(&mut file, |f| {
                 f.write_all(ndjson.as_bytes())?;
@@ -312,9 +416,10 @@ impl EventLog for FsEventLog {
         manifest: &Value,
         envelopes: &[EventEnvelope],
     ) -> Result<(), StoreError> {
+        self.verify_root()?;
         validate_import_stream(run_id, manifest, envelopes)?;
         validate_run_id_segment(run_id)?;
-        create_run_dir_atomic(&self.root, run_id, manifest, envelopes)
+        create_run_dir_atomic(&self.root, run_id, manifest, None, envelopes)
     }
 
     fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {
@@ -335,10 +440,27 @@ impl EventLog for FsEventLog {
     fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
         let run_dir = self.existing_run_dir(run_id)?;
         let _lock = open_lock(&run_dir, false)?;
+        let _ = reject_symlink(&run_dir.join(EVENTS_FILE))?;
+        let _ = reject_symlink(&run_dir.join(RUN_META_FILE))?;
         read_manifest_file(&run_dir, run_id)
     }
 
+    fn run_metadata(&self, run_id: &str) -> Result<Option<RunMetadata>, StoreError> {
+        let run_dir = self.existing_run_dir(run_id)?;
+        let _lock = open_lock(&run_dir, false)?;
+        let _ = require_regular_manifest(&run_dir)?;
+        let _ = reject_symlink(&run_dir.join(EVENTS_FILE))?;
+        let meta_path = run_dir.join(RUN_META_FILE);
+        if reject_symlink(&meta_path)?.is_none() {
+            return Ok(None);
+        }
+        let raw = read_file_no_symlink(&meta_path)?;
+        let meta: RunMetadata = serde_json::from_str(&raw)?;
+        Ok(Some(meta))
+    }
+
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
+        self.verify_root()?;
         let mut ids = Vec::new();
         for entry in fs::read_dir(&self.root)? {
             let entry = entry?;
@@ -353,13 +475,15 @@ impl EventLog for FsEventLog {
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                 return Err(StoreError::Damaged {
                     journal: path,
-                    damage: Damage::Malformed,
+                    damage: Damage::NonUtf8RunDir,
                 });
             };
             if name.starts_with(STAGING_PREFIX) {
                 continue;
             }
             let _ = require_regular_manifest(&path)?;
+            let _ = reject_symlink(&path.join(EVENTS_FILE))?;
+            let _ = reject_symlink(&path.join(RUN_META_FILE))?;
             ids.push(name);
         }
         ids.sort();

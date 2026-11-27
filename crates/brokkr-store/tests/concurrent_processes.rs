@@ -287,7 +287,12 @@ fn fs_event_log_concurrent_child() {
         );
         std::fs::write(barrier.join(format!("ready-{worker}")), b"ready").unwrap();
         let go_path = barrier.join("go");
+        let go_deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !go_path.exists() {
+            assert!(
+                std::time::Instant::now() < go_deadline,
+                "contended child {worker} timed out waiting for barrier go signal"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
         let outcome = match log.append_envelopes(
@@ -359,14 +364,39 @@ fn parallel_processes_fs_event_log_independent_and_contended() {
     std::fs::create_dir(&barrier).unwrap();
     let racer_targets: Vec<(String, usize)> =
         (0..WRITERS).map(|w| (shared.to_string(), w)).collect();
-    let racers = spawn_fs_children(&root, "contended", Some(&barrier), &racer_targets);
+    let mut racers = spawn_fs_children(&root, "contended", Some(&barrier), &racer_targets);
 
-    // Release all children simultaneously once every child has read head (1, hash1).
-    for worker in 0..WRITERS {
-        let ready = barrier.join(format!("ready-{worker}"));
-        while !ready.exists() {
-            std::thread::sleep(Duration::from_millis(5));
+    // Release all children simultaneously once every child has read head (1, hash1),
+    // polling child exit status with a bounded deadline so an early crash never hangs.
+    let ready_deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let all_ready = (0..WRITERS).all(|w| barrier.join(format!("ready-{w}")).exists());
+        if all_ready {
+            break;
         }
+        for (idx, child) in racers.iter_mut().enumerate() {
+            if let Some(status) = child.try_wait().expect("poll contended child") {
+                let _ = std::fs::write(barrier.join("go"), b"go");
+                let out = racers.remove(idx).wait_with_output().unwrap();
+                for mut peer in racers {
+                    let _ = peer.kill();
+                    let _ = peer.wait();
+                }
+                panic!(
+                    "contended child {idx} exited early ({status}) before signaling ready: {}{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+        }
+        if std::time::Instant::now() >= ready_deadline {
+            for mut peer in racers {
+                let _ = peer.kill();
+                let _ = peer.wait();
+            }
+            panic!("timed out waiting for contended children to signal ready");
+        }
+        std::thread::sleep(Duration::from_millis(5));
     }
     std::fs::write(barrier.join("go"), b"go").unwrap();
     wait_fs_children("contended", racers);

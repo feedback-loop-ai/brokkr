@@ -53,15 +53,15 @@ impl SqliteCoordinationStore {
     /// Open (creating if absent) an isolated SQLite coordination database at
     /// `path` in WAL mode with `busy_timeout`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let path = path.as_ref();
         let (conn, owned) = open_standalone_store(
-            path,
+            path.as_ref(),
             "coordination_migrate",
+            refuse_foreign_database,
             |conn| {
                 conn.pragma_update(None, "foreign_keys", "OFF")?;
                 Ok(())
             },
-            |conn| ensure_schema(conn, path),
+            ensure_schema,
         )?;
         Ok(Self {
             conn,
@@ -137,12 +137,14 @@ fn meta_present(conn: &Connection) -> Result<bool, StoreError> {
 
 fn refuse_foreign_database(conn: &Connection, path: &Path) -> Result<(), StoreError> {
     let foreign: i64 = conn.query_row(FOREIGN_TABLES_SQL, [], |row| row.get(0))?;
+    let user_version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let foreign_triggers = queue::has_foreign_queue_triggers(conn)?;
     let monolith_meta = if meta_present(conn)? {
         conn.query_row(MONOLITH_META_SQL, [], |row| row.get::<_, i64>(0))? > 0
     } else {
         false
     };
-    if foreign > 0 || monolith_meta {
+    if foreign > 0 || user_version != 0 || foreign_triggers || monolith_meta {
         return Err(StoreError::ForeignDatabase {
             path: path.to_path_buf(),
             expected: "coordination store",
@@ -152,13 +154,12 @@ fn refuse_foreign_database(conn: &Connection, path: &Path) -> Result<(), StoreEr
 }
 
 fn ensure_schema(conn: &Connection, path: &Path) -> Result<(), StoreError> {
-    refuse_foreign_database(conn, path)?;
-    if meta_present(conn)? && queue::queue_intact(conn)? {
-        return Ok(());
-    }
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-    tx.execute_batch(META_DDL)?;
-    queue::migrate_queue(&tx)?;
+    refuse_foreign_database(&tx, path)?;
+    if !(meta_present(&tx)? && queue::queue_intact(&tx)?) {
+        tx.execute_batch(META_DDL)?;
+        queue::migrate_queue(&tx)?;
+    }
     tx.commit()?;
     Ok(())
 }

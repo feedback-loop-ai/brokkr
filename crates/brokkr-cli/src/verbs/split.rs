@@ -4,17 +4,17 @@
 //! migrates all runs from a monolithic `forge.db` into a split layout with
 //! canonical NDJSON parity verification.
 
-use std::ffi::OsString;
 use std::fmt;
-use std::fs::{self, File};
+use std::fs;
 use std::io::ErrorKind;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_store::ports::{
-    EventLog, FsEventLog, ProjectionStore, SqlitePorts, SqliteProjectionStore,
+    normalize_storage_path, reject_symlink, reject_symlink_path, sqlite_sidecar_path, sync_dir,
+    EventLog, FsEventLog, ProjectionStore, RunMetadata, SqlitePorts, SqliteProjectionStore,
 };
 use brokkr_store::{Store, StoreError};
 use serde::Serialize;
@@ -36,6 +36,8 @@ pub(crate) enum ParityKind {
     Manifest,
     EventStream,
     CanonicalNdjson,
+    RunMetadata,
+    Listing,
 }
 
 impl ParityKind {
@@ -44,6 +46,8 @@ impl ParityKind {
             ParityKind::Manifest => "manifest",
             ParityKind::EventStream => "event stream",
             ParityKind::CanonicalNdjson => "canonical NDJSON",
+            ParityKind::RunMetadata => "run metadata",
+            ParityKind::Listing => "run listing",
         }
     }
 }
@@ -58,6 +62,10 @@ pub(crate) enum SplitError {
     TargetNotDirectory(PathBuf),
     TargetNotEmpty(PathBuf),
     TargetHasNoParent(PathBuf),
+    SidecarRemovalFailed {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     ParityMismatch {
         kind: ParityKind,
         run_id: String,
@@ -100,6 +108,13 @@ impl fmt::Display for SplitError {
                     p.display()
                 )
             }
+            SplitError::SidecarRemovalFailed { path, source } => {
+                write!(
+                    f,
+                    "failed to remove SQLite sidecar '{}': {source}",
+                    path.display()
+                )
+            }
             SplitError::ParityMismatch { kind, run_id } => {
                 write!(f, "{} parity mismatch for run '{run_id}'", kind.as_str())
             }
@@ -122,6 +137,7 @@ impl fmt::Display for SplitError {
 impl std::error::Error for SplitError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            SplitError::SidecarRemovalFailed { source, .. } => Some(source),
             SplitError::Store(err) => Some(err),
             SplitError::Io(err) => Some(err),
             SplitError::Json(err) => Some(err),
@@ -181,7 +197,7 @@ pub(crate) struct MigrateArgs {
     pub(crate) journal: JournalArgs,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 struct ReindexReport {
     runs_dir: String,
     index: String,
@@ -189,7 +205,7 @@ struct ReindexReport {
     events: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 struct MigrateReport {
     from: String,
     to: String,
@@ -226,8 +242,8 @@ impl StagedDb {
 impl Drop for StagedDb {
     fn drop(&mut self) {
         if !self.keep {
-            remove_if_exists(&self.path);
-            remove_sidecars(&self.path);
+            let _ = fs::remove_file(&self.path);
+            let _ = remove_sidecars_checked(&self.path);
         }
     }
 }
@@ -236,6 +252,11 @@ struct PreparedTarget {
     normalized: PathBuf,
     parent: PathBuf,
     existed_empty: bool,
+}
+
+struct PreparedIndex {
+    normalized: PathBuf,
+    parent: PathBuf,
 }
 
 /// Dispatch `brokkr journal reindex` or `brokkr journal migrate`.
@@ -256,40 +277,42 @@ pub(crate) fn reindex(
     }: ReindexArgs,
 ) -> Result<ExitCode> {
     let (runs_dir, index_path) = resolve_split_paths(workspace, runs, index, journal)?;
-    let (runs, events) = reindex_paths(&runs_dir, &index_path)?;
+    let report = reindex_report(&runs_dir, &index_path)?;
 
-    let report = ReindexReport {
-        runs_dir: runs_dir.display().to_string(),
-        index: index_path.display().to_string(),
-        runs,
-        events,
-    };
     println!("{}", serde_json::to_string_pretty(&report)?);
     eprintln!(
         "reindexed {} runs ({} events) from {} into {}",
-        runs,
-        events,
-        runs_dir.display(),
-        index_path.display()
+        report.runs, report.events, report.runs_dir, report.index
     );
     Ok(Exit::Completed.into())
 }
 
-fn reindex_paths(runs_dir: &Path, index_path: &Path) -> Result<(u64, u64), SplitError> {
-    ensure_existing_runs_dir(runs_dir)?;
-    let parent = prepare_index_target(index_path)?;
-    let log = FsEventLog::open(runs_dir)?;
-    let mut staged = StagedDb::new(&parent)?;
+fn reindex_report(runs_dir: &Path, index_path: &Path) -> Result<ReindexReport, SplitError> {
+    let normalized_runs = ensure_existing_runs_dir(runs_dir)?;
+    let target = prepare_index_target(index_path)?;
+    let log = FsEventLog::open(&normalized_runs)?;
+    let mut staged = StagedDb::new(&target.parent)?;
     let projections = SqliteProjectionStore::open(staged.path())?;
     let events = projections.rebuild_from(&log)?;
     let runs = projections.list_runs()?.len() as u64;
     drop(projections);
-    remove_sidecars(staged.path());
-    remove_sidecars(index_path);
-    fs::rename(staged.path(), index_path)?;
-    fsync_dir(&parent)?;
+    remove_sidecars_checked(staged.path())?;
+    remove_sidecars_checked(&target.normalized)?;
+    fs::rename(staged.path(), &target.normalized)?;
+    fsync_dir(&target.parent)?;
     staged.disarm();
-    Ok((runs, events))
+    Ok(ReindexReport {
+        runs_dir: normalized_runs.display().to_string(),
+        index: target.normalized.display().to_string(),
+        runs,
+        events,
+    })
+}
+
+#[cfg(test)]
+fn reindex_paths(runs_dir: &Path, index_path: &Path) -> Result<(u64, u64), SplitError> {
+    let report = reindex_report(runs_dir, index_path)?;
+    Ok((report.runs, report.events))
 }
 
 /// `brokkr journal migrate --to <dir>`.
@@ -300,54 +323,66 @@ pub(crate) fn migrate(
     let from = journal_of(workspace, journal.realms, journal.db)?;
     // Open read-only so migration can never mutate or corrupt the source DB.
     let store = open_journal(&from, Access::Read)?;
-    let (runs, events) = migrate_store(&store, &to)?;
+    let report = migrate_report(&store, &from, &to)?;
 
-    let runs_dir = to.join("runs");
-    let index_path = to.join("index.db");
-    let report = MigrateReport {
-        from: from.display().to_string(),
-        to: to.display().to_string(),
-        runs_dir: runs_dir.display().to_string(),
-        index: index_path.display().to_string(),
-        runs,
-        events,
-    };
     println!("{}", serde_json::to_string_pretty(&report)?);
     eprintln!(
         "migrated {} runs ({} events) from {} to {}",
-        runs,
-        events,
-        from.display(),
-        to.display()
+        report.runs, report.events, report.from, report.to
     );
     Ok(Exit::Completed.into())
 }
 
-fn migrate_store(store: &Store, to: &Path) -> Result<(u64, u64), SplitError> {
+fn migrate_report(store: &Store, from: &Path, to: &Path) -> Result<MigrateReport, SplitError> {
+    let (normalized_to, runs, events) = migrate_store(store, to)?;
+    let runs_dir = normalized_to.join("runs");
+    let index_path = normalized_to.join("index.db");
+    Ok(MigrateReport {
+        from: from.display().to_string(),
+        to: normalized_to.display().to_string(),
+        runs_dir: runs_dir.display().to_string(),
+        index: index_path.display().to_string(),
+        runs,
+        events,
+    })
+}
+
+fn migrate_store(store: &Store, to: &Path) -> Result<(PathBuf, u64, u64), SplitError> {
     let target = prepare_migration_target(to)?;
     let staging = tempfile::Builder::new()
         .prefix(".brokkr-migrate-")
         .tempdir_in(&target.parent)?;
     let (runs, events) = stage_migration(store, staging.path())?;
     publish_staged_migration(staging, &target)?;
-    Ok((runs, events))
+    Ok((target.normalized, runs, events))
 }
 
 fn publish_staged_migration(
     staging: tempfile::TempDir,
     target: &PreparedTarget,
 ) -> Result<(), SplitError> {
+    publish_staged_migration_with(staging, target, |src, dst| fs::rename(src, dst))
+}
+
+fn publish_staged_migration_with(
+    staging: tempfile::TempDir,
+    target: &PreparedTarget,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), SplitError> {
     if target.existed_empty {
         let src_runs = staging.path().join("runs");
         let dst_runs = target.normalized.join("runs");
-        fs::rename(src_runs, dst_runs)?;
+        rename(&src_runs, &dst_runs)?;
         let src_idx = staging.path().join("index.db");
         let dst_idx = target.normalized.join("index.db");
-        fs::rename(src_idx, dst_idx)?;
+        if let Err(err) = rename(&src_idx, &dst_idx) {
+            let _ = fs::rename(&dst_runs, &src_runs);
+            return Err(err.into());
+        }
         fsync_dir(&target.normalized)?;
         fsync_dir(&target.parent)?;
     } else {
-        fs::rename(staging.path(), &target.normalized)?;
+        rename(staging.path(), &target.normalized)?;
         let _ = staging.keep();
         fsync_dir(&target.parent)?;
     }
@@ -373,109 +408,63 @@ fn resolve_split_paths(
     }
 }
 
-fn ensure_existing_runs_dir(path: &Path) -> Result<(), SplitError> {
-    let meta = match fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(err) if err.kind() == ErrorKind::NotFound => {
-            return Err(SplitError::RunsDirMissing(path.to_path_buf()));
-        }
-        Err(err) => return Err(err.into()),
+fn map_path_err(err: StoreError) -> SplitError {
+    match err {
+        StoreError::SymlinkRefused(path) => SplitError::SymlinkRefused(path),
+        StoreError::InvalidPath(path) => SplitError::InvalidPath(path),
+        StoreError::Io(err) => SplitError::Io(err),
+        other => SplitError::Store(other),
+    }
+}
+
+fn ensure_existing_runs_dir(path: &Path) -> Result<PathBuf, SplitError> {
+    let normalized = normalize_storage_path(path).map_err(map_path_err)?;
+    let Some(meta) = reject_symlink_path(&normalized).map_err(map_path_err)? else {
+        return Err(SplitError::RunsDirMissing(normalized));
     };
-    if meta.file_type().is_symlink() {
-        return Err(SplitError::SymlinkRefused(path.to_path_buf()));
-    }
     if !meta.is_dir() {
-        return Err(SplitError::RunsPathNotDirectory(path.to_path_buf()));
+        return Err(SplitError::RunsPathNotDirectory(normalized));
     }
-    Ok(())
-}
-
-fn refuse_symlink(path: &Path) -> Result<Option<fs::Metadata>, SplitError> {
-    match fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() => {
-            Err(SplitError::SymlinkRefused(path.to_path_buf()))
-        }
-        Ok(meta) => Ok(Some(meta)),
-        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
-        Err(err) => Err(err.into()),
-    }
-}
-
-fn refuse_symlink_ancestors(path: &Path) -> Result<(), SplitError> {
-    let mut probe = PathBuf::new();
-    for comp in path.components() {
-        probe.push(comp.as_os_str());
-        if matches!(comp, Component::RootDir | Component::Prefix(_)) {
-            continue;
-        }
-        #[cfg(target_os = "macos")]
-        if matches!(probe.to_str(), Some("/tmp" | "/var" | "/etc")) {
-            continue;
-        }
-        if refuse_symlink(&probe)?.is_none() {
-            break;
-        }
-    }
-    Ok(())
+    Ok(normalized)
 }
 
 fn is_disposable_corrupt(err: &StoreError) -> bool {
     matches!(err, StoreError::Damaged { .. })
 }
 
-fn prepare_index_target(index_path: &Path) -> Result<PathBuf, SplitError> {
-    if index_path.as_os_str().is_empty() {
-        return Err(SplitError::InvalidPath(index_path.to_path_buf()));
-    }
-    let abs = std::path::absolute(index_path)?;
-    refuse_symlink_ancestors(&abs)?;
-    let _ = refuse_symlink(&sidecar_path(&abs, "-wal"))?;
-    let _ = refuse_symlink(&sidecar_path(&abs, "-shm"))?;
-    if let Some(meta) = refuse_symlink(&abs)? {
+fn prepare_index_target(index_path: &Path) -> Result<PreparedIndex, SplitError> {
+    let normalized = normalize_storage_path(index_path).map_err(map_path_err)?;
+    let meta = reject_symlink_path(&normalized).map_err(map_path_err)?;
+    let _ = reject_symlink(&sqlite_sidecar_path(&normalized, "-wal")).map_err(map_path_err)?;
+    let _ = reject_symlink(&sqlite_sidecar_path(&normalized, "-shm")).map_err(map_path_err)?;
+    if let Some(meta) = meta {
         if meta.is_dir() {
-            return Err(SplitError::IndexPathIsDirectory(index_path.to_path_buf()));
+            return Err(SplitError::IndexPathIsDirectory(normalized));
         }
-        if let Err(err) = SqliteProjectionStore::open(&abs) {
+        if let Err(err) = SqliteProjectionStore::open(&normalized) {
             if !is_disposable_corrupt(&err) {
                 return Err(err.into());
             }
         }
     }
-    let parent = abs
+    let parent = normalized
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .ok_or_else(|| SplitError::InvalidPath(index_path.to_path_buf()))?
         .to_path_buf();
     fs::create_dir_all(&parent)?;
-    Ok(parent)
-}
-
-fn lexically_normalize(abs: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for comp in abs.components() {
-        if comp == Component::ParentDir {
-            out.pop();
-        } else {
-            out.push(comp.as_os_str());
-        }
-    }
-    out
+    Ok(PreparedIndex { normalized, parent })
 }
 
 fn prepare_migration_target(to: &Path) -> Result<PreparedTarget, SplitError> {
-    if to.as_os_str().is_empty() {
-        return Err(SplitError::InvalidPath(to.to_path_buf()));
-    }
-    let abs = std::path::absolute(to)?;
-    refuse_symlink_ancestors(&abs)?;
-    let normalized = lexically_normalize(&abs);
-    refuse_symlink_ancestors(&normalized)?;
+    let normalized = normalize_storage_path(to).map_err(map_path_err)?;
+    let meta = reject_symlink_path(&normalized).map_err(map_path_err)?;
     let parent = normalized
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .ok_or_else(|| SplitError::TargetHasNoParent(to.to_path_buf()))?
         .to_path_buf();
-    let existed_empty = match refuse_symlink(&normalized)? {
+    let existed_empty = match meta {
         Some(meta) if !meta.is_dir() => {
             return Err(SplitError::TargetNotDirectory(to.to_path_buf()));
         }
@@ -495,38 +484,33 @@ fn prepare_migration_target(to: &Path) -> Result<PreparedTarget, SplitError> {
     })
 }
 
-fn preserve_run_metadata(manifest: &Value, feature: &str, created_at: &str) -> Value {
-    let mut out = manifest.clone();
-    if let Some(obj) = out.as_object_mut() {
-        for (key, value) in [("feature", feature), ("created_at", created_at)] {
-            let missing = obj
-                .get(key)
-                .and_then(Value::as_str)
-                .is_none_or(str::is_empty);
-            if !value.is_empty() && missing {
-                obj.insert(key.to_string(), Value::String(value.to_string()));
-            }
-        }
-    }
-    out
-}
-
 fn migrate_one_run(
     store: &Store,
     source: &SqlitePorts<'_>,
     fs_log: &FsEventLog,
     runs_dir: &Path,
+    list_order: u64,
     (run_id, feature, created_at): &(String, String, String),
 ) -> Result<u64, SplitError> {
-    let raw_manifest = source.manifest(run_id)?;
-    let manifest = preserve_run_metadata(&raw_manifest, feature, created_at);
+    // Keep manifest.json strictly immutable and byte-identical to source.manifest(run_id).
+    let manifest = source.manifest(run_id)?;
+    let metadata = RunMetadata {
+        feature: feature.clone(),
+        created_at: created_at.clone(),
+        list_order: Some(list_order),
+    };
     let events = source.read_stream(run_id, 1)?;
     let source_ndjson = store.export_ndjson(run_id)?;
-    fs_log.create_run(run_id, &manifest)?;
+    fs_log.create_run_with_metadata(run_id, &manifest, &metadata)?;
     if !events.is_empty() {
         fs_log.append_envelopes(run_id, (0, ZERO_HASH), &events)?;
     }
-    let expected = (&manifest, events.as_slice(), source_ndjson.as_str());
+    let expected = (
+        &manifest,
+        &metadata,
+        events.as_slice(),
+        source_ndjson.as_str(),
+    );
     verify_run_parity(fs_log, runs_dir, run_id, expected)?;
     Ok(events.len() as u64)
 }
@@ -537,23 +521,24 @@ fn stage_migration(store: &Store, staging: &Path) -> Result<(u64, u64), SplitErr
     let fs_log = FsEventLog::open(&runs_dir)?;
     let source_runs = store.list_runs()?;
     let mut total_events = 0u64;
-    for entry in &source_runs {
-        total_events += migrate_one_run(store, &source, &fs_log, &runs_dir, entry)?;
+    for (order, entry) in source_runs.iter().enumerate() {
+        total_events += migrate_one_run(store, &source, &fs_log, &runs_dir, order as u64, entry)?;
     }
 
     let index_path = staging.join("index.db");
     let index = SqliteProjectionStore::open(&index_path)?;
     let indexed_events = index.rebuild_from(&fs_log)?;
-    let indexed_runs = index.list_runs()?.len();
+    let indexed_list = index.list_runs()?;
     let counts = (
         source_runs.len(),
         total_events,
-        indexed_runs,
+        indexed_list.len(),
         indexed_events,
     );
     verify_projection_counts(counts)?;
+    verify_listing_parity(&source_runs, &indexed_list)?;
     drop(index);
-    remove_sidecars(&index_path);
+    remove_sidecars_checked(&index_path)?;
     Ok((source_runs.len() as u64, total_events))
 }
 
@@ -571,15 +556,42 @@ fn verify_projection_counts(
     Ok(())
 }
 
+fn verify_listing_parity(
+    expected: &[(String, String, String)],
+    actual: &[(String, String, String)],
+) -> Result<(), SplitError> {
+    for (exp, act) in expected.iter().zip(actual.iter()) {
+        if exp != act {
+            return Err(SplitError::ParityMismatch {
+                kind: ParityKind::Listing,
+                run_id: exp.0.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn verify_run_parity(
     fs_log: &FsEventLog,
     runs_dir: &Path,
     run_id: &str,
-    (manifest, events, source_ndjson): (&Value, &[brokkr_core::EventEnvelope], &str),
+    (manifest, metadata, events, source_ndjson): (
+        &Value,
+        &RunMetadata,
+        &[brokkr_core::EventEnvelope],
+        &str,
+    ),
 ) -> Result<(), SplitError> {
-    if fs_log.manifest(run_id)? != *manifest {
+    let manifest_bytes = fs::read(runs_dir.join(run_id).join("manifest.json"))?;
+    if manifest_bytes != serde_json::to_vec(manifest)? || fs_log.manifest(run_id)? != *manifest {
         return Err(SplitError::ParityMismatch {
             kind: ParityKind::Manifest,
+            run_id: run_id.to_string(),
+        });
+    }
+    if fs_log.run_metadata(run_id)?.as_ref() != Some(metadata) {
+        return Err(SplitError::ParityMismatch {
+            kind: ParityKind::RunMetadata,
             run_id: run_id.to_string(),
         });
     }
@@ -600,23 +612,25 @@ fn verify_run_parity(
     Ok(())
 }
 
-fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
-    let mut raw = OsString::from(path.as_os_str());
-    raw.push(suffix);
-    PathBuf::from(raw)
+fn remove_sidecar_if_exists(path: &Path) -> Result<(), SplitError> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(SplitError::SidecarRemovalFailed {
+            path: path.to_path_buf(),
+            source: err,
+        }),
+    }
 }
 
-fn remove_if_exists(path: &Path) {
-    let _ = fs::remove_file(path);
-}
-
-fn remove_sidecars(db_path: &Path) {
-    remove_if_exists(&sidecar_path(db_path, "-wal"));
-    remove_if_exists(&sidecar_path(db_path, "-shm"));
+fn remove_sidecars_checked(db_path: &Path) -> Result<(), SplitError> {
+    remove_sidecar_if_exists(&sqlite_sidecar_path(db_path, "-wal"))?;
+    remove_sidecar_if_exists(&sqlite_sidecar_path(db_path, "-shm"))?;
+    Ok(())
 }
 
 fn fsync_dir(dir: &Path) -> Result<(), SplitError> {
-    File::open(dir)?.sync_all()?;
+    sync_dir(dir)?;
     Ok(())
 }
 

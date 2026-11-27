@@ -1110,6 +1110,10 @@ impl<E: EventLog> EventLog for InterceptingLog<'_, E> {
         self.inner.manifest(run_id)
     }
 
+    fn run_metadata(&self, run_id: &str) -> Result<Option<super::RunMetadata>, StoreError> {
+        self.inner.run_metadata(run_id)
+    }
+
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
         if let Some(hook) = &self.on_list_run_ids {
             hook();
@@ -1271,4 +1275,5 @@ fn empty_top_level_feature_imports_across_store_and_journal() {
 
 mod invariants;
 mod split;
+mod split_hardening;
 mod sqlite;

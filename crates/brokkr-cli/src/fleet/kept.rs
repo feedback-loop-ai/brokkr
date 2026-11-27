@@ -442,7 +442,12 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         } => true,
         StoreError::Sqlite(_)
         | StoreError::Damaged {
-            damage: Damage::Malformed | Damage::NotADatabase | Damage::NoSchema,
+            damage:
+                Damage::Malformed
+                | Damage::NotADatabase
+                | Damage::NoSchema
+                | Damage::MissingManifest
+                | Damage::NonUtf8RunDir,
             ..
         }
         | StoreError::SymlinkRefused(_)
@@ -451,6 +456,7 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         | StoreError::UnsafeRunId(_)
         | StoreError::Io(_)
         | StoreError::ProviderWait(_)
+        | StoreError::CooldownFieldOutOfRange { .. }
         | StoreError::Contended { .. }
         | StoreError::Clock { .. }
         | StoreError::Import(_)

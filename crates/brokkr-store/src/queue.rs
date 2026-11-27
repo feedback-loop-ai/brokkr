@@ -51,10 +51,12 @@ pub use entry::{EntryState, Latch, NewEntry, NotAWait, QueueCommand, WaitOn};
 pub use refusal::{CooldownDuplicate, CooldownRoundMismatch, QueueRefusal};
 #[cfg(test)]
 use storage::QUEUE_SCHEMA;
+pub(crate) use storage::{
+    has_foreign_queue_triggers, migrate_queue, queue_intact, queue_schema, QUEUE_SCHEMA_KEY,
+};
 use storage::{
     latch_row, queue_stored, wait_row, Stored, PINNED_PAYLOAD, PINNED_SEQ, STANDING_LATCH, WAITS,
 };
-pub(crate) use storage::{migrate_queue, queue_intact, queue_schema, QUEUE_SCHEMA_KEY};
 
 /// A queue entry's id: assigned at `add`, never reused, since no entry is
 /// ever deleted.

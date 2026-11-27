@@ -429,7 +429,8 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::SymlinkRefused(_)
         | StoreError::InvalidPath(_)
         | StoreError::ForeignDatabase { .. }
-        | StoreError::ProviderWait(_)) => Refused::Store(other),
+        | StoreError::ProviderWait(_)
+        | StoreError::CooldownFieldOutOfRange { .. }) => Refused::Store(other),
     }
 }
 

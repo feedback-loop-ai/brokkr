@@ -3,7 +3,10 @@ use std::os::unix::fs::symlink;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{EventEnvelope, EventType, EVENT_SCHEMA_VERSION};
-use brokkr_store::ports::{EventLog, FsEventLog, ProjectionStore, SqliteProjectionStore};
+use brokkr_store::ports::{
+    lexically_normalize, reject_symlink, sqlite_sidecar_path, EventLog, FsEventLog,
+    ProjectionStore, RunMetadata, SqliteProjectionStore,
+};
 use brokkr_store::{Store, StoreError};
 use serde_json::json;
 use tempfile::tempdir;
@@ -115,6 +118,11 @@ fn journal_migrate_and_reindex_end_to_end_preserve_ndjson_and_listing_parity() {
         fs::read_to_string(runs_dir.join("run-beta").join("events.ndjson")).unwrap(),
         expected_beta_ndjson
     );
+    // Migrated manifests MUST remain byte-identical to source.manifest(run_id) (unmodified!).
+    assert_eq!(
+        fs::read(runs_dir.join("run-beta").join("manifest.json")).unwrap(),
+        b"{}"
+    );
     let proj = SqliteProjectionStore::open(&index_path).unwrap();
     assert_eq!(proj.list_runs().unwrap(), expected_runs);
     drop(proj);
@@ -122,8 +130,8 @@ fn journal_migrate_and_reindex_end_to_end_preserve_ndjson_and_listing_parity() {
     // Corrupt disposable index.db with garbage bytes and stale sidecars;
     // `brokkr journal reindex` atomically replaces it cleanly.
     fs::write(&index_path, b"not-a-sqlite-database-corrupt").unwrap();
-    fs::write(sidecar_path(&index_path, "-wal"), b"stale-wal").unwrap();
-    fs::write(sidecar_path(&index_path, "-shm"), b"stale-shm").unwrap();
+    fs::write(sqlite_sidecar_path(&index_path, "-wal"), b"stale-wal").unwrap();
+    fs::write(sqlite_sidecar_path(&index_path, "-shm"), b"stale-shm").unwrap();
     let reindex_exit = run(Cli {
         command: Cmd::Grouped(GroupedCmd::Split(SplitCmd::Reindex(ReindexArgs {
             runs: Some(runs_dir.clone()),
@@ -227,20 +235,33 @@ fn journal_reindex_uses_workspace_defaults_and_refuses_bad_paths() {
     ));
 
     let sidecar_idx = dir.path().join("sidecar.db");
-    symlink(&plain_file, sidecar_path(&sidecar_idx, "-wal")).unwrap();
+    symlink(&plain_file, sqlite_sidecar_path(&sidecar_idx, "-wal")).unwrap();
     assert!(matches!(
         prepare_index_target(&sidecar_idx),
         Err(SplitError::SymlinkRefused(_))
     ));
 
-    // Non-NotFound I/O error (ENOTDIR) propagates cleanly from ensure_existing_runs_dir & refuse_symlink.
+    // Trailing slash on symlinked runs dir or dotted index path is normalized BEFORE checks.
+    let sym_runs_trailing = PathBuf::from(format!("{}/", sym_runs.display()));
+    assert!(matches!(
+        ensure_existing_runs_dir(&sym_runs_trailing),
+        Err(SplitError::SymlinkRefused(_))
+    ));
+    let dotted_sidecar_idx = dir.path().join("ghost").join("..").join("sidecar.db");
+    assert!(matches!(
+        prepare_index_target(&dotted_sidecar_idx),
+        Err(SplitError::SymlinkRefused(_))
+    ));
+    assert!(!dir.path().join("ghost").exists());
+
+    // Non-NotFound I/O error (ENOTDIR) propagates cleanly from ensure_existing_runs_dir & reject_symlink.
     assert!(matches!(
         ensure_existing_runs_dir(&plain_file.join("child")),
         Err(SplitError::Io(_))
     ));
     assert!(matches!(
-        refuse_symlink(&plain_file.join("child")),
-        Err(SplitError::Io(_))
+        reject_symlink(&plain_file.join("child")),
+        Err(StoreError::Io(_))
     ));
 }
 
@@ -268,17 +289,35 @@ fn journal_reindex_valid_rebuild_and_staged_cleanup_on_failure() {
     // Reindexing over an ALREADY valid index.db succeeds cleanly.
     assert_eq!(reindex_paths(&runs_dir, &valid_idx).unwrap(), (1, 1));
 
-    // If rebuild_from fails mid-way, StagedDb cleans up its temp file and preserves existing index.db.
-    fs::write(
-        runs_dir.join("r1").join("events.ndjson"),
-        "{corrupt
-",
-    )
-    .unwrap();
+    // If removing stale -wal/-shm sidecar fails with non-NotFound (e.g. a directory),
+    // reindex returns a typed SplitError::SidecarRemovalFailed cleanly.
+    let bad_wal_idx = state_dir.join("bad-wal-index.db");
+    let bad_wal = sqlite_sidecar_path(&bad_wal_idx, "-wal");
+    fs::create_dir(&bad_wal).unwrap();
+    assert!(matches!(
+        reindex_paths(&runs_dir, &bad_wal_idx),
+        Err(SplitError::SidecarRemovalFailed { ref path, .. }) if path == &bad_wal
+    ));
+    assert!(!bad_wal_idx.exists());
+    fs::remove_dir(&bad_wal).unwrap();
+
+    // If rebuild_from fails mid-way, StagedDb cleans up its temp file, error attributes damage
+    // to events.ndjson (never temp staging DB), and existing valid_idx stays intact & readable!
+    let events_file = runs_dir.join("r1").join("events.ndjson");
+    fs::write(&events_file, "{corrupt\n").unwrap();
     assert!(matches!(
         reindex_paths(&runs_dir, &valid_idx),
-        Err(SplitError::Store(StoreError::Damaged { .. }))
+        Err(SplitError::Store(StoreError::Damaged { ref journal, .. })) if journal == &events_file
     ));
+    let preserved = SqliteProjectionStore::open(&valid_idx).unwrap();
+    assert_eq!(
+        preserved.list_runs().unwrap(),
+        vec![(
+            "r1".to_string(),
+            "re-reindex".to_string(),
+            "2026-11-26T10:00:00Z".to_string()
+        )]
+    );
     let staged_leftovers: Vec<_> = fs::read_dir(&state_dir)
         .unwrap()
         .filter_map(|e| e.ok())
@@ -317,14 +356,19 @@ fn journal_migrate_fails_atomically_after_staging_valid_run_and_normalizes_targe
         .unwrap();
     drop(store);
 
-    // Corrupt the SECOND run's payload so migration stages run-alpha first, then fails on run-beta.
+    // Pin deterministic created_at order so run-alpha is GUARANTEED to stage first and run-beta fails second.
     let conn = rusqlite::Connection::open(&db).unwrap();
     conn.execute_batch(
-        "DROP TRIGGER events_append_only_update;
+        "UPDATE runs SET created_at = '2026-11-26T09:00:00Z' WHERE run_id = 'run-alpha';
+         UPDATE runs SET created_at = '2026-11-26T10:00:00Z' WHERE run_id = 'run-beta';
+         DROP TRIGGER events_append_only_update;
          UPDATE events SET envelope = '{\"corrupt\": true}' WHERE run_id = 'run-beta' AND seq = 2;",
     )
     .unwrap();
     drop(conn);
+    let check_order = Store::open_read_only(&db).unwrap().list_runs().unwrap();
+    assert_eq!(check_order[0].0, "run-alpha");
+    assert_eq!(check_order[1].0, "run-beta");
 
     let dest = dir.path().join("should-not-exist");
     let err = migrate(
@@ -400,7 +444,6 @@ fn journal_migrate_validates_and_normalizes_targets() {
         lexically_normalize(Path::new("/a/./b/c/..")),
         PathBuf::from("/a/b")
     );
-    assert_eq!(preserve_run_metadata(&json!(null), "f", "t"), json!(null));
     let cur_target = empty_dir.join(".");
     let prepared_cur = prepare_migration_target(&cur_target).unwrap();
     assert_eq!(prepared_cur.normalized, empty_dir);
@@ -412,9 +455,41 @@ fn journal_migrate_validates_and_normalizes_targets() {
     assert!(prepared.existed_empty);
     assert!(!empty_dir.join("sub").exists());
 
-    // Publishing into existing empty directory via `<empty>/sub/..` succeeds cleanly.
-    let (runs, events) = migrate_store(&clean_store, &dotted_target).unwrap();
-    assert_eq!((runs, events), (2, 3));
+    // Atomic rollback on existing empty target: if the second rename fails, the first rename is
+    // rolled back so the destination remains empty and ready for retry.
+    let rollback_empty = dir.path().join("rollback-empty");
+    fs::create_dir(&rollback_empty).unwrap();
+    let rollback_target = prepare_migration_target(&rollback_empty).unwrap();
+    let rollback_staging = tempfile::Builder::new()
+        .prefix(".brokkr-migrate-")
+        .tempdir_in(&rollback_target.parent)
+        .unwrap();
+    stage_migration(&clean_store, rollback_staging.path()).unwrap();
+    let mut rename_calls = 0usize;
+    let pub_err = publish_staged_migration_with(rollback_staging, &rollback_target, |src, dst| {
+        rename_calls += 1;
+        if rename_calls == 2 {
+            return Err(std::io::Error::other("injected second rename failure"));
+        }
+        fs::rename(src, dst)
+    })
+    .unwrap_err();
+    assert!(matches!(pub_err, SplitError::Io(_)));
+    assert!(fs::read_dir(&rollback_empty).unwrap().next().is_none());
+
+    // Publishing into existing empty directory via `<empty>/sub/..` succeeds cleanly and
+    // reports normalized paths in MigrateReport (never `<empty>/sub/../runs`).
+    let report = migrate_report(&clean_store, &clean_db, &dotted_target).unwrap();
+    assert_eq!((report.runs, report.events), (2, 3));
+    assert_eq!(report.to, empty_dir.display().to_string());
+    assert_eq!(
+        report.runs_dir,
+        empty_dir.join("runs").display().to_string()
+    );
+    assert_eq!(
+        report.index,
+        empty_dir.join("index.db").display().to_string()
+    );
     assert!(!empty_dir.join("sub").exists());
     assert!(empty_dir.join("runs").is_dir());
     assert!(empty_dir.join("index.db").is_file());
@@ -426,12 +501,63 @@ fn journal_migrate_validates_and_normalizes_targets() {
 }
 
 #[test]
+fn journal_migrate_preserves_tied_timestamp_order_and_immutable_manifests() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("tied.db");
+    let mut store = Store::open(&db).unwrap();
+    let m_z = json!({"engine": "0.15.0"});
+    let m_a = json!({});
+    store.create_run("run-z", "feat-z", "self", &m_z).unwrap();
+    store.create_run("run-a", "feat-a", "self", &m_a).unwrap();
+    drop(store);
+
+    // Give both runs the exact same created_at so Store::list_runs() orders run-z before run-a.
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute("UPDATE runs SET created_at = '2026-11-26T12:00:00Z'", [])
+        .unwrap();
+    drop(conn);
+
+    let ro = Store::open_read_only(&db).unwrap();
+    let expected = ro.list_runs().unwrap();
+    assert_eq!(expected[0].0, "run-z");
+    assert_eq!(expected[1].0, "run-a");
+
+    let dest = dir.path().join("split-tied");
+    let report = migrate_report(&ro, &db, &dest).unwrap();
+    assert_eq!(report.runs, 2);
+    assert_eq!(
+        fs::read(dest.join("runs").join("run-z").join("manifest.json")).unwrap(),
+        serde_json::to_vec(&m_z).unwrap()
+    );
+    assert_eq!(
+        fs::read(dest.join("runs").join("run-a").join("manifest.json")).unwrap(),
+        serde_json::to_vec(&m_a).unwrap()
+    );
+    let idx = SqliteProjectionStore::open(dest.join("index.db")).unwrap();
+    assert_eq!(idx.list_runs().unwrap(), expected);
+    drop(idx);
+
+    // Reindexing later from runs/ preserves the exact same order and metadata!
+    assert_eq!(
+        reindex_paths(&dest.join("runs"), &dest.join("index.db")).unwrap(),
+        (2, 0)
+    );
+    let rebuilt = SqliteProjectionStore::open(dest.join("index.db")).unwrap();
+    assert_eq!(rebuilt.list_runs().unwrap(), expected);
+}
+
+#[test]
 fn journal_migrate_verify_run_parity_and_display_text() {
     let dir = tempdir().unwrap();
     let parity_runs = dir.path().join("parity-runs");
     let fs_log = FsEventLog::open(&parity_runs).unwrap();
     let m = json!({"engine": "0.15.0", "feature": "p"});
-    fs_log.create_run("p1", &m).unwrap();
+    let meta = RunMetadata {
+        feature: "p".to_string(),
+        created_at: "2026-11-26T10:00:00Z".to_string(),
+        list_order: Some(0),
+    };
+    fs_log.create_run_with_metadata("p1", &m, &meta).unwrap();
     let e1 = sealed(
         "p1",
         1,
@@ -450,17 +576,38 @@ fn journal_migrate_verify_run_parity_and_display_text() {
             &fs_log,
             &parity_runs,
             "p1",
-            (&json!({}), std::slice::from_ref(&e1), good_ndjson.as_str()),
+            (&json!({}), &meta, std::slice::from_ref(&e1), good_ndjson.as_str()),
         ),
         Err(SplitError::ParityMismatch { kind: ParityKind::Manifest, ref run_id }) if run_id == "p1"
     ));
+    let wrong_meta = RunMetadata {
+        feature: "other".to_string(),
+        created_at: "2026-11-26T10:00:00Z".to_string(),
+        list_order: Some(0),
+    };
     assert!(matches!(
-        verify_run_parity(&fs_log, &parity_runs, "p1", (&m, &[], good_ndjson.as_str())),
+        verify_run_parity(
+            &fs_log,
+            &parity_runs,
+            "p1",
+            (&m, &wrong_meta, std::slice::from_ref(&e1), good_ndjson.as_str()),
+        ),
+        Err(SplitError::ParityMismatch { kind: ParityKind::RunMetadata, ref run_id }) if run_id == "p1"
+    ));
+    assert!(matches!(
+        verify_run_parity(&fs_log, &parity_runs, "p1", (&m, &meta, &[], good_ndjson.as_str())),
         Err(SplitError::ParityMismatch { kind: ParityKind::EventStream, ref run_id }) if run_id == "p1"
     ));
     assert!(matches!(
-        verify_run_parity(&fs_log, &parity_runs, "p1", (&m, &[e1], "wrong\n")),
+        verify_run_parity(&fs_log, &parity_runs, "p1", (&m, &meta, &[e1], "wrong\n")),
         Err(SplitError::ParityMismatch { kind: ParityKind::CanonicalNdjson, ref run_id }) if run_id == "p1"
+    ));
+    assert!(matches!(
+        verify_listing_parity(
+            &[("p1".to_string(), "a".to_string(), "t".to_string())],
+            &[("p1".to_string(), "b".to_string(), "t".to_string())],
+        ),
+        Err(SplitError::ParityMismatch { kind: ParityKind::Listing, ref run_id }) if run_id == "p1"
     ));
     assert!(matches!(
         verify_projection_counts((2, 3, 1, 3)),
@@ -475,83 +622,94 @@ fn journal_migrate_verify_run_parity_and_display_text() {
 
 #[test]
 fn split_error_display_and_source_wording() {
-    // Pin SplitError Display wording once (decision 0071 ruling 8).
-    assert_eq!(
-        SplitError::RunsDirMissing(PathBuf::from("x")).to_string(),
-        "runs directory 'x' does not exist"
-    );
-    assert_eq!(
-        SplitError::SymlinkRefused(PathBuf::from("x")).to_string(),
-        "refusing symlink at 'x'"
-    );
-    assert_eq!(
-        SplitError::RunsPathNotDirectory(PathBuf::from("x")).to_string(),
-        "runs path 'x' is not a directory"
-    );
-    assert_eq!(
-        SplitError::IndexPathIsDirectory(PathBuf::from("x")).to_string(),
-        "index path 'x' is a directory"
-    );
-    assert_eq!(
-        SplitError::InvalidPath(PathBuf::from("")).to_string(),
-        "invalid path ''"
-    );
-    assert_eq!(
-        SplitError::TargetNotDirectory(PathBuf::from("x")).to_string(),
-        "migration destination 'x' is not a directory"
-    );
-    assert_eq!(
-        SplitError::TargetNotEmpty(PathBuf::from("x")).to_string(),
-        "migration destination 'x' is not empty"
-    );
-    assert_eq!(
-        SplitError::TargetHasNoParent(PathBuf::from("/")).to_string(),
-        "migration destination '/' has no parent directory"
-    );
-    assert_eq!(
-        SplitError::ParityMismatch {
-            kind: ParityKind::Manifest,
-            run_id: "r".to_string()
-        }
-        .to_string(),
-        "manifest parity mismatch for run 'r'"
-    );
-    assert_eq!(
-        SplitError::ParityMismatch {
-            kind: ParityKind::EventStream,
-            run_id: "r".to_string()
-        }
-        .to_string(),
-        "event stream parity mismatch for run 'r'"
-    );
-    assert_eq!(
-        SplitError::ParityMismatch {
-            kind: ParityKind::CanonicalNdjson,
-            run_id: "r".to_string()
-        }
-        .to_string(),
-        "canonical NDJSON parity mismatch for run 'r'"
-    );
-    assert_eq!(
-        SplitError::ProjectionMismatch {
-            expected_runs: 2,
-            expected_events: 5,
-            indexed_runs: 1,
-            indexed_events: 4,
-        }
-        .to_string(),
-        "migration projection mismatch: expected 2 runs / 5 events, indexed 1 / 4"
-    );
-
     use std::error::Error as _;
-    let store_err = SplitError::from(StoreError::RunNotFound("r".to_string()));
+
+    // Pin SplitError Display wording once (decision 0071 ruling 8).
+    let p = |s: &str| PathBuf::from(s);
+    let cases: &[(SplitError, &str)] = &[
+        (
+            SplitError::RunsDirMissing(p("x")),
+            "runs directory 'x' does not exist",
+        ),
+        (
+            SplitError::SymlinkRefused(p("x")),
+            "refusing symlink at 'x'",
+        ),
+        (
+            SplitError::RunsPathNotDirectory(p("x")),
+            "runs path 'x' is not a directory",
+        ),
+        (
+            SplitError::IndexPathIsDirectory(p("x")),
+            "index path 'x' is a directory",
+        ),
+        (SplitError::InvalidPath(p("")), "invalid path ''"),
+        (
+            SplitError::TargetNotDirectory(p("x")),
+            "migration destination 'x' is not a directory",
+        ),
+        (
+            SplitError::TargetNotEmpty(p("x")),
+            "migration destination 'x' is not empty",
+        ),
+        (
+            SplitError::TargetHasNoParent(p("/")),
+            "migration destination '/' has no parent directory",
+        ),
+        (
+            SplitError::ProjectionMismatch {
+                expected_runs: 2,
+                expected_events: 5,
+                indexed_runs: 1,
+                indexed_events: 4,
+            },
+            "migration projection mismatch: expected 2 runs / 5 events, indexed 1 / 4",
+        ),
+    ];
+    for (err, expected) in cases {
+        assert_eq!(err.to_string(), *expected);
+        assert!(err.source().is_none());
+    }
+
+    for (kind, label) in [
+        (ParityKind::Manifest, "manifest"),
+        (ParityKind::EventStream, "event stream"),
+        (ParityKind::CanonicalNdjson, "canonical NDJSON"),
+        (ParityKind::RunMetadata, "run metadata"),
+        (ParityKind::Listing, "run listing"),
+    ] {
+        let err = SplitError::ParityMismatch {
+            kind,
+            run_id: "r".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            format!("{label} parity mismatch for run 'r'")
+        );
+        assert!(err.source().is_none());
+    }
+
+    let sidecar_err = SplitError::SidecarRemovalFailed {
+        path: p("/tmp/index.db-wal"),
+        source: std::io::Error::other("is a directory"),
+    };
+    assert_eq!(
+        sidecar_err.to_string(),
+        "failed to remove SQLite sidecar '/tmp/index.db-wal': is a directory"
+    );
+    assert!(sidecar_err.source().is_some());
+
+    let store_err = map_path_err(StoreError::RunNotFound("r".to_string()));
     assert_eq!(store_err.to_string(), "run 'r' not found");
     assert!(store_err.source().is_some());
+
     let io_err = SplitError::from(std::io::Error::other("boom"));
     assert_eq!(io_err.to_string(), "boom");
     assert!(io_err.source().is_some());
-    let json_err = SplitError::from(serde_json::from_str::<Value>("{").unwrap_err());
+
+    let raw_json = serde_json::from_str::<Value>("{").unwrap_err();
+    let expected_json_msg = raw_json.to_string();
+    let json_err = SplitError::from(raw_json);
     assert!(json_err.source().is_some());
-    assert!(!json_err.to_string().is_empty());
-    assert!(SplitError::InvalidPath(PathBuf::new()).source().is_none());
+    assert_eq!(json_err.to_string(), expected_json_msg);
 }

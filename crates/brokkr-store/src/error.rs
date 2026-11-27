@@ -160,6 +160,12 @@ pub enum StoreError {
     /// A `waits` payload on an effect event failed provider-wait validation.
     #[error("provider waits: {0}")]
     ProviderWait(#[from] brokkr_core::ProviderWaitError),
+    /// A provider cool-down field (`rounds` or `retry_after_seconds`) exceeds
+    /// SQLite's signed 64-bit integer range; nothing was written.
+    #[error(
+        "provider cool-down field '{field}' value {value} exceeds 64-bit integer bound; nothing was written"
+    )]
+    CooldownFieldOutOfRange { field: &'static str, value: u64 },
 }
 
 impl StoreError {

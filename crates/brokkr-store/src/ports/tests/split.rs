@@ -347,13 +347,16 @@ fn fs_event_log_missing_and_symlinked_inner_files_fail_closed() {
     log.create_run("real-run", &manifest).unwrap();
     let run_dir = root.join("real-run");
     fs::remove_file(run_dir.join("manifest.json")).unwrap();
+    let manifest_path = run_dir.join("manifest.json");
     assert!(matches!(
         log.head("real-run"),
-        Err(StoreError::Damaged { .. })
+        Err(StoreError::Damaged { ref journal, damage: crate::Damage::MissingManifest })
+            if journal == &manifest_path
     ));
     assert!(matches!(
         log.read_stream("real-run", 1),
-        Err(StoreError::Damaged { .. })
+        Err(StoreError::Damaged { ref journal, damage: crate::Damage::MissingManifest })
+            if journal == &manifest_path
     ));
     symlink(outside.join("manifest.json"), run_dir.join("manifest.json")).unwrap();
     assert!(matches!(
@@ -385,6 +388,14 @@ fn fs_event_log_missing_and_symlinked_inner_files_fail_closed() {
         log.read_stream("real-run", 1),
         Err(StoreError::SymlinkRefused(_))
     ));
+    assert!(matches!(
+        log.manifest("real-run"),
+        Err(StoreError::SymlinkRefused(_))
+    ));
+    assert!(matches!(
+        log.head("real-run"),
+        Err(StoreError::SymlinkRefused(_))
+    ));
 
     fs::remove_file(run_dir.join(".lock")).unwrap();
     symlink(outside.join("manifest.json"), run_dir.join(".lock")).unwrap();
@@ -409,9 +420,13 @@ fn fs_event_log_refuses_corrupt_truncated_and_before_chain_ndjson() {
         "{not-valid-json\n".to_string(),
     ] {
         fs::write(&events_path, raw).unwrap();
-        assert!(
-            matches!(log.read_stream("r1", 1), Err(StoreError::Unparsed { ref run_id, seq: 1 }) if run_id == "r1")
-        );
+        assert!(matches!(
+            log.read_stream("r1", 1),
+            Err(StoreError::Damaged {
+                ref journal,
+                damage: crate::Damage::Envelope { ref run_id, seq: 1 }
+            }) if journal == &events_path && run_id == "r1"
+        ));
     }
 
     fs::write(&events_path, "{\"hello\": \"world\"}\n").unwrap();
@@ -1078,22 +1093,28 @@ fn fs_event_log_cleanup_on_populate_error_and_fs_edge_cases() {
     let root = dir.path().join("runs");
     let log = FsEventLog::open(&root).unwrap();
 
-    // Non-UTF-8 directory name inside root fails closed in list_run_ids.
+    // Non-UTF-8 directory name inside root fails closed in list_run_ids with NonUtf8RunDir.
     let bad_utf8 = root.join(OsStr::from_bytes(b"bad\xffutf8"));
     fs::create_dir(&bad_utf8).unwrap();
     assert!(matches!(
         log.list_run_ids(),
-        Err(StoreError::Damaged { .. })
+        Err(StoreError::Damaged { ref journal, damage: crate::Damage::NonUtf8RunDir })
+            if journal == &bad_utf8
     ));
     fs::remove_dir(&bad_utf8).unwrap();
 
-    // Atomic cleanup: if populate fails after create_dir, run_dir is removed cleanly.
-    let err = crate::ports::fs_log::create_run_dir_atomic_with(&root, "cleanup-run", |run_dir| {
-        fs::write(run_dir.join("partial"), "x").unwrap();
-        Err(StoreError::Io(std::io::Error::other(
-            "injected write error",
-        )))
-    })
+    // Atomic cleanup: if populate fails after create_dir, staging dir is removed cleanly.
+    let err = crate::ports::fs_log::create_run_dir_atomic_with(
+        &root,
+        "cleanup-run",
+        |run_dir| {
+            fs::write(run_dir.join("partial"), "x").unwrap();
+            Err(StoreError::Io(std::io::Error::other(
+                "injected write error",
+            )))
+        },
+        crate::ports::sync_dir,
+    )
     .unwrap_err();
     assert!(matches!(err, StoreError::Io(_)));
     assert!(!root.join("cleanup-run").exists());
@@ -1394,21 +1415,33 @@ fn sqlite_projection_integrity_repair_empty_run_id_and_locked_rebuild() {
         rusqlite::params![&e2.event_hash],
     )
     .unwrap();
+    // Deleting seq 1 while head_seq == 2 must NOT repair on a stale prefix (would admit B1 beside A2).
     raw.execute(
         "DELETE FROM projected_events WHERE run_id = 'p-int' AND seq = 1",
         [],
     )
     .unwrap();
-    proj.apply_envelopes("p-int", None, std::slice::from_ref(&e1))
-        .unwrap();
-    let count: i64 = raw
-        .query_row(
+    assert!(matches!(
+        proj.apply_envelopes("p-int", None, std::slice::from_ref(&e1)),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "p-int"
+    ));
+    let forked_e1 = started_event("p-int", "forked-b1", "2026-11-26T10:00:00Z");
+    assert!(matches!(
+        proj.apply_envelopes("p-int", None, std::slice::from_ref(&forked_e1)),
+        Err(StoreError::DivergentEventLog { ref run_id }) if run_id == "p-int"
+    ));
+    let count_events = || -> i64 {
+        raw.query_row(
             "SELECT COUNT(*) FROM projected_events WHERE run_id = 'p-int'",
             [],
             |r| r.get(0),
         )
+        .unwrap()
+    };
+    // Applying the full head-matching chain [e1, e2] repairs seq 1 cleanly because e2.event_hash == head_hash.
+    proj.apply_envelopes("p-int", None, &[e1.clone(), e2.clone()])
         .unwrap();
-    assert_eq!(count, 2);
+    assert_eq!(count_events(), 2);
 
     raw.execute(
         "DELETE FROM projected_events WHERE run_id = 'p-int' AND seq = 2",
@@ -1417,27 +1450,13 @@ fn sqlite_projection_integrity_repair_empty_run_id_and_locked_rebuild() {
     .unwrap();
     proj.apply_envelopes("p-int", None, &[e1.clone(), e2.clone()])
         .unwrap();
-    let count: i64 = raw
-        .query_row(
-            "SELECT COUNT(*) FROM projected_events WHERE run_id = 'p-int'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 2);
+    assert_eq!(count_events(), 2);
 
     raw.execute("DELETE FROM projected_events WHERE run_id = 'p-int'", [])
         .unwrap();
     proj.apply_envelopes("p-int", None, &[e1.clone(), e2.clone(), e3.clone()])
         .unwrap();
-    let count: i64 = raw
-        .query_row(
-            "SELECT COUNT(*) FROM projected_events WHERE run_id = 'p-int'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 3);
+    assert_eq!(count_events(), 3);
     drop(raw);
 }
 

@@ -1,8 +1,9 @@
 //! Shared INSERT and idempotent conflict-verification helpers for
 //! `provider_cooldowns` (decision 0071 ruling 5; decision 0126 ruling 3).
 
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 
+use crate::ports::checked_seq;
 use crate::StoreError;
 
 /// One `provider_cooldowns` row as the table's one writer spells it:
@@ -33,6 +34,30 @@ const SELECT_COOLDOWN_CONFLICT_SQL: &str =
 
 type ConflictFields = (String, String, i64, String, Option<i64>, i64);
 
+fn checked_cooldown_i64(field: &'static str, value: u64) -> Result<i64, StoreError> {
+    i64::try_from(value).map_err(|_| StoreError::CooldownFieldOutOfRange { field, value })
+}
+
+struct CheckedIds {
+    event_seq: i64,
+    retry_after_seconds: Option<i64>,
+    rounds: i64,
+}
+
+fn check_row_bounds(row: &StoredRow<'_>) -> Result<CheckedIds, StoreError> {
+    let event_seq = checked_seq(row.event_seq)?;
+    let retry_after_seconds = row
+        .retry_after_seconds
+        .map(|retry| checked_cooldown_i64("retry_after_seconds", retry))
+        .transpose()?;
+    let rounds = checked_cooldown_i64("rounds", row.rounds)?;
+    Ok(CheckedIds {
+        event_seq,
+        retry_after_seconds,
+        rounds,
+    })
+}
+
 fn read_conflict_fields(r: &Row<'_>) -> rusqlite::Result<ConflictFields> {
     Ok((
         r.get(0)?,
@@ -42,6 +67,25 @@ fn read_conflict_fields(r: &Row<'_>) -> rusqlite::Result<ConflictFields> {
         r.get(4)?,
         r.get(5)?,
     ))
+}
+
+fn verify_conflict_fields(
+    row: &StoredRow<'_>,
+    expected_retry: Option<i64>,
+    existing: &ConflictFields,
+) -> Result<(), StoreError> {
+    let matches = existing.0 == row.provider
+        && existing.1 == row.route
+        && existing.2 == row.until
+        && existing.3 == row.reason
+        && existing.4 == expected_retry
+        && existing.5 == row.recorded;
+    if !matches {
+        return Err(StoreError::DivergentEventLog {
+            run_id: row.run_id.to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Insert one row. The table's CHECK constraints and unique index judge it.
@@ -55,6 +99,7 @@ pub(super) fn insert_row_with(
     row: &StoredRow<'_>,
     idempotent: bool,
 ) -> Result<usize, StoreError> {
+    let checked = check_row_bounds(row)?;
     let sql = if idempotent {
         format!("{INSERT_COOLDOWN_SQL} ON CONFLICT (run_id, event_seq, site, rounds) DO NOTHING")
     } else {
@@ -62,14 +107,14 @@ pub(super) fn insert_row_with(
     };
     let args = params![
         row.run_id,
-        row.event_seq as i64,
+        checked.event_seq,
         row.site,
         row.provider,
         row.route,
         row.until,
         row.reason,
-        row.retry_after_seconds.map(|retry| retry as i64),
-        row.rounds as i64,
+        checked.retry_after_seconds,
+        checked.rounds,
         row.recorded,
     ];
     Ok(conn.execute(&sql, args)?)
@@ -79,24 +124,23 @@ pub(super) fn verify_existing_cooldown_matches(
     conn: &Connection,
     row: &StoredRow<'_>,
 ) -> Result<(), StoreError> {
-    let args = params![
-        row.run_id,
-        row.event_seq as i64,
-        row.site,
-        row.rounds as i64
-    ];
+    let checked = check_row_bounds(row)?;
+    let args = params![row.run_id, checked.event_seq, row.site, checked.rounds];
     let existing = conn.query_row(SELECT_COOLDOWN_CONFLICT_SQL, args, read_conflict_fields)?;
-    let expected_retry = row.retry_after_seconds.map(|retry| retry as i64);
-    let matches = existing.0 == row.provider
-        && existing.1 == row.route
-        && existing.2 == row.until
-        && existing.3 == row.reason
-        && existing.4 == expected_retry
-        && existing.5 == row.recorded;
-    if !matches {
-        return Err(StoreError::DivergentEventLog {
-            run_id: row.run_id.to_string(),
-        });
+    verify_conflict_fields(row, checked.retry_after_seconds, &existing)
+}
+
+pub(super) fn verify_no_conflicting_existing(
+    conn: &Connection,
+    row: &StoredRow<'_>,
+) -> Result<(), StoreError> {
+    let checked = check_row_bounds(row)?;
+    let args = params![row.run_id, checked.event_seq, row.site, checked.rounds];
+    if let Some(existing) = conn
+        .query_row(SELECT_COOLDOWN_CONFLICT_SQL, args, read_conflict_fields)
+        .optional()?
+    {
+        verify_conflict_fields(row, checked.retry_after_seconds, &existing)?;
     }
     Ok(())
 }

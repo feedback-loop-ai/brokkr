@@ -412,6 +412,28 @@ impl EventLog for SqlitePorts<'_> {
         Store::manifest(self.0, run_id)
     }
 
+    fn run_metadata(&self, run_id: &str) -> Result<Option<super::RunMetadata>, StoreError> {
+        patiently("run_metadata", self.0.patience, &self.0.path, || {
+            let row: Option<(String, String, i64)> = self
+                .0
+                .conn
+                .query_row(
+                    "SELECT feature, created_at, rowid FROM runs WHERE run_id = ?1",
+                    params![run_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()?;
+            let Some((feature, created_at, rowid)) = row else {
+                return Err(StoreError::RunNotFound(run_id.to_string()));
+            };
+            Ok(Some(super::RunMetadata {
+                feature,
+                created_at,
+                list_order: u64::try_from(rowid).ok(),
+            }))
+        })
+    }
+
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
         patiently("list_runs", self.0.patience, &self.0.path, || {
             query_strings(

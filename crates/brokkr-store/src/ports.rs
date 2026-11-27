@@ -16,13 +16,15 @@
 //! [`Journal`].
 
 use std::collections::BTreeSet;
-use std::ffi::OsString;
-use std::fs::Metadata;
-use std::path::{Path, PathBuf};
+use std::ffi::{CString, OsString};
+use std::fs::{File, Metadata};
+use std::io;
+use std::path::{Component, Path, PathBuf};
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope, EventType};
 use brokkr_core::fold::{lawful_after_terminal, terminal_event};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
@@ -157,32 +159,63 @@ pub(crate) fn validate_import_stream(
     Ok(())
 }
 
-pub(crate) fn reject_symlink(path: &Path) -> Result<Option<Metadata>, StoreError> {
+/// Lexically normalize an already-absolute path by dropping `.` and trailing
+/// separators and resolving `..` segments without touching the filesystem.
+pub fn lexically_normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Validate that `path` is non-empty and free of NUL bytes, make it absolute
+/// against the current directory, and lexically normalize it before any
+/// symlink check, sidecar check, or filesystem mutation.
+pub fn normalize_storage_path(path: &Path) -> Result<PathBuf, StoreError> {
+    if path.as_os_str().is_empty() || CString::new(path.as_os_str().as_encoded_bytes()).is_err() {
+        return Err(StoreError::InvalidPath(path.to_path_buf()));
+    }
+    let abs = std::path::absolute(path)?;
+    Ok(lexically_normalize(&abs))
+}
+
+/// Inspect `path` without following symlinks, refusing any symlink with
+/// [`StoreError::SymlinkRefused`] and returning `Ok(None)` when absent.
+pub fn reject_symlink(path: &Path) -> Result<Option<Metadata>, StoreError> {
     match std::fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_symlink() => {
             Err(StoreError::SymlinkRefused(path.to_path_buf()))
         }
         Ok(meta) => Ok(Some(meta)),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(StoreError::Io(err)),
     }
 }
 
-pub(crate) fn reject_symlink_path(path: &Path) -> Result<Option<Metadata>, StoreError> {
+/// Walk every existing prefix of a normalized `path` from root to leaf,
+/// refusing any symlink ancestor or leaf with [`StoreError::SymlinkRefused`].
+pub fn reject_symlink_path(path: &Path) -> Result<Option<Metadata>, StoreError> {
     let mut ancestors: Vec<&Path> = path.ancestors().collect();
     ancestors.reverse();
     let mut leaf = None;
-    for anc in ancestors {
-        if anc.as_os_str().is_empty() || anc == Path::new("/") {
+    for ancestor in ancestors {
+        if ancestor.as_os_str().is_empty() || ancestor == Path::new("/") {
             continue;
         }
         #[cfg(target_os = "macos")]
-        if matches!(anc.to_str(), Some("/tmp" | "/var" | "/etc")) {
+        if matches!(ancestor.to_str(), Some("/tmp" | "/var" | "/etc")) {
             continue;
         }
-        match reject_symlink(anc)? {
+        match reject_symlink(ancestor)? {
             Some(meta) => {
-                if anc == path {
+                if ancestor == path {
                     leaf = Some(meta);
                 }
             }
@@ -192,47 +225,79 @@ pub(crate) fn reject_symlink_path(path: &Path) -> Result<Option<Metadata>, Store
     Ok(leaf)
 }
 
-fn sqlite_sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+/// Append a SQLite sidecar suffix (`"-wal"`, `"-shm"`) to `path`.
+pub fn sqlite_sidecar_path(path: &Path, suffix: &str) -> PathBuf {
     let mut raw = OsString::from(path.as_os_str());
     raw.push(suffix);
     PathBuf::from(raw)
 }
 
-fn open_standalone_sqlite_inner(path: &Path) -> Result<Connection, StoreError> {
-    if path.as_os_str().is_empty() {
-        return Err(StoreError::InvalidPath(path.to_path_buf()));
+/// fsync a directory so published directory entries survive power loss,
+/// ignoring macOS `EINVAL` on directory fsync (matching `backup::sync_dir`).
+pub(crate) fn sync_dir_result(res: io::Result<()>) -> io::Result<()> {
+    match res {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput => Ok(()),
+        Err(error) => Err(error),
     }
-    let bound = literal::journal(path).map_err(|_| StoreError::InvalidPath(path.to_path_buf()))?;
-    let _ = reject_symlink_path(&bound)?;
-    let _ = reject_symlink(&sqlite_sidecar_path(&bound, "-wal"))?;
-    let _ = reject_symlink(&sqlite_sidecar_path(&bound, "-shm"))?;
-    std::fs::create_dir_all(bound.parent().unwrap_or(&bound))?;
-    let _ = reject_symlink_path(&bound)?;
+}
+
+pub fn sync_dir(dir: &Path) -> io::Result<()> {
+    sync_dir_result(File::open(dir).and_then(|file| file.sync_all()))
+}
+
+fn open_standalone_sqlite_inner(
+    path: &Path,
+    migrate_op: &'static str,
+    inspect_existing: &dyn Fn(&Connection, &Path) -> Result<(), StoreError>,
+) -> Result<(Connection, PathBuf), StoreError> {
+    let normalized = normalize_storage_path(path)?;
+    let _ = reject_symlink_path(&normalized)?;
+    let _ = reject_symlink(&sqlite_sidecar_path(&normalized, "-wal"))?;
+    let _ = reject_symlink(&sqlite_sidecar_path(&normalized, "-shm"))?;
+    let existed_non_empty = reject_symlink(&normalized)?.is_some_and(|meta| meta.len() > 0);
+    if let Some(parent) = normalized.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    let _ = reject_symlink_path(&normalized)?;
     let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
         | OpenFlags::SQLITE_OPEN_CREATE
         | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let conn = Connection::open_with_flags(&bound, flags)
-        .map_err(|e| literal::as_given(e, path, &bound))?;
+    let conn = Connection::open_with_flags(&normalized, flags)
+        .map_err(|e| literal::as_given(e, path, &normalized))?;
     conn.busy_timeout(BUSY_TIMEOUT)?;
-    ensure_wal(&conn, path)?;
-    Ok(conn)
+    if existed_non_empty {
+        patiently(migrate_op, BUSY_TIMEOUT, &normalized, || {
+            inspect_existing(&conn, &normalized)
+        })?;
+    }
+    ensure_wal(&conn, &normalized)?;
+    Ok((conn, normalized))
 }
 
-pub(crate) fn open_standalone_sqlite(path: &Path) -> Result<Connection, StoreError> {
-    open_standalone_sqlite_inner(path).map_err(|err| crate::damage::classified(path, err))
+pub(crate) fn open_standalone_sqlite(
+    path: &Path,
+    migrate_op: &'static str,
+    inspect_existing: impl Fn(&Connection, &Path) -> Result<(), StoreError>,
+) -> Result<(Connection, PathBuf), StoreError> {
+    let display_path = normalize_storage_path(path).unwrap_or_else(|_| path.to_path_buf());
+    open_standalone_sqlite_inner(path, migrate_op, &inspect_existing)
+        .map_err(|err| crate::damage::classified(&display_path, err))
 }
 
 pub(super) fn open_standalone_store(
     path: &Path,
     migrate_op: &'static str,
+    inspect_existing: impl Fn(&Connection, &Path) -> Result<(), StoreError>,
     configure: impl FnOnce(&Connection) -> Result<(), StoreError>,
-    ensure_schema: impl Fn(&Connection) -> Result<(), StoreError>,
+    ensure_schema: impl Fn(&Connection, &Path) -> Result<(), StoreError>,
 ) -> Result<(Connection, PathBuf), StoreError> {
-    let owned = path.to_path_buf();
-    let conn = open_standalone_sqlite(&owned)?;
+    let (conn, normalized) = open_standalone_sqlite(path, migrate_op, inspect_existing)?;
     configure(&conn)?;
-    patiently(migrate_op, BUSY_TIMEOUT, &owned, || ensure_schema(&conn))?;
-    Ok((conn, owned))
+    patiently(migrate_op, BUSY_TIMEOUT, &normalized, || {
+        ensure_schema(&conn, &normalized)
+    })?;
+    Ok((conn, normalized))
 }
 
 pub(super) fn validate_append_batch(
@@ -283,9 +348,23 @@ pub(crate) fn manifest_meta(manifest: &Value) -> (&str, &str) {
     (feature, bundle_name)
 }
 
+/// Optional run-level listing metadata (`feature`, `created_at`, and optional
+/// listing order) carried beside — never inside — a run's immutable
+/// `manifest.json` so migrated and unstarted runs preserve `Store::list_runs()`
+/// parity across projection rebuilds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunMetadata {
+    pub feature: String,
+    pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list_order: Option<u64>,
+}
+
 pub(crate) struct VerifiedRun {
     pub(crate) run_id: String,
     pub(crate) manifest: Value,
+    pub(crate) metadata: Option<RunMetadata>,
     pub(crate) events: Vec<EventEnvelope>,
 }
 
@@ -302,12 +381,14 @@ pub(crate) fn read_verified_log(log: &dyn EventLog) -> Result<Vec<VerifiedRun>, 
         }
         let manifest = log.manifest(&run_id)?;
         validate_manifest(&run_id, &manifest)?;
+        let metadata = log.run_metadata(&run_id)?;
         let events = log.read_stream(&run_id, 1)?;
         verify_chain_checked(&run_id, (0, ZERO_HASH), &events)?;
         validate_started_manifests(&run_id, &events)?;
         verified.push(VerifiedRun {
             run_id,
             manifest,
+            metadata,
             events,
         });
     }
@@ -430,6 +511,12 @@ pub trait EventLog {
     /// Read the immutable manifest recorded when `run_id` was created.
     fn manifest(&self, run_id: &str) -> Result<Value, StoreError>;
 
+    /// Read optional run-level listing metadata (`feature`, `created_at`,
+    /// `list_order`) stored beside `manifest.json` when available.
+    fn run_metadata(&self, _run_id: &str) -> Result<Option<RunMetadata>, StoreError> {
+        Ok(None)
+    }
+
     /// List every run id held by this event log.
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError>;
 }
@@ -514,6 +601,10 @@ impl<T: EventLog + ?Sized> EventLog for &T {
 
     fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
         (**self).manifest(run_id)
+    }
+
+    fn run_metadata(&self, run_id: &str) -> Result<Option<RunMetadata>, StoreError> {
+        (**self).run_metadata(run_id)
     }
 
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
