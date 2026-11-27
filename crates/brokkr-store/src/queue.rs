@@ -41,7 +41,8 @@ use beside::{beside_once, Beside};
 pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Disposal, Generation, StartRefusal};
 pub(crate) use cooldown::{
     active_in_force as cooldowns_in_force_conn, insert as insert_cooldowns,
-    insert_idempotent as insert_cooldowns_idempotent,
+    insert_idempotent as insert_cooldowns_idempotent, time_of as cooldown_time_of,
+    until_second as cooldown_until_second,
 };
 pub use cooldown::{Cooldown, CooldownAggregate, CooldownRound, Cooling, RoundAppend};
 #[cfg(test)]
@@ -128,6 +129,30 @@ pub struct QueueEntry {
 }
 
 impl QueueEntry {
+    /// Construct a [`QueueEntry`] from an external storage port backend
+    /// (decision 0126).
+    pub fn new(
+        id: EntryId,
+        position: Option<u32>,
+        state: EntryState,
+        priority: i64,
+        waits: Vec<Wait>,
+        payload: String,
+        added_at: String,
+    ) -> Self {
+        Self {
+            id,
+            position,
+            state,
+            priority,
+            waits,
+            payload,
+            pin: None,
+            added_at,
+            latch: None,
+        }
+    }
+
     /// The pin and the latch read here, which a latch or a re-pin of this
     /// entry is written over.
     pub fn seen(&self) -> Seen {

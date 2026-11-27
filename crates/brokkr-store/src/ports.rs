@@ -15,7 +15,7 @@
 //! schema validation, and canonical NDJSON export/import) live once in
 //! [`Journal`].
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{CString, OsString};
 use std::fs::{File, Metadata};
 use std::io;
@@ -24,6 +24,7 @@ use std::path::{Component, Path, PathBuf};
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope, EventType};
 use brokkr_core::fold::{lawful_after_terminal, terminal_event};
+use brokkr_core::provider_waits;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -33,8 +34,8 @@ use time::OffsetDateTime;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 use crate::{
-    ensure_wal, import, literal, patiently, seat_record, Cooldown, EntryId, ImportError, NewEntry,
-    QueueEntry, SeatRecordVersion, StoreError, VerifyError, BUSY_TIMEOUT,
+    ensure_wal, import, literal, patiently, queue, seat_record, Cooldown, Cooling, EntryId,
+    ImportError, NewEntry, QueueEntry, SeatRecordVersion, StoreError, VerifyError, BUSY_TIMEOUT,
 };
 
 mod fs_log;
@@ -79,7 +80,13 @@ pub(crate) fn format_canonical_ndjson(events: &[EventEnvelope]) -> Result<String
 /// non-string `"engine"` rather than silently treating it as absent/V1, and
 /// refusing non-string `"feature"` or `"bundle_name"` rather than projecting an
 /// empty metadata value).
-pub(crate) fn validate_manifest(run_id: &str, manifest: &Value) -> Result<(), StoreError> {
+/// Validate that `run_id` is recordable (1..=RUN_ID_MAX bytes, no control
+/// characters) before any storage port records it.
+pub fn validate_run_id(run_id: &str) -> Result<(), StoreError> {
+    import::recordable(run_id)
+}
+
+pub fn validate_manifest(run_id: &str, manifest: &Value) -> Result<(), StoreError> {
     let Some(object) = manifest.as_object() else {
         return Err(StoreError::InvalidManifest {
             run_id: run_id.to_string(),
@@ -115,7 +122,7 @@ pub(crate) fn validate_started_manifest(
     Ok(())
 }
 
-pub(crate) fn validate_started_manifests(
+pub fn validate_started_manifests(
     run_id: &str,
     envelopes: &[EventEnvelope],
 ) -> Result<(), StoreError> {
@@ -125,7 +132,7 @@ pub(crate) fn validate_started_manifests(
     Ok(())
 }
 
-pub(crate) fn checked_seq(seq: u64) -> Result<i64, StoreError> {
+pub fn checked_seq(seq: u64) -> Result<i64, StoreError> {
     i64::try_from(seq).map_err(|_| {
         StoreError::Chain(ChainError::SeqOverflow {
             after: i64::MAX as u64,
@@ -133,7 +140,7 @@ pub(crate) fn checked_seq(seq: u64) -> Result<i64, StoreError> {
     })
 }
 
-pub(crate) fn verify_chain_checked(
+pub fn verify_chain_checked(
     run_id: &str,
     expected_head: (u64, &str),
     envelopes: &[EventEnvelope],
@@ -145,7 +152,7 @@ pub(crate) fn verify_chain_checked(
     Ok(())
 }
 
-pub(crate) fn validate_import_stream(
+pub fn validate_import_stream(
     run_id: &str,
     manifest: &Value,
     envelopes: &[EventEnvelope],
@@ -319,7 +326,7 @@ pub(super) fn open_standalone_store(
     Ok((conn, normalized))
 }
 
-pub(super) fn validate_append_batch(
+pub fn validate_append_batch(
     run_id: &str,
     manifest: &Value,
     existing: &[EventEnvelope],
@@ -343,7 +350,7 @@ pub(super) fn validate_append_batch(
     Ok(())
 }
 
-pub(crate) fn parse_clock(now: &str) -> Result<OffsetDateTime, StoreError> {
+pub fn parse_clock(now: &str) -> Result<OffsetDateTime, StoreError> {
     OffsetDateTime::parse(now, &Rfc3339).map_err(|_| StoreError::Clock {
         now: now.to_string(),
     })
@@ -355,7 +362,7 @@ pub(crate) fn divergent(run_id: &str) -> StoreError {
     }
 }
 
-pub(crate) fn manifest_meta(manifest: &Value) -> (&str, &str) {
+pub fn manifest_meta(manifest: &Value) -> (&str, &str) {
     let feature = manifest
         .get("feature")
         .and_then(Value::as_str)
@@ -380,17 +387,17 @@ pub struct RunMetadata {
     pub list_order: Option<u64>,
 }
 
-pub(crate) struct VerifiedRun {
-    pub(crate) run_id: String,
-    pub(crate) manifest: Value,
-    pub(crate) metadata: Option<RunMetadata>,
-    pub(crate) events: Vec<EventEnvelope>,
+pub struct VerifiedRun {
+    pub run_id: String,
+    pub manifest: Value,
+    pub metadata: Option<RunMetadata>,
+    pub events: Vec<EventEnvelope>,
 }
 
 /// Read and verify every run from `log`, refusing duplicate `run_id`s with
 /// [`StoreError::DivergentEventLog`], invalid manifests with
 /// [`StoreError::InvalidManifest`], and broken chains with [`StoreError::Chain`].
-pub(crate) fn read_verified_log(log: &dyn EventLog) -> Result<Vec<VerifiedRun>, StoreError> {
+pub fn read_verified_log(log: &dyn EventLog) -> Result<Vec<VerifiedRun>, StoreError> {
     let run_ids = log.list_run_ids()?;
     let mut seen = BTreeSet::new();
     let mut verified = Vec::with_capacity(run_ids.len());
@@ -423,7 +430,7 @@ pub(crate) fn started_feature(payload: &Value) -> Option<&str> {
         .or_else(|| non_empty_str(payload.pointer("/manifest/feature")))
 }
 
-pub(crate) fn started_feature_of(events: &[EventEnvelope]) -> Option<&str> {
+pub fn started_feature_of(events: &[EventEnvelope]) -> Option<&str> {
     events
         .first()
         .filter(|event| event.seq == 1 && event.event_type == EventType::RunStarted)
@@ -471,6 +478,75 @@ pub(crate) fn refuse_after_terminal(
         }
     }
     Ok(())
+}
+
+/// Validate a batch of envelopes before deriving provider cooldowns: each must
+/// belong to `run_id`, have `seq >= 1` within `i64`, carry a valid hash, and
+/// never repeat a `seq` with a different hash.
+pub fn validate_cooldown_envelopes(
+    run_id: &str,
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    let mut seen: BTreeMap<u64, &str> = BTreeMap::new();
+    for envelope in envelopes {
+        if envelope.run_id != run_id {
+            return Err(StoreError::Chain(ChainError::ForeignRun {
+                seq: envelope.seq,
+            }));
+        }
+        if envelope.seq < 1 {
+            return Err(StoreError::RowBeforeChain {
+                run_id: run_id.to_string(),
+                seq: 0,
+            });
+        }
+        let _ = checked_seq(envelope.seq)?;
+        if envelope.event_hash != envelope.compute_hash() {
+            return Err(StoreError::Chain(ChainError::BadHash { seq: envelope.seq }));
+        }
+        if let Some(prev_hash) = seen.insert(envelope.seq, envelope.event_hash.as_str()) {
+            if prev_hash != envelope.event_hash {
+                return Err(divergent(run_id));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Extract provider cooldown batches `(event_seq, recorded_at, rows)` from
+/// terminal effect events, failing closed on malformed `waits` payloads.
+/// Derived provider cooldown batch for one terminal event: `(event_seq, recorded_at, rows)`.
+pub type CooldownBatch<'a> = (u64, &'a str, Vec<Cooling>);
+
+pub fn extract_cooldowns(
+    envelopes: &[EventEnvelope],
+) -> Result<Vec<CooldownBatch<'_>>, StoreError> {
+    let mut batches = Vec::new();
+    for envelope in envelopes {
+        if !matches!(
+            envelope.event_type,
+            EventType::EffectFailed | EventType::EffectIndeterminate
+        ) {
+            continue;
+        }
+        if let Some(waits) = provider_waits(envelope)? {
+            let rows: Vec<Cooling> = waits.iter().map(Cooling::from).collect();
+            batches.push((envelope.seq, envelope.recorded_at.as_str(), rows));
+        }
+    }
+    Ok(batches)
+}
+
+/// Round a provider cooldown end instant up to whole Unix seconds, bounded to
+/// the latest RFC 3339 instant.
+pub fn cooldown_until_second(at: OffsetDateTime) -> i64 {
+    queue::cooldown_until_second(at)
+}
+
+/// Convert a stored Unix second into an `OffsetDateTime`, refusing out-of-range
+/// values with [`crate::QueueRefusal::CooldownTime`].
+pub fn cooldown_time_of(seconds: i64, seq: i64) -> Result<OffsetDateTime, StoreError> {
+    queue::cooldown_time_of(seconds, seq)
 }
 
 /// Persistence seam for durable per-run manifests and append-only event

@@ -232,7 +232,7 @@ const LAST_SECOND: i64 = 253_402_300_799;
 /// a second, never shortened. An end in the last second's fraction rounds
 /// to that second, the latest this binary can spell, rather than past it
 /// into a value no reader can name.
-fn until_second(at: OffsetDateTime) -> i64 {
+pub(crate) fn until_second(at: OffsetDateTime) -> i64 {
     let seconds = at.unix_timestamp();
     let rounded = if at.nanosecond() == 0 {
         seconds
@@ -512,7 +512,7 @@ fn aggregate(
 
 /// A stored instant this reader can name, or the row's refusal: a whole
 /// number of seconds outside `time`'s range is never guessed at.
-fn time_of(seconds: i64, seq: i64) -> Result<OffsetDateTime, StoreError> {
+pub(crate) fn time_of(seconds: i64, seq: i64) -> Result<OffsetDateTime, StoreError> {
     OffsetDateTime::from_unix_timestamp(seconds)
         .map_err(|_| QueueRefusal::CooldownTime { seq }.into())
 }

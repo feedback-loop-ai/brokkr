@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-11-25 ("go with recommended on all questions")
 Date: 2026-11-25
 
-Built: partial (#1362) — Slice 1 (ports, backend-agnostic Journal facade, and co-located SqlitePorts adapter over Store) and Slice 2 (local FsEventLog + trigger-free disposable SqliteProjectionStore + isolated SqliteCoordinationStore with idempotent cooldown catch-up + `brokkr journal reindex` / `brokkr journal migrate`) built; Slice 3 (brokkr-store-pg) follows.
+Built: built — #1362 (Slices 1–3: ports & SqlitePorts, local split FsEventLog/SqliteProjectionStore/SqliteCoordinationStore, and PostgreSQL backend crate brokkr-store-pg).
 
 ## Context
 

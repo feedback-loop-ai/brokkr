@@ -7,23 +7,21 @@
 //! read-model projections, reusing [`crate::queue`] schema, validation, and
 //! SQL helpers directly.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
-use brokkr_core::provider_waits;
+use brokkr_core::envelope::EventEnvelope;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 use crate::{
-    patiently, queue, Attribution, Cooldown, Cooling, EntryId, NewEntry, QueueEntry, StoreError,
+    patiently, queue, Attribution, Cooldown, EntryId, NewEntry, QueueEntry, StoreError,
     BUSY_TIMEOUT,
 };
 
 use super::sqlite_schema::{read_user_version, ExpectedSchema, SchemaMatch};
 use super::{
-    checked_seq, divergent, open_standalone_store, parse_clock, read_verified_log,
-    CoordinationStore, EventLog,
+    extract_cooldowns, open_standalone_store, parse_clock, read_verified_log,
+    validate_cooldown_envelopes, CooldownBatch, CoordinationStore, EventLog,
 };
 
 const META_DDL: &str = "CREATE TABLE IF NOT EXISTS meta (
@@ -125,8 +123,6 @@ impl SqliteCoordinationStore {
     }
 }
 
-type CooldownBatch<'a> = (u64, &'a str, Vec<Cooling>);
-
 fn apply_derived(
     tx: &Connection,
     run_id: &str,
@@ -175,53 +171,6 @@ fn ensure_schema(conn: &Connection, path: &Path) -> Result<(), StoreError> {
     }
     tx.commit()?;
     Ok(())
-}
-
-fn validate_cooldown_envelopes(
-    run_id: &str,
-    envelopes: &[EventEnvelope],
-) -> Result<(), StoreError> {
-    let mut seen: BTreeMap<u64, &str> = BTreeMap::new();
-    for envelope in envelopes {
-        if envelope.run_id != run_id {
-            return Err(StoreError::Chain(ChainError::ForeignRun {
-                seq: envelope.seq,
-            }));
-        }
-        if envelope.seq < 1 {
-            return Err(StoreError::RowBeforeChain {
-                run_id: run_id.to_string(),
-                seq: 0,
-            });
-        }
-        let _ = checked_seq(envelope.seq)?;
-        if envelope.event_hash != envelope.compute_hash() {
-            return Err(StoreError::Chain(ChainError::BadHash { seq: envelope.seq }));
-        }
-        if let Some(prev_hash) = seen.insert(envelope.seq, envelope.event_hash.as_str()) {
-            if prev_hash != envelope.event_hash {
-                return Err(divergent(run_id));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn extract_cooldowns(envelopes: &[EventEnvelope]) -> Result<Vec<CooldownBatch<'_>>, StoreError> {
-    let mut batches = Vec::new();
-    for envelope in envelopes {
-        if !matches!(
-            envelope.event_type,
-            EventType::EffectFailed | EventType::EffectIndeterminate
-        ) {
-            continue;
-        }
-        if let Some(waits) = provider_waits(envelope)? {
-            let rows: Vec<Cooling> = waits.iter().map(Cooling::from).collect();
-            batches.push((envelope.seq, envelope.recorded_at.as_str(), rows));
-        }
-    }
-    Ok(batches)
 }
 
 impl CoordinationStore for SqliteCoordinationStore {

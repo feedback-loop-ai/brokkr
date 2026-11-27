@@ -1333,9 +1333,10 @@ fn parallel_heap_opt_in_replaces_only_the_heap_command_in_both_modes() {
 }
 
 /// Each package's `it` binary, as the partition check names it.
-const IT_PACKAGES: [&str; 5] = [
+const IT_PACKAGES: [&str; 6] = [
     "brokkr-core",
     "brokkr-store",
+    "brokkr-store-pg",
     "brokkr-runtime",
     "brokkr-view",
     "brokkr-cli",

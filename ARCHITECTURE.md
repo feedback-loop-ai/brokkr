@@ -39,6 +39,8 @@ flowchart TB
     protocol --> core
   end
   protocol -- "NDJSON" --> harness([Claude Code · Codex · dsh · LaneTally · exec<br/>capability, as leaf effects])
+  store-pg[("brokkr-store-pg<br/>PostgreSQL storage backend")]
+  store-pg --> core & store
   seatbelt-probe["brokkr-seatbelt-probe<br/>test-support"]
 ```
 

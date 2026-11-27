@@ -468,6 +468,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "brokkr-store-pg"
+version = "0.15.2"
+dependencies = [
+ "brokkr-core",
+ "brokkr-store",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "brokkr-view"
 version = "0.15.2"
 dependencies = [

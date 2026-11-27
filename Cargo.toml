@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/brokkr-core",
     "crates/brokkr-store",
+    "crates/brokkr-store-pg",
     "crates/brokkr-protocol",
     "crates/brokkr-runtime",
     "crates/brokkr-view",
@@ -43,6 +44,7 @@ todo = "warn"
 regex = "1.13"
 brokkr-core = { path = "crates/brokkr-core", version = "0.15.2" }
 brokkr-store = { path = "crates/brokkr-store", version = "0.15.2" }
+brokkr-store-pg = { path = "crates/brokkr-store-pg", version = "0.15.2" }
 brokkr-protocol = { path = "crates/brokkr-protocol", version = "0.15.2" }
 brokkr-runtime = { path = "crates/brokkr-runtime", version = "0.15.2" }
 brokkr-bridge = { path = "crates/brokkr-bridge", version = "0.15.2" }
