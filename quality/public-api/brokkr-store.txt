@@ -187,6 +187,8 @@ pub brokkr_store::ports::NewEvent::causation_id: core::option::Option<&'a str>
 pub brokkr_store::ports::NewEvent::event_type: brokkr_core::envelope::EventType
 pub brokkr_store::ports::NewEvent::payload: serde_json::value::Value
 pub brokkr_store::ports::NewEvent::ts: &'a str
+impl brokkr_store::ports::NewEvent<'_>
+pub fn brokkr_store::ports::NewEvent<'_>::seal(self, &str, u64, alloc::string::String, &str) -> brokkr_core::envelope::EventEnvelope
 pub struct brokkr_store::ports::RunMetadata
 pub brokkr_store::ports::RunMetadata::created_at: alloc::string::String
 pub brokkr_store::ports::RunMetadata::feature: alloc::string::String
@@ -694,6 +696,7 @@ pub brokkr_store::QueueEntry::priority: i64
 pub brokkr_store::QueueEntry::state: brokkr_store::EntryState
 pub brokkr_store::QueueEntry::waits: alloc::vec::Vec<brokkr_store::Wait>
 impl brokkr_store::QueueEntry
+pub fn brokkr_store::QueueEntry::new(brokkr_store::EntryId, core::option::Option<u32>, brokkr_store::EntryState, i64, alloc::vec::Vec<brokkr_store::Wait>, alloc::string::String, alloc::string::String) -> Self
 pub fn brokkr_store::QueueEntry::seen(&self) -> brokkr_store::Seen
 pub struct brokkr_store::Redactor
 impl brokkr_store::Redactor
