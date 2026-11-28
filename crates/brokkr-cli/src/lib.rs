@@ -1375,7 +1375,7 @@ fn run_with(
 
 /// The small verb groups `Cmd::Grouped` flattens, each to its handler.
 fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode> {
-    use verbs::{dispatch, orders, setup, sweep};
+    use verbs::{dispatch, orders, setup, split, sweep};
     match command {
         GroupedCmd::Recipes { command } => setup::recipes(workspace, command),
         GroupedCmd::Agents { command } => setup::agents(workspace, command),
@@ -1387,9 +1387,9 @@ fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode>
         GroupedCmd::Completions(args) => {
             Ok(completion::script(args, &mut std::io::stdout().lock()))
         }
+        GroupedCmd::Split(command) => split::run(workspace, command),
     }
 }
-
 #[cfg(test)]
 mod after_terminal_tests;
 #[cfg(test)]

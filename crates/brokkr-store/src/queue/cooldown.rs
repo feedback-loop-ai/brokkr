@@ -13,14 +13,17 @@
 use std::collections::BTreeMap;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::{provider_waits, Held};
+use brokkr_core::{provider_waits, Held, ProviderWait};
 use rusqlite::{params, Connection, OptionalExtension};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+mod write;
+
 use super::storage::{cool_downs_held, cool_downs_writable};
 use super::QueueRefusal;
 use crate::{patiently, Store, StoreError};
+pub(crate) use write::insert_idempotent;
 
 mod hold;
 mod joined;
@@ -51,6 +54,21 @@ pub struct Cooling {
     /// parsed from the event's own `waits` entry when it derived this row,
     /// carried here so the payload is read once (fix round 0106b1r3).
     pub held: Option<Held>,
+}
+
+impl From<&ProviderWait> for Cooling {
+    fn from(wait: &ProviderWait) -> Self {
+        Self {
+            site: wait.site.clone().unwrap_or_default(),
+            provider: wait.provider.clone(),
+            route: wait.route.clone(),
+            until_at: wait.until,
+            reason: wait.words.clone(),
+            retry_after_seconds: wait.retry_after_seconds,
+            rounds: wait.rounds,
+            held: wait.held,
+        }
+    }
 }
 
 /// One `provider_cooldowns` row as a reader holds it: the cool-down the
@@ -255,6 +273,18 @@ fn insert_row(
     Ok(())
 }
 
+/// Every cool-down row in force at `now` on `conn`, checking the queue version.
+pub(crate) fn active_in_force(
+    conn: &Connection,
+    now: OffsetDateTime,
+) -> Result<Vec<Cooldown>, StoreError> {
+    if cool_downs_held(conn)? {
+        in_force(conn, now.unix_timestamp())
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 /// The last whole second an RFC 3339 instant can name:
 /// `9999-12-31T23:59:59Z`. A stored end is bounded here, not by whatever
 /// range `time` happens to be built with: `large-dates` moves that range
@@ -267,7 +297,7 @@ const LAST_SECOND: i64 = 253_402_300_799;
 /// a second, never shortened. An end in the last second's fraction rounds
 /// to that second, the latest this binary can spell, rather than past it
 /// into a value no reader can name.
-fn until_second(at: OffsetDateTime) -> i64 {
+pub(crate) fn until_second(at: OffsetDateTime) -> i64 {
     let seconds = at.unix_timestamp();
     let rounded = if at.nanosecond() == 0 {
         seconds
@@ -381,7 +411,7 @@ fn aggregate(
 
 /// A stored instant this reader can name, or the row's refusal: a whole
 /// number of seconds outside `time`'s range is never guessed at.
-fn time_of(seconds: i64, seq: i64) -> Result<OffsetDateTime, StoreError> {
+pub(crate) fn time_of(seconds: i64, seq: i64) -> Result<OffsetDateTime, StoreError> {
     OffsetDateTime::from_unix_timestamp(seconds)
         .map_err(|_| QueueRefusal::CooldownTime { seq }.into())
 }

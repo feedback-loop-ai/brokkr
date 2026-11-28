@@ -43,7 +43,7 @@ fn the_help_lists_fourteen_roots_and_each_family_its_verbs() {
     );
     assert_eq!(
         family("journal"),
-        "export import verify backup restore anchor keep-refs evidence"
+        "export import verify backup restore reindex migrate anchor keep-refs evidence"
     );
     assert_eq!(family("library"), "recipes agents compile");
     assert_eq!(

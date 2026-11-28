@@ -32,6 +32,7 @@ pub(super) mod probe;
 pub(super) mod queue;
 pub(super) mod readouts;
 pub(super) mod setup;
+pub(super) mod split;
 pub(super) mod sweep;
 
 #[cfg(test)]

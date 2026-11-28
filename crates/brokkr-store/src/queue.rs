@@ -39,7 +39,11 @@ pub(crate) mod storage;
 pub use beside::Seen;
 use beside::{beside_once, Beside};
 pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Disposal, Generation, StartRefusal};
-pub(crate) use cooldown::insert as insert_cooldowns;
+pub(crate) use cooldown::{
+    active_in_force as cooldowns_in_force_conn, insert as insert_cooldowns,
+    insert_idempotent as insert_cooldowns_idempotent, time_of as cooldown_time_of,
+    until_second as cooldown_until_second,
+};
 pub use cooldown::{
     Cooldown, CooldownAggregate, CooldownRound, Cooling, ProbeHold, ProbeHoldId, RoundAppend,
     RowEnd,
@@ -52,12 +56,13 @@ pub use refusal::{
     CooldownDuplicate, CooldownRoundMismatch, QueueRefusal, UnsettledHold, UnwrittenHold,
     UnwrittenRow,
 };
-#[cfg(test)]
-use storage::QUEUE_SCHEMA;
+pub(crate) use storage::{
+    has_foreign_queue_triggers, migrate_queue, queue_intact, queue_schema, QUEUE_SCHEMA,
+    QUEUE_SCHEMA_KEY,
+};
 use storage::{
     latch_row, queue_stored, wait_row, Stored, PINNED_PAYLOAD, PINNED_SEQ, STANDING_LATCH, WAITS,
 };
-pub(crate) use storage::{migrate_queue, queue_intact, queue_schema, QUEUE_SCHEMA_KEY};
 
 /// A queue entry's id: assigned at `add`, never reused, since no entry is
 /// ever deleted.
@@ -130,6 +135,30 @@ pub struct QueueEntry {
 }
 
 impl QueueEntry {
+    /// Construct a [`QueueEntry`] from an external storage port backend
+    /// (decision 0126).
+    pub fn new(
+        id: EntryId,
+        position: Option<u32>,
+        state: EntryState,
+        priority: i64,
+        waits: Vec<Wait>,
+        payload: String,
+        added_at: String,
+    ) -> Self {
+        Self {
+            id,
+            position,
+            state,
+            priority,
+            waits,
+            payload,
+            pin: None,
+            added_at,
+            latch: None,
+        }
+    }
+
     /// The pin and the latch read here, which a latch or a re-pin of this
     /// entry is written over.
     pub fn seen(&self) -> Seen {
@@ -253,6 +282,22 @@ fn set_standing(
 
 /// Journal one operator command, in the transaction that carried it out,
 /// and say its place in the journal of commands.
+fn record_at(
+    tx: &Transaction<'_>,
+    entry: EntryId,
+    word: &str,
+    position: Option<u32>,
+    by: Attribution<'_>,
+    now: &str,
+) -> Result<i64, StoreError> {
+    tx.execute(
+        "INSERT INTO queue_commands (entry_id, command, position, operator, reason, recorded_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![entry.0, word, position, by.operator, by.reason, now],
+    )?;
+    Ok(tx.last_insert_rowid())
+}
+
 fn record(
     tx: &Transaction<'_>,
     entry: EntryId,
@@ -260,19 +305,7 @@ fn record(
     position: Option<u32>,
     by: Attribution<'_>,
 ) -> Result<i64, StoreError> {
-    tx.execute(
-        "INSERT INTO queue_commands (entry_id, command, position, operator, reason, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            entry.0,
-            word,
-            position,
-            by.operator,
-            by.reason,
-            now_rfc3339()
-        ],
-    )?;
-    Ok(tx.last_insert_rowid())
+    record_at(tx, entry, word, position, by, &now_rfc3339())
 }
 
 /// Refuse a command the entry's standing cannot take: a `merged` record
@@ -314,25 +347,20 @@ fn admit_waits(tx: &Transaction<'_>, waits: &[Wait]) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn add_once(
-    conn: &mut Connection,
+pub(crate) fn add_at(
+    conn: &Connection,
     new: NewEntry<'_>,
     by: Attribution<'_>,
+    now: &str,
 ) -> Result<EntryId, StoreError> {
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let tx = Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
     queue_stored(&tx)?;
     admit_waits(&tx, new.waits)?;
     let end = waiting(&tx)?.len() as u32 + 1;
     tx.execute(
         "INSERT INTO queue_entries (payload, priority, added_at, state, position)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            new.payload,
-            new.priority,
-            now_rfc3339(),
-            Standing::Queued.word(),
-            end
-        ],
+        params![new.payload, new.priority, now, Standing::Queued.word(), end],
     )?;
     let entry = EntryId(tx.last_insert_rowid());
     // Added at the end, it stands last among its own priority; the
@@ -346,9 +374,17 @@ fn add_once(
             params![entry.0, wait.entry.0, wait.on.word()],
         )?;
     }
-    record(&tx, entry, "add", Some(place), by)?;
+    record_at(&tx, entry, "add", Some(place), by, now)?;
     tx.commit()?;
     Ok(entry)
+}
+
+fn add_once(
+    conn: &mut Connection,
+    new: NewEntry<'_>,
+    by: Attribution<'_>,
+) -> Result<EntryId, StoreError> {
+    add_at(conn, new, by, &now_rfc3339())
 }
 
 fn command_once(
@@ -463,7 +499,10 @@ fn entries(
 
 /// The queue under one read snapshot, `between` run inside it as
 /// [`entries`] says.
-fn list_once(conn: &Connection, between: &mut dyn FnMut()) -> Result<Vec<QueueEntry>, StoreError> {
+pub(crate) fn list_once(
+    conn: &Connection,
+    between: &mut dyn FnMut(),
+) -> Result<Vec<QueueEntry>, StoreError> {
     let _snapshot = conn.unchecked_transaction()?;
     match queue_stored(conn)? {
         Some(stored) => entries(

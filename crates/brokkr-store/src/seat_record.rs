@@ -28,7 +28,8 @@ mod validation;
 
 pub use validation::validate_seat_record;
 pub(crate) use validation::{
-    marked_member, record_of, settled_of, validate_events, validate_settled,
+    marked_member, record_of, settled_of, validate_events, validate_incoming, validate_settled,
+    version_of_events,
 };
 
 const SCHEMA_V1: &str = include_str!("seat-record.v1.schema.json");
@@ -184,6 +185,15 @@ impl SeatRecordVersion {
     /// reading, because it admits strictly less.
     pub(crate) fn of_manifest(engine: Option<&str>) -> SeatRecordVersion {
         engine.map_or(SeatRecordVersion::V1, SeatRecordVersion::of_engine)
+    }
+
+    /// The stricter (older) of two seat-record contract versions.
+    pub(crate) fn stricter(self, other: Self) -> Self {
+        if (self as u8) <= (other as u8) {
+            self
+        } else {
+            other
+        }
     }
 
     /// The published file this version validates against, named in the

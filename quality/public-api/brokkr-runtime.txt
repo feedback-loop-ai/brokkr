@@ -18,7 +18,7 @@ pub brokkr_runtime::admission::AdmissionError::LatchMoved::entry: brokkr_store::
 pub brokkr_runtime::admission::AdmissionError::MapMoved(brokkr_store::queue::EntryId)
 pub brokkr_runtime::admission::AdmissionError::NothingLatched(brokkr_store::queue::EntryId)
 pub brokkr_runtime::admission::AdmissionError::OtherJournal(std::path::PathBuf)
-pub brokkr_runtime::admission::AdmissionError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::admission::AdmissionError::Store(brokkr_store::error::StoreError)
 pub brokkr_runtime::admission::AdmissionError::Unmeasured(brokkr_store::queue::EntryId)
 pub enum brokkr_runtime::admission::Capacity
 pub brokkr_runtime::admission::Capacity::BoxedFull
@@ -605,7 +605,7 @@ pub brokkr_runtime::anchor::AnchorError::Git::detail: alloc::string::String
 pub brokkr_runtime::anchor::AnchorError::Git::verb: &'static str
 pub brokkr_runtime::anchor::AnchorError::Mismatch(alloc::string::String)
 pub brokkr_runtime::anchor::AnchorError::NoAnchor(alloc::string::String)
-pub brokkr_runtime::anchor::AnchorError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::anchor::AnchorError::Store(brokkr_store::error::StoreError)
 pub fn brokkr_runtime::anchor::anchor(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<alloc::string::String, brokkr_runtime::anchor::AnchorError>
 pub fn brokkr_runtime::anchor::verify(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<serde_json::value::Value, brokkr_runtime::anchor::AnchorError>
 pub mod brokkr_runtime::argv
@@ -1303,7 +1303,7 @@ pub fn brokkr_runtime::dialect::library_path(&std::path::Path, &str, &std::path:
 pub mod brokkr_runtime::dispatch
 pub enum brokkr_runtime::dispatch::BoundOutcome
 pub brokkr_runtime::dispatch::BoundOutcome::Read(core::num::nonzero::NonZeroU32)
-pub brokkr_runtime::dispatch::BoundOutcome::Unreadable(brokkr_store::StoreError)
+pub brokkr_runtime::dispatch::BoundOutcome::Unreadable(brokkr_store::error::StoreError)
 pub enum brokkr_runtime::dispatch::DispatcherError
 pub brokkr_runtime::dispatch::DispatcherError::Dispatched(std::path::PathBuf, core::option::Option<(brokkr_store::queue::claim::Generation, u32, alloc::string::String)>)
 pub brokkr_runtime::dispatch::DispatcherError::Lock(std::path::PathBuf)
@@ -1311,7 +1311,7 @@ pub brokkr_runtime::dispatch::DispatcherError::OtherJournal(core::option::Option
 pub enum brokkr_runtime::dispatch::DriverError
 pub brokkr_runtime::dispatch::DriverError::Launch(brokkr_runtime::launch::LaunchError)
 pub brokkr_runtime::dispatch::DriverError::Log(std::path::PathBuf)
-pub brokkr_runtime::dispatch::DriverError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::dispatch::DriverError::Store(brokkr_store::error::StoreError)
 pub brokkr_runtime::dispatch::DriverError::Unnamed
 pub brokkr_runtime::dispatch::DriverError::Unread(std::path::PathBuf)
 pub brokkr_runtime::dispatch::DriverError::Unspawned
@@ -1324,7 +1324,7 @@ pub brokkr_runtime::dispatch::Ending::QueueStorage(brokkr_store::queue::refusal:
 pub brokkr_runtime::dispatch::Ending::Replaced(std::path::PathBuf)
 pub brokkr_runtime::dispatch::Ending::Start(brokkr_runtime::launch::LaunchError)
 pub brokkr_runtime::dispatch::Ending::Stood
-pub brokkr_runtime::dispatch::Ending::Store(brokkr_store::StoreError)
+pub brokkr_runtime::dispatch::Ending::Store(brokkr_store::error::StoreError)
 pub brokkr_runtime::dispatch::Ending::Unreported(core::io::error::Error)
 pub enum brokkr_runtime::dispatch::Settled
 pub brokkr_runtime::dispatch::Settled::Reclaimed(brokkr_store::queue::claim::Claim)
@@ -1359,7 +1359,7 @@ pub struct brokkr_runtime::dispatch::ClaimRefused
 pub brokkr_runtime::dispatch::ClaimRefused::entry: brokkr_store::queue::EntryId
 pub brokkr_runtime::dispatch::ClaimRefused::reason: brokkr_runtime::admission::Reason
 pub struct brokkr_runtime::dispatch::Contended
-pub brokkr_runtime::dispatch::Contended::error: brokkr_store::StoreError
+pub brokkr_runtime::dispatch::Contended::error: brokkr_store::error::StoreError
 pub brokkr_runtime::dispatch::Contended::stage: brokkr_runtime::dispatch::Stage
 pub brokkr_runtime::dispatch::Contended::subject: brokkr_runtime::dispatch::Subject
 pub struct brokkr_runtime::dispatch::Dispatcher
@@ -1446,9 +1446,9 @@ pub fn brokkr_runtime::dispatch::driven(&std::path::Path, brokkr_store::queue::E
 pub fn brokkr_runtime::dispatch::driver_log(&std::path::Path, &str) -> core::result::Result<std::fs::File, brokkr_runtime::dispatch::DriverError>
 pub fn brokkr_runtime::dispatch::driver_log_path(&std::path::Path, &str) -> std::path::PathBuf
 pub fn brokkr_runtime::dispatch::pass<S, P, C>(&mut brokkr_store::Store, &brokkr_runtime::dispatch::Dispatcher, &brokkr_runtime::admission::Host<'_>, std::ffi::os_str::OsString, brokkr_runtime::dispatch::Seams<S, P, C>) -> core::result::Result<brokkr_runtime::dispatch::Passed, alloc::boxed::Box<brokkr_runtime::dispatch::Ended>> where S: core::ops::function::FnMut() -> core::result::Result<(), brokkr_runtime::dispatch::Ending>, P: core::ops::function::FnMut(&brokkr_runtime::dispatch::Spawn) -> core::result::Result<brokkr_runtime::dispatch::Spawned, brokkr_runtime::dispatch::SpawnFailed>, C: core::ops::function::FnMut() -> bool
-pub fn brokkr_runtime::dispatch::reconcile(&mut brokkr_store::Store, &brokkr_runtime::dispatch::Dispatcher) -> core::result::Result<core::result::Result<alloc::vec::Vec<brokkr_runtime::dispatch::Settled>, brokkr_runtime::dispatch::DispatcherError>, brokkr_store::StoreError>
+pub fn brokkr_runtime::dispatch::reconcile(&mut brokkr_store::Store, &brokkr_runtime::dispatch::Dispatcher) -> core::result::Result<core::result::Result<alloc::vec::Vec<brokkr_runtime::dispatch::Settled>, brokkr_runtime::dispatch::DispatcherError>, brokkr_store::error::StoreError>
 pub fn brokkr_runtime::dispatch::stand(&mut brokkr_store::Store, &brokkr_runtime::dispatch::Dispatcher, &brokkr_runtime::admission::Host<'_>, &std::ffi::os_str::OsString, brokkr_runtime::dispatch::Stand<'_>) -> core::result::Result<brokkr_runtime::dispatch::Stopped, alloc::boxed::Box<brokkr_runtime::dispatch::Ended>>
-pub fn brokkr_runtime::dispatch::take_dispatch(&mut brokkr_store::Store) -> core::result::Result<core::result::Result<brokkr_runtime::dispatch::Dispatcher, brokkr_runtime::dispatch::DispatcherError>, brokkr_store::StoreError>
+pub fn brokkr_runtime::dispatch::take_dispatch(&mut brokkr_store::Store) -> core::result::Result<core::result::Result<brokkr_runtime::dispatch::Dispatcher, brokkr_runtime::dispatch::DispatcherError>, brokkr_store::error::StoreError>
 pub fn brokkr_runtime::dispatch::workspace(&std::path::Path, brokkr_store::queue::EntryId) -> core::result::Result<std::path::PathBuf, brokkr_runtime::dispatch::DriverError>
 pub mod brokkr_runtime::engine
 pub mod brokkr_runtime::engine::artifacts
@@ -1565,7 +1565,7 @@ pub enum brokkr_runtime::engine::CauseRefusal
 pub brokkr_runtime::engine::CauseRefusal::Absent
 pub brokkr_runtime::engine::CauseRefusal::Absent::by_realm: core::option::Option<alloc::string::String>
 pub brokkr_runtime::engine::CauseRefusal::Absent::by_run: alloc::string::String
-pub brokkr_runtime::engine::CauseRefusal::Absent::error: brokkr_store::StoreError
+pub brokkr_runtime::engine::CauseRefusal::Absent::error: brokkr_store::error::StoreError
 pub brokkr_runtime::engine::CauseRefusal::Absent::verb: brokkr_runtime::Verb
 pub brokkr_runtime::engine::CauseRefusal::Misplaced
 pub brokkr_runtime::engine::CauseRefusal::Misplaced::cause: brokkr_core::ending::Ending
@@ -1668,7 +1668,7 @@ pub brokkr_runtime::engine::EngineError::ManifestMismatch::run_id: alloc::string
 pub brokkr_runtime::engine::EngineError::RepairRefused(alloc::string::String)
 pub brokkr_runtime::engine::EngineError::RunLock(brokkr_runtime::RunLockError)
 pub brokkr_runtime::engine::EngineError::SettleRefused(brokkr_runtime::SettleRefusal)
-pub brokkr_runtime::engine::EngineError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::engine::EngineError::Store(brokkr_store::error::StoreError)
 pub brokkr_runtime::engine::EngineError::SupersedeRefused(alloc::string::String)
 pub brokkr_runtime::engine::EngineError::UnbuiltBoundary
 pub brokkr_runtime::engine::EngineError::UnbuiltBoundary::boundary: brokkr_core::realms::Boundary
@@ -1678,7 +1678,7 @@ pub brokkr_runtime::engine::EngineError::Unreleased(brokkr_runtime::engine::brok
 pub brokkr_runtime::engine::EngineError::Unspelled(brokkr_runtime::engine::input::Unspelled)
 pub brokkr_runtime::engine::EngineError::World(brokkr_runtime::realms::WorldError)
 impl brokkr_runtime::engine::EngineError
-pub fn brokkr_runtime::engine::EngineError::contention(&self) -> core::option::Option<&brokkr_store::StoreError>
+pub fn brokkr_runtime::engine::EngineError::contention(&self) -> core::option::Option<&brokkr_store::error::StoreError>
 impl core::convert::From<brokkr_runtime::CauseRefusal> for brokkr_runtime::engine::EngineError
 pub fn brokkr_runtime::engine::EngineError::from(brokkr_runtime::CauseRefusal) -> brokkr_runtime::engine::EngineError
 pub enum brokkr_runtime::engine::FencedCommandOutcome
@@ -1862,7 +1862,7 @@ pub enum brokkr_runtime::keep_refs::KeepRefsError
 pub brokkr_runtime::keep_refs::KeepRefsError::Git
 pub brokkr_runtime::keep_refs::KeepRefsError::Git::detail: alloc::string::String
 pub brokkr_runtime::keep_refs::KeepRefsError::Git::verb: &'static str
-pub brokkr_runtime::keep_refs::KeepRefsError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::keep_refs::KeepRefsError::Store(brokkr_store::error::StoreError)
 pub brokkr_runtime::keep_refs::KeepRefsError::UnusableRunId(alloc::string::String)
 pub struct brokkr_runtime::keep_refs::Planted
 pub brokkr_runtime::keep_refs::Planted::absent: alloc::vec::Vec<alloc::string::String>
@@ -1927,12 +1927,12 @@ pub brokkr_runtime::launch::LaunchError::RecipeNotFound::recipes_dir: std::path:
 pub brokkr_runtime::launch::LaunchError::Record(brokkr_core::entry::EntryRead)
 pub brokkr_runtime::launch::LaunchError::SourceRun
 pub brokkr_runtime::launch::LaunchError::SourceRun::run: alloc::string::String
-pub brokkr_runtime::launch::LaunchError::SourceRun::source: brokkr_store::StoreError
-pub brokkr_runtime::launch::LaunchError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::launch::LaunchError::SourceRun::source: brokkr_store::error::StoreError
+pub brokkr_runtime::launch::LaunchError::Store(brokkr_store::error::StoreError)
 pub brokkr_runtime::launch::LaunchError::Unboxable(brokkr_runtime::boundary::Unboxable)
 pub brokkr_runtime::launch::LaunchError::World(brokkr_runtime::realms::WorldError)
 impl brokkr_runtime::launch::LaunchError
-pub fn brokkr_runtime::launch::LaunchError::contention(&self) -> core::option::Option<&brokkr_store::StoreError>
+pub fn brokkr_runtime::launch::LaunchError::contention(&self) -> core::option::Option<&brokkr_store::error::StoreError>
 pub enum brokkr_runtime::launch::MapSource
 pub brokkr_runtime::launch::MapSource::Ambient(brokkr_runtime::launch::HeldWorld)
 pub brokkr_runtime::launch::MapSource::Named(brokkr_runtime::launch::HeldWorld)
@@ -2168,7 +2168,7 @@ pub brokkr_runtime::sweep::SweepError::Dispatcher(brokkr_runtime::dispatch::Disp
 pub brokkr_runtime::sweep::SweepError::Record
 pub brokkr_runtime::sweep::SweepError::Record::cause: alloc::string::String
 pub brokkr_runtime::sweep::SweepError::Record::report: alloc::boxed::Box<brokkr_runtime::sweep::Swept>
-pub brokkr_runtime::sweep::SweepError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::sweep::SweepError::Store(brokkr_store::error::StoreError)
 pub struct brokkr_runtime::sweep::Kept
 impl brokkr_runtime::sweep::Kept
 pub fn brokkr_runtime::sweep::Kept::path(&self) -> &std::path::Path
@@ -2188,12 +2188,12 @@ pub brokkr_runtime::AnchorError::Git::detail: alloc::string::String
 pub brokkr_runtime::AnchorError::Git::verb: &'static str
 pub brokkr_runtime::AnchorError::Mismatch(alloc::string::String)
 pub brokkr_runtime::AnchorError::NoAnchor(alloc::string::String)
-pub brokkr_runtime::AnchorError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::AnchorError::Store(brokkr_store::error::StoreError)
 pub enum brokkr_runtime::CauseRefusal
 pub brokkr_runtime::CauseRefusal::Absent
 pub brokkr_runtime::CauseRefusal::Absent::by_realm: core::option::Option<alloc::string::String>
 pub brokkr_runtime::CauseRefusal::Absent::by_run: alloc::string::String
-pub brokkr_runtime::CauseRefusal::Absent::error: brokkr_store::StoreError
+pub brokkr_runtime::CauseRefusal::Absent::error: brokkr_store::error::StoreError
 pub brokkr_runtime::CauseRefusal::Absent::verb: brokkr_runtime::Verb
 pub brokkr_runtime::CauseRefusal::Misplaced
 pub brokkr_runtime::CauseRefusal::Misplaced::cause: brokkr_core::ending::Ending
@@ -2295,7 +2295,7 @@ pub brokkr_runtime::EngineError::ManifestMismatch::run_id: alloc::string::String
 pub brokkr_runtime::EngineError::RepairRefused(alloc::string::String)
 pub brokkr_runtime::EngineError::RunLock(brokkr_runtime::RunLockError)
 pub brokkr_runtime::EngineError::SettleRefused(brokkr_runtime::SettleRefusal)
-pub brokkr_runtime::EngineError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::EngineError::Store(brokkr_store::error::StoreError)
 pub brokkr_runtime::EngineError::SupersedeRefused(alloc::string::String)
 pub brokkr_runtime::EngineError::UnbuiltBoundary
 pub brokkr_runtime::EngineError::UnbuiltBoundary::boundary: brokkr_core::realms::Boundary
@@ -2305,7 +2305,7 @@ pub brokkr_runtime::EngineError::Unreleased(brokkr_runtime::engine::broker::sett
 pub brokkr_runtime::EngineError::Unspelled(brokkr_runtime::engine::input::Unspelled)
 pub brokkr_runtime::EngineError::World(brokkr_runtime::realms::WorldError)
 impl brokkr_runtime::engine::EngineError
-pub fn brokkr_runtime::engine::EngineError::contention(&self) -> core::option::Option<&brokkr_store::StoreError>
+pub fn brokkr_runtime::engine::EngineError::contention(&self) -> core::option::Option<&brokkr_store::error::StoreError>
 impl core::convert::From<brokkr_runtime::CauseRefusal> for brokkr_runtime::engine::EngineError
 pub fn brokkr_runtime::engine::EngineError::from(brokkr_runtime::CauseRefusal) -> brokkr_runtime::engine::EngineError
 pub enum brokkr_runtime::FencedCommandOutcome
@@ -2334,7 +2334,7 @@ pub enum brokkr_runtime::KeepRefsError
 pub brokkr_runtime::KeepRefsError::Git
 pub brokkr_runtime::KeepRefsError::Git::detail: alloc::string::String
 pub brokkr_runtime::KeepRefsError::Git::verb: &'static str
-pub brokkr_runtime::KeepRefsError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::KeepRefsError::Store(brokkr_store::error::StoreError)
 pub brokkr_runtime::KeepRefsError::UnusableRunId(alloc::string::String)
 pub enum brokkr_runtime::LibraryError
 pub brokkr_runtime::LibraryError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)

@@ -1,0 +1,27 @@
+[package]
+name = "brokkr-store-pg"
+description = "PostgreSQL backend implementing EventLog, ProjectionStore, and CoordinationStore over v3 wire protocol."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Integration tests are declared below (#423).
+autotests = false
+
+[lints]
+workspace = true
+
+[[test]]
+name = "it"
+
+[dependencies]
+brokkr-core = { workspace = true }
+brokkr-store = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+brokkr-core = { workspace = true, features = ["test-support"] }
