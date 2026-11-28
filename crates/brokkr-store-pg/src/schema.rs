@@ -2,7 +2,7 @@
 //! and lossless PostgreSQL `TEXT` NUL escaping.
 
 use std::borrow::Cow;
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use serde_json::Value;
 
@@ -11,25 +11,136 @@ use crate::PgError;
 
 pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 2;
 
+/// Fixed 64-bit PostgreSQL transaction advisory lock key (`"brokschm"`)
+/// serializing concurrent first-open schema initialization.
+const SCHEMA_INIT_LOCK_KEY: i64 = 0x6272_6f6b_7363_686d;
+const ACQUIRE_SCHEMA_LOCK_SQL: &str = "SELECT pg_advisory_xact_lock($1::bigint)";
 const SCHEMA_META_DDL: &str = "CREATE TABLE IF NOT EXISTS brokkr_pg_schema_meta (
     component TEXT PRIMARY KEY,
     version INTEGER NOT NULL
 )";
-const SELECT_TABLE_COLUMNS_SQL: &str = "SELECT column_name
+const SELECT_TABLE_COLUMNS_SQL: &str = "SELECT column_name, data_type, is_nullable
     FROM information_schema.columns
     WHERE table_schema = current_schema() AND table_name = $1";
-const SELECT_TABLE_CHECKS_SQL: &str = "SELECT constraint_name
-    FROM information_schema.table_constraints
-    WHERE table_schema = current_schema()
-      AND table_name = $1
-      AND constraint_type = 'CHECK'";
+const SELECT_TABLE_CHECKS_SQL: &str = "SELECT c.conname, pg_get_constraintdef(c.oid)
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE n.nspname = current_schema()
+      AND t.relname = $1
+      AND c.contype = 'c'";
 const UPSERT_SCHEMA_META_SQL: &str = "INSERT INTO brokkr_pg_schema_meta (component, version)
     VALUES ($1, $2::integer)
     ON CONFLICT (component) DO NOTHING";
 const SELECT_SCHEMA_META_SQL: &str =
     "SELECT version FROM brokkr_pg_schema_meta WHERE component = $1";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
+pub(crate) enum PgColType {
+    Text,
+    BigInt,
+    BigSerial,
+    Jsonb,
+}
+
+impl PgColType {
+    fn ddl_type(self) -> &'static str {
+        match self {
+            Self::Text => "TEXT",
+            Self::BigInt => "BIGINT",
+            Self::BigSerial => "BIGSERIAL",
+            Self::Jsonb => "JSONB",
+        }
+    }
+
+    pub(crate) fn information_schema_type(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::BigInt | Self::BigSerial => "bigint",
+            Self::Jsonb => "jsonb",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ColumnSpec {
+    pub(crate) name: &'static str,
+    pub(crate) col_type: PgColType,
+    pub(crate) nullable: bool,
+    pub(crate) extras: &'static str,
+}
+
+macro_rules! col {
+    ($name:expr, $ty:ident, $nullable:expr, $extras:expr) => {
+        ColumnSpec {
+            name: $name,
+            col_type: PgColType::$ty,
+            nullable: $nullable,
+            extras: $extras,
+        }
+    };
+}
+
+impl ColumnSpec {
+    pub(crate) fn is_nullable_word(self) -> &'static str {
+        if self.nullable {
+            "YES"
+        } else {
+            "NO"
+        }
+    }
+
+    fn ddl_fragment(self) -> String {
+        let mut out = format!("{} {}", self.name, self.col_type.ddl_type());
+        if !self.nullable {
+            out.push_str(" NOT NULL");
+        }
+        if !self.extras.is_empty() {
+            out.push(' ');
+            out.push_str(self.extras);
+        }
+        out
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct CheckSpec {
+    pub(crate) name: &'static str,
+    pub(crate) expr: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct TableSpec {
+    pub(crate) name: &'static str,
+    pub(crate) columns: &'static [ColumnSpec],
+    pub(crate) checks: &'static [CheckSpec],
+    pub(crate) table_constraints: &'static [&'static str],
+    pub(crate) indexes: &'static [&'static str],
+}
+
+impl TableSpec {
+    fn create_table_sql(&self) -> String {
+        let mut defs: Vec<String> = self.columns.iter().map(|c| c.ddl_fragment()).collect();
+        for chk in self.checks {
+            defs.push(format!("CONSTRAINT {} CHECK ({})", chk.name, chk.expr));
+        }
+        for tc in self.table_constraints {
+            defs.push((*tc).to_string());
+        }
+        format!(
+            "CREATE TABLE IF NOT EXISTS {} (
+    {}
+)",
+            self.name,
+            defs.join(
+                ",
+    "
+            )
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(crate) enum SchemaKind {
     EventLog,
     Projection,
@@ -48,255 +159,262 @@ impl SchemaKind {
         }
     }
 
-    fn ddl(self) -> &'static [&'static str] {
+    pub(crate) fn tables(self) -> &'static [TableSpec] {
         match self {
-            SchemaKind::EventLog => EVENT_LOG_DDL,
-            SchemaKind::Projection => PROJECTION_DDL,
-            SchemaKind::Coordination => COORDINATION_DDL,
-        }
-    }
-
-    pub(crate) fn required_columns(self) -> &'static [(&'static str, &'static [&'static str])] {
-        match self {
-            SchemaKind::EventLog => &[
-                (
-                    "brokkr_runs",
-                    &[
-                        "run_id",
-                        "manifest",
-                        "manifest_json",
-                        "feature",
-                        "created_at",
-                        "list_order",
-                    ],
-                ),
-                (
-                    "brokkr_events",
-                    &[
-                        "run_id",
-                        "seq",
-                        "event_type",
-                        "event_hash",
-                        "prev_hash",
-                        "recorded_at",
-                        "envelope",
-                        "envelope_json",
-                    ],
-                ),
-            ],
-            SchemaKind::Projection => &[
-                (
-                    "brokkr_projected_runs",
-                    &[
-                        "run_id",
-                        "feature",
-                        "bundle_name",
-                        "created_at",
-                        "head_seq",
-                        "head_hash",
-                        "list_order",
-                    ],
-                ),
-                (
-                    "brokkr_projected_events",
-                    &[
-                        "run_id",
-                        "seq",
-                        "event_id",
-                        "event_type",
-                        "attempt_id",
-                        "member",
-                        "event_hash",
-                        "recorded_at",
-                        "payload",
-                        "payload_json",
-                    ],
-                ),
-            ],
-            SchemaKind::Coordination => &[
-                (
-                    "brokkr_queue_entries",
-                    &[
-                        "id",
-                        "payload",
-                        "priority",
-                        "status",
-                        "claimed_by",
-                        "claimed_at",
-                        "run_id",
-                        "added_at",
-                    ],
-                ),
-                ("brokkr_queue_waits", &["entry_id", "awaits", "condition"]),
-                (
-                    "brokkr_provider_cooldowns",
-                    &[
-                        "seq",
-                        "run_id",
-                        "event_seq",
-                        "site",
-                        "provider",
-                        "route",
-                        "until_at",
-                        "reason",
-                        "retry_after_seconds",
-                        "rounds",
-                        "recorded_at",
-                    ],
-                ),
-            ],
-        }
-    }
-
-    pub(crate) fn required_checks(self) -> &'static [(&'static str, &'static [&'static str])] {
-        match self {
-            SchemaKind::EventLog | SchemaKind::Projection => &[],
-            SchemaKind::Coordination => &[(
-                "brokkr_provider_cooldowns",
-                &[
-                    "brokkr_cooldown_event_seq_chk",
-                    "brokkr_cooldown_retry_after_chk",
-                    "brokkr_cooldown_rounds_chk",
-                    "brokkr_cooldown_window_chk",
-                ],
-            )],
+            SchemaKind::EventLog => EVENT_LOG_TABLES,
+            SchemaKind::Projection => PROJECTION_TABLES,
+            SchemaKind::Coordination => COORDINATION_TABLES,
         }
     }
 }
 
-pub(crate) const EVENT_LOG_DDL: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS brokkr_runs (
-        run_id TEXT PRIMARY KEY,
-        manifest JSONB,
-        manifest_json TEXT NOT NULL,
-        feature TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL DEFAULT '',
-        list_order BIGSERIAL NOT NULL
-    )",
-    "CREATE TABLE IF NOT EXISTS brokkr_events (
-        run_id TEXT NOT NULL REFERENCES brokkr_runs(run_id),
-        seq BIGINT NOT NULL CHECK (seq >= 1),
-        event_type TEXT NOT NULL,
-        event_hash TEXT NOT NULL,
-        prev_hash TEXT NOT NULL,
-        recorded_at TEXT NOT NULL,
-        envelope JSONB,
-        envelope_json TEXT NOT NULL,
-        PRIMARY KEY (run_id, seq)
-    )",
+const EVENT_LOG_TABLES: &[TableSpec] = &[
+    TableSpec {
+        name: "brokkr_runs",
+        columns: &[
+            col!("run_id", Text, false, "PRIMARY KEY"),
+            col!("manifest", Jsonb, true, ""),
+            col!("manifest_json", Text, false, ""),
+            col!("feature", Text, false, "DEFAULT ''"),
+            col!("created_at", Text, false, "DEFAULT ''"),
+            col!("list_order", BigSerial, false, ""),
+        ],
+        checks: &[],
+        table_constraints: &[],
+        indexes: &[],
+    },
+    TableSpec {
+        name: "brokkr_events",
+        columns: &[
+            col!("run_id", Text, false, "REFERENCES brokkr_runs(run_id)"),
+            col!("seq", BigInt, false, "CHECK (seq >= 1)"),
+            col!("event_type", Text, false, ""),
+            col!("event_hash", Text, false, ""),
+            col!("prev_hash", Text, false, ""),
+            col!("recorded_at", Text, false, ""),
+            col!("envelope", Jsonb, true, ""),
+            col!("envelope_json", Text, false, ""),
+        ],
+        checks: &[],
+        table_constraints: &["PRIMARY KEY (run_id, seq)"],
+        indexes: &[],
+    },
 ];
 
-pub(crate) const PROJECTION_DDL: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS brokkr_projected_runs (
-        run_id TEXT PRIMARY KEY,
-        feature TEXT NOT NULL,
-        bundle_name TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL,
-        head_seq BIGINT NOT NULL,
-        head_hash TEXT NOT NULL,
-        list_order BIGSERIAL NOT NULL
-    )",
-    "CREATE INDEX IF NOT EXISTS brokkr_projected_runs_created_idx
-        ON brokkr_projected_runs (created_at, list_order)",
-    "CREATE TABLE IF NOT EXISTS brokkr_projected_events (
-        run_id TEXT NOT NULL,
-        seq BIGINT NOT NULL,
-        event_id TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        attempt_id TEXT,
-        member TEXT,
-        event_hash TEXT NOT NULL,
-        recorded_at TEXT NOT NULL,
-        payload JSONB,
-        payload_json TEXT NOT NULL,
-        PRIMARY KEY (run_id, seq)
-    )",
+const PROJECTION_TABLES: &[TableSpec] = &[
+    TableSpec {
+        name: "brokkr_projected_runs",
+        columns: &[
+            col!("run_id", Text, false, "PRIMARY KEY"),
+            col!("feature", Text, false, ""),
+            col!("bundle_name", Text, false, "DEFAULT ''"),
+            col!("created_at", Text, false, ""),
+            col!("head_seq", BigInt, false, ""),
+            col!("head_hash", Text, false, ""),
+            col!("list_order", BigSerial, false, ""),
+        ],
+        checks: &[],
+        table_constraints: &[],
+        indexes: &[
+            "CREATE INDEX IF NOT EXISTS brokkr_projected_runs_created_idx
+            ON brokkr_projected_runs (created_at, list_order)",
+        ],
+    },
+    TableSpec {
+        name: "brokkr_projected_events",
+        columns: &[
+            col!("run_id", Text, false, ""),
+            col!("seq", BigInt, false, ""),
+            col!("event_id", Text, false, ""),
+            col!("event_type", Text, false, ""),
+            col!("attempt_id", Text, true, ""),
+            col!("member", Text, true, ""),
+            col!("event_hash", Text, false, ""),
+            col!("recorded_at", Text, false, ""),
+            col!("payload", Jsonb, true, ""),
+            col!("payload_json", Text, false, ""),
+        ],
+        checks: &[],
+        table_constraints: &["PRIMARY KEY (run_id, seq)"],
+        indexes: &[],
+    },
 ];
 
-pub(crate) const COORDINATION_DDL: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS brokkr_queue_entries (
-        id BIGSERIAL PRIMARY KEY,
-        payload TEXT NOT NULL,
-        priority BIGINT NOT NULL DEFAULT 0,
-        status TEXT NOT NULL DEFAULT 'pending',
-        claimed_by TEXT,
-        claimed_at TEXT,
-        run_id TEXT,
-        added_at TEXT NOT NULL
-    )",
-    "CREATE INDEX IF NOT EXISTS brokkr_queue_entries_dispatch_idx
-        ON brokkr_queue_entries (status, priority DESC, id ASC)",
-    "CREATE TABLE IF NOT EXISTS brokkr_queue_waits (
-        entry_id BIGINT NOT NULL REFERENCES brokkr_queue_entries(id),
-        awaits BIGINT NOT NULL REFERENCES brokkr_queue_entries(id),
-        condition TEXT NOT NULL,
-        PRIMARY KEY (entry_id, awaits)
-    )",
-    "CREATE TABLE IF NOT EXISTS brokkr_provider_cooldowns (
-        seq BIGSERIAL PRIMARY KEY,
-        run_id TEXT NOT NULL,
-        event_seq BIGINT NOT NULL CONSTRAINT brokkr_cooldown_event_seq_chk CHECK (event_seq >= 1),
-        site TEXT NOT NULL,
-        provider TEXT NOT NULL,
-        route TEXT NOT NULL,
-        until_at BIGINT NOT NULL,
-        reason TEXT NOT NULL,
-        retry_after_seconds BIGINT CONSTRAINT brokkr_cooldown_retry_after_chk CHECK (retry_after_seconds IS NULL OR retry_after_seconds > 0),
-        rounds BIGINT NOT NULL CONSTRAINT brokkr_cooldown_rounds_chk CHECK (rounds >= 1),
-        recorded_at BIGINT NOT NULL,
-        CONSTRAINT brokkr_cooldown_window_chk CHECK (until_at > recorded_at),
-        UNIQUE (run_id, event_seq, site, rounds)
-    )",
-    "CREATE INDEX IF NOT EXISTS brokkr_provider_cooldowns_until_idx
-        ON brokkr_provider_cooldowns (until_at, seq)",
+const COORDINATION_TABLES: &[TableSpec] = &[
+    TableSpec {
+        name: "brokkr_queue_entries",
+        columns: &[
+            col!("id", BigSerial, false, "PRIMARY KEY"),
+            col!("payload", Text, false, ""),
+            col!("priority", BigInt, false, "DEFAULT 0"),
+            col!("status", Text, false, "DEFAULT 'pending'"),
+            col!("claimed_by", Text, true, ""),
+            col!("claimed_at", Text, true, ""),
+            col!("run_id", Text, true, ""),
+            col!("added_at", Text, false, ""),
+        ],
+        checks: &[],
+        table_constraints: &[],
+        indexes: &[
+            "CREATE INDEX IF NOT EXISTS brokkr_queue_entries_dispatch_idx
+            ON brokkr_queue_entries (status, priority DESC, id ASC)",
+        ],
+    },
+    TableSpec {
+        name: "brokkr_queue_waits",
+        columns: &[
+            col!(
+                "entry_id",
+                BigInt,
+                false,
+                "REFERENCES brokkr_queue_entries(id)"
+            ),
+            col!(
+                "awaits",
+                BigInt,
+                false,
+                "REFERENCES brokkr_queue_entries(id)"
+            ),
+            col!("condition", Text, false, ""),
+        ],
+        checks: &[],
+        table_constraints: &["PRIMARY KEY (entry_id, awaits)"],
+        indexes: &[],
+    },
+    TableSpec {
+        name: "brokkr_provider_cooldowns",
+        columns: &[
+            col!("seq", BigSerial, false, "PRIMARY KEY"),
+            col!("run_id", Text, false, ""),
+            col!("event_seq", BigInt, false, ""),
+            col!("site", Text, false, ""),
+            col!("provider", Text, false, ""),
+            col!("route", Text, false, ""),
+            col!("until_at", BigInt, false, ""),
+            col!("reason", Text, false, ""),
+            col!("retry_after_seconds", BigInt, true, ""),
+            col!("rounds", BigInt, false, ""),
+            col!("recorded_at", BigInt, false, ""),
+        ],
+        checks: &[
+            CheckSpec {
+                name: "brokkr_cooldown_event_seq_chk",
+                expr: "event_seq >= 1",
+            },
+            CheckSpec {
+                name: "brokkr_cooldown_retry_after_chk",
+                expr: "retry_after_seconds IS NULL OR retry_after_seconds > 0",
+            },
+            CheckSpec {
+                name: "brokkr_cooldown_rounds_chk",
+                expr: "rounds >= 1",
+            },
+            CheckSpec {
+                name: "brokkr_cooldown_window_chk",
+                expr: "until_at > recorded_at",
+            },
+        ],
+        table_constraints: &["UNIQUE (run_id, event_seq, site, rounds)"],
+        indexes: &[
+            "CREATE INDEX IF NOT EXISTS brokkr_provider_cooldowns_until_idx
+            ON brokkr_provider_cooldowns (until_at, seq)",
+        ],
+    },
 ];
 
 pub(crate) fn init_schema(client: &mut PgClient, kind: SchemaKind) -> Result<(), PgError> {
     client.in_transaction(
         |tx| {
+            let lock_key = SCHEMA_INIT_LOCK_KEY.to_string();
+            tx.query(ACQUIRE_SCHEMA_LOCK_SQL, &[Some(lock_key.as_str())])?;
             tx.query(SCHEMA_META_DDL, &[])?;
-            for sql in kind.ddl() {
-                tx.query(sql, &[])?;
+            let tables = kind.tables();
+            for table in tables {
+                tx.query(&table.create_table_sql(), &[])?;
             }
-            verify_catalog_names(
-                tx,
-                SELECT_TABLE_COLUMNS_SQL,
-                kind.required_columns(),
-                "column",
-            )?;
-            verify_catalog_names(
-                tx,
-                SELECT_TABLE_CHECKS_SQL,
-                kind.required_checks(),
-                "CHECK constraint",
-            )?;
+            for table in tables {
+                verify_table_columns(tx, table)?;
+                verify_table_checks(tx, table)?;
+            }
+            for table in tables {
+                for index_sql in table.indexes {
+                    tx.query(index_sql, &[])?;
+                }
+            }
             verify_schema_version(tx, kind.component())
         },
         |err| err,
     )
 }
 
-fn verify_catalog_names(
-    tx: &mut PgClient,
-    sql: &str,
-    required: &[(&str, &[&str])],
-    item_kind: &str,
-) -> Result<(), PgError> {
-    for &(table, names) in required {
-        let res = tx.query(sql, &[Some(table)])?;
-        let mut present = BTreeSet::new();
-        for row in &res.rows {
-            present.insert(row.get_str(0)?);
-        }
-        for &name in names {
-            if !present.contains(name) {
-                return Err(PgError::IncompatibleSchema(format!(
-                    "table '{table}' missing required {item_kind} '{name}'"
-                )));
-            }
+fn verify_table_columns(tx: &mut PgClient, table: &TableSpec) -> Result<(), PgError> {
+    let res = tx.query(SELECT_TABLE_COLUMNS_SQL, &[Some(table.name)])?;
+    let mut present = BTreeMap::new();
+    for row in &res.rows {
+        present.insert(row.get_str(0)?, (row.get_str(1)?, row.get_str(2)?));
+    }
+    for col in table.columns {
+        let Some(&(actual_type, actual_nullable)) = present.get(col.name) else {
+            return Err(PgError::IncompatibleSchema(format!(
+                "table '{}' missing required column '{}'",
+                table.name, col.name
+            )));
+        };
+        let want_type = col.col_type.information_schema_type();
+        let want_nullable = col.is_nullable_word();
+        if actual_type != want_type || actual_nullable != want_nullable {
+            return Err(PgError::IncompatibleSchema(format!(
+                "table '{}' column '{}' has ({actual_type}, nullable={actual_nullable}), expected ({want_type}, nullable={want_nullable})",
+                table.name, col.name
+            )));
         }
     }
     Ok(())
+}
+
+fn verify_table_checks(tx: &mut PgClient, table: &TableSpec) -> Result<(), PgError> {
+    if table.checks.is_empty() {
+        return Ok(());
+    }
+    let res = tx.query(SELECT_TABLE_CHECKS_SQL, &[Some(table.name)])?;
+    let mut present = BTreeMap::new();
+    for row in &res.rows {
+        present.insert(row.get_str(0)?, row.get_str(1)?);
+    }
+    for chk in table.checks {
+        let Some(&actual_def) = present.get(chk.name) else {
+            return Err(PgError::IncompatibleSchema(format!(
+                "table '{}' missing required CHECK constraint '{}'",
+                table.name, chk.name
+            )));
+        };
+        let actual_norm = normalize_check_def(actual_def);
+        let expected_norm = normalize_check_expr(chk.expr);
+        if actual_norm.as_deref() != Some(expected_norm.as_str()) {
+            return Err(PgError::IncompatibleSchema(format!(
+                "table '{}' CHECK constraint '{}' has definition '{actual_def}', expected 'CHECK ({})'",
+                table.name, chk.name, chk.expr
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn normalize_check_def(def: &str) -> Option<String> {
+    let trimmed = def.trim();
+    let rest = trimmed
+        .get(..5)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("check"))
+        .map(|_| &trimmed[5..])?;
+    Some(normalize_check_expr(rest))
+}
+
+fn normalize_check_expr(expr: &str) -> String {
+    expr.replace(['(', ')'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
 }
 
 fn verify_schema_version(tx: &mut PgClient, component: &str) -> Result<(), PgError> {

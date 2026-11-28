@@ -133,7 +133,7 @@ fn verify_live_rebuild_and_cooldowns(
     assert_eq!(m_res.rows[0].get_str(0).unwrap(), "pg-slice-3");
     let e_res = sql
         .query(
-            "SELECT envelope->>'event_type' FROM brokkr_events WHERE run_id = $1 AND seq = 1",
+            "SELECT envelope->>'type' FROM brokkr_events WHERE run_id = $1 AND seq = 1",
             &[Some("pg-live-run-1")],
         )
         .expect("query envelope jsonb");

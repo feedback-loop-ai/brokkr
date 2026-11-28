@@ -99,11 +99,12 @@ pub(crate) fn enqueue(
                     return Err(QueueRefusal::UnknownWait(wait.entry).into());
                 }
             }
+            let payload = encode_pg_text(entry.payload);
             let priority = entry.priority.to_string();
             let res = tx
                 .query(
                     INSERT_QUEUE_ENTRY_SQL,
-                    &[Some(entry.payload), Some(&priority), Some(now)],
+                    &[Some(payload.as_ref()), Some(&priority), Some(now)],
                 )
                 .map_err(PgError::into_store_error)?;
             let id = res
@@ -178,19 +179,18 @@ pub(crate) fn claim_next_entry(
                 return Ok(None);
             };
             let id = row.get_i64(0).map_err(PgError::into_store_error)?;
-            let payload = row
-                .get_str(1)
-                .map_err(PgError::into_store_error)?
-                .to_string();
+            let payload = decode_pg_text(row.get_str(1).map_err(PgError::into_store_error)?)
+                .map_err(PgError::into_store_error)?;
             let priority = row.get_i64(2).map_err(PgError::into_store_error)?;
             let added_at = row
                 .get_str(3)
                 .map_err(PgError::into_store_error)?
                 .to_string();
             let id_str = id.to_string();
+            let encoded_worker = encode_pg_text(worker_id);
             tx.query(
                 MARK_CLAIMED_SQL,
-                &[Some(&id_str), Some(worker_id), Some(now)],
+                &[Some(&id_str), Some(encoded_worker.as_ref()), Some(now)],
             )
             .map_err(PgError::into_store_error)?;
             let waits_res = tx
@@ -441,10 +441,8 @@ fn decode_queue_row(
     let id = row.get_i64(0).map_err(PgError::into_store_error)?;
     let status = row.get_str(1).map_err(PgError::into_store_error)?;
     let priority = row.get_i64(2).map_err(PgError::into_store_error)?;
-    let payload = row
-        .get_str(3)
-        .map_err(PgError::into_store_error)?
-        .to_string();
+    let payload = decode_pg_text(row.get_str(3).map_err(PgError::into_store_error)?)
+        .map_err(PgError::into_store_error)?;
     let added_at = row
         .get_str(4)
         .map_err(PgError::into_store_error)?

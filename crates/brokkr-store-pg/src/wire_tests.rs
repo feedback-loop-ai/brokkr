@@ -125,6 +125,41 @@ fn send_begin_ok(s: &mut TcpStream) {
     send_frame(s, b'Z', b"T");
 }
 
+fn send_tx_error_and_rollback(
+    s: &mut TcpStream,
+    sqlstate: &str,
+    msg: &str,
+    constraint: Option<&str>,
+) {
+    send_begin_ok(s);
+    read_extended_query(s);
+    send_frame(s, b'E', &error_payload(sqlstate, msg, constraint));
+    send_frame(s, b'Z', b"E");
+    read_extended_query(s);
+    send_frame(s, b'C', b"ROLLBACK\0");
+    send_frame(s, b'Z', b"I");
+    let _ = read_client_frame(s);
+}
+
+fn spawn_tx_single_reply(
+    send_begin: bool,
+    tag: &'static [u8],
+    status: &'static [u8],
+) -> (PgClient, thread::JoinHandle<()>) {
+    let (port, handle) = spawn_one_shot(move |mut s| {
+        complete_trust_startup(&mut s);
+        if send_begin {
+            send_begin_ok(&mut s);
+        }
+        read_extended_query(&mut s);
+        send_frame(&mut s, b'C', tag);
+        send_frame(&mut s, b'Z', status);
+        let _ = read_client_frame(&mut s);
+    });
+    let cfg = PgConfig::parse(&format!("postgres://u@127.0.0.1:{port}/db")).unwrap();
+    (PgClient::connect(&cfg).expect("connect"), handle)
+}
+
 fn assert_query_protocol_error_poisons(frames: Vec<(u8, Vec<u8>)>) {
     let (p, h) = spawn_one_shot(move |mut s| {
         complete_trust_startup(&mut s);
@@ -315,7 +350,7 @@ fn scram_matches_rfc_7677_test_vector_and_rejects_bad_inputs() {
     assert_eq!(saslprep_password("pencil").unwrap(), "pencil");
     assert_eq!(saslprep_password("p@ss word!").unwrap(), "p@ss word!");
     for bad_pw in [
-        "caf\u{00E9}",
+        "pass\u{00E9}",
         "cafe\u{0301}",
         "p\u{00AD}w",
         "p\u{00A0}w",
@@ -435,21 +470,7 @@ fn wire_cleartext_auth_transaction_rollback_and_server_errors() {
         send_frame(&mut s, b'R', &0i32.to_be_bytes());
         send_frame(&mut s, b'Z', b"I");
 
-        send_begin_ok(&mut s);
-
-        read_extended_query(&mut s);
-        send_frame(
-            &mut s,
-            b'E',
-            &error_payload("23505", "dup key", Some("brokkr_runs_pkey")),
-        );
-        send_frame(&mut s, b'Z', b"E");
-
-        read_extended_query(&mut s);
-        send_frame(&mut s, b'C', b"ROLLBACK\0");
-        send_frame(&mut s, b'Z', b"I");
-
-        let _ = read_client_frame(&mut s);
+        send_tx_error_and_rollback(&mut s, "23505", "dup key", Some("brokkr_runs_pkey"));
     });
 
     let cfg = PgConfig::parse(&format!("postgres://u:pw123@127.0.0.1:{port}/db")).unwrap();
@@ -767,6 +788,10 @@ fn wire_validates_ready_for_query_and_rejects_premature_ready() {
         vec![(b'C', b"SELECT 0\0".to_vec()), (b'Z', b"X".to_vec())],
         vec![(b'Z', b"I".to_vec())],
         vec![(b'1', vec![]), (b'2', vec![]), (b'Z', b"I".to_vec())],
+        vec![(b'C', b"SELECT 0".to_vec()), (b'Z', b"I".to_vec())],
+        vec![(b'C', b"SELECT 0\0extra".to_vec()), (b'Z', b"I".to_vec())],
+        vec![(b'C', b"\xff\0".to_vec()), (b'Z', b"I".to_vec())],
+        vec![(b'I', b"x".to_vec()), (b'Z', b"I".to_vec())],
     ] {
         assert_query_protocol_error_poisons(frames);
     }
@@ -789,21 +814,10 @@ fn wire_validates_ready_for_query_and_rejects_premature_ready() {
 
 #[test]
 fn wire_transaction_rejects_aborted_commit_rollback_and_unexpected_outcome() {
-    // 1. Callback swallows an error; PostgreSQL answers COMMIT with CommandComplete("ROLLBACK").
+    // 1. Callback swallows an error leaving tx_status == 'E'; client rolls back and returns TransactionAborted.
     let (p_aborted, h_aborted) = spawn_one_shot(|mut s| {
         complete_trust_startup(&mut s);
-        send_begin_ok(&mut s);
-        read_extended_query(&mut s);
-        send_frame(
-            &mut s,
-            b'E',
-            &error_payload("22012", "division by zero", None),
-        );
-        send_frame(&mut s, b'Z', b"E");
-        read_extended_query(&mut s);
-        send_frame(&mut s, b'C', b"ROLLBACK\0");
-        send_frame(&mut s, b'Z', b"I");
-        let _ = read_client_frame(&mut s);
+        send_tx_error_and_rollback(&mut s, "22012", "division by zero", None);
     });
     let cfg = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_aborted}/db")).unwrap();
     let mut client = PgClient::connect(&cfg).expect("connect");
@@ -842,6 +856,87 @@ fn wire_transaction_rejects_aborted_commit_rollback_and_unexpected_outcome() {
         Err(PgError::ConnectionClosed)
     ));
     h_bad.join().unwrap();
+}
+
+#[test]
+fn wire_transaction_tracks_tx_status_begin_self_rollback_and_unwind_poison() {
+    // 1. Callback rolls back its own transaction leaving tx_status == 'I': refuses without COMMIT.
+    let (mut c_rb, h_self_rb) = spawn_tx_single_reply(true, b"ROLLBACK\0", b"I");
+    let err = c_rb
+        .in_transaction(
+            |tx| {
+                tx.query("ROLLBACK", &[])?;
+                Ok::<(), PgError>(())
+            },
+            |e| e,
+        )
+        .unwrap_err();
+    assert!(matches!(err, PgError::TransactionAborted));
+    drop(c_rb);
+    h_self_rb.join().unwrap();
+
+    // 2. Deferred rollback reported at COMMIT time (tag="ROLLBACK", status='I') returns TransactionAborted.
+    let (mut c_def, h_def) = spawn_tx_single_reply(true, b"ROLLBACK\0", b"I");
+    assert!(matches!(
+        c_def.in_transaction(|_| Ok::<(), PgError>(()), |e| e),
+        Err(PgError::TransactionAborted)
+    ));
+    drop(c_def);
+    h_def.join().unwrap();
+
+    // 3. Unexpected BEGIN outcomes (wrong tag or non-'T' status) and COMMIT ("ROLLBACK" + 'T') poison socket.
+    for (send_begin, tag, status) in [
+        (false, &b"SELECT 0\0"[..], &b"T"[..]),
+        (false, &b"BEGIN\0"[..], &b"I"[..]),
+        (true, &b"ROLLBACK\0"[..], &b"T"[..]),
+    ] {
+        let (mut c_u, h_u) = spawn_tx_single_reply(send_begin, tag, status);
+        assert!(matches!(
+            c_u.in_transaction(|_| Ok::<(), PgError>(()), |e| e),
+            Err(PgError::Protocol(_))
+        ));
+        assert!(matches!(
+            c_u.in_transaction(|_| Ok::<(), PgError>(()), |e| e),
+            Err(PgError::ConnectionClosed)
+        ));
+        h_u.join().unwrap();
+    }
+
+    // 4. ROLLBACK returning non-'I' status poisons the connection.
+    let (mut c_rbb, h_rb_bad) = spawn_tx_single_reply(true, b"ROLLBACK\0", b"T");
+    assert!(matches!(
+        c_rbb.in_transaction(|_| Err::<(), PgError>(PgError::EmptyWorkerId), |e| e),
+        Err(PgError::EmptyWorkerId)
+    ));
+    assert!(matches!(
+        c_rbb.query("SELECT 1", &[]),
+        Err(PgError::ConnectionClosed)
+    ));
+    h_rb_bad.join().unwrap();
+}
+
+#[test]
+fn wire_transaction_poisons_connection_on_callback_panic() {
+    // Panicking callback inside in_transaction poisons/closes client on unwind.
+    let (p_panic, h_panic) = spawn_one_shot(|mut s| {
+        complete_trust_startup(&mut s);
+        send_begin_ok(&mut s);
+        let _ = read_client_frame(&mut s);
+    });
+    let cfg_p = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_panic}/db")).unwrap();
+    let mut c_p = PgClient::connect(&cfg_p).expect("connect");
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = c_p.in_transaction(
+            |_| -> Result<(), PgError> { panic!("tx callback panic") },
+            |e| e,
+        );
+    }));
+    assert!(caught.is_err());
+    assert!(matches!(
+        c_p.query("SELECT 1", &[]),
+        Err(PgError::ConnectionClosed)
+    ));
+    h_panic.join().unwrap();
 }
 
 #[test]

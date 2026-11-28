@@ -596,7 +596,10 @@ fn verify_unstarted_metadata_and_rebuild(
     let queries = srv.db.lock().unwrap().queries.clone();
     assert!(queries
         .iter()
-        .any(|q| q.contains("ON CONFLICT (run_id) DO NOTHING")));
+        .any(|q| q == "SELECT pg_advisory_xact_lock($1::bigint)"));
+    assert!(queries.iter().any(|q| q.starts_with(
+        "SELECT feature, bundle_name, created_at, head_seq, head_hash FROM brokkr_projected_runs"
+    ) && q.ends_with("FOR UPDATE")));
     let rebuild_sql = &queries[before_rebuild..];
     let lock_idx = rebuild_sql
         .iter()
@@ -763,6 +766,81 @@ fn schema_compatibility_refuses_legacy_columns_checks_and_version() {
 }
 
 #[test]
+fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs() {
+    // Verify advisory lock is the first statement after BEGIN, and missing list_order
+    // fails cleanly before CREATE INDEX runs (never raw SQLSTATE 42703).
+    let srv_order = MockPgServer::start();
+    srv_order
+        .db
+        .lock()
+        .unwrap()
+        .omit_columns
+        .insert(("brokkr_projected_runs".into(), "list_order".into()));
+    assert!(matches!(
+        PgProjectionStore::connect(&srv_order.config()),
+        Err(PgError::IncompatibleSchema(_))
+    ));
+    {
+        let db = srv_order.db.lock().unwrap();
+        assert_eq!(db.queries[0], "BEGIN");
+        assert_eq!(db.queries[1], "SELECT pg_advisory_xact_lock($1::bigint)");
+        assert!(db.queries.iter().all(|q| !q.starts_with("CREATE INDEX")));
+        assert!(!db.schema_meta.contains_key("projection"));
+    }
+
+    // Wrong column data_type, non-nullable JSONB mirror, or nullable canonical TEXT must fail.
+    for (table, col, dtype, nullable) in [
+        ("brokkr_runs", "manifest_json", "jsonb", "NO"),
+        ("brokkr_runs", "manifest", "jsonb", "NO"),
+        ("brokkr_runs", "manifest_json", "text", "YES"),
+    ] {
+        let srv_meta = MockPgServer::start();
+        srv_meta
+            .db
+            .lock()
+            .unwrap()
+            .override_column_meta
+            .insert((table.into(), col.into()), (dtype.into(), nullable.into()));
+        assert!(matches!(
+            PgEventLog::connect(&srv_meta.config()),
+            Err(PgError::IncompatibleSchema(_))
+        ));
+        assert!(!srv_meta
+            .db
+            .lock()
+            .unwrap()
+            .schema_meta
+            .contains_key("event_log"));
+    }
+
+    // Weakened or malformed CHECK constraint definitions must fail before recording schema version.
+    for bad_def in [
+        "CHECK ((until_at >= recorded_at))",
+        "UNIQUE (until_at)",
+        "bad",
+    ] {
+        let srv_def = MockPgServer::start();
+        srv_def.db.lock().unwrap().override_check_defs.insert(
+            (
+                "brokkr_provider_cooldowns".into(),
+                "brokkr_cooldown_window_chk".into(),
+            ),
+            bad_def.into(),
+        );
+        assert!(matches!(
+            PgCoordinationStore::connect(&srv_def.config()),
+            Err(PgError::IncompatibleSchema(_))
+        ));
+        assert!(!srv_def
+            .db
+            .lock()
+            .unwrap()
+            .schema_meta
+            .contains_key("coordination"));
+    }
+}
+
+#[test]
 fn projection_tiebreaks_equal_created_at_by_creation_order_and_roundtrips_nul_fields() {
     let srv = MockPgServer::start();
     let cfg = srv.config();
@@ -812,17 +890,44 @@ fn projection_tiebreaks_equal_created_at_by_creation_order_and_roundtrips_nul_fi
     ];
     assert_eq!(journal.projections().list_runs().unwrap(), expected_list);
 
-    // Replaying prefix verifies NUL-encoded projected columns without false divergence.
+    // Replaying prefix verifies NUL-encoded projected columns (including checkpoint.member) without false divergence.
     let loaded = journal.load_verified("run-z").unwrap();
+    assert_eq!(
+        brokkr_core::event_index::Indexed::of(&loaded[3]).member,
+        Some("mem\u{0000}ber\\1")
+    );
     brokkr_core::fold::fold(&loaded).expect("lawful stream folds cleanly");
+    {
+        let db = srv.db.lock().unwrap();
+        let stored_member = db.proj_events[&("run-z".into(), 4)]
+            .3
+            .as_deref()
+            .expect("projected member stored");
+        assert!(!stored_member.as_bytes().contains(&0));
+        assert_eq!(
+            crate::schema::decode_pg_text(stored_member).unwrap(),
+            "mem\u{0000}ber\\1"
+        );
+    }
     journal
         .projections()
         .apply_envelopes("run-z", Some(&mz), &loaded)
         .unwrap();
 
-    // rebuild_from preserves both creation-order tie-break AND lossless NUL fields.
+    // rebuild_from preserves creation-order tie-break, lossless NUL fields, and checkpoint.member.
     assert_eq!(journal.reindex().unwrap(), 5);
     assert_eq!(journal.projections().list_runs().unwrap(), expected_list);
+    {
+        let db = srv.db.lock().unwrap();
+        let rebuilt_member = db.proj_events[&("run-z".into(), 4)]
+            .3
+            .as_deref()
+            .expect("rebuilt member stored");
+        assert_eq!(
+            crate::schema::decode_pg_text(rebuilt_member).unwrap(),
+            "mem\u{0000}ber\\1"
+        );
+    }
 
     // Cooldown catch-up with NUL bytes in site/provider/route/reason succeeds and decodes losslessly.
     assert_eq!(
@@ -899,7 +1004,7 @@ fn append_nul_effect_stream(
                 payload: json!({
                     "effect_id": "eff-1",
                     "attempt_id": "att\u{0000}1",
-                    "member": "mem\u{0000}ber\\1"
+                    "checkpoint": { "member": "mem\u{0000}ber\\1" }
                 }),
                 causation_id: Some(&s3.event_id),
                 attempt_id: Some("att\u{0000}1"),
@@ -932,4 +1037,34 @@ fn append_nul_effect_stream(
             },
         )
         .unwrap();
+}
+
+#[test]
+fn projection_list_runs_sorts_unescaped_timestamps_in_byte_order() {
+    let srv = MockPgServer::start();
+    let cfg = srv.config();
+    let proj = PgProjectionStore::connect(&cfg).unwrap();
+
+    // Unescaped byte order: '\0' (0x00) < 'A' (0x41) < 'Z' (0x5A) < 'a' (0x61),
+    // whereas escaped "\0" starts with '\' (0x5C) > 'Z' (0x5A).
+    for (run_id, ts) in [
+        ("run-lower", "2026-11-27T10:00:00a"),
+        ("run-upper-z", "2026-11-27T10:00:00Z"),
+        ("run-nul", "2026-11-27T10:00:00\u{0000}Z"),
+        ("run-upper-a", "2026-11-27T10:00:00A"),
+    ] {
+        let m = json!({
+            "engine": "0.15.2",
+            "feature": run_id,
+            "created_at": ts
+        });
+        proj.apply_envelopes(run_id, Some(&m), &[]).unwrap();
+    }
+
+    let listed = proj.list_runs().unwrap();
+    let ids: Vec<&str> = listed.iter().map(|(id, _, _)| id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["run-nul", "run-upper-a", "run-upper-z", "run-lower"]
+    );
 }

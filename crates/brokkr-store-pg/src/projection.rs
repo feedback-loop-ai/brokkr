@@ -12,15 +12,13 @@ use brokkr_store::ports::{
 };
 use brokkr_store::StoreError;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::error::PgError;
 use crate::schema::{decode_pg_text, encode_pg_text, jsonb_param};
 use crate::wire::PgClient;
 
-const ENSURE_PROJECTED_RUN_SQL: &str =
-    "INSERT INTO brokkr_projected_runs (run_id, feature, bundle_name, created_at, head_seq, head_hash)
-     VALUES ($1, '', '', '', 0, $2)
-     ON CONFLICT (run_id) DO NOTHING";
+const LOCK_PROJECTED_RUN_ADVISORY_SQL: &str = "SELECT pg_advisory_xact_lock($1::bigint)";
 const LOCK_PROJECTED_RUN_SQL: &str = "SELECT feature, bundle_name, created_at, head_seq, head_hash
      FROM brokkr_projected_runs WHERE run_id = $1 FOR UPDATE";
 const SELECT_OUT_OF_RANGE_SQL: &str =
@@ -47,7 +45,7 @@ const UPSERT_PROJECTED_RUN_SQL: &str =
          head_seq = EXCLUDED.head_seq,
          head_hash = EXCLUDED.head_hash";
 const LIST_PROJECTED_RUNS_SQL: &str =
-    "SELECT run_id, feature, created_at FROM brokkr_projected_runs ORDER BY created_at ASC, list_order ASC";
+    "SELECT run_id, feature, created_at, list_order FROM brokkr_projected_runs";
 const LOCK_PROJECTION_TABLES_SQL: &str =
     "LOCK TABLE brokkr_projected_runs, brokkr_projected_events IN EXCLUSIVE MODE";
 const DELETE_PROJECTED_EVENTS_SQL: &str = "DELETE FROM brokkr_projected_events";
@@ -91,19 +89,24 @@ pub(crate) fn list_runs(
     let res = client
         .query(LIST_PROJECTED_RUNS_SQL, &[])
         .map_err(PgError::into_store_error)?;
-    let mut out = Vec::with_capacity(res.rows.len());
+    let mut rows = Vec::with_capacity(res.rows.len());
     for row in &res.rows {
-        out.push((
-            row.get_str(0)
-                .map_err(PgError::into_store_error)?
-                .to_string(),
-            decode_pg_text(row.get_str(1).map_err(PgError::into_store_error)?)
-                .map_err(PgError::into_store_error)?,
-            decode_pg_text(row.get_str(2).map_err(PgError::into_store_error)?)
-                .map_err(PgError::into_store_error)?,
-        ));
+        let run_id = row
+            .get_str(0)
+            .map_err(PgError::into_store_error)?
+            .to_string();
+        let feature = decode_pg_text(row.get_str(1).map_err(PgError::into_store_error)?)
+            .map_err(PgError::into_store_error)?;
+        let created_at = decode_pg_text(row.get_str(2).map_err(PgError::into_store_error)?)
+            .map_err(PgError::into_store_error)?;
+        let list_order = row.get_i64(3).map_err(PgError::into_store_error)?;
+        rows.push((created_at, list_order, run_id, feature));
     }
-    Ok(out)
+    rows.sort();
+    Ok(rows
+        .into_iter()
+        .map(|(created_at, _, run_id, feature)| (run_id, feature, created_at))
+        .collect())
 }
 
 pub(crate) fn rebuild_from(client: &mut PgClient, log: &dyn EventLog) -> Result<u64, StoreError> {
@@ -138,23 +141,35 @@ pub(crate) fn rebuild_from(client: &mut PgClient, log: &dyn EventLog) -> Result<
     )
 }
 
+fn projection_run_lock_key(run_id: &str) -> i64 {
+    let mut hasher = Sha256::new();
+    hasher.update(b"brokkr-proj-run:");
+    hasher.update(run_id.as_bytes());
+    let digest = hasher.finalize();
+    i64::from_be_bytes([
+        digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
+    ])
+}
+
 fn apply_batch_tx(
     tx: &mut PgClient,
     run_id: &str,
     manifest: Option<&Value>,
     envelopes: &[EventEnvelope],
 ) -> Result<(), StoreError> {
-    tx.query(ENSURE_PROJECTED_RUN_SQL, &[Some(run_id), Some(ZERO_HASH)])
+    let lock_key = projection_run_lock_key(run_id).to_string();
+    tx.query(LOCK_PROJECTED_RUN_ADVISORY_SQL, &[Some(&lock_key)])
         .map_err(PgError::into_store_error)?;
     let existing = load_stored_run(tx, run_id)?;
-    refuse_out_of_range_events(tx, run_id, existing.head.head_seq)?;
-    let bundle_name = resolve_bundle_name(manifest, &existing);
+    let stored_head_seq = existing.as_ref().map_or(0, |row| row.head.head_seq);
+    refuse_out_of_range_events(tx, run_id, stored_head_seq)?;
+    let bundle_name = resolve_bundle_name(manifest, existing.as_ref());
     let plan = reconcile_projection_batch(
         tx,
         run_id,
         manifest,
         envelopes,
-        Some(&existing.head),
+        existing.as_ref().map(|row| &row.head),
         ProjectionBatchOps {
             check_head: |c, id, row| {
                 verify_stored_event_count(c, id, row.head_seq)?;
@@ -178,7 +193,13 @@ fn apply_batch_tx(
             };
             upsert_projected_run(tx, run_id, &meta)
         }
-        ProjectionPlan::NoAdvance => maybe_fill_manifest_meta(tx, run_id, &existing, manifest),
+        ProjectionPlan::NoAdvance => {
+            // `reconcile_projection_batch` only returns `NoAdvance` when `existing`
+            // is `Some` with `head_seq > 0` (verified by
+            // `ports_tests::projection_monotonicity_repair_divergence_and_rebuild`).
+            let row = existing.as_ref().expect("NoAdvance requires stored run");
+            maybe_fill_manifest_meta(tx, run_id, row, manifest)
+        }
         ProjectionPlan::Advance {
             feature,
             created_at,
@@ -197,25 +218,30 @@ fn apply_batch_tx(
     }
 }
 
-fn resolve_bundle_name<'a>(manifest: Option<&'a Value>, existing: &'a StoredRun) -> &'a str {
+fn resolve_bundle_name<'a>(
+    manifest: Option<&'a Value>,
+    existing: Option<&'a StoredRun>,
+) -> &'a str {
     let from_manifest = manifest
         .map(manifest_meta)
         .map(|(_, bundle)| bundle)
         .filter(|s| !s.is_empty());
-    let from_existing = (!existing.bundle_name.is_empty()).then_some(existing.bundle_name.as_str());
+    let from_existing = existing
+        .map(|row| row.bundle_name.as_str())
+        .filter(|s| !s.is_empty());
     from_manifest.or(from_existing).unwrap_or("")
 }
 
-fn load_stored_run(tx: &mut PgClient, run_id: &str) -> Result<StoredRun, StoreError> {
+fn load_stored_run(tx: &mut PgClient, run_id: &str) -> Result<Option<StoredRun>, StoreError> {
     let res = tx
         .query(LOCK_PROJECTED_RUN_SQL, &[Some(run_id)])
         .map_err(PgError::into_store_error)?;
-    // `ENSURE_PROJECTED_RUN_SQL` guaranteed the row exists in this transaction;
-    // verified by `ports_tests::projection_monotonicity_repair_divergence_and_rebuild`.
-    let row = &res.rows[0];
+    let Some(row) = res.rows.first() else {
+        return Ok(None);
+    };
     let head_seq_raw = row.get_i64(3).map_err(PgError::into_store_error)?;
     let head_seq = u64::try_from(head_seq_raw).map_err(|_| divergent(run_id))?;
-    Ok(StoredRun {
+    Ok(Some(StoredRun {
         head: StoredProjectionRun {
             feature: decode_pg_text(row.get_str(0).map_err(PgError::into_store_error)?)
                 .map_err(PgError::into_store_error)?,
@@ -229,7 +255,7 @@ fn load_stored_run(tx: &mut PgClient, run_id: &str) -> Result<StoredRun, StoreEr
         },
         bundle_name: decode_pg_text(row.get_str(1).map_err(PgError::into_store_error)?)
             .map_err(PgError::into_store_error)?,
-    })
+    }))
 }
 
 fn query_event_count(

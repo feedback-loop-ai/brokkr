@@ -85,7 +85,9 @@ pub(crate) struct MockDb {
     pub(crate) proj_events_jsonb: BTreeMap<(String, i64), Option<String>>,
     pub(crate) schema_meta: BTreeMap<String, i64>,
     pub(crate) omit_columns: BTreeSet<(String, String)>,
+    pub(crate) override_column_meta: BTreeMap<(String, String), (String, String)>,
     pub(crate) omit_checks: BTreeSet<(String, String)>,
+    pub(crate) override_check_defs: BTreeMap<(String, String), String>,
     pub(crate) queue_next_id: i64,
     pub(crate) queue_entries: BTreeMap<i64, QueueRow>,
     pub(crate) queue_waits: BTreeMap<(i64, i64), String>,
@@ -121,6 +123,7 @@ impl MockPgServer {
                 match listener.accept() {
                     Ok((stream, _)) => {
                         stream.set_nonblocking(false).expect("blocking conn");
+                        stream.set_nodelay(true).expect("nodelay");
                         let db_c = Arc::clone(&db_bg);
                         conns.push(thread::spawn(move || serve_conn(stream, db_c)));
                     }
@@ -293,7 +296,24 @@ fn exec_sql(
     if let Some(err) = db.force_next_error.take() {
         return Err(err);
     }
-    if norm.starts_with("CREATE TABLE") || norm.starts_with("CREATE INDEX") {
+    if norm == "SELECT pg_advisory_xact_lock($1::bigint)" {
+        return Ok((vec![vec![Some(String::new())]], "SELECT 1".into()));
+    }
+    if norm.starts_with("CREATE INDEX") {
+        if norm.contains("brokkr_projected_runs")
+            && norm.contains("list_order")
+            && db
+                .omit_columns
+                .contains(&("brokkr_projected_runs".into(), "list_order".into()))
+        {
+            return Err((
+                "42703".into(),
+                "column \"list_order\" does not exist".into(),
+            ));
+        }
+        return Ok((vec![], "CREATE INDEX".into()));
+    }
+    if norm.starts_with("CREATE TABLE") {
         return Ok((vec![], "CREATE TABLE".into()));
     }
     if norm.starts_with("LOCK TABLE ") {
@@ -305,41 +325,65 @@ fn exec_sql(
     exec_event_log(&mut db, &norm, params)
 }
 
-fn mock_table_columns(table: &str) -> &'static [&'static str] {
+fn mock_table_spec(table: &str) -> Option<&'static crate::schema::TableSpec> {
     crate::schema::SchemaKind::ALL
         .into_iter()
-        .flat_map(|kind| kind.required_columns().iter().copied())
-        .find(|&(name, _)| name == table)
-        .map_or(&[], |(_, cols)| cols)
+        .flat_map(|kind| kind.tables().iter())
+        .find(|spec| spec.name == table)
 }
 
-fn mock_table_checks(table: &str) -> &'static [&'static str] {
-    crate::schema::SchemaKind::ALL
-        .into_iter()
-        .flat_map(|kind| kind.required_checks().iter().copied())
-        .find(|&(name, _)| name == table)
-        .map_or(&[], |(_, checks)| checks)
+fn mock_pg_check_def(expr: &str) -> String {
+    if let Some((lhs, rhs)) = expr.split_once(" OR ") {
+        format!("CHECK ((({lhs}) OR ({rhs})))")
+    } else {
+        format!("CHECK (({expr}))")
+    }
 }
 
 fn exec_schema(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Option<SqlRes> {
-    if norm.starts_with("SELECT column_name FROM information_schema.columns") {
+    if norm
+        .starts_with("SELECT column_name, data_type, is_nullable FROM information_schema.columns")
+    {
         let table = pstr(params, 0);
-        let rows = mock_table_columns(table)
+        let cols = mock_table_spec(table).map_or(&[][..], |spec| spec.columns);
+        let rows = cols
             .iter()
-            .filter(|&&c| {
+            .filter(|c| {
                 !db.omit_columns
-                    .contains(&(table.to_string(), c.to_string()))
+                    .contains(&(table.to_string(), c.name.to_string()))
             })
-            .map(|&c| vec![Some(c.to_string())])
+            .map(|c| {
+                let (dtype, nullable) = db
+                    .override_column_meta
+                    .get(&(table.to_string(), c.name.to_string()))
+                    .map(|(t, n)| (t.as_str(), n.as_str()))
+                    .unwrap_or((c.col_type.information_schema_type(), c.is_nullable_word()));
+                vec![
+                    Some(c.name.to_string()),
+                    Some(dtype.to_string()),
+                    Some(nullable.to_string()),
+                ]
+            })
             .collect();
         return Some(Ok((rows, "SELECT".into())));
     }
-    if norm.starts_with("SELECT constraint_name FROM information_schema.table_constraints") {
+    if norm.starts_with("SELECT c.conname, pg_get_constraintdef(c.oid) FROM pg_constraint") {
         let table = pstr(params, 0);
-        let rows = mock_table_checks(table)
+        let checks = mock_table_spec(table).map_or(&[][..], |spec| spec.checks);
+        let rows = checks
             .iter()
-            .filter(|&&c| !db.omit_checks.contains(&(table.to_string(), c.to_string())))
-            .map(|&c| vec![Some(c.to_string())])
+            .filter(|c| {
+                !db.omit_checks
+                    .contains(&(table.to_string(), c.name.to_string()))
+            })
+            .map(|c| {
+                let def = db
+                    .override_check_defs
+                    .get(&(table.to_string(), c.name.to_string()))
+                    .cloned()
+                    .unwrap_or_else(|| mock_pg_check_def(c.expr));
+                vec![Some(c.name.to_string()), Some(def)]
+            })
             .collect();
         return Some(Ok((rows, "SELECT".into())));
     }
@@ -552,25 +596,6 @@ fn exec_proj_writes(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> S
         );
         return Ok((vec![], "INSERT 0 1".into()));
     }
-    if norm.starts_with("INSERT INTO brokkr_projected_runs") && norm.contains("DO NOTHING") {
-        let run_id = pstr(params, 0).to_string();
-        if !db.proj_runs.contains_key(&run_id) {
-            db.proj_run_next_order += 1;
-            let order = db.proj_run_next_order;
-            db.proj_run_orders.insert(run_id.clone(), order);
-            db.proj_runs.insert(
-                run_id,
-                (
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    0,
-                    pstr(params, 1).into(),
-                ),
-            );
-        }
-        return Ok((vec![], "INSERT 0 1".into()));
-    }
     if norm.starts_with("INSERT INTO brokkr_projected_runs") {
         let run_id = pstr(params, 0).to_string();
         if !db.proj_run_orders.contains_key(&run_id) {
@@ -590,19 +615,20 @@ fn exec_proj_writes(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> S
         );
         return Ok((vec![], "INSERT 0 1".into()));
     }
-    if norm.starts_with("SELECT run_id, feature, created_at FROM brokkr_projected_runs") {
-        let mut list: Vec<_> = db
+    if norm == "SELECT run_id, feature, created_at, list_order FROM brokkr_projected_runs" {
+        let rows = db
             .proj_runs
             .iter()
+            .rev()
             .map(|(id, (f, _, c, _, _))| {
                 let order = db.proj_run_orders.get(id).copied().unwrap_or(0);
-                (c.clone(), order, id.clone(), f.clone())
+                vec![
+                    Some(id.clone()),
+                    Some(f.clone()),
+                    Some(c.clone()),
+                    Some(order.to_string()),
+                ]
             })
-            .collect();
-        list.sort();
-        let rows = list
-            .into_iter()
-            .map(|(c, _, id, f)| vec![Some(id), Some(f), Some(c)])
             .collect();
         return Ok((rows, "SELECT".into()));
     }

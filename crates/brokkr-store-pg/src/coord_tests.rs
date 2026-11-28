@@ -518,3 +518,44 @@ fn verify_cooldown_edge_refusals(
         Err(StoreError::ProviderWait(_))
     ));
 }
+
+#[test]
+fn coordination_queue_roundtrips_nul_bearing_payload_and_worker_id() {
+    let (srv, coord, _) = connect_coord_pair();
+    let raw_payload = "{\"job\":\"nul\u{0000}payload\\slash\"}";
+    let raw_worker = "worker\u{0000}alpha\\1";
+
+    let entry_id = coord
+        .enqueue(
+            &NewEntry {
+                payload: raw_payload,
+                priority: 5,
+                waits: &[],
+            },
+            "2026-11-27T12:00:00Z",
+        )
+        .expect("enqueue NUL payload");
+
+    let listed = coord.list_queue().expect("list NUL queue");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, entry_id);
+    assert_eq!(listed[0].payload, raw_payload);
+
+    let claimed = coord
+        .claim_next_entry(raw_worker, "2026-11-27T12:00:05Z")
+        .expect("claim NUL entry")
+        .expect("entry claimed");
+    assert_eq!(claimed.id, entry_id);
+    assert_eq!(claimed.payload, raw_payload);
+    assert_eq!(claimed.worker_id, raw_worker);
+
+    let db = srv.db.lock().unwrap();
+    let stored = &db.queue_entries[&entry_id.0];
+    assert!(!stored.0.as_bytes().contains(&0));
+    let stored_worker = stored.3.as_deref().expect("claimed_by stored");
+    assert!(!stored_worker.as_bytes().contains(&0));
+    assert_eq!(
+        crate::schema::decode_pg_text(stored_worker).unwrap(),
+        raw_worker
+    );
+}

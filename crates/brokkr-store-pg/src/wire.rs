@@ -73,7 +73,6 @@ pub struct QueryResult {
 struct RawQueryResult {
     result: QueryResult,
     command_tag: Option<String>,
-    ready_status: u8,
 }
 
 enum AuthState {
@@ -85,9 +84,23 @@ enum AuthState {
     Authenticated,
 }
 
+struct TxPoisonGuard<'a> {
+    client: &'a mut PgClient,
+    armed: bool,
+}
+
+impl Drop for TxPoisonGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.client.close();
+        }
+    }
+}
+
 /// Synchronous PostgreSQL v3 connection over `std::net::TcpStream`.
 pub struct PgClient {
     stream: Option<TcpStream>,
+    tx_status: u8,
 }
 
 impl PgClient {
@@ -101,6 +114,7 @@ impl PgClient {
         stream.set_nodelay(true)?;
         let mut client = Self {
             stream: Some(stream),
+            tx_status: b'I',
         };
         if let Err(err) = client.startup(config) {
             client.close();
@@ -138,17 +152,28 @@ impl PgClient {
     }
 
     /// Run `f` inside `BEGIN` / `COMMIT`, automatically issuing `ROLLBACK` if
-    /// `f` returns an error. Verifies that `COMMIT` completed with command tag
+    /// `f` returns an error and closing/poisoning the connection if `f` unwinds.
+    /// Verifies that `BEGIN` entered `b'T'`, that the transaction is still open
+    /// (`b'T'`) before `COMMIT`, and that `COMMIT` completed with command tag
     /// `"COMMIT"` and `ReadyForQuery == b'I'`, returning
-    /// [`PgError::TransactionAborted`] if PostgreSQL reported `"ROLLBACK"` for
-    /// an aborted transaction.
+    /// [`PgError::TransactionAborted`] if the transaction was aborted or already
+    /// ended inside `f`.
     pub fn in_transaction<T, E>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, E>,
         map_pg: impl Fn(PgError) -> E,
     ) -> Result<T, E> {
-        self.query_raw("BEGIN", &[]).map_err(&map_pg)?;
-        match f(self) {
+        self.begin_transaction().map_err(&map_pg)?;
+        let outcome = {
+            let mut guard = TxPoisonGuard {
+                client: self,
+                armed: true,
+            };
+            let res = f(guard.client);
+            guard.armed = false;
+            res
+        };
+        match outcome {
             Ok(val) => {
                 self.commit_transaction().map_err(&map_pg)?;
                 Ok(val)
@@ -160,21 +185,38 @@ impl PgClient {
         }
     }
 
+    fn begin_transaction(&mut self) -> Result<(), PgError> {
+        let raw = self.query_raw("BEGIN", &[])?;
+        if raw.command_tag.as_deref() == Some("BEGIN") && self.tx_status == b'T' {
+            return Ok(());
+        }
+        self.close();
+        Err(PgError::Protocol(format!(
+            "unexpected BEGIN outcome (tag={:?}, status=0x{:02x})",
+            raw.command_tag, self.tx_status
+        )))
+    }
+
     fn commit_transaction(&mut self) -> Result<(), PgError> {
+        if self.tx_status == b'E' {
+            self.rollback_transaction();
+            return Err(PgError::TransactionAborted);
+        }
+        if self.tx_status != b'T' {
+            return Err(PgError::TransactionAborted);
+        }
         match self.query_raw("COMMIT", &[]) {
-            Ok(raw) if raw.command_tag.as_deref() == Some("COMMIT") && raw.ready_status == b'I' => {
+            Ok(raw) if raw.command_tag.as_deref() == Some("COMMIT") && self.tx_status == b'I' => {
                 Ok(())
             }
-            Ok(raw)
-                if raw.command_tag.as_deref() == Some("ROLLBACK") && raw.ready_status == b'I' =>
-            {
+            Ok(raw) if raw.command_tag.as_deref() == Some("ROLLBACK") && self.tx_status == b'I' => {
                 Err(PgError::TransactionAborted)
             }
             Ok(raw) => {
                 self.close();
                 Err(PgError::Protocol(format!(
                     "unexpected COMMIT outcome (tag={:?}, status=0x{:02x})",
-                    raw.command_tag, raw.ready_status
+                    raw.command_tag, self.tx_status
                 )))
             }
             Err(err) => {
@@ -185,7 +227,7 @@ impl PgClient {
     }
 
     fn rollback_transaction(&mut self) {
-        if !matches!(self.query_raw("ROLLBACK", &[]), Ok(raw) if raw.ready_status == b'I') {
+        if self.query_raw("ROLLBACK", &[]).is_err() || self.tx_status != b'I' {
             self.close();
         }
     }
@@ -236,12 +278,13 @@ impl PgClient {
                 b'S' | b'K' | b'N' => {}
                 b'E' => return Err(parse_error_response(&body)),
                 b'Z' => {
-                    let _ = parse_ready_for_query(&body)?;
+                    let status = parse_ready_for_query(&body)?;
                     if !matches!(state, AuthState::Authenticated) {
                         return Err(PgError::Auth(
                             "server sent ReadyForQuery before completing authentication".into(),
                         ));
                     }
+                    self.tx_status = status;
                     return Ok(());
                 }
                 other => {
@@ -339,6 +382,7 @@ impl PgClient {
                 break status;
             }
         };
+        self.tx_status = ready_status;
         Ok(match state.server_err {
             Some(err) => Err(err),
             None => Ok(RawQueryResult {
@@ -347,7 +391,6 @@ impl PgClient {
                     rows_affected: state.rows_affected,
                 },
                 command_tag: state.command_tag,
-                ready_status,
             }),
         })
     }
@@ -394,6 +437,12 @@ impl QueryReadState {
         match tag {
             b'1' | b'2' | b't' | b'n' | b'S' | b'N' => Ok(None),
             b'I' => {
+                if !body.is_empty() {
+                    return Err(PgError::Protocol(format!(
+                        "non-empty EmptyQueryResponse payload ({} bytes)",
+                        body.len()
+                    )));
+                }
                 self.completed = true;
                 Ok(None)
             }
@@ -418,7 +467,7 @@ impl QueryReadState {
                 }
             }
             b'C' => {
-                let (cmd_tag, affected) = parse_command_complete(body);
+                let (cmd_tag, affected) = parse_command_complete(body)?;
                 self.command_tag = Some(cmd_tag);
                 self.rows_affected = affected;
                 self.completed = true;
@@ -630,15 +679,24 @@ fn parse_data_row(body: &[u8]) -> Result<PgRow, PgError> {
     Ok(PgRow { columns })
 }
 
-fn parse_command_complete(body: &[u8]) -> (String, u64) {
-    let end = body.iter().position(|&b| b == 0).unwrap_or(body.len());
-    let tag = std::str::from_utf8(&body[..end]).unwrap_or("");
+fn parse_command_complete(body: &[u8]) -> Result<(String, u64), PgError> {
+    let nul = body
+        .iter()
+        .position(|&b| b == 0)
+        .ok_or_else(|| PgError::Protocol("unterminated CommandComplete tag".into()))?;
+    if nul + 1 != body.len() {
+        return Err(PgError::Protocol(
+            "trailing bytes after CommandComplete NUL terminator".into(),
+        ));
+    }
+    let tag = std::str::from_utf8(&body[..nul])
+        .map_err(|_| PgError::Protocol("non-UTF8 CommandComplete tag".into()))?;
     let affected = tag
         .split_whitespace()
         .last()
         .and_then(|word| word.parse::<u64>().ok())
         .unwrap_or(0);
-    (tag.to_string(), affected)
+    Ok((tag.to_string(), affected))
 }
 
 fn parse_error_response(body: &[u8]) -> PgError {
