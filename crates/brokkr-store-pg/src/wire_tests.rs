@@ -1133,44 +1133,85 @@ fn wire_transaction_compromise_overrides_callback_error_while_preserving_ordinar
     h_ord.join().unwrap();
 }
 
-fn mixed_error_completion_frames() -> [Vec<(u8, Vec<u8>)>; 2] {
-    [
-        vec![
-            (b'C', b"COMMIT\0".to_vec()),
-            (b'E', error_payload("40001", "boom", None)),
-            (b'Z', b"E".to_vec()),
-        ],
-        vec![
-            (b'E', error_payload("40001", "first", None)),
-            (b'E', error_payload("40001", "second", None)),
-            (b'Z', b"I".to_vec()),
-        ],
+fn duplicate_error_frames() -> Vec<(u8, Vec<u8>)> {
+    vec![
+        (b'E', error_payload("40001", "first", None)),
+        (b'E', error_payload("40001", "second", None)),
     ]
 }
 
 #[test]
 fn wire_rejects_mixed_error_and_post_completion_row_frames() {
-    for frames in mixed_error_completion_frames() {
-        assert_eq!(
-            assert_query_protocol_error_poisons(frames),
-            "duplicate query completion before ReadyForQuery"
-        );
-    }
+    // All fixtures without ReadyForQuery prove immediate rejection on the offending frame.
     for (frames, want_msg) in [
         (
             vec![
+                (b'C', b"COMMIT\0".to_vec()),
                 (b'E', error_payload("40001", "boom", None)),
-                (b'C', b"SELECT 1\0".to_vec()),
-                (b'Z', b"I".to_vec()),
             ],
             "duplicate query completion before ReadyForQuery",
         ),
         (
             vec![
+                (b'C', b"BEGIN\0".to_vec()),
+                (b'E', error_payload("40001", "boom", None)),
+            ],
+            "duplicate query completion before ReadyForQuery",
+        ),
+        (
+            duplicate_error_frames(),
+            "duplicate query completion before ReadyForQuery",
+        ),
+        (
+            vec![
+                (b'E', error_payload("40001", "boom", None)),
+                (b'C', b"SELECT 1\0".to_vec()),
+            ],
+            "duplicate query completion before ReadyForQuery",
+        ),
+        (
+            vec![
+                (b'I', Vec::new()),
+                (b'E', error_payload("40001", "boom", None)),
+            ],
+            "duplicate query completion before ReadyForQuery",
+        ),
+        (
+            vec![
+                (b'C', b"INSERT 0 1\0".to_vec()),
+                (b'E', error_payload("23505", "first", None)),
+                (b'E', error_payload("40001", "second", None)),
+            ],
+            "duplicate query completion before ReadyForQuery",
+        ),
+        (
+            vec![
+                (b'C', b"INSERT 0 1\0".to_vec()),
+                (b'E', error_payload("23505", "deferred", None)),
+                (b'Z', b"E".to_vec()),
+            ],
+            "unexpected ReadyForQuery status 0x45 after Sync ErrorResponse",
+        ),
+        (
+            vec![
+                (b'C', b"INSERT 0 1\0".to_vec()),
+                (b'E', error_payload("23505", "deferred", None)),
+                (b'Z', b"T".to_vec()),
+            ],
+            "unexpected ReadyForQuery status 0x54 after Sync ErrorResponse",
+        ),
+    ] {
+        assert_eq!(assert_query_protocol_error_poisons(frames), want_msg);
+    }
+}
+
+#[test]
+fn wire_rejects_post_completion_and_malformed_row_frames() {
+    for (frames, want_msg) in [
+        (
+            vec![
                 (b'T', row_description_payload(1)),
                 (b'T', row_description_payload(1)),
-                (b'C', b"SELECT 0\0".to_vec()),
-                (b'Z', b"I".to_vec()),
             ],
             "unexpected RowDescription frame",
         ),
@@ -1178,7 +1219,6 @@ fn wire_rejects_mixed_error_and_post_completion_row_frames() {
             vec![
                 (b'C', b"SELECT 0\0".to_vec()),
                 (b'T', row_description_payload(1)),
-                (b'Z', b"I".to_vec()),
             ],
             "unexpected RowDescription frame",
         ),
@@ -1187,7 +1227,6 @@ fn wire_rejects_mixed_error_and_post_completion_row_frames() {
                 (b'T', row_description_payload(1)),
                 (b'C', b"SELECT 1\0".to_vec()),
                 (b'D', data_row_payload(&[Some("a")])),
-                (b'Z', b"I".to_vec()),
             ],
             "DataRow after completion",
         ),
@@ -1196,20 +1235,15 @@ fn wire_rejects_mixed_error_and_post_completion_row_frames() {
                 (b'T', row_description_payload(1)),
                 (b'D', data_row_payload(&[Some("a")])),
                 (b'I', Vec::new()),
-                (b'Z', b"I".to_vec()),
             ],
             "unexpected EmptyQueryResponse after RowDescription",
         ),
         (
-            vec![
-                (b'T', row_description_payload(1)),
-                (b'I', Vec::new()),
-                (b'Z', b"I".to_vec()),
-            ],
+            vec![(b'T', row_description_payload(1)), (b'I', Vec::new())],
             "unexpected EmptyQueryResponse after RowDescription",
         ),
         (
-            vec![(b'I', b"x".to_vec()), (b'Z', b"I".to_vec())],
+            vec![(b'I', b"x".to_vec())],
             "non-empty EmptyQueryResponse payload (1 bytes)",
         ),
         (
@@ -1237,19 +1271,115 @@ fn wire_rejects_mixed_error_and_post_completion_row_frames() {
 }
 
 #[test]
+fn wire_preserves_sync_error_after_command_complete_for_deferred_constraints() {
+    // 1. Implicit-transaction deferred constraint fails at Sync after CommandComplete:
+    //    preserves SQLSTATE/constraint and keeps the synchronized connection open.
+    let (p_auto, h_auto) = spawn_one_shot(|mut s| {
+        complete_trust_startup(&mut s);
+        assert_eq!(read_extended_query(&mut s), "INSERT INTO t VALUES (1)");
+        send_frame(&mut s, b'1', b"");
+        send_frame(&mut s, b'2', b"");
+        send_frame(&mut s, b'n', b"");
+        send_frame(&mut s, b'C', b"INSERT 0 1\0");
+        send_frame(
+            &mut s,
+            b'E',
+            &error_payload("23505", "deferred unique violation", Some("t_pkey")),
+        );
+        send_frame(&mut s, b'Z', b"I");
+        assert_eq!(read_extended_query(&mut s), "SELECT 1");
+        send_frame(&mut s, b'T', &row_description_payload(1));
+        send_frame(&mut s, b'D', &data_row_payload(&[Some("1")]));
+        send_frame(&mut s, b'C', b"SELECT 1\0");
+        send_frame(&mut s, b'Z', b"I");
+        let _ = read_client_frame(&mut s);
+    });
+    let cfg_auto = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_auto}/db")).unwrap();
+    let mut c_auto = PgClient::connect(&cfg_auto).expect("connect");
+    let err = c_auto
+        .query("INSERT INTO t VALUES (1)", &[])
+        .expect_err("deferred constraint error");
+    assert!(matches!(
+        err,
+        PgError::Server {
+            ref sqlstate,
+            constraint: Some(ref con),
+            ..
+        } if sqlstate == "23505" && con == "t_pkey"
+    ));
+    let follow = c_auto
+        .query("SELECT 1", &[])
+        .expect("connection stays synchronized after Sync error");
+    assert_eq!(follow.rows.len(), 1);
+    assert_eq!(follow.rows[0].get_str(0).unwrap(), "1");
+    drop(c_auto);
+    h_auto.join().unwrap();
+
+    // 2. Explicit COMMIT failing at Sync after CommandComplete("COMMIT") preserves SQLSTATE.
+    let (p_commit, h_commit) = spawn_one_shot(|mut s| {
+        complete_trust_startup(&mut s);
+        send_begin_ok(&mut s);
+        expect_query_reply(&mut s, "INSERT INTO t VALUES (1)", b"INSERT 0 1\0", b"T");
+        assert_eq!(read_extended_query(&mut s), "COMMIT");
+        send_frame(&mut s, b'C', b"COMMIT\0");
+        send_frame(
+            &mut s,
+            b'E',
+            &error_payload("40001", "could not serialize access", None),
+        );
+        send_frame(&mut s, b'Z', b"I");
+        let _ = read_client_frame(&mut s);
+    });
+    let cfg_commit = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_commit}/db")).unwrap();
+    let mut c_commit = PgClient::connect(&cfg_commit).expect("connect");
+    let commit_err = c_commit
+        .in_transaction(
+            |tx| tx.query("INSERT INTO t VALUES (1)", &[]).map(|_| ()),
+            |e| e,
+        )
+        .expect_err("commit sync error");
+    assert_eq!(commit_err.sqlstate(), Some("40001"));
+    assert!(matches!(
+        c_commit.query("SELECT 1", &[]),
+        Err(PgError::ConnectionClosed)
+    ));
+    h_commit.join().unwrap();
+}
+
+#[test]
 fn wire_tx_rejects_active_status_after_error_and_preserves_compromise_on_close() {
-    // 1. Inside in_transaction (and on BEGIN itself), mixed/duplicate error completion
-    //    or ErrorResponse followed by ReadyForQuery('T') poisons the socket.
-    let [ce_frames, ee_frames] = mixed_error_completion_frames();
-    for (send_begin, frames) in [
-        (true, ce_frames),
-        (true, ee_frames),
+    // 1. Inside in_transaction (and on BEGIN itself), non-commit C+E and duplicate E reject
+    //    immediately without waiting for ReadyForQuery; invalid Z status after E poisons socket.
+    for (send_begin, frames, want_msg) in [
+        (
+            true,
+            vec![
+                (b'C', b"SELECT 1\0".to_vec()),
+                (b'E', error_payload("40001", "boom", None)),
+            ],
+            "duplicate query completion before ReadyForQuery",
+        ),
+        (
+            true,
+            duplicate_error_frames(),
+            "duplicate query completion before ReadyForQuery",
+        ),
+        (
+            true,
+            vec![
+                (b'C', b"COMMIT\0".to_vec()),
+                (b'E', error_payload("40001", "boom", None)),
+                (b'Z', b"E".to_vec()),
+            ],
+            "unexpected ReadyForQuery status 0x45 after Sync ErrorResponse",
+        ),
         (
             true,
             vec![
                 (b'E', error_payload("22012", "still active", None)),
                 (b'Z', b"T".to_vec()),
             ],
+            "server reported active transaction ('T') after ErrorResponse",
         ),
         (
             false,
@@ -1257,6 +1387,7 @@ fn wire_tx_rejects_active_status_after_error_and_preserves_compromise_on_close()
                 (b'E', error_payload("25001", "begin active", None)),
                 (b'Z', b"T".to_vec()),
             ],
+            "server reported active transaction ('T') after ErrorResponse",
         ),
     ] {
         let (p_err, h_err) = spawn_one_shot(move |mut s| {
@@ -1270,12 +1401,15 @@ fn wire_tx_rejects_active_status_after_error_and_preserves_compromise_on_close()
             }
             let _ = read_client_frame(&mut s);
         });
-        let cfg_err = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_err}/db")).unwrap();
+        let cfg_err = PgConfig::parse(&format!("postgres://u@127.0.0.1:{p_err}/db"))
+            .unwrap()
+            .with_io_timeout(Duration::from_millis(200));
         let mut c_err = PgClient::connect(&cfg_err).expect("connect");
-        assert!(matches!(
-            c_err.in_transaction(|tx| tx.query("SELECT 1/0", &[]).map(|_| ()), |e| e),
-            Err(PgError::Protocol(_))
-        ));
+        let got = match c_err.in_transaction(|tx| tx.query("SELECT 1/0", &[]).map(|_| ()), |e| e) {
+            Err(PgError::Protocol(msg)) => msg,
+            other => panic!("expected PgError::Protocol, got {other:?}"),
+        };
+        assert_eq!(got, want_msg);
         assert!(matches!(
             c_err.query("SELECT 1", &[]),
             Err(PgError::ConnectionClosed)

@@ -70,10 +70,7 @@ pub struct QueryResult {
     pub rows_affected: u64,
 }
 
-struct RawQueryResult {
-    result: QueryResult,
-    command_tag: Option<String>,
-}
+type RawQuery = (QueryResult, Option<String>);
 
 enum AuthState {
     Initial,
@@ -131,15 +128,15 @@ impl PgClient {
     /// (`Parse` + `Bind` + `Describe` + `Execute` + `Sync`), with zero SQL
     /// string interpolation.
     pub fn query(&mut self, sql: &str, params: &[Option<&str>]) -> Result<QueryResult, PgError> {
-        self.query_raw(sql, params).map(|raw| raw.result)
+        self.query_raw(sql, params).map(|(res, _)| res)
     }
 
-    fn query_raw(&mut self, sql: &str, params: &[Option<&str>]) -> Result<RawQueryResult, PgError> {
+    fn query_raw(&mut self, sql: &str, params: &[Option<&str>]) -> Result<RawQuery, PgError> {
         if self.stream.is_none() {
             return Err(PgError::ConnectionClosed);
         }
-        let param_count = i16::try_from(params.len())
-            .map_err(|_| PgError::Protocol("too many query parameters".into()))?;
+        let param_count =
+            i16::try_from(params.len()).map_err(|_| proto("too many query parameters"))?;
         let mut wire = Vec::with_capacity(sql.len() + 64);
         write_parse(&mut wire, sql)?;
         write_bind(&mut wire, param_count, params)?;
@@ -150,7 +147,7 @@ impl PgClient {
             Ok(res) => {
                 if self.in_tx
                     && (self.tx_status == b'I'
-                        || matches!(&res, Ok(raw) if is_tx_ending_tag(raw.command_tag.as_deref())))
+                        || matches!(&res, Ok((_, tag)) if is_tx_ending_tag(tag.as_deref())))
                 {
                     self.tx_compromised = true;
                 }
@@ -203,15 +200,15 @@ impl PgClient {
         if self.in_tx || self.tx_status != b'I' {
             return Err(PgError::TransactionAborted);
         }
-        let raw = self.query_raw("BEGIN", &[])?;
-        if raw.command_tag.as_deref() == Some("BEGIN") && self.tx_status == b'T' {
+        let (_, tag) = self.query_raw("BEGIN", &[])?;
+        if tag.as_deref() == Some("BEGIN") && self.tx_status == b'T' {
             self.in_tx = true;
             return Ok(());
         }
         self.close();
-        Err(PgError::Protocol(format!(
-            "unexpected BEGIN outcome (tag={:?}, status=0x{:02x})",
-            raw.command_tag, self.tx_status
+        Err(proto(format!(
+            "unexpected BEGIN outcome (tag={tag:?}, status=0x{:02x})",
+            self.tx_status
         )))
     }
 
@@ -223,17 +220,15 @@ impl PgClient {
             return Err(PgError::TransactionAborted);
         }
         match self.query_raw("COMMIT", &[]) {
-            Ok(raw) if raw.command_tag.as_deref() == Some("COMMIT") && self.tx_status == b'I' => {
-                Ok(())
-            }
-            Ok(raw) if raw.command_tag.as_deref() == Some("ROLLBACK") && self.tx_status == b'I' => {
+            Ok((_, tag)) if tag.as_deref() == Some("COMMIT") && self.tx_status == b'I' => Ok(()),
+            Ok((_, tag)) if tag.as_deref() == Some("ROLLBACK") && self.tx_status == b'I' => {
                 Err(PgError::TransactionAborted)
             }
-            Ok(raw) => {
+            Ok((_, tag)) => {
                 self.close();
-                Err(PgError::Protocol(format!(
-                    "unexpected COMMIT outcome (tag={:?}, status=0x{:02x})",
-                    raw.command_tag, self.tx_status
+                Err(proto(format!(
+                    "unexpected COMMIT outcome (tag={tag:?}, status=0x{:02x})",
+                    self.tx_status
                 )))
             }
             Err(err) => {
@@ -255,7 +250,7 @@ impl PgClient {
     fn rollback_transaction(&mut self) {
         if !matches!(
             self.query_raw("ROLLBACK", &[]),
-            Ok(raw) if raw.command_tag.as_deref() == Some("ROLLBACK") && self.tx_status == b'I'
+            Ok((_, tag)) if tag.as_deref() == Some("ROLLBACK") && self.tx_status == b'I'
         ) {
             self.close();
         }
@@ -315,7 +310,7 @@ impl PgClient {
                         ));
                     }
                     if status != b'I' {
-                        return Err(PgError::Protocol(format!(
+                        return Err(proto(format!(
                             "unexpected startup ReadyForQuery status 0x{status:02x}"
                         )));
                     }
@@ -323,7 +318,7 @@ impl PgClient {
                     return Ok(());
                 }
                 other => {
-                    return Err(PgError::Protocol(format!(
+                    return Err(proto(format!(
                         "unexpected startup message tag 0x{other:02x}"
                     )));
                 }
@@ -405,31 +400,17 @@ impl PgClient {
         Ok(AuthState::SaslStarted(client))
     }
 
-    fn send_and_read_query(
-        &mut self,
-        wire: &[u8],
-    ) -> Result<Result<RawQueryResult, PgError>, PgError> {
+    fn send_and_read_query(&mut self, wire: &[u8]) -> Result<Result<RawQuery, PgError>, PgError> {
         self.write_all(wire)?;
-        let mut state = QueryReadState::default();
-        let ready_status = loop {
+        let mut state = QueryReadState::new(self.tx_status);
+        loop {
             let (tag, body) = self.read_frame()?;
-            if let Some(status) = state.apply_frame(tag, &body)? {
-                break status;
+            if tag == b'Z' {
+                let (status, outcome) = state.finish_ready(&body)?;
+                self.tx_status = status;
+                return Ok(outcome);
             }
-        };
-        self.tx_status = ready_status;
-        match state.server_err {
-            Some(_) if ready_status == b'T' => Err(PgError::Protocol(
-                "server reported active transaction ('T') after ErrorResponse".into(),
-            )),
-            Some(err) => Ok(Err(err)),
-            None => Ok(Ok(RawQueryResult {
-                result: QueryResult {
-                    rows: state.rows,
-                    rows_affected: state.rows_affected,
-                },
-                command_tag: state.command_tag,
-            })),
+            state.apply_frame(tag, &body)?;
         }
     }
 
@@ -460,121 +441,151 @@ impl Drop for PgClient {
     }
 }
 
-#[derive(Default)]
+enum QueryCompletion {
+    Pending,
+    Empty,
+    Command(String),
+    Error(PgError),
+    SyncError(PgError),
+}
+
 struct QueryReadState {
-    rows: Vec<PgRow>,
-    rows_affected: u64,
-    command_tag: Option<String>,
-    completed: bool,
-    server_err: Option<PgError>,
+    initial_tx_status: u8,
+    result: QueryResult,
+    completion: QueryCompletion,
     expected_cols: Option<usize>,
 }
 
 impl QueryReadState {
-    fn mark_completed(&mut self) -> Result<(), PgError> {
-        if self.completed {
-            return Err(PgError::Protocol(
-                "duplicate query completion before ReadyForQuery".into(),
-            ));
+    fn new(initial_tx_status: u8) -> Self {
+        Self {
+            initial_tx_status,
+            result: QueryResult {
+                rows: Vec::new(),
+                rows_affected: 0,
+            },
+            completion: QueryCompletion::Pending,
+            expected_cols: None,
         }
-        self.completed = true;
+    }
+    fn ensure_pending(&self) -> Result<(), PgError> {
+        matches!(self.completion, QueryCompletion::Pending)
+            .then_some(())
+            .ok_or_else(|| proto("duplicate query completion before ReadyForQuery"))
+    }
+
+    fn apply_empty_query(&mut self, body: &[u8]) -> Result<(), PgError> {
+        self.ensure_pending()?;
+        if self.expected_cols.is_some() {
+            return Err(proto("unexpected EmptyQueryResponse after RowDescription"));
+        }
+        let n = body.len();
+        if n > 0 {
+            return Err(proto(format!(
+                "non-empty EmptyQueryResponse payload ({n} bytes)"
+            )));
+        }
+        self.completion = QueryCompletion::Empty;
         Ok(())
     }
 
-    fn apply_empty_query(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
-        self.mark_completed()?;
-        if self.expected_cols.is_some() {
-            return Err(PgError::Protocol(
-                "unexpected EmptyQueryResponse after RowDescription".into(),
-            ));
-        }
-        if !body.is_empty() {
-            return Err(PgError::Protocol(format!(
-                "non-empty EmptyQueryResponse payload ({} bytes)",
-                body.len()
-            )));
-        }
-        Ok(None)
-    }
-
-    fn apply_row_description(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
-        if self.completed || self.expected_cols.is_some() {
-            return Err(PgError::Protocol("unexpected RowDescription frame".into()));
-        }
-        self.expected_cols = Some(parse_row_description(body)?);
-        Ok(None)
-    }
-
-    fn apply_data_row(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
-        if self.completed {
-            return Err(PgError::Protocol("DataRow after completion".into()));
+    fn apply_data_row(&mut self, body: &[u8]) -> Result<(), PgError> {
+        if !matches!(self.completion, QueryCompletion::Pending) {
+            return Err(proto("DataRow after completion"));
         }
         let row = parse_data_row(body)?;
+        let got = row.columns.len();
         match self.expected_cols {
-            Some(want) if row.columns.len() == want => {
-                self.rows.push(row);
-                Ok(None)
+            Some(want) if got == want => {
+                self.result.rows.push(row);
+                Ok(())
             }
-            Some(want) => Err(PgError::Protocol(format!(
-                "DataRow column count {} does not match RowDescription count {want}",
-                row.columns.len()
+            Some(want) => Err(proto(format!(
+                "DataRow column count {got} does not match RowDescription count {want}"
             ))),
-            None => Err(PgError::Protocol(
-                "received DataRow without RowDescription".into(),
-            )),
+            None => Err(proto("received DataRow without RowDescription")),
         }
     }
 
-    fn apply_command_complete(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
-        self.mark_completed()?;
-        let (cmd_tag, affected) = parse_command_complete(body)?;
-        self.command_tag = Some(cmd_tag);
-        self.rows_affected = affected;
-        Ok(None)
+    fn apply_error(&mut self, body: &[u8]) -> Result<(), PgError> {
+        use QueryCompletion as C;
+        let err = parse_error_response(body);
+        self.completion = match &self.completion {
+            C::Pending => C::Error(err),
+            C::Command(tag) if can_fail_at_sync(self.initial_tx_status, tag) => C::SyncError(err),
+            _ => return Err(proto("duplicate query completion before ReadyForQuery")),
+        };
+        Ok(())
     }
 
-    fn apply_error(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
-        self.mark_completed()?;
-        self.server_err = Some(parse_error_response(body));
-        Ok(None)
-    }
-
-    fn apply_ready(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
+    fn finish_ready(self, body: &[u8]) -> Result<(u8, Result<RawQuery, PgError>), PgError> {
+        use QueryCompletion as C;
         let status = parse_ready_for_query(body)?;
-        if !self.completed {
-            return Err(PgError::Protocol(
-                "premature ReadyForQuery before query completion".into(),
-            ));
-        }
-        Ok(Some(status))
+        let tag = match self.completion {
+            C::Pending => return Err(proto("premature ReadyForQuery before query completion")),
+            C::Error(_) if status == b'T' => {
+                return Err(proto(
+                    "server reported active transaction ('T') after ErrorResponse",
+                ));
+            }
+            C::SyncError(_) if status != b'I' => {
+                return Err(proto(format!(
+                    "unexpected ReadyForQuery status 0x{status:02x} after Sync ErrorResponse"
+                )));
+            }
+            C::Error(err) | C::SyncError(err) => return Ok((status, Err(err))),
+            C::Command(tag) => Some(tag),
+            C::Empty => None,
+        };
+        Ok((status, Ok((self.result, tag))))
     }
 
-    fn apply_frame(&mut self, tag: u8, body: &[u8]) -> Result<Option<u8>, PgError> {
+    fn apply_frame(&mut self, tag: u8, body: &[u8]) -> Result<(), PgError> {
         match tag {
-            b'1' | b'2' | b't' | b'n' | b'S' | b'N' => Ok(None),
+            b'1' | b'2' | b't' | b'n' | b'S' | b'N' => Ok(()),
             b'I' => self.apply_empty_query(body),
-            b'T' => self.apply_row_description(body),
+            b'T' => {
+                if !matches!(self.completion, QueryCompletion::Pending)
+                    || self.expected_cols.is_some()
+                {
+                    return Err(proto("unexpected RowDescription frame"));
+                }
+                self.expected_cols = Some(parse_row_description(body)?);
+                Ok(())
+            }
             b'D' => self.apply_data_row(body),
-            b'C' => self.apply_command_complete(body),
+            b'C' => {
+                self.ensure_pending()?;
+                let (cmd_tag, affected) = parse_command_complete(body)?;
+                self.completion = QueryCompletion::Command(cmd_tag);
+                self.result.rows_affected = affected;
+                Ok(())
+            }
             b'E' => self.apply_error(body),
-            b'Z' => self.apply_ready(body),
-            other => Err(PgError::Protocol(format!(
-                "unexpected query message tag 0x{other:02x}"
-            ))),
+            other => Err(proto(format!("unexpected query message tag 0x{other:02x}"))),
         }
     }
+}
+
+fn proto(msg: impl Into<String>) -> PgError {
+    PgError::Protocol(msg.into())
 }
 
 fn is_tx_ending_tag(tag: Option<&str>) -> bool {
     matches!(tag, Some("ROLLBACK" | "COMMIT" | "END" | "ABORT"))
 }
 
+fn can_fail_at_sync(initial_tx_status: u8, tag: &str) -> bool {
+    (initial_tx_status == b'I' && tag != "BEGIN" && !is_tx_ending_tag(Some(tag)))
+        || (initial_tx_status == b'T' && matches!(tag, "COMMIT" | "END"))
+}
+
 fn parse_ready_for_query(body: &[u8]) -> Result<u8, PgError> {
+    let n = body.len();
     match body {
         [status @ (b'I' | b'T' | b'E')] => Ok(*status),
-        _ => Err(PgError::Protocol(format!(
-            "malformed ReadyForQuery payload ({} bytes)",
-            body.len()
+        _ => Err(proto(format!(
+            "malformed ReadyForQuery payload ({n} bytes)"
         ))),
     }
 }
@@ -594,9 +605,7 @@ fn require_password(config: &PgConfig) -> Result<&str, PgError> {
 
 pub(crate) fn push_cstr(buf: &mut Vec<u8>, text: &str) -> Result<(), PgError> {
     if text.as_bytes().contains(&0) {
-        return Err(PgError::Protocol(
-            "NUL byte not allowed in PostgreSQL protocol string".into(),
-        ));
+        return Err(proto("NUL byte not allowed in PostgreSQL protocol string"));
     }
     buf.extend_from_slice(text.as_bytes());
     buf.push(0);
@@ -637,12 +646,10 @@ pub(crate) fn connect_first_reachable(
             Err(err) => last_err = Some(err),
         }
     }
-    match last_err {
-        Some(err) => Err(PgError::Io(err)),
-        None => Err(PgError::Protocol(format!(
-            "could not resolve host '{host}'"
-        ))),
-    }
+    Err(last_err.map_or_else(
+        || proto(format!("could not resolve host '{host}'")),
+        PgError::Io,
+    ))
 }
 
 fn write_bind(wire: &mut Vec<u8>, count: i16, params: &[Option<&str>]) -> Result<(), PgError> {
@@ -664,32 +671,29 @@ fn write_bind(wire: &mut Vec<u8>, count: i16, params: &[Option<&str>]) -> Result
 }
 
 fn read_i16(buf: &[u8], offset: usize) -> Result<i16, PgError> {
-    let slice = buf
+    let s = buf
         .get(offset..offset + 2)
-        .ok_or_else(|| PgError::Protocol("truncated i16 in server frame".into()))?;
-    Ok(i16::from_be_bytes([slice[0], slice[1]]))
+        .ok_or_else(|| proto("truncated i16 in server frame"))?;
+    Ok(i16::from_be_bytes([s[0], s[1]]))
 }
 
 fn read_i32(buf: &[u8], offset: usize) -> Result<i32, PgError> {
-    let slice = buf
+    let s = buf
         .get(offset..offset + 4)
-        .ok_or_else(|| PgError::Protocol("truncated i32 in server frame".into()))?;
-    Ok(i32::from_be_bytes([slice[0], slice[1], slice[2], slice[3]]))
+        .ok_or_else(|| proto("truncated i32 in server frame"))?;
+    Ok(i32::from_be_bytes([s[0], s[1], s[2], s[3]]))
 }
 
 fn parse_row_description(body: &[u8]) -> Result<usize, PgError> {
     let raw_count = read_i16(body, 0)?;
-    let count = usize::try_from(raw_count).map_err(|_| {
-        PgError::Protocol(format!("negative RowDescription column count {raw_count}"))
-    })?;
+    let count = usize::try_from(raw_count)
+        .map_err(|_| proto(format!("negative RowDescription column count {raw_count}")))?;
     let mut offset = 2usize;
     for _ in 0..count {
         parse_column_descriptor(body, &mut offset)?;
     }
     if offset != body.len() {
-        return Err(PgError::Protocol(
-            "trailing bytes in RowDescription frame".into(),
-        ));
+        return Err(proto("trailing bytes in RowDescription frame"));
     }
     Ok(count)
 }
@@ -698,16 +702,16 @@ fn parse_column_descriptor(body: &[u8], offset: &mut usize) -> Result<(), PgErro
     let nul_rel = body[*offset..]
         .iter()
         .position(|&b| b == 0)
-        .ok_or_else(|| PgError::Protocol("unterminated RowDescription column name".into()))?;
+        .ok_or_else(|| proto("unterminated RowDescription column name"))?;
     let _name = std::str::from_utf8(&body[*offset..*offset + nul_rel])
-        .map_err(|_| PgError::Protocol("non-UTF8 RowDescription column name".into()))?;
+        .map_err(|_| proto("non-UTF8 RowDescription column name"))?;
     *offset += nul_rel + 1;
     let desc = body
         .get(*offset..*offset + 18)
-        .ok_or_else(|| PgError::Protocol("truncated RowDescription column descriptor".into()))?;
+        .ok_or_else(|| proto("truncated RowDescription column descriptor"))?;
     let format_code = i16::from_be_bytes([desc[16], desc[17]]);
     if format_code != 0 {
-        return Err(PgError::Protocol(format!(
+        return Err(proto(format!(
             "unsupported RowDescription format code {format_code}"
         )));
     }
@@ -718,7 +722,7 @@ fn parse_column_descriptor(body: &[u8], offset: &mut usize) -> Result<(), PgErro
 fn parse_data_row(body: &[u8]) -> Result<PgRow, PgError> {
     let raw_count = read_i16(body, 0)?;
     let count = usize::try_from(raw_count)
-        .map_err(|_| PgError::Protocol(format!("negative DataRow column count {raw_count}")))?;
+        .map_err(|_| proto(format!("negative DataRow column count {raw_count}")))?;
     let mut offset = 2usize;
     let mut columns = Vec::with_capacity(count);
     for _ in 0..count {
@@ -727,22 +731,20 @@ fn parse_data_row(body: &[u8]) -> Result<PgRow, PgError> {
         if len == -1 {
             columns.push(None);
         } else if len < 0 {
-            return Err(PgError::Protocol(format!(
-                "invalid DataRow field length {len}"
-            )));
+            return Err(proto(format!("invalid DataRow field length {len}")));
         } else {
             let end = offset + len as usize;
             let bytes = body
                 .get(offset..end)
-                .ok_or_else(|| PgError::Protocol("truncated DataRow field".into()))?;
-            let text = String::from_utf8(bytes.to_vec())
-                .map_err(|_| PgError::Protocol("non-UTF8 DataRow field".into()))?;
+                .ok_or_else(|| proto("truncated DataRow field"))?;
+            let text =
+                String::from_utf8(bytes.to_vec()).map_err(|_| proto("non-UTF8 DataRow field"))?;
             columns.push(Some(text));
             offset = end;
         }
     }
     if offset != body.len() {
-        return Err(PgError::Protocol("trailing bytes in DataRow frame".into()));
+        return Err(proto("trailing bytes in DataRow frame"));
     }
     Ok(PgRow { columns })
 }
@@ -751,18 +753,16 @@ fn parse_command_complete(body: &[u8]) -> Result<(String, u64), PgError> {
     let nul = body
         .iter()
         .position(|&b| b == 0)
-        .ok_or_else(|| PgError::Protocol("unterminated CommandComplete tag".into()))?;
+        .ok_or_else(|| proto("unterminated CommandComplete tag"))?;
     if nul + 1 != body.len() {
-        return Err(PgError::Protocol(
-            "trailing bytes after CommandComplete NUL terminator".into(),
-        ));
+        return Err(proto("trailing bytes after CommandComplete NUL terminator"));
     }
-    let tag = std::str::from_utf8(&body[..nul])
-        .map_err(|_| PgError::Protocol("non-UTF8 CommandComplete tag".into()))?;
+    let tag =
+        std::str::from_utf8(&body[..nul]).map_err(|_| proto("non-UTF8 CommandComplete tag"))?;
     let affected = tag
         .split_whitespace()
         .last()
-        .and_then(|word| word.parse::<u64>().ok())
+        .and_then(|w| w.parse().ok())
         .unwrap_or(0);
     Ok((tag.to_string(), affected))
 }

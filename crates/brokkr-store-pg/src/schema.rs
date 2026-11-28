@@ -35,6 +35,15 @@ const UPSERT_SCHEMA_META_SQL: &str = "INSERT INTO brokkr_pg_schema_meta (compone
 const SELECT_SCHEMA_META_SQL: &str =
     "SELECT version FROM brokkr_pg_schema_meta WHERE component = $1";
 const SELECT_CURRENT_SCHEMA_SQL: &str = "SELECT current_schema()";
+const SELECT_LEGACY_INDEX_SQL: &str = "SELECT 1
+    FROM pg_index ix
+    JOIN pg_class i ON i.oid = ix.indexrelid
+    JOIN pg_class t ON t.oid = ix.indrelid
+    JOIN pg_namespace n ON n.oid = i.relnamespace
+    WHERE n.nspname = $1
+      AND t.relnamespace = n.oid
+      AND t.relname = $2
+      AND i.relname = $3";
 
 #[derive(Clone, Copy)]
 pub(crate) enum PgColType {
@@ -105,6 +114,12 @@ impl ColumnSpec {
 }
 
 #[derive(Clone, Copy)]
+struct LegacyIndexSpec {
+    table: &'static str,
+    index: &'static str,
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct CheckSpec {
     pub(crate) name: &'static str,
     pub(crate) expr: &'static str,
@@ -168,9 +183,12 @@ impl SchemaKind {
         }
     }
 
-    fn legacy_indexes(self) -> &'static [&'static str] {
+    fn legacy_indexes(self) -> &'static [LegacyIndexSpec] {
         match self {
-            SchemaKind::Projection => &["brokkr_projected_runs_created_idx"],
+            SchemaKind::Projection => &[LegacyIndexSpec {
+                table: "brokkr_projected_runs",
+                index: "brokkr_projected_runs_created_idx",
+            }],
             SchemaKind::EventLog | SchemaKind::Coordination => &[],
         }
     }
@@ -422,14 +440,29 @@ fn normalize_check_expr(expr: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn drop_legacy_indexes(tx: &mut PgClient, legacy_indexes: &[&str]) -> Result<(), PgError> {
+fn drop_legacy_indexes(
+    tx: &mut PgClient,
+    legacy_indexes: &[LegacyIndexSpec],
+) -> Result<(), PgError> {
     if legacy_indexes.is_empty() {
         return Ok(());
     }
-    let schema = quote_pg_ident(&current_schema(tx)?);
-    for index in legacy_indexes {
-        let sql = format!("DROP INDEX IF EXISTS {schema}.{}", quote_pg_ident(index));
-        tx.query(&sql, &[])?;
+    let schema = current_schema(tx)?;
+    let quoted_schema = quote_pg_ident(&schema);
+    for legacy in legacy_indexes {
+        let params = [
+            Some(schema.as_str()),
+            Some(legacy.table),
+            Some(legacy.index),
+        ];
+        let found = tx.query(SELECT_LEGACY_INDEX_SQL, &params)?;
+        if !found.rows.is_empty() {
+            let sql = format!(
+                "DROP INDEX IF EXISTS {quoted_schema}.{}",
+                quote_pg_ident(legacy.index)
+            );
+            tx.query(&sql, &[])?;
+        }
     }
     Ok(())
 }

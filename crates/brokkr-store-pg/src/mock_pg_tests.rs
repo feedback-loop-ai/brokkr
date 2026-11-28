@@ -71,6 +71,26 @@ pub(crate) type ProjEventRow = (
 );
 
 #[derive(Clone, Default)]
+pub(crate) enum MockSearchPath {
+    #[default]
+    Public,
+    Schemas(Vec<String>),
+}
+
+impl MockSearchPath {
+    fn schemas(&self) -> Vec<&str> {
+        match self {
+            Self::Public => vec!["public"],
+            Self::Schemas(list) => list.iter().map(String::as_str).collect(),
+        }
+    }
+
+    fn current_schema(&self) -> Option<String> {
+        self.schemas().first().map(|s| (*s).to_string())
+    }
+}
+
+#[derive(Clone, Default)]
 pub(crate) struct MockDb {
     pub(crate) run_next_order: i64,
     pub(crate) run_orders: BTreeMap<String, i64>,
@@ -82,9 +102,8 @@ pub(crate) struct MockDb {
     pub(crate) proj_events: BTreeMap<(String, i64), ProjEventRow>,
     pub(crate) proj_events_jsonb: BTreeMap<(String, i64), Option<String>>,
     pub(crate) schema_meta: BTreeMap<String, i64>,
-    pub(crate) current_schema_override: Option<Option<String>>,
-    pub(crate) search_path: Vec<String>,
-    pub(crate) indexes: BTreeSet<(String, String)>,
+    pub(crate) search_path: MockSearchPath,
+    pub(crate) indexes: BTreeMap<(String, String), String>,
     pub(crate) omit_columns: BTreeSet<(String, String)>,
     pub(crate) override_column_meta: BTreeMap<(String, String), (String, String)>,
     pub(crate) omit_checks: BTreeSet<(String, String)>,
@@ -376,17 +395,14 @@ fn drop_mock_index(db: &mut MockDb, norm: &str) {
         db.indexes.remove(&(first, index));
         return;
     }
-    let path: Vec<String> = if db.search_path.is_empty() {
-        db.current_schema_override
-            .clone()
-            .unwrap_or_else(|| Some("public".into()))
-            .into_iter()
-            .collect()
-    } else {
-        db.search_path.clone()
-    };
+    let path: Vec<String> = db
+        .search_path
+        .schemas()
+        .into_iter()
+        .map(str::to_string)
+        .collect();
     for schema in path {
-        if db.indexes.remove(&(schema, first.clone())) {
+        if db.indexes.remove(&(schema, first.clone())).is_some() {
             break;
         }
     }
@@ -394,11 +410,22 @@ fn drop_mock_index(db: &mut MockDb, norm: &str) {
 
 fn exec_schema(db: &mut MockDb, norm: &str, params: &[Option<String>]) -> Option<SqlRes> {
     if norm == "SELECT current_schema()" {
-        let schema = db
-            .current_schema_override
-            .clone()
-            .unwrap_or_else(|| Some("public".into()));
-        return Some(Ok((vec![vec![schema]], "SELECT 1".into())));
+        return Some(Ok((
+            vec![vec![db.search_path.current_schema()]],
+            "SELECT 1".into(),
+        )));
+    }
+    if norm.starts_with("SELECT 1 FROM pg_index ix") {
+        let schema = pstr(params, 0);
+        let table = pstr(params, 1);
+        let index = pstr(params, 2);
+        let rows = db
+            .indexes
+            .get(&(schema.to_string(), index.to_string()))
+            .filter(|owner| owner.as_str() == table)
+            .map(|_| vec![vec![Some("1".into())]])
+            .unwrap_or_default();
+        return Some(Ok((rows, "SELECT 1".into())));
     }
     if norm
         .starts_with("SELECT column_name, data_type, is_nullable FROM information_schema.columns")

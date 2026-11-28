@@ -11,7 +11,7 @@ use brokkr_store::ports::{
 use brokkr_store::StoreError;
 use serde_json::{json, Value};
 
-use crate::mock_pg_tests::{sample_manifest, sealed_env, MockPgServer};
+use crate::mock_pg_tests::{sample_manifest, sealed_env, MockPgServer, MockSearchPath};
 use crate::{PgCoordinationStore, PgError, PgEventLog, PgProjectionStore, PgStore};
 
 #[test]
@@ -804,16 +804,22 @@ fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs(
     // Projection schema installs no redundant secondary indexes (list_runs sorts in Rust)
     // and drops the legacy brokkr_projected_runs_created_idx on reconnect to v3 databases.
     let srv_proj_idx = MockPgServer::start();
-    srv_proj_idx
-        .db
-        .lock()
-        .unwrap()
-        .schema_meta
-        .insert("projection".into(), crate::schema::CURRENT_SCHEMA_VERSION);
+    {
+        let mut db = srv_proj_idx.db.lock().unwrap();
+        db.schema_meta
+            .insert("projection".into(), crate::schema::CURRENT_SCHEMA_VERSION);
+        db.indexes.insert(
+            ("public".into(), "brokkr_projected_runs_created_idx".into()),
+            "brokkr_projected_runs".into(),
+        );
+    }
     let _proj = PgProjectionStore::connect(&srv_proj_idx.config()).unwrap();
     {
         let db = srv_proj_idx.db.lock().unwrap();
         assert!(db.queries.iter().all(|q| !q.starts_with("CREATE INDEX")));
+        assert!(!db
+            .indexes
+            .contains_key(&("public".into(), "brokkr_projected_runs_created_idx".into())));
         assert!(db
             .queries
             .iter()
@@ -874,22 +880,25 @@ fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs(
 
 #[test]
 fn projection_init_drops_legacy_index_only_in_current_schema() {
-    // 1-2. Legacy index cleanup is schema-qualified: a later search_path schema's
-    //      same-named index survives even when the current schema lacks it, and
-    //      quoted schema identifiers drop only the current schema's index on v3 reconnect.
+    // 1-3. Legacy index cleanup checks both current_schema() (derived from search_path)
+    //      and the indexed table: another schema's index and a same-named index on another
+    //      table in the current schema both survive without issuing DROP INDEX, while an
+    //      index on brokkr_projected_runs in current_schema() (including quoted names) drops.
     const LEGACY_IDX: &str = "brokkr_projected_runs_created_idx";
-    for (schema, preseed_v3, has_local_idx, want_sql) in [
+    for (schema, preseed_v3, local_table, want_drop_sql) in [
+        ("tenant", false, None, None),
+        ("tenant", true, Some("other_table"), None),
         (
-            "app_schema",
-            false,
-            false,
-            "DROP INDEX IF EXISTS \"app_schema\".\"brokkr_projected_runs_created_idx\"",
+            "tenant",
+            true,
+            Some("brokkr_projected_runs"),
+            Some("DROP INDEX IF EXISTS \"tenant\".\"brokkr_projected_runs_created_idx\""),
         ),
         (
             "app\"schema",
             true,
-            true,
-            "DROP INDEX IF EXISTS \"app\"\"schema\".\"brokkr_projected_runs_created_idx\"",
+            Some("brokkr_projected_runs"),
+            Some("DROP INDEX IF EXISTS \"app\"\"schema\".\"brokkr_projected_runs_created_idx\""),
         ),
     ] {
         let srv = MockPgServer::start();
@@ -899,27 +908,36 @@ fn projection_init_drops_legacy_index_only_in_current_schema() {
                 db.schema_meta
                     .insert("projection".into(), crate::schema::CURRENT_SCHEMA_VERSION);
             }
-            db.current_schema_override = Some(Some(schema.into()));
-            db.search_path = vec![schema.into(), "other_schema".into()];
-            if has_local_idx {
-                db.indexes.insert((schema.into(), LEGACY_IDX.into()));
+            db.search_path = MockSearchPath::Schemas(vec![schema.into(), "other_schema".into()]);
+            if let Some(table) = local_table {
+                db.indexes
+                    .insert((schema.into(), LEGACY_IDX.into()), table.into());
             }
-            db.indexes
-                .insert(("other_schema".into(), LEGACY_IDX.into()));
+            db.indexes.insert(
+                ("other_schema".into(), LEGACY_IDX.into()),
+                "brokkr_projected_runs".into(),
+            );
         }
         let _proj = PgProjectionStore::connect(&srv.config()).unwrap();
         let db = srv.db.lock().unwrap();
-        assert!(!db.indexes.contains(&(schema.into(), LEGACY_IDX.into())));
+        let expect_local_survives = local_table.is_some() && want_drop_sql.is_none();
+        assert_eq!(
+            db.indexes.contains_key(&(schema.into(), LEGACY_IDX.into())),
+            expect_local_survives
+        );
         assert!(db
             .indexes
-            .contains(&("other_schema".into(), LEGACY_IDX.into())));
-        assert!(db.queries.iter().any(|q| q == want_sql));
+            .contains_key(&("other_schema".into(), LEGACY_IDX.into())));
+        match want_drop_sql {
+            Some(sql) => assert!(db.queries.iter().any(|q| q == sql)),
+            None => assert!(db.queries.iter().all(|q| !q.starts_with("DROP INDEX"))),
+        }
     }
 
-    // 3. NULL or empty current_schema() fails closed with IncompatibleSchema.
-    for empty_schema in [None, Some(String::new())] {
+    // 4. Empty search_path (NULL current_schema()) or empty schema name fails closed.
+    for empty_path in [vec![], vec![String::new()]] {
         let srv_none = MockPgServer::start();
-        srv_none.db.lock().unwrap().current_schema_override = Some(empty_schema);
+        srv_none.db.lock().unwrap().search_path = MockSearchPath::Schemas(empty_path);
         assert!(matches!(
             PgProjectionStore::connect(&srv_none.config()),
             Err(PgError::IncompatibleSchema(_))
