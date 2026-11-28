@@ -10,7 +10,7 @@
 //! returns NULL and a NULL CHECK passes. Only the readers here convert
 //! them, into the `time` type the engine already carries.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::{provider_waits, Held, ProviderWait};
@@ -23,7 +23,7 @@ mod write;
 use super::storage::{cool_downs_held, cool_downs_writable};
 use super::QueueRefusal;
 use crate::{patiently, Store, StoreError};
-use write::{insert_row_with, verify_existing_cooldown, StoredRow as WriteStoredRow};
+pub(crate) use write::insert_idempotent;
 
 mod hold;
 mod joined;
@@ -218,60 +218,6 @@ pub(crate) fn insert(
     Ok(held)
 }
 
-/// Idempotently write `rows` as the cool-downs of `(run_id, event_seq)` at
-/// `recorded_at`, returning the count of newly inserted rows (decision 0126
-/// ruling 3). Already-expired rows (`until <= recorded`) are skipped, matching
-/// [`insert`], and duplicate `(run_id, event_seq, site, rounds)` rows are
-/// ignored without error while CHECK constraints remain enforced.
-pub(crate) fn insert_idempotent(
-    tx: &Connection,
-    run_id: &str,
-    event_seq: u64,
-    recorded_at: &str,
-    rows: &[Cooling],
-) -> Result<u64, StoreError> {
-    if rows.is_empty() || !cool_downs_writable(tx)? {
-        return Ok(0);
-    }
-    let recorded = OffsetDateTime::parse(recorded_at, &Rfc3339)
-        .map_err(|_| StoreError::Clock {
-            now: recorded_at.to_string(),
-        })?
-        .unix_timestamp();
-    let mut inserted = 0u64;
-    let mut seen_in_batch = BTreeSet::new();
-    for row in rows {
-        let until = until_second(row.until_at);
-        let stored = WriteStoredRow {
-            run_id,
-            event_seq,
-            site: &row.site,
-            provider: &row.provider,
-            route: &row.route,
-            until,
-            reason: &row.reason,
-            retry_after_seconds: row.retry_after_seconds,
-            rounds: row.rounds,
-            recorded,
-        };
-        if !seen_in_batch.insert((row.site.as_str(), row.rounds)) {
-            return Err(StoreError::DivergentEventLog {
-                run_id: run_id.to_string(),
-            });
-        }
-        if until <= recorded {
-            verify_existing_cooldown(tx, &stored, false)?;
-            continue;
-        }
-        let changed = insert_row_with(tx, &stored, true)?;
-        if changed == 0 {
-            verify_existing_cooldown(tx, &stored, true)?;
-        }
-        inserted += changed as u64;
-    }
-    Ok(inserted)
-}
-
 /// One `provider_cooldowns` row as the table's one writer spells it:
 /// shared by an attempt's rows and a probe's later round, so the INSERT
 /// lives once (decision 0071 ruling 5).
@@ -325,14 +271,6 @@ fn insert_row(
         return Err(unwritten().into());
     }
     Ok(())
-=======
-        if insert_row_with(tx, &stored, idempotent)? > 0 {
-            inserted += 1;
-        } else {
-            verify_existing_cooldown(tx, &stored, true)?;
-        }
-    }
-    Ok(inserted)
 }
 
 /// Every cool-down row in force at `now` on `conn`, checking the queue version.
@@ -345,7 +283,6 @@ pub(crate) fn active_in_force(
     } else {
         Ok(Vec::new())
     }
->>>>>>> 6f0a76b0e (store,cli: add local split backend (FsEventLog, SqliteProjectionStore, SqliteCoordinationStore) and journal reindex/migrate (decision 0126, slice 2, #1362))
 }
 
 /// The last whole second an RFC 3339 instant can name:
@@ -360,7 +297,7 @@ const LAST_SECOND: i64 = 253_402_300_799;
 /// a second, never shortened. An end in the last second's fraction rounds
 /// to that second, the latest this binary can spell, rather than past it
 /// into a value no reader can name.
-fn until_second(at: OffsetDateTime) -> i64 {
+pub(crate) fn until_second(at: OffsetDateTime) -> i64 {
     let seconds = at.unix_timestamp();
     let rounded = if at.nanosecond() == 0 {
         seconds
@@ -474,7 +411,7 @@ fn aggregate(
 
 /// A stored instant this reader can name, or the row's refusal: a whole
 /// number of seconds outside `time`'s range is never guessed at.
-fn time_of(seconds: i64, seq: i64) -> Result<OffsetDateTime, StoreError> {
+pub(crate) fn time_of(seconds: i64, seq: i64) -> Result<OffsetDateTime, StoreError> {
     OffsetDateTime::from_unix_timestamp(seconds)
         .map_err(|_| QueueRefusal::CooldownTime { seq }.into())
 }

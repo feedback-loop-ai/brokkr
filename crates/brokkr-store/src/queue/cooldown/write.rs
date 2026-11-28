@@ -1,8 +1,14 @@
 //! Shared INSERT and idempotent conflict-verification helpers for
 //! `provider_cooldowns` (decision 0071 ruling 5; decision 0126 ruling 3).
 
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use std::collections::BTreeSet;
 
+use rusqlite::{params, Connection, OptionalExtension, Row};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+
+use super::super::storage::cool_downs_writable;
+use super::{until_second, Cooling};
 use crate::ports::checked_seq;
 use crate::StoreError;
 
@@ -88,12 +94,6 @@ fn verify_conflict_fields(
     Ok(())
 }
 
-/// Insert one row. The table's CHECK constraints and unique index judge it.
-pub(super) fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<(), StoreError> {
-    insert_row_with(conn, row, false)?;
-    Ok(())
-}
-
 pub(super) fn insert_row_with(
     conn: &Connection,
     row: &StoredRow<'_>,
@@ -137,4 +137,58 @@ pub(super) fn verify_existing_cooldown(
         verify_conflict_fields(row, checked.retry_after_seconds, &existing)?;
     }
     Ok(())
+}
+
+/// Idempotently write `rows` as the cool-downs of `(run_id, event_seq)` at
+/// `recorded_at`, returning the count of newly inserted rows (decision 0126
+/// ruling 3). Already-expired rows (`until <= recorded`) are skipped, matching
+/// [`super::insert`], and duplicate `(run_id, event_seq, site, rounds)` rows
+/// are ignored without error while CHECK constraints remain enforced.
+pub(crate) fn insert_idempotent(
+    tx: &Connection,
+    run_id: &str,
+    event_seq: u64,
+    recorded_at: &str,
+    rows: &[Cooling],
+) -> Result<u64, StoreError> {
+    if rows.is_empty() || !cool_downs_writable(tx)? {
+        return Ok(0);
+    }
+    let recorded = OffsetDateTime::parse(recorded_at, &Rfc3339)
+        .map_err(|_| StoreError::Clock {
+            now: recorded_at.to_string(),
+        })?
+        .unix_timestamp();
+    let mut inserted = 0u64;
+    let mut seen_in_batch = BTreeSet::new();
+    for row in rows {
+        let until = until_second(row.until_at);
+        let stored = StoredRow {
+            run_id,
+            event_seq,
+            site: &row.site,
+            provider: &row.provider,
+            route: &row.route,
+            until,
+            reason: &row.reason,
+            retry_after_seconds: row.retry_after_seconds,
+            rounds: row.rounds,
+            recorded,
+        };
+        if !seen_in_batch.insert((row.site.as_str(), row.rounds)) {
+            return Err(StoreError::DivergentEventLog {
+                run_id: run_id.to_string(),
+            });
+        }
+        if until <= recorded {
+            verify_existing_cooldown(tx, &stored, false)?;
+            continue;
+        }
+        let changed = insert_row_with(tx, &stored, true)?;
+        if changed == 0 {
+            verify_existing_cooldown(tx, &stored, true)?;
+        }
+        inserted += changed as u64;
+    }
+    Ok(inserted)
 }

@@ -1368,14 +1368,14 @@ fn run_with(
         Cmd::Broker { command } => broker::run(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
-        Cmd::Grouped(command) => verbs::grouped(workspace, command),
+        Cmd::Grouped(command) => grouped(workspace, command),
         Cmd::FakeDriver(args) => setup::fake_driver(args),
     }
 }
 
 /// The small verb groups `Cmd::Grouped` flattens, each to its handler.
 fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode> {
-    use verbs::{dispatch, orders, setup, sweep};
+    use verbs::{dispatch, orders, setup, split, sweep};
     match command {
         GroupedCmd::Recipes { command } => setup::recipes(workspace, command),
         GroupedCmd::Agents { command } => setup::agents(workspace, command),
@@ -1387,6 +1387,7 @@ fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode>
         GroupedCmd::Completions(args) => {
             Ok(completion::script(args, &mut std::io::stdout().lock()))
         }
+        GroupedCmd::Split(command) => split::run(workspace, command),
     }
 }
 #[cfg(test)]

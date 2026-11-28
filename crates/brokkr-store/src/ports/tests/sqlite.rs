@@ -189,6 +189,7 @@ fn sqlite_store_satisfies_coordination_port() {
         reason: "429 rate limited".to_string(),
         retry_after_seconds: Some(7200),
         rounds: 1,
+        held: None,
     };
     store
         .append_with_cooldowns(

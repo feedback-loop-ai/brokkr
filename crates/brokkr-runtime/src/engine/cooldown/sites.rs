@@ -742,17 +742,3 @@ fn record_event(event_type: EventType, payload: &Value) -> EventEnvelope {
         event_hash: String::new(),
     }
 }
-/// One `waits` entry as its row, its held kind carried with it so the
-/// append reads the payload no second time (fix round 0106b1r3).
-fn row_of_wait(wait: &ProviderWait) -> Cooling {
-    Cooling {
-        site: wait.site.clone().unwrap_or_default(),
-        provider: wait.provider.clone(),
-        route: wait.route.clone(),
-        until_at: wait.until,
-        reason: wait.words.clone(),
-        retry_after_seconds: wait.retry_after_seconds,
-        rounds: wait.rounds,
-        held: wait.held,
-    }
-}

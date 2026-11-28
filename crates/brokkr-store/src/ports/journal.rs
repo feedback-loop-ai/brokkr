@@ -24,6 +24,33 @@ pub struct NewEvent<'a> {
     pub ts: &'a str,
 }
 
+impl NewEvent<'_> {
+    /// Seal this event into a hash-chained [`EventEnvelope`].
+    pub fn seal(
+        self,
+        run_id: &str,
+        seq: u64,
+        event_id: String,
+        previous_hash: &str,
+    ) -> EventEnvelope {
+        EventEnvelope {
+            run_id: run_id.to_string(),
+            seq,
+            event_id,
+            event_schema_version: EVENT_SCHEMA_VERSION,
+            event_type: self.event_type,
+            payload: self.payload,
+            causation_id: self.causation_id.map(str::to_owned),
+            correlation_id: run_id.to_string(),
+            attempt_id: self.attempt_id.map(str::to_owned),
+            recorded_at: self.ts.to_string(),
+            previous_hash: previous_hash.to_string(),
+            event_hash: String::new(),
+        }
+        .sealed()
+    }
+}
+
 /// Backend-agnostic journal facade composing an [`EventLog`], a
 /// [`ProjectionStore`], and a [`CoordinationStore`] (decision 0126 ruling 2).
 pub struct Journal<E, P, C> {
@@ -186,21 +213,12 @@ impl<E: EventLog, P: ProjectionStore, C: CoordinationStore> Journal<E, P, C> {
         super::refuse_after_terminal(run_id, &events, &[event.event_type])?;
         super::validate_started_manifest(run_id, event.event_type, &event.payload)?;
         let manifest = self.event_log.manifest(run_id)?;
-        let envelope = EventEnvelope {
-            run_id: run_id.to_string(),
+        let envelope = event.seal(
+            run_id,
             seq,
-            event_id: uuid::Uuid::new_v4().to_string(),
-            event_schema_version: EVENT_SCHEMA_VERSION,
-            event_type: event.event_type,
-            payload: event.payload,
-            causation_id: event.causation_id.map(str::to_owned),
-            correlation_id: run_id.to_string(),
-            attempt_id: event.attempt_id.map(str::to_owned),
-            recorded_at: event.ts.to_string(),
-            previous_hash: expected_head.1.to_string(),
-            event_hash: String::new(),
-        }
-        .sealed();
+            uuid::Uuid::new_v4().to_string(),
+            expected_head.1,
+        );
         super::validate_seat_records(&manifest, &events, std::slice::from_ref(&envelope))?;
         self.event_log
             .append_envelopes(run_id, expected_head, std::slice::from_ref(&envelope))?;

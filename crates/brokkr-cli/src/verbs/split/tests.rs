@@ -45,7 +45,7 @@ fn seed_monolith(db: &Path) -> Store {
     let mut store = Store::open(db).unwrap();
     let m1 = json!({"engine": "0.15.0", "feature": "alpha", "bundle_name": "self"});
     store.create_run("run-alpha", "alpha", "self", &m1).unwrap();
-    store
+    let started = store
         .append_next(
             "run-alpha",
             EventType::RunStarted,
@@ -72,7 +72,18 @@ fn seed_monolith(db: &Path) -> Store {
     store
         .create_run("run-beta", "beta-bare", "self", &json!({}))
         .unwrap();
-    store
+    drop(store);
+    // Align `run-alpha`'s `runs.created_at` with `RunStarted.recorded_at` so a
+    // second-boundary tick between `create_run` and `append_next(RunStarted)`
+    // cannot make `Store::list_runs()` disagree with `SqliteProjectionStore::list_runs()`.
+    let conn = rusqlite::Connection::open(db).unwrap();
+    conn.execute(
+        "UPDATE runs SET created_at = ?1 WHERE run_id = 'run-alpha'",
+        rusqlite::params![started.recorded_at],
+    )
+    .unwrap();
+    drop(conn);
+    Store::open(db).unwrap()
 }
 
 #[test]

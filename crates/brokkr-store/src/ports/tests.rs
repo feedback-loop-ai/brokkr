@@ -861,6 +861,7 @@ fn memory_journal_coordination_enqueue_list_and_cooldowns() {
         retry_after_seconds: Some(600),
         rounds: 1,
         recorded_at: rfc3339("2026-11-25T12:00:00Z"),
+        probe: false,
     });
     assert_eq!(
         journal

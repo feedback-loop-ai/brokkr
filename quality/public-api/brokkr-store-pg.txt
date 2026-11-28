@@ -1,0 +1,111 @@
+# produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
+pub mod brokkr_store_pg
+pub enum brokkr_store_pg::PgError
+pub brokkr_store_pg::PgError::Auth(alloc::string::String)
+pub brokkr_store_pg::PgError::ConnectionClosed
+pub brokkr_store_pg::PgError::EmptyWorkerId
+pub brokkr_store_pg::PgError::IncompatibleSchema(alloc::string::String)
+pub brokkr_store_pg::PgError::InvalidUrl(&'static str)
+pub brokkr_store_pg::PgError::Io(core::io::error::Error)
+pub brokkr_store_pg::PgError::Protocol(alloc::string::String)
+pub brokkr_store_pg::PgError::Server
+pub brokkr_store_pg::PgError::Server::constraint: core::option::Option<alloc::string::String>
+pub brokkr_store_pg::PgError::Server::message: alloc::string::String
+pub brokkr_store_pg::PgError::Server::sqlstate: alloc::string::String
+pub brokkr_store_pg::PgError::TransactionAborted
+impl brokkr_store_pg::PgError
+pub fn brokkr_store_pg::PgError::into_store_error(self) -> brokkr_store::error::StoreError
+pub fn brokkr_store_pg::PgError::sqlstate(&self) -> core::option::Option<&str>
+pub struct brokkr_store_pg::ClaimedEntry
+pub brokkr_store_pg::ClaimedEntry::added_at: alloc::string::String
+pub brokkr_store_pg::ClaimedEntry::claimed_at: alloc::string::String
+pub brokkr_store_pg::ClaimedEntry::id: brokkr_store::queue::EntryId
+pub brokkr_store_pg::ClaimedEntry::payload: alloc::string::String
+pub brokkr_store_pg::ClaimedEntry::priority: i64
+pub brokkr_store_pg::ClaimedEntry::waits: alloc::vec::Vec<brokkr_store::queue::Wait>
+pub brokkr_store_pg::ClaimedEntry::worker_id: alloc::string::String
+pub struct brokkr_store_pg::PgClient
+impl brokkr_store_pg::PgClient
+pub fn brokkr_store_pg::PgClient::connect(&brokkr_store_pg::PgConfig) -> core::result::Result<Self, brokkr_store_pg::PgError>
+pub fn brokkr_store_pg::PgClient::in_transaction<T, E>(&mut self, impl core::ops::function::FnOnce(&mut Self) -> core::result::Result<T, E>, impl core::ops::function::Fn(brokkr_store_pg::PgError) -> E) -> core::result::Result<T, E>
+pub fn brokkr_store_pg::PgClient::query(&mut self, &str, &[core::option::Option<&str>]) -> core::result::Result<brokkr_store_pg::QueryResult, brokkr_store_pg::PgError>
+impl core::ops::drop::Drop for brokkr_store_pg::PgClient
+pub fn brokkr_store_pg::PgClient::drop(&mut self)
+pub struct brokkr_store_pg::PgConfig
+pub brokkr_store_pg::PgConfig::connect_timeout: core::time::Duration
+pub brokkr_store_pg::PgConfig::database: alloc::string::String
+pub brokkr_store_pg::PgConfig::host: alloc::string::String
+pub brokkr_store_pg::PgConfig::io_timeout: core::time::Duration
+pub brokkr_store_pg::PgConfig::password: core::option::Option<alloc::string::String>
+pub brokkr_store_pg::PgConfig::port: u16
+pub brokkr_store_pg::PgConfig::user: alloc::string::String
+impl brokkr_store_pg::PgConfig
+pub fn brokkr_store_pg::PgConfig::parse(&str) -> core::result::Result<Self, brokkr_store_pg::PgError>
+pub fn brokkr_store_pg::PgConfig::with_connect_timeout(self, core::time::Duration) -> Self
+pub fn brokkr_store_pg::PgConfig::with_io_timeout(self, core::time::Duration) -> Self
+pub struct brokkr_store_pg::PgCoordinationStore
+impl brokkr_store_pg::PgCoordinationStore
+pub fn brokkr_store_pg::PgCoordinationStore::apply_cooldowns(&self, &str, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<u64, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgCoordinationStore::claim_next_entry(&self, &str, &str) -> core::result::Result<core::option::Option<brokkr_store_pg::ClaimedEntry>, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgCoordinationStore::sync_cooldowns_from(&self, &dyn brokkr_store::ports::EventLog) -> core::result::Result<u64, brokkr_store::error::StoreError>
+impl brokkr_store_pg::PgCoordinationStore
+pub fn brokkr_store_pg::PgCoordinationStore::connect(&brokkr_store_pg::PgConfig) -> core::result::Result<Self, brokkr_store_pg::PgError>
+impl brokkr_store::ports::CoordinationStore for brokkr_store_pg::PgCoordinationStore
+pub fn brokkr_store_pg::PgCoordinationStore::active_cooldowns(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::queue::cooldown::Cooldown>, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgCoordinationStore::enqueue(&self, &brokkr_store::queue::entry::NewEntry<'_>, &str) -> core::result::Result<brokkr_store::queue::EntryId, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgCoordinationStore::list_queue(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::queue::QueueEntry>, brokkr_store::error::StoreError>
+pub struct brokkr_store_pg::PgEventLog
+impl brokkr_store_pg::PgEventLog
+pub fn brokkr_store_pg::PgEventLog::connect(&brokkr_store_pg::PgConfig) -> core::result::Result<Self, brokkr_store_pg::PgError>
+impl brokkr_store::ports::EventLog for brokkr_store_pg::PgEventLog
+pub fn brokkr_store_pg::PgEventLog::append_envelopes(&self, &str, (u64, &str), &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgEventLog::create_run(&self, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgEventLog::head(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgEventLog::import_run_stream(&self, &str, &serde_json::value::Value, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgEventLog::list_run_ids(&self) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgEventLog::manifest(&self, &str) -> core::result::Result<serde_json::value::Value, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgEventLog::read_stream(&self, &str, u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgEventLog::run_metadata(&self, &str) -> core::result::Result<core::option::Option<brokkr_store::ports::RunMetadata>, brokkr_store::error::StoreError>
+pub struct brokkr_store_pg::PgProjectionStore
+impl brokkr_store_pg::PgProjectionStore
+pub fn brokkr_store_pg::PgProjectionStore::connect(&brokkr_store_pg::PgConfig) -> core::result::Result<Self, brokkr_store_pg::PgError>
+impl brokkr_store::ports::ProjectionStore for brokkr_store_pg::PgProjectionStore
+pub fn brokkr_store_pg::PgProjectionStore::apply_envelopes(&self, &str, core::option::Option<&serde_json::value::Value>, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgProjectionStore::list_runs(&self) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String, alloc::string::String)>, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgProjectionStore::rebuild_from(&self, &dyn brokkr_store::ports::EventLog) -> core::result::Result<u64, brokkr_store::error::StoreError>
+pub struct brokkr_store_pg::PgRow
+impl brokkr_store_pg::PgRow
+pub fn brokkr_store_pg::PgRow::get_i64(&self, usize) -> core::result::Result<i64, brokkr_store_pg::PgError>
+pub fn brokkr_store_pg::PgRow::get_opt_i64(&self, usize) -> core::result::Result<core::option::Option<i64>, brokkr_store_pg::PgError>
+pub fn brokkr_store_pg::PgRow::get_opt_str(&self, usize) -> core::result::Result<core::option::Option<&str>, brokkr_store_pg::PgError>
+pub fn brokkr_store_pg::PgRow::get_str(&self, usize) -> core::result::Result<&str, brokkr_store_pg::PgError>
+pub struct brokkr_store_pg::PgStore
+impl brokkr_store_pg::PgStore
+pub fn brokkr_store_pg::PgStore::apply_cooldowns(&self, &str, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<u64, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::claim_next_entry(&self, &str, &str) -> core::result::Result<core::option::Option<brokkr_store_pg::ClaimedEntry>, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::sync_cooldowns_from(&self, &dyn brokkr_store::ports::EventLog) -> core::result::Result<u64, brokkr_store::error::StoreError>
+impl brokkr_store_pg::PgStore
+pub fn brokkr_store_pg::PgStore::connect(&brokkr_store_pg::PgConfig) -> core::result::Result<Self, brokkr_store_pg::PgError>
+impl brokkr_store::ports::CoordinationStore for brokkr_store_pg::PgStore
+pub fn brokkr_store_pg::PgStore::active_cooldowns(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::queue::cooldown::Cooldown>, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::enqueue(&self, &brokkr_store::queue::entry::NewEntry<'_>, &str) -> core::result::Result<brokkr_store::queue::EntryId, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::list_queue(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::queue::QueueEntry>, brokkr_store::error::StoreError>
+impl brokkr_store::ports::EventLog for brokkr_store_pg::PgStore
+pub fn brokkr_store_pg::PgStore::append_envelopes(&self, &str, (u64, &str), &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::create_run(&self, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::head(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::import_run_stream(&self, &str, &serde_json::value::Value, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::list_run_ids(&self) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::manifest(&self, &str) -> core::result::Result<serde_json::value::Value, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::read_stream(&self, &str, u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::run_metadata(&self, &str) -> core::result::Result<core::option::Option<brokkr_store::ports::RunMetadata>, brokkr_store::error::StoreError>
+impl brokkr_store::ports::ProjectionStore for brokkr_store_pg::PgStore
+pub fn brokkr_store_pg::PgStore::apply_envelopes(&self, &str, core::option::Option<&serde_json::value::Value>, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::list_runs(&self) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String, alloc::string::String)>, brokkr_store::error::StoreError>
+pub fn brokkr_store_pg::PgStore::rebuild_from(&self, &dyn brokkr_store::ports::EventLog) -> core::result::Result<u64, brokkr_store::error::StoreError>
+pub struct brokkr_store_pg::QueryResult
+pub brokkr_store_pg::QueryResult::rows: alloc::vec::Vec<brokkr_store_pg::PgRow>
+pub brokkr_store_pg::QueryResult::rows_affected: u64
+pub const brokkr_store_pg::DEFAULT_CONNECT_TIMEOUT: core::time::Duration
+pub const brokkr_store_pg::DEFAULT_IO_TIMEOUT: core::time::Duration
+pub const brokkr_store_pg::DEFAULT_PORT: u16
