@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 
 use super::{ci_macos_split_problems, ShardWorkflows, SplitProblem};
-use crate::workflow::{ClosedWorkflow, ClosedWorkflowError, RefusalKind, Scalar};
+use crate::workflow::{
+    ClosedWorkflow, ClosedWorkflowError, RefusalKind, Scalar, Workflow, WorkflowError,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum YamlKind {
@@ -602,4 +604,113 @@ fn macos_runner_check_uses_runs_on_and_expanded_matrix_not_scalars() {
         ci_macos_split_problems(&unexpanded_axis),
         Vec::<SplitProblem>::new()
     );
+}
+
+fn step_with_yaml(uses: &str, with_body: &str) -> String {
+    format!(
+        "on: workflow_dispatch\njobs:\n  pack:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n      - uses: {uses}\n        with:\n          {with_body}\n"
+    )
+}
+
+#[test]
+fn artifact_input_case_collisions_refuse_at_artifact_place_and_preserve_other_duplicates() {
+    let artifact_cases = [
+        (
+            "actions/upload-artifact@v4",
+            "name: dist",
+            "name: dist\n          Name: dist",
+            "name",
+        ),
+        (
+            "actions/upload-artifact@v4",
+            "name: dist",
+            "name: dist\n          NAME: other",
+            "name",
+        ),
+        (
+            "actions/upload-pages-artifact@v3",
+            "name: pages",
+            "name: pages\n          Name: pages",
+            "name",
+        ),
+        (
+            "actions/download-artifact@v4",
+            "name: dist",
+            "name: dist\n          Name: dist",
+            "name",
+        ),
+        (
+            "actions/download-artifact@v4",
+            "pattern: dist-*",
+            "pattern: dist-*\n          Pattern: dist-*",
+            "pattern",
+        ),
+    ];
+    for (uses, valid_with, dup_with, dup_key) in artifact_cases {
+        let valid_yaml = step_with_yaml(uses, valid_with);
+        ClosedWorkflow::parse("sample.yml", &valid_yaml).unwrap_or_else(|err| {
+            panic!("baseline `{uses}` must admit, got {err:?}\n{valid_yaml}")
+        });
+        let dup_yaml = step_with_yaml(uses, dup_with);
+        assert_refusal(
+            "sample.yml",
+            &dup_yaml,
+            RefusalKind::ArtifactName,
+            &format!("job pack step 2 with.{dup_key}"),
+            &format!("duplicate case-insensitive artifact input `{dup_key}`"),
+            &format!("{uses} duplicate `{dup_key}`"),
+        );
+        assert_eq!(
+            Workflow::parse(&dup_yaml),
+            Err(WorkflowError::DuplicateInput {
+                ctx: "step.with",
+                key: dup_key.to_string(),
+            })
+        );
+    }
+
+    for (uses, dup_with, dup_key) in [
+        (
+            "actions/upload-artifact@v4",
+            "name: dist\n          path: a\n          Path: b",
+            "path",
+        ),
+        (
+            "actions/upload-artifact@v4",
+            "name: dist\n          pattern: a\n          Pattern: b",
+            "pattern",
+        ),
+        (
+            "actions/checkout@v4",
+            "ref: main\n          Ref: other",
+            "ref",
+        ),
+    ] {
+        assert_eq!(
+            ClosedWorkflow::parse("sample.yml", &step_with_yaml(uses, dup_with)),
+            Err(ClosedWorkflowError::Parse {
+                file: "sample.yml".to_string(),
+                err: WorkflowError::DuplicateInput {
+                    ctx: "step.with",
+                    key: dup_key.to_string(),
+                },
+            })
+        );
+    }
+
+    let wfs = ShardWorkflows::load();
+    let ci_dup_pattern = wfs.ci.replacen(
+        "pattern: coverage-machine-*",
+        "pattern: coverage-machine-*\n          Pattern: coverage-machine-*",
+        1,
+    );
+    assert_ne!(ci_dup_pattern, wfs.ci);
+    assert!(matches!(
+        ci_macos_split_problems(&ci_dup_pattern).as_slice(),
+        [SplitProblem::ClosedForm(r)]
+            if r.file == "ci.yml"
+                && r.place == "job coverage step 8 with.pattern"
+                && r.kind == RefusalKind::ArtifactName
+                && r.detail == "duplicate case-insensitive artifact input `pattern`"
+    ));
 }

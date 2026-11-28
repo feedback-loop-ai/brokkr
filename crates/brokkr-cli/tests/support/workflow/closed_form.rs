@@ -243,7 +243,7 @@ impl ClosedWorkflow {
             file: file.to_string(),
             err,
         })?;
-        admit_workflow(file, raw).map_err(ClosedWorkflowError::Refusal)
+        admit_workflow(file, raw)
     }
 
     pub(crate) fn events(&self) -> &[EventTrigger] {
@@ -300,7 +300,7 @@ impl ClosedWorkflow {
     }
 }
 
-fn admit_workflow(file: &str, raw: Workflow) -> Result<ClosedWorkflow, ClosedFormRefusal> {
+fn admit_workflow(file: &str, raw: Workflow) -> Result<ClosedWorkflow, ClosedWorkflowError> {
     validate_top_level(&raw, file)?;
     if let Some(issue) = raw.event_shape_issues.first() {
         return Err(ClosedFormRefusal::new(
@@ -309,7 +309,8 @@ fn admit_workflow(file: &str, raw: Workflow) -> Result<ClosedWorkflow, ClosedFor
             RefusalKind::EventFilter,
             &issue.detail,
             ALLOWED_EVENT_FILTERS,
-        ));
+        )
+        .into());
     }
     let mut workflow_call_inputs = Vec::new();
     for ev in &raw.events {
@@ -554,7 +555,7 @@ fn admit_job(
     wf: &Workflow,
     workflow_call_inputs: &[(String, ClosedWorkflowInput)],
     job: &Job,
-) -> Result<ClosedJob, ClosedFormRefusal> {
+) -> Result<ClosedJob, ClosedWorkflowError> {
     if let Some(matrix) = &job.matrix {
         validate_matrix_closed_form(file, &job.id, matrix)?;
     }
@@ -588,7 +589,7 @@ fn admit_step(
     job: &Job,
     idx: usize,
     step: &Step,
-) -> Result<ClosedStep, ClosedFormRefusal> {
+) -> Result<ClosedStep, ClosedWorkflowError> {
     let step_place = format!("job {} step {} if", job.id, idx + 1);
     let condition = ClosedCondition::parse_raw(step.if_raw.as_ref(), file, &step_place)?;
     validate_condition_static(
@@ -601,6 +602,15 @@ fn admit_step(
         &step_place,
     )?;
     let (artifact_name, artifact_pattern) = parse_step_artifacts(job, step, idx, file)?;
+    if let Some(key) = step.with.as_ref().and_then(Inputs::first_duplicate) {
+        return Err(ClosedWorkflowError::Parse {
+            file: file.to_string(),
+            err: WorkflowError::DuplicateInput {
+                ctx: "step.with",
+                key: key.to_string(),
+            },
+        });
+    }
     Ok(ClosedStep {
         raw: step.clone(),
         condition,
@@ -1023,23 +1033,38 @@ fn parse_step_artifacts(
         return Ok((None, None));
     }
     let prefix = format!("job {} step {}", job.id, step_idx + 1);
+    let name_place = format!("{prefix} with.name");
+    check_no_duplicate_artifact_input(step, "name", file, &name_place)?;
     let name = step
         .with_value("name")
-        .map(|raw| {
-            parse_artifact_name(
-                raw,
-                job.matrix.as_ref(),
-                file,
-                &format!("{prefix} with.name"),
-            )
-        })
+        .map(|raw| parse_artifact_name(raw, job.matrix.as_ref(), file, &name_place))
         .transpose()?;
     let pattern = if is_download {
+        let pattern_place = format!("{prefix} with.pattern");
+        check_no_duplicate_artifact_input(step, "pattern", file, &pattern_place)?;
         step.with_value("pattern")
-            .map(|raw| parse_artifact_pattern(raw, file, &format!("{prefix} with.pattern")))
+            .map(|raw| parse_artifact_pattern(raw, file, &pattern_place))
             .transpose()?
     } else {
         None
     };
     Ok((name, pattern))
+}
+
+fn check_no_duplicate_artifact_input(
+    step: &Step,
+    key: &str,
+    file: &str,
+    place: &str,
+) -> Result<(), ClosedFormRefusal> {
+    if step.with.as_ref().is_some_and(|w| w.has_duplicate(key)) {
+        return Err(ClosedFormRefusal::new(
+            file,
+            place,
+            RefusalKind::ArtifactName,
+            format!("duplicate case-insensitive artifact input `{key}`"),
+            ALLOWED_ARTIFACT_NAMES,
+        ));
+    }
+    Ok(())
 }

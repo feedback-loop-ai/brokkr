@@ -137,6 +137,7 @@ impl Scalar {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Inputs {
     entries: BTreeMap<String, Scalar>,
+    duplicate_keys: Vec<String>,
 }
 
 impl Inputs {
@@ -150,6 +151,15 @@ impl Inputs {
 
     pub(crate) fn values(&self) -> impl Iterator<Item = &Scalar> {
         self.entries.values()
+    }
+
+    pub(super) fn has_duplicate(&self, key: &str) -> bool {
+        let lower = key.to_ascii_lowercase();
+        self.duplicate_keys.iter().any(|k| k == &lower)
+    }
+
+    pub(super) fn first_duplicate(&self) -> Option<&str> {
+        self.duplicate_keys.first().map(String::as_str)
     }
 }
 
@@ -658,18 +668,27 @@ fn parse_concurrency(node: &Yaml) -> Result<Concurrency, WorkflowError> {
     })
 }
 
-fn parse_inputs(node: &Yaml, ctx: &'static str) -> Result<Inputs, WorkflowError> {
+fn parse_inputs(node: &Yaml, ctx: &'static str, strict: bool) -> Result<Inputs, WorkflowError> {
     let mut entries = BTreeMap::new();
+    let mut duplicate_keys = Vec::new();
     for (k, v) in expect_map(node, ctx)? {
         let lower = k.to_ascii_lowercase();
         if entries
             .insert(lower.clone(), Scalar::from_yaml(v))
             .is_some()
         {
-            return Err(WorkflowError::DuplicateInput { ctx, key: lower });
+            if strict {
+                return Err(WorkflowError::DuplicateInput { ctx, key: lower });
+            }
+            if !duplicate_keys.contains(&lower) {
+                duplicate_keys.push(lower);
+            }
         }
     }
-    Ok(Inputs { entries })
+    Ok(Inputs {
+        entries,
+        duplicate_keys,
+    })
 }
 
 fn empty_trigger(name: String) -> EventTrigger {
@@ -1278,7 +1297,7 @@ fn parse_step(node: &Yaml, strict_if: bool) -> Result<Step, WorkflowError> {
         uses: opt_str(&e, "uses", "step.uses")?,
         run: opt_str(&e, "run", "step.run")?,
         with: map_get(&e, "with")
-            .map(|v| parse_inputs(v, "step.with"))
+            .map(|v| parse_inputs(v, "step.with", strict_if))
             .transpose()?,
         env: map_get(&e, "env")
             .map(parse_env)
@@ -1339,7 +1358,7 @@ fn parse_job(id: &str, node: &Yaml, strict_if: bool) -> Result<Job, WorkflowErro
         timeout_minutes: map_get(&e, "timeout-minutes").map(Scalar::from_yaml),
         uses: opt_str(&e, "uses", "job.uses")?,
         with: map_get(&e, "with")
-            .map(|v| parse_inputs(v, "job.with"))
+            .map(|v| parse_inputs(v, "job.with", true))
             .transpose()?,
         env: map_get(&e, "env")
             .map(parse_env)
