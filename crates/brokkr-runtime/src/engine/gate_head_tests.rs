@@ -119,20 +119,25 @@ fn git(repo: &Path, args: &[&str]) -> String {
         .to_string()
 }
 
-fn drive_tree_park(engine: &mut Engine, evidence: Value) -> String {
-    let end = engine.drive().unwrap();
-    assert_eq!(
-        end.state.run.park_reason(),
-        Some(&ParkReason::GateChangedTree)
-    );
+/// Drives the gate to its park on `reason`: the journal, and the payload of
+/// its `run/parked`.
+fn parked_on(engine: &mut Engine, reason: ParkReason) -> (Vec<EventEnvelope>, Value) {
+    let run = engine.drive().unwrap().state.run;
+    assert_eq!(run.park_reason(), Some(&reason));
     let events = engine.store.load(&engine.run_id).unwrap();
     let parked = events
         .iter()
         .find(|event| event.event_type == EventType::RunParked)
+        .map(|event| event.payload.clone())
         .unwrap();
-    assert_eq!(parked.payload["reason"], "GATE-CHANGED-TREE");
-    assert_eq!(parked.payload["cause"]["kind"], "ruled");
-    assert_eq!(parked.payload["evidence"], evidence);
+    (events, parked)
+}
+
+fn drive_tree_park(engine: &mut Engine, evidence: Value) -> String {
+    let (events, parked) = parked_on(engine, ParkReason::GateChangedTree);
+    assert_eq!(parked["reason"], "GATE-CHANGED-TREE");
+    assert_eq!(parked["cause"]["kind"], "ruled");
+    assert_eq!(parked["evidence"], evidence);
     assert_eq!(
         events
             .iter()
@@ -187,18 +192,9 @@ fn a_gates_first_commit_parks_on_moved_head_without_reading_the_tree() {
     let (reads, count) = heads::TreeReads::counted(vec![None, None]);
     engine.trees = reads;
     assert_eq!(git_head(&engine.repo), None);
-    let end = engine.drive().unwrap();
+    let (_, parked) = parked_on(&mut engine, ParkReason::GateMovedHead);
     assert_eq!(
-        end.state.run.park_reason(),
-        Some(&ParkReason::GateMovedHead)
-    );
-    let events = engine.store.load(&engine.run_id).unwrap();
-    let parked = events
-        .iter()
-        .find(|event| event.event_type == EventType::RunParked)
-        .unwrap();
-    assert_eq!(
-        parked.payload["evidence"],
+        parked["evidence"],
         json!({
             "head_at_end": git_head(&engine.repo).unwrap(),
             "head_at_start": null,
