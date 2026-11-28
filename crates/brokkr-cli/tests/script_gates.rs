@@ -1355,6 +1355,30 @@ fn refresh_workflow_digests_refuses_symlinks_and_missing_renovate_files() {
         "{}",
         stderr(&sym_ren)
     );
+
+    // Overflowing the OS pipe buffer with many symlinks must still report the
+    // named non-regular-entry refusal (no SIGPIPE / exit 141 under pipefail).
+    std::fs::remove_file(repo.path().join(".github/renovate.json5")).expect("rm symlink renovate");
+    plant_renovate_configs(&repo);
+    let outside = repo.path().join("outside.yml");
+    let wf_dir = repo.path().join(".github/workflows");
+    for i in 0..4096 {
+        std::os::unix::fs::symlink(&outside, wf_dir.join(format!("s{i:04}.yml")))
+            .expect("plant symlink");
+    }
+    let many_sym = repo.run_hermetic("scripts/refresh-workflow-digests.sh", &["--check"], &[]);
+    assert_eq!(
+        many_sym.status.code(),
+        Some(1),
+        "expected exit 1, got {:?}; stderr={}",
+        many_sym.status,
+        stderr(&many_sym)
+    );
+    assert!(
+        stderr(&many_sym).contains("refusing non-regular entry: .github/workflows/s0000.yml"),
+        "{}",
+        stderr(&many_sym)
+    );
 }
 
 #[test]

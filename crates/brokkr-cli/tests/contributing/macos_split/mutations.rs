@@ -1653,6 +1653,66 @@ const OUT_OF_FORM_TRIGGER_CASES: &[(&str, &str, &str)] = &[
         "on.workflow_call.inputs.use-cache",
     ),
     (
+        "workflow_call input missing type",
+        "on:\n  workflow_call:\n    inputs:\n      flag: {}\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input sequence type",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: []\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input null type",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: null\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input bool type",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: true\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input int type",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: 42\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input unknown type",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: number\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input non-string description",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: boolean\n        description: []\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input non-bool required",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: boolean\n        required: 'yes'\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input wrong default type",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: boolean\n        default: 'false'\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input complex default",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: string\n        default: []\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input options on non-choice",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: boolean\n        options: [a]\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
+        "workflow_call input empty options",
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: choice\n        options: []\n",
+        "on.workflow_call.inputs.flag",
+    ),
+    (
         "non-mapping event config",
         "on:\n  push: [main]\n",
         "on.push",
@@ -1683,4 +1743,42 @@ fn out_of_form_trigger_shapes_yield_typed_closed_form_refusal_never_parse_error(
             ),
         }
     }
+
+    // Total admission holds even with `jobs: {}` (no condition reads `inputs.flag`).
+    let no_jobs_bad =
+        "on:\n  workflow_call:\n    inputs:\n      flag:\n        type: []\njobs: {}\n";
+    match ClosedWorkflow::parse("sample.yml", no_jobs_bad) {
+        Err(crate::workflow::ClosedWorkflowError::Refusal(r)) => {
+            assert_eq!(
+                (r.kind, r.place.as_str()),
+                (RefusalKind::EventFilter, "on.workflow_call.inputs.flag"),
+                "unexpected refusal: {r}"
+            );
+        }
+        other => {
+            panic!("expected EventFilter refusal on `type: []` with jobs: {{}}, got {other:?}")
+        }
+    }
+
+    // Valid declared input shapes pass closed admission even with `jobs: {}`.
+    let no_jobs_valid = concat!(
+        "on:\n",
+        "  workflow_call:\n",
+        "    inputs:\n",
+        "      flag:\n",
+        "        description: toggle\n",
+        "        type: boolean\n",
+        "        required: false\n",
+        "        default: false\n",
+        "      label:\n",
+        "        type: string\n",
+        "        default: main\n",
+        "      mode:\n",
+        "        type: choice\n",
+        "        options: [fast, full]\n",
+        "        default: fast\n",
+        "jobs: {}\n",
+    );
+    ClosedWorkflow::parse("sample.yml", no_jobs_valid)
+        .expect("valid workflow_call input declarations must pass closed admission");
 }

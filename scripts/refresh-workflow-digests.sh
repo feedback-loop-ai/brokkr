@@ -168,7 +168,8 @@ if [ -s "$scratch/bad_names" ]; then
 fi
 
 if [ -s "$scratch/non_regular" ]; then
-  first="$(LC_ALL=C sort "$scratch/non_regular" | head -n 1)"
+  LC_ALL=C sort "$scratch/non_regular" > "$scratch/non_regular.sorted"
+  IFS= read -r first < "$scratch/non_regular.sorted"
   fail "refusing non-regular entry: $first"
 fi
 

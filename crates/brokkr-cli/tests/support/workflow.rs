@@ -200,10 +200,39 @@ pub(crate) struct Concurrency {
     pub(crate) extra_keys: Vec<String>,
 }
 
+/// The one home for the closed-form `workflow_call` input type vocabulary
+/// (decision 0071 rulings 2, 3 and 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkflowInputType {
+    Boolean,
+    String,
+    Choice,
+}
+
+impl WorkflowInputType {
+    pub(crate) fn parse_scalar(scalar: &Scalar) -> Option<Self> {
+        match scalar.as_literal()? {
+            "boolean" => Some(Self::Boolean),
+            "string" => Some(Self::String),
+            "choice" => Some(Self::Choice),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Boolean => "boolean",
+            Self::String => "string",
+            Self::Choice => "choice",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorkflowInput {
     pub(crate) input_type: Option<Scalar>,
     pub(crate) default: Option<Scalar>,
+    pub(crate) has_options_key: bool,
     pub(crate) extra_keys: Vec<String>,
 }
 
@@ -834,11 +863,59 @@ fn parse_workflow_input_def(
         })
         .map(|&(ik, _)| ik.to_string())
         .collect();
+    if !strict {
+        record_workflow_input_shape_issues(&place, input_name, &entries, issues);
+    }
     Ok(Some(WorkflowInput {
         input_type: map_get(&entries, "type").map(Scalar::from_yaml),
         default: map_get(&entries, "default").map(Scalar::from_yaml),
+        has_options_key: map_get(&entries, "options").is_some(),
         extra_keys,
     }))
+}
+
+fn record_workflow_input_shape_issues(
+    place: &str,
+    input_name: &str,
+    entries: &Entries<'_>,
+    issues: &mut Vec<TriggerShapeIssue>,
+) {
+    if let Some(desc) = map_get(entries, "description") {
+        if !matches!(desc, Yaml::String(_)) {
+            issues.push(shape_issue(
+                place,
+                format!(
+                    "{} `description` on `inputs.{input_name}`",
+                    Scalar::from_yaml(desc).kind_label()
+                ),
+            ));
+        }
+    }
+    if let Some(req) = map_get(entries, "required") {
+        if !matches!(req, Yaml::Boolean(_)) {
+            issues.push(shape_issue(
+                place,
+                format!(
+                    "{} `required` on `inputs.{input_name}`",
+                    Scalar::from_yaml(req).kind_label()
+                ),
+            ));
+        }
+    }
+    if let Some(opts) = map_get(entries, "options") {
+        let valid = matches!(
+            opts,
+            Yaml::Array(items)
+                if !items.is_empty()
+                    && items.iter().all(|i| matches!(i, Yaml::String(s) if !s.is_empty()))
+        );
+        if !valid {
+            issues.push(shape_issue(
+                place,
+                format!("invalid `options` on `inputs.{input_name}`"),
+            ));
+        }
+    }
 }
 
 fn parse_workflow_inputs(

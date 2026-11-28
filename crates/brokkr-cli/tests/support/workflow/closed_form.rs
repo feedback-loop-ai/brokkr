@@ -15,7 +15,7 @@ use super::{
     action_repo_match, continue_on_error_allows_failure, parse_workflow_raw, ActionMatch,
     ClosedCondition, ClosedFormRefusal, ClosedWorkflowError, Concurrency, ConditionContext,
     EventTrigger, Inputs, Job, Matrix, MatrixClauseState, Permissions, RefusalKind, RunsOn, Scalar,
-    Step, TriggerFilterKey, Verdict, Workflow, WorkflowError, WorkflowInput,
+    Step, TriggerFilterKey, Verdict, Workflow, WorkflowError, WorkflowInput, WorkflowInputType,
 };
 
 /// Covered-workflow jobs whose `strategy.matrix.include` rows are read and
@@ -398,6 +398,84 @@ fn validate_workflow_call_trigger(
     Ok(())
 }
 
+fn validate_workflow_input_closed_form(
+    file: &str,
+    place: &str,
+    input_name: &str,
+    input: &WorkflowInput,
+) -> Result<(), ClosedFormRefusal> {
+    let input_place = format!("{place}.inputs.{input_name}");
+    if let Some(extra) = input.extra_keys.first() {
+        return Err(ClosedFormRefusal::new(
+            file,
+            &input_place,
+            RefusalKind::EventFilter,
+            format!("input key `{extra}` on `inputs.{input_name}`"),
+            ALLOWED_EVENT_FILTERS,
+        ));
+    }
+    let ty = match &input.input_type {
+        Some(raw) => match WorkflowInputType::parse_scalar(raw) {
+            Some(ty) => ty,
+            None => {
+                let detail = match raw {
+                    Scalar::String(s) => {
+                        format!("unsupported `type: {s}` on `inputs.{input_name}`")
+                    }
+                    _ => format!("{} `type` on `inputs.{input_name}`", raw.kind_label()),
+                };
+                return Err(ClosedFormRefusal::new(
+                    file,
+                    &input_place,
+                    RefusalKind::EventFilter,
+                    detail,
+                    ALLOWED_EVENT_FILTERS,
+                ));
+            }
+        },
+        None => {
+            return Err(ClosedFormRefusal::new(
+                file,
+                &input_place,
+                RefusalKind::EventFilter,
+                format!("missing `type` on `inputs.{input_name}`"),
+                ALLOWED_EVENT_FILTERS,
+            ));
+        }
+    };
+    if input.has_options_key && ty != WorkflowInputType::Choice {
+        return Err(ClosedFormRefusal::new(
+            file,
+            &input_place,
+            RefusalKind::EventFilter,
+            format!("`options` on non-choice `inputs.{input_name}`"),
+            ALLOWED_EVENT_FILTERS,
+        ));
+    }
+    if let Some(def) = &input.default {
+        let valid_default = match ty {
+            WorkflowInputType::Boolean => matches!(def, Scalar::Bool(_)),
+            WorkflowInputType::String | WorkflowInputType::Choice => {
+                matches!(def, Scalar::String(_))
+            }
+        };
+        if !valid_default {
+            return Err(ClosedFormRefusal::new(
+                file,
+                &input_place,
+                RefusalKind::EventFilter,
+                format!(
+                    "{} `default` for `type: {}` on `inputs.{input_name}`",
+                    def.kind_label(),
+                    ty.as_str()
+                ),
+                ALLOWED_EVENT_FILTERS,
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_event_closed_form(ev: &EventTrigger, file: &str) -> Result<(), ClosedFormRefusal> {
     let place = format!("on.{}", ev.name);
     if let Some(issue) = ev.shape_issues.first() {
@@ -433,15 +511,7 @@ fn validate_event_closed_form(ev: &EventTrigger, file: &str) -> Result<(), Close
         ));
     }
     for (input_name, input) in &ev.inputs {
-        if let Some(extra) = input.extra_keys.first() {
-            return Err(ClosedFormRefusal::new(
-                file,
-                format!("{place}.inputs.{input_name}"),
-                RefusalKind::EventFilter,
-                format!("input key `{extra}` on `inputs.{input_name}`"),
-                ALLOWED_EVENT_FILTERS,
-            ));
-        }
+        validate_workflow_input_closed_form(file, &place, input_name, input)?;
     }
     for key in ev.filters.keys() {
         if !matches!(
@@ -632,8 +702,8 @@ fn validate_bare_path(
             let is_bool = wf
                 .workflow_call_input(name)
                 .and_then(|i| i.input_type.as_ref())
-                .and_then(Scalar::as_literal)
-                == Some("boolean");
+                .and_then(WorkflowInputType::parse_scalar)
+                == Some(WorkflowInputType::Boolean);
             if is_bool {
                 return Ok(());
             }
@@ -705,8 +775,11 @@ fn validate_comparison_static(
             let ty = wf
                 .workflow_call_input(name)
                 .and_then(|i| i.input_type.as_ref())
-                .and_then(Scalar::as_literal);
-            if matches!(ty, Some("string" | "choice")) {
+                .and_then(WorkflowInputType::parse_scalar);
+            if matches!(
+                ty,
+                Some(WorkflowInputType::String | WorkflowInputType::Choice)
+            ) {
                 return Ok(());
             }
             Err(ClosedFormRefusal::new(

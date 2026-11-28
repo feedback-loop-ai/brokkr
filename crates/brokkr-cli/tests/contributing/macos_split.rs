@@ -11,6 +11,7 @@ use super::workspace;
 use crate::workflow::{
     ActionMatch, ClosedFormRefusal, ClosedJob, ClosedStep, ClosedWorkflow, ClosedWorkflowError,
     CondVal, ConditionContext, EventExpectation, RunsOn, Scalar, Verdict, WorkflowError,
+    WorkflowInputType,
 };
 
 #[path = "macos_split/mutations.rs"]
@@ -421,7 +422,12 @@ fn check_reusable_shards(shards: &str, problems: &mut Vec<SplitProblem>) {
     }
     match wf.workflow_call_input("use-cache") {
         Some(input) => {
-            if input.input_type.as_ref().and_then(Scalar::as_literal) != Some("boolean") {
+            if input
+                .input_type
+                .as_ref()
+                .and_then(WorkflowInputType::parse_scalar)
+                != Some(WorkflowInputType::Boolean)
+            {
                 problems.push(SplitProblem::ShardsUseCacheWrongType);
             }
             if input.default.as_ref().and_then(Scalar::as_bool) != Some(false) {
