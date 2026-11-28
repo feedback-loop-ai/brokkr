@@ -136,6 +136,10 @@ macro_rules! impl_pg_projection_store {
                 )
             }
 
+            /// List projected runs ordered by `(created_at, run_id)` UTF-8 byte
+            /// order; equal `created_at` timestamps tie-break deterministically
+            /// by `run_id` byte order across both incremental `apply_envelopes`
+            /// and `rebuild_from`.
             fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
                 projection::list_runs(&mut lock_client(&self.$field))
             }

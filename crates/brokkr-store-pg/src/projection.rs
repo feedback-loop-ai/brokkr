@@ -83,6 +83,10 @@ pub(crate) fn apply_envelopes(
     )
 }
 
+/// List projected runs in deterministic `(created_at, run_id)` UTF-8 byte order
+/// after decoding escaped NUL/backslash text. Equal `created_at` timestamps
+/// tie-break by `run_id` byte order so incremental `apply_envelopes` and
+/// `rebuild_from` produce identical ordering regardless of insertion sequence.
 pub(crate) fn list_runs(
     client: &mut PgClient,
 ) -> Result<Vec<(String, String, String)>, StoreError> {

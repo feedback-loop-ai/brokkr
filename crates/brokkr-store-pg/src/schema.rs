@@ -214,10 +214,7 @@ const PROJECTION_TABLES: &[TableSpec] = &[
         ],
         checks: &[],
         table_constraints: &[],
-        indexes: &[
-            "CREATE INDEX IF NOT EXISTS brokkr_projected_runs_created_idx
-            ON brokkr_projected_runs (created_at, run_id)",
-        ],
+        indexes: &[],
     },
     TableSpec {
         name: "brokkr_projected_events",

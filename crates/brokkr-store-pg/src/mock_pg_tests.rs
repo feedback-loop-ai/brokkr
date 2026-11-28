@@ -298,16 +298,13 @@ fn exec_sql(
         return Ok((vec![vec![Some(String::new())]], "SELECT 1".into()));
     }
     if norm.starts_with("CREATE INDEX") {
-        if norm.contains("brokkr_projected_runs")
-            && norm.contains("created_at")
+        if norm.contains("brokkr_queue_entries")
+            && norm.contains("priority")
             && db
                 .omit_columns
-                .contains(&("brokkr_projected_runs".into(), "created_at".into()))
+                .contains(&("brokkr_queue_entries".into(), "priority".into()))
         {
-            return Err((
-                "42703".into(),
-                "column \"created_at\" does not exist".into(),
-            ));
+            return Err(("42703".into(), "column \"priority\" does not exist".into()));
         }
         return Ok((vec![], "CREATE INDEX".into()));
     }

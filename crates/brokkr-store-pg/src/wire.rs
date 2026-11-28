@@ -153,7 +153,7 @@ impl PgClient {
                         &res,
                         Ok(raw) if is_tx_ending_tag(raw.command_tag.as_deref())
                     );
-                    if ended || self.tx_status != b'T' {
+                    if ended || self.tx_status == b'I' {
                         self.tx_compromised = true;
                     }
                 }
@@ -196,7 +196,7 @@ impl PgClient {
                 Ok(val)
             }
             Err(err) => {
-                self.rollback_transaction();
+                self.abort_transaction(compromised).map_err(&map_pg)?;
                 Err(err)
             }
         }
@@ -223,7 +223,7 @@ impl PgClient {
     }
 
     fn commit_transaction(&mut self, compromised: bool) -> Result<(), PgError> {
-        if compromised {
+        if compromised || self.tx_status != b'T' {
             if self.tx_status != b'I' {
                 self.rollback_transaction();
             }
@@ -248,6 +248,16 @@ impl PgClient {
                 Err(err)
             }
         }
+    }
+
+    fn abort_transaction(&mut self, compromised: bool) -> Result<(), PgError> {
+        if self.tx_status != b'I' {
+            self.rollback_transaction();
+        }
+        if compromised {
+            return Err(PgError::TransactionAborted);
+        }
+        Ok(())
     }
 
     fn rollback_transaction(&mut self) {
@@ -464,19 +474,39 @@ struct QueryReadState {
 }
 
 impl QueryReadState {
+    fn mark_completed(&mut self) -> Result<(), PgError> {
+        if self.completed {
+            return Err(PgError::Protocol(
+                "duplicate query completion before ReadyForQuery".into(),
+            ));
+        }
+        self.completed = true;
+        Ok(())
+    }
+
+    fn apply_empty_query(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
+        self.mark_completed()?;
+        if !body.is_empty() {
+            return Err(PgError::Protocol(format!(
+                "non-empty EmptyQueryResponse payload ({} bytes)",
+                body.len()
+            )));
+        }
+        Ok(None)
+    }
+
+    fn apply_command_complete(&mut self, body: &[u8]) -> Result<Option<u8>, PgError> {
+        self.mark_completed()?;
+        let (cmd_tag, affected) = parse_command_complete(body)?;
+        self.command_tag = Some(cmd_tag);
+        self.rows_affected = affected;
+        Ok(None)
+    }
+
     fn apply_frame(&mut self, tag: u8, body: &[u8]) -> Result<Option<u8>, PgError> {
         match tag {
             b'1' | b'2' | b't' | b'n' | b'S' | b'N' => Ok(None),
-            b'I' => {
-                if !body.is_empty() {
-                    return Err(PgError::Protocol(format!(
-                        "non-empty EmptyQueryResponse payload ({} bytes)",
-                        body.len()
-                    )));
-                }
-                self.completed = true;
-                Ok(None)
-            }
+            b'I' => self.apply_empty_query(body),
             b'T' => {
                 self.expected_cols = Some(parse_row_description(body)?);
                 Ok(None)
@@ -497,13 +527,7 @@ impl QueryReadState {
                     )),
                 }
             }
-            b'C' => {
-                let (cmd_tag, affected) = parse_command_complete(body)?;
-                self.command_tag = Some(cmd_tag);
-                self.rows_affected = affected;
-                self.completed = true;
-                Ok(None)
-            }
+            b'C' => self.apply_command_complete(body),
             b'E' => {
                 self.server_err = Some(parse_error_response(body));
                 self.completed = true;

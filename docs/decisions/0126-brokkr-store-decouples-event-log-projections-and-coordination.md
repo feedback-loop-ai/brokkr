@@ -81,7 +81,10 @@ the storage edge are warranted.
    same three traits: `runs` and `events` with `PRIMARY KEY (run_id, seq)` and
    `JSONB` payloads, projection tables, and `queue` coordination using
    `SELECT ... FOR UPDATE SKIP LOCKED`, requiring zero changes to
-   `brokkr-core` or `brokkr-runtime`.
+   `brokkr-core` or `brokkr-runtime`. `PgProjectionStore::list_runs` orders
+   equal `created_at` timestamps deterministically by `run_id` byte order so
+   incremental `apply_envelopes` and `rebuild_from` never swap order regardless
+   of insertion sequence.
 
 ## Delivery slices
 

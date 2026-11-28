@@ -780,7 +780,7 @@ fn schema_compatibility_refuses_legacy_columns_checks_and_version() {
 
 #[test]
 fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs() {
-    // Verify advisory lock is the first statement after BEGIN, and missing created_at
+    // Verify advisory lock is the first statement after BEGIN, and missing priority
     // fails cleanly before CREATE INDEX runs (never raw SQLSTATE 42703).
     let srv_order = MockPgServer::start();
     srv_order
@@ -788,9 +788,9 @@ fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs(
         .lock()
         .unwrap()
         .omit_columns
-        .insert(("brokkr_projected_runs".into(), "created_at".into()));
+        .insert(("brokkr_queue_entries".into(), "priority".into()));
     assert!(matches!(
-        PgProjectionStore::connect(&srv_order.config()),
+        PgCoordinationStore::connect(&srv_order.config()),
         Err(PgError::IncompatibleSchema(_))
     ));
     {
@@ -798,8 +798,19 @@ fn schema_compatibility_verifies_advisory_lock_index_order_types_and_check_defs(
         assert_eq!(db.queries[0], "BEGIN");
         assert_eq!(db.queries[1], "SELECT pg_advisory_xact_lock($1::bigint)");
         assert!(db.queries.iter().all(|q| !q.starts_with("CREATE INDEX")));
-        assert!(!db.schema_meta.contains_key("projection"));
+        assert!(!db.schema_meta.contains_key("coordination"));
     }
+
+    // Projection schema installs no redundant secondary indexes (list_runs sorts in Rust).
+    let srv_proj_idx = MockPgServer::start();
+    let _proj = PgProjectionStore::connect(&srv_proj_idx.config()).unwrap();
+    assert!(srv_proj_idx
+        .db
+        .lock()
+        .unwrap()
+        .queries
+        .iter()
+        .all(|q| !q.starts_with("CREATE INDEX")));
 
     // Wrong column data_type, non-nullable JSONB mirror, or nullable canonical TEXT must fail.
     for (table, col, dtype, nullable) in [
@@ -1065,6 +1076,8 @@ fn projection_list_runs_sorts_unescaped_timestamps_in_byte_order() {
     for (run_id, ts) in [
         ("run-lower", "2026-11-27T10:00:00a"),
         ("run-upper-z", "2026-11-27T10:00:00Z"),
+        ("run-tie-b", "2026-11-27T10:00:00Z"),
+        ("run-tie-a", "2026-11-27T10:00:00Z"),
         ("run-nul", "2026-11-27T10:00:00\u{0000}Z"),
         ("run-upper-a", "2026-11-27T10:00:00A"),
     ] {
@@ -1080,6 +1093,13 @@ fn projection_list_runs_sorts_unescaped_timestamps_in_byte_order() {
     let ids: Vec<&str> = listed.iter().map(|(id, _, _)| id.as_str()).collect();
     assert_eq!(
         ids,
-        vec!["run-nul", "run-upper-a", "run-upper-z", "run-lower"]
+        vec![
+            "run-nul",
+            "run-upper-a",
+            "run-tie-a",
+            "run-tie-b",
+            "run-upper-z",
+            "run-lower",
+        ]
     );
 }
