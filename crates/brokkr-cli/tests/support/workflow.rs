@@ -23,6 +23,10 @@ use yaml_rust2::{Yaml, YamlLoader};
 mod closed_form;
 #[path = "workflow/condition.rs"]
 mod condition;
+#[path = "workflow/runs_on.rs"]
+mod runs_on;
+#[path = "workflow/shell.rs"]
+pub(crate) mod shell;
 
 pub(crate) use closed_form::{
     is_plain_artifact_literal, ArtifactName, ArtifactPattern, ClosedJob, ClosedStep,
@@ -317,13 +321,6 @@ impl RunsOn {
             Self::Labels(_) => None,
         }
     }
-
-    pub(crate) fn contains(&self, needle: &str) -> bool {
-        match self {
-            Self::Single(s) => s.contains(needle),
-            Self::Labels(labels) => labels.iter().any(|l| l.contains(needle)),
-        }
-    }
 }
 
 /// Presence and row-parse state for `strategy.matrix.include` or `exclude`.
@@ -436,6 +433,7 @@ impl Job {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Workflow {
     pub(crate) top_level_keys: Vec<String>,
+    pub(crate) top_level_shape_issues: Vec<String>,
     pub(crate) events: Vec<EventTrigger>,
     pub(crate) event_shape_issues: Vec<TriggerShapeIssue>,
     pub(crate) permissions: Option<Permissions>,
@@ -491,13 +489,30 @@ pub(super) fn parse_workflow_raw(text: &str, strict_if: bool) -> Result<Workflow
         return Err(WorkflowError::DocumentCount(docs.len()));
     }
     reject_unsafe_yaml(&docs[0])?;
-    let root = expect_map(&docs[0], "workflow root")?;
+    let Yaml::Hash(root_map) = &docs[0] else {
+        return Err(WorkflowError::NotAMapping("workflow root"));
+    };
+    let mut root: Entries<'_> = Vec::with_capacity(root_map.len());
+    let mut top_level_shape_issues = Vec::new();
+    for (k, v) in root_map {
+        if let Some(key) = k.as_str() {
+            root.push((key, v));
+        } else if strict_if {
+            return Err(WorkflowError::NonStringKey("workflow root"));
+        } else {
+            top_level_shape_issues.push(format!(
+                "{} top-level key",
+                Scalar::from_yaml(k).kind_label()
+            ));
+        }
+    }
     let (events, event_shape_issues) = match map_get(&root, "on") {
         Some(n) => parse_events(n, strict_if)?,
         None => (Vec::new(), Vec::new()),
     };
     Ok(Workflow {
         top_level_keys: root.iter().map(|(k, _)| (*k).to_string()).collect(),
+        top_level_shape_issues,
         events,
         event_shape_issues,
         permissions: map_get(&root, "permissions")

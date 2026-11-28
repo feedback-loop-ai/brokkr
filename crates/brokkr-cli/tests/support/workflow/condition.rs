@@ -525,11 +525,13 @@ fn is_closed_comparison_literal(s: &str) -> bool {
         || is_radix("0o", "0O", |b| matches!(b, b'0'..=b'7')))
 }
 
-fn parse_single_quoted_literal(raw: &str) -> Option<String> {
-    let inner = raw.strip_prefix('\'')?.strip_suffix('\'')?;
-    let bytes = inner.as_bytes();
+pub(super) fn read_single_quoted_literal(src: &str, start: usize) -> Option<(String, usize)> {
+    let bytes = src.as_bytes();
+    if bytes.get(start) != Some(&b'\'') {
+        return None;
+    }
     let mut out = String::new();
-    let mut i = 0;
+    let mut i = start + 1;
     while i < bytes.len() {
         if bytes[i] == b'\'' {
             if bytes.get(i + 1) == Some(&b'\'') {
@@ -537,13 +539,18 @@ fn parse_single_quoted_literal(raw: &str) -> Option<String> {
                 i += 2;
                 continue;
             }
-            return None;
+            return Some((out, i + 1));
         }
-        let ch = inner[i..].chars().next()?;
+        let ch = src[i..].chars().next()?;
         out.push(ch);
         i += ch.len_utf8();
     }
-    Some(out)
+    None
+}
+
+fn parse_single_quoted_literal(raw: &str) -> Option<String> {
+    let (lit, end) = read_single_quoted_literal(raw, 0)?;
+    (end == raw.len()).then_some(lit)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

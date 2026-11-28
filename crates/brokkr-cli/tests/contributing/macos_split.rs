@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use crate::workflow::{
     ActionMatch, ClosedFormRefusal, ClosedJob, ClosedStep, ClosedWorkflow, ClosedWorkflowError,
-    CondVal, ConditionContext, EventExpectation, Matrix, RunsOn, Scalar, Verdict, WorkflowError,
+    CondVal, ConditionContext, EventExpectation, RunsOn, Scalar, Verdict, WorkflowError,
     WorkflowInputType,
 };
 
@@ -180,118 +180,13 @@ fn is_macos_runner_label(label: &str) -> bool {
     lower == "macos" || lower.starts_with("macos-")
 }
 
-fn matrix_axis_has_macos_runner(matrix: &Matrix, axis: &str) -> bool {
-    let axis_hit = matrix.axes.iter().any(|(k, vals)| {
-        k.eq_ignore_ascii_case(axis)
-            && vals
-                .iter()
-                .any(|v| v.as_str().is_some_and(is_macos_runner_label))
-    });
-    let include_hit = matrix.include.iter().any(|row| {
-        row.iter().any(|(k, v)| {
-            k.eq_ignore_ascii_case(axis) && v.as_str().is_some_and(is_macos_runner_label)
-        })
-    });
-    axis_hit || include_hit
-}
-
-fn quoted_literal_has_macos_runner(lit: &str) -> bool {
-    if is_macos_runner_label(lit) {
-        return true;
-    }
-    lit.starts_with('[')
-        && serde_json::from_str::<Vec<String>>(lit)
-            .is_ok_and(|labels| labels.iter().any(|l| is_macos_runner_label(l)))
-}
-
-fn is_expr_ident_byte(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')
-}
-
-fn read_single_quoted_literal(expr: &str, start_quote: usize) -> (String, usize) {
-    let bytes = expr.as_bytes();
-    let mut out = String::new();
-    let mut i = start_quote + 1;
-    while i < bytes.len() {
-        if bytes[i] == b'\'' {
-            if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                out.push('\'');
-                i += 2;
-                continue;
-            }
-            return (out, i + 1);
-        }
-        let ch = expr[i..].chars().next().unwrap();
-        out.push(ch);
-        i += ch.len_utf8();
-    }
-    (out, bytes.len())
-}
-
-fn runs_on_expr_has_macos(expr: &str, matrix: Option<&Matrix>) -> bool {
-    let bytes = expr.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\'' {
-            let (lit, next) = read_single_quoted_literal(expr, i);
-            if quoted_literal_has_macos_runner(&lit) {
-                return true;
-            }
-            i = next;
-            continue;
-        }
-        if bytes[i..]
-            .get(..7)
-            .is_some_and(|p| p.eq_ignore_ascii_case(b"matrix."))
-            && (i == 0 || !is_expr_ident_byte(bytes[i - 1]))
-        {
-            let start = i + "matrix.".len();
-            let mut end = start;
-            while end < bytes.len() && is_expr_ident_byte(bytes[end]) {
-                end += 1;
-            }
-            let axis = &expr[start..end];
-            if !axis.is_empty() && matrix.is_some_and(|m| matrix_axis_has_macos_runner(m, axis)) {
-                return true;
-            }
-            i = end;
-            continue;
-        }
-        i += 1;
-    }
-    false
-}
-
-fn runs_on_entry_is_macos(entry: &str, matrix: Option<&Matrix>) -> bool {
-    let trimmed = entry.trim();
-    if !trimmed.contains("${{") {
-        return is_macos_runner_label(trimmed);
-    }
-    if trimmed.to_ascii_lowercase().starts_with("macos-") {
-        return true;
-    }
-    let mut rest = trimmed;
-    while let Some((_, after_open)) = rest.split_once("${{") {
-        let Some((inner, after_close)) = after_open.split_once("}}") else {
-            break;
-        };
-        if runs_on_expr_has_macos(inner, matrix) {
-            return true;
-        }
-        rest = after_close;
-    }
-    false
-}
-
 fn job_runs_on_macos(job: &ClosedJob) -> bool {
-    let Some(runs_on) = job.runs_on() else {
-        return false;
-    };
-    let matrix = job.matrix();
-    match runs_on {
-        RunsOn::Single(entry) => runs_on_entry_is_macos(entry, matrix),
-        RunsOn::Labels(labels) => labels.iter().any(|l| runs_on_entry_is_macos(l, matrix)),
-    }
+    job.runs_on().is_some_and(|runs_on| {
+        runs_on
+            .possible_labels(job.matrix())
+            .iter()
+            .any(|label| is_macos_runner_label(label))
+    })
 }
 
 fn is_macos_shard_value(val: &Scalar) -> bool {

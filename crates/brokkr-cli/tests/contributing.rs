@@ -22,6 +22,8 @@ mod job_lines;
 #[path = "contributing/macos_split.rs"]
 mod macos_split;
 mod macos_split_provenance;
+#[path = "contributing/script_guards.rs"]
+mod script_guards;
 use inline_copies::{
     assert_first_words_listed, assert_inline_copies, assert_inline_only_used, text_reads_as_command,
 };
@@ -180,16 +182,15 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
         .and_then(|v| v.as_text())
         .as_deref()
         == Some("0")));
+    const DELIVERED_BY_BROKKR_SCRIPT: &str = "if [ ! -f base-verifier/scripts/delivered-by-brokkr.sh ]; then\n  case \",${LABELS},\" in\n    *,by-hand,*)\n      echo \"delivered by brokkr: skipped — operator applied the by-hand label; the base branch carries no gate script yet\"\n      exit 0 ;;\n  esac\n  echo \"delivered by brokkr: the base branch carries no gate script\" >&2\n  exit 1\nfi\nbash base-verifier/scripts/delivered-by-brokkr.sh\n";
+    assert!(gate_job
+        .steps
+        .iter()
+        .any(|s| { s.with_str("ref") == Some("${{ github.event.pull_request.base.sha }}") }));
     assert!(gate_job.steps.iter().any(|s| {
-        s.with_str("ref")
-            .is_some_and(|r| r.contains("github.event.pull_request.base.sha"))
-    }));
-    assert!(gate_job.steps.iter().any(|s| {
-        s.run
-            .as_deref()
-            .is_some_and(|r| r.contains("scripts/delivered-by-brokkr.sh"))
+        s.run.as_deref() == Some(DELIVERED_BY_BROKKR_SCRIPT)
             && s.env_value("LABELS")
-                .is_some_and(|l| l.contains("join(github.event.pull_request.labels.*.name, ',')"))
+                == Some("${{ join(github.event.pull_request.labels.*.name, ',') }}")
     }));
 
     // The gate itself is repository-owned data too (0033 ruling 4, 0038
@@ -1475,16 +1476,58 @@ const JOBS_ON_PUSH: [&str; 11] = [
     "pr-caches",
 ];
 
-/// What no step on the push to `main` may run: the suite, the CPU and
-/// bootstrap benches, or a test that is not `--no-run`.
-const NOT_ON_PUSH_RUNS: [&str; 3] = [
-    "scripts/test-shards.sh",
-    "cargo bench",
-    "scripts/bootstrap-bench.sh",
-];
+/// Scripts no step on the push to `main` may invoke.
+const NOT_ON_PUSH_SCRIPTS: [&str; 2] = ["scripts/test-shards.sh", "scripts/bootstrap-bench.sh"];
 
 /// The jobs whose steps may run the coverage measurement on the push to `main`.
 const COVERAGE_ON_PUSH: [&str; 2] = ["coverage-machines", "coverage"];
+
+fn command_forbidden_on_push(job_id: &str, words: &[String]) -> bool {
+    let cmd = workflow::shell::unwrap_command(words);
+    if workflow::shell::invoked_script(cmd)
+        .is_some_and(|script| NOT_ON_PUSH_SCRIPTS.contains(&script))
+    {
+        return true;
+    }
+    if workflow::shell::invoked_script(cmd) == Some("scripts/coverage-exact.sh")
+        && !COVERAGE_ON_PUSH.contains(&job_id)
+    {
+        return true;
+    }
+    match workflow::shell::cargo_subcommand(cmd) {
+        Some(("bench", _)) => true,
+        Some(("test", args)) => !args.iter().any(|arg| arg == "--no-run"),
+        _ => false,
+    }
+}
+
+fn push_job_ids(wf: &workflow::Workflow) -> Vec<&str> {
+    wf.jobs
+        .iter()
+        .map(|j| j.id.as_str())
+        .filter(|id| job_fires("ci.yml", wf, id, |fires| fires.push))
+        .collect()
+}
+
+fn push_forbidden_commands(ci: &str) -> Vec<(String, String)> {
+    let wf = workflow::Workflow::parse(ci).expect("ci.yml parses");
+    let on_push = push_job_ids(&wf);
+    let mut forbidden = Vec::new();
+    for job in wf.jobs.iter().filter(|j| on_push.contains(&j.id.as_str())) {
+        let site = format!("a step of ci.yml's {}", job.id);
+        for step in &job.steps {
+            if !read_condition(step.if_cond.as_deref(), &site).1.push {
+                continue;
+            }
+            for words in workflow::shell::commands(step.run.as_deref().unwrap_or("")) {
+                if command_forbidden_on_push(&job.id, &words) {
+                    forbidden.push((job.id.clone(), words.join(" ")));
+                }
+            }
+        }
+    }
+    forbidden
+}
 
 /// The push to `main` after each merge runs only what it uniquely feeds (#1295).
 #[test]
@@ -1492,32 +1535,13 @@ fn the_push_to_main_runs_only_what_it_uniquely_feeds() {
     let root = workspace();
     let text = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
     let wf = workflow::Workflow::parse(&text).expect("ci.yml parses");
-    let on_push: Vec<&str> = wf
-        .jobs
-        .iter()
-        .map(|j| j.id.as_str())
-        .filter(|id| job_fires("ci.yml", &wf, id, |fires| fires.push))
-        .collect();
+    let on_push = push_job_ids(&wf);
     assert_eq!(on_push, JOBS_ON_PUSH, "ci.yml's jobs on the push to main");
-    for job in wf.jobs.iter().filter(|j| on_push.contains(&j.id.as_str())) {
-        let site = format!("a step of ci.yml's {}", job.id);
-        for step in &job.steps {
-            if !read_condition(step.if_cond.as_deref(), &site).1.push {
-                continue;
-            }
-            for line in step.run.as_deref().unwrap_or("").lines() {
-                assert!(
-                    !NOT_ON_PUSH_RUNS.iter().any(|run| line.contains(run))
-                        && (!line.contains("cargo test") || line.contains("--no-run"))
-                        && (!line.contains("scripts/coverage-exact.sh")
-                            || COVERAGE_ON_PUSH.contains(&job.id.as_str())),
-                    "{} runs `{}` on the push to main",
-                    job.id,
-                    line.trim()
-                );
-            }
-        }
-    }
+    assert_eq!(
+        push_forbidden_commands(&text),
+        Vec::<(String, String)>::new(),
+        "ci.yml runs forbidden commands on the push to main"
+    );
     for (check, id, file) in MAIN_REQUIRES {
         let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
         let wf = workflow::Workflow::parse(&text).unwrap_or_else(|e| panic!("{file} parses: {e}"));
@@ -1547,7 +1571,7 @@ fn job_toolchains(job: &workflow::Job) -> Vec<String> {
 fn check_pr_cache_entry(
     wf: &workflow::Workflow,
     warm_toolchains: &[String],
-    arms: &BTreeMap<&str, &str>,
+    arms: &BTreeMap<String, Vec<Vec<String>>>,
     shards: &str,
     (key, os): (&str, &str),
     problems: &mut Vec<String>,
@@ -1578,7 +1602,11 @@ fn check_pr_cache_entry(
             "{key}'s rust-cache is keyed {other}, not by its id"
         ));
     }
-    if !job.runs_on.as_ref().is_some_and(|r| r.contains(os)) {
+    if !job.runs_on.as_ref().is_some_and(|r| {
+        r.possible_labels(job.matrix.as_ref())
+            .iter()
+            .any(|label| label == os)
+    }) {
         problems.push(format!(
             "pr-caches warms {key} on {os}, and {key} does not run there"
         ));
@@ -1586,21 +1614,30 @@ fn check_pr_cache_entry(
     if job_toolchains(job) != warm_toolchains {
         problems.push(format!("{key}'s toolchain is not pr-caches' toolchain"));
     }
-    let build = arms
-        .get(key)
-        .map(|command| command.replace(" --no-run", ""));
-    let runs: String = job
+    let build: Option<Vec<String>> = arms.get(key).and_then(|cmds| {
+        cmds.first().map(|cmd| {
+            cmd.iter()
+                .filter(|word| word.as_str() != "--no-run")
+                .cloned()
+                .collect()
+        })
+    });
+    let mut job_commands: Vec<Vec<String>> = job
         .steps
         .iter()
         .filter_map(|s| s.run.as_deref())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let source = if runs.contains("scripts/test-shards.sh") {
-        format!("{runs}\n{shards}")
-    } else {
-        runs
-    };
-    if !build.is_some_and(|build| source.contains(&build)) {
+        .flat_map(workflow::shell::commands)
+        .map(|words| workflow::shell::unwrap_command(&words).to_vec())
+        .collect();
+    if job_commands
+        .iter()
+        .any(|cmd| workflow::shell::invoked_script(cmd) == Some("scripts/test-shards.sh"))
+    {
+        job_commands.extend(workflow::shell::bash_array_words(shards, "prefix"));
+    }
+    if !build.is_some_and(|expected| {
+        !expected.is_empty() && job_commands.iter().any(|cmd| cmd.starts_with(&expected))
+    }) {
         problems.push(format!(
             "pr-caches' build for {key} is not what {key} builds"
         ));
@@ -1639,15 +1676,7 @@ fn pr_caches_unbound(ci: &str, shards: &str) -> Vec<String> {
         .filter_map(|s| s.run.as_deref())
         .collect::<Vec<_>>()
         .join("\n");
-    let arms: BTreeMap<&str, &str> = case_script
-        .lines()
-        .map(str::trim)
-        .filter_map(|line| {
-            let (keys, command) = line.strip_suffix(" ;;")?.split_once(") ")?;
-            (keys != "*").then_some((keys, command))
-        })
-        .flat_map(|(keys, command)| keys.split('|').map(move |key| (key.trim(), command)))
-        .collect();
+    let arms = workflow::shell::case_arms(&case_script);
     let warm_keyed = warm.steps.iter().any(|s| {
         matches!(
             s.action_match("Swatinem/rust-cache"),
@@ -1658,7 +1687,7 @@ fn pr_caches_unbound(ci: &str, shards: &str) -> Vec<String> {
         problems.push("pr-caches' rust-cache is not keyed by its entry's key".to_string());
     }
     let keys: std::collections::BTreeSet<&str> = entries.iter().map(|(key, _)| *key).collect();
-    if keys != arms.keys().copied().collect() {
+    if keys != arms.keys().map(String::as_str).collect() {
         problems.push(format!(
             "pr-caches warms {keys:?} and builds {:?}",
             arms.keys()
@@ -1762,7 +1791,59 @@ fn the_cpu_budgets_run_on_their_schedule_or_by_hand_alone() {
     );
 }
 
-const CALLGRIND_TRACES: [&str; 4] = ["valgrind", "gungraun", "cargo bench", "--callgrind-limits"];
+const CALLGRIND_TOOLS: [&str; 3] = ["valgrind", "gungraun", "gungraun-runner"];
+
+fn is_callgrind_tool(word: &str) -> bool {
+    CALLGRIND_TOOLS
+        .iter()
+        .any(|tool| word.eq_ignore_ascii_case(tool))
+}
+
+fn command_measures_callgrind(words: &[String]) -> bool {
+    let cmd = workflow::shell::unwrap_command(words);
+    if cmd.first().is_some_and(|head| is_callgrind_tool(head)) {
+        return true;
+    }
+    if matches!(
+        cmd.first().map(String::as_str),
+        Some("apt-get" | "apt" | "brew")
+    ) && cmd.iter().skip(1).any(|arg| is_callgrind_tool(arg))
+    {
+        return true;
+    }
+    if let Some((sub, args)) = workflow::shell::cargo_subcommand(cmd) {
+        if sub == "bench" || (sub == "install" && args.iter().any(|arg| is_callgrind_tool(arg))) {
+            return true;
+        }
+    }
+    cmd.iter().any(|arg| {
+        let flag = arg.split_once('=').map_or(arg.as_str(), |(f, _)| f);
+        flag.eq_ignore_ascii_case("--callgrind-limits")
+    })
+}
+
+fn step_callgrind_invocations(step: &workflow::Step) -> Vec<String> {
+    let mut hits = Vec::new();
+    if let Some(run) = step.run.as_deref() {
+        for words in workflow::shell::commands(run) {
+            if command_measures_callgrind(&words) {
+                hits.push(words.join(" "));
+            }
+        }
+    }
+    if matches!(
+        step.action_match("taiki-e/install-action"),
+        Some(workflow::ActionMatch::Exact)
+    ) {
+        if let Some(tool) = step.with_str("tool") {
+            let name = tool.split_once('@').map_or(tool, |(n, _)| n);
+            if is_callgrind_tool(name) {
+                hits.push(format!("install-action tool: {tool}"));
+            }
+        }
+    }
+    hits
+}
 
 fn callgrind_on_the_pull_request_path(files: &[(String, String)]) -> Vec<(String, String)> {
     files
@@ -1779,19 +1860,10 @@ fn callgrind_on_the_pull_request_path(files: &[(String, String)]) -> Vec<(String
         .flat_map(|(file, wf)| {
             wf.jobs
                 .into_iter()
-                .flat_map(|job| job.all_scalars)
-                .flat_map(|scalar| {
-                    scalar
-                        .lines()
-                        .map(str::trim)
-                        .filter(|line| {
-                            CALLGRIND_TRACES
-                                .iter()
-                                .any(|trace| line.to_lowercase().contains(trace))
-                        })
-                        .map(|line| (file.to_string(), line.to_string()))
-                        .collect::<Vec<_>>()
-                })
+                .flat_map(|job| job.steps)
+                .flat_map(|step| step_callgrind_invocations(&step))
+                .map(|hit| (file.to_string(), hit))
+                .collect::<Vec<_>>()
         })
         .collect()
 }

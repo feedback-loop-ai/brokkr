@@ -339,6 +339,15 @@ fn find_workflow_call_input<'a>(
 }
 
 fn validate_top_level(wf: &Workflow, file: &str) -> Result<(), ClosedFormRefusal> {
+    if let Some(detail) = wf.top_level_shape_issues.first() {
+        return Err(ClosedFormRefusal::new(
+            file,
+            "workflow root",
+            RefusalKind::TopLevelKey,
+            detail,
+            ALLOWED_TOP_LEVEL,
+        ));
+    }
     for key in &wf.top_level_keys {
         if key == "env" {
             return Err(ClosedFormRefusal::new(
