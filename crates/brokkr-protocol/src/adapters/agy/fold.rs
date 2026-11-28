@@ -359,9 +359,7 @@ impl<'a> AgyFold<'a> {
     /// A model response that is done is one turn, journaled on the pin; any
     /// `usage` carried on a step row accumulates into this invocation's own sum.
     fn step(&mut self, step: &Step, emit: &mut impl FnMut(&Emitted)) {
-        if let Some(Object(usage)) = &step.usage {
-            self.step_usage.add(usage);
-        }
+        self.step_usage.add(&step.usage.0);
         if (&step.step_type, &step.state) != (&StepType::AgentResponse, &StepState::Done) {
             return;
         }

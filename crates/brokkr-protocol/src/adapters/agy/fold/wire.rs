@@ -73,7 +73,7 @@ impl Event {
                     Row::Step(Step {
                         step_type: r.step_update.0.step_type,
                         state: r.step_update.0.state,
-                        usage: None,
+                        usage: Object::default(),
                     })
                 }),
             Event::StepUpdate => serde_json::from_str::<Object<StepRow>>(text)
@@ -244,7 +244,7 @@ pub(super) struct Step {
     pub(super) step_type: StepType,
     pub(super) state: StepState,
     #[serde(default)]
-    pub(super) usage: Option<Object<Usage>>,
+    pub(super) usage: Object<Usage>,
 }
 
 #[derive(Deserialize, PartialEq, Eq)]

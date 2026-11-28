@@ -1586,55 +1586,77 @@ fn f5_stop_at_every_step_leaves_live_path_whole_or_empty() {
     assert_lock_free(&conv);
 }
 
-/// F7: cold turns ignore malformed `step_update.usage` exactly as before this
-/// slice; rejoined turns read `step_update.usage` under K1 and fail `Unread`.
+/// F7: cold turns ignore malformed `step_update.usage` (including explicit
+/// `null`) exactly as before this slice; rejoined turns accept absent
+/// `step_update.usage` and fail `Unread(StepUpdate)` on malformed or `null`
+/// `step_update.usage` under K1.
 #[test]
 fn f7_cold_ignores_malformed_step_usage_and_rejoin_fails_unread() {
     let init =
         format!(r#"{{"event":"init","conversation_id":"{UUID_A}","init":{{"model":"{FLASH}"}}}}"#);
     let bad_step_str = r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":"DONE","usage":{"input_tokens":"not-a-number"}}}"#;
     let bad_step_dup = r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":"DONE","usage":{"input_tokens":1,"input_tokens":2}}}"#;
+    let bad_step_null = r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":"DONE","usage":null}}"#;
+    let absent_step =
+        r#"{"event":"step_update","step_update":{"step_type":"agent_response","state":"DONE"}}"#;
     let ok_res = r#"{"event":"result","result":{"status":"SUCCESS","response":"COLD_OK","usage":{"input_tokens":100,"output_tokens":5},"num_turns":1}}"#;
 
-    for bad_step in [bad_step_str, bad_step_dup] {
+    let run = |mut hold: LaunchHold, step: &str, tag: &str| {
         let mut fold = AgyFold::new(FLASH, &[]);
-        let mut hold = LaunchHold::new(
+        let mut meta = Map::new();
+        let mut turns = 0usize;
+        for line in [init.as_str(), step, ok_res] {
+            assert!(
+                matches!(
+                    fold.read(line.as_bytes(), &mut meta, &mut hold, &mut |_| turns += 1),
+                    Line::Read
+                ),
+                "{tag}"
+            );
+        }
+        (fold.verdict(0, false), meta, turns)
+    };
+
+    for (label, bad_step) in [
+        ("usage-str", bad_step_str),
+        ("usage-dup", bad_step_dup),
+        ("usage-null", bad_step_null),
+    ] {
+        let cold_hold = LaunchHold::new(
             "agy",
             LaunchPlan::cold(Vec::new(), "agy-conversation", None),
         );
-        let mut meta = Map::new();
-        for line in [init.as_str(), bad_step, ok_res] {
-            assert!(matches!(
-                fold.read(line.as_bytes(), &mut meta, &mut hold, &mut |_| {}),
-                Line::Read
-            ));
-        }
+        let (verdict, meta, _) = run(cold_hold, bad_step, label);
         assert_eq!(
-            fold.verdict(0, false),
-            super::super::fold::Verdict::Answer("COLD_OK".into())
+            verdict,
+            super::super::fold::Verdict::Answer("COLD_OK".into()),
+            "cold {label}"
         );
-        assert_eq!(meta["input_tokens"], json!(100));
-        assert_eq!(meta["output_tokens"], json!(5));
+        assert_eq!(meta["input_tokens"], json!(100), "cold {label}");
+        assert_eq!(meta["output_tokens"], json!(5), "cold {label}");
 
-        let mut fold = AgyFold::new(FLASH, &[]);
-        let mut hold = rejoin_hold(UUID_A);
-        let mut meta = Map::new();
-        for line in [init.as_str(), bad_step, ok_res] {
-            let _ = fold.read(line.as_bytes(), &mut meta, &mut hold, &mut |_| {});
-        }
-        assert!(
-            matches!(
-                fold.verdict(0, false),
-                super::super::fold::Verdict::Failed(super::super::fold::Failed {
-                    failure: super::super::fold::Failure::Unread(
-                        super::super::fold::Event::StepUpdate
-                    ),
-                    ..
-                })
-            ),
-            "rejoin must reject malformed step_update.usage"
+        let (verdict, _, _) = run(rejoin_hold(UUID_A), bad_step, label);
+        assert_eq!(
+            verdict,
+            super::super::fold::Verdict::Failed(super::super::fold::Failed {
+                failure: super::super::fold::Failure::Unread(super::super::fold::Event::StepUpdate),
+                seen: super::super::fold::Seen {
+                    status: Some("SUCCESS".into()),
+                    timed_out: false,
+                },
+            }),
+            "rejoin must reject malformed step_update.usage ({label})"
         );
     }
+
+    let (verdict, meta, turns) = run(rejoin_hold(UUID_A), absent_step, "rejoin absent usage");
+    assert_eq!(
+        verdict,
+        super::super::fold::Verdict::Answer("COLD_OK".into())
+    );
+    assert_eq!(turns, 1);
+    assert_eq!(meta.get("input_tokens"), None);
+    assert_eq!(meta.get("output_tokens"), None);
 }
 
 /// F10: exercise remaining reachable error branches in `restore.rs`.
