@@ -645,16 +645,10 @@ fn sync_file(path: &Path) -> Result<(), BackupError> {
     Ok(())
 }
 
-/// fsync a directory, so a published name survives a power loss. macOS
-/// answers `EINVAL` for a directory fsync; the publish still landed and
-/// there is no stronger call to make there, so that one answer is not a
-/// refusal.
+/// fsync a directory, so a published name survives a power loss, reusing the
+/// crate's single directory-sync policy ([`crate::ports::sync_dir`]).
 fn sync_dir(dir: &Path) -> Result<(), BackupError> {
-    match File::open(dir).and_then(|file| file.sync_all()) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => Ok(()),
-        Err(error) => Err(error.into()),
-    }
+    Ok(crate::ports::sync_dir(dir)?)
 }
 
 /// The SHA-256 of a file's bytes, in lowercase hex.

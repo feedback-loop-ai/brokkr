@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-11-25 ("go with recommended on all questions")
 Date: 2026-11-25
 
-Built: partial (#1362) — Slice 1 (ports, backend-agnostic Journal facade, and co-located SqlitePorts adapter over Store) built; Slice 2 (local fs-log + trigger-free disposable index.db + isolated queue.db) and Slice 3 (brokkr-store-pg) follow.
+Built: partial (#1362) — Slice 1 (ports, backend-agnostic Journal facade, and co-located SqlitePorts adapter over Store) and Slice 2 (local FsEventLog + trigger-free disposable SqliteProjectionStore + isolated SqliteCoordinationStore with idempotent cooldown catch-up + `brokkr journal reindex` / `brokkr journal migrate`) built; Slice 3 (brokkr-store-pg) follows.
 
 ## Context
 
@@ -64,6 +64,12 @@ the storage edge are warranted.
    - Per-run append-only `FsEventLog` storing
      `.forge/runs/<run-id>/manifest.json` and `events.ndjson`, using
      `O_APPEND`, `sync_data()`, and Rust 1.89's `std::fs::File::lock()`.
+     Migrated unstarted runs may also carry an optional sidecar
+     `run_meta.json` read via `EventLog::run_metadata` beside immutable
+     `manifest.json` as the pre-start fallback for `feature`, `created_at`,
+     and tied-timestamp `list_order`; once a run commits events (`RunStarted`),
+     `RunStarted`'s `recorded_at` and `RunStarted` > manifest `feature` always
+     take precedence on both live `apply_envelopes` and `rebuild_from`.
    - Dedicated trigger-free disposable `SqliteProjectionStore` (`index.db`),
      rebuildable from any `EventLog` via `brokkr journal reindex` (replacing
      Slice 1's co-located `SqlitePorts` projection role when the event log

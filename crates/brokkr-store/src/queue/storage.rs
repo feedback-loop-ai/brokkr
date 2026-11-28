@@ -2,6 +2,9 @@
 //! guards, the storage version a journal records for them, and the
 //! migration that brings a journal to that version.
 
+use std::collections::BTreeMap;
+use std::sync::LazyLock;
+
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::{CooldownDuplicate, EntryId, Latch, QueueRefusal, Wait};
@@ -497,40 +500,44 @@ fn cool_down_kinds_present(conn: &Connection) -> Result<bool, StoreError> {
     )
 }
 
-/// The guards the migrations install, by name, so an open can ask
-/// whether a journal still carries every one.
-const QUEUE_TRIGGERS: [&str; 30] = [
-    "queue_entries_fixed",
-    "queue_entries_run_once",
-    "queue_entries_kept",
-    "queue_waits_fixed",
-    "queue_waits_kept",
-    "queue_commands_append_only_update",
-    "queue_commands_append_only_delete",
-    "queue_latches_append_only_update",
-    "queue_latches_append_only_delete",
-    "queue_pins_append_only_update",
-    "queue_pins_append_only_delete",
-    "queue_claims_fixed",
-    "queue_claims_run_once",
-    "queue_claims_kept",
-    "queue_entries_run_while_launching",
-    "queue_refusals_append_only_update",
-    "queue_refusals_append_only_delete",
-    "dispatch_holders_append_only_update",
-    "dispatch_holders_append_only_delete",
-    "dispatch_settings_append_only_update",
-    "dispatch_settings_append_only_delete",
-    "provider_cooldowns_append_only_update",
-    "provider_cooldowns_append_only_delete",
-    "seat_trees_append_only_update",
-    "seat_trees_append_only_delete",
-    "tree_sweeps_append_only_update",
-    "tree_sweeps_append_only_delete",
-    "probe_holds_fixed",
-    "probe_holds_end_once",
-    "probe_holds_kept",
-];
+/// Canonical SQLite trigger definitions (`name -> sqlite_master.sql`) installed
+/// by `MIGRATION_QUEUE_V1..V7`, derived once from the migration DDL itself so
+/// [`queue_intact`] and [`has_foreign_queue_triggers`] verify each trigger's
+/// full SQL body rather than its name alone.
+static EXPECTED_QUEUE_TRIGGERS: LazyLock<BTreeMap<String, String>> = LazyLock::new(|| {
+    let conn = Connection::open_in_memory().expect("in-memory sqlite for canonical queue triggers");
+    for batch in [
+        MIGRATION_QUEUE_V1,
+        MIGRATION_QUEUE_V2,
+        MIGRATION_QUEUE_V3,
+        MIGRATION_QUEUE_V4,
+        MIGRATION_QUEUE_V5,
+        MIGRATION_QUEUE_V6,
+        MIGRATION_QUEUE_V7_HOLDS,
+    ] {
+        conn.execute_batch(batch)
+            .expect("canonical queue migration batch");
+    }
+    read_triggers(&conn)
+        .expect("read canonical queue triggers")
+        .into_iter()
+        .map(|(name, sql)| (name, sql.expect("canonical trigger carries sql")))
+        .collect()
+});
+
+fn read_triggers(conn: &Connection) -> Result<Vec<(String, Option<String>)>, StoreError> {
+    Ok(conn
+        .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?)
+}
+
+fn queue_triggers_intact(conn: &Connection) -> Result<bool, StoreError> {
+    let present: BTreeMap<String, Option<String>> = read_triggers(conn)?.into_iter().collect();
+    Ok(EXPECTED_QUEUE_TRIGGERS.iter().all(|(name, expected_sql)| {
+        present.get(name).and_then(|sql| sql.as_deref()) == Some(expected_sql.as_str())
+    }))
+}
 
 /// The version 4 table and the unique index on it, by name beyond the
 /// migration's DDL: the intact check asks for both, and a lost index over
@@ -639,9 +646,21 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
     // An older queue has not every guard or index, and a version 6 queue's
     // cool-downs have no kind: migrated. The presence question is
     // `schema::all_present`'s, as it is for every other repair.
-    Ok(all_present(conn, "trigger", &QUEUE_TRIGGERS)?
+    Ok(queue_triggers_intact(conn)?
         && all_present(conn, "index", &QUEUE_INDEXES)?
         && cool_down_kinds_present(conn)?)
+}
+
+/// Whether `conn` carries any SQLite trigger outside [`EXPECTED_QUEUE_TRIGGERS`]
+/// or any recognized trigger whose `sqlite_master.sql` definition differs from
+/// the canonical queue DDL.
+pub(crate) fn has_foreign_queue_triggers(conn: &Connection) -> Result<bool, StoreError> {
+    let triggers = read_triggers(conn)?;
+    Ok(triggers.iter().any(|(name, sql)| {
+        EXPECTED_QUEUE_TRIGGERS
+            .get(name)
+            .is_none_or(|expected| sql.as_deref() != Some(expected.as_str()))
+    }))
 }
 
 /// Create the queue's tables and guards and record its version, on a

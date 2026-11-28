@@ -50,42 +50,11 @@ impl Store {
         patience: Duration,
         read: impl FnOnce(&Store) -> Result<T, E>,
     ) -> Result<T, E> {
-        let (store, unlocked) = Store::open_untouched(path, patience)
-            .map_err(|error| damage::classified(path, error))?;
-        let answer = read(&store)?;
-        drop(store);
-        match unlocked {
-            Some(before) if Sight::of(&before.real) != before => {
-                let why = "it changed while it was read without a lock";
-                Err(StoreError::from(unsettled(path, why)).into())
-            }
-            _ => Ok(answer),
-        }
-    }
-
-    /// The store, and what stood when it was opened `immutable`; `None`
-    /// where SQLite's locks or its WAL guard the read instead.
-    fn open_untouched(
-        path: &Path,
-        patience: Duration,
-    ) -> Result<(Store, Option<Sight>), StoreError> {
-        let bound = literal::journal(path)?;
-        // A missing file has nothing to follow: SQLite refuses it below.
-        let real = std::fs::canonicalize(&bound).unwrap_or(bound);
-        let before = Sight::of(&real);
-        if before.rollback {
-            return Err(unsettled(path, "a rollback journal stands beside it").into());
-        }
-        let (query, unlocked) = match (before.wal, wal_header(&real)) {
-            (true, _) => ("mode=ro&readonly_shm=1", None),
-            (false, true) => ("mode=ro&immutable=1", Some(before)),
-            (false, false) => ("mode=ro", None),
-        };
-        let uri = format!("file:{}?{query}", encoded(real.as_os_str()));
-        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI;
-        let conn = Connection::open_with_flags(&uri, flags)
-            .map_err(|error| literal::as_given(error, path, &real))?;
-        Ok((Store::reading(conn, path, patience)?, unlocked))
+        read_connection_untouched_with(path, UntouchedPolicy::Read, |conn| {
+            let store = Store::reading(conn, path, patience)
+                .map_err(|error| damage::classified(path, error))?;
+            read(&store)
+        })
     }
 
     /// A store reading `conn`, a read-only connection that opened `path`,
@@ -115,14 +84,110 @@ impl Store {
     }
 }
 
+/// How an untouched read opens a database when no `-wal` sidecar is present.
+#[derive(Clone, Copy)]
+enum UntouchedPolicy {
+    /// Decision 0119 journal read: open rollback-mode databases with SQLite's
+    /// own read locks so an exclusive peer refuses within patience.
+    Read,
+    /// Schema inspection (e.g. `SqliteProjectionStore::inspect_read_only`):
+    /// always open `immutable=1` whenever no `-wal` sidecar stands beside it,
+    /// so a concurrent DELETE-to-WAL transition never creates sidecars and is
+    /// caught by the post-read [`Sight`] check.
+    Inspect,
+}
+
+/// Run `read` on a raw read-only SQLite connection opened untouched at `path`
+/// (creating no `-wal`/`-shm` sidecars and working on `0o444` files inside
+/// `0o555` directories), rejecting lock-free reads when the file or its side
+/// files changed during `read` (decision 0119 ruling 3).
+pub(crate) fn read_connection_untouched<T, E: From<StoreError>>(
+    path: &Path,
+    read: impl FnOnce(Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    read_connection_untouched_with(path, UntouchedPolicy::Inspect, read)
+}
+
+fn read_connection_untouched_with<T, E: From<StoreError>>(
+    path: &Path,
+    policy: UntouchedPolicy,
+    read: impl FnOnce(Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    let (conn, unlocked) =
+        open_connection_untouched(path, policy).map_err(|error| damage::classified(path, error))?;
+    // Evaluate `read` (dropping `conn`) and re-check `Sight` unconditionally
+    // before returning either `Ok` or `Err`: a torn or damaged read across a
+    // concurrent change must always fail as unsettled, never as `Damaged`.
+    let result = read(conn);
+    match unlocked {
+        Some(before) if Sight::of(&before.real) != before => {
+            let why = "it changed while it was read without a lock";
+            Err(StoreError::from(unsettled(path, why)).into())
+        }
+        _ => result,
+    }
+}
+
+/// The raw read-only connection, and what stood when it was opened `immutable`;
+/// `None` where SQLite's locks or its WAL guard the read instead.
+fn open_connection_untouched(
+    path: &Path,
+    policy: UntouchedPolicy,
+) -> Result<(Connection, Option<Sight>), StoreError> {
+    let bound = literal::journal(path)?;
+    // A missing file has nothing to follow: SQLite refuses it below.
+    let real = std::fs::canonicalize(&bound).unwrap_or(bound);
+    let before = Sight::of(&real);
+    let (query, unlocked) = match (before.sides, policy, before.header) {
+        (SideFiles::Rollback, _, _) => {
+            return Err(unsettled(path, "a rollback journal stands beside it").into());
+        }
+        (SideFiles::WalWithoutShm, _, _) => {
+            return Err(unsettled(
+                path,
+                "a WAL file stands beside it without a shared-memory index",
+            )
+            .into());
+        }
+        (SideFiles::WalWithShm, _, _) => ("mode=ro&readonly_shm=1", None),
+        (SideFiles::Clean | SideFiles::ShmOnly, UntouchedPolicy::Inspect, _)
+        | (SideFiles::Clean | SideFiles::ShmOnly, UntouchedPolicy::Read, JournalHeader::Wal) => {
+            ("mode=ro&immutable=1", Some(before))
+        }
+        (SideFiles::Clean | SideFiles::ShmOnly, UntouchedPolicy::Read, JournalHeader::Other) => {
+            ("mode=ro", None)
+        }
+    };
+    let uri = format!("file:{}?{query}", encoded(real.as_os_str()));
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI;
+    let conn = Connection::open_with_flags(&uri, flags)
+        .map_err(|error| literal::as_given(error, path, &real))?;
+    Ok((conn, unlocked))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SideFiles {
+    Clean,
+    Rollback,
+    WalWithShm,
+    WalWithoutShm,
+    ShmOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JournalHeader {
+    Wal,
+    Other,
+}
+
 /// What a lock-free read looks at again once it is done: the side files
-/// a writer makes, and the main file's identity, its size, modification
-/// time and, on unix, its inode.
+/// a writer makes, the WAL header marker, and the main file's identity, its
+/// size, modification time and, on unix, its inode.
 #[derive(Debug, PartialEq, Eq)]
 struct Sight {
     real: PathBuf,
-    wal: bool,
-    rollback: bool,
+    sides: SideFiles,
+    header: JournalHeader,
     main: Option<(u64, Option<SystemTime>, u64)>,
 }
 
@@ -133,13 +198,25 @@ impl Sight {
             side.push(suffix);
             Path::new(&side).exists()
         };
+        let sides = match (beside("-journal"), beside("-wal"), beside("-shm")) {
+            (true, _, _) => SideFiles::Rollback,
+            (false, true, true) => SideFiles::WalWithShm,
+            (false, true, false) => SideFiles::WalWithoutShm,
+            (false, false, true) => SideFiles::ShmOnly,
+            (false, false, false) => SideFiles::Clean,
+        };
+        let header = if wal_header(real) {
+            JournalHeader::Wal
+        } else {
+            JournalHeader::Other
+        };
         let main = std::fs::metadata(real)
             .ok()
             .map(|meta| (meta.len(), meta.modified().ok(), inode(&meta)));
         Sight {
             real: real.to_path_buf(),
-            wal: beside("-wal"),
-            rollback: beside("-journal"),
+            sides,
+            header,
             main,
         }
     }

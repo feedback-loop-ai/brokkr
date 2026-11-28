@@ -39,7 +39,10 @@ pub(crate) mod storage;
 pub use beside::Seen;
 use beside::{beside_once, Beside};
 pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Disposal, Generation, StartRefusal};
-pub(crate) use cooldown::insert as insert_cooldowns;
+pub(crate) use cooldown::{
+    active_in_force as cooldowns_in_force_conn, insert as insert_cooldowns,
+    insert_idempotent as insert_cooldowns_idempotent,
+};
 pub use cooldown::{
     Cooldown, CooldownAggregate, CooldownRound, Cooling, ProbeHold, ProbeHoldId, RoundAppend,
     RowEnd,
@@ -52,12 +55,13 @@ pub use refusal::{
     CooldownDuplicate, CooldownRoundMismatch, QueueRefusal, UnsettledHold, UnwrittenHold,
     UnwrittenRow,
 };
-#[cfg(test)]
-use storage::QUEUE_SCHEMA;
+pub(crate) use storage::{
+    has_foreign_queue_triggers, migrate_queue, queue_intact, queue_schema, QUEUE_SCHEMA,
+    QUEUE_SCHEMA_KEY,
+};
 use storage::{
     latch_row, queue_stored, wait_row, Stored, PINNED_PAYLOAD, PINNED_SEQ, STANDING_LATCH, WAITS,
 };
-pub(crate) use storage::{migrate_queue, queue_intact, queue_schema, QUEUE_SCHEMA_KEY};
 
 /// A queue entry's id: assigned at `add`, never reused, since no entry is
 /// ever deleted.
@@ -470,7 +474,10 @@ fn entries(
 
 /// The queue under one read snapshot, `between` run inside it as
 /// [`entries`] says.
-fn list_once(conn: &Connection, between: &mut dyn FnMut()) -> Result<Vec<QueueEntry>, StoreError> {
+pub(crate) fn list_once(
+    conn: &Connection,
+    between: &mut dyn FnMut(),
+) -> Result<Vec<QueueEntry>, StoreError> {
     let _snapshot = conn.unchecked_transaction()?;
     match queue_stored(conn)? {
         Some(stored) => entries(

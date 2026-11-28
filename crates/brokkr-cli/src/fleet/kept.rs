@@ -446,30 +446,44 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         } => true,
         StoreError::Sqlite(_)
         | StoreError::Damaged {
-            damage: Damage::Malformed | Damage::NotADatabase | Damage::NoSchema | Damage::Orders,
+            damage:
+                Damage::Malformed
+                | Damage::NotADatabase
+                | Damage::NoSchema
+                | Damage::Orders
+                | Damage::MissingManifest
+                | Damage::NonUtf8RunDir
+                | Damage::MalformedJson { .. },
             ..
         }
-        | StoreError::RunNotFound(_)
-        | StoreError::RunExists(_)
-        | StoreError::RunIdTooLong { .. }
-        | StoreError::RunIdUnnameable(_)
-        | StoreError::SeatRecord(_)
-        | StoreError::SchemaMismatch { .. }
-        | StoreError::AppendConflict { .. }
-        | StoreError::HeadMoved { .. }
-        | StoreError::AfterTerminal { .. }
-        | StoreError::UnknownHead { .. }
-        | StoreError::Queue(_)
+        | StoreError::SymlinkRefused(_)
+        | StoreError::InvalidPath(_)
+        | StoreError::ForeignDatabase { .. }
+        | StoreError::UnsafeRunId(_)
+        | StoreError::Io(_)
+        | StoreError::ProviderWait(_)
+        | StoreError::CooldownFieldOutOfRange { .. }
         | StoreError::Orders(_)
-        | StoreError::SeatTree(_)
-        | StoreError::AlreadyAcknowledged { .. }
-        | StoreError::TokenCountOutOfRange(..)
-        | StoreError::Clock { .. }
         | StoreError::Contended { .. }
-        | StoreError::ProjectionLag { .. }
-        | StoreError::DivergentEventLog { .. }
+        | StoreError::Clock { .. }
+        | StoreError::Import(_)
         | StoreError::InvalidManifest { .. }
-        | StoreError::Import(_) => false,
+        | StoreError::DivergentEventLog { .. }
+        | StoreError::ProjectionLag { .. }
+        | StoreError::TokenCountOutOfRange(..)
+        | StoreError::AlreadyAcknowledged { .. }
+        | StoreError::SeatTree(_)
+        | StoreError::Queue(_)
+        | StoreError::UnknownHead { .. }
+        | StoreError::AfterTerminal { .. }
+        | StoreError::HeadMoved { .. }
+        | StoreError::AppendConflict { .. }
+        | StoreError::SchemaMismatch { .. }
+        | StoreError::SeatRecord(_)
+        | StoreError::RunIdUnnameable(_)
+        | StoreError::RunIdTooLong { .. }
+        | StoreError::RunExists(_)
+        | StoreError::RunNotFound(_) => false,
     }
 }
 

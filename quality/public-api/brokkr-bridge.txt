@@ -8,7 +8,7 @@ pub brokkr_bridge::BridgeError::EffectNotAllowed
 pub brokkr_bridge::BridgeError::EventTooLarge
 pub brokkr_bridge::BridgeError::RegistrationMismatch
 pub brokkr_bridge::BridgeError::Runtime(brokkr_runtime::engine::EngineError)
-pub brokkr_bridge::BridgeError::Store(brokkr_store::StoreError)
+pub brokkr_bridge::BridgeError::Store(brokkr_store::error::StoreError)
 pub brokkr_bridge::BridgeError::Transport(alloc::string::String)
 pub brokkr_bridge::BridgeError::UnboundRun
 pub struct brokkr_bridge::Bridge<T>

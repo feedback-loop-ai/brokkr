@@ -5,7 +5,7 @@
 //! enforces all domain invariants independently of SQLite, plus SQLite
 //! conformance tests proving [`Store`] satisfies every port contract.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::canonical::ZERO_HASH;
@@ -1001,6 +1001,64 @@ fn completed_vs_phase_pair(
     (e1, completed, phase)
 }
 
+struct FailingProjectionStore<P> {
+    inner: P,
+    fail_next: Cell<bool>,
+    auto_reset: bool,
+}
+
+impl<P> FailingProjectionStore<P> {
+    fn fail_once(inner: P) -> Self {
+        Self {
+            inner,
+            fail_next: Cell::new(true),
+            auto_reset: true,
+        }
+    }
+
+    fn toggleable(inner: P) -> Self {
+        Self {
+            inner,
+            fail_next: Cell::new(false),
+            auto_reset: false,
+        }
+    }
+
+    fn set_fail(&self, fail: bool) {
+        self.fail_next.set(fail);
+    }
+}
+
+impl<P: ProjectionStore> ProjectionStore for FailingProjectionStore<P> {
+    fn apply_envelopes(
+        &self,
+        run_id: &str,
+        manifest: Option<&Value>,
+        envelopes: &[EventEnvelope],
+    ) -> Result<(), StoreError> {
+        let should_fail = if self.auto_reset {
+            self.fail_next.replace(false)
+        } else {
+            self.fail_next.get()
+        };
+        if should_fail {
+            return Err(StoreError::Contended {
+                operation: "apply_envelopes",
+                waited_ms: 3,
+            });
+        }
+        self.inner.apply_envelopes(run_id, manifest, envelopes)
+    }
+
+    fn list_runs(&self) -> Result<Vec<(String, String, String)>, StoreError> {
+        self.inner.list_runs()
+    }
+
+    fn rebuild_from(&self, log: &dyn EventLog) -> Result<u64, StoreError> {
+        self.inner.rebuild_from(log)
+    }
+}
+
 struct InterceptingLog<'a, E> {
     inner: E,
     on_head: Option<Box<dyn Fn() + 'a>>,
@@ -1050,6 +1108,10 @@ impl<E: EventLog> EventLog for InterceptingLog<'_, E> {
 
     fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
         self.inner.manifest(run_id)
+    }
+
+    fn run_metadata(&self, run_id: &str) -> Result<Option<super::RunMetadata>, StoreError> {
+        self.inner.run_metadata(run_id)
     }
 
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {
@@ -1211,5 +1273,22 @@ fn empty_top_level_feature_imports_across_store_and_journal() {
     assert_eq!(sql_dest.projections().list_runs().unwrap(), expected);
 }
 
+fn assert_invalid_standalone_path(bad: &std::path::Path) {
+    assert!(matches!(
+        crate::ports::SqliteProjectionStore::open(bad),
+        Err(StoreError::InvalidPath(_))
+    ));
+    assert!(matches!(
+        crate::ports::SqliteCoordinationStore::open(bad),
+        Err(StoreError::InvalidPath(_))
+    ));
+    assert!(matches!(
+        crate::ports::SqliteProjectionStore::inspect_read_only(bad),
+        Err(StoreError::InvalidPath(_))
+    ));
+}
+
 mod invariants;
+mod split;
+mod split_hardening;
 mod sqlite;

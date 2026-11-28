@@ -1,5 +1,5 @@
 //! Synchronous storage ports and the backend-agnostic [`Journal`] facade
-//! (decision 0126, rulings 1–3).
+//! (decision 0126, rulings 1–4).
 //!
 //! `brokkr-store` separates three persistence concerns behind narrow
 //! synchronous traits — [`EventLog`], [`ProjectionStore`], and
@@ -15,19 +15,42 @@
 //! schema validation, and canonical NDJSON export/import) live once in
 //! [`Journal`].
 
-use brokkr_core::envelope::{EventEnvelope, EventType};
+use std::collections::BTreeSet;
+use std::ffi::{CString, OsString};
+use std::fs::{File, Metadata};
+use std::io;
+use std::path::{Component, Path, PathBuf};
+
+use brokkr_core::canonical::ZERO_HASH;
+use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope, EventType};
 use brokkr_core::fold::{lawful_after_terminal, terminal_event};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
 use thiserror::Error;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
-use crate::{seat_record, Cooldown, EntryId, NewEntry, QueueEntry, SeatRecordVersion, StoreError};
+use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
+use crate::{
+    ensure_wal, import, literal, patiently, seat_record, Cooldown, EntryId, ImportError, NewEntry,
+    QueueEntry, SeatRecordVersion, StoreError, VerifyError, BUSY_TIMEOUT,
+};
+
+mod fs_log;
+#[cfg(unix)]
+mod fs_openat;
 mod journal;
 mod sqlite;
+mod sqlite_coordination;
+mod sqlite_projection;
+mod sqlite_schema;
 
+pub use fs_log::FsEventLog;
 pub use journal::{Journal, NewEvent};
 pub use sqlite::SqlitePorts;
+pub use sqlite_coordination::SqliteCoordinationStore;
+pub use sqlite_projection::SqliteProjectionStore;
 
 /// Why a run manifest was refused at the storage port boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -90,6 +113,305 @@ pub(crate) fn validate_started_manifest(
         }
     }
     Ok(())
+}
+
+pub(crate) fn validate_started_manifests(
+    run_id: &str,
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    for envelope in envelopes {
+        validate_started_manifest(run_id, envelope.event_type, &envelope.payload)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn checked_seq(seq: u64) -> Result<i64, StoreError> {
+    i64::try_from(seq).map_err(|_| {
+        StoreError::Chain(ChainError::SeqOverflow {
+            after: i64::MAX as u64,
+        })
+    })
+}
+
+pub(crate) fn verify_chain_checked(
+    run_id: &str,
+    expected_head: (u64, &str),
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    for envelope in envelopes {
+        let _ = checked_seq(envelope.seq)?;
+    }
+    verify_chain_after(run_id, expected_head.0, expected_head.1, envelopes)?;
+    Ok(())
+}
+
+pub(crate) fn validate_import_stream(
+    run_id: &str,
+    manifest: &Value,
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    import::admit_run_id(run_id).map_err(|err| StoreError::Import(Box::new(err)))?;
+    validate_manifest(run_id, manifest)?;
+    verify_chain_checked(run_id, (0, ZERO_HASH), envelopes)?;
+    let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
+    refuse_after_terminal(run_id, &[], &incoming)?;
+    validate_started_manifests(run_id, envelopes)?;
+    validate_seat_records(manifest, &[], envelopes)?;
+    brokkr_core::fold(envelopes)
+        .map_err(|err| StoreError::Import(Box::new(ImportError::Verify(VerifyError::Fold(err)))))?;
+    Ok(())
+}
+
+/// Lexically normalize an already-absolute path by dropping `.` and trailing
+/// separators and resolving `..` segments without touching the filesystem.
+pub(crate) fn lexically_normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Validate that `path` is non-empty and free of NUL bytes, make it absolute
+/// against the current directory, and lexically normalize it before any
+/// symlink check, sidecar check, or filesystem mutation.
+pub fn normalize_storage_path(path: &Path) -> Result<PathBuf, StoreError> {
+    if path.as_os_str().is_empty() || CString::new(path.as_os_str().as_encoded_bytes()).is_err() {
+        return Err(StoreError::InvalidPath(path.to_path_buf()));
+    }
+    let abs = std::path::absolute(path)?;
+    Ok(lexically_normalize(&abs))
+}
+
+/// Inspect `path` without following symlinks, refusing any symlink with
+/// [`StoreError::SymlinkRefused`] and returning `Ok(None)` when absent.
+pub fn reject_symlink(path: &Path) -> Result<Option<Metadata>, StoreError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            Err(StoreError::SymlinkRefused(path.to_path_buf()))
+        }
+        Ok(meta) => Ok(Some(meta)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(StoreError::Io(err)),
+    }
+}
+
+/// Walk every existing prefix of a normalized `path` from root to leaf,
+/// refusing any symlink ancestor or leaf with [`StoreError::SymlinkRefused`].
+pub fn reject_symlink_path(path: &Path) -> Result<Option<Metadata>, StoreError> {
+    let mut ancestors: Vec<&Path> = path.ancestors().collect();
+    ancestors.reverse();
+    let mut leaf = None;
+    for ancestor in ancestors {
+        if ancestor.as_os_str().is_empty() {
+            continue;
+        }
+        let is_leaf = ancestor == path;
+        if !is_leaf && ancestor == Path::new("/") {
+            continue;
+        }
+        #[cfg(target_os = "macos")]
+        if !is_leaf && matches!(ancestor.to_str(), Some("/tmp" | "/var" | "/etc")) {
+            continue;
+        }
+        match reject_symlink(ancestor)? {
+            Some(meta) => {
+                if is_leaf {
+                    leaf = Some(meta);
+                }
+            }
+            None => break,
+        }
+    }
+    Ok(leaf)
+}
+
+/// Append a SQLite sidecar suffix (`"-wal"`, `"-shm"`) to `path`.
+pub fn sqlite_sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+    let mut raw = OsString::from(path.as_os_str());
+    raw.push(suffix);
+    PathBuf::from(raw)
+}
+
+/// fsync a directory so published directory entries survive power loss.
+/// macOS answers `EINVAL` for directory fsync; on Linux `EINVAL` is never
+/// suppressed.
+pub(crate) fn sync_dir_result(res: io::Result<()>) -> io::Result<()> {
+    match res {
+        Ok(()) => Ok(()),
+        #[cfg(target_os = "macos")]
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+pub fn sync_dir(dir: &Path) -> io::Result<()> {
+    sync_dir_result(File::open(dir).and_then(|file| file.sync_all()))
+}
+
+pub(super) fn reject_non_regular_file(path: &Path) -> Result<Option<Metadata>, StoreError> {
+    let meta = reject_symlink_path(path)?;
+    if let Some(ref found) = meta {
+        if !found.is_file() {
+            return Err(StoreError::InvalidPath(path.to_path_buf()));
+        }
+    }
+    Ok(meta)
+}
+
+fn open_standalone_sqlite_inner(
+    path: &Path,
+    migrate_op: &'static str,
+    inspect_existing: &dyn Fn(&Connection, &Path) -> Result<(), StoreError>,
+) -> Result<(Connection, PathBuf), StoreError> {
+    let normalized = normalize_storage_path(path)?;
+    let _ = reject_non_regular_file(&normalized)?;
+    let _ = reject_symlink(&sqlite_sidecar_path(&normalized, "-wal"))?;
+    let _ = reject_symlink(&sqlite_sidecar_path(&normalized, "-shm"))?;
+    if let Some(parent) = normalized.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    let _ = reject_non_regular_file(&normalized)?;
+    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
+        | OpenFlags::SQLITE_OPEN_CREATE
+        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = Connection::open_with_flags(&normalized, flags)
+        .map_err(|e| literal::as_given(e, path, &normalized))?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
+    patiently(migrate_op, BUSY_TIMEOUT, &normalized, || {
+        let tx = Transaction::new_unchecked(&conn, TransactionBehavior::Deferred)?;
+        inspect_existing(&tx, &normalized)?;
+        tx.commit()?;
+        Ok(())
+    })?;
+    ensure_wal(&conn, &normalized)?;
+    Ok((conn, normalized))
+}
+
+pub(crate) fn open_standalone_sqlite(
+    path: &Path,
+    migrate_op: &'static str,
+    inspect_existing: impl Fn(&Connection, &Path) -> Result<(), StoreError>,
+) -> Result<(Connection, PathBuf), StoreError> {
+    let display_path = normalize_storage_path(path).unwrap_or_else(|_| path.to_path_buf());
+    open_standalone_sqlite_inner(path, migrate_op, &inspect_existing)
+        .map_err(|err| crate::damage::classified(&display_path, err))
+}
+
+pub(super) fn open_standalone_store(
+    path: &Path,
+    migrate_op: &'static str,
+    inspect_existing: impl Fn(&Connection, &Path) -> Result<(), StoreError>,
+    configure: impl FnOnce(&Connection) -> Result<(), StoreError>,
+    ensure_schema: impl Fn(&Connection, &Path) -> Result<(), StoreError>,
+) -> Result<(Connection, PathBuf), StoreError> {
+    let (conn, normalized) = open_standalone_sqlite(path, migrate_op, inspect_existing)?;
+    configure(&conn)?;
+    patiently(migrate_op, BUSY_TIMEOUT, &normalized, || {
+        ensure_schema(&conn, &normalized)
+    })?;
+    Ok((conn, normalized))
+}
+
+pub(super) fn validate_append_batch(
+    run_id: &str,
+    manifest: &Value,
+    existing: &[EventEnvelope],
+    expected_head: (u64, &str),
+    envelopes: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    let (head_seq, found_hash) = existing
+        .last()
+        .map_or((0, ZERO_HASH), |last| (last.seq, last.event_hash.as_str()));
+    if head_seq != expected_head.0 || found_hash != expected_head.1 {
+        return Err(StoreError::HeadMoved {
+            expected_seq: expected_head.0,
+            found_seq: head_seq,
+        });
+    }
+    verify_chain_checked(run_id, expected_head, envelopes)?;
+    let incoming: Vec<EventType> = envelopes.iter().map(|e| e.event_type).collect();
+    refuse_after_terminal(run_id, existing, &incoming)?;
+    validate_started_manifests(run_id, envelopes)?;
+    validate_seat_records(manifest, existing, envelopes)?;
+    Ok(())
+}
+
+pub(crate) fn parse_clock(now: &str) -> Result<OffsetDateTime, StoreError> {
+    OffsetDateTime::parse(now, &Rfc3339).map_err(|_| StoreError::Clock {
+        now: now.to_string(),
+    })
+}
+
+pub(crate) fn divergent(run_id: &str) -> StoreError {
+    StoreError::DivergentEventLog {
+        run_id: run_id.to_string(),
+    }
+}
+
+pub(crate) fn manifest_meta(manifest: &Value) -> (&str, &str) {
+    let feature = manifest
+        .get("feature")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let bundle_name = manifest
+        .get("bundle_name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    (feature, bundle_name)
+}
+
+/// Optional run-level listing metadata (`feature`, `created_at`, and optional
+/// listing order) carried beside — never inside — a run's immutable
+/// `manifest.json` so migrated and unstarted runs preserve `Store::list_runs()`
+/// parity across projection rebuilds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunMetadata {
+    pub feature: String,
+    pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list_order: Option<u64>,
+}
+
+pub(crate) struct VerifiedRun {
+    pub(crate) run_id: String,
+    pub(crate) manifest: Value,
+    pub(crate) metadata: Option<RunMetadata>,
+    pub(crate) events: Vec<EventEnvelope>,
+}
+
+/// Read and verify every run from `log`, refusing duplicate `run_id`s with
+/// [`StoreError::DivergentEventLog`], invalid manifests with
+/// [`StoreError::InvalidManifest`], and broken chains with [`StoreError::Chain`].
+pub(crate) fn read_verified_log(log: &dyn EventLog) -> Result<Vec<VerifiedRun>, StoreError> {
+    let run_ids = log.list_run_ids()?;
+    let mut seen = BTreeSet::new();
+    let mut verified = Vec::with_capacity(run_ids.len());
+    for run_id in run_ids {
+        if !seen.insert(run_id.clone()) {
+            return Err(divergent(&run_id));
+        }
+        let manifest = log.manifest(&run_id)?;
+        validate_manifest(&run_id, &manifest)?;
+        let metadata = log.run_metadata(&run_id)?;
+        let events = log.read_stream(&run_id, 1)?;
+        verify_chain_checked(&run_id, (0, ZERO_HASH), &events)?;
+        validate_started_manifests(&run_id, &events)?;
+        verified.push(VerifiedRun {
+            run_id,
+            manifest,
+            metadata,
+            events,
+        });
+    }
+    Ok(verified)
 }
 
 pub(crate) fn non_empty_str(value: Option<&Value>) -> Option<&str> {
@@ -208,6 +530,12 @@ pub trait EventLog {
     /// Read the immutable manifest recorded when `run_id` was created.
     fn manifest(&self, run_id: &str) -> Result<Value, StoreError>;
 
+    /// Read optional run-level listing metadata (`feature`, `created_at`,
+    /// `list_order`) stored beside `manifest.json` when available.
+    fn run_metadata(&self, _run_id: &str) -> Result<Option<RunMetadata>, StoreError> {
+        Ok(None)
+    }
+
     /// List every run id held by this event log.
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError>;
 }
@@ -292,6 +620,10 @@ impl<T: EventLog + ?Sized> EventLog for &T {
 
     fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
         (**self).manifest(run_id)
+    }
+
+    fn run_metadata(&self, run_id: &str) -> Result<Option<RunMetadata>, StoreError> {
+        (**self).run_metadata(run_id)
     }
 
     fn list_run_ids(&self) -> Result<Vec<String>, StoreError> {

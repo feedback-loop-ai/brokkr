@@ -242,10 +242,14 @@ fn a_restore_whose_directory_cannot_be_synced_removes_what_it_published() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn a_directory_whose_filesystem_cannot_sync_is_not_a_refusal() {
-    // procfs answers a directory fsync with EINVAL, as macOS answers every
-    // one: the name already landed, and there is no stronger call to make.
-    assert!(sync_dir(Path::new("/proc")).is_ok());
+fn a_directory_whose_filesystem_answers_einval_is_not_suppressed_on_linux() {
+    // On Linux, EINVAL from directory fsync (e.g. procfs) is NOT suppressed;
+    // InvalidInput suppression is restricted strictly to macOS.
+    let err = sync_dir(Path::new("/proc")).unwrap_err();
+    assert!(matches!(
+        err,
+        BackupError::Io(ref io_err) if io_err.kind() == std::io::ErrorKind::InvalidInput
+    ));
 }
 
 #[test]

@@ -35,6 +35,13 @@ pub enum Damage {
     /// A stored envelope that is not JSON, at the run and the row's seq,
     /// both read from the row since the envelope cannot be.
     Envelope { run_id: String, seq: i64 },
+    /// A filesystem event-log run directory is missing a regular `manifest.json`.
+    MissingManifest,
+    /// A filesystem event-log root contains a non-UTF-8 directory entry.
+    NonUtf8RunDir,
+    /// A filesystem event-log JSON file (`manifest.json`, `run_meta.json`, or an
+    /// `events.ndjson` record) could not be decoded as expected JSON.
+    MalformedJson { detail: String },
 }
 
 impl std::fmt::Display for Damage {
@@ -49,6 +56,11 @@ impl std::fmt::Display for Damage {
                 "run '{}' holds an envelope at seq {seq} that is not JSON",
                 run_id.escape_debug()
             ),
+            Damage::MissingManifest => {
+                f.write_str("run directory is missing a regular manifest.json")
+            }
+            Damage::NonUtf8RunDir => f.write_str("event log contains a non-UTF-8 directory entry"),
+            Damage::MalformedJson { detail } => write!(f, "malformed JSON: {detail}"),
         }
     }
 }
@@ -98,7 +110,14 @@ pub(crate) fn classified(journal: &Path, error: StoreError) -> StoreError {
         | StoreError::ProjectionLag { .. }
         | StoreError::DivergentEventLog { .. }
         | StoreError::InvalidManifest { .. }
-        | StoreError::Import(_) => return error,
+        | StoreError::Import(_)
+        | StoreError::Io(_)
+        | StoreError::UnsafeRunId(_)
+        | StoreError::SymlinkRefused(_)
+        | StoreError::InvalidPath(_)
+        | StoreError::ForeignDatabase { .. }
+        | StoreError::ProviderWait(_)
+        | StoreError::CooldownFieldOutOfRange { .. } => return error,
     };
     StoreError::Damaged {
         journal: journal.to_path_buf(),

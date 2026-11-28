@@ -1368,7 +1368,7 @@ fn run_with(
         Cmd::Broker { command } => broker::run(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
-        Cmd::Grouped(command) => grouped(workspace, command),
+        Cmd::Grouped(command) => verbs::grouped(workspace, command),
         Cmd::FakeDriver(args) => setup::fake_driver(args),
     }
 }
@@ -1389,7 +1389,6 @@ fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode>
         }
     }
 }
-
 #[cfg(test)]
 mod after_terminal_tests;
 #[cfg(test)]

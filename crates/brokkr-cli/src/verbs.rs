@@ -32,7 +32,29 @@ pub(super) mod probe;
 pub(super) mod queue;
 pub(super) mod readouts;
 pub(super) mod setup;
+pub(super) mod split;
 pub(super) mod sweep;
+
+/// The small verb groups `Cmd::Grouped` flattens, each to its handler.
+pub(super) fn grouped(
+    workspace: &std::path::Path,
+    command: crate::GroupedCmd,
+) -> anyhow::Result<std::process::ExitCode> {
+    use crate::GroupedCmd;
+    match command {
+        GroupedCmd::Recipes { command } => setup::recipes(workspace, command),
+        GroupedCmd::Agents { command } => setup::agents(workspace, command),
+        GroupedCmd::Muninn { command } => setup::muninn(workspace, command),
+        GroupedCmd::Secrets { command } => setup::secrets(workspace, command),
+        GroupedCmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
+        GroupedCmd::Dispatch(args) => dispatch::dispatch(workspace, args, &mut std::io::stdout()),
+        GroupedCmd::Completions(args) => Ok(crate::completion::script(
+            args,
+            &mut std::io::stdout().lock(),
+        )),
+        GroupedCmd::Split(command) => split::run(workspace, command),
+    }
+}
 
 #[cfg(test)]
 mod tests;
