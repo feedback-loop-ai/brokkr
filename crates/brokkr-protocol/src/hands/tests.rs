@@ -137,6 +137,8 @@ fn git(repo: &Path, args: &[&str]) {
 fn committed(repo: &Path) {
     std::fs::create_dir_all(repo).unwrap();
     git(repo, &["init", "-q"]);
+    git(repo, &["config", "maintenance.auto", "false"]);
+    git(repo, &["config", "gc.auto", "0"]);
     std::fs::write(repo.join("file"), "base\n").unwrap();
     git(repo, &["add", "file"]);
     let who = [
@@ -165,6 +167,35 @@ fn linked_worktree(main: &Path, linked: &Path) {
             &linked.to_string_lossy(),
         ],
     );
+}
+
+#[test]
+fn a_committed_repository_starts_no_automatic_maintenance() {
+    let repo = tempfile::tempdir().unwrap();
+    committed(repo.path());
+    let out = Command::new("git")
+        .args([
+            "-c",
+            "user.name=Hands Test",
+            "-c",
+            "user.email=hands@example.invalid",
+            "commit",
+            "-qm",
+            "second",
+            "--allow-empty",
+            "--no-gpg-sign",
+        ])
+        .env("GIT_TRACE", "1")
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    let trace = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "git commit: {trace}");
+    let maintenance: Vec<_> = trace
+        .lines()
+        .filter(|line| line.contains("maintenance"))
+        .collect();
+    assert_eq!(maintenance, Vec::<&str>::new(), "{trace}");
 }
 
 #[cfg(target_os = "linux")]
