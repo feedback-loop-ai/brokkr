@@ -1,6 +1,6 @@
-//! Table tests for closed-form `strategy.matrix` admission across every
-//! position and YAML kind, and structured-read tests for caller shard-list and
-//! macOS runner checks (#1417, decision 0071 rulings 3, 5, 8 and 9).
+//! Table tests for closed-form workflow-root key and `strategy.matrix`
+//! admission across YAML kinds, and structured-read tests for caller
+//! shard-list and macOS runner checks (#1417, decision 0071 rulings 3, 5, 8 and 9).
 
 use super::{ci_macos_split_problems, ShardWorkflows, SplitProblem};
 use crate::workflow::{ClosedWorkflow, ClosedWorkflowError, RefusalKind};
@@ -56,9 +56,19 @@ fn key_yaml(kind: YamlKind) -> &'static str {
         YamlKind::Null => "null",
         YamlKind::Bool => "false",
         YamlKind::Number => "1",
-        YamlKind::String => "os",
+        YamlKind::String => "machine",
         YamlKind::List => "[a]",
         YamlKind::Mapping => "{ a: 1 }",
+    }
+}
+
+fn kind_label(kind: YamlKind) -> &'static str {
+    match kind {
+        YamlKind::Null => "null",
+        YamlKind::Bool => "boolean",
+        YamlKind::Number => "integer",
+        YamlKind::String => "string",
+        YamlKind::List | YamlKind::Mapping => "non-scalar YAML sequence or mapping",
     }
 }
 
@@ -73,34 +83,63 @@ fn value_yaml(kind: YamlKind, list_val: &'static str, map_val: &'static str) -> 
     }
 }
 
+fn matrix_expected_detail(pos: MatrixPosition, kind: YamlKind) -> Option<String> {
+    let label = kind_label(kind);
+    match pos {
+        MatrixPosition::MatrixValue => {
+            (kind != YamlKind::Mapping).then(|| format!("{label} `strategy.matrix`"))
+        }
+        MatrixPosition::AxisKey => {
+            (kind != YamlKind::String).then(|| format!("{label} key in `strategy.matrix`"))
+        }
+        MatrixPosition::AxisValue => {
+            (kind != YamlKind::List).then(|| format!("{label} value for matrix axis `machine`"))
+        }
+        MatrixPosition::AxisItem | MatrixPosition::IncludeRowValue => None,
+        MatrixPosition::IncludeValueAdmittedJob => {
+            (kind != YamlKind::List).then(|| "non-row matrix `include`".to_string())
+        }
+        MatrixPosition::IncludeValueDisallowedJob => Some("matrix `include`".to_string()),
+        MatrixPosition::ExcludeValue => Some("matrix `exclude`".to_string()),
+        MatrixPosition::IncludeRow => {
+            (kind != YamlKind::Mapping).then(|| "non-row matrix `include`".to_string())
+        }
+        MatrixPosition::IncludeRowKey => {
+            (kind != YamlKind::String).then(|| "non-row matrix `include`".to_string())
+        }
+    }
+}
+
 fn matrix_cell_case(
     pos: MatrixPosition,
     kind: YamlKind,
-) -> (&'static str, &'static str, String, bool) {
-    let (file, job, matrix_expr, admitted) = match pos {
+) -> (&'static str, &'static str, String, Option<String>) {
+    let (file, job, matrix_expr) = match pos {
         MatrixPosition::MatrixValue => (
             "sample.yml",
             "other",
             value_yaml(kind, "[linux]", "{ os: [linux] }").to_string(),
-            kind == YamlKind::Mapping,
         ),
         MatrixPosition::AxisKey => (
             "sample.yml",
             "other",
-            format!("{{ {}: [linux] }}", key_yaml(kind)),
-            kind == YamlKind::String,
+            format!("{{ os: [linux], {}: [linux] }}", key_yaml(kind)),
         ),
         MatrixPosition::AxisValue => (
             "sample.yml",
             "other",
-            format!("{{ os: {} }}", value_yaml(kind, "[linux]", "{ a: 1 }")),
-            kind == YamlKind::List,
+            format!(
+                "{{ os: [linux], machine: {} }}",
+                value_yaml(kind, "[linux]", "{ a: 1 }")
+            ),
         ),
         MatrixPosition::AxisItem => (
             "sample.yml",
             "other",
-            format!("{{ os: [{}] }}", value_yaml(kind, "[linux]", "{ a: 1 }")),
-            true,
+            format!(
+                "{{ os: [linux], machine: [{}] }}",
+                value_yaml(kind, "[linux]", "{ a: 1 }")
+            ),
         ),
         MatrixPosition::IncludeValueAdmittedJob => (
             "ci.yml",
@@ -109,82 +148,127 @@ fn matrix_cell_case(
                 "{{ include: {} }}",
                 value_yaml(kind, "[{ os: ubuntu-24.04 }]", "{ os: ubuntu-24.04 }")
             ),
-            kind == YamlKind::List,
         ),
         MatrixPosition::IncludeValueDisallowedJob => (
             "sample.yml",
             "other",
             format!(
-                "{{ include: {} }}",
+                "{{ os: [linux], include: {} }}",
                 value_yaml(kind, "[{ os: linux }]", "{ os: linux }")
             ),
-            false,
         ),
         MatrixPosition::ExcludeValue => (
             "sample.yml",
             "other",
             format!(
-                "{{ exclude: {} }}",
+                "{{ os: [linux], exclude: {} }}",
                 value_yaml(kind, "[{ os: linux }]", "{ os: linux }")
             ),
-            false,
         ),
         MatrixPosition::IncludeRow => (
             "ci.yml",
             "pr-caches",
             format!(
-                "{{ include: [{}] }}",
+                "{{ include: [{{ os: ubuntu-24.04 }}, {}] }}",
                 value_yaml(kind, "[ubuntu-24.04]", "{ os: ubuntu-24.04 }")
             ),
-            kind == YamlKind::Mapping,
         ),
         MatrixPosition::IncludeRowKey => (
             "ci.yml",
             "pr-caches",
-            format!("{{ include: [{{ {}: ubuntu-24.04 }}] }}", key_yaml(kind)),
-            kind == YamlKind::String,
+            format!(
+                "{{ include: [{{ os: ubuntu-24.04 }}, {{ os: ubuntu-24.04, {}: ubuntu-24.04 }}] }}",
+                key_yaml(kind)
+            ),
         ),
         MatrixPosition::IncludeRowValue => (
             "ci.yml",
             "pr-caches",
             format!(
-                "{{ include: [{{ os: {} }}] }}",
+                "{{ include: [{{ os: ubuntu-24.04 }}, {{ os: {} }}] }}",
                 value_yaml(kind, "[ubuntu-24.04]", "{ a: 1 }")
             ),
-            true,
         ),
     };
     let yaml = format!(
         "on: workflow_dispatch\njobs:\n  {job}:\n    runs-on: ubuntu-24.04\n    strategy:\n      matrix: {matrix_expr}\n    steps:\n      - run: echo ok\n"
     );
-    (file, job, yaml, admitted)
+    (file, job, yaml, matrix_expected_detail(pos, kind))
+}
+
+fn assert_refusal(
+    file: &str,
+    yaml: &str,
+    expected_kind: RefusalKind,
+    expected_place: &str,
+    expected_detail: &str,
+    ctx: &str,
+) {
+    match ClosedWorkflow::parse(file, yaml) {
+        Err(ClosedWorkflowError::Refusal(r)) => {
+            assert_eq!(
+                (r.kind, r.file.as_str(), r.place.as_str(), r.detail.as_str()),
+                (expected_kind, file, expected_place, expected_detail),
+                "{ctx} gave unexpected refusal: {r}"
+            );
+        }
+        other => panic!(
+            "{ctx} must fail with {expected_kind:?} refusal naming `{expected_place}`, got {other:?}\n{yaml}"
+        ),
+    }
+}
+
+#[test]
+fn non_string_workflow_root_keys_yield_top_level_refusal_across_yaml_kinds() {
+    let base = "on: workflow_dispatch\njobs:\n  ok:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n";
+    ClosedWorkflow::parse("sample.yml", base)
+        .expect("base workflow without extra root key must be admitted");
+
+    let cases = [
+        ("null", "null top-level key"),
+        ("false", "boolean top-level key"),
+        ("42", "integer top-level key"),
+        ("1.5", "number top-level key"),
+        ("[a]", "non-scalar YAML sequence or mapping top-level key"),
+        (
+            "{ a: 1 }",
+            "non-scalar YAML sequence or mapping top-level key",
+        ),
+    ];
+    for (root_key, expected_detail) in cases {
+        let yaml = format!("{root_key}: null\n{base}");
+        assert_refusal(
+            "sample.yml",
+            &yaml,
+            RefusalKind::TopLevelKey,
+            "workflow root",
+            expected_detail,
+            &format!("root key `{root_key}`"),
+        );
+    }
 }
 
 #[test]
 fn matrix_position_by_yaml_kind_table_admits_or_refuses_without_parse_error() {
     for pos in ALL_POSITIONS {
         for kind in ALL_KINDS {
-            let (file, job, yaml, expect_admitted) = matrix_cell_case(pos, kind);
-            let res = ClosedWorkflow::parse(file, &yaml);
-            if expect_admitted {
-                assert!(
-                    res.is_ok(),
-                    "cell ({pos:?}, {kind:?}) expected admitted, got {res:?}\n{yaml}"
-                );
-            } else {
-                let expected_place = format!("job {job} strategy.matrix");
-                match res {
-                    Err(ClosedWorkflowError::Refusal(r)) => {
-                        assert_eq!(
-                            (r.kind, r.file.as_str(), r.place.as_str()),
-                            (RefusalKind::MatrixClause, file, expected_place.as_str()),
-                            "cell ({pos:?}, {kind:?}) gave unexpected refusal: {r}"
-                        );
-                    }
-                    other => panic!(
-                        "cell ({pos:?}, {kind:?}) must fail with MatrixClause refusal naming `{expected_place}`, got {other:?}\n{yaml}"
-                    ),
+            let (file, job, yaml, expected_detail) = matrix_cell_case(pos, kind);
+            match expected_detail {
+                None => {
+                    let res = ClosedWorkflow::parse(file, &yaml);
+                    assert!(
+                        res.is_ok(),
+                        "cell ({pos:?}, {kind:?}) expected admitted, got {res:?}\n{yaml}"
+                    );
                 }
+                Some(detail) => assert_refusal(
+                    file,
+                    &yaml,
+                    RefusalKind::MatrixClause,
+                    &format!("job {job} strategy.matrix"),
+                    &detail,
+                    &format!("cell ({pos:?}, {kind:?})"),
+                ),
             }
         }
     }
@@ -192,18 +276,17 @@ fn matrix_position_by_yaml_kind_table_admits_or_refuses_without_parse_error() {
     // Also verify every row-key kind under `exclude` refuses with MatrixClause, never Parse.
     for kind in ALL_KINDS {
         let yaml = format!(
-            "on: workflow_dispatch\njobs:\n  other:\n    runs-on: ubuntu-24.04\n    strategy:\n      matrix: {{ exclude: [{{ {}: linux }}] }}\n    steps:\n      - run: echo ok\n",
+            "on: workflow_dispatch\njobs:\n  other:\n    runs-on: ubuntu-24.04\n    strategy:\n      matrix: {{ os: [linux], exclude: [{{ os: linux, {}: linux }}] }}\n    steps:\n      - run: echo ok\n",
             key_yaml(kind)
         );
-        match ClosedWorkflow::parse("sample.yml", &yaml) {
-            Err(ClosedWorkflowError::Refusal(r)) => {
-                assert_eq!(
-                    (r.kind, r.place.as_str()),
-                    (RefusalKind::MatrixClause, "job other strategy.matrix")
-                );
-            }
-            other => panic!("exclude row key {kind:?} must fail with MatrixClause, got {other:?}"),
-        }
+        assert_refusal(
+            "sample.yml",
+            &yaml,
+            RefusalKind::MatrixClause,
+            "job other strategy.matrix",
+            "matrix `exclude`",
+            &format!("exclude row key {kind:?}"),
+        );
     }
 }
 

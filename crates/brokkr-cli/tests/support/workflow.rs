@@ -436,6 +436,7 @@ impl Job {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Workflow {
     pub(crate) top_level_keys: Vec<String>,
+    pub(super) top_level_shape_issues: Vec<String>,
     pub(crate) events: Vec<EventTrigger>,
     pub(crate) event_shape_issues: Vec<TriggerShapeIssue>,
     pub(crate) permissions: Option<Permissions>,
@@ -485,19 +486,20 @@ impl Workflow {
     }
 }
 
-pub(super) fn parse_workflow_raw(text: &str, strict_if: bool) -> Result<Workflow, WorkflowError> {
+pub(super) fn parse_workflow_raw(text: &str, strict: bool) -> Result<Workflow, WorkflowError> {
     let docs = YamlLoader::load_from_str(text).map_err(|e| WorkflowError::Parse(e.to_string()))?;
     if docs.len() != 1 {
         return Err(WorkflowError::DocumentCount(docs.len()));
     }
     reject_unsafe_yaml(&docs[0])?;
-    let root = expect_map(&docs[0], "workflow root")?;
+    let (root, top_level_shape_issues) = parse_root_map(&docs[0], strict)?;
     let (events, event_shape_issues) = match map_get(&root, "on") {
-        Some(n) => parse_events(n, strict_if)?,
+        Some(n) => parse_events(n, strict)?,
         None => (Vec::new(), Vec::new()),
     };
     Ok(Workflow {
         top_level_keys: root.iter().map(|(k, _)| (*k).to_string()).collect(),
+        top_level_shape_issues,
         events,
         event_shape_issues,
         permissions: map_get(&root, "permissions")
@@ -507,10 +509,35 @@ pub(super) fn parse_workflow_raw(text: &str, strict_if: bool) -> Result<Workflow
             .map(parse_concurrency)
             .transpose()?,
         jobs: map_get(&root, "jobs")
-            .map(|n| parse_jobs(n, strict_if))
+            .map(|n| parse_jobs(n, strict))
             .transpose()?
             .unwrap_or_default(),
     })
+}
+
+fn parse_root_map<'a>(
+    node: &'a Yaml,
+    strict: bool,
+) -> Result<(Entries<'a>, Vec<String>), WorkflowError> {
+    let Yaml::Hash(map) = node else {
+        return Err(WorkflowError::NotAMapping("workflow root"));
+    };
+    let mut entries = Vec::with_capacity(map.len());
+    let mut shape_issues = Vec::new();
+    for (raw_k, v) in map {
+        let Some(k) = raw_k.as_str() else {
+            if strict {
+                return Err(WorkflowError::NonStringKey("workflow root"));
+            }
+            shape_issues.push(format!(
+                "{} top-level key",
+                Scalar::from_yaml(raw_k).kind_label()
+            ));
+            continue;
+        };
+        entries.push((k, v));
+    }
+    Ok((entries, shape_issues))
 }
 
 type Entries<'a> = Vec<(&'a str, &'a Yaml)>;
